@@ -582,9 +582,18 @@ describe('CUT-1 § 7 — el escritor obtiene la verdad del lote antes de decidir
 // ─── § 14 / § 18 — trinquetes de alcance ──────────────────────────────────────
 
 describe('CUT-1 § 14/§ 18 — este PR no enciende ni redefine nada fuera de su alcance', () => {
-  it('PARTIAL GAP sigue apagado en Apollo y en Lusha', () => {
+  /**
+   * 🔴 AGENT1-LOCAL-CUT6-PARTIAL-ACTIVATION § 15 — este trinquete AFIRMABA
+   * `false` en las dos rutas. Apollo pasó a `true` en CUT-6, así que mantenerlo
+   * como estaba habría bloqueado la corrección que defendía: un trinquete que fija
+   * el valor defectuoso impide arreglarlo.
+   *
+   * Lo que se conserva es lo que este corte de verdad promete —no tocar la ruta
+   * Lusha— más el ancla de que Apollo se decide en UN sitio y no en un literal.
+   */
+  it('PARTIAL GAP: Lusha sigue apagado y Apollo se decide en su única constante', () => {
     const apollo = read('src/modules/prospect-batches/chat-wizard-execution/wizard-apollo-executor.ts');
-    assert.ok(/WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED\s*(:[^=]*)?=\s*false/.test(apollo));
+    assert.ok(/export const WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED = (true|false);/.test(apollo));
     const lusha = read('src/server/prospect-batches/lusha-pending-review-limits.ts');
     assert.ok(/LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED\s*(:[^=]*)?=\s*false/.test(lusha));
   });

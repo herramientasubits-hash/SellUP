@@ -20,22 +20,27 @@
  * vivo de la ruta Lusha se decide en UN sitio,
  * `LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED`.
  *
- * 🔴 AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 REVIEW-1 § 2 — la ruta Apollo YA SABE
- * aceptar un objetivo reducido. El motivo textual de antes —«su objetivo de
- * candidatos persistibles vive dentro del orquestador de dos rondas y no viaja por
- * `ResolvedWizardExecution`»— dejó de ser cierto: `resultDemand` viaja por su
- * propio campo hasta el orquestador y hasta `targetPersistibleCandidates`, y
- * `boundByRemainingTarget` es su única cota.
+ * 🔴 AGENT1-LOCAL-CUT6-PARTIAL-ACTIVATION §§ 3, 5, 15 — la ruta APOLLO ya NO pasa
+ * `false`. `WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED` es `true` desde CUT-6, así que
+ * por esta rama un aporte parcial SOBREVIVE: se persiste en el lote canónico de la
+ * ejecución y el hueco que queda es el que la ruta de pago recibe.
  *
- * Lo que sigue en `false` es la ACTIVACIÓN, y por una razón distinta y de PRODUCTO:
- * un aporte parcial gratuito se persiste en su PROPIO lote (esta capa corre antes
- * de la reserva), así que con `true` una sola búsqueda del usuario terminaría en
- * DOS lotes —7 gratis + 3 de Apollo con objetivo 10— y la redirección apuntaría al
- * segundo. La invariante de § 14 se cumple; la experiencia de resultado único no.
- * El hito que lo diseña es `AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1`.
+ * Las dos condiciones que lo bloqueaban están cerradas, y son distintas:
  *
- * El valor vivo de la ruta Apollo se decide en UN sitio,
- * `WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED`. Aquí sólo se obedece.
+ *   · SABER aceptar un objetivo reducido — cerrada por
+ *     AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2: `resultDemand` viaja por su propio
+ *     campo hasta `targetPersistibleCandidates`, y `boundByRemainingTarget` es su
+ *     única cota.
+ *   · Tener DÓNDE persistirlo sin partir el resultado — cerrada por
+ *     AGENT1-LOCAL-CUT5-SINGLE-BATCH-PLUMBING: `resolveBatchId` entrega el lote de
+ *     la ejecución, así que lo gratuito y lo de pago comparten `batch_id` y ya no
+ *     hay una búsqueda que termine en dos lotes.
+ *
+ * 🔴 Lo que sigue en `false` es la ruta LUSHA de pending-review
+ * (`LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED`), y no por inercia: esa superficie
+ * NO recibe `resolveBatchId` —no forma parte de CUT-5 (§ 9)— así que allí el
+ * aporte parcial seguiría creando lote propio. La asimetría ES el contrato, y por
+ * eso este runner sigue OBEDECIENDO el parámetro en vez de decidir por su cuenta.
  *
  * Consecuencia, y por qué esta bandera existe en vez de un apaño: con
  * `partialGapSupported: false` la capa gratuita es TODO-O-NADA. O cierra el
@@ -44,9 +49,9 @@
  * Lo que NO hace es persistir 2 empresas gratis y dejar que Apollo persista 10
  * más: eso rompería la invariante y el usuario recibiría 12 donde pidió 10.
  *
- * 🔴 Un hueco parcial en Apollo se DESCARTA, no se guarda a medias. Descartarlo
- * no cuesta nada —la lectura fue local y gratuita— mientras que guardarlo
- * rompería un contrato de producto.
+ * 🔴 Con `true` la invariante de § 14 la sigue sosteniendo el hueco, no el
+ * descarte: la ruta de pago recibe `residualGap` y su objetivo de ACEPTACIÓN se
+ * recorta a él, así que 2 gratis + 8 de pago siguen siendo 10, nunca 12.
  *
  * 🔴 Lo que el descarte NO tira es la MEDICIÓN: la memoria provider-seen leída con
  * éxito sobrevive al descarte y llega a la ruta de pago. Ver `noContribution`.
@@ -101,12 +106,13 @@ export type PrePaidNoveltyDiscoveryInput = {
    * `true`  — un hueco parcial se aprovecha.
    * `false` — todo o nada. Ver la cabecera.
    *
-   * 🔴 AGENT1-LUSHA-MIXED-TWO-BATCH-CONTAINMENT-1 § 4 — HOY las DOS rutas vivas
-   * pasan `false`: Apollo por `WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED` y Lusha por
-   * `LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED`. La CAPACIDAD de este parámetro
-   * sigue entera y probada —hay suites que lo invocan con `true` a propósito—;
-   * lo que está apagado es la ACTIVACIÓN en producción, en las dos rutas y por
-   * la misma razón de producto. Este runner sólo obedece.
+   * 🔴 AGENT1-LOCAL-CUT6-PARTIAL-ACTIVATION § 15 — las dos rutas vivas ya NO
+   * coinciden, y la diferencia es deliberada: Apollo pasa `true`
+   * (`WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED`) porque CUT-5 le dio lote canónico
+   * compartido; Lusha pending-review sigue en `false`
+   * (`LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED`) porque su superficie no lo
+   * recibe y allí un aporte parcial todavía crearía un segundo lote. Este runner
+   * sólo obedece: no mira constantes ni decide por proveedor.
    */
   partialGapSupported: boolean;
   /**

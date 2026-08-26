@@ -236,6 +236,11 @@ export type WizardExecutionActionResult =
       status: WizardExecutionStatus;
       batchId: string;
       batchStatus: string;
+      /**
+       * AGENT1-LOCAL-CUT6-PARTIAL-ACTIVATION § 14 — candidatos durables de la
+       * ejecución COMPLETA: el aporte gratuito más el pagado, ya deduplicados por
+       * CUT-3. No es el conteo de un solo contribuyente.
+       */
       candidateCount?: number;
       redirectPath: string;
       /** Present when budget reconciliation failed after a successful generation. */
@@ -256,7 +261,11 @@ export type WizardExecutionActionResult =
       noveltyExhausted?: boolean;
       /** The configured target count of persistible candidates. */
       targetPersistibleCandidates?: number;
-      /** True when candidatesCreated >= targetPersistibleCandidates. */
+      /**
+       * True when the execution's total durable candidates —free plus paid—
+       * reach `targetPersistibleCandidates` (CUT-6 § 14). Sin aporte gratuito es
+       * el veredicto del pipeline, sin cambios.
+       */
       targetReached?: boolean;
       /**
        * A1-APOLLO-QA-CONTROL-SURFACE-1 § 10 — proveedor REAL de esta corrida.
@@ -371,5 +380,27 @@ export type WizardExecutionActionResult =
         reason: 'exhausted' | 'insufficient_for_run';
         availableCredits: number;
         requiredCredits: number;
+      };
+      /**
+       * AGENT1-LOCAL-CUT6-PARTIAL-ACTIVATION §§ 5, 14 — empresas que la capa
+       * GRATUITA ya dejó guardadas antes de que la parte pagada fallara.
+       *
+       * Existe porque desde CUT-6 un aporte gratuito parcial SOBREVIVE: se
+       * persiste en el lote canónico de la ejecución y sigue ahí aunque después el
+       * presupuesto bloquee, el proveedor caiga o el pipeline muera. Sin este
+       * campo, esos caminos devolvían un fallo desnudo y el usuario no tenía forma
+       * de enterarse de que su búsqueda sí le dejó empresas que revisar — que es
+       * la misma pérdida que el todo-o-nada causaba, sólo que por omisión.
+       *
+       * 🔴 No convierte el fallo en éxito. `code`, `message` y `retryable` no se
+       * tocan, y este bloque NO afirma que el objetivo se alcanzara: dice cuántas
+       * empresas quedaron y dónde verlas. Ausente cuando la capa gratuita no
+       * aportó nada durable, que es el caso de todos los fallos anteriores a la
+       * capa gratuita.
+       */
+      freeContribution?: {
+        batchId: string;
+        persistedCandidates: number;
+        redirectPath: string;
       };
     };

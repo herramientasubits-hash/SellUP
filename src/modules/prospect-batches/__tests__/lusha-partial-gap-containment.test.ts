@@ -231,19 +231,34 @@ describe('§ 5 · la activación de hueco parcial de Lusha en producción está 
     );
   });
 
-  it('§ 10 · Apollo sigue igual: su constante NO la toca este hito', () => {
+  /**
+   * 🔴 AGENT1-LOCAL-CUT6-PARTIAL-ACTIVATION § 15 — estos dos casos afirmaban que
+   * Apollo seguía en `false` y que las dos rutas compartían postura. CUT-6 encendió
+   * Apollo porque CUT-5 le dio lote canónico compartido; Lusha pending-review NO lo
+   * recibe (CUT-5 § 9), así que allí un aporte parcial todavía partiría el
+   * resultado en dos lotes.
+   *
+   * La asimetría pasa a ser el contrato, y es lo que se congela: la contención de
+   * Lusha no puede caerse «por simetría» con la de Apollo.
+   */
+  it('§ 10 · la contención de Lusha NO depende de la postura de Apollo', () => {
+    assert.equal(
+      LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED,
+      false,
+      '🔴 esta superficie sigue sin ancla de lote canónico',
+    );
     assert.equal(
       WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED,
-      false,
-      'la postura de contención de Apollo es la misma de antes',
+      true,
+      'Apollo se activó en CUT-6, y eso no arrastra a Lusha',
     );
   });
 
-  it('las dos rutas vivas comparten la MISMA postura de contención', () => {
-    assert.equal(
+  it('🔴 las dos rutas vivas ya NO comparten postura, y la diferencia es deliberada', () => {
+    assert.notEqual(
       LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED,
       WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED,
-      'contención deliberadamente idéntica en las dos superficies',
+      'cada superficie decide con su propia constante, no por imitación',
     );
   });
 });
@@ -493,7 +508,11 @@ describe('§ 8 · el descarte se lleva la CONTRIBUCIÓN, nunca la medición', ()
 
     const outcome = await runLive(free.deps, WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED, 'apollo');
 
-    assert.equal(free.persistCalls, 0, 'el aporte se descartó igual que en Lusha');
+    // 🔴 CUT-6 — con la activación viva el aporte YA NO se descarta: se persiste.
+    // El punto de este caso nunca fue el descarte, sino que el vacío de
+    // exclusiones de Apollo es una verdad de CAPACIDAD y no un efecto del
+    // descarte — y eso se demuestra MEJOR ahora, con el aporte conservado.
+    assert.equal(free.persistCalls, 1, 'el aporte parcial se persiste (CUT-6)');
     assert.deepEqual([...outcome.exclusionDomains], [], 'Apollo no envía exclusiones');
     assert.deepEqual(
       [...outcome.providerExclusionPlan.domains.sent],
@@ -507,7 +526,11 @@ describe('§ 8 · el descarte se lleva la CONTRIBUCIÓN, nunca la medición', ()
       outcome.providerExclusionPlan.domains.unsupportedReason,
       'apollo_exclusion_contract_unverified',
     );
-    assert.equal(outcome.residualGap, TARGET, 'y la ruta de pago corre entera');
+    assert.equal(
+      outcome.residualGap,
+      TARGET - 3,
+      '🔴 y la ruta de pago corre por el HUECO, no por el objetivo entero',
+    );
   });
 
   /**

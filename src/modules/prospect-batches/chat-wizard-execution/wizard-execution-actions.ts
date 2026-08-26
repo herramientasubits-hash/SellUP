@@ -112,6 +112,8 @@ import { markWizardBatchFailed } from './wizard-batch-failure';
 import {
   DURABLE_PROSPECT_CANDIDATE_STATUSES,
   durableCandidatesFromCount,
+  NO_PRE_EXISTING_DURABLE_CANDIDATES,
+  resolveBatchDurableTotals,
   resolveBatchTerminalStatusDecision,
 } from '@/server/prospect-batches/batch-durable-candidates';
 import type { BatchTerminalStatus } from '@/server/prospect-batches/batch-durable-candidates';
@@ -1165,6 +1167,90 @@ export async function executeProspectWizardGeneration(
     ? resolveProviderResultDemand(prePaidNovelty, WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES)
     : fullTargetResultDemand(WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES);
 
+  // ── CUT-6 §§ 3, 5, 13, 14 — el aporte GRATUITO que YA es durable ────────────
+  //
+  // 🔴 Ésta es la mitad que CUT-6 añade sobre CUT-2. Antes de este corte
+  // `apolloResultDemand` era el ÚNICO uso del resultado de la capa gratuita, y
+  // eso bastaba mientras el aporte parcial se descartaba: no había filas que
+  // nombrar. Con la activación, esas filas EXISTEN, están en el lote canónico y
+  // sobreviven a lo que le pase después a la ruta de pago —fallo, presupuesto
+  // denegado, proveedor caído o cero resultados—. Todo camino de salida que las
+  // ignore le estaría diciendo al usuario que no tiene nada cuando sí tiene.
+  //
+  // 🔴 Se deriva de `prePaidContributed`, la MISMA condición que gobierna la
+  // demanda, y no de una segunda lectura: si el hueco se recortó, hay filas; si no
+  // se recortó, no las hay. Dos condiciones separadas podrían discrepar.
+  const freeContribution: { batchId: string; persistedCandidates: number } | null =
+    prePaidContributed && prePaidNovelty !== null && prePaidNovelty.batchId !== null
+      ? {
+          batchId: prePaidNovelty.batchId,
+          persistedCandidates: prePaidNovelty.persistedCount,
+        }
+      : null;
+
+  /**
+   * CUT-6 § 14 — el bloque que un resultado de FALLO usa para no mentir por
+   * omisión.
+   *
+   * Puro y sin efectos: sólo proyecta lo que ya se sabe. No es un éxito
+   * disfrazado —el `code` y el `retryable` del fallo no se tocan— y no promete
+   * que el objetivo se haya alcanzado: dice cuántas empresas quedaron guardadas y
+   * dónde verlas.
+   */
+  const describeFreeContribution = ():
+    | {
+        freeContribution: {
+          batchId: string;
+          persistedCandidates: number;
+          redirectPath: string;
+        };
+      }
+    | Record<string, never> =>
+    freeContribution === null
+      ? {}
+      : {
+          freeContribution: {
+            batchId: freeContribution.batchId,
+            persistedCandidates: freeContribution.persistedCandidates,
+            redirectPath: `/prospect-batches/${freeContribution.batchId}`,
+          },
+        };
+
+  /**
+   * CUT-6 § 13 — sella el lote canónico en las salidas donde NINGÚN escritor de
+   * proveedor va a hacerlo.
+   *
+   * El slot del wizard nace en `draft` y sólo un writer de proveedor —o el cierre
+   * por fallo— lo mueve. Una corrida que persiste 4 empresas gratuitas y muere en
+   * el presupuesto no pasa por ninguno de los dos, así que sin esto el lote se
+   * quedaría en `draft` con contenido real dentro: filas durables anunciadas como
+   * un borrador que nadie revisa. Eso es descartar el aporte parcial por la puerta
+   * de atrás, que es justo lo que este corte prohíbe.
+   *
+   * 🔴 No es una máquina de estados nueva: decide `resolveBatchTerminalStatusDecision`,
+   * la MISMA de CUT-1 que usan los escritores de proveedor y el sellado de CUT-5.
+   * `preExisting` se declara conocido y en 0 porque el lote canónico lo creó ESTA
+   * ejecución y la capa gratuita es su primer escritor.
+   *
+   * 🔴 NO se llama en las salidas que pasan por `markBatchFailed`: ése ya resuelve
+   * el estado con `resolveBatchFailureStatusDecision` y su propia sonda durable.
+   * Sellar además aquí sería una segunda autoridad sobre la misma fila.
+   */
+  const sealFreeContributionBatch = async (): Promise<void> => {
+    if (freeContribution === null) return;
+    const decision = resolveBatchTerminalStatusDecision({
+      preExisting: NO_PRE_EXISTING_DURABLE_CANDIDATES,
+      persistedCandidates: freeContribution.persistedCandidates,
+      persistenceFailureCount: 0,
+    });
+    if (decision.action !== 'write' || !deps.sealFreeOnlyBatchStatus) return;
+    // Best-effort, igual que el sellado de CUT-5: un sellado fallido no puede
+    // borrar filas que ya existen.
+    await deps
+      .sealFreeOnlyBatchStatus({ batchId: freeContribution.batchId, status: decision.status })
+      .catch(() => undefined);
+  };
+
   // CUT-2 §§ 8, 11, 12 — el snapshot de memoria PREVIA, con su ausencia nombrada.
   //
   // 🔴 `readOutcome` y no `loaded`: la memoria vacía leída con éxito debe producir
@@ -1225,6 +1311,12 @@ export async function executeProspectWizardGeneration(
             requiredCredits: requestedCredits,
           }
         : null;
+    // 🔴 CUT-6 §§ 5, 7, 13 — el presupuesto bloquea la parte PAGADA. Lo que la
+    // capa gratuita ya guardó no se toca, no se revierte y no se calla: se sella
+    // el lote a su estado verdadero y el fallo lo declara. Un bloqueo que
+    // devolviera el resultado de siempre dejaría 4 empresas reales en un `draft`
+    // que nadie mira.
+    await sealFreeContributionBatch();
     return {
       ok: false,
       code: budgetResult.code,
@@ -1233,6 +1325,7 @@ export async function executeProspectWizardGeneration(
       runProvider: runProviderOutcome,
       ...(twoRoundBlockDetail !== null ? { blockDetail: twoRoundBlockDetail } : {}),
       ...(budgetExceeded !== null ? { budgetExceeded } : {}),
+      ...describeFreeContribution(),
     };
   }
 
@@ -1334,12 +1427,18 @@ export async function executeProspectWizardGeneration(
     if (budgetWasNew) {
       await deps.releaseBudget({ reservationId, reason: 'slot_reservation_failed' }).catch(() => undefined);
     }
+    // CUT-6 § 5 — inalcanzable cuando la capa gratuita ya aportó (el resolutor
+    // memoriza su reserva exitosa), pero el aporte se declara igual: la
+    // supervivencia de las filas no puede depender de un razonamiento sobre qué
+    // rama llegó primero.
+    await sealFreeContributionBatch();
     return {
       ok: false,
       code: 'GENERATION_FAILED',
       message: 'No se pudo reservar la ejecución. Por favor, intenta nuevamente.',
       retryable: true,
       runProvider: runProviderOutcome,
+      ...describeFreeContribution(),
     };
   }
 
@@ -1406,12 +1505,16 @@ export async function executeProspectWizardGeneration(
     const toConfirm = await resolveCreditsToConfirm(reservedBatchId);
     await deps.confirmBudget({ reservationId, actualCreditsConsumed: toConfirm, batchId: reservedBatchId }).catch(() => undefined);
     await deps.markBatchFailed(reservedBatchId, 'pipeline_error').catch(() => undefined);
+    // CUT-6 §§ 5, 13 — sin sellado propio: `markBatchFailed` acaba de resolver el
+    // estado con su sonda durable (CUT-1), así que el lote que contiene el aporte
+    // gratuito queda en `ready_for_review` y no en `failed`. Aquí sólo se declara.
     return {
       ok: false,
       code: 'GENERATION_FAILED',
       message: 'El pipeline de búsqueda falló durante la ejecución.',
       retryable: false,
       runProvider: runProviderOutcome,
+      ...describeFreeContribution(),
     };
   }
 
@@ -1420,12 +1523,14 @@ export async function executeProspectWizardGeneration(
     const toConfirm = await resolveCreditsToConfirm(reservedBatchId);
     await deps.confirmBudget({ reservationId, actualCreditsConsumed: toConfirm, batchId: reservedBatchId }).catch(() => undefined);
     await deps.markBatchFailed(reservedBatchId, 'batchid_mismatch').catch(() => undefined);
+    // CUT-6 § 5 — misma regla que arriba: `markBatchFailed` ya decidió el estado.
     return {
       ok: false,
       code: 'GENERATION_FAILED',
       message: 'Se detectó una inconsistencia interna en el ID del lote generado.',
       retryable: false,
       runProvider: runProviderOutcome,
+      ...describeFreeContribution(),
     };
   }
 
@@ -1463,10 +1568,54 @@ export async function executeProspectWizardGeneration(
   }
 
   // 14. Success
-  const hasNewCandidates = (pipelineResult.candidatesCreated ?? 0) > 0;
   const noveltyExhausted = pipelineResult.metadata?.novelty_exhausted === true;
-  const targetPersistibleCandidates = pipelineResult.targetPersistibleCandidates ?? 10;
-  const targetReached = pipelineResult.targetReached === true;
+
+  // ── CUT-6 §§ 11, 14, 19 — la verdad COMBINADA de la ejecución ───────────────
+  //
+  // El pipeline sólo puede contar lo SUYO. Con el hueco parcial activo eso deja
+  // de ser el resultado: una corrida con 4 empresas gratuitas y 6 de Apollo
+  // reportaría 6, y una con 4 gratuitas y 0 de Apollo reportaría
+  // `no_new_candidates` sobre un lote que tiene 4 empresas dentro. Las dos son
+  // falsas, y la segunda invita al usuario a repetir —y pagar— una búsqueda que
+  // ya le dejó resultados.
+  //
+  // 🔴 La suma la hace `resolveBatchDurableTotals`, la MISMA de CUT-1 que usan
+  // los escritores, y no una aritmética nueva de este archivo. El aporte gratuito
+  // entra como `preExisting` porque se persistió ANTES —el campo lleva el momento
+  // de la lectura en el nombre justo para que nadie lo cuente dos veces—.
+  //
+  // 🔴 Y NO hay doble conteo con lo de pago: una identidad que la capa gratuita ya
+  // dejó en el lote la rechaza el dedupe de CUT-3 dentro del writer, así que
+  // `candidatesCreated` cuenta sólo lo REALMENTE admitido. 6 crudos con 2
+  // duplicados son 4 aquí, y el total queda en 8. No se finge 10.
+  const combinedDurableTotals = resolveBatchDurableTotals({
+    preExisting: durableCandidatesFromCount(freeContribution?.persistedCandidates ?? 0),
+    insertedNow: pipelineResult.candidatesCreated ?? 0,
+  });
+
+  const hasNewCandidates = combinedDurableTotals.totalDurableCandidates > 0;
+
+  // 🔴 § 4/§ 12 — el objetivo PERSISTIBLE que se reporta es el del USUARIO, no el
+  // hueco recortado con el que corrió el proveedor. Decir «6» sobre una petición
+  // de 10 convertiría un detalle de ejecución en una promesa distinta a la que la
+  // persona hizo. `requestedTarget` sale de la demanda ya resuelta, que es la
+  // autoridad existente; no se acuña ninguna segunda.
+  //
+  // Sin aporte gratuito el valor es EXACTAMENTE el de antes, byte por byte.
+  const targetPersistibleCandidates =
+    freeContribution !== null
+      ? apolloResultDemand.requestedTarget
+      : (pipelineResult.targetPersistibleCandidates ?? 10);
+
+  // 🔴 Con aporte gratuito el objetivo se mide contra el TOTAL durable: el
+  // `targetReached` del pipeline compara su propio conteo contra su propio hueco
+  // recortado, así que con 4 gratis + 6 pagadas diría «alcanzado» por 6 de 6 y con
+  // 4 gratis + 3 pagadas diría «no alcanzado» — verdadero en su marco, pero no es
+  // el marco del usuario. Sin aporte gratuito se conserva su veredicto tal cual.
+  const targetReached =
+    freeContribution !== null
+      ? combinedDurableTotals.totalDurableCandidates >= targetPersistibleCandidates
+      : pipelineResult.targetReached === true;
 
   // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — cifras reales de la escritura, tal
   // como las devolvió el writer. `null` cuando el pipeline no las produjo.
@@ -1516,12 +1665,22 @@ export async function executeProspectWizardGeneration(
     batchId: reservedBatchId,
     // El lote quedó `failed` por el writer (§ 9): el estado que se reporta es el
     // que la base tiene, no una etiqueta optimista.
-    batchStatus: persistenceBlocked
-      ? 'failed'
-      : hasNewCandidates
-        ? 'ready_for_review'
-        : 'nothing_to_write',
-    candidateCount: pipelineResult.candidatesCreated,
+    //
+    // 🔴 CUT-6 § 13 — salvo que el lote CONTENGA el aporte gratuito. Ahí el writer
+    // NO lo dejó en `failed`: su propia decisión de CUT-1 ve filas durables
+    // preexistentes y escribe `ready_for_review`. Reportar `failed` sobre esa fila
+    // sería la misma etiqueta optimista, en el otro sentido — un estado inventado
+    // que la base no tiene. `completed_with_errors` sigue siendo el estado de la
+    // EJECUCIÓN, porque la escritura de pago sí falló de verdad.
+    batchStatus:
+      persistenceBlocked && freeContribution === null
+        ? 'failed'
+        : hasNewCandidates
+          ? 'ready_for_review'
+          : 'nothing_to_write',
+    // 🔴 CUT-6 § 14 — el conteo COMBINADO. Sin aporte gratuito es idéntico a
+    // `pipelineResult.candidatesCreated`.
+    candidateCount: combinedDurableTotals.totalDurableCandidates,
     redirectPath: `/prospect-batches/${reservedBatchId}`,
     targetPersistibleCandidates,
     targetReached,

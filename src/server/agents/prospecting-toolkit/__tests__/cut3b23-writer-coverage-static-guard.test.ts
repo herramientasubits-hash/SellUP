@@ -559,11 +559,20 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
 // ─── §§ 16/17 — ni activación de proveedor ni hueco parcial ───────────────────
 
 describe('CUT-3B23 §§ 16/17 — sin activación de proveedor ni hueco parcial', () => {
-  it('el hueco parcial de Apollo sigue en `false`', () => {
+  /**
+   * 🔴 AGENT1-LOCAL-CUT6-PARTIAL-ACTIVATION § 15 — antes esto exigía `false`. La
+   * activación es de CUT-6, no de este corte; lo que este corte promete es no
+   * DECIDIRLA, y eso se prueba anclando que el valor vive en una sola declaración
+   * literal en su único dueño.
+   */
+  it('el hueco parcial de Apollo se declara en un único sitio literal', () => {
     const source = read(
       'src/modules/prospect-batches/chat-wizard-execution/wizard-apollo-executor.ts',
     );
-    assert.ok(source.includes('export const WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED = false;'));
+    const declarations = source.match(
+      /export const WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED = (?:true|false);/g,
+    );
+    assert.equal(declarations?.length, 1);
   });
 
   it('el hueco parcial de Lusha sigue en `false`', () => {
