@@ -185,3 +185,44 @@ export function mapBudgetExceeded(
   const counts = `Disponibles: ${formatCredits(detail.availableCredits)}. Requeridos: ${formatCredits(detail.requiredCredits)}.`;
   return { message: `${lead} ${counts}`, retryable: false };
 }
+
+// ── Aporte gratuito superviviente (AGENT1-LOCAL-CUT6B-PARTIAL-UI-PROPAGATION) ──
+
+/**
+ * § 4 — el título del fallo CUANDO la corrida dejó empresas guardadas.
+ *
+ * 🔴 No sustituye al copy por código de error. Los mensajes de
+ * `EXECUTION_ERROR_MESSAGES`, `mapBudgetExceeded` y `mapPersistenceNotReady`
+ * siguen siendo la explicación de POR QUÉ falló, y se pintan igual que antes;
+ * este título sólo encabeza el bloque cuando además hay algo que rescatar.
+ */
+export const FREE_CONTRIBUTION_TITLE = 'No pudimos completar la búsqueda';
+
+/**
+ * § 4 — la frase que declara lo DURABLE.
+ *
+ * 🔴 Lo que deliberadamente NO dice, y por qué:
+ *
+ *  · «sin costo» — en `pipeline_error` el proveedor de pago pudo haberse
+ *    invocado ya, así que negar el consumo sería una afirmación que esta capa no
+ *    puede sostener.
+ *  · «encontramos N de 10» — el objetivo de ESA ejecución es autoridad del
+ *    servidor (`targetPersistibleCandidates`), y un fallo no lo trae. Inventarlo
+ *    aquí convertiría un dato ausente en una promesa.
+ *
+ * Lo que sí dice es lo único que el servidor probó: cuántas quedaron y que se
+ * pueden revisar.
+ */
+export function presentFreeContribution(
+  contribution: { persistedCandidates: number } | null | undefined,
+): { title: string; message: string } | null {
+  // 🔴 `> 0` y no `!= null`: un aporte de cero no es un aporte. Anunciarlo sería
+  // la mentira inversa a la que este corte cierra.
+  if (!contribution || contribution.persistedCandidates <= 0) return null;
+  const n = contribution.persistedCandidates;
+  const message =
+    n === 1
+      ? '1 empresa quedó guardada y está disponible para revisar. Puedes reintentar para completar la búsqueda.'
+      : `${n} empresas quedaron guardadas y están disponibles para revisar. Puedes reintentar para completar la búsqueda.`;
+  return { title: FREE_CONTRIBUTION_TITLE, message };
+}

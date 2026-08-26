@@ -690,11 +690,23 @@ export function ProspectChatWizard({
         if (result.code === 'PROVIDER_UNAVAILABLE' && result.providerSkipped) {
           setSkippedProvider(result.providerSkipped.provider);
         }
+        // 🔴 AGENT1-LOCAL-CUT6B-PARTIAL-UI-PROPAGATION §§ 1, 3 — el fallo se
+        // despacha igual que siempre y ADEMÁS lleva el aporte durable que el
+        // servidor declaró. Antes de este corte esta rama descartaba
+        // `result.freeContribution` en silencio: la corrida dejaba 4 empresas
+        // guardadas y el mago decía «falló» a secas, que es la misma pérdida del
+        // todo-o-nada trasladada al último salto.
+        //
+        // Se propaga TAL CUAL, sin releerlo ni recalcularlo: el servidor es la
+        // única autoridad sobre cuántas filas sobrevivieron y en qué lote. En
+        // particular el `batchId` viaja desde aquí y nunca se busca «el último
+        // lote», que sería una heurística capaz de señalar a otra corrida.
         dispatch({
           type: 'EXECUTION_FAILED',
           errorCode: result.code,
           message: mapped.message,
           retryable: mapped.retryable,
+          ...(result.freeContribution ? { freeContribution: result.freeContribution } : {}),
         });
       }
     } catch {

@@ -1,7 +1,10 @@
 // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — la unión de estados de ejecución se
 // importa de la acción en vez de reescribirse aquí: dos copias a mano fue cómo
 // `completed_with_errors` habría podido existir en el servidor y no en la UI.
-import type { WizardExecutionStatus } from '@/modules/prospect-batches/chat-wizard-execution/wizard-execution-types';
+import type {
+  WizardExecutionStatus,
+  WizardFreeContribution,
+} from '@/modules/prospect-batches/chat-wizard-execution/wizard-execution-types';
 
 // ── Search mode contracts ─────────────────────────────────────────────────────
 
@@ -115,6 +118,21 @@ export type ProspectWizardState = {
   executionTargetReached?: boolean;
   /** The target count of persistible candidates configured for the last execution. */
   executionTargetPersistibleCandidates?: number;
+  /**
+   * AGENT1-LOCAL-CUT6B-PARTIAL-UI-PROPAGATION §§ 3, 5 — empresas que la capa
+   * GRATUITA dejó guardadas en la ejecución que acaba de FALLAR.
+   *
+   * `null` = esta ejecución no dejó nada durable, que es el caso de todo fallo
+   * anterior a la capa gratuita. NO es lo mismo que `executionBatchId`: ése
+   * describe un lote de una corrida que terminó BIEN, y confundirlos dejaría al
+   * paso de éxito leyendo el lote de un fallo.
+   *
+   * 🔴 Su ciclo de vida es el de UNA ejecución: se guarda al fallar, y se borra
+   * al empezar el intento siguiente, al terminar con éxito y al reiniciar el
+   * mago. Sin ese borrado, un fallo posterior SIN aporte enseñaría las empresas
+   * de una corrida anterior — una mentira peor que el silencio que CUT-6B cierra.
+   */
+  executionFreeContribution: WizardFreeContribution | null;
 };
 
 // ── Action contracts ──────────────────────────────────────────────────────────
@@ -157,7 +175,21 @@ export type ProspectWizardAction =
   | { type: 'APPLY_CRITERIA_GUARD_RESULT'; rawValue: string; result: CriteriaGuardResult }
   | { type: 'BEGIN_EXECUTION' }
   | { type: 'EXECUTION_SUCCEEDED'; batchId: string; redirectPath: string; status: WizardExecutionStatus; noveltyExhausted?: boolean; targetPersistibleCandidates?: number; targetReached?: boolean }
-  | { type: 'EXECUTION_FAILED'; errorCode: string; message: string; retryable: boolean };
+  /**
+   * AGENT1-LOCAL-CUT6B-PARTIAL-UI-PROPAGATION § 3 — `freeContribution` viaja en la
+   * acción, no se vuelve a leer del resultado desde el reducer.
+   *
+   * Opcional porque la mayoría de los fallos ocurren antes de la capa gratuita y
+   * no tienen nada que declarar. Ausente ⇒ el reducer guarda `null`, y la UI se
+   * comporta EXACTAMENTE como antes de este corte.
+   */
+  | {
+      type: 'EXECUTION_FAILED';
+      errorCode: string;
+      message: string;
+      retryable: boolean;
+      freeContribution?: WizardFreeContribution;
+    };
 
 // ── Derived message contract ──────────────────────────────────────────────────
 

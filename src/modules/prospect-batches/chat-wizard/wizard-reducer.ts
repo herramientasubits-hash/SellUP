@@ -38,6 +38,9 @@ export function createInitialProspectWizardState(
     executionBatchId: null,
     executionRedirectPath: null,
     executionStatus: null,
+    // CUT-6B § 5 — el estado inicial no tiene aporte que declarar. `CONFIRM_RESTART`
+    // vuelve por aquí, así que reiniciar el mago lo borra sin una rama propia.
+    executionFreeContribution: null,
   };
 }
 
@@ -514,6 +517,11 @@ export function prospectWizardReducer(
         ...state,
         currentStep: 'submitting',
         executionError: null,
+        // 🔴 CUT-6B § 5 — un intento NUEVO empieza sin el aporte del anterior. Sin
+        // esto, un segundo fallo que no dejó nada durable seguiría enseñando las
+        // empresas de la corrida previa, y el mago afirmaría sobre ESTA ejecución
+        // un hecho que pertenece a otra.
+        executionFreeContribution: null,
       };
     }
 
@@ -530,6 +538,10 @@ export function prospectWizardReducer(
         executionTargetReached: action.targetReached ?? false,
         executionTargetPersistibleCandidates: action.targetPersistibleCandidates,
         executionError: null,
+        // CUT-6B § 5 — el éxito ya reporta el TOTAL combinado (CUT-6 § 14) en su
+        // propio conteo. Conservar además el aporte parcial dejaría dos cifras
+        // describiendo la misma corrida.
+        executionFreeContribution: null,
       };
     }
 
@@ -544,6 +556,14 @@ export function prospectWizardReducer(
           message: action.message,
           retryable: action.retryable,
         },
+        // 🔴 CUT-6B §§ 3, 4 — el fallo SIGUE siendo un fallo: `executionError` se
+        // escribe igual que antes y el paso vuelve a `validated`, así que el
+        // reintento es el de siempre. Lo único que se añade es dejar de tirar el
+        // hecho durable que el servidor ya declaró.
+        //
+        // `?? null` y no `action.freeContribution` a secas: un fallo sin aporte
+        // tiene que BORRAR el del intento anterior, no dejarlo pasar.
+        executionFreeContribution: action.freeContribution ?? null,
       };
     }
 

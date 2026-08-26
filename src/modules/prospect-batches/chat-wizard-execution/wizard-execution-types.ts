@@ -219,6 +219,26 @@ export type WizardExecutionStatus =
   | 'success_target_reached'
   | 'completed_with_errors';
 
+/**
+ * AGENT1-LOCAL-CUT6B-PARTIAL-UI-PROPAGATION § 2 — el aporte gratuito DURABLE, con
+ * un nombre propio para que servidor y UI compartan la MISMA forma.
+ *
+ * Antes de CUT-6B esta forma vivía anónima dentro del miembro `ok:false` de
+ * `WizardExecutionActionResult`. Nombrarla no cambia nada de lo que el servidor
+ * produce —es el mismo objeto, campo por campo— y evita el defecto que CUT-6B
+ * cierra: una segunda forma escrita a mano en la capa de UI podría quedarse atrás
+ * de ésta sin que el compilador dijera nada, y entonces el mago volvería a
+ * describir mal lo que la corrida dejó guardado.
+ *
+ * 🔴 No se acuña un tipo «de frontend» del mismo concepto. Un hecho con dos
+ * formas es cómo dos capas empiezan a discrepar sin que nadie lo note.
+ */
+export type WizardFreeContribution = {
+  batchId: string;
+  persistedCandidates: number;
+  redirectPath: string;
+};
+
 export type WizardExecutionActionResult =
   | {
       ok: true;
@@ -398,9 +418,5 @@ export type WizardExecutionActionResult =
        * aportó nada durable, que es el caso de todos los fallos anteriores a la
        * capa gratuita.
        */
-      freeContribution?: {
-        batchId: string;
-        persistedCandidates: number;
-        redirectPath: string;
-      };
+      freeContribution?: WizardFreeContribution;
     };
