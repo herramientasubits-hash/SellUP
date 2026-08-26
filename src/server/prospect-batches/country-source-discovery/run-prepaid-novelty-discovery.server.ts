@@ -109,6 +109,26 @@ export type PrePaidNoveltyDiscoveryInput = {
    * la misma razón de producto. Este runner sólo obedece.
    */
   partialGapSupported: boolean;
+  /**
+   * AGENT1-LOCAL-CUT5-SINGLE-BATCH-PLUMBING §§ 4, 5, 6 — el lote CANÓNICO de la
+   * ejecución que envuelve a esta capa, resuelto perezosamente.
+   *
+   * Presente ⇒ lo gratuito y lo de pago de UNA misma búsqueda aterrizan en el
+   * MISMO lote. Antes no había nada que pasar: esta capa corre antes de que el
+   * wizard reservara su slot, así que el writer creaba lote propio y una sola
+   * búsqueda podía terminar en dos.
+   *
+   * 🔴 Se resuelve SÓLO cuando de verdad hay empresas que persistir, y por eso es
+   * una función y no un valor. Un `string` obligaría a materializar la fila del
+   * lote en TODA corrida —incluidas las que la puerta descarta sin escribir nada,
+   * que hoy no dejan lote— y eso convertiría un corte de fontanería en un cambio
+   * de comportamiento observable.
+   *
+   * Ausente ⇒ el writer crea lote propio, byte por byte como antes. Es lo que
+   * conserva intacta la ruta Lusha de `lusha-pending-review-actions`, que tiene
+   * su propia superficie y NO forma parte de este corte (§ 9).
+   */
+  resolveBatchId?: () => Promise<string>;
 };
 
 export type PrePaidNoveltyDiscoveryOutcome = {
@@ -279,12 +299,25 @@ export async function runPrePaidNoveltyDiscovery(
     };
   }
 
+  // CUT-5 §§ 5, 6 — el lote canónico se materializa AQUÍ y no antes: es el primer
+  // punto de la capa gratuita en el que existe algo que escribir. Las dos salidas
+  // anteriores —todo-o-nada descartado, y cero empresas aceptadas— ya devolvieron,
+  // así que una corrida que no aporta sigue sin dejar lote.
+  //
+  // Fail-open, igual que el resto de esta capa (§ 12): si el lote canónico no se
+  // puede resolver, se cae a `null` y el writer crea el suyo. Es el comportamiento
+  // previo al corte, y es preferible a perder empresas ya descubiertas.
+  const canonicalBatchId = input.resolveBatchId
+    ? await input.resolveBatchId().catch(() => null)
+    : null;
+
   const persistence = await deps.persist(client, {
     companies: gate.acceptedCompanies,
     countryCode: input.countryCode,
     countryName: input.countryName,
     macroIndustryKey: input.macroIndustryKey ?? '',
     requestedByUserId: input.requestedByUserId,
+    batchId: canonicalBatchId,
     metadata: { prepaid_novelty: gate.telemetry },
   });
 

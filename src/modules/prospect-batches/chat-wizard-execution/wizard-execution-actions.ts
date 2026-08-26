@@ -112,7 +112,10 @@ import { markWizardBatchFailed } from './wizard-batch-failure';
 import {
   DURABLE_PROSPECT_CANDIDATE_STATUSES,
   durableCandidatesFromCount,
+  resolveBatchTerminalStatusDecision,
 } from '@/server/prospect-batches/batch-durable-candidates';
+import type { BatchTerminalStatus } from '@/server/prospect-batches/batch-durable-candidates';
+import { createCanonicalWizardBatchResolver } from './wizard-canonical-batch';
 import type { CatalogResolutionInput, CatalogResolutionOutput } from './wizard-catalog-resolver';
 import type { IncrementalSearchOutput } from '@/server/agents/prospecting-toolkit/incremental-search-types';
 import type { PilotGuardrailCode, ConfirmWizardCreditsOutput, ReleaseWizardCreditsOutput } from './wizard-pilot-types';
@@ -236,7 +239,33 @@ export type WizardExecutionDeps = {
     requestedTarget: number;
     requestedByUserId: string;
     countryName: string;
+    /**
+     * AGENT1-LOCAL-CUT5-SINGLE-BATCH-PLUMBING §§ 4, 5 — el lote canónico de ESTA
+     * ejecución, resuelto perezosamente. Lo gratuito y lo de pago comparten lote.
+     */
+    resolveBatchId: () => Promise<string>;
   }) => Promise<PrePaidNoveltyDiscoveryOutcome>;
+  /**
+   * AGENT1-LOCAL-CUT5-SINGLE-BATCH-PLUMBING § 11 — sella el lote canónico cuando
+   * la capa GRATUITA cierra el objetivo entera y el proveedor no llega a correr.
+   *
+   * Existe por una consecuencia directa de compartir lote. Cuando la capa
+   * gratuita creaba lote propio, el writer estructurado lo nacía en
+   * `ready_for_review`. Al ADOPTAR el slot del wizard ya no crea nada, y el slot
+   * nace en `draft`: sin sellar, esta rama devolvería
+   * `batchStatus: 'ready_for_review'` sobre una fila que sigue en `draft`.
+   *
+   * 🔴 No es una máquina de estados nueva: el estado lo decide
+   * `resolveBatchTerminalStatusDecision`, la MISMA de CUT-1 que ya usan los
+   * escritores de proveedor, y el vocabulario es el que ya existe.
+   *
+   * Opcional: sin ella el estado del lote queda como estuviera, que es lo que
+   * hacen el resto de las rutas cuando no pueden afirmar nada.
+   */
+  sealFreeOnlyBatchStatus?: (input: {
+    batchId: string;
+    status: BatchTerminalStatus;
+  }) => Promise<void>;
   // Budget guardrail operations — period calculation and settings load are encapsulated here.
   reserveBudget: (input: {
     userId: string;
@@ -428,6 +457,9 @@ export async function executeProspectWizardGenerationAction(
         macroIndustryKey: input.macroIndustryKey,
         requestedTarget: input.requestedTarget,
         requestedByUserId: input.requestedByUserId,
+        // CUT-5 §§ 4, 5 — el lote canónico de la ejecución llega hasta el writer
+        // gratuito. Sin esto la capa creaba lote propio.
+        resolveBatchId: input.resolveBatchId,
         partialGapSupported: WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED,
         // ADDENDUM PROVIDER-SEEN §§ 5, 6 — esta ruta paga con Apollo, cuya
         // capacidad de exclusión es NINGUNA (su contrato no la prueba). Que el
@@ -508,6 +540,17 @@ export async function executeProspectWizardGenerationAction(
 
     reserveSlot: (input) =>
       reserveWizardExecutionSlot(input, supabase as unknown as IdempotencyDbClient),
+
+    // CUT-5 § 11 — sella el lote que la capa gratuita cerró sola. Escribe SÓLO
+    // `status`, con el valor que decidió la máquina de CUT-1; la metadata y el
+    // resto de columnas se conservan intactas.
+    //
+    // Va por el cliente de SESIÓN, no por service_role, igual que
+    // `markBatchFailed`: la RLS de `prospect_batches` es la que acota la fila a
+    // su dueño, así que un id ajeno no puede tocar nada aunque llegue hasta aquí.
+    sealFreeOnlyBatchStatus: async ({ batchId, status }) => {
+      await supabase.from('prospect_batches').update({ status }).eq('id', batchId);
+    },
 
     runTavilyPipeline: (tavilyInput: WizardTavilyInput) => runWizardTavilySearch(tavilyInput),
     // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 (CASO B) — los términos de búsqueda
@@ -950,11 +993,91 @@ export async function executeProspectWizardGeneration(
   //
   // 🔴 Es la MISMA capa que corre la ruta Lusha (§ 25). Sin ella —dep ausente— el
   // hueco es el objetivo entero y todo lo de abajo se comporta como antes.
-  const countryEntryForSource = LATAM_COUNTRIES.find((c) => c.code === req.countryCode);
+  const countryEntry = LATAM_COUNTRIES.find((c) => c.code === req.countryCode);
+  const countryName = countryEntry?.name ?? req.countryCode;
+
+  // ── AGENT1-LOCAL-CUT5-SINGLE-BATCH-PLUMBING §§ 4, 5, 12, 13 ────────────────
+  //
+  // LA AUTORIDAD DEL LOTE DE ESTA EJECUCIÓN, declarada ANTES de la primera rama
+  // que pueda escribir.
+  //
+  // El defecto que cierra: la capa gratuita de abajo persistía por su cuenta y
+  // creaba lote propio, porque la reserva del slot ocurría después (paso 9). Una
+  // sola búsqueda podía terminar en DOS lotes —lo gratuito en uno, lo de pago en
+  // otro— y la redirección apuntaba sólo al segundo.
+  //
+  // 🔴 PEREZOSO a propósito: la fila nace en el primer momento en que alguien de
+  // verdad la necesita. Materializarla aquí habría dejado un lote vacío en `draft`
+  // en cada corrida que el presupuesto bloquea en el paso 7, que hoy no crean
+  // ninguno. El orden 5d → 6 → 7 se conserva intacto: que todo lo gratuito ocurra
+  // antes de estimar y de reservar es el hito de la puerta previa al pago.
+  //
+  // 🔴 Ni "último lote" ni "primer lote en curso" (§ 13): la identidad de la
+  // ejecución sigue siendo la que YA existía, `(created_by, client_request_id)`,
+  // y su índice único es lo que hace que dos ejecuciones simultáneas del mismo
+  // usuario, país y proveedor no puedan adoptarse la una a la otra (§ 14).
+  const canonicalBatch = createCanonicalWizardBatchResolver(deps.reserveSlot, {
+    userId,
+    clientRequestId: req.clientRequestId,
+    initialBatchPayload: {
+      requestSource: 'chat_wizard',
+      catalogVersionId: catalogResolution.catalog.version,
+      industryId: catalogResolution.industry.id,
+      subindustryIds: catalogResolution.subindustries.map((s) => s.id),
+      countryCode: req.countryCode,
+      additionalCriteria: req.additionalCriteriaRaw,
+      // CUT-2 REVIEW-1 § 3 — LA AUTORIDAD DEL OBJETIVO GLOBAL VIVE AQUÍ.
+      //
+      // 🔴 `WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES` (10) y NO
+      // `WIZARD_SYSTEM_CONTROLS.targetCount` (25): el 25 es la AMPLITUD de
+      // búsqueda del pipeline, no lo que el producto promete persistir. Las dos
+      // rutas del wizard prometen 10 —Apollo por esta constante y Tavily por
+      // `WIZARD_TARGET_PERSISTIBLE_CANDIDATES`—, así que el slot puede
+      // declararlo antes de saber qué proveedor correrá.
+      //
+      // Se establece ANTES de que exista ningún contribuyente. Sin esto, un
+      // residual de pago de 3 sería quien fijara el objetivo del lote entero.
+      targetCount: WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
+      // § 4 — el resto de la verdad request-global, también en origen. Son los
+      // mismos valores canónicos que el adaptador entrega al pipeline: no se
+      // inventa ninguno.
+      country: countryName,
+      industry: catalogResolution.industry.name,
+      searchDepth: WIZARD_PIPELINE_DEFAULTS.searchDepth,
+      // § 8/§ 26 — requested/resolved/reason quedan en el INSERT inicial, para
+      // TODOS los proveedores. La costura `extraBatchMetadata` sólo existe en la
+      // ruta de Apollo, así que sin esto una corrida Tavily con petición
+      // explícita no dejaba rastro de que se pidió otra cosa. También es la fila
+      // que un reintento relee para conservar su proveedor (§ 9).
+      runProviderSelection: toRunProviderSelectionMetadata(runProviderSelection),
+      // MACRO-INDUSTRY-CATALOG-DISCOVERY-1 § 8 — taxonomía declarada, no
+      // deducida: `subindustry_ids: []` no distingue «no había paso» de
+      // «la persona no quiso acotar».
+      discoveryTaxonomy: {
+        ...toDiscoveryTaxonomyMetadata(
+          resolveDiscoveryTaxonomyCapability(catalogResolution.catalog.version),
+        ),
+        macro_industry_key:
+          getMacroIndustryBySlug(catalogResolution.industry.slug)?.key ??
+          resolveMacroIndustryByDisplayName(catalogResolution.industry.name)?.key ??
+          null,
+        macro_industry_display_name: catalogResolution.industry.name,
+        requested_subindustries: catalogResolution.subindustries.map((s) => s.name),
+      },
+    },
+  });
+
+  /** § 5 — lo único que baja a las ramas: el id, nunca la capacidad de crear otro. */
+  const resolveCanonicalBatchId = async (): Promise<string> =>
+    (await canonicalBatch.resolve()).batchId;
+
   const prePaidNovelty = deps.runPrePaidNoveltyDiscovery
     ? await deps
         .runPrePaidNoveltyDiscovery({
           countryCode: req.countryCode,
+          // CUT-5 §§ 4, 5 — la capa gratuita ya no crea lote: recibe EL de esta
+          // ejecución. Es el hilo entero del corte.
+          resolveBatchId: resolveCanonicalBatchId,
           macroIndustryKey:
             getMacroIndustryBySlug(catalogResolution.industry.slug)?.key ?? null,
           // 🔴 El objetivo del USUARIO son los candidatos persistibles (10), no
@@ -963,7 +1086,7 @@ export async function executeProspectWizardGeneration(
           // hueco que el producto nunca prometió.
           requestedTarget: WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
           requestedByUserId: userId,
-          countryName: countryEntryForSource?.name ?? req.countryCode,
+          countryName,
         })
         // Fail-open (§ 12): una capa gratuita rota nunca deja el wizard
         // inservible. Se degrada a «no aportó» y la ruta de pago sigue.
@@ -979,6 +1102,35 @@ export async function executeProspectWizardGeneration(
     prePaidNovelty.batchId !== null &&
     prePaidNovelty.persistedCount > 0
   ) {
+    // ── CUT-5 § 11 — sellar el lote que la capa gratuita cerró sola ──────────
+    //
+    // Consecuencia directa de compartir lote. Cuando esta capa creaba lote
+    // propio, el writer estructurado lo nacía en `ready_for_review`; ahora ADOPTA
+    // el slot del wizard, que nace en `draft` y que ningún escritor de proveedor
+    // va a sellar porque en esta rama el proveedor NO corre. Sin esto, la
+    // respuesta anunciaría `ready_for_review` sobre una fila en `draft`.
+    //
+    // 🔴 El estado NO se decide aquí: lo decide `resolveBatchTerminalStatusDecision`,
+    // la misma máquina de CUT-1 que usan los escritores de proveedor, con el
+    // vocabulario que ya existe. `preExisting` se declara conocido y en 0 porque
+    // esta rama exige `persistedCount > 0`, y lo que ESTE contribuyente escribió
+    // es verdad propia que no depende de ninguna lectura.
+    const sealDecision = resolveBatchTerminalStatusDecision({
+      preExisting: durableCandidatesFromCount(0),
+      persistedCandidates: prePaidNovelty.persistedCount,
+      persistenceFailureCount: 0,
+    });
+    if (sealDecision.action === 'write' && deps.sealFreeOnlyBatchStatus) {
+      // Best-effort: un sellado fallido no puede convertir en error una corrida
+      // que ya persistió candidatos reales y verificables en el lote.
+      await deps
+        .sealFreeOnlyBatchStatus({
+          batchId: prePaidNovelty.batchId,
+          status: sealDecision.status,
+        })
+        .catch(() => undefined);
+    }
+
     return {
       ok: true,
       status: 'success_target_reached',
@@ -1140,9 +1292,9 @@ export async function executeProspectWizardGeneration(
   };
 
   // 8. Build resolved execution context (server-controlled — no client-supplied labels)
-  const countryEntry = LATAM_COUNTRIES.find((c) => c.code === req.countryCode);
-  const countryName = countryEntry?.name ?? req.countryCode;
-
+  // CUT-5 — `countryEntry`/`countryName` se resuelven ahora ANTES del paso 5d,
+  // porque la petición del lote canónico los necesita. Se reutilizan aquí: dos
+  // cálculos del mismo nombre de país podrían divergir en silencio.
   const resolved: ResolvedWizardExecution = {
     userId,
     clientRequestId: req.clientRequestId,
@@ -1164,58 +1316,19 @@ export async function executeProspectWizardGeneration(
   };
 
   // 9. Reserve durable execution slot (idempotency anchor).
+  //
+  // CUT-5 §§ 4, 12 — la reserva ya no se construye aquí: se RESUELVE contra la
+  // autoridad única declarada antes del paso 5d. Si la capa gratuita ya la
+  // materializó, esta llamada devuelve exactamente el mismo lote sin tocar la
+  // base; si no, la crea ahora. En las dos ramas el id es el mismo, que es la
+  // invariante entera del corte.
+  //
+  // 🔴 El payload NO viaja desde aquí a propósito: la petición del lote es verdad
+  // de la PETICIÓN, y si cada rama pudiera pasar el suyo el contenido del lote
+  // dependería de quién llegase primero a resolverlo.
   let reservation: WizardExecutionReservationResult;
   try {
-    reservation = await deps.reserveSlot({
-      userId,
-      clientRequestId: req.clientRequestId,
-      initialBatchPayload: {
-        requestSource: 'chat_wizard',
-        catalogVersionId: catalogResolution.catalog.version,
-        industryId: catalogResolution.industry.id,
-        subindustryIds: catalogResolution.subindustries.map((s) => s.id),
-        countryCode: req.countryCode,
-        additionalCriteria: req.additionalCriteriaRaw,
-        // CUT-2 REVIEW-1 § 3 — LA AUTORIDAD DEL OBJETIVO GLOBAL VIVE AQUÍ.
-        //
-        // 🔴 `WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES` (10) y NO
-        // `WIZARD_SYSTEM_CONTROLS.targetCount` (25): el 25 es la AMPLITUD de
-        // búsqueda del pipeline, no lo que el producto promete persistir. Las dos
-        // rutas del wizard prometen 10 —Apollo por esta constante y Tavily por
-        // `WIZARD_TARGET_PERSISTIBLE_CANDIDATES`—, así que el slot puede
-        // declararlo antes de saber qué proveedor correrá.
-        //
-        // Se establece ANTES de que exista ningún contribuyente. Sin esto, un
-        // residual de pago de 3 sería quien fijara el objetivo del lote entero.
-        targetCount: WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
-        // § 4 — el resto de la verdad request-global, también en origen. Son los
-        // mismos valores canónicos que el adaptador entrega al pipeline: no se
-        // inventa ninguno.
-        country: countryName,
-        industry: catalogResolution.industry.name,
-        searchDepth: WIZARD_PIPELINE_DEFAULTS.searchDepth,
-        // § 8/§ 26 — requested/resolved/reason quedan en el INSERT inicial, para
-        // TODOS los proveedores. La costura `extraBatchMetadata` sólo existe en la
-        // ruta de Apollo, así que sin esto una corrida Tavily con petición
-        // explícita no dejaba rastro de que se pidió otra cosa. También es la fila
-        // que un reintento relee para conservar su proveedor (§ 9).
-        runProviderSelection: toRunProviderSelectionMetadata(runProviderSelection),
-        // MACRO-INDUSTRY-CATALOG-DISCOVERY-1 § 8 — taxonomía declarada, no
-        // deducida: `subindustry_ids: []` no distingue «no había paso» de
-        // «la persona no quiso acotar».
-        discoveryTaxonomy: {
-          ...toDiscoveryTaxonomyMetadata(
-            resolveDiscoveryTaxonomyCapability(catalogResolution.catalog.version),
-          ),
-          macro_industry_key:
-            getMacroIndustryBySlug(catalogResolution.industry.slug)?.key ??
-            resolveMacroIndustryByDisplayName(catalogResolution.industry.name)?.key ??
-            null,
-          macro_industry_display_name: catalogResolution.industry.name,
-          requested_subindustries: catalogResolution.subindustries.map((s) => s.name),
-        },
-      },
-    });
+    reservation = await canonicalBatch.resolve();
   } catch {
     // Slot reservation failed — release budget if it was newly created
     if (budgetWasNew) {

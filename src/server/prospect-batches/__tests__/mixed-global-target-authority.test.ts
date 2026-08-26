@@ -161,9 +161,14 @@ describe('CUT-2 REVIEW-1 § 3 — objetivo persistible (10) ≠ amplitud de bús
 
   it('el CALL SITE de la reserva pasa el objetivo persistible, no la amplitud', () => {
     const src = read('src/modules/prospect-batches/chat-wizard-execution/wizard-execution-actions.ts');
-    const call = src.indexOf('reservation = await deps.reserveSlot({');
-    assert.ok(call > 0, 'la llamada a la reserva tiene que existir');
-    const end = src.indexOf('\n    });', call);
+    // AGENT1-LOCAL-CUT5-SINGLE-BATCH-PLUMBING § 4 — ANCLA REUBICADA, invariante
+    // INTACTA. La petición del lote dejó de construirse dentro del paso 9 y pasó
+    // al resolutor canónico, que es ahora el dueño ÚNICO de la reserva. Lo que
+    // esta guarda mide —que el slot reciba el objetivo PERSISTIBLE (10) y no la
+    // amplitud de búsqueda (25)— no cambió ni un ápice; sólo cambió dónde vive.
+    const call = src.indexOf('createCanonicalWizardBatchResolver(deps.reserveSlot, {');
+    assert.ok(call > 0, 'la construcción de la reserva canónica tiene que existir');
+    const end = src.indexOf('\n  });', call);
     assert.ok(end > call);
     const block = src.slice(call, end);
 
@@ -275,11 +280,26 @@ describe('CUT-2 REVIEW-1 § 5 — 10 pedidos, 7 gratis, 3 de pago: el lote sigue
 // ─── § 15 — el slot NO se mueve, sólo se completa ────────────────────────────
 
 describe('CUT-2 REVIEW-1 § 15 — el slot sigue donde estaba en el orden de ejecución', () => {
-  it('la reserva sigue ocurriendo en el paso 9, después de la capa gratuita y del presupuesto', () => {
+  it('la capa gratuita sigue corriendo ANTES de estimar créditos y de reservar presupuesto', () => {
     const src = read('src/modules/prospect-batches/chat-wizard-execution/wizard-execution-actions.ts');
+    // AGENT1-LOCAL-CUT5-SINGLE-BATCH-PLUMBING §§ 4, 5 — ANCLA REUBICADA.
+    //
+    // 🔴 Lo que esta guarda protege NO es la posición textual de la reserva: es
+    // que NADA ECONÓMICO ocurra antes de la capa gratuita. Ése era el hito entero
+    // de la puerta previa al pago —la corrida del 2026-08-19 reservó, gastó 6
+    // créditos y sólo después descubrió que las empresas ya se conocían—.
+    //
+    // CUT-5 declara la AUTORIDAD del lote antes de la capa gratuita para que lo
+    // gratuito y lo de pago compartan lote, pero la reserva es PEREZOSA: la fila
+    // sólo nace cuando alguien de verdad la necesita. El orden que importa
+    // —gratuito → estimación → presupuesto— se conserva byte por byte.
     const freeLayer = src.indexOf('deps.runPrePaidNoveltyDiscovery');
-    const reserveSlot = src.indexOf('reservation = await deps.reserveSlot({');
-    assert.ok(freeLayer > 0 && reserveSlot > freeLayer, 'la capa gratuita sigue ANTES del slot');
+    const estimate = src.indexOf('estimateCreditsForProvider(discoveryProvider)');
+    const reserveBudget = src.indexOf('deps.reserveBudget({');
+
+    assert.ok(freeLayer > 0, 'la capa gratuita existe');
+    assert.ok(estimate > freeLayer, '🔴 no se estiman créditos antes de lo gratuito');
+    assert.ok(reserveBudget > freeLayer, '🔴 no se reserva presupuesto antes de lo gratuito');
     assert.ok(src.includes('// 9. Reserve durable execution slot (idempotency anchor).'));
   });
 
