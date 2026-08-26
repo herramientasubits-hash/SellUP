@@ -731,7 +731,7 @@ export async function writeProspectingCandidates(
   // Production callers always omit this parameter (feature disabled by default).
   richProfileEnrichmentOverride?: RichProfileEnrichmentOverride,
 ): Promise<CandidateWriterOutput> {
-  const { pipelineOutput, triggeredByUserId, ownerId, batchName, source, dryRun, extraBatchMetadata, existingBatchId } = input;
+  const { pipelineOutput, triggeredByUserId, ownerId, batchName, source, dryRun, extraBatchMetadata, resolveExtraBatchMetadata, existingBatchId } = input;
   const isDryRun = dryRun ?? false;
 
   // Guard: sin candidatos
@@ -3708,40 +3708,54 @@ export async function writeProspectingCandidates(
     // Reconcile adaptive_discovery with actual persisted count (Hito 16AB.43.28).
     // extraBatchMetadata.adaptive_discovery was set as a placeholder before the writer ran.
     // Here we overwrite it with the real persisted count so the DB reflects truth.
-    // Hito 16AB.43.30: also fix stop_reason to be coherent with actual result.
+    //
+    // ── AGENT1-LOCAL-CUT8 · DECISIÓN A ────────────────────────────────────────
+    //
+    // `adaptive_discovery` vuelve a ser lo que su nombre dice: observabilidad de
+    // FILAS y de DESCUBRIMIENTO. Deja de emitir veredictos de objetivo.
+    //
+    // Hasta este corte reconciliaba tres cosas a partir de las filas escritas:
+    // `result_status`, `remaining_to_target` y un `stop_reason` reescrito. Las
+    // tres respondían «¿se alcanzó el objetivo?» contando filas, y una fila
+    // persistida no es una empresa aceptada — `candidate-completeness-contract`
+    // § D guarda a propósito el candidato incompleto como `needs_review`—. Con
+    // 10 filas de las que 3 sólo existen para revisión, este bloque escribía
+    // `success_target_reached` en la base mientras la autoridad de CUT-7
+    // declaraba 7 aceptadas y 3 pendientes.
+    //
+    // 🔴 La respuesta a «¿se alcanzó?» vive ahora en UN solo sitio de la
+    // metadata: el bloque `accepted_for_target` que publica la costura de la
+    // DECISIÓN B. Que este bloque callara y aquél hablara es justamente lo que
+    // impide que la base contenga dos veredictos que puedan discrepar.
+    //
+    // Qué se conserva y por qué:
+    //   · `persisted_count` — hecho de filas, reconciliado como siempre. Es
+    //     además el que `agent1-effectiveness` lee ahora para su semántica de
+    //     «sin empresas nuevas» (`persisted_count === 0`), que NO cambia.
+    //   · `stop_reason` — POR QUÉ paró el bucle de descubrimiento. Es verdad del
+    //     bucle, así que se respeta la que el bucle declaró en vez de
+    //     reescribirla desde las filas: «paré porque alcancé el objetivo» era una
+    //     afirmación de objetivo disfrazada de observabilidad.
+    //
+    // Qué desaparece de las escrituras NUEVAS: `result_status` y
+    // `remaining_to_target`. Los lotes históricos que ya los tienen NO se tocan.
     const storedAdaptive = (extraBatchMetadata as Record<string, unknown> | null)?.['adaptive_discovery'] as Record<string, unknown> | undefined;
     const reconciledAdaptiveForStorage = storedAdaptive != null && targetCap != null
       ? (() => {
-          const persisted = createdCandidateIds.length;
-          const remaining = Math.max(0, targetCap - persisted);
-          const roundsExecuted = (storedAdaptive.rounds_executed as number) ?? 0;
-          const maxRounds = (storedAdaptive.max_rounds as number) ?? 0;
-
-          // Determine coherent stop_reason based on actual outcome
-          let coherentStopReason: string;
-          if (persisted >= targetCap) {
-            coherentStopReason = 'target_reached';
-          } else if (roundsExecuted >= maxRounds) {
-            coherentStopReason = 'max_rounds_exhausted';
-          } else {
-            coherentStopReason = (storedAdaptive.stop_reason as string) ?? 'max_rounds_exhausted';
-          }
-
-          let resultStatus: string;
-          if (persisted >= targetCap) {
-            resultStatus = 'success_target_reached';
-          } else if (persisted > 0) {
-            resultStatus = 'success_partial';
-          } else {
-            resultStatus = 'no_new_candidates';
-          }
+          const {
+            // Se DESESTRUCTURAN para quedar fuera del objeto reconstruido: un
+            // placeholder anterior al corte podría traerlos, y reenviarlos
+            // volvería a publicar un veredicto de objetivo basado en filas.
+            result_status: _legacyResultStatus,
+            remaining_to_target: _legacyRemainingToTarget,
+            ...adaptiveRowObservability
+          } = storedAdaptive;
+          void _legacyResultStatus;
+          void _legacyRemainingToTarget;
 
           return {
-            ...storedAdaptive,
-            persisted_count: persisted,
-            remaining_to_target: remaining,
-            stop_reason: coherentStopReason,
-            result_status: resultStatus,
+            ...adaptiveRowObservability,
+            persisted_count: createdCandidateIds.length,
           };
         })()
       : storedAdaptive;
@@ -3926,8 +3940,37 @@ export async function writeProspectingCandidates(
       },
     );
 
+    // ── AGENT1-LOCAL-CUT8 · DECISIÓN B — metadata que depende del RESULTADO ──
+    //
+    // Único punto del writer donde ya se sabe qué se escribió y todavía no se ha
+    // publicado nada. El llamador entrega una función pura; aquí se le pasan las
+    // cifras canónicas que este writer acaba de contar —las MISMAS que publican
+    // `writer_summary` y el bloque de métricas—, nunca una relectura ni un
+    // recuento paralelo.
+    //
+    // 🔴 `complete_valid_candidates` viaja como `null` cuando no se midió. Un
+    // cero afirmaría que ninguna empresa quedó completa; sustituirlo por las
+    // filas afirmaría que todas lo quedaron. Las dos son mentiras distintas y el
+    // contrato de la costura prohíbe ambas.
+    const resolvedExtraBatchMetadata =
+      typeof resolveExtraBatchMetadata === 'function'
+        ? resolveExtraBatchMetadata({
+            persistedCandidates: createdCandidateIds.length,
+            // Este writer SIEMPRE mide: los contadores canónicos son `number`.
+            // El `null` del contrato existe para las rutas que no miden, y
+            // llegar aquí con un cero fabricado sería justo lo que prohíbe.
+            completeValidCandidates: canonicalCompletenessCounters.complete_valid_candidates,
+            reviewOnlyCandidates: canonicalCompletenessCounters.review_only_candidates,
+          })
+        : null;
+
     const finalMetadata = {
       ...preMergedMetadata,
+      // 🔴 Se esparce ANTES de las claves internas del writer, igual que
+      // `extraBatchMetadata`: una clave de diagnóstico propia siempre gana a lo
+      // que venga de fuera. La aceptación hacia el objetivo es una clave nueva,
+      // así que no pisa nada.
+      ...(resolvedExtraBatchMetadata ?? {}),
       ...(twoRoundReconciled
         ? { [APOLLO_TWO_ROUND_OBSERVABILITY_KEY]: twoRoundReconciled.observability }
         : {}),

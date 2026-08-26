@@ -167,8 +167,16 @@ describe('CUT-6B § 5 · B — el aporte obsoleto se limpia', () => {
       batchId: BATCH_ID,
       redirectPath: `/prospect-batches/${BATCH_ID}`,
       status: 'success_target_reached',
-      targetReached: true,
-      targetPersistibleCandidates: 10,
+      candidateCount: 10,
+      // CUT-8 — el veredicto y el objetivo viven DENTRO del resumen canónico.
+      acceptedForTarget: {
+        requestedTarget: 10,
+        acceptedForTargetTotal: 10,
+        remainingTarget: 0,
+        targetReached: true,
+        persistedTotalCandidates: 10,
+        paidAcceptanceMeasured: true,
+      },
     });
     assert.equal(ok.currentStep, 'success');
     assert.equal(ok.executionFreeContribution, null, '🔴 dos cifras para una corrida');

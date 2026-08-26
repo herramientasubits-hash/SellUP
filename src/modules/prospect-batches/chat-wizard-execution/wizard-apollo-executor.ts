@@ -36,6 +36,7 @@ import {
   type ProviderResultDemand,
 } from '@/modules/prospect-batches/prepaid-novelty/provider-result-demand';
 import type { ApolloPriorProviderSeen } from '@/server/agents/prospecting-toolkit/apollo-organizations-provider-seen';
+import type { ResolveExtraBatchMetadata } from '@/server/agents/prospecting-toolkit/writer-metadata-resolution';
 
 export const WIZARD_APOLLO_TARGET_INTERNAL = 25;
 export const WIZARD_APOLLO_MAX_ROUNDS = 4;
@@ -121,6 +122,13 @@ export type WizardApolloInput = {
    * de forma aditiva en el metadata del batch. No cambia queries ni proveedor.
    */
   extraBatchMetadata?: Record<string, unknown> | null;
+  /**
+   * AGENT1-LOCAL-CUT8 · DECISIÓN B — resolver de metadata que sólo puede
+   * contestarse con el resultado del writer. Viaja por las DOS modalidades
+   * (legacy y dos rondas) para que la publicación durable de la aceptación no
+   * dependa de qué rama corrió.
+   */
+  resolveExtraBatchMetadata?: ResolveExtraBatchMetadata | null;
   /**
    * A1-APOLLO-BUDGET-RECONCILIATION-1: correlación del run del wizard, para que
    * cada provider_usage_logs de Apollo quede atado a la reserva que lo pagó por
@@ -260,6 +268,7 @@ export async function runWizardApolloSearch(
         apollo_discovery_modality: modality,
         ...toApolloTwoRoundConfigDiagnostics(twoRoundResolution),
       },
+      resolveExtraBatchMetadata: input.resolveExtraBatchMetadata ?? null,
       reservedCredits: input.reservedCredits ?? 0,
       // CUT-2 §§ 3, 5 — la demanda y la reserva viajan por campos DISTINTOS y
       // adyacentes, para que se vea que no se derivan la una de la otra.
@@ -301,6 +310,7 @@ export async function runWizardApolloSearch(
     dryRun: false,
     // Q3F-5BB.11E — reenvía la metadata observacional (provider_routing) al writer.
     extraBatchMetadata: input.extraBatchMetadata ?? null,
+    resolveExtraBatchMetadata: input.resolveExtraBatchMetadata ?? null,
     usageInputContext: {
       batchId: input.reservedBatchId,
       triggeredByUserId: input.resolved.userId,

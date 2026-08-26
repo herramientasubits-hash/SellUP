@@ -271,6 +271,7 @@ import {
   type SubindustryMatchVerdict,
 } from '../candidate-completeness-contract';
 import type { CompanyFieldMappingStatus } from '../apollo-company-fields-mapping';
+import type { ResolveExtraBatchMetadata } from '../writer-metadata-resolution';
 import {
   readTwoRoundCheckpoint,
   writeTwoRoundCheckpoint,
@@ -310,6 +311,11 @@ export type ApolloTwoRoundWizardRunInput = {
   runCorrelationMetadata?: Record<string, unknown> | null;
   /** Metadata aditiva del lote (routing observacional, selección de proveedor). */
   extraBatchMetadata?: Record<string, unknown> | null;
+  /**
+   * AGENT1-LOCAL-CUT8 · DECISIÓN B — resolver de metadata post-writer. Se reenvía
+   * tal cual al writer; esta ruta no lo invoca ni lo compone.
+   */
+  resolveExtraBatchMetadata?: ResolveExtraBatchMetadata | null;
   /**
    * Créditos que la reserva sostiene. § 2 — la aserción defensiva compara el
    * gasto REGISTRADO contra este número, no contra la estimación.
@@ -2426,6 +2432,8 @@ export async function runApolloTwoRoundWizardDiscovery(
           : {}),
         ...observability,
       },
+      // CUT-8 · DECISIÓN B — la costura viaja hasta el writer sin tocarse.
+      resolveExtraBatchMetadata: input.resolveExtraBatchMetadata ?? null,
     });
 
     candidatesCreated = writerResult.candidatesCreated;

@@ -170,11 +170,24 @@ export function WizardConversationSummary({
 
   if (state.currentStep === 'success') {
     return (
+      /* 🔴 AGENT1-LOCAL-CUT8 § 3 — CADA número desde su propia autoridad.
+
+         Hasta este corte el panel recibía
+         `candidateCount={state.executionTargetPersistibleCandidates}`: el
+         OBJETIVO entregado como si fuera el conteo de candidatos. Una corrida
+         que pidió 10 y guardó 4 anunciaba «Se generaron 10 candidatos». Y como
+         ese campo del estado no lo despachaba nadie, en la práctica llegaba
+         `undefined` y el panel se quedaba mudo.
+
+         Ahora `candidateCount` son las FILAS durables y nada más. El objetivo
+         PEDIDO y el veredicto viajan dentro del resumen canónico de aceptación
+         —donde CUT-7 los dejó— y el panel los pinta desde ahí. Ninguno de los
+         dos se pasa suelto, para que no pueda volver a ocupar el sitio del otro. */
       <SuccessPanel
         status={state.executionStatus}
         noveltyExhausted={state.executionNoveltyExhausted}
-        candidateCount={state.executionTargetPersistibleCandidates}
-        targetPersistibleCandidates={state.executionTargetPersistibleCandidates}
+        candidateCount={state.executionCandidateCount}
+        acceptedForTarget={state.executionAcceptedForTarget}
         onClose={onClose}
         onEditSearch={onEditSearch}
         twoRoundOutcome={twoRoundOutcome}

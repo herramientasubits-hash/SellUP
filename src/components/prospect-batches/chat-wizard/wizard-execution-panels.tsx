@@ -36,10 +36,12 @@ import {
   type WizardPersistenceOutcome,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-result-copy';
 import {
+  buildWizardAcceptedForTargetSummary,
   buildWizardTargetSummary,
   type WizardTargetSummaryInput,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-target-summary-copy';
 import type { WizardExecutionStatus } from '@/modules/prospect-batches/chat-wizard-execution/wizard-execution-types';
+import type { AcceptedForTargetSummary } from '@/modules/prospect-batches/accepted-for-target';
 
 // ── Wizard generation overlay ─────────────────────────────────────────────────
 
@@ -164,8 +166,16 @@ function WizardPersistenceBreakdown({ rows }: { rows: WizardPersistenceBreakdown
 export type SuccessPanelProps = {
   status: WizardExecutionStatus | null;
   noveltyExhausted?: boolean;
+  /**
+   * AGENT1-LOCAL-CUT8 § 3 — FILAS DURABLES que la corrida dejó en el lote.
+   *
+   * 🔴 Nunca el objetivo. La prop `targetPersistibleCandidates` que vivía aquí
+   * se ha retirado: el llamador la alimentaba con el MISMO campo que
+   * `candidateCount`, así que el panel anunciaba el objetivo como si fueran los
+   * candidatos encontrados. El objetivo pedido llega ahora dentro de
+   * `acceptedForTarget`, que es su autoridad, y se pinta en el resumen.
+   */
   candidateCount?: number;
-  targetPersistibleCandidates?: number;
   onClose: () => void;
   onEditSearch: () => void;
   /** § 11 — cifras reales de dos rondas. `null` = la modalidad no corrió. */
@@ -188,9 +198,16 @@ export type SuccessPanelProps = {
    * no se pinta en vez de rellenarse con ceros.
    */
   targetSummary?: WizardTargetSummaryInput | null;
+  /**
+   * AGENT1-LOCAL-CUT8 §§ 1, 4 — el resumen CANÓNICO de aceptación hacia el
+   * objetivo, tal como el servidor lo resolvió. `null` cuando esta ejecución no
+   * declaró aceptación (p. ej. `already_started`): entonces no se pinta, en vez
+   * de rellenarse con ceros.
+   */
+  acceptedForTarget?: AcceptedForTargetSummary | null;
 };
 
-export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetPersistibleCandidates, onClose, onEditSearch, twoRoundOutcome, targetEligibleCompanies, noNewCandidatesBreakdown, persistenceOutcome, targetSummary }: SuccessPanelProps) {
+export function SuccessPanel({ status, noveltyExhausted, candidateCount, onClose, onEditSearch, twoRoundOutcome, targetEligibleCompanies, noNewCandidatesBreakdown, persistenceOutcome, targetSummary, acceptedForTarget }: SuccessPanelProps) {
   const router = useRouter();
 
   // QUERY-QUALITY-2 § 8 + PERSISTENCE-READINESS-4 § 8 — el texto sale de lo que
@@ -221,6 +238,14 @@ export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetP
   // ambas presentaciones habrían mentido.
   const isPartialPersistence = resultCopy.cause === 'persistence_partial';
   const persistenceBreakdownRows = buildWizardPersistenceBreakdown(persistenceOutcome ?? null);
+
+  // CUT-8 — el resumen canónico se FORMATEA aquí y se decide su aritmética en
+  // ninguna parte: `buildWizardAcceptedForTargetSummary` sólo elige cómo se
+  // escribe cada cifra ya resuelta por el servidor.
+  const acceptedForTargetRows =
+    acceptedForTarget != null
+      ? buildWizardAcceptedForTargetSummary(acceptedForTarget).rows
+      : null;
 
   React.useEffect(() => {
     if (status === 'completed_with_errors') {
@@ -256,8 +281,11 @@ export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetP
       });
     } else if (status === 'success_target_reached') {
       toast.success('¡Objetivo alcanzado!', {
-        description: targetPersistibleCandidates
-          ? `Encontramos ${targetPersistibleCandidates} prospectos nuevos para revisar.`
+        // 🔴 CUT-8 § 3 — las filas que la persona va a encontrar en el listado,
+        // no el objetivo que pidió. Con el objetivo aquí, una corrida que pidió
+        // 10 y guardó 4 anunciaba «Encontramos 10».
+        description: candidateCount
+          ? `Encontramos ${candidateCount} prospectos nuevos para revisar.`
           : 'Prospectos generados correctamente.',
       });
     } else {
@@ -378,8 +406,8 @@ export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetP
   const body =
     status === 'already_started'
       ? 'Esta búsqueda ya había sido iniciada. Actualizamos la lista para mostrar sus resultados.'
-      : status === 'success_target_reached' && targetPersistibleCandidates
-      ? `Encontramos ${targetPersistibleCandidates} prospectos nuevos para revisar.`
+      : status === 'success_target_reached' && candidateCount
+      ? `Encontramos ${candidateCount} prospectos nuevos para revisar.`
       : candidateCount
       ? `Se generaron ${candidateCount} candidatos disponibles para revisión.`
       : 'Los candidatos fueron generados y ya están disponibles para revisión.';
@@ -439,7 +467,39 @@ export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetP
       {/* INTEGRATION-1 § H — las cuatro cifras separadas. Guardadas, completas y
           válidas, pendientes de revisión, y si el objetivo se alcanzó. Un solo
           número no puede responder «cuántas guardamos» y «cuántas sirven». */}
-      {targetSummary && (
+      {/* 🔴 AGENT1-LOCAL-CUT8 §§ 1, 4 — cuando el servidor envió la aceptación
+          canónica, ES la que se pinta, y por el MISMO camino de copy y el mismo
+          marcado que ya existía. Nada de una segunda tarjeta con su propio
+          formato: dos superficies describiendo la misma corrida es como empiezan
+          a contradecirse.
+
+          `targetSummary` sigue siendo el respaldo para una corrida que no la
+          declaró; sin ninguna de las dos, no se pinta resumen. */}
+      {acceptedForTargetRows !== null && (
+        <dl
+          className="space-y-2 rounded-xl border border-border bg-card px-5 py-4"
+          data-testid="wizard-target-summary"
+        >
+          {acceptedForTargetRows.map((row) => (
+            <div key={row.key} className="space-y-0.5" data-testid={`wizard-target-summary-row-${row.key}`}>
+              <div className="flex items-baseline justify-between gap-3">
+                <dt className="text-xs text-muted-foreground">{row.label}</dt>
+                <dd
+                  className="text-xs font-semibold tabular-nums text-foreground"
+                  data-testid={`wizard-target-summary-value-${row.key}`}
+                >
+                  {row.value}
+                </dd>
+              </div>
+              {row.hint !== null && (
+                <p className="text-[10px] leading-snug text-muted-foreground">{row.hint}</p>
+              )}
+            </div>
+          ))}
+        </dl>
+      )}
+
+      {acceptedForTargetRows === null && targetSummary && (
         <dl
           className="space-y-2 rounded-xl border border-border bg-card px-5 py-4"
           data-testid="wizard-target-summary"

@@ -9,6 +9,7 @@
 
 import type { CandidatePersistenceOutcome } from './prospect-candidate-persistence-readiness';
 import type { ApolloSubindustryCatalogTermsResolution } from './apollo-subindustry-catalog-terms-resolution';
+import type { ResolveExtraBatchMetadata } from './writer-metadata-resolution';
 
 export type DuplicateStatus =
   | "new_candidate"
@@ -612,6 +613,17 @@ export type CandidateWriterInput = {
   source?: CandidateWriterSource;
   dryRun?: boolean;
   extraBatchMetadata?: Record<string, unknown> | null;
+  /**
+   * AGENT1-LOCAL-CUT8 · DECISIÓN B — metadata ADITIVA que sólo puede resolverse
+   * cuando el resultado del writer ya se conoce.
+   *
+   * 🔴 Es hermana de `extraBatchMetadata`, no su sustituta: aquélla lleva hechos
+   * previos a la corrida, ésta lleva hechos que dependen de lo que la corrida
+   * escribió. Se invoca UNA vez, dentro de la publicación de metadata que el
+   * writer ya hacía; NO abre una segunda escritura sobre `prospect_batches`.
+   * Omitida = comportamiento byte-for-byte previo al corte.
+   */
+  resolveExtraBatchMetadata?: ResolveExtraBatchMetadata | null;
   /**
    * When provided, the writer reuses this batch instead of creating a new one.
    * The batch must exist, belong to the requesting user, have source='agent_1',

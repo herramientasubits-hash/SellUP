@@ -149,10 +149,13 @@ import {
 // AGENT1-LOCAL-CUT7-ACCEPTED-FOR-TARGET §§ 1, 6, 7 — la ÚNICA autoridad sobre
 // cuántos candidatos cuentan hacia el objetivo del usuario.
 import {
+  ACCEPTED_FOR_TARGET_METADATA_KEY,
   CONTRIBUTOR_NOT_RUN,
   paidAcceptedContributionFromWriterTruth,
   resolveAcceptedForTarget,
+  toAcceptedForTargetMetadata,
 } from '@/modules/prospect-batches/accepted-for-target';
+import type { ResolveExtraBatchMetadata } from '@/server/agents/prospecting-toolkit/writer-metadata-resolution';
 import type { ApolloPriorProviderSeen } from '@/server/agents/prospecting-toolkit/apollo-organizations-provider-seen';
 // AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — huso y cliente service_role del
 // presupuesto, compartidos con la lectura previa al primer clic.
@@ -1232,6 +1235,57 @@ export async function executeProspectWizardGeneration(
       : null;
 
   /**
+   * AGENT1-LOCAL-CUT8 §§ 1, 2 — LA ÚNICA ARITMÉTICA DE ACEPTACIÓN DE LA CORRIDA.
+   *
+   * La aceptación hacia el objetivo hace falta en DOS momentos que no coinciden:
+   *
+   *   · dentro del writer, para que el bloque `accepted_for_target` se publique
+   *     en la MISMA escritura de metadata que el writer ya hacía (DECISIÓN B);
+   *   · después del pipeline, para el resultado de la acción y para el mago.
+   *
+   * Tenerlas como dos llamadas sueltas a `resolveAcceptedForTarget` habría sido
+   * el mismo defecto de CUT-7 un piso más arriba: dos expresiones que hoy
+   * coinciden y que mañana pueden separarse. Aquí hay UNA, y las dos la llaman.
+   *
+   * 🔴 Lo que varía entre las dos llamadas es SÓLO el aporte de pago, porque es
+   * lo único que cambia entre «el writer acaba de contar» y «el pipeline ya
+   * devolvió». El objetivo, la demanda y el aporte gratuito son los mismos
+   * objetos capturados aquí — no se releen ni se recalculan.
+   */
+  const resolveRunAcceptance = (paidWriterTruth: {
+    completeValidCandidates: number | null | undefined;
+    persistedCandidates: number;
+  }) =>
+    resolveAcceptedForTarget({
+      demand: apolloResultDemand,
+      freePersistedCandidates: freeContribution?.persistedCandidates ?? 0,
+      paid: paidAcceptedContributionFromWriterTruth(paidWriterTruth),
+    });
+
+  /**
+   * DECISIÓN B — la costura durable. Se invoca DENTRO del writer, con lo que el
+   * writer acaba de escribir, y lo devuelto se esparce en su única publicación
+   * de metadata.
+   *
+   * 🔴 NO es una segunda escritura sobre `prospect_batches`: el mago no vuelve a
+   * tocar la fila después del writer. Y NO es una segunda autoridad: la cifra
+   * sale de `resolveRunAcceptance` y se serializa con
+   * `toAcceptedForTargetMetadata`, las dos de CUT-7.
+   *
+   * 🔴 `completeValidCandidates` se pasa TAL CUAL, `null` incluido. Sustituirlo
+   * por `persistedCandidates` publicaría en la base la mentira exacta que CUT-7
+   * cerró en la UI.
+   */
+  const resolveAcceptedForTargetBatchMetadata: ResolveExtraBatchMetadata = (writerOutcome) => ({
+    [ACCEPTED_FOR_TARGET_METADATA_KEY]: toAcceptedForTargetMetadata(
+      resolveRunAcceptance({
+        completeValidCandidates: writerOutcome.completeValidCandidates,
+        persistedCandidates: writerOutcome.persistedCandidates,
+      }),
+    ),
+  });
+
+  /**
    * CUT-6 § 14 — el bloque que un resultado de FALLO usa para no mentir por
    * omisión.
    *
@@ -1523,6 +1577,11 @@ export async function executeProspectWizardGeneration(
         reservedBatchId,
         // Q3F-5BB.11E — additive OBSERVATIONAL routing metadata (never gates).
         extraBatchMetadata: apolloRoutingExtraMetadata,
+        // 🔴 CUT-8 · DECISIÓN B — la aceptación NO puede viajar por
+        // `extraBatchMetadata`: esa costura se arma antes de que el writer corra
+        // y en ese momento la mitad de pago todavía no existe. Va como FUNCIÓN,
+        // que el writer invoca cuando ya contó y antes de publicar.
+        resolveExtraBatchMetadata: resolveAcceptedForTargetBatchMetadata,
         // A1-APOLLO-BUDGET-RECONCILIATION-1 — viaja hasta provider_usage_logs.
         runCorrelation: toRunCorrelationMetadata(runCorrelation),
         // A1-APOLLO-TWO-ROUND-QUALITY-1-FIX § 1/§ 7 — correlación completa: es
@@ -1664,13 +1723,13 @@ export async function executeProspectWizardGeneration(
   // 🔴 Fail-closed: un pipeline que escribió filas y NO midió su completitud
   // aporta cero, nunca sus filas. Es la misma postura que
   // `apollo-persisted-candidate-truth.ts` ya sostenía para `null`.
-  const acceptedForTarget = resolveAcceptedForTarget({
-    demand: apolloResultDemand,
-    freePersistedCandidates: freeContribution?.persistedCandidates ?? 0,
-    paid: paidAcceptedContributionFromWriterTruth({
-      completeValidCandidates: pipelineResult.persistenceOutcome?.completeValidCandidates ?? null,
-      persistedCandidates: pipelineResult.candidatesCreated ?? 0,
-    }),
+  //
+  // 🔴 CUT-8 § 2 — la MISMA función que resolvió la metadata durable. Antes de
+  // este corte esta expresión vivía suelta aquí; que exista una sola impide que
+  // lo que la base guarda y lo que el mago enseña puedan discrepar.
+  const acceptedForTarget = resolveRunAcceptance({
+    completeValidCandidates: pipelineResult.persistenceOutcome?.completeValidCandidates ?? null,
+    persistedCandidates: pipelineResult.candidatesCreated ?? 0,
   });
 
   // 🔴 § 4/§ 12 — el objetivo PERSISTIBLE que se reporta es el del USUARIO, no el

@@ -58,13 +58,38 @@ function readGeneratedCandidateCount(metadata: unknown): number | null {
   return null;
 }
 
-/** Reads adaptive_discovery.result_status from batch metadata, if present. */
+/**
+ * Resuelve el estado que el tablero usa para «lotes sin empresas nuevas».
+ *
+ * AGENT1-LOCAL-CUT8 · DECISIÓN A — `adaptive_discovery.result_status` ya no se
+ * escribe: era un veredicto de objetivo derivado de FILAS y el objetivo lo
+ * declara ahora `accepted_for_target`. La semántica del tablero NO cambia, así
+ * que se resuelve desde donde sigue siendo verdad.
+ *
+ *   1. metadata HISTÓRICA — si la fila trae `result_status`, se respeta tal cual.
+ *      Los lotes anteriores al corte no se reescriben y siguen agregando igual.
+ *   2. metadata NUEVA — sin `result_status`, «sin empresas nuevas» es
+ *      `persisted_count === 0`, que es un hecho de filas y siempre lo fue.
+ *
+ * 🔴 Con `persisted_count > 0` se devuelve `null` y NO un estado de éxito. El
+ * tablero sólo consume `no_new_candidates`; inventar aquí `success_partial` o
+ * `success_target_reached` sería reconstruir desde filas justo el veredicto que
+ * la DECISIÓN A retira, y esta capa no tiene la aceptación para decidirlo.
+ */
 function readAdaptiveResultStatus(metadata: unknown): string | null {
   const meta = asRecord(metadata);
   if (!meta) return null;
   const adaptive = asRecord(meta.adaptive_discovery);
-  const status = adaptive?.result_status;
-  return typeof status === 'string' ? status : null;
+  if (!adaptive) return null;
+
+  const status = adaptive.result_status;
+  if (typeof status === 'string') return status;
+
+  const persisted = adaptive.persisted_count;
+  if (typeof persisted === 'number' && Number.isFinite(persisted)) {
+    return persisted === 0 ? 'no_new_candidates' : null;
+  }
+  return null;
 }
 
 // ── Raw DB row shapes ─────────────────────────────────────────────────────────

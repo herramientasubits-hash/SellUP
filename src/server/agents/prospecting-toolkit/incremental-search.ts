@@ -1013,24 +1013,26 @@ export async function runIncrementalProspectingSearch(
       ? 'max_rounds_reached'
       : 'budget_cap_reached';
 
+  // AGENT1-LOCAL-CUT8 · DECISIÓN A — este bloque es observabilidad de FILAS y de
+  // DESCUBRIMIENTO, y ya no emite veredicto de objetivo.
+  //
+  // `result_status` y `remaining_to_target` salían de comparar filas persistidas
+  // contra el objetivo, y una fila persistida no es una empresa aceptada. La
+  // pregunta «¿se alcanzó el objetivo?» tiene ahora una sola respuesta en la
+  // metadata del lote —el bloque `accepted_for_target`—, así que emitirla también
+  // aquí sólo podía crear un segundo veredicto capaz de discrepar del primero.
+  //
+  // `target_persistible_candidates` SÍ se conserva: es el tope con el que corrió
+  // el descubrimiento, no una afirmación sobre lo conseguido.
   const buildAdaptiveDiscovery = (persistedCount: number): AdaptiveDiscoveryMetadata => {
-    const remainingToTarget = Math.max(0, targetPersistibleCandidates - persistedCount);
-    const resultStatus: AdaptiveDiscoveryMetadata['result_status'] =
-      persistedCount >= targetPersistibleCandidates
-        ? 'success_target_reached'
-        : persistedCount > 0
-        ? 'success_partial'
-        : 'no_new_candidates';
     return {
       enabled: true,
       target_persistible_candidates: targetPersistibleCandidates,
       persisted_count: persistedCount,
       persistible_estimate: lastNoveltyPrecheck?.persistable_candidates_count ?? 0,
-      remaining_to_target: remainingToTarget,
       max_rounds: maxRounds,
       rounds_executed: roundsMeta.length,
       stop_reason: adaptiveStopReason,
-      result_status: resultStatus,
     };
   };
 
@@ -1191,6 +1193,10 @@ export async function runIncrementalProspectingSearch(
             : {}),
         },
         existingBatchId: input.existingBatchId ?? null,
+        // CUT-8 · DECISIÓN B — se reenvía TAL CUAL. El pipeline no la invoca: la
+        // aceptación depende de lo que el writer escriba, y aquí eso todavía no
+        // ha pasado.
+        resolveExtraBatchMetadata: input.resolveExtraBatchMetadata ?? null,
       },
       // v1.16K-R: positional args 2-3 of writeProspectingCandidates.
       // adminClientOverride stays undefined (writer reads env).

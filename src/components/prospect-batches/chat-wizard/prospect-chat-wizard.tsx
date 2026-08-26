@@ -60,6 +60,7 @@ import type { ApolloRunModeLimits } from './wizard-run-provider-copy';
 // AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — instantánea de presupuesto resuelta
 // en el servidor; aquí sólo se transporta hasta el panel que decide qué ofrecer.
 import type { WizardBudgetPreflight } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-preflight';
+import { toAcceptedForTargetSummary } from '@/modules/prospect-batches/accepted-for-target';
 
 // ── Error code → user-facing message mapping ──────────────────────────────────
 // Extracted to a separate module so tests can import without a DOM environment.
@@ -661,11 +662,30 @@ export function ProspectChatWizard({
       }
 
       if (result.ok) {
+        // 🔴 AGENT1-LOCAL-CUT8 § 3 — el éxito transporta lo que el SERVIDOR
+        // derivó, no lo que el cliente pueda deducir.
+        //
+        // Antes de este corte este despacho sólo llevaba id, ruta y estado, y el
+        // panel de éxito se quedaba sin cifras: acababa pintando el OBJETIVO
+        // como si fuera el número de candidatos generados. Una corrida que pidió
+        // 10, guardó 4 y aceptó 3 anunciaba «Se generaron 10».
+        //
+        // 🔴 `toAcceptedForTargetSummary` es una SELECCIÓN de campos ya
+        // resueltos por `resolveAcceptedForTarget` en el servidor. El cliente no
+        // suma, no compara y no decide si el objetivo se alcanzó.
+        //
+        // `already_started` no ejecutó nada y por tanto no declara aceptación:
+        // llega `null`, y el panel se calla en vez de inventar ceros.
         dispatch({
           type: 'EXECUTION_SUCCEEDED',
           batchId: result.batchId,
           redirectPath: result.redirectPath,
           status: result.status,
+          candidateCount: result.candidateCount,
+          acceptedForTarget: result.acceptedForTarget
+            ? toAcceptedForTargetSummary(result.acceptedForTarget)
+            : null,
+          noveltyExhausted: result.noveltyExhausted,
         });
       } else {
         // A1-APOLLO-WIZARD-1: un proveedor omitido trae su propio motivo, con

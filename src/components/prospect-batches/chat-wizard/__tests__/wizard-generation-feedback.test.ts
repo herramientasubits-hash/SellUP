@@ -45,8 +45,7 @@ function advanceToSuccess(status: 'created' | 'already_started'): ProspectWizard
     type: 'EXECUTION_SUCCEEDED',
     batchId: BATCH_ID,
     redirectPath: '/prospects',
-    status,
-  });
+    status, acceptedForTarget: null });
 }
 
 /**
@@ -309,8 +308,7 @@ describe('20.B.5 — No toast fires during submitting (loader is the only feedba
       type: 'EXECUTION_SUCCEEDED',
       batchId: BATCH_ID,
       redirectPath: '/prospects',
-      status: 'created',
-    });
+      status: 'created', acceptedForTarget: null });
     // submitting → success (not submitting → validated → success)
     assert.equal(submitting.currentStep, 'submitting');
     assert.equal(success.currentStep, 'success');
@@ -346,8 +344,7 @@ describe('20.R — Error path regression after Block A/B changes', () => {
       type: 'EXECUTION_SUCCEEDED',
       batchId: BATCH_ID,
       redirectPath: '/prospects',
-      status: 'created',
-    });
+      status: 'created', acceptedForTarget: null });
     assert.equal(s.currentStep, 'success');
     assert.equal(s.executionStatus, 'created');
   });
@@ -462,8 +459,7 @@ describe('21.A.3 — CTA button absent in submitting state (double-submit preven
       type: 'EXECUTION_SUCCEEDED',
       batchId: BATCH_ID,
       redirectPath: '/prospects',
-      status: 'created',
-    });
+      status: 'created', acceptedForTarget: null });
     assert.equal(success.currentStep, 'success');
     assert.notEqual(success.currentStep, 'validated');
   });

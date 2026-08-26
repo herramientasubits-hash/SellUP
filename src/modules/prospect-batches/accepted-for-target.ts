@@ -272,3 +272,49 @@ export function toAcceptedForTargetMetadata(
     acceptance_unknown_reasons: [...result.acceptanceUnknownReasons],
   };
 }
+
+// ─── Proyección para la UI ────────────────────────────────────────────────────
+
+/**
+ * AGENT1-LOCAL-CUT8-ACCEPTANCE-REPORTING-PROPAGATION — el subconjunto del
+ * resultado canónico que viaja al mago y que el panel de éxito PINTA.
+ *
+ * 🔴 No es una segunda autoridad ni una segunda aritmética: es una SELECCIÓN de
+ * campos ya resueltos. No suma, no resta, no compara y no vuelve a acotar. Si
+ * alguna vez hiciera falta un número que no está aquí, el sitio donde se calcula
+ * sigue siendo `resolveAcceptedForTarget` y nada más.
+ *
+ * El desglose libre/pago y los motivos de no-medición NO viajan: son procedencia
+ * y su sitio es la metadata durable del lote (`toAcceptedForTargetMetadata`), no
+ * un panel que la persona lee para saber si consiguió lo que pidió.
+ */
+export type AcceptedForTargetSummary = {
+  /** El objetivo del USUARIO. Jamás se sustituye por filas ni por el hueco. */
+  requestedTarget: number;
+  /** Cuántas cuentan hacia el objetivo. Jamás las filas persistidas. */
+  acceptedForTargetTotal: number;
+  remainingTarget: number;
+  targetReached: boolean;
+  /** Universo durable: se reporta junto al aceptado, nunca en su lugar (§ 10). */
+  persistedTotalCandidates: number;
+  /**
+   * 🔴 Viaja porque «no se midió» y «se midió cero» son corridas distintas y el
+   * panel no puede pintarlas igual. Sin este campo la UI sólo podría elegir
+   * entre inventar un cero y afirmar un fallo de objetivo que nadie comprobó.
+   */
+  paidAcceptanceMeasured: boolean;
+};
+
+/** Selección pura de campos ya resueltos. Cero aritmética. */
+export function toAcceptedForTargetSummary(
+  result: AcceptedForTargetResult,
+): AcceptedForTargetSummary {
+  return {
+    requestedTarget: result.requestedTarget,
+    acceptedForTargetTotal: result.acceptedForTargetTotal,
+    remainingTarget: result.remainingTarget,
+    targetReached: result.targetReached,
+    persistedTotalCandidates: result.persistedTotalCandidates,
+    paidAcceptanceMeasured: result.paidAcceptanceMeasured,
+  };
+}
