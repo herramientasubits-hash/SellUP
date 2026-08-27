@@ -318,3 +318,32 @@ export function toAcceptedForTargetSummary(
     paidAcceptanceMeasured: result.paidAcceptanceMeasured,
   };
 }
+
+// ─── La ruta de pago que NO llegó a existir ───────────────────────────────────
+
+/**
+ * AGENT1-LOCAL-CUT8B — el aporte de PAGO de una corrida en la que la ruta de
+ * pago no corrió, expresado en el vocabulario de la costura del writer.
+ *
+ * 🔴 Existe para que la rama sólo-gratuita entre por la MISMA puerta que la
+ * mixta. La alternativa —llamar a `resolveAcceptedForTarget` con
+ * `CONTRIBUTOR_NOT_RUN` desde la rama libre y con
+ * `paidAcceptedContributionFromWriterTruth` desde la mixta— dejaba dos entradas
+ * a la misma aritmética, que es cómo dos ramas del mismo hecho empiezan a
+ * discrepar. Con esta constante las dos llaman al MISMO helper de corrida.
+ *
+ * 🔴 `completeValidCandidates: null` NO significa aquí «no medido»: con
+ * `persistedCandidates: 0` el traductor lo resuelve a `CONTRIBUTOR_NOT_RUN`
+ * —cero CONOCIDO— porque un contribuyente que no escribió nada sí sabe su
+ * aceptación. Es la misma regla que ya vivía en
+ * `paidAcceptedContributionFromWriterTruth`, no una excepción nueva.
+ */
+export const PAID_ROUTE_NOT_RUN_WRITER_TRUTH: {
+  completeValidCandidates: null;
+  persistedCandidates: 0;
+  reviewOnlyCandidates: null;
+} = {
+  completeValidCandidates: null,
+  persistedCandidates: 0,
+  reviewOnlyCandidates: null,
+};

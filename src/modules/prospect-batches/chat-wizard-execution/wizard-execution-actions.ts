@@ -150,11 +150,13 @@ import {
 // cuántos candidatos cuentan hacia el objetivo del usuario.
 import {
   ACCEPTED_FOR_TARGET_METADATA_KEY,
-  CONTRIBUTOR_NOT_RUN,
+  PAID_ROUTE_NOT_RUN_WRITER_TRUTH,
   paidAcceptedContributionFromWriterTruth,
   resolveAcceptedForTarget,
   toAcceptedForTargetMetadata,
 } from '@/modules/prospect-batches/accepted-for-target';
+// AGENT1-LOCAL-CUT8B — la publicación terminal de la rama sólo-gratuita.
+import { composeFreeOnlyTerminalBatchMetadata } from './free-only-terminal-publication';
 import type { ResolveExtraBatchMetadata } from '@/server/agents/prospecting-toolkit/writer-metadata-resolution';
 import type { ApolloPriorProviderSeen } from '@/server/agents/prospecting-toolkit/apollo-organizations-provider-seen';
 // AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — huso y cliente service_role del
@@ -277,6 +279,19 @@ export type WizardExecutionDeps = {
   sealFreeOnlyBatchStatus?: (input: {
     batchId: string;
     status: BatchTerminalStatus;
+    /**
+     * AGENT1-LOCAL-CUT8B — el bloque canónico que esta corrida publica, ya
+     * resuelto y ya serializado por las autoridades de CUT-7.
+     *
+     * 🔴 Viaja EN el sellado, no en una escritura aparte. La rama sólo-gratuita
+     * no pasa por ningún writer de proveedor, así que ésta es su única
+     * publicación durable post-outcome — la misma posición que ocupa la
+     * escritura terminal de `candidate-writer` en la rama mixta.
+     *
+     * `null` ⇒ no hay nada que publicar y el sellado escribe estado y nada más,
+     * byte por byte como antes del corte.
+     */
+    metadata?: Record<string, unknown> | null;
   }) => Promise<void>;
   // Budget guardrail operations — period calculation and settings load are encapsulated here.
   reserveBudget: (input: {
@@ -553,15 +568,41 @@ export async function executeProspectWizardGenerationAction(
     reserveSlot: (input) =>
       reserveWizardExecutionSlot(input, supabase as unknown as IdempotencyDbClient),
 
-    // CUT-5 § 11 — sella el lote que la capa gratuita cerró sola. Escribe SÓLO
-    // `status`, con el valor que decidió la máquina de CUT-1; la metadata y el
-    // resto de columnas se conservan intactas.
+    // CUT-5 § 11 — sella el lote que la capa gratuita cerró sola, con el valor
+    // que decidió la máquina de CUT-1.
+    //
+    // 🔴 AGENT1-LOCAL-CUT8B — esta escritura es además la ÚNICA publicación
+    // durable de metadata de la rama sólo-gratuita, porque en ella no corre
+    // ningún writer de proveedor. `status` y `metadata` viajan en el MISMO
+    // UPDATE —igual que en el sellado terminal de `candidate-writer`—, así que
+    // el corte no añade ni una escritura: la que ya existía carga una columna
+    // más.
+    //
+    // 🔴 La relectura previa NO es una publicación: es lo que impide pisar la
+    // procedencia que la reserva dejó (proveedor resuelto, taxonomía, criterios).
+    // Componer la metadata desde la petición en vez de desde la fila publicaría
+    // una versión a medias en cuanto la reserva ganara una clave nueva.
     //
     // Va por el cliente de SESIÓN, no por service_role, igual que
     // `markBatchFailed`: la RLS de `prospect_batches` es la que acota la fila a
     // su dueño, así que un id ajeno no puede tocar nada aunque llegue hasta aquí.
-    sealFreeOnlyBatchStatus: async ({ batchId, status }) => {
-      await supabase.from('prospect_batches').update({ status }).eq('id', batchId);
+    sealFreeOnlyBatchStatus: async ({ batchId, status, metadata }) => {
+      if (metadata == null) {
+        await supabase.from('prospect_batches').update({ status }).eq('id', batchId);
+        return;
+      }
+      const { data: currentRow } = await supabase
+        .from('prospect_batches')
+        .select('metadata')
+        .eq('id', batchId)
+        .maybeSingle();
+      await supabase
+        .from('prospect_batches')
+        .update({
+          status,
+          metadata: composeFreeOnlyTerminalBatchMetadata(currentRow?.metadata, metadata),
+        })
+        .eq('id', batchId);
     },
 
     runTavilyPipeline: (tavilyInput: WizardTavilyInput) => runWizardTavilySearch(tavilyInput),
@@ -1133,19 +1174,113 @@ export async function executeProspectWizardGeneration(
     ? resolveProviderResultDemand(prePaidNovelty, WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES)
     : fullTargetResultDemand(WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES);
 
+  // ── CUT-6 §§ 3, 5, 13, 14 — el aporte GRATUITO que YA es durable ────────────
+  //
+  // 🔴 Ésta es la mitad que CUT-6 añade sobre CUT-2. Antes de este corte
+  // `apolloResultDemand` era el ÚNICO uso del resultado de la capa gratuita, y
+  // eso bastaba mientras el aporte parcial se descartaba: no había filas que
+  // nombrar. Con la activación, esas filas EXISTEN, están en el lote canónico y
+  // sobreviven a lo que le pase después a la ruta de pago —fallo, presupuesto
+  // denegado, proveedor caído o cero resultados—. Todo camino de salida que las
+  // ignore le estaría diciendo al usuario que no tiene nada cuando sí tiene.
+  //
+  // 🔴 Se deriva de `prePaidContributed`, la MISMA condición que gobierna la
+  // demanda, y no de una segunda lectura: si el hueco se recortó, hay filas; si no
+  // se recortó, no las hay. Dos condiciones separadas podrían discrepar.
+  //
+  // 🔴 AGENT1-LOCAL-CUT8B — se resuelve AQUÍ, por encima del retorno temprano de
+  // § 15, y no más abajo como hasta este corte. La rama sólo-gratuita necesita
+  // exactamente el mismo aporte libre que la mixta para publicar su metadata
+  // durable, y tenerlo declarado después de su propia salida obligaba a que esa
+  // rama se lo reconstruyera — una segunda vista del mismo hecho.
+  const freeContribution: { batchId: string; persistedCandidates: number } | null =
+    prePaidContributed && prePaidNovelty !== null && prePaidNovelty.batchId !== null
+      ? {
+          batchId: prePaidNovelty.batchId,
+          persistedCandidates: prePaidNovelty.persistedCount,
+        }
+      : null;
+
+  /**
+   * AGENT1-LOCAL-CUT8 §§ 1, 2 — LA ÚNICA ARITMÉTICA DE ACEPTACIÓN DE LA CORRIDA.
+   *
+   * La aceptación hacia el objetivo hace falta en TRES momentos que no coinciden:
+   *
+   *   · antes de la ruta de pago, para decidir si el objetivo ya se cerró gratis
+   *     y para publicar la metadata durable de la rama sólo-gratuita (CUT-8B);
+   *   · dentro del writer de pago, para que el bloque `accepted_for_target` se
+   *     publique en la MISMA escritura de metadata que ese writer ya hacía;
+   *   · después del pipeline, para el resultado de la acción y para el mago.
+   *
+   * Tenerlas como llamadas sueltas a `resolveAcceptedForTarget` habría sido el
+   * mismo defecto de CUT-7 un piso más arriba: expresiones que hoy coinciden y
+   * que mañana pueden separarse. Aquí hay UNA, y las tres la llaman.
+   *
+   * 🔴 Lo que varía entre las llamadas es SÓLO el aporte de pago, porque es lo
+   * único que cambia entre «el proveedor todavía no existe», «el writer acaba de
+   * contar» y «el pipeline ya devolvió». El objetivo, la demanda y el aporte
+   * gratuito son los mismos objetos capturados aquí — no se releen ni se
+   * recalculan.
+   */
+  const resolveRunAcceptance = (paidWriterTruth: {
+    completeValidCandidates: number | null | undefined;
+    persistedCandidates: number;
+  }) =>
+    resolveAcceptedForTarget({
+      demand: apolloResultDemand,
+      freePersistedCandidates: freeContribution?.persistedCandidates ?? 0,
+      paid: paidAcceptedContributionFromWriterTruth(paidWriterTruth),
+    });
+
+  /**
+   * DECISIÓN B — la costura durable. En la ruta de pago se invoca DENTRO del
+   * writer, con lo que el writer acaba de escribir, y lo devuelto se esparce en
+   * su única publicación de metadata. En la rama sólo-gratuita la invoca el
+   * sellado terminal, que es la única escritura post-outcome que esa rama tiene.
+   *
+   * 🔴 NO es una segunda escritura sobre `prospect_batches`: en las dos ramas
+   * viaja DENTRO de una escritura que ya existía. Y NO es una segunda autoridad:
+   * la cifra sale de `resolveRunAcceptance` y se serializa con
+   * `toAcceptedForTargetMetadata`, las dos de CUT-7.
+   *
+   * 🔴 `completeValidCandidates` se pasa TAL CUAL, `null` incluido. Sustituirlo
+   * por `persistedCandidates` publicaría en la base la mentira exacta que CUT-7
+   * cerró en la UI.
+   */
+  const resolveAcceptedForTargetBatchMetadata: ResolveExtraBatchMetadata = (writerOutcome) => ({
+    [ACCEPTED_FOR_TARGET_METADATA_KEY]: toAcceptedForTargetMetadata(
+      resolveRunAcceptance({
+        completeValidCandidates: writerOutcome.completeValidCandidates,
+        persistedCandidates: writerOutcome.persistedCandidates,
+      }),
+    ),
+  });
+
+  /**
+   * AGENT1-LOCAL-CUT8B § 4 — el bloque canónico de una corrida cuya ruta de pago
+   * NO corrió, por el MISMO proyector y con la MISMA forma que el de la mixta.
+   *
+   * 🔴 No hay una clave libre y otra de pago, ni un shape reducido: es la misma
+   * llamada con el aporte de pago declarado ausente. Cualquier variante
+   * —`free_accepted_for_target` y compañía— sería una segunda forma del mismo
+   * hecho, que es lo que este corte existe para impedir.
+   */
+  const freeOnlyAcceptedForTargetMetadata = (): Record<string, unknown> | null =>
+    resolveAcceptedForTargetBatchMetadata(PAID_ROUTE_NOT_RUN_WRITER_TRUTH);
+
   /**
    * AGENT1-LOCAL-CUT7-ACCEPTED-FOR-TARGET §§ 1, 6, 9 — cuántos candidatos
    * CUENTAN hacia el objetivo antes de que la ruta de pago exista.
    *
-   * 🔴 La mitad de pago entra como `CONTRIBUTOR_NOT_RUN` —cero CONOCIDO— y no
+   * 🔴 La mitad de pago entra declarada como «no corrió» —cero CONOCIDO— y no
    * como una ausencia de medición: en este punto el proveedor todavía no ha
    * corrido, y «no corrió» es una respuesta, no un dato que falte.
+   *
+   * 🔴 CUT-8B — sale del helper único de corrida, no de una llamada propia a
+   * `resolveAcceptedForTarget`. Es el mismo número que la metadata durable de
+   * esta rama publica, resuelto una sola vez.
    */
-  const acceptedBeforePaidRoute = resolveAcceptedForTarget({
-    demand: apolloResultDemand,
-    freePersistedCandidates: prePaidContributed ? (prePaidNovelty?.persistedCount ?? 0) : 0,
-    paid: CONTRIBUTOR_NOT_RUN,
-  });
+  const acceptedBeforePaidRoute = resolveRunAcceptance(PAID_ROUTE_NOT_RUN_WRITER_TRUTH);
 
   // § 15 — hueco cerrado gratis ⇒ NI estimación, NI reserva, NI cliente de
   // proveedor, NI llamada. Se exige además un lote real: sin él no habría a dónde
@@ -1190,6 +1325,11 @@ export async function executeProspectWizardGeneration(
         .sealFreeOnlyBatchStatus({
           batchId: prePaidNovelty.batchId,
           status: sealDecision.status,
+          // 🔴 CUT-8B — la ÚNICA publicación durable de esta rama. Viaja EN el
+          // sellado que ya existía, no en una escritura nueva: es la misma forma
+          // que `candidate-writer` usa en la rama mixta (una escritura terminal
+          // que carga `status` y `metadata` a la vez).
+          metadata: freeOnlyAcceptedForTargetMetadata(),
         })
         .catch(() => undefined);
     }
@@ -1212,78 +1352,6 @@ export async function executeProspectWizardGeneration(
       runProvider: runProviderOutcome,
     };
   }
-
-  // ── CUT-6 §§ 3, 5, 13, 14 — el aporte GRATUITO que YA es durable ────────────
-  //
-  // 🔴 Ésta es la mitad que CUT-6 añade sobre CUT-2. Antes de este corte
-  // `apolloResultDemand` era el ÚNICO uso del resultado de la capa gratuita, y
-  // eso bastaba mientras el aporte parcial se descartaba: no había filas que
-  // nombrar. Con la activación, esas filas EXISTEN, están en el lote canónico y
-  // sobreviven a lo que le pase después a la ruta de pago —fallo, presupuesto
-  // denegado, proveedor caído o cero resultados—. Todo camino de salida que las
-  // ignore le estaría diciendo al usuario que no tiene nada cuando sí tiene.
-  //
-  // 🔴 Se deriva de `prePaidContributed`, la MISMA condición que gobierna la
-  // demanda, y no de una segunda lectura: si el hueco se recortó, hay filas; si no
-  // se recortó, no las hay. Dos condiciones separadas podrían discrepar.
-  const freeContribution: { batchId: string; persistedCandidates: number } | null =
-    prePaidContributed && prePaidNovelty !== null && prePaidNovelty.batchId !== null
-      ? {
-          batchId: prePaidNovelty.batchId,
-          persistedCandidates: prePaidNovelty.persistedCount,
-        }
-      : null;
-
-  /**
-   * AGENT1-LOCAL-CUT8 §§ 1, 2 — LA ÚNICA ARITMÉTICA DE ACEPTACIÓN DE LA CORRIDA.
-   *
-   * La aceptación hacia el objetivo hace falta en DOS momentos que no coinciden:
-   *
-   *   · dentro del writer, para que el bloque `accepted_for_target` se publique
-   *     en la MISMA escritura de metadata que el writer ya hacía (DECISIÓN B);
-   *   · después del pipeline, para el resultado de la acción y para el mago.
-   *
-   * Tenerlas como dos llamadas sueltas a `resolveAcceptedForTarget` habría sido
-   * el mismo defecto de CUT-7 un piso más arriba: dos expresiones que hoy
-   * coinciden y que mañana pueden separarse. Aquí hay UNA, y las dos la llaman.
-   *
-   * 🔴 Lo que varía entre las dos llamadas es SÓLO el aporte de pago, porque es
-   * lo único que cambia entre «el writer acaba de contar» y «el pipeline ya
-   * devolvió». El objetivo, la demanda y el aporte gratuito son los mismos
-   * objetos capturados aquí — no se releen ni se recalculan.
-   */
-  const resolveRunAcceptance = (paidWriterTruth: {
-    completeValidCandidates: number | null | undefined;
-    persistedCandidates: number;
-  }) =>
-    resolveAcceptedForTarget({
-      demand: apolloResultDemand,
-      freePersistedCandidates: freeContribution?.persistedCandidates ?? 0,
-      paid: paidAcceptedContributionFromWriterTruth(paidWriterTruth),
-    });
-
-  /**
-   * DECISIÓN B — la costura durable. Se invoca DENTRO del writer, con lo que el
-   * writer acaba de escribir, y lo devuelto se esparce en su única publicación
-   * de metadata.
-   *
-   * 🔴 NO es una segunda escritura sobre `prospect_batches`: el mago no vuelve a
-   * tocar la fila después del writer. Y NO es una segunda autoridad: la cifra
-   * sale de `resolveRunAcceptance` y se serializa con
-   * `toAcceptedForTargetMetadata`, las dos de CUT-7.
-   *
-   * 🔴 `completeValidCandidates` se pasa TAL CUAL, `null` incluido. Sustituirlo
-   * por `persistedCandidates` publicaría en la base la mentira exacta que CUT-7
-   * cerró en la UI.
-   */
-  const resolveAcceptedForTargetBatchMetadata: ResolveExtraBatchMetadata = (writerOutcome) => ({
-    [ACCEPTED_FOR_TARGET_METADATA_KEY]: toAcceptedForTargetMetadata(
-      resolveRunAcceptance({
-        completeValidCandidates: writerOutcome.completeValidCandidates,
-        persistedCandidates: writerOutcome.persistedCandidates,
-      }),
-    ),
-  });
 
   /**
    * CUT-6 § 14 — el bloque que un resultado de FALLO usa para no mentir por
@@ -1344,7 +1412,17 @@ export async function executeProspectWizardGeneration(
     // Best-effort, igual que el sellado de CUT-5: un sellado fallido no puede
     // borrar filas que ya existen.
     await deps
-      .sealFreeOnlyBatchStatus({ batchId: freeContribution.batchId, status: decision.status })
+      .sealFreeOnlyBatchStatus({
+        batchId: freeContribution.batchId,
+        status: decision.status,
+        // 🔴 CUT-8B § 4 CASO 2 — estas salidas terminan la corrida con SÓLO la
+        // contribución gratuita: el presupuesto bloqueó la parte de pago o la
+        // reserva no llegó a existir, así que ningún writer de proveedor va a
+        // publicar nada. La aceptación durable tiene que decir la verdad
+        // —`accepted = 7`, `remaining = 3`, `target_reached = false`— y no
+        // quedarse ausente porque el proveedor no corriera.
+        metadata: freeOnlyAcceptedForTargetMetadata(),
+      })
       .catch(() => undefined);
   };
 

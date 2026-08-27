@@ -207,42 +207,94 @@ describe('CUT-8 § G — la metadata NO recalcula la aceptación', () => {
     assert.doesNotMatch(seam, /[+\-]\s*\d|Math\.(max|min)|>=/);
   });
 
+  /**
+   * 🔴 CUT-8B endureció esta guarda de 2 a 1. Antes del corte la rama
+   * sólo-gratuita llamaba a `resolveAcceptedForTarget` por su cuenta y el helper
+   * de corrida lo llamaba otra vez: dos entradas a la misma aritmética que hoy
+   * coincidían y mañana podían separarse. Ahora las TRES lecturas de aceptación
+   * de la corrida —la previa al pago, la durable y la del resultado— pasan por
+   * `resolveRunAcceptance`, así que el mago invoca al resolver canónico UNA vez.
+   */
   it('🔴 § 2 — existe UNA sola invocación del resolver de aceptación en el mago', () => {
     const src = code(ACTIONS);
     const calls = src.match(/resolveAcceptedForTarget\(\{/g) ?? [];
     assert.equal(
       calls.length,
-      2,
-      '🔴 la de la rama sólo-gratuita y la del helper único. Una tercera sería una segunda aritmética',
+      1,
+      '🔴 sólo la del helper único de corrida. Una segunda sería una segunda aritmética',
     );
     const helper = src.match(/const resolveRunAcceptance = /g) ?? [];
     assert.equal(helper.length, 1);
   });
 
+  it('🔴 § 2 EN NEGATIVO — una segunda llamada directa pondría roja la guarda', () => {
+    const mutated =
+      code(ACTIONS) +
+      '\nconst rogue = resolveAcceptedForTarget({ demand, freePersistedCandidates: 0, paid });\n';
+    const calls = mutated.match(/resolveAcceptedForTarget\(\{/g) ?? [];
+    assert.equal(calls.length, 2, '🔴 así se vería la segunda aritmética que la guarda detiene');
+  });
+
   /**
-   * 🔴 DECISIÓN B — la prohibición no es «no escribir en el lote»: el mago ya
-   * sella `status` en dos sitios legítimos y eso no cambia. Lo prohibido es que
-   * el mago toque `metadata`, que es la columna que el writer publica entera y
-   * de una vez. Un UPDATE nuestro por detrás podría pisarla.
+   * 🔴 DECISIÓN B — la prohibición no es «no escribir en el lote»: el mago sella
+   * `status` en sitios legítimos y eso no cambia. Lo prohibido es una
+   * publicación de metadata INDEPENDIENTE, por detrás de la que el writer hace.
+   *
+   * 🔴 CUT-8B redefine dónde está la línea, no la borra. La rama sólo-gratuita
+   * no pasa por ningún writer de proveedor, así que su sellado terminal ES su
+   * única publicación durable: carga `status` y `metadata` en el MISMO UPDATE,
+   * exactamente como el sellado terminal de `candidate-writer` en la rama mixta.
+   * Lo que sigue prohibido —y lo que estas guardas comprueban— es que aparezca
+   * un UPDATE de metadata ADICIONAL, o un `metadata || ...` de Postgres.
    */
-  it('🔴 § B — el mago NO abre una segunda escritura de METADATA sobre el lote', () => {
+  it('🔴 § B — el mago publica metadata en UNA sola escritura terminal', () => {
     const src = code(ACTIONS);
-    let from = 0;
-    let seen = 0;
-    for (;;) {
-      const at = src.indexOf("from('prospect_batches')", from);
-      if (at < 0) break;
-      seen += 1;
-      const w = src.slice(at, at + 300);
-      assert.doesNotMatch(
-        w,
-        /\.update\([\s\S]{0,80}metadata/,
-        '🔴 la aceptación viaja por la costura del writer, nunca por un UPDATE de metadata propio',
-      );
-      assert.match(w, /\.update\(\{ status \}\)/, 'las escrituras del mago sellan estado y nada más');
-      from = at + 10;
-    }
-    assert.ok(seen > 0, 'las escrituras de estado existen y siguen acotadas');
+    // El literal del UPDATE, no una ventana de caracteres: `[^}]*` se detiene en
+    // la primera llave de cierre, así que `.update({ status })` no puede
+    // arrastrar la escritura de al lado y contarse como publicación.
+    const metadataWrites = src.match(/\.update\(\{[^}]*metadata/g) ?? [];
+    assert.equal(
+      metadataWrites.length,
+      1,
+      '🔴 UNA publicación independiente de metadata por ejecución, y ni una más',
+    );
+    assert.match(
+      metadataWrites[0],
+      /\.update\(\{\s*status,/,
+      '🔴 una publicación que no selle estado sería una escritura aparte',
+    );
+    assert.doesNotMatch(
+      src,
+      /\.update\(\{\s*metadata/,
+      '🔴 un UPDATE sólo de metadata es la segunda escritura que este corte prohíbe',
+    );
+    assert.match(
+      src,
+      /metadata: composeFreeOnlyTerminalBatchMetadata\(/,
+      '🔴 la metadata se compone con el proyector nombrado, no a mano',
+    );
+    // Las escrituras que NO publican metadata siguen sellando estado y nada más.
+    const statusOnly = src.match(/\.update\(\{ status \}\)/g) ?? [];
+    assert.ok(statusOnly.length >= 2, 'los sellados de estado acotados siguen existiendo');
+  });
+
+  it('🔴 § P EN NEGATIVO — una segunda publicación pondría roja la guarda', () => {
+    const mutated =
+      code(ACTIONS) +
+      "\nawait supabase.from('prospect_batches').update({ metadata: extra }).eq('id', batchId);\n";
+    const metadataWrites = mutated.match(/\.update\(\{[^}]*metadata/g) ?? [];
+    assert.equal(
+      metadataWrites.length,
+      2,
+      '🔴 así se vería la segunda publicación que la guarda detiene',
+    );
+    assert.match(mutated, /\.update\(\{\s*metadata/);
+  });
+
+  it('🔴 el mago NUNCA fusiona metadata con `||` de Postgres', () => {
+    const src = code(ACTIONS);
+    assert.doesNotMatch(src, /metadata\s*\|\|\s*/, '🔴 el merge jsonb en SQL queda prohibido');
+    assert.doesNotMatch(src, /jsonb_set|\bmetadata\s*=\s*metadata\b/);
   });
 
   it('el writer invoca la costura UNA vez, antes de su única publicación', () => {
