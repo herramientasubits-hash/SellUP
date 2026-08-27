@@ -1069,7 +1069,51 @@ describe('4O-H2 — alcance', () => {
   // sin comentarios que no nombre el hito), así que suben a `MILESTONE_SURFACE`. La partición en
   // dos listas sigue siendo la estructura correcta — es la que hace posible mover un archivo de
   // mitad sin reabrir el patrón ni la unión cerrada.
-  it('«Buscar más números» existe SÓLO en la superficie del candidato, nunca en la oficial', () => {
+  //
+  // ═══════════════════════════════════════════════════════════════
+  // AGENT2A-POST-APPROVAL-RESCUE-PARITY — la premisa de 1 se cae, la garantía no
+  // ═══════════════════════════════════════════════════════════════
+  //
+  // ── OLD_ASSERTION ────────────────────────────────────────────
+  // «Un contacto ya aprobado no tiene corrida de waterfall, ni reserva, ni candidato al que
+  // añadir números, así que un botón allí prometería algo que no hay detrás» (nota de 1, arriba).
+  // La consecuencia práctica era el título de este caso: «Buscar más números» NUNCA en la
+  // superficie oficial.
+  //
+  // ── WHY_OBSOLETE ─────────────────────────────────────────────
+  // Falso, medido en Producción. El mismo candidato aprobado que dio origen a un contacto
+  // oficial tenía CINCO filas en `phone_reveal_waterfall_runs` —con `credit_reservation_group_id`
+  // poblado— y su `matched_contacts_id` apuntaba exactamente al contacto abierto en la ficha. SÍ
+  // hay corrida, SÍ hay reserva, y el candidato al que añadir números es precisamente el que la
+  // aprobación registró: el mismo que la migración 128
+  // (`project_approved_candidate_phones_onto_contact`) usa como su token de confirmación para
+  // proyectar teléfonos del candidato al contacto. La premisa describía un producto que dejó de
+  // existir en cuanto esa migración se escribió.
+  //
+  // Y el defecto que esa premisa protegía era real: `AGENT2A-APPROVED-CANDIDATE-LUSHA-LEG`
+  // encontró que `approved` estaba en la lista de estados «no editable» de la pata Lusha, así
+  // que la revelación de teléfono era estructuralmente imposible para el 100 % de los contactos
+  // ya aprobados — cinco corridas idénticas terminando en `candidate_not_editable`.
+  //
+  // ── NEW_INVARIANT ────────────────────────────────────────────
+  // «Buscar más números» SÍ puede alcanzar al contacto oficial, pero SÓLO por DELEGACIÓN:
+  //
+  //   1. NO hay una segunda implementación. `post-approval-reveal-actions.ts` es el ÚNICO
+  //      archivo del contacto oficial que invoca los puntos de entrada del candidato
+  //      (`searchMoreCandidatePhonesAction`, `getSearchMorePhonesPreflightAction`), y los invoca
+  //      TAL CUAL — mismo plan, mismo tope de créditos, misma reserva;
+  //   2. el navegador NUNCA elige el candidato. El id que sale del cliente es el del CONTACTO;
+  //      el candidato se resuelve en el servidor desde `contacts.metadata.source_candidate_id`
+  //      —la MISMA prueba durable de AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1—,
+  //      fail-closed: sin ese vínculo no se ofrece nada, ni siquiera lo gratis
+  //      (`post-approval-rescue-core.ts::classifyOfficialContactRescue`);
+  //   3. `post-approval-rescue-core.ts` sólo MENCIONA el hito en un comentario de diseño — no lo
+  //      importa ni invoca ninguno de sus puntos de entrada — así que sigue siendo prosa, no
+  //      superficie, y entra en `MILESTONE_PROSE_ONLY`.
+  //
+  // La guarda pasa de «nunca en la oficial» a «nunca DOS VECES, y nunca por decisión del
+  // navegador», que es la propiedad que de verdad importaba en 1: que el hito viva en UN sitio.
+  it('«Buscar más números» en el contacto oficial delega SIEMPRE en el candidato; nunca lo reimplementa', () => {
     const SEARCH_MORE_PATTERN = /buscar_mas_numeros|searchMorePhones|search_more_phones|search-more-phones/i;
 
     // Los puntos de entrada que COBRAN o que montan el CTA. Ninguno de ellos deletrea
@@ -1160,10 +1204,12 @@ describe('4O-H2 — alcance', () => {
       // teléfono no desaparece— se puedan probar montándolo solo. Desde 1J ya no lleva modal:
       // el clic ejecuta, y la divulgación de costo se lee antes de pulsar.
       'src/components/contact-enrichment/candidate-search-more-phones-cta.tsx',
-      // El drawer del CANDIDATO en revisión, que lo monta por COMPOSICIÓN. Es la superficie
-      // correcta y la ÚNICA: un contacto ya aprobado no tiene corrida, ni reserva, ni
-      // candidato al que añadir números, así que el mismo botón allí prometería algo que no
-      // existe detrás. La primera aserción de este caso es la que lo vigila.
+      // El drawer del CANDIDATO en revisión, que lo monta por COMPOSICIÓN. Sigue siendo la
+      // implementación DIRECTA de la operación —arma el plan, pinta el CTA de pago del propio
+      // candidato—. AGENT2A-POST-APPROVAL-RESCUE-PARITY añadió una segunda superficie que la
+      // ALCANZA (el contacto oficial, vía `post-approval-reveal-actions.ts`), pero esa segunda
+      // superficie DELEGA aquí: no hay una copia del plan ni de la reserva. Ver la nota
+      // OLD_ASSERTION/WHY_OBSOLETE/NEW_INVARIANT arriba del caso.
       'src/components/contact-enrichment/contact-candidate-detail-sheet.tsx',
       'src/components/contact-enrichment/search-more-phones-copy.ts',
       // ── Escritura ──────────────────────────────────────────────
@@ -1187,19 +1233,32 @@ describe('4O-H2 — alcance', () => {
       // La secuencia que puede cobrar: reserva, privacidad, claim, UNA llamada, append,
       // cierre. Es el único módulo de esta lista que llega a un proveedor.
       'src/modules/contact-enrichment/search-more-phones-runtime.ts',
+      // ── Contacto oficial, por DELEGACIÓN (AGENT2A-POST-APPROVAL-RESCUE-PARITY) ──
+      // El ÚNICO archivo del contacto oficial que invoca los puntos de entrada del candidato.
+      // Resuelve el candidato fuente desde `contacts.metadata.source_candidate_id`
+      // —fail-closed, el navegador nunca elige el candidato— y llama TAL CUAL a
+      // `searchMoreCandidatePhonesAction` / `getSearchMorePhonesPreflightAction`: mismo plan,
+      // mismo tope, misma reserva. Cuenta como superficie y no como prosa porque construye la
+      // llamada real, no sólo la nombra.
+      'src/modules/contact-enrichment/post-approval-reveal-actions.ts',
     ];
 
     // Archivos que mencionan el hito SÓLO en prosa. No son su superficie: serían diagnóstico
     // admin-only de sólo lectura que cita el nombre del hito sin nombrarlo en código. La
     // aserción de más abajo es la que los obligaría a seguir siéndolo.
     //
-    // VACÍA desde 1H: los dos únicos miembros que tuvo (el endpoint de diagnóstico y el lector
-    // de flags) subieron a `MILESTONE_SURFACE` porque 1H les añadió el flag DEDICADO del hito
-    // en código, no sólo en un comentario — ver la nota junto a esos dos elementos arriba. No
-    // se borra la lista ni el mecanismo: un archivo nuevo que sólo mencione el hito en prosa
-    // (sin implementar nada suyo) sigue teniendo que declararse aquí para poder pasar la
-    // aserción de unión de más abajo.
-    const MILESTONE_PROSE_ONLY: string[] = [];
+    // Volvió a tener un miembro con AGENT2A-POST-APPROVAL-RESCUE-PARITY: un archivo nuevo que
+    // sólo mencione el hito en prosa (sin implementar nada suyo) sigue teniendo que declararse
+    // aquí para poder pasar la aserción de unión de más abajo.
+    const MILESTONE_PROSE_ONLY: string[] = [
+      // El núcleo PURO del rescate del contacto oficial. Su doc-comment cita
+      // `getSearchMorePhonesPreflightAction` en PROSA para explicar por qué su tipo
+      // `SearchMorePreflight` no recalcula el tope de créditos («llega ya resuelto por el
+      // preflight del servidor»). Sin comentarios, su código no nombra el hito, no lo importa y
+      // no invoca ninguno de sus puntos de entrada — la aserción de más abajo lo demuestra, no
+      // lo supone.
+      'src/modules/contact-enrichment/post-approval-rescue-core.ts',
+    ];
 
     // La unión sigue CERRADA: un archivo nuevo que nombre el hito tiene que entrar en una de
     // las dos mitades, y ese es el momento de preguntarse si la operación se está filtrando
