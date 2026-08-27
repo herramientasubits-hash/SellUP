@@ -343,21 +343,27 @@ describe('la razón describe la operación PENDIENTE, no la que la originó', ()
 
 describe('10. el cuerpo EXACTO del PATCH', () => {
   it('un saliente con valor manda ese valor', () => {
-    assert.deepEqual(buildHubSpotContactUpdateProperties({ phone: OLD_PHONE }), {
-      phone: OLD_PHONE,
-    });
+    assert.deepEqual(
+      buildHubSpotContactUpdateProperties({ phone: OLD_PHONE, mobilePhone: null }),
+      { phone: OLD_PHONE, mobilephone: '' },
+    );
   });
 
   it('un saliente NULO manda la CADENA VACÍA, que es como HubSpot borra una propiedad', () => {
-    assert.deepEqual(buildHubSpotContactUpdateProperties({ phone: null }), { phone: '' });
+    assert.deepEqual(buildHubSpotContactUpdateProperties({ phone: null, mobilePhone: null }), {
+      phone: '',
+      mobilephone: '',
+    });
   });
 
   it('borrar NO se representa OMITIENDO la propiedad', () => {
     // Omitirla la deja como estaba: sería un no-op silencioso y el contacto volvería a
     // `synced` sobre un número que HubSpot conserva.
-    const props = buildHubSpotContactUpdateProperties({ phone: null });
+    const props = buildHubSpotContactUpdateProperties({ phone: null, mobilePhone: null });
     assert.equal(Object.hasOwn(props, 'phone'), true);
-    assert.equal(Object.keys(props).length, 1, 'una sola propiedad, ni una más');
+    // AGENT2A extiende el cuerpo con `mobilephone`: ya no es una sola propiedad, son las dos
+    // que el contrato declara — ninguna extra, ninguna de menos.
+    assert.equal(Object.keys(props).length, 2, 'phone y mobilephone, ni una más ni una menos');
   });
 
   it('hay UNA sola representación del borrado en todo el árbol', () => {

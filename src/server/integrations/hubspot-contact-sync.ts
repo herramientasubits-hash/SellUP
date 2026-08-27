@@ -291,6 +291,7 @@ export async function createHubSpotContact(
   if (input.lastname) properties.lastname = input.lastname;
   if (input.jobtitle) properties.jobtitle = input.jobtitle;
   if (input.phone) properties.phone = input.phone;
+  if (input.mobilePhone) properties.mobilephone = input.mobilePhone;
 
   try {
     const response = await fetch(`${HUBSPOT_BASE}/crm/v3/objects/contacts`, {

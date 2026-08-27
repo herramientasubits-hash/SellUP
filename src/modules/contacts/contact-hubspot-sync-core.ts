@@ -61,24 +61,27 @@ export interface HubSpotContactCreateInput {
   lastname: string | null;
   jobtitle: string | null;
   phone: string | null;
+  mobilePhone: string | null;
 }
 
 /**
  * Propiedades enviadas al ACTUALIZAR un contacto ya vinculado (CUT-2 · CUT-3A).
  *
- * Un solo campo, y no por falta de tiempo: `phone` es el único cuyo mapeo está validado en
- * este corte. `email` es además la IDENTIDAD con la que se buscó el contacto —reescribirlo por
+ * `phone` y `mobilePhone` (AGENT2A) son los únicos campos cuyo mapeo está validado en este
+ * corte. `email` es además la IDENTIDAD con la que se buscó el contacto —reescribirlo por
  * un PATCH podría fusionar o desviar la ficha del CRM del cliente—, así que queda fuera hasta
  * que exista un contrato que diga qué hacer cuando cambia.
  *
- * CUT-3A hace `phone` NULABLE, y `null` significa BORRAR la propiedad en HubSpot. Se modela
- * como ausencia y no como cadena vacía a propósito: la cadena vacía es la representación que
- * HubSpot exige EN EL CABLE, y dejarla entrar en el dominio obligaría a cada llamador a
- * recordarla —y a alguno se le olvidaría, enviando `""` donde quería un número o al revés. La
- * traducción vive en UN solo sitio: `buildHubSpotContactUpdateProperties`.
+ * CUT-3A hace `phone` NULABLE, y `null` significa BORRAR la propiedad en HubSpot; `mobilePhone`
+ * sigue la misma convención. Se modela como ausencia y no como cadena vacía a propósito: la
+ * cadena vacía es la representación que HubSpot exige EN EL CABLE, y dejarla entrar en el
+ * dominio obligaría a cada llamador a recordarla —y a alguno se le olvidaría, enviando `""`
+ * donde quería un número o al revés. La traducción vive en UN solo sitio:
+ * `buildHubSpotContactUpdateProperties`.
  */
 export interface HubSpotContactUpdateInput {
   phone: string | null;
+  mobilePhone: string | null;
 }
 
 /**
@@ -88,12 +91,13 @@ export interface HubSpotContactUpdateInput {
  * HubSpot borra una propiedad recibiéndola como CADENA VACÍA; omitirla del objeto `properties`
  * no la borra, la deja como estaba. Por eso `null` se traduce a `''` y nunca a una omisión: un
  * borrado que se representara omitiendo el campo sería un no-op silencioso, y el contacto
- * seguiría diciendo `synced` sobre un número que HubSpot conserva.
+ * seguiría diciendo `synced` sobre un número que HubSpot conserva. `mobilephone` (minúscula,
+ * el nombre de propiedad real de HubSpot) sigue la misma convención que `phone`.
  */
 export function buildHubSpotContactUpdateProperties(
   input: HubSpotContactUpdateInput,
-): { phone: string } {
-  return { phone: input.phone ?? '' };
+): { phone: string; mobilephone: string } {
+  return { phone: input.phone ?? '', mobilephone: input.mobilePhone ?? '' };
 }
 
 export type CompanyAssociationStatus = 'associated' | 'failed';

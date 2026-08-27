@@ -268,7 +268,7 @@ describe('4 · 5. el mismo `phone_removed`, dos autorizaciones opuestas', () => 
         // El cuerpo del PATCH lo construye el motor de CUT-3A: `null` significa BORRAR, y su
         // representación en el cable (`''`) vive en UN solo sitio. Aquí sólo se comprueba que
         // el ejecutor llega a pedirlo.
-        sent.push({ phone: null });
+        sent.push({ phone: null, mobilePhone: null });
         return {
           ok: true,
           status: 'updated',
@@ -281,7 +281,11 @@ describe('4 · 5. el mismo `phone_removed`, dos autorizaciones opuestas', () => 
     assert.equal(report.outcome, 'attempted_updated');
     assert.equal(report.staleReason, 'phone_removed');
     assert.equal(report.staleSource, 'user_edit');
-    assert.deepEqual(sent, [{ phone: null }], 'un PATCH de BORRADO, exactamente uno');
+    assert.deepEqual(
+      sent,
+      [{ phone: null, mobilePhone: null }],
+      'un PATCH de BORRADO, exactamente uno',
+    );
   });
 
   it('5. `phone_removed` de una DSAR ⇒ CERO PATCH, y sigue `stale`', async () => {

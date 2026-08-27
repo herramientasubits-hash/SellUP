@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import {
   runSyncContactToHubSpot,
   buildHubSpotContactProperties,
+  buildHubSpotContactUpdateProperties,
   splitContactName,
   buildSyncMetadata,
   sanitizeEmail,
@@ -162,6 +163,31 @@ test('buildSyncMetadata preserva metadata previa y agrega hubspot_sync', () => {
   assert.equal(sync.hubspot_company_id, 'hs-company-99');
   assert.equal(sync.company_association, 'associated');
   assert.equal(sync.synced_by, 'user-1');
+});
+
+test('HubSpotContactCreateInput y HubSpotContactUpdateInput aceptan mobilePhone', () => {
+  const createInput: import('../contact-hubspot-sync-core').HubSpotContactCreateInput = {
+    email: 'a@b.com',
+    firstname: 'Ana',
+    lastname: 'Pérez',
+    jobtitle: null,
+    phone: '+57 1 555 0000',
+    mobilePhone: '+57 300 000 0000',
+  };
+  const updateInput: import('../contact-hubspot-sync-core').HubSpotContactUpdateInput = {
+    phone: '+57 1 555 0000',
+    mobilePhone: '+57 300 000 0000',
+  };
+  assert.equal(createInput.mobilePhone, '+57 300 000 0000');
+  assert.equal(updateInput.mobilePhone, '+57 300 000 0000');
+});
+
+test('buildHubSpotContactUpdateProperties traduce mobilePhone con valor real, no sólo null', () => {
+  const props = buildHubSpotContactUpdateProperties({
+    phone: null,
+    mobilePhone: '+57 300 000 0000',
+  });
+  assert.deepEqual(props, { phone: '', mobilephone: '+57 300 000 0000' });
 });
 
 // ── Validaciones / errores ──────────────────────────────────────
