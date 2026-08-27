@@ -257,21 +257,33 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // anterior: sin tablas, columnas, índices, triggers ni policies nuevas; M128 únicamente
       // crea/reemplaza una función y sus permisos, sin backfill y sin re-declarar la 110/111/116.
       // AUTORADA y NO APLICADA.
-      '128_project_approved_candidate_phones_onto_contact.sql',
-      'el techo conocido es la 128 (la proyección post-aprobación), que no edita la cadena de teléfono 109–117',
+      // AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1 mueve el techo a la 132: el tramo 129–132 de
+      // la cadena de sincronización con HubSpot de Agente 2 —129 la completitud del estado
+      // durable `stale`, 130 su procedencia, 131 la 128 re-emitida para producirlo con
+      // procedencia `reveal`, 132 la línea base de los contactos ya vinculados—.
+      //
+      // La 129 y la 130 re-emiten la 115 y la 117, y la 131 la 128, así que las tres NOMBRAN la
+      // cadena de teléfono y quedan EXENTAS del barrido ciego de más abajo por el mismo motivo
+      // que la 120, la 122 y la 128: re-emitir una función con `CREATE OR REPLACE` no es EDITAR
+      // el archivo de la migración que la creó, y ninguna de las tres añade tabla, columna,
+      // índice, trigger ni policy. La 132 no la nombra en absoluto —su único UPDATE escribe
+      // `contacts.metadata`— y por eso sí pasa por el barrido ciego. AUTORADAS y NO APLICADAS.
+      '132_agent2_hubspot_legacy_sync_state_backfill.sql',
+      'el techo conocido es la 132 (la línea base del estado de HubSpot), y ninguna del tramo 129–132 edita el archivo de una migración anterior de la cadena de teléfono 109–117',
     );
     assert.equal(
       // La ventana sube con el techo DECLARADO arriba: la 125 (reconciliación genérica), la 126
-      // (AGENT1-CUT3B4, independiente) y la 127 (BR, renumerada dos veces) están autorizadas y
-      // nombradas, así que lo prohibido pasa a ser la 129 y superiores
-      // (AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 declaró la 128 arriba).
-      files.some((file) => /^1(29|[3-9]\d)/.test(file)),
+      // (AGENT1-CUT3B4, independiente), la 127 (BR, renumerada dos veces), la 128
+      // (AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1) y el tramo 129–132 de
+      // AGENT2-FINAL-INTEGRATION están autorizadas y nombradas una por una, así que lo prohibido
+      // pasa a ser la 133 y superiores.
+      files.some((file) => /^1(3[3-9]|[4-9]\d)/.test(file)),
       false,
       // La 120, la 121 y la 122 son AUTORIZADAS y están declaradas arriba con lo que hacen. Lo que
       // esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último hito
       // conocido sin declararla; la afirmación de que ninguna de ellas escribe sobre las
       // tablas de la cadena de teléfono se comprueba justo abajo, de forma directa.
-      'ninguna migración 129 o superior',
+      'ninguna migración 133 o superior',
     );
     // La afirmación que de verdad importa, ya no delegada en el orden alfabético:
     // ninguna migración posterior a la ÚLTIMA de la cadena de teléfono escribe sobre sus
@@ -351,7 +363,21 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
     // conseguido DESPUÉS de la aprobación no tenía ninguna sentencia en el esquema que lo
     // llevara al contacto.
     const POST_APPROVAL_128 = '128_project_approved_candidate_phones_onto_contact.sql';
-    const BLIND_SWEEP_EXEMPT = new Set([RESTATED_120, SEARCH_MORE_122, POST_APPROVAL_128]);
+    // Las tres re-emisiones de Agente 2 quedan exentas por el MISMO motivo que la 120, la 122 y
+    // la 128: nombran la cadena porque re-emiten funciones que ya la escribían, sin editar el
+    // archivo de la migración que las creó y sin añadir esquema. La 132 NO está exenta —no nombra
+    // la cadena en absoluto— así que pasa por el barrido ciego como cualquier migración ajena.
+    const RESTATED_129 = '129_agent2_contact_hubspot_stale_completeness.sql';
+    const RESTATED_130 = '130_agent2_contact_hubspot_stale_source.sql';
+    const RESTATED_131 = '131_agent2_post_approval_reveal_stale_producer.sql';
+    const BLIND_SWEEP_EXEMPT = new Set([
+      RESTATED_120,
+      SEARCH_MORE_122,
+      POST_APPROVAL_128,
+      RESTATED_129,
+      RESTATED_130,
+      RESTATED_131,
+    ]);
 
     for (const file of files.filter(
       (f) => /^1(1[89]|[2-9]\d)/.test(f) && !BLIND_SWEEP_EXEMPT.has(f),

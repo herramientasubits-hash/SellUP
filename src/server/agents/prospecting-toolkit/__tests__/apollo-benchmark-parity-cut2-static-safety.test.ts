@@ -482,14 +482,31 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
     // aprobación creó (Agente 2A, teléfono). El siguiente número libre es la 129, y la AUTORÍA
     // se barre ahora también sobre la 128: un número ocupado por otro hito no es una infracción
     // de este, y la comprobación que de verdad protege este corte es la de autoría.
-    assert.equal(migrations.filter((f) => f.startsWith('129')).length, 0);
+    //
+    // AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1 reclamó después el tramo 129–132: la cadena
+    // de sincronización con HubSpot de Agente 2 (129 la completitud del estado durable `stale`,
+    // 130 su procedencia, 131 la 128 RE-EMITIDA que produce el pendiente, 132 la línea base de
+    // los contactos ya vinculados), canonicalizada desde cuatro archivos que nacieron sin número
+    // mientras la numeración 125/126/127 estaba en disputa aguas arriba. AUTORADAS y NO APLICADAS.
+    //
+    // 🔴 POR QUÉ ESTA LÍNEA TENÍA QUE MOVERSE, Y POR QUÉ NO DEBILITA LA GUARDA:
+    // «el siguiente número está libre» es un PROXY de «este corte no aporta migración», y el
+    // proxy caduca en cuanto CUALQUIER otro hito ocupa ese número —cosa que este corte no puede
+    // ni impedir ni provocar—. Lo que de verdad protege este corte es la AUTORÍA, que se barre
+    // abajo, y ese barrido se ENSANCHA aquí de cinco números a nueve. La guarda queda más fuerte
+    // que antes, no meramente desplazada: un número libre nunca demostró nada.
+    assert.equal(migrations.filter((f) => f.startsWith('133')).length, 0);
     for (const file of migrations.filter(
       (f) =>
         f.startsWith('124') ||
         f.startsWith('125') ||
         f.startsWith('126') ||
         f.startsWith('127') ||
-        f.startsWith('128'),
+        f.startsWith('128') ||
+        f.startsWith('129') ||
+        f.startsWith('130') ||
+        f.startsWith('131') ||
+        f.startsWith('132'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

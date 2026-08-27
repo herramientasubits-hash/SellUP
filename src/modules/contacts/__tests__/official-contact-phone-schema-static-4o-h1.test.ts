@@ -117,7 +117,7 @@ describe('114 — numeración', () => {
     assert.deepEqual(numbered, [MIGRATION_FILE]);
   });
 
-  it('127 es el número más alto del repo', () => {
+  it('132 es el número más alto del repo', () => {
     // Si otra migración pasara a 115+ sin renumerar esta, dos archivos distintos
     // compartirían orden de aplicación — el defecto que la 109 evitó dejando un hueco.
     //
@@ -165,7 +165,12 @@ describe('114 — numeración', () => {
     // columnas, índices, triggers ni policies nuevas; M128 únicamente crea/reemplaza una
     // función y sus permisos. Sin backfill: no crea contactos, no re-terminaliza
     // candidatos y no re-declara ninguna función anterior. AUTORADA y NO APLICADA.
-    assert.equal(Math.max(...numbers), 128);
+    // AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1 mueve el techo a la 132 al canonicalizar la
+    // cadena de HubSpot de Agente 2 (129/130/131/132). La 129 y la 130 re-emiten la 115 y la 117
+    // con `CREATE OR REPLACE`, y la 131 la 128: ninguna añade tabla, columna, constraint ni índice
+    // a `contact_phones` o `contact_phone_sources`, así que la 114 sigue siendo su única dueña —
+    // lo que el test siguiente exige archivo por archivo. La 132 no las nombra en absoluto.
+    assert.equal(Math.max(...numbers), 132);
   });
 
   it('114 es la ÚNICA dueña de la forma de las dos tablas oficiales', () => {

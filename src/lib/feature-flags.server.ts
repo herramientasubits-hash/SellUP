@@ -758,3 +758,67 @@ export function isPhoneRevealWaterfallFlagConfigured(): boolean {
   const raw = process.env[PHONE_REVEAL_WATERFALL_FLAG];
   return typeof raw === 'string' && raw.trim().length > 0;
 }
+
+// ============================================================
+// HubSpot Contact Auto-Sync (Agente 2A · AGENT2-CONTACT-HUBSPOT-AUTOSYNC-CUT3B)
+// ============================================================
+
+/**
+ * Nombre de la variable que habilita la sincronización AUTOMÁTICA de un contacto oficial hacia
+ * HubSpot justo después de aprobar su candidato.
+ */
+export const HUBSPOT_CONTACT_AUTO_SYNC_FLAG = 'HUBSPOT_CONTACT_AUTO_SYNC_ENABLED';
+
+/**
+ * ¿Puede la aprobación intentar sincronizar sola?
+ *
+ * Fail-closed vía el parser canónico: sólo el token exacto `true` la enciende, y CUALQUIER otra
+ * cosa —ausente, vacía, `1`, `yes`, `TRUE!`— la deja APAGADA. En CUT-3B la variable no existe en
+ * ningún entorno, así que el valor efectivo es `false` en todas partes: nada cambia para nadie
+ * hasta que alguien la declare a propósito.
+ *
+ * Este lector es la ÚNICA puerta que consulta el entorno. El motor del autosync recibe el
+ * booleano ya resuelto, para que las pruebas puedan inyectar `true` sin tocar `process.env` y
+ * sin que exista una segunda forma de encenderlo.
+ */
+export function isHubSpotContactAutoSyncEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[HUBSPOT_CONTACT_AUTO_SYNC_FLAG]);
+}
+
+// ============================================================
+// HubSpot Contact Auto PHONE UPDATE
+// (Agente 2A · AGENT2-CONTACT-HUBSPOT-AUTO-PHONE-UPDATE-CUT3C)
+// ============================================================
+
+/**
+ * Nombre de la variable que habilita el PATCH AUTOMÁTICO del teléfono de un contacto YA
+ * vinculado, cuando un cambio local lo dejó pendiente.
+ */
+export const HUBSPOT_CONTACT_AUTO_PHONE_UPDATE_FLAG =
+  'HUBSPOT_CONTACT_AUTO_PHONE_UPDATE_ENABLED';
+
+/**
+ * ¿Puede un cambio de teléfono viajar solo a HubSpot?
+ *
+ * Bandera SEPARADA de `HUBSPOT_CONTACT_AUTO_SYNC_ENABLED`, y la separación es el contrato, no un
+ * detalle de implementación. Son dos políticas con dos riesgos distintos:
+ *
+ *   * el autosync (CUT-3B) CREA un contacto en el CRM del cliente. Se ejecuta una vez, sobre una
+ *     ficha que una persona acababa de aprobar mirándola;
+ *   * esto ACTUALIZA una ficha que ya vive en el CRM, y se dispara desde caminos que nadie está
+ *     mirando —un merge, una edición, mañana un reveal—, potencialmente meses después.
+ *
+ * Un operador puede querer exactamente una de las dos. Reutilizar la bandera del autosync
+ * convertiría «quiero que los contactos nuevos lleguen a HubSpot» en «autorizo escrituras
+ * automáticas indefinidas sobre fichas existentes», que es una decisión que nadie tomó.
+ *
+ * Fail-closed vía el parser canónico: sólo el token exacto `true` la enciende. En CUT-3C la
+ * variable no existe en ningún entorno, así que el valor efectivo es `false` en todas partes.
+ *
+ * Este lector es la ÚNICA puerta que consulta el entorno; el ejecutor recibe el booleano ya
+ * resuelto para que las pruebas no tengan que tocar `process.env` y para que no exista una
+ * segunda forma de encenderlo.
+ */
+export function isHubSpotContactAutoPhoneUpdateEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[HUBSPOT_CONTACT_AUTO_PHONE_UPDATE_FLAG]);
+}

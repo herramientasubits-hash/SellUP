@@ -16,14 +16,36 @@
 // única vía a un proveedor es `deps.startCandidateReveal`, que es EL server action del reveal del
 // candidato — el mismo que dispara la ficha del candidato, con sus gates, su presupuesto, su
 // waterfall y su «no pagar dos veces».
+//
+// ── FINAL CUT · LA SEGUNDA FASE ────────────────────────────────
+//
+// A partir de este corte hay un segundo desenlace posible, y sigue siendo una DEPENDENCIA
+// inyectada: `deps.runHubSpotPhoneSyncFollowUp`. La proyección de la 128 ya no sólo escribe el
+// teléfono — dentro de su MISMA transacción marca el estado durable de HubSpot como `stale` con
+// procedencia `reveal`—, y cuando eso ocurre esta capa deja correr el ejecutor automático de
+// CUT-3C, que es el mismo que usan la edición manual y el merge.
+//
+// Tres propiedades ordenan ese añadido, y las tres se miden contando llamadas:
+//
+//   * la fase 2 corre DESPUÉS del COMMIT de la proyección, nunca antes y nunca dentro;
+//   * corre SÓLO cuando ESA proyección dejó un pendiente nuevo o con otra instrucción, así que
+//     una reconciliación repetida —que la ficha lanza al abrirse— no puede producir un segundo
+//     PATCH ni tocar un pendiente que causó otra cosa;
+//   * su fallo NO cambia `ok`. Éxito del proveedor y éxito de HubSpot son dos hechos distintos.
 
 import {
   classifyOfficialContactPhoneRevealOffer,
+  didProjectionLeaveHubSpotPendingChange,
   type OfficialContactPhoneRevealOffer,
   type OfficialContactPhoneRevealOfferView,
   type OfficialContactPhoneRevealStartResult,
   type ProjectApprovedCandidatePhonesOutcome,
 } from './post-approval-reveal-core';
+// FINAL CUT — SÓLO el tipo del informe de la fase 2. `import type` se borra al compilar: esta capa
+// sigue sin una sola arista de runtime hacia HubSpot, y la única forma de alcanzarlo es la
+// dependencia INYECTADA de abajo — que es lo que permite medir en pruebas, contando llamadas, que
+// una reconciliación repetida no produce un segundo PATCH.
+import type { ContactAutoPhoneUpdateReport } from '@/modules/contacts/contact-hubspot-auto-phone-update-core';
 import { isPhoneRevealRoleAuthorized } from './phone-reveal-authorized-roles';
 import type { RevealCandidatePhoneStatus } from './phone-reveal-core';
 import type { PhoneProcessingBasis } from './types';
@@ -87,6 +109,20 @@ export interface OfficialContactPhoneRevealDeps {
    * contador de llamadas, que la respuesta real cierra la oferta ANTES de delegar.
    */
   readonly checkProjectionCapability: () => Promise<boolean>;
+  /**
+   * FINAL CUT — LA segunda fase, y la ÚNICA vía a HubSpot de todo este módulo.
+   *
+   * Corre DESPUÉS de que la proyección haya commiteado —nunca antes, nunca dentro— y sólo cuando
+   * esa proyección dejó un pendiente NUEVO o con otra instrucción. Es el mismo ejecutor único que
+   * usan la edición manual y el merge (`runContactHubSpotAutoPhoneUpdateWired`), que lee la
+   * bandera por su cuenta y decide sobre el estado DURABLE releído: esta capa no comprueba la
+   * bandera, no recalcula si el teléfono cambió y no sabe construir un PATCH.
+   *
+   * Sin valor por defecto y sin `?`, a propósito: un camino nuevo que se olvidara de cablearla
+   * rompe la compilación en vez de dejar en silencio un contacto diciendo `synced` sobre un número
+   * que HubSpot no tiene.
+   */
+  readonly runHubSpotPhoneSyncFollowUp: (contactId: string) => Promise<ContactAutoPhoneUpdateReport>;
   /** Sumidero de diagnóstico. Recibe códigos, nunca filas ni números. */
   readonly onReadUnavailable?: (message: string) => void;
 }
@@ -118,7 +154,53 @@ function closedStart(
     projectionStatus: null,
     phoneProjected: false,
     errorCode: null,
+    // No hubo proyección, así que no hay veredicto que reportar y no hubo fase 2. `null` es la
+    // verdad; `not_evaluated` afirmaría que una proyección corrió y no evaluó nada.
+    hubspotSyncTransition: null,
+    hubspotAutoUpdate: null,
   };
+}
+
+// ── FINAL CUT · LA fase 2, en UN solo sitio ────────────────────────
+
+/**
+ * Proyecta y, SI y sólo si esa proyección dejó algo pendiente NUEVO, ejecuta la segunda fase.
+ *
+ * Existe una sola porque los tres caminos que proyectan —reutilización, compra y
+ * reconciliación— tienen que tomar la MISMA decisión sobre cuándo salir a la red. Tres copias
+ * divergirían, y la que divergiera lo haría en la dirección peligrosa: la reconciliación, que la
+ * ficha invoca al abrirse y mientras espera, es justo la que no puede permitirse disparar un
+ * PATCH por el mero hecho de mirar.
+ *
+ * ── IDEMPOTENCIA, Y DÓNDE VIVE ──────────────────────────────────
+ * La puerta NO es «¿hay algo pendiente?» sino «¿lo dejó ESTA proyección?». La diferencia es toda
+ * la idempotencia del corte: una segunda reconciliación con el mismo teléfono devuelve
+ * `no_outbound_change` —o `already_pending` si algo seguía sin enviarse— y ninguno de los dos es
+ * una transición, así que no sale ni una petición. El veredicto lo produjo la transacción que
+ * escribió el número; aquí no se recalcula nada.
+ *
+ * ── EL FALLO DE LA FASE 2 NO SE PROPAGA ─────────────────────────
+ * El ejecutor no lanza por contrato, pero esta capa no se apoya en eso: una excepción se
+ * convierte en `null` y en una línea de diagnóstico. La proyección ya commiteó, y dejarla subir
+ * la transformaría en «el reveal falló» sobre un teléfono que sí está guardado.
+ */
+async function projectThenFollowUp(
+  args: { readonly candidateId: string; readonly contactId: string; readonly actorId: string },
+  deps: OfficialContactPhoneRevealDeps,
+): Promise<{
+  readonly projected: ProjectApprovedCandidatePhonesOutcome | null;
+  readonly followUp: ContactAutoPhoneUpdateReport | null;
+}> {
+  const projected = await deps.project(args);
+  if (!projected || !didProjectionLeaveHubSpotPendingChange(projected.hubspotSyncTransition)) {
+    return { projected, followUp: null };
+  }
+  try {
+    return { projected, followUp: await deps.runHubSpotPhoneSyncFollowUp(args.contactId) };
+  } catch (err) {
+    deps.onReadUnavailable?.(err instanceof Error ? err.message : 'unknown error');
+    return { projected, followUp: null };
+  }
 }
 
 /**
@@ -284,6 +366,9 @@ export interface OfficialContactPhoneRevealStartInput {
  *     que cortó antes del proveedor no produjo número nuevo, y abrir una transacción para
  *     descubrirlo sería una transacción por cada rechazo.
  *
+ * Y sobre `runHubSpotPhoneSyncFollowUp`: 0 llamadas en el gate cerrado, 0 cuando la proyección no
+ * dejó pendiente, y como MÁXIMO 1 cuando sí lo dejó. Nunca antes de que `project` resuelva.
+ *
  * En el camino ASÍNCRONO (Apollo acepta y contesta por webhook; Lusha continúa desde ahí) el
  * resultado es `requested` con `phoneProjected: false`, que es la verdad: el número no está
  * todavía. Lo recoge la reconciliación.
@@ -304,6 +389,8 @@ export async function runOfficialContactPhoneRevealStart(
       projectionStatus: null,
       phoneProjected: false,
       errorCode: null,
+      hubspotSyncTransition: null,
+      hubspotAutoUpdate: null,
     };
   }
 
@@ -311,11 +398,10 @@ export async function runOfficialContactPhoneRevealStart(
   if (!offer.actionable || !offer.candidateId) return closedStart(offer.status);
 
   if (offer.free) {
-    const projected = await deps.project({
-      candidateId: offer.candidateId,
-      contactId,
-      actorId: deps.actor.internalUserId,
-    });
+    const { projected, followUp } = await projectThenFollowUp(
+      { candidateId: offer.candidateId, contactId, actorId: deps.actor.internalUserId },
+      deps,
+    );
     return {
       ok: projected?.status === 'projected',
       gate: offer.status,
@@ -323,6 +409,8 @@ export async function runOfficialContactPhoneRevealStart(
       projectionStatus: projected ? projected.status : null,
       phoneProjected: projected?.status === 'projected' && projected.phonesInserted > 0,
       errorCode: null,
+      hubspotSyncTransition: projected ? projected.hubspotSyncTransition : null,
+      hubspotAutoUpdate: followUp,
     };
   }
 
@@ -334,13 +422,15 @@ export async function runOfficialContactPhoneRevealStart(
     expectedMaxCredits: input.expectedMaxCredits,
   });
 
-  const projected = result.ok
-    ? await deps.project({
-        candidateId: offer.candidateId,
-        contactId,
-        actorId: deps.actor.internalUserId,
-      })
-    : null;
+  // Un gate que cortó antes del proveedor no produjo número nuevo, así que no se proyecta — y sin
+  // proyección no hay fase 2 que pudiera correr: la puerta de la red está SIEMPRE detrás de la
+  // puerta de la proyección, nunca al lado.
+  const { projected, followUp } = result.ok
+    ? await projectThenFollowUp(
+        { candidateId: offer.candidateId, contactId, actorId: deps.actor.internalUserId },
+        deps,
+      )
+    : { projected: null, followUp: null };
 
   return {
     ok: result.ok,
@@ -349,6 +439,8 @@ export async function runOfficialContactPhoneRevealStart(
     projectionStatus: projected ? projected.status : null,
     phoneProjected: projected?.status === 'projected' && projected.phonesInserted > 0,
     errorCode: result.errorCode,
+    hubspotSyncTransition: projected ? projected.hubspotSyncTransition : null,
+    hubspotAutoUpdate: followUp,
   };
 }
 
@@ -393,11 +485,10 @@ export async function runOfficialContactPhoneReconcile(
   });
   if (!link.candidateId) return closedStart(link.status);
 
-  const projected = await deps.project({
-    candidateId: link.candidateId,
-    contactId: id,
-    actorId: deps.actor.internalUserId,
-  });
+  const { projected, followUp } = await projectThenFollowUp(
+    { candidateId: link.candidateId, contactId: id, actorId: deps.actor.internalUserId },
+    deps,
+  );
   return {
     ok: projected?.status === 'projected',
     gate: 'delegated',
@@ -405,5 +496,7 @@ export async function runOfficialContactPhoneReconcile(
     projectionStatus: projected ? projected.status : null,
     phoneProjected: projected?.status === 'projected' && projected.phonesInserted > 0,
     errorCode: null,
+    hubspotSyncTransition: projected ? projected.hubspotSyncTransition : null,
+    hubspotAutoUpdate: followUp,
   };
 }

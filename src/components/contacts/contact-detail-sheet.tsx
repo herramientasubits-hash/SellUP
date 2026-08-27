@@ -44,6 +44,15 @@ import {
 import type { AccountWithOwner } from '@/modules/accounts/types';
 import { ContactRowActions } from './contact-row-actions';
 import { ContactHubSpotSyncButton } from './contact-hubspot-sync-button';
+import { ContactHubSpotSyncBadge } from './contact-hubspot-sync-badge';
+import {
+  HUBSPOT_AUTO_SYNC_BLOCKED_LABELS,
+  HUBSPOT_AUTO_UPDATE_BLOCKED_DETAIL,
+  hasPendingHubSpotPhoneChange,
+  readContactAutoPhoneUpdateAnnex,
+  readContactAutoSyncAnnex,
+  readHubSpotSyncState,
+} from '@/modules/contacts/contact-hubspot-sync-state';
 // AGENT2A-PHONE-REVEAL-4O-H4 — «Ver más números» del contacto OFICIAL.
 // Sólo LECTURA: abrirlo hace un SELECT sobre la colección oficial de
 // teléfonos del contacto y nada más. Ni proveedor, ni crédito, ni escritura.
@@ -492,10 +501,17 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                   <SurfaceCard>
                     <div className="flex items-start justify-between gap-4">
                       <SurfaceCardHeader title="Sincronización HubSpot" />
+                      {/* AGENT2-FINAL-LOCAL-CLOSURE-MICROFIX: cero deducción aquí. El botón
+                          consulta `resolveHubSpotSyncAction`, la misma autoridad que el badge de
+                          abajo usa para el copy, así que la tarjeta ya no puede mostrar un
+                          «Sincronizado» verde junto a un «Vinculado a HubSpot» neutro. */}
                       <ContactHubSpotSyncButton
-                        contactId={contact.id}
-                        alreadySynced={!!contact.hubspot_contact_id}
-                        hasEmail={!!contact.email}
+                        contact={{
+                          id: contact.id,
+                          email: contact.email,
+                          hubspot_contact_id: contact.hubspot_contact_id,
+                          metadata: contact.metadata as Record<string, unknown> | null,
+                        }}
                         onSynced={() => loadData(contact.id)}
                       />
                     </div>
@@ -521,12 +537,121 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                           </DetailRow>
                         ) : null;
                       })()}
+                      {(() => {
+                        const state = readHubSpotSyncState(
+                          contact.metadata as Record<string, unknown> | null,
+                        );
+                        if (!state) return null;
+                        return (
+                          <>
+                            {state.attempted_at ? (
+                              <DetailRow icon={Tag} label="Último intento">
+                                {formatDate(state.attempted_at)}
+                              </DetailRow>
+                            ) : null}
+                            {/* CUT-2 — desde cuándo HubSpot está desactualizado, no cuándo se
+                                registró el último cambio: es lo que responde «¿cuánto lleva
+                                esto sin enviarse?». */}
+                            {state.stale_since ? (
+                              <DetailRow icon={Tag} label="Pendiente desde">
+                                {formatDate(state.stale_since)}
+                              </DetailRow>
+                            ) : null}
+                          </>
+                        );
+                      })()}
                     </dl>
                     {!contact.email && (
                       <p className="mt-3 text-[11px] text-muted-foreground">
                         Este contacto no tiene email, requisito para sincronizar con HubSpot.
                       </p>
                     )}
+                    {/*
+                      CUT-3B — el anexo operativo del autosync. Se muestra SÓLO mientras el
+                      contacto siga sin vínculo: en cuanto exista uno, el bloqueo dejó de
+                      describir la situación y seguir mostrándolo sería noticia vieja.
+
+                      El tono es NEUTRO a propósito. No es un error del contacto ni de quien lo
+                      aprobó: es una condición del workspace, y el `status` sigue diciendo la
+                      verdad —nunca se intentó— sin que haga falta un badge nuevo.
+                    */}
+                    {(() => {
+                      if (contact.hubspot_contact_id) return null;
+                      const annex = readContactAutoSyncAnnex(
+                        contact.metadata as Record<string, unknown> | null,
+                      );
+                      if (!annex) return null;
+                      return (
+                        <p className="mt-3 text-[11px] text-muted-foreground">
+                          {HUBSPOT_AUTO_SYNC_BLOCKED_LABELS[annex.blocked_reason]} (
+                          {formatDate(annex.checked_at)}). Puedes sincronizarlo con el botón
+                          cuando la conexión esté disponible.
+                        </p>
+                      );
+                    })()}
+                    {/*
+                      CUT-3C — el anexo operativo del PATCH automático. Se muestra SÓLO mientras
+                      siga habiendo algo pendiente: en cuanto el cambio viaje, el bloqueo dejó de
+                      describir la situación.
+
+                      Tono NEUTRO, igual que el del autosync, y por la misma razón: no hubo un
+                      intento fallido —no salió ninguna petición— sino una condición del
+                      workspace. El badge sigue diciendo «Pendiente de actualizar», que es la
+                      verdad, y no hace falta un badge nuevo para contar esto.
+                    */}
+                    {(() => {
+                      const state = readHubSpotSyncState(
+                        contact.metadata as Record<string, unknown> | null,
+                      );
+                      if (!hasPendingHubSpotPhoneChange(state)) return null;
+                      const annex = readContactAutoPhoneUpdateAnnex(
+                        contact.metadata as Record<string, unknown> | null,
+                      );
+                      if (!annex) return null;
+                      return (
+                        <p className="mt-3 text-[11px] text-muted-foreground">
+                          No se pudo actualizar automáticamente porque{' '}
+                          {HUBSPOT_AUTO_UPDATE_BLOCKED_DETAIL[annex.blocked_reason]} (
+                          {formatDate(annex.checked_at)}). El cambio sigue pendiente y se puede
+                          enviar con el botón.
+                        </p>
+                      );
+                    })()}
+                    {/*
+                      CUT-3C — la retención por PRIVACIDAD, dicha sin decir de quién ni por qué.
+                      Un teléfono retirado por una solicitud de privacidad se queda `stale` a
+                      propósito: enviarlo solo convertiría una erasure en una escritura hacia un
+                      tercero. Decirlo aquí evita que el operador lea el pendiente como un fallo
+                      del sistema y se pregunte por qué «no funciona».
+                    */}
+                    {(() => {
+                      const state = readHubSpotSyncState(
+                        contact.metadata as Record<string, unknown> | null,
+                      );
+                      if (!hasPendingHubSpotPhoneChange(state)) return null;
+                      if (state?.stale_source !== 'privacy') return null;
+                      return (
+                        <p className="mt-3 text-[11px] text-muted-foreground">
+                          Este cambio proviene de una solicitud de privacidad, así que no se envía
+                          automáticamente: requiere una acción explícita con el botón.
+                        </p>
+                      );
+                    })()}
+                    {/*
+                      «Sincronizado» dice que el contacto existe en HubSpot y está vinculado, no
+                      que sus campos estén al día: un teléfono revelado después de la aprobación
+                      todavía no viaja a HubSpot. Decirlo aquí evita que el badge se lea como una
+                      promesa que este corte no cumple.
+                    */}
+                    <p className="mt-3 text-[11px] text-muted-foreground">
+                      «Sincronizado» significa que el contacto existe en HubSpot y está vinculado
+                      a SellUp. «Pendiente de actualizar» significa que el teléfono cambió en
+                      SellUp después de vincularlo y todavía no se ha enviado: se envía con el
+                      botón y, si tu organización tiene habilitada la actualización automática,
+                      también puede enviarse solo. Un teléfono retirado por una solicitud de
+                      privacidad NUNCA se envía solo. Otros campos no se actualizan en HubSpot en
+                      esta versión.
+                    </p>
                   </SurfaceCard>
                 </TabsContent>
               </Tabs>
@@ -703,16 +828,22 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
 
       {/* Card 4 — HubSpot (resumen) */}
       <TraceCard icon={Globe} title="HubSpot">
+        {/*
+          BACKFILL LEGACY — el icono y el copy vienen del ViewModel, que los pide a la MISMA
+          autoridad que el badge del drawer. El check verde queda reservado al ÚNICO caso en que
+          consta una sincronización observada; un vínculo sin estado legible se cuenta en neutro
+          en vez de disfrazarse de contacto al día.
+        */}
         <TraceRow label="Estado">
-          {vm.hubspotContactId ? (
+          {vm.hubspotSyncTone === 'synced' ? (
             <span className="flex items-center gap-1">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-              <span>Sincronizado con HubSpot</span>
+              <span>{vm.hubspotSyncLabel}</span>
             </span>
           ) : (
             <span className="flex items-center gap-1">
               <XCircle className="h-3.5 w-3.5 text-muted-foreground/40" />
-              <span className="text-muted-foreground">No sincronizado con HubSpot</span>
+              <span className="text-muted-foreground">{vm.hubspotSyncLabel}</span>
             </span>
           )}
         </TraceRow>
@@ -772,31 +903,16 @@ function RelevanceBadge({ label }: { label: string }) {
   );
 }
 
-function HubSpotSyncStatusBadge({ contact }: { contact: Contact }) {
-  const sync = contact.metadata?.hubspot_sync as Record<string, unknown> | undefined;
-  if (contact.hubspot_contact_id) {
-    return (
-      <Badge
-        variant="outline"
-        className="text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-transparent"
-      >
-        Sincronizado
-      </Badge>
-    );
-  }
-  if (sync?.status === 'error') {
-    return (
-      <Badge variant="outline" className="text-[10px] bg-destructive/10 text-destructive border-transparent">
-        Error de sincronización
-      </Badge>
-    );
-  }
-  return (
-    <Badge variant="outline" className="text-[10px] bg-muted/40 border-transparent text-muted-foreground">
-      Sin sincronizar
-    </Badge>
-  );
-}
+/**
+ * Estado durable de sincronización con HubSpot (CUT-1).
+ *
+ * AGENT2-FINAL-LOCAL-CLOSURE-MICROFIX — el componente y su mapa de tonos se MUDARON a
+ * `contact-hubspot-sync-badge.tsx`. Vivían aquí, dentro de un archivo `'use client'`, y por eso
+ * la página de detalle legada (componente de SERVIDOR) no podía importarlos y acabó con su
+ * propio badge hardcodeado «Sincronización no activa». Este alias mantiene el nombre local para
+ * que las llamadas de este archivo no cambien.
+ */
+const HubSpotSyncStatusBadge = ContactHubSpotSyncBadge;
 
 function DetailRow({
   icon: Icon,

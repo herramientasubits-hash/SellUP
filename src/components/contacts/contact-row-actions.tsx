@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { MoreHorizontal, Pencil, Star, RefreshCw, Archive, Eye, CheckCircle2, Cloud } from 'lucide-react';
+import { MoreHorizontal, Pencil, Star, RefreshCw, Archive, Eye, CheckCircle2, Cloud, Link2 } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,6 +25,11 @@ import {
   type Contact,
   type ContactStatus,
 } from '@/modules/contacts/types';
+import {
+  readHubSpotSyncBaselineSource,
+  readHubSpotSyncState,
+  resolveHubSpotSyncAction,
+} from '@/modules/contacts/contact-hubspot-sync-state';
 import { EditContactDrawer } from './edit-contact-drawer';
 
 interface ContactRowActionsProps {
@@ -39,6 +44,18 @@ export function ContactRowActions({ contact, onActionComplete }: ContactRowActio
   const router = useRouter();
   const [editOpen, setEditOpen] = React.useState(false);
   const [pending, setPending] = React.useState(false);
+
+  // AGENT2-FINAL-LOCAL-CLOSURE-MICROFIX — la MISMA autoridad que el drawer y el badge.
+  // Antes este menú deducía `if (contact.hubspot_contact_id) return;` y pintaba un ítem
+  // deshabilitado «Sincronizado» con check verde: en una fila de línea base eso afirmaba una
+  // paridad de campos que el backfill se niega a afirmar, y contradecía al badge de la ficha.
+  const hubspotMetadata = contact.metadata as Record<string, unknown> | null;
+  const hubspotAction = resolveHubSpotSyncAction({
+    state: readHubSpotSyncState(hubspotMetadata),
+    baselineSource: readHubSpotSyncBaselineSource(hubspotMetadata),
+    hubspotContactId: contact.hubspot_contact_id,
+    hasEmail: !!contact.email,
+  });
 
   async function handleSetPrimary() {
     if (contact.is_primary) return;
@@ -75,7 +92,8 @@ export function ContactRowActions({ contact, onActionComplete }: ContactRowActio
   }
 
   async function handleSyncHubSpot() {
-    if (contact.hubspot_contact_id) return;
+    // La guarda la decide la autoridad, no un campo: `triggersNetwork` es el único permiso.
+    if (!hubspotAction.triggersNetwork) return;
     if (!contact.email) {
       toast.error('No se puede sincronizar: el contacto no tiene email.');
       return;
@@ -164,15 +182,24 @@ export function ContactRowActions({ contact, onActionComplete }: ContactRowActio
 
           <DropdownMenuSeparator />
 
-          {contact.hubspot_contact_id ? (
+          {hubspotAction.kind === 'observed_synced' ? (
             <DropdownMenuItem disabled>
               <CheckCircle2 className="mr-2 h-3.5 w-3.5 text-emerald-500" />
-              Sincronizado
+              {hubspotAction.label}
             </DropdownMenuItem>
-          ) : (
+          ) : hubspotAction.triggersNetwork ? (
             <DropdownMenuItem onClick={handleSyncHubSpot}>
               <Cloud className="mr-2 h-3.5 w-3.5" />
-              Sincronizar con HubSpot
+              {hubspotAction.label}
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem disabled>
+              {hubspotAction.kind === 'linked_no_parity' ? (
+                <Link2 className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
+              ) : (
+                <Cloud className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
+              )}
+              {hubspotAction.label}
             </DropdownMenuItem>
           )}
 

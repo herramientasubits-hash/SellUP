@@ -85,6 +85,9 @@ const projectedOutcome = (
   primaryElectedNow: true,
   scalarSynced: true,
   scalarFallback: 'absent',
+  // FINAL CUT — el caso de Priscilla es exactamente el que marca: su contacto llega con `phone`
+  // en NULL y la proyección le pone el primero, así que el saliente pasa de ausente a presente.
+  hubspotSyncTransition: 'marked',
   ...over,
 });
 
@@ -94,6 +97,8 @@ interface Spy {
   readonly projectCalls: unknown[];
   readonly previewCalls: string[];
   readonly capabilityCalls: number;
+  /** FINAL CUT — cada entrada es UNA fase 2. La longitud ES el número de PATCH posibles. */
+  readonly followUpCalls: string[];
 }
 
 /**
@@ -125,11 +130,14 @@ function makeDeps(
      * llamadas que entradas.
      */
     capabilitySequence?: readonly boolean[];
+    /** FINAL CUT — hace que el ejecutor de la fase 2 LANCE, para probar que no se propaga. */
+    followUpThrows?: boolean;
   } = {},
 ): Spy {
   const revealCalls: unknown[] = [];
   const projectCalls: unknown[] = [];
   const previewCalls: string[] = [];
+  const followUpCalls: string[] = [];
   let capabilityCalls = 0;
 
   const deps: OfficialContactPhoneRevealDeps = {
@@ -170,6 +178,19 @@ function makeDeps(
       }
       return over.capability === undefined ? true : over.capability;
     },
+    runHubSpotPhoneSyncFollowUp: async (contactId) => {
+      followUpCalls.push(contactId);
+      if (over.followUpThrows) throw new Error('hubspot follow-up exploded');
+      return {
+        outcome: 'attempted_updated',
+        attempted: true,
+        hubspotContactId: 'hs-1',
+        staleReason: 'phone_changed',
+        staleSource: 'reveal',
+        syncResult: { ok: true, status: 'updated', hubspotContactId: 'hs-1', message: 'ok' },
+        blockedReason: null,
+      };
+    },
   };
 
   return {
@@ -177,6 +198,7 @@ function makeDeps(
     revealCalls,
     projectCalls,
     previewCalls,
+    followUpCalls,
     get capabilityCalls() {
       return capabilityCalls;
     },

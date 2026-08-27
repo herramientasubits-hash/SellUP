@@ -218,6 +218,15 @@ test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 
       // `prospect_candidates`, `provider_seen_entities` ni ninguna tabla de wizard — y trae su
       // propia guarda estática. Está AUTORADA y NO APLICADA.
       '128_project_approved_candidate_phones_onto_contact.sql',
+      // AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1: el tramo 129–132 de la cadena de
+      // sincronización con HubSpot de Agente 2, canonicalizado desde cuatro archivos que nacieron
+      // sin número. Nada que ver con la capa gratuita de descubrimiento que esta guarda protege
+      // —ninguna nombra `prospect_candidates`, `provider_seen_entities` ni una tabla de wizard— y
+      // cada una trae su propia guarda estática. AUTORADAS y NO APLICADAS.
+      '129_agent2_contact_hubspot_stale_completeness.sql',
+      '130_agent2_contact_hubspot_stale_source.sql',
+      '131_agent2_post_approval_reveal_stale_producer.sql',
+      '132_agent2_hubspot_legacy_sync_state_backfill.sql',
     ],
     'ninguna migración nueva salvo la memoria provider-seen y la identidad cross-provider',
   );

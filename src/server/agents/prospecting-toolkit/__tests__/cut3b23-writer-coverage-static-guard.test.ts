@@ -318,6 +318,10 @@ const CUT3B4_MIGRATION = '126_agent1_batch_identity_atomicity.sql';
  * contacto que su aprobación creó. Nada que ver con este corte; su autoría se policía abajo. */
 const POST_APPROVAL_REVEAL_MIGRATION =
   '128_project_approved_candidate_phones_onto_contact.sql';
+/** AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1, que reclamó el tramo 129–132 al canonicalizar
+ * la cadena de sincronización con HubSpot de Agente 2. Nada que ver con este corte; su autoría
+ * se policía en el barrido exhaustivo de `authored`. */
+const AGENT2_HUBSPOT_CHAIN_CEILING = '132_agent2_hubspot_legacy_sync_state_backfill.sql';
 
 /**
  * Cuerpo EJECUTABLE de una migración, en minúsculas.
@@ -429,16 +433,20 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     assert.equal(sql.includes('create trigger'), false, 'no puede añadir triggers');
   });
 
-  it('la 127 es la última, y ni ella ni la 125 ni la 126 son de este corte', () => {
+  it('la 132 es la última, y ni ella ni la 125 ni la 126 ni la 127 son de este corte', () => {
     const migrations = readdirSync(join(REPO_ROOT, 'supabase', 'migrations'))
       .filter((file) => /^\d{3}_/.test(file))
       .sort();
     const last = migrations[migrations.length - 1];
-    // El techo lo movió AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 con la 128, cuya
-    // autoría se policía en la prueba de arriba. La 127 sigue siendo la última de la capa de
-    // snapshots de fuente, y es ella —no el techo global— la que este barrido examina.
-    assert.ok(last.startsWith('128'), `última migración inesperada: ${last}`);
-    assert.equal(last, POST_APPROVAL_REVEAL_MIGRATION);
+    // El techo lo movió AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 con la 128, y
+    // después AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1 con el tramo 129–132 (la cadena de
+    // sincronización con HubSpot de Agente 2, canonicalizada desde cuatro archivos que nacieron
+    // sin número). La autoría de todas ellas se policía en la prueba de arriba, que barre el
+    // directorio completo. La 127 sigue siendo la última de la capa de snapshots de fuente, y es
+    // ella —no el techo global— la que este barrido examina.
+    assert.ok(last.startsWith('132'), `última migración inesperada: ${last}`);
+    assert.equal(last, AGENT2_HUBSPOT_CHAIN_CEILING);
+    assert.ok(migrations.includes(POST_APPROVAL_REVEAL_MIGRATION));
     const lastSnapshotMigration = '127_br_receita_monthly_snapshot_identity.sql';
     assert.ok(migrations.includes(lastSnapshotMigration));
     assert.ok(migrations.includes('125_reconcile_source_snapshot_record_identity.sql'));

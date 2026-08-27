@@ -120,7 +120,13 @@ describe('modelo de datos — sin migración nueva', () => {
     // proyección de la colección de teléfonos de un candidato ya APROBADO al contacto que su
     // aprobación creó. Es de teléfono, pero no de este hito y no toca lo que esta guarda vigila;
     // trae su propia guarda estática. AUTORADA y NO APLICADA.
-    assert.equal(Math.max(...numbers), 128, 'el techo conocido es la 128');
+    // AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1 mueve el techo a la 132: la cadena de
+    // sincronización con HubSpot de Agente 2 (129 la completitud del estado durable `stale`, 130
+    // su procedencia, 131 la 128 re-emitida, 132 la línea base de los contactos ya vinculados),
+    // canonicalizada desde cuatro archivos que nacieron sin número. Es de teléfono y de HubSpot,
+    // pero no de este hito: la aserción de abajo —que el gate de novedad no lee NINGUNA migración
+    // suya— es la que de verdad protege este archivo, y no cambia. AUTORADAS y NO APLICADAS.
+    assert.equal(Math.max(...numbers), 132, 'el techo conocido es la 132');
     assert.equal(
       GATE_SOURCE.includes('supabase/migrations'),
       false,

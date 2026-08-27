@@ -15,18 +15,12 @@ import {
   buildManualContactPhoneEditPatch,
   resolveManualContactPhoneEdit,
 } from './contact-phone-provenance';
+import type { SyncContactToHubSpotResult } from './contact-hubspot-sync-core';
 import {
-  runSyncContactToHubSpot,
-  type ContactForSync,
-  type AccountForSync,
-  type SyncContactToHubSpotResult,
-} from './contact-hubspot-sync-core';
-import {
-  getHubSpotContactSyncConnection,
-  findHubSpotContactByEmail,
-  createHubSpotContact,
-  associateHubSpotContactWithCompany,
-} from '@/server/integrations/hubspot-contact-sync';
+  runContactHubSpotAutoPhoneUpdateWired,
+  runContactHubSpotSyncWired,
+} from './contact-hubspot-sync-runner';
+import type { ContactAutoPhoneUpdateReport } from './contact-hubspot-auto-phone-update-core';
 
 // ============================================================
 // Auth helpers
@@ -89,6 +83,10 @@ async function requireAdmin(): Promise<{ internalUserId: string }> {
 // Quien la necesite —los tests incluidos— la toma de `./account-active-guard`,
 // que es donde vive y donde ya la buscan.
 
+import {
+  HUBSPOT_SYNC_STALE_SOURCES,
+  markContactHubSpotSyncStaleForPhoneChange,
+} from './contact-hubspot-sync-state';
 import { checkAccountActiveForContact } from './account-active-guard';
 
 import { findContactDuplicate, dedupErrorMessage } from './contact-dedup';
@@ -316,10 +314,25 @@ export async function createContact(
 // updateContact
 // ============================================================
 
+/**
+ * CUT-3C — resultado de `updateContact`.
+ *
+ * `hubspotAutoPhoneUpdate` está deliberadamente FUERA de `success`: `success` describe si el
+ * contacto se guardó, y en el momento en que este informe existe eso ya está decidido y escrito.
+ * Ninguna pantalla debe leerlo para decidir si la edición falló —un HubSpot caído no es una
+ * edición fallida—; está aquí para que la fase automática sea auditable en vez de invisible.
+ *
+ * Ausente cuando la edición no llegó a escribir (validación, permisos, error de base de datos):
+ * sin escritura no hay segunda fase, y afirmar un informe sería inventarlo.
+ */
+export type UpdateContactActionResult =
+  | { success: true; hubspotAutoPhoneUpdate?: ContactAutoPhoneUpdateReport }
+  | { success: false; error: string };
+
 export async function updateContact(
   id: string,
   input: UpdateContactInput,
-): Promise<{ success: true } | { success: false; error: string }> {
+): Promise<UpdateContactActionResult> {
   const { internalUserId } = await requireActiveUser();
   const supabase = await createClient();
 
@@ -391,8 +404,77 @@ export async function updateContact(
   if (input.notes !== undefined) payload.notes = input.notes?.trim() || null;
   if (input.metadata !== undefined) payload.metadata = input.metadata;
 
+  // AGENT2-CONTACT-HUBSPOT-UPDATE-CUT2 — si este guardado cambia el teléfono que HubSpot
+  // recibiría y el contacto YA estaba sincronizado, la ficha pasa a `stale`.
+  //
+  // La decisión la toma la autoridad central, no esta acción: los caminos que tocan el
+  // teléfono oficial son varios y una copia de la regla por escritor acabaría con fichas que
+  // discrepan sobre si HubSpot está al día.
+  //
+  // Va DENTRO del mismo `update()` a propósito. Una segunda escritura dejaría una ventana en
+  // la que el teléfono nuevo ya está guardado y el estado sigue diciendo `synced`, que es
+  // exactamente la mentira que este corte existe para eliminar. Y NO llama a HubSpot: marcar
+  // pendiente es un hecho local; enviarlo sigue siendo un clic humano.
+  const staleDecision = markContactHubSpotSyncStaleForPhoneChange({
+    // La metadata base es la que este guardado va a dejar escrita, no la de la fila: si el
+    // formulario trae metadata propia, el bloque debe proyectarse sobre ESA.
+    metadata: (payload.metadata ?? current.metadata) as Record<string, unknown> | null,
+    hubspotContactId: current.hubspot_contact_id,
+    previous: current,
+    // La fila TAL COMO QUEDARÁ tras este guardado. Se compone con el spread y no campo a campo
+    // a propósito: un campo ausente en el payload es un campo NO tocado, así que hereda el
+    // valor guardado y editar el cargo no puede parecer que borra el teléfono.
+    next: { ...current, ...payload },
+    nowIso: new Date().toISOString(),
+    // CUT-3C — este formulario es, literalmente, una persona editando. `user_edit` es lo que
+    // ocurrió, y se declara aquí en vez de heredarse de un defecto: el día que este camino
+    // dejara de ser el de una persona, el compilador no avisaría de nada si el valor viniera
+    // implícito.
+    source: HUBSPOT_SYNC_STALE_SOURCES.userEdit,
+  });
+  if (staleDecision.marked) payload.metadata = staleDecision.metadata;
+
   const { error } = await supabase.from('contacts').update(payload).eq('id', id);
   if (error) return { success: false, error: error.message };
+
+  // ── CUT-3C · SEGUNDA FASE — PATCH automático hacia HubSpot ────
+  //
+  // Empieza AQUÍ, después del `if (error)`, y ese orden es todo el corte: en este punto la
+  // edición ya está guardada. Nada de lo que ocurra a continuación puede revertirla —no hay
+  // transacción abierta que pudiera arrastrarla— y por eso el resultado que se devuelve más
+  // abajo sigue siendo `{ success: true }` sea cual sea el desenlace de HubSpot.
+  //
+  // Es deliberado que el informe NO viaje en el resultado de esta acción. `updateContact` la
+  // usan varios formularios y su contrato es «¿se guardó el contacto?»; meter ahí el veredicto
+  // de un tercero invitaría a que alguna pantalla lo leyera como un fallo de guardado y le
+  // dijera a la persona que su edición no entró. Cuando el PATCH falla, la ficha lo cuenta ella
+  // sola: `stale` sobrevive y el badge ofrece «Reintentar actualización».
+  //
+  // Se dispara SIEMPRE que hubo escritura, sin comprobar nada aquí: el portero se planta solo si
+  // no hay vínculo o no hay pendiente —el caso normal—, y duplicar esa comprobación en este
+  // sitio crearía una segunda regla capaz de discrepar de la durable.
+  const hubspotAutoPhoneUpdate = await runContactHubSpotAutoPhoneUpdateWired(id, {
+    actorId: internalUserId,
+    nowIso: new Date().toISOString(),
+    logAudit: async (entry) => {
+      await logContactAudit({
+        contactId: entry.contactId,
+        accountId: entry.accountId,
+        actorUserId: entry.actorUserId,
+        actionType: 'contact_updated',
+        details: {
+          hubspot_sync: {
+            mode: entry.mode,
+            hubspot_contact_id: entry.hubspotContactId,
+            hubspot_company_id: entry.hubspotCompanyId,
+            company_association: entry.companyAssociation,
+            // Sin esto una fila de auditoría automática sería indistinguible de un clic.
+            method: 'auto',
+          },
+        },
+      });
+    },
+  });
 
   if (statusChanged) {
     await logContactAudit({
@@ -428,7 +510,7 @@ export async function updateContact(
     });
   }
 
-  return { success: true };
+  return { success: true, hubspotAutoPhoneUpdate };
 }
 
 // ============================================================
@@ -609,56 +691,14 @@ export async function syncContactToHubSpot(
     return { ok: false, errorCode: 'UNKNOWN_ERROR', message: 'Sesión no válida.' };
   }
 
-  const supabase = await createClient();
-
   try {
-    return await runSyncContactToHubSpot(contactId, {
+    return await runContactHubSpotSyncWired(contactId, {
       actorId: internalUserId,
       nowIso: new Date().toISOString(),
-
-      loadContact: async (id): Promise<ContactForSync | null> => {
-        const { data, error } = await supabase
-          .from('contacts')
-          .select(
-            'id, account_id, full_name, first_name, last_name, email, phone, mobile_phone, job_title, linkedin_url, hubspot_contact_id, metadata',
-          )
-          .eq('id', id)
-          .is('archived_at', null)
-          .maybeSingle();
-        if (error || !data) return null;
-        return {
-          ...(data as unknown as ContactForSync),
-          metadata: (data.metadata as Record<string, unknown> | null) ?? {},
-        };
-      },
-
-      loadAccount: async (accountId): Promise<AccountForSync | null> => {
-        const { data, error } = await supabase
-          .from('accounts')
-          .select('id, name, hubspot_company_id')
-          .eq('id', accountId)
-          .maybeSingle();
-        if (error || !data) return null;
-        return data as unknown as AccountForSync;
-      },
-
-      checkConnection: getHubSpotContactSyncConnection,
-      findHubSpotContactByEmail,
-      createHubSpotContact,
-      associateContactWithCompany: associateHubSpotContactWithCompany,
-
-      persistSync: async (id, patch) => {
-        const { error } = await supabase
-          .from('contacts')
-          .update({
-            hubspot_contact_id: patch.hubspot_contact_id,
-            metadata: patch.metadata,
-            updated_by: internalUserId,
-          })
-          .eq('id', id);
-        return { error: error?.message };
-      },
-
+      // CUT-3B — este camino es, y sigue siendo, el del BOTÓN. Una persona miró la ficha y
+      // pulsó: `manual` es literalmente lo que ocurrió, y por eso se declara aquí en vez de
+      // heredarse de un valor por defecto que un día podría cambiar bajo los pies.
+      method: 'manual',
       logAudit: async (entry) => {
         await logContactAudit({
           contactId: entry.contactId,
@@ -669,6 +709,8 @@ export async function syncContactToHubSpot(
             hubspot_sync: {
               mode: entry.mode,
               hubspot_contact_id: entry.hubspotContactId,
+              // `null` en un PATCH: la empresa no participa, y escribir el id de todos modos
+              // haría parecer que la asociación se revisó en este intento.
               hubspot_company_id: entry.hubspotCompanyId,
               company_association: entry.companyAssociation,
             },

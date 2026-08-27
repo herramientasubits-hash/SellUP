@@ -12,6 +12,19 @@ import { getLushaApiKey } from '@/server/services/lusha-connection';
 import { isLushaContactEnrichmentEnabled, resolveLushaSearchTimeoutMs } from '@/lib/feature-flags.server';
 import { logContactAudit } from '@/modules/contacts/actions';
 import {
+  runContactHubSpotAutoSync,
+  type ContactAutoSyncReport,
+} from '@/modules/contacts/contact-hubspot-autosync-core';
+import {
+  buildContactHubSpotSyncDeps,
+  persistContactMetadata,
+  runContactHubSpotAutoPhoneUpdateWired,
+} from '@/modules/contacts/contact-hubspot-sync-runner';
+// El informe del PATCH automático viaja en el resultado del merge, fuera de `ok`.
+import type { ContactAutoPhoneUpdateReport } from '@/modules/contacts/contact-hubspot-auto-phone-update-core';
+import { runSyncContactToHubSpot } from '@/modules/contacts/contact-hubspot-sync-core';
+import { isHubSpotContactAutoSyncEnabled } from '@/lib/feature-flags.server';
+import {
   resolveExistingContactMergeOffer,
   runApproveCandidate,
   runDiscardCandidate,
@@ -688,6 +701,16 @@ export interface ApproveCandidateActionResult {
    * información al contacto existente». No fusiona nada por sí mismo.
    */
   mergeOffer?: ExistingContactMergeOffer;
+  /**
+   * CUT-3B — informe de la SEGUNDA fase. Está deliberadamente fuera de `ok`: `ok` describe la
+   * aprobación local, que ya está confirmada cuando esta fase empieza, y ningún desenlace de
+   * HubSpot puede cambiarlo. Un llamador que ignore este campo obtiene exactamente el contrato
+   * de CUT-3A.
+   *
+   * Ausente cuando la aprobación no llegó a crear contacto (duplicado, error, override
+   * pendiente): sin contacto no hay nada que sincronizar y afirmar un informe sería inventarlo.
+   */
+  hubspotAutoSync?: ContactAutoSyncReport;
 }
 
 /** 4O-H3-B — resultado de la decisión humana de fusionar en el contacto existente. */
@@ -698,6 +721,13 @@ export interface MergeCandidateIntoExistingContactActionResult {
   error?: string;
   alreadyMerged?: boolean;
   code?: MergeIntoExistingContactErrorCode;
+  /**
+   * CUT-3C — informe de la SEGUNDA fase. Fuera de `ok` por la misma razón que en la aprobación:
+   * `ok` describe el merge local, que la RPC 117 ya confirmó cuando esta fase empieza, y ningún
+   * desenlace de HubSpot puede cambiarlo. Un llamador que ignore este campo obtiene exactamente
+   * el contrato de CUT-3A.
+   */
+  hubspotAutoPhoneUpdate?: ContactAutoPhoneUpdateReport;
 }
 
 export interface DiscardCandidateActionResult {
@@ -800,6 +830,18 @@ export async function approveContactCandidate(
           .update(patch)
           .eq('id', id);
         return { error: error?.message };
+      },
+      // AGENT2-CONTACT-HUBSPOT-SYNC-STATE-CUT1 — la MISMA fila y la MISMA columna que lee
+      // `syncContactToHubSpot` antes de escribir en HubSpot. No es una llamada a HubSpot:
+      // aprobar sigue sin tocar la red del proveedor.
+      loadAccountHubSpotCompanyId: async (accountId) => {
+        const { data, error } = await admin
+          .from('accounts')
+          .select('hubspot_company_id')
+          .eq('id', accountId)
+          .maybeSingle();
+        if (error) throw new Error(error.message);
+        return (data?.hubspot_company_id as string | null) ?? null;
       },
       logAudit: async ({ contactId, accountId, actorUserId, identityOverrideApplied }) => {
         await logContactAudit({
@@ -918,7 +960,77 @@ export async function approveContactCandidate(
       },
     }, identityOverride);
 
-    return result;
+    // ── SEGUNDA FASE — autosync HubSpot (CUT-3B) ─────────────────
+    //
+    // Empieza aquí y no antes por una razón que es todo el corte: en este punto la transacción
+    // de aprobación YA confirmó. El contacto oficial existe, el candidato está `approved` y
+    // nada de lo que ocurra a continuación puede revertirlo — no hay transacción abierta que
+    // pudiera arrastrarlo, ni un `throw` capaz de alcanzarlo.
+    //
+    // Por eso el informe se ADJUNTA al resultado y jamás lo sustituye: `result.ok` sigue siendo
+    // el veredicto de la aprobación local. Un HubSpot caído no puede convertir en fracaso algo
+    // que ya está escrito en la base de datos, porque el humano volvería a aprobar un candidato
+    // que ya no está pendiente y leería un error donde hubo un éxito.
+    if (!result.ok) return result;
+
+    const autoSyncNowIso = new Date().toISOString();
+    const hubspotAutoSync = await runContactHubSpotAutoSync(result.contactId, {
+      // El entorno se lee UNA vez, aquí, y viaja como booleano. El motor no conoce
+      // `process.env`: así no existe una segunda forma de encenderlo.
+      enabled: isHubSpotContactAutoSyncEnabled(),
+      nowIso: autoSyncNowIso,
+      loadSubject: async (contactId) => {
+        // Se RELEE la fila en vez de reutilizar el payload que se acaba de insertar: el
+        // portero decide sobre el vínculo REAL, y entre la transacción y este punto la fila
+        // pudo cambiar —incluida la aprobación idempotente, que devuelve un contacto que otra
+        // ejecución creó y que quizá ya está en HubSpot.
+        const { data, error } = await supabase
+          .from('contacts')
+          .select('id, hubspot_contact_id, metadata')
+          .eq('id', contactId)
+          .is('archived_at', null)
+          .maybeSingle();
+        if (error || !data) return null;
+        return {
+          id: data.id as string,
+          hubspot_contact_id: (data.hubspot_contact_id as string | null) ?? null,
+          metadata: (data.metadata as Record<string, unknown> | null) ?? {},
+        };
+      },
+      // EL MISMO motor que el botón manual, con la ÚNICA diferencia declarada: `auto`.
+      runSync: async (contactId) =>
+        runSyncContactToHubSpot(
+          contactId,
+          await buildContactHubSpotSyncDeps({
+            actorId: internalUserId,
+            nowIso: autoSyncNowIso,
+            method: 'auto',
+            logAudit: async (entry) => {
+              await logContactAudit({
+                contactId: entry.contactId,
+                accountId: entry.accountId,
+                actorUserId: entry.actorUserId,
+                actionType: 'contact_updated',
+                details: {
+                  hubspot_sync: {
+                    mode: entry.mode,
+                    hubspot_contact_id: entry.hubspotContactId,
+                    hubspot_company_id: entry.hubspotCompanyId,
+                    company_association: entry.companyAssociation,
+                    // La auditoría también distingue el origen: sin esto, una fila de auditoría
+                    // automática sería indistinguible de un clic humano.
+                    method: 'auto',
+                  },
+                },
+              });
+            },
+          }),
+        ),
+      persistAnnex: async (contactId, metadata) =>
+        persistContactMetadata(contactId, metadata, internalUserId),
+    });
+
+    return { ...result, hubspotAutoSync };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error aprobando el candidato';
     return { ok: false, error: message };
@@ -948,7 +1060,7 @@ export async function mergeContactCandidateIntoExistingContactAction(
     // y bajo el techo de privilegios de la 114.
     const supabase = await createClient();
 
-    return await runMergeCandidateIntoExistingContact(candidateId, contactId, {
+    const result = await runMergeCandidateIntoExistingContact(candidateId, contactId, {
       actorId: internalUserId,
       nowIso: new Date().toISOString(),
       loadCandidate: async (id) => {
@@ -1093,6 +1205,31 @@ export async function mergeContactCandidateIntoExistingContactAction(
         });
       },
     });
+
+    // ── CUT-3C · SEGUNDA FASE — PATCH automático hacia HubSpot ────
+    //
+    // Empieza aquí y no antes porque aquí la RPC 117 YA confirmó: el teléfono está proyectado, el
+    // candidato es terminal y el estado durable —si el contacto estaba vinculado y el saliente
+    // cambió— ya dice `stale` con `stale_source = 'merge'`, escrito DENTRO de esa misma
+    // transacción por CUT-3A.
+    //
+    // La fase 2 es SÓLO el PATCH. No escribe ni una columna más de `contacts`: el trinquete de
+    // 4O-H3-B que prohíbe una segunda escritura local tras la RPC sigue vigente y sigue siendo
+    // el que hay que respetar, porque es lo que impide que exista una ventana con el teléfono
+    // guardado y la ficha diciendo `synced`. Lo que este corte añade no es una escritura local,
+    // es una llamada de red que ocurre después de que esa ventana ya esté cerrada.
+    //
+    // `result.ok` no se toca. Un HubSpot caído no puede convertir en fracaso un merge que ya
+    // está escrito: la persona volvería a fusionar un candidato que ya es terminal y leería un
+    // error donde hubo un éxito.
+    if (!result.ok || !result.contactId) return result;
+
+    const hubspotAutoPhoneUpdate = await runContactHubSpotAutoPhoneUpdateWired(result.contactId, {
+      actorId: internalUserId,
+      nowIso: new Date().toISOString(),
+    });
+
+    return { ...result, hubspotAutoPhoneUpdate };
   } catch (err) {
     const message =
       err instanceof Error ? err.message : 'Error agregando la información al contacto existente';

@@ -56,6 +56,15 @@ const MIGRATION_127 = '127_br_receita_monthly_snapshot_identity.sql';
  * Declared here only so the numbering ceiling stays exact; it owns nothing this milestone owns.
  */
 const MIGRATION_128_AGENT2A = '128_project_approved_candidate_phones_onto_contact.sql';
+/** AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1 — Agent 2's HubSpot sync chain, canonicalized
+ * from four deliberately unnumbered `LOCAL_` files once the 125/126/127 dispute had settled.
+ * Foreign to this milestone; policed by name and by content below. */
+const MIGRATIONS_129_TO_132_AGENT2 = [
+  '129_agent2_contact_hubspot_stale_completeness.sql',
+  '130_agent2_contact_hubspot_stale_source.sql',
+  '131_agent2_post_approval_reveal_stale_producer.sql',
+  '132_agent2_hubspot_legacy_sync_state_backfill.sql',
+] as const;
 
 const readMigration = (file: string) => readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
 const stripComments = (sql: string) =>
@@ -78,7 +87,7 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     assert.deepEqual(duplicates, [], `números de migración duplicados: ${duplicates.join(', ')}`);
   });
 
-  it('28. the migration numbering ceiling is 128, and 125/126/127/128 each exist exactly once', () => {
+  it('28. the migration numbering ceiling is 132, and 125/126/127/128 each exist exactly once', () => {
     const files = readdirSync(MIGRATIONS_DIR);
     const numbered = files
       .filter((f) => /^\d{3}_.*\.sql$/.test(f))
@@ -86,10 +95,16 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     const highest = numbered.reduce((max, value) => Math.max(max, value), 0);
     // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 moved the ceiling to 128: the
     // projection of an already-APPROVED candidate's phone collection onto the contact its own
-    // approval created. It is not a source-catalog migration and it touches nothing this
-    // milestone owns — asserted directly below — but the ceiling stays EXACT so that an
-    // undeclared migration above the last known milestone still breaks this guard.
-    assert.equal(highest, 128);
+    // approval created.
+    //
+    // AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1 then moved it to 132 by canonicalizing Agent
+    // 2's HubSpot sync chain — 129 the completeness of the durable `stale` state, 130 its
+    // provenance, 131 the re-issued 128 that produces the pending state with provenance
+    // `reveal`, 132 the baseline for contacts already linked before that state existed. None is
+    // a source-catalog migration and none touches anything this milestone owns; the sweep below
+    // proves that over their SQL instead of trusting this comment. The ceiling stays EXACT so
+    // that an undeclared migration above the last known milestone still breaks this guard.
+    assert.equal(highest, 132);
     assert.ok(files.includes(MIGRATION_125));
     assert.ok(files.includes(MIGRATION_126_AGENT1));
     assert.ok(files.includes(MIGRATION_127));
@@ -102,17 +117,22 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     assert.equal(files.includes('125_br_receita_monthly_snapshot_identity.sql'), false);
     assert.equal(files.includes('126_br_receita_monthly_snapshot_identity.sql'), false);
     assert.deepEqual(files.filter((f) => f.startsWith('128')), [MIGRATION_128_AGENT2A]);
-    assert.equal(files.some((f) => f.startsWith('129')), false);
-    // And the 128 is provably foreign to this milestone: it names none of the source-catalog
-    // objects CUT A.1 reconciles.
-    const sql128 = readMigration(MIGRATION_128_AGENT2A);
-    for (const owned of [
-      'source_company_snapshots',
-      'source_snapshot_runs',
-      'record_identity_key',
-      'source_period',
-    ]) {
-      assert.equal(sql128.includes(owned), false, `128 must not name ${owned}`);
+    for (const agent2 of MIGRATIONS_129_TO_132_AGENT2) {
+      assert.deepEqual(files.filter((f) => f.startsWith(agent2.slice(0, 3))), [agent2]);
+    }
+    assert.equal(files.some((f) => f.startsWith('133')), false);
+    // And the 128 plus the whole 129–132 chain are provably foreign to this milestone: none of
+    // them names a single source-catalog object CUT A.1 reconciles.
+    for (const foreign of [MIGRATION_128_AGENT2A, ...MIGRATIONS_129_TO_132_AGENT2]) {
+      const sql = readMigration(foreign);
+      for (const owned of [
+        'source_company_snapshots',
+        'source_snapshot_runs',
+        'record_identity_key',
+        'source_period',
+      ]) {
+        assert.equal(sql.includes(owned), false, `${foreign} must not name ${owned}`);
+      }
     }
   });
 

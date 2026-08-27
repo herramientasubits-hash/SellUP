@@ -23,6 +23,11 @@ import type {
   PhoneType,
   PhoneSource,
 } from './types';
+import {
+  buildInitialHubSpotSyncState,
+  writeHubSpotSyncState,
+  type HubSpotSyncState,
+} from '@/modules/contacts/contact-hubspot-sync-state';
 
 // ── Normalización de claves de deduplicación ───────────────────
 // Espejo de las reglas de contact-deduplicator.ts (email/linkedin exactos,
@@ -485,13 +490,21 @@ export function buildContactPhoneMetadata(
   };
 }
 
-/** Construye el payload de inserción en `contacts` a partir del candidato. */
+/**
+ * Construye el payload de inserción en `contacts` a partir del candidato.
+ *
+ * `hubspotSyncState` es OPCIONAL y su ausencia NO es un valor por defecto: cuando no se pasa,
+ * el contacto se crea SIN bloque `hubspot_sync`, que es exactamente el estado —desconocido—
+ * en el que está hoy cada contacto de Producción. Escribir un estado sin haber leído la
+ * empresa HubSpot de la cuenta sería afirmar un bloqueo que nadie comprobó.
+ */
 export function buildContactInsertPayload(args: {
   candidate: CandidateRecord;
   accountId: string;
   internalUserId: string;
+  hubspotSyncState?: HubSpotSyncState;
 }): ContactInsertPayload {
-  const { candidate, accountId, internalUserId } = args;
+  const { candidate, accountId, internalUserId, hubspotSyncState } = args;
 
   // Normalización de nombre: usa first/last del candidato si ya vienen completos,
   // con fallback a parsear full_name cuando son null (p. ej. aprobaciones manuales).
@@ -536,14 +549,38 @@ export function buildContactInsertPayload(args: {
     phone_raw_type: phoneMetadata.phone_raw_type,
     phone_revealed_at: phoneMetadata.phone_revealed_at,
     phone_processing_basis: phoneMetadata.phone_processing_basis,
-    metadata: {
-      ...buildContactTraceMetadata(candidate),
-      normalization: { status: 'normalized', fields: normalizedFields },
-      ...(titleNormalization ? { apollo_title_normalization: titleNormalization } : {}),
-    },
+    metadata: buildContactMetadata({
+      candidate,
+      normalizedFields,
+      titleNormalization,
+      hubspotSyncState,
+    }),
     created_by: internalUserId,
     updated_by: internalUserId,
   };
+}
+
+/**
+ * Metadata del contacto oficial: trazabilidad de origen, normalización y —cuando el llamador
+ * la conoce— el estado durable inicial de sincronización con HubSpot.
+ *
+ * Aprobar NO llama a HubSpot. Lo que se escribe aquí es sólo la lectura de dos requisitos que
+ * ya se conocen en ese momento (email del contacto, empresa HubSpot de la cuenta), para que la
+ * ficha pueda decir por qué un contacto todavía no está en HubSpot sin salir a la red.
+ */
+function buildContactMetadata(args: {
+  candidate: CandidateRecord;
+  normalizedFields: string[];
+  titleNormalization: Record<string, unknown> | null;
+  hubspotSyncState: HubSpotSyncState | undefined;
+}): Record<string, unknown> {
+  const { candidate, normalizedFields, titleNormalization, hubspotSyncState } = args;
+  const base: Record<string, unknown> = {
+    ...buildContactTraceMetadata(candidate),
+    normalization: { status: 'normalized', fields: normalizedFields },
+    ...(titleNormalization ? { apollo_title_normalization: titleNormalization } : {}),
+  };
+  return hubspotSyncState ? writeHubSpotSyncState(base, hubspotSyncState) : base;
 }
 
 // ── Metadata de revisión (enrichment_metadata.review) ───────────
@@ -778,6 +815,17 @@ export interface ApproveDeps {
     country_code: string | null;
   }) => Promise<{ accountId: string; outcome: string; countryCodeApplied: string | null; countryResolutionSource: string } | { error: string }>;
   /**
+   * AGENT2-CONTACT-HUBSPOT-SYNC-STATE-CUT1 — lee `accounts.hubspot_company_id` de la cuenta ya
+   * resuelta. Es la MISMA fila que la sincronización manual consulta después: si el estado
+   * inicial se dedujera del `hubspot_company_id` del RUN, un candidato con cuenta preexistente
+   * quedaría marcado «la empresa no está en HubSpot» mientras la sincronización, leyendo la
+   * cuenta, la encuentra sin problema.
+   *
+   * OPCIONAL, y su ausencia significa desconocido: sin ella el contacto se crea sin bloque
+   * `hubspot_sync` en vez de con uno adivinado.
+   */
+  loadAccountHubSpotCompanyId?: (accountId: string) => Promise<string | null>;
+  /**
    * Actualiza contact_enrichment_runs con el account_id recién resuelto/creado
    * y registra metadata de trazabilidad. Se llama solo cuando se resuelve una
    * cuenta nueva para un candidato HubSpot-only.
@@ -799,6 +847,42 @@ export interface DiscardDeps {
 }
 
 // ── Orquestación: aprobar ───────────────────────────────────────
+
+/**
+ * Resuelve el estado durable INICIAL de sincronización HubSpot de un contacto que se está
+ * aprobando. NO llama a HubSpot: sólo lee la cuenta.
+ *
+ * Devuelve `undefined` —desconocido, no un estado— en dos casos, y en ambos el contacto se
+ * crea exactamente como antes de este corte:
+ *
+ *  - el llamador no inyectó el lector de la cuenta;
+ *  - el lector falló. Aprobar no puede romperse porque una lectura INFORMATIVA no salga:
+ *    bloquear la decisión humana por el estado de un badge sería invertir las prioridades.
+ *    Un estado ausente lo repara el primer clic de sincronización manual.
+ */
+async function resolveInitialHubSpotSyncStateForApproval(args: {
+  candidate: CandidateRecord;
+  accountId: string;
+  loadAccountHubSpotCompanyId?: (accountId: string) => Promise<string | null>;
+}): Promise<HubSpotSyncState | undefined> {
+  const { candidate, accountId, loadAccountHubSpotCompanyId } = args;
+  if (!loadAccountHubSpotCompanyId) return undefined;
+
+  let hubspotCompanyId: string | null;
+  try {
+    hubspotCompanyId = await loadAccountHubSpotCompanyId(accountId);
+  } catch {
+    return undefined;
+  }
+
+  return buildInitialHubSpotSyncState({
+    // EL MISMO normalizador que produce `contacts.email` en el payload, y por tanto el mismo
+    // valor que la sincronización manual leerá después. Dos normalizaciones distintas del
+    // mismo email dejarían un `never_attempted` que la sincronización rechaza por MISSING_EMAIL.
+    email: sanitizeEmail(candidate.email),
+    hubspotCompanyId,
+  });
+}
 
 /**
  * Aprueba un candidato: valida estado y cuenta, deduplica, crea el contacto
@@ -932,10 +1016,25 @@ export async function runApproveCandidate(
   // `matched_contacts_id` lo escribe la transacción con el id del contacto que acaba de crear:
   // el llamador no puede conocerlo antes del INSERT, y ese campo es también el vínculo durable
   // que hace idempotente una segunda aprobación.
+  // Estado durable INICIAL de sincronización con HubSpot. Se calcula ANTES de construir el
+  // payload porque viaja dentro de `contacts.metadata`, es decir, dentro de la MISMA
+  // transacción que crea el contacto: no hay una segunda escritura que pueda perderse ni una
+  // ventana en la que el contacto exista sin estado.
+  //
+  // Aquí no se llama a HubSpot. Se leen dos hechos que ya están en la base —si el contacto
+  // tendrá email y si su cuenta tiene empresa vinculada— y se registra cuál de ellos, si
+  // alguno, impide sincronizar.
+  const hubspotSyncState = await resolveInitialHubSpotSyncStateForApproval({
+    candidate,
+    accountId,
+    loadAccountHubSpotCompanyId: deps.loadAccountHubSpotCompanyId,
+  });
+
   const payload = buildContactInsertPayload({
     candidate,
     accountId,
     internalUserId: deps.actorId,
+    hubspotSyncState,
   });
 
   // El override de identidad solo se persiste cuando el estado evaluado fue `mismatch`; nunca

@@ -602,11 +602,68 @@ describe('4O-H4 — alcance', () => {
       // este hito añade el primero, así que el registro de esa decisión vive allí.
       'src/modules/contacts/__tests__/official-contact-phone-schema-static-4o-h1.test.ts',
     ];
+    // ══════════════════════════════════════════════════════════
+    // AGENT2-POST-APPROVAL-REVEAL-STALE-PRODUCER-FINAL-CUT — guarda RE-AFILADA
+    // ══════════════════════════════════════════════════════════
+    //
+    // OLD_ASSERTION: `/official-contact-stored-phones/.test(read(relative))` — cualquier
+    // aparición de la cadena en CUALQUIER punto del archivo, comentarios incluidos, contaba como
+    // importador.
+    //
+    // WHY_OBSOLETE: la prueba se llama «NADIE fuera de la ficha IMPORTA», y medía otra cosa:
+    // MENCIONAR. La rompió una guarda de AGENT2-CUT-3C que afirma, en NEGATIVO, que
+    // `official-contact-stored-phones-read.ts` NO llama al ejecutor de HubSpot — es decir, un
+    // test que existe justamente para proteger que ese módulo siga siendo sólo lectura. Bajo la
+    // versión anterior, escribir esa protección era indistinguible de violarla, y la única forma
+    // de «arreglarlo» habría sido borrar la protección: la guarda empujaba en la dirección
+    // contraria a la que existe para defender.
+    //
+    // NEW_INVARIANT: importador es quien tiene una ARISTA de módulo —`from '…'`,
+    // `import('…')` o `require('…')`—, no quien escribe el nombre. La dirección que importa
+    // (que el motor del waterfall, el reservador de créditos o la aprobación se cuelguen de esta
+    // lectura y la conviertan en parte de un camino que gasta) se mide exactamente igual de bien,
+    // y ahora se mide de verdad. El control NEGATIVO de abajo prueba que el detector no se ha
+    // vuelto ciego.
+    const IMPORT_EDGE =
+      /(?:from\s*['"][^'"]*official-contact-stored-phones[^'"]*['"])|(?:import\s*\(\s*['"][^'"]*official-contact-stored-phones[^'"]*['"])|(?:require\s*\(\s*['"][^'"]*official-contact-stored-phones[^'"]*['"])/;
+
     const offenders = sourceFiles(join(repoRoot, 'src'))
       .map((absolute) => absolute.slice(repoRoot.length + 1))
       .filter((relative) => !ALLOWED_IMPORTERS.includes(relative))
-      .filter((relative) => /official-contact-stored-phones/.test(read(relative)));
+      .filter((relative) => IMPORT_EDGE.test(executable(read(relative))));
     assert.deepEqual(offenders, []);
+
+    // Control NEGATIVO — sin esto, un regex mal escrito daría siempre cero infractores.
+    assert.equal(
+      IMPORT_EDGE.test(
+        "import { readStoredOfficialPhones } from './official-contact-stored-phones-read';",
+      ),
+      true,
+      'el detector tiene que ver un import real',
+    );
+    assert.equal(
+      IMPORT_EDGE.test(
+        "await import('@/modules/contact-enrichment/official-contact-stored-phones-core');",
+      ),
+      true,
+      'el detector tiene que ver un import dinámico',
+    );
+    // Y NO debe ver una mención que no es una arista: nombrar el módulo en una lista de rutas —
+    // que es lo que hacen las guardas que lo protegen — no es importarlo.
+    assert.equal(
+      IMPORT_EDGE.test(
+        "const readOnly = ['src/modules/contact-enrichment/official-contact-stored-phones-read.ts'];",
+      ),
+      false,
+      'nombrar una ruta no puede contar como importarla',
+    );
+
+    // Y la guarda sigue teniendo dientes: los importadores PERMITIDOS existen de verdad, así que
+    // un `ALLOWED_IMPORTERS` que se quedara obsoleto no puede tapar un infractor real.
+    const realImporters = sourceFiles(join(repoRoot, 'src'))
+      .map((absolute) => absolute.slice(repoRoot.length + 1))
+      .filter((relative) => IMPORT_EDGE.test(executable(read(relative))));
+    assert.ok(realImporters.length > 0, 'el barrido no encontró NINGÚN importador: está ciego');
   });
 
   it('el código que GASTA no menciona 4O-H4', () => {

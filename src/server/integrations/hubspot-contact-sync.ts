@@ -7,7 +7,11 @@
 // Espeja el patrón seguro de hubspot-contacts-reader.ts (lectura) para escritura.
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
-import type { HubSpotContactCreateInput } from '@/modules/contacts/contact-hubspot-sync-core';
+import {
+  buildHubSpotContactUpdateProperties,
+  type HubSpotContactCreateInput,
+  type HubSpotContactUpdateInput,
+} from '@/modules/contacts/contact-hubspot-sync-core';
 
 const supabaseUrl =
   process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lrdruowtadwbdulndlph.supabase.co';
@@ -308,6 +312,49 @@ export async function createHubSpotContact(
     return { id: data.id };
   } catch (err) {
     return { error: err instanceof Error ? err.message.slice(0, 120) : 'HUBSPOT_CREATE_ERROR' };
+  }
+}
+
+/**
+ * Actualiza un contacto YA vinculado en HubSpot (AGENT2-CONTACT-HUBSPOT-UPDATE-CUT2).
+ *
+ * La identidad es el `hubspotContactId` DURABLE que SellUp ya guardó. No busca por email, no
+ * crea y no reintenta la asociación con la empresa: un PATCH que pudiera crear convertiría un
+ * fallo de identidad en un contacto duplicado en el CRM del cliente.
+ *
+ * CUT-2 envía EXACTAMENTE una propiedad: `phone`. Nada de email, LinkedIn ni campos custom —
+ * enviar un campo cuyo mapeo no está validado sobrescribe en HubSpot algo que nadie revisó.
+ *
+ * CUT-3A: el cuerpo lo construye `buildHubSpotContactUpdateProperties` y no este archivo. La
+ * representación del BORRADO —cadena vacía— es de HubSpot, pero es UNA sola y vive con el
+ * contrato, no repartida entre el dominio y el adaptador.
+ */
+export async function updateHubSpotContact(
+  hubspotContactId: string,
+  input: HubSpotContactUpdateInput,
+): Promise<{ ok: true } | { error: string }> {
+  const token = await getHubSpotToken();
+  if (!token) return { error: 'TOKEN_UNAVAILABLE' };
+
+  try {
+    const response = await fetch(
+      `${HUBSPOT_BASE}/crm/v3/objects/contacts/${encodeURIComponent(hubspotContactId)}`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ properties: buildHubSpotContactUpdateProperties(input) }),
+      },
+    );
+
+    // No exponer payload crudo ni token: sólo el código de estado. El cuerpo de error de
+    // HubSpot cita las propiedades enviadas, y una de ellas es el teléfono del contacto.
+    if (!response.ok) return { error: `HUBSPOT_UPDATE_HTTP_${response.status}` };
+    return { ok: true };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message.slice(0, 120) : 'HUBSPOT_UPDATE_ERROR' };
   }
 }
 

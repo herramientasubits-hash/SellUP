@@ -3660,3 +3660,75 @@ jobs:
       # Sin `continue-on-error` y sin `|| true`.
       - name: Run Agent 1 CUT4-B1 writer provenance parity tests
         run: npm run test:a1-cut4-b1-writer-provenance
+
+      # ── AGENT2-FINAL-INTEGRATION — la cadena de sincronización con HubSpot ─────
+      #
+      # EL DEFECTO QUE CIERRA LA CADENA COMPLETA: la ficha de un contacto decía
+      # `Sincronizado` cuando HubSpot ya no lo estaba. No por un error de lógica —no
+      # había ninguna sentencia en el esquema capaz de cambiar ese estado— así que
+      # cada camino que toca el teléfono oficial lo dejaba mintiendo:
+      #
+      #   · CUT-1  el estado durable de sincronización nace (`hubspot_sync`);
+      #   · CUT-2  el envío de un teléfono ya vinculado deja de ser invisible;
+      #   · CUT-3A la COMPLETITUD: el MERGE de un duplicado (117) y el borrado del
+      #            saliente ya se pueden representar. `phone_removed` entra al
+      #            vocabulario, y con él la operación que lo ejecuta;
+      #   · CUT-3B la aprobación de un candidato oficial sincroniza sola;
+      #   · CUT-3C la PROCEDENCIA durable (`stale_source`): un `stale` nacido de una
+      #            erasure de privacidad y uno nacido de una edición manual eran
+      #            IDÉNTICOS, así que una bandera genérica habría exportado la
+      #            erasure. `privacy` es inexportable POR CONSTRUCCIÓN;
+      #   · FINAL  la 128 re-emitida (131) marca `stale`/`reveal` DENTRO de su propia
+      #            transacción: un rollback se lleva el número y el veredicto juntos,
+      #            que es lo que elimina la ventana en la que el teléfono ya está
+      #            guardado y la ficha todavía dice `synced`;
+      #   · BACKFILL un contacto vinculado ANTES de que el estado existiera era
+      #            INVISIBLE para la detección de pendientes y la UI lo pintaba verde.
+      #            La 132 le escribe una línea base `synced` + `baseline_source`.
+      #
+      # AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1 canonicalizó las cuatro
+      # migraciones —que nacieron SIN número a propósito, mientras la numeración
+      # 125/126/127 estaba en disputa aguas arriba— a 129/130/131/132, y con ello
+      # entran por primera vez en las guardas de techo del repositorio, que filtran
+      # exactamente `^\d{3}_`. Ya no queda NINGÚN fichero de migración fuera del radar.
+      #
+      # Puras: sin I/O, sin Supabase, sin React, sin env, sin red, sin reloj.
+      # 0 escrituras remotas, 0 HubSpot real, 0 proveedores, 0 créditos, 0 flags nuevos.
+      # Sin `continue-on-error` y sin `|| true`.
+      - name: Run Agent 2 HubSpot sync chain tests (CUT-1 → BACKFILL)
+        run: npm run test:agent2a:final-local-integration
+
+      # La 131 es GENERADA: su cuerpo es el de la 128 con los CINCO splices declarados
+      # en `scripts/local/build-final-reveal-migration.mjs`. Este paso re-deriva el
+      # archivo y compara BYTE A BYTE. Sin él, un cambio en la 128 podría quedarse
+      # silenciosamente fuera de la re-emisión, o una edición a mano de la 131 podría
+      # introducir una divergencia de comportamiento que ninguna prueba nombra —porque
+      # la prueba compararía la copia consigo misma.
+      - name: Verify the generated Agent 2 reveal migration is byte-exact
+        run: npm run test:agent2:final-reveal-migration-generator
+
+      # UNA MIGRACIÓN QUE PostgreSQL NO PUEDE APLICAR TIENE QUE ROMPER ESTE CHECK.
+      #
+      # `embedded-postgres` ya está instalado por el paso de Agente 2A de más arriba, con
+      # la versión PINCHADA 17.6.0-beta.15. `SELLUP_REQUIRE_POSTGRES_HARNESS` convierte el
+      # skip en FALLO: sin ella, que el arnés no resolviera pondría este paso verde con una
+      # cadena inaplicable.
+      #
+      # Lo que estas cuatro suites prueban sobre PostgreSQL REAL, replayando la cadena del
+      # repo y aplicando 128 → 129 → 130 → 131 → 132 en ese orden exacto:
+      #   · el orden NUMÉRICO del directorio ES el orden de dependencia (la 130 borra la
+      #     firma de TRES argumentos que la 129 creó y publica la de CUATRO; aplicadas al
+      #     revés, las dos RPC llamarían a una firma inexistente: 42883 en mitad de un
+      #     merge o de una erasure);
+      #   · la proyección VIVA es la de la 131, no la 128 original;
+      #   · idempotencia en segunda pasada: cero filas y cero bytes cambiados;
+      #   · reversibilidad: un ROLLBACK se lleva el teléfono Y el `stale`;
+      #   · ni `anon` ni `authenticated` tienen EXECUTE sobre ninguna de las funciones;
+      #   · no hay extensión de red instalada, así que SQL no pudo llamar a HubSpot.
+      #
+      # 0 escrituras remotas. MIGRATIONS 129–132: APPLIED IN PRODUCTION = NO.
+      # Sin `continue-on-error` y sin `|| true`.
+      - name: Run Agent 2 HubSpot sync chain against real PostgreSQL
+        run: npm run test:agent2a:final-local-integration:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'

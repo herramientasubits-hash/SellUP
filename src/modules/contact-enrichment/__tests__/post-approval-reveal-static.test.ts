@@ -59,6 +59,34 @@ const structuralSql = (source: string) =>
   executableSql(source).replace(/COMMENT ON [\s\S]*?';\n/g, '');
 
 const MIGRATION = '128_project_approved_candidate_phones_onto_contact.sql';
+const FINAL_MIGRATION = '131_agent2_post_approval_reveal_stale_producer.sql';
+
+/**
+ * Sólo el cuerpo EJECUTABLE de las funciones de una migración, sin comentarios de línea y sin el
+ * `COMMENT ON FUNCTION`. Mismo extractor que usa la matriz de escritores de CUT-3A, y existe por
+ * la misma razón: una guarda que grepea el archivo entero confunde NOMBRAR algo con HACERLO, y
+ * acaba castigando la prosa que declara la ausencia.
+ */
+function sqlFunctionBodies(sql: string): string {
+  const parts: string[] = [];
+  let from = 0;
+  for (;;) {
+    const start = sql.indexOf('AS $function$', from);
+    if (start < 0) break;
+    const end = sql.indexOf('$function$;', start);
+    if (end < 0) break;
+    parts.push(sql.slice(start, end));
+    from = end + 1;
+  }
+  return parts
+    .join('\n')
+    .split('\n')
+    .map((line) => {
+      const at = line.indexOf('--');
+      return at === -1 ? line : line.slice(0, at);
+    })
+    .join('\n');
+}
 const FN = 'project_approved_candidate_phones_onto_contact';
 
 const CORE = 'src/modules/contact-enrichment/post-approval-reveal-core.ts';
@@ -99,13 +127,39 @@ describe('post-approval reveal — ninguna vía propia a un proveedor', () => {
     'phone-reveal-credit-budget',
     'logProviderUsage',
     'provider-usage',
-    'hubspot',
     'startApolloPhoneReveal',
     'revealLushaPhone',
   ];
 
+  /**
+   * AGENT2-POST-APPROVAL-REVEAL-STALE-PRODUCER-FINAL-CUT — la superficie de HubSpot que sigue
+   * PROHIBIDA en TODOS los archivos del hito, incluido el que cablea la fase 2.
+   *
+   * Ésta es la lista que de verdad importa. Lo que hay que impedir no es que la palabra
+   * «HubSpot» aparezca: es que este hito pueda CONSTRUIR una petición al CRM del cliente —elegir
+   * el cuerpo del PATCH, leer la conexión, decidir qué teléfono viaja o cómo se borra—. Todo eso
+   * vive en el motor compartido y tiene sus propias pruebas; si alguno de estos símbolos entrara
+   * aquí, existiría una SEGUNDA implementación del envío, y el día que divergiera una de las dos
+   * borraría en HubSpot un número que SellUp sí tiene.
+   */
+  const FORBIDDEN_HUBSPOT_SURFACE = [
+    '@/server/integrations/hubspot-contact-sync',
+    'hubspot-contact-sync',
+    'contact-hubspot-sync-core',
+    'runSyncContactToHubSpot',
+    'updateHubSpotContact',
+    'createHubSpotContact',
+    'findHubSpotContactByEmail',
+    'associateHubSpotContactWithCompany',
+    'getHubSpotContactSyncConnection',
+    'buildContactHubSpotSyncDeps',
+    'persistContactMetadata',
+    'writeHubSpotSyncState',
+    'HUBSPOT_CONTACT_AUTO_PHONE_UPDATE',
+  ];
+
   for (const file of ALL_FILES) {
-    it(`${file} no importa nada que gaste, registre uso o toque HubSpot`, () => {
+    it(`${file} no importa nada que gaste ni registre uso`, () => {
       const code = stripTsComments(read(file));
       for (const forbidden of FORBIDDEN_IMPORTS) {
         assert.equal(
@@ -117,25 +171,141 @@ describe('post-approval reveal — ninguna vía propia a un proveedor', () => {
     });
   }
 
-  it('HUBSPOT_WRITES = 0: ni una mención en CÓDIGO en ninguno de los archivos', () => {
-    // Sobre el código EJECUTABLE, no sobre la prosa. El archivo de acciones DECLARA el límite del
-    // §8 en su encabezado, y castigar esa frase empujaría a borrar exactamente lo que hace la
-    // decisión revisable — es la misma lección que las guardas de `mobile_phone` ya aprendieron.
-    // La declaración se exige en positivo justo debajo.
-    for (const file of ALL_FILES) {
-      assert.equal(
-        /hubspot/i.test(stripTsComments(read(file))),
-        false,
-        `${file} nombra HubSpot en código: Approval → HubSpot es un contrato aparte`,
+  // ═══════════════════════════════════════════════════════════════
+  // HubSpot — la guarda, RE-AFILADA por el FINAL CUT
+  // ═══════════════════════════════════════════════════════════════
+  //
+  // ── OLD_ASSERTION ────────────────────────────────────────────
+  // `HUBSPOT_WRITES = 0: ni una mención en CÓDIGO en ninguno de los archivos` — un `/hubspot/i`
+  // sobre el código ejecutable de los nueve archivos del hito.
+  //
+  // ── WHY_OBSOLETE ─────────────────────────────────────────────
+  // Protegía el §8 de #352, donde la proyección post-aprobación no producía estado durable de
+  // HubSpot y por tanto no tenía nada que decirle. CUT-3A/CUT-3C cambiaron ese hecho: la 128
+  // escribe `contacts.phone` de un contacto que PUEDE estar vinculado y `synced`, así que el
+  // silencio dejó de ser una separación de contratos y pasó a ser el defecto — HubSpot conserva
+  // el número viejo y la ficha afirma estar al día.
+  //
+  // Además la guarda medía lo que no era: confundía NOMBRAR con PODER. Un `import type` —que se
+  // borra al compilar— y un campo del sobre llamado `hubspot_sync_transition` la rompían igual
+  // que un cliente HTTP, mientras que un módulo llamado `crm-followup.ts` la habría pasado
+  // entera. Un umbral léxico premia el eufemismo y castiga la claridad.
+  //
+  // ── NEW_INVARIANT ────────────────────────────────────────────
+  // Tres afirmaciones, sobre CAPACIDAD y no sobre vocabulario:
+  //
+  //   1. NINGÚN archivo del hito puede construir una petición a HubSpot: la superficie del
+  //      cliente y del motor (`FORBIDDEN_HUBSPOT_SURFACE`) sigue prohibida en los diez, el que
+  //      cablea la fase 2 incluido;
+  //   2. EXACTAMENTE UN archivo puede importar un símbolo de HubSpot en runtime, y sólo puede
+  //      ser `runContactHubSpotAutoPhoneUpdateWired`: el entrypoint único que ya usan la edición
+  //      manual y el merge, con su bandera y su rechazo de la procedencia `privacy` dentro;
+  //   3. el núcleo y el runtime pueden NOMBRAR HubSpot únicamente en el vocabulario del sobre y
+  //      en un `import type`, que no es una arista de runtime.
+
+  const HUBSPOT_WIRING_FILE = ACTIONS;
+  const HUBSPOT_ENTRYPOINT = 'runContactHubSpotAutoPhoneUpdateWired';
+  const HUBSPOT_ENTRYPOINT_MODULE = '@/modules/contacts/contact-hubspot-sync-runner';
+  /** Tipos y campos: nombran HubSpot sin poder alcanzarlo. */
+  const HUBSPOT_TYPE_ONLY_TOKENS = [
+    'ContactAutoPhoneUpdateReport',
+    '@/modules/contacts/contact-hubspot-auto-phone-update-core',
+    'hubspotSyncTransition',
+    'hubspot_sync_transition',
+    'ProjectionHubSpotSyncTransition',
+    'didProjectionLeaveHubSpotPendingChange',
+    'runHubSpotPhoneSyncFollowUp',
+    'hubspotAutoUpdate',
+  ];
+
+  for (const file of ALL_FILES) {
+    it(`${file} no puede CONSTRUIR una petición a HubSpot`, () => {
+      const code = stripTsComments(read(file));
+      for (const forbidden of FORBIDDEN_HUBSPOT_SURFACE) {
+        assert.equal(
+          code.includes(forbidden),
+          false,
+          `${file} nombra ${forbidden}: sería una segunda implementación del envío`,
+        );
+      }
+    });
+  }
+
+  it('control NEGATIVO: la lista prohibida SÍ atrapa un cliente de HubSpot real', () => {
+    // Sin esto, la prueba de arriba pasaría igual si la lista estuviera vacía o mal escrita.
+    const fake = "import { updateHubSpotContact } from '@/server/integrations/hubspot-contact-sync';";
+    assert.ok(
+      FORBIDDEN_HUBSPOT_SURFACE.some((f) => fake.includes(f)),
+      'la lista no atrapa el import que existe de verdad en el motor',
+    );
+  });
+
+  it('EXACTAMENTE UN archivo del hito importa HubSpot en runtime, y es el entrypoint único', () => {
+    const importers = ALL_FILES.filter((file) => {
+      const code = stripTsComments(read(file));
+      // `import type … from` se descarta: se borra al compilar y no puede llamar a nada.
+      const runtimeImports = code
+        .split('\n')
+        .filter((line) => /^\s*import\s/.test(line) && !/^\s*import\s+type\s/.test(line));
+      return runtimeImports.some((line) => /hubspot/i.test(line));
+    });
+    assert.deepEqual(importers, [HUBSPOT_WIRING_FILE], 'la fase 2 se cablea en UN solo sitio');
+
+    const wiring = stripTsComments(read(HUBSPOT_WIRING_FILE));
+    assert.match(
+      wiring,
+      new RegExp(`import \\{ ${HUBSPOT_ENTRYPOINT} \\} from '${HUBSPOT_ENTRYPOINT_MODULE.replace(/\//g, '\\/')}'`),
+      'el único import de HubSpot tiene que ser el entrypoint, y sólo él',
+    );
+    // Y una sola llamada: la fase 2 no se dispara dos veces desde el cableado.
+    assert.equal((wiring.match(new RegExp(`${HUBSPOT_ENTRYPOINT}\\(`, 'g')) ?? []).length, 1);
+  });
+
+  it('el núcleo y el runtime nombran HubSpot SÓLO como tipo o como vocabulario del sobre', () => {
+    for (const file of [CORE, RUNTIME]) {
+      const code = stripTsComments(read(file));
+      const lines = code.split('\n').filter((line) => /hubspot/i.test(line));
+      const unexplained = lines.filter(
+        (line) => !HUBSPOT_TYPE_ONLY_TOKENS.some((token) => line.includes(token)),
       );
+      assert.deepEqual(unexplained, [], `${file} nombra HubSpot fuera del vocabulario declarado`);
+
+      // Y la única arista hacia el módulo de HubSpot es `import type`, que no existe en runtime.
+      for (const line of lines.filter((l) =>
+        l.includes('@/modules/contacts/contact-hubspot-auto-phone-update-core'),
+      )) {
+        assert.match(line, /^import type /, `${file}: la importación tiene que ser type-only`);
+      }
     }
   });
 
-  it('y el límite del §8 está DECLARADO donde se toma la decisión', () => {
-    // En positivo: el archivo que cablea la operación tiene que decir que HubSpot queda fuera.
-    // Una ausencia silenciosa se lee como un olvido; una declaración se puede revisar.
+  it('SQL — la migración final no alcanza ninguna red', () => {
+    // La transición durable la escribe SQL, y desde SQL no hay CRM alcanzable. Se afirma en vez
+    // de suponerse: una extensión HTTP en una migración sería una escritura al CRM del cliente
+    // dentro de una transacción, sin bandera y sin nadie mirando.
+    //
+    // Se mide sobre el CUERPO EJECUTABLE, no sobre el archivo. La cabecera y el COMMENT DECLARAN
+    // la ausencia —«no se llama a `http`, ni a `pg_net`»— y una guarda cruda castigaría esa frase,
+    // empujando a borrar exactamente lo que hace la decisión revisable. Nombrar no es hacer.
+    const body = sqlFunctionBodies(read(`supabase/migrations/${FINAL_MIGRATION}`));
+    for (const forbidden of ['pg_net', 'net.http', 'http_post', 'http_get', 'dblink']) {
+      assert.equal(body.includes(forbidden), false, `la migración LLAMA a ${forbidden}`);
+    }
+    // Control NEGATIVO: el extractor de cuerpo devuelve algo y sabe ver una llamada real.
+    assert.ok(body.includes('mark_contact_hubspot_sync_stale_for_phone'), 'el cuerpo se extrajo');
+    assert.ok(
+      ['pg_net', 'dblink'].some((f) => `${body}\n  PERFORM pg_net.http_post();`.includes(f)),
+      'el detector no vería una llamada de red aunque existiera',
+    );
+  });
+
+  it('y el nuevo límite está DECLARADO donde se toma la decisión', () => {
+    // En positivo, igual que antes: el archivo que cablea la operación tiene que decir qué queda
+    // dentro y qué queda fuera. Una ausencia silenciosa se lee como un olvido; una declaración se
+    // puede revisar.
     assert.match(read(ACTIONS), /HUBSPOT/);
-    assert.match(read(ACTIONS), /FUERA DE ALCANCE/);
+    assert.match(read(ACTIONS), /FUERA DE ALCANCE SIGUE ESTANDO/);
+    assert.match(read(ACTIONS), /SEGUNDA fase/);
   });
 
   it('la ÚNICA delegación es el pipeline del candidato, y está escrita', () => {
@@ -523,15 +693,21 @@ describe('la migración 128 — su contrato', () => {
     assert.match(envelope, /'primary_dedupe_key'/);
   });
 
-  it('es la ÚLTIMA migración del repo, existe una sola vez y no hay huecos', () => {
+  it('existe una sola vez, no hay huecos, y la re-emite el tramo 129–132', () => {
     const files = readdirSync(MIGRATIONS_DIR)
       .filter((f) => /^\d{3}_.*\.sql$/.test(f))
       .sort();
-    assert.equal(files[files.length - 1], MIGRATION);
+    // AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1 dejó de ser la ÚLTIMA: la 128 es ahora la
+    // base de la 131, que la re-emite entera con cinco splices declarados para que la proyección
+    // PRODUZCA además el estado durable de HubSpot. Que ya no sea el techo no afloja nada — el
+    // techo se sigue fijando EXACTO, con nombre y conteo, y la 128 se sigue exigiendo presente y
+    // única, que es lo que esta suite necesita: el generador de la 131 deriva su cuerpo de ella.
+    assert.ok(files.includes(MIGRATION), 'la 128 tiene que seguir existiendo: la 131 la deriva');
     assert.equal(files.filter((f) => f.startsWith('128')).length, 1);
+    assert.equal(files[files.length - 1], '132_agent2_hubspot_legacy_sync_state_backfill.sql');
     const numbers = files.map((f) => Number.parseInt(f.slice(0, 3), 10));
-    assert.equal(Math.max(...numbers), 128);
-    assert.equal(files.length, 128, 'techo y conteo coinciden: ni un hueco');
+    assert.equal(Math.max(...numbers), 132);
+    assert.equal(files.length, 132, 'techo y conteo coinciden: ni un hueco');
   });
 
   it('no edita ninguna migración anterior de la cadena de teléfono', () => {

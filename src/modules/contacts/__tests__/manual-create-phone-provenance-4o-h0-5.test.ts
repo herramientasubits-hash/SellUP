@@ -510,6 +510,35 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
     const files = readdirSync(join(repoRoot, 'supabase', 'migrations'))
       .filter((f) => f.endsWith('.sql'))
       .sort();
+
+    // ══════════════════════════════════════════════════════════
+    // AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1 — guarda RE-AFILADA
+    // ══════════════════════════════════════════════════════════
+    //
+    // OLD_ASSERTION (dos afirmaciones): el techo NUMERADO sigue donde estaba, y todo fichero SIN
+    // numerar está DECLARADO aquí por nombre. La segunda existía porque los cuatro archivos de
+    // Agente 2 nacieron con prefijo `LOCAL_` a propósito, y sin ella «llámalo LOCAL_ y desaparece
+    // del radar» habría sido una vía de escape.
+    //
+    // WHY_OBSOLETE: la lista de excepciones se quedó vacía. La canonicalización renombró los
+    // cuatro a 129/130/131/132, así que ya no hay ningún fichero fuera de la secuencia
+    // desplegable que declarar.
+    //
+    // NEW_INVARIANT, ESTRICTAMENTE MÁS FUERTE: el conjunto de ficheros sin numerar es VACÍO —no
+    // «declarado»—, y el techo numerado se afirma por nombre exacto igual que antes. H0.5 sigue
+    // sin aportar esquema, que es lo único que esta guarda defiende de verdad.
+    assert.deepEqual(
+      files.filter((f) => !/^\d{3}_/.test(f)),
+      [],
+      'ningún fichero de migración puede quedar fuera de la secuencia numerada',
+    );
+
+    // Control NEGATIVO del filtro, sobre nombres SINTÉTICOS: si `\d{3}_` aceptara un prefijo no
+    // numérico, la afirmación de arriba se quedaría vacía por el motivo equivocado.
+    assert.equal(/^\d{3}_/.test('LOCAL_example_unnumbered.sql'), false);
+    assert.equal(/^\d{3}_/.test('132_agent2_hubspot_legacy_sync_state_backfill.sql'), true);
+
+    const numbered = files.filter((f) => /^\d{3}_/.test(f));
     // El techo lo movió 4O-H1 con la 114 (esquema oficial multi-teléfono, inerte) y
     // después 4O-H2 con la 115 (su privacidad: contadores de auditoría y la función
     // `suppress_official_contact_phone_sources`), y después 4O-H3 con la 116 (la APROBACIÓN
@@ -518,7 +547,7 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
     // nombre exacto se mantiene para que una migración colada por encima del último hito
     // conocido rompa la guarda.
     assert.equal(
-      files[files.length - 1],
+      numbered[numbered.length - 1],
       // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119 (catálogo de
       // Macro Industrias, sin relación con teléfono). H0.5 sigue sin aportar esquema.
       // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) mueve el techo a la 120:
@@ -557,15 +586,45 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // `prospect_candidates`. Ninguna de las tres toca `phone_source`, `contact_phones` ni la
       // creación manual; la autoría se comprueba abajo archivo por archivo. Las tres AUTORADAS y
       // NO APLICADAS.
-      // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 mueve el techo a la 128: proyecta la
+      // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 movió el techo a la 128: proyecta la
       // colección de teléfonos de un candidato YA APROBADO sobre el contacto que su propia
       // aprobación creó. NO crea ningún contacto (no hay `INSERT INTO public.contacts` en el
       // archivo) y no escribe `phone_source = 'manual'` por su cuenta: la procedencia sale de
       // `contact_phone_sources`, invertida con el MISMO builder que H0.5 ya usa. No añade
       // esquema. AUTORADA y NO APLICADA.
-      '128_project_approved_candidate_phones_onto_contact.sql',
+      // AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1 lo mueve a la 132 al canonicalizar el tramo
+      // de Agente 2 —129 la completitud del `stale` de HubSpot, 130 su PROCEDENCIA durable, 131 la
+      // re-emisión de la 128 que produce el pendiente con procedencia `reveal`, 132 la línea base
+      // de los contactos ya vinculados—. Ninguna de las cuatro crea un contacto ni escribe
+      // `phone_source`: la 131 hereda de la 128 el mismo builder invertido que H0.5 usa, y las
+      // otras tres sólo escriben estado de sincronización en `contacts.metadata`. El barrido de
+      // abajo lo comprueba sobre su SQL en vez de creerle a este comentario. Las cuatro AUTORADAS
+      // y NO APLICADAS en remoto.
+      '132_agent2_hubspot_legacy_sync_state_backfill.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
+    for (const agent2 of [
+      '129_agent2_contact_hubspot_stale_completeness.sql',
+      '130_agent2_contact_hubspot_stale_source.sql',
+      '131_agent2_post_approval_reveal_stale_producer.sql',
+      '132_agent2_hubspot_legacy_sync_state_backfill.sql',
+    ]) {
+      assert.ok(numbered.includes(agent2), `falta ${agent2}`);
+      const sql = readFileSync(join(repoRoot, 'supabase', 'migrations', agent2), 'utf8');
+      // Lo que H0.5 vigila es la CREACIÓN manual del contacto. Ninguna de las cuatro crea uno:
+      // proyectan y sincronizan sobre contactos que ya existen.
+      //
+      // Lo que NO se afirma, porque sería falso: que no escriban `phone_source`. La 129 y la 130
+      // re-emiten la 115 y la 117, y ésas SÍ lo escriben —desde `contact_phone_sources`, con la
+      // misma inversión que H0.5 usa—, que es precisamente el reparto correcto y no una
+      // violación. Y `'manual'` aparece en su texto porque está en la allowlist de fuentes
+      // legadas suprimibles de 4O-E4, heredada de la 115.
+      assert.equal(
+        /INSERT INTO public\.contacts[^_]/i.test(sql),
+        false,
+        `${agent2} crea un contacto: la creación manual es de H0.5 y de nadie más`,
+      );
+    }
   });
 
   it('H0.5 NO crea el modelo oficial multi-teléfono (eso es H1)', () => {

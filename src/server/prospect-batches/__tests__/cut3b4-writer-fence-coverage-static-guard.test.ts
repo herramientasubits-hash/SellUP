@@ -323,12 +323,22 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     assert.deepEqual(authored, ['126_agent1_batch_identity_atomicity.sql']);
     // 🔴 AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 reclamó después el 128: la
     // proyección de la colección de teléfonos de un candidato ya APROBADO al contacto que su
-    // aprobación creó. Mismo razonamiento que con la 127: lo que esta guarda defiende es AUTORÍA,
-    // no el número más alto, y la 128 no menciona `AGENT1-CUT3B4` en absoluto — lo que la lista
-    // `authored` de arriba ya comprueba de forma exhaustiva sobre TODAS las migraciones del repo.
-    const CEILING = '128_project_approved_candidate_phones_onto_contact.sql';
+    // aprobación creó. Y AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1 reclamó luego el tramo
+    // 129–132 al canonicalizar la cadena de sincronización con HubSpot de Agente 2. Mismo
+    // razonamiento que con la 127: lo que esta guarda defiende es AUTORÍA, no el número más
+    // alto, y ninguna de las cinco menciona `AGENT1-CUT3B4` — lo que la lista `authored` de
+    // arriba ya comprueba de forma exhaustiva sobre TODAS las migraciones del repo, incluidas
+    // las que aún no existían cuando se escribió.
+    const CEILING = '132_agent2_hubspot_legacy_sync_state_backfill.sql';
     assert.equal(migrations[migrations.length - 1], CEILING);
-    for (const foreign of ['127_br_receita_monthly_snapshot_identity.sql', CEILING]) {
+    for (const foreign of [
+      '127_br_receita_monthly_snapshot_identity.sql',
+      '128_project_approved_candidate_phones_onto_contact.sql',
+      '129_agent2_contact_hubspot_stale_completeness.sql',
+      '130_agent2_contact_hubspot_stale_source.sql',
+      '131_agent2_post_approval_reveal_stale_producer.sql',
+      CEILING,
+    ]) {
       assert.equal(
         read(`supabase/migrations/${foreign}`).includes('AGENT1-CUT3B4'),
         false,
@@ -336,7 +346,7 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
       );
     }
     // Sin huecos: el conteo se mueve con el techo real del repositorio, no con el de este corte.
-    assert.equal(migrations.length, 128);
+    assert.equal(migrations.length, 132);
   });
 
   it('🔴 la 124 (Agente 2A) queda intacta, y la 126 no depende de ella', () => {

@@ -250,7 +250,16 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
       // SQL su cierre terminal: el estado del reveal lo sigue escribiendo el pipeline del
       // candidato en TypeScript, y esta función sólo promueve números ya persistidos. AUTORADA y
       // NO APLICADA.
-      '128_project_approved_candidate_phones_onto_contact.sql',
+      // AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1 mueve el techo a la 132: el tramo 129–132 de
+      // la cadena de sincronización con HubSpot de Agente 2 —129 la completitud del estado
+      // durable `stale`, 130 su procedencia, 131 la 128 re-emitida para producirlo con
+      // procedencia `reveal`, 132 la línea base de los contactos ya vinculados—. Las cuatro
+      // nacieron sin número a propósito y lo reciben ahora que la disputa 125/126/127 está
+      // cerrada. NINGUNA es autoría de 4O-E1 y ninguna duplica en SQL su cierre terminal: el
+      // estado del reveal lo sigue escribiendo el pipeline del candidato en TypeScript. El
+      // barrido de autoría de abajo recorre el directorio COMPLETO, así que estas cuatro entran
+      // en él sin excepción. AUTORADAS y NO APLICADAS.
+      '132_agent2_hubspot_legacy_sync_state_backfill.sql',
       `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
     // Y ninguna migración es AUTORÍA de 4O-E1: el hito no escribió SQL.

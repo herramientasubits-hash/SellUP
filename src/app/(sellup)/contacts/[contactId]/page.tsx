@@ -28,6 +28,7 @@ import {
   type ContactAuditAction,
 } from '@/modules/contacts/types';
 import { ContactRowActions } from '@/components/contacts/contact-row-actions';
+import { ContactHubSpotSyncBadge } from '@/components/contacts/contact-hubspot-sync-badge';
 
 interface ContactDetailPageProps {
   params: Promise<{ contactId: string }>;
@@ -309,9 +310,17 @@ export default async function ContactDetailPage({ params }: ContactDetailPagePro
                 )}
               </DetailRow>
               <DetailRow icon={Tag} label="Estado de sincronización">
-                <Badge variant="outline" className="text-[10px] bg-muted/40 border-transparent text-muted-foreground">
-                  Sincronización no activa
-                </Badge>
+                {/* AGENT2-FINAL-LOCAL-CLOSURE-MICROFIX — antes esto era un badge HARDCODEADO
+                    «Sincronización no activa» (preexistente, 21-05). Ignoraba el estado durable
+                    y contradecía al drawer sobre el mismo contacto: un contacto SÍ sincronizado
+                    seguía leyéndose aquí como si la sync no existiera. Ahora lo dice la misma
+                    autoridad, así que las dos superficies no pueden divergir. */}
+                <ContactHubSpotSyncBadge
+                  contact={{
+                    hubspot_contact_id: contact.hubspot_contact_id,
+                    metadata: contact.metadata as Record<string, unknown> | null,
+                  }}
+                />
               </DetailRow>
             </dl>
             <div className="mt-4 rounded-lg bg-muted/40 px-3 py-2.5">
@@ -319,13 +328,18 @@ export default async function ContactDetailPage({ params }: ContactDetailPagePro
                 Propiedades mapeadas
               </p>
               <p className="text-xs text-muted-foreground leading-relaxed">
+                {/* AGENT2-FINAL-LOCAL-CLOSURE-MICROFIX — se cae «antes de activar la sync»:
+                    afirmaba lo mismo que el badge hardcodeado de arriba, y dejarla haría que el
+                    párrafo contradijera al estado durable que el badge ya dice bien. Lo que sí
+                    sigue siendo cierto —y es todo lo que esta frase puede afirmar— es que las 7
+                    propiedades custom siguen pendientes de crear en el portal. */}
                 Este contacto está preparado para sincronizar con HubSpot Contact. El mapping
                 cubre{' '}
                 <span className="font-medium text-foreground">
                   firstname, lastname, email, phone, mobilephone, jobtitle, seniority, hs_linkedin_url
                 </span>
                 {' '}y 7 propiedades custom (<span className="font-mono text-[11px]">sellup_*</span>)
-                pendientes de crear en el portal UBITS antes de activar la sync.
+                pendientes de crear en el portal UBITS.
               </p>
             </div>
           </SurfaceCard>

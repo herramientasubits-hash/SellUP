@@ -69,6 +69,8 @@ function makeDeps(
   return {
     actorId: 'user-1',
     nowIso: '2026-06-29T12:00:00.000Z',
+    // CUT-3B — este camino sigue siendo el MANUAL. Se declara, no se hereda.
+    method: 'manual',
     loadContact: async () => makeContact(),
     loadAccount: async () => makeAccount(),
     checkConnection: async () => ({ connected: true, canWriteContacts: true }),
@@ -76,6 +78,10 @@ function makeDeps(
     createHubSpotContact: async () => {
       s.createdContacts += 1;
       return { id: 'hs-contact-new' };
+    },
+    // CUT-2 — envenenado a propósito: el alta/vinculación del 17A.4C nunca actualiza.
+    updateHubSpotContact: async () => {
+      throw new Error('PATCH_FORBIDDEN_IN_CREATE_FLOW');
     },
     associateContactWithCompany: async (contactId, companyId) => {
       s.associations.push({ contactId, companyId });
@@ -145,6 +151,7 @@ test('buildSyncMetadata preserva metadata previa y agrega hubspot_sync', () => {
     companyAssociation: 'associated',
     actorId: 'user-1',
     nowIso: '2026-06-29T12:00:00.000Z',
+    method: 'manual',
   });
   assert.equal(meta.keep, true);
   assert.equal(meta.source, 'x');
@@ -198,7 +205,7 @@ test('4. falla si la cuenta no tiene hubspot_company_id', async () => {
   assert.equal(res.ok === false && res.errorCode, 'MISSING_HUBSPOT_COMPANY');
 });
 
-test('5. si el contacto ya tiene hubspot_contact_id → already_synced sin escribir', async () => {
+test('5. si el contacto ya tiene hubspot_contact_id → already_synced sin tocar HubSpot', async () => {
   const spy = freshSpy();
   const res = await runSyncContactToHubSpot(
     'contact-1',
@@ -208,7 +215,42 @@ test('5. si el contacto ya tiene hubspot_contact_id → already_synced sin escri
   assert.equal(res.ok, true);
   assert.equal(res.ok === true && res.status, 'already_synced');
   assert.equal(res.ok === true && res.hubspotContactId, 'hs-existing');
-  // No debe crear, asociar ni persistir nada.
+  // La idempotencia que importa es hacia HubSpot: ni crea ni asocia. Lo que antes también se
+  // afirmaba —cero escrituras locales— dejaba de ser cierto en CUT-1: un contacto vinculado
+  // cuyo estado durable NO dice `synced` se repara, y esa reparación escribe SOLO metadata.
+  assert.equal(spy.createdContacts, 0);
+  assert.equal(spy.associations.length, 0);
+  assert.equal(spy.persisted.length, 1);
+  const patch = spy.persisted[0].patch as { hubspot_contact_id: string | null; metadata: Record<string, unknown> };
+  assert.equal(patch.hubspot_contact_id, null);
+  assert.equal((patch.metadata.hubspot_sync as Record<string, unknown>).status, 'synced');
+});
+
+test('5b. si el estado durable ya dice synced, no se escribe absolutamente nada', async () => {
+  const spy = freshSpy();
+  const res = await runSyncContactToHubSpot(
+    'contact-1',
+    makeDeps(
+      {
+        loadContact: async () =>
+          makeContact({
+            hubspot_contact_id: 'hs-existing',
+            metadata: {
+              source: 'contact_enrichment_candidate',
+              hubspot_sync: {
+                status: 'synced',
+                method: 'manual',
+                attempted_at: '2026-06-01T00:00:00.000Z',
+                last_error: null,
+                hubspot_contact_id: 'hs-existing',
+              },
+            },
+          }),
+      },
+      spy,
+    ),
+  );
+  assert.equal(res.ok === true && res.status, 'already_synced');
   assert.equal(spy.createdContacts, 0);
   assert.equal(spy.associations.length, 0);
   assert.equal(spy.persisted.length, 0);
@@ -297,7 +339,7 @@ test('11b. fallo de asociación no invalida el vínculo (queda registrado)', asy
   assert.equal(sync.company_association, 'failed');
 });
 
-test('12. si falla la creación en HubSpot → no marca como synced (no persiste)', async () => {
+test('12. si falla la creación en HubSpot → nunca marca como synced', async () => {
   const spy = freshSpy();
   const res = await runSyncContactToHubSpot(
     'contact-1',
@@ -305,8 +347,16 @@ test('12. si falla la creación en HubSpot → no marca como synced (no persiste
   );
   assert.equal(res.ok, false);
   assert.equal(res.ok === false && res.errorCode, 'HUBSPOT_ERROR');
-  assert.equal(spy.persisted.length, 0);
   assert.equal(spy.associations.length, 0);
+  // CUT-1: el fallo deja de ser invisible. Se registra como `failed` —sin vínculo y sin PII—
+  // en vez de dejar la ficha diciendo lo mismo que antes de intentarlo.
+  assert.equal(spy.persisted.length, 1);
+  const patch = spy.persisted[0].patch as { hubspot_contact_id: string | null; metadata: Record<string, unknown> };
+  assert.equal(patch.hubspot_contact_id, null);
+  const sync = patch.metadata.hubspot_sync as Record<string, unknown>;
+  assert.equal(sync.status, 'failed');
+  assert.notEqual(sync.status, 'synced');
+  assert.equal(sync.last_error, 'hubspot_create_failed');
 });
 
 // ── Garantías de aislamiento del hito ───────────────────────────
