@@ -23,9 +23,15 @@
  *
  *   DELIVERY NOVELTY   → «¿se le puede volver a ENTREGAR al usuario?»
  *                        Autoridad: `evaluateCandidateNovelty` (novelty-checker),
- *                        INTACTA. Incluye los cooldowns de `discarded`
- *                        (30 d revisado / 90 d sin revisar), que este corte NO
- *                        toca.
+ *                        INTACTA en su código y en su vocabulario, cooldowns de
+ *                        `discarded` incluidos (30 d revisado / 90 d sin
+ *                        revisar).
+ *
+ *                        🔴 AGENT1-APOLLO-HISTORICAL-DELIVERY-FINALITY: esos
+ *                        cooldowns SIGUEN EXISTIENDO pero ya NO son la autoridad
+ *                        de novedad histórica de entrega. Una empresa entregada y
+ *                        después descartada no vuelve a ser nueva a los 31 ni a
+ *                        los 91 días. Ver `HISTORICAL_DELIVERY_STATUSES`.
  *
  *   REENRICHMENT COST  → «¿hay que volver a PAGAR por resolverla?»
  *                        Autoridad: este módulo. Una fila que OCUPA el lote como
@@ -65,6 +71,14 @@ import {
   type FiscalIdentityKey,
 } from './fiscal-identity';
 import { BATCH_IDENTITY_BLOCKING_CANDIDATE_STATUSES } from './batch-identity-registry';
+// AGENT1-APOLLO-HISTORICAL-DELIVERY-FINALITY § 2 — «entregada» no es «existe una
+// fila»: es «existe una fila que salió de una corrida real». La autoridad es el
+// clasificador canónico de procedencia, el mismo que lee el modelo de efectividad
+// y el mismo que ya usa la memoria negativa de discovery. Puro: sin I/O.
+import {
+  deriveRecordOriginClassification,
+  type RecordOrigin,
+} from '@/modules/agent1-effectiveness/classification';
 
 // ─── Política por estado ──────────────────────────────────────────────────────
 
@@ -158,24 +172,134 @@ export const PREPAID_HISTORICAL_STATUS_POLICY: Readonly<
     blocksPrepaymentReenrichment: true,
     rationale:
       'Duplicado confirmado (novelty Regla 3). Pagar por confirmarlo otra vez no ' +
-      'resuelve nada.',
+      'resuelve nada. Ya era permanente antes de FINALITY y lo sigue siendo.',
   },
   discarded: {
-    blocksHistoricalRedelivery: 'cooldown_governed',
-    blocksPrepaymentReenrichment: 'cooldown_governed',
+    // AGENT1-APOLLO-HISTORICAL-DELIVERY-FINALITY § 8 — antes decía
+    // 'cooldown_governed' en las DOS columnas, y eso es exactamente lo que
+    // permitía que una empresa ya entregada volviera a ser nueva a los 31 d
+    // (revisada) o a los 91 d (sin revisar). La ventana ya no gobierna la
+    // NOVEDAD de entrega.
+    blocksHistoricalRedelivery: true,
+    blocksPrepaymentReenrichment: true,
     rationale:
-      'Política de re-sugerencia DELIBERADA: 30 d con revisión, 90 d sin ella. ' +
-      'Este corte NO la altera — la delega íntegra en evaluateCandidateNovelty. ' +
-      'Un descartado FUERA de cooldown puede volver a ofrecerse y, hoy, también ' +
-      'a enriquecerse: reutilizar la evidencia previa en vez de recomprarla es ' +
-      'una decisión económica SEPARADA, no de este corte.',
+      'Un descarte es un RESULTADO DE REVISIÓN sobre una entrega que sí ocurrió: ' +
+      'el estado no borra el hecho. La memoria de entrega es PERMANENTE con ' +
+      'identidad fuerte y procedencia productiva — 5 d, 31 d, 91 d, 200 d y 365 d ' +
+      'dan el mismo veredicto. Los cooldowns de 30/90 d NO se eliminan: siguen ' +
+      'vivos en evaluateCandidateNovelty como política de revisión y analítica ' +
+      '(reason, cooldown_until), pero dejan de ser la autoridad de novedad.',
   },
 };
 
-/** ¿Este estado, por sí solo, prueba que la empresa ya fue entregada? */
+/**
+ * ¿Este estado prueba que la fila TODAVÍA OCUPA el lote como candidato?
+ *
+ * 🔴 No es «¿ya se entregó?». Ésa la responde `isHistoricalDeliveryStatus`, y son
+ * preguntas distintas desde AGENT1-APOLLO-HISTORICAL-DELIVERY-FINALITY:
+ * `discarded` y `duplicate` NO ocupan el lote —son resultados de revisión sobre
+ * una fila que ya perdió su sitio— y sin embargo SÍ prueban una entrega pasada.
+ * Este predicado se conserva con su semántica original, sin tocar el conjunto
+ * canónico de `batch-identity-registry`, porque CUT-3A/CUT-3B dependen de que un
+ * descarte previo NO impida la llegada del candidato legítimo DENTRO de un lote.
+ */
 export function isDeliveryOccupyingStatus(status: string | null | undefined): boolean {
   if (!status) return false;
   return DELIVERY_OCCUPYING_STATUSES.has(status);
+}
+
+// ─── HISTORICAL DELIVERY FINALITY ─────────────────────────────────────────────
+
+/**
+ * AGENT1-APOLLO-HISTORICAL-DELIVERY-FINALITY — la memoria de ENTREGA es
+ * PERMANENTE.
+ *
+ * El defecto que cierra este corte: `discarded` fuera de cooldown (30 d con
+ * revisión, 90 d sin ella) volvía a ser una empresa NUEVA. Agente 1 la había
+ * encontrado y entregado, la usuaria la había descartado, y meses después Apollo
+ * la volvía a cobrar y a entregar como si nunca hubiera existido.
+ *
+ * Regla de negocio autorizada:
+ *
+ *   UNA EMPRESA YA ENTREGADA POR AGENTE 1 NO VUELVE A SER UNA EMPRESA NUEVA,
+ *   AUNQUE DESPUÉS HAYA SIDO DESCARTADA.
+ *
+ * ── Dos conceptos que dejan de estar fusionados ───────────────────────────────
+ *
+ *   DELIVERY HISTORY        ≠   CURRENT REVIEW STATUS
+ *
+ * El estado puede decir `needs_review`, `approved`, `discarded`,
+ * `converted_to_account` o `duplicate`. Ninguno de esos valores BORRA el hecho
+ * «Agente 1 ya entregó esta empresa». Por eso los SIETE estados de la CHECK real
+ * prueban una entrega: la fila existe porque hubo una entrega que la creó.
+ *
+ * ── Qué NO hace este corte ────────────────────────────────────────────────────
+ *
+ * No convierte `discarded` en `duplicate`. No muta la fila histórica. No toca el
+ * historial de revisión, ni `reviewed_at`, ni la metadata de cooldown. Los
+ * cooldowns de 30/90 días SIGUEN EXISTIENDO en `evaluateCandidateNovelty` y
+ * siguen siendo política de revisión y analítica; lo único que cambia es que ya
+ * NO son la autoridad de «¿es nueva esta empresa?».
+ *
+ * ── Ventana temporal: NINGUNA ─────────────────────────────────────────────────
+ *
+ * Con identidad FUERTE (dominio normalizado o identidad fiscal canónica con
+ * país), la edad de la fila es irrelevante: 5 días, 31, 91, 200 o 365 dan el
+ * mismo veredicto. Sin identidad fuerte no hay bloqueo duro y el nombre nunca
+ * decide (§ 5 / § 18).
+ *
+ * Fail-closed: un estado que no está en la CHECK no prueba ninguna entrega.
+ */
+const HISTORICAL_DELIVERY_STATUSES: ReadonlySet<string> = new Set(
+  PROSPECT_CANDIDATE_DB_STATUSES,
+);
+
+/**
+ * ¿Una fila con este estado prueba que la empresa YA FUE ENTREGADA alguna vez?
+ *
+ * Los siete estados válidos responden sí. Es deliberado y es el corazón del
+ * corte: el estado describe en qué punto de la revisión quedó la entrega, no si
+ * la entrega ocurrió.
+ */
+export function isHistoricalDeliveryStatus(status: string | null | undefined): boolean {
+  if (!status) return false;
+  return HISTORICAL_DELIVERY_STATUSES.has(status);
+}
+
+/**
+ * § 2 — clases de procedencia que NO son entregas productivas reales.
+ *
+ * Autoridad canónica ÚNICA, compartida con `loadDiscoveryNegativeMemory` (que la
+ * importa de aquí en vez de mantener una copia): dos listas del mismo concepto
+ * habrían divergido.
+ *
+ *   - `smoke_test`, `qa`, `historical_cleanup`, `synthetic` → la fila no salió de
+ *     una corrida comercial real. Nunca se le entregó a nadie, así que no puede
+ *     congelar el universo para siempre.
+ *   - `production`, `import` y `unknown` SÍ quedan dentro: forman parte del
+ *     universo real de SellUp, y en protección de coste «no sé» no puede leerse
+ *     como «no existe».
+ */
+export const NON_DELIVERY_RECORD_ORIGINS: ReadonlySet<RecordOrigin> =
+  new Set<RecordOrigin>(['smoke_test', 'qa', 'historical_cleanup', 'synthetic']);
+
+/**
+ * ¿Esta fila histórica pertenece a una entrega PRODUCTIVA real?
+ *
+ * Sin esta puerta, un solo descarte de smoke/QA envenenaría un dominio real para
+ * siempre — exactamente el daño que la política de memoria negativa ya evita en
+ * `evaluateCandidateNovelty` (Reglas 4/4a/4b) al excluir QA/smoke. No se
+ * enumera ninguna lista de `batch.source`: la procedencia se juzga por FILA.
+ */
+export function isProductiveDeliveryRow(row: HistoricalCandidateRow): boolean {
+  const classification = deriveRecordOriginClassification({
+    status: row.status ?? null,
+    duplicate_status: row.duplicate_status ?? null,
+    source_primary: row.source_primary ?? null,
+    review_notes: row.review_notes ?? null,
+    metadata: row.metadata ?? null,
+  });
+  return !NON_DELIVERY_RECORD_ORIGINS.has(classification.recordOrigin);
 }
 
 // ─── Entradas ─────────────────────────────────────────────────────────────────
@@ -195,6 +319,20 @@ export type HistoricalCandidateRow = {
   tax_id?: string | null;
   tax_identifier?: string | null;
   country_code?: string | null;
+  /**
+   * AGENT1-APOLLO-HISTORICAL-DELIVERY-FINALITY § 2 — las tres entradas que el
+   * clasificador canónico de procedencia necesita para decidir si la fila salió
+   * de una corrida real. Son columnas YA EXISTENTES de `prospect_candidates`
+   * (las mismas que lee `loadDiscoveryNegativeMemory`): no hay migración, no hay
+   * backfill y no hay consulta nueva — se añaden al SELECT que ya se hacía.
+   *
+   * Ausentes ⇒ la procedencia se resuelve con lo que haya. `unknown` queda
+   * DENTRO del universo: en protección de coste no se puede leer «no sé» como
+   * «no existe».
+   */
+  source_primary?: string | null;
+  review_notes?: string | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 /** La empresa que Apollo acaba de devolver, ANTES de pagar por ella. */
@@ -215,6 +353,19 @@ export type PrepaidHistoricalIdentityAxis = 'normalized_domain' | 'fiscal_identi
 export type PrepaidHistoricalRejectionReason =
   /** Una fila histórica ocupa el lote con identidad fuerte. */
   | 'historical_delivery_occupies_identity'
+  /**
+   * AGENT1-APOLLO-HISTORICAL-DELIVERY-FINALITY § 23 — la entrega histórica es
+   * PERMANENTE: la fila ya no ocupa el lote (`discarded`, `duplicate`) pero
+   * prueba una entrega productiva pasada con identidad fuerte.
+   *
+   * Es un motivo NUEVO y provider-neutral, no uno por estado. Se separa de
+   * `historical_delivery_occupies_identity` porque los dos hechos son distintos
+   * —«sigue ocupando» vs «se entregó y se resolvió»— y de
+   * `delivery_novelty_blocks` porque este bloqueo NO depende del cooldown:
+   * `cooldown_or_prior_suggestion` se volvía ambiguo justo cuando el bloqueo
+   * dejó de ser temporal.
+   */
+  | 'historical_delivery_duplicate'
   /** La autoridad de novedad de entrega ya lo bloqueaba (cooldown incluido). */
   | 'delivery_novelty_blocks';
 
@@ -301,8 +452,11 @@ export type EvaluatePrepaidHistoricalInput = {
  *   1. Evidencia ausente → no se afirma nada (fail-open).
  *   2. Identidad FUERTE (dominio o fiscal) contra una fila que ocupa el lote →
  *      ya conocida, sin importar la edad de la fila.
- *   3. La autoridad de novedad de entrega ya lo bloqueaba → ya conocida.
- *   4. Coincidencia sólo por nombre → se declara como evidencia y NO bloquea.
+ *   3. Identidad FUERTE contra una ENTREGA HISTÓRICA productiva ya resuelta
+ *      (`discarded`, `duplicate`) → ya conocida, sin ventana temporal
+ *      (FINALITY § 3, § 8, § 16).
+ *   4. La autoridad de novedad de entrega ya lo bloqueaba → ya conocida.
+ *   5. Coincidencia sólo por nombre → se declara como evidencia y NO bloquea.
  */
 export function evaluatePrepaidHistoricalDuplicate(
   input: EvaluatePrepaidHistoricalInput,
@@ -356,11 +510,35 @@ export function evaluatePrepaidHistoricalDuplicate(
         nameOnlyEvidence,
       });
     }
+
+    /**
+     * AGENT1-APOLLO-HISTORICAL-DELIVERY-FINALITY — la fila ya no ocupa el lote
+     * (`discarded`, `duplicate`), pero SÍ prueba una entrega pasada.
+     *
+     * Sin ventana temporal: la edad no rehabilita la novedad. La procedencia SÍ
+     * se exige —una fila de smoke/QA/limpieza/dato fabricado nunca se le entregó
+     * a nadie y no puede congelar un dominio real para siempre—, y sólo se exige
+     * AQUÍ: para los cinco estados que ocupan el lote el comportamiento anterior
+     * queda intacto, porque esa fila está en la cola con independencia de cómo se
+     * creó y no pagar es la dirección segura.
+     */
+    if (isHistoricalDeliveryStatus(row.status) && isProductiveDeliveryRow(row)) {
+      return emptyVerdict({
+        alreadyKnown: true,
+        reason: 'historical_delivery_duplicate',
+        matchedAxis: strongAxis,
+        matchedStatus: row.status ?? null,
+        matchedCandidateId: row.id ?? null,
+        nameOnlyEvidence,
+      });
+    }
   }
 
-  // `discarded` dentro de cooldown, `duplicate` confirmado y `needs_review`
-  // reciente entran por aquí: la política ya existente los resuelve y este corte
-  // la respeta al pie de la letra.
+  // Red de seguridad, ya no la vía principal para `discarded`/`duplicate`: desde
+  // FINALITY esos dos los resuelve el paso anterior con identidad fuerte y sin
+  // ventana. Aquí siguen entrando los casos que la novedad de entrega bloquea sin
+  // que haya identidad fuerte disponible —y los descartes de smoke/QA DENTRO de
+  // cooldown, que la propia novedad ya excluye de la memoria negativa.
   if (input.deliveryNoveltyShouldSkip === true) {
     return emptyVerdict({
       alreadyKnown: true,

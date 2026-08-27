@@ -86,6 +86,19 @@ type PreviousCandidateRow = {
   tax_id?: string | null;
   tax_identifier?: string | null;
   country_code?: string | null;
+  /**
+   * AGENT1-APOLLO-HISTORICAL-DELIVERY-FINALITY § 2 — las entradas del clasificador
+   * canónico de procedencia (`deriveRecordOriginClassification`). Sin ellas, una
+   * fila de smoke/QA cuyo marcador vive en `source_primary` o en `review_notes`
+   * —y no en `metadata`— se leería como entrega productiva real y congelaría un
+   * dominio legítimo para siempre.
+   *
+   * Columnas ya existentes: se añaden al MISMO SELECT (cero consultas nuevas,
+   * cero migración). `evaluateCandidateNovelty` las ignora: su semántica y sus
+   * cooldowns no cambian.
+   */
+  source_primary?: string | null;
+  review_notes?: string | null;
 };
 
 // ─── NoveltyIndex ─────────────────────────────────────────────────────────────
@@ -185,7 +198,7 @@ export async function buildNoveltyIndex(
   let query = (supabase as ReturnType<typeof import('@supabase/supabase-js').createClient>)
     .from('prospect_candidates')
     .select(
-      'id, batch_id, name, domain, website, status, duplicate_status, reviewed_at, updated_at, created_at, metadata, tax_id, tax_identifier, country_code',
+      'id, batch_id, name, domain, website, status, duplicate_status, reviewed_at, updated_at, created_at, metadata, tax_id, tax_identifier, country_code, source_primary, review_notes',
     )
     .in('domain', normalizedDomains);
 

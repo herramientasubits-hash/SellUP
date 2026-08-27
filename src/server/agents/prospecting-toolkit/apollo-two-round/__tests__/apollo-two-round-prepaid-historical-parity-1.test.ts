@@ -602,7 +602,7 @@ describe('§ 15 · discarded, dentro y fuera de cooldown', () => {
     assert.deepEqual(recorder.enrichCascadeCalls, []);
   });
 
-  test('descartado con revisión hace 40 días: la política permite re-ofrecerla', async () => {
+  test('🔴 FINALITY · descartado con revisión hace 40 días: YA NO se re-compra', async () => {
     const fortyDaysAgo = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString();
     const { deps, recorder } = buildDeps({
       rounds: [
@@ -626,11 +626,17 @@ describe('§ 15 · discarded, dentro y fuera de cooldown', () => {
 
     await runApolloTwoRoundWizardDiscovery(runInput(), deps);
 
-    // El corte NO altera la política de re-sugerencia: sigue compitiendo, y por
-    // tanto sigue siendo candidata a enrichment. La tensión económica queda
-    // DECLARADA en el reporte, no resuelta a escondidas.
-    assert.deepEqual(recorder.enrichCascadeCalls, ['supercuarentados.com.co']);
-    assert.deepEqual(recorder.persistedCandidateNames, ['Supercuarentados']);
+    // AGENT1-APOLLO-HISTORICAL-DELIVERY-FINALITY — esta prueba DOCUMENTABA la
+    // tensión económica que el corte anterior dejó declarada y sin resolver: a
+    // los 40 días el descarte salía del cooldown de 30 d, volvía a competir y se
+    // volvía a COMPRAR. Ese es el defecto que este corte cierra por regla de
+    // negocio, así que el trinquete se invierte en vez de conservarse.
+    assert.deepEqual(
+      recorder.enrichCascadeCalls,
+      [],
+      'una empresa ya entregada no vuelve a costar un crédito por haber sido descartada',
+    );
+    assert.deepEqual(recorder.persistedCandidateNames, []);
   });
 });
 

@@ -12,10 +12,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { normalizeDomain } from './normalization';
 import { buildIdentityKey } from './canonical-company-identity';
-import {
-  deriveRecordOriginClassification,
-  type RecordOrigin,
-} from '@/modules/agent1-effectiveness/classification';
+import { deriveRecordOriginClassification } from '@/modules/agent1-effectiveness/classification';
+// AGENT1-APOLLO-HISTORICAL-DELIVERY-FINALITY § 2 — el conjunto de procedencias
+// que NO son entregas productivas vive en UN solo sitio. Antes había una copia
+// local aquí; dos listas del mismo concepto habrían divergido en el primer corte
+// que tocara una sola de ellas.
+import { NON_DELIVERY_RECORD_ORIGINS } from './apollo-prepaid-historical-parity';
 
 // ─── Tipos públicos ───────────────────────────────────────────────────────────
 
@@ -111,28 +113,6 @@ type CandidateRow = {
   metadata?: Record<string, unknown> | null;
 };
 
-/**
- * AGENT1-APOLLO-PREPAID-HISTORICAL-PARITY § 2 y § 3 — clases de procedencia que
- * NO son una entrega y por tanto no pertenecen al universo histórico.
- *
- * Es una política SEMÁNTICA, no una lista accidental de `source`:
- *
- *   - `smoke_test`, `qa`, `historical_cleanup`, `synthetic` → la fila no salió de
- *     una corrida comercial real. Nunca se le entregó a nadie, así que no puede
- *     congelar el universo.
- *   - `production` e `import` SÍ quedan dentro. Una empresa importada está en el
- *     universo de SellUp y las autoridades POSTERIORES al pago ya la tratan como
- *     duplicada: excluirla aquí reabriría exactamente la asimetría que este corte
- *     cierra (pagar antes por lo que se rechaza después).
- *   - `unknown` queda dentro: en protección de coste, «no sé» no puede leerse como
- *     «no existe».
- */
-const NON_DELIVERY_RECORD_ORIGINS: ReadonlySet<RecordOrigin> = new Set<RecordOrigin>([
-  'smoke_test',
-  'qa',
-  'historical_cleanup',
-  'synthetic',
-]);
 
 /**
  * Carga la memoria negativa de empresas ya sugeridas recientemente.

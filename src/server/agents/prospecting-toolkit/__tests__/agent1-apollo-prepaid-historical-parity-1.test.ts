@@ -65,16 +65,21 @@ describe('§ 5 · los estados son los de la CHECK real, no los inventados', () =
     }
   });
 
-  test('§ 6 · re-entrega y re-enriquecimiento NO son la misma política', () => {
-    // `discarded` es el caso que lo demuestra: las dos preguntas se delegan al
-    // cooldown y ninguna se resuelve con un booleano fijo.
+  test('§ 6 · las dos preguntas siguen siendo DOS, y ninguna la gobierna el reloj', () => {
+    // AGENT1-APOLLO-HISTORICAL-DELIVERY-FINALITY — este trinquete defendía
+    // `'cooldown_governed'` en las dos columnas de `discarded`, que es
+    // exactamente lo que permitía que una empresa ya entregada volviera a ser
+    // nueva a los 31 d (revisada) o a los 91 d (sin revisar). Se corrige al valor
+    // real en vez de revertir la corrección que defendía: la memoria de entrega
+    // es PERMANENTE. Las dos columnas siguen existiendo —siguen siendo dos
+    // políticas— pero ya no las decide una ventana temporal.
     assert.equal(
       PREPAID_HISTORICAL_STATUS_POLICY.discarded.blocksHistoricalRedelivery,
-      'cooldown_governed',
+      true,
     );
     assert.equal(
       PREPAID_HISTORICAL_STATUS_POLICY.discarded.blocksPrepaymentReenrichment,
-      'cooldown_governed',
+      true,
     );
   });
 
@@ -170,34 +175,41 @@ describe('§ 12 · la edad no rehabilita el gasto', () => {
 // ─── § 6 / § 15 · discarded: la política de cooldown manda, intacta ───────────
 
 describe('§ 15 · discarded delega íntegramente en la novedad de entrega', () => {
-  test('descartado DENTRO de cooldown: la novedad de entrega lo bloquea', () => {
+  test('descartado DENTRO de cooldown: bloqueado (ahora por historia propia)', () => {
     const verdict = evaluatePrepaidHistoricalDuplicate({
       needle: NEEDLE_X,
       rows: [row({ status: 'discarded' })],
       deliveryNoveltyShouldSkip: true,
     });
     assert.equal(verdict.alreadyKnown, true);
-    assert.equal(verdict.reason, 'delivery_novelty_blocks');
+    // FINALITY — el veredicto NO cambia; el MOTIVO se vuelve más preciso. Con
+    // identidad fuerte la historia de entrega decide antes de que haga falta
+    // consultar el cooldown, así que ya no se atribuye a `delivery_novelty_blocks`
+    // un bloqueo que es permanente.
+    assert.equal(verdict.reason, 'historical_delivery_duplicate');
   });
 
-  test('descartado FUERA de cooldown: NO se bloquea (política 30/90 d intacta)', () => {
+  test('🔴 FINALITY · descartado FUERA de cooldown: AHORA SÍ se bloquea', () => {
+    // Este trinquete afirmaba `alreadyKnown: false` — la excepción deliberada de
+    // 30/90 d que el corte FINALITY cierra por regla de negocio: una empresa ya
+    // entregada por Agente 1 no vuelve a ser nueva aunque después se descarte.
     const verdict = evaluatePrepaidHistoricalDuplicate({
       needle: NEEDLE_X,
       rows: [row({ status: 'discarded' })],
       deliveryNoveltyShouldSkip: false,
     });
-    assert.equal(verdict.alreadyKnown, false);
-    assert.equal(verdict.reason, null);
+    assert.equal(verdict.alreadyKnown, true);
+    assert.equal(verdict.reason, 'historical_delivery_duplicate');
   });
 
-  test('duplicate confirmado llega por la autoridad de novedad (Regla 3)', () => {
+  test('duplicate confirmado: permanente, ya sin depender de la Regla 3', () => {
     const verdict = evaluatePrepaidHistoricalDuplicate({
       needle: NEEDLE_X,
       rows: [row({ status: 'duplicate' })],
       deliveryNoveltyShouldSkip: true,
     });
     assert.equal(verdict.alreadyKnown, true);
-    assert.equal(verdict.reason, 'delivery_novelty_blocks');
+    assert.equal(verdict.reason, 'historical_delivery_duplicate');
   });
 });
 
