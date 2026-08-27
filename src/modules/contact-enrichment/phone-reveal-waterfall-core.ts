@@ -127,6 +127,10 @@ import {
   type PhoneRevealCreditReservedLeg,
 } from './phone-reveal-credit-reservation-core';
 import { isPhoneRevealRoleAuthorized } from './phone-reveal-authorized-roles';
+// AGENT2A-APPROVED-CANDIDATE-LUSHA-LEG — EL predicado de editabilidad para teléfono, compartido
+// con el gate canónico del fallback de Lusha. Se importa en vez de copiarse: dos copias
+// divergirían, y la que divergiera volvería a dejar sin teléfono a los contactos aprobados.
+import { isCandidateEditableForPhoneCollection } from './lusha-phone-fallback-eligibility';
 
 // ── Vocabularios (espejo exacto de los CHECK de la migración 102) ──
 
@@ -1429,6 +1433,12 @@ export async function startPhoneRevealWaterfall(
  * ejecuta igual aguas abajo (dentro de `runLushaPhoneFallbackReveal`): esto es un
  * pre-filtro que evita crear una corrida condenada, no un permiso alternativo.
  */
+/**
+ * @deprecated AGENT2A-APPROVED-CANDIDATE-LUSHA-LEG — se conserva SÓLO como vocabulario histórico
+ * (los cuatro estados que cierran la REVISIÓN de un candidato). Ya no gobierna la pata Lusha: la
+ * editabilidad PARA TELÉFONO la decide `isCandidateEditableForPhoneCollection`, que deja pasar
+ * `approved` cuando hay contacto oficial registrado. Ver el comentario de esa función.
+ */
 export const PHONE_REVEAL_WATERFALL_LEGACY_TERMINAL_CANDIDATE_STATUSES: readonly string[] =
   ['approved', 'rejected', 'discarded', 'archived'];
 
@@ -1443,6 +1453,11 @@ export const PHONE_REVEAL_WATERFALL_LEGACY_TERMINAL_CANDIDATE_STATUSES: readonly
 export interface PhoneRevealWaterfallLegacyEvidence {
   /** `contact_enrichment_candidates.status` crudo. */
   candidateStatus: string | null;
+  /**
+   * AGENT2A-APPROVED-CANDIDATE-LUSHA-LEG — `matched_contacts_id`: el contacto oficial que la
+   * aprobación registró. AUSENTE ⇒ `null`, que es fail-closed sobre un candidato aprobado.
+   */
+  matchedContactsId?: string | null;
   /** `phone_reveal_status`: debe ser exactamente `no_phone_found`. */
   phoneRevealStatus: string | null;
   /**
@@ -1729,10 +1744,18 @@ export function evaluatePhoneRevealWaterfallLegacyEligibility(
   if (evidence.hasPhone) {
     return { eligible: false, reason: 'existing_phone_present' };
   }
-  const candidateStatus = cleanText(evidence.candidateStatus);
+  // AGENT2A-APPROVED-CANDIDATE-LUSHA-LEG: se delega en EL predicado compartido en vez de repetir
+  // la lista. Este pre-filtro y el gate canónico de `lusha-phone-fallback-eligibility.ts` tienen
+  // que decir exactamente lo mismo — si divergieran, el pre-filtro volvería a condenar la corrida
+  // que el gate sí habría dejado pasar, y el contacto seguiría sin teléfono sin que nadie viera
+  // por qué.
   if (
-    candidateStatus !== null &&
-    PHONE_REVEAL_WATERFALL_LEGACY_TERMINAL_CANDIDATE_STATUSES.includes(candidateStatus)
+    !isCandidateEditableForPhoneCollection({
+      candidateStatus: cleanText(evidence.candidateStatus),
+      candidateReviewStatus: null,
+      candidateArchivedAt: null,
+      officialContactId: cleanText(evidence.matchedContactsId ?? null),
+    })
   ) {
     return { eligible: false, reason: 'candidate_not_editable' };
   }

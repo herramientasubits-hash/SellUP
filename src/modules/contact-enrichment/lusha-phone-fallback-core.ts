@@ -221,6 +221,13 @@ export interface LushaPhoneFallbackCandidateRecord {
   phoneRevealStatus: string | null;
   phoneRevealAttemptCount: number | null;
   enrichmentMetadata: ContactCandidateEnrichmentMetadata;
+  /**
+   * AGENT2A-APPROVED-CANDIDATE-LUSHA-LEG — `matched_contacts_id`: el contacto oficial que la
+   * aprobación registró. Es lo que permite que un candidato `approved` siga siendo editable PARA
+   * TELÉFONO: sin destino registrado no hay dónde proyectar lo que se compraría, y la puerta
+   * vuelve a bloquear.
+   */
+  matchedContactsId?: string | null;
 }
 
 // ── Resultado ──────────────────────────────────────────────────
@@ -721,6 +728,10 @@ async function runLushaPhoneFallbackRevealInner(
     // real schema (see lusha-phone-fallback-eligibility.ts doc comment).
     candidateReviewStatus: null,
     candidateArchivedAt: null,
+    // AGENT2A-APPROVED-CANDIDATE-LUSHA-LEG: el destino registrado por la aprobación. `undefined`
+    // (un lector que aún no lo trae) se normaliza a `null`, que es fail-closed sobre un candidato
+    // aprobado — nunca abre la puerta por omisión.
+    officialContactId: candidate.matchedContactsId ?? null,
     phoneRevealStatus: candidate.phoneRevealStatus,
     hasExistingPhone: !!cleanText(candidate.existingPhone),
     hasLushaContactId: !!lushaContactId,
