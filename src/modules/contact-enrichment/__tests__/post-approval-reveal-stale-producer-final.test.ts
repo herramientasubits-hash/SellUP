@@ -316,6 +316,8 @@ function harness(
     revealResult?: DelegatedRevealResult;
     candidateLivePhoneCount?: number;
     followUpThrows?: boolean;
+    /** DURABLE RESUME — valor CRUDO de `phone_reveal_status`. Ausente ⇒ nunca se pidió. */
+    candidateRevealStatus?: string | null;
   } = {},
 ): Harness {
   const followUpCalls: string[] = [];
@@ -328,6 +330,9 @@ function harness(
     loadContact: async () => (over.contact === undefined ? CONTACT : over.contact),
     countLiveOfficialPhones: async () => 0,
     countLiveCandidatePhones: async () => over.candidateLivePhoneCount ?? 0,
+    // DURABLE RESUME — este archivo prueba la fase 2 de HubSpot, no la reanudación: el candidato
+    // nunca pidió nada, que es la línea base que conserva sus casos tal cual.
+    loadCandidateRevealStatus: async () => over.candidateRevealStatus ?? null,
     loadAuthorizationPreview: async () => ({
       maxCredits: 14,
       requiresIdentitySearch: true,

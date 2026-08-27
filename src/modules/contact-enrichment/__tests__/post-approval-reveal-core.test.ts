@@ -90,6 +90,10 @@ describe('classifyOfficialContactPhoneRevealOffer — la precedencia de la ofert
       contact: null,
       liveOfficialPhoneCount: 0,
       candidateLivePhoneCount: 0,
+      // DURABLE RESUME — línea base explícita: nada se pidió nunca, que es el ÚNICO estado
+      // durable en el que una compra es NUEVA. Estos casos fijan la precedencia ANTERIOR al
+      // estado del reveal, así que se mantienen tal cual con el estado neutro.
+      candidateRevealState: 'never_requested',
     });
     assert.equal(offer.status, 'contact_unavailable');
     assert.equal(offer.actionable, false);
@@ -101,6 +105,10 @@ describe('classifyOfficialContactPhoneRevealOffer — la precedencia de la ofert
       contact: contactOf({ archivedAt: '2026-08-01T00:00:00.000Z' }),
       liveOfficialPhoneCount: 0,
       candidateLivePhoneCount: 0,
+      // DURABLE RESUME — línea base explícita: nada se pidió nunca, que es el ÚNICO estado
+      // durable en el que una compra es NUEVA. Estos casos fijan la precedencia ANTERIOR
+      // al estado del reveal, así que se mantienen con el estado neutro.
+      candidateRevealState: 'never_requested',
     });
     assert.equal(offer.status, 'contact_archived');
     assert.equal(offer.actionable, false);
@@ -111,6 +119,10 @@ describe('classifyOfficialContactPhoneRevealOffer — la precedencia de la ofert
       contact: contactOf({ metadata: { source: 'manual' } }),
       liveOfficialPhoneCount: 0,
       candidateLivePhoneCount: 0,
+      // DURABLE RESUME — línea base explícita: nada se pidió nunca, que es el ÚNICO estado
+      // durable en el que una compra es NUEVA. Estos casos fijan la precedencia ANTERIOR
+      // al estado del reveal, así que se mantienen con el estado neutro.
+      candidateRevealState: 'never_requested',
     });
     assert.equal(offer.status, 'missing_source_candidate');
     assert.equal(offer.actionable, false);
@@ -124,6 +136,10 @@ describe('classifyOfficialContactPhoneRevealOffer — la precedencia de la ofert
       contact: contactOf({ metadata: {} }),
       liveOfficialPhoneCount: 0,
       candidateLivePhoneCount: 3,
+      // DURABLE RESUME — línea base explícita: nada se pidió nunca, que es el ÚNICO estado
+      // durable en el que una compra es NUEVA. Estos casos fijan la precedencia ANTERIOR
+      // al estado del reveal, así que se mantienen con el estado neutro.
+      candidateRevealState: 'never_requested',
     });
     assert.equal(offer.status, 'missing_source_candidate');
   });
@@ -133,6 +149,10 @@ describe('classifyOfficialContactPhoneRevealOffer — la precedencia de la ofert
       contact: contactOf({ phone: '+15550000001' }),
       liveOfficialPhoneCount: 0,
       candidateLivePhoneCount: 0,
+      // DURABLE RESUME — línea base explícita: nada se pidió nunca, que es el ÚNICO estado
+      // durable en el que una compra es NUEVA. Estos casos fijan la precedencia ANTERIOR
+      // al estado del reveal, así que se mantienen con el estado neutro.
+      candidateRevealState: 'never_requested',
     });
     assert.equal(offer.status, 'phone_already_present');
     assert.equal(offer.actionable, false);
@@ -143,6 +163,10 @@ describe('classifyOfficialContactPhoneRevealOffer — la precedencia de la ofert
       contact: contactOf({ mobilePhone: '+15550000002' }),
       liveOfficialPhoneCount: 0,
       candidateLivePhoneCount: 0,
+      // DURABLE RESUME — línea base explícita: nada se pidió nunca, que es el ÚNICO estado
+      // durable en el que una compra es NUEVA. Estos casos fijan la precedencia ANTERIOR
+      // al estado del reveal, así que se mantienen con el estado neutro.
+      candidateRevealState: 'never_requested',
     });
     assert.equal(offer.status, 'phone_already_present');
   });
@@ -154,6 +178,10 @@ describe('classifyOfficialContactPhoneRevealOffer — la precedencia de la ofert
       contact: contactOf(),
       liveOfficialPhoneCount: 2,
       candidateLivePhoneCount: 0,
+      // DURABLE RESUME — línea base explícita: nada se pidió nunca, que es el ÚNICO estado
+      // durable en el que una compra es NUEVA. Estos casos fijan la precedencia ANTERIOR al
+      // estado del reveal, así que se mantienen tal cual con el estado neutro.
+      candidateRevealState: 'never_requested',
     });
     assert.equal(offer.status, 'phone_already_present');
   });
@@ -163,6 +191,10 @@ describe('classifyOfficialContactPhoneRevealOffer — la precedencia de la ofert
       contact: contactOf(),
       liveOfficialPhoneCount: 0,
       candidateLivePhoneCount: 2,
+      // DURABLE RESUME — línea base explícita: nada se pidió nunca, que es el ÚNICO estado
+      // durable en el que una compra es NUEVA. Estos casos fijan la precedencia ANTERIOR al
+      // estado del reveal, así que se mantienen tal cual con el estado neutro.
+      candidateRevealState: 'never_requested',
     });
     assert.equal(offer.status, 'reuse_from_candidate');
     assert.equal(offer.actionable, true);
@@ -175,6 +207,10 @@ describe('classifyOfficialContactPhoneRevealOffer — la precedencia de la ofert
       contact: contactOf(),
       liveOfficialPhoneCount: 0,
       candidateLivePhoneCount: 0,
+      // DURABLE RESUME — línea base explícita: nada se pidió nunca, que es el ÚNICO estado
+      // durable en el que una compra es NUEVA. Estos casos fijan la precedencia ANTERIOR al
+      // estado del reveal, así que se mantienen tal cual con el estado neutro.
+      candidateRevealState: 'never_requested',
     });
     assert.equal(offer.status, 'eligible');
     assert.equal(offer.actionable, true);
@@ -187,6 +223,10 @@ describe('classifyOfficialContactPhoneRevealOffer — la precedencia de la ofert
       contact: contactOf(),
       liveOfficialPhoneCount: Number.NaN,
       candidateLivePhoneCount: -3,
+      // DURABLE RESUME — línea base explícita: nada se pidió nunca, que es el ÚNICO estado
+      // durable en el que una compra es NUEVA. Estos casos fijan la precedencia ANTERIOR al
+      // estado del reveal, así que se mantienen tal cual con el estado neutro.
+      candidateRevealState: 'never_requested',
     });
     assert.equal(offer.status, 'eligible');
   });

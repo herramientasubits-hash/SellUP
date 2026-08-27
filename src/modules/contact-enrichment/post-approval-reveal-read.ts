@@ -116,6 +116,73 @@ export async function countLiveCandidatePhones(candidateId: string): Promise<num
 }
 
 /**
+ * DURABLE RESUME — el estado durable del reveal del candidato fuente, CRUDO.
+ *
+ * Es la única lectura que este corte añade, y es la que convierte «hay un reveal en curso» en un
+ * hecho del servidor. Devuelve el string tal cual: clasificarlo es trabajo del núcleo puro, que
+ * es donde se puede probar sin base de datos que un valor desconocido cierra la oferta.
+ *
+ * `null` significa exactamente «la columna está vacía»: ningún START la escribió nunca. LANZA si
+ * la lectura FALLA, porque «no pudimos leer» y «nunca se pidió» son hechos distintos y colapsarlos
+ * convertiría una caída de base en una autorización de compra. El llamador traduce la excepción a
+ * `unreadable`, que cierra la oferta.
+ *
+ * Se lee con service role por la misma razón que las dos cuentas de arriba: la migración 109
+ * revoca todo privilegio de `anon`/`authenticated` sobre las tablas del enriquecimiento. No se
+ * lee ni un teléfono: una sola columna de estado.
+ */
+export async function readCandidateRevealDurableStatus(
+  candidateId: string,
+): Promise<string | null> {
+  const admin = createSupabaseAdminClient();
+  const { data, error } = await admin
+    .from(CANDIDATES_TABLE)
+    .select('phone_reveal_status')
+    .eq('id', candidateId)
+    .maybeSingle();
+  if (error) throw new Error('candidate reveal status read failed');
+  if (!data) return null;
+  const row = data as Record<string, unknown>;
+  return typeof row.phone_reveal_status === 'string' ? row.phone_reveal_status : null;
+}
+
+/**
+ * PARIDAD DE RESCATE — los dos hechos que deciden qué salidas ofrecer sobre un reveal atascado o
+ * cerrado sin número. Un string de estado y un BOOLEANO.
+ *
+ * El identificador de recuperación (`phone_reveal_request_id`) NO se devuelve: sólo su presencia.
+ * Es el mismo criterio que la ficha del candidato ya aplica —el id de correlación nunca viaja al
+ * cliente— y aquí ni siquiera sale de la capa de lectura: sin él no hay nada que recuperar, y con
+ * él lo único que la decisión necesita saber es que existe.
+ *
+ * LANZA si la lectura FALLA: el llamador lo traduce a «no ofrecer nada», que es fail-closed.
+ */
+export interface CandidateRescueFacts {
+  readonly phoneRevealStatus: string | null;
+  readonly hasRecoveryHandle: boolean;
+}
+
+export async function readCandidateRescueFacts(
+  candidateId: string,
+): Promise<CandidateRescueFacts | null> {
+  const admin = createSupabaseAdminClient();
+  const { data, error } = await admin
+    .from(CANDIDATES_TABLE)
+    .select('phone_reveal_status, phone_reveal_request_id')
+    .eq('id', candidateId)
+    .maybeSingle();
+  if (error) throw new Error('candidate rescue facts read failed');
+  if (!data) return null;
+  const row = data as Record<string, unknown>;
+  const handle = row.phone_reveal_request_id;
+  return {
+    phoneRevealStatus:
+      typeof row.phone_reveal_status === 'string' ? row.phone_reveal_status : null,
+    hasRecoveryHandle: typeof handle === 'string' && handle.trim().length > 0,
+  };
+}
+
+/**
  * Los hechos del candidato que la PROMOCIÓN DEL ESCALAR necesita, y sólo esos.
  *
  * Alimentan `buildCandidateScalarFallback()` — EL builder, el mismo que usan la aprobación (116)

@@ -34,10 +34,12 @@
 //   * su fallo NO cambia `ok`. Éxito del proveedor y éxito de HubSpot son dos hechos distintos.
 
 import {
+  classifyCandidateRevealDurableState,
   classifyOfficialContactPhoneRevealOffer,
   didProjectionLeaveHubSpotPendingChange,
   type OfficialContactPhoneRevealOffer,
   type OfficialContactPhoneRevealOfferView,
+  type CandidateRevealDurableState,
   type OfficialContactPhoneRevealStartResult,
   type ProjectApprovedCandidatePhonesOutcome,
 } from './post-approval-reveal-core';
@@ -73,6 +75,16 @@ export interface OfficialContactPhoneRevealDeps {
   readonly loadContact: (contactId: string) => Promise<OfficialContactRevealContact | null>;
   readonly countLiveOfficialPhones: (contactId: string) => Promise<number>;
   readonly countLiveCandidatePhones: (candidateId: string) => Promise<number>;
+  /**
+   * DURABLE RESUME — `contact_enrichment_candidates.phone_reveal_status` del candidato fuente,
+   * CRUDO. Es LA autoridad de «ya hay un reveal en curso», la misma columna sobre la que el
+   * pipeline levanta su gate `already_pending`; este corte no crea una segunda.
+   *
+   * LANZAR ⇒ `unreadable`, que cierra la oferta. Sin valor por defecto y sin `?`, a propósito: un
+   * camino nuevo que se olvidara de cablearla rompe la compilación en vez de volver a ofrecer una
+   * compra sobre una solicitud viva.
+   */
+  readonly loadCandidateRevealStatus: (candidateId: string) => Promise<string | null>;
   /**
    * LA vista previa del tope: `getPhoneRevealWaterfallAuthorizationPreviewAction`. `null` ⇒ no se
    * pudo calcular y el copy lo dirá, en vez de rellenarse con un suelo inventado.
@@ -184,7 +196,7 @@ function closedStart(
  * convierte en `null` y en una línea de diagnóstico. La proyección ya commiteó, y dejarla subir
  * la transformaría en «el reveal falló» sobre un teléfono que sí está guardado.
  */
-async function projectThenFollowUp(
+export async function projectThenFollowUp(
   args: { readonly candidateId: string; readonly contactId: string; readonly actorId: string },
   deps: OfficialContactPhoneRevealDeps,
 ): Promise<{
@@ -200,6 +212,25 @@ async function projectThenFollowUp(
   } catch (err) {
     deps.onReadUnavailable?.(err instanceof Error ? err.message : 'unknown error');
     return { projected, followUp: null };
+  }
+}
+
+/**
+ * DURABLE RESUME — lee el estado durable del reveal y lo clasifica, FAIL-CLOSED.
+ *
+ * Una excepción de la lectura NO se propaga: se convierte en `unreadable`, que cierra la oferta.
+ * Es la asimetría deliberada del corte —una base caída no autoriza un gasto— y la razón por la que
+ * esta traducción vive en UNA función y no repartida por las ramas que la consumen.
+ */
+async function resolveCandidateRevealDurableState(
+  candidateId: string,
+  deps: OfficialContactPhoneRevealDeps,
+): Promise<CandidateRevealDurableState> {
+  try {
+    return classifyCandidateRevealDurableState(await deps.loadCandidateRevealStatus(candidateId));
+  } catch (err) {
+    deps.onReadUnavailable?.(err instanceof Error ? err.message : 'unknown error');
+    return 'unreadable';
   }
 }
 
@@ -220,28 +251,40 @@ async function resolveOffer(
         contact: null,
         liveOfficialPhoneCount: 0,
         candidateLivePhoneCount: 0,
+        candidateRevealState: 'unreadable',
       });
     }
 
     // El vínculo se clasifica ANTES de contar la colección del candidato: sin candidato fuente no
     // hay colección que contar, y contarla exigiría elegir un candidato por parecido — que es
     // exactamente lo que el contrato prohíbe (§9).
+    // Sonda del VÍNCULO solamente. `unreadable` no es una afirmación sobre el reveal aquí: con
+    // conteos en 0 y sin estado leído, la única respuesta que esta llamada puede producir es la
+    // del vínculo, y es la única que se consume (`candidateId`).
     const linkOnly = classifyOfficialContactPhoneRevealOffer({
       contact,
       liveOfficialPhoneCount: 0,
       candidateLivePhoneCount: 0,
+      candidateRevealState: 'unreadable',
     });
     if (!linkOnly.candidateId) return linkOnly;
 
-    const [liveOfficialPhoneCount, candidateLivePhoneCount] = await Promise.all([
-      deps.countLiveOfficialPhones(contact.id),
-      deps.countLiveCandidatePhones(linkOnly.candidateId),
-    ]);
+    // DURABLE RESUME — las tres lecturas van en PARALELO y ninguna es opcional. El estado del
+    // reveal se pide SIEMPRE que hay candidato, incluso cuando el contacto ya tiene teléfono: la
+    // precedencia la decide el núcleo puro, y una lectura condicional metería aquí una segunda
+    // copia de esa precedencia.
+    const [liveOfficialPhoneCount, candidateLivePhoneCount, candidateRevealState] =
+      await Promise.all([
+        deps.countLiveOfficialPhones(contact.id),
+        deps.countLiveCandidatePhones(linkOnly.candidateId),
+        resolveCandidateRevealDurableState(linkOnly.candidateId, deps),
+      ]);
 
     const offer = classifyOfficialContactPhoneRevealOffer({
       contact,
       liveOfficialPhoneCount,
       candidateLivePhoneCount,
+      candidateRevealState,
     });
 
     // ── El capability gate de la 128 ──────────────────────────────
@@ -482,6 +525,7 @@ export async function runOfficialContactPhoneReconcile(
     contact,
     liveOfficialPhoneCount: 0,
     candidateLivePhoneCount: 0,
+    candidateRevealState: 'unreadable',
   });
   if (!link.candidateId) return closedStart(link.status);
 

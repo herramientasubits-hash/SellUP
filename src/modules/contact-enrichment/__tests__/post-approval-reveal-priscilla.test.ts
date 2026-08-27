@@ -132,6 +132,10 @@ function makeDeps(
     capabilitySequence?: readonly boolean[];
     /** FINAL CUT — hace que el ejecutor de la fase 2 LANCE, para probar que no se propaga. */
     followUpThrows?: boolean;
+    /** DURABLE RESUME — valor CRUDO de `phone_reveal_status`. `undefined` ⇒ nunca se pidió. */
+    candidateRevealStatus?: string | null;
+    /** DURABLE RESUME — la lectura del estado durable FALLA (fail-closed). */
+    revealStatusThrows?: boolean;
   } = {},
 ): Spy {
   const revealCalls: unknown[] = [];
@@ -151,6 +155,12 @@ function makeDeps(
     },
     countLiveOfficialPhones: async () => over.liveOfficialPhoneCount ?? 0,
     countLiveCandidatePhones: async () => over.candidateLivePhoneCount ?? 0,
+    // DURABLE RESUME — sin override, el candidato de Priscilla nunca pidió nada: es la línea base
+    // de este archivo y la que conserva intacto todo lo que ya probaba.
+    loadCandidateRevealStatus: async () => {
+      if (over.revealStatusThrows) throw new Error('candidate reveal status read failed');
+      return over.candidateRevealStatus === undefined ? null : over.candidateRevealStatus;
+    },
     loadAuthorizationPreview: async (candidateId) => {
       previewCalls.push(candidateId);
       if (over.previewThrows) throw new Error('preview read failed');
