@@ -41,6 +41,7 @@ import type {
 } from '@/server/agents/prospecting-toolkit/types';
 import type { ActiveCandidateRecord } from '@/server/agents/prospecting-toolkit/active-candidate-identity-guard';
 import { preM126FencedInsert } from '@/server/prospect-batches/__tests__/support/lusha-pre-m126-fenced-insert';
+import { preM126BatchEpochSnapshot } from '@/server/prospect-batches/__tests__/support/lusha-batch-epoch-snapshot';
 
 /** A canonical "checked, no duplicate" result (SellUp + HubSpot both clean). */
 function noDuplicateResult(input: DuplicateCheckInput): DuplicateCheckResult {
@@ -206,6 +207,7 @@ function makeDeps(search: LushaPreviewResult, secondPage: LushaPreviewResult = e
     // CUT-3B4-CORRECCIÓN — la valla es OBLIGATORIA; esta prueba modela la 126
     // SIN aplicar por la ÚNICA puerta legítima: la respuesta de la BASE.
     insertCandidatesFenced: preM126FencedInsert,
+    readBatchIdentityEpoch: preM126BatchEpochSnapshot,
     insertCandidates: async (rows) => {
       calls.candidateBatches.push(rows);
       return { insertedCount: rows.length };
@@ -402,6 +404,14 @@ describe('persistLushaPendingReviewBatch', () => {
       // `insertCandidates`, comprobando además la época del lote. Mientras fue
       // opcional, su ausencia abría una escritura sin valla.
       'insertCandidatesFenced',
+      // 🔴 CUT9A-FIX-ADOPTED-EPOCH-REFRESH — dependencia READ-ONLY, y por eso
+      // aparece aquí pero NO en `writeDepNames`. Lee la época ACTUAL del lote
+      // (`read_batch_identity_snapshot`, CUT-3B4) justo antes de la escritura
+      // vallada, porque la reserva canónica memoiza la época del NACIMIENTO del
+      // lote y la capa gratuita ya la avanzó. No abre ninguna puerta de escritura:
+      // el filtro `/^(insert|reserve)/i` la deja fuera por su nombre, y esa
+      // exclusión es la comprobación, no una excepción concedida a mano.
+      'readBatchIdentityEpoch',
       'reserveBatch',
       'runSearch',
     ]);

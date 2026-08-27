@@ -498,14 +498,25 @@ test('§ 5 · NEGATIVE_F — la acción pasa `resolveBatchId` a la capa gratuita
   );
 });
 
-test('§ 4 — la ruta de Lusha DECLARA que adopta, y su época sale de la reserva', () => {
+test('§ 4 — la ruta de Lusha DECLARA que adopta, y su época se RELEE (CUT9A-FIX)', () => {
   assert.equal(LUSHA_PENDING_REVIEW_BATCH_ADOPTION_SUPPORTED, true);
   const core = readFileSync(
     join(ROOT, 'src/server/prospect-batches/lusha-pending-review.ts'),
     'utf-8',
   );
   assert.match(core, /const reservation = await deps\.reserveBatch\(/);
-  assert.match(core, /expectedEpoch: reservation\.adopted\n?\s*\? reservation\.identityEpoch/);
+
+  // 🔴 CUT9A-FIX-ADOPTED-EPOCH-REFRESH — esta aserción estaba INVERTIDA y por eso
+  // el defecto pasaba en verde: exigía que `expectedEpoch` saliera de la RESERVA
+  // memoizada, que es precisamente la época caduca. La época viaja ahora desde una
+  // LECTURA ACTUAL, y la reserva sólo sigue siendo autoridad de IDENTIDAD.
+  assert.match(core, /const epochEvidence = await deps\.readBatchIdentityEpoch\(batchId\)/);
+  assert.match(core, /expectedEpoch: epochEvidence\.epoch \?\? LUSHA_FRESH_BATCH_IDENTITY_EPOCH/);
+  assert.equal(
+    /expectedEpoch:\s*reservation\.adopted/.test(core),
+    false,
+    'la época volvió a salir de la reserva memoizada: eso es el defecto de V9A.1',
+  );
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

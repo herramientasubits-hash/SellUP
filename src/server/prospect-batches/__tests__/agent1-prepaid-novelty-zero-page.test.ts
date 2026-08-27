@@ -36,6 +36,7 @@ import type {
 } from '@/server/agents/prospecting-toolkit/types';
 
 import { preM126FencedInsert } from '@/server/prospect-batches/__tests__/support/lusha-pre-m126-fenced-insert';
+import { preM126BatchEpochSnapshot } from '@/server/prospect-batches/__tests__/support/lusha-batch-epoch-snapshot';
 const INPUT: LushaPreviewInput = {
   countryCode: 'CO',
   macroIndustryKey: 'health_pharma',
@@ -154,6 +155,7 @@ function makeDeps(
       // CUT-3B4-CORRECCIÓN — la valla es OBLIGATORIA; esta prueba modela la 126
       // SIN aplicar por la ÚNICA puerta legítima: la respuesta de la BASE.
       insertCandidatesFenced: preM126FencedInsert,
+      readBatchIdentityEpoch: preM126BatchEpochSnapshot,
       insertCandidates: async (rows) => {
         candidateRows.push(...rows);
         return { insertedCount: rows.length };

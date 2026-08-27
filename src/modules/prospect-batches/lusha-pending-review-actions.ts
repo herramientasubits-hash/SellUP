@@ -81,6 +81,7 @@ import {
 // AGENT1-CUT3B4 § 22 — el transporte de la RPC vallada. Aquí vive el ÚNICO
 // cliente de base de datos de esta ruta; el núcleo sigue sin tener I/O propio.
 import { insertFencedProspectCandidates } from '@/server/prospect-batches/batch-identity-fence';
+import { loadBatchIdentityRegistry } from '@/server/prospect-batches/batch-identity-registry-store';
 // Q3F-5BB.10C2 / AGENT1-APOLLO-SHARED-INTAKE-ADOPTION-1 — read-only
 // official-source resolvers (injected into the pure core), now the SAME
 // provider-neutral wiring Apollo also uses + server-side flag gate. Neither
@@ -869,6 +870,25 @@ async function runLushaSearchWithReservation(args: {
             expectedEpoch: args.expectedEpoch,
             candidates: args.rows as unknown as Record<string, unknown>[],
           }),
+        // Read-only dep — 🔴 CUT9A-FIX-ADOPTED-EPOCH-REFRESH.
+        //
+        // La época contra la que la mitad de pago valla se LEE aquí, y se lee
+        // AHORA: el resolutor canónico memoiza la reserva entera, así que la época
+        // que traía era la del instante en que el lote NACIÓ, no la que la capa
+        // gratuita dejó al escribir sus filas.
+        //
+        // 🔴 La autoridad es la que YA existe: `loadBatchIdentityRegistry` →
+        // `read_batch_identity_snapshot` (CUT-3B4), que devuelve filas y época de
+        // UNA sola sentencia y por tanto de UNA sola foto. NO se añade una consulta
+        // ad-hoc a `prospect_batches.identity_epoch`: habría sido una segunda
+        // autoridad de identidad de lote, con su propia forma de degradar.
+        //
+        // Sólo se consume `epoch` / `fenceCapabilityAbsent` / `degraded`; la siembra
+        // del registro que la misma foto trae NO se usa aquí, y decirlo importa:
+        // sembrar `admitByBatchIdentity` con ella exige resolver el lote ANTES de la
+        // admisión y sigue siendo CUT-9, no este arreglo.
+        readBatchIdentityEpoch: (batchId: string) =>
+          loadBatchIdentityRegistry(supabase, batchId),
         // Read-only dep #1 — canonical SellUp + HubSpot duplicate checker.
         checkCompanyDuplicate: (dupInput) => checkCompanyDuplicate(dupInput),
         // Read-only dep #2 — active prospect_candidates prefetch for the guard.

@@ -177,19 +177,43 @@ describe('CUT-3B4 §§ 20/21/22 — cobertura de los tres escritores', () => {
       'la entrada de Lusha empezó a traer un lote por parámetro',
     );
 
-    // 3. 🔴 La época viaja desde la RESERVA. Un literal fresco sobre un lote
-    //    adoptado devuelve `stale` y hace LANZAR la corrida entera DESPUÉS de
+    // 3. 🔴 La época NO es un literal — y desde CUT9A-FIX-ADOPTED-EPOCH-REFRESH
+    //    tampoco sale de la RESERVA.
+    //
+    //    La propiedad protegida es la MISMA que antes: la escritura declara contra
+    //    el estado sobre el que decidió. Lo que cambió es QUIÉN es ese estado.
+    //    Tomarlo de la reserva parecía suficiente mientras se creyó que la reserva
+    //    traía la época del lote; V9A.1 demostró que trae la del NACIMIENTO del
+    //    lote, porque el resolutor canónico memoiza el objeto entero. En la ruta
+    //    gratuita→pago la capa gratuita ya había avanzado la época, así que la
+    //    reserva declaraba un estado caduco y la valla respondía `stale` —bien— tras
     //    haber pagado al proveedor.
+    //
+    //    Por eso la guarda se REORIENTA, no se retira: ahora exige la lectura
+    //    ACTUAL y PROHÍBE volver a la reserva, que es exactamente el defecto.
     const fenceCall = persistBody.slice(
       persistBody.indexOf('await deps.insertCandidatesFenced({'),
     );
     assert.ok(
-      /expectedEpoch: reservation\.adopted/.test(fenceCall),
-      'la escritura vallada de Lusha dejó de tomar la época de la reserva',
+      /expectedEpoch: epochEvidence\.epoch/.test(fenceCall),
+      'la escritura vallada de Lusha dejó de tomar la época de la LECTURA ACTUAL',
+    );
+    assert.equal(
+      /reservation\.(identityEpoch|adopted)/.test(fenceCall),
+      false,
+      'la época de la escritura vallada de Lusha volvió a salir de la reserva memoizada (defecto V9A.1)',
+    );
+    // Y la lectura ACTUAL existe, ocurre ANTES de la valla y es la del lote de ESTA
+    // ejecución: sin esto, `epochEvidence` podría ser cualquier cosa.
+    const freshRead = 'const epochEvidence = await deps.readBatchIdentityEpoch(batchId);';
+    assert.ok(
+      persistBody.includes(freshRead),
+      'la mitad de pago de Lusha dejó de releer la época ACTUAL de su lote canónico',
     );
     assert.ok(
-      /reservation\.identityEpoch/.test(fenceCall),
-      'la escritura vallada de Lusha dejó de usar la época REAL del lote adoptado',
+      persistBody.indexOf(freshRead) <
+        persistBody.indexOf('await deps.insertCandidatesFenced({'),
+      'la relectura de época dejó de preceder a la escritura vallada',
     );
   });
 });

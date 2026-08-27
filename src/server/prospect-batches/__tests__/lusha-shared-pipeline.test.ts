@@ -55,6 +55,7 @@ const INPUT: LushaPreviewInput = {
   searchText: null,
 };
 import { preM126FencedInsert } from '@/server/prospect-batches/__tests__/support/lusha-pre-m126-fenced-insert';
+import { preM126BatchEpochSnapshot } from '@/server/prospect-batches/__tests__/support/lusha-batch-epoch-snapshot';
 const ACTOR = {
   internalUserId: 'user-1',
   // AGENT1-LOCAL-CUT9A §§ 3, 8 — identidad de EJECUCIÓN + objetivo PEDIDO.
@@ -204,6 +205,7 @@ function makeDeps(opts: FlowOpts) {
     // CUT-3B4-CORRECCIÓN — la valla es OBLIGATORIA; esta prueba modela la 126
     // SIN aplicar por la ÚNICA puerta legítima: la respuesta de la BASE.
     insertCandidatesFenced: preM126FencedInsert,
+    readBatchIdentityEpoch: preM126BatchEpochSnapshot,
     insertCandidates: async (rows) => {
       calls.candidateRows.push(...rows);
       return { insertedCount: rows.length };

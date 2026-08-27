@@ -214,8 +214,20 @@ function emptyTelemetry(initial: number | null): FencedPersistenceTelemetry {
  * un cliente no soportado también lo producen, y cada uno de ellos se convertía
  * en una escritura sin valla. Se exporta para que la guarda estática pueda
  * comprobar que nadie vuelve a decidirlo con una condición más débil.
+ *
+ * 🔴 CUT9A-FIX — acepta la EVIDENCIA, no la foto entera. La mitad de pago de Lusha
+ * relee la época sin necesitar el registro sembrado, y tenía que poder consultar
+ * esta MISMA conjunción: reescribirla allí habría creado dos vocabularios que
+ * divergen en la primera corrección, que es exactamente lo que la cabecera de
+ * `batch-identity-registry-store` advierte. `BatchIdentitySeedOutcome` sigue
+ * siendo asignable, así que ninguna llamada existente cambia.
  */
-export function isProvenFenceCapabilityAbsent(snapshot: BatchIdentitySeedOutcome): boolean {
+export type FenceCapabilityEvidence = Pick<
+  BatchIdentitySeedOutcome,
+  'epoch' | 'fenceCapabilityAbsent' | 'degraded'
+>;
+
+export function isProvenFenceCapabilityAbsent(snapshot: FenceCapabilityEvidence): boolean {
   return (
     snapshot.epoch === null &&
     snapshot.fenceCapabilityAbsent === true &&

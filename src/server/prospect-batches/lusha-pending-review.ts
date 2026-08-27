@@ -51,6 +51,12 @@ import {
 // AGENT1-CUT3B4 § 22 — sólo el TIPO del desenlace vallado. Este núcleo sigue sin
 // tener I/O propio: la RPC la ejecuta la dependencia inyectada.
 import type { FencedCandidateInsertResult } from './batch-identity-fence';
+// 🔴 CUT9A-FIX — la conjunción que autoriza la ruta anterior a B4 se REUTILIZA, no
+// se reescribe: es la MISMA autoridad que usan los otros dos escritores.
+import {
+  isProvenFenceCapabilityAbsent,
+  type FenceCapabilityEvidence,
+} from './batch-identity-fenced-persistence';
 import type { LushaCanonicalBatchReservation } from './lusha-canonical-batch';
 import { isLinkedInCompanyUrl } from '@/modules/prospect-batches/candidate-linkedin-url';
 import {
@@ -491,16 +497,33 @@ export const LUSHA_FRESH_BATCH_IDENTITY_EPOCH = 0;
  * por `runFencedPersistence` con re-evaluación, porque `stale` dejará de ser
  * inalcanzable». Ese día es éste, y la advertencia se atiende, no se sortea:
  *
- *   · La época YA NO es el literal 0. `deps.reserveBatch` devuelve la época REAL
- *     del lote —fresca cuando lo creó esta llamada, la que la capa gratuita dejó
- *     cuando lo adopta— y es ésa la que viaja como `expectedEpoch`. Sin esto, la
- *     adopción convertía un `stale` inalcanzable en un fallo duro de la corrida
- *     ENTERA: la capa gratuita avanza la época al escribir sus filas.
- *   · `stale` sigue siendo inalcanzable en la práctica, y ahora por una razón
- *     distinta y verificable: dentro de UNA ejecución la mitad gratuita termina
- *     ANTES de que la de pago empiece —corre por encima de la reserva económica—,
- *     así que nadie escribe en este lote entre la lectura de la época y el INSERT.
- *     Si aun así llegara, se LANZA. No hay caída a una escritura sin valla.
+ *   · La época YA NO es el literal 0, y tampoco sale de la RESERVA.
+ *
+ *     🔴 CUT9A-FIX-ADOPTED-EPOCH-REFRESH. Que saliera de la reserva era el defecto
+ *     que V9A.1 destapó: el resolutor canónico memoiza el objeto ENTERO —id,
+ *     `adopted` e `identityEpoch`—, así que cuando la capa gratuita materializa el
+ *     lote primero deja memoizado `{ adopted: false, identityEpoch: 0 }`, LUEGO
+ *     escribe sus candidatos por la valla y sube la época a N, y la mitad de pago
+ *     recibe de vuelta el 0 memoizado sin volver a tocar la base. Con
+ *     `expectedEpoch = 0` sobre un lote que ya está en N, la valla respondía
+ *     `stale` —correctamente— y la corrida ENTERA lanzaba DESPUÉS de haber pagado
+ *     al proveedor.
+ *
+ *     `adopted` tampoco sirve como autoridad temporal: `adopted: false` significa
+ *     «esta llamada creó la fila», NO «la fila sigue en la época 0». Las dos cosas
+ *     son simultáneamente ciertas en la ruta gratuita→pago, y por eso la época
+ *     tiene que venir de una lectura ACTUAL —`deps.readBatchIdentityEpoch`, que en
+ *     producción es la foto canónica de CUT-3B4— tomada justo antes de escribir.
+ *
+ *     La IDENTIDAD del lote sigue memoizada: el `batchId` no cambia, no hay un
+ *     segundo INSERT y las dos mitades siguen compartiendo el mismo lote. Lo único
+ *     que deja de tratarse como verdad final memoizada es la ÉPOCA.
+ *   · `stale` deja de ser inalcanzable, y eso es DELIBERADO: la relectura elimina
+ *     el `stale` FALSO —el que sólo existía porque la época viajaba caduca—, no la
+ *     carrera REAL. Si entre la relectura y el INSERT otro escritor legítimo avanza
+ *     la época, la valla sigue respondiendo `stale` y esta ruta LANZA. No hay
+ *     caída a una escritura sin valla, y no se reintenta en bucle: migrar esta
+ *     escritura a `runFencedPersistence` con re-evaluación de admisión es CUT-9.
  *
  * 🔴 Lo que este corte NO hace, y hay que decirlo: la admisión por identidad de
  * lote (`admitByBatchIdentity`) sigue sembrándose VACÍA. Con adopción eso significa
@@ -570,6 +593,29 @@ export interface PersistLushaPendingReviewDeps {
     expectedEpoch: number;
     rows: LushaPendingReviewCandidateRow[];
   }) => Promise<FencedCandidateInsertResult>;
+  /**
+   * 🔴 CUT9A-FIX-ADOPTED-EPOCH-REFRESH — LECTURA ACTUAL de la época del lote.
+   *
+   * READ-ONLY, y OBLIGATORIA por la misma razón que `insertCandidatesFenced`: es
+   * una dependencia cuya ausencia no puede autorizar nada. Mientras la época salía
+   * de la reserva memoizada, la mitad de pago escribía declarando un estado que
+   * podía llevar toda la ejecución de retraso.
+   *
+   * Se llama con el lote canónico YA resuelto y justo ANTES de la escritura
+   * vallada, porque lo que importa no es qué época tenía el lote cuando se
+   * materializó sino cuál tiene AHORA.
+   *
+   * En producción es la foto canónica de CUT-3B4 (`loadBatchIdentityRegistry` →
+   * `read_batch_identity_snapshot`), que lee filas y época en UNA sentencia. Este
+   * corte NO añade una consulta Lusha ad-hoc a `prospect_batches.identity_epoch`:
+   * la autoridad de identidad de lote ya existe y es ésa.
+   *
+   * 🔴 Devuelve la EVIDENCIA completa, no un número: `epoch: null` no es la época
+   * 0. Distinguir «la 126 no está aplicada» (esquema, ruta anterior a B4) de «la
+   * lectura falló» (avería, fallo CERRADO) exige las tres señales, y quien las
+   * combina es `isProvenFenceCapabilityAbsent`, nunca este llamador por su cuenta.
+   */
+  readBatchIdentityEpoch: (batchId: string) => Promise<FenceCapabilityEvidence>;
   // ── Read-only duplicate-parity deps (Q3F-5BB.7) — never write ──
   checkCompanyDuplicate: CheckLushaCompanyDuplicate;
   fetchActiveCandidates: FetchActiveCandidatesForLushaGuard;
@@ -2630,18 +2676,37 @@ export async function persistLushaPendingReviewBatch(
   let insertedCount: number;
   let fenceTelemetry: Record<string, number | boolean | null>;
 
+  // ── 🔴 CUT9A-FIX-ADOPTED-EPOCH-REFRESH — la época se RELEE, no se recuerda ──
+  //
+  // La reserva canónica es autoridad de IDENTIDAD (`batchId`), y sigue memoizada:
+  // esta lectura no vuelve a materializar nada ni provoca un segundo INSERT.
+  //
+  // Lo que la reserva NO puede seguir siendo es autoridad de ÉPOCA. El resolutor
+  // memoiza el objeto entero, así que en la ruta gratuita→pago la mitad de pago
+  // recibía la época que el lote tenía cuando NACIÓ (0), no la que tiene después
+  // de que la capa gratuita escribiera sus filas (N). Declarar 0 sobre un lote en
+  // N daba `stale` y lanzaba la corrida ENTERA tras haber pagado al proveedor.
+  //
+  // 🔴 `reservation.adopted` tampoco decide: `adopted: false` dice «esta llamada
+  // creó la fila», no «la fila sigue en la época 0». En esta ruta las dos cosas
+  // son ciertas a la vez, y ahí se rompía el literal fresco.
+  const epochEvidence = await deps.readBatchIdentityEpoch(batchId);
+
+  // 🔴 `epoch === null` NO es la época 0. Sólo la conjunción PROBADA —la BASE dijo
+  // 42883/PGRST202, y la lectura no falló— autoriza seguir: en ese esquema la RPC
+  // vallada no existe, la valla responderá `capability_absent` y el valor que
+  // viaje es inerte. Cualquier otro `null` es avería (lectura caída, lote
+  // invisible, cliente no soportado) y falla CERRADO: confundirlo con 0 habría
+  // hecho pasar por vallada una escritura que no lo está.
+  if (epochEvidence.epoch === null && !isProvenFenceCapabilityAbsent(epochEvidence)) {
+    throw new Error('No se pudieron crear los candidatos: fence_snapshot_unavailable');
+  }
+
   const fenced = await deps.insertCandidatesFenced({
     batchId,
-    // 🔴 AGENT1-LOCAL-CUT9A § 4 — la época REAL, no el literal fresco.
-    //
-    // Con adopción, `LUSHA_FRESH_BATCH_IDENTITY_EPOCH` deja de ser cierto: la capa
-    // gratuita escribió antes en este mismo lote y avanzó la época. Mandar 0 sobre
-    // un lote adoptado devolvía `stale` y hacía LANZAR la corrida entera —tras
-    // haber pagado al proveedor—. Un lote recién creado sigue llegando aquí con la
-    // época fresca, así que la ruta no adoptada es byte por byte la de antes.
-    expectedEpoch: reservation.adopted
-      ? reservation.identityEpoch
-      : LUSHA_FRESH_BATCH_IDENTITY_EPOCH,
+    // La época ACTUAL del lote. `LUSHA_FRESH_BATCH_IDENTITY_EPOCH` sólo aparece
+    // cuando la ausencia de la valla está PROBADA y el parámetro no se consulta.
+    expectedEpoch: epochEvidence.epoch ?? LUSHA_FRESH_BATCH_IDENTITY_EPOCH,
     rows: candidateRowsWithRouting,
   });
 
