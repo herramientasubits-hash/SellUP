@@ -48,6 +48,15 @@
  * Por eso se permite y no se toca — `accounts/actions.ts` y `contacts/actions.ts`
  * la usan desde antes y son inocentes.
  *
+ * ── AGENT2A-POST-APPROVAL-RESCUE-PARITY ────────────────────────
+ *
+ * El módulo del incidente (`phone-reveal-waterfall-legacy-actions.ts`) ganó una segunda vía
+ * de entrada y pasó de un chunk de acciones de UNA página a un chunk COMPARTIDO entre dos.
+ * `chunksContainingSource` busca ahora en TODO chunk `.js` de `ssr/`, no sólo en los nombrados
+ * `_page_actions_*`, y `evaluateChunk` lee el factory como el ÚLTIMO elemento del array —la
+ * posición que las dos formas de chunk comparten— en vez de asumir siempre el segundo. El resto
+ * de Capa B sigue viendo exactamente los mismos chunks de página que veía antes.
+ *
  * Determinista y offline: sólo lee ficheros y evalúa bundles con un contexto de
  * módulos falso. Sin red, sin Supabase, sin proveedores, 0 créditos, 0 escrituras
  * y 0 PII.
@@ -241,12 +250,21 @@ function evaluateChunk(absolutePath: string): void {
   new Function('module', 'exports', 'require', source)(shim, shim.exports, () => makeStub());
 
   const chunk = shim.exports;
+  // AGENT2A-POST-APPROVAL-RESCUE-PARITY — el factory es el ÚLTIMO elemento, no siempre el
+  // segundo. Un chunk de acciones de UNA página es `[id, factory]`, pero Turbopack también
+  // MERGE-a las acciones de varios módulos `'use server'` compartidos entre páginas en un solo
+  // chunk `[id1, id2, …, idN, factory]` cuando ese módulo deja de ser exclusivo de una ruta. Las
+  // dos formas comparten la propiedad que de verdad importa aquí —el factory está en la última
+  // posición—, así que generalizar la lectura no relaja la comprobación: sigue siendo la MISMA
+  // llamada, `factory(contexto)`, y sigue reventando exactamente igual si el símbolo colgante
+  // vuelve a aparecer.
+  const factory = Array.isArray(chunk) ? chunk[chunk.length - 1] : undefined;
   assert.ok(
-    Array.isArray(chunk) && typeof chunk[1] === 'function',
-    `${absolutePath} no tiene la forma [id, factory] de un chunk de turbopack`,
+    Array.isArray(chunk) && chunk.length >= 2 && typeof factory === 'function',
+    `${absolutePath} no tiene la forma [id(s)…, factory] de un chunk de turbopack`,
   );
 
-  (chunk[1] as (context: unknown) => void)(new Proxy({}, { get: () => makeStub() }));
+  (factory as (context: unknown) => void)(new Proxy({}, { get: () => makeStub() }));
 }
 
 const ssrChunkDir = join(repoRoot, '.next', 'server', 'chunks', 'ssr');
@@ -258,9 +276,41 @@ const pageActionChunks = buildIsPresent
       .sort()
   : [];
 
-/** Chunks cuyo sourcemap declara un módulo fuente dado. */
+// AGENT2A-POST-APPROVAL-RESCUE-PARITY — universo COMPLETO de chunks SSR, para
+// `chunksContainingSource`. `pageActionChunks` sigue siendo el universo de las otras tres
+// comprobaciones de Capa B («TODOS los grafos de acciones de página evalúan», el escaneo de
+// `ensureServerEntryExports`): su alcance no cambia, y las dos siguen viendo exactamente los
+// mismos ficheros que antes.
+//
+// ── OLD_ASSERTION ────────────────────────────────────────────
+// «El módulo del incidente vive en el chunk de acciones de UNA página, así que buscarlo dentro
+// de `pageActionChunks` basta.»
+//
+// ── WHY_OBSOLETE ─────────────────────────────────────────────
+// `phone-reveal-waterfall-legacy-actions.ts` pasó a ser alcanzable desde DOS páginas
+// (`/contacts` y `/accounts`, vía `ContactDetailSheet` compuesto en las dos) cuando
+// AGENT2A-POST-APPROVAL-RESCUE-PARITY le añadió una segunda vía de entrada
+// (`post-approval-reveal-actions.ts`, para la continuación a Lusha del contacto oficial).
+// Turbopack respondió MOVIENDO el módulo a un chunk COMPARTIDO —ya no nombrado
+// `_page_actions_*`— para no duplicarlo en cada página. `chunksContainingSource` dejó de
+// encontrarlo, y con `carriers` vacío la comprobación de evaluación de más abajo pasaba EN
+// VACÍO: exactamente el escenario que el comentario original de esta suite advertía.
+//
+// ── NEW_INVARIANT ────────────────────────────────────────────
+// `chunksContainingSource` busca en TODO chunk `.js` de `ssr/` con sourcemap, sea cual sea su
+// nombre. Sigue siendo una búsqueda TEXTUAL sobre la ruta fuente declarada —no adivina nada
+// sobre la forma del chunk—, y `evaluateChunk` ya sabe leer las dos formas que Turbopack
+// produce. El resto de Capa B no se toca: sigue verificando exactamente los mismos chunks de
+// página que verificaba antes.
+const allSsrChunkFiles = buildIsPresent
+  ? readdirSync(ssrChunkDir)
+      .filter((name) => name.endsWith('.js'))
+      .sort()
+  : [];
+
+/** Chunks cuyo sourcemap declara un módulo fuente dado. Universo COMPLETO, no sólo páginas. */
 function chunksContainingSource(needle: string): string[] {
-  return pageActionChunks.filter((name) => {
+  return allSsrChunkFiles.filter((name) => {
     const map = join(ssrChunkDir, `${name}.map`);
     if (!existsSync(map)) return false;
     try {
