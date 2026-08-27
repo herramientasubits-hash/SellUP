@@ -88,9 +88,30 @@ import {
 import {
   countLiveCandidatePhones,
   countLiveOfficialPhones,
+  readCandidateRescueFacts,
+  readCandidateRevealDurableStatus,
   readCandidateScalarFactsForProjection,
   readOfficialContactForReveal,
 } from './post-approval-reveal-read';
+// PARIDAD DE RESCATE — las tres salidas que la ficha del CANDIDATO ya tenía y la del contacto no.
+// Se importan sus ORQUESTADORES puros; las tuberías reales entran por `deps`, abajo.
+import {
+  runOfficialContactLushaContinuation,
+  runOfficialContactRecoverReveal,
+  runOfficialContactRescueOptions,
+  runOfficialContactSearchMore,
+  type OfficialContactRescueDeps,
+  type OfficialContactRescueOutcome,
+} from './post-approval-rescue-runtime';
+import type { OfficialContactRescueView } from './post-approval-rescue-core';
+// Las TRES tuberías que ya existen, keyed por candidato. Ninguna se reimplementa.
+import { recoverCandidatePhoneRevealNowAction } from './phone-reveal-manual-recovery-actions';
+import { startLegacyPhoneRevealWaterfallAction } from './phone-reveal-waterfall-legacy-actions';
+import {
+  getSearchMorePhonesPreflightAction,
+  searchMoreCandidatePhonesAction,
+} from './search-more-phones-actions';
+import { getLegacyPhoneRevealAuthorizationPreviewAction } from './phone-reveal-waterfall-actions';
 import { projectApprovedCandidatePhonesOntoContact } from './post-approval-reveal-projection';
 import { checkProjectApprovedCandidatePhonesCapability } from './post-approval-reveal-capability';
 import { buildCandidateScalarFallback } from './official-contact-approval-core';
@@ -142,6 +163,9 @@ async function buildDeps(): Promise<OfficialContactPhoneRevealDeps> {
     loadContact: readOfficialContactForReveal,
     countLiveOfficialPhones,
     countLiveCandidatePhones,
+    // DURABLE RESUME — la lectura que hace RESUMIBLE la espera. Un SELECT de UNA columna: sin
+    // proveedor, sin créditos, sin escritura.
+    loadCandidateRevealStatus: readCandidateRevealDurableStatus,
 
     loadAuthorizationPreview: async (candidateId) => {
       const preview = await getPhoneRevealWaterfallAuthorizationPreviewAction({ candidateId });
@@ -218,6 +242,137 @@ async function buildDeps(): Promise<OfficialContactPhoneRevealDeps> {
       console.error('[post-approval-reveal] read unavailable:', message);
     },
   };
+}
+
+/**
+ * PARIDAD DE RESCATE — las mismas dependencias, más las tres tuberías de rescate.
+ *
+ * Se construye SOBRE `buildDeps()` y no en paralelo: la resolución del actor, la lectura del
+ * contacto y —sobre todo— la costura de proyección con su fase 2 de HubSpot tienen que ser las
+ * MISMAS. Un segundo juego de dependencias sería un segundo sitio donde decidir cuándo se sale a
+ * la red, y el día que divergieran una de las dos exportaría de más.
+ */
+async function buildRescueDeps(): Promise<OfficialContactRescueDeps> {
+  const base = await buildDeps();
+  return {
+    ...base,
+    loadRescueFacts: readCandidateRescueFacts,
+
+    loadLegacyPreview: async (candidateId) => {
+      const preview = await getLegacyPhoneRevealAuthorizationPreviewAction({ candidateId });
+      return preview
+        ? {
+            eligible: preview.eligible === true,
+            maxCredits: typeof preview.maxCredits === 'number' ? preview.maxCredits : null,
+            requiresIdentitySearch: preview.requiresIdentitySearch === true,
+          }
+        : null;
+    },
+
+    // La disponibilidad y el tope salen del PLAN que el propio preflight ya calculó
+    // (`plan.eligible` / `plan.maxCreditRequirement`), no de una segunda derivación aquí: ese
+    // umbral es EXACTAMENTE el que la compra reservará, y recalcularlo sería la forma de que el
+    // botón prometiera una cifra distinta de la que se cobra.
+    loadSearchMorePreflight: async (candidateId) => {
+      const result = await getSearchMorePhonesPreflightAction({ candidateId });
+      if (result.status !== 'ok') return null;
+      const plan = result.summary.plan;
+      return {
+        available: plan.eligible === true,
+        maxCredits: typeof plan.maxCreditRequirement === 'number' ? plan.maxCreditRequirement : null,
+      };
+    },
+
+    // GRATIS por contrato: un `GET` al resultado ya producido. No inicia un reveal nuevo y no
+    // consume créditos de revelación — es la salida del «se queda cargando».
+    recoverRevealNow: async (candidateId) => {
+      const r = await recoverCandidatePhoneRevealNowAction({ candidateId });
+      return {
+        ok: r.ok === true,
+        status: typeof r.status === 'string' ? r.status : 'error',
+        phoneRevealed: r.phoneRevealed === true,
+        noPhoneFound: r.noPhoneFound === true,
+        stillPending: r.stillPending === true,
+      };
+    },
+
+    startLushaContinuation: async ({ candidateId, acceptedMaxCredits }) => {
+      const r = await startLegacyPhoneRevealWaterfallAction({ candidateId, acceptedMaxCredits });
+      return {
+        status: r.status,
+        reason: r.reason,
+        maxCreditsAuthorized: r.maxCreditsAuthorized,
+        requiredMaxCredits: r.requiredMaxCredits,
+      };
+    },
+
+    startSearchMore: async (candidateId) => {
+      const r = await searchMoreCandidatePhonesAction({ candidateId });
+      return {
+        outcome: r.outcome,
+        reason: r.reason ?? null,
+        newDistinctPhoneCount: r.newDistinctPhoneCount ?? 0,
+      };
+    },
+  };
+}
+
+// ── Acción 4: qué salidas de rescate hay ───────────────────────────
+
+/**
+ * SOLO LECTURA: ninguna de las tres tuberías se invoca. Preguntar «¿qué puedo hacer con este
+ * teléfono atascado?» no cuesta un crédito, así que la ficha puede hacerlo al abrirse y cada vez
+ * que el estado cambie.
+ */
+export async function getOfficialContactPhoneRescueOptionsAction(input: {
+  contactId: string;
+}): Promise<OfficialContactRescueView> {
+  const deps = await buildRescueDeps();
+  return runOfficialContactRescueOptions(input?.contactId ?? '', deps);
+}
+
+// ── Acción 5: revisar AHORA (gratis) ───────────────────────────────
+
+/**
+ * LA salida del «se queda cargando». No espera al webhook: pregunta por el resultado ya
+ * solicitado y, si ya hay número, lo proyecta al contacto en la misma llamada.
+ */
+export async function recoverOfficialContactPhoneRevealAction(input: {
+  contactId: string;
+}): Promise<OfficialContactRescueOutcome> {
+  const deps = await buildRescueDeps();
+  return runOfficialContactRecoverReveal(input?.contactId ?? '', deps);
+}
+
+// ── Acción 6: continuar a Lusha ────────────────────────────────────
+
+/**
+ * Apollo cerró sin número ⇒ se continúa a Lusha. NUNCA llama a Apollo. El tope que el operador
+ * acaba de leer viaja como límite superior duro.
+ */
+export async function continueOfficialContactPhoneRevealWithLushaAction(input: {
+  contactId: string;
+  acceptedMaxCredits: number;
+}): Promise<OfficialContactRescueOutcome> {
+  const deps = await buildRescueDeps();
+  return runOfficialContactLushaContinuation(
+    {
+      contactId: input?.contactId ?? '',
+      acceptedMaxCredits:
+        typeof input?.acceptedMaxCredits === 'number' ? input.acceptedMaxCredits : 0,
+    },
+    deps,
+  );
+}
+
+// ── Acción 7: buscar más números ───────────────────────────────────
+
+/** La MISMA operación que «Buscar más números» del candidato, con proyección al contacto. */
+export async function searchMoreOfficialContactPhonesAction(input: {
+  contactId: string;
+}): Promise<OfficialContactRescueOutcome> {
+  const deps = await buildRescueDeps();
+  return runOfficialContactSearchMore(input?.contactId ?? '', deps);
 }
 
 // ── Acción 1: la oferta, ANTES del clic ────────────────────────────
