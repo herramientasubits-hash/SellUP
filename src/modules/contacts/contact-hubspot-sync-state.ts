@@ -396,6 +396,29 @@ export function resolveOutboundHubSpotPhone(source: HubSpotPhoneSource): string 
   return phone.length > 0 ? phone : null;
 }
 
+function normalizedOrNull(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+/**
+ * ¿Cambió CUALQUIERA de los dos campos salientes? A diferencia de `resolveOutboundHubSpotPhone`
+ * —que colapsa los dos en uno con prioridad para decidir QUÉ enviar cuando sólo hay un campo de
+ * destino—, esta comparación mira los DOS de forma independiente. Es la que decide SI hay que
+ * re-sincronizar, y colapsar aquí escondería un cambio en el campo sin prioridad mientras el
+ * otro no se mueva — exactamente el defecto que motivó esta función.
+ */
+export function haveOutboundHubSpotPhonesChanged(
+  previous: HubSpotPhoneSource,
+  next: HubSpotPhoneSource,
+): boolean {
+  return (
+    normalizedOrNull(previous.phone) !== normalizedOrNull(next.phone) ||
+    normalizedOrNull(previous.mobile_phone) !== normalizedOrNull(next.mobile_phone)
+  );
+}
+
 /**
  * ¿Queda información local que este contrato sabe enviar y todavía no envió?
  *
@@ -461,12 +484,27 @@ export type HubSpotSyncStaleDecision =
  * No escribe, no llama a HubSpot y no conoce el reloj: devuelve la metadata NUEVA y quien la
  * pidió decide cuándo persistirla —dentro de su propia escritura, no en una aparte.
  *
- * ── LO QUE COMPARA ────────────────────────────────────────────
- * El VALOR SALIENTE (`mobile_phone ?? phone`), no las columnas. Cambiar `phone` en un contacto
- * cuyo `mobile_phone` lo tapa no cambia lo que HubSpot recibiría, así que marcarlo prometería
- * una actualización que sería un no-op. Si más tarde se vacía el `mobile_phone`, el saliente
- * cambia EN ESE MOMENTO y la marca salta entonces: no se pierde información, se sella cuando
- * de verdad hay algo que enviar.
+ * ── AGENT2A-HUBSPOT-CONTACT-APPROVAL-AUTOSYNC — la comparación deja de colapsar los dos campos ──
+ *
+ * ── OLD_ASSERTION ──
+ * "Cambiar `phone` en un contacto cuyo `mobile_phone` lo tapa no cambia lo que HubSpot
+ * recibiría, así que marcarlo prometería una actualización que sería un no-op." Verdad
+ * mientras SellUp sólo mandara UN campo (`phone`) a HubSpot, con `mobile_phone` ganando por
+ * prioridad cuando ambos estaban presentes.
+ *
+ * ── WHY_OBSOLETE ──
+ * SellUp ahora manda los DOS campos a HubSpot, cada uno a su propio destino (`phone` →
+ * `phone`, `mobile_phone` → `mobilephone`) — Tasks A2-A4 de este mismo plan, que terminan de
+ * construir el envío en esta misma sesión. Ya no hay "campo que tapa a otro": un cambio en
+ * CUALQUIERA de los dos es un cambio real en lo que HubSpot debe reflejar, incluso si el otro
+ * campo se queda igual.
+ *
+ * ── NEW_INVARIANT ──
+ * La comparación mira el PAR completo (`haveOutboundHubSpotPhonesChanged`), no un valor
+ * colapsado con prioridad. `resolveOutboundHubSpotPhone` se conserva tal cual para UNA cosa
+ * distinta: clasificar la RAZÓN (`phone_changed` vs `phone_removed`) sobre el estado
+ * resultante — sigue siendo un único slot de razón, no dos, así que la razón describe "¿queda
+ * algo que mostrar?" y no "cuál de los dos campos cambió".
  *
  * ── VACIAR EL TELÉFONO **SÍ** MARCA (CUT-3A) ──────────────────
  * CUT-2 dejaba pasar el saliente que caía a `null` porque no existía contrato para BORRAR una
@@ -511,9 +549,10 @@ export function markContactHubSpotSyncStaleForPhoneChange(args: {
   const prior = readHubSpotSyncState(args.metadata);
   if (!prior) return { marked: false, reason: 'no_durable_state' };
 
-  const before = resolveOutboundHubSpotPhone(args.previous);
+  if (!haveOutboundHubSpotPhonesChanged(args.previous, args.next)) {
+    return { marked: false, reason: 'no_outbound_change' };
+  }
   const after = resolveOutboundHubSpotPhone(args.next);
-  if (before === after) return { marked: false, reason: 'no_outbound_change' };
 
   const reason = resolveHubSpotStaleReasonForOutbound(after);
 
