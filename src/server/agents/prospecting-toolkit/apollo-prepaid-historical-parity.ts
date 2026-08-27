@@ -450,13 +450,21 @@ export type EvaluatePrepaidHistoricalInput = {
  * Orden de decisión, deliberado:
  *
  *   1. Evidencia ausente → no se afirma nada (fail-open).
- *   2. Identidad FUERTE (dominio o fiscal) contra una fila que ocupa el lote →
- *      ya conocida, sin importar la edad de la fila.
+ *   2. Identidad FUERTE (dominio o fiscal) contra una fila que ocupa el lote
+ *      Y es PRODUCTIVA → ya conocida, sin importar la edad de la fila.
  *   3. Identidad FUERTE contra una ENTREGA HISTÓRICA productiva ya resuelta
  *      (`discarded`, `duplicate`) → ya conocida, sin ventana temporal
  *      (FINALITY § 3, § 8, § 16).
  *   4. La autoridad de novedad de entrega ya lo bloqueaba → ya conocida.
  *   5. Coincidencia sólo por nombre → se declara como evidencia y NO bloquea.
+ *
+ * AGENT1-APOLLO-HISTORICAL-FINALITY-ORIGIN-FIX — el paso 2 exigía identidad
+ * fuerte pero NO procedencia productiva, a diferencia del paso 3. Un artefacto
+ * de smoke/QA/synthetic/historical_cleanup que quedaba OCUPANDO el lote (p.ej.
+ * `needs_review`, `approved`) congelaba un dominio real para siempre, algo que
+ * el paso 3 ya evitaba para `discarded`/`duplicate`. Ambos pasos comparten
+ * ahora la misma frontera de procedencia (`isProductiveDeliveryRow`): la
+ * memoria PERMANENTE exige entrega productiva, ocupe o no el lote.
  */
 export function evaluatePrepaidHistoricalDuplicate(
   input: EvaluatePrepaidHistoricalInput,
@@ -500,7 +508,14 @@ export function evaluatePrepaidHistoricalDuplicate(
       continue;
     }
 
-    if (isDeliveryOccupyingStatus(row.status)) {
+    // AGENT1-APOLLO-HISTORICAL-FINALITY-ORIGIN-FIX — «ocupa el lote» sólo
+    // prueba una entrega PERMANENTE si además es productiva. Sin esta puerta,
+    // un smoke/QA/synthetic/historical_cleanup que quedó `needs_review` o
+    // `approved` congelaba el dominio real para siempre — el mismo daño que
+    // `isProductiveDeliveryRow` ya evitaba para `discarded`/`duplicate` más
+    // abajo. `BATCH_IDENTITY_BLOCKING_CANDIDATE_STATUSES` (ocupación dentro del
+    // lote vivo) queda intacto: esto sólo gobierna memoria PERMANENTE.
+    if (isDeliveryOccupyingStatus(row.status) && isProductiveDeliveryRow(row)) {
       return emptyVerdict({
         alreadyKnown: true,
         reason: 'historical_delivery_occupies_identity',
@@ -517,10 +532,11 @@ export function evaluatePrepaidHistoricalDuplicate(
      *
      * Sin ventana temporal: la edad no rehabilita la novedad. La procedencia SÍ
      * se exige —una fila de smoke/QA/limpieza/dato fabricado nunca se le entregó
-     * a nadie y no puede congelar un dominio real para siempre—, y sólo se exige
-     * AQUÍ: para los cinco estados que ocupan el lote el comportamiento anterior
-     * queda intacto, porque esa fila está en la cola con independencia de cómo se
-     * creó y no pagar es la dirección segura.
+     * a nadie y no puede congelar un dominio real para siempre. Desde
+     * AGENT1-APOLLO-HISTORICAL-FINALITY-ORIGIN-FIX el bloque anterior exige la
+     * MISMA puerta para los estados que ocupan el lote, así que una fila que
+     * llegó hasta aquí sin `isProductiveDeliveryRow` ya falló ese chequeo y
+     * también fallará éste: no hay una segunda vía que la deje colarse.
      */
     if (isHistoricalDeliveryStatus(row.status) && isProductiveDeliveryRow(row)) {
       return emptyVerdict({

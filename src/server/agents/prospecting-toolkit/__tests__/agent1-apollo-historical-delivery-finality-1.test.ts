@@ -321,13 +321,348 @@ describe('§ 2 · «entregada» significa procedencia PRODUCTIVA', () => {
     assert.equal(isProductiveDeliveryRow(candidate), true);
   });
 
-  test('🔴 la puerta de procedencia NO se aplica a los estados que OCUPAN el lote', () => {
-    // Una fila que sigue en la cola está ahí con independencia de cómo se creó, y
-    // no pagar es la dirección segura. Aplicarle la puerta reabriría gasto que el
-    // corte anterior ya había cerrado.
+  test('AGENT1-APOLLO-HISTORICAL-FINALITY-ORIGIN-FIX · la puerta de procedencia SÍ se aplica a los estados que OCUPAN el lote', () => {
+    // Decisión de arquitectura invertida a propósito (antes afirmaba lo
+    // contrario): una fila de smoke/QA quedando `approved` NUNCA salió de una
+    // corrida comercial real — nadie recibió esa entrega — así que no puede
+    // congelar un dominio real para siempre. El coste eventual aceptado es que
+    // ese artefacto no-productivo, una vez su cooldown existente expire, PUEDE
+    // volver a enriquecerse. Preferimos ese coste a que un QA viejo bloquee una
+    // empresa real de forma permanente. `BATCH_IDENTITY_BLOCKING_CANDIDATE_STATUSES`
+    // no se toca: esto sólo gobierna la memoria PERMANENTE de reenriquecimiento.
     const verdict = evaluatePrepaidHistoricalDuplicate({
       needle: NEEDLE_X,
       rows: [row({ status: 'approved', metadata: { smoke_test: true } })],
+      deliveryNoveltyShouldSkip: false,
+    });
+    assert.equal(verdict.alreadyKnown, false);
+    assert.equal(verdict.reason, null);
+  });
+});
+
+// ─── AGENT1-APOLLO-HISTORICAL-FINALITY-ORIGIN-FIX ────────────────────────────
+//
+// La memoria PERMANENTE exige PRODUCTIVE DELIVERY HISTORY + STRONG IDENTITY,
+// nunca «cualquier fila que ocupe la identidad». Esta sección cubre la matriz
+// no-productiva completa (4 orígenes × 7 estados), su contraparte productiva,
+// import/unknown, identidad segura y las mutaciones que reabrirían el defecto.
+
+const ALL_STATUSES = PROSPECT_CANDIDATE_DB_STATUSES;
+
+/** Marcadores EXACTOS que fuerzan cada origen no-productivo (classification.ts). */
+const NON_PRODUCTIVE_ORIGIN_MARKERS: Record<string, Partial<HistoricalCandidateRow>> = {
+  smoke_test: { metadata: { smoke_test: true } },
+  qa: { metadata: { qa_only: true } },
+  synthetic: { metadata: { synthetic: true } },
+  historical_cleanup: { metadata: { historical_cleanup: true } },
+};
+
+describe('AGENT1-APOLLO-HISTORICAL-FINALITY-ORIGIN-FIX § NONPROD · matriz 4×7 = 28 celdas', () => {
+  for (const [origin, markerOverrides] of Object.entries(NON_PRODUCTIVE_ORIGIN_MARKERS)) {
+    for (const status of ALL_STATUSES) {
+      test(`${origin} + ${status}: NUNCA memoria permanente`, () => {
+        const candidate = row({ status, ...markerOverrides });
+        assert.equal(
+          isProductiveDeliveryRow(candidate),
+          false,
+          `${origin} debe clasificar NO-productivo`,
+        );
+        const verdict = evaluatePrepaidHistoricalDuplicate({
+          needle: NEEDLE_X,
+          rows: [candidate],
+          deliveryNoveltyShouldSkip: false,
+        });
+        assert.equal(
+          verdict.alreadyKnown,
+          false,
+          `${origin}+${status}: permanentHistoricalBlock debe ser false`,
+        );
+        assert.notEqual(verdict.reason, 'historical_delivery_occupies_identity');
+        assert.notEqual(verdict.reason, 'historical_delivery_duplicate');
+      });
+    }
+  }
+});
+
+describe('AGENT1-APOLLO-HISTORICAL-FINALITY-ORIGIN-FIX § PRODUCTIVE · controles positivos', () => {
+  for (const status of ALL_STATUSES) {
+    test(`production + ${status}: SÍ memoria permanente`, () => {
+      const candidate = row({ status, source_primary: 'apollo_organizations' });
+      assert.equal(isProductiveDeliveryRow(candidate), true);
+      const verdict = evaluatePrepaidHistoricalDuplicate({
+        needle: NEEDLE_X,
+        rows: [candidate],
+        deliveryNoveltyShouldSkip: false,
+      });
+      assert.equal(verdict.alreadyKnown, true, status);
+      assert.ok(
+        verdict.reason === 'historical_delivery_occupies_identity' ||
+          verdict.reason === 'historical_delivery_duplicate',
+        `${status}: motivo inesperado ${verdict.reason}`,
+      );
+    });
+  }
+
+  for (const status of ['approved', 'discarded'] as const) {
+    test(`import + ${status}: SÍ memoria permanente (no se expulsa del universo)`, () => {
+      const candidate = row({ status, source_primary: 'external_import' });
+      assert.equal(isProductiveDeliveryRow(candidate), true);
+      const verdict = evaluatePrepaidHistoricalDuplicate({
+        needle: NEEDLE_X,
+        rows: [candidate],
+        deliveryNoveltyShouldSkip: false,
+      });
+      assert.equal(verdict.alreadyKnown, true, status);
+    });
+
+    test(`unknown + ${status}: SÍ memoria permanente (protección de coste: «no sé» ≠ «no existe»)`, () => {
+      // R4b: ejecución no-autorizada ⇒ recordOrigin='unknown', evaluado ANTES
+      // que el status, así que aplica igual a un estado ocupante o resuelto.
+      const candidate = row({ status, metadata: { execution_authorized: false } });
+      assert.equal(isProductiveDeliveryRow(candidate), true);
+      const verdict = evaluatePrepaidHistoricalDuplicate({
+        needle: NEEDLE_X,
+        rows: [candidate],
+        deliveryNoveltyShouldSkip: false,
+      });
+      assert.equal(verdict.alreadyKnown, true, status);
+    });
+  }
+});
+
+describe('AGENT1-APOLLO-HISTORICAL-FINALITY-ORIGIN-FIX § TEMPORAL vs PERMANENT', () => {
+  // Esta autoridad es pura y no lee reloj: la «edad» de una fila la resuelve
+  // `evaluateCandidateNovelty` río arriba, no este módulo. Lo que se prueba
+  // aquí es que la decisión PERMANENTE no depende de `deliveryNoveltyShouldSkip`
+  // (la señal temporal) en ninguna dirección — para bloquear NI para dejar de
+  // bloquear — que es exactamente la propiedad que un TTL nuevo violaría.
+  test('smoke_test ocupando el lote: bloqueo permanente = NO, exista o no cooldown vivo', () => {
+    for (const deliveryNoveltyShouldSkip of [true, false]) {
+      const verdict = evaluatePrepaidHistoricalDuplicate({
+        needle: NEEDLE_X,
+        rows: [row({ status: 'needs_review', metadata: { smoke_test: true } })],
+        deliveryNoveltyShouldSkip,
+      });
+      assert.notEqual(verdict.reason, 'historical_delivery_occupies_identity');
+      assert.notEqual(verdict.reason, 'historical_delivery_duplicate');
+    }
+  });
+
+  test('production ocupando el lote: bloqueo permanente = SÍ, exista o no cooldown vivo', () => {
+    for (const deliveryNoveltyShouldSkip of [true, false]) {
+      const verdict = evaluatePrepaidHistoricalDuplicate({
+        needle: NEEDLE_X,
+        rows: [row({ status: 'approved', source_primary: 'apollo_organizations' })],
+        deliveryNoveltyShouldSkip,
+      });
+      assert.equal(verdict.alreadyKnown, true);
+      assert.equal(verdict.reason, 'historical_delivery_occupies_identity');
+    }
+  });
+});
+
+describe('AGENT1-APOLLO-HISTORICAL-FINALITY-ORIGIN-FIX § identidad y procedencia combinadas', () => {
+  test('mismo nombre, dominio DISTINTO, origen productivo, estado que OCUPA: NO bloquea', () => {
+    // Réplica exacta del control § 5/§18, ahora contra un estado ocupante en vez
+    // de `discarded`: la puerta de identidad manda igual que la de procedencia.
+    const verdict = evaluatePrepaidHistoricalDuplicate({
+      needle: { normalizedDomain: 'siesa-enterprise.com.co', name: 'Siesa', countryCode: 'CO' },
+      rows: [
+        row({
+          status: 'approved',
+          name: 'Siesa',
+          domain: 'siesa.com',
+          source_primary: 'apollo_organizations',
+        }),
+      ],
+      deliveryNoveltyShouldSkip: false,
+    });
+    assert.equal(verdict.alreadyKnown, false);
+    assert.equal(verdict.nameOnlyEvidence, true);
+  });
+
+  test('identidad FISCAL + origen productivo + estado ocupante: SÍ bloquea', () => {
+    const verdict = evaluatePrepaidHistoricalDuplicate({
+      needle: {
+        normalizedDomain: null,
+        name: 'Empresa X',
+        taxIdentifier: '900.123.456-7',
+        countryCode: 'CO',
+      },
+      rows: [
+        row({
+          status: 'needs_review',
+          domain: null,
+          tax_identifier: '900123456',
+          source_primary: 'apollo_organizations',
+        }),
+      ],
+      deliveryNoveltyShouldSkip: false,
+    });
+    assert.equal(verdict.alreadyKnown, true);
+    assert.equal(verdict.matchedAxis, 'fiscal_identity');
+    assert.equal(verdict.reason, 'historical_delivery_occupies_identity');
+  });
+
+  test('identidad FISCAL + origen NO-productivo (qa) + estado ocupante: NO bloquea', () => {
+    const verdict = evaluatePrepaidHistoricalDuplicate({
+      needle: {
+        normalizedDomain: null,
+        name: 'Empresa X',
+        taxIdentifier: '900.123.456-7',
+        countryCode: 'CO',
+      },
+      rows: [
+        row({
+          status: 'needs_review',
+          domain: null,
+          tax_identifier: '900123456',
+          metadata: { qa_only: true },
+        }),
+      ],
+      deliveryNoveltyShouldSkip: false,
+    });
+    assert.equal(verdict.alreadyKnown, false);
+  });
+});
+
+describe('AGENT1-APOLLO-HISTORICAL-FINALITY-ORIGIN-FIX § discarded/duplicate finality — sin regresión', () => {
+  test('discarded PRODUCTIVO: sigue bloqueando (política ya cerrada, intacta)', () => {
+    const verdict = evaluatePrepaidHistoricalDuplicate({
+      needle: NEEDLE_X,
+      rows: [row({ status: 'discarded', source_primary: 'apollo_organizations' })],
+      deliveryNoveltyShouldSkip: false,
+    });
+    assert.equal(verdict.alreadyKnown, true);
+    assert.equal(verdict.reason, 'historical_delivery_duplicate');
+  });
+
+  test('discarded NO-productivo (smoke): sigue sin bloquear (política ya cerrada, intacta)', () => {
+    const verdict = evaluatePrepaidHistoricalDuplicate({
+      needle: NEEDLE_X,
+      rows: [row({ status: 'discarded', metadata: { smoke_test: true } })],
+      deliveryNoveltyShouldSkip: false,
+    });
+    assert.equal(verdict.alreadyKnown, false);
+  });
+
+  test('duplicate PRODUCTIVO: sigue bloqueando (política ya cerrada, intacta)', () => {
+    const verdict = evaluatePrepaidHistoricalDuplicate({
+      needle: NEEDLE_X,
+      rows: [row({ status: 'duplicate', source_primary: 'apollo_organizations' })],
+      deliveryNoveltyShouldSkip: false,
+    });
+    assert.equal(verdict.alreadyKnown, true);
+  });
+
+  test('duplicate NO-productivo (smoke): sigue sin bloquear (política ya cerrada, intacta)', () => {
+    const verdict = evaluatePrepaidHistoricalDuplicate({
+      needle: NEEDLE_X,
+      rows: [row({ status: 'duplicate', metadata: { smoke_test: true } })],
+      deliveryNoveltyShouldSkip: false,
+    });
+    assert.equal(verdict.alreadyKnown, false);
+  });
+
+  test('paridad: TODOS los siete estados no-productivos convergen al mismo veredicto', () => {
+    // La puerta de procedencia ya no distingue entre «ocupa el lote» y «se
+    // resolvió»: los dos grupos de estados deben converger.
+    for (const status of ALL_STATUSES) {
+      const verdict = evaluatePrepaidHistoricalDuplicate({
+        needle: NEEDLE_X,
+        rows: [row({ status, metadata: { smoke_test: true } })],
+        deliveryNoveltyShouldSkip: false,
+      });
+      assert.equal(verdict.alreadyKnown, false, status);
+    }
+  });
+});
+
+describe('AGENT1-APOLLO-HISTORICAL-FINALITY-ORIGIN-FIX § mutaciones — deben quedar en ROJO', () => {
+  const FIXTURE_SOURCE = readFileSync(
+    join(TOOLKIT_DIR, 'apollo-prepaid-historical-parity.ts'),
+    'utf8',
+  );
+  const occupyingBranch = FIXTURE_SOURCE.slice(
+    FIXTURE_SOURCE.indexOf('if (isDeliveryOccupyingStatus(row.status)'),
+    FIXTURE_SOURCE.indexOf('if (isHistoricalDeliveryStatus(row.status) && isProductiveDeliveryRow(row)) {'),
+  );
+
+  test('MUTACIÓN A/B · la rama que OCUPA el lote invoca isProductiveDeliveryRow en su guarda', () => {
+    // Revertir esta condición (quitar isProductiveDeliveryRow, o dejarla sólo en
+    // la rama discarded/duplicate) reabre exactamente el defecto original.
+    assert.ok(
+      /if\s*\(\s*isDeliveryOccupyingStatus\(row\.status\)\s*&&\s*isProductiveDeliveryRow\(row\)\s*\)/.test(
+        occupyingBranch,
+      ),
+      'la rama de ocupación debe exigir procedencia productiva en la MISMA condición',
+    );
+  });
+
+  test('MUTACIÓN C · production/import/unknown NUNCA entran a NON_DELIVERY_RECORD_ORIGINS', () => {
+    for (const origin of ['production', 'import', 'unknown'] as const) {
+      assert.equal(NON_DELIVERY_RECORD_ORIGINS.has(origin), false, origin);
+    }
+  });
+
+  test('MUTACIÓN D · smoke/qa/synthetic/historical_cleanup NUNCA clasifican productivo', () => {
+    for (const [origin, markerOverrides] of Object.entries(NON_PRODUCTIVE_ORIGIN_MARKERS)) {
+      assert.equal(
+        isProductiveDeliveryRow(row({ status: 'approved', ...markerOverrides })),
+        false,
+        origin,
+      );
+    }
+  });
+
+  test('MUTACIÓN E · discarded productivo sigue siendo memoria permanente (no se reabre)', () => {
+    const verdict = evaluatePrepaidHistoricalDuplicate({
+      needle: NEEDLE_X,
+      rows: [row({ status: 'discarded', source_primary: 'apollo_organizations' })],
+      deliveryNoveltyShouldSkip: false,
+    });
+    assert.equal(verdict.alreadyKnown, true);
+  });
+
+  test('MUTACIÓN F · isProductiveDeliveryRow no depende de batch.source ni de literal agent_1', () => {
+    const src = readFileSync(
+      join(TOOLKIT_DIR, 'apollo-prepaid-historical-parity.ts'),
+      'utf8',
+    );
+    const fnBody = src.slice(
+      src.indexOf('export function isProductiveDeliveryRow'),
+      src.indexOf('// ─── Entradas'),
+    );
+    assert.equal(fnBody.includes('batch.source'), false);
+    assert.equal(fnBody.includes("'agent_1'"), false);
+  });
+
+  test('MUTACIÓN G · el nombre solo NUNCA produce bloqueo duro, ni contra fila productiva', () => {
+    const verdict = evaluatePrepaidHistoricalDuplicate({
+      needle: { normalizedDomain: 'otra-empresa.com', name: 'Siesa', countryCode: 'CO' },
+      rows: [
+        row({ status: 'approved', name: 'Siesa', domain: 'siesa.com', source_primary: 'apollo_organizations' }),
+      ],
+      deliveryNoveltyShouldSkip: false,
+    });
+    assert.equal(verdict.alreadyKnown, false);
+  });
+
+  test('MUTACIÓN H · QA viejo (sin cooldown vivo) NO bloquea permanentemente', () => {
+    const verdict = evaluatePrepaidHistoricalDuplicate({
+      needle: NEEDLE_X,
+      rows: [row({ status: 'approved', metadata: { qa_only: true } })],
+      // `deliveryNoveltyShouldSkip: false` ⇒ ninguna autoridad temporal sigue
+      // bloqueando (equivalente a «cooldown expirado hace mucho»).
+      deliveryNoveltyShouldSkip: false,
+    });
+    assert.notEqual(verdict.reason, 'historical_delivery_occupies_identity');
+  });
+
+  test('MUTACIÓN I · production approved SIGUE bloqueando aunque el cooldown ya expiró', () => {
+    const verdict = evaluatePrepaidHistoricalDuplicate({
+      needle: NEEDLE_X,
+      rows: [row({ status: 'approved', source_primary: 'apollo_organizations' })],
       deliveryNoveltyShouldSkip: false,
     });
     assert.equal(verdict.alreadyKnown, true);
