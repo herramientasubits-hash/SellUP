@@ -380,12 +380,19 @@ export function toHubSpotPhoneSource(
 }
 
 /**
- * EL teléfono que viaja a HubSpot: `mobile_phone ?? phone`, recortado.
+ * `mobile_phone ?? phone`, recortado: el saliente colapsado con prioridad al móvil.
  *
- * Esta función es el pivote de todo CUT-2 y por eso hay UNA sola. La usan a la vez quien
- * CONSTRUYE el payload de HubSpot y quien decide si el contacto quedó desactualizado. Si
- * fueran dos, un día divergirían y el sistema marcaría «pendiente de actualizar» un cambio
- * que el PATCH no envía —o peor, callaría uno que sí envía.
+ * AGENT2A-HUBSPOT-CONTACT-APPROVAL-AUTOSYNC (Task A4) redujo su alcance. Hasta entonces era
+ * el pivote de CUT-2: la usaban a la vez quien CONSTRUÍA el payload de HubSpot (un solo campo
+ * de destino) y quien decidía si el contacto había quedado desactualizado. Ya no construye
+ * ningún payload —el alta (Task A3) y el PATCH (Task A4) leen `phone` y `mobile_phone` cada
+ * uno de su propio campo, sin colapsar— ni decide si algo quedó pendiente —esa comparación es
+ * `haveOutboundHubSpotPhonesChanged`, que mira el PAR completo—.
+ *
+ * Su único uso restante en todo el árbol: dentro de `markContactHubSpotSyncStaleForPhoneChange`,
+ * para clasificar la RAZÓN (`phone_changed` vs `phone_removed`) una vez que ya se decidió que
+ * SÍ hay algo pendiente. Esa clasificación sigue siendo, a propósito, un único slot de razón —no
+ * dos— y responde «¿queda algo que mostrar?», no «cuál de los dos campos cambió».
  *
  * Devuelve `null` cuando no hay número: ausencia, no cadena vacía.
  */

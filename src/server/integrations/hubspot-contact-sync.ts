@@ -323,8 +323,13 @@ export async function createHubSpotContact(
  * crea y no reintenta la asociación con la empresa: un PATCH que pudiera crear convertiría un
  * fallo de identidad en un contacto duplicado en el CRM del cliente.
  *
- * CUT-2 envía EXACTAMENTE una propiedad: `phone`. Nada de email, LinkedIn ni campos custom —
- * enviar un campo cuyo mapeo no está validado sobrescribe en HubSpot algo que nadie revisó.
+ * AGENT2A Task A2/A4: el cuerpo lleva DOS propiedades — `phone` y `mobilephone`—, cada una
+ * traducida de forma independiente desde su propio campo del contacto (`null` → cadena vacía,
+ * que es como HubSpot borra una propiedad). Ya NO es una sola propiedad: CUT-2 sólo enviaba
+ * `phone` con el valor colapsado `mobile_phone ?? phone`; A2 extendió el contrato con
+ * `mobilephone` y A4 terminó de cablear el PATCH para que los dos campos viajen sin colapsar.
+ * Nada de email, LinkedIn ni campos custom fuera de estos dos — enviar un campo cuyo mapeo no
+ * está validado sobrescribe en HubSpot algo que nadie revisó.
  *
  * CUT-3A: el cuerpo lo construye `buildHubSpotContactUpdateProperties` y no este archivo. La
  * representación del BORRADO —cadena vacía— es de HubSpot, pero es UNA sola y vive con el

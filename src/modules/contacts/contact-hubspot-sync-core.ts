@@ -18,7 +18,6 @@ import {
   hasPendingHubSpotPhoneChange,
   preservePendingHubSpotPhoneChange,
   readHubSpotSyncState,
-  resolveOutboundHubSpotPhone,
   writeHubSpotSyncState,
   type HubSpotSyncMethod,
   type HubSpotSyncState,
@@ -514,17 +513,28 @@ export async function runSyncContactToHubSpot(
         };
       }
 
-      // El teléfono se relee de la FILA, no del marcador: entre marcar y pulsar pudo cambiar
-      // otra vez —o desaparecer—, y lo que debe viajar es lo que hay AHORA. La razón guardada
-      // no decide el cuerpo: si mandara, un `phone_changed` obsoleto enviaría un número que ya
-      // no existe y un `phone_removed` obsoleto BORRARÍA en HubSpot uno que sí existe.
+      // Los teléfonos se releen de la FILA, no del marcador: entre marcar y pulsar pudieron
+      // cambiar otra vez —o desaparecer—, y lo que debe viajar es lo que hay AHORA. La razón
+      // guardada no decide el cuerpo: si mandara, un `phone_changed` obsoleto enviaría un
+      // número que ya no existe y un `phone_removed` obsoleto BORRARÍA en HubSpot uno que sí
+      // existe.
       //
       // CUT-3A: `null` ya no es un motivo para negarse. Es la operación de BORRADO, y el
       // adaptador tiene UNA representación canónica para ella.
-      const outboundPhone = resolveOutboundHubSpotPhone(contact);
+      //
+      // AGENT2A Task A4: los DOS teléfonos viajan de forma independiente, cada uno leído
+      // directamente de su propio campo — simétrico con el alta (Task A3). Antes esta rama
+      // seguía usando `resolveOutboundHubSpotPhone` (el valor colapsado con prioridad al
+      // móvil) sólo para `phone`, lo que para un contacto con ambos campos poblados sobreescribía
+      // la propiedad `phone` de HubSpot con el número de CELULAR en cada actualización, mientras
+      // `mobilephone` también —correctamente— guardaba ese mismo número: una duplicación real y
+      // una asimetría con el alta, que ya lee los dos campos por separado.
+      const outboundPhone = cleanString(contact.phone);
+      const outboundMobilePhone = cleanString(contact.mobile_phone);
 
       const updateResult = await deps.updateHubSpotContact(hubspotContactId, {
         phone: outboundPhone,
+        mobilePhone: outboundMobilePhone,
       });
 
       if ('error' in updateResult) {

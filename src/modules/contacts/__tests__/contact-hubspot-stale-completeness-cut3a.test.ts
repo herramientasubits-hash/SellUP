@@ -403,7 +403,9 @@ describe('10-12. el clic manual sobre un pendiente de BORRADO', () => {
     assert.equal(result.status, 'updated');
     assert.equal(spy.patches.length, 1);
     assert.equal(spy.patches[0].id, HS_ID);
-    assert.deepEqual(spy.patches[0].input, { phone: null });
+    // AGENT2A Task A4: los DOS teléfonos viajan de forma independiente, cada uno leído de su
+    // propio campo — el móvil de este contacto también es `null`, así que también se limpia.
+    assert.deepEqual(spy.patches[0].input, { phone: null, mobilePhone: null });
     // Ni búsqueda por email ni creación: la identidad es el id durable.
     assert.equal(spy.searches, 0);
     assert.equal(spy.creates, 0);
@@ -457,7 +459,9 @@ describe('10-12. el clic manual sobre un pendiente de BORRADO', () => {
     });
     await runSyncContactToHubSpot('contact-1', deps);
 
-    assert.deepEqual(spy.patches[0].input, { phone: NEW_PHONE });
+    // AGENT2A Task A4: los DOS teléfonos viajan de forma independiente — el móvil de este
+    // contacto es `null` (default de `makeContact`), así que también viaja explícito.
+    assert.deepEqual(spy.patches[0].input, { phone: NEW_PHONE, mobilePhone: null });
   });
 
   it('un PATCH de borrado exitoso que no se puede anotar deja el pendiente puesto', async () => {

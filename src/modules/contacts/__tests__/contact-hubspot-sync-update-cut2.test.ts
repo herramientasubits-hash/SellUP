@@ -36,7 +36,6 @@ import {
   hasPendingHubSpotPhoneChange,
   markContactHubSpotSyncStaleForPhoneChange,
   readHubSpotSyncState,
-  resolveOutboundHubSpotPhone,
   writeHubSpotSyncState,
   type HubSpotSyncState,
 } from '../contact-hubspot-sync-state';
@@ -296,20 +295,25 @@ describe('CUT-2 · cuándo un contacto queda desactualizado', () => {
     assert.equal(decision.reason, 'no_durable_state');
   });
 
-  it('6c · un `mobile_phone` que TAPA el escalar hace que cambiar `phone` no sea saliente', () => {
-    // El PATCH enviaría `mobile_phone ?? phone`: con móvil puesto, cambiar el fijo no cambia
-    // NADA de lo que HubSpot recibiría. Marcarlo prometería una actualización que es un no-op.
+  it('6c · un `mobile_phone` presente ya NO tapa un cambio de `phone`: los dos viajan aparte', () => {
+    // ⚠️ ESTA PRUEBA AFIRMABA LO CONTRARIO ANTES DE AGENT2A-HUBSPOT-CONTACT-APPROVAL-AUTOSYNC,
+    // y su cambio es el hito, no una regresión. Hasta entonces el PATCH enviaba `mobile_phone ??
+    // phone` colapsado en un único campo de HubSpot, así que con móvil puesto cambiar el fijo no
+    // cambiaba NADA de lo que HubSpot recibía. Ahora los dos campos viajan por separado (Tasks
+    // A2-A4), así que un cambio en `phone` es real aunque `mobile_phone` no se mueva.
     const decision = markPhoneChange({
       contactState: state(),
       previous: { phone: OLD_PHONE, mobile_phone: MOBILE },
       next: { phone: NEW_PHONE, mobile_phone: MOBILE },
     });
 
-    assert.ok(!decision.marked);
-    assert.equal(decision.reason, 'no_outbound_change');
+    assert.ok(decision.marked);
+    assert.equal(decision.state.status, 'stale');
+    // La razón sigue siendo `phone_changed`: el saliente colapsado —el que decide QUÉ mostrar
+    // como razón— sigue siendo el móvil, que no desapareció ni cambió.
+    assert.equal(decision.state.stale_reason, 'phone_changed');
 
-    // Y cuando ese móvil se retira, el saliente SÍ cambia y la marca salta entonces: la
-    // información no se pierde, se sella cuando de verdad hay algo que enviar.
+    // Y cuando ese móvil se retira, el saliente colapsado SÍ cambia y también marca.
     const later = markPhoneChange({
       contactState: state(),
       previous: { phone: NEW_PHONE, mobile_phone: MOBILE },
@@ -475,38 +479,51 @@ describe('CUT-2 · sincronización manual sobre un contacto vinculado', () => {
     assert.equal(spy.associations, 0, 'un PATCH no reintenta la asociación con la empresa');
   });
 
-  it('8+10 · el PATCH lleva SÓLO `phone`', async () => {
+  it('8+10 · el PATCH lleva SÓLO `phone` y `mobilePhone`', async () => {
     const { deps, spy } = makeDeps({ loadContact: async () => staleContact() });
     await runSyncContactToHubSpot('contact-1', deps);
 
+    // AGENT2A Task A4: el PATCH ya no manda un único campo colapsado — manda los DOS teléfonos,
+    // simétrico con el alta (Task A3). El resto del contrato de privacidad del PATCH sigue
+    // intacto: nada más viaja.
     const keys = Object.keys(spy.patches[0].input);
-    assert.deepEqual(keys, ['phone']);
+    assert.deepEqual(keys.sort(), ['mobilePhone', 'phone']);
     for (const forbidden of ['email', 'linkedin', 'linkedin_url', 'contact_phones', 'jobtitle']) {
       assert.equal(keys.includes(forbidden), false, `${forbidden} no puede viajar en el PATCH`);
     }
   });
 
-  it('9 · el teléfono enviado es `mobile_phone ?? phone`', async () => {
+  it('9 · `phone` y `mobilePhone` viajan de forma independiente, sin colapsar', async () => {
+    // ⚠️ ESTA PRUEBA AFIRMABA `mobile_phone ?? phone` COLAPSADO EN `phone`, y su cambio es el
+    // hito de la Task A4, no una regresión. Mantener el valor colapsado sólo en el PATCH habría
+    // sobreescrito la propiedad `phone` de HubSpot con el número de CELULAR en cada actualización
+    // para cualquier contacto con los dos campos poblados, mientras `mobilephone` también
+    // —correctamente— guardaba ese mismo número: una duplicación real, y una asimetría con el
+    // alta (Task A3), que ya lee los dos campos por separado.
     const { deps, spy } = makeDeps({
       loadContact: async () => staleContact({ phone: NEW_PHONE, mobile_phone: MOBILE }),
     });
     await runSyncContactToHubSpot('contact-1', deps);
-    assert.equal(spy.patches[0].input.phone, MOBILE);
+    assert.equal(spy.patches[0].input.phone, NEW_PHONE);
+    assert.equal(spy.patches[0].input.mobilePhone, MOBILE);
 
     const { deps: d2, spy: s2 } = makeDeps({
       loadContact: async () => staleContact({ phone: NEW_PHONE, mobile_phone: null }),
     });
     await runSyncContactToHubSpot('contact-1', d2);
     assert.equal(s2.patches[0].input.phone, NEW_PHONE);
+    assert.equal(s2.patches[0].input.mobilePhone, null);
 
-    // La MISMA autoridad que usa el alta: si divergieran, se marcaría un cambio que no se envía.
-    assert.equal(
-      buildHubSpotContactProperties(
-        makeContact({ phone: NEW_PHONE, mobile_phone: MOBILE }),
-        'ana@empresa.com',
-      ).phone,
-      resolveOutboundHubSpotPhone({ phone: NEW_PHONE, mobile_phone: MOBILE }),
+    // La MISMA autoridad que usa el alta: ambos escritores leen los dos campos de la fila por
+    // separado, sin que ninguno tape al otro. Si divergieran, un cambio se marcaría pendiente
+    // sin que el PATCH lo enviase —o el alta y el PATCH mandarían números distintos para el
+    // mismo contacto.
+    const created = buildHubSpotContactProperties(
+      makeContact({ phone: NEW_PHONE, mobile_phone: MOBILE }),
+      'ana@empresa.com',
     );
+    assert.equal(created.phone, spy.patches[0].input.phone);
+    assert.equal(created.mobilePhone, spy.patches[0].input.mobilePhone);
   });
 
   it('11+12 · PATCH exitoso ⇒ synced y sin marcadores de pendiente', async () => {
@@ -608,8 +625,9 @@ describe('CUT-2 · sincronización manual sobre un contacto vinculado', () => {
     assert.ok(result.ok);
     assert.equal(result.status, 'updated');
     assert.equal(spy.patches.length, 1);
-    // El dominio manda `null`; la cadena vacía del cable la pone UNA sola función.
-    assert.deepEqual(spy.patches[0].input, { phone: null });
+    // El dominio manda `null` en los DOS campos; la cadena vacía del cable la pone UNA sola
+    // función (AGENT2A Task A4: ambos teléfonos viajan de forma independiente).
+    assert.deepEqual(spy.patches[0].input, { phone: null, mobilePhone: null });
     // Y el mensaje distingue borrar de actualizar: decir «actualizado» sobre un borrado le
     // contaría a la persona que envió un número cuando lo que hizo fue quitarlo.
     assert.equal(result.message, SYNC_MESSAGES.cleared);
