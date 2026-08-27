@@ -133,14 +133,32 @@ test('splitContactName usa campos explícitos y cae a full_name', () => {
   );
 });
 
-test('buildHubSpotContactProperties omite LinkedIn y prioriza mobile_phone', () => {
+test('buildHubSpotContactProperties omite LinkedIn y manda los DOS teléfonos', () => {
   const props = buildHubSpotContactProperties(makeContact(), 'ana@empresa.com');
   assert.equal(props.email, 'ana@empresa.com');
   assert.equal(props.jobtitle, 'Gerente de RRHH');
-  assert.equal(props.phone, '+57 300 555 0000');
-  // LinkedIn no debe viajar a HubSpot en este hito.
+  // makeContact(): phone='+57 1 555 0000', mobile_phone='+57 300 555 0000' — los DOS viajan,
+  // cada uno a su propio campo. Antes se colapsaban en uno solo con prioridad al móvil.
+  assert.equal(props.phone, '+57 1 555 0000');
+  assert.equal(props.mobilePhone, '+57 300 555 0000');
   assert.ok(!('linkedin_url' in props));
   assert.ok(!('hs_linkedin_url' in props));
+});
+
+test('buildHubSpotContactProperties manda solo el que exista cuando falta uno', () => {
+  const propsNoMobile = buildHubSpotContactProperties(
+    makeContact({ mobile_phone: null }),
+    'ana@empresa.com',
+  );
+  assert.equal(propsNoMobile.phone, '+57 1 555 0000');
+  assert.equal(propsNoMobile.mobilePhone, null);
+
+  const propsNoPhone = buildHubSpotContactProperties(
+    makeContact({ phone: null }),
+    'ana@empresa.com',
+  );
+  assert.equal(propsNoPhone.phone, null);
+  assert.equal(propsNoPhone.mobilePhone, '+57 300 555 0000');
 });
 
 test('buildSyncMetadata preserva metadata previa y agrega hubspot_sync', () => {

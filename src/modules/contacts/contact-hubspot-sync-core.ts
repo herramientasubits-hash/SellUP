@@ -210,9 +210,12 @@ export function buildHubSpotContactProperties(
     firstname,
     lastname,
     jobtitle: cleanString(contact.job_title),
-    // La MISMA autoridad que decide si el contacto quedó desactualizado (CUT-2). Dos reglas
-    // separadas para «qué se envía» y «qué cuenta como cambio» divergen en cuanto una cambie.
-    phone: resolveOutboundHubSpotPhone(contact),
+    // AGENT2A Task A3: los DOS teléfonos viajan de forma independiente, cada uno leído
+    // directamente de su propio campo. `resolveOutboundHubSpotPhone` colapsaba ambos en uno
+    // solo con prioridad al móvil — ese comportamiento se retira del payload de CREACIÓN
+    // porque HubSpot ahora tiene un campo propio (`mobilephone`) para el celular.
+    phone: cleanString(contact.phone),
+    mobilePhone: cleanString(contact.mobile_phone),
   };
 }
 
