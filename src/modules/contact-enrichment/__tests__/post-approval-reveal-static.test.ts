@@ -99,8 +99,30 @@ const COPY = 'src/components/contacts/post-approval-reveal-copy.ts';
 const CTA = 'src/components/contacts/post-approval-reveal-cta.tsx';
 const SHEET = 'src/components/contacts/contact-detail-sheet.tsx';
 const BASIS = 'src/modules/contact-enrichment/phone-reveal-processing-basis.ts';
+// PARIDAD DE RESCATE — las tres salidas que el contacto oficial no tenía. Entran en la MISMA
+// lista a propósito: sus garantías negativas son idénticas —ninguna puede abrirse una vía propia
+// a un proveedor ni construir una petición a HubSpot— y dejarlas fuera de la guarda habría hecho
+// que el hito creciera precisamente por el lado no vigilado.
+const RESCUE_CORE = 'src/modules/contact-enrichment/post-approval-rescue-core.ts';
+const RESCUE_RUNTIME = 'src/modules/contact-enrichment/post-approval-rescue-runtime.ts';
+const RESCUE_COPY = 'src/components/contacts/post-approval-rescue-copy.ts';
+const RESCUE_PANEL = 'src/components/contacts/post-approval-rescue-panel.tsx';
 
-const ALL_FILES = [CORE, RUNTIME, READ, PROJECTION, CAPABILITY, ACTIONS, COPY, CTA, BASIS];
+const ALL_FILES = [
+  CORE,
+  RUNTIME,
+  READ,
+  PROJECTION,
+  CAPABILITY,
+  ACTIONS,
+  COPY,
+  CTA,
+  BASIS,
+  RESCUE_CORE,
+  RESCUE_RUNTIME,
+  RESCUE_COPY,
+  RESCUE_PANEL,
+];
 
 // ═══════════════════════════════════════════════════════════════
 // 1. Los archivos del hito existen y ninguno puede gastar por su cuenta
@@ -767,6 +789,10 @@ describe('post-approval reveal — flags y CI', () => {
       'post-approval-reveal-priscilla.test.ts',
       'post-approval-reveal-static.test.ts',
       'post-approval-reveal-copy.test.ts',
+      // DURABLE RESUME + PARIDAD DE RESCATE: las salidas nuevas viajan en el MISMO check
+      // obligatorio, sin tocar el workflow — el paso que ya lo ejecuta no cambia.
+      'post-approval-reveal-durable-resume.test.ts',
+      'post-approval-rescue-parity.test.ts',
     ]) {
       assert.ok(script.includes(suite), `el script debe correr ${suite}`);
     }

@@ -1292,6 +1292,8 @@ describe('4O-E1 § 12 · un candidato terminal no compra otro reveal', () => {
       candidateStatus: 'pending_review',
       candidateReviewStatus: null,
       candidateArchivedAt: null,
+    // AGENT2A-APPROVED-CANDIDATE-LUSHA-LEG — línea base sin destino registrado.
+      officialContactId: null,
       phoneRevealStatus,
       hasExistingPhone: false,
       hasLushaContactId: true,

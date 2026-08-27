@@ -113,7 +113,96 @@ export type OfficialContactPhoneRevealOfferStatus =
    * delegar en el pipeline del candidato: `classifyOfficialContactPhoneRevealOffer` no sabe
    * nada de esquema ni de RPCs, igual que no sabe de créditos ni de waterfall.
    */
-  | 'projection_capability_unavailable';
+  | 'projection_capability_unavailable'
+  /**
+   * DURABLE RESUME — ya hay un reveal EN VUELO para el candidato fuente
+   * (`phone_reveal_status ∈ requested|pending`). No se ofrece una segunda compra, y la ficha
+   * puede REANUDAR la espera al reabrirse porque este hecho vive en la base, no en React.
+   */
+  | 'reveal_in_flight'
+  /** DURABLE RESUME — el pipeline cerró sin número (`no_phone_found`). Es un resultado. */
+  | 'reveal_terminal_no_phone'
+  /** DURABLE RESUME — el pipeline cerró en fallo (`error`). */
+  | 'reveal_terminal_failed'
+  /**
+   * DURABLE RESUME — el candidato figura como `revealed` pero no queda ni una fila viva que
+   * copiar (el número se suprimió después). El pipeline respondería `already_revealed` a una
+   * compra, así que no se ofrece.
+   */
+  | 'reveal_already_completed'
+  /**
+   * DURABLE RESUME — el estado durable del reveal NO se pudo leer, o llegó con un valor fuera
+   * del vocabulario cerrado. FAIL-CLOSED: un estado que no se pudo leer NUNCA se convierte en
+   * «listo para comprar», porque el reveal que no vimos puede estar en vuelo ahora mismo.
+   */
+  | 'reveal_state_unreadable';
+
+// ── 2-bis. El estado DURABLE del reveal del candidato ──────────────
+//
+// `contact_enrichment_candidates.phone_reveal_status` es la ÚNICA autoridad de «hay un reveal en
+// curso», y ya lo era antes de este corte: es la columna que el START escribe (`requested`), que
+// el webhook y el recovery cierran (`revealed` / `no_phone_found` / `error`) y sobre la que el
+// propio pipeline levanta su gate `already_pending`. Este corte no la inventa ni la duplica: la
+// LEE desde la ficha del contacto oficial, que hasta ahora sólo miraba teléfonos.
+//
+// La lista de estados en vuelo se escribe aquí en vez de importarse por la misma razón que en
+// `phone-reveal-drawer-sync-core.ts`: este módulo es puro y no puede tomar una arista de runtime
+// hacia `phone-reveal-core.ts`, que sí importa cliente de proveedor. La copia NO puede divergir en
+// silencio — un test compara las dos listas y falla si dejan de coincidir.
+
+/** Estados en los que el proveedor todavía debe una respuesta. Espejo verificado del pipeline. */
+export const POST_APPROVAL_REVEAL_IN_FLIGHT_STATUSES = ['requested', 'pending'] as const;
+
+/** Estado durable del reveal del candidato fuente, ya clasificado. */
+export type CandidateRevealDurableState =
+  /** El proveedor debe una respuesta. Se espera; no se compra otra vez. */
+  | 'in_flight'
+  /** Cerró sin número. */
+  | 'terminal_no_phone'
+  /** Cerró en fallo. */
+  | 'terminal_failed'
+  /** Cerró con número (aunque no quede ninguno vivo que copiar). */
+  | 'terminal_revealed'
+  /** Nunca se pidió nada: es el único caso en el que una compra es NUEVA. */
+  | 'never_requested'
+  /** No se pudo leer, o el valor está fuera del vocabulario cerrado. Fail-closed. */
+  | 'unreadable';
+
+/**
+ * Clasifica el estado durable a partir del valor CRUDO de la columna.
+ *
+ * Se expresa como un vocabulario CERRADO y no como «lo que no está en vuelo está libre»: la
+ * diferencia es toda la seguridad de este corte. Un estado desconocido —una migración futura, un
+ * valor escrito por un camino que aún no existe— cae en `unreadable` y cierra la oferta, en vez de
+ * caer en «se puede comprar» y autorizar un gasto sobre un candidato cuyo estado nadie entiende.
+ *
+ * `null`/vacío SÍ es `never_requested`: la ausencia de la columna es la prueba positiva de que
+ * ningún START la escribió nunca. Eso es distinto de una LECTURA que falló, que el llamador
+ * traduce a `unreadable` sin pasar por aquí.
+ */
+export function classifyCandidateRevealDurableState(
+  status: string | null | undefined,
+): CandidateRevealDurableState {
+  if (status === null || status === undefined) return 'never_requested';
+  if (typeof status !== 'string') return 'unreadable';
+  const value = status.trim();
+  if (value.length === 0) return 'never_requested';
+  if ((POST_APPROVAL_REVEAL_IN_FLIGHT_STATUSES as readonly string[]).includes(value)) {
+    return 'in_flight';
+  }
+  if (value === 'no_phone_found') return 'terminal_no_phone';
+  if (value === 'error') return 'terminal_failed';
+  if (value === 'revealed') return 'terminal_revealed';
+  if (value === 'not_requested') return 'never_requested';
+  return 'unreadable';
+}
+
+/** ¿Este estado durable impide ofrecer una compra? Todo lo que no sea «nunca se pidió». */
+export function isCandidateRevealDurableStateBlocking(
+  state: CandidateRevealDurableState,
+): state is Exclude<CandidateRevealDurableState, 'never_requested'> {
+  return state !== 'never_requested';
+}
 
 export interface OfficialContactPhoneRevealOfferInput {
   /** Proyección mínima del contacto. `null` ⇒ no legible. */
@@ -138,6 +227,16 @@ export interface OfficialContactPhoneRevealOfferInput {
    * candidato resuelto o cuando no se pudo leer — fail-closed hacia «no prometer reutilización».
    */
   readonly candidateLivePhoneCount: number;
+  /**
+   * DURABLE RESUME — el estado durable del reveal del candidato fuente, ya clasificado por
+   * `classifyCandidateRevealDurableState`. `'unreadable'` cuando no hubo candidato resuelto o
+   * cuando la lectura falló: en ambos casos la respuesta correcta es no ofrecer una compra.
+   *
+   * Es un campo OBLIGATORIO y sin valor por defecto a propósito: un llamador nuevo que se
+   * olvidara de resolverlo rompe la compilación, en vez de heredar en silencio el defecto que
+   * este corte cierra —ofrecer «Revelar teléfono» sobre una solicitud que ya está en vuelo—.
+   */
+  readonly candidateRevealState: CandidateRevealDurableState;
 }
 
 export interface OfficialContactPhoneRevealOffer {
@@ -212,8 +311,43 @@ export function classifyOfficialContactPhoneRevealOffer(
     };
   }
 
+  // ── DURABLE RESUME · la última puerta antes de ofrecer una COMPRA ────────────
+  //
+  // Va DESPUÉS de la reutilización a propósito: si el candidato ya tiene una fila viva, copiarla
+  // es gratis, es lo que el operador quiere y sigue siendo lo correcto aunque el proveedor deba
+  // todavía una segunda respuesta. Lo que esta puerta impide es lo otro: volver a PAGAR.
+  //
+  // Y va antes de `eligible` porque `eligible` es exactamente la afirmación «no hay ningún reveal
+  // que esperar, así que compra». Esa afirmación era la que el producto no podía sostener: el
+  // navegador la recordaba en React y la olvidaba al cerrar la ficha.
+  const revealState = input.candidateRevealState;
+  if (isCandidateRevealDurableStateBlocking(revealState)) {
+    return {
+      status: DURABLE_STATE_OFFER_STATUS[revealState],
+      candidateId: link.candidateId,
+      actionable: false,
+      free: true,
+    };
+  }
+
   return { status: 'eligible', candidateId: link.candidateId, actionable: true, free: false };
 }
+
+/**
+ * Traducción TOTAL de estado durable bloqueante → estado de la oferta. Es un `Record` exhaustivo
+ * y no un `switch` con `default`: un miembro nuevo de `CandidateRevealDurableState` rompe la
+ * compilación en vez de caer en una rama genérica que podría ser la permisiva.
+ */
+const DURABLE_STATE_OFFER_STATUS: Record<
+  Exclude<CandidateRevealDurableState, 'never_requested'>,
+  OfficialContactPhoneRevealOfferStatus
+> = {
+  in_flight: 'reveal_in_flight',
+  terminal_no_phone: 'reveal_terminal_no_phone',
+  terminal_failed: 'reveal_terminal_failed',
+  terminal_revealed: 'reveal_already_completed',
+  unreadable: 'reveal_state_unreadable',
+};
 
 // ── 3. Parámetros de la RPC de la 128 ──────────────────────────────
 

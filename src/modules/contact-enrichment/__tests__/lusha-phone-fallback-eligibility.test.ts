@@ -16,6 +16,9 @@ function fullyEligibleInput(): LushaPhoneFallbackEligibilityInput {
     candidateStatus: 'pending',
     candidateReviewStatus: null,
     candidateArchivedAt: null,
+    // AGENT2A-APPROVED-CANDIDATE-LUSHA-LEG — línea base: candidato en revisión, así que no hay
+    // destino registrado y la nueva excepción no participa. Conserva intacto lo que ya probaba.
+    officialContactId: null,
     phoneRevealStatus: 'no_phone_found',
     hasExistingPhone: false,
     hasLushaContactId: true,

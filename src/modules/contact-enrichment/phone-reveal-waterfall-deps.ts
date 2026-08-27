@@ -672,7 +672,7 @@ export async function loadCandidateForWaterfall(
  * `status` alimenta el pre-filtro de candidato no editable.
  */
 const WATERFALL_LEGACY_EVIDENCE_SELECT = `id, status, phone, source, source_contact_id,
-   phone_reveal_status, phone_reveal_provider, phone_reveal_completed_at`;
+   phone_reveal_status, phone_reveal_provider, phone_reveal_completed_at, matched_contacts_id`;
 
 /**
  * Carga la evidencia PERSISTIDA del intento Apollo histórico. No infiere nada de la
@@ -714,6 +714,7 @@ export async function loadLegacyEvidenceForWaterfall(
   const phone = row.phone as string | null;
   const base: PhoneRevealWaterfallLegacyEvidence = {
     candidateStatus: (row.status as string | null) ?? null,
+    matchedContactsId: (row.matched_contacts_id as string | null) ?? null,
     phoneRevealStatus: (row.phone_reveal_status as string | null) ?? null,
     phoneRevealProvider: (row.phone_reveal_provider as string | null) ?? null,
     phoneRevealCompletedAt:
@@ -758,8 +759,10 @@ export async function checkSuppressionAndDoNotContact(
 
 // ── Pata Lusha (fallback existente, en modo waterfall) ─────────
 
+// `matched_contacts_id` entra por AGENT2A-APPROVED-CANDIDATE-LUSHA-LEG: es lo que distingue un
+// candidato aprobado CON contacto oficial —editable para teléfono— de uno sin destino.
 const LUSHA_FALLBACK_CANDIDATE_SELECT =
-  'id, status, source, source_contact_id, phone, enrichment_metadata, phone_reveal_status, phone_reveal_attempt_count';
+  'id, status, source, source_contact_id, phone, enrichment_metadata, phone_reveal_status, phone_reveal_attempt_count, matched_contacts_id';
 
 function mapLushaFallbackCandidate(
   row: Record<string, unknown>,
@@ -777,6 +780,7 @@ function mapLushaFallbackCandidate(
         : 0,
     enrichmentMetadata:
       (row.enrichment_metadata as ContactCandidateEnrichmentMetadata) ?? {},
+    matchedContactsId: (row.matched_contacts_id as string | null) ?? null,
   };
 }
 
