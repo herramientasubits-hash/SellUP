@@ -74,11 +74,22 @@ import {
 // aceptación de la corrida, y `resolveProviderResultDemand` la única lectura del
 // hueco. Esta superficie deja de tener que reconstruir ninguno de los dos.
 import {
+  ACCEPTED_FOR_TARGET_METADATA_KEY,
   PAID_ROUTE_NOT_RUN_WRITER_TRUTH,
   paidAcceptedContributionFromWriterTruth,
   resolveAcceptedForTarget,
+  toAcceptedForTargetMetadata,
   type AcceptedForTargetResult,
 } from '@/modules/prospect-batches/accepted-for-target';
+// AGENT1-LOCAL-CUT9B — la costura durable. El TIPO del proyector es el MISMO que
+// CUT-8 fijó para la ruta Apollo (`ResolveExtraBatchMetadata`): una clave, una
+// forma y un vocabulario para las dos superficies.
+import type { ResolveExtraBatchMetadata } from '@/server/agents/prospecting-toolkit/writer-metadata-resolution';
+import {
+  decideBatchMetadataFencePlan,
+  publishFencedBatchMetadata,
+  type BatchMetadataPublicationDbClient,
+} from '@/server/prospect-batches/batch-metadata-fenced-publication';
 import {
   fullTargetResultDemand,
   resolveProviderResultDemand,
@@ -435,6 +446,32 @@ async function runGenerateLushaPendingReviewBatch(
       paid: paidAcceptedContributionFromWriterTruth(paidWriterTruth),
     });
 
+  /**
+   * AGENT1-LOCAL-CUT9B — el PROYECTOR canónico hacia la metadata durable.
+   *
+   * 🔴 Es el MISMO que la ruta Apollo cablea en `wizard-execution-actions`:
+   * misma clave (`ACCEPTED_FOR_TARGET_METADATA_KEY`), mismo serializador
+   * (`toAcceptedForTargetMetadata`) y misma aritmética (`resolveRunAcceptance`,
+   * que es `resolveAcceptedForTarget` cerrada sobre la demanda y el aporte
+   * gratuito de ESTA corrida). No hay una clave `lusha_accepted_for_target`, ni
+   * un shape reducido, ni un `min(...)` escrito en el sitio de la escritura.
+   *
+   * 🔴 `completeValidCandidates` se pasa TAL CUAL, `null` incluido. Sustituirlo
+   * por `persistedCandidates` publicaría en la base la mentira exacta que CUT-7
+   * cerró en la UI: afirmaría que toda fila escrita cuenta hacia el objetivo.
+   *
+   * PURO: sin I/O, sin relectura y sin reloj. Lo llama el núcleo con lo que acaba
+   * de contar, y lo devuelto se escribe tal cual.
+   */
+  const resolveAcceptedForTargetBatchMetadata: ResolveExtraBatchMetadata = (writerOutcome) => ({
+    [ACCEPTED_FOR_TARGET_METADATA_KEY]: toAcceptedForTargetMetadata(
+      resolveRunAcceptance({
+        completeValidCandidates: writerOutcome.completeValidCandidates,
+        persistedCandidates: writerOutcome.persistedCandidates,
+      }),
+    ),
+  });
+
   // § 15 — hueco cerrado gratis ⇒ ni estimación, ni reserva, ni credencial, ni
   // cliente, ni petición. La salida ocurre AQUÍ, por encima de todo eso.
   //
@@ -509,6 +546,10 @@ async function runGenerateLushaPendingReviewBatch(
         // reservada sólo cambia el aporte de PAGO; el objetivo, la demanda y el
         // aporte gratuito ya están capturados dentro.
         resolveRunAcceptance,
+        // 🔴 CUT-9B — el proyector durable, derivado del MISMO helper. Viaja junto
+        // a él y no se reconstruye abajo: dos construcciones del mismo proyector
+        // serían dos entradas a la misma aritmética.
+        resolveAcceptedForTargetBatchMetadata,
       }),
     requiredCredits,
   );
@@ -635,6 +676,15 @@ async function runLushaSearchWithReservation(args: {
     completeValidCandidates: number | null | undefined;
     persistedCandidates: number;
   }) => AcceptedForTargetResult;
+  /**
+   * AGENT1-LOCAL-CUT9B — el proyector de la metadata durable, ya cerrado sobre el
+   * helper único de aceptación de la corrida.
+   *
+   * 🔴 Se INYECTA por la misma razón que `resolveRunAcceptance`: construirlo aquí
+   * dejaría dos sitios que arman el bloque canónico, y dos sitios es como dos
+   * vistas del mismo hecho empiezan a discrepar.
+   */
+  resolveAcceptedForTargetBatchMetadata: ResolveExtraBatchMetadata;
 }): Promise<GenerateLushaPendingReviewBatchActionResult> {
   const {
     searchInput,
@@ -649,6 +699,7 @@ async function runLushaSearchWithReservation(args: {
     baseCorrelation,
     prePaid,
     resolveRunAcceptance,
+    resolveAcceptedForTargetBatchMetadata,
   } = args;
   const supabase = await createClient();
 
@@ -1002,6 +1053,35 @@ async function runLushaSearchWithReservation(args: {
         // admisión y sigue siendo CUT-9, no este arreglo.
         readBatchIdentityEpoch: (batchId: string) =>
           loadBatchIdentityRegistry(supabase, batchId),
+        // ── Write dep #4 — AGENT1-LOCAL-CUT9B, prospect_batches.metadata ──────
+        //
+        // 🔴 La ÚNICA escritura que este corte añade, y no es independiente: el
+        // núcleo la invoca UNA vez, sobre el lote CANÓNICO que él mismo acaba de
+        // resolver, con la época POSTERIOR a su propia escritura de candidatos.
+        // No busca lote, no ordena por fecha y no adopta nada.
+        //
+        // 🔴 Va por el cliente de SESIÓN, no por `service_role`, igual que el
+        // sellado terminal de la rama sólo-gratuita: la RLS de `prospect_batches`
+        // acota la fila a su dueño, así que esta costura no concede ninguna
+        // capacidad nueva sobre ninguna fila que la sesión no pudiera tocar ya.
+        //
+        // 🔴 El régimen lo decide el ESQUEMA, no una preferencia:
+        // `decideBatchMetadataFencePlan` exige una época REAL para vallar, y sólo
+        // acepta escribir sin valla cuando la base PROBÓ que la 126 no está
+        // aplicada. Cualquier otro `null` —lectura caída, lote invisible— no
+        // escribe: fallo CERRADO.
+        acceptedForTargetPublication: {
+          resolve: resolveAcceptedForTargetBatchMetadata,
+          publish: ({ batchId, epochAfterWrite, evidence, published }) =>
+            publishFencedBatchMetadata(
+              supabase as unknown as BatchMetadataPublicationDbClient,
+              {
+                batchId,
+                plan: decideBatchMetadataFencePlan({ epochAfterWrite, evidence }),
+                published,
+              },
+            ),
+        },
         // Read-only dep #1 — canonical SellUp + HubSpot duplicate checker.
         checkCompanyDuplicate: (dupInput) => checkCompanyDuplicate(dupInput),
         // Read-only dep #2 — active prospect_candidates prefetch for the guard.
@@ -1120,6 +1200,23 @@ async function runLushaSearchWithReservation(args: {
       completeValidCandidates: result.multiBranch?.acceptedForTargetTotal ?? null,
       persistedCandidates: result.insertedCandidatesCount,
     });
+
+    // 🔴 AGENT1-LOCAL-CUT9B — que la publicación durable NO entrara deja de ser
+    // silencioso. `stale` es control de concurrencia funcionando y no es una
+    // avería, pero sí es un lote cuya metadata NO lleva el bloque canónico, y eso
+    // hay que poder saberlo sin ir a mirar la fila a mano.
+    //
+    // No altera el resultado: los candidatos ya son durables y el proveedor ya
+    // cobró. Sólo cifras e IDs internos; sin payload, sin clave, sin PII.
+    const publication = result.acceptedForTargetPublication ?? null;
+    if (publication !== null && publication.status !== 'published') {
+      console.warn('[lusha-accepted-for-target-publication]', {
+        status: publication.status,
+        code: publication.status === 'failed' ? publication.code : null,
+        batch_id: result.batchId,
+        wizard_run_id: reservedCorrelation.wizardRunId,
+      });
+    }
 
     return { ...result, acceptedForTarget: acceptance };
   } catch (err: unknown) {

@@ -1036,23 +1036,40 @@ describe('CUT-9 §§ 4, 15, 16 · el resultado dice la verdad y no abre writers 
 
   it('🔴 § 15 · esta superficie NO abre un writer de metadata sin vallado', () => {
     const action = body(ACTION_PATH);
-    // La costura durable de CUT-7/CUT-8 pertenece a la ruta Apollo, que la publica
-    // DENTRO de una escritura que ya existía. Aquí no hay tal costura: el resolutor
-    // canónico NO actualiza la metadata de un lote adoptado, así que publicarla
-    // exigiría un `SELECT metadata` → `UPDATE metadata` sin valla. Está prohibido.
-    for (const forbidden of [
-      'toAcceptedForTargetMetadata',
-      'ACCEPTED_FOR_TARGET_METADATA_KEY',
-    ]) {
-      assert.ok(!action.includes(forbidden), `publicación durable sin costura: ${forbidden}`);
-    }
+    // ── REANCLADO por AGENT1-LOCAL-CUT9B ────────────────────────────────────
+    //
+    // Esta guarda prohibía `toAcceptedForTargetMetadata` y la clave canónica en la
+    // acción, y era correcto MIENTRAS no existiera una forma segura de publicar:
+    // el resolutor canónico no actualiza la metadata de un lote adoptado, así que
+    // la única salida a mano era un `SELECT metadata` → `UPDATE metadata` SIN
+    // valla. La guarda decía, con todas sus letras, «si un día lo hiciera, esta
+    // guarda hay que revisarla».
+    //
+    // CUT9B construyó esa forma segura: la publicación pasa por
+    // `publishFencedBatchMetadata` con un CAS sobre `identity_epoch`, y el régimen
+    // lo decide la evidencia del esquema, no un literal. Así que lo que esta
+    // guarda fija deja de ser «no se publica» y pasa a ser «no se publica A
+    // CIEGAS», que es la propiedad que de verdad defendía.
+    assert.ok(
+      action.includes('toAcceptedForTargetMetadata') &&
+        action.includes('ACCEPTED_FOR_TARGET_METADATA_KEY'),
+      '🔴 la publicación durable desapareció de la acción: CUT9B se revirtió',
+    );
+    assert.ok(
+      action.includes('publishFencedBatchMetadata(') &&
+        action.includes('decideBatchMetadataFencePlan('),
+      '🔴 la publicación durable dejó de pasar por la costura vallada',
+    );
+    // 🔴 Lo PROHIBIDO sigue prohibido, y con la misma letra: la acción no abre una
+    // escritura propia sobre `prospect_batches`.
     assert.equal(
       /from\('prospect_batches'\)[\s\S]{0,200}\.update\(/.test(action),
       false,
       '🔴 apareció una escritura de metadata de lote en la acción',
     );
-    // Y el resolutor canónico sigue sin actualizar nada al adoptar: es POR ESO que
-    // la costura no existe, y si un día lo hiciera, esta guarda hay que revisarla.
+    // Y el resolutor canónico sigue sin actualizar nada al adoptar: la publicación
+    // de CUT9B no vive ahí, y que siga sin `.update(` es lo que impide que la
+    // adopción se convierta en una segunda escritura de metadata.
     const canonical = body('src/server/prospect-batches/lusha-canonical-batch.ts');
     assert.equal(/\.update\(/.test(canonical), false);
   });

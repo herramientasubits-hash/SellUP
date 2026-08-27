@@ -727,21 +727,32 @@ test('§§ 9/10/11 — ni aceptación de pago, ni economía, ni enrutado cambian
   // mientras la aceptación de pago era territorio de CUT-9. CUT-9 la conecta, así
   // que la prohibición pasó a fijar la ausencia del arreglo.
   //
-  // Lo que se conserva es el límite que CUT9A de verdad defiende y que CUT-9 NO
-  // cruza: esta superficie no publica el bloque durable de aceptación, porque no
-  // tiene costura segura para hacerlo —`reserveOrReturnLushaCanonicalBatch` NO
-  // actualiza la metadata de un lote adoptado, y abrir un `SELECT metadata` →
-  // `UPDATE metadata` sin vallado está prohibido (CUT-9 § 15)—.
-  for (const forbidden of [
-    'toAcceptedForTargetMetadata',
-    'ACCEPTED_FOR_TARGET_METADATA_KEY',
-  ]) {
-    assert.equal(
-      action.includes(forbidden),
-      false,
-      `la acción abrió una publicación durable de aceptación sin costura vallada (${forbidden})`,
-    );
-  }
+  // 🔴 REANCLADO por AGENT1-LOCAL-CUT9B.
+  //
+  // Este bucle prohibía el bloque durable porque no había costura segura:
+  // `reserveOrReturnLushaCanonicalBatch` NO actualiza la metadata de un lote
+  // adoptado, y abrir un `SELECT metadata` → `UPDATE metadata` sin vallado estaba
+  // (y sigue estando) prohibido. CUT9B construye la costura vallada —CAS sobre
+  // `identity_epoch`—, así que la prohibición pasó a fijar la ausencia del
+  // arreglo, exactamente como le ocurrió a la línea de arriba con CUT-9.
+  //
+  // Lo que se conserva es el límite REAL: la publicación existe, pero no la abre
+  // la acción por su cuenta.
+  assert.ok(
+    action.includes('toAcceptedForTargetMetadata') &&
+      action.includes('ACCEPTED_FOR_TARGET_METADATA_KEY'),
+    'la publicación durable de aceptación desapareció de la acción',
+  );
+  assert.ok(
+    action.includes('publishFencedBatchMetadata(') &&
+      action.includes('decideBatchMetadataFencePlan('),
+    'la acción publica el bloque durable SIN la costura vallada',
+  );
+  assert.equal(
+    /from\('prospect_batches'\)[\s\S]{0,200}\.update\(/.test(action),
+    false,
+    'la acción abrió una escritura ciega sobre prospect_batches',
+  );
   // 🔴 Y la aritmética, cuando exista, tiene que ser LA canónica: una sola llamada
   // y ninguna segunda autoridad con nombre propio.
   assert.equal(

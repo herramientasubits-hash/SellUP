@@ -59,6 +59,11 @@ import {
   type FenceCapabilityEvidence,
 } from './batch-identity-fenced-persistence';
 import type { LushaCanonicalBatchReservation } from './lusha-canonical-batch';
+// AGENT1-LOCAL-CUT9B — la publicación DURABLE de la aceptación. Este núcleo sigue
+// SIN I/O propio: importa el TIPO del desenlace y el TIPO del proyector, y la
+// escritura la ejecuta la dependencia inyectada, igual que las otras tres.
+import type { BatchMetadataPublicationResult } from './batch-metadata-fenced-publication';
+import type { ResolveExtraBatchMetadata } from '@/server/agents/prospecting-toolkit/writer-metadata-resolution';
 // AGENT1-LOCAL-CUT9 §§ 3, 4 — el tipo CANÓNICO de aceptación hacia el objetivo,
 // importado SÓLO como tipo. El núcleo no lo calcula: quien lo resuelve es
 // `resolveAcceptedForTarget` en la acción, que es la única aritmética de la
@@ -622,6 +627,56 @@ export interface PersistLushaPendingReviewDeps {
    * combina es `isProvenFenceCapabilityAbsent`, nunca este llamador por su cuenta.
    */
   readBatchIdentityEpoch: (batchId: string) => Promise<FenceCapabilityEvidence>;
+  /**
+   * ── AGENT1-LOCAL-CUT9B — la publicación DURABLE de la aceptación ──────────
+   *
+   * Write dep #4, y la ÚNICA que este corte añade. Existe porque en esta ruta la
+   * metadata del lote se publica en el INSERT de la reserva, es decir ANTES de
+   * que exista una sola fila; cuando la aceptación se conoce ya no queda ninguna
+   * escritura en la que esparcirla. `candidate-writer` no tiene ese problema —su
+   * publicación de metadata es POSTERIOR a los candidatos— y por eso a él le basta
+   * con `resolveExtraBatchMetadata` a secas.
+   *
+   * 🔴 Las DOS mitades viajan JUNTAS, en un solo objeto, a propósito. Separarlas
+   * en dos campos opcionales permitiría un estado que no debe existir: un
+   * proyector sin escritor —una aceptación resuelta que no se publica en ninguna
+   * parte, que es EXACTAMENTE el defecto que este corte cierra— o un escritor sin
+   * proyector, que no tendría nada que escribir. Con un solo dep hay dos estados y
+   * sólo dos: publica, o no hay publicación que hacer.
+   *
+   * 🔴 OPCIONAL, y aquí sí es correcto: su ausencia no autoriza NADA. No abre una
+   * escritura sin valla, no relaja una comprobación y no cambia una decisión de
+   * admisión — sólo significa «esta corrida no tiene bloque que publicar», que es
+   * el comportamiento byte por byte anterior a CUT9B. Es la diferencia con
+   * `insertCandidatesFenced`, cuya ausencia SÍ autorizaba escribir sin valla y por
+   * eso tuvo que volverse obligatoria (CUT-3B4-CORRECCIÓN). Que la ruta productiva
+   * lo cablee lo sostiene una guarda estática, no el tipo.
+   *
+   * 🔴 `resolve` es PURA y NO es una segunda autoridad de aceptación: recibe lo
+   * que este writer acaba de contar y devuelve claves ya serializadas por quien
+   * sí manda (`resolveAcceptedForTarget` → `toAcceptedForTargetMetadata`, ambas en
+   * la acción). El núcleo no suma, no resta, no compara y no vuelve a acotar.
+   *
+   * 🔴 `publish` NUNCA lanza y NUNCA altera el resultado de la corrida. Un fallo
+   * de publicación llega después de que el proveedor cobrara y de que los
+   * candidatos fueran durables: propagarlo devolvería un error por una corrida
+   * exitosa y le ofrecería a la persona un reintento que volvería a gastar. Es la
+   * misma regla que ya gobierna la liquidación y la fila de uso de esta ruta.
+   */
+  acceptedForTargetPublication?: {
+    resolve: ResolveExtraBatchMetadata;
+    publish: (args: {
+      batchId: string;
+      /**
+       * La época que el lote tiene DESPUÉS de la escritura de candidatos, o
+       * `null` cuando la valla no existe. Es el token de CAS, no un dato.
+       */
+      epochAfterWrite: number | null;
+      /** La evidencia con la que se prueba —o no— la ausencia de la valla. */
+      evidence: FenceCapabilityEvidence;
+      published: Record<string, unknown> | null;
+    }) => Promise<BatchMetadataPublicationResult>;
+  } | null;
   // ── Read-only duplicate-parity deps (Q3F-5BB.7) — never write ──
   checkCompanyDuplicate: CheckLushaCompanyDuplicate;
   fetchActiveCandidates: FetchActiveCandidatesForLushaGuard;
@@ -691,6 +746,19 @@ export interface PersistLushaPendingReviewResult {
   possibleDuplicatesCount: number;
   /** Candidates actually inserted (== createdCandidatesCount on success). */
   insertedCandidatesCount: number;
+  /**
+   * AGENT1-LOCAL-CUT9B — DESENLACE de la publicación durable de la aceptación.
+   *
+   * 🔴 Existe para que «no se publicó» deje de ser silencioso. Sin este campo,
+   * una publicación que rebotó por `stale` y una que entró producen exactamente el
+   * mismo resultado de corrida, y la ausencia del bloque en la fila sólo se podría
+   * descubrir mirando la base a mano. Es el mismo criterio que hizo que la
+   * liquidación de presupuesto dejara de ser `Promise<void>`.
+   *
+   * `null` = esta corrida no tenía publicación que hacer (nadie inyectó la
+   * costura). No es un fallo y no se distingue de la corrida anterior a CUT9B.
+   */
+  acceptedForTargetPublication?: BatchMetadataPublicationResult | null;
   /** True when page 1 was requested to top up useful candidates. */
   topUpTriggered: boolean;
   // ── Shared intake pipeline metrics (Q3F-5BB.10C2) ──
@@ -2763,6 +2831,15 @@ export async function persistLushaPendingReviewBatch(
   // diciendo que la función no existe.
   let insertedCount: number;
   let fenceTelemetry: Record<string, number | boolean | null>;
+  /**
+   * AGENT1-LOCAL-CUT9B — la época que el lote tiene DESPUÉS de esta escritura.
+   *
+   * 🔴 NO es `epochEvidence.epoch`: ésa es la de ANTES, y la transacción vallada
+   * acaba de avanzarla. Declararla como token de CAS daría `stale` siempre —contra
+   * la propia escritura de esta corrida— y la publicación durable no entraría
+   * nunca. La única época válida para lo que viene es la que la valla devolvió.
+   */
+  let epochAfterWrite: number | null;
 
   // ── 🔴 CUT9A-FIX-ADOPTED-EPOCH-REFRESH — la época se RELEE, no se recuerda ──
   //
@@ -2800,6 +2877,15 @@ export async function persistLushaPendingReviewBatch(
 
   if (fenced.status === 'inserted') {
     insertedCount = fenced.insertedCount;
+    // 🔴 Sólo un número REAL sirve de token de CAS. Un desenlace sin `nextEpoch`
+    // —un doble antiguo, una respuesta ilegible— deja la época en `null`, y desde
+    // ahí la publicación NO cae a una escritura sin valla: cae a «no disponible»,
+    // que es fallo CERRADO. Inventar un 0 aquí escribiría declarando un estado que
+    // nadie observó.
+    epochAfterWrite =
+      typeof fenced.nextEpoch === 'number' && Number.isFinite(fenced.nextEpoch)
+        ? fenced.nextEpoch
+        : null;
     fenceTelemetry = {
       identity_epoch_initial: fenced.previousEpoch,
       identity_epoch_final: fenced.nextEpoch,
@@ -2810,6 +2896,11 @@ export async function persistLushaPendingReviewBatch(
     // esquema: no es un flag, no es la forma de un objeto de dependencias y nadie
     // puede activarla a mano.
     insertedCount = (await deps.insertCandidates(candidateRowsWithRouting)).insertedCount;
+    // La 126 no está aplicada: la columna que hace de versión NO EXISTE, así que
+    // no hay token de CAS posible. La publicación tomará la ruta anterior a B4 —la
+    // misma forma de escritura que `candidate-writer` y el sellado de CUT-8B ya
+    // hacen hoy— y sólo porque la ausencia está PROBADA por la base.
+    epochAfterWrite = null;
     fenceTelemetry = {
       identity_epoch_initial: null,
       identity_epoch_final: null,
@@ -2852,10 +2943,63 @@ export async function persistLushaPendingReviewBatch(
     stopReason: stopReasonPersisted,
   };
 
+  // ── 🔴 AGENT1-LOCAL-CUT9B — LA PUBLICACIÓN DURABLE DE LA ACEPTACIÓN ────────
+  //
+  // Este es el ÚNICO punto de la ruta Lusha en el que se cumplen a la vez las tres
+  // condiciones que la publicación exige:
+  //
+  //   · el lote CANÓNICO ya está resuelto (`batchId`, no «el último lote»);
+  //   · las filas ya EXISTEN y están reconciliadas contra la base
+  //     (`insertedCount`, `persistedForTarget`);
+  //   · la época del lote es la POSTERIOR a esta escritura, así que sirve de token
+  //     de CAS.
+  //
+  // 🔴 Lo que viaja al proyector es la VERDAD DEL WRITER, con el vocabulario que
+  // CUT-8 ya fijó (`WriterMetadataOutcome`). `completeValidCandidates` es
+  // `persistedForTarget` —lo RECONCILIADO contra las filas, la misma cifra que
+  // `multiBranch.acceptedForTargetTotal` publica— y NO `useful.length`, que es lo
+  // que la corrida intentó escribir. Ésa es exactamente la sustitución que CUT-7
+  // cerró y que este corte no puede reabrir por la puerta de la metadata.
+  //
+  // 🔴 El núcleo NO decide la aceptación: pasa lo que contó y recibe claves ya
+  // resueltas. La aritmética sigue viviendo en `resolveAcceptedForTarget`, en la
+  // acción, y ésta es la MISMA instancia que produce el resultado que la acción
+  // devuelve — no una segunda entrada a la misma cuenta.
+  //
+  // 🔴 Nunca lanza. Ver la nota del dep: aquí el proveedor ya cobró y los
+  // candidatos ya son durables.
+  let acceptedForTargetPublication: BatchMetadataPublicationResult | null = null;
+  if (deps.acceptedForTargetPublication) {
+    const seam = deps.acceptedForTargetPublication;
+    try {
+      acceptedForTargetPublication = await seam.publish({
+        batchId,
+        epochAfterWrite,
+        evidence: epochEvidence,
+        published: seam.resolve({
+          persistedCandidates: insertedCount,
+          completeValidCandidates: persistedForTarget,
+          // Esta ruta no distingue «sólo para revisión»: todo lo que persiste es
+          // revisable. `null` = no medido, que es la verdad, y NUNCA un cero que
+          // afirmaría haberlo medido.
+          reviewOnlyCandidates: null,
+        }),
+      });
+    } catch {
+      // Un proyector o un escritor que lance no puede tumbar una corrida pagada.
+      // Se clasifica y se dice; no se reintenta y no se degrada a otra escritura.
+      acceptedForTargetPublication = {
+        status: 'failed',
+        code: 'accepted_for_target_publication_threw',
+      };
+    }
+  }
+
   return {
     ok: true,
     status: 'success',
     batchId,
+    acceptedForTargetPublication,
     createdCandidatesCount: insertedCount,
     skippedCount: totalSkipped,
     creditsCharged: creditsChargedTotal,
