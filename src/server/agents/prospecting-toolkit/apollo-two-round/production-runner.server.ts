@@ -254,7 +254,19 @@ import {
   isBlockedByCompanyOwnership,
 } from '../company-ownership-gate';
 import { mapDuplicateStatus, fetchActiveCandidatesForGuard } from '../candidate-writer';
-import { buildNoveltyIndex, buildRecentIdentityKeySet } from '../novelty-checker';
+import {
+  buildNoveltyIndex,
+  buildRecentIdentityKeySet,
+  evaluateCandidateNovelty,
+  type NoveltyIndex,
+} from '../novelty-checker';
+// AGENT1-APOLLO-PREPAID-HISTORICAL-PARITY — el evaluador PURO de historia
+// pre-pago. Toda la política vive allí; aquí sólo se le pasa la evidencia.
+import {
+  evaluatePrepaidHistoricalDuplicate,
+  type HistoricalCandidateRow,
+  type PrepaidHistoricalVerdict,
+} from '../apollo-prepaid-historical-parity';
 import {
   APOLLO_PENDING_PRE_WRITER_ADMISSION_CHECKS,
   buildApolloPreWriterBatchAdmissionContext,
@@ -440,6 +452,24 @@ export type ApolloTwoRoundProductionDeps = {
     domains: readonly string[];
     countryCode: string | null;
   }) => Promise<ApolloPreWriterDbAdmissionContext>;
+
+  /**
+   * AGENT1-APOLLO-PREPAID-HISTORICAL-PARITY § 4 — la evidencia histórica FUERTE,
+   * leída ANTES de pagar.
+   *
+   * No es una autoridad nueva: es EXACTAMENTE `buildNoveltyIndex`, la misma
+   * consulta global y cross-source (por dominio, sin filtro de `source`, sin
+   * ventana temporal) que el writer ya ejecutaba DESPUÉS del gasto. Lo único que
+   * cambia es CUÁNDO se pregunta.
+   *
+   * Se invoca a lo sumo una vez por conjunto de dominios (una por ronda), nunca
+   * por candidato. Fail-OPEN declarado: `degraded: true` significa «no se puede
+   * afirmar nada», y no afirmar nada nunca bloquea un gasto — la misma política
+   * que el resto de los gates baratos y que la comprobación de HubSpot (§ 21).
+   */
+  loadPrepaidHistoricalIndex: (input: {
+    domains: readonly string[];
+  }) => Promise<{ index: NoveltyIndex; degraded: boolean }>;
 };
 
 /** § 2 — contexto vacío y DEGRADADO: nada resuelto, todo pendiente. */
@@ -732,6 +762,26 @@ export async function runApolloTwoRoundWizardDiscovery(
         return emptyAdmissionPrefetch();
       }
     },
+    // § 4 — una sola lectura por conjunto de dominios, con el helper que YA
+    // existía. Cero consultas nuevas por candidato y cero créditos.
+    loadPrepaidHistoricalIndex: async ({ domains }) => {
+      const { tryGetAdminClientForTwoRound } = await import('./checkpoint.server');
+      const client = tryGetAdminClientForTwoRound();
+      if (!client) return { index: new Map(), degraded: true };
+      const normalized = [
+        ...new Set(
+          domains
+            .map((domain) => (domain ? normalizeDomain(domain) : null))
+            .filter((domain): domain is string => domain !== null),
+        ),
+      ];
+      if (normalized.length === 0) return { index: new Map(), degraded: false };
+      try {
+        return { index: await buildNoveltyIndex(client, normalized), degraded: false };
+      } catch {
+        return { index: new Map(), degraded: true };
+      }
+    },
     ...depsOverride,
   };
 
@@ -995,6 +1045,111 @@ export async function runApolloTwoRoundWizardDiscovery(
    * sus tres comprobaciones de base PENDIENTES, así que no pueden sostener una
    * parada. Es la dirección segura, y no añade ni una lectura.
    */
+  /**
+   * AGENT1-APOLLO-PREPAID-HISTORICAL-PARITY § 4 — la evidencia histórica de la
+   * corrida, cargada PEREZOSAMENTE y por CONJUNTO DE DOMINIOS.
+   *
+   * Perezosa porque los dominios no existen hasta que una ronda devuelve, y por
+   * conjunto porque `evidenceByKey` ya contiene TODA la ronda cuando se evalúa a
+   * su primer candidato (`searchRound` la puebla antes de que el orquestador
+   * llame a `assessCandidate`). El resultado: una lectura por ronda —a lo sumo
+   * dos por corrida—, cero por candidato.
+   *
+   * Un dominio que quede fuera de la cobertura NO se declara nuevo en silencio:
+   * dispara su propia carga. Un fallo de lectura marca la evidencia como
+   * indisponible y el veredicto pasa a ser fail-open (§ 21).
+   */
+  const historicalRowsByDomain = new Map<string, HistoricalCandidateRow[]>();
+  const historicalCoveredDomains = new Set<string>();
+  let historicalEvidenceDegraded = false;
+  let historicalLoads = 0;
+
+  const collectRunDomains = (): string[] => {
+    const domains = new Set<string>();
+    for (const snapshot of evidenceByKey.values()) {
+      // El snapshot ya trae el dominio resuelto; `url` es el respaldo cuando la
+      // búsqueda no lo declaró por separado.
+      const raw = snapshot.domain ?? snapshot.url ?? null;
+      const normalized = raw ? normalizeDomain(raw) : null;
+      if (normalized) domains.add(normalized);
+    }
+    return [...domains];
+  };
+
+  const ensurePrepaidHistoricalEvidence = async (
+    normalizedDomain: string | null,
+  ): Promise<{ rows: HistoricalCandidateRow[]; degraded: boolean }> => {
+    // Sin dominio no hay eje fuerte que consultar: no se lee nada y no se afirma
+    // nada. El nombre solo no puede bloquear un gasto (§ 7).
+    if (normalizedDomain === null) {
+      return { rows: [], degraded: historicalEvidenceDegraded };
+    }
+    if (!historicalCoveredDomains.has(normalizedDomain)) {
+      const pending = [...new Set([...collectRunDomains(), normalizedDomain])].filter(
+        (domain) => !historicalCoveredDomains.has(domain),
+      );
+      historicalLoads++;
+      const loaded = await deps
+        .loadPrepaidHistoricalIndex({ domains: pending })
+        .catch(() => ({ index: new Map() as NoveltyIndex, degraded: true }));
+      if (loaded.degraded) {
+        historicalEvidenceDegraded = true;
+      } else {
+        for (const domain of pending) {
+          historicalCoveredDomains.add(domain);
+          historicalRowsByDomain.set(domain, (loaded.index.get(domain) ?? []) as HistoricalCandidateRow[]);
+        }
+      }
+    }
+    return {
+      rows: historicalRowsByDomain.get(normalizedDomain) ?? [],
+      degraded: !historicalCoveredDomains.has(normalizedDomain),
+    };
+  };
+
+  /**
+   * § 6 — las DOS políticas, combinadas con un OR y sin fusionarse.
+   *
+   * `evaluateCandidateNovelty` responde la novedad de ENTREGA con sus cooldowns
+   * de `discarded` intactos (30 d revisado / 90 d sin revisar). El evaluador
+   * pre-pago responde el COSTE: una fila que ocupa el lote con identidad fuerte
+   * ya prueba que la empresa se conocía, sin importar su edad.
+   */
+  const prepaidHistoricalVerdictByKey = new Map<string, PrepaidHistoricalVerdict>();
+
+  const evaluatePrepaidHistory = async (
+    candidateKey: string,
+    normalizedDomain: string | null,
+    name: string | null,
+    website: string | null,
+  ): Promise<PrepaidHistoricalVerdict> => {
+    const evidence = await ensurePrepaidHistoricalEvidence(normalizedDomain);
+    const index: NoveltyIndex = new Map();
+    if (normalizedDomain !== null && evidence.rows.length > 0) {
+      index.set(normalizedDomain, evidence.rows as never);
+    }
+    const deliveryNovelty =
+      evidence.degraded || normalizedDomain === null
+        ? null
+        : evaluateCandidateNovelty({ name: name ?? '', domain: normalizedDomain, website }, index);
+    const verdict = evaluatePrepaidHistoricalDuplicate({
+      needle: {
+        normalizedDomain,
+        name,
+        // Apollo no devuelve identificador fiscal en la búsqueda: el eje existe y
+        // se evalúa, pero hoy no aporta coincidencias en esta ruta. No se inventa
+        // ninguno para rellenarlo.
+        taxIdentifier: null,
+        countryCode: input.countryCode,
+      },
+      rows: evidence.rows,
+      deliveryNoveltyShouldSkip: deliveryNovelty?.shouldSkip === true,
+      evidenceUnavailable: evidence.degraded,
+    });
+    prepaidHistoricalVerdictByKey.set(candidateKey, verdict);
+    return verdict;
+  };
+
   let admissionPrefetchPromise: Promise<ApolloPreWriterDbAdmissionContext> | null = null;
   const ensureAdmissionPrefetch = (): Promise<ApolloPreWriterDbAdmissionContext> => {
     // La memoización ES el contrato: la promesa se guarda antes de resolverse, así
@@ -1565,18 +1720,42 @@ export async function runApolloTwoRoundWizardDiscovery(
         negativeMemory.excludedDomains.has(identity.normalizedDomain);
       const knownDuplicate = duplicate.sellUpDuplicate || duplicate.hubSpotDuplicate;
 
+      /**
+       * AGENT1-APOLLO-PREPAID-HISTORICAL-PARITY § 4, § 10, § 12, § 13 — la
+       * evidencia histórica FUERTE, consultada ANTES de pagar.
+       *
+       * Este es el punto que cierra el corte: `assessCandidate` es el último
+       * lugar donde una decisión es todavía gratuita. Un `rejection` aquí saca al
+       * candidato de `globalFreeSignals`, y con ello de la selección de
+       * enrichment, del ranking final y de `persisted`/`reviewOnly`. Es decir:
+       *
+       *   0 llamadas de enrichment · 0 filas nuevas · 0 accepted-for-target
+       *
+       * Antes esta misma verdad se conocía —el writer la aplicaba en Pass 4— pero
+       * llegaba DESPUÉS del crédito.
+       */
+      const prepaidHistory = await evaluatePrepaidHistory(
+        key,
+        identity.normalizedDomain,
+        organization.name ?? null,
+        built.candidate.website ?? null,
+      );
+      const historicallyKnown = prepaidHistory.alreadyKnown;
+
       const signals: CheapAssessment['signals'] = {
         countryCompatible: eligibility.eligible || eligibility.skipReason !== 'country_mismatch',
         domainConfident: identity.normalizedDomain !== null,
         ownershipConfident: eligibility.eligible && eligibility.domainSource === 'asserted',
         sectorKeywordMatchCount: sector.matchedTerms.length,
-        novel: !knownDuplicate && !cooldownActive,
+        novel: !knownDuplicate && !cooldownActive && !historicallyKnown,
         hasCompanySizeSignal: readHasEmployeeCount(result),
         hasLocationSignal: readHasLocation(result),
         hasLinkedInUrl: identity.normalizedLinkedInUrl !== null,
         freeOfContradictoryEvidence: sectorEvidenceState !== 'sector_evidence_contradictory',
         knownDuplicate,
-        cooldownActive,
+        // Una empresa ya entregada es, a todos los efectos del ranking, una
+        // sugerencia previa. No se abre una señal paralela.
+        cooldownActive: cooldownActive || historicallyKnown,
         // § 7 — viaja al ranking: un candidato contradicho no compite por un
         // enrichment ni aunque el resto de sus señales sea impecable.
         declaredSectorContradiction: contradiction.contradictory,
@@ -1592,7 +1771,9 @@ export async function runApolloTwoRoundWizardDiscovery(
         rejection = 'duplicate_in_sellup';
       } else if (duplicate.hubSpotDuplicate) {
         rejection = 'duplicate_in_hubspot';
-      } else if (cooldownActive) {
+      } else if (cooldownActive || historicallyKnown) {
+        // Mismo motivo canónico: «sugerida antes». No se introduce un código
+        // nuevo en la taxonomía por una autoridad nueva sobre el mismo hecho.
         rejection = 'cooldown_or_prior_suggestion';
       } else if (sectorEvidenceState === 'sector_not_mapped') {
         rejection = 'sector_not_mapped';
@@ -1604,7 +1785,7 @@ export async function runApolloTwoRoundWizardDiscovery(
         rejection,
         sectorEvidenceState,
         signals,
-        noPriorSuggestion: !cooldownActive,
+        noPriorSuggestion: !cooldownActive && !historicallyKnown,
       };
     },
 

@@ -16,7 +16,7 @@
  *   F4  — generic service title + no existing active → no block
  *   F5  — qa_cleanup discarded does not block
  *   F6  — approved blocks
- *   F7  — converted blocks
+ *   F7  — converted_to_account blocks
  *   F8  — non-active statuses (discarded/rejected/duplicate/archived) do not block
  *   F9  — same_canonical_identity → persisted as possible_duplicate, not skipped
  *   F10 — v1.13 implementation partner scoring regression (Mi-ERP, Factory, Visiontecno, SYCA)
@@ -580,10 +580,13 @@ describe('F5 — qa_cleanup does not block active guard', () => {
 
 // ═════════════════════════════════════════════════════════════════════════════
 // F6 — approved blocks
-// F7 — converted blocks
+// F7 — converted_to_account blocks
+//
+// AGENT1-APOLLO-PREPAID-HISTORICAL-PARITY § 5 / § 13 — antes decía `converted`,
+// un estado que la CHECK de la tabla no admite.
 // ═════════════════════════════════════════════════════════════════════════════
 
-for (const blockedStatus of ['approved', 'converted'] as const) {
+for (const blockedStatus of ['approved', 'converted_to_account'] as const) {
   describe(`F${blockedStatus === 'approved' ? 6 : 7} — ${blockedStatus} blocks insert`, () => {
     it(`status=${blockedStatus} → candidato genérico Softland no insertado`, async () => {
       const stats = emptyStats();

@@ -74,6 +74,18 @@ type PreviousCandidateRow = {
   created_at: string;
   /** v1.10: metadata del candidato — usado para detectar qa_cleanup soft memory. */
   metadata?: Record<string, unknown> | null;
+  /**
+   * AGENT1-APOLLO-PREPAID-HISTORICAL-PARITY — el eje FISCAL de la identidad
+   * histórica, leído de las DOS columnas compatibles (`fiscal-identity` § 5).
+   *
+   * Son columnas ya existentes (040 / 045): no hay migración ni backfill. Se
+   * añaden al mismo SELECT que ya se hacía —cero consultas nuevas— para que el
+   * gate PRE-PAGO pueda reconocer una empresa por identidad fiscal y no sólo por
+   * dominio. `evaluateCandidateNovelty` las ignora: su semántica no cambia.
+   */
+  tax_id?: string | null;
+  tax_identifier?: string | null;
+  country_code?: string | null;
 };
 
 // ─── NoveltyIndex ─────────────────────────────────────────────────────────────
@@ -173,7 +185,7 @@ export async function buildNoveltyIndex(
   let query = (supabase as ReturnType<typeof import('@supabase/supabase-js').createClient>)
     .from('prospect_candidates')
     .select(
-      'id, batch_id, name, domain, website, status, duplicate_status, reviewed_at, updated_at, created_at, metadata',
+      'id, batch_id, name, domain, website, status, duplicate_status, reviewed_at, updated_at, created_at, metadata, tax_id, tax_identifier, country_code',
     )
     .in('domain', normalizedDomains);
 

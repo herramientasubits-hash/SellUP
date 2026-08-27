@@ -42,51 +42,47 @@ function makeMemoryWithDomains(domains: string[]) {
 
 // ─── Fake Supabase client ─────────────────────────────────────────────────────
 
-type FakeBatch = { id: string };
-type FakeCandidate = { domain: string | null };
+/**
+ * AGENT1-APOLLO-PREPAID-HISTORICAL-PARITY § 2 — el contrato de consulta cambió y
+ * este doble lo refleja: UNA sola lectura de `prospect_candidates`, sin paso
+ * previo por `prospect_batches` y por tanto sin filtro de `source`.
+ *
+ * El doble FALLA si alguien vuelve a consultar `prospect_batches`: es la forma de
+ * que la restricción por `source='agent_1'` no pueda reaparecer en silencio.
+ */
+type FakeCandidate = {
+  batch_id?: string | null;
+  domain: string | null;
+  name?: string | null;
+  status?: string | null;
+  source_primary?: string | null;
+  review_notes?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
 
 function makeFakeClient(opts: {
-  batchError?: boolean;
-  batches?: FakeBatch[];
   candidateError?: boolean;
   candidates?: FakeCandidate[];
+  onBatchQuery?: () => void;
 }) {
-  const {
-    batchError = false,
-    batches = [],
-    candidateError = false,
-    candidates = [],
-  } = opts;
+  const { candidateError = false, candidates = [], onBatchQuery } = opts;
 
   return {
     from(table: string) {
       if (table === 'prospect_batches') {
-        return {
-          select: () => ({
-            eq: () => ({
-              gte: () =>
-                Promise.resolve({
-                  data: batchError ? null : batches,
-                  error: batchError ? { message: 'db error' } : null,
-                }),
-            }),
-          }),
-        };
+        onBatchQuery?.();
+        throw new Error(
+          'REGRESIÓN: la memoria negativa volvió a consultar prospect_batches (ámbito por source)',
+        );
       }
       if (table === 'prospect_candidates') {
-        // Soporta tanto `await .in()` (nuevo flujo sin .not()) como
-        // `await .in().not()` (flujo legacy) devolviendo un thenable
-        // que además tiene el método .not() encadenado.
         const resolved = {
           data: candidateError ? null : candidates,
           error: candidateError ? { message: 'db error' } : null,
         };
-        const thenableIn = Object.assign(Promise.resolve(resolved), {
-          not: () => Promise.resolve(resolved),
-        });
         return {
           select: () => ({
-            in: () => thenableIn,
+            gte: () => Promise.resolve(resolved),
           }),
         };
       }
@@ -163,36 +159,26 @@ describe('countDomainsInNegativeMemory', () => {
 });
 
 describe('loadDiscoveryNegativeMemory', () => {
-  it('returns empty memory when batch query errors', async () => {
-    const client = makeFakeClient({ batchError: true });
+  it('returns empty memory when the candidate query errors', async () => {
+    const client = makeFakeClient({ candidateError: true });
     const result = await loadDiscoveryNegativeMemory(client as never, SCOPE);
     assert.equal(result.excludedDomains.size, 0);
     assert.equal(result.previousBatchCount, 0);
   });
 
-  it('returns empty memory when no batches found', async () => {
-    const client = makeFakeClient({ batches: [] });
-    const result = await loadDiscoveryNegativeMemory(client as never, SCOPE);
-    assert.equal(result.excludedDomains.size, 0);
-  });
-
-  it('returns empty memory when candidate query errors', async () => {
-    const client = makeFakeClient({
-      batches: [{ id: 'batch-1' }],
-      candidateError: true,
-    });
+  it('returns empty memory when no candidates exist in the window', async () => {
+    const client = makeFakeClient({ candidates: [] });
     const result = await loadDiscoveryNegativeMemory(client as never, SCOPE);
     assert.equal(result.excludedDomains.size, 0);
   });
 
   it('loads and normalizes domains from candidates', async () => {
     const client = makeFakeClient({
-      batches: [{ id: 'batch-1' }, { id: 'batch-2' }],
       candidates: [
-        { domain: 'acme.com' },
-        { domain: 'https://beta.io' },
-        { domain: null },
-        { domain: 'acme.com' }, // duplicate
+        { batch_id: 'batch-1', domain: 'acme.com', status: 'needs_review' },
+        { batch_id: 'batch-2', domain: 'https://beta.io', status: 'approved' },
+        { batch_id: 'batch-2', domain: null, status: 'needs_review' },
+        { batch_id: 'batch-1', domain: 'acme.com', status: 'needs_review' },
       ],
     });
     const result = await loadDiscoveryNegativeMemory(client as never, SCOPE);
@@ -200,18 +186,97 @@ describe('loadDiscoveryNegativeMemory', () => {
     assert.equal(result.excludedDomains.has('beta.io'), true);
     assert.equal(result.previousBatchCount, 2);
     assert.equal(result.previousCandidateCount, 4);
-    // deduplicated: acme.com appears once
     assert.equal(result.excludedDomains.size, 2);
   });
 
   it('sample is capped at 20 domains', async () => {
-    const manyDomains = Array.from({ length: 30 }, (_, i) => ({ domain: `company${i}.com` }));
-    const client = makeFakeClient({
-      batches: [{ id: 'batch-1' }],
-      candidates: manyDomains,
-    });
+    const manyDomains = Array.from({ length: 30 }, (_, i) => ({
+      batch_id: 'batch-1',
+      domain: `company${i}.com`,
+      status: 'needs_review',
+    }));
+    const client = makeFakeClient({ candidates: manyDomains });
     const result = await loadDiscoveryNegativeMemory(client as never, SCOPE);
     assert.equal(result.excludedDomainsSample.length, 20);
     assert.equal(result.excludedDomains.size, 30);
+  });
+
+  // ── § 2 / § 3 · el ámbito histórico ya NO depende de prospect_batches.source ──
+
+  it('§ 2 — una entrega de una fuente NO-agent_1 entra en la memoria histórica', async () => {
+    // La fila viene de un lote `socrata_colombia`. Antes de este corte era
+    // INVISIBLE, porque el paso 1 filtraba `prospect_batches.source='agent_1'`.
+    const client = makeFakeClient({
+      candidates: [
+        {
+          batch_id: 'batch-free-1',
+          domain: 'entregada-gratis.com',
+          name: 'Entregada Gratis SAS',
+          status: 'needs_review',
+          source_primary: 'socrata_colombia',
+        },
+      ],
+    });
+    const result = await loadDiscoveryNegativeMemory(client as never, SCOPE);
+    assert.equal(result.excludedDomains.has('entregada-gratis.com'), true);
+    assert.equal(result.previousBatchCount, 1);
+  });
+
+  it('§ 3 — smoke/QA/limpieza NO congelan el universo; import y unknown SÍ', async () => {
+    const client = makeFakeClient({
+      candidates: [
+        // Excluidas: no son entregas reales.
+        {
+          batch_id: 'b-smoke',
+          domain: 'smoke.com',
+          status: 'needs_review',
+          metadata: { smoke_test: true },
+        },
+        {
+          batch_id: 'b-qa',
+          domain: 'qa.com',
+          status: 'discarded',
+          metadata: { qa_cleanup: true },
+        },
+        {
+          batch_id: 'b-synth',
+          domain: 'fixture.com',
+          status: 'needs_review',
+          metadata: { fixture: true },
+        },
+        // Dentro: están en el universo de SellUp y las autoridades POSTERIORES
+        // al pago ya las tratan como duplicadas.
+        {
+          batch_id: 'b-import',
+          domain: 'importada.com',
+          status: 'needs_review',
+          source_primary: 'external_import',
+        },
+        {
+          batch_id: 'b-prod',
+          domain: 'produccion.com',
+          status: 'approved',
+          source_primary: 'apollo',
+        },
+      ],
+    });
+    const result = await loadDiscoveryNegativeMemory(client as never, SCOPE);
+    assert.equal(result.excludedDomains.has('smoke.com'), false);
+    assert.equal(result.excludedDomains.has('qa.com'), false);
+    assert.equal(result.excludedDomains.has('fixture.com'), false);
+    assert.equal(result.excludedDomains.has('importada.com'), true);
+    assert.equal(result.excludedDomains.has('produccion.com'), true);
+  });
+
+  it('§ 2 — NO consulta prospect_batches (el ámbito por source no puede volver)', async () => {
+    let batchQueried = false;
+    const client = makeFakeClient({
+      candidates: [{ batch_id: 'b1', domain: 'acme.com', status: 'approved' }],
+      onBatchQuery: () => {
+        batchQueried = true;
+      },
+    });
+    await loadDiscoveryNegativeMemory(client as never, SCOPE);
+    assert.equal(batchQueried, false);
   });
 });

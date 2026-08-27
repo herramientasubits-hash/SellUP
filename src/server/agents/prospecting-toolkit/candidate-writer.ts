@@ -44,7 +44,10 @@ import { normalizeProspectCompanyName } from "./company-name-normalizer";
 import { evaluateCountryEvidence } from "./country-evidence-gate";
 import type { CountryEvidenceResult } from "./country-evidence-gate";
 import { computeEvidencePersistencePolicy } from "./evidence-persistence-policy";
-import { checkActiveCandidateDuplicate } from "./active-candidate-identity-guard";
+import {
+  checkActiveCandidateDuplicate,
+  ACTIVE_CANDIDATE_STATUSES,
+} from "./active-candidate-identity-guard";
 // AGENT1-CUT3B23 §§ 5/6/8 — evidencia de identidad COMPARTIDA con las otras dos
 // rutas de escritura de Agente 1, y el registro con ámbito de lote que la compara.
 // Esta ruta dedupeaba por DOMINIO/nombre y la gratuita por identidad FISCAL: sin
@@ -382,10 +385,28 @@ export {
 
 // ─── Active duplicate guard — prefetch helper ─────────────────────────────────
 
-const ACTIVE_STATUSES_FOR_GUARD = [
-  'needs_review', 'approved', 'converted', 'ready_for_review',
-  'draft', 'generating', 'pending', 'active', 'ready', 'in_progress',
-];
+/**
+ * AGENT1-APOLLO-PREPAID-HISTORICAL-PARITY § 5 — el PREFILTRO de base y la guarda
+ * en memoria comparten UN conjunto.
+ *
+ * Antes había dos listas literales, una aquí y otra en
+ * `active-candidate-identity-guard.ts`, y las dos arrastraban el mismo defecto:
+ * `converted` (inexistente en la CHECK) en vez de `converted_to_account`, y ni
+ * `generated` ni `normalized`. Dos listas que deben coincidir siempre son una
+ * sola lista con una copia esperando divergir.
+ */
+const ACTIVE_STATUSES_FOR_GUARD = [...ACTIVE_CANDIDATE_STATUSES];
+
+/**
+ * § 20 — tope del prefetch por país. La consulta no ordena, así que un tope
+ * ALCANZADO significa «esta lista es un subconjunto arbitrario».
+ *
+ * No se convierte en paginación masiva ni se sube el tope: se hace OBSERVABLE
+ * para que nadie pueda apoyar una decisión dura sobre una lista truncada en
+ * silencio. El gate PRE-PAGO de este corte no consume este eje: usa
+ * `buildNoveltyIndex`, acotado por los ≤10 dominios de la corrida y sin tope.
+ */
+const ACTIVE_GUARD_PREFETCH_LIMIT = 500;
 
 /**
  * Estado observable del prefetch del Active Duplicate Guard (Q3F-5AW.2 Phase 1).
@@ -403,6 +424,15 @@ export interface ActiveCandidateGuardPrefetch {
   records: ActiveCandidateRecord[];
   status: ActiveCandidateGuardStatus;
   reason: ActiveCandidateGuardReason;
+  /**
+   * § 20 — alguna de las dos consultas devolvió exactamente el tope y no ordena:
+   * la cobertura es un subconjunto ARBITRARIO. No cambia el comportamiento (el
+   * guard sigue fail-open) y no se usa como autoridad de rechazo pre-pago; existe
+   * para que la truncación no sea silenciosa.
+   */
+  truncated: boolean;
+  /** Qué eje se truncó, cuando aplica. */
+  truncatedAxes: readonly ('domain' | 'country')[];
 }
 
 /**
@@ -427,6 +457,7 @@ export async function fetchActiveCandidatesForGuard(
     const result: ActiveCandidateRecord[] = [];
     const seenIds = new Set<string>();
     let sawQueryError = false;
+    const truncatedAxes: ('domain' | 'country')[] = [];
 
     function mapRow(row: Record<string, unknown>): ActiveCandidateRecord {
       const meta = (row['metadata'] ?? {}) as Record<string, unknown>;
@@ -448,9 +479,12 @@ export async function fetchActiveCandidatesForGuard(
         .select('id, name, domain, normalized_name, metadata, status')
         .in('status', ACTIVE_STATUSES_FOR_GUARD)
         .in('domain', batchDomains)
-        .limit(500);
+        .limit(ACTIVE_GUARD_PREFETCH_LIMIT);
 
       if (byDomainError) sawQueryError = true;
+      if (Array.isArray(byDomain) && byDomain.length >= ACTIVE_GUARD_PREFETCH_LIMIT) {
+        truncatedAxes.push('domain');
+      }
       if (Array.isArray(byDomain)) {
         for (const row of byDomain as Record<string, unknown>[]) {
           const rec = mapRow(row);
@@ -469,9 +503,12 @@ export async function fetchActiveCandidatesForGuard(
         .select('id, name, domain, normalized_name, metadata, status')
         .in('status', ACTIVE_STATUSES_FOR_GUARD)
         .eq('country_code', countryCode)
-        .limit(500);
+        .limit(ACTIVE_GUARD_PREFETCH_LIMIT);
 
       if (byCountryError) sawQueryError = true;
+      if (Array.isArray(byCountry) && byCountry.length >= ACTIVE_GUARD_PREFETCH_LIMIT) {
+        truncatedAxes.push('country');
+      }
       if (Array.isArray(byCountry)) {
         for (const row of byCountry as Record<string, unknown>[]) {
           const rec = mapRow(row);
@@ -483,13 +520,23 @@ export async function fetchActiveCandidatesForGuard(
       }
     }
 
+    const truncation = {
+      truncated: truncatedAxes.length > 0,
+      truncatedAxes: [...truncatedAxes] as const,
+    };
     if (sawQueryError) {
-      return { records: result, status: 'degraded', reason: 'query_error' };
+      return { records: result, status: 'degraded', reason: 'query_error', ...truncation };
     }
-    return { records: result, status: 'ok', reason: null };
+    return { records: result, status: 'ok', reason: null, ...truncation };
   } catch {
     // Non-critical: guard degrades gracefully (fail-open) if prefetch throws.
-    return { records: [], status: 'degraded', reason: 'prefetch_failed' };
+    return {
+      records: [],
+      status: 'degraded',
+      reason: 'prefetch_failed',
+      truncated: false,
+      truncatedAxes: [],
+    };
   }
 }
 
