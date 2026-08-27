@@ -50,7 +50,12 @@ const INPUT: LushaPreviewInput = {
   searchText: null,
 };
 
-const ACTOR = { internalUserId: 'user-1' };
+const ACTOR = {
+  internalUserId: 'user-1',
+  // AGENT1-LOCAL-CUT9A §§ 3, 8 — identidad de EJECUCIÓN + objetivo PEDIDO.
+  clientRequestId: '11111111-1111-4111-8111-111111111111',
+  requestedTarget: 5,
+};
 const OBSERVED_AT = '2026-08-20T10:00:00.000Z';
 
 function company(overrides: Partial<LushaPreviewCompany> = {}): LushaPreviewCompany {
@@ -173,9 +178,9 @@ function makeHarness(
         calls.push({ page: input.page, mainIndustryId: branch?.mainIndustryId ?? null });
         return script[calls.length - 1] ?? successResult([]);
       },
-      insertBatch: async (row) => {
+      reserveBatch: async (row: LushaPendingReviewBatchRow) => {
         batches.push(row);
-        return { id: `batch-${batches.length}` };
+        return { id: `batch-${batches.length}`, adopted: false, identityEpoch: 0 };
       },
       // CUT-3B4-CORRECCIÓN — la valla es OBLIGATORIA; esta prueba modela la 126
       // SIN aplicar por la ÚNICA puerta legítima: la respuesta de la BASE.

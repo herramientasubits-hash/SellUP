@@ -334,17 +334,47 @@ export async function runPrePaidNoveltyDiscovery(
 
   if (!input.partialGapSupported && context.providerRequired) {
     // La persistencia guardó menos de lo aceptado y el objetivo volvió a abrirse.
-    // La ruta no puede repartirse el objetivo, así que se reporta como no
-    // contribución: el proveedor corre entero y no se descuenta nada.
-    return noContribution(
-      buildPrePaidNoveltyTelemetry(context, gate.exclusionPlan, null),
-      gate.exclusionPlan.sent,
-      {
-        providerSeenMemory: gate.providerSeenMemory,
-        providerSeenLoad: gate.providerSeen,
-        providerExclusionPlan: gate.providerExclusionPlan,
-      },
-    );
+    // La ruta no puede repartirse el objetivo, así que la CONTRIBUCIÓN se
+    // descarta: el proveedor corre entero y no se descuenta nada.
+    //
+    // 🔴 AGENT1-LOCAL-CUT9A § 6 — lo que NO se descarta es la VERDAD DURABLE.
+    //
+    // Hasta este corte esta rama devolvía `persistedCount: 0` y `batchId: null`
+    // sobre filas REALMENTE escritas y un lote REALMENTE creado. Descartar una
+    // contribución es una decisión de ARITMÉTICA —cuánto objetivo queda por
+    // cubrir—; afirmar que no se escribió nada es una MENTIRA sobre la base, y
+    // dejaba huérfanas unas filas que el usuario sí acaba viendo.
+    //
+    // La distinción es exactamente ésa y no se amplía:
+    //
+    //   descartado (sigue igual)  `residualGap` = objetivo entero
+    //                             `acceptedBeforeProvider` = 0
+    //                             `providerRequired` = true
+    //   preservado (lo nuevo)     `persistedCount` = filas escritas
+    //                             `batchId` = el lote canónico
+    //
+    // 🔴 No se borra ninguna fila para hacer coincidir el resultado, y no se crea
+    // un segundo lote: con `resolveBatchId` cableado, el lote que aquí se reporta
+    // es el MISMO que la mitad de pago va a adoptar.
+    //
+    // Sin filas escritas, «cero» era y sigue siendo la verdad.
+    const durableTruth =
+      persistence.writtenCount > 0
+        ? { batchId: persistence.batchId, persistedCount: persistence.writtenCount }
+        : {};
+
+    return {
+      ...noContribution(
+        buildPrePaidNoveltyTelemetry(context, gate.exclusionPlan, null),
+        gate.exclusionPlan.sent,
+        {
+          providerSeenMemory: gate.providerSeenMemory,
+          providerSeenLoad: gate.providerSeen,
+          providerExclusionPlan: gate.providerExclusionPlan,
+        },
+      ),
+      ...durableTruth,
+    };
   }
 
   return {

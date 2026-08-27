@@ -130,18 +130,25 @@ describe('CUT-3B4 §§ 20/21/22 — cobertura de los tres escritores', () => {
     );
   });
 
-  it('🔴 la ruta de LUSHA declara que NO adopta lotes preexistentes', () => {
-    // La razón por la que su escritura en bloque puede prescindir de la
-    // re-evaluación: nadie más conoce ese `batchId`. El día que eso cambie, la
-    // constante tiene que cambiar con ello y esta guarda lo obliga.
+  it('🔴 la ruta de LUSHA adopta, y por eso su época NO puede ser un literal', () => {
+    // ── REANCLADA por AGENT1-LOCAL-CUT9A § 4 ────────────────────────────────
+    //
+    // Esta guarda decía «Lusha NO adopta lotes preexistentes», y dejaba escrito
+    // qué había que hacer el día que eso cambiara: «la constante tiene que cambiar
+    // con ello y esta guarda lo obliga». Ese día es éste, así que la guarda no se
+    // retira — se REAPUNTA a la obligación que aquella dejó pendiente.
+    //
+    // Lo que protegía entonces: que la escritura en bloque pudiera prescindir de
+    // la re-evaluación porque nadie más conocía ese `batchId`.
+    // Lo que protege ahora: que la ADOPCIÓN no escriba contra una época inventada.
+    // Es la MISMA propiedad —la escritura declara contra qué estado decidió— sobre
+    // un mundo en el que el lote sí puede venir de otra mitad de la ejecución.
     const source = read(WRITER_C_CORE);
     assert.ok(
-      source.includes('export const LUSHA_PENDING_REVIEW_BATCH_ADOPTION_SUPPORTED = false;'),
-      'la ruta de Lusha dejó de declarar que no adopta lotes',
+      source.includes('export const LUSHA_PENDING_REVIEW_BATCH_ADOPTION_SUPPORTED = true;'),
+      'la ruta de Lusha dejó de declarar que adopta el lote canónico de su ejecución',
     );
-    // Y el hecho estructural que lo sostiene: el `batchId` sólo puede venir de
-    // `deps.insertBatch`, nunca de la entrada.
-    //
+
     // 🔴 Se mide DENTRO de `persistLushaPendingReviewBatch`, no en el archivo entero:
     // los constructores de resultado vecinos reciben su propio `input` con un
     // `batchId` que ya viene resuelto, y confundirlos con la entrada del escritor
@@ -150,14 +157,39 @@ describe('CUT-3B4 §§ 20/21/22 — cobertura de los tres escritores', () => {
     const persistStart = body.indexOf('export async function persistLushaPendingReviewBatch');
     assert.ok(persistStart > 0, 'no se encontró el escritor de Lusha');
     const persistBody = body.slice(persistStart);
+
+    // 1. El lote nace de una RESERVA, no de un INSERT incondicional.
     assert.ok(
-      persistBody.includes('const { id: batchId } = await deps.insertBatch('),
-      'el lote de Lusha dejó de nacer de `deps.insertBatch`',
+      persistBody.includes('const reservation = await deps.reserveBatch('),
+      'el lote de Lusha dejó de nacer de `deps.reserveBatch` (reserve-or-return)',
     );
+    assert.equal(
+      /deps\.insertBatch\(/.test(persistBody),
+      false,
+      'volvió el INSERT incondicional de lote en la ruta de Lusha',
+    );
+
+    // 2. La entrada del escritor SIGUE sin traer lote: la adopción es del
+    //    resolutor canónico de la ejecución, nunca un `batchId` de parámetro.
     assert.equal(
       /input\.batchId/.test(persistBody),
       false,
-      'la entrada de Lusha empezó a traer un lote: la escritura en bloque ya no puede prescindir de la re-evaluación',
+      'la entrada de Lusha empezó a traer un lote por parámetro',
+    );
+
+    // 3. 🔴 La época viaja desde la RESERVA. Un literal fresco sobre un lote
+    //    adoptado devuelve `stale` y hace LANZAR la corrida entera DESPUÉS de
+    //    haber pagado al proveedor.
+    const fenceCall = persistBody.slice(
+      persistBody.indexOf('await deps.insertCandidatesFenced({'),
+    );
+    assert.ok(
+      /expectedEpoch: reservation\.adopted/.test(fenceCall),
+      'la escritura vallada de Lusha dejó de tomar la época de la reserva',
+    );
+    assert.ok(
+      /reservation\.identityEpoch/.test(fenceCall),
+      'la escritura vallada de Lusha dejó de usar la época REAL del lote adoptado',
     );
   });
 });

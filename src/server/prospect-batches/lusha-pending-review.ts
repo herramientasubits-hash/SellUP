@@ -3,7 +3,7 @@
  *
  * Turns a Lusha company-prospecting result into a pending-review prospect batch
  * plus candidate rows. This module is PURE + fully dependency-injected: it does
- * NO I/O of its own. Every write flows through the injected `insertBatch` /
+ * NO I/O of its own. Every write flows through the injected `reserveBatch` /
  * `insertCandidates` deps, so it is STRUCTURALLY impossible for it to touch
  * accounts, HubSpot, enrichment, `provider_usage_logs` or `agent_runs` — those
  * write dependencies simply do not exist here.
@@ -51,6 +51,7 @@ import {
 // AGENT1-CUT3B4 § 22 — sólo el TIPO del desenlace vallado. Este núcleo sigue sin
 // tener I/O propio: la RPC la ejecuta la dependencia inyectada.
 import type { FencedCandidateInsertResult } from './batch-identity-fence';
+import type { LushaCanonicalBatchReservation } from './lusha-canonical-batch';
 import { isLinkedInCompanyUrl } from '@/modules/prospect-batches/candidate-linkedin-url';
 import {
   checkActiveCandidateDuplicate,
@@ -356,7 +357,25 @@ export interface LushaPendingReviewBatchRow {
   country: string | null;
   country_code: string | null;
   industry: string | null;
+  /**
+   * 🔴 AGENT1-LOCAL-CUT9A § 8 — el objetivo PEDIDO, no lo persistido.
+   *
+   * Hasta este corte aquí aterrizaba `persistedCount`, así que con 5 pedidos y 3
+   * escritos el lote afirmaba que se pidieron 3: un CONTRIBUYENTE redefiniendo la
+   * PETICIÓN. Ahora lo establece el primer propietario del lote —el resolutor
+   * canónico— y ningún contribuyente posterior lo toca. Misma regla que CUT-2 fijó
+   * para el wizard.
+   */
   target_count: number | null;
+  /**
+   * 🔴 AGENT1-LOCAL-CUT9A §§ 2, 3 — identidad de EJECUCIÓN.
+   *
+   * Es la mitad de la clave única `(created_by, client_request_id)` que ya existe
+   * en `prospect_batches`, y es lo que hace que la mitad gratuita y la de pago de
+   * UNA misma búsqueda no puedan terminar en dos lotes. No es una identidad nueva:
+   * la columna y su índice existen desde antes de este corte.
+   */
+  client_request_id: string;
   search_depth: 'standard';
   status: typeof LUSHA_PENDING_REVIEW_BATCH_STATUS;
   source: typeof LUSHA_PENDING_REVIEW_BATCH_SOURCE;
@@ -419,6 +438,21 @@ export interface LushaPendingReviewCandidateRow {
 
 export interface PersistLushaPendingReviewActor {
   internalUserId: string;
+  /**
+   * AGENT1-LOCAL-CUT9A §§ 2, 3 — identidad de EJECUCIÓN de esta corrida.
+   *
+   * OBLIGATORIA a propósito. Opcional, un llamador podía omitirla y la fila nacía
+   * sin la mitad de su clave canónica: el lote quedaba fuera del índice único y la
+   * mitad gratuita no tenía nada que adoptar.
+   */
+  clientRequestId: string;
+  /**
+   * § 8 — el objetivo PEDIDO por la persona, que es lo que `target_count` publica.
+   *
+   * OBLIGATORIA por la misma razón: sin ella el único número a mano para
+   * `target_count` volvía a ser un residual.
+   */
+  requestedTarget: number;
 }
 
 /** Runs Lusha once. Backed by the read-only `executeLushaPreview` core so the
@@ -450,20 +484,56 @@ export type FetchActiveCandidatesForLushaGuard = (
 export const LUSHA_FRESH_BATCH_IDENTITY_EPOCH = 0;
 
 /**
- * AGENT1-CUT3B4 § 22 — esta ruta NO adopta lotes preexistentes.
+ * AGENT1-LOCAL-CUT9A § 4 — esta ruta SÍ adopta el lote canónico de su ejecución.
  *
- * Es un hecho estructural de hoy, no una preferencia: `batchId` sólo puede venir de
- * `deps.insertBatch`, y ninguna entrada trae un identificador de lote. La guarda
- * estática de este corte lo comprueba. Si algún día se pone en `true`, la escritura
- * en bloque tiene que pasar por `runFencedPersistence` con re-evaluación, porque
- * `stale` dejará de ser inalcanzable.
+ * 🔴 Era `false`, y CUT-3B4 § 22 dejó dicho por qué importaba el día en que
+ * cambiara: «si algún día se pone en `true`, la escritura en bloque tiene que pasar
+ * por `runFencedPersistence` con re-evaluación, porque `stale` dejará de ser
+ * inalcanzable». Ese día es éste, y la advertencia se atiende, no se sortea:
+ *
+ *   · La época YA NO es el literal 0. `deps.reserveBatch` devuelve la época REAL
+ *     del lote —fresca cuando lo creó esta llamada, la que la capa gratuita dejó
+ *     cuando lo adopta— y es ésa la que viaja como `expectedEpoch`. Sin esto, la
+ *     adopción convertía un `stale` inalcanzable en un fallo duro de la corrida
+ *     ENTERA: la capa gratuita avanza la época al escribir sus filas.
+ *   · `stale` sigue siendo inalcanzable en la práctica, y ahora por una razón
+ *     distinta y verificable: dentro de UNA ejecución la mitad gratuita termina
+ *     ANTES de que la de pago empiece —corre por encima de la reserva económica—,
+ *     así que nadie escribe en este lote entre la lectura de la época y el INSERT.
+ *     Si aun así llegara, se LANZA. No hay caída a una escritura sin valla.
+ *
+ * 🔴 Lo que este corte NO hace, y hay que decirlo: la admisión por identidad de
+ * lote (`admitByBatchIdentity`) sigue sembrándose VACÍA. Con adopción eso significa
+ * que una empresa que la capa gratuita ya escribió en este lote no la retira el
+ * registro de lote. Quien la retiene sigue siendo la paridad de duplicados
+ * CRUZADA —`checkCompanyDuplicate` y el prefetch de candidatos activos—, que es
+ * exactamente la misma protección que había cuando las dos mitades escribían en
+ * lotes distintos: este corte no la debilita, pero tampoco la sustituye. Sembrar
+ * el registro exige resolver el lote ANTES de la admisión y pertenece a CUT-9.
  */
-export const LUSHA_PENDING_REVIEW_BATCH_ADOPTION_SUPPORTED = false;
+export const LUSHA_PENDING_REVIEW_BATCH_ADOPTION_SUPPORTED = true;
 
 export interface PersistLushaPendingReviewDeps {
   runSearch: RunLushaSearch;
   // ── Write deps (the ONLY two write surfaces) ──
-  insertBatch: (row: LushaPendingReviewBatchRow) => Promise<{ id: string }>;
+  /**
+   * AGENT1-LOCAL-CUT9A § 4 — RESERVE-OR-RETURN, ya no INSERT incondicional.
+   *
+   * 🔴 El nombre cambió con la semántica, y ése es el punto: mientras se llamó
+   * `insertBatch` y devolvió `{ id }`, el núcleo no tenía forma de saber si la fila
+   * era suya o adoptada, y la escritura vallada sólo podía suponer época 0.
+   *
+   * El contrato que el llamador debe cumplir:
+   *
+   *   INSERT con `(created_by, client_request_id)` → `{ adopted: false, epoch fresca }`
+   *   23505 sobre esa clave → RELEE ESA fila → `{ adopted: true, época real }`
+   *
+   * 🔴 Nunca «el último lote», nunca por nombre/país/sector: la única autoridad de
+   * adopción es la clave canónica.
+   */
+  reserveBatch: (
+    row: LushaPendingReviewBatchRow,
+  ) => Promise<LushaCanonicalBatchReservation>;
   /**
    * AGENT1-CUT3B4 § 22 — escritura de candidatos ANTERIOR a B4.
    *
@@ -1155,11 +1225,19 @@ export interface LushaPendingReviewBatchMetrics {
 }
 
 /** Build the batch insert row (deterministic — no clocks, no randomness). */
+/**
+ * 🔴 AGENT1-LOCAL-CUT9A § 8 — el parámetro `persistedCount` SE ELIMINÓ.
+ *
+ * No se dejó de usar: dejó de existir. Era la única cifra a mano que podía
+ * aterrizar en `target_count`, y mientras estuviera en el ámbito bastaba un
+ * despiste para que un contribuyente volviera a redefinir la petición. Ahora el
+ * objetivo pedido sólo puede venir de `actor.requestedTarget`, que lo fija el
+ * propietario del lote antes de que corra nada.
+ */
 export function buildLushaPendingReviewBatchRow(
   input: LushaPreviewInput,
   actor: PersistLushaPendingReviewActor,
   search: LushaPreviewResult,
-  persistedCount: number,
   metrics: LushaPendingReviewBatchMetrics,
 ): LushaPendingReviewBatchRow {
   const rs = search.requestSummary;
@@ -1173,7 +1251,10 @@ export function buildLushaPendingReviewBatchRow(
     country: rs.country ?? null,
     country_code: input.countryCode ?? null,
     industry: rs.sector ?? null,
-    target_count: persistedCount,
+    // § 8 — la PETICIÓN, no el residual. Ver la cabecera del campo en la fila.
+    // § 8 — la PETICIÓN, no el residual. Ver la cabecera del campo en la fila.
+    target_count: actor.requestedTarget,
+    client_request_id: actor.clientRequestId,
     search_depth: 'standard',
     status: LUSHA_PENDING_REVIEW_BATCH_STATUS,
     source: LUSHA_PENDING_REVIEW_BATCH_SOURCE,
@@ -2217,13 +2298,22 @@ export async function persistLushaPendingReviewBatch(
   // después habría dejado a `persistedCount` afirmando un número que la inserción
   // no iba a producir.
   //
-  // Siembra VACÍA, y es un hecho, no una omisión: el lote lo crea
-  // `deps.insertBatch` unas líneas más abajo, en esta misma llamada, así que no
-  // existe ninguna fila persistida que sembrar. La superficie de escritura de
-  // este módulo sigue siendo exactamente la misma (dos deps): no se le añade un
-  // cliente de base de datos para leer un conjunto que se sabe vacío. Cuando el
-  // flujo mixto adopte aquí un lote PREEXISTENTE, éste es el punto donde habrá
-  // que inyectar la siembra.
+  // 🔴 Siembra VACÍA — y desde AGENT1-LOCAL-CUT9A § 4 eso ya NO es un hecho
+  // estructural, sino una LIMITACIÓN DECLARADA.
+  //
+  // Era cierto mientras el lote sólo podía nacer en esta misma llamada. Con
+  // adopción, la mitad gratuita puede haber escrito ya en él, así que una empresa
+  // suya NO la retira este registro. Lo que la retiene sigue siendo la paridad de
+  // duplicados CRUZADA —`checkCompanyDuplicate` y el prefetch de candidatos
+  // activos, que ya ven esas filas porque se escribieron antes en ESTA misma
+  // ejecución—, exactamente la misma protección que había cuando las dos mitades
+  // escribían en lotes distintos. Este corte no la debilita; tampoco la sustituye.
+  //
+  // Sembrarlo de verdad exige resolver el lote ANTES de la admisión —hoy la
+  // admisión corre primero porque de ella salen los conteos que la fila publica— y
+  // añadir a este módulo un lector de registro que hoy no tiene. Pertenece a
+  // CUT-9, no aquí: mezclarlo habría movido la aceptación de pago, que § 9 de este
+  // corte prohíbe explícitamente tocar.
   //
   // 🔴 NO sustituye a `lusha-run-identity-registry`: aquél dedupea la CORRIDA del
   // proveedor (todas las páginas de todas las ramas) ANTES de pagar y es
@@ -2432,7 +2522,6 @@ export async function persistLushaPendingReviewBatch(
     input,
     actor,
     firstSearch as LushaPreviewResult,
-    useful.length,
     {
       pagesRequested,
       creditsChargedTotal,
@@ -2488,7 +2577,11 @@ export async function persistLushaPendingReviewBatch(
         ),
       }
     : batchRow;
-  const { id: batchId } = await deps.insertBatch(batchRowWithRouting);
+  // AGENT1-LOCAL-CUT9A § 4 — reserve-or-return. `batchId` puede ser una fila que
+  // esta llamada acaba de crear o el lote canónico que la mitad gratuita ya
+  // materializó para ESTA misma ejecución; en los dos casos es el único lote.
+  const reservation = await deps.reserveBatch(batchRowWithRouting);
+  const batchId = reservation.id;
 
   const candidateRows = buildLushaPendingReviewCandidateRows(batchId, useful);
   // Q3F-5BB.11D — additively stamp `provider_trace` on each candidate and keep
@@ -2539,7 +2632,16 @@ export async function persistLushaPendingReviewBatch(
 
   const fenced = await deps.insertCandidatesFenced({
     batchId,
-    expectedEpoch: LUSHA_FRESH_BATCH_IDENTITY_EPOCH,
+    // 🔴 AGENT1-LOCAL-CUT9A § 4 — la época REAL, no el literal fresco.
+    //
+    // Con adopción, `LUSHA_FRESH_BATCH_IDENTITY_EPOCH` deja de ser cierto: la capa
+    // gratuita escribió antes en este mismo lote y avanzó la época. Mandar 0 sobre
+    // un lote adoptado devolvía `stale` y hacía LANZAR la corrida entera —tras
+    // haber pagado al proveedor—. Un lote recién creado sigue llegando aquí con la
+    // época fresca, así que la ruta no adoptada es byte por byte la de antes.
+    expectedEpoch: reservation.adopted
+      ? reservation.identityEpoch
+      : LUSHA_FRESH_BATCH_IDENTITY_EPOCH,
     rows: candidateRowsWithRouting,
   });
 

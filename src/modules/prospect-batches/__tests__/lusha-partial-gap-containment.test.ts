@@ -305,17 +305,48 @@ describe('§ 7 · con aporte gratuito PARCIAL no hay lote gratuito separado', ()
     assert.equal(outcome.batchId, null);
   });
 
-  it('🔴 persistencia PARCIAL de un aporte que cerraba el objetivo también se descarta', async () => {
+  it('🔴 persistencia PARCIAL: la CONTRIBUCIÓN se descarta, la VERDAD DURABLE no', async () => {
     // El caso del segundo `if` del runner: la fuente aceptó 5 pero sólo se
     // guardaron 3, así que el objetivo se reabre. Sin hueco parcial, eso es una
     // no-contribución entera, no un lote a medias.
+    //
+    // ── REANCLADA por AGENT1-LOCAL-CUT9A § 6 ────────────────────────────────
+    //
+    // 🔴 Esta prueba afirmaba TAMBIÉN `batchId: null` y `persistedCount: 0`, y eso
+    // no era contención: era el defecto. Las 3 filas se escribieron de verdad y el
+    // lote existe de verdad; devolver ceros dejaba unas filas huérfanas que el
+    // usuario sí acaba viendo en la cola, y una corrida afirmando que no escribió
+    // nada. La guarda estaba defendiendo la mentira, no la política.
+    //
+    // Lo que esta prueba protege sigue siendo la CONTENCIÓN, y se protege ENTERA:
+    // el aporte no recorta el objetivo, el proveedor corre completo y nada se
+    // descuenta. Lo que deja de exigir es que se mienta sobre lo ya persistido.
     const free = freeLayer({ acceptedNovel: TARGET, persistedCount: 3 });
 
     const outcome = await runLive(free.deps);
 
     assert.equal(free.persistCalls, 1, 'intentó escribir porque el gate cerraba el objetivo');
-    assert.equal(outcome.batchId, null, '🔴 pero el lote NO se reporta como resultado');
+
+    // ── CONTENCIÓN (sin cambios) — el hueco parcial NO está activado ──
+    assert.equal(outcome.residualGap, TARGET, 'el aporte parcial recortó el objetivo');
+    assert.equal(outcome.acceptedBeforeProvider, 0, 'el aporte parcial se acreditó');
+    assert.equal(outcome.providerRequired, true);
+
+    // ── VERDAD DURABLE (CUT9A § 6) — lo escrito se dice ──
+    assert.equal(outcome.persistedCount, 3, '🔴 se falsearon a 0 unas filas reales');
+    assert.equal(outcome.batchId, FREE_BATCH_ID, '🔴 un lote REAL se reportó como nulo');
+  });
+
+  it('🔴 CUT9A § 6 — sin filas escritas, «cero» sigue siendo la verdad', async () => {
+    // El contraste que impide leer lo anterior como «siempre reporta lote»: cuando
+    // la escritura no dejó NADA, cero y lote nulo son exactos, y siguen siéndolo.
+    const free = freeLayer({ acceptedNovel: TARGET, persistedCount: 0 });
+
+    const outcome = await runLive(free.deps);
+
+    assert.equal(free.persistCalls, 1);
     assert.equal(outcome.persistedCount, 0);
+    assert.equal(outcome.batchId, null);
     assert.equal(outcome.residualGap, TARGET);
     assert.equal(outcome.acceptedBeforeProvider, 0);
   });

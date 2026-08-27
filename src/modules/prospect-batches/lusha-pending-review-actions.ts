@@ -54,6 +54,12 @@ import {
 // AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 12/15/25 — la capa GRATUITA,
 // idéntica para Apollo y para Lusha, que corre ANTES de que exista una reserva.
 import { runPrePaidNoveltyDiscovery } from '@/server/prospect-batches/country-source-discovery/run-prepaid-novelty-discovery.server';
+import {
+  createCanonicalLushaBatchResolver,
+  reserveOrReturnLushaCanonicalBatch,
+  type CanonicalLushaBatchResolver,
+  type LushaCanonicalBatchDbClient,
+} from '@/server/prospect-batches/lusha-canonical-batch';
 import { resolveProviderSeenStore } from '@/server/prospect-batches/provider-seen/provider-seen-store';
 import {
   LUSHA_PENDING_REVIEW_MIN_USEFUL_CANDIDATES,
@@ -66,6 +72,8 @@ import {
   persistLushaPendingReviewBatch,
   buildLushaPendingReviewFailure,
   buildLushaProviderNotRequiredResult,
+  LUSHA_PENDING_REVIEW_BATCH_SOURCE,
+  LUSHA_PENDING_REVIEW_BATCH_STATUS,
   type LushaPendingReviewBatchRow,
   type LushaPendingReviewCandidateRow,
   type PersistLushaPendingReviewResult,
@@ -316,6 +324,43 @@ async function runGenerateLushaPendingReviewBatch(
   //
   // 🔴 El valor vivo se decide en UN sitio y aquí sólo se consume. Escribir el
   // literal de vuelta pone en rojo el ratchet de cableado.
+  // ── AGENT1-LOCAL-CUT9A §§ 2, 5 — UN dueño canónico por EJECUCIÓN ──────────
+  //
+  // Se construye ANTES de que corra nada —gratuito o de pago— y las dos mitades
+  // preguntan a ESTA instancia. Ese es el corte entero: hasta aquí la mitad
+  // gratuita creaba su lote y la de pago el suyo, sin ninguna autoridad común, y
+  // una sola búsqueda podía terminar en dos.
+  //
+  // 🔴 PEREZOSO: construirlo no escribe nada. La fila nace en la primera llamada a
+  // `resolve()`, así que una corrida que la puerta gratuita descarta sin escribir
+  // —o que el presupuesto bloquea más abajo— sigue sin dejar lote, exactamente
+  // como antes del corte.
+  //
+  // 🔴 La identidad es la que YA existe, `(created_by, client_request_id)`. No se
+  // inventa ninguna: ni `batchExecutionId`, ni `retryGroupId`, ni equivalente.
+  const canonicalBatchClient = (await createClient()) as unknown as LushaCanonicalBatchDbClient;
+  const canonicalBatch = createCanonicalLushaBatchResolver(
+    (row) => reserveOrReturnLushaCanonicalBatch(row, canonicalBatchClient),
+    {
+      createdByUserId: internalUserId,
+      clientRequestId,
+      // § 8 — AUTORIDAD DE PETICIÓN. Es el objetivo que el producto le promete a la
+      // persona, y lo establece el PROPIETARIO del lote, no el primer contribuyente
+      // que llegue con un residual.
+      requestedTarget,
+      defaults: {
+        name: `Búsqueda con IA · ${parsed.data.macroIndustryKey ?? '—'} · ${countryName}`,
+        country: countryName,
+        country_code: parsed.data.countryCode,
+        industry: parsed.data.macroIndustryKey,
+        search_depth: 'standard',
+        status: LUSHA_PENDING_REVIEW_BATCH_STATUS,
+        source: LUSHA_PENDING_REVIEW_BATCH_SOURCE,
+        metadata: {},
+      },
+    },
+  );
+
   const prePaid = await runPrePaidNoveltyDiscovery(await createClient(), {
     countryCode: parsed.data.countryCode,
     countryName,
@@ -327,6 +372,12 @@ async function runGenerateLushaPendingReviewBatch(
     // el contrato verificado de Lusha V3 soporta; los ids quedan congelados hasta
     // la confirmación escrita del soporte humano.
     provider: 'lusha',
+    // 🔴 CUT9A § 5 — la MISMA autoridad que usará la mitad de pago. El runner lo
+    // invoca SÓLO cuando de verdad tiene empresas que escribir, y envuelto en su
+    // `.catch(() => null)`: la capa gratuita falla ABIERTO y este cableado no le
+    // quita esa propiedad. Si el lote canónico no se pudiera resolver, el writer
+    // genérico crearía el suyo, que es el comportamiento previo al corte.
+    resolveBatchId: async () => (await canonicalBatch.resolve()).id,
   });
 
   // § 15 — hueco cerrado gratis ⇒ ni estimación, ni reserva, ni credencial, ni
@@ -378,6 +429,9 @@ async function runGenerateLushaPendingReviewBatch(
       runLushaSearchWithReservation({
         searchInput,
         internalUserId,
+        clientRequestId,
+        requestedTarget,
+        canonicalBatch,
         reservation,
         routingMetadata,
         routingPlan,
@@ -467,6 +521,18 @@ async function reserveLushaRunCredits(input: {
 async function runLushaSearchWithReservation(args: {
   searchInput: Omit<GenerateLushaPendingReviewBatchInput, 'clientRequestId'>;
   internalUserId: string;
+  /** AGENT1-LOCAL-CUT9A § 3 — identidad de EJECUCIÓN, la que va a la fila del lote. */
+  clientRequestId: string;
+  /** § 8 — el objetivo PEDIDO, la autoridad que `target_count` publica. */
+  requestedTarget: number;
+  /**
+   * § 5 — el MISMO resolutor que la mitad gratuita ya consultó.
+   *
+   * 🔴 Es la instancia, no una copia ni una fábrica: si esta mitad construyera la
+   * suya, las dos mitades volverían a poder materializar lotes distintos y el
+   * corte no habría cerrado nada.
+   */
+  canonicalBatch: CanonicalLushaBatchResolver;
   reservation: LushaBudgetReservation;
   routingMetadata: ReturnType<typeof buildProviderRoutingMetadata>;
   routingPlan: ReturnType<typeof resolveProviderRoutingPlan>;
@@ -489,6 +555,9 @@ async function runLushaSearchWithReservation(args: {
   const {
     searchInput,
     internalUserId,
+    clientRequestId,
+    requestedTarget,
+    canonicalBatch,
     reservation,
     routingMetadata,
     routingPlan,
@@ -735,17 +804,38 @@ async function runLushaSearchWithReservation(args: {
             },
           ),
         // Write dep #1 — prospect_batches ONLY.
-        insertBatch: async (row: LushaPendingReviewBatchRow) => {
-          const { data, error } = await supabase
-            .from('prospect_batches')
-            .insert(row)
-            .select('id')
-            .single();
-          if (error || !data) {
-            throw new Error(`No se pudo crear el lote: ${error?.message ?? 'sin datos'}`);
-          }
-          return { id: data.id as string };
-        },
+        //
+        // ── AGENT1-LOCAL-CUT9A § 4 — RESERVE-OR-RETURN, no INSERT incondicional ──
+        //
+        // 🔴 Ya NO escribe directamente. Delega en el resolutor canónico de la
+        // ejecución, que es el MISMO que la mitad gratuita consultó unas líneas más
+        // arriba. Con eso:
+        //
+        //   · si la mitad gratuita ya materializó el lote, esta llamada lo ADOPTA
+        //     (memoizado, sin tocar la base) y devuelve su época REAL;
+        //   · si nadie lo materializó, esta llamada lo crea con la fila RICA que el
+        //     núcleo acaba de construir —metadata de facturación, telemetría de
+        //     ramas, enrutado observacional— y la identidad canónica estampada
+        //     encima;
+        //   · si otra materialización de la MISMA ejecución ganó la carrera, la
+        //     base devuelve 23505 sobre `(created_by, client_request_id)` y se
+        //     relee ESA fila. Nunca «el último lote».
+        //
+        // 🔴 La contribución NO puede redefinir `target_count`, `created_by`,
+        // `owner_id` ni `client_request_id`: el resolutor los estampa. Por eso el
+        // núcleo puede seguir construyendo la fila entera sin poder falsear la
+        // petición.
+        reserveBatch: (row: LushaPendingReviewBatchRow) =>
+          canonicalBatch.resolve({
+            name: row.name,
+            country: row.country,
+            country_code: row.country_code,
+            industry: row.industry,
+            search_depth: row.search_depth,
+            status: row.status,
+            source: row.source,
+            metadata: row.metadata,
+          }),
         // Write dep #2 — prospect_candidates ONLY.
         //
         // 🔴 AGENT1-CUT3B4 § 22 — ruta ANTERIOR a B4. Se conserva porque la
@@ -797,7 +887,12 @@ async function runLushaSearchWithReservation(args: {
         officialSourceResolvers: buildColombiaOfficialSourceResolvers(),
       },
       searchInput,
-      { internalUserId },
+      // AGENT1-LOCAL-CUT9A §§ 3, 8 — el actor lleva ahora la identidad de EJECUCIÓN
+      // y la AUTORIDAD DE PETICIÓN. Las dos son obligatorias: sin la primera la
+      // fila nacería fuera del índice único y no habría nada que adoptar; sin la
+      // segunda el único número a mano para `target_count` volvería a ser un
+      // residual.
+      { internalUserId, clientRequestId, requestedTarget },
       // Q3F-5BB.11D — additive OBSERVATIONAL routing metadata (never gates).
       { routingMetadata, routingPlan },
       // §§ 3/4/8 — ejecución de la corrida.

@@ -325,7 +325,12 @@ const LUSHA_INPUT: LushaPreviewInput = {
   searchText: null,
 };
 
-const LUSHA_ACTOR = { internalUserId: 'user-1' };
+const LUSHA_ACTOR = {
+  internalUserId: 'user-1',
+  // AGENT1-LOCAL-CUT9A §§ 3, 8 — identidad de EJECUCIÓN + objetivo PEDIDO.
+  clientRequestId: '11111111-1111-4111-8111-111111111111',
+  requestedTarget: 5,
+};
 
 /** Resolver oficial inyectado: devuelve SIEMPRE la misma identidad fiscal fuerte. */
 function sameTaxResolver(taxIdentifier: string): OfficialSourceResolver {
@@ -359,9 +364,9 @@ function makeLushaDeps(
   };
   const deps: PersistLushaPendingReviewDeps = {
     runSearch: async (input) => ((input.page ?? 0) > 0 ? lushaSuccess([]) : search),
-    insertBatch: async (row) => {
+    reserveBatch: async (row: LushaPendingReviewBatchRow) => {
       calls.batches.push(row);
-      return { id: `batch-${calls.batches.length}` };
+      return { id: `batch-${calls.batches.length}`, adopted: false, identityEpoch: 0 };
     },
     // CUT-3B4-CORRECCIÓN — la valla es OBLIGATORIA; esta prueba modela la 126
     // SIN aplicar por la ÚNICA puerta legítima: la respuesta de la BASE.
@@ -488,9 +493,9 @@ function makeCountingLushaDeps(
       calls.searches += 1;
       return (input.page ?? 0) > 0 ? lushaSuccess([]) : search;
     },
-    insertBatch: async (row) => {
+    reserveBatch: async (row: LushaPendingReviewBatchRow) => {
       calls.batches.push(row);
-      return { id: `batch-${calls.batches.length}` };
+      return { id: `batch-${calls.batches.length}`, adopted: false, identityEpoch: 0 };
     },
     // CUT-3B4-CORRECCIÓN — la valla es OBLIGATORIA; esta prueba modela la 126
     // SIN aplicar por la ÚNICA puerta legítima: la respuesta de la BASE.

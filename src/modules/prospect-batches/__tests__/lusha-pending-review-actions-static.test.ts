@@ -22,12 +22,26 @@ const ROOT = process.cwd();
 const FILES = {
   action: join(ROOT, 'src/modules/prospect-batches/lusha-pending-review-actions.ts'),
   core: join(ROOT, 'src/server/prospect-batches/lusha-pending-review.ts'),
+  /**
+   * AGENT1-LOCAL-CUT9A § 4 — el reserve-or-return del lote canónico.
+   *
+   * 🔴 Entra en el conjunto MEDIDO, no como archivo nuevo que se documenta: la
+   * escritura de `prospect_batches` salió de la acción y se mudó aquí. Si la
+   * guarda hubiera seguido mirando sólo la acción, habría pasado a verde
+   * afirmando «los writes se limitan a lote + candidatos» justamente porque la
+   * escritura del LOTE ya no estaba a la vista.
+   */
+  canonicalBatch: join(ROOT, 'src/server/prospect-batches/lusha-canonical-batch.ts'),
 };
 
 const src = {
   action: readFileSync(FILES.action, 'utf-8'),
   core: readFileSync(FILES.core, 'utf-8'),
+  canonicalBatch: readFileSync(FILES.canonicalBatch, 'utf-8'),
 };
+
+/** La superficie de persistencia ENTERA de esta ruta. */
+const PERSISTENCE_SURFACE = [src.action, src.core, src.canonicalBatch];
 
 /** Import specifiers only (module paths) — safe to scan for forbidden deps. */
 function importPaths(source: string): string[] {
@@ -41,7 +55,8 @@ function fromTables(source: string): string[] {
 
 describe('Persistence action — DB writes limited to batch + candidates', () => {
   it('the query builder only touches prospect_batches and prospect_candidates', () => {
-    const tables = new Set(fromTables(src.action));
+    // CUT9A — se mide la superficie ENTERA: acción + reserve-or-return canónico.
+    const tables = new Set(PERSISTENCE_SURFACE.flatMap(fromTables));
     for (const table of tables) {
       assert.ok(
         table === 'prospect_batches' || table === 'prospect_candidates',
@@ -50,10 +65,15 @@ describe('Persistence action — DB writes limited to batch + candidates', () =>
     }
     assert.ok(tables.has('prospect_batches'));
     assert.ok(tables.has('prospect_candidates'));
+    // 🔴 Y el lote se escribe DONDE se dice que se escribe.
+    assert.ok(
+      new Set(fromTables(src.canonicalBatch)).has('prospect_batches'),
+      'el reserve-or-return canónico dejó de ser quien escribe el lote',
+    );
   });
 
   it('never queries accounts, the audit table, provider_usage_logs, or agent_runs', () => {
-    for (const s of [src.action, src.core]) {
+    for (const s of PERSISTENCE_SURFACE) {
       const tables = new Set(fromTables(s));
       assert.ok(!tables.has('accounts'));
       assert.ok(!tables.has('prospect_candidate_audit'));
@@ -63,7 +83,7 @@ describe('Persistence action — DB writes limited to batch + candidates', () =>
   });
 
   it('imports no HubSpot / enrichment / Apollo / Tavily / people-search modules', () => {
-    for (const s of [src.action, src.core]) {
+    for (const s of PERSISTENCE_SURFACE) {
       for (const path of importPaths(s)) {
         assert.doesNotMatch(path, /hubspot/i, `forbidden import: ${path}`);
         assert.doesNotMatch(path, /enrich/i, `forbidden import: ${path}`);
@@ -98,8 +118,16 @@ describe('Pure core cannot perform I/O of its own', () => {
     assert.doesNotMatch(src.core, /createClient/);
   });
 
-  it('core exposes exactly two write deps: insertBatch + insertCandidates', () => {
-    assert.match(src.core, /insertBatch:/);
+  it('core exposes exactly two write deps: reserveBatch + insertCandidates', () => {
+    // AGENT1-LOCAL-CUT9A § 4 — `insertBatch` pasó a `reserveBatch` porque dejó de
+    // ser un INSERT incondicional. La superficie no crece: sigue habiendo UNA sola
+    // puerta a `prospect_batches`.
+    assert.match(src.core, /reserveBatch:/);
+    assert.doesNotMatch(
+      src.core,
+      /insertBatch:/,
+      'volvió el INSERT incondicional de lote al núcleo de Lusha',
+    );
     assert.match(src.core, /insertCandidates:/);
     assert.doesNotMatch(src.core, /insertAccount|insertContact|insertUsage/);
   });
