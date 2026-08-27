@@ -1,41 +1,38 @@
 /**
- * AGENT1-LUSHA-MIXED-TWO-BATCH-CONTAINMENT-1 §§ 2, 4, 5, 6, 7 — el RATCHET DE
- * CABLEADO VIVO de la superficie Lusha: la capacidad de hueco parcial existe y
- * está probada, y producción ya NO la usa.
+ * AGENT1-LUSHA-MIXED-TWO-BATCH-CONTAINMENT-1 §§ 2, 4, 5, 6, 7 — REANCLADA por
+ * AGENT1-LOCAL-CUT9-LUSHA-PARTIAL-GAP-ACTIVATION § 17.
  *
- * ── 🔴 Por qué hacen falta DOS afirmaciones y no una ────────────────────────
+ * ── 🔴 Qué defendía este archivo, y qué defiende ahora ──────────────────────
  *
- * La maquinaria de hueco parcial es real y se queda: `runPrePaidNoveltyDiscovery`
- * la soporta, `residualGap` se calcula, `resolveLushaTargetGap` lo recibe y
- * `canAcceptLushaUsefulCandidate` lo hace cumplir dentro de cada página pagada.
- * Este archivo NO la borra: la invoca a propósito con `true` para demostrar que
- * sigue viva.
- *
- * Lo que defiende es lo contrario y es igual de importante:
+ * Defendía DOS cosas a la vez:
  *
  *   LUSHA_PARTIAL_GAP_CAPABILITY       = PRESENT   ← el caso de CONTRASTE
- *   LUSHA_PARTIAL_GAP_LIVE_ACTIVATION  = OFF       ← todo lo demás
+ *   LUSHA_PARTIAL_GAP_LIVE_ACTIVATION  = OFF       ← la decisión TEMPORAL
  *
- * Sin este ratchet, «la capacidad está probada» se lee como «el comportamiento
- * está vivo» — y en esta superficie eso no era una hipótesis: era el estado de
- * PRODUCCIÓN. Con `true`, objetivo 5 y 3 empresas gratis, UNA búsqueda del
- * usuario terminaba en DOS lotes: la capa gratuita persiste en el suyo antes de
- * reservar, Lusha en el reservado, y el resultado devuelto apunta al segundo. La
- * invariante de sistema se cumple (3 + 2 <= 5); el resultado único del producto
- * no.
+ * La segunda ya no puede vivir aquí. CUT-9 la enciende, y la enciende porque las
+ * tres condiciones que la bloqueaban están cerradas: CUT9A dio a esta superficie UN
+ * lote canónico por ejecución —`(created_by, client_request_id)`, con adopción por
+ * 23505— y CUT9A-FIX hizo que la mitad de pago RELEA la época en vez de heredar la
+ * memoizada. Ya no existe la ruta en la que UNA búsqueda del usuario termina en DOS
+ * lotes, que era el defecto exacto que esta contención impedía.
  *
- * A diferencia de la ruta del wizard con Apollo, esta superficie tampoco tiene el
- * ancla durable de idempotencia/lote que el diseño de lote único necesita, así que
- * el ejecutor de pago no puede ADOPTAR el lote de la capa gratuita. El hito que lo
- * diseña es `AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1`. Esto es contención.
+ * Un trinquete que fija el valor de una decisión temporal impide arreglarla. Así
+ * que la decisión se muda: el VALOR VIVO lo posee
+ * `src/server/prospect-batches/__tests__/cut9-lusha-partial-gap-activation.test.ts`.
  *
- * ── Cómo se prueba, para que la mutación duela ───────────────────────────────
+ * ── Lo que este archivo SIGUE defendiendo, entero ───────────────────────────
  *
- * El cableado de estas pruebas consume `LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED`,
- * la MISMA constante que pasa el llamador de producción — no una copia escrita a
- * mano. Voltearla a `true` pone en rojo las pruebas de comportamiento de aquí. Y
- * una guarda estática cubre la otra forma de la mutación: volver a escribir el
- * literal `true` en el sitio de la llamada sin tocar la constante.
+ *   1. La RAMA todo-o-nada del runner compartido no se ha borrado: sigue siendo el
+ *      comportamiento de cualquier ruta que pase `false`, y aquí se invoca con el
+ *      LITERAL para que su cobertura no dependa de una decisión de producto.
+ *   2. El cableado vivo lee la CONSTANTE y no un booleano escrito a mano, y hay
+ *      exactamente UN sitio de llamada en la superficie Lusha.
+ *   3. El orden que hace verdad el «0 reservas, 0 llamadas»: la capa gratuita y su
+ *      salida temprana están POR ENCIMA de estimación, reserva, credencial y
+ *      petición.
+ *   4. La MEDICIÓN y el PLAN DE EXCLUSIÓN sobreviven al descarte, y las dos vistas
+ *      del mismo envío cuentan lo mismo.
+ *   5. La capacidad de hueco parcial SÍ existe: se invoca a propósito con `true`.
  *
  * Sin Supabase, sin Lusha, sin Apollo, sin red, 0 créditos, 0 reservas.
  */
@@ -195,13 +192,23 @@ function freeLayer(input: {
 }
 
 /**
- * 🔴 El cableado que se prueba pasa `partialGapSupported` desde la constante de
- * producción, no desde un literal local. Es lo que convierte «voltear la
- * constante» en una mutación DETECTABLE por comportamiento y no sólo por grep.
+ * 🔴 REANCLADO por AGENT1-LOCAL-CUT9 § 17.
+ *
+ * Antes el defecto de este parámetro era la CONSTANTE viva, para que voltearla
+ * fuera una mutación detectable por comportamiento. Eso ataba la cobertura de la
+ * RAMA todo-o-nada del runner a una decisión de producto: al encenderla en CUT-9,
+ * todos estos casos habrían dejado de ejercitar la rama que describen.
+ *
+ * Ahora el defecto es el LITERAL `false`, que es lo que esta rama significa. La
+ * rama no se ha borrado —sigue siendo el comportamiento de cualquier ruta que pase
+ * `false`— y su cobertura queda independiente del valor vivo. El valor vivo, y que
+ * el cableado lo consuma de la constante, se prueban en § 4 y en la suite de CUT-9.
  */
+const CONTAINED_BRANCH = false;
+
 function runLive(
   free: PrePaidNoveltyDiscoveryDeps,
-  partialGapSupported: boolean = LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED,
+  partialGapSupported: boolean = CONTAINED_BRANCH,
   provider: ProviderSeenProvider = 'lusha',
 ) {
   return runPrePaidNoveltyDiscovery(
@@ -219,46 +226,63 @@ function runLive(
   );
 }
 
-// ── § 5 · el valor VIVO ───────────────────────────────────────────────────────
+// ── § 5 · REANCLADO — el valor vivo se MUDÓ; aquí queda la estructura ────────
 
-describe('§ 5 · la activación de hueco parcial de Lusha en producción está APAGADA', () => {
-  it('🔴 `LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED` es `false`', () => {
-    assert.equal(
-      LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED,
-      false,
-      '🔴 encender esto reactiva el resultado en DOS lotes que este hito contiene; ' +
-        'activarlo es AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1, no este corte',
+describe('§ 5 · cada superficie decide su hueco parcial en su propia constante', () => {
+  /**
+   * 🔴 REANCLADO por AGENT1-LOCAL-CUT9 § 17.
+   *
+   * Aquí vivían tres casos: «Lusha es `false`», «la contención no depende de
+   * Apollo» y «las dos rutas no comparten postura». Los tres eran la MISMA decisión
+   * temporal escrita tres veces, y con las dos rutas en `true` el `notEqual` habría
+   * bloqueado la corrección que pretendía proteger.
+   *
+   * Lo que se congela es la propiedad que sobrevive a cualquier valor: cada
+   * superficie tiene SU constante nombrada, declarada UNA vez, y ninguna deriva su
+   * postura de la otra. El valor vivo lo posee la suite de CUT-9.
+   */
+  it('🔴 cada constante se declara UNA vez, y en su propio dueño', () => {
+    const lusha = read(LUSHA_LIMITS);
+    const lushaDecls = lusha.match(
+      /export const LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED = (?:true|false);/g,
     );
+    assert.equal(lushaDecls?.length, 1, 'el valor vivo de Lusha dejó de tener dueño único');
+
+    const apollo = read(APOLLO_EXECUTOR);
+    const apolloDecls = apollo.match(
+      /export const WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED = (?:true|false);/g,
+    );
+    assert.equal(apolloDecls?.length, 1, 'el valor vivo de Apollo dejó de tener dueño único');
+  });
+
+  it('🔴 ninguna ruta lee la constante de la otra: la simetría sería acoplamiento', () => {
+    // 🔴 Con los COMENTARIOS FUERA: los dos módulos NOMBRAN la constante ajena en
+    // su prosa para explicar la asimetría.
+    assert.ok(
+      !stripTsComments(read(LUSHA_LIMITS)).includes('WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED'),
+    );
+    assert.ok(
+      !stripTsComments(read(APOLLO_EXECUTOR)).includes(
+        'LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED',
+      ),
+    );
+    // Y las dos siguen siendo booleanos de verdad, no `string` ni `0/1`.
+    assert.equal(typeof LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED, 'boolean');
+    assert.equal(typeof WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED, 'boolean');
   });
 
   /**
-   * 🔴 AGENT1-LOCAL-CUT6-PARTIAL-ACTIVATION § 15 — estos dos casos afirmaban que
-   * Apollo seguía en `false` y que las dos rutas compartían postura. CUT-6 encendió
-   * Apollo porque CUT-5 le dio lote canónico compartido; Lusha pending-review NO lo
-   * recibe (CUT-5 § 9), así que allí un aporte parcial todavía partiría el
-   * resultado en dos lotes.
-   *
-   * La asimetría pasa a ser el contrato, y es lo que se congela: la contención de
-   * Lusha no puede caerse «por simetría» con la de Apollo.
+   * 🔴 El runner compartido OBEDECE el parámetro: no mira constantes y no decide
+   * por proveedor. Es lo que permite que las dos rutas convivan con posturas
+   * distintas —o iguales— sin que una arrastre a la otra.
    */
-  it('§ 10 · la contención de Lusha NO depende de la postura de Apollo', () => {
-    assert.equal(
-      LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED,
-      false,
-      '🔴 esta superficie sigue sin ancla de lote canónico',
-    );
-    assert.equal(
-      WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED,
-      true,
-      'Apollo se activó en CUT-6, y eso no arrastra a Lusha',
-    );
-  });
-
-  it('🔴 las dos rutas vivas ya NO comparten postura, y la diferencia es deliberada', () => {
-    assert.notEqual(
-      LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED,
-      WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED,
-      'cada superficie decide con su propia constante, no por imitación',
+  it('🔴 el runner compartido no nombra ninguna de las dos constantes', () => {
+    const runner = stripTsComments(read(SHARED_RUNNER));
+    assert.ok(!runner.includes('LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED'));
+    assert.ok(!runner.includes('WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED'));
+    assert.ok(
+      runner.includes('input.partialGapSupported'),
+      'el runner dejó de obedecer el parámetro',
     );
   });
 });
@@ -640,6 +664,8 @@ const LUSHA_ACTION = 'src/modules/prospect-batches/lusha-pending-review-actions.
 const LUSHA_LIMITS = 'src/server/prospect-batches/lusha-pending-review-limits.ts';
 const SHARED_RUNNER =
   'src/server/prospect-batches/country-source-discovery/run-prepaid-novelty-discovery.server.ts';
+const APOLLO_EXECUTOR =
+  'src/modules/prospect-batches/chat-wizard-execution/wizard-apollo-executor.ts';
 
 function read(rel: string): string {
   return readFileSync(path.join(ROOT, rel), 'utf8');
@@ -678,12 +704,22 @@ describe('§ 4 · el sitio de la llamada no puede recuperar el literal', () => {
     }
   });
 
-  it('la constante se declara `false` en su único dueño', () => {
+  /**
+   * 🔴 REANCLADO por AGENT1-LOCAL-CUT9 § 17 — exigía el literal `false` y por tanto
+   * fijaba la decisión. Lo que importa aquí es que la declaración sea LITERAL,
+   * grep-able y ÚNICA: sin eso el ratchet de cableado no tendría nada que leer.
+   */
+  it('la constante se declara con un literal ÚNICO en su único dueño', () => {
     const code = stripTsComments(read(LUSHA_LIMITS));
-    assert.ok(
-      code.includes('export const LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED = false;'),
-      'la declaración es literal y grep-able',
+    const declarations = code.match(
+      /export const LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED = (?:true|false);/g,
     );
+    assert.equal(declarations?.length, 1, 'la declaración dejó de ser literal y única');
+    // 🔴 Y no se deriva de nada: ni de env, ni de un flag, ni de otra constante.
+    for (const forbidden of ['process.env', 'ENABLE_', '?', '&&', '||']) {
+      const line = declarations![0];
+      assert.ok(!line.includes(forbidden), `la declaración pasó a derivarse (${forbidden})`);
+    }
   });
 
   it('🔴 hay exactamente UN sitio de llamada vivo en la superficie Lusha', () => {
@@ -705,15 +741,34 @@ describe('§ 4 · el sitio de la llamada no puede recuperar el literal', () => {
     assert.ok(mutated.includes('partialGapSupported: true'), 'y gana el literal prohibido');
   });
 
-  /** 🔴 EN NEGATIVO — y también la mutación de la constante. */
-  it('mutación: voltear la constante pone su guarda en rojo', () => {
-    const mutated = stripTsComments(read(LUSHA_LIMITS)).replace(
+  /**
+   * 🔴 EN NEGATIVO, INVERTIDO por AGENT1-LOCAL-CUT9 § 17 · NEGATIVE_A.
+   *
+   * La mutación peligrosa cambió de dirección: antes era encender la contención,
+   * ahora es APAGAR la activación. Se demuestra que la mutación es detectable, y la
+   * suite de CUT-9 es la que la pone en rojo por COMPORTAMIENTO.
+   */
+  it('mutación: devolver la constante a `false` es detectable', () => {
+    const code = stripTsComments(read(LUSHA_LIMITS));
+    const live = code.match(
+      /export const LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED = (true|false);/,
+    );
+    assert.ok(live, 'la declaración literal desapareció');
+    const mutated = code.replace(
+      live![0],
       'export const LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED = false;',
-      'export const LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED = true;',
+    );
+    // 🔴 Se compara contra el literal LEÍDO del archivo, no contra la constante
+    // importada: TS estrecha la constante a su valor y la comparación se volvería
+    // un error de tipos que fijaría, otra vez, la decisión temporal.
+    const liveLiteral = live![1];
+    assert.equal(
+      mutated === code,
+      liveLiteral === 'false',
+      '🔴 la mutación tiene que cambiar el archivo salvo que ya sea el valor mutado',
     );
     assert.ok(
-      !mutated.includes('export const LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED = false;'),
-      'la copia mutada perdió la declaración `false`',
+      mutated.includes('export const LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED = false;'),
     );
   });
 });

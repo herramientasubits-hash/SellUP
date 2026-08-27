@@ -471,8 +471,30 @@ describe('§ D — cableado en lusha-pending-review-actions.ts', () => {
       /if\s*\(\s*settlement[\s\S]{0,120}?return\s+build/,
       'el resultado devuelto no puede depender de la liquidación',
     );
-    // El camino de éxito devuelve el resultado de la búsqueda, tal cual.
-    assert.match(actionCode, /if \(result\.status === 'success'\)[\s\S]{0,200}?return result;/);
+    // El camino de éxito devuelve el resultado de la BÚSQUEDA, no una función de la
+    // liquidación.
+    //
+    // 🔴 REANCLADO por AGENT1-LOCAL-CUT9 § 4. Antes exigía el literal
+    // `return result;` a menos de 200 caracteres del `if`, y eso fijaba la FORMA del
+    // retorno en vez de la propiedad. CUT-9 adjunta ahí el bloque canónico de
+    // aceptación (`resolveAcceptedForTarget`), que no consulta la liquidación.
+    //
+    // Lo que se congela es lo que este PR de verdad promete: el valor devuelto se
+    // DERIVA de `result` y de nada que salga del presupuesto.
+    assert.match(
+      actionCode,
+      /if \(result\.status === 'success'\)[\s\S]{0,1200}?return \{ \.\.\.result,/,
+      'el camino de éxito dejó de devolver el resultado de la búsqueda',
+    );
+    const successReturn = actionCode.match(/return \{ \.\.\.result,[^;]*;/)?.[0] ?? '';
+    assert.ok(successReturn.length > 0, 'no se encontró el retorno de éxito');
+    for (const forbidden of ['settlement', 'outcome', 'creditsReserved', 'overage']) {
+      assert.equal(
+        successReturn.includes(forbidden),
+        false,
+        `🔴 el retorno de éxito pasó a depender de la liquidación (${forbidden})`,
+      );
+    }
   });
 
   it('el techo de la corrida Lusha sigue siendo 2: este PR no toca el runtime', () => {

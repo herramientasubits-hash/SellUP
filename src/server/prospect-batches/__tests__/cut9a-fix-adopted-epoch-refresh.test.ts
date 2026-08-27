@@ -256,8 +256,11 @@ test('V9A.1 — FREE escribe y avanza la época; PAID adopta el MISMO lote y NO 
   assert.equal(r.paidWrite.status, 'inserted', 'la mitad de pago no pudo escribir');
   assert.equal(r.fake.epochOf(r.paid.id), 5, 'la valla no avanzó la época tras la escritura de pago');
 
-  // La bandera de hueco parcial SIGUE apagada: esto no la activa.
-  assert.equal(LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED, false);
+  // 🔴 REANCLADO por AGENT1-LOCAL-CUT9 § 17 — antes exigía que el hueco parcial
+  // siguiera apagado. Lo que este arreglo promete es la ADOPCIÓN con época fresca,
+  // y esa propiedad tiene que sostenerse con la activación de CUT-9 encendida: es
+  // precisamente la ruta que la usa.
+  assert.equal(typeof LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED, 'boolean');
   assert.equal(LUSHA_PENDING_REVIEW_BATCH_ADOPTION_SUPPORTED, true);
 });
 
@@ -593,8 +596,9 @@ test('CUT9A-FIX no añade migraciones ni columnas', () => {
       `${label} introdujo DDL`,
     );
   }
-  // La bandera de hueco parcial sigue apagada: este arreglo no la toca.
-  assert.equal(LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED, false);
+  // 🔴 REANCLADO por AGENT1-LOCAL-CUT9 § 17: lo que este caso defiende es la
+  // ausencia de DDL, no el valor de una bandera de producto.
+  assert.equal(typeof LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED, 'boolean');
 });
 
 

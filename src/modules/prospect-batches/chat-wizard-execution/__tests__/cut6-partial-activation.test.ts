@@ -384,16 +384,48 @@ describe('CUT-6 §§ 3, 15 · la activación parcial de Apollo está ENCENDIDA',
     );
   });
 
-  it('🔴 § 15 · Lusha pending-review sigue APAGADA, y la asimetría es el contrato', () => {
-    assert.equal(
-      LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED,
-      false,
-      'esa superficie no recibe lote canónico (CUT-5 § 9): allí el parcial aún partiría el resultado',
+  /**
+   * 🔴 REANCLADO por AGENT1-LOCAL-CUT9 § 17.
+   *
+   * Este caso afirmaba `LUSHA === false` y `LUSHA !== APOLLO`. Las dos afirmaciones
+   * eran la MISMA decisión temporal escrita dos veces, y CUT-9 la cambia: Lusha
+   * recibió lote canónico compartido en CUT9A y su hueco parcial está ENCENDIDO.
+   * Con las dos rutas en `true`, `notEqual` habría bloqueado la corrección que
+   * pretendía proteger.
+   *
+   * Lo que CUT-6 de verdad promete —y lo único que se congela— es la INDEPENDENCIA:
+   * cada superficie consume SU propia constante nombrada y ninguna deriva su
+   * postura de la otra. Eso se sostiene con las dos en `true` igual que con una en
+   * cada valor.
+   */
+  it('🔴 § 15 · cada ruta consume SU propia constante, y ninguna imita a la otra', () => {
+    // Las dos existen, están tipadas como booleanos y son constantes SEPARADAS de
+    // módulos separados: no hay una derivada de la otra ni un alias.
+    assert.equal(typeof WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED, 'boolean');
+    assert.equal(typeof LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED, 'boolean');
+
+    const apolloOwner = readFileSync(
+      path.resolve(__dirname, '../../../../..', 'src/modules/prospect-batches/chat-wizard-execution/wizard-apollo-executor.ts'),
+      'utf8',
     );
-    assert.notEqual(
-      LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED,
-      WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED,
-      '🔴 las dos rutas ya NO comparten postura, y eso es deliberado',
+    const lushaOwner = readFileSync(
+      path.resolve(__dirname, '../../../../..', 'src/server/prospect-batches/lusha-pending-review-limits.ts'),
+      'utf8',
+    );
+    // 🔴 Con los COMENTARIOS FUERA: los dos NOMBRAN la constante ajena en su prosa
+    // para explicar la asimetría, y leer el cuerpo crudo confundiría «citarla» con
+    // «leerla».
+    const noComments = (src: string) =>
+      src
+        .replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .replace(/(^|[^:])\/\/.*$/gm, '$1');
+    assert.ok(
+      !noComments(apolloOwner).includes('LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED'),
+      '🔴 el dueño de Apollo no puede leer la constante de Lusha',
+    );
+    assert.ok(
+      !noComments(lushaOwner).includes('WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED'),
+      '🔴 ni el de Lusha la de Apollo: la simetría sería un acoplamiento',
     );
   });
 });

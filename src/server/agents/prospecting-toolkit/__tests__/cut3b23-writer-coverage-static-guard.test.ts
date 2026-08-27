@@ -575,11 +575,18 @@ describe('CUT-3B23 §§ 16/17 — sin activación de proveedor ni hueco parcial'
     assert.equal(declarations?.length, 1);
   });
 
-  it('el hueco parcial de Lusha sigue en `false`', () => {
+  /**
+   * 🔴 AGENT1-LOCAL-CUT9 § 17 — antes esto exigía `false`. La activación es de
+   * CUT-9, no de este corte; lo que este corte promete es no DECIDIRLA, y eso se
+   * prueba igual que con Apollo: anclando que el valor vive en una sola declaración
+   * literal en su único dueño.
+   */
+  it('el hueco parcial de Lusha se declara en un único sitio literal', () => {
     const source = read('src/server/prospect-batches/lusha-pending-review-limits.ts');
-    assert.ok(
-      source.includes('export const LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED = false;'),
+    const declarations = source.match(
+      /export const LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED = (?:true|false);/g,
     );
+    assert.equal(declarations?.length, 1);
   });
 
   it('ningún módulo del corte nombra un flag de activación de proveedor', () => {

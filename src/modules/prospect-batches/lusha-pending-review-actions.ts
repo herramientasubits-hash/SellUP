@@ -63,10 +63,26 @@ import {
 import { resolveProviderSeenStore } from '@/server/prospect-batches/provider-seen/provider-seen-store';
 import {
   LUSHA_PENDING_REVIEW_MIN_USEFUL_CANDIDATES,
-  // AGENT1-LUSHA-MIXED-TWO-BATCH-CONTAINMENT-1 § 4 — el ÚNICO dueño del valor
-  // vivo de activación de hueco parcial en esta superficie.
+  // AGENT1-LOCAL-CUT9 § 1 — el ÚNICO dueño del valor vivo de activación de hueco
+  // parcial en esta superficie. `true` desde CUT-9.
   LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED,
 } from '@/server/prospect-batches/lusha-pending-review-limits';
+// ── AGENT1-LOCAL-CUT9 §§ 2, 3, 4 — la aceptación hacia el objetivo ────────────
+//
+// 🔴 Los MISMOS helpers que la ruta Apollo del wizard usa desde CUT-7/CUT-8. No se
+// acuña una autoridad Lusha: `resolveAcceptedForTarget` es la única aritmética de
+// aceptación de la corrida, y `resolveProviderResultDemand` la única lectura del
+// hueco. Esta superficie deja de tener que reconstruir ninguno de los dos.
+import {
+  PAID_ROUTE_NOT_RUN_WRITER_TRUTH,
+  paidAcceptedContributionFromWriterTruth,
+  resolveAcceptedForTarget,
+  type AcceptedForTargetResult,
+} from '@/modules/prospect-batches/accepted-for-target';
+import {
+  fullTargetResultDemand,
+  resolveProviderResultDemand,
+} from '@/modules/prospect-batches/prepaid-novelty/provider-result-demand';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import {
   persistLushaPendingReviewBatch,
@@ -381,18 +397,68 @@ async function runGenerateLushaPendingReviewBatch(
     resolveBatchId: async () => (await canonicalBatch.resolve()).id,
   });
 
+  // ── AGENT1-LOCAL-CUT9 §§ 2, 3, 4 — LA ÚNICA ARITMÉTICA DE ACEPTACIÓN ───────
+  //
+  // 🔴 CUT-9 § 2 — el hueco NO se recalcula aquí. `resolveProviderResultDemand`
+  // LEE el `residualGap` que `buildPrePaidNoveltyContext` ya resolvió y que
+  // `withFreeSourcePersistenceOutcome` ya reajustó a lo REALMENTE persistido.
+  // Escribir `requestedTarget - prePaid.persistedCount` habría creado una segunda
+  // definición del mismo hueco, que es lo que este corte existe para no hacer.
+  //
+  // 🔴 `prePaidContributed` es la MISMA condición que gobierna la demanda en la
+  // ruta Apollo: sin lote y sin filas no hay aporte que acreditar, aunque la puerta
+  // hubiera aceptado empresas. Dos condiciones separadas podrían discrepar.
+  const prePaidContributed = prePaid.batchId !== null && prePaid.persistedCount > 0;
+  const resultDemand = prePaidContributed
+    ? resolveProviderResultDemand(prePaid, requestedTarget)
+    : fullTargetResultDemand(requestedTarget);
+
+  /**
+   * AGENT1-LOCAL-CUT9 §§ 3, 4 — el helper ÚNICO de la corrida.
+   *
+   * La aceptación hace falta en dos momentos que no coinciden —antes de que la ruta
+   * de pago exista, y después de que haya devuelto— y lo único que cambia entre
+   * ellos es el aporte de PAGO. El objetivo, la demanda y el aporte gratuito son
+   * los mismos objetos capturados aquí: no se releen ni se recalculan.
+   *
+   * 🔴 Es `resolveAcceptedForTarget` y nada más. No hay `acceptedFree + acceptedPaid
+   * >= requested` escrito en esta capa, ni un `min(...)` propio, ni una clave
+   * `lusha_accepted_for_target`.
+   */
+  const resolveRunAcceptance = (paidWriterTruth: {
+    completeValidCandidates: number | null | undefined;
+    persistedCandidates: number;
+  }): AcceptedForTargetResult =>
+    resolveAcceptedForTarget({
+      demand: resultDemand,
+      freePersistedCandidates: prePaidContributed ? prePaid.persistedCount : 0,
+      paid: paidAcceptedContributionFromWriterTruth(paidWriterTruth),
+    });
+
   // § 15 — hueco cerrado gratis ⇒ ni estimación, ni reserva, ni credencial, ni
   // cliente, ni petición. La salida ocurre AQUÍ, por encima de todo eso.
+  //
+  // 🔴 CUT-9 § 12 — la CONDICIÓN no cambia. Sigue siendo `providerRequired`, que es
+  // la misma puerta que existía antes de este corte: CUT-9 activa una capacidad
+  // interna de una ruta ya seleccionada y no puede mover la decisión de si el
+  // proveedor corre (`PROVIDER_ACTIVATION_CHANGED = NO`).
   if (!prePaid.providerRequired) {
-    return buildLushaProviderNotRequiredResult({
-      batchId: prePaid.batchId,
-      createdCandidatesCount: prePaid.persistedCount,
-      targetGap: requestedTarget,
-      message:
-        prePaid.persistedCount > 0
-          ? `Se encontraron ${prePaid.persistedCount} empresas nuevas en fuentes oficiales, sin consultar proveedores de pago.`
-          : 'La búsqueda se resolvió con fuentes oficiales, sin consultar proveedores de pago.',
-    });
+    return {
+      ...buildLushaProviderNotRequiredResult({
+        batchId: prePaid.batchId,
+        createdCandidatesCount: prePaid.persistedCount,
+        targetGap: requestedTarget,
+        message:
+          prePaid.persistedCount > 0
+            ? `Se encontraron ${prePaid.persistedCount} empresas nuevas en fuentes oficiales, sin consultar proveedores de pago.`
+            : 'La búsqueda se resolvió con fuentes oficiales, sin consultar proveedores de pago.',
+      }),
+      // 🔴 La mitad de pago entra declarada como «no corrió» —cero CONOCIDO— y no
+      // como una ausencia de medición: aquí el proveedor todavía no ha corrido, y
+      // «no corrió» es una respuesta, no un dato que falte. Es la MISMA constante
+      // que la rama sólo-gratuita de Apollo usa (CUT-8B).
+      acceptedForTarget: resolveRunAcceptance(PAID_ROUTE_NOT_RUN_WRITER_TRUTH),
+    };
   }
 
   const searchPlan = resolveLushaRoutedSearchPlan(parsed.data.macroIndustryKey);
@@ -439,6 +505,10 @@ async function runGenerateLushaPendingReviewBatch(
         searchPlan,
         baseCorrelation,
         prePaid,
+        // 🔴 CUT-9 §§ 3, 4 — el MISMO helper, no una segunda llamada. La ejecución
+        // reservada sólo cambia el aporte de PAGO; el objetivo, la demanda y el
+        // aporte gratuito ya están capturados dentro.
+        resolveRunAcceptance,
       }),
     requiredCredits,
   );
@@ -552,6 +622,19 @@ async function runLushaSearchWithReservation(args: {
    * cerrar y los dominios que no hace falta volver a pagar.
    */
   prePaid: Awaited<ReturnType<typeof runPrePaidNoveltyDiscovery>>;
+  /**
+   * AGENT1-LOCAL-CUT9 §§ 3, 4 — el helper ÚNICO de aceptación de la corrida, ya
+   * cerrado sobre la demanda y el aporte gratuito.
+   *
+   * 🔴 Se INYECTA en vez de reconstruirse aquí. Si esta mitad volviera a llamar a
+   * `resolveAcceptedForTarget` con sus propios argumentos habría dos entradas a la
+   * misma aritmética, que es exactamente cómo dos vistas del mismo hecho empiezan a
+   * discrepar (CUT-8 § 1).
+   */
+  resolveRunAcceptance: (paidWriterTruth: {
+    completeValidCandidates: number | null | undefined;
+    persistedCandidates: number;
+  }) => AcceptedForTargetResult;
 }): Promise<GenerateLushaPendingReviewBatchActionResult> {
   const {
     searchInput,
@@ -565,6 +648,7 @@ async function runLushaSearchWithReservation(args: {
     searchPlan,
     baseCorrelation,
     prePaid,
+    resolveRunAcceptance,
   } = args;
   const supabase = await createClient();
 
@@ -752,7 +836,11 @@ async function runLushaSearchWithReservation(args: {
           providerRequestsUsed: result?.providerRequestsUsed ?? null,
           stopReason: result?.stopReason ?? null,
           reviewableFoundTotal: result?.reviewableFoundTotal ?? null,
-          acceptedForTargetTotal: result?.usefulCandidatesCount ?? 0,
+          // 🔴 AGENT1-LOCAL-CUT9 § 3 — la MISMA autoridad que el bloque canónico:
+          // lo RECONCILIADO contra las filas, no `usefulCandidatesCount`, que es lo
+          // que la corrida intentó escribir. Dos vistas del mismo hecho bajo el
+          // mismo nombre contando distinto es el defecto, no el arreglo.
+          acceptedForTargetTotal: result?.multiBranch?.acceptedForTargetTotal ?? 0,
           targetOverflowDiscarded: result?.targetOverflowDiscarded ?? null,
           precisionRejectedTotal: result?.precisionRejectedTotal ?? null,
           historicalActiveSkips: result?.skippedActiveDuplicatesCount ?? 0,
@@ -780,6 +868,31 @@ async function runLushaSearchWithReservation(args: {
       });
     }
   };
+
+  // ── 🔴 AGENT1-LOCAL-CUT9 §§ 6, 7 — la SIEMBRA cruzada, leída ANTES de admitir ──
+  //
+  // Sin ella una empresa que la capa gratuita ya cerró podía volver por la ruta de
+  // pago y cerrar hueco por SEGUNDA vez: objetivo 10, 4 gratis, 6 de pago de las
+  // cuales 2 son las mismas ⇒ el informe diría 10 sobre 8 empresas distintas.
+  //
+  // 🔴 La autoridad es la que YA existe —`loadBatchIdentityRegistry` →
+  // `read_batch_identity_snapshot` (CUT-3B4)—, la MISMA que ya se usa unas líneas
+  // más abajo para releer la época y la MISMA que usan los otros dos escritores de
+  // Agente 1. CUT-9 no acuña emparejamiento por nombre, por `displayName`, por
+  // substring ni por «última fila».
+  //
+  // 🔴 Sólo se pide cuando la capa gratuita DE VERDAD escribió: sin lote no hay
+  // filas que sembrar, y una consulta sobre `null` sería trabajo por nada. Ausente
+  // ⇒ registro vacío, byte por byte la admisión anterior a CUT-9.
+  //
+  // 🔴 Degrada ABIERTO, igual que la lectura de la que sale: un fallo deja la
+  // siembra vacía y la admisión ADMITE. Convertir una consulta caída en «esta
+  // empresa ya existía» suprimiría candidatos legítimos, que es la dirección
+  // equivocada de la degradación.
+  const batchIdentitySeed =
+    prePaid.batchId !== null
+      ? await loadBatchIdentityRegistry(supabase, prePaid.batchId).catch(() => null)
+      : null;
 
   try {
     const result = await persistLushaPendingReviewBatch(
@@ -950,6 +1063,9 @@ async function runLushaSearchWithReservation(args: {
         providerSeenLoad: prePaid.providerSeenLoad,
         providerExclusionPlan: prePaid.providerExclusionPlan,
         freeSource: prePaid.freeSource,
+        // 🔴 CUT-9 §§ 6, 7 — las filas que lo gratuito dejó en ESTE lote. Es lo que
+        // impide que una empresa cuente dos veces hacia el objetivo.
+        batchIdentitySeed,
       },
     );
 
@@ -987,7 +1103,25 @@ async function runLushaSearchWithReservation(args: {
       revalidatePath('/accounts');
     }
 
-    return result;
+    // ── 🔴 AGENT1-LOCAL-CUT9 §§ 3, 4 — la aceptación de PAGO, con su autoridad ──
+    //
+    // `usefulCandidatesCount` NO sirve: es lo que la corrida INTENTÓ escribir, y el
+    // núcleo ya reconcilia contra lo que la base confirmó
+    // (`persistedForTarget = min(insertedCount, useful.length)`), que es lo que
+    // publica en `multiBranch.acceptedForTargetTotal`. Ésa es la autoridad exacta —
+    // ya post-admisión de identidad de lote, ya acotada por `targetGap`, ya
+    // reconciliada con las filas— y es la que se consume.
+    //
+    // 🔴 Ausente ⇒ `null` ⇒ SIN MEDIR, y `paidAcceptedContributionFromWriterTruth`
+    // aporta CERO en vez de las filas. Sustituirlo por `insertedCandidatesCount`
+    // sería exactamente el defecto que CUT-7 cerró, escrito en el camino de
+    // degradación.
+    const acceptance = resolveRunAcceptance({
+      completeValidCandidates: result.multiBranch?.acceptedForTargetTotal ?? null,
+      persistedCandidates: result.insertedCandidatesCount,
+    });
+
+    return { ...result, acceptedForTarget: acceptance };
   } catch (err: unknown) {
     // § 9 — un fallo DESPUÉS de la reserva se liquida conservador: sin resultado
     // no se sabe si el proveedor cobró, y devolver headroom que sí se gastó
@@ -998,9 +1132,21 @@ async function runLushaSearchWithReservation(args: {
     // porque el proveedor pudo cobrarla.
     await recordRunUsageObservably(null, settlement);
     const msg = err instanceof Error ? err.message : 'Error desconocido';
-    return buildLushaPendingReviewFailure(
-      'No fue posible guardar los prospectos. Intenta de nuevo.',
-      msg.slice(0, 200),
-    );
+    return {
+      ...buildLushaPendingReviewFailure(
+        'No fue posible guardar los prospectos. Intenta de nuevo.',
+        msg.slice(0, 200),
+      ),
+      // 🔴 CUT-9 § 13 — un fallo de la mitad de pago no borra lo que lo gratuito
+      // dejó durable. La mitad de pago entra como «no corrió» y eso es CIERTO en
+      // filas: los tres caminos que lanzan por debajo de la reserva lo hacen ANTES
+      // de que exista una sola fila de pago —`fence_stale`/`batch_not_found` y el
+      // fallo de la escritura vallada revierten su transacción, y el INSERT
+      // anterior a B4 es todo-o-nada y lanza sin escribir—.
+      //
+      // 🔴 Y no se inventa una medición: si un día esta ruta pudiera lanzar DESPUÉS
+      // de escribir, el aporte tendría que declararse SIN MEDIR, nunca cero medido.
+      acceptedForTarget: resolveRunAcceptance(PAID_ROUTE_NOT_RUN_WRITER_TRUTH),
+    };
   }
 }

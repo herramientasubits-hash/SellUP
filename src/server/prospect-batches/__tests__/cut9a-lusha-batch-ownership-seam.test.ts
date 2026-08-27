@@ -64,25 +64,35 @@ const CLIENT_REQUEST_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const CLIENT_REQUEST_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
 // ═══════════════════════════════════════════════════════════════════════════
-// § 1 — la bandera de hueco parcial SIGUE apagada durante todo CUT9A
+// § 1 — CUT9A prepara la PROPIEDAD del lote; el valor vivo lo decide CUT-9
+//
+// 🔴 REANCLADO por AGENT1-LOCAL-CUT9 § 17. Este caso exigía `false` y por tanto
+// fijaba una decisión temporal: CUT9A no debía activarla, pero CUT-9 sí. Un
+// trinquete que fija el valor defectuoso impide arreglarlo.
+//
+// Lo que CUT9A promete de verdad —y lo único que se congela aquí— es que el valor
+// vivo se decide en UNA sola declaración literal, en su único dueño, y que este
+// corte no lo escribe a mano en ningún sitio de llamada. El VALOR es de
+// `cut9-lusha-partial-gap-activation.test.ts`.
 // ═══════════════════════════════════════════════════════════════════════════
 
-test('§ 1 · NEGATIVE_A — el hueco parcial de Lusha NO se activa en CUT9A', () => {
-  assert.equal(
-    LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED,
-    false,
-    'CUT9A prepara la PROPIEDAD del lote; activar el hueco parcial es CUT-9',
-  );
-  // Y el valor vivo se decide en UN sitio: encenderlo ahí pone esto en rojo.
+test('§ 1 · NEGATIVE_A — el hueco parcial de Lusha se decide en UN solo sitio', () => {
+  assert.equal(typeof LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED, 'boolean');
   const limits = readFileSync(
     join(ROOT, 'src/server/prospect-batches/lusha-pending-review-limits.ts'),
     'utf-8',
   );
-  assert.match(
-    limits,
-    /LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED\s*=\s*false/,
-    'la bandera de hueco parcial de Lusha se encendió durante CUT9A',
+  const declarations = limits.match(
+    /export const LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED = (?:true|false);/g,
   );
+  assert.equal(declarations?.length, 1, 'el valor vivo dejó de tener un único dueño');
+
+  // Y el sitio de llamada sigue consumiendo la CONSTANTE, no un literal.
+  const action = readFileSync(
+    join(ROOT, 'src/modules/prospect-batches/lusha-pending-review-actions.ts'),
+    'utf-8',
+  );
+  assert.match(action, /partialGapSupported: LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED,/);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -314,7 +324,9 @@ test('CASO 1 — misma ejecución, la mitad GRATUITA pide primero', async () => 
   const paid = await resolver.resolve(paidDescription());
   assert.equal(free.id, paid.id);
   assert.equal(fake.inserts().length, 1, 'apareció un lote sombra');
-  assert.equal(LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED, false);
+  // 🔴 La propiedad del lote NO depende del hueco parcial: con la activación de
+  // CUT-9 encendida, «una ejecución ⇒ un lote» tiene que seguir siendo cierta.
+  assert.equal(typeof LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED, 'boolean');
 });
 
 test('CASO 2 — misma ejecución, la mitad de PAGO pide primero: el orden no decide', async () => {
@@ -614,8 +626,12 @@ test('CASO 6 · NEGATIVE_D — con filas escritas, NUNCA se reporta 0 filas ni l
       macroIndustryKey: 'health_pharma',
       requestedTarget: 5,
       requestedByUserId: USER,
-      // 🔴 La bandera SIGUE apagada: esto NO es activación de hueco parcial.
-      partialGapSupported: LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED,
+      // 🔴 REANCLADO por AGENT1-LOCAL-CUT9 § 17 — el literal `false`, no la
+      // constante viva. Lo que este caso prueba es la RAMA todo-o-nada del runner
+      // compartido, que CUT-9 no borra: sigue siendo el comportamiento de cualquier
+      // ruta que pase `false`. Leerlo de la constante ataba la cobertura de una
+      // rama a una decisión de producto que CUT-9 cambia.
+      partialGapSupported: false,
       resolveBatchId: async () => 'batch-canonico',
     },
     deps,
@@ -697,18 +713,48 @@ test('§ 12 — la relectura tras 23505 se acota por created_by: otro dueño NO 
 // §§ 9/10/11 — lo que CUT9A NO toca
 // ═══════════════════════════════════════════════════════════════════════════
 
+
 test('§§ 9/10/11 — ni aceptación de pago, ni economía, ni enrutado cambian', () => {
-  const action = readFileSync(
-    join(ROOT, 'src/modules/prospect-batches/lusha-pending-review-actions.ts'),
-    'utf-8',
+  // 🔴 Con los COMENTARIOS FUERA, con el helper que esta suite ya tiene: la acción
+  // NOMBRA en su prosa las claves prohibidas para explicar por qué NO existen, y
+  // leer el cuerpo crudo confundiría «citarlo» con «usarlo».
+  const action = executableBody(
+    'src/modules/prospect-batches/lusha-pending-review-actions.ts',
   );
-  // § 9 — la aceptación de pago de Lusha NO se conecta en este corte.
-  for (const forbidden of ['resolveAcceptedForTarget', 'toAcceptedForTargetMetadata']) {
+  // § 9 — REANCLADO por AGENT1-LOCAL-CUT9 §§ 4, 15.
+  //
+  // 🔴 Este bucle prohibía `resolveAcceptedForTarget` en la acción, y era correcto
+  // mientras la aceptación de pago era territorio de CUT-9. CUT-9 la conecta, así
+  // que la prohibición pasó a fijar la ausencia del arreglo.
+  //
+  // Lo que se conserva es el límite que CUT9A de verdad defiende y que CUT-9 NO
+  // cruza: esta superficie no publica el bloque durable de aceptación, porque no
+  // tiene costura segura para hacerlo —`reserveOrReturnLushaCanonicalBatch` NO
+  // actualiza la metadata de un lote adoptado, y abrir un `SELECT metadata` →
+  // `UPDATE metadata` sin vallado está prohibido (CUT-9 § 15)—.
+  for (const forbidden of [
+    'toAcceptedForTargetMetadata',
+    'ACCEPTED_FOR_TARGET_METADATA_KEY',
+  ]) {
     assert.equal(
       action.includes(forbidden),
       false,
-      `CUT9A conectó la aceptación de pago (${forbidden}): eso es CUT-9`,
+      `la acción abrió una publicación durable de aceptación sin costura vallada (${forbidden})`,
     );
+  }
+  // 🔴 Y la aritmética, cuando exista, tiene que ser LA canónica: una sola llamada
+  // y ninguna segunda autoridad con nombre propio.
+  assert.equal(
+    (action.match(/resolveAcceptedForTarget\(/g) ?? []).length,
+    1,
+    'apareció una segunda entrada a la aritmética de aceptación',
+  );
+  for (const forbidden of [
+    'lusha_accepted_for_target',
+    'lusha_target_truth',
+    'pending_review_acceptance',
+  ]) {
+    assert.equal(action.includes(forbidden), false, `segunda autoridad: ${forbidden}`);
   }
   // § 10 — economía intacta y en el mismo orden.
   assert.match(action, /const requiredCredits = estimateLushaRunCredits\(searchPlan\);/);

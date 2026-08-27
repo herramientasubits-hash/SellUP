@@ -47,6 +47,7 @@ import {
   createBatchIdentityRegistry,
   tallyBatchIdentityPersisted,
   toBatchIdentityCountersMetadata,
+  type BatchIdentityRegistry,
 } from '@/server/agents/prospecting-toolkit/batch-identity-registry';
 // AGENT1-CUT3B4 § 22 — sólo el TIPO del desenlace vallado. Este núcleo sigue sin
 // tener I/O propio: la RPC la ejecuta la dependencia inyectada.
@@ -58,6 +59,12 @@ import {
   type FenceCapabilityEvidence,
 } from './batch-identity-fenced-persistence';
 import type { LushaCanonicalBatchReservation } from './lusha-canonical-batch';
+// AGENT1-LOCAL-CUT9 §§ 3, 4 — el tipo CANÓNICO de aceptación hacia el objetivo,
+// importado SÓLO como tipo. El núcleo no lo calcula: quien lo resuelve es
+// `resolveAcceptedForTarget` en la acción, que es la única aritmética de la
+// corrida. Aquí sólo se declara el campo por el que viaja para que no nazca una
+// segunda forma del mismo hecho.
+import type { AcceptedForTargetResult } from '@/modules/prospect-batches/accepted-for-target';
 import { isLinkedInCompanyUrl } from '@/modules/prospect-batches/candidate-linkedin-url';
 import {
   checkActiveCandidateDuplicate,
@@ -525,14 +532,13 @@ export const LUSHA_FRESH_BATCH_IDENTITY_EPOCH = 0;
  *     caída a una escritura sin valla, y no se reintenta en bucle: migrar esta
  *     escritura a `runFencedPersistence` con re-evaluación de admisión es CUT-9.
  *
- * 🔴 Lo que este corte NO hace, y hay que decirlo: la admisión por identidad de
- * lote (`admitByBatchIdentity`) sigue sembrándose VACÍA. Con adopción eso significa
- * que una empresa que la capa gratuita ya escribió en este lote no la retira el
- * registro de lote. Quien la retiene sigue siendo la paridad de duplicados
- * CRUZADA —`checkCompanyDuplicate` y el prefetch de candidatos activos—, que es
- * exactamente la misma protección que había cuando las dos mitades escribían en
- * lotes distintos: este corte no la debilita, pero tampoco la sustituye. Sembrar
- * el registro exige resolver el lote ANTES de la admisión y pertenece a CUT-9.
+ * 🔴 AGENT1-LOCAL-CUT9 §§ 6, 7 — la limitación que CUT9A declaró aquí está
+ * CERRADA. La admisión por identidad de lote ya no se siembra vacía: recibe en
+ * `execution.batchIdentitySeed` las filas que la capa gratuita dejó en el lote
+ * canónico, resueltas por `loadBatchIdentityRegistry`. Con eso una empresa que lo
+ * gratuito ya cerró no puede volver por la ruta de pago y cerrar hueco por segunda
+ * vez. La paridad CRUZADA (`checkCompanyDuplicate` + prefetch de activos) sigue
+ * corriendo entera: responde otra pregunta y no se sustituye.
  */
 export const LUSHA_PENDING_REVIEW_BATCH_ADOPTION_SUPPORTED = true;
 
@@ -756,6 +762,23 @@ export interface PersistLushaPendingReviewResult {
   precisionRejectedTotal?: number;
   /** Telemetría completa de corrida + ramas (§§ 18/19). Sin PII. */
   multiBranch?: LushaRunTelemetry;
+  /**
+   * AGENT1-LOCAL-CUT9 §§ 3, 4, 16 — el subconjunto ACEPTADO hacia el objetivo de
+   * la corrida ENTERA (gratuito + pagado), con su hueco restante y su veredicto.
+   *
+   * 🔴 El núcleo NO lo calcula y no puede: sólo ve su propia mitad. Lo resuelve la
+   * acción con `resolveAcceptedForTarget`, la ÚNICA aritmética de aceptación, y lo
+   * adjunta al resultado. Este campo existe para que viaje con la forma CANÓNICA y
+   * no como un puñado de números sueltos que la UI tendría que recombinar.
+   *
+   * 🔴 NO sustituye a `createdCandidatesCount` ni a `insertedCandidatesCount`: ésas
+   * siguen siendo el UNIVERSO DURABLE de la mitad de pago. Las dos familias
+   * conviven porque son distintas (CUT-7 § 10).
+   *
+   * Ausente ⇒ esta corrida no declaró aceptación (llamadores legados, dobles de
+   * prueba). Nunca se sustituye por filas.
+   */
+  acceptedForTarget?: AcceptedForTargetResult;
 }
 
 /** Baseline metrics used by non-success (error/empty) results. */
@@ -1831,6 +1854,55 @@ export interface LushaMultiBranchExecution {
   providerExclusionPlan?: ProviderExclusionPlan;
   /** ADDENDUM PROVIDER-SEEN § 10 — lo que la fuente gratuita rindió. */
   freeSource?: PrePaidFreeSourceOutcome;
+  /**
+   * AGENT1-LOCAL-CUT9 §§ 6, 7 — la SIEMBRA del registro de identidad de LOTE, con
+   * las filas que la capa gratuita ya escribió en el lote canónico de ESTA
+   * ejecución.
+   *
+   * ── 🔴 El defecto que cierra ───────────────────────────────────────────────
+   *
+   * CUT9A dejó esta limitación DECLARADA: la admisión por identidad de lote se
+   * sembraba VACÍA (`createBatchIdentityRegistry(null)`), y eso era un hecho
+   * estructural mientras el lote sólo podía nacer en esta misma llamada. Con
+   * adopción dejó de serlo: la mitad gratuita puede haber escrito ya en él, y con
+   * el hueco parcial ACTIVADO (CUT-9 § 1) esa es la ruta NORMAL, no un borde.
+   *
+   * Sin siembra, una empresa que lo gratuito ya cerró podía volver por la ruta de
+   * pago y cerrar hueco por SEGUNDA vez: objetivo 10, 4 gratis, 6 de pago de las
+   * cuales 2 son las mismas ⇒ 4 + 6 = 10 y `targetReached` sobre 8 empresas
+   * distintas. Esa es la aritmética que CUT-9 § 6 prohíbe.
+   *
+   * ── 🔴 Autoridad REUTILIZADA, nunca un emparejamiento nuevo ────────────────
+   *
+   * La siembra la produce `loadBatchIdentityRegistry` →
+   * `read_batch_identity_snapshot` (CUT-3B4), que es la MISMA que ya usan los
+   * otros dos escritores de Agente 1, y decide por TIERS de identidad —fiscal,
+   * dominio, LinkedIn, id nativo de proveedor— con el nombre como evidencia DÉBIL
+   * que jamás suprime (TIER 5 sólo produce `possible_duplicate`). CUT-9 no acuña
+   * matching por nombre, por `displayName`, por substring ni por «última fila».
+   *
+   * ── 🔴 Qué NO sustituye ────────────────────────────────────────────────────
+   *
+   *   · `lusha-run-identity-registry` — dedupea la CORRIDA del proveedor (todas
+   *     las páginas de todas las ramas) ANTES de pagar. Sigue viva.
+   *   · `checkCompanyDuplicate` + el prefetch de candidatos activos — paridad
+   *     CRUZADA contra SellUp/HubSpot. Siguen vivas, y siguen fallando ABIERTO.
+   *
+   * Esta siembra es la TERCERA pregunta: «¿esta empresa ya ocupa ESTE lote?».
+   *
+   * Ausente o `null` ⇒ registro vacío, que es EXACTAMENTE el comportamiento
+   * anterior a CUT-9 y la verdad literal cuando la capa gratuita no escribió nada
+   * (no hay lote del que sembrar). La cobertura degrada ABIERTO —igual que la
+   * lectura de la que sale— porque una consulta caída no puede convertirse en
+   * «esta empresa ya existía».
+   */
+  batchIdentitySeed?: {
+    registry: BatchIdentityRegistry;
+    /** Filas realmente sembradas. Sólo telemetría. */
+    seededCount: number;
+    /** `true` ⇒ la lectura degradó y la cobertura es MENOR, nunca mayor. */
+    degraded: boolean;
+  } | null;
 }
 
 /** Sum credits fail-safe: null stays null unless a page reported a number. */
@@ -2344,22 +2416,26 @@ export async function persistLushaPendingReviewBatch(
   // después habría dejado a `persistedCount` afirmando un número que la inserción
   // no iba a producir.
   //
-  // 🔴 Siembra VACÍA — y desde AGENT1-LOCAL-CUT9A § 4 eso ya NO es un hecho
-  // estructural, sino una LIMITACIÓN DECLARADA.
+  // 🔴 AGENT1-LOCAL-CUT9 §§ 6, 7 — la siembra YA NO es vacía por construcción.
   //
-  // Era cierto mientras el lote sólo podía nacer en esta misma llamada. Con
-  // adopción, la mitad gratuita puede haber escrito ya en él, así que una empresa
-  // suya NO la retira este registro. Lo que la retiene sigue siendo la paridad de
-  // duplicados CRUZADA —`checkCompanyDuplicate` y el prefetch de candidatos
-  // activos, que ya ven esas filas porque se escribieron antes en ESTA misma
-  // ejecución—, exactamente la misma protección que había cuando las dos mitades
-  // escribían en lotes distintos. Este corte no la debilita; tampoco la sustituye.
+  // Hasta CUT9A lo era, y allí quedó declarada como LIMITACIÓN: con adopción la
+  // mitad gratuita puede haber escrito antes en este mismo lote, y con el hueco
+  // parcial ACTIVADO esa es la ruta normal. Una empresa que lo gratuito ya cerró
+  // podía volver por la ruta de pago y cerrar hueco por SEGUNDA vez.
   //
-  // Sembrarlo de verdad exige resolver el lote ANTES de la admisión —hoy la
-  // admisión corre primero porque de ella salen los conteos que la fila publica— y
-  // añadir a este módulo un lector de registro que hoy no tiene. Pertenece a
-  // CUT-9, no aquí: mezclarlo habría movido la aceptación de pago, que § 9 de este
-  // corte prohíbe explícitamente tocar.
+  // Ahora la siembra llega en `execution.batchIdentitySeed`, resuelta por
+  // `loadBatchIdentityRegistry` sobre el lote canónico de la ejecución —la MISMA
+  // autoridad que usan los otros dos escritores— y NO por un emparejamiento nuevo.
+  //
+  // 🔴 Sigue sin resolverse el lote antes de la admisión: la siembra se pide por
+  // el `batchId` que la capa gratuita YA materializó, así que la admisión conserva
+  // su posición (antes de derivar un solo conteo) y una corrida sin aporte
+  // gratuito sigue admitiendo contra un registro vacío, que ahí es la verdad.
+  //
+  // 🔴 Y no sustituye a las otras dos protecciones: `checkCompanyDuplicate` y el
+  // prefetch de candidatos activos siguen corriendo enteros, y siguen siendo la
+  // paridad CRUZADA contra SellUp/HubSpot. Ésta responde otra pregunta: «¿esta
+  // empresa ya ocupa ESTE lote?».
   //
   // 🔴 NO sustituye a `lusha-run-identity-registry`: aquél dedupea la CORRIDA del
   // proveedor (todas las páginas de todas las ramas) ANTES de pagar y es
@@ -2375,7 +2451,11 @@ export async function persistLushaPendingReviewBatch(
   // reabre páginas —eso sería gasto nuevo— pero SÍ obliga a decir la verdad sobre
   // el hueco que queda.
   const batchIdentityAdmission = admitByBatchIdentity(
-    createBatchIdentityRegistry(null),
+    // 🔴 Ausente ⇒ `createBatchIdentityRegistry(null)`, byte por byte la siembra
+    // vacía anterior a CUT-9. Es la verdad cuando no hubo aporte gratuito, y es la
+    // degradación ABIERTA cuando la lectura de la foto falló: una consulta caída no
+    // puede convertirse en «esta empresa ya existía».
+    execution?.batchIdentitySeed?.registry ?? createBatchIdentityRegistry(null),
     useful,
     (resolved) =>
       buildCompanyIdentityEvidence({
@@ -2404,6 +2484,14 @@ export async function persistLushaPendingReviewBatch(
   const batchIdentityMetrics = toBatchIdentityCountersMetadata(
     batchIdentityAdmission.counters,
   );
+  // AGENT1-LOCAL-CUT9 § 6 — sólo conteos y banderas. `seeded: 0` con
+  // `seed_available: false` significa «no había lote del que sembrar»; con
+  // `seed_available: true` significa «el lote estaba vacío». No son lo mismo.
+  const batchIdentitySeedTelemetry: Record<string, number | boolean> = {
+    batch_identity_seed_available: execution?.batchIdentitySeed != null,
+    batch_identity_seeded_rows: execution?.batchIdentitySeed?.seededCount ?? 0,
+    batch_identity_seed_degraded: execution?.batchIdentitySeed?.degraded === true,
+  };
 
   const remainingGapFinal = resolveLushaRemainingGap(targetGap, useful.length);
   if (remainingGapFinal <= 0 && !runStopped) stopReason = 'target_reached';
@@ -2788,6 +2876,10 @@ export async function persistLushaPendingReviewBatch(
       // ni dominio, ni identificador fiscal, ni LinkedIn, ni id de proveedor, ni
       // nombre de empresa.
       ...fenceTelemetry,
+      // AGENT1-LOCAL-CUT9 § 6 — cuántas filas del lote entraron al registro y si
+      // la foto degradó. Sin esto, «0 duplicados de lote» sería indistinguible de
+      // «no se sembró nada», que son dos corridas muy distintas.
+      ...batchIdentitySeedTelemetry,
     },
     usefulCandidatesCount: useful.length,
     insertedCandidatesCount: insertedCount,

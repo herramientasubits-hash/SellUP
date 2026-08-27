@@ -47,46 +47,49 @@ export const LUSHA_PENDING_REVIEW_MAX_PAGES = 2;
 export const LUSHA_PENDING_REVIEW_EXPECTED_MAX_CREDITS = 2;
 
 /**
- * AGENT1-LUSHA-MIXED-TWO-BATCH-CONTAINMENT-1 §§ 2, 4 — ¿puede la capa gratuita
+ * AGENT1-LOCAL-CUT9-LUSHA-PARTIAL-GAP-ACTIVATION § 1 — ¿puede la capa gratuita
  * aportar un hueco PARCIAL a una corrida Lusha de pago?
  *
- * 🔴 CONTENCIÓN, no capacidad. La maquinaria de hueco parcial existe entera y
- * sigue probada: `runPrePaidNoveltyDiscovery` la soporta, `residualGap` se
- * calcula, `resolveLushaTargetGap` lo recibe y `canAcceptLushaUsefulCandidate`
- * lo hace cumplir dentro de cada página pagada. Nada de eso se toca aquí.
+ * 🔴 `true` desde CUT-9, y la asimetría con la historia de esta constante importa:
+ * durante AGENT1-LUSHA-MIXED-TWO-BATCH-CONTAINMENT-1 el valor fue `false` y NO por
+ * falta de capacidad. La maquinaria de hueco parcial existía entera y probada
+ * —`runPrePaidNoveltyDiscovery` la soporta, `residualGap` se calcula,
+ * `resolveLushaTargetGap` lo recibe y `canAcceptLushaUsefulCandidate` lo hace
+ * cumplir dentro de cada página pagada—. Lo que faltaba era DÓNDE persistir el
+ * aporte sin partir el resultado: la capa gratuita creaba su propio lote y la de
+ * pago el suyo, así que con `true` UNA búsqueda del usuario terminaba en DOS lotes,
+ * y ese comportamiento estuvo VIVO en Producción hasta la contención.
  *
- * Lo que esta constante apaga es la ACTIVACIÓN VIVA, y el motivo es el mismo por
- * el que la ruta Apollo ya está en `false` (`WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED`):
+ * Las tres condiciones que lo bloqueaban están cerradas, y son distintas:
  *
- * Con `true` existe una ruta REAL de producción en la que UNA búsqueda del
- * usuario termina en DOS lotes. Objetivo 10, la fuente gratuita persiste 7 en su
- * PROPIO lote —`persistCountrySourceCandidates` lo crea y corre ANTES de la
- * reserva— y Lusha persiste 3 en el suyo, con el resultado devuelto apuntando al
- * segundo. La invariante de sistema se respeta (7 + 3 <= 10); el resultado ÚNICO
- * que el producto promete, no.
+ *   · SABER aceptar un objetivo reducido — cerrada desde el ejecutor multirrama:
+ *     `resolveLushaTargetGap` recibe el hueco y `canAcceptLushaUsefulCandidate` lo
+ *     hace cumplir DENTRO de cada página ya pagada.
+ *   · Tener DÓNDE persistirlo sin partir el resultado — cerrada por
+ *     AGENT1-LOCAL-CUT9A: `createCanonicalLushaBatchResolver` da UN lote canónico
+ *     por EJECUCIÓN, identificado por `(created_by, client_request_id)`, y las dos
+ *     mitades preguntan a la MISMA instancia. La mitad de pago ADOPTA (23505 →
+ *     relectura por clave canónica), no crea un segundo lote.
+ *   · Poder escribir sobre un lote ADOPTADO sin `stale` falso — cerrada por
+ *     CUT9A-FIX-ADOPTED-EPOCH-REFRESH: la época se RELEE justo antes de la
+ *     escritura vallada en vez de heredarse memoizada del nacimiento del lote.
  *
- * 🔴 Y es alcanzable de verdad, no teórica: este comportamiento está VIVO hoy en
- * la superficie Lusha. La persistencia gratuita quedó arreglada por #316 —lote
- * `source = agent_1`, candidato `source_primary = public_source`— y la QA-B real
- * en Producción la vio escribir. Lo que bloquea no es un CHECK de base de datos:
- * es que esta superficie tampoco tiene el ancla durable de idempotencia/lote que
- * el diseño de lote único necesita, así que no hay forma de que el ejecutor de
- * pago ADOPTE el lote de la capa gratuita.
+ * 🔴 Lo que la activación NO trae, y hay que decirlo: la invariante de § 14
+ * —`aceptadasGratis + aceptadasPagadas <= objetivo`— la sigue sosteniendo el HUECO,
+ * no el descarte. La ruta de pago recibe `residualGap` como `targetGap`, así que 4
+ * gratis + 6 de pago siguen siendo 10, nunca 14.
  *
- * Consecuencia con `false` (ver la cabecera del runner compartido):
- *
- *   · lo gratuito cierra el objetivo ENTERO ⇒ el lote gratuito persiste, Lusha no
- *     se ejecuta, 0 reservas y 0 créditos — la propiedad probada en Producción NO
- *     se toca;
- *   · lo gratuito NO cierra el objetivo ⇒ su aporte parcial se DESCARTA antes de
- *     persistir, y la ruta de pago corre con el objetivo COMPLETO, exactamente
- *     como se comportaba antes de que esta superficie llamara a la capa gratuita.
- *
- * El hito que lo activará —y que decidirá orden y propiedad del lote— es
- * `AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1`. Esto es contención hasta entonces.
+ * 🔴 Y tampoco trae presupuesto nuevo. `estimateLushaRunCredits` sigue derivando la
+ * reserva del PLAN de ramas (2/4/6) y no del hueco: con hueco 1 una rama puede
+ * necesitar dos páginas igual. El hueco gobierna cuántas empresas se ACEPTAN, no
+ * cuánto se reserva (CUT-9 § 11).
  *
  * 🔴 Esta constante es el ÚNICO sitio donde el valor vivo se decide. Existe para
  * que el ratchet de cableado pueda leer el mismo valor que produce producción en
  * vez de una copia escrita a mano que podría quedarse atrás.
+ *
+ * 🔴 La rama todo-o-nada del runner compartido NO se borra: sigue siendo el
+ * comportamiento de cualquier ruta que pase `false`, y sus pruebas la invocan con
+ * el literal en vez de con esta constante.
  */
-export const LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED = false;
+export const LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED = true;

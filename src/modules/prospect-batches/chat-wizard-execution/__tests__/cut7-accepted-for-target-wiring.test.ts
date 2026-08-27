@@ -581,9 +581,32 @@ describe('CUT-7 §§ 0, 12, 13 · invariantes de entrada preservadas', () => {
     assert.equal(WIZARD_APOLLO_MAX_ROUNDS, 4);
   });
 
-  it('16.13/16.14 — Apollo parcial sigue `true`, Lusha pending-review sigue `false`', () => {
+  /**
+   * 🔴 REANCLADO por AGENT1-LOCAL-CUT9 § 17. La mitad Lusha de esta afirmación
+   * fijaba una decisión temporal que CUT-9 cambia; lo que CUT-7 promete es no
+   * TOCAR la superficie Lusha, y eso se ancla en que su valor sigue viviendo en su
+   * propia constante y no en una copia dentro del wizard.
+   */
+  it('16.13/16.14 — Apollo parcial sigue `true`; el de Lusha sigue siendo SUYO', () => {
     assert.equal(WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED, true);
-    assert.equal(LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED, false);
+    assert.equal(typeof LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED, 'boolean');
+    const apolloOwner = readFileSync(
+      path.resolve(
+        __dirname,
+        '../../../../..',
+        'src/modules/prospect-batches/chat-wizard-execution/wizard-apollo-executor.ts',
+      ),
+      'utf8',
+    );
+    // 🔴 Con los COMENTARIOS FUERA: el módulo la NOMBRA en su prosa.
+    const noComments = (src: string) =>
+      src
+        .replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .replace(/(^|[^:])\/\/.*$/gm, '$1');
+    assert.ok(
+      !noComments(apolloOwner).includes('LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED'),
+      '🔴 el wizard no puede leer ni copiar la constante de Lusha',
+    );
   });
 
   it('16.15 — la RESERVA no ve el hueco: el mismo importe con y sin aporte gratuito', async () => {

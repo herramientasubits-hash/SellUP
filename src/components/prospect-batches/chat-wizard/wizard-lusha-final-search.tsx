@@ -373,6 +373,21 @@ function PersistConfirmation({
 }) {
   const count = result.createdCandidatesCount;
   const creditsUsed = result.creditsChargedTotal ?? result.creditsCharged;
+  // ── AGENT1-LOCAL-CUT9 § 16 — el panel deja de contar sólo la mitad de pago ──
+  //
+  // 🔴 `createdCandidatesCount` es el UNIVERSO DURABLE de la ruta de PAGO. Con el
+  // hueco parcial activado (CUT-9 § 1) una corrida mixta deja también filas
+  // gratuitas en el MISMO lote, así que ese número solo subestima lo que la persona
+  // acaba de conseguir: 6 de pago sobre un lote de 10.
+  //
+  // 🔴 No se sustituye una cifra por otra ni se pinta el objetivo PEDIDO como si
+  // fuera lo producido. Se añaden las dos que el resultado ya trae resueltas por
+  // `resolveAcceptedForTarget` —la única aritmética de aceptación— y se dejan junto
+  // a las de la mitad de pago, que siguen siendo verdad sobre lo que Lusha rindió.
+  //
+  // Ausente ⇒ el panel no afirma ninguna cifra de aceptación, exactamente como
+  // antes de este corte.
+  const acceptance = result.acceptedForTarget ?? null;
   const shortBatch = result.batchId ? result.batchId.slice(0, 8) : '—';
   // Q3F-5BB.10A — show what Lusha actually reported, never a "/ máx N créditos"
   // promise. Credits and returned companies are read directly from the result.
@@ -412,6 +427,35 @@ function PersistConfirmation({
           value={String(count)}
           testId="wizard-lusha-persist-useful"
         />
+        {acceptance !== null ? (
+          <>
+            <DetailRow
+              label="Cuentan hacia tu objetivo"
+              /* 🔴 Aceptadas de TODA la corrida (gratis + pago) sobre el objetivo
+                 PEDIDO, nunca filas persistidas y nunca el objetivo solo. */
+              value={`${acceptance.acceptedForTargetTotal} de ${acceptance.requestedTarget}`}
+              testId="wizard-lusha-persist-accepted"
+            />
+            <DetailRow
+              label="Empresas guardadas en el lote"
+              /* 🔴 El universo durable del lote, gratuito incluido: se reporta
+                 JUNTO a lo aceptado, jamás en su lugar (CUT-7 § 10). */
+              value={String(acceptance.persistedTotalCandidates)}
+              testId="wizard-lusha-persist-durable-total"
+            />
+            <DetailRow
+              label="Faltan para el objetivo"
+              /* 🔴 «no se midió» y «se midió cero» son corridas distintas y el
+                 panel no puede pintarlas igual. */
+              value={
+                acceptance.paidAcceptanceMeasured
+                  ? String(acceptance.remainingTarget)
+                  : 'sin medir'
+              }
+              testId="wizard-lusha-persist-remaining"
+            />
+          </>
+        ) : null}
         <DetailRow
           label="Empresas devueltas por Lusha"
           value={resultsReturnedLabel}
