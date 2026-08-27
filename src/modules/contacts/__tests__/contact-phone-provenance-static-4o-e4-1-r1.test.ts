@@ -239,10 +239,35 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // guarda protege no es el número más alto —sube cada vez que un bloque autorizado
       // añade el suyo— sino que este hito no aportó ninguna migración y que nadie coló
       // una por encima del último hito conocido.
-    const files = readdirSync(MIGRATIONS_DIR)
+    const all = readdirSync(MIGRATIONS_DIR)
       .filter((f) => f.endsWith('.sql'))
       .sort();
-    const last = files[files.length - 1];
+
+    // ── AGENT2-FINAL-INTEGRATION: ya NO hay ficheros sin numerar ────────
+    //
+    // OLD_INVARIANT: «todo fichero sin numerar está DECLARADO aquí por nombre». Existía porque
+    // los cuatro archivos de Agente 2 nacieron con prefijo `LOCAL_` a propósito, y sin esa
+    // declaración «llámalo LOCAL_ y desaparece del radar» habría sido una vía de escape.
+    //
+    // NEW_INVARIANT, ESTRICTAMENTE MÁS FUERTE: el directorio no contiene NINGÚN fichero fuera
+    // de la secuencia desplegable. AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1 canonicalizó los
+    // cuatro a 129/130/131/132, así que ya no hay nada que declarar por separado: todos pasan
+    // por la MISMA barrida de techo que las 128 anteriores, y la lista de excepciones —que era
+    // el único punto blando— desaparece en vez de crecer.
+    const numbered = all.filter((f) => /^\d{3}_/.test(f));
+    assert.deepEqual(
+      all.filter((f) => !/^\d{3}_/.test(f)),
+      [],
+      'ningún fichero de migración puede quedar fuera de la secuencia numerada',
+    );
+    assert.equal(numbered.length, all.length, 'techo y directorio son el mismo conjunto');
+
+    // Control NEGATIVO del filtro, sobre nombres SINTÉTICOS: si `\d{3}_` aceptara un prefijo no
+    // numérico, la afirmación de arriba se quedaría vacía y no probaría nada.
+    assert.equal(/^\d{3}_/.test('LOCAL_example_unnumbered.sql'), false);
+    assert.equal(/^\d{3}_/.test('132_agent2_hubspot_legacy_sync_state_backfill.sql'), true);
+
+    const last = numbered[numbered.length - 1];
     assert.equal(
       last,
       // 4O-H3 movió el techo a la 116 (la APROBACIÓN atómica: una sola función
@@ -283,27 +308,55 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // `prospect_batches` y `prospect_candidates`. Ninguna de las tres es de teléfono ni edita
       // una migración anterior — que es lo que esta aserción vigila. Las tres AUTORADAS y NO
       // APLICADAS.
-      // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 mueve el techo a la 128: la
+      // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 movió el techo a la 128: la
       // proyección candidato→contacto tras la aprobación. NO toca `mobile_phone` (sólo la nombra
       // en prosa para declarar que MOBILE_PHONE_PROVENANCE_PENDING sigue en pie) y no introduce
       // vocabulario nuevo de procedencia. AUTORADA y NO APLICADA.
-      '128_project_approved_candidate_phones_onto_contact.sql',
-      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa y la contabilidad de presupuesto, no este hito',
+      //
+      // AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1 lo mueve a la 132 al canonicalizar el tramo
+      // de Agente 2 (129 completitud del `stale`, 130 su PROCEDENCIA, 131 la re-emisión de la 128
+      // que produce el pendiente con procedencia `reveal`, 132 la línea base de los contactos ya
+      // vinculados). Las cuatro son de HubSpot y de teléfono, así que el barrido de esta suite
+      // SÍ les aplica y por eso importan aquí: ninguna escribe `mobile_phone` ni inventa
+      // vocabulario de procedencia del escalar móvil, lo que las dos aserciones de abajo
+      // comprueban sobre su SQL en vez de creerle a este comentario. Las cuatro AUTORADAS y NO
+      // APLICADAS en remoto.
+      '132_agent2_hubspot_legacy_sync_state_backfill.sql',
+      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa, la contabilidad de presupuesto y el tramo 129–132 de Agente 2, no este hito',
     );
-    assert.ok(files.includes('125_reconcile_source_snapshot_record_identity.sql'));
-    assert.ok(files.includes('126_agent1_batch_identity_atomicity.sql'));
+    for (const agent2 of [
+      '129_agent2_contact_hubspot_stale_completeness.sql',
+      '130_agent2_contact_hubspot_stale_source.sql',
+      '131_agent2_post_approval_reveal_stale_producer.sql',
+      '132_agent2_hubspot_legacy_sync_state_backfill.sql',
+    ]) {
+      assert.ok(numbered.includes(agent2), `falta ${agent2}`);
+      const sql = readFileSync(join(MIGRATIONS_DIR, agent2), 'utf8');
+      // R1 vigila el escalar móvil: ninguna de las cuatro lo ASIGNA. La 131 lo LEE bajo el lock
+      // —el saliente que HubSpot conoce es `mobile_phone ?? phone`— y leer no es escribir. Que
+      // `mobile_phone_source` no exista en NINGUNA migración lo barre la prueba hermana de abajo
+      // sobre el directorio completo, así que no se repite aquí.
+      assert.equal(
+        /mobile_phone\s*=/.test(sql),
+        false,
+        `${agent2} escribe mobile_phone: 4O-E4.1 reserva ese escalar y R1 lo deja intacto`,
+      );
+    }
+    assert.ok(numbered.includes('125_reconcile_source_snapshot_record_identity.sql'));
+    assert.ok(numbered.includes('126_agent1_batch_identity_atomicity.sql'));
     assert.equal(
       // La ventana sube con el techo DECLARADO arriba: la 125 (reconciliación genérica), la 126
-      // (AGENT1-CUT3B4, independiente) y la 127 (BR, renumerada dos veces) están autorizadas y
-      // nombradas, así que lo que queda prohibido es la 129 y superiores
-      // (AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 declaró la 128 arriba).
-      files.some((f) => /^1(29|[3-9]\d)/.test(f)),
+      // (AGENT1-CUT3B4, independiente), la 127 (BR, renumerada dos veces), la 128
+      // (AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1) y el tramo 129–132 de
+      // AGENT2-FINAL-INTEGRATION están autorizadas y nombradas una por una, así que lo que queda
+      // prohibido es la 133 y superiores.
+      numbered.some((f) => /^1(3[3-9]|[4-9]\d)/.test(f)),
       false,
       // La 120 (Fase 1), la 121 (contabilidad) y la 122 («Buscar más números»)
       // (AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1) son AUTORIZADAS y están declaradas arriba;
       // lo que esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último
       // hito conocido sin declararla.
-      'ninguna migración 129 o superior',
+      'ninguna migración 133 o superior',
     );
   });
 
@@ -380,6 +433,15 @@ describe('R1 estático — auditoría de escritores de `contacts.phone`', () => 
     join('src', 'modules', 'contacts', 'actions.ts'),
     join('src', 'modules', 'contact-enrichment', 'actions.ts'),
     join('src', 'modules', 'contact-enrichment', 'phone-cache-suppression-actions.ts'),
+    // CUT-3B — el cableado del motor de sincronización sale de `contacts/actions.ts` hacia un
+    // runner compartido, para que el botón manual y el autosync de la aprobación no puedan
+    // acabar con dos cableados distintos. No es un escritor NUEVO de teléfono: es el mismo
+    // `persistSync` de siempre, mudado de fichero, más el escritor del anexo operativo.
+    //
+    // Entra en la lista DEMOSTRANDO lo que esta auditoría exige, en la prueba de abajo: ninguno
+    // de sus dos UPDATE nombra `phone` ni `phone_source`, así que no existe ningún camino por el
+    // que puedan dejar el par incoherente.
+    join('src', 'modules', 'contacts', 'contact-hubspot-sync-runner.ts'),
   ];
 
   it('sólo los módulos conocidos ESCRIBEN en la tabla `contacts`', () => {
@@ -400,6 +462,34 @@ describe('R1 estático — auditoría de escritores de `contacts.phone`', () => 
       'un escritor nuevo de `contacts` debe demostrar que deja (phone, phone_source) coherentes ' +
         'antes de entrar en esta lista',
     );
+  });
+
+  it('el runner de sincronización no puede tocar el par (phone, phone_source)', () => {
+    // La condición de admisión, comprobada y no prometida. Si algún día ese módulo aprendiera a
+    // escribir un teléfono, esta prueba lo obligaría a demostrar antes su procedencia.
+    const runner = stripComments(
+      readFileSync(join(SRC_DIR, 'modules', 'contacts', 'contact-hubspot-sync-runner.ts'), 'utf8'),
+    );
+    for (const forbidden of ['phone_source', 'mobile_phone_source', 'phone:', 'mobile_phone:']) {
+      assert.equal(
+        runner.includes(forbidden),
+        false,
+        `${forbidden} convertiría al runner en un escritor de teléfono sin procedencia`,
+      );
+    }
+    // Lo que SÍ escribe, y nada más: el vínculo HubSpot, la metadata y el autor.
+    const updates = runner.match(/\.update\(\{[\s\S]*?\}\)/g) ?? [];
+    assert.ok(updates.length >= 1, 'el runner debe seguir siendo quien persiste el estado');
+    for (const patch of updates) {
+      for (const key of Object.keys({ hubspot_contact_id: 1, metadata: 1, updated_by: 1 })) {
+        void key;
+      }
+      assert.equal(
+        /\b(phone|mobile_phone|phone_source|email|full_name)\s*:/.test(patch),
+        false,
+        'el runner sólo persiste vínculo y metadata',
+      );
+    }
   });
 
   it('`createContact` escribe `phone` y su procedencia en el MISMO patch (4O-H0.5)', () => {

@@ -109,6 +109,27 @@ const EXPECTED_MOBILE_PHONE_FILES: Record<string, string> = {
   'components/contacts/edit-contact-drawer.tsx': 'ESCRITOR MANUAL — formulario «Celular»',
   'modules/contacts/actions.ts': 'ESCRITOR — createContact / updateContact (manual)',
   'modules/contacts/contact-hubspot-sync-core.ts': 'lectura — sync saliente a HubSpot',
+  // CUT-2: `resolveOutboundHubSpotPhone` decide QUÉ teléfono viaja a HubSpot y, con la misma
+  // regla, si un cambio local dejó la ficha desactualizada. LEE la columna; no la escribe, no
+  // le asigna procedencia y no participa de la erasure.
+  'modules/contacts/contact-hubspot-sync-state.ts': 'lectura — teléfono saliente hacia HubSpot',
+  // CUT-3A: la supresión de privacidad LEE la columna para saber si borrar `phone` cambia el
+  // teléfono SALIENTE hacia HubSpot (`mobile_phone ?? phone`). Sin esa lectura marcaría
+  // desactualizado un contacto cuyo saliente no se movió —o, peor, callaría uno que sí—. Sigue
+  // FUERA del patch de borrado: leerla no le crea procedencia, y el principio de E4.1
+  // —NO PROVENANCE → NO DESTRUCTIVE ERASURE— es sobre ESCRIBIRLA.
+  // El CORE no aparece aquí, y es deliberado: nombra la columna a través de
+  // `toHubSpotPhoneSource`, así que la prohibición LITERAL sobre el subsistema de erasure sigue
+  // intacta. Sólo el lector de la fila la escribe, y sólo dentro del `select`.
+  'modules/contact-enrichment/phone-cache-suppression-actions.ts':
+    'lectura — la columna entra en el SELECT del plan, nunca en el patch',
+  // CUT-3B: el cableado del motor sale de `contacts/actions.ts` hacia un runner compartido para
+  // que el botón manual y el autosync de la aprobación no tengan dos cableados distintos. La
+  // columna aparece EXACTAMENTE una vez, dentro de la lista de columnas del `select` — la misma
+  // que ya estaba en actions.ts—, y jamás en un patch: el UPDATE del runner sólo escribe
+  // `hubspot_contact_id`, `metadata` y `updated_by`. Leerla no le crea procedencia.
+  'modules/contacts/contact-hubspot-sync-runner.ts':
+    'lectura — la columna entra en el SELECT del contacto, nunca en el patch',
   'modules/contacts/contact-traceability.ts': 'etiqueta de UI',
   'modules/contacts/types.ts': 'tipo de la fila',
   'server/agents/contact-enrichment-toolkit/existing-contacts-reader.ts':
@@ -137,6 +158,20 @@ function listSourceFiles(dir: string, acc: string[] = []): string[] {
 }
 
 describe('4O-E4.1 estático — la auditoría de escritores de mobile_phone', () => {
+  it('CUT-3B — el runner de sincronización LEE la columna y no puede escribirla', () => {
+    const runner = stripComments(
+      readFileSync(join(SRC_DIR, 'modules/contacts/contact-hubspot-sync-runner.ts'), 'utf8'),
+    );
+    // Una sola aparición, y dentro de la lista de columnas del SELECT.
+    assert.equal((runner.match(/mobile_phone/g) ?? []).length, 1);
+    assert.match(runner, /select\('id, account_id[^']*mobile_phone[^']*'\)|mobile_phone[^']*'/);
+    // Y ningún patch la nombra.
+    for (const patch of runner.match(/\.update\(\{[\s\S]*?\}\)/g) ?? []) {
+      assert.equal(patch.includes('mobile_phone'), false);
+      assert.equal(patch.includes('phone'), false);
+    }
+  });
+
   const filesMentioningMobilePhone = () =>
     listSourceFiles(SRC_DIR)
       .filter((file) => stripComments(readFileSync(file, 'utf8')).includes('mobile_phone'))
@@ -214,16 +249,28 @@ describe('4O-E4.1 estático — la auditoría de escritores de mobile_phone', ()
         proseOnly.push(file);
         continue;
       }
+      // CUT-3A afina el filtro, y hacia ARRIBA. Antes: «sólo la 039 puede nombrarla en SQL
+      // estructural». Pero calcular el teléfono SALIENTE (`mobile_phone ?? phone`) obliga a
+      // LEERLA, y prohibir la lectura habría hecho imposible saber si un borrado cambia algo
+      // para HubSpot — es decir, habría defendido el `synced` falso. Lo que E4.1 protege es que
+      // nadie la ESCRIBA sin procedencia, así que eso es lo que se prohíbe, en cualquier
+      // migración y sin excepciones.
       assert.equal(
-        file,
-        '039_create_contacts_foundation.sql',
-        `${file} no debe tocar mobile_phone`,
-      );
-      assert.equal(
-        /UPDATE\s+[^;]*mobile_phone|SET\s+mobile_phone/i.test(sql),
+        /(?:SET|,)\s*mobile_phone\s*=/i.test(structuralSql(sql)),
         false,
-        'la 039 sólo DECLARA la columna; ninguna migración la puebla',
+        `${file} no puede ESCRIBIR mobile_phone: la columna no tiene procedencia`,
       );
+      assert.equal(
+        /INSERT\s+INTO\s+public\.contacts\s*\([^)]*mobile_phone/i.test(structuralSql(sql)),
+        false,
+        `${file} no puede poblar mobile_phone en un INSERT`,
+      );
+      // La 039 sigue siendo la ÚNICA que la DECLARA.
+      // Anclado a principio de línea: una DECLARACIÓN de columna empieza la línea, mientras
+      // que un PARÁMETRO de función se llama `p_mobile_phone` y nunca la empieza.
+      if (/^\s*mobile_phone\s+TEXT\b|ADD COLUMN[^;]*\bmobile_phone\b/im.test(structuralSql(sql))) {
+        assert.equal(file, '039_create_contacts_foundation.sql');
+      }
     }
     assert.deepEqual(
       proseOnly.sort(),
@@ -243,6 +290,12 @@ describe('4O-E4.1 estático — la auditoría de escritores de mobile_phone', ()
         // está en el UPDATE del escalar heredado y que MOBILE_PHONE_PROVENANCE_PENDING sigue
         // abierta. Nombrarla para prometer que no se toca es lo contrario de tocarla.
         '128_project_approved_candidate_phones_onto_contact.sql',
+        // AGENT2-HUBSPOT-LEGACY-SYNC-STATE-BACKFILL-FINAL la nombra por la MISMA razón, y en
+        // prosa dos veces: su cabecera declara que el backfill «NO escribe `contacts.phone` ni
+        // `contacts.mobile_phone`. Ni siquiera las lee», y el `COMMENT ON FUNCTION` lo repite.
+        // Es literalmente la única migración de esta lista que ni siquiera la LEE —CUT-3A y
+        // CUT-3C sí, para calcular el saliente— y por eso su mención es enteramente prosa.
+        '132_agent2_hubspot_legacy_sync_state_backfill.sql',
       ],
       'las únicas migraciones que pueden NOMBRAR mobile_phone sin tocarla son la 115 (4O-H2), la 116 (4O-H3) y la 117 (4O-H3-B), que documentan que no la tocan',
     );
@@ -258,13 +311,27 @@ describe('4O-E4.1 estático — la supresión no menciona mobile_phone en códig
     ['core', CORE],
     ['actions', ACTIONS],
   ] as const) {
-    it(`${label}: cero apariciones de mobile_phone fuera de los comentarios`, () => {
+    it(`${label}: cero ESCRITURAS de mobile_phone fuera de los comentarios`, () => {
+      // ⚠️ AFINADO POR CUT-3A. Antes se prohibía cualquier aparición; ahora se prohíbe la
+      // ESCRITURA, que es lo que el principio de E4.1 protege. La lectura entró para decidir
+      // si borrar `phone` cambia el teléfono saliente hacia HubSpot, y prohibirla habría
+      // impedido corregir un `synced` falso — una guarda que fija el valor defectuoso bloquea
+      // su corrección.
       const code = stripComments(read(...rel));
+      // Ni en un patch (`mobile_phone: …`), ni en un predicado de UPDATE, ni asignada.
       assert.equal(
-        /mobile_phone/.test(code),
+        /(?:^|[^.\w])mobile_phone\s*[:=](?!=)/m.test(code),
         false,
         'la columna no puede volver al patch ni al predicado sin un modelo de procedencia',
       );
+      assert.equal(
+        /\.eq\('mobile_phone'|'mobile_phone':/.test(code),
+        false,
+        'tampoco como predicado ni como clave de patch',
+      );
+      // En negativo: la guarda SÍ detecta una escritura real.
+      assert.equal(/(?:^|[^.\w])mobile_phone\s*[:=](?!=)/m.test('  mobile_phone: null,'), true);
+      assert.equal(/(?:^|[^.\w])mobile_phone\s*[:=](?!=)/m.test('payload.mobile_phone = x'), false);
     });
   }
 
@@ -278,13 +345,23 @@ describe('4O-E4.1 estático — la supresión no menciona mobile_phone en códig
     }
   });
 
-  it('la fábrica del patch no recibe la procedencia (no hay de dónde colgar columnas)', () => {
+  it('la fábrica del patch no recibe la PROCEDENCIA (no hay de dónde colgar columnas)', () => {
+    // Lo que esta guarda impide es que la fábrica reciba `observedPhoneSource`: un parámetro
+    // cuyo único uso sería decidir COLUMNAS volvería a invitar a extender la procedencia de
+    // `phone` a otras. CUT-3A le pasa la FILA leída y el reloj —ni una ni otro deciden qué
+    // columnas se nulan: las siete son siempre las mismas— así que la firma cambia y la
+    // prohibición no.
     const core = read(...CORE);
-    assert.match(
-      core,
-      /export function buildContactPhoneSuppressionPatch\(\): ContactPhoneSuppressionPatch \{/,
+    const signature = core.match(
+      /export function buildContactPhoneSuppressionPatch\(([\s\S]*?)\): ContactPhoneSuppressionPatch \{/,
     );
-    assert.match(core, /patch: buildContactPhoneSuppressionPatch\(\),/);
+    assert.ok(signature, 'la fábrica debe seguir existiendo y seguir siendo la única');
+    assert.equal(
+      /observedPhoneSource|phoneSource|procedencia:/.test(signature[1]),
+      false,
+      'la fábrica no puede recibir la procedencia observada',
+    );
+    assert.match(core, /patch: buildContactPhoneSuppressionPatch\(contact, context\.nowIso\),/);
   });
 
   it('el patch declara EXACTAMENTE las 7 columnas de la tupla de phone', () => {
@@ -306,7 +383,7 @@ describe('4O-E4.1 estático — la supresión no menciona mobile_phone en códig
   it('la erasure de `phone` NO se degrada: la tupla sigue nulándose entera', () => {
     const core = read(...CORE);
     const factory = core.match(
-      /export function buildContactPhoneSuppressionPatch\(\)[\s\S]*?\n\}/,
+      /export function buildContactPhoneSuppressionPatch\([\s\S]*?\n\}/,
     );
     assert.ok(factory);
     for (const column of [
@@ -355,7 +432,10 @@ describe('4O-E4.1 estático — el writer sigue siendo condicional', () => {
   it('el core sigue emitiendo la procedencia observada con cada patch', () => {
     const core = read(...CORE);
     assert.match(core, /observedPhoneSource: string;/);
-    assert.match(core, /observedPhoneSource,\n\s*patch: buildContactPhoneSuppressionPatch\(\),/);
+    assert.match(
+      core,
+      /observedPhoneSource,\n[\s\S]{0,600}?patch: buildContactPhoneSuppressionPatch\(contact, context\.nowIso\),/,
+    );
   });
 });
 
@@ -410,8 +490,13 @@ describe('4O-E4.1 estático — alcance', () => {
       // tocarla: un comentario del paso 10 y su `COMMENT ON FUNCTION` declaran que la columna no
       // está en el UPDATE y que MOBILE_PHONE_PROVENANCE_PENDING sigue en pie. Por eso aparece en
       // la lista `proseOnly` de arriba y no entre los escritores. AUTORADA y NO APLICADA.
-      128,
-      'la 128 (la proyección post-aprobación) es la última',
+      // AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1 mueve el techo a la 132: el tramo 129–132 de
+      // la cadena de HubSpot de Agente 2. Ninguna de las cuatro ASIGNA `mobile_phone` —la 131 lo
+      // LEE bajo el lock para calcular el saliente, y leer no es escribir— ni introduce
+      // procedencia del escalar móvil, que es lo que esta guarda vigila. La lista exacta de
+      // migraciones que pueden NOMBRARLO se declara arriba, archivo por archivo.
+      132,
+      'la 132 (la línea base del estado de HubSpot) es la última',
     );
   });
 
@@ -457,10 +542,22 @@ describe('4O-E4.1 estático — alcance', () => {
     assert.deepEqual(creators, ['114_official_contact_phones.sql']);
   });
 
-  it('E4.1 no toca la UI ni HubSpot en código', () => {
+  it('E4.1 no toca la UI ni LLAMA a HubSpot en código', () => {
+    // ⚠️ AFINADO POR CUT-3A, igual que su hermana de 4O-H2 y por la misma razón: prohibir la
+    // SUBCADENA impedía escribir la marca local que evita un `synced` falso. Lo prohibido es
+    // llamar: cliente, endpoint o `fetch`.
     for (const rel of [CORE, ACTIONS]) {
       const code = stripComments(read(...rel));
-      assert.equal(/hubspot/i.test(code), false, 'E4.1 no escribe ni lee HubSpot');
+      for (const forbidden of [
+        'api.hubapi.com',
+        'hubspot-contact-sync',
+        'integrations/hubspot',
+        'updateHubSpotContact',
+        'createHubSpotContact',
+        'fetch(',
+      ]) {
+        assert.equal(code.includes(forbidden), false, `E4.1 no puede contener ${forbidden}`);
+      }
     }
     // La UI mantiene su lectura `mobile_phone ?? phone`: preservar la columna implica
     // que un valor manual siga visible, y eso NO se compensa ocultándolo (§13).

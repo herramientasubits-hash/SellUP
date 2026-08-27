@@ -73,6 +73,11 @@ import {
   normalizePhoneCacheCountryCode,
 } from './phone-cache-core';
 import type { ContactCandidateEnrichmentMetadata } from './types';
+import {
+  HUBSPOT_SYNC_STALE_SOURCES,
+  markContactHubSpotSyncStaleForPhoneChange,
+  toHubSpotPhoneSource,
+} from '@/modules/contacts/contact-hubspot-sync-state';
 
 // ── Roles autorizados ──────────────────────────────────────────
 
@@ -318,6 +323,16 @@ export interface ContactPhoneSuppressionPatch {
   phone_revealed_at: null;
   phone_processing_basis: null;
   phone_confidence: null;
+  /**
+   * CUT-3A — la metadata con el estado HubSpot ya marcado `stale` / `phone_removed`, presente
+   * SÓLO cuando este borrado cambia lo que HubSpot recibiría de un contacto vinculado.
+   *
+   * Viaja DENTRO del mismo patch, y eso es la mitad del hito: una segunda escritura dejaría
+   * una ventana con el teléfono ya borrado y la ficha diciendo `synced`, que es exactamente la
+   * afirmación falsa que este corte existe para eliminar. Marcar NO llama a HubSpot — la
+   * supresión de privacidad no exporta nada, ni siquiera para corregirse.
+   */
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -333,8 +348,20 @@ export interface ContactPhoneSuppressionPatch {
  * predicado del UPDATE (`.eq('phone_source', …)`), que es otra cosa: allí evita que
  * una escritura stale caiga sobre una fila que ya cambió de manos.
  */
-export function buildContactPhoneSuppressionPatch(): ContactPhoneSuppressionPatch {
-  return {
+export function buildContactPhoneSuppressionPatch(
+  /**
+   * CUT-3A — el contacto tal como se LEYÓ, para decidir si este borrado deja a HubSpot
+   * desactualizado. Opcional a propósito: el patch de borrado no depende de él y sigue siendo
+   * el mismo objeto de siempre cuando no se pasa. Lo que decide se decide en la autoridad
+   * central, nunca aquí.
+   */
+  contact?: Pick<
+    SuppressibleContact,
+    'phone' | 'mobilePhone' | 'hubspotContactId' | 'metadata'
+  >,
+  nowIso?: string,
+): ContactPhoneSuppressionPatch {
+  const patch: ContactPhoneSuppressionPatch = {
     phone: null,
     phone_type: null,
     phone_source: null,
@@ -343,6 +370,30 @@ export function buildContactPhoneSuppressionPatch(): ContactPhoneSuppressionPatc
     phone_processing_basis: null,
     phone_confidence: null,
   };
+  if (!contact || !nowIso) return patch;
+
+  // El estado DESPUÉS de este borrado: `phone` a `null` y `mobile_phone` intacta, porque el
+  // patch no la toca (4O-E4.1). Si `mobile_phone` tapaba a `phone`, el saliente no cambia y la
+  // autoridad no marca nada — que es lo correcto: HubSpot sigue viendo el mismo número.
+  // El celular se pasa TAL CUAL a los dos lados: este patch no lo toca, así que el «después»
+  // lo conserva. La columna se nombra a través del constructor y no aquí, para que la guarda
+  // de 4O-E4.1 pueda seguir prohibiendo literalmente que este subsistema la escriba.
+  const decision = markContactHubSpotSyncStaleForPhoneChange({
+    metadata: contact.metadata ?? null,
+    hubspotContactId: contact.hubspotContactId ?? null,
+    previous: toHubSpotPhoneSource(contact.phone, contact.mobilePhone),
+    next: toHubSpotPhoneSource(null, contact.mobilePhone),
+    nowIso,
+    // CUT-3C — `privacy` es el causante que NUNCA se auto-exporta, y este es el único sitio de
+    // TypeScript que lo escribe. No es un dato descriptivo: es la prohibición, guardada junto al
+    // hecho. Marcar sigue siendo todo lo que la erasure hace —no llama a HubSpot, no puede— y
+    // ahora además deja escrito que nadie más debe llamarlo por ella. Una DSAR no empuja datos
+    // a un tercero para corregir a ese tercero, ni siquiera para borrarlos: eso exige una
+    // decisión humana explícita, que es el botón manual.
+    source: HUBSPOT_SYNC_STALE_SOURCES.privacy,
+  });
+  if (decision.marked) patch.metadata = decision.metadata;
+  return patch;
 }
 
 // ── Proyecciones mínimas de entrada ────────────────────────────
@@ -412,6 +463,19 @@ export interface SuppressibleContact {
    * `null` sobreviven siempre.
    */
   phoneSource: string | null;
+  /**
+   * AGENT2-CONTACT-HUBSPOT-STALE-COMPLETENESS-CUT3A — lo que hace falta para saber si este
+   * borrado deja a HubSpot con un teléfono que SellUp ya no tiene.
+   *
+   * Se leen y NO se escriben. `mobilePhone` en particular: entra aquí porque el saliente es
+   * `mobile_phone ?? phone` y sin ella el plan no puede saber si borrar `phone` cambia algo
+   * de lo que HubSpot ve. Leerla no la pone en alcance del borrado —
+   * `MOBILE_PHONE_PROVENANCE_PENDING` sigue abierto y el patch sigue sin nombrarla.
+   */
+  phone?: string | null;
+  mobilePhone?: string | null;
+  hubspotContactId?: string | null;
+  metadata?: Record<string, unknown> | null;
 }
 
 // ── Fuerza del vínculo candidato → contacto (FIX 1) ────────────
@@ -729,7 +793,10 @@ export function buildPhoneCacheSuppressionPlan(
       contactId: contact.id,
       linkStrength: strength,
       observedPhoneSource,
-      patch: buildContactPhoneSuppressionPatch(),
+      // CUT-3A: el patch lleva además el estado HubSpot marcado cuando este borrado cambia lo
+      // que HubSpot recibiría. Marcar es un hecho LOCAL: no se llama al proveedor desde una
+      // supresión de privacidad ni para corregir al proveedor.
+      patch: buildContactPhoneSuppressionPatch(contact, context.nowIso),
     });
   }
 

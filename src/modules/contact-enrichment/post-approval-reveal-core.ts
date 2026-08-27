@@ -23,6 +23,14 @@
 // superficie del reveal divergiendo según quién la lea.
 import type { RevealCandidatePhoneStatus } from './phone-reveal-core';
 
+// FINAL CUT — el informe de la SEGUNDA fase, importado SÓLO como tipo. `import type` se borra en
+// la compilación, así que este módulo sigue sin una sola arista de runtime hacia el subsistema de
+// HubSpot: no puede construir un PATCH, no puede leer una conexión y no puede alcanzar la red.
+// Se importa en vez de copiarse porque una segunda copia del vocabulario de desenlaces sería la
+// misma superficie contada de dos maneras según quién la lea — que es el defecto que CUT-3C
+// cerró para `stale_source`.
+import type { ContactAutoPhoneUpdateReport } from '@/modules/contacts/contact-hubspot-auto-phone-update-core';
+
 /** Nombre de la función de la migración 128. Un solo sitio lo nombra. */
 export const PROJECT_APPROVED_CANDIDATE_PHONES_FN =
   'project_approved_candidate_phones_onto_contact' as const;
@@ -261,6 +269,80 @@ export type ProjectApprovedCandidatePhonesStatus =
 
 export type ProjectedScalarFallbackOutcome = 'promoted' | 'unrepresentable' | 'absent';
 
+/**
+ * FINAL CUT — el veredicto que la autoridad de CUT-3A/CUT-3C devuelve DENTRO de la transacción de
+ * la proyección, tal cual, sin re-mapear. Vocabulario CERRADO.
+ *
+ * Se llama `hubspot_sync_transition` en el sobre y viaja aquí por una razón mecánica y no
+ * informativa: es lo ÚNICO que decide si la SEGUNDA fase —el PATCH— corre. Sin él, la aplicación
+ * tendría que volver a preguntarse «¿cambió el teléfono saliente?» contra una fila releída y un
+ * «antes» que ya no existe, produciendo un segundo veredicto capaz de contradecir al primero.
+ *
+ * `not_evaluated` NO es un relleno: describe todo camino que devolvió antes del paso 10 de la
+ * proyección, donde la comparación literalmente no se hizo.
+ */
+export type ProjectionHubSpotSyncTransition =
+  /** Se marcó `stale` con su hora y su procedencia: HubSpot está desactualizado desde ahora. */
+  | 'marked'
+  /** Ya había pendiente y la OPERACIÓN que falta cambió. Sigue habiendo algo que enviar. */
+  | 'reason_corrected'
+  /** Ya había pendiente, la operación es la misma y cambió QUIÉN la causa. */
+  | 'source_corrected'
+  /** Ya había pendiente y sigue describiendo exactamente lo mismo: no se escribió ni un campo. */
+  | 'already_pending'
+  /** La fila no tiene vínculo: no hay nada en HubSpot que pueda estar desactualizado. */
+  | 'not_linked'
+  /** No hay estado durable legible. Territorio de REPARACIÓN (CUT-1), no de `stale`. */
+  | 'no_durable_state'
+  /** El saliente (`mobile_phone ?? phone`) no se movió. El caso NORMAL de una re-proyección. */
+  | 'no_outbound_change'
+  /** El contacto nunca llegó a estar `synced`: no puede quedar «desactualizado». */
+  | 'not_previously_synced'
+  | 'contact_not_found'
+  | 'invalid_source'
+  | 'invalid_input'
+  /** La proyección devolvió antes del paso 10: la comparación no se hizo. */
+  | 'not_evaluated';
+
+const PROJECTION_HUBSPOT_TRANSITIONS: readonly ProjectionHubSpotSyncTransition[] = [
+  'marked',
+  'reason_corrected',
+  'source_corrected',
+  'already_pending',
+  'not_linked',
+  'no_durable_state',
+  'no_outbound_change',
+  'not_previously_synced',
+  'contact_not_found',
+  'invalid_source',
+  'invalid_input',
+  'not_evaluated',
+];
+
+/**
+ * ¿Dejó ESTA proyección un pendiente NUEVO o con otra instrucción?
+ *
+ * LA puerta de la segunda fase, y la única. Enumera en POSITIVO los tres veredictos que son una
+ * transición real, para que un miembro futuro sin clasificar quede fuera por omisión en vez de
+ * dentro por descuido.
+ *
+ * `already_pending` queda FUERA a propósito, y es lo que hace idempotente a la fase 2: un
+ * pendiente que ya describía la misma operación no es un hecho nuevo, así que una reconciliación
+ * repetida —la ficha la llama al abrirse y mientras espera— no puede convertirse en un segundo
+ * PATCH. Y `no_outbound_change` queda fuera por lo mismo, que es el caso normal de esa ficha
+ * abriéndose: sin él, abrir un contacto con un pendiente ajeno de `user_edit` lo enviaría al CRM
+ * sin que nadie hubiera tocado un teléfono.
+ */
+export function didProjectionLeaveHubSpotPendingChange(
+  transition: ProjectionHubSpotSyncTransition,
+): boolean {
+  return (
+    transition === 'marked' ||
+    transition === 'reason_corrected' ||
+    transition === 'source_corrected'
+  );
+}
+
 export interface ProjectApprovedCandidatePhonesOutcome {
   readonly status: ProjectApprovedCandidatePhonesStatus;
   readonly detail: string | null;
@@ -277,6 +359,8 @@ export interface ProjectApprovedCandidatePhonesOutcome {
   readonly primaryElectedNow: boolean;
   readonly scalarSynced: boolean;
   readonly scalarFallback: ProjectedScalarFallbackOutcome;
+  /** FINAL CUT — veredicto de la transición durable de HubSpot, decidido en la MISMA transacción. */
+  readonly hubspotSyncTransition: ProjectionHubSpotSyncTransition;
 }
 
 const PROJECT_STATUSES: readonly ProjectApprovedCandidatePhonesStatus[] = [
@@ -338,6 +422,18 @@ export function parseProjectApprovedCandidatePhonesEnvelope(
       ? (fallbackRaw as ProjectedScalarFallbackOutcome)
       : 'absent';
 
+  // FINAL CUT — un veredicto irreconocible o ausente se lee como `not_evaluated`, que es
+  // fail-closed hacia «no corras la fase 2». La alternativa —LANZAR, como con `status`— convertiría
+  // una proyección YA COMMITEADA en un fallo reportado, y el llamador diría «el teléfono no está en
+  // el contacto» sobre un número que sí está. El `status` sí lanza porque de él depende afirmar que
+  // hubo proyección; de éste sólo depende si además hay que salir a la red.
+  const transitionRaw = row.hubspot_sync_transition;
+  const hubspotSyncTransition =
+    typeof transitionRaw === 'string' &&
+    PROJECTION_HUBSPOT_TRANSITIONS.includes(transitionRaw as ProjectionHubSpotSyncTransition)
+      ? (transitionRaw as ProjectionHubSpotSyncTransition)
+      : 'not_evaluated';
+
   return {
     status: status as ProjectApprovedCandidatePhonesStatus,
     detail: asText(row.detail),
@@ -353,6 +449,7 @@ export function parseProjectApprovedCandidatePhonesEnvelope(
     primaryElectedNow: row.primary_elected_now === true,
     scalarSynced: row.scalar_synced === true,
     scalarFallback,
+    hubspotSyncTransition,
   };
 }
 
@@ -403,4 +500,20 @@ export interface OfficialContactPhoneRevealStartResult {
   /** true SOLO cuando la proyección dejó el número en el contacto en esta misma llamada. */
   readonly phoneProjected: boolean;
   readonly errorCode: string | null;
+  /**
+   * FINAL CUT — qué hizo la proyección con el estado durable de HubSpot, DENTRO de su propia
+   * transacción. `null` cuando no hubo proyección en esta llamada (gate cerrado, o la RPC no se
+   * pudo ejecutar). Es un veredicto mecánico: no dice cuál es el número.
+   */
+  readonly hubspotSyncTransition: ProjectionHubSpotSyncTransition | null;
+  /**
+   * FINAL CUT — informe de la SEGUNDA fase, la que sí puede salir a la red, ejecutada DESPUÉS de
+   * que la proyección commiteara. `null` significa que no corrió: la bandera decide dentro del
+   * ejecutor, y esta capa sólo la invoca cuando la proyección dejó algo pendiente NUEVO.
+   *
+   * Su fallo NO se refleja en `ok`. `ok` describe la operación local —el número está o no está en
+   * el contacto—, y degradarla porque HubSpot no contestó haría que el operador volviera a
+   * comprar un teléfono que ya está guardado.
+   */
+  readonly hubspotAutoUpdate: ContactAutoPhoneUpdateReport | null;
 }

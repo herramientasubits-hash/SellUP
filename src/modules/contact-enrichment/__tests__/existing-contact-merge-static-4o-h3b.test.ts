@@ -62,6 +62,23 @@ const body116 = executableBody(migration116);
 /** Quita comentarios de línea y de bloque de una fuente TypeScript. */
 const stripTs = (source: string) => source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*/g, '');
 
+/**
+ * El cuerpo COMPLETO de la server action del merge, de su `export async function` al siguiente
+ * `export` de nivel superior.
+ *
+ * Reemplaza a un `slice(at, at + 6000)`: una ventana de tamaño fijo deja de cubrir la función en
+ * cuanto ésta crece, y entonces las prohibiciones pasan porque no MIRAN, no porque el código sea
+ * limpio. Es el mismo fallo silencioso que un cuerpo vacío, sólo más difícil de ver.
+ */
+function mergeActionBody(code: string): string {
+  const at = code.indexOf(
+    'export async function mergeContactCandidateIntoExistingContactAction',
+  );
+  if (at < 0) throw new Error('falta la server action del merge');
+  const next = code.indexOf('\nexport ', at + 1);
+  return code.slice(at, next < 0 ? code.length : next);
+}
+
 const count = (haystack: string, needle: RegExp) => haystack.match(needle)?.length ?? 0;
 
 // ═══════════════════════════════════════════════════════════════
@@ -283,20 +300,80 @@ describe('4O-H3-B — el cableado en TypeScript', () => {
     assert.equal(/roleKey|role_id|'admin'/.test(fn), false);
   });
 
+  // ══════════════════════════════════════════════════════════════
+  // AGENT2-POST-APPROVAL-REVEAL-STALE-PRODUCER-FINAL-CUT — guarda RE-AFILADA
+  // ══════════════════════════════════════════════════════════════
+  //
+  // OLD_ASSERTION: `la acción no llama a ningún proveedor ni escribe contabilidad` prohibía en el
+  // cuerpo de la server action del merge, todo junto: /apollo/i, /lusha/i, /hubspot/i, /reserv/i,
+  // /usage_log/i y /credit/i.
+  //
+  // WHY_OBSOLETE: sólo el término /hubspot/i. AGENT2-CUT-3C añadió DELIBERADAMENTE una SEGUNDA
+  // FASE post-COMMIT a esta misma acción — el PATCH automático del teléfono— y la guarda la leía
+  // como si fuera un camino de gasto. Los otros cinco términos siguen describiendo el invariante
+  // real y no se tocan: un proveedor y una reserva SÍ serían un gasto que esta acción no puede
+  // hacer. HubSpot no cuesta un crédito; lo que hay que gobernar de él es otra cosa.
+  //
+  // NEW_INVARIANT: la acción sigue sin poder GASTAR, y además su única forma de alcanzar HubSpot
+  // es el entrypoint único, UNA vez, DESPUÉS de que la RPC haya confirmado, y sin que su
+  // resultado pueda degradar el del merge.
   it('la acción no llama a ningún proveedor ni escribe contabilidad', () => {
     const code = stripTs(actions);
-    const at = code.indexOf('export async function mergeContactCandidateIntoExistingContactAction');
-    const fn = code.slice(at, at + 6000);
-    for (const forbidden of [
-      /apollo/i,
-      /lusha/i,
-      /hubspot/i,
-      /reserv/i,
-      /usage_log/i,
-      /credit/i,
-    ]) {
+    const fn = mergeActionBody(code);
+    for (const forbidden of [/apollo/i, /lusha/i, /reserv/i, /usage_log/i, /credit/i]) {
       assert.equal(forbidden.test(fn), false, `la acción no puede mencionar ${forbidden}`);
     }
+  });
+
+  it('control NEGATIVO: la extracción del cuerpo no devuelve una cáscara vacía', () => {
+    // Sin esto, un cuerpo mal extraído haría pasar TODAS las prohibiciones de arriba por vacío.
+    const fn = mergeActionBody(stripTs(actions));
+    assert.ok(fn.length > 1500, 'el cuerpo de la acción se extrajo entero');
+    assert.match(fn, /runMergeCandidateIntoExistingContact\(/);
+  });
+
+  it('la ÚNICA vía a HubSpot es el entrypoint único, y una sola vez', () => {
+    const fn = mergeActionBody(stripTs(actions));
+    // La superficie que construiría un PATCH propio sigue prohibida: una segunda implementación
+    // del envío es lo que un día borraría en el CRM un número que SellUp sí tiene.
+    for (const forbidden of [
+      'hubspot-contact-sync',
+      'contact-hubspot-sync-core',
+      'runSyncContactToHubSpot',
+      'updateHubSpotContact',
+      'buildContactHubSpotSyncDeps',
+      'writeHubSpotSyncState',
+      'HUBSPOT_CONTACT_AUTO_PHONE_UPDATE',
+    ]) {
+      assert.equal(fn.includes(forbidden), false, `la acción no puede nombrar ${forbidden}`);
+    }
+    // Cada mención de HubSpot en el cuerpo pertenece al entrypoint o a su informe.
+    const mentions = fn.split('\n').filter((line) => /hubspot/i.test(line));
+    const unexplained = mentions.filter(
+      (line) =>
+        !line.includes('runContactHubSpotAutoPhoneUpdateWired') &&
+        !line.includes('hubspotAutoPhoneUpdate'),
+    );
+    assert.deepEqual(unexplained, [], 'la acción nombra HubSpot fuera del entrypoint declarado');
+    assert.equal(
+      (fn.match(/runContactHubSpotAutoPhoneUpdateWired\(/g) ?? []).length,
+      1,
+      'un solo disparo: la fase 2 no puede correr dos veces por merge',
+    );
+  });
+
+  it('la fase 2 corre DESPUÉS del COMMIT y no puede degradar el merge', () => {
+    const fn = mergeActionBody(stripTs(actions));
+    const rpc = fn.indexOf('runMergeCandidateIntoExistingContact(');
+    const patch = fn.indexOf('runContactHubSpotAutoPhoneUpdateWired(');
+    assert.ok(rpc > -1 && patch > rpc, 'el PATCH no puede preceder a la RPC que lo justifica');
+
+    // Y entre las dos está la guarda que impide correr sobre un merge que no ocurrió. Su forma
+    // exacta importa: es lo que hace que un HubSpot caído NO convierta en fracaso un merge ya
+    // escrito, porque `result` se devuelve tal cual y `ok` nunca se reasigna.
+    const between = fn.slice(rpc, patch);
+    assert.match(between, /if \(!result\.ok \|\| !result\.contactId\) return result;/);
+    assert.equal(/result\.ok\s*=/.test(fn), false, '`ok` no se reasigna en ningún punto');
   });
 
   it('la auditoría del merge no lleva PII', () => {

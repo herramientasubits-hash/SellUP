@@ -933,12 +933,42 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
   // Lo que ESTA guarda protege no es el número más alto del directorio —sube cada vez que un
   // bloque autorizado añade el suyo— sino que este hito de catálogo no aportó migración y que
   // la 119 siga siendo el cutover y sólo eso, que es lo que se afirma justo abajo.
-  it('la última migración del repositorio es la 128, y el catálogo no aportó ninguna', () => {
+  it('la última migración del repositorio es la 132, y el catálogo no aportó ninguna', () => {
     const files = execSync('ls supabase/migrations', { cwd: ROOT, encoding: 'utf8' })
       .split('\n')
       .filter((f) => f.endsWith('.sql'))
       .sort();
-    const last = files[files.length - 1];
+    // ══════════════════════════════════════════════════════════
+    // AGENT2-FINAL-LOCAL-CLOSURE-MICROFIX — guarda RE-AFILADA
+    // ══════════════════════════════════════════════════════════
+    //
+    // OLD_ASSERTION: `files[files.length - 1]` sobre TODOS los `.sql`.
+    //
+    // WHY_OBSOLETE: «la última alfabéticamente» ≠ «la del número más alto». En ASCII los
+    // dígitos preceden a las mayúsculas, así que cualquier `LOCAL_…` cae DESPUÉS de `128_…`
+    // y se leía como si fuera el techo. Un fichero sin numerar podía así hacerse pasar por
+    // techo numérico —y a la inversa, subir el techo real quedaba tapado por él—. Prueba:
+    // `git ls-tree origin/main` da `128_…`, el árbol con las `LOCAL_` da `LOCAL_…`.
+    //
+    // NEW_INVARIANT: el techo se computa SÓLO sobre la secuencia desplegable (`^\d{3}_`),
+    // que es la misma semántica que ya usa la guarda hermana de 4O-H0.5.
+    //
+    // AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1 canonicalizó esos cuatro `LOCAL_` a
+    // 129/130/131/132, así que el directorio ya no contiene NINGÚN fichero fuera de la secuencia
+    // —lo que se afirma aquí en vez de suponerse— y el techo numérico pasa a la 132.
+    const numbered = files.filter((f) => /^\d{3}_/.test(f));
+    const last = numbered[numbered.length - 1];
+    assert.deepEqual(
+      files.filter((f) => !/^\d{3}_/.test(f)),
+      [],
+      'ningún fichero de migración puede quedar fuera de la secuencia numerada',
+    );
+
+    // Control NEGATIVO del filtro, sobre un nombre SINTÉTICO: si `^\d{3}_` aceptara un prefijo
+    // no numérico, el techo volvería a ser secuestrable por un fichero sin numerar y esta guarda
+    // no probaría nada.
+    assert.equal(/^\d{3}_/.test('LOCAL_example_unnumbered.sql'), false);
+    assert.equal(/^\d{3}_/.test('132_agent2_hubspot_legacy_sync_state_backfill.sql'), true);
     // Renumerada DOS VECES por BR-SOURCE CUT A.1: 125→126→127. El primer salto insertó una
     // migración 125 genérica (reconciliación de record_identity_key) por debajo. El segundo lo
     // forzó AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY, que reclamó el 126 de forma independiente:
@@ -952,7 +982,7 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
     // proyección de la colección de teléfonos de un candidato ya APROBADO al contacto que su
     // aprobación creó (Agente 2A). No es del catálogo, y el barrido de abajo lo comprueba sobre
     // su SQL. AUTORADA y NO APLICADA.
-    assert.match(last, /^128_/);
+    assert.match(last, /^132_/);
     // Y por encima de la 119 no hay NINGUNA migración de catálogo. Lo que se vigila
     // NO es el techo por sí mismo: es que ninguna migración posterior al cutover toque
     // las tablas del catálogo. Cada archivo nuevo entra a esta lista con su nombre y
@@ -964,7 +994,7 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
     //         `phone_reveal_waterfall_runs` y las dos tablas de la colección de teléfonos;
     //         no nombra ninguna tabla ni vista del catálogo, y el barrido de abajo es lo
     //         que lo comprueba archivo por archivo en vez de creerle a este comentario.
-    const aboveCatalog = files.filter((f) => Number.parseInt(f.slice(0, 3), 10) > 119);
+    const aboveCatalog = numbered.filter((f) => Number.parseInt(f.slice(0, 3), 10) > 119);
     //   123 — la memoria de qué empresa ya nos mostró un proveedor de PAGO (Agente 1,
     //         AGENT1-PROVIDER-SEEN-MEMORY-2). Crea `provider_seen_entities`, que sólo
     //         guarda identidad de EMPRESA —id nativo del proveedor y dominio normalizado—;
@@ -1010,6 +1040,23 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
       //         vista del catálogo de industrias, y el barrido de abajo lo comprueba sobre su SQL
       //         en vez de creerle a este comentario. Está AUTORADA y NO APLICADA.
       '128_project_approved_candidate_phones_onto_contact.sql',
+      //   129 — la COMPLETITUD del estado durable `stale` de HubSpot (Agente 2,
+      //         AGENT2-CONTACT-HUBSPOT-STALE-COMPLETENESS-CUT3A). Re-emite la 115 y la 117 para
+      //         que la ficha deje de decir `synced` cuando el teléfono saliente cambió.
+      //   130 — su PROCEDENCIA durable (AGENT2-CONTACT-HUBSPOT-AUTO-PHONE-UPDATE-CUT3C): un
+      //         `stale` de erasure y uno de edición manual dejan de ser indistinguibles.
+      //   131 — la 128 re-emitida para que la proyección post-aprobación PRODUZCA el pendiente
+      //         con procedencia `reveal` (AGENT2-POST-APPROVAL-REVEAL-STALE-PRODUCER-FINAL-CUT).
+      //   132 — la LÍNEA BASE de los contactos ya vinculados a HubSpot antes de que ese estado
+      //         existiera (AGENT2-HUBSPOT-LEGACY-SYNC-STATE-BACKFILL-FINAL). Su único UPDATE
+      //         escribe `contacts.metadata`.
+      //         Las cuatro son de HubSpot y de teléfono; ninguna nombra tabla ni vista del
+      //         catálogo de industrias, y el barrido de abajo lo comprueba archivo por archivo
+      //         sobre su SQL en vez de creerle a este comentario. AUTORADAS y NO APLICADAS.
+      '129_agent2_contact_hubspot_stale_completeness.sql',
+      '130_agent2_contact_hubspot_stale_source.sql',
+      '131_agent2_post_approval_reveal_stale_producer.sql',
+      '132_agent2_hubspot_legacy_sync_state_backfill.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);

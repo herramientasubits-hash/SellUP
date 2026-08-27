@@ -507,7 +507,10 @@ export async function suppressPhoneCacheEntryAction(
   if (linkedContactIds.length > 0) {
     const { data: contactRows, error: contactError } = await admin
       .from('contacts')
-      .select('id, account_id, phone_source, metadata')
+      // CUT-3A añade `phone, mobile_phone, hubspot_contact_id`: son LECTURAS, y `mobile_phone`
+      // sigue fuera del patch de borrado. Sin ellas el plan no puede saber si borrar `phone`
+      // cambia el saliente que HubSpot ve (`mobile_phone ?? phone`) ni si hay vínculo alguno.
+      .select('id, account_id, phone, mobile_phone, phone_source, hubspot_contact_id, metadata')
       .eq('account_id', tombstone.accountId)
       .in('id', linkedContactIds);
     if (contactError) {
@@ -533,6 +536,10 @@ export async function suppressPhoneCacheEntryAction(
           typeof sourceCandidateId === 'string' ? sourceCandidateId : null,
         mergedCandidateIds,
         phoneSource: (r.phone_source as string | null) ?? null,
+        phone: (r.phone as string | null) ?? null,
+        mobilePhone: (r.mobile_phone as string | null) ?? null,
+        hubspotContactId: (r.hubspot_contact_id as string | null) ?? null,
+        metadata,
       };
     });
   }

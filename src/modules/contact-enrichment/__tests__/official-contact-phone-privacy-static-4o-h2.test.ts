@@ -118,7 +118,7 @@ describe('115 — numeración', () => {
     assert.deepEqual(numbered, [MIGRATION_FILE]);
   });
 
-  it('127 es el número más alto del repo', () => {
+  it('132 es el número más alto del repo', () => {
     const numbers = readdirSync(migrationsDir)
       .filter((file) => /^\d{3}[_-].*\.sql$/.test(file))
       .map((file) => Number(file.slice(0, 3)));
@@ -158,7 +158,12 @@ describe('115 — numeración', () => {
     // columnas, índices, triggers ni policies nuevas; M128 únicamente crea/reemplaza una
     // función y sus permisos. Sin backfill: no crea contactos, no re-terminaliza
     // candidatos y no re-declara ninguna función anterior. AUTORADA y NO APLICADA.
-    assert.equal(Math.max(...numbers), 128);
+    // AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1 mueve el techo a la 132 al canonicalizar la
+    // cadena de HubSpot de Agente 2 (129/130/131/132). La 129 y la 130 re-emiten la 115 y la 117
+    // con `CREATE OR REPLACE`, y la 131 la 128: ninguna añade tabla, columna, constraint ni índice
+    // a `contact_phones` o `contact_phone_sources`, así que la 114 sigue siendo su única dueña —
+    // lo que el test siguiente exige archivo por archivo. La 132 no las nombra en absoluto.
+    assert.equal(Math.max(...numbers), 132);
   });
 
   it('declara NO estar aplicada en Producción', () => {
@@ -888,7 +893,20 @@ describe('4O-H2 — alcance', () => {
     'src/modules/contact-enrichment/phone-cache-suppression-actions.ts',
   ];
 
-  it('ni proveedores ni HubSpot en el camino de privacidad', () => {
+  it('ni proveedores ni LLAMADAS a HubSpot en el camino de privacidad', () => {
+    // ⚠️ AFINADO POR CUT-3A, y afinado hacia ARRIBA, no relajado.
+    //
+    // Hasta CUT-3A esta guarda prohibía la SUBCADENA `hubspot` en estos cuatro ficheros. Lo que
+    // protege de verdad —y lo único que puede protegerse aquí— es que una supresión de
+    // privacidad no EXPORTE nada: ni una petición, ni un cliente de proveedor, ni una salida a
+    // la red. CUT-3A necesita hacer justo lo contrario de exportar: dejar registrado que
+    // HubSpot conserva un teléfono que SellUp acaba de borrar, para que la ficha no siga
+    // diciendo `synced` sobre un dato que ya no existe aquí.
+    //
+    // Prohibir la palabra habría impedido escribir esa marca, es decir habría defendido el
+    // `synced` falso: una guarda que fija el valor defectuoso BLOQUEA su corrección. Así que la
+    // prohibición pasa a ser la que siempre quiso ser —cero red, cero cliente— y se añade
+    // debajo la comprobación POSITIVA de que la marca es local y pura.
     for (const path of h2Files) {
       const body = stripTsComments(read(...path.split('/')));
       for (const forbidden of [
@@ -896,8 +914,12 @@ describe('4O-H2 — alcance', () => {
         'apolloClient',
         'lushaClient',
         'revealPhone',
-        'hubspot',
-        'HubSpot',
+        'api.hubapi.com',
+        'hubspot-contact-sync',
+        'integrations/hubspot',
+        'updateHubSpotContact',
+        'createHubSpotContact',
+        'findHubSpotContactByEmail',
       ]) {
         assert.equal(
           body.includes(forbidden),
@@ -905,6 +927,26 @@ describe('4O-H2 — alcance', () => {
           `${path} no puede contener ${forbidden}`,
         );
       }
+    }
+  });
+
+  it('CUT-3A · lo único que el camino de privacidad sabe de HubSpot es marcar, en local', () => {
+    const core = stripTsComments(
+      read('src/modules/contact-enrichment/phone-cache-suppression-core.ts'),
+    );
+    // La marca existe y viene de LA autoridad compartida, no de una copia de la regla.
+    assert.match(core, /markContactHubSpotSyncStaleForPhoneChange,?\n/);
+    assert.match(core, /from '@\/modules\/contacts\/contact-hubspot-sync-state';/);
+    // Y esa autoridad es un módulo PURO: sin red, sin DB, sin cliente de proveedor.
+    const authority = stripTsComments(
+      read('src/modules/contacts/contact-hubspot-sync-state.ts'),
+    );
+    for (const forbidden of ['fetch(', 'import ', 'require(']) {
+      assert.equal(
+        authority.includes(forbidden),
+        false,
+        `la autoridad del estado no puede contener ${forbidden}`,
+      );
     }
   });
 

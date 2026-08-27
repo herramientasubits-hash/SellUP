@@ -1,4 +1,10 @@
 import type { Contact, ContactSource } from './types';
+import {
+  readHubSpotSyncBaselineSource,
+  readHubSpotSyncState,
+  resolveHubSpotSyncPresentation,
+  type HubSpotSyncPresentationTone,
+} from './contact-hubspot-sync-state';
 
 // ── ViewModel ────────────────────────────────────────────────────────────────
 
@@ -21,6 +27,11 @@ export interface ContactTraceabilityViewModel {
   normalizedFields: string[];
   // HubSpot (resumen)
   hubspotSyncLabel: string;
+  /**
+   * Tono del estado, decidido por la MISMA autoridad que el badge del drawer. Viaja en el
+   * ViewModel para que la tarjeta no vuelva a deducir del `hubspotContactId` si pinta verde.
+   */
+  hubspotSyncTone: HubSpotSyncPresentationTone;
   hubspotContactId: string | null;
   hubspotMode: string | null;
   hubspotAssociationStatus: string | null;
@@ -121,10 +132,23 @@ export function buildContactTraceabilityViewModel(
     : [];
 
   // ── HubSpot (resumen) ────────────────────────────────────────────────────
+  //
+  // BACKFILL LEGACY — hasta este corte la etiqueta se DEDUCÍA del vínculo: `hubspot_contact_id`
+  // presente ⇒ «Sincronizado con HubSpot». Esa deducción convierte la existencia de una ficha en
+  // HubSpot en una afirmación sobre la FRESCURA de los datos, que es justo lo que el vínculo no
+  // sabe: un contacto vinculado cuyo teléfono cambió después está desactualizado, y uno cuyo
+  // estado durable no existe ni siquiera participa en la detección de pendientes.
+  //
+  // Ahora la decide la ÚNICA autoridad del copy, la misma que el badge del drawer.
   const hubspotSync = asRecord(meta.hubspot_sync);
   const hubspotContactId = contact.hubspot_contact_id ?? null;
-  const isSynced = hubspotContactId !== null;
-  const hubspotSyncLabel = isSynced ? 'Sincronizado con HubSpot' : 'No sincronizado con HubSpot';
+  const presentation = resolveHubSpotSyncPresentation({
+    state: readHubSpotSyncState(meta),
+    baselineSource: readHubSpotSyncBaselineSource(meta),
+    hubspotContactId,
+  });
+  const hubspotSyncLabel = presentation.label;
+  const hubspotSyncTone = presentation.tone;
   const hubspotMode =
     typeof hubspotSync?.mode === 'string' ? hubspotSync.mode : null;
   const hubspotAssociationStatus =
@@ -144,6 +168,7 @@ export function buildContactTraceabilityViewModel(
     isNormalized,
     normalizedFields,
     hubspotSyncLabel,
+    hubspotSyncTone,
     hubspotContactId,
     hubspotMode,
     hubspotAssociationStatus,

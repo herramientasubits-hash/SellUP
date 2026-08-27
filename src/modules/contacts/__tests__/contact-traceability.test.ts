@@ -129,31 +129,90 @@ describe('buildContactTraceabilityViewModel', () => {
 
   // ── HubSpot ────────────────────────────────────────────────────────────────
 
-  it('10. hubspot_sync con hubspot_contact_id → "Sincronizado con HubSpot"', () => {
+  // ── BACKFILL LEGACY — estas tres pruebas AFIRMABAN el defecto ──────────────
+  //
+  // Decían que un `hubspot_contact_id` presente basta para etiquetar «Sincronizado con HubSpot».
+  // No basta: el vínculo dice que existe una ficha en HubSpot, no que sus datos estén al día, y
+  // un contacto sin estado durable legible ni siquiera participa en la detección de pendientes
+  // —la autoridad de `stale` devuelve `no_durable_state` y se calla—. Era la ficha en la que el
+  // sistema menos sabía y la que con más seguridad afirmaba estar al día.
+  //
+  // Ahora el copy lo decide `resolveHubSpotSyncPresentation`, la misma autoridad que el badge
+  // del drawer, y el ViewModel viaja además con el TONO para que la tarjeta no vuelva a deducir
+  // el check verde del id.
+
+  it('10. estado durable OBSERVADO → «Sincronizado», en verde', () => {
+    const vm = buildContactTraceabilityViewModel(
+      makeContact({
+        hubspot_contact_id: 'hs-001',
+        metadata: {
+          hubspot_sync: {
+            status: 'synced',
+            method: 'manual',
+            attempted_at: '2026-08-20T10:00:00.000Z',
+            hubspot_contact_id: 'hs-001',
+            mode: 'created',
+            association_status: 'associated',
+          },
+        },
+      }),
+    );
+    assert.equal(vm.hubspotSyncLabel, 'Sincronizado');
+    assert.equal(vm.hubspotSyncTone, 'synced');
+    assert.equal(vm.hubspotContactId, 'hs-001');
+    assert.equal(vm.hubspotMode, 'created');
+    assert.equal(vm.hubspotAssociationStatus, 'associated');
+  });
+
+  it('10b. bloque SIN `status` legible → desconocido, aunque traiga auditoría legada', () => {
     const vm = buildContactTraceabilityViewModel(
       makeContact({
         hubspot_contact_id: 'hs-001',
         metadata: { hubspot_sync: { mode: 'created', association_status: 'associated' } },
       }),
     );
-    assert.equal(vm.hubspotSyncLabel, 'Sincronizado con HubSpot');
-    assert.equal(vm.hubspotContactId, 'hs-001');
+    assert.equal(vm.hubspotSyncLabel, 'Estado de sincronización desconocido');
+    assert.equal(vm.hubspotSyncTone, 'neutral');
+    // La auditoría legada sigue mostrándose: no saber el estado no borra lo que sí consta.
     assert.equal(vm.hubspotMode, 'created');
-    assert.equal(vm.hubspotAssociationStatus, 'associated');
   });
 
-  it('11. hubspot_contact_id sin metadata de sync → ID visible y label "Sincronizado"', () => {
+  it('11. hubspot_contact_id sin metadata de sync → ID visible y estado DESCONOCIDO', () => {
     const vm = buildContactTraceabilityViewModel(
       makeContact({ hubspot_contact_id: 'hs-999' }),
     );
-    assert.equal(vm.hubspotSyncLabel, 'Sincronizado con HubSpot');
+    assert.equal(vm.hubspotSyncLabel, 'Estado de sincronización desconocido');
+    assert.equal(vm.hubspotSyncTone, 'neutral');
+    // El id se sigue enseñando: es la única pista del vínculo y ocultarlo empeoraría la ficha.
     assert.equal(vm.hubspotContactId, 'hs-999');
     assert.equal(vm.hubspotMode, null);
   });
 
-  it('12. sin HubSpot → "No sincronizado con HubSpot"', () => {
+  it('11b. línea base del backfill → «Vinculado a HubSpot», en neutro', () => {
+    const vm = buildContactTraceabilityViewModel(
+      makeContact({
+        hubspot_contact_id: 'hs-999',
+        metadata: {
+          hubspot_sync: {
+            status: 'synced',
+            method: null,
+            attempted_at: null,
+            hubspot_contact_id: 'hs-999',
+            baseline_source: 'legacy_link_backfill',
+            baseline_at: '2026-08-26T09:00:00.000Z',
+          },
+        },
+      }),
+    );
+    // El vínculo consta; que los campos coincidan con HubSpot, NO. El copy no lo sugiere.
+    assert.equal(vm.hubspotSyncLabel, 'Vinculado a HubSpot');
+    assert.equal(vm.hubspotSyncTone, 'neutral');
+  });
+
+  it('12. sin HubSpot → «Sin sincronizar»', () => {
     const vm = buildContactTraceabilityViewModel(makeContact());
-    assert.equal(vm.hubspotSyncLabel, 'No sincronizado con HubSpot');
+    assert.equal(vm.hubspotSyncLabel, 'Sin sincronizar');
+    assert.equal(vm.hubspotSyncTone, 'neutral');
     assert.equal(vm.hubspotContactId, null);
   });
 

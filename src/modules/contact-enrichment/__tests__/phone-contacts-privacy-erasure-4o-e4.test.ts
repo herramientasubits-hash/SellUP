@@ -427,12 +427,29 @@ describe('4O-E4 — buildContactPhoneSuppressionPatch', () => {
     assert.equal(patch.phone_confidence, null);
   });
 
-  it('no depende de la procedencia: la fábrica ya no la recibe', () => {
-    assert.equal(buildContactPhoneSuppressionPatch.length, 0);
+  it('no depende de la procedencia: ningún argumento cambia las columnas', () => {
+    // CUT-3A: la aridad dejó de ser 0 —la fábrica recibe la fila leída y el reloj para decidir
+    // si el borrado deja a HubSpot desactualizado—, así que la guarda demuestra la propiedad en
+    // vez de contar parámetros. Lo que importaba nunca fue el número de argumentos: era que
+    // NINGUNO pudiera decidir qué columnas se nulan.
+    const sneaky = buildContactPhoneSuppressionPatch as unknown as (
+      a?: unknown,
+      b?: unknown,
+    ) => ReturnType<typeof buildContactPhoneSuppressionPatch>;
+    const columnsOf = (p: object) => Object.keys(p).filter((k) => k !== 'metadata').sort();
+    const baseline = columnsOf(buildContactPhoneSuppressionPatch());
+    for (const source of ['apollo_reveal', 'apollo_cache', 'lusha_reveal', 'manual']) {
+      assert.deepEqual(columnsOf(sneaky(source)), baseline);
+      assert.deepEqual(columnsOf(sneaky(undefined, source)), baseline);
+    }
   });
 
-  it('todos los valores del patch son null: nunca escribe un dato', () => {
+  it('todos los valores de COLUMNA del patch son null: nunca escribe un dato', () => {
     for (const [key, value] of Object.entries(buildContactPhoneSuppressionPatch())) {
+      // `metadata` no es una columna de teléfono: es el estado durable de sincronización que
+      // CUT-3A marca en la MISMA escritura, y sólo aparece cuando el borrado cambia lo que
+      // HubSpot recibiría. Sin llamador no aparece nunca, que es lo que este caso comprueba.
+      assert.equal(key === 'metadata', false, 'sin fila leída no puede haber metadata');
       assert.equal(value, null, `${key} debe ser null`);
     }
   });

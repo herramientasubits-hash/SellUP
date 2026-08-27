@@ -38,8 +38,25 @@
 //
 // ── HUBSPOT ────────────────────────────────────────────────────
 //
-// FUERA DE ALCANCE por contrato (§8): 0 escrituras en HubSpot y 0 importaciones de HubSpot.
-// `Approval → HubSpot` es un contrato aparte.
+// En #352 estaba FUERA DE ALCANCE por contrato (§8): 0 escrituras y 0 importaciones. Ese límite
+// era correcto mientras la proyección no producía estado durable de HubSpot — y AGENT2-CUT-3A/3C lo
+// convirtió en un defecto: la 128 escribe `contacts.phone` de un contacto que puede estar VINCULADO
+// y `synced`, y sin nada más el CRM del cliente se queda con el número viejo mientras la ficha
+// afirma estar al día.
+//
+// AGENT2-POST-APPROVAL-REVEAL-STALE-PRODUCER-FINAL-CUT cierra ese hueco así:
+//
+//   * la TRANSICIÓN durable la escribe SQL, dentro de la misma transacción que proyecta el
+//     teléfono (`stale`, `stale_reason`, `stale_source = 'reveal'`). Desde SQL no hay red;
+//   * el ENVÍO es una SEGUNDA fase, posterior al COMMIT, y este archivo la cablea a
+//     `runContactHubSpotAutoPhoneUpdateWired` — EL ejecutor único que ya usan la edición manual y
+//     el merge. Ese ejecutor es quien lee la bandera `HUBSPOT_CONTACT_AUTO_PHONE_UPDATE_ENABLED`,
+//     quien relee el estado durable y quien se NIEGA a exportar un pendiente de privacidad.
+//
+// FUERA DE ALCANCE SIGUE ESTANDO, y una guarda estática lo fija: este archivo no importa el cliente
+// HTTP de HubSpot, ni el motor de sincronización, ni `updateHubSpotContact`. El ÚNICO símbolo de
+// HubSpot que nombra es ese entrypoint. `Approval → HubSpot` —el autosync que CREA la ficha— sigue
+// siendo un contrato aparte y no se toca aquí.
 //
 // ── AUTORIZACIÓN ───────────────────────────────────────────────
 //
@@ -80,6 +97,11 @@ import { buildCandidateScalarFallback } from './official-contact-approval-core';
 // EL pipeline. No una copia suya.
 import { revealCandidatePhoneAction } from './phone-reveal-actions';
 import { getPhoneRevealWaterfallAuthorizationPreviewAction } from './phone-reveal-waterfall-actions';
+// FINAL CUT — EL entrypoint único de la fase 2, el mismo que la edición manual y el merge. NO es
+// un cliente de HubSpot: no construye el PATCH, no lee la conexión y no conoce el token. Lee la
+// bandera, relee el estado durable y delega en el motor compartido. Es el ÚNICO símbolo de HubSpot
+// que este hito nombra.
+import { runContactHubSpotAutoPhoneUpdateWired } from '@/modules/contacts/contact-hubspot-sync-runner';
 import type { PhoneProcessingBasis } from './types';
 
 /**
@@ -177,6 +199,21 @@ async function buildDeps(): Promise<OfficialContactPhoneRevealDeps> {
 
     checkProjectionCapability: checkProjectApprovedCandidatePhonesCapability,
 
+    // FINAL CUT — LA fase 2. Se cablea UNA vez, aquí, para las tres acciones; el runtime decide
+    // CUÁNDO invocarla (sólo si la proyección dejó un pendiente nuevo) y el ejecutor decide QUÉ
+    // hacer (bandera, estado durable releído, procedencia). Ninguna de las dos decisiones vive en
+    // este archivo, y por eso no hay dos formas de encender esto.
+    //
+    // `nowIso` se sella aquí y no dentro del ejecutor: es la hora de ESTA fase, y el ejecutor la
+    // usa para anotar un bloqueo de workspace. La proyección tiene la suya —`p_now`— porque es
+    // otra transacción y otro instante; fingir que son el mismo sería estampar en el registro de
+    // HubSpot la hora de una transacción que ya cerró.
+    runHubSpotPhoneSyncFollowUp: async (contactId) =>
+      runContactHubSpotAutoPhoneUpdateWired(contactId, {
+        actorId: actor.internalUserId,
+        nowIso: new Date().toISOString(),
+      }),
+
     onReadUnavailable: (message) => {
       console.error('[post-approval-reveal] read unavailable:', message);
     },
@@ -229,6 +266,12 @@ export async function revealOfficialContactPhoneAction(input: {
  * Lleva al contacto oficial lo que el candidato ya tenga, sin comprar nada. Idempotente por
  * construcción de la 128, así que la ficha puede llamarla al abrirse y mientras haya un reveal en
  * vuelo sin riesgo de duplicar nada.
+ *
+ * FINAL CUT — esa idempotencia es también la de la fase 2, y es la razón por la que la puerta de
+ * la red pregunta «¿lo dejó ESTA proyección?» y no «¿hay algo pendiente?». Una reconciliación que
+ * no movió el teléfono saliente devuelve `no_outbound_change` y no sale ni una petición: abrir una
+ * ficha nunca escribe en el CRM del cliente, ni siquiera cuando esa ficha tiene un pendiente que
+ * causó otra cosa.
  *
  * LÍMITE CONOCIDO Y DECLARADO de este hito: la proyección NO se dispara desde el webhook de Apollo
  * ni desde el cron de recovery ni desde la continuación a Lusha. Se dispara desde AQUÍ. Un

@@ -597,7 +597,14 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     // it is still 127; what this line pins is the repository ceiling, kept EXACT so an undeclared
     // migration above the last known milestone breaks the guard. The authorship sweep below is
     // WIDENED to 128, so the guard is stronger than before rather than merely shifted.
-    assert.equal(highest, 128, 'the repository ceiling is 128, and it is not a BR migration');
+    // 🔴 The ceiling moved again, and NOT by a BR round either:
+    // AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1 canonicalized Agent 2's HubSpot sync chain to
+    // 129/130/131/132 — four files that were deliberately unnumbered while the 125/126/127
+    // dispute was open upstream. CUT A still adds EXACTLY one migration and it is still 127; what
+    // this line pins is the repository ceiling, kept EXACT so an undeclared migration above the
+    // last known milestone breaks the guard. The authorship sweep below is WIDENED to all four,
+    // so the guard is stronger than before rather than merely shifted.
+    assert.equal(highest, 132, 'the repository ceiling is 132, and it is not a BR migration');
     assert.equal(
       files.filter((f) => f.startsWith('125')).length,
       1,
@@ -614,8 +621,15 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
       1,
       'AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 owns exactly one migration',
     );
-    for (const name of files.filter(
-      (f) => f.startsWith('124') || f.startsWith('126') || f.startsWith('128'),
+    for (const agent2 of ['129', '130', '131', '132']) {
+      assert.equal(
+        files.filter((f) => f.startsWith(agent2)).length,
+        1,
+        `AGENT2-FINAL-INTEGRATION owns exactly one ${agent2} migration`,
+      );
+    }
+    for (const name of files.filter((f) =>
+      ['124', '126', '128', '129', '130', '131', '132'].some((n) => f.startsWith(n)),
     )) {
       const sql = fs.readFileSync(
         new URL(`../../../../../../supabase/migrations/${name}`, import.meta.url),

@@ -202,6 +202,14 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // tombstone de la 112 no se promueve nunca y no puede ganar procedencia nueva. No
       // re-declara la 112 ni altera la forma de la colección. AUTORADA y NO APLICADA.
       '128_project_approved_candidate_phones_onto_contact.sql',
+      // AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1 mueve el techo a la 132: el tramo 129–132 de
+      // la cadena de sincronización con HubSpot de Agente 2. Ninguna es autoría de 4O-E2 y
+      // ninguna modifica la 109/110/111, que es lo que esta suite vigila y lo que la prueba de
+      // abajo comprueba archivo por archivo. AUTORADAS y NO APLICADAS.
+      '129_agent2_contact_hubspot_stale_completeness.sql',
+      '130_agent2_contact_hubspot_stale_source.sql',
+      '131_agent2_post_approval_reveal_stale_producer.sql',
+      '132_agent2_hubspot_legacy_sync_state_backfill.sql',
     ]);
   });
 

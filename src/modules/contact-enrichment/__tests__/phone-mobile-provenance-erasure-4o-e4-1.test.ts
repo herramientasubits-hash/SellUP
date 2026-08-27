@@ -345,11 +345,26 @@ describe('4O-E4.1 — guardas de mutación sobre el core ejecutado', () => {
   });
 
   it('la fábrica no acepta procedencia: no hay parámetro del que colgar columnas', () => {
-    assert.equal(
-      buildContactPhoneSuppressionPatch.length,
-      0,
-      'un parámetro de procedencia reabriría la inferencia entre columnas',
-    );
+    // CUT-3A: la aridad ya no es 0 —la fábrica recibe la fila leída y el reloj—, así que la
+    // guarda pasa de contar parámetros a demostrar la propiedad que importaba: NINGÚN
+    // argumento puede hacer que aparezca `mobile_phone` en el patch. Se prueba con la
+    // procedencia misma en cada posición, que es lo que la aridad intentaba impedir.
+    const sneaky = buildContactPhoneSuppressionPatch as unknown as (
+      a?: unknown,
+      b?: unknown,
+    ) => ContactPhoneSuppressionPatch;
+    for (const source of ['apollo_reveal', 'apollo_cache', 'lusha_reveal', 'manual']) {
+      for (const patch of [sneaky(source), sneaky(undefined, source), sneaky(source, source)]) {
+        assert.equal(
+          Object.prototype.hasOwnProperty.call(patch, 'mobile_phone'),
+          false,
+          'ningún argumento puede reabrir la inferencia entre columnas',
+        );
+        // Y la tupla de siete sigue entera: la fábrica no se degrada con basura de entrada.
+        assert.equal(patch.phone, null);
+        assert.equal(patch.phone_confidence, null);
+      }
+    }
   });
 
   it('la fábrica ignora cualquier argumento que se le cuele', () => {

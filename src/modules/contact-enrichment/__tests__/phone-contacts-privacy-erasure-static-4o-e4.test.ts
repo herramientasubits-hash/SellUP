@@ -147,11 +147,25 @@ describe('4O-E4 estático — mobile_phone no se borra sin procedencia', () => {
     );
   });
 
-  it('el patch se construye por una sola fábrica, independiente de la procedencia', () => {
+  it('el patch se construye por una sola fábrica, independiente de la PROCEDENCIA', () => {
+    // CUT-3A cambia la FIRMA (recibe la fila leída y el reloj para decidir si el borrado deja
+    // a HubSpot desactualizado) y NO la propiedad: lo prohibido es un parámetro de
+    // PROCEDENCIA, porque su único uso sería decidir COLUMNAS y eso reabriría la inferencia
+    // entre ellas. Ni la fila ni el reloj deciden columnas: las siete son siempre las mismas.
     const core = read(...CORE);
-    assert.match(
-      core,
-      /export function buildContactPhoneSuppressionPatch\(\): ContactPhoneSuppressionPatch \{/,
+    const signature = core.match(
+      /export function buildContactPhoneSuppressionPatch\(([\s\S]*?)\): ContactPhoneSuppressionPatch \{/,
+    );
+    assert.ok(signature, 'la fábrica sigue siendo UNA y sigue devolviendo el mismo tipo');
+    assert.equal(
+      /observedPhoneSource|phoneSource/.test(signature[1]),
+      false,
+      'la fábrica no puede recibir la procedencia observada',
+    );
+    // Y sigue habiendo UNA sola: dos fábricas serían dos patches que divergen.
+    assert.equal(
+      (core.match(/export function buildContactPhoneSuppressionPatch\(/g) ?? []).length,
+      1,
     );
   });
 
@@ -275,7 +289,7 @@ describe('4O-E4 estático — el write de contacts es condicional por procedenci
     assert.match(core, /observedPhoneSource: string;/);
     assert.match(
       core,
-      /observedPhoneSource,\n\s*patch: buildContactPhoneSuppressionPatch\(\),/,
+      /observedPhoneSource,\n[\s\S]{0,600}?patch: buildContactPhoneSuppressionPatch\(contact, context\.nowIso\),/,
     );
   });
 });
@@ -420,12 +434,22 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       // erasure: no hay un solo `DELETE` ni un `suppressed_at = NULL` en el archivo, y la función
       // es SECURITY INVOKER bajo el techo de privilegios de la 114. AUTORADA y NO APLICADA.
       '128_project_approved_candidate_phones_onto_contact.sql',
+      // AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1 mueve el techo a la 132 al canonicalizar la
+      // cadena de sincronización con HubSpot de Agente 2 —129 la COMPLETITUD del estado durable
+      // `stale`, 130 su PROCEDENCIA, 131 la 128 re-emitida para PRODUCIR el pendiente con
+      // procedencia `reveal`, 132 la LÍNEA BASE de los contactos ya vinculados—. Las cuatro
+      // nacieron sin número a propósito y lo reciben ahora que la disputa 125/126/127 está
+      // cerrada; ninguna es autoría de este hito. AUTORADAS y NO APLICADAS.
+      '129_agent2_contact_hubspot_stale_completeness.sql',
+      '130_agent2_contact_hubspot_stale_source.sql',
+      '131_agent2_post_approval_reveal_stale_producer.sql',
+      '132_agent2_hubspot_legacy_sync_state_backfill.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
   });
 
-  it('la migración 127 (BR-SOURCE CUT A.1) es la última del repo', () => {
+  it('la migración 132 (AGENT2-FINAL-INTEGRATION) es la última del repo', () => {
     // 4O-H2 mueve el techo de la 114 a la 115. Se sigue fijando un número EXACTO: una
     // migración por encima del último hito conocido tiene que romper esta guarda.
     const numbered = readdirSync(MIGRATIONS_DIR)
@@ -454,7 +478,11 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     // columnas, índices, triggers ni policies nuevas; M128 únicamente crea/reemplaza una
     // función y sus permisos. Sin backfill: no crea contactos, no re-terminaliza
     // candidatos y no re-declara ninguna función anterior. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 128);
+    // AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1 mueve el techo a la 132: el tramo 129–132 de
+    // la cadena de HubSpot de Agente 2. SÍ es de teléfono, pero no toca la erasure que esta
+    // suite protege: ninguna de las cuatro contiene un `DELETE`, y la lista exacta de arriba —que
+    // las nombra una por una— es la que impide que una migración nueva entre sin declararse.
+    assert.equal(numbered[numbered.length - 1], 132);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {
@@ -517,16 +545,23 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     );
   });
 
-  it('E4 no toca HubSpot', () => {
-    // Prosa aparte: el header explica que el contacto oficial es la fila que se
-    // sincroniza a HubSpot, y eso es contexto, no una escritura.
+  it('E4 no LLAMA a HubSpot', () => {
+    // ⚠️ AFINADO POR CUT-3A, igual que sus dos hermanas y por la misma razón: prohibir la
+    // SUBCADENA impedía escribir la marca LOCAL que evita dejar un `synced` falso cuando la
+    // erasure borra el teléfono. Lo prohibido es LLAMAR: cliente, endpoint o `fetch`.
     for (const rel of [CORE, ACTIONS]) {
       const code = stripComments(read(...rel));
-      assert.equal(
-        /hubspot/i.test(code),
-        false,
-        'E4 no escribe ni lee HubSpot en código',
-      );
+      for (const forbidden of [
+        'api.hubapi.com',
+        'hubspot-contact-sync',
+        'integrations/hubspot',
+        'updateHubSpotContact',
+        'createHubSpotContact',
+        'findHubSpotContactByEmail',
+        'fetch(',
+      ]) {
+        assert.equal(code.includes(forbidden), false, `E4 no puede contener ${forbidden}`);
+      }
     }
   });
 

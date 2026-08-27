@@ -1134,7 +1134,15 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     // proyección de la colección de teléfonos de un candidato ya APROBADO al contacto que su
     // aprobación creó. Es de teléfono, pero no de este hito y no toca lo que esta guarda vigila;
     // trae su propia guarda estática. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 128, '4O-F reutiliza la 111 sin crear SQL nuevo');
+    // AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1 mueve el techo a la 132: el tramo 129–132 de
+    // la cadena de sincronización con HubSpot de Agente 2 (129 la completitud del estado durable
+    // `stale`, 130 su procedencia, 131 la 128 re-emitida para producirlo con procedencia
+    // `reveal`, 132 la línea base de los contactos ya vinculados). Las cuatro nacieron sin número
+    // a propósito y lo reciben ahora que la disputa 125/126/127 está cerrada. Ninguna de las cuatro
+    // re-declara la 111 —la 129 y la 130 re-emiten la 115 y la 117, la 131 la 128 y la 132 sólo
+    // escribe `contacts.metadata`—, así que 4O-F sigue reutilizando la 111 intacta, que es lo que
+    // esta guarda afirma.
+    assert.equal(numbered[numbered.length - 1], 132, '4O-F reutiliza la 111 sin crear SQL nuevo');
   });
 
   // AGENT2A-PHONE-REVEAL-4O-H3 — este guarda se INVIERTE, no se borra.

@@ -513,7 +513,12 @@ describe('4O-G — alcance', () => {
     // columnas, índices, triggers ni policies nuevas; M128 únicamente crea/reemplaza una
     // función y sus permisos. Sin backfill: no crea contactos, no re-terminaliza
     // candidatos y no re-declara ninguna función anterior. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 128);
+    // AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1 mueve el techo a la 132: el tramo 129–132 de
+    // la cadena de sincronización con HubSpot de Agente 2 (129 la completitud del estado durable
+    // `stale`, 130 su procedencia, 131 la 128 re-emitida para producirlo con procedencia
+    // `reveal`, 132 la línea base de los contactos ya vinculados). Las cuatro nacieron sin número
+    // a propósito y lo reciben ahora que la disputa 125/126/127 está cerrada. 4O-G sigue sin aportar SQL.
+    assert.equal(numbered[numbered.length - 1], 132);
     // El CONTEO, no el techo: 121 archivos para los números 001–121, es decir SIN un solo
     // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
     // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
@@ -528,7 +533,7 @@ describe('4O-G — alcance', () => {
     // columnas, índices, triggers ni policies nuevas; M128 únicamente crea/reemplaza una
     // función y sus permisos. Sin backfill: no crea contactos, no re-terminaliza
     // candidatos y no re-declara ninguna función anterior. AUTORADA y NO APLICADA.
-    assert.equal(numbered.length, 128);
+    assert.equal(numbered.length, 132);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {
@@ -594,6 +599,13 @@ describe('4O-G — alcance', () => {
       // rol) en vez de inventar otro. Su contrato es idéntico al de 4O-G en lo que esta guarda
       // protege: sólo `SELECT`, y sus conteos son enteros — ni un número de teléfono viaja.
       'src/modules/contact-enrichment/post-approval-reveal-read.ts',
+      // AGENT2-CONTACT-HUBSPOT-AUTO-PHONE-UPDATE-CUT3C: inspección de PRUEBA, no acoplamiento
+      // de runtime. NO importa ningún módulo de 4O-G: los LEE con `readFileSync` para afirmar
+      // exactamente lo contrario de un consumo — que los módulos de teléfono guardado NO
+      // llaman al entrypoint de HubSpot, así que abrir el disclosure gratuito de 4O-G no puede
+      // disparar un PATCH. Es la misma guarda que esta lista protege, aplicada desde el otro
+      // lado; precedente idéntico: ASYNC-UI-REFRESH-1 y la suite de copy de SEARCH-MORE.
+      'src/modules/contacts/__tests__/contact-hubspot-auto-phone-update-cut3c.test.ts',
     ];
     const offenders = sourceFiles(join(repoRoot, 'src'))
       .map((absolute) => absolute.slice(repoRoot.length + 1))
