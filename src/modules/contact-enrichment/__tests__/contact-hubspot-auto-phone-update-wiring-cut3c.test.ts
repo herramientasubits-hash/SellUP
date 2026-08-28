@@ -298,17 +298,29 @@ describe('5 · 22. los caminos de privacidad no conocen el entrypoint', () => {
 // 16 · EL AUTOSYNC DEL ALTA no cambia
 // ════════════════════════════════════════════════════════════════
 
-describe('16. la aprobación sigue haciendo exactamente lo de CUT-3B', () => {
+describe('16. la aprobación ya NO repite el autosync del ALTA inline: delega en triggerContactHubSpotSync', () => {
   const src = stripTs(read(ENRICHMENT_ACTIONS));
   const fn = bodyOf(src, 'approveContactCandidate');
 
-  it('sigue llamando al autosync del ALTA, con su propia bandera', () => {
-    assert.match(fn, /runContactHubSpotAutoSync\(/);
-    assert.match(fn, /enabled: isHubSpotContactAutoSyncEnabled\(\)/);
+  // AGENT2A-HUBSPOT-CONTACT-APPROVAL-AUTOSYNC reemplazó el hook de CUT-3B: la SEGUNDA fase de la
+  // aprobación ya no invoca `runContactHubSpotAutoSync` inline ni lee su propia bandera —delega
+  // en `triggerContactHubSpotSync` (que primero resuelve la empresa y siempre está activo).
+  it('ya no invoca el motor de autosync inline ni lee su propia bandera: delega en el hook de HubSpot', () => {
+    assert.equal(
+      /runContactHubSpotAutoSync\(/.test(fn),
+      false,
+      'el autosync inline se reemplazó por triggerContactHubSpotSync',
+    );
+    assert.equal(
+      /isHubSpotContactAutoSyncEnabled\(\)/.test(fn),
+      false,
+      'el hook de aprobación ya no lee esa bandera: siempre activo',
+    );
+    assert.match(fn, /triggerContactHubSpotSync\(/);
   });
 
   it('la aprobación NO adquiere el PATCH automático', () => {
-    // Son dos políticas y dos banderas. Un contacto recién aprobado no tiene nada pendiente —lo
+    // Son dos políticas distintas. Un contacto recién aprobado no tiene nada pendiente —lo
     // que hay en HubSpot es lo que se acaba de enviar—, así que llamar aquí al PATCH sería, en
     // el mejor caso, una lectura inútil y, en el peor, una escritura que nadie pidió.
     assert.equal(
@@ -318,8 +330,9 @@ describe('16. la aprobación sigue haciendo exactamente lo de CUT-3B', () => {
     );
   });
 
-  it('el informe del autosync sigue viajando fuera de `ok`', () => {
-    assert.match(fn, /return \{ \.\.\.result, hubspotAutoSync \};/);
+  it('el resultado de la aprobación ya no lleva un informe de HubSpot: se devuelve tal cual', () => {
+    assert.equal(/return \{ \.\.\.result, hubspotAutoSync \};/.test(fn), false);
+    assert.match(fn, /return result;/);
   });
 });
 

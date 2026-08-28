@@ -11,19 +11,10 @@ import { getLushaAccountUsage } from '@/server/integrations/lusha-client';
 import { getLushaApiKey } from '@/server/services/lusha-connection';
 import { isLushaContactEnrichmentEnabled, resolveLushaSearchTimeoutMs } from '@/lib/feature-flags.server';
 import { logContactAudit } from '@/modules/contacts/actions';
-import {
-  runContactHubSpotAutoSync,
-  type ContactAutoSyncReport,
-} from '@/modules/contacts/contact-hubspot-autosync-core';
-import {
-  buildContactHubSpotSyncDeps,
-  persistContactMetadata,
-  runContactHubSpotAutoPhoneUpdateWired,
-} from '@/modules/contacts/contact-hubspot-sync-runner';
+import { runContactHubSpotAutoPhoneUpdateWired } from '@/modules/contacts/contact-hubspot-sync-runner';
 // El informe del PATCH automático viaja en el resultado del merge, fuera de `ok`.
 import type { ContactAutoPhoneUpdateReport } from '@/modules/contacts/contact-hubspot-auto-phone-update-core';
-import { runSyncContactToHubSpot } from '@/modules/contacts/contact-hubspot-sync-core';
-import { isHubSpotContactAutoSyncEnabled } from '@/lib/feature-flags.server';
+import { triggerContactHubSpotSync } from './hubspot-contact-approval-sync';
 import {
   resolveExistingContactMergeOffer,
   runApproveCandidate,
@@ -701,16 +692,6 @@ export interface ApproveCandidateActionResult {
    * información al contacto existente». No fusiona nada por sí mismo.
    */
   mergeOffer?: ExistingContactMergeOffer;
-  /**
-   * CUT-3B — informe de la SEGUNDA fase. Está deliberadamente fuera de `ok`: `ok` describe la
-   * aprobación local, que ya está confirmada cuando esta fase empieza, y ningún desenlace de
-   * HubSpot puede cambiarlo. Un llamador que ignore este campo obtiene exactamente el contrato
-   * de CUT-3A.
-   *
-   * Ausente cuando la aprobación no llegó a crear contacto (duplicado, error, override
-   * pendiente): sin contacto no hay nada que sincronizar y afirmar un informe sería inventarlo.
-   */
-  hubspotAutoSync?: ContactAutoSyncReport;
 }
 
 /** 4O-H3-B — resultado de la decisión humana de fusionar en el contacto existente. */
@@ -960,77 +941,31 @@ export async function approveContactCandidate(
       },
     }, identityOverride);
 
-    // ── SEGUNDA FASE — autosync HubSpot (CUT-3B) ─────────────────
+    // ── SEGUNDA FASE — HubSpot: empresa + contacto (AGENT2A-HUBSPOT-CONTACT-APPROVAL-AUTOSYNC)
     //
-    // Empieza aquí y no antes por una razón que es todo el corte: en este punto la transacción
-    // de aprobación YA confirmó. El contacto oficial existe, el candidato está `approved` y
-    // nada de lo que ocurra a continuación puede revertirlo — no hay transacción abierta que
-    // pudiera arrastrarlo, ni un `throw` capaz de alcanzarlo.
+    // Empieza aquí y no antes por la misma razón de siempre: la transacción de aprobación YA
+    // confirmó, así que nada de lo que sigue puede revertirla. Un fallo de HubSpot nunca
+    // convierte en fracaso algo que ya está escrito en la base de datos.
     //
-    // Por eso el informe se ADJUNTA al resultado y jamás lo sustituye: `result.ok` sigue siendo
-    // el veredicto de la aprobación local. Un HubSpot caído no puede convertir en fracaso algo
-    // que ya está escrito en la base de datos, porque el humano volvería a aprobar un candidato
-    // que ya no está pendiente y leería un error donde hubo un éxito.
+    // Reemplaza el hook de CUT-3B: ya NO depende de `isHubSpotContactAutoSyncEnabled()` —
+    // siempre activo, decisión explícita del usuario— y antepone la resolución de la empresa
+    // (que antes nunca ocurría: el autosync exigía `hubspot_company_id` y ningún camino lo
+    // creaba, así que `MISSING_HUBSPOT_COMPANY` era el desenlace normal). El try/catch es el
+    // límite de la garantía: `triggerContactHubSpotSync` puede RECHAZAR (no sólo fallar
+    // internamente) si `createSupabaseAdminClient()` detecta configuración insegura — ese
+    // rechazo NUNCA puede alcanzar a una aprobación que ya ocurrió.
     if (!result.ok) return result;
 
-    const autoSyncNowIso = new Date().toISOString();
-    const hubspotAutoSync = await runContactHubSpotAutoSync(result.contactId, {
-      // El entorno se lee UNA vez, aquí, y viaja como booleano. El motor no conoce
-      // `process.env`: así no existe una segunda forma de encenderlo.
-      enabled: isHubSpotContactAutoSyncEnabled(),
-      nowIso: autoSyncNowIso,
-      loadSubject: async (contactId) => {
-        // Se RELEE la fila en vez de reutilizar el payload que se acaba de insertar: el
-        // portero decide sobre el vínculo REAL, y entre la transacción y este punto la fila
-        // pudo cambiar —incluida la aprobación idempotente, que devuelve un contacto que otra
-        // ejecución creó y que quizá ya está en HubSpot.
-        const { data, error } = await supabase
-          .from('contacts')
-          .select('id, hubspot_contact_id, metadata')
-          .eq('id', contactId)
-          .is('archived_at', null)
-          .maybeSingle();
-        if (error || !data) return null;
-        return {
-          id: data.id as string,
-          hubspot_contact_id: (data.hubspot_contact_id as string | null) ?? null,
-          metadata: (data.metadata as Record<string, unknown> | null) ?? {},
-        };
-      },
-      // EL MISMO motor que el botón manual, con la ÚNICA diferencia declarada: `auto`.
-      runSync: async (contactId) =>
-        runSyncContactToHubSpot(
-          contactId,
-          await buildContactHubSpotSyncDeps({
-            actorId: internalUserId,
-            nowIso: autoSyncNowIso,
-            method: 'auto',
-            logAudit: async (entry) => {
-              await logContactAudit({
-                contactId: entry.contactId,
-                accountId: entry.accountId,
-                actorUserId: entry.actorUserId,
-                actionType: 'contact_updated',
-                details: {
-                  hubspot_sync: {
-                    mode: entry.mode,
-                    hubspot_contact_id: entry.hubspotContactId,
-                    hubspot_company_id: entry.hubspotCompanyId,
-                    company_association: entry.companyAssociation,
-                    // La auditoría también distingue el origen: sin esto, una fila de auditoría
-                    // automática sería indistinguible de un clic humano.
-                    method: 'auto',
-                  },
-                },
-              });
-            },
-          }),
-        ),
-      persistAnnex: async (contactId, metadata) =>
-        persistContactMetadata(contactId, metadata, internalUserId),
-    });
+    try {
+      await triggerContactHubSpotSync(result.contactId, internalUserId);
+    } catch (error) {
+      console.error('[contact-enrichment/actions] triggerContactHubSpotSync failed after approval', {
+        contactId: result.contactId,
+        error,
+      });
+    }
 
-    return { ...result, hubspotAutoSync };
+    return result;
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error aprobando el candidato';
     return { ok: false, error: message };
