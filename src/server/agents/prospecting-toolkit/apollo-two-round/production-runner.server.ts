@@ -296,11 +296,12 @@ import {
   readApolloPageFenceEntries,
   upsertApolloPageFenceEntry,
   type ApolloPageFenceIdentity,
+  type ApolloPageFenceReadOutcome,
   type ApolloPageFenceWriteOutcome,
 } from './page-fence.server';
 import {
   toApolloPageFenceOrganization,
-  fromApolloPageFenceOrganization,
+  toApolloDurableResumeState,
   type ApolloPageFenceEntry,
 } from './page-fence';
 
@@ -496,11 +497,16 @@ export type ApolloTwoRoundProductionDeps = {
    * resuelve `{kind: 'failed'}` DEBE impedir la petición a Apollo que
    * `beforeRequest` protege — eso lo decide el llamador de este dep, no el dep
    * en sí, que sólo reporta el desenlace.
+   *
+   * AGENT1-APOLLO-DURABLE-FENCE-HARD-CRASH-FIX · BLOQUEADOR 2 — igual de
+   * fail-closed aplica a la LECTURA: `readPageFenceEntries` que resuelve
+   * `{kind: 'failed'}` NUNCA se trata como "sin páginas previas". `searchRound`
+   * (más abajo) detiene la ronda ANTES de tocar Apollo cuando eso ocurre.
    */
   readPageFenceEntries: (
     batchId: string,
     identity: ApolloPageFenceIdentity,
-  ) => Promise<ApolloPageFenceEntry[]>;
+  ) => Promise<ApolloPageFenceReadOutcome>;
   writePageFenceEntry: (
     batchId: string,
     identity: ApolloPageFenceIdentity,
@@ -1726,31 +1732,24 @@ export async function runApolloTwoRoundWizardDiscovery(
       const roundNumber = operationContext.roundNumber;
       // § B7/C13 — sólo las entradas de ESTA ronda: round1/pageN y
       // round2/pageN nunca se confunden, aunque compartan número de página.
-      const fenceEntriesForRound = (
-        await deps.readPageFenceEntries(input.reservedBatchId, fenceIdentity)
-      ).filter((entry): entry is ApolloPageFenceEntry => entry.round_number === roundNumber);
-      const indeterminateFenceEntry = fenceEntriesForRound.find(
-        (entry) => entry.status === 'indeterminate',
+      const fenceReadOutcome = await deps.readPageFenceEntries(input.reservedBatchId, fenceIdentity);
+
+      // AGENT1-APOLLO-DURABLE-FENCE-HARD-CRASH-FIX · BLOQUEADOR 2 — una
+      // lectura que falló NUNCA se trata como "sin páginas previas": no hay
+      // forma de saber qué ya se intentó, así que Apollo no se toca en esta
+      // invocación. Mismo idioma que `budgetExceeded()` más arriba en esta
+      // misma función — cero organizaciones, cero peticiones, cero créditos —
+      // salvo que aquí el motivo se deja explícito en `warnings` para que no
+      // se confunda con "la ronda no hacía falta".
+      if (fenceReadOutcome.kind === 'failed') {
+        warnings.push(`apollo_page_fence_read_failed:${fenceReadOutcome.reason}`);
+        return { organizations: [], providerRequestCount: 0, internalRecordedCredits: 0 };
+      }
+
+      const fenceEntriesForRound = fenceReadOutcome.entries.filter(
+        (entry): entry is ApolloPageFenceEntry => entry.round_number === roundNumber,
       );
-      const durableResume = {
-        succeededPages: fenceEntriesForRound
-          .filter((entry) => entry.status === 'succeeded')
-          .map((entry) => ({
-            page: entry.page,
-            requestFingerprint: entry.search_plan_fingerprint,
-            organizations: entry.organizations.map(fromApolloPageFenceOrganization),
-            credits: entry.credits,
-            resultsReturned: entry.results_returned,
-            totalPages: entry.total_pages,
-            acceptedCount: entry.accepted_count,
-          })),
-        indeterminatePage: indeterminateFenceEntry
-          ? {
-              page: indeterminateFenceEntry.page,
-              requestFingerprint: indeterminateFenceEntry.search_plan_fingerprint,
-            }
-          : null,
-      };
+      const durableResume = toApolloDurableResumeState(fenceEntriesForRound);
 
       const searchOptionsWithFence: ApolloOrgsSearchOptions = {
         ...searchOptions,
@@ -1791,7 +1790,7 @@ export async function runApolloTwoRoundWizardDiscovery(
             totalPages,
             acceptedCount,
           }) => {
-            await deps.writePageFenceEntry(input.reservedBatchId, fenceIdentity, {
+            const outcome = await deps.writePageFenceEntry(input.reservedBatchId, fenceIdentity, {
               round_number: roundNumber,
               search_plan_fingerprint: requestFingerprint,
               page,
@@ -1802,6 +1801,15 @@ export async function runApolloTwoRoundWizardDiscovery(
               total_pages: totalPages,
               accepted_count: acceptedCount,
             });
+            // BLOQUEADOR 3 — igual que `beforeRequest`: un fallo AQUÍ debe
+            // LANZAR, porque sólo lo que esta función lanza detiene la
+            // paginación (`durable_fence_terminal_write_failed`). Un `return`
+            // silencioso dejaría que se pidiera la página siguiente aunque el
+            // desenlace de ÉSTA se haya quedado en `request_started` durable —
+            // posiblemente cobrada, nunca confirmada.
+            if (outcome.kind === 'failed') {
+              throw new Error(`durable_page_fence_terminal_write_failed: ${outcome.reason}`);
+            }
           },
           onIndeterminate: async ({ page, requestFingerprint }) => {
             await deps.writePageFenceEntry(input.reservedBatchId, fenceIdentity, {
@@ -1818,6 +1826,15 @@ export async function runApolloTwoRoundWizardDiscovery(
               total_pages: null,
               accepted_count: null,
             });
+            // BLOQUEADOR 3 — a diferencia de `onSucceeded`, no hace falta
+            // inspeccionar el desenlace de esta escritura para detener la
+            // paginación: `onIndeterminate` sólo se invoca cuando la
+            // clasificación del error ya es `retryable: false` (ver el
+            // comentario en `apollo-organizations-paginated-search.ts`), así
+            // que el motor YA se detiene para esta página sin importar si esta
+            // escritura tuvo éxito. La verdad conservadora que protege el
+            // reintento es el `request_started` que `beforeRequest` ya dejó
+            // durable.
           },
         },
       };

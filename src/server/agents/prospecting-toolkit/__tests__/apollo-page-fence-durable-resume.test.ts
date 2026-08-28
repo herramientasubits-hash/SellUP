@@ -28,6 +28,7 @@ import {
 } from '../apollo-organizations-paginated-search';
 import { createApolloPaginationBudget } from '../apollo-organizations-pagination-budget';
 import type { NormalizedApolloOrganization } from '../apollo-organizations-response-normalizer';
+import { toApolloDurableResumeState, type ApolloPageFenceEntry } from '../apollo-two-round/page-fence';
 
 // ─── Instrumentación: ninguna prueba puede alcanzar la red ────────────────────
 
@@ -490,6 +491,237 @@ describe('C13 · el resumen sólo se adopta si la huella coincide', () => {
 
     assert.equal(h.bodies.length, 1, 'la petición SÍ se emitió: la indeterminada era de otro plan');
     assert.notEqual(result.stopReason, 'indeterminate_prior_page_pending_reconciliation');
+  });
+});
+
+// ─── H3 · fallo del desenlace `succeeded` ─────────────────────────────────────
+//
+// AGENT1-APOLLO-DURABLE-FENCE-HARD-CRASH-FIX · BLOQUEADOR 3 — antes de este
+// corte, un fallo de `onSucceeded` era silencioso: la página YA cobrada se
+// conservaba, pero la paginación seguía pidiendo la página siguiente aunque la
+// valla durable de la página exitosa se hubiera quedado en `request_started`
+// (nunca confirmada como `succeeded`). Eso reabre exactamente la ventana que
+// BLOQUEADOR 1 cierra en el resumen: sin este corte, un reintento vería
+// `request_started` y bloquearía correctamente esa página — pero para
+// entonces la búsqueda original ya habría gastado un crédito de más en la
+// página siguiente sin haber podido registrar la anterior.
+
+describe('H3 · onSucceeded falla ⇒ 0 páginas nuevas, lo ya cobrado se conserva', () => {
+  it('page1 HTTP=1 (cobrada y recogida), page2 HTTP=0, motivo explícito', async () => {
+    const h = harness((body) => {
+      const page = body.page as number;
+      return okPage(orgs(1, page - 1), { page, per_page: 2, total_pages: 5 });
+    });
+    const fence: ApolloPaginatedSearchDeps['durableFence'] = {
+      beforeRequest: async () => {},
+      onSucceeded: async () => {
+        throw new Error('durable_fence_terminal_write_failed');
+      },
+      onIndeterminate: async () => {},
+    };
+
+    const result = await runApolloOrganizationsPaginatedSearch(
+      { ...baseInput, budget: createApolloPaginationBudget({ maxPages: 5, perPage: 2, maxCandidates: 999, maxCredits: 99 }) },
+      { ...h.deps, durableFence: fence },
+    );
+
+    assert.equal(h.bodies.length, 1, 'sólo page1 se pidió; page2 nunca salió');
+    assert.equal(result.organizations.length, 1, 'lo que page1 cobró y devolvió se conserva');
+    assert.equal(result.estimatedCredits, 1, '1 crédito real de page1, 0 de una page2 que nunca se pidió');
+    assert.equal(result.stopReason, 'durable_fence_terminal_write_failed');
+    const pageOutcome = result.pageOutcomes.find((o) => o.page === 1);
+    assert.equal(pageOutcome?.status, 'success', 'Apollo SÍ respondió con éxito — el fallo es sólo de la valla');
+    assert.equal(pageOutcome?.errorCode, 'durable_fence_terminal_write_failed');
+    assert.equal(realFetchCalls, 0);
+  });
+
+  it('en el resumen, la página cuyo onSucceeded falló se ve como request_started ⇒ bloquea cualquier página nueva', async () => {
+    // La página 1 SÍ se cobró y devolvió resultados, pero como `onSucceeded`
+    // falló, lo único que quedó durable para ella fue lo que `beforeRequest`
+    // ya había escrito: `request_started`. El adaptador REAL
+    // (`toApolloDurableResumeState`) debe tratar eso como posiblemente cobrado
+    // — nunca como "página 1 nunca se pidió".
+    const requestFingerprint = 'fp-h3-resume';
+    const durableEntries: ApolloPageFenceEntry[] = [
+      {
+        round_number: 1,
+        search_plan_fingerprint: requestFingerprint,
+        page: 1,
+        status: 'request_started',
+        organizations: [],
+        credits: 1,
+        results_returned: 0,
+        total_pages: null,
+        accepted_count: null,
+      },
+    ];
+
+    // Se calcula la huella REAL con un probe de presupuesto 0 para no adivinarla.
+    const probe = harness(() => okPage([], { page: 1, per_page: 2, total_pages: 1 }));
+    const probeResult = await runApolloOrganizationsPaginatedSearch(
+      { ...baseInput, budget: createApolloPaginationBudget({ maxPages: 0, perPage: 2 }) },
+      probe.deps,
+    );
+    durableEntries[0].search_plan_fingerprint = probeResult.requestFingerprint;
+
+    const durableResume = toApolloDurableResumeState(durableEntries);
+
+    const resumed = harness(() => {
+      throw new Error('ninguna página debía pedirse: page1 quedó posiblemente cobrada y sin confirmar');
+    });
+    const result = await runApolloOrganizationsPaginatedSearch(
+      {
+        ...baseInput,
+        budget: createApolloPaginationBudget({ maxPages: 5, perPage: 2, maxCandidates: 999, maxCredits: 99 }),
+        durableResume,
+      },
+      resumed.deps,
+    );
+
+    assert.equal(resumed.bodies.length, 0, 'cero peticiones HTTP nuevas en el reintento');
+    assert.equal(realFetchCalls, 0);
+    assert.equal(result.stopReason, 'indeterminate_prior_page_pending_reconciliation');
+    assert.deepEqual(result.indeterminatePages, [1]);
+  });
+});
+
+// ─── H4 · fallo del desenlace `indeterminate` ─────────────────────────────────
+//
+// A diferencia de H3, un fallo de `onIndeterminate` no necesita un
+// `stopReason` propio: `billingState: 'unknown'` (que dispara `onIndeterminate`)
+// sólo lo produce una clasificación con `retryable: false`, así que la
+// paginación YA se detiene para esta página (`error_terminated`) sin importar
+// si esta escritura tuvo éxito. Lo que SÍ hace falta probar es que la verdad
+// conservadora — el `request_started` que `beforeRequest` ya dejó durable —
+// basta por sí sola para bloquear el reintento, exactamente como en H3.
+
+describe('H4 · onIndeterminate falla ⇒ sin reintento automático, y request_started basta para bloquear el resumen', () => {
+  it('el timeout ambiguo detiene la paginación en esta invocación aunque onIndeterminate falle', async () => {
+    const h = harness(() => ({
+      ok: false,
+      status: null,
+      requestSent: true,
+      malformedBody: false,
+      timedOut: true,
+      payload: undefined,
+      headers: null,
+    }));
+    const fence: ApolloPaginatedSearchDeps['durableFence'] = {
+      beforeRequest: async () => {},
+      onSucceeded: async () => {},
+      onIndeterminate: async () => {
+        throw new Error('durable write unavailable');
+      },
+    };
+
+    const result = await runApolloOrganizationsPaginatedSearch(
+      { ...baseInput, budget: createApolloPaginationBudget({ maxPages: 3, perPage: 2 }) },
+      { ...h.deps, durableFence: fence },
+    );
+
+    assert.equal(h.bodies.length, 1, 'no reintenta automáticamente pese al fallo de la valla');
+    assert.equal(result.stopReason, 'error_terminated');
+    assert.deepEqual(result.indeterminatePages, [1]);
+    assert.equal(realFetchCalls, 0);
+  });
+
+  it('en el resumen, request_started (nunca actualizado a indeterminate) basta para bloquear cualquier página nueva', async () => {
+    const probe = harness(() => okPage([], { page: 1, per_page: 2, total_pages: 1 }));
+    const probeResult = await runApolloOrganizationsPaginatedSearch(
+      { ...baseInput, budget: createApolloPaginationBudget({ maxPages: 0, perPage: 2 }) },
+      probe.deps,
+    );
+    const durableEntries: ApolloPageFenceEntry[] = [
+      {
+        round_number: 1,
+        search_plan_fingerprint: probeResult.requestFingerprint,
+        page: 1,
+        status: 'request_started',
+        organizations: [],
+        credits: 1,
+        results_returned: 0,
+        total_pages: null,
+        accepted_count: null,
+      },
+    ];
+    const durableResume = toApolloDurableResumeState(durableEntries);
+
+    const resumed = harness(() => {
+      throw new Error('ninguna página debía pedirse');
+    });
+    const result = await runApolloOrganizationsPaginatedSearch(
+      {
+        ...baseInput,
+        budget: createApolloPaginationBudget({ maxPages: 5, perPage: 2, maxCandidates: 999, maxCredits: 99 }),
+        durableResume,
+      },
+      resumed.deps,
+    );
+
+    assert.equal(resumed.bodies.length, 0);
+    assert.equal(realFetchCalls, 0);
+    assert.equal(result.stopReason, 'indeterminate_prior_page_pending_reconciliation');
+  });
+});
+
+// ─── H6 · el adaptador de producción mapea `request_started` de forma segura ──
+//
+// A diferencia de las pruebas C7 (que construían `durableResume.indeterminatePage`
+// a mano), esta arranca de una entrada durable REAL con `status: 'request_started'`
+// — la forma exacta en que `page-fence.server.ts` la persistiría tras un
+// `beforeRequest` exitoso seguido de la muerte del proceso — y la pasa por
+// `toApolloDurableResumeState`, el MISMO adaptador que usan
+// `production-runner.server.ts` (dos rondas) y `incremental-search.ts`
+// (default/legacy). Ninguna de las dos modalidades puede divergir en esta
+// interpretación: comparten la única implementación.
+
+describe('H6 · request_started real → adaptador de producción → motor: 0 réplicas', () => {
+  it('un `request_started` huérfano (crash real tras beforeRequest, antes de cualquier desenlace) bloquea el reintento en AMBAS modalidades por construcción', async () => {
+    const probe = harness(() => okPage([], { page: 1, per_page: 2, total_pages: 1 }));
+    const probeResult = await runApolloOrganizationsPaginatedSearch(
+      { ...baseInput, budget: createApolloPaginationBudget({ maxPages: 0, perPage: 2 }) },
+      probe.deps,
+    );
+
+    // Exactamente lo que el escenario H1 describe: SÓLO una entrada
+    // `request_started`, ni succeeded ni indeterminate.
+    const durableEntries: ApolloPageFenceEntry[] = [
+      {
+        round_number: 1,
+        search_plan_fingerprint: probeResult.requestFingerprint,
+        page: 2,
+        status: 'request_started',
+        organizations: [],
+        credits: 1,
+        results_returned: 0,
+        total_pages: null,
+        accepted_count: null,
+      },
+    ];
+
+    const durableResume = toApolloDurableResumeState(durableEntries);
+    assert.equal(durableResume.succeededPages.length, 0);
+    assert.deepEqual(durableResume.indeterminatePage, {
+      page: 2,
+      requestFingerprint: probeResult.requestFingerprint,
+    });
+
+    const resumed = harness(() => {
+      throw new Error('ninguna página debía pedirse: page2 quedó request_started tras un crash real');
+    });
+    const result = await runApolloOrganizationsPaginatedSearch(
+      {
+        ...baseInput,
+        budget: createApolloPaginationBudget({ maxPages: 5, perPage: 2, maxCandidates: 999, maxCredits: 99 }),
+        durableResume,
+      },
+      resumed.deps,
+    );
+
+    assert.equal(resumed.bodies.length, 0, 'page2 no se repite');
+    assert.equal(result.stopReason, 'indeterminate_prior_page_pending_reconciliation');
+    assert.deepEqual(result.indeterminatePages, [2]);
+    assert.equal(realFetchCalls, 0);
   });
 });
 

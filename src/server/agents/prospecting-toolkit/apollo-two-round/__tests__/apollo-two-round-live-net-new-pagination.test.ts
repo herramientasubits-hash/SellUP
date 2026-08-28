@@ -408,7 +408,7 @@ function buildFakePageFenceStore(store: { entries: ApolloPageFenceEntry[] } = { 
 } {
   return {
     store,
-    readPageFenceEntries: async () => store.entries,
+    readPageFenceEntries: async () => ({ kind: 'read' as const, entries: store.entries }),
     writePageFenceEntry: async (_batchId, _identity, entry) => {
       store.entries = mergeApolloPageFenceEntries(store.entries, [entry]);
       return { kind: 'written' };
@@ -851,5 +851,83 @@ describe('LIVE-I — un reintento tras completar la ronda no repite páginas ni 
       2,
       'el resultado ya persistido se devuelve sin reconstruirlo',
     );
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// H1/H6 — un `request_started` durable REAL bloquea el reintento a través del
+// wiring de producción (no del motor de paginación en aislamiento)
+// ══════════════════════════════════════════════════════════════════════════
+//
+// AGENT1-APOLLO-DURABLE-FENCE-HARD-CRASH-FIX. A diferencia de LIVE-I (que
+// reanuda desde un CHECKPOINT DE RONDA ya cerrada), esto reproduce un crash a
+// MITAD de una página: el único rastro durable que sobrevivió es una entrada
+// `request_started` — exactamente lo que `page-fence.server.ts` deja cuando
+// `beforeRequest` confirma el intento y el proceso muere antes de que Apollo
+// responda. Se atraviesa `runApolloTwoRoundWizardDiscovery` real, no una
+// llamada directa al motor.
+
+describe('H1/H6 · LIVE — request_started huérfano bloquea el reintento vía runApolloTwoRoundWizardDiscovery real', () => {
+  it('round1/page2 = request_started (sin succeeded, sin indeterminate) ⇒ 0 páginas HTTP nuevas', async () => {
+    // Paso 1 — una corrida real, para obtener la huella REAL del plan de
+    // búsqueda de esta ronda sin adivinarla ni copiarla de otra suite.
+    const probe = buildDeps({
+      pagesByRound: [[pagePayload(1, [confirmedRawOrg('h1-probe')], 1)]],
+      config: liveConfig(),
+    });
+    await runApolloTwoRoundWizardDiscovery(runInput(), probe.deps);
+    const probedEntry = probe.pageFenceStore.entries[0];
+    assert.ok(probedEntry, 'la corrida probe debió dejar al menos una entrada durable de la valla');
+
+    // Paso 2 — "reinicio del proceso": el ÚNICO estado durable conocido antes
+    // de este reintento es round1/page2 = request_started.
+    const crashedEntries: ApolloPageFenceEntry[] = [
+      {
+        round_number: 1,
+        search_plan_fingerprint: probedEntry.search_plan_fingerprint,
+        page: 2,
+        status: 'request_started',
+        organizations: [],
+        credits: 1,
+        results_returned: 0,
+        total_pages: null,
+        accepted_count: null,
+      },
+    ];
+
+    const resumed = buildDeps({
+      // Transporte que LANZARÍA si se le pidiera cualquier página — el
+      // reintento no debe tocarlo en absoluto.
+      pagesByRound: [[]],
+      config: liveConfig(),
+      pageFenceStore: { entries: crashedEntries },
+    });
+    await runApolloTwoRoundWizardDiscovery(runInput(), resumed.deps);
+
+    assert.equal(
+      resumed.pageFetchLog.length,
+      0,
+      '0 peticiones HTTP nuevas: ni page2 (bloqueada) ni page1 (mismo plan bloqueado por completo) se piden',
+    );
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// H2 — una lectura de la valla que FALLA nunca se trata como "sin páginas
+// previas": Apollo no se toca en absoluto para esa ronda
+// ══════════════════════════════════════════════════════════════════════════
+
+describe('H2 · LIVE — fallo de lectura de la valla ⇒ 0 páginas HTTP, vía runApolloTwoRoundWizardDiscovery real', () => {
+  it('readPageFenceEntries devuelve {kind:"failed"} ⇒ la ronda no pide ninguna página', async () => {
+    const { deps, pageFetchLog } = buildDeps({
+      // Transporte que lanzaría si se le pidiera cualquier página.
+      pagesByRound: [[]],
+      config: liveConfig(),
+    });
+    deps.readPageFenceEntries = async () => ({ kind: 'failed', reason: 'connection reset' });
+
+    await runApolloTwoRoundWizardDiscovery(runInput(), deps);
+
+    assert.equal(pageFetchLog.length, 0, 'una lectura fallida detiene la ronda ANTES de tocar Apollo');
   });
 });

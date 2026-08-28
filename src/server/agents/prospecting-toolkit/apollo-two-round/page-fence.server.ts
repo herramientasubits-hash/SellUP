@@ -50,28 +50,60 @@ export type ApolloPageFenceIdentity = { idempotencyKey: string; requestFingerpri
 
 // ─── Lectura ──────────────────────────────────────────────────────────────────
 
-/** Entradas durables conocidas para esta corrida. `[]` si no hay documento o no aplica. */
+/**
+ * AGENT1-APOLLO-DURABLE-FENCE-HARD-CRASH-FIX — BLOQUEADOR 2.
+ *
+ * Antes de este corte, esta función devolvía `[]` tanto si el documento
+ * genuinamente no existía como si la lectura contra Supabase fallaba
+ * (excepción o `error` de PostgREST). Un llamador que necesita la valla para
+ * decidir si repetir una página no puede distinguir "sin páginas previas
+ * conocidas" de "no se pudo saber si hay páginas previas" — y confundir las
+ * dos trata un fallo de almacenamiento exactamente como si la corrida fuera
+ * nueva, reabriendo la ventana de doble cobro que la valla existe para
+ * cerrar.
+ *
+ * `kind: 'read'` — lectura genuina, `entries` es la verdad conocida (puede
+ * ser `[]` si el documento no existe todavía o pertenece a otra corrida).
+ * `kind: 'failed'` — la lectura no se pudo completar; el llamador NO puede
+ * tratar esto como "sin entradas" (ver `buildApolloPageFenceReadFailureBlock`
+ * en `page-fence.ts`).
+ */
+export type ApolloPageFenceReadOutcome =
+  | { kind: 'read'; entries: ApolloPageFenceEntry[] }
+  | { kind: 'failed'; reason: string };
+
+/**
+ * Sin cliente configurado (entorno sin Supabase, p. ej. pruebas que no
+ * inyectan `clientOverride`): NO es un fallo de lectura, es "esta valla no
+ * está disponible en este entorno" — el mismo contrato "ausente ⇒
+ * comportamiento previo" que documenta `ApolloOrgsSearchOptions
+ * .durablePageFence`. La escritura correspondiente (`upsertApolloPageFenceEntry`
+ * sin cliente) sigue reportando `{kind:'failed'}` y por eso `beforeRequest`
+ * bloquea igual la primera petición — la seguridad no depende de qué
+ * devuelva la lectura en ese caso.
+ */
 export async function readApolloPageFenceEntries(
   batchId: string,
   identity: ApolloPageFenceIdentity,
   clientOverride?: CheckpointStoreClient | null,
-): Promise<ApolloPageFenceEntry[]> {
+): Promise<ApolloPageFenceReadOutcome> {
   const client = clientOverride ?? (tryGetAdminClientForTwoRound() as CheckpointStoreClient | null);
-  if (!client) return [];
+  if (!client) return { kind: 'read', entries: [] };
   try {
     const { data, error } = await client
       .from('prospect_batches')
       .select('metadata')
       .eq('id', batchId)
       .maybeSingle();
-    if (error || !data) return [];
+    if (error) return { kind: 'failed', reason: error.message };
+    if (!data) return { kind: 'failed', reason: 'batch_not_found' };
     const metadata = data.metadata;
-    if (metadata === null || typeof metadata !== 'object') return [];
+    if (metadata === null || typeof metadata !== 'object') return { kind: 'read', entries: [] };
     const stored = (metadata as Record<string, unknown>)[APOLLO_PAGE_FENCE_METADATA_KEY];
     const doc = readApolloPageFenceDocument(stored ?? null, identity);
-    return doc?.entries ?? [];
-  } catch {
-    return [];
+    return { kind: 'read', entries: doc?.entries ?? [] };
+  } catch (err) {
+    return { kind: 'failed', reason: err instanceof Error ? err.message : 'read_failed' };
   }
 }
 

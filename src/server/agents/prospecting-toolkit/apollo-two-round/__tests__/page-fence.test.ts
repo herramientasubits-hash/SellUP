@@ -17,6 +17,8 @@ import {
   fromApolloPageFenceOrganization,
   readApolloPageFenceDocument,
   compactApolloPageFenceForSize,
+  toApolloDurableResumeState,
+  buildApolloPageFenceReadFailureBlock,
   APOLLO_PAGE_FENCE_CONTRACT_VERSION,
   type ApolloPageFenceEntry,
   type ApolloPageFenceDocumentV1,
@@ -119,6 +121,95 @@ describe('mergeApolloPageFenceEntries · precedencia por estado', () => {
     const incoming = [entry({ status: 'indeterminate', credits: 1 })];
     const merged = mergeApolloPageFenceEntries(base, incoming);
     assert.equal(merged[0].credits, 1, 'la exposición posible nunca se representa como gratis');
+  });
+});
+
+// ─── AGENT1-APOLLO-DURABLE-FENCE-HARD-CRASH-FIX · adaptador de resumen ────────
+//
+// `toApolloDurableResumeState` es el ÚNICO lugar donde entradas durables se
+// traducen al `ApolloDurableResumeState` que el motor de paginación consume —
+// compartido, sin copias, por `production-runner.server.ts` (dos rondas) y
+// `incremental-search.ts` (default/legacy). Estas pruebas ejercitan el
+// adaptador REAL directamente sobre entradas con `status` genuino, nunca
+// construyendo `indeterminatePage` a mano — eso sería probar el resultado que
+// se espera, no el código que debe producirlo.
+
+describe('toApolloDurableResumeState · H1/H5/H6 — request_started se trata como indeterminate', () => {
+  it('H1/H6 — una entrada `request_started` SOLA (sin succeeded ni indeterminate) bloquea como indeterminatePage, nunca se pierde ni se adopta como succeeded', () => {
+    const entries = [
+      entry({ round_number: 1, search_plan_fingerprint: 'fp-real-1', page: 2, status: 'request_started', credits: 1 }),
+    ];
+
+    const resume = toApolloDurableResumeState(entries);
+
+    assert.deepEqual(resume.succeededPages, [], 'request_started NUNCA se adopta como página ya exitosa');
+    assert.deepEqual(resume.indeterminatePage, { page: 2, requestFingerprint: 'fp-real-1' });
+  });
+
+  it('H1 — page1 succeeded + page2 request_started: page1 se conserva, page2 bloquea CUALQUIER página nueva', () => {
+    const entries = [
+      entry({
+        round_number: 1,
+        search_plan_fingerprint: 'fp-real-2',
+        page: 1,
+        status: 'succeeded',
+        organizations: [toApolloPageFenceOrganization(fullOrg())],
+      }),
+      entry({ round_number: 1, search_plan_fingerprint: 'fp-real-2', page: 2, status: 'request_started' }),
+    ];
+
+    const resume = toApolloDurableResumeState(entries);
+
+    assert.equal(resume.succeededPages.length, 1);
+    assert.equal(resume.succeededPages[0].page, 1);
+    assert.deepEqual(resume.indeterminatePage, { page: 2, requestFingerprint: 'fp-real-2' });
+  });
+
+  it('sin ninguna entrada `request_started`/`indeterminate`: indeterminatePage es null', () => {
+    const entries = [
+      entry({ round_number: 1, page: 1, status: 'succeeded' }),
+      entry({ round_number: 1, page: 2, status: 'succeeded' }),
+    ];
+    const resume = toApolloDurableResumeState(entries);
+    assert.equal(resume.indeterminatePage, null);
+    assert.equal(resume.succeededPages.length, 2);
+  });
+
+  it('H5 — un `request_started` más nuevo para una página YA succeeded no la downgradea antes del adaptador (fusión) y el adaptador ve succeeded, no indeterminate', () => {
+    const base = [entry({ round_number: 1, page: 1, status: 'succeeded', credits: 1 })];
+    const staleRetry = [entry({ round_number: 1, page: 1, status: 'request_started', credits: 1 })];
+    const merged = mergeApolloPageFenceEntries(base, staleRetry);
+
+    const resume = toApolloDurableResumeState(merged);
+
+    assert.equal(resume.succeededPages.length, 1, 'succeeded sigue siendo la verdad para esa página');
+    assert.equal(resume.indeterminatePage, null, 'no hay ninguna página realmente sin desenlace');
+  });
+});
+
+describe('buildApolloPageFenceReadFailureBlock · BLOQUEADOR 2', () => {
+  it('beforeRequest siempre lanza con el motivo, sin importar la página', async () => {
+    const block = buildApolloPageFenceReadFailureBlock('connection reset');
+    await assert.rejects(
+      () => block.beforeRequest({ page: 1, requestFingerprint: 'fp-x' }),
+      /durable_page_fence_read_failed: connection reset/,
+    );
+  });
+
+  it('onSucceeded/onIndeterminate son no-ops inertes (nunca se alcanzan, pero no deben lanzar)', async () => {
+    const block = buildApolloPageFenceReadFailureBlock('x');
+    await assert.doesNotReject(() =>
+      block.onSucceeded({
+        page: 1,
+        requestFingerprint: 'fp-x',
+        organizations: [],
+        credits: 0,
+        resultsReturned: 0,
+        totalPages: null,
+        acceptedCount: null,
+      }),
+    );
+    await assert.doesNotReject(() => block.onIndeterminate({ page: 1, requestFingerprint: 'fp-x' }));
   });
 });
 

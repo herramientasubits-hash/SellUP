@@ -75,13 +75,19 @@ function pageEntry(overrides: Partial<ApolloPageFenceEntry> = {}): ApolloPageFen
   };
 }
 
+/** Desenvuelve un `ApolloPageFenceReadOutcome` esperado como lectura exitosa. */
+function expectRead(outcome: Awaited<ReturnType<typeof readApolloPageFenceEntries>>): ApolloPageFenceEntry[] {
+  assert.equal(outcome.kind, 'read', 'se esperaba una lectura exitosa, no un fallo');
+  return outcome.kind === 'read' ? outcome.entries : [];
+}
+
 describe('page-fence.server · escritura durable', () => {
   it('escribe una entrada y se puede releer', async () => {
     const { client } = fakeStore();
     const outcome = await upsertApolloPageFenceEntry(BATCH_ID, IDENTITY, pageEntry(), client);
     assert.equal(outcome.kind, 'written');
 
-    const entries = await readApolloPageFenceEntries(BATCH_ID, IDENTITY, client);
+    const entries = expectRead(await readApolloPageFenceEntries(BATCH_ID, IDENTITY, client));
     assert.equal(entries.length, 1);
     assert.equal(entries[0].status, 'request_started');
   });
@@ -96,7 +102,7 @@ describe('page-fence.server · escritura durable', () => {
       client,
     );
 
-    const entries = await readApolloPageFenceEntries(BATCH_ID, IDENTITY, client);
+    const entries = expectRead(await readApolloPageFenceEntries(BATCH_ID, IDENTITY, client));
     assert.equal(entries.length, 1, 'sigue siendo UNA entrada para esa página, no dos');
     assert.equal(entries[0].status, 'succeeded');
   });
@@ -106,7 +112,7 @@ describe('page-fence.server · escritura durable', () => {
     await upsertApolloPageFenceEntry(BATCH_ID, IDENTITY, pageEntry({ page: 1, status: 'succeeded' }), client);
     await upsertApolloPageFenceEntry(BATCH_ID, IDENTITY, pageEntry({ page: 2, status: 'request_started' }), client);
 
-    const entries = await readApolloPageFenceEntries(BATCH_ID, IDENTITY, client);
+    const entries = expectRead(await readApolloPageFenceEntries(BATCH_ID, IDENTITY, client));
     assert.equal(entries.length, 2);
   });
 
@@ -115,7 +121,7 @@ describe('page-fence.server · escritura durable', () => {
     await upsertApolloPageFenceEntry(BATCH_ID, IDENTITY, pageEntry({ page: 1, status: 'succeeded' }), client);
 
     const otherRun = { idempotencyKey: 'idem-OTRA-corrida', requestFingerprint: 'fp-otra' };
-    const entries = await readApolloPageFenceEntries(BATCH_ID, otherRun, client);
+    const entries = expectRead(await readApolloPageFenceEntries(BATCH_ID, otherRun, client));
     assert.deepEqual(entries, [], 'una corrida distinta no ve páginas ajenas');
   });
 
@@ -126,15 +132,66 @@ describe('page-fence.server · escritura durable', () => {
 
     await clearApolloPageFenceRoundDurable(BATCH_ID, IDENTITY, 1, client);
 
-    const entries = await readApolloPageFenceEntries(BATCH_ID, IDENTITY, client);
+    const entries = expectRead(await readApolloPageFenceEntries(BATCH_ID, IDENTITY, client));
     assert.equal(entries.length, 1);
     assert.equal(entries[0].round_number, 2);
   });
 
-  it('sin cliente (sin Supabase configurado) la lectura degrada a [] y la escritura reporta el fallo, sin lanzar', async () => {
-    const entries = await readApolloPageFenceEntries(BATCH_ID, IDENTITY, null);
-    assert.deepEqual(entries, []);
-    const outcome = await upsertApolloPageFenceEntry(BATCH_ID, IDENTITY, pageEntry(), null);
-    assert.equal(outcome.kind, 'failed');
+  it('sin cliente (sin Supabase configurado) la lectura degrada a {kind:"read", entries:[]} y la escritura reporta el fallo, sin lanzar', async () => {
+    const outcome = await readApolloPageFenceEntries(BATCH_ID, IDENTITY, null);
+    assert.deepEqual(outcome, { kind: 'read', entries: [] });
+    const writeOutcome = await upsertApolloPageFenceEntry(BATCH_ID, IDENTITY, pageEntry(), null);
+    assert.equal(writeOutcome.kind, 'failed');
+  });
+
+  // ── AGENT1-APOLLO-DURABLE-FENCE-HARD-CRASH-FIX · BLOQUEADOR 2 ──────────────
+  //
+  // H2 — una lectura que SÍ tiene cliente pero cuya consulta falla (excepción
+  // o `error` de PostgREST) debe distinguirse de "no hay documento todavía":
+  // antes de este corte, ambos casos devolvían `[]` y el llamador no podía
+  // saber la diferencia.
+
+  describe('H2 · la lectura distingue "sin documento" de "fallo de lectura"', () => {
+    it('un cliente cuya consulta devuelve `error` reporta {kind:"failed"}, nunca [] silencioso', async () => {
+      const failingClient: CheckpointStoreClient = {
+        from: () => ({
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: null, error: { message: 'connection reset' } }),
+            }),
+          }),
+        }),
+      } as unknown as CheckpointStoreClient;
+
+      const outcome = await readApolloPageFenceEntries(BATCH_ID, IDENTITY, failingClient);
+      assert.equal(outcome.kind, 'failed');
+      assert.equal(outcome.kind === 'failed' ? outcome.reason : null, 'connection reset');
+    });
+
+    it('un cliente que lanza (excepción de red) reporta {kind:"failed"}, nunca [] silencioso', async () => {
+      const throwingClient: CheckpointStoreClient = {
+        from: () => ({
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => {
+                throw new Error('supabase unreachable');
+              },
+            }),
+          }),
+        }),
+      } as unknown as CheckpointStoreClient;
+
+      const outcome = await readApolloPageFenceEntries(BATCH_ID, IDENTITY, throwingClient);
+      assert.equal(outcome.kind, 'failed');
+      assert.equal(outcome.kind === 'failed' ? outcome.reason : null, 'supabase unreachable');
+    });
+
+    it('un lote existente con una página succeeded se sigue leyendo bien cuando NO hay fallo (control)', async () => {
+      const { client } = fakeStore();
+      await upsertApolloPageFenceEntry(BATCH_ID, IDENTITY, pageEntry({ page: 1, status: 'succeeded' }), client);
+
+      const outcome = await readApolloPageFenceEntries(BATCH_ID, IDENTITY, client);
+      assert.equal(outcome.kind, 'read');
+    });
   });
 });

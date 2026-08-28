@@ -280,7 +280,18 @@ export type ApolloPaginatedSearchResult = {
      * Apollo nunca fue contactado, 0 créditos, seguro de reintentar en una
      * invocación posterior.
      */
-    | 'durable_fence_write_failed';
+    | 'durable_fence_write_failed'
+    /**
+     * AGENT1-APOLLO-DURABLE-FENCE-HARD-CRASH-FIX · BLOQUEADOR 3 — la página SÍ
+     * se pidió (y pudo cobrarse), pero el desenlace terminal (`succeeded` o
+     * `indeterminate`) no se pudo persistir de forma durable. La valla durable
+     * de esta página se queda en `request_started` — la verdad conservadora
+     * que un reintento debe ver como posiblemente cobrada. Continuar pidiendo
+     * páginas nuevas en ESTA invocación acumularía más páginas sin desenlace
+     * durable confirmado; se detiene aquí, con lo que ya se cobró y recogió
+     * conservado.
+     */
+    | 'durable_fence_terminal_write_failed';
   /** Clasificación del fallo que detuvo la búsqueda. null si terminó limpio. */
   terminalError: ApolloErrorClassification | null;
   /** Páginas cuyo resultado y cobro quedaron indeterminados. Requieren recuperación explícita. */
@@ -742,9 +753,16 @@ export async function runApolloOrganizationsPaginatedSearch(
         pageSettled = true;
 
         // § B5 — el desenlace terminal se escribe y se ESPERA ANTES de decidir
-        // la página siguiente. Best-effort, igual que la valla previa: una
-        // falla aquí degrada la recuperación de un futuro reintento, nunca
-        // esta búsqueda que YA cobró la página.
+        // la página siguiente.
+        //
+        // AGENT1-APOLLO-DURABLE-FENCE-HARD-CRASH-FIX · BLOQUEADOR 3 — antes de
+        // este corte un fallo aquí era silencioso y la paginación seguía de
+        // largo pidiendo la página siguiente, aunque la valla durable de ESTA
+        // página se hubiera quedado en `request_started` (posiblemente
+        // cobrada, nunca confirmada). Ahora se detiene: lo ya cobrado y
+        // recogido en esta invocación se conserva, pero ninguna página nueva
+        // se pide hasta que un reintento reconcilie esta página.
+        let terminalFenceWriteFailed = false;
         if (deps.durableFence) {
           try {
             await deps.durableFence.onSucceeded({
@@ -757,7 +775,7 @@ export async function runApolloOrganizationsPaginatedSearch(
               acceptedCount: deps.evaluateAcceptance ? acceptedInThisPage : null,
             });
           } catch {
-            // Intencionalmente silencioso: ver comentario arriba.
+            terminalFenceWriteFailed = true;
           }
         }
 
@@ -767,7 +785,7 @@ export async function runApolloOrganizationsPaginatedSearch(
           resultsReturned,
           estimatedCredits: pageCredits,
           attempt,
-          errorCode: null,
+          errorCode: terminalFenceWriteFailed ? 'durable_fence_terminal_write_failed' : null,
           billingState: pageCredits > 0 ? 'charged' : 'not_charged',
         });
 
@@ -786,12 +804,17 @@ export async function runApolloOrganizationsPaginatedSearch(
           status: 'success',
           latencyMs,
           attempt,
-          errorCategory: null,
-          errorCode: null,
+          errorCategory: terminalFenceWriteFailed ? 'pre_provider_infra_failure' : null,
+          errorCode: terminalFenceWriteFailed ? 'durable_fence_terminal_write_failed' : null,
           billingState: pageCredits > 0 ? 'charged' : 'not_charged',
           wizardRunId: input.wizardRunId,
           agentRunId: input.agentRunId ?? null,
         });
+
+        if (terminalFenceWriteFailed) {
+          stopReason = 'durable_fence_terminal_write_failed';
+          guardrailTripped = 'durable_fence_terminal_write_failed';
+        }
 
         // `newInThisPage === 0` con resultados devueltos significa solapamiento
         // total con lo ya recogido — no es motivo para detenerse por sí solo;
@@ -823,11 +846,23 @@ export async function runApolloOrganizationsPaginatedSearch(
         // § B5/B8/B9 — el desenlace indeterminado también se espera antes de
         // seguir: es exactamente el estado que un reintento debe encontrar
         // para no repetir esta página automáticamente.
+        //
+        // BLOQUEADOR 3 — a diferencia de `onSucceeded`, un fallo AQUÍ no
+        // necesita un `stopReason` explícito propio: `billingState ===
+        // 'unknown'` sólo lo produce una clasificación con `retryable: false`
+        // (ver `apollo-organizations-error-taxonomy.ts`), así que las líneas de
+        // abajo YA fuerzan `stopReason = 'error_terminated'` para esta misma
+        // página sin importar si esta escritura tuvo éxito. La verdad
+        // conservadora que protege el reintento es la que `beforeRequest` ya
+        // dejó durable (`request_started`): si esta escritura falla, esa
+        // entrada simplemente no se actualiza a `indeterminate`, y § B1 del
+        // adaptador de resumen (`toApolloDurableResumeState`) trata
+        // `request_started` igual que `indeterminate`.
         if (deps.durableFence) {
           try {
             await deps.durableFence.onIndeterminate({ page, requestFingerprint });
           } catch {
-            // Intencionalmente silencioso: ver comentario del desenlace previo.
+            // Intencionalmente silencioso: ver comentario arriba.
           }
         }
       }
@@ -903,6 +938,13 @@ export async function runApolloOrganizationsPaginatedSearch(
       guardrailTripped === 'durable_fence_write_failed'
     ) {
       stopReason = 'durable_fence_write_failed';
+      break;
+    }
+    if (
+      stopReason === 'durable_fence_terminal_write_failed' ||
+      guardrailTripped === 'durable_fence_terminal_write_failed'
+    ) {
+      stopReason = 'durable_fence_terminal_write_failed';
       break;
     }
   }

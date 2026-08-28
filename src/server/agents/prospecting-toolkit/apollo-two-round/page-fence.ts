@@ -30,6 +30,10 @@
  */
 
 import type { NormalizedApolloOrganization } from '../apollo-organizations-response-normalizer';
+import type {
+  ApolloDurableResumeState,
+  ApolloPaginatedSearchDeps,
+} from '../apollo-organizations-paginated-search';
 
 /** Clave bajo la que la valla aterriza en `prospect_batches.metadata`. */
 export const APOLLO_PAGE_FENCE_METADATA_KEY = 'apollo_two_round_page_fence' as const;
@@ -311,4 +315,76 @@ export function compactApolloPageFenceForSize(
   }
 
   return { document: working, serializedBytes, withinLimit: serializedBytes <= maxBytes };
+}
+
+// ─── Adaptador de resumen durable ──────────────────────────────────────────────
+
+/**
+ * AGENT1-APOLLO-DURABLE-FENCE-HARD-CRASH-FIX — el ÚNICO lugar que traduce
+ * entradas durables (ya filtradas a UNA ronda) al resumen que
+ * `runApolloOrganizationsPaginatedSearch` consume.
+ *
+ * Antes de este corte, la modalidad de dos rondas y la modalidad
+ * default/legacy tenían cada una su propia copia de esta traducción, y las
+ * dos cometían el MISMO error: sólo `status === 'indeterminate'` bloqueaba
+ * páginas nuevas, ignorando `request_started` sin desenlace terminal — el
+ * estado EXACTO que deja un proceso que muere justo después de que
+ * `beforeRequest` confirmó el intento pero antes de que Apollo respondiera.
+ * Ese estado no puede tratarse como "página nunca pedida": Apollo pudo
+ * haberla cobrado.
+ *
+ * `request_started` se trata EXACTAMENTE como `indeterminate` para efectos
+ * de resumen: bloquea cualquier página nueva de este plan de búsqueda hasta
+ * que se reconcilie explícitamente. Una sola implementación, compartida por
+ * las dos modalidades, es lo que garantiza que esa interpretación no pueda
+ * volver a divergir entre ellas.
+ */
+export function toApolloDurableResumeState(
+  entriesForRound: readonly ApolloPageFenceEntry[],
+): ApolloDurableResumeState {
+  const blockingEntry = entriesForRound.find(
+    (entry) => entry.status === 'indeterminate' || entry.status === 'request_started',
+  );
+  return {
+    succeededPages: entriesForRound
+      .filter((entry) => entry.status === 'succeeded')
+      .map((entry) => ({
+        page: entry.page,
+        requestFingerprint: entry.search_plan_fingerprint,
+        organizations: entry.organizations.map(fromApolloPageFenceOrganization),
+        credits: entry.credits,
+        resultsReturned: entry.results_returned,
+        totalPages: entry.total_pages,
+        acceptedCount: entry.accepted_count,
+      })),
+    indeterminatePage: blockingEntry
+      ? { page: blockingEntry.page, requestFingerprint: blockingEntry.search_plan_fingerprint }
+      : null,
+  };
+}
+
+/**
+ * AGENT1-APOLLO-DURABLE-FENCE-HARD-CRASH-FIX — BLOQUEADOR 2.
+ *
+ * Cuando la LECTURA de la valla durable falla (no cuando simplemente no hay
+ * documento todavía), ninguna página de esta invocación puede pedirse: sin
+ * poder leer el documento, no hay forma de saber qué ya se intentó, y
+ * proceder trataría un fallo de almacenamiento exactamente igual que "sin
+ * páginas previas" — el defecto que este corte cierra.
+ *
+ * Reutiliza el ÚNICO camino fail-closed que el motor de paginación ya prueba
+ * (`beforeRequest` que lanza detiene la búsqueda ANTES de la primera
+ * petición HTTP, con 0 créditos — ver `apollo-page-fence-durable-resume.test.ts`
+ * § C10) en vez de inventar un segundo mecanismo de parada.
+ */
+export function buildApolloPageFenceReadFailureBlock(
+  reason: string,
+): NonNullable<ApolloPaginatedSearchDeps['durableFence']> {
+  return {
+    beforeRequest: async () => {
+      throw new Error(`durable_page_fence_read_failed: ${reason}`);
+    },
+    onSucceeded: async () => {},
+    onIndeterminate: async () => {},
+  };
 }

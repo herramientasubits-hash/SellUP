@@ -97,7 +97,8 @@ import {
 } from './apollo-two-round/page-fence.server';
 import {
   toApolloPageFenceOrganization,
-  fromApolloPageFenceOrganization,
+  toApolloDurableResumeState,
+  buildApolloPageFenceReadFailureBlock,
   type ApolloPageFenceEntry,
 } from './apollo-two-round/page-fence';
 
@@ -893,92 +894,103 @@ export async function runIncrementalProspectingSearch(
           idempotencyKey: fenceCorrelation.idempotency_key,
           requestFingerprint: fenceCorrelation.request_fingerprint,
         };
-        const existingFenceEntries = (
-          await readPageFenceEntriesFn(fenceBatchId, fenceIdentity)
-        ).filter((entry): entry is ApolloPageFenceEntry => entry.round_number === round);
-        const indeterminateFenceEntry = existingFenceEntries.find(
-          (entry) => entry.status === 'indeterminate',
-        );
+        const fenceReadOutcome = await readPageFenceEntriesFn(fenceBatchId, fenceIdentity);
 
-        apolloSearchOptions.durableResume = {
-          succeededPages: existingFenceEntries
-            .filter((entry) => entry.status === 'succeeded')
-            .map((entry) => ({
-              page: entry.page,
-              requestFingerprint: entry.search_plan_fingerprint,
-              organizations: entry.organizations.map(fromApolloPageFenceOrganization),
-              credits: entry.credits,
-              resultsReturned: entry.results_returned,
-              totalPages: entry.total_pages,
-              acceptedCount: entry.accepted_count,
-            })),
-          indeterminatePage: indeterminateFenceEntry
-            ? {
-                page: indeterminateFenceEntry.page,
-                requestFingerprint: indeterminateFenceEntry.search_plan_fingerprint,
+        // AGENT1-APOLLO-DURABLE-FENCE-HARD-CRASH-FIX · BLOQUEADOR 2 — una
+        // lectura que falló NUNCA se trata como "sin páginas previas": no hay
+        // forma de saber qué ya se intentó. A diferencia del camino de dos
+        // rondas, aquí no hay un punto previo a `pipelineFn` desde el que
+        // saltarse Apollo por completo, así que se reutiliza el mismo camino
+        // fail-closed que ya prueba `beforeRequest` (ver `page-fence.ts`):
+        // `durableResume` se deja AUSENTE (irrelevante — la petición nunca
+        // sale) y `durablePageFence.beforeRequest` bloquea la primera página.
+        if (fenceReadOutcome.kind === 'failed') {
+          apolloSearchOptions.durablePageFence = buildApolloPageFenceReadFailureBlock(
+            fenceReadOutcome.reason,
+          );
+        } else {
+          const existingFenceEntries = fenceReadOutcome.entries.filter(
+            (entry): entry is ApolloPageFenceEntry => entry.round_number === round,
+          );
+
+          apolloSearchOptions.durableResume = toApolloDurableResumeState(existingFenceEntries);
+
+          apolloSearchOptions.durablePageFence = {
+            beforeRequest: async ({ page, requestFingerprint }) => {
+              const outcome = await writePageFenceEntryFn(fenceBatchId, fenceIdentity, {
+                round_number: round,
+                search_plan_fingerprint: requestFingerprint,
+                page,
+                status: 'request_started',
+                organizations: [],
+                // La página posible ya salió hacia Apollo cuando esta valla se
+                // escribe: 1, nunca 0 — un cobro posible nunca se representa
+                // como definitivamente gratis.
+                credits: 1,
+                results_returned: 0,
+                total_pages: null,
+                accepted_count: null,
+              });
+              // `upsertApolloPageFenceEntry` nunca lanza: reporta el fallo como
+              // `{kind: 'failed'}`. Debe LANZAR aquí — es lo único que el motor
+              // de paginación trata como fail-closed antes de emitir la
+              // petición HTTP.
+              if (outcome.kind === 'failed') {
+                throw new Error(`durable_page_fence_write_failed: ${outcome.reason}`);
               }
-            : null,
-        };
-
-        apolloSearchOptions.durablePageFence = {
-          beforeRequest: async ({ page, requestFingerprint }) => {
-            const outcome = await writePageFenceEntryFn(fenceBatchId, fenceIdentity, {
-              round_number: round,
-              search_plan_fingerprint: requestFingerprint,
+            },
+            onSucceeded: async ({
               page,
-              status: 'request_started',
-              organizations: [],
-              // La página posible ya salió hacia Apollo cuando esta valla se
-              // escribe: 1, nunca 0 — un cobro posible nunca se representa
-              // como definitivamente gratis.
-              credits: 1,
-              results_returned: 0,
-              total_pages: null,
-              accepted_count: null,
-            });
-            // `upsertApolloPageFenceEntry` nunca lanza: reporta el fallo como
-            // `{kind: 'failed'}`. Debe LANZAR aquí — es lo único que el motor
-            // de paginación trata como fail-closed antes de emitir la
-            // petición HTTP.
-            if (outcome.kind === 'failed') {
-              throw new Error(`durable_page_fence_write_failed: ${outcome.reason}`);
-            }
-          },
-          onSucceeded: async ({
-            page,
-            requestFingerprint,
-            organizations,
-            credits,
-            resultsReturned,
-            totalPages,
-            acceptedCount,
-          }) => {
-            await writePageFenceEntryFn(fenceBatchId, fenceIdentity, {
-              round_number: round,
-              search_plan_fingerprint: requestFingerprint,
-              page,
-              status: 'succeeded',
-              organizations: organizations.map(toApolloPageFenceOrganization),
+              requestFingerprint,
+              organizations,
               credits,
-              results_returned: resultsReturned,
-              total_pages: totalPages,
-              accepted_count: acceptedCount,
-            });
-          },
-          onIndeterminate: async ({ page, requestFingerprint }) => {
-            await writePageFenceEntryFn(fenceBatchId, fenceIdentity, {
-              round_number: round,
-              search_plan_fingerprint: requestFingerprint,
-              page,
-              status: 'indeterminate',
-              organizations: [],
-              credits: 1,
-              results_returned: 0,
-              total_pages: null,
-              accepted_count: null,
-            });
-          },
-        };
+              resultsReturned,
+              totalPages,
+              acceptedCount,
+            }) => {
+              const outcome = await writePageFenceEntryFn(fenceBatchId, fenceIdentity, {
+                round_number: round,
+                search_plan_fingerprint: requestFingerprint,
+                page,
+                status: 'succeeded',
+                organizations: organizations.map(toApolloPageFenceOrganization),
+                credits,
+                results_returned: resultsReturned,
+                total_pages: totalPages,
+                accepted_count: acceptedCount,
+              });
+              // BLOQUEADOR 3 — igual que `beforeRequest`: debe LANZAR si falla,
+              // porque sólo lo que esta función lanza detiene la paginación
+              // (`durable_fence_terminal_write_failed`). Sin esto, la página
+              // siguiente se pediría aunque ÉSTA se haya quedado en
+              // `request_started` durable — posiblemente cobrada, nunca
+              // confirmada.
+              if (outcome.kind === 'failed') {
+                throw new Error(`durable_page_fence_terminal_write_failed: ${outcome.reason}`);
+              }
+            },
+            onIndeterminate: async ({ page, requestFingerprint }) => {
+              await writePageFenceEntryFn(fenceBatchId, fenceIdentity, {
+                round_number: round,
+                search_plan_fingerprint: requestFingerprint,
+                page,
+                status: 'indeterminate',
+                organizations: [],
+                credits: 1,
+                results_returned: 0,
+                total_pages: null,
+                accepted_count: null,
+              });
+              // BLOQUEADOR 3 — no hace falta inspeccionar el desenlace de esta
+              // escritura: `onIndeterminate` sólo se invoca cuando la
+              // clasificación ya es `retryable: false` (ver el comentario en
+              // `apollo-organizations-paginated-search.ts`), así que el motor
+              // YA se detiene para esta página sin importar si esta escritura
+              // tuvo éxito. El `request_started` que `beforeRequest` ya dejó
+              // durable es la verdad conservadora que protege el reintento.
+            },
+          };
+        }
       }
     }
 

@@ -381,7 +381,7 @@ describe('AGENT1-APOLLO-DEFAULT-PATH-NET-NEW-PAGINATION', () => {
       const fenceKey = (id: ApolloPageFenceIdentity) => `${id.idempotencyKey}:${id.requestFingerprint}`;
       const pageFenceDepsOverride = {
         readEntries: async (_batchId: string, id: ApolloPageFenceIdentity) =>
-          fenceStore.get(fenceKey(id)) ?? [],
+          ({ kind: 'read' as const, entries: fenceStore.get(fenceKey(id)) ?? [] }),
         writeEntry: async (_batchId: string, id: ApolloPageFenceIdentity, entry: ApolloPageFenceEntry) => {
           const key = fenceKey(id);
           const existing = fenceStore.get(key) ?? [];
@@ -442,6 +442,169 @@ describe('AGENT1-APOLLO-DEFAULT-PATH-NET-NEW-PAGINATION', () => {
         'la valla debió registrar al menos una página succeeded',
       );
       assert.equal(realFetchCalls, 0, 'ninguna llamada de red real');
+    });
+
+    // ── AGENT1-APOLLO-DURABLE-FENCE-HARD-CRASH-FIX ──────────────────────────
+    //
+    // H1/H6 y H2, en el camino default/legacy, a través del MISMO wiring real
+    // (`runIncrementalProspectingSearch`) que W4 ya ejercita — no del motor de
+    // paginación en aislamiento.
+
+    it('H1/H6 — request_started real (crash tras beforeRequest) bloquea el reintento vía runIncrementalProspectingSearch real', async () => {
+      const fenceStore = new Map<string, ApolloPageFenceEntry[]>();
+      const identity: ApolloPageFenceIdentity = {
+        idempotencyKey: 'idem-h1',
+        requestFingerprint: 'fp-h1',
+      };
+      const fenceKey = (id: ApolloPageFenceIdentity) => `${id.idempotencyKey}:${id.requestFingerprint}`;
+      const pageFenceDepsOverride = {
+        readEntries: async (_batchId: string, id: ApolloPageFenceIdentity) =>
+          ({ kind: 'read' as const, entries: fenceStore.get(fenceKey(id)) ?? [] }),
+        writeEntry: async (_batchId: string, id: ApolloPageFenceIdentity, entry: ApolloPageFenceEntry) => {
+          const key = fenceKey(id);
+          const existing = fenceStore.get(key) ?? [];
+          const filtered = existing.filter(
+            (e) => !(e.round_number === entry.round_number && e.page === entry.page
+              && e.search_plan_fingerprint === entry.search_plan_fingerprint),
+          );
+          fenceStore.set(key, [...filtered, entry]);
+          return { kind: 'written' as const };
+        },
+      };
+
+      const runCorrelation: RunCorrelationMetadata = {
+        wizard_run_id: 'wr-h1', client_request_id: 'cr-h1', batch_id: 'batch-h1',
+        reservation_id: null, agent_run_id: null, provider_key: 'apollo',
+        request_fingerprint: identity.requestFingerprint,
+        idempotency_key: identity.idempotencyKey,
+        billing_state: null,
+      };
+      const baseInput = {
+        country: 'Colombia', countryCode: 'CO', industry: 'Educación',
+        webSearchProvider: 'apollo_organizations' as const, dryRun: false, maxRounds: 1,
+        targetPersistibleCandidates: 1,
+        existingBatchId: 'batch-h1',
+        apolloRunCorrelation: runCorrelation,
+        triggeredByUserId: 'user-1', ownerId: 'user-1',
+      };
+
+      // Paso 1 — una corrida real (page1 único, total_pages=1, objetivo
+      // cumplido) para obtener la huella REAL del plan de búsqueda de esta
+      // ronda, sin adivinarla.
+      const probeTransport = transportOf((page) => pageOf(page, [`h1_probe${page}`], 1));
+      const probePipelineOverride = async (input: ProspectingPipelineInput): Promise<ProspectingPipelineOutput> => {
+        const options = input.apolloSearchOptions!;
+        const out = await runApolloOrganizationsSearch(
+          { query: 'q' }, 100, undefined,
+          { fetchPage: probeTransport.fetchPage },
+          options,
+        );
+        const base = fakePipelineOutput(input);
+        base.webSearch = out;
+        return base;
+      };
+
+      await withoutSupabaseEnv(() =>
+        runIncrementalProspectingSearch(baseInput, NOOP_WRITER, probePipelineOverride, pageFenceDepsOverride),
+      );
+
+      const probedEntries = fenceStore.get(fenceKey(identity)) ?? [];
+      assert.ok(probedEntries.length > 0, 'la corrida probe debió dejar al menos una entrada durable');
+
+      // Paso 2 — "reinicio del proceso": el ÚNICO estado durable conocido
+      // antes de este reintento es round(legacy)/page2 = request_started. Se
+      // REEMPLAZA el store con SÓLO esa entrada — ni succeeded, ni indeterminate.
+      fenceStore.set(fenceKey(identity), [
+        {
+          round_number: probedEntries[0]!.round_number,
+          search_plan_fingerprint: probedEntries[0]!.search_plan_fingerprint,
+          page: 2,
+          status: 'request_started',
+          organizations: [],
+          credits: 1,
+          results_returned: 0,
+          total_pages: null,
+          accepted_count: null,
+        },
+      ]);
+
+      let fetchCallsOnResume = 0;
+      const resumedPipelineOverride = async (input: ProspectingPipelineInput): Promise<ProspectingPipelineOutput> => {
+        const options = input.apolloSearchOptions!;
+        const out = await runApolloOrganizationsSearch(
+          { query: 'q' }, 100, undefined,
+          {
+            fetchPage: async () => {
+              fetchCallsOnResume++;
+              throw new Error('ninguna página debía pedirse: request_started huérfano pendiente');
+            },
+          },
+          options,
+        );
+        const base = fakePipelineOutput(input);
+        base.webSearch = out;
+        return base;
+      };
+
+      await withoutSupabaseEnv(() =>
+        runIncrementalProspectingSearch(baseInput, NOOP_WRITER, resumedPipelineOverride, pageFenceDepsOverride),
+      );
+
+      assert.equal(
+        fetchCallsOnResume,
+        0,
+        '0 peticiones HTTP nuevas: el request_started huérfano bloquea todo el plan de búsqueda',
+      );
+    });
+
+    it('H2 — fallo de lectura de la valla ⇒ 0 páginas HTTP, vía runIncrementalProspectingSearch real', async () => {
+      const pageFenceDepsOverride = {
+        readEntries: async () => ({ kind: 'failed' as const, reason: 'connection reset' }),
+        writeEntry: async () => ({ kind: 'written' as const }),
+      };
+      const runCorrelation: RunCorrelationMetadata = {
+        wizard_run_id: 'wr-h2', client_request_id: 'cr-h2', batch_id: 'batch-h2',
+        reservation_id: null, agent_run_id: null, provider_key: 'apollo',
+        request_fingerprint: 'fp-h2',
+        idempotency_key: 'idem-h2',
+        billing_state: null,
+      };
+
+      let fetchCalls = 0;
+      const pipelineOverride = async (input: ProspectingPipelineInput): Promise<ProspectingPipelineOutput> => {
+        const options = input.apolloSearchOptions!;
+        const out = await runApolloOrganizationsSearch(
+          { query: 'q' }, 100, undefined,
+          {
+            fetchPage: async () => {
+              fetchCalls++;
+              throw new Error('ninguna página debía pedirse: la lectura de la valla falló');
+            },
+          },
+          options,
+        );
+        const base = fakePipelineOutput(input);
+        base.webSearch = out;
+        return base;
+      };
+
+      await withoutSupabaseEnv(() =>
+        runIncrementalProspectingSearch(
+          {
+            country: 'Colombia', countryCode: 'CO', industry: 'Educación',
+            webSearchProvider: 'apollo_organizations', dryRun: false, maxRounds: 1,
+            targetPersistibleCandidates: 1,
+            existingBatchId: 'batch-h2',
+            apolloRunCorrelation: runCorrelation,
+            triggeredByUserId: 'user-1', ownerId: 'user-1',
+          },
+          NOOP_WRITER,
+          pipelineOverride,
+          pageFenceDepsOverride,
+        ),
+      );
+
+      assert.equal(fetchCalls, 0, 'una lectura fallida de la valla detiene la ronda antes de tocar Apollo');
     });
   });
 
