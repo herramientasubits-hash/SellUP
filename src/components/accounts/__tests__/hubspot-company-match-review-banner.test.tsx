@@ -153,4 +153,25 @@ describe('HubSpotCompanyMatchReviewBanner', () => {
       decision: 'different',
     });
   });
+
+  it('si la acción falla, muestra un mensaje de error visible', async () => {
+    mockResolve.mock.mockImplementation(async () => ({ ok: false }));
+    render(
+      React.createElement(HubSpotCompanyMatchReviewBanner, {
+        accountId: 'account-1',
+        pendingMatch: {
+          hubspotCompanyId: 'hs-999',
+          name: 'X',
+          domain: null,
+          matchMethod: 'name',
+          confidence: 65,
+          reason: 'r',
+        },
+      }),
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Sí, es la misma/ }));
+    });
+    assert.match(document.body.textContent ?? '', /No se pudo guardar/);
+  });
 });

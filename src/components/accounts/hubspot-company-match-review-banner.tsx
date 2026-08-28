@@ -32,14 +32,22 @@ export function HubSpotCompanyMatchReviewBanner({
 }: HubSpotCompanyMatchReviewBannerProps) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<'same' | 'different' | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
 
   if (!pendingMatch) return null;
 
   async function resolve(decision: 'same' | 'different') {
     setBusy(decision);
+    setError(null);
     try {
-      await resolveHubSpotCompanyMatchAction({ accountId, decision });
+      const result = await resolveHubSpotCompanyMatchAction({ accountId, decision });
+      if (!result.ok) {
+        setError('No se pudo guardar. Intenta de nuevo.');
+        return;
+      }
       router.refresh();
+    } catch {
+      setError('No se pudo guardar. Intenta de nuevo.');
     } finally {
       setBusy(null);
     }
@@ -65,7 +73,7 @@ export function HubSpotCompanyMatchReviewBanner({
             disabled={busy !== null}
             onClick={() => void resolve('same')}
           >
-            {busy === 'same' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            {busy === 'same' && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
             Sí, es la misma
           </Button>
           <Button
@@ -75,10 +83,13 @@ export function HubSpotCompanyMatchReviewBanner({
             disabled={busy !== null}
             onClick={() => void resolve('different')}
           >
-            {busy === 'different' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            {busy === 'different' && (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+            )}
             No, es una empresa nueva
           </Button>
         </div>
+        {error && <p className="text-xs text-destructive">{error}</p>}
       </div>
     </div>
   );
