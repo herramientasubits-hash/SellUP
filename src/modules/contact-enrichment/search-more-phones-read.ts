@@ -99,7 +99,7 @@ export const WATERFALL_RUNS_TABLE = 'phone_reveal_waterfall_runs';
  * quitarlas. `phone` NO se pide — este módulo no necesita el número para nada, y no pedirlo
  * es lo más barato que se puede hacer con un dato que no se usa.
  */
-const CANDIDATE_COLUMNS = 'id, status, source, source_contact_id';
+const CANDIDATE_COLUMNS = 'id, status, source, source_contact_id, matched_contacts_id';
 
 /**
  * Hechos crudos del candidato, ya leídos. Se expone porque la server action los necesita
@@ -115,6 +115,14 @@ export interface SearchMorePreflightFacts {
    * al resultado que ve el navegador.
    */
   readonly sourceContactId: string | null;
+  /**
+   * AGENT2A-SEARCH-MORE-APPROVED-CONTACT-1 — `matched_contacts_id`: el contacto oficial que la
+   * aprobación registró. Lo exige `isCandidateEditableForPhoneCollection` para dejar editable
+   * a un candidato `approved`; en cualquier otro estado no terminal no cambia nada. Viaja en
+   * los HECHOS y no sólo dentro del plan porque la server action lo necesitaría igual si algún
+   * día tuviera que razonar sobre el destino sin recalcular el plan entero.
+   */
+  readonly officialContactId: string | null;
   readonly storedUnsuppressedPhoneCount: number;
   readonly providersWithStoredProvenance: readonly string[];
   readonly providersAlreadySearchedForMore: readonly string[];
@@ -303,6 +311,7 @@ export async function readSearchMorePreflight(args: {
   const candidateStatus = cleanText(candidateRow?.status);
   const source = cleanText(candidateRow?.source);
   const sourceContactId = cleanText(candidateRow?.source_contact_id);
+  const officialContactId = cleanText(candidateRow?.matched_contacts_id);
 
   // ── 2. La colección viva ─────────────────────────────────────
   // `suppressed_at IS NULL` se filtra ya en la consulta: un tombstone no lleva número, pero
@@ -409,6 +418,7 @@ export async function readSearchMorePreflight(args: {
     candidateStatus,
     source,
     sourceContactId,
+    officialContactId,
     storedUnsuppressedPhoneCount,
     providersWithStoredProvenance,
     providersAlreadySearchedForMore,
@@ -425,6 +435,7 @@ export async function readSearchMorePreflight(args: {
     actorRoleKey: args.actorRoleKey,
     candidateId: candidateRow ? candidateId : null,
     candidateStatus,
+    officialContactId,
     storedUnsuppressedPhoneCount,
     source,
     sourceContactId,

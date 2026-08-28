@@ -84,6 +84,7 @@ import {
   type PhoneRevealCreditBudgetDecision,
   type PhoneRevealCreditBudgetMode,
 } from './phone-reveal-credit-budget-core';
+import { isCandidateEditableForPhoneCollection } from './lusha-phone-fallback-eligibility';
 
 /**
  * Roles autorizados a disparar «Buscar más números»: SOLO admin.
@@ -233,6 +234,20 @@ export interface SearchMorePlannerInput {
   candidateId: string | null;
   /** `contact_enrichment_candidates.status`. */
   candidateStatus: string | null;
+
+  /**
+   * AGENT2A-SEARCH-MORE-APPROVED-CONTACT-1 — `contact_enrichment_candidates.matched_contacts_id`:
+   * el contacto oficial que la aprobación registró. Es el MISMO campo que
+   * `isCandidateEditableForPhoneCollection` exige como destino registrado, y por eso viaja aquí
+   * sin `?`: un llamador que se olvidara de resolverlo rompe la compilación en vez de heredar en
+   * silencio el defecto que este campo cierra — un candidato `approved` que vuelve a quedar
+   * `candidate_not_editable` para siempre.
+   *
+   * Sólo importa cuando `candidateStatus` (o una futura revisión) es `approved`: en cualquier
+   * otro estado no terminal el candidato ya es editable sin necesitar destino, y en
+   * `rejected`/`discarded`/`archived` ningún `officialContactId` lo reabre.
+   */
+  officialContactId: string | null;
 
   /**
    * Cuántos teléfonos DISTINTOS y NO suprimidos tiene hoy la colección. Es un conteo, no
@@ -389,19 +404,6 @@ function cleanText(value: string | null | undefined): string | null {
 }
 
 /**
- * Estados en los que el candidato ya no se edita. Mismo criterio que la ruta legacy
- * (`PHONE_REVEAL_WATERFALL_LEGACY_TERMINAL_CANDIDATE_STATUSES`); se reafirma aquí en vez de
- * importarse porque la lista de la ruta legacy describe cuándo NO reautorizar un reveal, y
- * confundir las dos intenciones haría que un cambio en una moviera la otra sin querer.
- */
-const NON_EDITABLE_CANDIDATE_STATUSES: readonly string[] = [
-  'approved',
-  'rejected',
-  'discarded',
-  'archived',
-];
-
-/**
  * La identidad nativa que ESTA fila del candidato declara para el ÚNICO proveedor de v1.
  *
  * Condición ÚNICA y exacta: `source = 'lusha'` + `source_contact_id` no vacío. Es la MISMA
@@ -448,8 +450,23 @@ export function planSearchMorePhones(input: SearchMorePlannerInput): SearchMoreP
     return NOT_ELIGIBLE('has_phone_no_provider_available', 'invalid_candidate');
   }
 
+  // AGENT2A-SEARCH-MORE-APPROVED-CONTACT-1: la editabilidad se delega en el predicado
+  // COMPARTIDO de `lusha-phone-fallback-eligibility.ts` en vez de reafirmar su propia lista.
+  // Ésa era exactamente la misma regla — bloquear `approved` sin excepción — que #361 ya
+  // corrigió para el waterfall principal (`evaluatePhoneRevealWaterfallLegacyEligibility`):
+  // todo contacto oficial ES, por definición, un candidato `approved`, así que una lista
+  // propia aquí volvía a hacer estructuralmente imposible «Buscar más números» sobre el
+  // mismo contacto que el panel de rescate ya ofrece el botón para. Dos copias de esta regla
+  // divergirían en la dirección peligrosa: la que se olvidara de la excepción reabriría el
+  // defecto que #361 cerró en el otro módulo.
   const candidateStatus = cleanText(input.candidateStatus);
-  if (candidateStatus && NON_EDITABLE_CANDIDATE_STATUSES.includes(candidateStatus)) {
+  const editable = isCandidateEditableForPhoneCollection({
+    candidateStatus,
+    candidateReviewStatus: null,
+    candidateArchivedAt: null,
+    officialContactId: cleanText(input.officialContactId),
+  });
+  if (!editable) {
     return NOT_ELIGIBLE('has_phone_no_provider_available', 'candidate_not_editable');
   }
 
