@@ -295,6 +295,8 @@ import { hasStrongIdentityDuplicateMatch } from './apollo-strong-identity-duplic
 import {
   readApolloPageFenceEntries,
   upsertApolloPageFenceEntry,
+  type ApolloPageFenceIdentity,
+  type ApolloPageFenceWriteOutcome,
 } from './page-fence.server';
 import {
   toApolloPageFenceOrganization,
@@ -482,6 +484,28 @@ export type ApolloTwoRoundProductionDeps = {
   loadPrepaidHistoricalIndex: (input: {
     domains: readonly string[];
   }) => Promise<{ index: NoveltyIndex; degraded: boolean }>;
+  /**
+   * AGENT1-APOLLO-FINAL-SAFETY-CLOSURE · PARTE A — valla durable de página,
+   * inyectable por la MISMA razón que `loadCheckpoint`/`saveCheckpoint`: para
+   * que una suite pueda ejercitar la paginación real sin depender de un
+   * cliente Supabase vivo. La wiring por defecto usa las funciones reales de
+   * `page-fence.server.ts`; un override en pruebas sustituye el almacén por
+   * uno en memoria.
+   *
+   * Fail-closed por contrato (§ A del corte): `writePageFenceEntry` que
+   * resuelve `{kind: 'failed'}` DEBE impedir la petición a Apollo que
+   * `beforeRequest` protege — eso lo decide el llamador de este dep, no el dep
+   * en sí, que sólo reporta el desenlace.
+   */
+  readPageFenceEntries: (
+    batchId: string,
+    identity: ApolloPageFenceIdentity,
+  ) => Promise<ApolloPageFenceEntry[]>;
+  writePageFenceEntry: (
+    batchId: string,
+    identity: ApolloPageFenceIdentity,
+    entry: ApolloPageFenceEntry,
+  ) => Promise<ApolloPageFenceWriteOutcome>;
 };
 
 /** § 2 — contexto vacío y DEGRADADO: nada resuelto, todo pendiente. */
@@ -808,6 +832,9 @@ export async function runApolloTwoRoundWizardDiscovery(
         return { index: new Map(), degraded: true };
       }
     },
+    readPageFenceEntries: (batchId, identity) => readApolloPageFenceEntries(batchId, identity),
+    writePageFenceEntry: (batchId, identity, entry) =>
+      upsertApolloPageFenceEntry(batchId, identity, entry),
     ...depsOverride,
   };
 
@@ -1700,7 +1727,7 @@ export async function runApolloTwoRoundWizardDiscovery(
       // § B7/C13 — sólo las entradas de ESTA ronda: round1/pageN y
       // round2/pageN nunca se confunden, aunque compartan número de página.
       const fenceEntriesForRound = (
-        await readApolloPageFenceEntries(input.reservedBatchId, fenceIdentity)
+        await deps.readPageFenceEntries(input.reservedBatchId, fenceIdentity)
       ).filter((entry): entry is ApolloPageFenceEntry => entry.round_number === roundNumber);
       const indeterminateFenceEntry = fenceEntriesForRound.find(
         (entry) => entry.status === 'indeterminate',
@@ -1730,7 +1757,7 @@ export async function runApolloTwoRoundWizardDiscovery(
         durableResume,
         durablePageFence: {
           beforeRequest: async ({ page, requestFingerprint }) => {
-            await upsertApolloPageFenceEntry(input.reservedBatchId, fenceIdentity, {
+            const outcome = await deps.writePageFenceEntry(input.reservedBatchId, fenceIdentity, {
               round_number: roundNumber,
               search_plan_fingerprint: requestFingerprint,
               page,
@@ -1744,6 +1771,16 @@ export async function runApolloTwoRoundWizardDiscovery(
               total_pages: null,
               accepted_count: null,
             });
+            // AGENT1-APOLLO-FINAL-SAFETY-CLOSURE · PARTE A — `upsertApolloPageFenceEntry`
+            // nunca lanza: reporta el fallo como `{kind: 'failed'}` (ver
+            // `page-fence.server.ts`). Ese resultado debe LANZAR aquí, porque
+            // `runApolloOrganizationsPaginatedSearch` sólo trata como
+            // fail-closed lo que esta función lanza — un `return` silencioso
+            // sobre un fallo dejaría la petición a Apollo salir sin registro,
+            // exactamente el defecto que este corte cierra.
+            if (outcome.kind === 'failed') {
+              throw new Error(`durable_page_fence_write_failed: ${outcome.reason}`);
+            }
           },
           onSucceeded: async ({
             page,
@@ -1754,7 +1791,7 @@ export async function runApolloTwoRoundWizardDiscovery(
             totalPages,
             acceptedCount,
           }) => {
-            await upsertApolloPageFenceEntry(input.reservedBatchId, fenceIdentity, {
+            await deps.writePageFenceEntry(input.reservedBatchId, fenceIdentity, {
               round_number: roundNumber,
               search_plan_fingerprint: requestFingerprint,
               page,
@@ -1767,7 +1804,7 @@ export async function runApolloTwoRoundWizardDiscovery(
             });
           },
           onIndeterminate: async ({ page, requestFingerprint }) => {
-            await upsertApolloPageFenceEntry(input.reservedBatchId, fenceIdentity, {
+            await deps.writePageFenceEntry(input.reservedBatchId, fenceIdentity, {
               round_number: roundNumber,
               search_plan_fingerprint: requestFingerprint,
               page,

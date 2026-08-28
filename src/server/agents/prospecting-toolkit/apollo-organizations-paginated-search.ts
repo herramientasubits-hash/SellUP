@@ -271,7 +271,16 @@ export type ApolloPaginatedSearchResult = {
    * distinguir net-new de duplicado histórico.
    */
   acceptedForTargetCount: number | null;
-  stopReason: ApolloPaginationStopReason | 'error_terminated';
+  stopReason:
+    | ApolloPaginationStopReason
+    | 'error_terminated'
+    /**
+     * AGENT1-APOLLO-FINAL-SAFETY-CLOSURE · PARTE A — la valla durable previa
+     * al envío no pudo persistir `request_started`. PRE_PROVIDER_INFRA_FAILURE:
+     * Apollo nunca fue contactado, 0 créditos, seguro de reintentar en una
+     * invocación posterior.
+     */
+    | 'durable_fence_write_failed';
   /** Clasificación del fallo que detuvo la búsqueda. null si terminó limpio. */
   terminalError: ApolloErrorClassification | null;
   /** Páginas cuyo resultado y cobro quedaron indeterminados. Requieren recuperación explícita. */
@@ -569,20 +578,56 @@ export async function runApolloOrganizationsPaginatedSearch(
         effectiveRequestFingerprintSent = pageContract.effectiveRequestFingerprint;
       }
 
-      // § B2/B3 — la valla se escribe y se ESPERA antes de la petición: el
-      // orden importa, no sólo que ocurra. Best-effort a propósito (igual que
-      // `logPage`/`recordProviderSeen`): si la escritura falla, lo más
-      // probable es que la capa durable esté degradada en este instante, y
-      // negarse a buscar no mejora la seguridad —tampoco podría registrar el
-      // desenlace exitoso un instante después— sólo deja la búsqueda
-      // indisponible por un problema ajeno a Apollo. La ventana sin valla que
-      // esto deja abierta es idéntica, en tamaño, a la que existía antes de
-      // este corte.
+      // AGENT1-APOLLO-FINAL-SAFETY-CLOSURE · PARTE A — la valla se escribe y
+      // se ESPERA antes de la petición, y ahora es FAIL-CLOSED: si la
+      // persistencia durable no confirma el `request_started`, la petición a
+      // Apollo NUNCA sale. Es un PRE_PROVIDER_INFRA_FAILURE — un fallo de la
+      // capa local/Supabase, no de Apollo — y se trata igual que cualquier
+      // otro fallo terminal de esta página: se registra sin costo (0
+      // peticiones, 0 créditos) y detiene la paginación de esta invocación.
+      // Ninguna página quedó pedida sin registro: la próxima invocación puede
+      // reintentarla con seguridad, porque no hay valla `request_started`
+      // huérfana que la bloquee (§ B8) y Apollo nunca la cobró.
       if (deps.durableFence) {
         try {
           await deps.durableFence.beforeRequest({ page, requestFingerprint });
-        } catch {
-          // Intencionalmente silencioso: ver comentario arriba.
+        } catch (fenceErr: unknown) {
+          const fenceOutcome: ApolloPageOutcome = {
+            page,
+            status: 'error',
+            resultsReturned: 0,
+            estimatedCredits: 0,
+            attempt,
+            errorCode: 'durable_fence_write_failed',
+            billingState: 'not_charged',
+          };
+          pageOutcomes.push(fenceOutcome);
+          await safeLog(deps.logPage, {
+            provider: 'apollo',
+            operation: 'organizations_search',
+            endpoint: APOLLO_ENDPOINT,
+            requestFingerprint,
+            idempotencyKey,
+            page,
+            perPage: budget.perPage,
+            resultsReturned: 0,
+            estimatedCredits: 0,
+            actualCredits: null,
+            rateLimit: toRateLimitLogMetadata(parseApolloRateLimitHeaders(null, deps.now())),
+            status: 'error',
+            latencyMs: deps.now() - attemptStartedAt,
+            attempt,
+            errorCategory: 'pre_provider_infra_failure',
+            errorCode: 'durable_fence_write_failed',
+            billingState: 'not_charged',
+            wizardRunId: input.wizardRunId,
+            agentRunId: input.agentRunId ?? null,
+          });
+          void fenceErr;
+          stopReason = 'durable_fence_write_failed';
+          guardrailTripped = 'durable_fence_write_failed';
+          pageSettled = true;
+          break;
         }
       }
 
@@ -853,6 +898,13 @@ export async function runApolloOrganizationsPaginatedSearch(
       break;
     }
     if (stopReason === 'time_budget_exhausted') break;
+    if (
+      stopReason === 'durable_fence_write_failed' ||
+      guardrailTripped === 'durable_fence_write_failed'
+    ) {
+      stopReason = 'durable_fence_write_failed';
+      break;
+    }
   }
 
   return {

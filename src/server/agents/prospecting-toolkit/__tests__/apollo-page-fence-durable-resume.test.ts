@@ -328,9 +328,14 @@ describe('C9 · timeout ambiguo posterior al envío', () => {
 });
 
 // ─── C10 · fallo PREVIO al envío (en la valla misma) ──────────────────────────
+//
+// AGENT1-APOLLO-FINAL-SAFETY-CLOSURE · PARTE A — este caso era, hasta este
+// corte, "best-effort": un fallo de `beforeRequest` se tragaba y la petición
+// salía igual. Eso es exactamente el fail-open que el corte cierra: mejor no
+// pedir que pedir sin haber podido registrar el intento. Ahora es fail-closed.
 
-describe('C10 · la valla falla, pero el envío no se bloquea de más', () => {
-  it('best-effort: si `beforeRequest` lanza, la página se pide igual (degradación, no bloqueo)', async () => {
+describe('C10 · la valla falla ANTES del envío ⇒ fail-closed, cero peticiones', () => {
+  it('si `beforeRequest` lanza, la página NUNCA se pide: 0 llamadas, 0 créditos, motivo explícito', async () => {
     const h = harness(() => okPage(orgs(1), { page: 1, per_page: 2, total_pages: 1 }));
     const fence = fenceRecorder({ beforeRequestThrows: true });
     const result = await runApolloOrganizationsPaginatedSearch(
@@ -338,9 +343,50 @@ describe('C10 · la valla falla, pero el envío no se bloquea de más', () => {
       { ...h.deps, durableFence: fence.deps },
     );
 
-    assert.equal(h.bodies.length, 1, 'la petición SÍ salió pese al fallo de la valla');
-    assert.equal(result.organizations.length, 1);
-    assert.equal(result.terminalError, null, 'el fallo de la valla no se propaga como error de Apollo');
+    assert.equal(h.bodies.length, 0, 'la petición NUNCA sale: la valla no pudo confirmar el intento');
+    assert.equal(realFetchCalls, 0);
+    assert.equal(result.organizations.length, 0);
+    assert.equal(result.estimatedCredits, 0, 'PRE_PROVIDER_INFRA_FAILURE: cero créditos, Apollo nunca se tocó');
+    assert.equal(result.stopReason, 'durable_fence_write_failed');
+    assert.equal(
+      result.terminalError,
+      null,
+      'no es un error de Apollo — el proveedor nunca fue contactado',
+    );
+    const pageOutcome = result.pageOutcomes.find((o) => o.page === 1);
+    assert.equal(pageOutcome?.status, 'error');
+    assert.equal(pageOutcome?.errorCode, 'durable_fence_write_failed');
+    assert.equal(pageOutcome?.billingState, 'not_charged');
+  });
+
+  it('una página anterior YA exitosa en esta misma invocación no se pierde cuando una página posterior falla en la valla', async () => {
+    let call = 0;
+    const h = harness((body) => {
+      const page = body.page as number;
+      return okPage(orgs(1, page - 1), { page, per_page: 2, total_pages: 5 });
+    });
+    let fenceCalls = 0;
+    const fence: ApolloPaginatedSearchDeps['durableFence'] = {
+      beforeRequest: async () => {
+        fenceCalls++;
+        // La página 1 se registra bien; la 2 falla — simula degradación
+        // durable a mitad de una secuencia multi-página.
+        if (fenceCalls >= 2) throw new Error('durable_fence_write_failed');
+      },
+      onSucceeded: async () => {},
+      onIndeterminate: async () => {},
+    };
+    void call;
+
+    const result = await runApolloOrganizationsPaginatedSearch(
+      { ...baseInput, budget: createApolloPaginationBudget({ maxPages: 5, perPage: 2, maxCandidates: 999, maxCredits: 99 }) },
+      { ...h.deps, durableFence: fence },
+    );
+
+    assert.equal(h.bodies.length, 1, 'sólo la página 1 llegó a pedirse; la 2 se cortó antes del transporte');
+    assert.equal(result.organizations.length, 1, 'lo que la página 1 YA cobró y devolvió se conserva');
+    assert.equal(result.estimatedCredits, 1, '1 crédito real de la página 1, 0 de la página 2 que nunca se pidió');
+    assert.equal(result.stopReason, 'durable_fence_write_failed');
   });
 });
 

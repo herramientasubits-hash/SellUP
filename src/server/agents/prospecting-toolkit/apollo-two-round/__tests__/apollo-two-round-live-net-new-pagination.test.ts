@@ -69,6 +69,7 @@ import {
   type ApolloOrgsSearchOptions,
 } from '../../web-search-providers/apollo-organizations-search-provider';
 import type { ApolloPageFetchResult } from '../../apollo-organizations-paginated-search';
+import { mergeApolloPageFenceEntries, type ApolloPageFenceEntry } from '../page-fence';
 import type { NoveltyIndex } from '../../novelty-checker';
 import type { HistoricalCandidateRow } from '../../apollo-prepaid-historical-parity';
 import type { ProspectingPipelineCandidate, WebSearchResult } from '../../types';
@@ -382,17 +383,52 @@ type Recorder = {
   savedCheckpoints: ApolloTwoRoundCheckpointV1[];
 };
 
+/**
+ * AGENT1-APOLLO-FINAL-SAFETY-CLOSURE · PARTE A — almacén EN MEMORIA de la
+ * valla durable de página, inyectado vía `readPageFenceEntries`/
+ * `writePageFenceEntry` (ver `ApolloTwoRoundProductionDeps`).
+ *
+ * Reemplaza al cliente Supabase real que este entorno de pruebas no tiene:
+ * antes de este corte, `beforeRequest` se tragaba el fallo de escritura
+ * (`no_supabase_client`) y la búsqueda seguía igual — exactamente el fail-open
+ * que el corte cierra. Ahora ese mismo fallo DETIENE la petición, así que esta
+ * suite —que ejercita la ruta REAL, `runApolloOrganizationsSearch` incluido—
+ * necesita un almacén que sí pueda escribir para poder seguir probando
+ * paginación en vez de probar, sin querer, el propio cierre de seguridad.
+ *
+ * `store` es opcional y compartido por referencia: dos llamadas a `buildDeps`
+ * con el MISMO `store` simulan dos intentos del mismo proceso —el «reintento
+ * tras un crash»— igual que compartir `finalCheckpoint` ya simula el reintento
+ * a nivel de ronda un poco más abajo en este archivo (LIVE-I).
+ */
+function buildFakePageFenceStore(store: { entries: ApolloPageFenceEntry[] } = { entries: [] }): {
+  readPageFenceEntries: ApolloTwoRoundProductionDeps['readPageFenceEntries'];
+  writePageFenceEntry: ApolloTwoRoundProductionDeps['writePageFenceEntry'];
+  store: { entries: ApolloPageFenceEntry[] };
+} {
+  return {
+    store,
+    readPageFenceEntries: async () => store.entries,
+    writePageFenceEntry: async (_batchId, _identity, entry) => {
+      store.entries = mergeApolloPageFenceEntries(store.entries, [entry]);
+      return { kind: 'written' };
+    },
+  };
+}
+
 function buildDeps(options: {
   pagesByRound: ApolloPageFetchResult[][];
   historicalDomains?: ReadonlySet<string>;
   config: ApolloTwoRoundDiscoveryConfig;
   loadCheckpoint?: ApolloTwoRoundProductionDeps['loadCheckpoint'];
   enrichmentSucceeds?: boolean;
+  pageFenceStore?: { entries: ApolloPageFenceEntry[] };
 }): {
   deps: Partial<ApolloTwoRoundProductionDeps>;
   recorder: Recorder;
   pageFetchLog: Array<{ round: number; page: number }>;
   historicalLoadCallCount: () => number;
+  pageFenceStore: { entries: ApolloPageFenceEntry[] };
 } {
   const recorder: Recorder = {
     enrichCascadeCalls: [],
@@ -403,10 +439,14 @@ function buildDeps(options: {
   const { loadPrepaidHistoricalIndex, callCount } = buildFakeHistoricalLoader(
     options.historicalDomains ?? new Set(),
   );
+  const { readPageFenceEntries, writePageFenceEntry, store: pageFenceStore } =
+    buildFakePageFenceStore(options.pageFenceStore);
 
   const deps: Partial<ApolloTwoRoundProductionDeps> = {
     searchApollo,
     loadPrepaidHistoricalIndex,
+    readPageFenceEntries,
+    writePageFenceEntry,
 
     buildCandidate: (async (result: WebSearchResult) => ({
       candidate: pipelineCandidate(result),
@@ -483,7 +523,7 @@ function buildDeps(options: {
     resolveConfig: () => options.config,
   };
 
-  return { deps, recorder, pageFetchLog, historicalLoadCallCount: callCount };
+  return { deps, recorder, pageFetchLog, historicalLoadCallCount: callCount, pageFenceStore };
 }
 
 function observability(output: {
