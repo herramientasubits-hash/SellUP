@@ -13,6 +13,7 @@
  */
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { ensureHubSpotSellUpCreatedPropertyCached } from './hubspot-property-ensure-cache';
 
 const VAULT_SECRET_NAME = 'sellup_integration_hubspot';
 
@@ -277,6 +278,11 @@ export async function createHubSpotCompany(
     return { ok: false, success: false, error: 'TOKEN_UNAVAILABLE', owner_assigned: false, account_executive_assigned: false, warnings: [] };
   }
 
+  const propertyEnsure = await ensureHubSpotSellUpCreatedPropertyCached('companies', {
+    token,
+    fetchImpl: fetch,
+  });
+
   const warnings: string[] = [];
   const skippedProperties: string[] = [];
 
@@ -317,6 +323,10 @@ export async function createHubSpotCompany(
 
   // 3. Setup properties dictionary
   const properties: Record<string, string> = { name: input.name };
+
+  // Sólo se manda el campo si la verificación/creación tuvo éxito: sin permiso de esquema, la
+  // empresa se crea igual, simplemente sin esta marca.
+  if (propertyEnsure.ok) properties.sellup_created = 'true';
 
   // 4. Lifecyclestage MQL
   properties.lifecyclestage = 'marketingqualifiedlead';

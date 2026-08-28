@@ -12,6 +12,7 @@ import {
   type HubSpotContactCreateInput,
   type HubSpotContactUpdateInput,
 } from '@/modules/contacts/contact-hubspot-sync-core';
+import { ensureHubSpotSellUpCreatedPropertyCached } from './hubspot-property-ensure-cache';
 
 const supabaseUrl =
   process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lrdruowtadwbdulndlph.supabase.co';
@@ -286,12 +287,20 @@ export async function createHubSpotContact(
   const token = await getHubSpotToken();
   if (!token) return { error: 'TOKEN_UNAVAILABLE' };
 
+  const propertyEnsure = await ensureHubSpotSellUpCreatedPropertyCached('contacts', {
+    token,
+    fetchImpl: fetch,
+  });
+
   const properties: Record<string, string> = { email: input.email };
   if (input.firstname) properties.firstname = input.firstname;
   if (input.lastname) properties.lastname = input.lastname;
   if (input.jobtitle) properties.jobtitle = input.jobtitle;
   if (input.phone) properties.phone = input.phone;
   if (input.mobilePhone) properties.mobilephone = input.mobilePhone;
+  // Sólo se manda el campo si la verificación/creación tuvo éxito: sin permiso de esquema, el
+  // contacto se crea igual, simplemente sin esta marca.
+  if (propertyEnsure.ok) properties.sellup_created = 'true';
 
   try {
     const response = await fetch(`${HUBSPOT_BASE}/crm/v3/objects/contacts`, {
