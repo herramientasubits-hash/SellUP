@@ -33,6 +33,8 @@ import {
 import { AccountDetailActions } from '@/components/accounts/account-detail-actions';
 import { AccountEnrichContactsButton } from '@/components/accounts/account-enrich-contacts-button';
 import { RollbackBanner } from '@/components/accounts/rollback-banner';
+import { readPendingHubSpotMatch } from '@/modules/accounts/hubspot-company-resolution-state';
+import { HubSpotCompanyMatchReviewBanner } from '@/components/accounts/hubspot-company-match-review-banner';
 
 interface AccountDetailPageProps {
   params: Promise<{ accountId: string }>;
@@ -94,6 +96,7 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
       : {};
 
   const isRolledBack = safeMetadata.rollback_logical === true;
+  const pendingHubSpotMatch = readPendingHubSpotMatch(safeMetadata);
 
   return (
     <div className="space-y-6">
@@ -143,6 +146,22 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
           hubspotCompanyId={account.hubspot_company_id}
         />
       )}
+
+      <HubSpotCompanyMatchReviewBanner
+        accountId={account.id}
+        pendingMatch={
+          pendingHubSpotMatch
+            ? {
+                hubspotCompanyId: pendingHubSpotMatch.hubspotCompanyId,
+                name: pendingHubSpotMatch.name,
+                domain: pendingHubSpotMatch.domain,
+                matchMethod: pendingHubSpotMatch.matchMethod,
+                confidence: pendingHubSpotMatch.confidence,
+                reason: pendingHubSpotMatch.reason,
+              }
+            : null
+        }
+      />
 
       <Tabs defaultValue="resumen">
         <TabsList className="mb-4">
