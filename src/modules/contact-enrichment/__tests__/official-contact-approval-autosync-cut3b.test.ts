@@ -191,16 +191,25 @@ describe('un fallo de HubSpot NUNCA se convierte en un fallo de aprobación', ()
     const block = approveBlock();
     const callAt = block.indexOf('await triggerContactHubSpotSync(');
     assert.ok(callAt > 0, 'falta la llamada a triggerContactHubSpotSync');
-    // El `try {` MÁS CERCANO antes de la llamada, no el try exterior de toda la función: si la
-    // llamada estuviera fuera de un try local, un rechazo subiría hasta el try exterior y ahí
-    // SÍ convertiría el resultado en `{ ok: false }`, exactamente lo que este corte prohíbe.
+    // El `try {` MÁS CERCANO antes de la llamada, no el try exterior de toda la función: ese
+    // exterior envuelve además a `runApproveCandidate` y a todas sus dependencias inyectadas
+    // (que sí tienen `return` legítimos propios), así que buscar ahí produciría falsos
+    // positivos. Lo que hay que acotar es el try LOCAL que rodea sólo esta llamada.
     const tryAt = block.lastIndexOf('try {', callAt);
-    const catchAt = block.indexOf('} catch', callAt);
     assert.ok(tryAt >= 0 && tryAt < callAt, 'triggerContactHubSpotSync debe estar dentro de un try local');
-    assert.ok(catchAt > callAt, 'triggerContactHubSpotSync debe estar seguida de un catch');
-    // Después de ese catch, la función sigue devolviendo `result` sin condicionarlo al desenlace de HubSpot.
-    const afterCatch = block.slice(catchAt);
-    assert.match(afterCatch, /return result;/);
+    const afterTry = block.slice(tryAt);
+    const finalReturnAt = afterTry.indexOf('return result;');
+    assert.ok(finalReturnAt > 0, 'falta el `return result;` final tras el try/catch');
+    const betweenTryAndFinalReturn = afterTry.slice(0, finalReturnAt);
+    // Ni un solo `return` puede aparecer entre el try local y el `return result;` final —ni
+    // dentro del try, ni dentro del catch. Cualquier `return` temprano ahí (incluso seguido de
+    // código muerto) sería exactamente la regresión que este contrato prohíbe: un fallo de
+    // HubSpot convirtiendo una aprobación que ya ocurrió en otro resultado.
+    assert.equal(
+      /\breturn\b/.test(betweenTryAndFinalReturn),
+      false,
+      'ningún `return` puede aparecer entre el try local y el `return result;` final',
+    );
   });
 });
 
