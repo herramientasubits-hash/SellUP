@@ -30,7 +30,12 @@ import {
   APOLLO_DB_BACKED_PRE_WRITER_ADMISSION_CHECKS,
   APOLLO_PENDING_PRE_WRITER_ADMISSION_CHECKS,
 } from '../../apollo-pre-writer-target-conditions';
-import { defaultApolloTwoRoundConfig } from '../index';
+// AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING — esta suite narra un objetivo de 5
+// explícito (nombres de test "objetivo 5", "twoRoundMaxResultsPerRound = 5").
+// Antes coincidía por casualidad con el default de la plataforma; ahora que el
+// default subió a 10 (para no truncar la demanda residual del wizard), el
+// escenario de 5 se fija con esta fixture literal, independiente del default.
+import { testConfig } from './fixtures';
 import {
   runApolloOrganizationsSearch,
   type ApolloOrgsSearchDeps,
@@ -281,7 +286,7 @@ function buildDeps(options: {
     loadEnrichmentUnitCostUsd: async () => 0.02,
     enrichOrganization: (async () => ({ success: true, data: undefined })) as never,
     logEnrichmentUsage: (async () => ({ kind: 'logged' as const })) as never,
-    resolveConfig: () => defaultApolloTwoRoundConfig(),
+    resolveConfig: () => testConfig(),
     // ADAPTIVE-EARLY-STOP § 2 — el prefetch de admisión, contado y DEGRADADO.
     //
     // Degradado a propósito: esta suite no simula la base, y el contrato dice que

@@ -247,3 +247,77 @@ describe('CUT-2 § 14 · un solo hueco para las dos rondas', () => {
     }
   });
 });
+
+// ─── AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING · PART A · escenarios C1-C4 ──────
+//
+// El tope local de `targetEligibleCompanies` subió de 5/6 a 10
+// (WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES, ver config.ts). Estos casos
+// prueban que la demanda residual del wizard llega HASTA 10 sin que ningún
+// tope local por debajo de ese número la trunque, con la MISMA aritmética
+// genérica (`boundByRemainingTarget` = `Math.min`) que la suite de arriba ya
+// prueba a fondo con un techo de 5 — aquí sólo se confirma que generaliza al
+// techo nuevo, no se reprueba la aritmética en sí.
+
+function config10(overrides: Partial<ReturnType<typeof testConfig>> = {}) {
+  return { ...testConfig(), targetEligibleCompanies: 10, maxResultsPerRound: 10, ...overrides };
+}
+
+describe('AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING § A · demanda hasta 10', () => {
+  test('C1 — objetivo 10, hueco 10 (0 gratis): la demanda llega a 10, no se trunca en 5/6', async () => {
+    const { deps, searchCalls } = harness({
+      roundResults: [orgs('a', 6), orgs('b', 6)],
+    });
+
+    const result = await run(deps, 10, config10());
+
+    assert.equal(result.targetEligibleCompanies, 10);
+    assert.equal(result.configuredTargetEligibleCompanies, 10);
+    assert.equal(result.remainingTargetApplied, 10);
+    assert.equal(result.targetReached, true);
+    assert.ok(result.persisted.length <= 10);
+    // Ninguna ronda pide más de lo que hace falta (10), pero SÍ puede pedir
+    // más de 5/6: esa era exactamente la truncación que este corte cierra.
+    assert.ok(searchCalls.some((call) => call.requestedResultLimit > 6));
+  });
+
+  test('C2 — objetivo 10, hueco 9 (1 gratis)', async () => {
+    const { deps } = harness({ roundResults: [orgs('a', 5), orgs('b', 5)] });
+
+    const result = await run(deps, 9, config10());
+
+    assert.equal(result.targetEligibleCompanies, 9);
+    assert.equal(result.configuredTargetEligibleCompanies, 10);
+    assert.ok(result.persisted.length <= 9);
+  });
+
+  test('C3 — objetivo 8 directo (sin capa gratuita recortando desde 10)', async () => {
+    const { deps } = harness({ roundResults: [orgs('a', 4), orgs('b', 4)] });
+
+    const result = await run(deps, 8, config10({ targetEligibleCompanies: 8 }));
+
+    assert.equal(result.targetEligibleCompanies, 8);
+    assert.equal(result.configuredTargetEligibleCompanies, 8);
+    assert.ok(result.persisted.length <= 8);
+  });
+
+  test('C4 — objetivo 10, hueco 6 (4 gratis): sigue funcionando, sin regresión', async () => {
+    const { deps } = harness({ roundResults: [orgs('a', 3), orgs('b', 3)] });
+
+    const result = await run(deps, 6, config10());
+
+    assert.equal(result.targetEligibleCompanies, 6);
+    assert.equal(result.configuredTargetEligibleCompanies, 10);
+    assert.ok(result.persisted.length <= 6);
+  });
+
+  test('el techo configurado (10) nunca se amplía aunque el hueco sea mayor', async () => {
+    const { deps, searchCalls } = harness({ roundResults: [orgs('a', 20), orgs('b', 20)] });
+
+    const result = await run(deps, 999, config10());
+
+    assert.equal(result.targetEligibleCompanies, 10);
+    for (const call of searchCalls) {
+      assert.ok(call.requestedResultLimit <= 10);
+    }
+  });
+});

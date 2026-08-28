@@ -34,12 +34,8 @@ import {
   MAX_RESULTS_PER_ROUND_ABSOLUTE_MAX,
   MAX_SEARCH_ROUNDS_ABSOLUTE_MAX,
   TARGET_ELIGIBLE_COMPANIES_ABSOLUTE_MAX,
-  TARGET_ELIGIBLE_COMPANIES_DEFAULT,
-  MAX_SEARCH_ROUNDS_DEFAULT,
-  MAX_RESULTS_PER_ROUND_DEFAULT,
-  MAX_RAW_RESULTS_PER_RUN_DEFAULT,
-  MAX_ENRICHMENTS_PER_RUN_DEFAULT,
 } from '@/server/agents/prospecting-toolkit/apollo-two-round/config';
+import { defaultApolloTwoRoundConfig } from '@/server/agents/prospecting-toolkit/apollo-two-round/index';
 import { estimateApolloTwoRoundBudget } from '@/server/agents/prospecting-toolkit/apollo-two-round/budget';
 
 /**
@@ -47,15 +43,18 @@ import { estimateApolloTwoRoundBudget } from '@/server/agents/prospecting-toolki
  * la reserva. Si alguien cambia un default o un tope absoluto, este helper cambia
  * con él y las aserciones siguen siendo verdaderas — que es exactamente el punto:
  * el copy no puede quedarse anclado a un número que el runtime ya no aplica.
+ *
+ * AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING — antes reconstruía el objeto a mano
+ * a partir de los cinco `*_DEFAULT` sueltos, lo que se saltaba la invariante de
+ * `resolveApolloTwoRoundConfig` que eleva `maxRawResultsPerRun` a lo que las
+ * rondas pueden alcanzar de verdad (`maxRounds × maxResultsPerRound`). Con
+ * `maxResultsPerRound` en 10, esa reconstrucción manual quedaba en 10/2/10/10/2
+ * mientras la config REAL que ejecuta la corrida resuelve 10/2/10/20/2 — el
+ * copy habría anunciado un tope crudo que el runtime no aplica. Llamar al
+ * resolutor real es lo único que garantiza que el copy nunca diverja.
  */
 function defaultLimits(): ApolloRunModeLimits {
-  const config = {
-    targetEligibleCompanies: TARGET_ELIGIBLE_COMPANIES_DEFAULT,
-    maxRounds: MAX_SEARCH_ROUNDS_DEFAULT,
-    maxResultsPerRound: MAX_RESULTS_PER_ROUND_DEFAULT,
-    maxRawResultsPerRun: MAX_RAW_RESULTS_PER_RUN_DEFAULT,
-    maxEnrichmentsPerRun: MAX_ENRICHMENTS_PER_RUN_DEFAULT,
-  };
+  const config = defaultApolloTwoRoundConfig();
   return {
     ...config,
     maxInternalCredits: estimateApolloTwoRoundBudget(config).maximumInternalRecordedCredits,
@@ -78,7 +77,7 @@ describe('§ 5 · copy del modo Apollo con los topes del contrato', () => {
   const copy = buildApolloRunModeCopy(limits);
 
   it('el titular anuncia el objetivo como «hasta», no como promesa', () => {
-    assert.match(copy.headline, /^Apollo intentará encontrar hasta 5 empresas nuevas y válidas/);
+    assert.match(copy.headline, /^Apollo intentará encontrar hasta 10 empresas nuevas y válidas/);
     assert.match(copy.headline, /máximo de 2 rondas\.$/);
   });
 
@@ -88,8 +87,8 @@ describe('§ 5 · copy del modo Apollo con los topes del contrato', () => {
   });
 
   it('caso 23 — el tope de resultados por ronda y el raw total son los reales', () => {
-    assert.ok(copy.limits.includes('5 resultados por ronda'));
-    assert.ok(copy.limits.includes('10 resultados raw en total'));
+    assert.ok(copy.limits.includes('10 resultados por ronda'));
+    assert.ok(copy.limits.includes('20 resultados raw en total'));
   });
 
   it('caso 24 — el tope de enrichments es el real', () => {
@@ -111,7 +110,7 @@ describe('§ 5 · copy del modo Apollo con los topes del contrato', () => {
   });
 
   it('§ 5 — advierte que no se garantiza el objetivo ni se relajan filtros', () => {
-    assert.ok(copy.caveats.includes('No se garantiza encontrar cinco empresas.'));
+    assert.ok(copy.caveats.includes('No se garantiza encontrar diez empresas.'));
     assert.ok(copy.caveats.includes(APOLLO_RUN_MODE_FILTERS_CAVEAT));
     assert.equal(
       APOLLO_RUN_MODE_FILTERS_CAVEAT,

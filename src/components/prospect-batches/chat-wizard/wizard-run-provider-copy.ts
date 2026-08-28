@@ -50,9 +50,11 @@ export const APOLLO_RUN_OPTION_UNAVAILABLE_NOTICE =
 
 // ─── Numerales en prosa ───────────────────────────────────────────────────────
 //
-// El objetivo del hito es 5 y su tope absoluto también es 5, así que el rango
-// real es 0–5. Fuera de él se usa el dígito: es peor una palabra inventada que
-// un número.
+// AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING — el tope absoluto de
+// `targetEligibleCompanies` subió de 5 a
+// `WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES` (10), así que el rango real es
+// 0–10. Fuera de él se usa el dígito: es peor una palabra inventada que un
+// número.
 
 const SPANISH_NUMERALS: Record<number, string> = {
   0: 'cero',
@@ -61,6 +63,11 @@ const SPANISH_NUMERALS: Record<number, string> = {
   3: 'tres',
   4: 'cuatro',
   5: 'cinco',
+  6: 'seis',
+  7: 'siete',
+  8: 'ocho',
+  9: 'nueve',
+  10: 'diez',
 };
 
 function spellCount(value: number): string {

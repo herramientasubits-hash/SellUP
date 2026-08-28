@@ -315,17 +315,23 @@ describe('§ 2 · topes absolutos 10/20/6, sin cambiar el comportamiento por def
     // (`config.maxEnrichmentsPerRun`) puede autorizar un objetivo de 6 sin
     // sobrepasar ningún otro tope. Ver config.ts.
     assert.equal(MAX_ENRICHMENTS_PER_RUN_ABSOLUTE_MAX, 6);
-    assert.equal(TARGET_ELIGIBLE_COMPANIES_ABSOLUTE_MAX, 6);
+    // AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING — antes 6 (QA cap sin relación
+    // con ningún número de negocio). El wizard promete
+    // WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES=10; la modalidad de dos
+    // rondas no puede tener un tope de aceptación menor que el que la legacy
+    // ya honraba. maxEnrichmentsPerRun NO sube: sigue siendo la autoridad de
+    // presupuesto real (alimenta la reserva atómica del wizard).
+    assert.equal(TARGET_ELIGIBLE_COMPANIES_ABSOLUTE_MAX, 10);
     assert.equal(MAX_SEARCH_ROUNDS_ABSOLUTE_MAX, 2);
   });
 
-  test('sin overrides de entorno la config resuelta sigue siendo 5/2/5/10/2', () => {
+  test('sin overrides de entorno la config resuelta sigue siendo 10/2/10/20/2', () => {
     const resolved = defaultApolloTwoRoundConfig();
     assert.deepEqual(resolved, {
-      targetEligibleCompanies: 5,
+      targetEligibleCompanies: 10,
       maxRounds: 2,
-      maxResultsPerRound: 5,
-      maxRawResultsPerRun: 10,
+      maxResultsPerRound: 10,
+      maxRawResultsPerRun: 20,
       maxEnrichmentsPerRun: 2,
     });
     assert.equal(estimateApolloTwoRoundBudget(resolved).maximumInternalRecordedCredits, 12);

@@ -86,6 +86,8 @@ import {
   runApolloOrganizationsPaginatedSearch,
   type ApolloPageFetchResult,
   type ApolloPageLogEntry,
+  type ApolloPaginatedSearchDeps,
+  type ApolloDurableResumeState,
 } from '../apollo-organizations-paginated-search';
 import {
   createApolloPaginationBudget,
@@ -657,6 +659,15 @@ export type ApolloOrgsSearchOptions = {
   evaluateCandidateAcceptance?: (
     organization: NormalizedApolloOrganization,
   ) => boolean | Promise<boolean>;
+  /**
+   * AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING PARTE B — valla durable de página.
+   * Pasa tal cual a `runApolloOrganizationsPaginatedSearch`; este provider no
+   * interpreta su contenido, sólo lo transporta. Ausente ⇒ comportamiento
+   * previo al corte, byte a byte.
+   */
+  durablePageFence?: ApolloPaginatedSearchDeps['durableFence'];
+  /** Estado durable conocido de esta ronda/plan de búsqueda. Ver el módulo de paginación. */
+  durableResume?: ApolloDurableResumeState;
 };
 
 // ─── A1-APOLLO-WIZARD-1: adaptadores de la ruta paginada ─────────────────────
@@ -1008,6 +1019,9 @@ export async function runApolloOrganizationsSearch(
       // enviada no pueden discrepar. Ausente ⇒ 1, como todos los llamadores previos.
       startPage: effective.page,
       netNewTarget: netNewPaginationEnabled ? options!.netNewTarget : null,
+      // AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING PARTE B — transportado tal
+      // cual; la búsqueda paginada es quien decide si su huella coincide.
+      durableResume: options?.durableResume,
     },
     {
       fetchPage,
@@ -1024,6 +1038,8 @@ export async function runApolloOrganizationsSearch(
       // entrega al ledger, que es quien cuenta con la función canónica.
       priorProviderSeen: options?.priorProviderSeen,
       evaluateAcceptance: netNewPaginationEnabled ? options!.evaluateCandidateAcceptance : undefined,
+      // AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING PARTE B — igual, transporte puro.
+      durableFence: options?.durablePageFence,
     },
   );
 

@@ -291,6 +291,16 @@ import {
   type CheckpointWriteOutcome,
 } from './checkpoint.server';
 import { hasStrongIdentityDuplicateMatch } from './apollo-strong-identity-duplicate-match';
+// AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING PARTE B — valla durable de página.
+import {
+  readApolloPageFenceEntries,
+  upsertApolloPageFenceEntry,
+} from './page-fence.server';
+import {
+  toApolloPageFenceOrganization,
+  fromApolloPageFenceOrganization,
+  type ApolloPageFenceEntry,
+} from './page-fence';
 
 // ─── Entrada ──────────────────────────────────────────────────────────────────
 
@@ -1679,6 +1689,102 @@ export async function runApolloTwoRoundWizardDiscovery(
         requestedResultLimit,
       );
 
+      // AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING PARTE B — valla durable de
+      // página. `fenceIdentity` reutiliza la MISMA identidad que el checkpoint
+      // de ronda: un documento de otra corrida no puede prestar sus páginas.
+      const fenceIdentity = {
+        idempotencyKey: input.correlation.idempotencyKey,
+        requestFingerprint: input.correlation.requestFingerprint,
+      };
+      const roundNumber = operationContext.roundNumber;
+      // § B7/C13 — sólo las entradas de ESTA ronda: round1/pageN y
+      // round2/pageN nunca se confunden, aunque compartan número de página.
+      const fenceEntriesForRound = (
+        await readApolloPageFenceEntries(input.reservedBatchId, fenceIdentity)
+      ).filter((entry): entry is ApolloPageFenceEntry => entry.round_number === roundNumber);
+      const indeterminateFenceEntry = fenceEntriesForRound.find(
+        (entry) => entry.status === 'indeterminate',
+      );
+      const durableResume = {
+        succeededPages: fenceEntriesForRound
+          .filter((entry) => entry.status === 'succeeded')
+          .map((entry) => ({
+            page: entry.page,
+            requestFingerprint: entry.search_plan_fingerprint,
+            organizations: entry.organizations.map(fromApolloPageFenceOrganization),
+            credits: entry.credits,
+            resultsReturned: entry.results_returned,
+            totalPages: entry.total_pages,
+            acceptedCount: entry.accepted_count,
+          })),
+        indeterminatePage: indeterminateFenceEntry
+          ? {
+              page: indeterminateFenceEntry.page,
+              requestFingerprint: indeterminateFenceEntry.search_plan_fingerprint,
+            }
+          : null,
+      };
+
+      const searchOptionsWithFence: ApolloOrgsSearchOptions = {
+        ...searchOptions,
+        durableResume,
+        durablePageFence: {
+          beforeRequest: async ({ page, requestFingerprint }) => {
+            await upsertApolloPageFenceEntry(input.reservedBatchId, fenceIdentity, {
+              round_number: roundNumber,
+              search_plan_fingerprint: requestFingerprint,
+              page,
+              status: 'request_started',
+              organizations: [],
+              // § B10/B11 — la posible página ya salió hacia Apollo cuando esta
+              // valla se escribe. 1, no 0: nunca se representa un cobro posible
+              // como definitivamente gratis.
+              credits: 1,
+              results_returned: 0,
+              total_pages: null,
+              accepted_count: null,
+            });
+          },
+          onSucceeded: async ({
+            page,
+            requestFingerprint,
+            organizations,
+            credits,
+            resultsReturned,
+            totalPages,
+            acceptedCount,
+          }) => {
+            await upsertApolloPageFenceEntry(input.reservedBatchId, fenceIdentity, {
+              round_number: roundNumber,
+              search_plan_fingerprint: requestFingerprint,
+              page,
+              status: 'succeeded',
+              organizations: organizations.map(toApolloPageFenceOrganization),
+              credits,
+              results_returned: resultsReturned,
+              total_pages: totalPages,
+              accepted_count: acceptedCount,
+            });
+          },
+          onIndeterminate: async ({ page, requestFingerprint }) => {
+            await upsertApolloPageFenceEntry(input.reservedBatchId, fenceIdentity, {
+              round_number: roundNumber,
+              search_plan_fingerprint: requestFingerprint,
+              page,
+              status: 'indeterminate',
+              organizations: [],
+              // § B10 — mismo motivo que `beforeRequest`: el desenlace de esta
+              // página nunca se confirmó, así que su exposición se conserva en
+              // 1, nunca se asienta en 0.
+              credits: 1,
+              results_returned: 0,
+              total_pages: null,
+              accepted_count: null,
+            });
+          },
+        },
+      };
+
       const output = await deps.searchApollo(
         searchInput,
         requestedResultLimit,
@@ -1695,7 +1801,7 @@ export async function runApolloTwoRoundWizardDiscovery(
           operationContext: toApolloTwoRoundOperationContextMetadata(operationContext),
         },
         undefined,
-        searchOptions,
+        searchOptionsWithFence,
       );
       searchOutputs.push(output);
       // SECTOR-EVIDENCE-BOOTSTRAP-1 — la autorización se acumula desde las búsquedas

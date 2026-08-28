@@ -102,7 +102,16 @@ export type ApolloPaginationStopReason =
   | 'time_budget_exhausted'
   | 'cancelled'
   | 'operational_guardrail'
-  | 'contract_page_ceiling';
+  | 'contract_page_ceiling'
+  /**
+   * AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING — una página anterior de ESTA
+   * misma huella de búsqueda quedó con una valla durable de
+   * `request_started` sin desenlace terminal (éxito o indeterminado)
+   * cuando este intento arrancó. Apollo pudo haber cobrado esa página; no se
+   * reintenta automáticamente, y esta invocación no pide ninguna página
+   * nueva. Fail-closed a propósito (ver PARTE B § 8 del corte).
+   */
+  | 'indeterminate_prior_page_pending_reconciliation';
 
 export type ApolloPaginationDecision =
   | { shouldContinue: true; nextPage: number }

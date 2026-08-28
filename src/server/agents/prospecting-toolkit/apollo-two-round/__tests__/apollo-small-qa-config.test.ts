@@ -120,7 +120,7 @@ describe('§ 12 / § 14.16 — la configuración existente resuelve 1/1/3/3/1', 
       maxResultsPerRound: '3.5',
     });
     assert.equal(withTypo.sources.maxResultsPerRound, 'env_invalid_fallback_default');
-    assert.equal(withTypo.config.maxResultsPerRound, 5);
+    assert.equal(withTypo.config.maxResultsPerRound, 10);
     // Y el presupuesto resultante sigue siendo el del contrato, nunca mayor.
     assert.ok(
       estimateApolloTwoRoundBudget(withTypo.config).maximumInternalRecordedCredits <= 12,

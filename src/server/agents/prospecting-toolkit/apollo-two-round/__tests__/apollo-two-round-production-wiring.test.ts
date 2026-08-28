@@ -31,6 +31,8 @@ import {
 import type { ApolloTwoRoundCheckpointV1 } from '../checkpoint';
 import { APOLLO_TWO_ROUND_OBSERVABILITY_KEY } from '../observability';
 import { estimateApolloTwoRoundBudget, defaultApolloTwoRoundConfig } from '../index';
+import type { ApolloTwoRoundDiscoveryConfig } from '../config';
+import { testConfig } from './fixtures';
 import { runWizardApolloSearch } from '@/modules/prospect-batches/chat-wizard-execution/wizard-apollo-executor';
 import { estimateCreditsForProvider } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-estimate';
 import { captureApolloCompanyFields } from '../../apollo-company-fields-mapping';
@@ -184,6 +186,14 @@ function buildDeps(options: {
   /** Dominios que el enrichment confirma como del sector. */
   enrichmentConfirms?: string[];
   loadCheckpoint?: ApolloTwoRoundProductionDeps['loadCheckpoint'];
+  /**
+   * AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING — ausente ⇒ el default REAL de la
+   * plataforma (`defaultApolloTwoRoundConfig()`), para los casos que verifican
+   * paridad de presupuesto/config. Los escenarios que narran un objetivo
+   * concreto (p.ej. "cinco") lo fijan explícitamente en vez de depender de cuál
+   * sea el default en un momento dado.
+   */
+  config?: ApolloTwoRoundDiscoveryConfig;
 }): { deps: Partial<ApolloTwoRoundProductionDeps>; recorder: Recorder } {
   const recorder: Recorder = {
     searchCalls: 0,
@@ -271,7 +281,7 @@ function buildDeps(options: {
     loadEnrichmentUnitCostUsd: async () => 0.02,
     enrichOrganization: (async () => ({ success: true, data: undefined })) as never,
     logEnrichmentUsage: (async () => ({ kind: 'logged' as const })) as never,
-    resolveConfig: () => defaultApolloTwoRoundConfig(),
+    resolveConfig: () => options.config ?? defaultApolloTwoRoundConfig(),
   };
 
   return { deps, recorder };
@@ -408,11 +418,16 @@ describe('§ 10 · el executor enruta según el flag', () => {
 
 describe('§ 10 · rondas reales a través del adaptador de producción', () => {
   test('caso 3 — la ronda 1 reúne cinco: la ronda 2 igual se emite (§ 4)', async () => {
+    // AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING — objetivo fijado explícitamente
+    // en 5: el escenario depende de que "cinco" sea EL objetivo, y el default
+    // de la plataforma ya no lo es (subió a 10 para no truncar la demanda
+    // residual del wizard).
     const { deps, recorder } = buildDeps({
       rounds: [
         searchOutput([1, 2, 3, 4, 5].map(confirmedSupermarket), 5),
         searchOutput([], 0),
       ],
+      config: testConfig(),
     });
 
     const output = await runApolloTwoRoundWizardDiscovery(runInput(), deps);
@@ -440,11 +455,13 @@ describe('§ 10 · rondas reales a través del adaptador de producción', () => 
   });
 
   test('caso 4 — tres en la ronda 1 y dos en la ronda 2 completan las cinco', async () => {
+    // AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING — mismo motivo que el caso 3.
     const { deps, recorder } = buildDeps({
       rounds: [
         searchOutput([1, 2, 3].map(confirmedSupermarket), 3),
         searchOutput([4, 5].map(confirmedSupermarket), 2),
       ],
+      config: testConfig(),
     });
 
     const output = await runApolloTwoRoundWizardDiscovery(runInput(), deps);
@@ -644,8 +661,9 @@ describe('§ 10 · presupuesto y ejecución comparten límites', () => {
     });
     await runApolloTwoRoundWizardDiscovery(runInput({ reservedCredits: reserved }), deps);
 
-    // Cada ronda pidió exactamente `maxResultsPerRound`, no el cap legacy.
-    assert.deepEqual(recorder.requestedLimits, [5, 5]);
+    // Cada ronda pidió exactamente `maxResultsPerRound` (default: 10), no el
+    // cap legacy.
+    assert.deepEqual(recorder.requestedLimits, [10, 10]);
   });
 
   test('caso 8 — una configuración legacy alta NO amplía la modalidad de dos rondas', async () => {
@@ -666,7 +684,7 @@ describe('§ 10 · presupuesto y ejecución comparten límites', () => {
     await runApolloTwoRoundWizardDiscovery(runInput(), deps);
 
     assert.equal(recorder.searchCalls, 2, 'tres rondas legacy no habilitan una tercera ronda');
-    assert.deepEqual(recorder.requestedLimits, [5, 5]);
+    assert.deepEqual(recorder.requestedLimits, [10, 10]);
   });
 
   test('§ 2 — el gasto registrado por encima de la reserva levanta anomalía y detiene el gasto', async () => {
@@ -704,6 +722,11 @@ describe('§ 10 · presupuesto y ejecución comparten límites', () => {
     let evaluated = 0;
     const { deps } = buildDeps({
       rounds: [searchOutput(many(1, 8), 8), searchOutput(many(9, 8), 8)],
+      // AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING — el techo de este caso es el
+      // `maxRawResultsPerRun` de `testConfig()` (10), fijado explícitamente:
+      // el default de la plataforma subió a 20 junto con el objetivo (10) para
+      // no truncar la demanda residual del wizard.
+      config: testConfig(),
     });
     const wrapped: Partial<ApolloTwoRoundProductionDeps> = {
       ...deps,

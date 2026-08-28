@@ -29,12 +29,18 @@ import { testConfig } from './fixtures';
 // ─── § 2: configuración ───────────────────────────────────────────────────────
 
 describe('§ 2 · configuración central', () => {
-  test('los defaults son los del contrato: 5 / 2 / 5 / 10 / 2', () => {
+  test('los defaults son los del contrato AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING: 10 / 2 / 10 / 20 / 2', () => {
+    // targetEligibleCompanies y maxResultsPerRound suben a su propio tope
+    // absoluto (10) para que la demanda residual del wizard (hasta
+    // WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES=10) no se trunque por un
+    // default de QA. maxRawResultsPerRun sube en consecuencia (2 rondas × 10 =
+    // 20), vía la MISMA invariante `Math.max(default, alcanzable)` de siempre.
+    // maxEnrichmentsPerRun NO cambia: sigue siendo la autoridad de presupuesto.
     assert.deepEqual(defaultApolloTwoRoundConfig(), {
-      targetEligibleCompanies: 5,
+      targetEligibleCompanies: 10,
       maxRounds: 2,
-      maxResultsPerRound: 5,
-      maxRawResultsPerRun: 10,
+      maxResultsPerRound: 10,
+      maxRawResultsPerRun: 20,
       maxEnrichmentsPerRun: 2,
     });
   });
@@ -107,9 +113,9 @@ describe('§ 2 · configuración central', () => {
 
   test('el tope de crudos nunca queda por debajo de lo que las rondas pueden traer', () => {
     const resolution = resolveApolloTwoRoundConfig({ maxRawResultsPerRun: '1' });
-    // 2 rondas × 5 por ronda = 10 alcanzables: un tope de 1 cortaría la ronda 2
+    // 2 rondas × 10 por ronda = 20 alcanzables: un tope de 1 cortaría la ronda 2
     // a mitad y haría irreproducible el conteo.
-    assert.equal(resolution.config.maxRawResultsPerRun, 10);
+    assert.equal(resolution.config.maxRawResultsPerRun, 20);
   });
 
   test('el diagnóstico expone valores resueltos y su origen, nunca valores crudos', () => {
@@ -117,10 +123,10 @@ describe('§ 2 · configuración central', () => {
       resolveApolloTwoRoundConfig({ maxRounds: '9' }),
     );
 
-    assert.equal(diagnostics.apollo_target_eligible_companies_resolved, 5);
+    assert.equal(diagnostics.apollo_target_eligible_companies_resolved, 10);
     assert.equal(diagnostics.apollo_max_search_rounds_resolved, 2);
-    assert.equal(diagnostics.apollo_max_results_per_round_resolved, 5);
-    assert.equal(diagnostics.apollo_max_raw_results_per_run_resolved, 10);
+    assert.equal(diagnostics.apollo_max_results_per_round_resolved, 10);
+    assert.equal(diagnostics.apollo_max_raw_results_per_run_resolved, 20);
     assert.equal(diagnostics.apollo_max_enrichments_per_run_resolved, 2);
     assert.equal(
       diagnostics.apollo_two_round_config_sources.max_search_rounds,

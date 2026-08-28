@@ -144,6 +144,74 @@ export type ApolloPaginatedSearchDeps = {
   evaluateAcceptance?: (
     organization: NormalizedApolloOrganization,
   ) => boolean | Promise<boolean>;
+  /**
+   * AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING PARTE B — valla durable de página,
+   * previa al envío.
+   *
+   * Ausente ⇒ comportamiento previo al corte, byte a byte: sin valla durable,
+   * un proceso que muere a mitad de esta función puede volver a pedir páginas
+   * ya pagadas al reintentar. Presente, las tres funciones se invocan en el
+   * ORDEN que hace la valla real:
+   *
+   *   1. `beforeRequest` — se espera a que TERMINE antes de llamar a
+   *      `deps.fetchPage`. Si nunca se resuelve o falla, esta función NO
+   *      envía la petición (fail-closed sobre la valla misma: mejor no pedir
+   *      que pedir sin haber podido registrar el intento).
+   *   2. `onSucceeded` / `onIndeterminate` — se esperan ANTES de decidir la
+   *      página siguiente, así que un desenlace nunca se pierde por seguir de
+   *      largo.
+   *
+   * Quien implemente estas funciones decide su propia durabilidad (best-effort
+   * o estricta); este módulo sólo garantiza el ORDEN relativo a la red.
+   */
+  durableFence?: {
+    beforeRequest: (input: {
+      page: number;
+      requestFingerprint: string;
+    }) => Promise<void>;
+    onSucceeded: (input: {
+      page: number;
+      requestFingerprint: string;
+      organizations: NormalizedApolloOrganization[];
+      credits: number;
+      resultsReturned: number;
+      totalPages: number | null;
+      acceptedCount: number | null;
+    }) => Promise<void>;
+    onIndeterminate: (input: {
+      page: number;
+      requestFingerprint: string;
+    }) => Promise<void>;
+  };
+};
+
+/** Una página ya conocida de forma durable ANTES de que esta invocación arrancara. */
+export type ApolloDurablePageRecord = {
+  page: number;
+  /** Debe coincidir con el `requestFingerprint` que ESTA invocación calcule; si no, se ignora. */
+  requestFingerprint: string;
+  organizations: NormalizedApolloOrganization[];
+  credits: number;
+  resultsReturned: number;
+  totalPages: number | null;
+  /** `null` cuando esa página se pidió sin evaluador de aceptación NET-NEW. */
+  acceptedCount: number | null;
+};
+
+/**
+ * AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING PARTE B — lo que un reintento ya sabe
+ * de forma durable sobre ESTA ronda/plan de búsqueda, antes de llamar a esta
+ * función de nuevo.
+ *
+ * `succeededPages` con una huella que NO coincide con la que esta invocación
+ * calcula se ignora por completo (§ B7/C13): no es una corrida vieja, es un
+ * plan de búsqueda DISTINTO, y confundirlos sería exactamente el defecto que
+ * la huella existe para prevenir.
+ */
+export type ApolloDurableResumeState = {
+  succeededPages: ApolloDurablePageRecord[];
+  /** Página con valla `request_started` sin desenlace terminal. `null` = ninguna. */
+  indeterminatePage: { page: number; requestFingerprint: string } | null;
 };
 
 export type ApolloPaginatedSearchInput = {
@@ -172,6 +240,12 @@ export type ApolloPaginatedSearchInput = {
    * sigue siendo `budget.maxCandidates`, como antes de este hito.
    */
   netNewTarget?: number | null;
+  /**
+   * AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING PARTE B — estado durable conocido
+   * de esta ronda/plan de búsqueda antes de esta invocación. Ausente ⇒
+   * comportamiento previo al corte, byte a byte.
+   */
+  durableResume?: ApolloDurableResumeState;
 };
 
 // ─── Resultado ────────────────────────────────────────────────────────────────
@@ -342,6 +416,96 @@ export async function runApolloOrganizationsPaginatedSearch(
     };
   }
 
+  // ── AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING PARTE B — resumen durable ──────
+  //
+  // Sólo se confía en un registro cuya huella coincide EXACTAMENTE con la de
+  // ESTA invocación (§ B7/C13): una huella distinta describe otro plan de
+  // búsqueda —otra ronda, otros filtros— y tratarlo como propio repetiría el
+  // defecto que la huella existe para impedir.
+  const relevantSucceededPages = (input.durableResume?.succeededPages ?? [])
+    .filter((record) => record.requestFingerprint === requestFingerprint)
+    .sort((a, b) => a.page - b.page);
+  const relevantIndeterminatePage =
+    input.durableResume?.indeterminatePage?.requestFingerprint === requestFingerprint
+      ? input.durableResume.indeterminatePage
+      : null;
+
+  // § B8 — una página con valla `request_started` sin desenlace terminal
+  // bloquea CUALQUIER página nueva de este plan de búsqueda. Apollo pudo
+  // haberla cobrado; fail-closed, sin reintento automático, cero peticiones
+  // nuevas en esta invocación.
+  if (relevantIndeterminatePage !== null) {
+    for (const record of relevantSucceededPages) {
+      for (const organization of record.organizations) {
+        const id = organization.providerReference.providerOrganizationId;
+        const isNewOrganization = !seenOrganizationIds.has(id);
+        if (!isNewOrganization) continue;
+        seenOrganizationIds.add(id);
+        collected.push(organization);
+      }
+      estimatedCredits += record.credits;
+      pagesFetched++;
+      if (typeof record.acceptedCount === 'number') {
+        acceptedForTargetCount = (acceptedForTargetCount ?? 0) + record.acceptedCount;
+      }
+    }
+    return {
+      organizations: collected,
+      pagesProcessed: pagesFetched,
+      estimatedCredits,
+      acceptedForTargetCount,
+      stopReason: 'indeterminate_prior_page_pending_reconciliation',
+      terminalError: null,
+      indeterminatePages: [relevantIndeterminatePage.page],
+      pageOutcomes: [],
+      requestFingerprint,
+      // Ninguna petición salió EN ESTA invocación: la que dejó la página
+      // indeterminada fue un intento anterior.
+      effectiveRequestFingerprintSent: null,
+      omittedFilters: anchorContract.omittedFilters,
+      rejectedForbiddenParams: anchorContract.rejectedForbiddenParams,
+      rejectedUnknownParams: anchorContract.rejectedUnknownParams,
+      lastRateLimit: null,
+      normalizationMeta: null,
+      providerSeen: EMPTY_APOLLO_PROVIDER_SEEN_SUMMARY,
+      paginationMeta: {
+        totalEntries: null,
+        totalPages: relevantSucceededPages.at(-1)?.totalPages ?? null,
+        lastPage: relevantSucceededPages.at(-1)?.page ?? null,
+      },
+    };
+  }
+
+  // Sin indeterminada pendiente: las páginas ya durablemente exitosas se
+  // adoptan sin volver a pedirlas, y la paginación continúa desde la
+  // siguiente.
+  for (const record of relevantSucceededPages) {
+    const key = buildApolloPageIdempotencyKey({
+      wizardRunId: input.wizardRunId,
+      provider: 'apollo',
+      filtersFingerprint: requestFingerprint,
+      page: record.page,
+    });
+    ledger.markSucceeded(key);
+    for (const organization of record.organizations) {
+      const id = organization.providerReference.providerOrganizationId;
+      const isNewOrganization = !seenOrganizationIds.has(id);
+      const hasRemainingCapacity = collected.length < budget.maxCandidates;
+      if (!isNewOrganization) continue;
+      if (!hasRemainingCapacity) break;
+      seenOrganizationIds.add(id);
+      collected.push(organization);
+    }
+    estimatedCredits += record.credits;
+    pagesFetched++;
+    lastPage = lastPage === null ? record.page : Math.max(lastPage, record.page);
+    lastPageResultCount = record.resultsReturned;
+    totalPages = record.totalPages ?? totalPages;
+    if (typeof record.acceptedCount === 'number') {
+      acceptedForTargetCount = (acceptedForTargetCount ?? 0) + record.acceptedCount;
+    }
+  }
+
   // ── Bucle de paginación ─────────────────────────────────────────────────────
   for (;;) {
     const decision = evaluateApolloPaginationDecision(budget, {
@@ -405,6 +569,23 @@ export async function runApolloOrganizationsPaginatedSearch(
         effectiveRequestFingerprintSent = pageContract.effectiveRequestFingerprint;
       }
 
+      // § B2/B3 — la valla se escribe y se ESPERA antes de la petición: el
+      // orden importa, no sólo que ocurra. Best-effort a propósito (igual que
+      // `logPage`/`recordProviderSeen`): si la escritura falla, lo más
+      // probable es que la capa durable esté degradada en este instante, y
+      // negarse a buscar no mejora la seguridad —tampoco podría registrar el
+      // desenlace exitoso un instante después— sólo deja la búsqueda
+      // indisponible por un problema ajeno a Apollo. La ventana sin valla que
+      // esto deja abierta es idéntica, en tamaño, a la que existía antes de
+      // este corte.
+      if (deps.durableFence) {
+        try {
+          await deps.durableFence.beforeRequest({ page, requestFingerprint });
+        } catch {
+          // Intencionalmente silencioso: ver comentario arriba.
+        }
+      }
+
       let response: ApolloPageFetchResult;
       try {
         response = await deps.fetchPage(
@@ -457,12 +638,17 @@ export async function runApolloOrganizationsPaginatedSearch(
         // Dedup defensivo entre páginas: Apollo puede repetir una organización
         // en páginas contiguas si el índice cambia durante el recorrido.
         let newInThisPage = 0;
+        // § B5/B6 — sólo lo NUEVO de esta página, para la valla durable: un
+        // duplicado ya vive en el registro de la página que lo trajo primero.
+        const newOrganizationsThisPage: NormalizedApolloOrganization[] = [];
+        let acceptedInThisPage = 0;
         for (const organization of normalized.organizations) {
           const id = organization.providerReference.providerOrganizationId;
           if (seenOrganizationIds.has(id)) continue;
           if (collected.length >= budget.maxCandidates) break;
           seenOrganizationIds.add(id);
           collected.push(organization);
+          newOrganizationsThisPage.push(organization);
           newInThisPage++;
 
           // § 11 — sólo el candidato NUEVO de esta página se evalúa: uno ya visto
@@ -478,6 +664,7 @@ export async function runApolloOrganizationsPaginatedSearch(
             }
             if (accepted) {
               acceptedForTargetCount = (acceptedForTargetCount ?? 0) + 1;
+              acceptedInThisPage++;
             }
           }
         }
@@ -508,6 +695,26 @@ export async function runApolloOrganizationsPaginatedSearch(
 
         ledger.markSucceeded(idempotencyKey);
         pageSettled = true;
+
+        // § B5 — el desenlace terminal se escribe y se ESPERA ANTES de decidir
+        // la página siguiente. Best-effort, igual que la valla previa: una
+        // falla aquí degrada la recuperación de un futuro reintento, nunca
+        // esta búsqueda que YA cobró la página.
+        if (deps.durableFence) {
+          try {
+            await deps.durableFence.onSucceeded({
+              page,
+              requestFingerprint,
+              organizations: newOrganizationsThisPage,
+              credits: pageCredits,
+              resultsReturned,
+              totalPages,
+              acceptedCount: deps.evaluateAcceptance ? acceptedInThisPage : null,
+            });
+          } catch {
+            // Intencionalmente silencioso: ver comentario arriba.
+          }
+        }
 
         pageOutcomes.push({
           page,
@@ -568,6 +775,16 @@ export async function runApolloOrganizationsPaginatedSearch(
 
       if (classification.billingState === 'unknown') {
         ledger.markIndeterminate(idempotencyKey);
+        // § B5/B8/B9 — el desenlace indeterminado también se espera antes de
+        // seguir: es exactamente el estado que un reintento debe encontrar
+        // para no repetir esta página automáticamente.
+        if (deps.durableFence) {
+          try {
+            await deps.durableFence.onIndeterminate({ page, requestFingerprint });
+          } catch {
+            // Intencionalmente silencioso: ver comentario del desenlace previo.
+          }
+        }
       }
 
       pageOutcomes.push({

@@ -20,12 +20,34 @@
 
 // ─── Defaults del contrato ────────────────────────────────────────────────────
 
-/** Empresas únicas y elegibles que una ejecución intenta reunir. */
-export const TARGET_ELIGIBLE_COMPANIES_DEFAULT = 5;
+/**
+ * Empresas únicas y elegibles que una ejecución intenta reunir.
+ *
+ * AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING — antes `5`. El wizard promete
+ * `WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES` (10) al usuario; un default
+ * local por debajo de eso truncaba la demanda residual ANTES de que el
+ * presupuesto o el proveedor tuvieran oportunidad de decidir nada. Este número
+ * es el objetivo (demanda), no el gasto: el techo de dinero real sigue siendo
+ * `MAX_ENRICHMENTS_PER_RUN_*` y la reserva atómica del wizard, ninguno de los
+ * dos se toca aquí.
+ */
+export const TARGET_ELIGIBLE_COMPANIES_DEFAULT = 10;
 /** Rondas de búsqueda como máximo. El contrato del hito fija dos. */
 export const MAX_SEARCH_ROUNDS_DEFAULT = 2;
-/** Resultados solicitados al proveedor por ronda. */
-export const MAX_RESULTS_PER_ROUND_DEFAULT = 5;
+/**
+ * Resultados NET-NEW solicitados al proveedor por ronda.
+ *
+ * AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING — antes `5`, igual que su propio tope
+ * absoluto (`MAX_RESULTS_PER_ROUND_ABSOLUTE_MAX = 10`), así que subir el
+ * default hasta el tope existente no abre un tope nuevo. Con la demanda
+ * residual activa (§ CUT-2), la ronda pide `min(config.maxResultsPerRound,
+ * hueco)`: un default de 5 dejaba el hueco de una corrida sin capa gratuita en
+ * 5+5=10 exacto, sin margen para duplicados o rechazos dentro de la ronda. 10
+ * le da a cada ronda margen real para alcanzar el objetivo de 10 sin tocar el
+ * techo de páginas/créditos de Search (`WIZARD_APOLLO_MAX_PAGES_HARD_CAP`), que
+ * sigue fijo en 5 páginas por ronda y es quien de verdad gobierna el gasto.
+ */
+export const MAX_RESULTS_PER_ROUND_DEFAULT = 10;
 /** Resultados crudos acumulados como máximo en toda la ejecución. */
 export const MAX_RAW_RESULTS_PER_RUN_DEFAULT = 10;
 /** Organization Enrichment pagados como máximo en toda la ejecución. */
@@ -37,16 +59,41 @@ export const MAX_ENRICHMENTS_PER_RUN_DEFAULT = 2;
 // subirlos por encima del tope: el techo del gasto autorizado vive en el código,
 // no en una variable que se puede editar desde un panel.
 
-// AGENT1-APOLLO-NET-NEW-PAGINATION-LIVE-WIRING — +1 deliberado, LOCAL-ONLY:
-// con la paginación net-new realmente conectada (ver production-runner.server.ts
-// `buildRoundSearchRequest`), el wizard puede llenar un objetivo de 6 sin pagar
-// de más — antes el techo de 5 era el único obstáculo, no el motor. No sube el
-// tope global de créditos por ejecución de `wizard_pilot_settings` (esa RPC
-// sigue intacta) ni ningún otro tope absoluto de este archivo.
-export const TARGET_ELIGIBLE_COMPANIES_ABSOLUTE_MAX = 6;
+// AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING — antes `6` ("+1 deliberado,
+// LOCAL-ONLY" sobre un default de 5). Ese `6` era un tope de QA sin relación
+// con ningún número de negocio: el wizard promete
+// `WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES` (10) al usuario y la demanda
+// residual real puede llegar hasta ahí. Subirlo a 10 iguala el tope de la
+// modalidad de dos rondas con el de la modalidad legacy (que nunca tuvo un
+// tope local por debajo de 10) — dos rutas del MISMO producto no pueden
+// prometerle al usuario dos objetivos distintos según qué modalidad ejecute.
+//
+// Esto NO sube el tope global de créditos por ejecución: la reserva atómica
+// del wizard (`reserveWizardPilotCredits`) y `estimateApolloTwoRoundBudget`
+// (`budget.ts`) derivan su peor caso de `maxRounds × WIZARD_APOLLO_MAX_PAGES_
+// HARD_CAP` (Search) y de `maxEnrichmentsPerRun` (enrichment) — NINGUNO de los
+// dos lee `targetEligibleCompanies`. Subir el objetivo de aceptación no reserva
+// ni gasta un crédito más; sólo deja de recortar la demanda antes de que el
+// presupuesto real (ver `MAX_ENRICHMENTS_PER_RUN_*`, sin tocar) tenga
+// oportunidad de decidir. Con `maxEnrichmentsPerRun` agotado antes de llegar a
+// 10, el resultado correcto es `accepted < 10` con motivo de parada
+// `budget_exhausted` — no una demanda que nunca se representó.
+export const TARGET_ELIGIBLE_COMPANIES_ABSOLUTE_MAX = 10;
 export const MAX_SEARCH_ROUNDS_ABSOLUTE_MAX = 2;
 export const MAX_RESULTS_PER_ROUND_ABSOLUTE_MAX = 10;
 export const MAX_RAW_RESULTS_PER_RUN_ABSOLUTE_MAX = 20;
+/**
+ * Enrichments de pago como máximo. SIN CAMBIOS en este corte: a diferencia de
+ * `TARGET_ELIGIBLE_COMPANIES_*`, este número SÍ alimenta directamente
+ * `estimateApolloTwoRoundBudget` (`enrichmentMaximum`), que a su vez es lo que
+ * `wizard-budget-estimate.ts` reserva vía `reserveWizardPilotCredits`. Subirlo
+ * SÍ sería subir la política monetaria global, que este corte tiene prohibido
+ * tocar (ver AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING PARTE F). Con la demanda
+ * ya corregida arriba, este tope sigue siendo la autoridad de presupuesto
+ * genuina: si no alcanza para pagar el enrichment de las 10 empresas del
+ * objetivo, la corrida se detiene con `budget_exhausted`, no con un objetivo
+ * mentido.
+ */
 export const MAX_ENRICHMENTS_PER_RUN_ABSOLUTE_MAX = 6;
 
 // ─── Nombres de las variables de entorno ──────────────────────────────────────
