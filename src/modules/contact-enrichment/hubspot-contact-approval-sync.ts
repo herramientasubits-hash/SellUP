@@ -88,7 +88,19 @@ export async function triggerContactHubSpotSync(
       const existing = (data?.metadata as Record<string, unknown> | null) ?? {};
       const { error: writeError } = await admin
         .from('contacts')
-        .update({ metadata: { ...existing, hubspot_sync_status: 'waiting_company_review' } })
+        .update({
+          metadata: {
+            ...existing,
+            // Distinto de `contacts.metadata.hubspot_sync.status` (vocabulario cerrado, ver
+            // contact-hubspot-sync-state.ts) y de `accounts.metadata.hubspot_sync_status` (misma
+            // palabra, otra tabla, otro significado): esta es una señal propia y ad hoc — el
+            // contacto está esperando a que un humano resuelva una coincidencia de empresa
+            // ambigua en HubSpot, no un estado del propio motor de sync del contacto. La lee
+            // Task B6 (`loadWaitingContacts`).
+            hubspot_company_review_pending: true,
+            hubspot_company_review_pending_since: new Date().toISOString(),
+          },
+        })
         .eq('id', id);
       if (writeError) {
         console.error('[hubspot-contact-approval-sync] markWaitingForCompanyReview write failed', { contactId: id, error: writeError });
