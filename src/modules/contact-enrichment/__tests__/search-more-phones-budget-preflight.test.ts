@@ -35,6 +35,11 @@ import assert from 'node:assert/strict';
 const CANDIDATE_ID = 'cand-1k-budget';
 const LUSHA_CONTACT_ID = 'v1.lusha-native-token-1k';
 const ACTOR_ID = 'user-1k';
+/**
+ * AGENT2A-SEARCH-MORE-APPROVED-CONTACT-1 — un id de contacto oficial REAL en forma: uuid v4.
+ * Sólo lo usan los casos que prueban `matched_contacts_id` → `officialContactId`.
+ */
+const OFFICIAL_CONTACT_ID = 'd6f35a76-bce1-46d4-a7e8-8af1591aef87';
 
 // ═══════════════════════════════════════════════════════════════
 // El mundo
@@ -446,5 +451,64 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1K · el preflight resuelve el pozo de Lush
       await preflight();
       assertNothingSpent('en ninguno de los desenlaces del presupuesto');
     }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // AGENT2A-SEARCH-MORE-APPROVED-CONTACT-1 — la columna LLEGA hasta el plan
+  // ═══════════════════════════════════════════════════════════════
+  //
+  // Los dos casos de arriba prueban el PRESUPUESTO; éstos prueban una frontera distinta que
+  // ninguno de ellos toca: que `matched_contacts_id` —la columna cruda que Postgres
+  // devuelve— realmente llegue como `facts.officialContactId` y de ahí al planificador. La
+  // suite PURA del planificador (`search-more-phones-planner.test.ts`) recibe
+  // `officialContactId` ya resuelto como argumento: demuestra que la REGLA es correcta, no
+  // que la LECTURA lo extraiga bien de la fila real. Es exactamente la clase de defecto de
+  // #347 — un id resuelto en una capa que se pierde de camino al llamador — así que se prueba
+  // aquí, contra `readSearchMorePreflight` REAL y sólo con la frontera de I/O simulada.
+
+  it('AGENT2A-SEARCH-MORE-APPROVED-CONTACT-1 — approved + matched_contacts_id ⇒ officialContactId viaja y el plan es ELEGIBLE', async () => {
+    world.candidateRow = {
+      ...world.candidateRow,
+      status: 'approved',
+      matched_contacts_id: OFFICIAL_CONTACT_ID,
+    };
+
+    const { facts, summary } = await preflight();
+
+    assert.equal(
+      facts.officialContactId,
+      OFFICIAL_CONTACT_ID,
+      'la columna matched_contacts_id tiene que llegar TAL CUAL a los hechos',
+    );
+    assert.equal(
+      summary.plan.eligible,
+      true,
+      'un aprobado con contacto oficial registrado es exactamente el caso que #361/#362 desbloquearon',
+    );
+    assert.deepEqual([...summary.plan.providersToTry], ['lusha']);
+    assertNothingSpent('al leer un candidato aprobado con contacto oficial');
+  });
+
+  it('AGENT2A-SEARCH-MORE-APPROVED-CONTACT-1 — approved SIN matched_contacts_id ⇒ officialContactId es null y el plan sigue BLOQUEADO', async () => {
+    world.candidateRow = {
+      ...world.candidateRow,
+      status: 'approved',
+      matched_contacts_id: null,
+    };
+
+    const { facts, summary } = await preflight();
+
+    assert.equal(
+      facts.officialContactId,
+      null,
+      'la AUSENCIA de destino tiene que propagarse igual de fielmente que su presencia',
+    );
+    assert.equal(summary.plan.eligible, false);
+    assert.equal(
+      summary.plan.reason,
+      'candidate_not_editable',
+      'sin destino registrado no hay dónde proyectar el teléfono que se compraría',
+    );
+    assertNothingSpent('al leer un candidato aprobado sin contacto oficial');
   });
 });
