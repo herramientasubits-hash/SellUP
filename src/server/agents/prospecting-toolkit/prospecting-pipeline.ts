@@ -323,6 +323,9 @@ export async function runProspectingPipeline(
           // versión publicada. Se transportan; este módulo no los interpreta.
           subindustryCatalogTerms: input.subindustryCatalogTerms ?? null,
           selectionCatalogVersion: input.selectionCatalogVersion ?? null,
+          // AGENT1-APOLLO-DEFAULT-PATH-NET-NEW-PAGINATION — transporte puro
+          // hasta `dispatchToProvider`; este módulo no la interpreta.
+          apolloSearchOptions: input.apolloSearchOptions ?? null,
         });
         const sgMeta = hasQueryOverrides || usesPlannerQueries
           ? { enabled: false, sources_used: [] as string[] }

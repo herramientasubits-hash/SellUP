@@ -28,7 +28,10 @@ import type {
 import { runMockWebSearch } from './web-search-providers/mock-web-search-provider';
 import { runTavilyWebSearch } from './web-search-providers/tavily-web-search-provider';
 import { runGoogleCseWebSearch } from './web-search-providers/google-cse-web-search-provider';
-import { runApolloOrganizationsSearch } from './web-search-providers/apollo-organizations-search-provider';
+import {
+  runApolloOrganizationsSearch,
+  type ApolloOrgsSearchOptions,
+} from './web-search-providers/apollo-organizations-search-provider';
 import type { RunCorrelationMetadata } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-correlation';
 import { filterNoiseResults } from './noise-filter';
 import { buildCleanMultiQueryDiscoveryQueries } from './query-builder';
@@ -114,6 +117,13 @@ async function dispatchToProvider(
   input: WebSearchInput,
   maxResults: number,
   usageContext?: DispatchUsageContext,
+  // AGENT1-APOLLO-DEFAULT-PATH-NET-NEW-PAGINATION — quinto argumento, opcional
+  // y sólo relevante para 'apollo_organizations'. Ausente ⇒ el llamador de
+  // siempre (mock/tavily/google_cse, y Apollo sin este corte): comportamiento
+  // previo byte a byte. Tipado `unknown` para calzar con `ProviderDispatcher`
+  // (que debe seguir siendo agnóstico de proveedor); se afirma el tipo real
+  // sólo en el `case` que lo interpreta.
+  apolloOptions?: unknown,
 ): Promise<WebSearchOutput> {
   switch (provider) {
     case 'mock':
@@ -123,7 +133,13 @@ async function dispatchToProvider(
     case 'google_cse':
       return runGoogleCseWebSearch(input, maxResults);
     case 'apollo_organizations':
-      return runApolloOrganizationsSearch(input, maxResults, usageContext ?? undefined);
+      return runApolloOrganizationsSearch(
+        input,
+        maxResults,
+        usageContext ?? undefined,
+        undefined,
+        apolloOptions as ApolloOrgsSearchOptions | undefined,
+      );
     default:
       return {
         provider,
@@ -328,7 +344,15 @@ export async function runMultiQueryWebSearch(
             : {}),
         }
       : undefined;
-    const raw = await dispatch(provider, searchInput, maxResultsPerQuery, dispatchContext);
+    // AGENT1-APOLLO-DEFAULT-PATH-NET-NEW-PAGINATION — sólo Apollo recibe estas
+    // opciones; Tavily/mock/google_cse las ignorarían de todos modos (el 5º
+    // argumento no existe para ellos en `dispatchToProvider`), pero no hace
+    // falta construirlas para provider ajenos.
+    const apolloOptions =
+      provider === 'apollo_organizations'
+        ? input.apolloSearchOptions ?? undefined
+        : undefined;
+    const raw = await dispatch(provider, searchInput, maxResultsPerQuery, dispatchContext, apolloOptions);
 
     // Recolectar metadata de Apollo sector gate por query (v1.16K-AF, L2.9)
     if (provider === 'apollo_organizations') {

@@ -479,6 +479,17 @@ export type ProspectingPipelineInput = {
   selectionCatalogVersion?: string | null;
   /** Tokens del criterio adicional del usuario (L2.7). Solo para Apollo; Tavily los ignora. */
   additionalCriteriaTokens?: string[];
+  /**
+   * AGENT1-APOLLO-DEFAULT-PATH-NET-NEW-PAGINATION — opciones opacas del
+   * provider Apollo (netNewTarget, evaluateCandidateAcceptance, valla durable
+   * de página, resume). Se transportan sin interpretarlas hasta
+   * `dispatchToProvider`; sólo `apollo_organizations` las consume, cualquier
+   * otro provider las ignora. Ausente ⇒ comportamiento previo al corte, byte
+   * a byte (una invocación = una página).
+   */
+  apolloSearchOptions?:
+    | import('./web-search-providers/apollo-organizations-search-provider').ApolloOrgsSearchOptions
+    | null;
 };
 
 export type NameInferenceSource = 'title_prefix' | 'domain' | 'title_fallback';
@@ -758,6 +769,14 @@ export type MultiQuerySearchInput = {
   selectionCatalogVersion?: string | null;
   /** Tokens del criterio adicional del usuario (L2.7). Solo para Apollo; Tavily los ignora. */
   additionalCriteriaTokens?: string[];
+  /**
+   * AGENT1-APOLLO-DEFAULT-PATH-NET-NEW-PAGINATION — ver `ProspectingPipelineInput`.
+   * Se reenvía tal cual a `dispatchToProvider` por cada query Apollo de esta
+   * invocación; Tavily y mock la ignoran.
+   */
+  apolloSearchOptions?:
+    | import('./web-search-providers/apollo-organizations-search-provider').ApolloOrgsSearchOptions
+    | null;
 };
 
 export type MultiQueryQueryResult = {
