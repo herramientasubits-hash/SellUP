@@ -4,6 +4,7 @@
 
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { resolveAccountHubSpotCompanyWired } from '@/modules/accounts/hubspot-company-resolution-wiring';
+import { logContactAudit } from '@/modules/contacts/actions';
 import { runContactHubSpotAutoSync } from '@/modules/contacts/contact-hubspot-autosync-core';
 import { runSyncContactToHubSpot } from '@/modules/contacts/contact-hubspot-sync-core';
 import { buildContactHubSpotSyncDeps } from '@/modules/contacts/contact-hubspot-sync-runner';
@@ -69,6 +70,25 @@ export async function triggerContactHubSpotSync(
               actorId,
               nowIso,
               method: 'auto',
+              logAudit: async (entry) => {
+                await logContactAudit({
+                  contactId: entry.contactId,
+                  accountId: entry.accountId,
+                  actorUserId: entry.actorUserId,
+                  actionType: 'contact_updated',
+                  details: {
+                    hubspot_sync: {
+                      mode: entry.mode,
+                      hubspot_contact_id: entry.hubspotContactId,
+                      hubspot_company_id: entry.hubspotCompanyId,
+                      company_association: entry.companyAssociation,
+                      // La auditoría también distingue el origen: sin esto, una fila de
+                      // auditoría automática sería indistinguible de un clic humano.
+                      method: 'auto',
+                    },
+                  },
+                });
+              },
             }),
           ),
         persistAnnex: async (subjectId, metadata) => {
