@@ -65,4 +65,48 @@ describe('runResolveHubSpotCompanyMatch', () => {
     );
     assert.equal(result.ok, false);
   });
+
+  it('decisión "different": si createCompany falla, no actualiza la cuenta', async () => {
+    const updateCalls: unknown[] = [];
+    const result = await runResolveHubSpotCompanyMatch(
+      { accountId: 'account-1', decision: 'different' },
+      {
+        loadAccount: async () => ({
+          id: 'account-1',
+          metadata: { hubspot_pending_match: { hubspot_company_id: 'hs-999', name: 'X' } },
+        }),
+        updateAccount: async (id, patch) => {
+          updateCalls.push({ id, patch });
+        },
+        createCompany: async () => ({ ok: false, error: 'HUBSPOT_CREATE_FAILED' }),
+        nowIso: '2026-08-27T22:00:00.000Z',
+      },
+    );
+    assert.equal(result.ok, false);
+    assert.equal(result.hubspotCompanyId, null);
+    assert.equal(updateCalls.length, 0);
+  });
+
+  it('cuenta existe pero sin match pendiente, no hace nada y reporta el motivo', async () => {
+    const updateCalls: unknown[] = [];
+    const createCalls: unknown[] = [];
+    const result = await runResolveHubSpotCompanyMatch(
+      { accountId: 'account-1', decision: 'same' },
+      {
+        loadAccount: async () => ({ id: 'account-1', metadata: {} }),
+        updateAccount: async (id, patch) => {
+          updateCalls.push({ id, patch });
+        },
+        createCompany: async () => {
+          createCalls.push(true);
+          return { ok: true, hubspotCompanyId: 'hs-x' };
+        },
+        nowIso: '2026-08-27T22:00:00.000Z',
+      },
+    );
+    assert.equal(result.ok, false);
+    assert.equal(result.hubspotCompanyId, null);
+    assert.equal(updateCalls.length, 0);
+    assert.equal(createCalls.length, 0);
+  });
 });
