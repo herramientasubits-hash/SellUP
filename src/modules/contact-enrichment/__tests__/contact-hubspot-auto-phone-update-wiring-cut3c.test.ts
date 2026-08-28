@@ -78,10 +78,11 @@ describe('el entrypoint es único y ya no depende de ninguna bandera', () => {
     }
   });
 
-  it('con la bandera apagada el cableado no construye ni un cliente', () => {
-    // «Apagada equivale a CUT-3B» tiene que ser cierto por CONSTRUCCIÓN, no por aproximación.
-    // El core sale antes de llamar a `loadSubject`, así que un `createClient()` en el cuerpo del
-    // entrypoint se ejecutaría en cada guardado de contacto aunque nadie fuera a usarlo.
+  it('el cliente se construye perezosamente, dentro del lector', () => {
+    // AGENT2A-HUBSPOT-CONTACT-APPROVAL-AUTOSYNC quitó la bandera: el entrypoint corre siempre.
+    // Esta prueba ya no depende de un estado "apagado" que no existe — sigue viva porque la
+    // pereza en sí es una propiedad deseable: un `createClient()` en el cuerpo del entrypoint se
+    // ejecutaría en cada guardado de contacto aunque `loadSubject` nunca llegara a usarlo.
     const entry = runner.slice(
       runner.indexOf(`export async function ${ENTRYPOINT}`),
       runner.indexOf('loadSubject:'),
