@@ -149,6 +149,12 @@ const MATRIX: readonly WriterEntry[] = [
     why: 'Escribe SÓLO metadata, y sólo el anexo de bloqueo de workspace. No toca phone, mobile_phone ni hubspot_contact_id, así que el teléfono saliente no puede moverse por su causa; hacerle evaluar la regla del stale le daría poder para marcar una fila que ni siquiera cambió.',
   },
   {
+    name: 'triggerContactHubSpotSync — anexo de bloqueo y bandera de revisión de empresa (AGENT2A-HUBSPOT-CONTACT-APPROVAL-AUTOSYNC)',
+    file: 'src/modules/contact-enrichment/hubspot-contact-approval-sync.ts',
+    verdict: 'DELIBERATELY_EXCLUDED',
+    why: 'Escribe SÓLO metadata, en dos sitios: el anexo de bloqueo de workspace que persiste el motor de autosync (mismo patrón que persistContactMetadata en contact-hubspot-sync-runner.ts) y la bandera hubspot_company_review_pending cuando el contacto espera una revisión humana de empresa. Ninguno de los dos toca phone ni mobile_phone, así que el teléfono saliente no puede moverse por su causa: hacerle evaluar la regla de staleness le daría poder para marcar desactualizada una fila que ni siquiera cambió de teléfono.',
+  },
+  {
     name: 'webhook de Apollo phone reveal',
     file: 'src/app/api/integrations/apollo/phone-reveal/webhook/route.ts',
     verdict: 'N/A',
@@ -265,6 +271,10 @@ describe('16. el descubrimiento encuentra exactamente lo que la matriz nombra', 
     assert.deepEqual(
       [...new Set(found)].sort(),
       [
+        // AGENT2A-HUBSPOT-CONTACT-APPROVAL-AUTOSYNC (Task E1) — triggerContactHubSpotSync
+        // sale del gancho de aprobación hacia este módulo nuevo. Clasificado arriba: sólo
+        // escribe metadata, nunca phone ni mobile_phone.
+        'src/modules/contact-enrichment/hubspot-contact-approval-sync.ts',
         'src/modules/contact-enrichment/phone-cache-suppression-actions.ts',
         'src/modules/contacts/actions.ts',
         // CUT-3B — el cableado de `persistSync` sale de actions.ts hacia el runner compartido,
