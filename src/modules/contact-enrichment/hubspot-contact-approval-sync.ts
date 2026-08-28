@@ -73,6 +73,9 @@ export async function triggerContactHubSpotSync(
           ),
         persistAnnex: async (subjectId, metadata) => {
           const { error } = await admin.from('contacts').update({ metadata }).eq('id', subjectId);
+          if (error) {
+            console.error('[hubspot-contact-approval-sync] persistAnnex failed', { contactId: subjectId, error });
+          }
           return { error: error?.message };
         },
       }),
