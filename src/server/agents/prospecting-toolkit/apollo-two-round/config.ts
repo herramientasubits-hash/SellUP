@@ -37,11 +37,17 @@ export const MAX_ENRICHMENTS_PER_RUN_DEFAULT = 2;
 // subirlos por encima del tope: el techo del gasto autorizado vive en el código,
 // no en una variable que se puede editar desde un panel.
 
-export const TARGET_ELIGIBLE_COMPANIES_ABSOLUTE_MAX = 5;
+// AGENT1-APOLLO-NET-NEW-PAGINATION-LIVE-WIRING — +1 deliberado, LOCAL-ONLY:
+// con la paginación net-new realmente conectada (ver production-runner.server.ts
+// `buildRoundSearchRequest`), el wizard puede llenar un objetivo de 6 sin pagar
+// de más — antes el techo de 5 era el único obstáculo, no el motor. No sube el
+// tope global de créditos por ejecución de `wizard_pilot_settings` (esa RPC
+// sigue intacta) ni ningún otro tope absoluto de este archivo.
+export const TARGET_ELIGIBLE_COMPANIES_ABSOLUTE_MAX = 6;
 export const MAX_SEARCH_ROUNDS_ABSOLUTE_MAX = 2;
 export const MAX_RESULTS_PER_ROUND_ABSOLUTE_MAX = 10;
 export const MAX_RAW_RESULTS_PER_RUN_ABSOLUTE_MAX = 20;
-export const MAX_ENRICHMENTS_PER_RUN_ABSOLUTE_MAX = 5;
+export const MAX_ENRICHMENTS_PER_RUN_ABSOLUTE_MAX = 6;
 
 // ─── Nombres de las variables de entorno ──────────────────────────────────────
 

@@ -1,5 +1,5 @@
 /**
- * Tests — configuración del QA pequeño 1/1/3/3/1 con tope de 4 créditos.
+ * Tests — configuración del QA pequeño 1/1/3/3/1 con tope de 6 créditos.
  *
  * A1-APOLLO-PERSISTENCE-READINESS-4 · § 12 y § 14 (caso 16).
  *
@@ -35,7 +35,13 @@ const SMALL_QA_RAW_ENV = {
   maxEnrichmentsPerRun: '1',
 } as const;
 
-const SMALL_QA_MAX_CREDITS = 4;
+// AGENT1-APOLLO-NET-NEW-PAGINATION-LIVE-WIRING — la reserva de Search de una
+// ronda ya no escala con `maxResultsPerRound` (3 aquí): queda fija en
+// `WIZARD_APOLLO_MAX_PAGES_HARD_CAP` (5), porque una sola invocación de
+// búsqueda —ahora que puede paginar de verdad— puede llegar a agotar ese tope
+// de páginas si cada página resulta ser puro duplicado histórico, sin importar
+// cuántos resultados netos se pidieron. 5 (search) + 1 (enrichment) = 6.
+const SMALL_QA_MAX_CREDITS = 6;
 
 describe('§ 12 / § 14.16 — la configuración existente resuelve 1/1/3/3/1', () => {
   it('los cinco números efectivos son los pedidos, todos por override de entorno', () => {
@@ -62,15 +68,15 @@ describe('§ 12 / § 14.16 — la configuración existente resuelve 1/1/3/3/1', 
     assert.equal(config.maxRawResultsPerRun, 3);
   });
 
-  it('el techo económico del peor caso es EXACTAMENTE 4 créditos', () => {
+  it('el techo económico del peor caso es EXACTAMENTE 6 créditos', () => {
     const { config } = resolveApolloTwoRoundConfig(SMALL_QA_RAW_ENV);
     const budget = estimateApolloTwoRoundBudget(config);
 
     assert.equal(budget.maximumInternalRecordedCredits, SMALL_QA_MAX_CREDITS);
-    assert.equal(budget.searchRound1Maximum, 3);
+    assert.equal(budget.searchRound1Maximum, 5);
     assert.equal(budget.searchRound2Maximum, 0, 'no hay segunda ronda que presupuestar');
     assert.equal(budget.enrichmentMaximum, 1);
-    assert.deepEqual(budget.searchCreditsPerRound, [3]);
+    assert.deepEqual(budget.searchCreditsPerRound, [5]);
   });
 
   it('los cinco valores caben bajo los topes absolutos: reducen, nunca amplían', () => {
@@ -108,7 +114,7 @@ describe('§ 12 / § 14.16 — la configuración existente resuelve 1/1/3/3/1', 
 
   it('un valor ilegible NO amplía el QA pequeño: cae al default conservador', () => {
     // Importa para la ventana real: un typo en el panel de Vercel no puede
-    // convertir una corrida de 4 créditos en una de 12 sin que se note.
+    // convertir una corrida de 6 créditos en una de 12 sin que se note.
     const withTypo = resolveApolloTwoRoundConfig({
       ...SMALL_QA_RAW_ENV,
       maxResultsPerRound: '3.5',

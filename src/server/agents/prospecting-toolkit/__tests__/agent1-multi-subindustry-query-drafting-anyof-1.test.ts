@@ -381,8 +381,12 @@ describe('§ 4 · cinco subindustrias caben en el mismo presupuesto', () => {
   });
 
   test('el techo de créditos y de enrichments es invariante al número de subindustrias', () => {
-    // Config equivalente a la de Producción (5/2/10/20/5): 2 rondas × 10
-    // resultados + 5 enrichments, a un crédito la unidad ⇒ 25.
+    // Config equivalente a la de Producción (5/2/10/20/5). AGENT1-APOLLO-
+    // NET-NEW-PAGINATION-LIVE-WIRING — la mitad de Search ya NO escala con
+    // `maxResultsPerRound` (10 aquí): queda fija en
+    // `WIZARD_APOLLO_MAX_PAGES_HARD_CAP` (5) por ronda, porque ésa es la única
+    // cota real de una invocación de búsqueda. 2 rondas × 5 páginas + 5
+    // enrichments ⇒ 15.
     const budget = estimateApolloTwoRoundBudget({
       targetEligibleCompanies: 5,
       maxRounds: 2,
@@ -390,7 +394,7 @@ describe('§ 4 · cinco subindustrias caben en el mismo presupuesto', () => {
       maxRawResultsPerRun: 20,
       maxEnrichmentsPerRun: 5,
     });
-    assert.equal(budget.maximumInternalRecordedCredits, 25);
+    assert.equal(budget.maximumInternalRecordedCredits, 15);
     assert.equal(budget.config.maxEnrichmentsPerRun, 5);
     assert.equal(budget.config.maxRounds, 2);
     assert.equal(budget.searchCreditsPerRound.length, 2);

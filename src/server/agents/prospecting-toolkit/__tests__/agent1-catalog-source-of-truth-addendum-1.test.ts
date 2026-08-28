@@ -794,7 +794,10 @@ describe('§ 7 · discovery 73/73, precisión 2/73', () => {
 // ─── § 8: caps intactos ───────────────────────────────────────────────────────
 
 describe('§ 8 · los topes no se mueven', () => {
-  test('2 llamadas / 5 enrichments / 25 créditos, con 1 o con 5 subindustrias', () => {
+  test('2 llamadas / 5 enrichments / 15 créditos, con 1 o con 5 subindustrias', () => {
+    // AGENT1-APOLLO-NET-NEW-PAGINATION-LIVE-WIRING — la mitad de Search ya no
+    // escala con `maxResultsPerRound` (10 aquí): queda fija en
+    // `WIZARD_APOLLO_MAX_PAGES_HARD_CAP` (5) por ronda. 2×5 + 5 enrichments = 15.
     const budget = estimateApolloTwoRoundBudget({
       targetEligibleCompanies: 5,
       maxRounds: 2,
@@ -802,9 +805,9 @@ describe('§ 8 · los topes no se mueven', () => {
       maxRawResultsPerRun: 20,
       maxEnrichmentsPerRun: 5,
     });
-    assert.equal(budget.maximumInternalRecordedCredits, 25);
+    assert.equal(budget.maximumInternalRecordedCredits, 15);
     assert.equal(MAX_SEARCH_ROUNDS_ABSOLUTE_MAX, 2);
-    assert.equal(MAX_ENRICHMENTS_PER_RUN_ABSOLUTE_MAX, 5);
+    assert.equal(MAX_ENRICHMENTS_PER_RUN_ABSOLUTE_MAX, 6);
 
     const one = buildEffective({ subindustries: [CYBERSECURITY] });
     const five = buildEffective({
