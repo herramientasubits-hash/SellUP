@@ -127,6 +127,23 @@ export type ApolloPaginatedSearchDeps = {
    * Ausente ⇒ el embudo publica `provider_seen_hit: null` con su motivo, nunca 0.
    */
   priorProviderSeen?: ApolloPriorProviderSeen;
+  /**
+   * AGENT1-APOLLO-NET-NEW-PAGINATION § 11 — evalúa si un candidato recién
+   * recogido (deduplicado dentro de la página y entre páginas) cuenta para el
+   * objetivo NET-NEW, o si es un duplicado histórico que no lo consume.
+   *
+   * Se invoca UNA vez por candidato nuevo, en el mismo orden en que Apollo lo
+   * devolvió. Ausente ⇒ el motor no distingue net-new de duplicado histórico y
+   * el tope de paginación sigue siendo `maxCandidates` (comportamiento previo,
+   * byte a byte).
+   *
+   * Fail-closed: si lanza, el candidato se cuenta como NO aceptado — nunca
+   * detiene la paginación antes de tiempo por un fallo del evaluador, pero
+   * tampoco infla el objetivo con un candidato que no se pudo evaluar.
+   */
+  evaluateAcceptance?: (
+    organization: NormalizedApolloOrganization,
+  ) => boolean | Promise<boolean>;
 };
 
 export type ApolloPaginatedSearchInput = {
@@ -144,6 +161,17 @@ export type ApolloPaginatedSearchInput = {
    * cobrar.
    */
   startPage?: number;
+  /**
+   * AGENT1-APOLLO-NET-NEW-PAGINATION § 11/§ 17 — cuántos candidatos NET-NEW
+   * (aceptados por `deps.evaluateAcceptance`) hacen falta todavía.
+   *
+   * Es la autoridad de continuación de negocio: mientras no se alcance, la
+   * paginación sigue pidiendo páginas (sujeta a los topes de crédito, páginas y
+   * `total_pages`) aunque una página entera resulte ser puro duplicado
+   * histórico. Ausente o sin `deps.evaluateAcceptance` ⇒ la autoridad de parada
+   * sigue siendo `budget.maxCandidates`, como antes de este hito.
+   */
+  netNewTarget?: number | null;
 };
 
 // ─── Resultado ────────────────────────────────────────────────────────────────
@@ -162,6 +190,13 @@ export type ApolloPaginatedSearchResult = {
   organizations: NormalizedApolloOrganization[];
   pagesProcessed: number;
   estimatedCredits: number;
+  /**
+   * AGENT1-APOLLO-NET-NEW-PAGINATION § 11 — cuántos candidatos NUEVOS de
+   * `organizations` fueron ACEPTADOS por `deps.evaluateAcceptance`. `null`
+   * cuando ningún evaluador se inyectó: no hay autoridad de negocio con la que
+   * distinguir net-new de duplicado histórico.
+   */
+  acceptedForTargetCount: number | null;
   stopReason: ApolloPaginationStopReason | 'error_terminated';
   /** Clasificación del fallo que detuvo la búsqueda. null si terminó limpio. */
   terminalError: ApolloErrorClassification | null;
@@ -225,6 +260,13 @@ export async function runApolloOrganizationsPaginatedSearch(
   const collected: NormalizedApolloOrganization[] = [];
   const seenOrganizationIds = new Set<string>();
   const pageOutcomes: ApolloPageOutcome[] = [];
+  // § 11 — sólo cuenta cuando hay evaluador: su ausencia deja la autoridad de
+  // parada en `maxCandidates`, exactamente el comportamiento previo.
+  let acceptedForTargetCount: number | null = deps.evaluateAcceptance ? 0 : null;
+  const netNewTarget =
+    typeof input.netNewTarget === 'number' && Number.isFinite(input.netNewTarget)
+      ? Math.max(0, input.netNewTarget)
+      : null;
   // P0-2 — el acumulador de memoria vive lo que vive esta búsqueda.
   // CUT-2 § 8 — y arranca con el snapshot PREVIO ya congelado.
   const providerSeenLedger = createApolloProviderSeenLedger(deps.priorProviderSeen);
@@ -278,6 +320,7 @@ export async function runApolloOrganizationsPaginatedSearch(
       organizations: [],
       pagesProcessed: 0,
       estimatedCredits: 0,
+      acceptedForTargetCount,
       stopReason: 'error_terminated',
       terminalError: classifyApolloOrganizationsError({
         httpStatus: 422,
@@ -311,6 +354,8 @@ export async function runApolloOrganizationsPaginatedSearch(
       lastPageResultCount,
       cancelled: deps.isCancelled?.() === true,
       guardrailTripped,
+      acceptedForTargetCount,
+      netNewTarget,
     });
 
     if (!decision.shouldContinue) {
@@ -419,13 +464,39 @@ export async function runApolloOrganizationsPaginatedSearch(
           seenOrganizationIds.add(id);
           collected.push(organization);
           newInThisPage++;
+
+          // § 11 — sólo el candidato NUEVO de esta página se evalúa: uno ya visto
+          // en una página anterior no puede volver a contar para el objetivo.
+          if (deps.evaluateAcceptance) {
+            let accepted = false;
+            try {
+              accepted = await deps.evaluateAcceptance(organization);
+            } catch {
+              // Fail-closed: un evaluador que lanza no cuenta el candidato, pero
+              // tampoco detiene la búsqueda — sólo se lo trata como no aceptado.
+              accepted = false;
+            }
+            if (accepted) {
+              acceptedForTargetCount = (acceptedForTargetCount ?? 0) + 1;
+            }
+          }
         }
 
         const resultsReturned = normalized.organizations.length;
-        // Apollo cobra por resultado devuelto. Una página vacía se espera que
-        // cueste cero, pero eso está pendiente de confirmación por QA controlado:
-        // hasta entonces se estima, no se afirma.
-        const pageCredits = resultsReturned;
+        // AGENT1-APOLLO-NET-NEW-PAGINATION § 4/§ 21 — Apollo Support confirmó el
+        // modelo real de facturación de Organization Search: 1 crédito por página
+        // NO VACÍA, sin importar cuántos resultados traiga (100 cuestan lo mismo
+        // que 1). Cero créditos sólo cuando la página no trajo NADA.
+        //
+        // 🔴 La no-vacuidad se mide sobre la respuesta CRUDA (organizations[] o
+        // accounts[]), no sobre `resultsReturned` — que ya perdió las filas
+        // accounts-only tras el corte de fuga (§ 2). Una página accounts-only
+        // sigue siendo una página con resultados y sigue costando 1 crédito
+        // (Scenario H), aunque produzca cero candidatos de descubrimiento.
+        const rawPageHadResults =
+          normalized.meta.organizations_raw_count > 0 ||
+          normalized.meta.accounts_raw_count > 0;
+        const pageCredits = rawPageHadResults ? 1 : 0;
 
         estimatedCredits += pageCredits;
         pagesFetched++;
@@ -571,6 +642,7 @@ export async function runApolloOrganizationsPaginatedSearch(
     organizations: collected,
     pagesProcessed: pagesFetched,
     estimatedCredits,
+    acceptedForTargetCount,
     stopReason,
     terminalError,
     indeterminatePages: pageOutcomes

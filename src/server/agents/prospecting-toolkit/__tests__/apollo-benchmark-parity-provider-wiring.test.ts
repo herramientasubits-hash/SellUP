@@ -41,7 +41,12 @@ const INPUT: WebSearchInput = {
   provider: 'apollo_organizations',
 };
 
-/** Cinco supermercados reales. El tope local se queda con 3; Apollo devolvió 5. */
+/**
+ * Cinco supermercados reales. AGENT1-APOLLO-NET-NEW-PAGINATION § 9 — con
+ * per_page=100 por defecto, `maxCandidates` (100) ya no trunca 5 resultados:
+ * los cinco se recogen y se devuelven. El tope local sigue existiendo como
+ * mecanismo, pero ya no se dispara con 5 resultados en una sola página.
+ */
 function fivePage(): ApolloPageFetchResult {
   return {
     ok: true,
@@ -108,33 +113,36 @@ async function run(captured: Captured) {
   );
 }
 
-describe('P0-4 · la fila de uso declara el volumen PAGADO, no el recogido', () => {
-  it('Apollo devolvió 5, el tope local dejó 3, y la fila dice 5', async () => {
+describe('P0-4 · la fila de uso declara el volumen PAGADO y los créditos por página, no lo recogido', () => {
+  it('Apollo devolvió 5 en 1 página, sin tope local, y la fila dice 5 filas / 1 crédito', async () => {
     const captured = makeDeps();
     const out = await run(captured);
 
     const searchLog = captured.logs.find((log) => log.operation_key === 'organizations_search');
     assert.ok(searchLog, 'hay fila de organizations_search');
     assert.equal(searchLog.results_returned, 5, 'el volumen devuelto por el proveedor');
-    assert.notEqual(searchLog.results_returned, 3, 'el defecto era declarar lo recogido');
 
-    // El tope local sigue gobernando lo que sale del provider.
+    // AGENT1-APOLLO-NET-NEW-PAGINATION § 9 — con per_page=100 por defecto, 5
+    // resultados en una página no disparan el tope local (100): se recogen
+    // los 5, sin truncar.
     const diagnostics = (out.metadata as Record<string, unknown>)
       .apollo_result_diagnostics as Record<string, unknown>;
-    assert.equal(diagnostics['collected_after_local_filters'], 3);
+    assert.equal(diagnostics['collected_after_local_filters'], 5);
     assert.equal(diagnostics['paid_results_volume'], 5);
   });
 
-  it('los créditos y el costo se derivan del volumen pagado', async () => {
+  it('los créditos y el costo se derivan de la página, no del volumen de filas', async () => {
     const captured = makeDeps();
     await run(captured);
 
     const searchLog = captured.logs.find((log) => log.operation_key === 'organizations_search')!;
-    assert.equal(searchLog.credits_used, 5, '1 crédito por resultado devuelto');
+    // AGENT1-APOLLO-NET-NEW-PAGINATION § 4/§ 5 — 1 crédito por página NO VACÍA,
+    // sin importar cuántas filas traiga: 5 filas en 1 página siguen costando 1.
+    assert.equal(searchLog.credits_used, 1, '1 crédito por página, no por resultado devuelto');
     assert.ok(
       typeof searchLog.estimated_cost_usd === 'number' && searchLog.estimated_cost_usd > 0,
     );
-    assert.equal(searchLog.estimated_cost_usd, 5 * 0.00875);
+    assert.equal(searchLog.estimated_cost_usd, 1 * 0.00875);
   });
 
   it('el bloque de volumen declara que el proveedor NO reportó la factura', async () => {
@@ -148,21 +156,22 @@ describe('P0-4 · la fila de uso declara el volumen PAGADO, no el recogido', () 
     ]) {
       const block = container['apollo_paid_volume'] as Record<string, unknown>;
       assert.equal(block['paid_results_volume'], 5);
-      assert.equal(block['collected_after_local_filters'], 3);
-      assert.equal(block['discarded_by_local_dedupe_or_truncation'], 2);
+      assert.equal(block['credits_charged'], 1);
+      assert.equal(block['collected_after_local_filters'], 5);
+      assert.equal(block['discarded_by_local_dedupe_or_truncation'], 0);
       assert.equal(block['provider_reported'], false);
     }
   });
 });
 
-describe('P0-2 · la memoria ve las cinco, no las tres', () => {
+describe('P0-2 · la memoria ve las cinco', () => {
   it('el escritor recibe las 5 identidades pagadas', async () => {
     const captured = makeDeps();
     const out = await run(captured);
 
     assert.equal(captured.seenWrites.length, 1);
     assert.equal(captured.seenWrites[0]!.observations.length, 5);
-    assert.equal(out.results.length, 3, 'y el provider sigue devolviendo lo de siempre');
+    assert.equal(out.results.length, 5, 'y el provider ya no trunca localmente a 3');
 
     const block = (out.metadata as Record<string, unknown>)['apollo_provider_seen'] as Record<
       string,
@@ -182,7 +191,7 @@ describe('P0-2 · la memoria ve las cinco, no las tres', () => {
     const out = await run(captured);
 
     assert.equal(out.skipped, false, 'la búsqueda pagada no se pierde');
-    assert.equal(out.results.length, 3);
+    assert.equal(out.results.length, 5);
     const block = (out.metadata as Record<string, unknown>)['apollo_provider_seen'] as Record<
       string,
       unknown

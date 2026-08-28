@@ -795,18 +795,22 @@ describe('sin regresión de QUERY-QUALITY-2 (#209)', () => {
     assert.equal(result.resultStatus, 'target_reached');
   });
 
-  test('13. `per_page` = 5 en two-round: la variable legacy no lo recorta a 3', () => {
+  // AGENT1-APOLLO-NET-NEW-PAGINATION § 9 — `per_page` es siempre el techo del
+  // contrato (100): ni la variable legacy ni el límite por ronda de dos
+  // rondas lo recortan. Esos límites siguen viajando como diagnóstico
+  // (`limit.legacyMaxResultsPerQuery`/`limit.twoRoundMaxResultsPerRound`).
+  test('13. `per_page` = 100 en two-round: ni la variable legacy ni el límite por ronda lo recortan', () => {
     const effective = effectiveRequestFor({
       hypothesisKeywordTags: ['grocery store'],
       twoRoundMaxResultsPerRound: 5,
       legacyMaxResultsPerQuery: 3,
     });
 
-    assert.equal(effective.perPage, 5);
-    assert.equal(effective.body.per_page, 5);
+    assert.equal(effective.perPage, 100);
+    assert.equal(effective.body.per_page, 100);
     assert.equal(effective.limit.limitMode, 'two_round');
     assert.equal(effective.limit.legacyMaxResultsPerQuery, 3, 'el legacy queda como diagnóstico');
-    assert.ok(effective.effectiveRequestFingerprint.includes('per_page=5'));
+    assert.ok(effective.effectiveRequestFingerprint.includes('per_page=100'));
   });
 
   test('la prioridad de la subindustria sobre los términos genéricos se mantiene', () => {
@@ -833,7 +837,11 @@ describe('sin regresión de QUERY-QUALITY-2 (#209)', () => {
     });
 
     assert.equal(legacy.limit.limitMode, 'legacy');
-    assert.equal(legacy.perPage, 3, 'la ruta legacy sigue gobernada por su variable');
+    // AGENT1-APOLLO-NET-NEW-PAGINATION § 9 — la ruta legacy también envía
+    // per_page=100: la variable legacy sigue resuelta como diagnóstico
+    // (`limit.legacyMaxResultsPerQuery`), pero ya no recorta `per_page`.
+    assert.equal(legacy.perPage, 100, 'per_page es el techo del contrato, no la variable legacy');
+    assert.equal(legacy.limit.legacyMaxResultsPerQuery, 3, 'el legacy queda como diagnóstico');
     assert.equal(legacy.limit.twoRoundMaxResultsPerRound, null);
     assert.equal(legacy.page, 1, 'y sigue arrancando en la página 1');
   });

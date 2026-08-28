@@ -109,6 +109,13 @@ function searchOutput(results: WebSearchResult[], credits: number): WebSearchOut
   };
 }
 
+// AGENT1-APOLLO-NET-NEW-PAGINATION § 3 — confianza de dominio exacto, tal como
+// cada checker realmente la emite (`checkSellUpDuplicates`/
+// `checkHubSpotDuplicates`). `readDuplicateVerdict` ahora filtra por esta
+// confianza exacta, no por `status` a secas, así que el fixture tiene que usar
+// el número real de cada fuente para seguir probando un duplicado por DOMINIO.
+const DOMAIN_EXACT_CONFIDENCE_BY_SOURCE = { sellup: 95, hubspot: 92 } as const;
+
 /** Candidato del pipeline con el veredicto de duplicado que el test necesita. */
 function pipelineCandidate(
   result: WebSearchResult,
@@ -116,6 +123,7 @@ function pipelineCandidate(
 ): ProspectingPipelineCandidate {
   const domain = (result.metadata?.['domain'] as string) ?? null;
   const providerCompanyFields = captureApolloCompanyFields(result, FIXTURE_OBSERVED_AT);
+  const confidence = duplicate === 'none' ? 0 : DOMAIN_EXACT_CONFIDENCE_BY_SOURCE[duplicate];
   return {
     name: result.title,
     website: result.url,
@@ -129,7 +137,7 @@ function pipelineCandidate(
     websiteVerification: null,
     duplicateCheck: {
       status: duplicate === 'none' ? 'new_candidate' : `existing_in_${duplicate}`,
-      confidence: duplicate === 'none' ? 0 : 95,
+      confidence,
       input: { name: result.title, domain },
       matches:
         duplicate === 'none'
@@ -138,9 +146,9 @@ function pipelineCandidate(
               {
                 source: duplicate,
                 status: `existing_in_${duplicate}`,
-                confidence: 95,
+                confidence,
                 matchedDomain: domain,
-                reason: 'test fixture',
+                reason: 'test fixture: dominio exacto',
               },
             ],
       summary: 'test',

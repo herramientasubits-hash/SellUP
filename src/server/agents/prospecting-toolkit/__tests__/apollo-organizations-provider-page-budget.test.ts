@@ -120,13 +120,16 @@ describe('A1-APOLLO-WIZARD-1R · una invocación del provider = una página', ()
 
     assert.equal(pagination.max_pages, 1);
     assert.equal(pagination.pages_processed, 1);
+    // AGENT1-APOLLO-NET-NEW-PAGINATION § 4 — Apollo cobra 1 crédito por página
+    // no vacía, no por resultado: con maxPages=1 el techo de créditos de esta
+    // invocación es 1, no `per_page × cap de queries`.
     assert.equal(
       pagination.max_credits,
-      5,
-      'el techo de créditos de una query es per_page, no per_page × cap de queries',
+      1,
+      'el techo de créditos de una query es 1 por página, no per_page',
     );
     assert.ok(
-      (pagination.estimated_credits as number) <= 5,
+      (pagination.estimated_credits as number) <= 1,
       `estimated_credits=${String(pagination.estimated_credits)} superó el techo de la query`,
     );
   });

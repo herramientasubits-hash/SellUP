@@ -139,7 +139,10 @@ describe('B. Flag on real-limited con mock', () => {
     assert.equal(out.results[0].provider, 'apollo_organizations');
   });
 
-  it('credits_used = results_returned (1 crédito por org)', async () => {
+  // AGENT1-APOLLO-NET-NEW-PAGINATION § 4 — Apollo cobra 1 crédito por página
+  // NO VACÍA, no por organización devuelta: 3 orgs en 1 página siguen costando
+  // 1 crédito.
+  it('credits_used = 1 crédito por página no vacía, no por org', async () => {
     const orgs = [makeOrg({ id: 'o1' }), makeOrg({ id: 'o2' }), makeOrg({ id: 'o3' })];
     const { logs, logFn } = makeLogCapture();
     const deps: ApolloOrgsSearchDeps = { searchOrgs: mockSearchSuccess(orgs), logUsage: logFn };
@@ -148,17 +151,17 @@ describe('B. Flag on real-limited con mock', () => {
 
     assert.equal(out.resultsCount, 3);
     const usage = (out.metadata as Record<string, unknown>)?.usage as Record<string, unknown>;
-    assert.equal(usage?.credits_used, 3);
+    assert.equal(usage?.credits_used, 1);
   });
 
-  it('estimated_cost_usd = credits * 0.00875', async () => {
+  it('estimated_cost_usd = credits(1 página) * 0.00875', async () => {
     const orgs = [makeOrg({ id: 'o1' }), makeOrg({ id: 'o2' })];
     const { logs, logFn } = makeLogCapture();
     const deps: ApolloOrgsSearchDeps = { searchOrgs: mockSearchSuccess(orgs), logUsage: logFn };
 
     const out = await runApolloOrganizationsSearch({ query: 'test' }, 5, undefined, deps);
 
-    const expectedCost = 2 * 0.00875;
+    const expectedCost = 1 * 0.00875;
     assert.ok(
       Math.abs((out.estimatedCostUsd ?? 0) - expectedCost) < 0.000001,
       `expected ~${expectedCost}, got ${out.estimatedCostUsd}`,
@@ -178,11 +181,16 @@ describe('B. Flag on real-limited con mock', () => {
 
 // ─── C. Guardrail cap ─────────────────────────────────────────────────────────
 
-describe('C. Guardrail — recorta a 10 orgs máximo', () => {
+// AGENT1-APOLLO-NET-NEW-PAGINATION § 9 — Apollo cobra 1 crédito por página no
+// vacía, sin importar cuántos resultados traiga: `per_page` deja de recortarse
+// a `maxResults`/al guardrail de resultados y es SIEMPRE el techo del contrato
+// (100). El guardrail de resultados sigue existiendo para la REDACCIÓN de la
+// consulta (`was_capped`/`capped_max_results`), un concepto distinto.
+describe('C. per_page es siempre el techo del contrato (100), sin importar maxResults', () => {
   before(() => { process.env.ENABLE_APOLLO_COMPANY_SEARCH = 'true'; });
   after(() => { delete process.env.ENABLE_APOLLO_COMPANY_SEARCH; });
 
-  it('cuando input pide 25, Apollo recibe per_page=10', async () => {
+  it('cuando input pide 25, Apollo recibe per_page=100', async () => {
     let capturedPerPage: number | undefined;
     const searchFn = async (params: { per_page?: number }) => {
       capturedPerPage = params.per_page;
@@ -195,10 +203,10 @@ describe('C. Guardrail — recorta a 10 orgs máximo', () => {
       logUsage: logFn,
     });
 
-    assert.equal(capturedPerPage, 10, 'per_page debe ser 10 (guardrail)');
+    assert.equal(capturedPerPage, 100, 'per_page es el techo del contrato, no maxResults recortado');
   });
 
-  it('metadata indica was_capped=true cuando maxResults > 10', async () => {
+  it('metadata indica was_capped=true cuando maxResults > el guardrail de resultados', async () => {
     const { logs, logFn } = makeLogCapture();
     const deps: ApolloOrgsSearchDeps = {
       searchOrgs: mockSearchSuccess([]),
@@ -212,7 +220,7 @@ describe('C. Guardrail — recorta a 10 orgs máximo', () => {
     assert.equal(meta?.was_capped, true);
   });
 
-  it('no recorta cuando maxResults <= 10', async () => {
+  it('per_page sigue siendo 100 aunque maxResults sea pequeño', async () => {
     let capturedPerPage: number | undefined;
     const searchFn = async (params: { per_page?: number }) => {
       capturedPerPage = params.per_page;
@@ -225,7 +233,7 @@ describe('C. Guardrail — recorta a 10 orgs máximo', () => {
       logUsage: logFn,
     });
 
-    assert.equal(capturedPerPage, 8);
+    assert.equal(capturedPerPage, 100, 'per_page no se recorta a un maxResults pequeño');
   });
 });
 

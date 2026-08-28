@@ -112,7 +112,12 @@ export type ApolloOrganizationsNormalizationMeta = {
   accounts_array_present: boolean;
   organizations_raw_count: number;
   accounts_raw_count: number;
-  /** Orgs provenientes sólo de `accounts` porque no había entrada en `organizations`. */
+  /**
+   * AGENT1-APOLLO-NET-NEW-PAGINATION § 2 — entradas de `accounts[]` SIN
+   * contraparte en `organizations[]`. Ya NO entran al pool de descubrimiento:
+   * este contador es sólo diagnóstico agregado, nunca una lista que un llamador
+   * pueda tratar como candidatos.
+   */
   accounts_only_count: number;
   /** Orgs de `accounts` que completaron campos ausentes de `organizations`. */
   accounts_merged_count: number;
@@ -384,17 +389,19 @@ export function normalizeApolloOrganizationsResponse(
     if (seenAccountOrgIds.has(organizationId)) { duplicatesRemoved++; continue; }
     seenAccountOrgIds.add(organizationId);
 
-    const accountAsOrganization = toNormalized(entry, organizationId, accountId);
     const existing = byOrganizationId.get(organizationId);
 
     if (!existing) {
-      // Sólo en accounts: se acepta como organización, con su procedencia clara.
-      byOrganizationId.set(organizationId, accountAsOrganization);
-      order.push(organizationId);
+      // AGENT1-APOLLO-NET-NEW-PAGINATION § 2 — una fila SÓLO en accounts[] no
+      // tiene contraparte en organizations[] y, por contrato, no puede entrar al
+      // pool de descubrimiento por su cuenta: organizations[] es la ÚNICA fuente
+      // de identidad de descubrimiento. Se cuenta para diagnóstico agregado y se
+      // descarta — nunca se agrega a `byOrganizationId`/`order`.
       accountsOnly++;
       continue;
     }
 
+    const accountAsOrganization = toNormalized(entry, organizationId, accountId);
     const merged = mergeAccountIntoOrganization(existing, accountAsOrganization, accountId);
     byOrganizationId.set(organizationId, merged);
     accountsMerged++;

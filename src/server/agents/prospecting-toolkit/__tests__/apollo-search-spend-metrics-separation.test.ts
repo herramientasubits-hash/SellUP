@@ -205,13 +205,16 @@ describe('raw / normalized / eligible / persisted stay four separate metrics', (
     const searchLog = captured.logs.find((l) => l.operation_key === 'organizations_search');
     assert.ok(searchLog, 'the search must be logged');
 
-    // The billing base is the raw count — what Apollo returned and charged for —
-    // not the 2 that survived normalization nor the 1 that passed the gate.
+    // AGENT1-APOLLO-NET-NEW-PAGINATION § 4/§ 5 — `results_returned` still
+    // reports the raw count (what Apollo returned) as a diagnostic, but
+    // billing is now PAGE-based: 1 credit for this one non-empty page,
+    // regardless of how many rows it carried, survived normalization, or
+    // passed the gate.
     assert.equal(searchLog.results_returned, 3);
-    assert.equal(searchLog.credits_used, creditsForApolloOperation('organizations_search', 3));
-    assert.equal(searchLog.credits_used, 3);
+    assert.equal(searchLog.credits_used, creditsForApolloOperation('organizations_search', 1));
+    assert.equal(searchLog.credits_used, 1);
+    assert.notEqual(searchLog.credits_used, 3, 'must not bill on raw results returned');
     assert.notEqual(searchLog.credits_used, 2, 'must not bill on normalized results');
-    assert.notEqual(searchLog.credits_used, 1, 'must not bill on eligible results');
 
     // The separate metrics travel with the log, so reconciliation can see all
     // four numbers without recomputing any of them.
@@ -225,7 +228,7 @@ describe('raw / normalized / eligible / persisted stay four separate metrics', (
 
     const observability = metadata[APOLLO_SPEND_OBSERVABILITY_KEY] as Record<string, unknown>;
     assert.equal(observability.results_returned, 3);
-    assert.equal(observability.recorded_usage_credits, 3);
+    assert.equal(observability.recorded_usage_credits, 1);
 
     // And the run correlation rides along, so the spend is attributable.
     const correlation = metadata[RUN_CORRELATION_METADATA_KEY] as Record<string, unknown>;
@@ -255,8 +258,8 @@ describe('raw / normalized / eligible / persisted stay four separate metrics', (
     const reconciliation = reconcileWizardRunSpend({
       correlation,
       discoveryProvider: 'apollo_organizations',
-      estimatedCredits: 3,
-      reservedCredits: 3,
+      estimatedCredits: 1,
+      reservedCredits: 1,
       rows: [
         {
           provider_key: 'apollo',
@@ -270,8 +273,9 @@ describe('raw / normalized / eligible / persisted stay four separate metrics', (
       ],
     });
 
-    // We recorded 3. We do NOT claim Apollo confirmed 3.
-    assert.equal(reconciliation.recordedUsageCredits, 3);
+    // AGENT1-APOLLO-NET-NEW-PAGINATION § 4 — 1 página no vacía recorded, no 3
+    // filas. We do NOT claim Apollo confirmed it either way.
+    assert.equal(reconciliation.recordedUsageCredits, 1);
     assert.equal(reconciliation.billingState, 'recorded');
     assert.equal(
       reconciliation.confirmedProviderCredits,
@@ -282,7 +286,7 @@ describe('raw / normalized / eligible / persisted stay four separate metrics', (
 
     // Persistence is a separate, downstream quantity: whatever the writer does
     // with the single eligible candidate (0 or 1 rows), the recorded spend is
-    // still 3 credits.
+    // still 1 credit (the page), independent of how many rows were eligible.
     for (const persistedCandidates of [0, 1]) {
       assert.ok(
         persistedCandidates <= 1,
@@ -290,7 +294,7 @@ describe('raw / normalized / eligible / persisted stay four separate metrics', (
       );
       assert.equal(
         reconciliation.recordedUsageCredits,
-        3,
+        1,
         'spend does not shrink when nothing is persisted',
       );
     }

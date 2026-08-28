@@ -75,8 +75,8 @@ const baseInput = {
 describe('P0-4 · A — el agregado suma el volumen DEVUELTO, no el recogido', () => {
   it('page1=10 + page2=10 con maxCandidates=10 ⇒ 20', () => {
     const volume = resolveApolloPaidResultsVolume([
-      { status: 'success', resultsReturned: 10 },
-      { status: 'success', resultsReturned: 10 },
+      { status: 'success', resultsReturned: 10, estimatedCredits: 1 },
+      { status: 'success', resultsReturned: 10, estimatedCredits: 1 },
     ]);
 
     assert.equal(volume.resultsVolume, 20);
@@ -125,17 +125,19 @@ describe('P0-4 · B — el dedupe entre páginas no borra el cargo de la página
 
 describe('P0-4 · C — cero resultados es cero resultados, no un cargo fabricado', () => {
   it('una página exitosa y vacía aporta 0 y se cuenta como página', () => {
-    const volume = resolveApolloPaidResultsVolume([{ status: 'success', resultsReturned: 0 }]);
+    const volume = resolveApolloPaidResultsVolume([
+      { status: 'success', resultsReturned: 0, estimatedCredits: 0 },
+    ]);
     assert.equal(volume.resultsVolume, 0);
     assert.equal(volume.pagesCounted, 1);
   });
 
   it('una página con error, con cuota agotada o indeterminada NO aporta volumen', () => {
     const volume = resolveApolloPaidResultsVolume([
-      { status: 'error', resultsReturned: 0 },
-      { status: 'rate_limited', resultsReturned: 0 },
-      { status: 'indeterminate', resultsReturned: 0 },
-      { status: 'success', resultsReturned: 4 },
+      { status: 'error', resultsReturned: 0, estimatedCredits: 0 },
+      { status: 'rate_limited', resultsReturned: 0, estimatedCredits: 0 },
+      { status: 'indeterminate', resultsReturned: 0, estimatedCredits: 0 },
+      { status: 'success', resultsReturned: 4, estimatedCredits: 1 },
     ]);
     assert.equal(volume.resultsVolume, 4);
     assert.equal(volume.pagesCounted, 1, 'sólo la exitosa entra en la suma');
@@ -170,7 +172,9 @@ describe('P0-4 · D — una sola página sin truncado se comporta igual que ante
 
 describe('P0-4 · el modelo de facturación NO se afirma', () => {
   it('el bloque de metadata declara que el proveedor no lo reportó', () => {
-    const volume = resolveApolloPaidResultsVolume([{ status: 'success', resultsReturned: 7 }]);
+    const volume = resolveApolloPaidResultsVolume([
+      { status: 'success', resultsReturned: 7, estimatedCredits: 1 },
+    ]);
     const metadata = toApolloPaidVolumeMetadata(volume, 3);
 
     assert.equal(metadata['paid_results_volume'], 7);
@@ -185,7 +189,9 @@ describe('P0-4 · el modelo de facturación NO se afirma', () => {
   });
 
   it('un recorte negativo nunca se publica', () => {
-    const volume = resolveApolloPaidResultsVolume([{ status: 'success', resultsReturned: 2 }]);
+    const volume = resolveApolloPaidResultsVolume([
+      { status: 'success', resultsReturned: 2, estimatedCredits: 1 },
+    ]);
     assert.equal(toApolloPaidVolumeMetadata(volume, 5)['discarded_by_local_dedupe_or_truncation'], 0);
   });
 });

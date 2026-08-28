@@ -64,6 +64,7 @@ import {
   toApolloSubindustryCatalogTermsMetadata,
   type ApolloCatalogVersionCoherenceVerdict,
 } from './apollo-subindustry-catalog-terms-resolution';
+import { APOLLO_CONTRACT_MAX_PER_PAGE } from './apollo-organizations-pagination-budget';
 
 // ─── Tope duro del proveedor ──────────────────────────────────────────────────
 
@@ -281,10 +282,17 @@ export function buildApolloOrganizationsEffectiveRequest(
     });
 
   const page = normalizeStartPage(input.startPage);
+  // AGENT1-APOLLO-NET-NEW-PAGINATION § 9 — `per_page` YA NO es `limit.cap`.
+  // `limit.cap` sigue gobernando cuántos términos de búsqueda redactar
+  // (`buildApolloOrganizationsSearchParams` arriba) — un concepto de negocio
+  // distinto — pero el `per_page` que Apollo recibe es siempre el techo del
+  // contrato: Apollo cobra lo mismo por una página no vacía sin importar
+  // cuántos resultados traiga, así que pedir menos de 100 sólo obliga a pagar
+  // más páginas por el mismo objetivo.
   const contract = buildApolloOrganizationsRequestContract({
     ...toApolloContractFilters(params),
     page,
-    perPage: limit.cap,
+    perPage: APOLLO_CONTRACT_MAX_PER_PAGE,
   });
 
   // § 6 y § 7 — la cobertura se vuelve a medir contra el body del contrato. Si el

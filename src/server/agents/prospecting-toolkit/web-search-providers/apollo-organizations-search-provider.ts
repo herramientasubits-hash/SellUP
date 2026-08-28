@@ -87,7 +87,10 @@ import {
   type ApolloPageFetchResult,
   type ApolloPageLogEntry,
 } from '../apollo-organizations-paginated-search';
-import { createApolloPaginationBudget } from '../apollo-organizations-pagination-budget';
+import {
+  createApolloPaginationBudget,
+  WIZARD_APOLLO_MAX_SEARCH_CREDITS_DEFAULT,
+} from '../apollo-organizations-pagination-budget';
 // AGENT1-APOLLO-BENCHMARK-PARITY-CUT-1 — P0-2/P0-4/P1-3: memoria provider-seen,
 // volumen pagado ANTES del recorte local, y el embudo comparable con Lusha.
 import {
@@ -247,7 +250,11 @@ export type ApolloOrganizationsUsageMetadata = {
 
 // ─── Guardrails ───────────────────────────────────────────────────────────────
 
-const MAX_APOLLO_ORGANIZATIONS_CREDITS = 10;
+// AGENT1-APOLLO-NET-NEW-PAGINATION § 6 — MISMO techo monetario que gobierna
+// `createApolloPaginationBudget`. Una sola fuente: no se sube el número, se
+// reutiliza para que el tope post-hoc del volumen pagado y el tope de páginas
+// de la paginación nunca puedan divergir.
+const MAX_APOLLO_ORGANIZATIONS_CREDITS = WIZARD_APOLLO_MAX_SEARCH_CREDITS_DEFAULT;
 const APOLLO_ORGANIZATIONS_UNIT_COST_USD = 0.00875;
 
 /**
@@ -628,6 +635,28 @@ export type ApolloOrgsSearchOptions = {
    * misma búsqueda cuando no existe una variante de términos genuinamente nueva.
    */
   startPage?: number;
+  /**
+   * AGENT1-APOLLO-NET-NEW-PAGINATION § 11 — cuántos candidatos NET-NEW hacen
+   * falta todavía. Junto con `evaluateCandidateAcceptance` (los DOS, o ninguno)
+   * habilita paginación real dentro de ESTA invocación: `maxPages` deja de estar
+   * fijo en 1 y pasa a derivarse del techo real de créditos de Search, y la
+   * parada la decide el objetivo NET-NEW alcanzado, no el conteo crudo.
+   *
+   * Ausente ⇒ comportamiento previo, byte a byte: una invocación = una página.
+   */
+  netNewTarget?: number;
+  /**
+   * AGENT1-APOLLO-NET-NEW-PAGINATION § 11 — evalúa si un candidato recién
+   * normalizado cuenta para el objetivo NET-NEW (p. ej. contra la verdad
+   * histórica fuerte — dominio/identidad fiscal — que ya gobierna el pre-pago) o
+   * si es un duplicado que no lo consume. Se invoca una vez por candidato nuevo.
+   *
+   * Ausente ⇒ `netNewTarget` se ignora y esta invocación sigue siendo de una
+   * sola página, como todos los llamadores previos.
+   */
+  evaluateCandidateAcceptance?: (
+    organization: NormalizedApolloOrganization,
+  ) => boolean | Promise<boolean>;
 };
 
 // ─── A1-APOLLO-WIZARD-1: adaptadores de la ruta paginada ─────────────────────
@@ -922,18 +951,41 @@ export async function runApolloOrganizationsSearch(
     ...toApolloCatalogTermsRunMetadata(input),
   };
 
-  // ── A1-APOLLO-WIZARD-1: búsqueda paginada acotada ───────────────────────────
-  // Una invocación de este provider = UNA query = UNA página.
+  // ── AGENT1-APOLLO-NET-NEW-PAGINATION: búsqueda paginada ────────────────────
   //
-  // maxPages se fija en 1 a propósito. El presupuesto entre queries y rondas ya
-  // lo gobierna aguas arriba `AGENT1_APOLLO_MAX_QUERIES_PER_RUN` (cap global
-  // acumulado en incremental-search.ts, v1.16K-AC), y el wizard reserva créditos
-  // como maxQueries × maxResults antes de ejecutar. Derivar maxPages de esa
-  // misma variable multiplicaría el gasto por query (N queries × N páginas) y
-  // dejaría el consumo real por encima de lo reservado — exactamente la causa
-  // raíz que v1.16K-AC cerró. Paginar dentro de una query requiere un
-  // presupuesto propio, no reutilizar el cap de queries.
-  const paginationBudget = createApolloPaginationBudget({ perPage: cap, maxPages: 1 });
+  // per_page YA NO se recorta a `cap`: Apollo cobra 1 crédito por página no
+  // vacía, sin importar cuántos resultados traiga (§ 9), así que pedir menos de
+  // 100 sólo obliga a pagar más páginas por el mismo objetivo. `cap` sigue
+  // gobernando la REDACCIÓN de la consulta (cuántos términos incluir) — un
+  // concepto de negocio distinto de `per_page` — y no se toca aquí.
+  //
+  // maxPages: por defecto SIGUE fijo en 1 — una invocación de este provider
+  // sigue siendo UNA query = UNA página cuando el llamador no inyecta un
+  // evaluador de aceptación NET-NEW. El presupuesto entre queries y rondas ya
+  // lo gobierna aguas arriba `AGENT1_APOLLO_MAX_QUERIES_PER_RUN`, y el wizard
+  // reserva créditos como maxQueries × maxResults antes de ejecutar; derivar
+  // maxPages de esa misma variable sin más multiplicaría el gasto por query.
+  //
+  // § 11 — SÓLO cuando el llamador trae `netNewTarget` Y
+  // `evaluateCandidateAcceptance` (los dos: sin evaluador no hay autoridad de
+  // negocio con la que distinguir net-new de duplicado histórico) esta
+  // invocación puede paginar de verdad dentro de una sola query, hasta el techo
+  // real de créditos de Search — la continuación la decide el objetivo NET-NEW
+  // alcanzado, no el conteo crudo de candidatos.
+  const netNewPaginationEnabled =
+    typeof options?.netNewTarget === 'number' &&
+    Number.isFinite(options.netNewTarget) &&
+    typeof options?.evaluateCandidateAcceptance === 'function';
+  // HARDENING-3 § 2 — `perPage` viene de `effective.perPage`, la MISMA fuente
+  // que ya calculó `effective.effectiveRequestFingerprint`. Un segundo número
+  // aquí (por ejemplo, dejar que el default del presupuesto decida) rompería la
+  // invariante que ese hito cerró: la huella construida ANTES de ejecutar
+  // dejaría de predecir el body que la página realmente envía.
+  const paginationBudget = createApolloPaginationBudget(
+    netNewPaginationEnabled
+      ? { perPage: effective.perPage }
+      : { perPage: effective.perPage, maxPages: 1 },
+  );
   const apolloPageLogs: ApolloPageLogEntry[] = [];
 
   // Transporte: el real por defecto; `searchOrgs` se adapta para no romper a
@@ -955,6 +1007,7 @@ export async function runApolloOrganizationsSearch(
       // efectivo, no de la opción cruda: así la huella comparada y la página
       // enviada no pueden discrepar. Ausente ⇒ 1, como todos los llamadores previos.
       startPage: effective.page,
+      netNewTarget: netNewPaginationEnabled ? options!.netNewTarget : null,
     },
     {
       fetchPage,
@@ -970,6 +1023,7 @@ export async function runApolloOrganizationsSearch(
       // tal cual: este provider no lo lee, no lo muta y no lo consulta. Sólo lo
       // entrega al ledger, que es quien cuenta con la función canónica.
       priorProviderSeen: options?.priorProviderSeen,
+      evaluateAcceptance: netNewPaginationEnabled ? options!.evaluateCandidateAcceptance : undefined,
     },
   );
 
@@ -985,11 +1039,14 @@ export async function runApolloOrganizationsSearch(
   // comercial. La metadata lo declara (`provider_reported: false`).
   const paidVolume = resolveApolloPaidResultsVolume(paginated.pageOutcomes);
   const providerSeenMetadata = toApolloProviderSeenMetadata(paginated.providerSeen);
-  // La conversión resultados→créditos sigue saliendo de `apollo-operation-pricing`,
-  // la misma tabla con la que el wizard reservó. Lo único que cambia es la CIFRA
-  // que entra: el volumen pagado, no el recogido.
+  // AGENT1-APOLLO-NET-NEW-PAGINATION § 5 — la conversión a créditos sigue
+  // saliendo de `apollo-operation-pricing`, la misma tabla con la que el
+  // wizard reservó, pero la CIFRA que entra ya no es el volumen de FILAS
+  // devueltas (`paidVolume.resultsVolume`) — eso vuelve a facturar por
+  // resultado. Es `paidVolume.creditsCharged`: la suma de 1 crédito por página
+  // no vacía, 0 por página vacía, tal como Apollo Support confirmó.
   const paidCreditsUsed = Math.min(
-    creditsForApolloOperation('organizations_search', paidVolume.resultsVolume),
+    creditsForApolloOperation('organizations_search', paidVolume.creditsCharged),
     MAX_APOLLO_ORGANIZATIONS_CREDITS,
   );
   const paidEstimatedCostUsd = paidCreditsUsed * APOLLO_ORGANIZATIONS_UNIT_COST_USD;

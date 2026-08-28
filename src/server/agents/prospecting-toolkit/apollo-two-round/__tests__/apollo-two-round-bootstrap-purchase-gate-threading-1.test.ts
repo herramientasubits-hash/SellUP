@@ -128,12 +128,18 @@ function withEnrichedProfile(result: WebSearchResult): WebSearchResult {
   } as unknown as WebSearchResult;
 }
 
-function duplicateMatchesFor(domain: string): { source: string; status: string }[] {
+function duplicateMatchesFor(domain: string): { source: string; status: string; confidence: number }[] {
+  // AGENT1-APOLLO-NET-NEW-PAGINATION § 3 — `readDuplicateVerdict` ahora filtra
+  // por la confianza exacta de dominio/tax_identifier exacto, no por `status`
+  // a secas. Estos conjuntos son dominios, así que la réplica de la corrida
+  // real conserva su verdad de duplicado por DOMINIO con la confianza real que
+  // cada checker emite para ese eje (95 SellUp, 92 HubSpot) — no un match de
+  // nombre, que ya no bastaría.
   if (RETEST_SALUD_SELLUP_DUPLICATE_DOMAINS.has(domain)) {
-    return [{ source: 'sellup', status: 'existing_in_sellup' }];
+    return [{ source: 'sellup', status: 'existing_in_sellup', confidence: 95 }];
   }
   if (RETEST_SALUD_RECONSTRUCTED_HUBSPOT_DUPLICATE_DOMAINS.has(domain)) {
-    return [{ source: 'hubspot', status: 'existing_in_hubspot' }];
+    return [{ source: 'hubspot', status: 'existing_in_hubspot', confidence: 92 }];
   }
   return [];
 }

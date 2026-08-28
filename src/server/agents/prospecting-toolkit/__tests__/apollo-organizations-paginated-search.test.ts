@@ -133,13 +133,18 @@ beforeEach(() => { realFetchCalls = 0; });
 // ─── Presupuesto ──────────────────────────────────────────────────────────────
 
 describe('A1-APOLLO-WIZARD-1 · presupuesto de paginación', () => {
-  it('deriva los límites de los guardrails Apollo existentes, no de valores nuevos', () => {
+  // AGENT1-APOLLO-NET-NEW-PAGINATION § 4/§ 9 — Apollo cobra 1 crédito por
+  // página no vacía, no por resultado: per_page ya no es una palanca de gasto,
+  // así que el default pide el techo del contrato (100) y el presupuesto real
+  // se expresa en PÁGINAS (el mismo techo monetario que antes limitaba
+  // resultados, ahora reinterpretado).
+  it('per_page por defecto es el techo del contrato; el presupuesto se expresa en páginas', () => {
     const budget = createApolloPaginationBudget();
-    assert.equal(budget.perPage, 3, 'default AGENT1_APOLLO_MAX_RESULTS_PER_QUERY');
-    assert.equal(budget.maxPages, 1, 'default AGENT1_APOLLO_MAX_QUERIES_PER_RUN');
-    assert.equal(budget.maxCredits, 3);
-    assert.equal(budget.derivedFrom.perPage, 'agent1_apollo_max_results_per_query');
-    assert.equal(budget.derivedFrom.maxPages, 'agent1_apollo_max_queries_per_run');
+    assert.equal(budget.perPage, APOLLO_CONTRACT_MAX_PER_PAGE, 'per_page=100, no un conteo pequeño de resultados');
+    assert.equal(budget.maxPages, WIZARD_APOLLO_MAX_PAGES_HARD_CAP, 'acotado por el techo de páginas del wizard');
+    assert.equal(budget.maxCredits, budget.maxPages, '1 crédito por página, no por resultado');
+    assert.equal(budget.derivedFrom.perPage, 'apollo_contract_max_per_page');
+    assert.equal(budget.derivedFrom.maxPages, 'wizard_apollo_max_search_credits_1_credit_per_page');
   });
 
   it('acota maxPages al techo del wizard, muy por debajo de las 500 del contrato', () => {
@@ -392,18 +397,22 @@ describe('A1-APOLLO-WIZARD-1 · búsqueda paginada', () => {
     assert.equal(result.pageOutcomes[0].billingState, 'not_charged');
   });
 
-  // ── Caso 9: detención por presupuesto ──────────────────────────────────────
+  // ── Caso 9 (AGENT1-APOLLO-NET-NEW-PAGINATION § 4): detención por presupuesto ──
+  // Bajo el modelo de facturación por página (1 crédito por página NO VACÍA,
+  // no por resultado), el tope de créditos es un tope de PÁGINAS: con
+  // maxCredits=2 se detiene tras la segunda, sin importar que cada página
+  // traiga 3 resultados.
   it('se detiene al agotar el presupuesto de créditos', async () => {
     const h = harness((body) => {
       const page = body.page as number;
       return okPage(orgs(3, (page - 1) * 3), { page, per_page: 3, total_pages: 100 });
     });
     const result = await runApolloOrganizationsPaginatedSearch(
-      { ...baseInput, budget: createApolloPaginationBudget({ maxPages: 5, perPage: 3, maxCredits: 6, maxCandidates: 999 }) },
+      { ...baseInput, budget: createApolloPaginationBudget({ maxPages: 5, perPage: 3, maxCredits: 2, maxCandidates: 999 }) },
       h.deps,
     );
     assert.equal(result.pagesProcessed, 2);
-    assert.equal(result.estimatedCredits, 6);
+    assert.equal(result.estimatedCredits, 2);
     assert.equal(result.stopReason, 'max_credits_reached');
   });
 
@@ -587,7 +596,9 @@ describe('A1-APOLLO-WIZARD-1 · búsqueda paginada', () => {
     assert.equal(first.page, 1);
     assert.equal(first.perPage, 2);
     assert.equal(first.resultsReturned, 2);
-    assert.equal(first.estimatedCredits, 2);
+    // AGENT1-APOLLO-NET-NEW-PAGINATION § 4 — 1 crédito por página no vacía, no
+    // por resultado devuelto: 2 resultados siguen costando 1 crédito.
+    assert.equal(first.estimatedCredits, 1);
     assert.equal(first.actualCredits, null, 'no se afirma un crédito real no verificado');
     assert.equal(first.rateLimit.rate_limit_minute_remaining, 150);
     assert.equal(first.status, 'success');

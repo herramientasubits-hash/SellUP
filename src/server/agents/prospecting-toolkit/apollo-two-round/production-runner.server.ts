@@ -289,6 +289,7 @@ import {
   writeTwoRoundCheckpoint,
   type CheckpointWriteOutcome,
 } from './checkpoint.server';
+import { hasStrongIdentityDuplicateMatch } from './apollo-strong-identity-duplicate-match';
 
 // ─── Entrada ──────────────────────────────────────────────────────────────────
 
@@ -612,22 +613,36 @@ export function foldSubindustryPrecisionIntoSectorState(
   return base;
 }
 
+/**
+ * AGENT1-APOLLO-NET-NEW-PAGINATION § 3 — NOMBRE POR SÍ SOLO NO ES UNA
+ * IDENTIDAD HISTÓRICA DECISIVA.
+ *
+ * El defecto que cierra: cualquier match de los checkers legacy —incluido
+ * `possible_duplicate` (contenido de nombre) y un `existing_in_sellup`/
+ * `existing_in_hubspot` que resultó ser sólo nombre normalizado + país, SIN
+ * dominio ni identificador fiscal— se trataba como bloqueo duro pre-pago,
+ * ANTES y por fuera de la autoridad fuerte de este mismo corte
+ * (`evaluatePrepaidHistoricalDuplicate`, dominio/identidad fiscal). Dos
+ * empresas distintas con el mismo nombre normalizado (matriz/filial,
+ * homónimas de países distintos) bloqueaban a un candidato genuinamente
+ * nuevo antes de que la verdad histórica fuerte tuviera oportunidad de
+ * hablar.
+ *
+ * `hasStrongIdentityDuplicateMatch` filtra por la CONFIANZA exacta que cada
+ * checker ya documenta como derivada de dominio/tax_identifier exacto — nunca
+ * por `status` a secas, que mezcla ejes fuertes y de nombre bajo la misma
+ * etiqueta. Los checkers compartidos con Lusha (`checkSellUpDuplicates`,
+ * `checkHubSpotDuplicates`, `duplicate-checker.ts`) NO se tocan: esta función
+ * sigue siendo Apollo-scoped, viviendo en `apollo-two-round/`.
+ */
 export function readDuplicateVerdict(
   candidate: ProspectingPipelineCandidate,
 ): { sellUpDuplicate: boolean; hubSpotDuplicate: boolean } {
   const matches = candidate.duplicateCheck?.matches ?? [];
-  const isDuplicateStatus = (status: string): boolean =>
-    status === 'existing_in_sellup' ||
-    status === 'existing_in_hubspot' ||
-    status === 'possible_duplicate';
 
   return {
-    sellUpDuplicate: matches.some(
-      (m) => m.source === 'sellup' && isDuplicateStatus(m.status),
-    ),
-    hubSpotDuplicate: matches.some(
-      (m) => m.source === 'hubspot' && isDuplicateStatus(m.status),
-    ),
+    sellUpDuplicate: hasStrongIdentityDuplicateMatch(matches, 'sellup'),
+    hubSpotDuplicate: hasStrongIdentityDuplicateMatch(matches, 'hubspot'),
   };
 }
 

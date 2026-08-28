@@ -603,9 +603,14 @@ describe('§ 5 · límite efectivo por ronda', () => {
 // ─── § 6: accounts frente a organizations ─────────────────────────────────────
 
 describe('§ 6 · accounts frente a organizations', () => {
+  // AGENT1-APOLLO-NET-NEW-PAGINATION § 2 — una fila SÓLO en accounts[] (sin
+  // contraparte en organizations[]) ya no es un candidato de descubrimiento por
+  // su cuenta; se ejercita el id-vs-organization_id vía el camino de fusión.
   test('el id de organización sale de accounts[*].organization_id, nunca de accounts[*].id', () => {
     const normalized = normalizeApolloOrganizationsResponse({
-      organizations: [],
+      organizations: [
+        { id: '5f2a1b3c4d5e6f7a8b9c0d11', name: 'Cadena de Supermercados Andina' },
+      ],
       accounts: [
         {
           id: 'workspace-account-1',
@@ -620,6 +625,23 @@ describe('§ 6 · accounts frente a organizations', () => {
     const reference = normalized.organizations[0].providerReference;
     assert.equal(reference.providerOrganizationId, '5f2a1b3c4d5e6f7a8b9c0d11');
     assert.equal(reference.providerAccountId, 'workspace-account-1');
+  });
+
+  test('accounts[] sin contraparte en organizations[] no entra al pool de descubrimiento', () => {
+    const normalized = normalizeApolloOrganizationsResponse({
+      organizations: [],
+      accounts: [
+        {
+          id: 'workspace-account-1',
+          organization_id: '5f2a1b3c4d5e6f7a8b9c0d11',
+          name: 'Cadena de Supermercados Andina',
+          primary_domain: 'supermercadosandina.com.co',
+        },
+      ],
+    });
+
+    assert.equal(normalized.organizations.length, 0);
+    assert.equal(normalized.meta.accounts_only_count, 1);
   });
 
   test('una entrada de accounts sin organization_id se descarta, no se inventa una identidad', () => {

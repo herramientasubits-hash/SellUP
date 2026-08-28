@@ -617,7 +617,15 @@ export async function runApolloOrganizationEnrichmentCascade(
     const originalResult = results[candidate.index] as WebSearchResult;
 
     try {
-      const enrichResult = await enrichFn({ domain });
+      // AGENT1-APOLLO-NET-NEW-PAGINATION § 18 — enviar website/LinkedIn JUNTO
+      // al dominio cuando el candidato los trae: mejora la confianza del match
+      // de Apollo por el MISMO crédito, sin abrir una segunda llamada ni un
+      // segundo cobro.
+      const meta = originalResult.metadata as Record<string, unknown> | undefined;
+      const websiteUrl = typeof meta?.['website'] === 'string' ? (meta['website'] as string) : undefined;
+      const linkedinUrl =
+        typeof meta?.['linkedin_url'] === 'string' ? (meta['linkedin_url'] as string) : undefined;
+      const enrichResult = await enrichFn({ domain, websiteUrl, linkedinUrl });
 
       if (enrichResult.success && enrichResult.data) {
         const rawIndustryFields: ApolloIndustryRawFields = {

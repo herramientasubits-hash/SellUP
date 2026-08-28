@@ -349,11 +349,23 @@ function readDeclaredDomain(result: WebSearchResult): string | null {
   return typeof declared === 'string' && declared.trim() !== '' ? declared.trim() : null;
 }
 
-/** Reads the hostname of the result URL, when it parses. */
+/**
+ * Reads the hostname of the result URL, when it parses.
+ *
+ * AGENT1-APOLLO-NET-NEW-PAGINATION § 20 — a candidate with neither a declared
+ * domain nor a website falls back to `https://apollo.io/companies/{id}`
+ * (`mapApolloOrganizationToSearchResult`), a synthetic profile URL, never the
+ * company's own site. Reading its hostname as the candidate's domain would
+ * silently try to enrich "apollo.io" itself. `extractDomainFromSearchResult`
+ * (the cascade's own domain reader) already excludes this; this gate did not,
+ * so it stays the one path that could still leak it into `invalid_domain`'s
+ * sibling — a false `eligible: true`.
+ */
 function readUrlHost(result: WebSearchResult): string | null {
   if (!result.url) return null;
   try {
-    return new URL(result.url).hostname;
+    const hostname = new URL(result.url).hostname;
+    return hostname === 'apollo.io' || hostname.endsWith('.apollo.io') ? null : hostname;
   } catch {
     return null;
   }
