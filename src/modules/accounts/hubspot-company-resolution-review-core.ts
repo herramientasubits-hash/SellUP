@@ -23,6 +23,10 @@ export interface ResolveHubSpotCompanyMatchDeps {
     accountId: string,
   ) => Promise<{ ok: true; hubspotCompanyId: string } | { ok: false; error: string }>;
   nowIso: string;
+  /** Contactos `approved` de la cuenta cuyo sync a HubSpot esperaba esta resolución. */
+  loadWaitingContacts: (accountId: string) => Promise<string[]>;
+  /** Dispara el sync YA existente (Task E1) para un contacto — no reimplementa nada. */
+  syncContact: (contactId: string) => Promise<void>;
 }
 
 export type ResolveHubSpotCompanyMatchDecision = 'same' | 'different';
@@ -59,5 +63,16 @@ export async function runResolveHubSpotCompanyMatch(
     hubspot_company_id: hubspotCompanyId,
     metadata,
   });
+
+  const waitingContactIds = await deps.loadWaitingContacts(input.accountId);
+  for (const contactId of waitingContactIds) {
+    // Secuencial y no en paralelo: cada sync es una llamada real a HubSpot, y el orden no
+    // importa pero saturar la API sí. Un fallo individual NO detiene el resto — cada llamada
+    // ya es best-effort por sí misma (Task E1 nunca lanza, salvo el rechazo documentado de
+    // `createSupabaseAdminClient()` — ver la nota de manejo de errores más abajo en este
+    // archivo, en la server action).
+    await deps.syncContact(contactId);
+  }
+
   return { ok: true, hubspotCompanyId };
 }

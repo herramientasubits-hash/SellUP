@@ -23,6 +23,8 @@ describe('runResolveHubSpotCompanyMatch', () => {
           return { ok: true, hubspotCompanyId: 'hs-new' };
         },
         nowIso: '2026-08-27T22:00:00.000Z',
+        loadWaitingContacts: async () => [],
+        syncContact: async () => {},
       },
     );
     assert.equal(result.ok, true);
@@ -47,6 +49,8 @@ describe('runResolveHubSpotCompanyMatch', () => {
           return { ok: true, hubspotCompanyId: 'hs-brand-new' };
         },
         nowIso: '2026-08-27T22:00:00.000Z',
+        loadWaitingContacts: async () => [],
+        syncContact: async () => {},
       },
     );
     assert.equal(result.ok, true);
@@ -61,6 +65,8 @@ describe('runResolveHubSpotCompanyMatch', () => {
         updateAccount: async () => {},
         createCompany: async () => ({ ok: true, hubspotCompanyId: 'x' }),
         nowIso: '2026-08-27T22:00:00.000Z',
+        loadWaitingContacts: async () => [],
+        syncContact: async () => {},
       },
     );
     assert.equal(result.ok, false);
@@ -80,6 +86,8 @@ describe('runResolveHubSpotCompanyMatch', () => {
         },
         createCompany: async () => ({ ok: false, error: 'HUBSPOT_CREATE_FAILED' }),
         nowIso: '2026-08-27T22:00:00.000Z',
+        loadWaitingContacts: async () => [],
+        syncContact: async () => {},
       },
     );
     assert.equal(result.ok, false);
@@ -102,11 +110,38 @@ describe('runResolveHubSpotCompanyMatch', () => {
           return { ok: true, hubspotCompanyId: 'hs-x' };
         },
         nowIso: '2026-08-27T22:00:00.000Z',
+        loadWaitingContacts: async () => [],
+        syncContact: async () => {},
       },
     );
     assert.equal(result.ok, false);
     assert.equal(result.hubspotCompanyId, null);
     assert.equal(updateCalls.length, 0);
     assert.equal(createCalls.length, 0);
+  });
+
+  it('tras resolver, dispara el sync de los contactos en espera de esa cuenta', async () => {
+    const syncedContactIds: string[] = [];
+    const result = await runResolveHubSpotCompanyMatch(
+      { accountId: 'account-1', decision: 'same' },
+      {
+        loadAccount: async () => ({
+          id: 'account-1',
+          metadata: { hubspot_pending_match: { hubspot_company_id: 'hs-999', name: 'X' } },
+        }),
+        updateAccount: async () => {},
+        createCompany: async () => ({ ok: true, hubspotCompanyId: 'hs-new' }),
+        nowIso: '2026-08-27T22:00:00.000Z',
+        loadWaitingContacts: async (accountId) => {
+          assert.equal(accountId, 'account-1');
+          return ['contact-1', 'contact-2'];
+        },
+        syncContact: async (contactId) => {
+          syncedContactIds.push(contactId);
+        },
+      },
+    );
+    assert.equal(result.ok, true);
+    assert.deepEqual(syncedContactIds, ['contact-1', 'contact-2']);
   });
 });
