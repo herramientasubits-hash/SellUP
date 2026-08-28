@@ -31,7 +31,11 @@ function buildDeps(nowIso: string): HubSpotCompanyResolutionDeps {
         .select(ACCOUNT_SELECT)
         .eq('id', accountId)
         .maybeSingle();
-      if (error || !data) return null;
+      if (error) {
+        console.error('[hubspot-company-resolution-wiring] loadAccount query failed', { accountId, error });
+        return null;
+      }
+      if (!data) return null;
       const row = data as Record<string, unknown>;
       return {
         id: row.id as string,
@@ -89,14 +93,21 @@ function buildDeps(nowIso: string): HubSpotCompanyResolutionDeps {
     },
 
     updateAccount: async (accountId, patch) => {
-      await admin.from('accounts').update(patch).eq('id', accountId);
+      const { error } = await admin.from('accounts').update(patch).eq('id', accountId);
+      if (error) {
+        console.error('[hubspot-company-resolution-wiring] updateAccount failed', { accountId, error });
+      }
     },
 
     nowIso,
   };
 }
 
-/** Entrypoint real, invocado desde la aprobación de contacto (Task E1). */
+/**
+ * Entrypoint real, invocado desde la aprobación de contacto (Task E1).
+ * Nota: puede RECHAZAR (no sólo resolver) si `createSupabaseAdminClient()`
+ * detecta configuración insegura/faltante — el caller debe manejarlo explícitamente.
+ */
 export async function resolveAccountHubSpotCompanyWired(
   accountId: string,
   nowIso: string,
