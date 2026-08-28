@@ -67,11 +67,18 @@ export async function runResolveHubSpotCompanyMatch(
   const waitingContactIds = await deps.loadWaitingContacts(input.accountId);
   for (const contactId of waitingContactIds) {
     // Secuencial y no en paralelo: cada sync es una llamada real a HubSpot, y el orden no
-    // importa pero saturar la API sí. Un fallo individual NO detiene el resto — cada llamada
-    // ya es best-effort por sí misma (Task E1 nunca lanza, salvo el rechazo documentado de
-    // `createSupabaseAdminClient()` — ver la nota de manejo de errores más abajo en este
-    // archivo, en la server action).
-    await deps.syncContact(contactId);
+    // importa pero saturar la API sí. Aislado por-contacto: un fallo individual NO debe
+    // detener el resto ni hacer que la resolución completa (ya comprometida en `updateAccount`
+    // arriba) se reporte como fallida.
+    try {
+      await deps.syncContact(contactId);
+    } catch (error) {
+      console.error('[hubspot-company-resolution-review-core] syncContact failed during waiting-contacts sweep', {
+        accountId: input.accountId,
+        contactId,
+        error,
+      });
+    }
   }
 
   return { ok: true, hubspotCompanyId };

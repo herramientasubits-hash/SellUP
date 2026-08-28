@@ -144,4 +144,27 @@ describe('runResolveHubSpotCompanyMatch', () => {
     assert.equal(result.ok, true);
     assert.deepEqual(syncedContactIds, ['contact-1', 'contact-2']);
   });
+
+  it('un fallo al sincronizar un contacto en espera no detiene el resto ni falla la resolución', async () => {
+    const syncedContactIds: string[] = [];
+    const result = await runResolveHubSpotCompanyMatch(
+      { accountId: 'account-1', decision: 'same' },
+      {
+        loadAccount: async () => ({
+          id: 'account-1',
+          metadata: { hubspot_pending_match: { hubspot_company_id: 'hs-999', name: 'X' } },
+        }),
+        updateAccount: async () => {},
+        createCompany: async () => ({ ok: true, hubspotCompanyId: 'hs-new' }),
+        nowIso: '2026-08-27T22:00:00.000Z',
+        loadWaitingContacts: async () => ['contact-1', 'contact-2'],
+        syncContact: async (contactId) => {
+          if (contactId === 'contact-1') throw new Error('boom');
+          syncedContactIds.push(contactId);
+        },
+      },
+    );
+    assert.equal(result.ok, true);
+    assert.deepEqual(syncedContactIds, ['contact-2']);
+  });
 });
