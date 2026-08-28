@@ -819,6 +819,24 @@ describe('20. PII: nada de lo que se guarda o se reporta cita un teléfono', () 
   });
 });
 
+// ════════════════════════════════════════════════════════════════
+// E3 · el disparo automático deja de depender del interruptor
+// ════════════════════════════════════════════════════════════════
+
+describe('E3. el cableado real ya no lee la bandera: el PATCH está SIEMPRE activo', () => {
+  it('el auto-update de teléfono corre SIEMPRE, sin depender de isHubSpotContactAutoPhoneUpdateEnabled', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'src/modules/contacts/contact-hubspot-sync-runner.ts'),
+      'utf8',
+    );
+    assert.equal(
+      /isHubSpotContactAutoPhoneUpdateEnabled/.test(source),
+      false,
+      'el auto-update de teléfono no puede depender del flag: la decisión es "siempre activo"',
+    );
+  });
+});
+
 // ── Cableado mínimo del MOTOR, para las pruebas que lo ejercen ───
 
 function contactFor(over: Partial<ContactForSync> = {}): ContactForSync {

@@ -14,7 +14,8 @@
  *   * que los caminos de PRIVACIDAD no lo llamen EN ABSOLUTO. La procedencia durable ya lo
  *     impediría, pero una defensa que dependa de un solo mecanismo es una defensa que se cae
  *     cuando ese mecanismo tenga un bug. Aquí la erasure ni siquiera conoce el entrypoint;
- *   * que exista UN solo entrypoint, y que sea el único sitio que lee la bandera.
+ *   * que exista UN solo entrypoint, y que ya no dependa de ninguna bandera (E3:
+ *     AGENT2A-HUBSPOT-CONTACT-APPROVAL-AUTOSYNC lo dejó siempre activo, igual que el autosync).
  *
  * Ninguna de esas tres cosas se puede afirmar ejecutando el portero: hay que mirar quién llama a
  * quién y en qué orden. Se lee el fichero, con los comentarios QUITADOS, para que nombrar algo
@@ -52,15 +53,15 @@ function bodyOf(src: string, name: string): string {
 // UN SOLO ENTRYPOINT, Y UNA SOLA PUERTA A LA BANDERA
 // ════════════════════════════════════════════════════════════════
 
-describe('el entrypoint es único y es el único que lee la bandera', () => {
+describe('el entrypoint es único y ya no depende de ninguna bandera', () => {
   const runner = stripTs(read(RUNNER));
 
-  it('el runner define el entrypoint y lee la bandera exactamente una vez', () => {
+  it('el runner define el entrypoint y ya NO lee ninguna bandera: siempre activo', () => {
     assert.match(runner, new RegExp(`export async function ${ENTRYPOINT}`));
     assert.equal(
-      (runner.match(/isHubSpotContactAutoPhoneUpdateEnabled\(\)/g) ?? []).length,
-      1,
-      'una sola lectura de la bandera en todo el cableado',
+      runner.includes('isHubSpotContactAutoPhoneUpdateEnabled'),
+      false,
+      'el auto-update de teléfono no puede depender del flag: la decisión es "siempre activo", igual que el autosync de contactos (Task E2)',
     );
   });
 

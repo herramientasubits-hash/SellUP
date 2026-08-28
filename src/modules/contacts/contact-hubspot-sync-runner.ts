@@ -19,7 +19,6 @@
 // byte, que es exactamente la propiedad que se quiere.
 
 import { createClient } from '@/lib/supabase/server';
-import { isHubSpotContactAutoPhoneUpdateEnabled } from '@/lib/feature-flags.server';
 import {
   runContactHubSpotAutoPhoneUpdate,
   type ContactAutoPhoneUpdateReport,
@@ -157,9 +156,10 @@ export async function runContactHubSpotSyncWired(
 // costaron cortes anteriores, y dos copias divergirían de forma invisible hasta que un contacto
 // automático perdiera su vínculo o una erasure acabara exportada.
 //
-// Es también el ÚNICO sitio que lee la bandera. Los llamadores no la conocen: así no existe una
-// segunda forma de encenderla, y un camino nuevo no puede olvidarse de comprobarla porque no
-// tiene con qué.
+// Es también el ÚNICO sitio que decide `enabled` para el PATCH automático (E3:
+// AGENT2A-HUBSPOT-CONTACT-APPROVAL-AUTOSYNC lo dejó fijo en `true`, sin interruptor). Los
+// llamadores no lo conocen: un camino nuevo no puede construir su propia versión de la
+// decisión porque no tiene con qué.
 
 export interface ContactHubSpotAutoPhoneUpdateWiring {
   actorId: string;
@@ -181,7 +181,10 @@ export async function runContactHubSpotAutoPhoneUpdateWired(
   wiring: ContactHubSpotAutoPhoneUpdateWiring,
 ): Promise<ContactAutoPhoneUpdateReport> {
   return runContactHubSpotAutoPhoneUpdate(contactId, {
-    enabled: isHubSpotContactAutoPhoneUpdateEnabled(),
+    // AGENT2A-HUBSPOT-CONTACT-APPROVAL-AUTOSYNC: siempre activo, sin interruptor. El teléfono
+    // que llega DESPUÉS de aprobar (reveal asíncrono, continuación a Lusha, buscar más números)
+    // debe llegar a HubSpot solo, sin ningún clic — es el segundo disparador del diseño.
+    enabled: true,
     nowIso: wiring.nowIso,
 
     // Se RELEE la fila en vez de confiar en el payload que se acaba de escribir: el portero
@@ -189,10 +192,9 @@ export async function runContactHubSpotAutoPhoneUpdateWired(
     // —una erasure concurrente, otra pestaña que ya pulsó «Actualizar»—. Releer es lo que hace
     // que el veredicto describa la base de datos y no la intención del llamador.
     //
-    // El cliente se construye AQUÍ DENTRO y no arriba: con la bandera apagada el core sale antes
-    // de llamar a nada, así que no debe quedar ni un `createClient()` ejecutándose por cada
-    // guardado de contacto. «Apagada equivale a CUT-3B» pasa a ser cierto por construcción en vez
-    // de por aproximación.
+    // El cliente se construye AQUÍ DENTRO y no arriba, dentro del propio lector: así el
+    // entrypoint no necesita uno propio, y `loadSubject` sigue siendo el único punto donde el
+    // cableado real toca la red para releer al contacto.
     loadSubject: async (id) => {
       const supabase = await createClient();
       const { data, error } = await supabase
