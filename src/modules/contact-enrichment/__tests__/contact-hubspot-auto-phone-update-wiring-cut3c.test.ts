@@ -14,7 +14,8 @@
  *   * que los caminos de PRIVACIDAD no lo llamen EN ABSOLUTO. La procedencia durable ya lo
  *     impediría, pero una defensa que dependa de un solo mecanismo es una defensa que se cae
  *     cuando ese mecanismo tenga un bug. Aquí la erasure ni siquiera conoce el entrypoint;
- *   * que exista UN solo entrypoint, y que sea el único sitio que lee la bandera.
+ *   * que exista UN solo entrypoint, y que ya no dependa de ninguna bandera (E3:
+ *     AGENT2A-HUBSPOT-CONTACT-APPROVAL-AUTOSYNC lo dejó siempre activo, igual que el autosync).
  *
  * Ninguna de esas tres cosas se puede afirmar ejecutando el portero: hay que mirar quién llama a
  * quién y en qué orden. Se lee el fichero, con los comentarios QUITADOS, para que nombrar algo
@@ -52,15 +53,15 @@ function bodyOf(src: string, name: string): string {
 // UN SOLO ENTRYPOINT, Y UNA SOLA PUERTA A LA BANDERA
 // ════════════════════════════════════════════════════════════════
 
-describe('el entrypoint es único y es el único que lee la bandera', () => {
+describe('el entrypoint es único y ya no depende de ninguna bandera', () => {
   const runner = stripTs(read(RUNNER));
 
-  it('el runner define el entrypoint y lee la bandera exactamente una vez', () => {
+  it('el runner define el entrypoint y ya NO lee ninguna bandera: siempre activo', () => {
     assert.match(runner, new RegExp(`export async function ${ENTRYPOINT}`));
     assert.equal(
-      (runner.match(/isHubSpotContactAutoPhoneUpdateEnabled\(\)/g) ?? []).length,
-      1,
-      'una sola lectura de la bandera en todo el cableado',
+      runner.includes('isHubSpotContactAutoPhoneUpdateEnabled'),
+      false,
+      'el auto-update de teléfono no puede depender del flag: la decisión es "siempre activo", igual que el autosync de contactos (Task E2)',
     );
   });
 
@@ -77,10 +78,11 @@ describe('el entrypoint es único y es el único que lee la bandera', () => {
     }
   });
 
-  it('con la bandera apagada el cableado no construye ni un cliente', () => {
-    // «Apagada equivale a CUT-3B» tiene que ser cierto por CONSTRUCCIÓN, no por aproximación.
-    // El core sale antes de llamar a `loadSubject`, así que un `createClient()` en el cuerpo del
-    // entrypoint se ejecutaría en cada guardado de contacto aunque nadie fuera a usarlo.
+  it('el cliente se construye perezosamente, dentro del lector', () => {
+    // AGENT2A-HUBSPOT-CONTACT-APPROVAL-AUTOSYNC quitó la bandera: el entrypoint corre siempre.
+    // Esta prueba ya no depende de un estado "apagado" que no existe — sigue viva porque la
+    // pereza en sí es una propiedad deseable: un `createClient()` en el cuerpo del entrypoint se
+    // ejecutaría en cada guardado de contacto aunque `loadSubject` nunca llegara a usarlo.
     const entry = runner.slice(
       runner.indexOf(`export async function ${ENTRYPOINT}`),
       runner.indexOf('loadSubject:'),
@@ -298,17 +300,29 @@ describe('5 · 22. los caminos de privacidad no conocen el entrypoint', () => {
 // 16 · EL AUTOSYNC DEL ALTA no cambia
 // ════════════════════════════════════════════════════════════════
 
-describe('16. la aprobación sigue haciendo exactamente lo de CUT-3B', () => {
+describe('16. la aprobación ya NO repite el autosync del ALTA inline: delega en triggerContactHubSpotSync', () => {
   const src = stripTs(read(ENRICHMENT_ACTIONS));
   const fn = bodyOf(src, 'approveContactCandidate');
 
-  it('sigue llamando al autosync del ALTA, con su propia bandera', () => {
-    assert.match(fn, /runContactHubSpotAutoSync\(/);
-    assert.match(fn, /enabled: isHubSpotContactAutoSyncEnabled\(\)/);
+  // AGENT2A-HUBSPOT-CONTACT-APPROVAL-AUTOSYNC reemplazó el hook de CUT-3B: la SEGUNDA fase de la
+  // aprobación ya no invoca `runContactHubSpotAutoSync` inline ni lee su propia bandera —delega
+  // en `triggerContactHubSpotSync` (que primero resuelve la empresa y siempre está activo).
+  it('ya no invoca el motor de autosync inline ni lee su propia bandera: delega en el hook de HubSpot', () => {
+    assert.equal(
+      /runContactHubSpotAutoSync\(/.test(fn),
+      false,
+      'el autosync inline se reemplazó por triggerContactHubSpotSync',
+    );
+    assert.equal(
+      /isHubSpotContactAutoSyncEnabled\(\)/.test(fn),
+      false,
+      'el hook de aprobación ya no lee esa bandera: siempre activo',
+    );
+    assert.match(fn, /triggerContactHubSpotSync\(/);
   });
 
   it('la aprobación NO adquiere el PATCH automático', () => {
-    // Son dos políticas y dos banderas. Un contacto recién aprobado no tiene nada pendiente —lo
+    // Son dos políticas distintas. Un contacto recién aprobado no tiene nada pendiente —lo
     // que hay en HubSpot es lo que se acaba de enviar—, así que llamar aquí al PATCH sería, en
     // el mejor caso, una lectura inútil y, en el peor, una escritura que nadie pidió.
     assert.equal(
@@ -318,8 +332,9 @@ describe('16. la aprobación sigue haciendo exactamente lo de CUT-3B', () => {
     );
   });
 
-  it('el informe del autosync sigue viajando fuera de `ok`', () => {
-    assert.match(fn, /return \{ \.\.\.result, hubspotAutoSync \};/);
+  it('el resultado de la aprobación ya no lleva un informe de HubSpot: se devuelve tal cual', () => {
+    assert.equal(/return \{ \.\.\.result, hubspotAutoSync \};/.test(fn), false);
+    assert.match(fn, /return result;/);
   });
 });
 

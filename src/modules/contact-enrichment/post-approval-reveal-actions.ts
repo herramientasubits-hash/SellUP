@@ -50,7 +50,7 @@
 //     teléfono (`stale`, `stale_reason`, `stale_source = 'reveal'`). Desde SQL no hay red;
 //   * el ENVÍO es una SEGUNDA fase, posterior al COMMIT, y este archivo la cablea a
 //     `runContactHubSpotAutoPhoneUpdateWired` — EL ejecutor único que ya usan la edición manual y
-//     el merge. Ese ejecutor es quien lee la bandera `HUBSPOT_CONTACT_AUTO_PHONE_UPDATE_ENABLED`,
+//     el merge, siempre activo (AGENT2A-HUBSPOT-CONTACT-APPROVAL-AUTOSYNC quitó el interruptor),
 //     quien relee el estado durable y quien se NIEGA a exportar un pendiente de privacidad.
 //
 // FUERA DE ALCANCE SIGUE ESTANDO, y una guarda estática lo fija: este archivo no importa el cliente

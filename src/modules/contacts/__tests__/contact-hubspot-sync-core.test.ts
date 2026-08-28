@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import {
   runSyncContactToHubSpot,
   buildHubSpotContactProperties,
+  buildHubSpotContactUpdateProperties,
   splitContactName,
   buildSyncMetadata,
   sanitizeEmail,
@@ -132,14 +133,32 @@ test('splitContactName usa campos explícitos y cae a full_name', () => {
   );
 });
 
-test('buildHubSpotContactProperties omite LinkedIn y prioriza mobile_phone', () => {
+test('buildHubSpotContactProperties omite LinkedIn y manda los DOS teléfonos', () => {
   const props = buildHubSpotContactProperties(makeContact(), 'ana@empresa.com');
   assert.equal(props.email, 'ana@empresa.com');
   assert.equal(props.jobtitle, 'Gerente de RRHH');
-  assert.equal(props.phone, '+57 300 555 0000');
-  // LinkedIn no debe viajar a HubSpot en este hito.
+  // makeContact(): phone='+57 1 555 0000', mobile_phone='+57 300 555 0000' — los DOS viajan,
+  // cada uno a su propio campo. Antes se colapsaban en uno solo con prioridad al móvil.
+  assert.equal(props.phone, '+57 1 555 0000');
+  assert.equal(props.mobilePhone, '+57 300 555 0000');
   assert.ok(!('linkedin_url' in props));
   assert.ok(!('hs_linkedin_url' in props));
+});
+
+test('buildHubSpotContactProperties manda solo el que exista cuando falta uno', () => {
+  const propsNoMobile = buildHubSpotContactProperties(
+    makeContact({ mobile_phone: null }),
+    'ana@empresa.com',
+  );
+  assert.equal(propsNoMobile.phone, '+57 1 555 0000');
+  assert.equal(propsNoMobile.mobilePhone, null);
+
+  const propsNoPhone = buildHubSpotContactProperties(
+    makeContact({ phone: null }),
+    'ana@empresa.com',
+  );
+  assert.equal(propsNoPhone.phone, null);
+  assert.equal(propsNoPhone.mobilePhone, '+57 300 555 0000');
 });
 
 test('buildSyncMetadata preserva metadata previa y agrega hubspot_sync', () => {
@@ -162,6 +181,31 @@ test('buildSyncMetadata preserva metadata previa y agrega hubspot_sync', () => {
   assert.equal(sync.hubspot_company_id, 'hs-company-99');
   assert.equal(sync.company_association, 'associated');
   assert.equal(sync.synced_by, 'user-1');
+});
+
+test('HubSpotContactCreateInput y HubSpotContactUpdateInput aceptan mobilePhone', () => {
+  const createInput: import('../contact-hubspot-sync-core').HubSpotContactCreateInput = {
+    email: 'a@b.com',
+    firstname: 'Ana',
+    lastname: 'Pérez',
+    jobtitle: null,
+    phone: '+57 1 555 0000',
+    mobilePhone: '+57 300 000 0000',
+  };
+  const updateInput: import('../contact-hubspot-sync-core').HubSpotContactUpdateInput = {
+    phone: '+57 1 555 0000',
+    mobilePhone: '+57 300 000 0000',
+  };
+  assert.equal(createInput.mobilePhone, '+57 300 000 0000');
+  assert.equal(updateInput.mobilePhone, '+57 300 000 0000');
+});
+
+test('buildHubSpotContactUpdateProperties traduce mobilePhone con valor real, no sólo null', () => {
+  const props = buildHubSpotContactUpdateProperties({
+    phone: null,
+    mobilePhone: '+57 300 000 0000',
+  });
+  assert.deepEqual(props, { phone: '', mobilephone: '+57 300 000 0000' });
 });
 
 // ── Validaciones / errores ──────────────────────────────────────

@@ -117,46 +117,40 @@ describe('la segunda fase corre DESPUÉS de la aprobación confirmada', () => {
 
   it('el autosync se invoca después de `runApproveCandidate`, no antes ni dentro', () => {
     const approveAt = block.indexOf('await runApproveCandidate(');
-    const autoAt = block.indexOf('await runContactHubSpotAutoSync(');
+    const autoAt = block.indexOf('await triggerContactHubSpotSync(');
     assert.ok(approveAt > 0, 'falta la llamada al núcleo de aprobación');
     assert.ok(autoAt > approveAt, 'el autosync no puede preceder a la aprobación');
   });
 
   it('una aprobación que NO produjo contacto sale antes de tocar HubSpot', () => {
-    const autoAt = block.indexOf('await runContactHubSpotAutoSync(');
+    const autoAt = block.indexOf('await triggerContactHubSpotSync(');
     const guardAt = block.indexOf('if (!result.ok) return result;');
     assert.ok(guardAt > 0, 'falta la salida temprana para la aprobación fallida');
     assert.ok(guardAt < autoAt, 'la guarda debe preceder al autosync');
   });
 
-  it('el informe se ADJUNTA al resultado; nunca lo sustituye ni toca `ok`', () => {
-    assert.match(block, /return \{ \.\.\.result, hubspotAutoSync \};/);
-    // No hay ninguna rama que convierta el desenlace de HubSpot en el `ok` de la aprobación.
-    assert.equal(/ok:\s*hubspotAutoSync/.test(block), false);
-    assert.equal(/hubspotAutoSync[\s\S]{0,80}ok:\s*false/.test(block), false);
+  it('la fase de HubSpot nunca modifica el resultado de la aprobación', () => {
+    // Ya no hay un informe que adjuntar: `approveContactCandidate` devuelve `result` tal cual,
+    // sin envolverlo ni mezclarlo con nada que dependa del desenlace de HubSpot.
+    assert.match(block, /return result;\s*$/m);
+    assert.equal(block.includes('hubspotAutoSync'), false);
   });
 
-  it('el contacto se RELEE de la fila: el portero no confía en el payload insertado', () => {
-    assert.match(block, /loadSubject:[\s\S]{0,400}from\('contacts'\)/);
-    assert.match(block, /select\('id, hubspot_contact_id, metadata'\)/);
-  });
-
-  it('la aprobación NO reimplementa el motor: lo cablea y delega', () => {
-    assert.match(block, /buildContactHubSpotSyncDeps\(/);
-    assert.match(block, /method: 'auto'/);
-    for (const forbidden of ['findHubSpotContactByEmail(', 'createHubSpotContact(', 'fetch(']) {
+  it('la aprobación delega en triggerContactHubSpotSync y no reimplementa nada de HubSpot', () => {
+    assert.match(block, /triggerContactHubSpotSync\(/);
+    for (const forbidden of [
+      'buildContactHubSpotSyncDeps(',
+      'findHubSpotContactByEmail(',
+      'createHubSpotContact(',
+      'runSyncContactToHubSpot(',
+      'fetch(',
+    ]) {
       assert.equal(
         block.includes(forbidden),
         false,
-        `${forbidden} sería una segunda implementación de HubSpot`,
+        `${forbidden} sería una segunda implementación de HubSpot, delegar es el punto`,
       );
     }
-  });
-
-  it('el `method` automático viaja también a la auditoría', () => {
-    const auditAt = block.indexOf('logAudit:');
-    assert.ok(auditAt > 0);
-    assert.match(block.slice(auditAt), /method: 'auto'/);
   });
 });
 
@@ -184,13 +178,38 @@ describe('un fallo de HubSpot NUNCA se convierte en un fallo de aprobación', ()
     assert.equal(report.outcome, 'attempted_failed');
   });
 
-  it('el tipo del envelope declara el informe como opcional y separado de `ok`', () => {
+  it('el envelope ya no carga un informe de HubSpot: nadie lo consumía', () => {
     const iface = ENRICHMENT_ACTIONS.slice(
       ENRICHMENT_ACTIONS.indexOf('export interface ApproveCandidateActionResult'),
     ).slice(0, 2000);
-    assert.match(iface, /hubspotAutoSync\?: ContactAutoSyncReport;/);
+    assert.equal(iface.includes('hubspotAutoSync'), false);
     // `ok` sigue siendo lo primero y sigue siendo un booleano plano.
     assert.match(iface, /\n {2}ok: boolean;/);
+  });
+
+  it('un rechazo de `triggerContactHubSpotSync` (no sólo un informe de fallo) no puede tocar el resultado de la aprobación', () => {
+    const block = approveBlock();
+    const callAt = block.indexOf('await triggerContactHubSpotSync(');
+    assert.ok(callAt > 0, 'falta la llamada a triggerContactHubSpotSync');
+    // El `try {` MÁS CERCANO antes de la llamada, no el try exterior de toda la función: ese
+    // exterior envuelve además a `runApproveCandidate` y a todas sus dependencias inyectadas
+    // (que sí tienen `return` legítimos propios), así que buscar ahí produciría falsos
+    // positivos. Lo que hay que acotar es el try LOCAL que rodea sólo esta llamada.
+    const tryAt = block.lastIndexOf('try {', callAt);
+    assert.ok(tryAt >= 0 && tryAt < callAt, 'triggerContactHubSpotSync debe estar dentro de un try local');
+    const afterTry = block.slice(tryAt);
+    const finalReturnAt = afterTry.indexOf('return result;');
+    assert.ok(finalReturnAt > 0, 'falta el `return result;` final tras el try/catch');
+    const betweenTryAndFinalReturn = afterTry.slice(0, finalReturnAt);
+    // Ni un solo `return` puede aparecer entre el try local y el `return result;` final —ni
+    // dentro del try, ni dentro del catch. Cualquier `return` temprano ahí (incluso seguido de
+    // código muerto) sería exactamente la regresión que este contrato prohíbe: un fallo de
+    // HubSpot convirtiendo una aprobación que ya ocurrió en otro resultado.
+    assert.equal(
+      /\breturn\b/.test(betweenTryAndFinalReturn),
+      false,
+      'ningún `return` puede aparecer entre el try local y el `return result;` final',
+    );
   });
 });
 
@@ -207,6 +226,14 @@ describe('la bandera se lee en UN solo sitio y falla cerrada', () => {
     ).length;
     assert.equal(occurrences, 0, 'la server action no puede nombrar la variable de entorno');
     assert.match(flags, /HUBSPOT_CONTACT_AUTO_SYNC_FLAG = 'HUBSPOT_CONTACT_AUTO_SYNC_ENABLED'/);
+  });
+
+  it('el hook de aprobación ya NO depende de isHubSpotContactAutoSyncEnabled: siempre activo', () => {
+    assert.equal(
+      ENRICHMENT_ACTIONS_CODE.includes('isHubSpotContactAutoSyncEnabled'),
+      false,
+      'el hook de aprobación no puede depender del flag: la decisión es "siempre activo"',
+    );
   });
 
   it('usa el parser canónico, no una comparación cruda', () => {
@@ -299,7 +326,7 @@ describe('16. un reveal POSTERIOR marca pendiente y no llama a HubSpot', () => {
     };
     walk('src');
     assert.deepEqual(callers.sort(), [
-      'src/modules/contact-enrichment/actions.ts',
+      'src/modules/contact-enrichment/hubspot-contact-approval-sync.ts',
       'src/modules/contacts/contact-hubspot-autosync-core.ts',
     ]);
   });

@@ -201,19 +201,22 @@ describe('9. VALOR → NULL es una sincronización real', () => {
     assert.equal(decision.state.stale_reason, 'phone_changed');
   });
 
-  it('vaciar el móvil sobre un fijo IGUAL no cambia el saliente y no marca', () => {
+  it('vaciar el móvil con el fijo presente SÍ marca ahora: los dos campos viajan por separado', () => {
+    // AGENT2A-HUBSPOT-CONTACT-APPROVAL-AUTOSYNC: antes esto no marcaba porque el fijo (igual
+    // en los dos lados) "tapaba" el móvil en el valor colapsado que se mandaba a un único campo
+    // de HubSpot. Ahora los dos campos viajan por separado, así que borrar `mobile_phone`
+    // SIEMPRE es un cambio real, tape o no tape al fijo.
     const decision = markContactHubSpotSyncStaleForPhoneChange({
       metadata: metadataWith(state()),
       hubspotContactId: HS_ID,
       previous: { phone: OLD_PHONE, mobile_phone: OLD_PHONE },
       next: { phone: OLD_PHONE, mobile_phone: null },
       nowIso: NOW,
-      // CUT-3C — la edición manual del formulario.
       source: 'user_edit',
     });
 
-    assert.ok(!decision.marked);
-    assert.equal(decision.reason, 'no_outbound_change');
+    assert.ok(decision.marked);
+    assert.equal(decision.state.stale_reason, 'phone_changed');
   });
 
   it('`phone_removed` cuenta como pendiente para el ejecutor', () => {
@@ -340,21 +343,27 @@ describe('la razón describe la operación PENDIENTE, no la que la originó', ()
 
 describe('10. el cuerpo EXACTO del PATCH', () => {
   it('un saliente con valor manda ese valor', () => {
-    assert.deepEqual(buildHubSpotContactUpdateProperties({ phone: OLD_PHONE }), {
-      phone: OLD_PHONE,
-    });
+    assert.deepEqual(
+      buildHubSpotContactUpdateProperties({ phone: OLD_PHONE, mobilePhone: null }),
+      { phone: OLD_PHONE, mobilephone: '' },
+    );
   });
 
   it('un saliente NULO manda la CADENA VACÍA, que es como HubSpot borra una propiedad', () => {
-    assert.deepEqual(buildHubSpotContactUpdateProperties({ phone: null }), { phone: '' });
+    assert.deepEqual(buildHubSpotContactUpdateProperties({ phone: null, mobilePhone: null }), {
+      phone: '',
+      mobilephone: '',
+    });
   });
 
   it('borrar NO se representa OMITIENDO la propiedad', () => {
     // Omitirla la deja como estaba: sería un no-op silencioso y el contacto volvería a
     // `synced` sobre un número que HubSpot conserva.
-    const props = buildHubSpotContactUpdateProperties({ phone: null });
+    const props = buildHubSpotContactUpdateProperties({ phone: null, mobilePhone: null });
     assert.equal(Object.hasOwn(props, 'phone'), true);
-    assert.equal(Object.keys(props).length, 1, 'una sola propiedad, ni una más');
+    // AGENT2A extiende el cuerpo con `mobilephone`: ya no es una sola propiedad, son las dos
+    // que el contrato declara — ninguna extra, ninguna de menos.
+    assert.equal(Object.keys(props).length, 2, 'phone y mobilephone, ni una más ni una menos');
   });
 
   it('hay UNA sola representación del borrado en todo el árbol', () => {
@@ -394,7 +403,9 @@ describe('10-12. el clic manual sobre un pendiente de BORRADO', () => {
     assert.equal(result.status, 'updated');
     assert.equal(spy.patches.length, 1);
     assert.equal(spy.patches[0].id, HS_ID);
-    assert.deepEqual(spy.patches[0].input, { phone: null });
+    // AGENT2A Task A4: los DOS teléfonos viajan de forma independiente, cada uno leído de su
+    // propio campo — el móvil de este contacto también es `null`, así que también se limpia.
+    assert.deepEqual(spy.patches[0].input, { phone: null, mobilePhone: null });
     // Ni búsqueda por email ni creación: la identidad es el id durable.
     assert.equal(spy.searches, 0);
     assert.equal(spy.creates, 0);
@@ -448,7 +459,9 @@ describe('10-12. el clic manual sobre un pendiente de BORRADO', () => {
     });
     await runSyncContactToHubSpot('contact-1', deps);
 
-    assert.deepEqual(spy.patches[0].input, { phone: NEW_PHONE });
+    // AGENT2A Task A4: los DOS teléfonos viajan de forma independiente — el móvil de este
+    // contacto es `null` (default de `makeContact`), así que también viaja explícito.
+    assert.deepEqual(spy.patches[0].input, { phone: NEW_PHONE, mobilePhone: null });
   });
 
   it('un PATCH de borrado exitoso que no se puede anotar deja el pendiente puesto', async () => {
@@ -522,14 +535,20 @@ describe('13. la supresión de privacidad marca, y NO exporta', () => {
     assert.equal(read?.stale_since, NOW);
   });
 
-  it('`mobile_phone` sigue FUERA del patch: se lee, no se borra (4O-E4.1)', () => {
+  it('`mobile_phone` sigue FUERA del patch, pero borrar `phone` SÍ marca ahora (4O-E4.1 + AGENT2A-HUBSPOT-CONTACT-APPROVAL-AUTOSYNC)', () => {
     const patch = buildContactPhoneSuppressionPatch(
       linkedContact({ mobilePhone: MOBILE }),
       NOW,
     );
     assert.equal(Object.hasOwn(patch, 'mobile_phone'), false);
-    // Y como el móvil TAPA al fijo, borrar el fijo no cambia lo que HubSpot ve: no se marca.
-    assert.equal(patch.metadata, undefined);
+    // AGENT2A-HUBSPOT-CONTACT-APPROVAL-AUTOSYNC: los dos campos viajan por separado ahora, así
+    // que borrar `phone` es un cambio real aunque el móvil siga presente y sin tocar. La razón
+    // sigue siendo `phone_changed` (no `phone_removed`): el saliente colapsado —el que decide
+    // QUÉ enviar— sigue siendo el móvil, que no desapareció.
+    const read = readHubSpotSyncState(patch.metadata);
+    assert.equal(read?.status, 'stale');
+    assert.equal(read?.stale_reason, 'phone_changed');
+    assert.equal(read?.stale_since, NOW);
   });
 
   it('sin vínculo HubSpot no se marca nada', () => {

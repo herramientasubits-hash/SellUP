@@ -268,7 +268,7 @@ describe('4 · 5. el mismo `phone_removed`, dos autorizaciones opuestas', () => 
         // El cuerpo del PATCH lo construye el motor de CUT-3A: `null` significa BORRAR, y su
         // representación en el cable (`''`) vive en UN solo sitio. Aquí sólo se comprueba que
         // el ejecutor llega a pedirlo.
-        sent.push({ phone: null });
+        sent.push({ phone: null, mobilePhone: null });
         return {
           ok: true,
           status: 'updated',
@@ -281,7 +281,11 @@ describe('4 · 5. el mismo `phone_removed`, dos autorizaciones opuestas', () => 
     assert.equal(report.outcome, 'attempted_updated');
     assert.equal(report.staleReason, 'phone_removed');
     assert.equal(report.staleSource, 'user_edit');
-    assert.deepEqual(sent, [{ phone: null }], 'un PATCH de BORRADO, exactamente uno');
+    assert.deepEqual(
+      sent,
+      [{ phone: null, mobilePhone: null }],
+      'un PATCH de BORRADO, exactamente uno',
+    );
   });
 
   it('5. `phone_removed` de una DSAR ⇒ CERO PATCH, y sigue `stale`', async () => {
@@ -363,10 +367,12 @@ describe('8 · 9. el silencio se HEREDA de CUT-3A, no se vuelve a decidir', () =
     assert.deepEqual(rec.runs, []);
   });
 
-  it('9. el caso SOMBRA del móvil: cambia `phone` pero el móvil lo tapa ⇒ CERO PATCH', async () => {
-    // `mobile_phone` manda sobre `phone`: cambiar el fijo no cambia lo que HubSpot recibiría.
-    // Marcarlo prometería una actualización que sería un no-op, y el PATCH automático la
-    // ejecutaría de verdad — una escritura al CRM del cliente por un cambio que no le afecta.
+  it('9. un cambio de `phone` marca aunque el móvil se quede igual: ya no hay sombra', async () => {
+    // ⚠️ ESTA PRUEBA AFIRMABA QUE `mobile_phone` TAPABA `phone` (CERO PATCH), y su cambio es el
+    // hito de AGENT2A-HUBSPOT-CONTACT-APPROVAL-AUTOSYNC (Tasks A2-A4), no una regresión: los DOS
+    // teléfonos viajan ahora a HubSpot de forma independiente, así que un cambio en CUALQUIERA de
+    // los dos es real aunque el otro no se mueva. El PATCH automático que antes habría sido un
+    // no-op inexistente ahora es un envío correcto: el fijo SÍ cambió en HubSpot.
     const decision = markContactHubSpotSyncStaleForPhoneChange({
       metadata: { [HUBSPOT_SYNC_METADATA_KEY]: { ...state() } },
       hubspotContactId: HS_ID,
@@ -375,14 +381,14 @@ describe('8 · 9. el silencio se HEREDA de CUT-3A, no se vuelve a decidir', () =
       nowIso: NOW,
       source: HUBSPOT_SYNC_STALE_SOURCES.userEdit,
     });
-    assert.equal(decision.marked, false, 'el saliente no se movió');
+    assert.ok(decision.marked, 'el saliente SÍ se movió: `phone` cambió');
+    assert.equal(decision.state.stale_reason, 'phone_changed');
 
-    const { deps: d, rec } = deps({ subject: subject(state()) });
-    assert.equal(
-      (await runContactHubSpotAutoPhoneUpdate(CONTACT_ID, d)).outcome,
-      'skipped_no_pending_change',
-    );
-    assert.deepEqual(rec.runs, [], 'ni un PATCH falso');
+    // Y ese pendiente SÍ dispara un PATCH automático: ya no es un no-op silencioso.
+    const { deps: d, rec } = deps({ subject: subject(decision.state) });
+    const report = await runContactHubSpotAutoPhoneUpdate(CONTACT_ID, d);
+    assert.equal(report.outcome, 'attempted_updated');
+    assert.deepEqual(rec.runs, [CONTACT_ID], 'exactamente UNA ejecución del motor');
   });
 
   it('el portero NO tiene con qué recalcular: su entrada no lleva teléfonos', () => {
@@ -809,6 +815,24 @@ describe('20. PII: nada de lo que se guarda o se reporta cita un teléfono', () 
         await globalThis.fetch('https://api.hubapi.com/crm/v3/objects/contacts/1');
       },
       /NETWORK_FORBIDDEN_IN_TEST/,
+    );
+  });
+});
+
+// ════════════════════════════════════════════════════════════════
+// E3 · el disparo automático deja de depender del interruptor
+// ════════════════════════════════════════════════════════════════
+
+describe('E3. el cableado real ya no lee la bandera: el PATCH está SIEMPRE activo', () => {
+  it('el auto-update de teléfono corre SIEMPRE, sin depender de isHubSpotContactAutoPhoneUpdateEnabled', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'src/modules/contacts/contact-hubspot-sync-runner.ts'),
+      'utf8',
+    );
+    assert.equal(
+      /isHubSpotContactAutoPhoneUpdateEnabled/.test(source),
+      false,
+      'el auto-update de teléfono no puede depender del flag: la decisión es "siempre activo"',
     );
   });
 });

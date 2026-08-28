@@ -442,6 +442,12 @@ describe('R1 estático — auditoría de escritores de `contacts.phone`', () => 
     // de sus dos UPDATE nombra `phone` ni `phone_source`, así que no existe ningún camino por el
     // que puedan dejar el par incoherente.
     join('src', 'modules', 'contacts', 'contact-hubspot-sync-runner.ts'),
+    // AGENT2A-HUBSPOT-CONTACT-APPROVAL-AUTOSYNC — `triggerContactHubSpotSync` (Task E1), el
+    // entrypoint único que resuelve la empresa de HubSpot de la cuenta ANTES de delegar el
+    // contacto al motor de arriba. Sus dos UPDATE propios (el anexo de bloqueo de workspace y la
+    // bandera `hubspot_company_review_pending`) escriben SÓLO `metadata`, nunca `phone` ni
+    // `phone_source` — demostrado en la prueba de abajo, igual que el runner.
+    join('src', 'modules', 'contact-enrichment', 'hubspot-contact-approval-sync.ts'),
   ];
 
   it('sólo los módulos conocidos ESCRIBEN en la tabla `contacts`', () => {
@@ -488,6 +494,35 @@ describe('R1 estático — auditoría de escritores de `contacts.phone`', () => 
         /\b(phone|mobile_phone|phone_source|email|full_name)\s*:/.test(patch),
         false,
         'el runner sólo persiste vínculo y metadata',
+      );
+    }
+  });
+
+  it('triggerContactHubSpotSync no puede tocar el par (phone, phone_source)', () => {
+    // La misma condición de admisión que el runner, aplicada al entrypoint de Task E1: si algún
+    // día aprendiera a escribir un teléfono, esta prueba lo obligaría a demostrar antes su
+    // procedencia.
+    const wiring = stripComments(
+      readFileSync(
+        join(SRC_DIR, 'modules', 'contact-enrichment', 'hubspot-contact-approval-sync.ts'),
+        'utf8',
+      ),
+    );
+    for (const forbidden of ['phone_source', 'mobile_phone_source', 'phone:', 'mobile_phone:']) {
+      assert.equal(
+        wiring.includes(forbidden),
+        false,
+        `${forbidden} convertiría a triggerContactHubSpotSync en un escritor de teléfono sin procedencia`,
+      );
+    }
+    // Lo que SÍ escribe, y nada más: el anexo del motor y la bandera de revisión de empresa.
+    const updates = wiring.match(/\.update\(\{[\s\S]*?\}\)/g) ?? [];
+    assert.ok(updates.length >= 1, 'triggerContactHubSpotSync debe seguir escribiendo su anexo');
+    for (const patch of updates) {
+      assert.equal(
+        /\b(phone|mobile_phone|phone_source|email|full_name)\s*:/.test(patch),
+        false,
+        'triggerContactHubSpotSync sólo persiste metadata',
       );
     }
   });

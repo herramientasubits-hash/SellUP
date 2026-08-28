@@ -18,7 +18,6 @@ import {
   hasPendingHubSpotPhoneChange,
   preservePendingHubSpotPhoneChange,
   readHubSpotSyncState,
-  resolveOutboundHubSpotPhone,
   writeHubSpotSyncState,
   type HubSpotSyncMethod,
   type HubSpotSyncState,
@@ -61,24 +60,27 @@ export interface HubSpotContactCreateInput {
   lastname: string | null;
   jobtitle: string | null;
   phone: string | null;
+  mobilePhone: string | null;
 }
 
 /**
  * Propiedades enviadas al ACTUALIZAR un contacto ya vinculado (CUT-2 · CUT-3A).
  *
- * Un solo campo, y no por falta de tiempo: `phone` es el único cuyo mapeo está validado en
- * este corte. `email` es además la IDENTIDAD con la que se buscó el contacto —reescribirlo por
+ * `phone` y `mobilePhone` (AGENT2A) son los únicos campos cuyo mapeo está validado en este
+ * corte. `email` es además la IDENTIDAD con la que se buscó el contacto —reescribirlo por
  * un PATCH podría fusionar o desviar la ficha del CRM del cliente—, así que queda fuera hasta
  * que exista un contrato que diga qué hacer cuando cambia.
  *
- * CUT-3A hace `phone` NULABLE, y `null` significa BORRAR la propiedad en HubSpot. Se modela
- * como ausencia y no como cadena vacía a propósito: la cadena vacía es la representación que
- * HubSpot exige EN EL CABLE, y dejarla entrar en el dominio obligaría a cada llamador a
- * recordarla —y a alguno se le olvidaría, enviando `""` donde quería un número o al revés. La
- * traducción vive en UN solo sitio: `buildHubSpotContactUpdateProperties`.
+ * CUT-3A hace `phone` NULABLE, y `null` significa BORRAR la propiedad en HubSpot; `mobilePhone`
+ * sigue la misma convención. Se modela como ausencia y no como cadena vacía a propósito: la
+ * cadena vacía es la representación que HubSpot exige EN EL CABLE, y dejarla entrar en el
+ * dominio obligaría a cada llamador a recordarla —y a alguno se le olvidaría, enviando `""`
+ * donde quería un número o al revés. La traducción vive en UN solo sitio:
+ * `buildHubSpotContactUpdateProperties`.
  */
 export interface HubSpotContactUpdateInput {
   phone: string | null;
+  mobilePhone: string | null;
 }
 
 /**
@@ -88,12 +90,13 @@ export interface HubSpotContactUpdateInput {
  * HubSpot borra una propiedad recibiéndola como CADENA VACÍA; omitirla del objeto `properties`
  * no la borra, la deja como estaba. Por eso `null` se traduce a `''` y nunca a una omisión: un
  * borrado que se representara omitiendo el campo sería un no-op silencioso, y el contacto
- * seguiría diciendo `synced` sobre un número que HubSpot conserva.
+ * seguiría diciendo `synced` sobre un número que HubSpot conserva. `mobilephone` (minúscula,
+ * el nombre de propiedad real de HubSpot) sigue la misma convención que `phone`.
  */
 export function buildHubSpotContactUpdateProperties(
   input: HubSpotContactUpdateInput,
-): { phone: string } {
-  return { phone: input.phone ?? '' };
+): { phone: string; mobilephone: string } {
+  return { phone: input.phone ?? '', mobilephone: input.mobilePhone ?? '' };
 }
 
 export type CompanyAssociationStatus = 'associated' | 'failed';
@@ -206,9 +209,12 @@ export function buildHubSpotContactProperties(
     firstname,
     lastname,
     jobtitle: cleanString(contact.job_title),
-    // La MISMA autoridad que decide si el contacto quedó desactualizado (CUT-2). Dos reglas
-    // separadas para «qué se envía» y «qué cuenta como cambio» divergen en cuanto una cambie.
-    phone: resolveOutboundHubSpotPhone(contact),
+    // AGENT2A Task A3: los DOS teléfonos viajan de forma independiente, cada uno leído
+    // directamente de su propio campo. `resolveOutboundHubSpotPhone` colapsaba ambos en uno
+    // solo con prioridad al móvil — ese comportamiento se retira del payload de CREACIÓN
+    // porque HubSpot ahora tiene un campo propio (`mobilephone`) para el celular.
+    phone: cleanString(contact.phone),
+    mobilePhone: cleanString(contact.mobile_phone),
   };
 }
 
@@ -507,17 +513,28 @@ export async function runSyncContactToHubSpot(
         };
       }
 
-      // El teléfono se relee de la FILA, no del marcador: entre marcar y pulsar pudo cambiar
-      // otra vez —o desaparecer—, y lo que debe viajar es lo que hay AHORA. La razón guardada
-      // no decide el cuerpo: si mandara, un `phone_changed` obsoleto enviaría un número que ya
-      // no existe y un `phone_removed` obsoleto BORRARÍA en HubSpot uno que sí existe.
+      // Los teléfonos se releen de la FILA, no del marcador: entre marcar y pulsar pudieron
+      // cambiar otra vez —o desaparecer—, y lo que debe viajar es lo que hay AHORA. La razón
+      // guardada no decide el cuerpo: si mandara, un `phone_changed` obsoleto enviaría un
+      // número que ya no existe y un `phone_removed` obsoleto BORRARÍA en HubSpot uno que sí
+      // existe.
       //
       // CUT-3A: `null` ya no es un motivo para negarse. Es la operación de BORRADO, y el
       // adaptador tiene UNA representación canónica para ella.
-      const outboundPhone = resolveOutboundHubSpotPhone(contact);
+      //
+      // AGENT2A Task A4: los DOS teléfonos viajan de forma independiente, cada uno leído
+      // directamente de su propio campo — simétrico con el alta (Task A3). Antes esta rama
+      // seguía usando `resolveOutboundHubSpotPhone` (el valor colapsado con prioridad al
+      // móvil) sólo para `phone`, lo que para un contacto con ambos campos poblados sobreescribía
+      // la propiedad `phone` de HubSpot con el número de CELULAR en cada actualización, mientras
+      // `mobilephone` también —correctamente— guardaba ese mismo número: una duplicación real y
+      // una asimetría con el alta, que ya lee los dos campos por separado.
+      const outboundPhone = cleanString(contact.phone);
+      const outboundMobilePhone = cleanString(contact.mobile_phone);
 
       const updateResult = await deps.updateHubSpotContact(hubspotContactId, {
         phone: outboundPhone,
+        mobilePhone: outboundMobilePhone,
       });
 
       if ('error' in updateResult) {

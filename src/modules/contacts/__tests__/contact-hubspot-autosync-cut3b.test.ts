@@ -654,34 +654,41 @@ describe('13. contacto `stale` + reintento de aprobación — JAMÁS un PATCH au
 // ════════════════════════════════════════════════════════════════
 
 describe('14-15. el payload de creación usa el contrato de teléfono que ya existía', () => {
-  it('con teléfono disponible al aprobar, viaja el saliente (`mobile_phone ?? phone`)', async () => {
+  it('con teléfono y móvil disponibles al aprobar, los DOS viajan de forma independiente', async () => {
+    // ⚠️ ESTA PRUEBA AFIRMABA QUE SÓLO VIAJABA EL SALIENTE COLAPSADO (`mobile_phone ?? phone`),
+    // y su cambio es el hito de AGENT2A-HUBSPOT-CONTACT-APPROVAL-AUTOSYNC (Tasks A2-A4), no una
+    // regresión: `phone` y `mobile_phone` ahora viajan cada uno a su propio destino en HubSpot.
     const spy = makeSpy();
     await runContactHubSpotAutoSync(CONTACT_ID, makeAutoSyncDeps(spy));
-    assert.equal(spy.created[0].phone, '+57 300 555 0000');
+    assert.equal(spy.created[0].phone, '+57 1 555 0000');
+    assert.equal(spy.created[0].mobilePhone, '+57 300 555 0000');
   });
 
-  it('sin `mobile_phone` cae al `phone`, exactamente como el alta manual', async () => {
+  it('sin `mobile_phone`, `phone` viaja igual y `mobilePhone` viaja explícito en `null`', async () => {
     const spy = makeSpy();
     await runContactHubSpotAutoSync(
       CONTACT_ID,
       makeAutoSyncDeps(spy, { contact: makeContact({ mobile_phone: null }) }),
     );
     assert.equal(spy.created[0].phone, '+57 1 555 0000');
+    assert.equal(spy.created[0].mobilePhone, null);
   });
 
-  it('sin ningún teléfono, `phone: null` — el contrato de creación no cambia', async () => {
+  it('sin ningún teléfono, los DOS campos son `null` — el contrato de creación no cambia', async () => {
     const spy = makeSpy();
     await runContactHubSpotAutoSync(
       CONTACT_ID,
       makeAutoSyncDeps(spy, { contact: makeContact({ phone: null, mobile_phone: null }) }),
     );
     assert.equal(spy.created[0].phone, null);
+    assert.equal(spy.created[0].mobilePhone, null);
     // Y el resto del payload sigue siendo el de siempre.
     assert.deepEqual(Object.keys(spy.created[0]).sort(), [
       'email',
       'firstname',
       'jobtitle',
       'lastname',
+      'mobilePhone',
       'phone',
     ]);
   });
@@ -869,7 +876,11 @@ describe('21. la sincronización manual conserva su contrato byte a byte', () =>
     );
 
     assert.equal(result.ok && result.status, 'updated');
-    assert.deepEqual(spy.patched, [{ id: 'hs-contact-9', phone: '+57 300 999 9999' }]);
+    // AGENT2A Task A4: `phone` viaja de forma independiente ahora — es el `phone` de la fila
+    // (`+57 1 555 0000`, el default de `makeContact`), no el saliente colapsado con prioridad
+    // al móvil que este PATCH enviaba antes. El spy no registra `mobilePhone` (ver su shape más
+    // arriba), pero el móvil también viaja, por su propio campo.
+    assert.deepEqual(spy.patched, [{ id: 'hs-contact-9', phone: '+57 1 555 0000' }]);
     assert.equal(lastPersistedState(spy)?.method, 'manual');
     assert.equal(lastPersistedState(spy)?.status, 'synced');
   });
