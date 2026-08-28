@@ -38,6 +38,8 @@ import {
 const APOLLO_ID = 'a1b2c3d4e5f60718293a4b5c';
 /** Un id nativo de Lusha REAL en forma: prefijo `v1.`. */
 const LUSHA_ID = 'v1.lusha-native-token';
+/** Un id de contacto oficial REAL en forma: uuid v4. */
+const OFFICIAL_CONTACT_ID = 'd6f35a76-bce1-46d4-a7e8-8af1591aef87';
 
 /**
  * La forma CANÓNICA del candidato que llega a este flujo, y que es exactamente la que la
@@ -53,6 +55,10 @@ function eligibleInput(
     actorRoleKey: 'admin',
     candidateId: 'candidate-1',
     candidateStatus: 'pending_review',
+    // Sin destino registrado por default: la mayoría de estos casos describe un candidato
+    // NO aprobado, para el que `officialContactId` no importa. Los casos de la sección
+    // AGENT2A-SEARCH-MORE-APPROVED-CONTACT-1 lo sobreescriben explícitamente.
+    officialContactId: null,
     storedUnsuppressedPhoneCount: 1,
     source: 'lusha',
     sourceContactId: LUSHA_ID,
@@ -420,9 +426,13 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · planificador', () => {
     assert.equal(planSearchMorePhones(eligibleInput({ actorRoleKey: 'admin' })).eligible, true);
   });
 
-  it('un candidato en estado terminal ya no se edita', () => {
-    for (const status of ['approved', 'rejected', 'discarded', 'archived']) {
-      const plan = planSearchMorePhones(eligibleInput({ candidateStatus: status }));
+  it('rejected/discarded/archived siguen bloqueados SIN excepción, aunque haya contacto oficial', () => {
+    // Éstos NO tienen un contacto vivo al que proyectar nada: `officialContactId` no los
+    // reabre, a diferencia de `approved`.
+    for (const status of ['rejected', 'discarded', 'archived']) {
+      const plan = planSearchMorePhones(
+        eligibleInput({ candidateStatus: status, officialContactId: OFFICIAL_CONTACT_ID }),
+      );
       assert.equal(plan.eligible, false, `${status} no debía permitir gasto`);
       assert.equal(plan.reason, 'candidate_not_editable');
     }
@@ -431,6 +441,51 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · planificador', () => {
   it('un candidato sin estado registrado NO se bloquea por eso', () => {
     const plan = planSearchMorePhones(eligibleInput({ candidateStatus: null }));
     assert.equal(plan.eligible, true, 'la ausencia de estado no es un estado terminal');
+  });
+
+  // ───────────────────────────────────────────────────────────────
+  // AGENT2A-SEARCH-MORE-APPROVED-CONTACT-1 — «approved» ya no es congelado
+  // ───────────────────────────────────────────────────────────────
+  //
+  // El mismo defecto que #361 cerró para el waterfall principal: todo contacto oficial ES,
+  // por definición, un candidato `approved`, así que bloquearlo sin excepción hacía
+  // ESTRUCTURALMENTE imposible «Buscar más números» sobre el botón que el panel de rescate
+  // del contacto oficial ya ofrece (PR #361). La corrección es la MISMA que allí: `approved`
+  // deja de estar congelado cuando trae un `officialContactId` registrado.
+
+  it('APROBADO + contacto oficial registrado ⇒ ELIGIBLE (el botón del rescate ya funciona)', () => {
+    const plan = planSearchMorePhones(
+      eligibleInput({ candidateStatus: 'approved', officialContactId: OFFICIAL_CONTACT_ID }),
+    );
+
+    assert.equal(plan.eligible, true);
+    assert.equal(plan.reason, null);
+    assert.deepEqual(plan.providersToTry, ['lusha']);
+  });
+
+  it('APROBADO SIN contacto oficial ⇒ sigue bloqueado, fail-closed', () => {
+    // Sin destino registrado no hay dónde proyectar el teléfono que se compraría: pagar por
+    // él sería comprar un dato que no puede llegar a ninguna ficha.
+    const plan = planSearchMorePhones(
+      eligibleInput({ candidateStatus: 'approved', officialContactId: null }),
+    );
+
+    assert.equal(plan.eligible, false);
+    assert.equal(plan.reason, 'candidate_not_editable');
+    assert.deepEqual(plan.providersToTry, []);
+    assert.equal(plan.maxCreditRequirement, 0);
+  });
+
+  it('la excepción de «approved» NO relaja rejected/discarded/archived', () => {
+    // Barrido explícito: un `officialContactId` real presente en los tres estados
+    // permanentemente bloqueados no debe colar por parecido con `approved`.
+    for (const status of ['rejected', 'discarded', 'archived']) {
+      const plan = planSearchMorePhones(
+        eligibleInput({ candidateStatus: status, officialContactId: OFFICIAL_CONTACT_ID }),
+      );
+      assert.equal(plan.eligible, false, `${status} + contacto oficial no debía autorizar`);
+      assert.equal(plan.reason, 'candidate_not_editable');
+    }
   });
 
   it('es PURO: la misma entrada da la misma salida y no muta el argumento', () => {

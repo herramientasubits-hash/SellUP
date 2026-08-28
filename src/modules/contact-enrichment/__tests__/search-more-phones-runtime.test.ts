@@ -271,6 +271,11 @@ function planFromWorld(privacyState: string) {
     actorRoleKey: world.actorRoleKey,
     candidateId: CANDIDATE_ID,
     candidateStatus: world.facts.candidateStatus,
+    // AGENT2A-SEARCH-MORE-APPROVED-CONTACT-1: esta suite nunca ejercita `candidateStatus:
+    // 'approved'` (siempre es `pending_review`, ver `freshWorld`), así que `null` describe
+    // fielmente un candidato sin contacto oficial vinculado todavía, sin cambiar ningún
+    // desenlace que este archivo afirma.
+    officialContactId: null,
     storedUnsuppressedPhoneCount: world.facts.storedUnsuppressedPhoneCount,
     source: world.facts.source,
     sourceContactId: world.facts.sourceContactId,

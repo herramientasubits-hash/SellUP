@@ -285,6 +285,12 @@ interface PreflightFacts {
   featureEnabled?: boolean;
   actorRoleKey?: string | null;
   candidateStatus?: string | null;
+  /**
+   * AGENT2A-SEARCH-MORE-APPROVED-CONTACT-1 — `matched_contacts_id`. Default `null`: la
+   * mayoría de estos casos describe un candidato `pending_review`, para el que este campo no
+   * importa.
+   */
+  officialContactId?: string | null;
   storedUnsuppressedPhoneCount?: number;
   source?: string | null;
   sourceContactId?: string | null;
@@ -303,6 +309,7 @@ function planFor(facts: PreflightFacts = {}): SearchMorePlan {
     actorRoleKey: facts.actorRoleKey ?? 'admin',
     candidateId: 'cand-search-more',
     candidateStatus: facts.candidateStatus ?? 'pending_review',
+    officialContactId: facts.officialContactId ?? null,
     storedUnsuppressedPhoneCount: facts.storedUnsuppressedPhoneCount ?? 1,
     source: facts.source ?? 'lusha',
     sourceContactId: facts.sourceContactId ?? LUSHA_CONTACT_ID,
