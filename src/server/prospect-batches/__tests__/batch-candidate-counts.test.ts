@@ -288,16 +288,8 @@ describe('CUT4-A1 § 12.D/E — el clasificador y la generación quedan intactos
   });
 });
 
-describe('CUT4-A1 § 12.I — CUT4-A1 no amplía la superficie de acciones heredada', () => {
+describe('CUT4-A1 § 12.I — la ficha del lote no cablea acciones heredadas', () => {
   const page = read('src/app/(sellup)/prospect-batches/[batchId]/page.tsx');
-
-  it('la tabla accionable sigue recibiendo EXACTAMENTE el subconjunto de main', () => {
-    assert.ok(page.includes('<CandidatesTableClient candidates={usefulCandidates} />'));
-    assert.ok(
-      !/<CandidatesTableClient[^/]*candidates=\{(candidates|omittedCandidates|durable)/.test(page),
-      'se le pasaron filas nuevas a la tabla con acciones heredadas',
-    );
-  });
 
   it('la ficha del lote no monta ni importa CandidateRowActions', () => {
     // Se despoja de comentarios: nombrar el componente para explicar POR QUÉ no
@@ -316,8 +308,11 @@ describe('CUT4-A1 § 12.I — CUT4-A1 no amplía la superficie de acciones hered
     }
   });
 
-  it('la tabla heredada sigue montando UNA sola superficie de acciones', () => {
-    const table = read('src/components/prospect-batches/candidates-table-client.tsx');
-    assert.equal(table.split('<CandidateRowActions').length - 1, 1);
-  });
+  // AGENT1-CUT4-C SUPERSEDE — las dos guardas que aquí fijaban
+  // `candidates={usefulCandidates}` y «exactamente UN <CandidateRowActions»
+  // describían el estado INTERMEDIO de A1 (contar la verdad sin ampliar la
+  // superficie heredada). Mantenerlas ahora BLOQUEARÍA la corrección: CUT4-C
+  // monta el universo durable y sustituye esa superficie por una segura. Su
+  // sucesión vive en `cut4c-batch-visibility-safe-actions.test.ts`, que exige
+  // lo contrario y además que la superficie heredada NO vuelva.
 });

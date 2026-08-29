@@ -55,6 +55,7 @@ import {
   runApolloOrganizationsSearch,
   type ApolloOrgsSearchOptions,
 } from '../web-search-providers/apollo-organizations-search-provider';
+import type { NormalizedApolloOrganization } from '../apollo-organizations-response-normalizer';
 // QUERY-QUALITY-2-FIX § 1/§ 2 — constructor ÚNICO del request efectivo. El mismo
 // que gobierna la llamada real decide si la ronda 2 vale un crédito.
 import {
@@ -254,7 +255,19 @@ import {
   isBlockedByCompanyOwnership,
 } from '../company-ownership-gate';
 import { mapDuplicateStatus, fetchActiveCandidatesForGuard } from '../candidate-writer';
-import { buildNoveltyIndex, buildRecentIdentityKeySet } from '../novelty-checker';
+import {
+  buildNoveltyIndex,
+  buildRecentIdentityKeySet,
+  evaluateCandidateNovelty,
+  type NoveltyIndex,
+} from '../novelty-checker';
+// AGENT1-APOLLO-PREPAID-HISTORICAL-PARITY — el evaluador PURO de historia
+// pre-pago. Toda la política vive allí; aquí sólo se le pasa la evidencia.
+import {
+  evaluatePrepaidHistoricalDuplicate,
+  type HistoricalCandidateRow,
+  type PrepaidHistoricalVerdict,
+} from '../apollo-prepaid-historical-parity';
 import {
   APOLLO_PENDING_PRE_WRITER_ADMISSION_CHECKS,
   buildApolloPreWriterBatchAdmissionContext,
@@ -271,11 +284,26 @@ import {
   type SubindustryMatchVerdict,
 } from '../candidate-completeness-contract';
 import type { CompanyFieldMappingStatus } from '../apollo-company-fields-mapping';
+import type { ResolveExtraBatchMetadata } from '../writer-metadata-resolution';
 import {
   readTwoRoundCheckpoint,
   writeTwoRoundCheckpoint,
   type CheckpointWriteOutcome,
 } from './checkpoint.server';
+import { hasStrongIdentityDuplicateMatch } from './apollo-strong-identity-duplicate-match';
+// AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING PARTE B — valla durable de página.
+import {
+  readApolloPageFenceEntries,
+  upsertApolloPageFenceEntry,
+  type ApolloPageFenceIdentity,
+  type ApolloPageFenceReadOutcome,
+  type ApolloPageFenceWriteOutcome,
+} from './page-fence.server';
+import {
+  toApolloPageFenceOrganization,
+  toApolloDurableResumeState,
+  type ApolloPageFenceEntry,
+} from './page-fence';
 
 // ─── Entrada ──────────────────────────────────────────────────────────────────
 
@@ -310,6 +338,11 @@ export type ApolloTwoRoundWizardRunInput = {
   runCorrelationMetadata?: Record<string, unknown> | null;
   /** Metadata aditiva del lote (routing observacional, selección de proveedor). */
   extraBatchMetadata?: Record<string, unknown> | null;
+  /**
+   * AGENT1-LOCAL-CUT8 · DECISIÓN B — resolver de metadata post-writer. Se reenvía
+   * tal cual al writer; esta ruta no lo invoca ni lo compone.
+   */
+  resolveExtraBatchMetadata?: ResolveExtraBatchMetadata | null;
   /**
    * Créditos que la reserva sostiene. § 2 — la aserción defensiva compara el
    * gasto REGISTRADO contra este número, no contra la estimación.
@@ -434,6 +467,51 @@ export type ApolloTwoRoundProductionDeps = {
     domains: readonly string[];
     countryCode: string | null;
   }) => Promise<ApolloPreWriterDbAdmissionContext>;
+
+  /**
+   * AGENT1-APOLLO-PREPAID-HISTORICAL-PARITY § 4 — la evidencia histórica FUERTE,
+   * leída ANTES de pagar.
+   *
+   * No es una autoridad nueva: es EXACTAMENTE `buildNoveltyIndex`, la misma
+   * consulta global y cross-source (por dominio, sin filtro de `source`, sin
+   * ventana temporal) que el writer ya ejecutaba DESPUÉS del gasto. Lo único que
+   * cambia es CUÁNDO se pregunta.
+   *
+   * Se invoca a lo sumo una vez por conjunto de dominios (una por ronda), nunca
+   * por candidato. Fail-OPEN declarado: `degraded: true` significa «no se puede
+   * afirmar nada», y no afirmar nada nunca bloquea un gasto — la misma política
+   * que el resto de los gates baratos y que la comprobación de HubSpot (§ 21).
+   */
+  loadPrepaidHistoricalIndex: (input: {
+    domains: readonly string[];
+  }) => Promise<{ index: NoveltyIndex; degraded: boolean }>;
+  /**
+   * AGENT1-APOLLO-FINAL-SAFETY-CLOSURE · PARTE A — valla durable de página,
+   * inyectable por la MISMA razón que `loadCheckpoint`/`saveCheckpoint`: para
+   * que una suite pueda ejercitar la paginación real sin depender de un
+   * cliente Supabase vivo. La wiring por defecto usa las funciones reales de
+   * `page-fence.server.ts`; un override en pruebas sustituye el almacén por
+   * uno en memoria.
+   *
+   * Fail-closed por contrato (§ A del corte): `writePageFenceEntry` que
+   * resuelve `{kind: 'failed'}` DEBE impedir la petición a Apollo que
+   * `beforeRequest` protege — eso lo decide el llamador de este dep, no el dep
+   * en sí, que sólo reporta el desenlace.
+   *
+   * AGENT1-APOLLO-DURABLE-FENCE-HARD-CRASH-FIX · BLOQUEADOR 2 — igual de
+   * fail-closed aplica a la LECTURA: `readPageFenceEntries` que resuelve
+   * `{kind: 'failed'}` NUNCA se trata como "sin páginas previas". `searchRound`
+   * (más abajo) detiene la ronda ANTES de tocar Apollo cuando eso ocurre.
+   */
+  readPageFenceEntries: (
+    batchId: string,
+    identity: ApolloPageFenceIdentity,
+  ) => Promise<ApolloPageFenceReadOutcome>;
+  writePageFenceEntry: (
+    batchId: string,
+    identity: ApolloPageFenceIdentity,
+    entry: ApolloPageFenceEntry,
+  ) => Promise<ApolloPageFenceWriteOutcome>;
 };
 
 /** § 2 — contexto vacío y DEGRADADO: nada resuelto, todo pendiente. */
@@ -576,22 +654,36 @@ export function foldSubindustryPrecisionIntoSectorState(
   return base;
 }
 
+/**
+ * AGENT1-APOLLO-NET-NEW-PAGINATION § 3 — NOMBRE POR SÍ SOLO NO ES UNA
+ * IDENTIDAD HISTÓRICA DECISIVA.
+ *
+ * El defecto que cierra: cualquier match de los checkers legacy —incluido
+ * `possible_duplicate` (contenido de nombre) y un `existing_in_sellup`/
+ * `existing_in_hubspot` que resultó ser sólo nombre normalizado + país, SIN
+ * dominio ni identificador fiscal— se trataba como bloqueo duro pre-pago,
+ * ANTES y por fuera de la autoridad fuerte de este mismo corte
+ * (`evaluatePrepaidHistoricalDuplicate`, dominio/identidad fiscal). Dos
+ * empresas distintas con el mismo nombre normalizado (matriz/filial,
+ * homónimas de países distintos) bloqueaban a un candidato genuinamente
+ * nuevo antes de que la verdad histórica fuerte tuviera oportunidad de
+ * hablar.
+ *
+ * `hasStrongIdentityDuplicateMatch` filtra por la CONFIANZA exacta que cada
+ * checker ya documenta como derivada de dominio/tax_identifier exacto — nunca
+ * por `status` a secas, que mezcla ejes fuertes y de nombre bajo la misma
+ * etiqueta. Los checkers compartidos con Lusha (`checkSellUpDuplicates`,
+ * `checkHubSpotDuplicates`, `duplicate-checker.ts`) NO se tocan: esta función
+ * sigue siendo Apollo-scoped, viviendo en `apollo-two-round/`.
+ */
 export function readDuplicateVerdict(
   candidate: ProspectingPipelineCandidate,
 ): { sellUpDuplicate: boolean; hubSpotDuplicate: boolean } {
   const matches = candidate.duplicateCheck?.matches ?? [];
-  const isDuplicateStatus = (status: string): boolean =>
-    status === 'existing_in_sellup' ||
-    status === 'existing_in_hubspot' ||
-    status === 'possible_duplicate';
 
   return {
-    sellUpDuplicate: matches.some(
-      (m) => m.source === 'sellup' && isDuplicateStatus(m.status),
-    ),
-    hubSpotDuplicate: matches.some(
-      (m) => m.source === 'hubspot' && isDuplicateStatus(m.status),
-    ),
+    sellUpDuplicate: hasStrongIdentityDuplicateMatch(matches, 'sellup'),
+    hubSpotDuplicate: hasStrongIdentityDuplicateMatch(matches, 'hubspot'),
   };
 }
 
@@ -726,6 +818,29 @@ export async function runApolloTwoRoundWizardDiscovery(
         return emptyAdmissionPrefetch();
       }
     },
+    // § 4 — una sola lectura por conjunto de dominios, con el helper que YA
+    // existía. Cero consultas nuevas por candidato y cero créditos.
+    loadPrepaidHistoricalIndex: async ({ domains }) => {
+      const { tryGetAdminClientForTwoRound } = await import('./checkpoint.server');
+      const client = tryGetAdminClientForTwoRound();
+      if (!client) return { index: new Map(), degraded: true };
+      const normalized = [
+        ...new Set(
+          domains
+            .map((domain) => (domain ? normalizeDomain(domain) : null))
+            .filter((domain): domain is string => domain !== null),
+        ),
+      ];
+      if (normalized.length === 0) return { index: new Map(), degraded: false };
+      try {
+        return { index: await buildNoveltyIndex(client, normalized), degraded: false };
+      } catch {
+        return { index: new Map(), degraded: true };
+      }
+    },
+    readPageFenceEntries: (batchId, identity) => readApolloPageFenceEntries(batchId, identity),
+    writePageFenceEntry: (batchId, identity, entry) =>
+      upsertApolloPageFenceEntry(batchId, identity, entry),
     ...depsOverride,
   };
 
@@ -989,6 +1104,111 @@ export async function runApolloTwoRoundWizardDiscovery(
    * sus tres comprobaciones de base PENDIENTES, así que no pueden sostener una
    * parada. Es la dirección segura, y no añade ni una lectura.
    */
+  /**
+   * AGENT1-APOLLO-PREPAID-HISTORICAL-PARITY § 4 — la evidencia histórica de la
+   * corrida, cargada PEREZOSAMENTE y por CONJUNTO DE DOMINIOS.
+   *
+   * Perezosa porque los dominios no existen hasta que una ronda devuelve, y por
+   * conjunto porque `evidenceByKey` ya contiene TODA la ronda cuando se evalúa a
+   * su primer candidato (`searchRound` la puebla antes de que el orquestador
+   * llame a `assessCandidate`). El resultado: una lectura por ronda —a lo sumo
+   * dos por corrida—, cero por candidato.
+   *
+   * Un dominio que quede fuera de la cobertura NO se declara nuevo en silencio:
+   * dispara su propia carga. Un fallo de lectura marca la evidencia como
+   * indisponible y el veredicto pasa a ser fail-open (§ 21).
+   */
+  const historicalRowsByDomain = new Map<string, HistoricalCandidateRow[]>();
+  const historicalCoveredDomains = new Set<string>();
+  let historicalEvidenceDegraded = false;
+  let historicalLoads = 0;
+
+  const collectRunDomains = (): string[] => {
+    const domains = new Set<string>();
+    for (const snapshot of evidenceByKey.values()) {
+      // El snapshot ya trae el dominio resuelto; `url` es el respaldo cuando la
+      // búsqueda no lo declaró por separado.
+      const raw = snapshot.domain ?? snapshot.url ?? null;
+      const normalized = raw ? normalizeDomain(raw) : null;
+      if (normalized) domains.add(normalized);
+    }
+    return [...domains];
+  };
+
+  const ensurePrepaidHistoricalEvidence = async (
+    normalizedDomain: string | null,
+  ): Promise<{ rows: HistoricalCandidateRow[]; degraded: boolean }> => {
+    // Sin dominio no hay eje fuerte que consultar: no se lee nada y no se afirma
+    // nada. El nombre solo no puede bloquear un gasto (§ 7).
+    if (normalizedDomain === null) {
+      return { rows: [], degraded: historicalEvidenceDegraded };
+    }
+    if (!historicalCoveredDomains.has(normalizedDomain)) {
+      const pending = [...new Set([...collectRunDomains(), normalizedDomain])].filter(
+        (domain) => !historicalCoveredDomains.has(domain),
+      );
+      historicalLoads++;
+      const loaded = await deps
+        .loadPrepaidHistoricalIndex({ domains: pending })
+        .catch(() => ({ index: new Map() as NoveltyIndex, degraded: true }));
+      if (loaded.degraded) {
+        historicalEvidenceDegraded = true;
+      } else {
+        for (const domain of pending) {
+          historicalCoveredDomains.add(domain);
+          historicalRowsByDomain.set(domain, (loaded.index.get(domain) ?? []) as HistoricalCandidateRow[]);
+        }
+      }
+    }
+    return {
+      rows: historicalRowsByDomain.get(normalizedDomain) ?? [],
+      degraded: !historicalCoveredDomains.has(normalizedDomain),
+    };
+  };
+
+  /**
+   * § 6 — las DOS políticas, combinadas con un OR y sin fusionarse.
+   *
+   * `evaluateCandidateNovelty` responde la novedad de ENTREGA con sus cooldowns
+   * de `discarded` intactos (30 d revisado / 90 d sin revisar). El evaluador
+   * pre-pago responde el COSTE: una fila que ocupa el lote con identidad fuerte
+   * ya prueba que la empresa se conocía, sin importar su edad.
+   */
+  const prepaidHistoricalVerdictByKey = new Map<string, PrepaidHistoricalVerdict>();
+
+  const evaluatePrepaidHistory = async (
+    candidateKey: string,
+    normalizedDomain: string | null,
+    name: string | null,
+    website: string | null,
+  ): Promise<PrepaidHistoricalVerdict> => {
+    const evidence = await ensurePrepaidHistoricalEvidence(normalizedDomain);
+    const index: NoveltyIndex = new Map();
+    if (normalizedDomain !== null && evidence.rows.length > 0) {
+      index.set(normalizedDomain, evidence.rows as never);
+    }
+    const deliveryNovelty =
+      evidence.degraded || normalizedDomain === null
+        ? null
+        : evaluateCandidateNovelty({ name: name ?? '', domain: normalizedDomain, website }, index);
+    const verdict = evaluatePrepaidHistoricalDuplicate({
+      needle: {
+        normalizedDomain,
+        name,
+        // Apollo no devuelve identificador fiscal en la búsqueda: el eje existe y
+        // se evalúa, pero hoy no aporta coincidencias en esta ruta. No se inventa
+        // ninguno para rellenarlo.
+        taxIdentifier: null,
+        countryCode: input.countryCode,
+      },
+      rows: evidence.rows,
+      deliveryNoveltyShouldSkip: deliveryNovelty?.shouldSkip === true,
+      evidenceUnavailable: evidence.degraded,
+    });
+    prepaidHistoricalVerdictByKey.set(candidateKey, verdict);
+    return verdict;
+  };
+
   let admissionPrefetchPromise: Promise<ApolloPreWriterDbAdmissionContext> | null = null;
   const ensureAdmissionPrefetch = (): Promise<ApolloPreWriterDbAdmissionContext> => {
     // La memoización ES el contrato: la promesa se guarda antes de resolverse, así
@@ -1344,6 +1564,85 @@ export async function runApolloTwoRoundWizardDiscovery(
       additionalCriteriaTokens: hypothesis.queryParameters.keywordTags,
     };
 
+    // AGENT1-APOLLO-NET-NEW-PAGINATION-LIVE-WIRING — el ÚNICO cableado que
+    // faltaba: `apollo-organizations-search-provider.ts` ya sabe paginar de
+    // verdad dentro de una sola invocación cuando recibe `netNewTarget` Y
+    // `evaluateCandidateAcceptance` (los dos), pero ningún llamador de
+    // producción se los pasaba — cada ronda seguía siendo una sola página.
+    //
+    // `netNewTarget` reutiliza `requestedResultLimit` tal cual: en
+    // `orchestrator.ts` ese valor YA es `Math.max(1, boundByRemainingTarget(
+    // config.maxResultsPerRound, <hueco residual de esta ronda>))` — el mínimo
+    // entre el hueco que falta para el objetivo y el techo de volumen propio de
+    // la ronda (`config.maxResultsPerRound`). Es exactamente la demanda de
+    // negocio de ESTA ronda; no hace falta (ni se debe) recalcular el hueco
+    // aquí con una segunda cuenta paralela.
+    //
+    // `evaluateCandidateAcceptance` decide, EN VIVO y por candidato mientras la
+    // página todavía se está pidiendo, si cuenta como net-new. Usa la misma
+    // verdad histórica fuerte que `evaluatePrepaidHistory` más abajo
+    // (`evaluatePrepaidHistoricalDuplicate` sobre `loadPrepaidHistoricalIndex`),
+    // pero con caché POR DOMINIO y ámbito de ESTA ronda: `buildNoveltyIndex` es
+    // por diseño una consulta por CONJUNTO de dominios (no puede "traer todo"
+    // sin dominios), así que no hay forma de precargar los dominios de páginas
+    // que Apollo todavía no devolvió. Lo que sí se evita es leer el MISMO
+    // dominio dos veces dentro de la misma ronda — cachear es lo máximo que se
+    // puede adelantar sin tocar `apollo-organizations-paginated-search.ts`
+    // (que llama al evaluador UNA vez por candidato, secuencialmente, y no
+    // puede lotearse por página sin cambiar ese motor, fuera de alcance de este
+    // corte). Esta lectura es DISTINTA de la que hace `evaluatePrepaidHistory`
+    // más abajo en `assessCandidate` — ésa sigue corriendo sin cambios DESPUÉS
+    // de que la búsqueda ya volvió, como parte de la cadena canónica completa.
+    // La doble lectura por dominio (aquí y en `assessCandidate`) es un costo
+    // aceptado y explícito: sin ella, la paginación no tendría con qué
+    // distinguir un candidato genuinamente nuevo de un duplicado histórico
+    // mientras todavía está en curso.
+    //
+    // Fail-open, igual que el resto de los gates baratos: un dominio ausente o
+    // una lectura degradada nunca detiene la paginación por sí sola, sólo deja
+    // de poder afirmar que ESE candidato es duplicado.
+    const roundHistoricalRowsCache = new Map<string, HistoricalCandidateRow[]>();
+    const roundHistoricalDegradedDomains = new Set<string>();
+    const evaluateCandidateAcceptance = async (
+      organization: NormalizedApolloOrganization,
+    ): Promise<boolean> => {
+      const normalizedDomain = organization.primaryDomain;
+      // § 7 de `apollo-prepaid-historical-parity.ts` — sin dominio no hay eje
+      // fuerte que consultar: no se lee nada y no se afirma nada. Se trata
+      // como net-new (fail-open), igual que `evaluatePrepaidHistory`.
+      if (normalizedDomain === null) return true;
+
+      let rows = roundHistoricalRowsCache.get(normalizedDomain);
+      let degraded = roundHistoricalDegradedDomains.has(normalizedDomain);
+      if (rows === undefined && !degraded) {
+        const loaded = await deps
+          .loadPrepaidHistoricalIndex({ domains: [normalizedDomain] })
+          .catch(() => ({ index: new Map() as NoveltyIndex, degraded: true }));
+        if (loaded.degraded) {
+          degraded = true;
+          roundHistoricalDegradedDomains.add(normalizedDomain);
+        } else {
+          rows = (loaded.index.get(normalizedDomain) ?? []) as HistoricalCandidateRow[];
+          roundHistoricalRowsCache.set(normalizedDomain, rows);
+        }
+      }
+
+      const verdict = evaluatePrepaidHistoricalDuplicate({
+        needle: {
+          normalizedDomain,
+          name: organization.name,
+          // Apollo no trae identificador fiscal en la búsqueda — igual que en
+          // `evaluatePrepaidHistory`, el eje existe y se evalúa, pero no se
+          // inventa ningún valor para rellenarlo.
+          taxIdentifier: null,
+          countryCode: input.countryCode,
+        },
+        rows: rows ?? [],
+        evidenceUnavailable: degraded,
+      });
+      return !verdict.alreadyKnown;
+    };
+
     const searchOptions: ApolloOrgsSearchOptions = {
       // § 5 — la modalidad necesita ver a los candidatos con evidencia sectorial
       // insuficiente: son los únicos que pueden competir por un enrichment. El
@@ -1364,6 +1663,10 @@ export async function runApolloTwoRoundWizardDiscovery(
       // Apollo. El request efectivo se construye abajo y no lee este campo, y su
       // huella —que es la que se compara— tampoco cambia por su presencia.
       ...(input.priorProviderSeen ? { priorProviderSeen: input.priorProviderSeen } : {}),
+      // AGENT1-APOLLO-NET-NEW-PAGINATION-LIVE-WIRING — los DOS juntos activan
+      // paginación real dentro de esta invocación (ver comentario arriba).
+      netNewTarget: requestedResultLimit,
+      evaluateCandidateAcceptance,
     };
 
     const effective = buildApolloOrganizationsEffectiveRequest({
@@ -1419,6 +1722,123 @@ export async function runApolloTwoRoundWizardDiscovery(
         requestedResultLimit,
       );
 
+      // AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING PARTE B — valla durable de
+      // página. `fenceIdentity` reutiliza la MISMA identidad que el checkpoint
+      // de ronda: un documento de otra corrida no puede prestar sus páginas.
+      const fenceIdentity = {
+        idempotencyKey: input.correlation.idempotencyKey,
+        requestFingerprint: input.correlation.requestFingerprint,
+      };
+      const roundNumber = operationContext.roundNumber;
+      // § B7/C13 — sólo las entradas de ESTA ronda: round1/pageN y
+      // round2/pageN nunca se confunden, aunque compartan número de página.
+      const fenceReadOutcome = await deps.readPageFenceEntries(input.reservedBatchId, fenceIdentity);
+
+      // AGENT1-APOLLO-DURABLE-FENCE-HARD-CRASH-FIX · BLOQUEADOR 2 — una
+      // lectura que falló NUNCA se trata como "sin páginas previas": no hay
+      // forma de saber qué ya se intentó, así que Apollo no se toca en esta
+      // invocación. Mismo idioma que `budgetExceeded()` más arriba en esta
+      // misma función — cero organizaciones, cero peticiones, cero créditos —
+      // salvo que aquí el motivo se deja explícito en `warnings` para que no
+      // se confunda con "la ronda no hacía falta".
+      if (fenceReadOutcome.kind === 'failed') {
+        warnings.push(`apollo_page_fence_read_failed:${fenceReadOutcome.reason}`);
+        return { organizations: [], providerRequestCount: 0, internalRecordedCredits: 0 };
+      }
+
+      const fenceEntriesForRound = fenceReadOutcome.entries.filter(
+        (entry): entry is ApolloPageFenceEntry => entry.round_number === roundNumber,
+      );
+      const durableResume = toApolloDurableResumeState(fenceEntriesForRound);
+
+      const searchOptionsWithFence: ApolloOrgsSearchOptions = {
+        ...searchOptions,
+        durableResume,
+        durablePageFence: {
+          beforeRequest: async ({ page, requestFingerprint }) => {
+            const outcome = await deps.writePageFenceEntry(input.reservedBatchId, fenceIdentity, {
+              round_number: roundNumber,
+              search_plan_fingerprint: requestFingerprint,
+              page,
+              status: 'request_started',
+              organizations: [],
+              // § B10/B11 — la posible página ya salió hacia Apollo cuando esta
+              // valla se escribe. 1, no 0: nunca se representa un cobro posible
+              // como definitivamente gratis.
+              credits: 1,
+              results_returned: 0,
+              total_pages: null,
+              accepted_count: null,
+            });
+            // AGENT1-APOLLO-FINAL-SAFETY-CLOSURE · PARTE A — `upsertApolloPageFenceEntry`
+            // nunca lanza: reporta el fallo como `{kind: 'failed'}` (ver
+            // `page-fence.server.ts`). Ese resultado debe LANZAR aquí, porque
+            // `runApolloOrganizationsPaginatedSearch` sólo trata como
+            // fail-closed lo que esta función lanza — un `return` silencioso
+            // sobre un fallo dejaría la petición a Apollo salir sin registro,
+            // exactamente el defecto que este corte cierra.
+            if (outcome.kind === 'failed') {
+              throw new Error(`durable_page_fence_write_failed: ${outcome.reason}`);
+            }
+          },
+          onSucceeded: async ({
+            page,
+            requestFingerprint,
+            organizations,
+            credits,
+            resultsReturned,
+            totalPages,
+            acceptedCount,
+          }) => {
+            const outcome = await deps.writePageFenceEntry(input.reservedBatchId, fenceIdentity, {
+              round_number: roundNumber,
+              search_plan_fingerprint: requestFingerprint,
+              page,
+              status: 'succeeded',
+              organizations: organizations.map(toApolloPageFenceOrganization),
+              credits,
+              results_returned: resultsReturned,
+              total_pages: totalPages,
+              accepted_count: acceptedCount,
+            });
+            // BLOQUEADOR 3 — igual que `beforeRequest`: un fallo AQUÍ debe
+            // LANZAR, porque sólo lo que esta función lanza detiene la
+            // paginación (`durable_fence_terminal_write_failed`). Un `return`
+            // silencioso dejaría que se pidiera la página siguiente aunque el
+            // desenlace de ÉSTA se haya quedado en `request_started` durable —
+            // posiblemente cobrada, nunca confirmada.
+            if (outcome.kind === 'failed') {
+              throw new Error(`durable_page_fence_terminal_write_failed: ${outcome.reason}`);
+            }
+          },
+          onIndeterminate: async ({ page, requestFingerprint }) => {
+            await deps.writePageFenceEntry(input.reservedBatchId, fenceIdentity, {
+              round_number: roundNumber,
+              search_plan_fingerprint: requestFingerprint,
+              page,
+              status: 'indeterminate',
+              organizations: [],
+              // § B10 — mismo motivo que `beforeRequest`: el desenlace de esta
+              // página nunca se confirmó, así que su exposición se conserva en
+              // 1, nunca se asienta en 0.
+              credits: 1,
+              results_returned: 0,
+              total_pages: null,
+              accepted_count: null,
+            });
+            // BLOQUEADOR 3 — a diferencia de `onSucceeded`, no hace falta
+            // inspeccionar el desenlace de esta escritura para detener la
+            // paginación: `onIndeterminate` sólo se invoca cuando la
+            // clasificación del error ya es `retryable: false` (ver el
+            // comentario en `apollo-organizations-paginated-search.ts`), así
+            // que el motor YA se detiene para esta página sin importar si esta
+            // escritura tuvo éxito. La verdad conservadora que protege el
+            // reintento es el `request_started` que `beforeRequest` ya dejó
+            // durable.
+          },
+        },
+      };
+
       const output = await deps.searchApollo(
         searchInput,
         requestedResultLimit,
@@ -1435,7 +1855,7 @@ export async function runApolloTwoRoundWizardDiscovery(
           operationContext: toApolloTwoRoundOperationContextMetadata(operationContext),
         },
         undefined,
-        searchOptions,
+        searchOptionsWithFence,
       );
       searchOutputs.push(output);
       // SECTOR-EVIDENCE-BOOTSTRAP-1 — la autorización se acumula desde las búsquedas
@@ -1559,18 +1979,42 @@ export async function runApolloTwoRoundWizardDiscovery(
         negativeMemory.excludedDomains.has(identity.normalizedDomain);
       const knownDuplicate = duplicate.sellUpDuplicate || duplicate.hubSpotDuplicate;
 
+      /**
+       * AGENT1-APOLLO-PREPAID-HISTORICAL-PARITY § 4, § 10, § 12, § 13 — la
+       * evidencia histórica FUERTE, consultada ANTES de pagar.
+       *
+       * Este es el punto que cierra el corte: `assessCandidate` es el último
+       * lugar donde una decisión es todavía gratuita. Un `rejection` aquí saca al
+       * candidato de `globalFreeSignals`, y con ello de la selección de
+       * enrichment, del ranking final y de `persisted`/`reviewOnly`. Es decir:
+       *
+       *   0 llamadas de enrichment · 0 filas nuevas · 0 accepted-for-target
+       *
+       * Antes esta misma verdad se conocía —el writer la aplicaba en Pass 4— pero
+       * llegaba DESPUÉS del crédito.
+       */
+      const prepaidHistory = await evaluatePrepaidHistory(
+        key,
+        identity.normalizedDomain,
+        organization.name ?? null,
+        built.candidate.website ?? null,
+      );
+      const historicallyKnown = prepaidHistory.alreadyKnown;
+
       const signals: CheapAssessment['signals'] = {
         countryCompatible: eligibility.eligible || eligibility.skipReason !== 'country_mismatch',
         domainConfident: identity.normalizedDomain !== null,
         ownershipConfident: eligibility.eligible && eligibility.domainSource === 'asserted',
         sectorKeywordMatchCount: sector.matchedTerms.length,
-        novel: !knownDuplicate && !cooldownActive,
+        novel: !knownDuplicate && !cooldownActive && !historicallyKnown,
         hasCompanySizeSignal: readHasEmployeeCount(result),
         hasLocationSignal: readHasLocation(result),
         hasLinkedInUrl: identity.normalizedLinkedInUrl !== null,
         freeOfContradictoryEvidence: sectorEvidenceState !== 'sector_evidence_contradictory',
         knownDuplicate,
-        cooldownActive,
+        // Una empresa ya entregada es, a todos los efectos del ranking, una
+        // sugerencia previa. No se abre una señal paralela.
+        cooldownActive: cooldownActive || historicallyKnown,
         // § 7 — viaja al ranking: un candidato contradicho no compite por un
         // enrichment ni aunque el resto de sus señales sea impecable.
         declaredSectorContradiction: contradiction.contradictory,
@@ -1586,7 +2030,9 @@ export async function runApolloTwoRoundWizardDiscovery(
         rejection = 'duplicate_in_sellup';
       } else if (duplicate.hubSpotDuplicate) {
         rejection = 'duplicate_in_hubspot';
-      } else if (cooldownActive) {
+      } else if (cooldownActive || historicallyKnown) {
+        // Mismo motivo canónico: «sugerida antes». No se introduce un código
+        // nuevo en la taxonomía por una autoridad nueva sobre el mismo hecho.
         rejection = 'cooldown_or_prior_suggestion';
       } else if (sectorEvidenceState === 'sector_not_mapped') {
         rejection = 'sector_not_mapped';
@@ -1598,7 +2044,7 @@ export async function runApolloTwoRoundWizardDiscovery(
         rejection,
         sectorEvidenceState,
         signals,
-        noPriorSuggestion: !cooldownActive,
+        noPriorSuggestion: !cooldownActive && !historicallyKnown,
       };
     },
 
@@ -2426,6 +2872,8 @@ export async function runApolloTwoRoundWizardDiscovery(
           : {}),
         ...observability,
       },
+      // CUT-8 · DECISIÓN B — la costura viaja hasta el writer sin tocarse.
+      resolveExtraBatchMetadata: input.resolveExtraBatchMetadata ?? null,
     });
 
     candidatesCreated = writerResult.candidatesCreated;

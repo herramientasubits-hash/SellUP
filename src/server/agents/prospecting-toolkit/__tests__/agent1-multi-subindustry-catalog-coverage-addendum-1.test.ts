@@ -482,10 +482,13 @@ describe('§ 9 · fixture ce957e2f y su equivalente puramente catalog-only', () 
 // ─── § 8: topes de gasto invariantes ───────────────────────────────────────────
 
 describe('§ 8 · los topes de gasto no se mueven', () => {
-  test('2 llamadas de búsqueda, 5 enrichments, 25 créditos — tope absoluto', () => {
+  test('2 llamadas de búsqueda, 5 enrichments, 15 créditos — tope absoluto', () => {
     assert.equal(MAX_SEARCH_ROUNDS_ABSOLUTE_MAX, 2);
-    assert.equal(MAX_ENRICHMENTS_PER_RUN_ABSOLUTE_MAX, 5);
+    assert.equal(MAX_ENRICHMENTS_PER_RUN_ABSOLUTE_MAX, 6);
 
+    // AGENT1-APOLLO-NET-NEW-PAGINATION-LIVE-WIRING — la mitad de Search ya no
+    // escala con `maxResultsPerRound` (10 aquí): queda fija en
+    // `WIZARD_APOLLO_MAX_PAGES_HARD_CAP` (5) por ronda. 2×5 + 5 enrichments = 15.
     const budget = estimateApolloTwoRoundBudget({
       targetEligibleCompanies: 5,
       maxRounds: 2,
@@ -493,7 +496,7 @@ describe('§ 8 · los topes de gasto no se mueven', () => {
       maxRawResultsPerRun: 20,
       maxEnrichmentsPerRun: 5,
     });
-    assert.equal(budget.maximumInternalRecordedCredits, 25);
+    assert.equal(budget.maximumInternalRecordedCredits, 15);
   });
 
   test('el presupuesto no cambia con 1 o con 5 subindustrias catalog-only', () => {
@@ -512,7 +515,7 @@ describe('§ 8 · los topes de gasto no se mueven', () => {
     });
     assert.equal(
       estimateApolloTwoRoundBudget(configuredBudget.config).maximumInternalRecordedCredits,
-      25,
+      15,
     );
   });
 });

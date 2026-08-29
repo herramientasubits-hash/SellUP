@@ -112,7 +112,12 @@ import { markWizardBatchFailed } from './wizard-batch-failure';
 import {
   DURABLE_PROSPECT_CANDIDATE_STATUSES,
   durableCandidatesFromCount,
+  NO_PRE_EXISTING_DURABLE_CANDIDATES,
+  resolveBatchDurableTotals,
+  resolveBatchTerminalStatusDecision,
 } from '@/server/prospect-batches/batch-durable-candidates';
+import type { BatchTerminalStatus } from '@/server/prospect-batches/batch-durable-candidates';
+import { createCanonicalWizardBatchResolver } from './wizard-canonical-batch';
 import type { CatalogResolutionInput, CatalogResolutionOutput } from './wizard-catalog-resolver';
 import type { IncrementalSearchOutput } from '@/server/agents/prospecting-toolkit/incremental-search-types';
 import type { PilotGuardrailCode, ConfirmWizardCreditsOutput, ReleaseWizardCreditsOutput } from './wizard-pilot-types';
@@ -141,6 +146,18 @@ import {
   fullTargetResultDemand,
   resolveProviderResultDemand,
 } from '@/modules/prospect-batches/prepaid-novelty/provider-result-demand';
+// AGENT1-LOCAL-CUT7-ACCEPTED-FOR-TARGET §§ 1, 6, 7 — la ÚNICA autoridad sobre
+// cuántos candidatos cuentan hacia el objetivo del usuario.
+import {
+  ACCEPTED_FOR_TARGET_METADATA_KEY,
+  PAID_ROUTE_NOT_RUN_WRITER_TRUTH,
+  paidAcceptedContributionFromWriterTruth,
+  resolveAcceptedForTarget,
+  toAcceptedForTargetMetadata,
+} from '@/modules/prospect-batches/accepted-for-target';
+// AGENT1-LOCAL-CUT8B — la publicación terminal de la rama sólo-gratuita.
+import { composeFreeOnlyTerminalBatchMetadata } from './free-only-terminal-publication';
+import type { ResolveExtraBatchMetadata } from '@/server/agents/prospecting-toolkit/writer-metadata-resolution';
 import type { ApolloPriorProviderSeen } from '@/server/agents/prospecting-toolkit/apollo-organizations-provider-seen';
 // AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — huso y cliente service_role del
 // presupuesto, compartidos con la lectura previa al primer clic.
@@ -236,7 +253,46 @@ export type WizardExecutionDeps = {
     requestedTarget: number;
     requestedByUserId: string;
     countryName: string;
+    /**
+     * AGENT1-LOCAL-CUT5-SINGLE-BATCH-PLUMBING §§ 4, 5 — el lote canónico de ESTA
+     * ejecución, resuelto perezosamente. Lo gratuito y lo de pago comparten lote.
+     */
+    resolveBatchId: () => Promise<string>;
   }) => Promise<PrePaidNoveltyDiscoveryOutcome>;
+  /**
+   * AGENT1-LOCAL-CUT5-SINGLE-BATCH-PLUMBING § 11 — sella el lote canónico cuando
+   * la capa GRATUITA cierra el objetivo entera y el proveedor no llega a correr.
+   *
+   * Existe por una consecuencia directa de compartir lote. Cuando la capa
+   * gratuita creaba lote propio, el writer estructurado lo nacía en
+   * `ready_for_review`. Al ADOPTAR el slot del wizard ya no crea nada, y el slot
+   * nace en `draft`: sin sellar, esta rama devolvería
+   * `batchStatus: 'ready_for_review'` sobre una fila que sigue en `draft`.
+   *
+   * 🔴 No es una máquina de estados nueva: el estado lo decide
+   * `resolveBatchTerminalStatusDecision`, la MISMA de CUT-1 que ya usan los
+   * escritores de proveedor, y el vocabulario es el que ya existe.
+   *
+   * Opcional: sin ella el estado del lote queda como estuviera, que es lo que
+   * hacen el resto de las rutas cuando no pueden afirmar nada.
+   */
+  sealFreeOnlyBatchStatus?: (input: {
+    batchId: string;
+    status: BatchTerminalStatus;
+    /**
+     * AGENT1-LOCAL-CUT8B — el bloque canónico que esta corrida publica, ya
+     * resuelto y ya serializado por las autoridades de CUT-7.
+     *
+     * 🔴 Viaja EN el sellado, no en una escritura aparte. La rama sólo-gratuita
+     * no pasa por ningún writer de proveedor, así que ésta es su única
+     * publicación durable post-outcome — la misma posición que ocupa la
+     * escritura terminal de `candidate-writer` en la rama mixta.
+     *
+     * `null` ⇒ no hay nada que publicar y el sellado escribe estado y nada más,
+     * byte por byte como antes del corte.
+     */
+    metadata?: Record<string, unknown> | null;
+  }) => Promise<void>;
   // Budget guardrail operations — period calculation and settings load are encapsulated here.
   reserveBudget: (input: {
     userId: string;
@@ -428,6 +484,9 @@ export async function executeProspectWizardGenerationAction(
         macroIndustryKey: input.macroIndustryKey,
         requestedTarget: input.requestedTarget,
         requestedByUserId: input.requestedByUserId,
+        // CUT-5 §§ 4, 5 — el lote canónico de la ejecución llega hasta el writer
+        // gratuito. Sin esto la capa creaba lote propio.
+        resolveBatchId: input.resolveBatchId,
         partialGapSupported: WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED,
         // ADDENDUM PROVIDER-SEEN §§ 5, 6 — esta ruta paga con Apollo, cuya
         // capacidad de exclusión es NINGUNA (su contrato no la prueba). Que el
@@ -508,6 +567,43 @@ export async function executeProspectWizardGenerationAction(
 
     reserveSlot: (input) =>
       reserveWizardExecutionSlot(input, supabase as unknown as IdempotencyDbClient),
+
+    // CUT-5 § 11 — sella el lote que la capa gratuita cerró sola, con el valor
+    // que decidió la máquina de CUT-1.
+    //
+    // 🔴 AGENT1-LOCAL-CUT8B — esta escritura es además la ÚNICA publicación
+    // durable de metadata de la rama sólo-gratuita, porque en ella no corre
+    // ningún writer de proveedor. `status` y `metadata` viajan en el MISMO
+    // UPDATE —igual que en el sellado terminal de `candidate-writer`—, así que
+    // el corte no añade ni una escritura: la que ya existía carga una columna
+    // más.
+    //
+    // 🔴 La relectura previa NO es una publicación: es lo que impide pisar la
+    // procedencia que la reserva dejó (proveedor resuelto, taxonomía, criterios).
+    // Componer la metadata desde la petición en vez de desde la fila publicaría
+    // una versión a medias en cuanto la reserva ganara una clave nueva.
+    //
+    // Va por el cliente de SESIÓN, no por service_role, igual que
+    // `markBatchFailed`: la RLS de `prospect_batches` es la que acota la fila a
+    // su dueño, así que un id ajeno no puede tocar nada aunque llegue hasta aquí.
+    sealFreeOnlyBatchStatus: async ({ batchId, status, metadata }) => {
+      if (metadata == null) {
+        await supabase.from('prospect_batches').update({ status }).eq('id', batchId);
+        return;
+      }
+      const { data: currentRow } = await supabase
+        .from('prospect_batches')
+        .select('metadata')
+        .eq('id', batchId)
+        .maybeSingle();
+      await supabase
+        .from('prospect_batches')
+        .update({
+          status,
+          metadata: composeFreeOnlyTerminalBatchMetadata(currentRow?.metadata, metadata),
+        })
+        .eq('id', batchId);
+    },
 
     runTavilyPipeline: (tavilyInput: WizardTavilyInput) => runWizardTavilySearch(tavilyInput),
     // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 (CASO B) — los términos de búsqueda
@@ -950,11 +1046,91 @@ export async function executeProspectWizardGeneration(
   //
   // 🔴 Es la MISMA capa que corre la ruta Lusha (§ 25). Sin ella —dep ausente— el
   // hueco es el objetivo entero y todo lo de abajo se comporta como antes.
-  const countryEntryForSource = LATAM_COUNTRIES.find((c) => c.code === req.countryCode);
+  const countryEntry = LATAM_COUNTRIES.find((c) => c.code === req.countryCode);
+  const countryName = countryEntry?.name ?? req.countryCode;
+
+  // ── AGENT1-LOCAL-CUT5-SINGLE-BATCH-PLUMBING §§ 4, 5, 12, 13 ────────────────
+  //
+  // LA AUTORIDAD DEL LOTE DE ESTA EJECUCIÓN, declarada ANTES de la primera rama
+  // que pueda escribir.
+  //
+  // El defecto que cierra: la capa gratuita de abajo persistía por su cuenta y
+  // creaba lote propio, porque la reserva del slot ocurría después (paso 9). Una
+  // sola búsqueda podía terminar en DOS lotes —lo gratuito en uno, lo de pago en
+  // otro— y la redirección apuntaba sólo al segundo.
+  //
+  // 🔴 PEREZOSO a propósito: la fila nace en el primer momento en que alguien de
+  // verdad la necesita. Materializarla aquí habría dejado un lote vacío en `draft`
+  // en cada corrida que el presupuesto bloquea en el paso 7, que hoy no crean
+  // ninguno. El orden 5d → 6 → 7 se conserva intacto: que todo lo gratuito ocurra
+  // antes de estimar y de reservar es el hito de la puerta previa al pago.
+  //
+  // 🔴 Ni "último lote" ni "primer lote en curso" (§ 13): la identidad de la
+  // ejecución sigue siendo la que YA existía, `(created_by, client_request_id)`,
+  // y su índice único es lo que hace que dos ejecuciones simultáneas del mismo
+  // usuario, país y proveedor no puedan adoptarse la una a la otra (§ 14).
+  const canonicalBatch = createCanonicalWizardBatchResolver(deps.reserveSlot, {
+    userId,
+    clientRequestId: req.clientRequestId,
+    initialBatchPayload: {
+      requestSource: 'chat_wizard',
+      catalogVersionId: catalogResolution.catalog.version,
+      industryId: catalogResolution.industry.id,
+      subindustryIds: catalogResolution.subindustries.map((s) => s.id),
+      countryCode: req.countryCode,
+      additionalCriteria: req.additionalCriteriaRaw,
+      // CUT-2 REVIEW-1 § 3 — LA AUTORIDAD DEL OBJETIVO GLOBAL VIVE AQUÍ.
+      //
+      // 🔴 `WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES` (10) y NO
+      // `WIZARD_SYSTEM_CONTROLS.targetCount` (25): el 25 es la AMPLITUD de
+      // búsqueda del pipeline, no lo que el producto promete persistir. Las dos
+      // rutas del wizard prometen 10 —Apollo por esta constante y Tavily por
+      // `WIZARD_TARGET_PERSISTIBLE_CANDIDATES`—, así que el slot puede
+      // declararlo antes de saber qué proveedor correrá.
+      //
+      // Se establece ANTES de que exista ningún contribuyente. Sin esto, un
+      // residual de pago de 3 sería quien fijara el objetivo del lote entero.
+      targetCount: WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
+      // § 4 — el resto de la verdad request-global, también en origen. Son los
+      // mismos valores canónicos que el adaptador entrega al pipeline: no se
+      // inventa ninguno.
+      country: countryName,
+      industry: catalogResolution.industry.name,
+      searchDepth: WIZARD_PIPELINE_DEFAULTS.searchDepth,
+      // § 8/§ 26 — requested/resolved/reason quedan en el INSERT inicial, para
+      // TODOS los proveedores. La costura `extraBatchMetadata` sólo existe en la
+      // ruta de Apollo, así que sin esto una corrida Tavily con petición
+      // explícita no dejaba rastro de que se pidió otra cosa. También es la fila
+      // que un reintento relee para conservar su proveedor (§ 9).
+      runProviderSelection: toRunProviderSelectionMetadata(runProviderSelection),
+      // MACRO-INDUSTRY-CATALOG-DISCOVERY-1 § 8 — taxonomía declarada, no
+      // deducida: `subindustry_ids: []` no distingue «no había paso» de
+      // «la persona no quiso acotar».
+      discoveryTaxonomy: {
+        ...toDiscoveryTaxonomyMetadata(
+          resolveDiscoveryTaxonomyCapability(catalogResolution.catalog.version),
+        ),
+        macro_industry_key:
+          getMacroIndustryBySlug(catalogResolution.industry.slug)?.key ??
+          resolveMacroIndustryByDisplayName(catalogResolution.industry.name)?.key ??
+          null,
+        macro_industry_display_name: catalogResolution.industry.name,
+        requested_subindustries: catalogResolution.subindustries.map((s) => s.name),
+      },
+    },
+  });
+
+  /** § 5 — lo único que baja a las ramas: el id, nunca la capacidad de crear otro. */
+  const resolveCanonicalBatchId = async (): Promise<string> =>
+    (await canonicalBatch.resolve()).batchId;
+
   const prePaidNovelty = deps.runPrePaidNoveltyDiscovery
     ? await deps
         .runPrePaidNoveltyDiscovery({
           countryCode: req.countryCode,
+          // CUT-5 §§ 4, 5 — la capa gratuita ya no crea lote: recibe EL de esta
+          // ejecución. Es el hilo entero del corte.
+          resolveBatchId: resolveCanonicalBatchId,
           macroIndustryKey:
             getMacroIndustryBySlug(catalogResolution.industry.slug)?.key ?? null,
           // 🔴 El objetivo del USUARIO son los candidatos persistibles (10), no
@@ -963,34 +1139,12 @@ export async function executeProspectWizardGeneration(
           // hueco que el producto nunca prometió.
           requestedTarget: WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
           requestedByUserId: userId,
-          countryName: countryEntryForSource?.name ?? req.countryCode,
+          countryName,
         })
         // Fail-open (§ 12): una capa gratuita rota nunca deja el wizard
         // inservible. Se degrada a «no aportó» y la ruta de pago sigue.
         .catch((): PrePaidNoveltyDiscoveryOutcome | null => null)
     : null;
-
-  // § 15 — hueco cerrado gratis ⇒ NI estimación, NI reserva, NI cliente de
-  // proveedor, NI llamada. Se exige además un lote real: sin él no habría a dónde
-  // mandar al usuario, y anunciar éxito sin candidatos sería falso.
-  if (
-    prePaidNovelty &&
-    !prePaidNovelty.providerRequired &&
-    prePaidNovelty.batchId !== null &&
-    prePaidNovelty.persistedCount > 0
-  ) {
-    return {
-      ok: true,
-      status: 'success_target_reached',
-      batchId: prePaidNovelty.batchId,
-      batchStatus: 'ready_for_review',
-      candidateCount: prePaidNovelty.persistedCount,
-      redirectPath: `/prospect-batches/${prePaidNovelty.batchId}`,
-      targetPersistibleCandidates: WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
-      targetReached: true,
-      runProvider: runProviderOutcome,
-    };
-  }
 
   // ── 5e. CUT-2 §§ 3, 4, 5, 12 — la demanda de resultados de la ruta de pago ──
   //
@@ -1005,6 +1159,13 @@ export async function executeProspectWizardGeneration(
   // `withFreeSourcePersistenceOutcome` aplica un nivel más abajo, aplicada aquí a
   // la ÚNICA combinación que ese nivel no puede observar. De paso garantiza § 4:
   // Apollo nunca recibe una demanda de cero.
+  //
+  // 🔴 CUT-7 § 6 — se resuelve ANTES del retorno temprano de § 15, y no después
+  // como hasta este corte. El motivo es que la decisión «el objetivo ya está
+  // cerrado gratis» y la decisión «cuánto pedirle al proveedor» son la MISMA
+  // pregunta contestada con el mismo hueco; tenerlas en dos sitios permitía que
+  // la primera se resolviera con `providerRequired` y la segunda con la demanda,
+  // que es exactamente cómo dos vistas del mismo hecho empiezan a discrepar.
   const prePaidContributed =
     prePaidNovelty !== null &&
     prePaidNovelty.batchId !== null &&
@@ -1012,6 +1173,258 @@ export async function executeProspectWizardGeneration(
   const apolloResultDemand = prePaidContributed
     ? resolveProviderResultDemand(prePaidNovelty, WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES)
     : fullTargetResultDemand(WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES);
+
+  // ── CUT-6 §§ 3, 5, 13, 14 — el aporte GRATUITO que YA es durable ────────────
+  //
+  // 🔴 Ésta es la mitad que CUT-6 añade sobre CUT-2. Antes de este corte
+  // `apolloResultDemand` era el ÚNICO uso del resultado de la capa gratuita, y
+  // eso bastaba mientras el aporte parcial se descartaba: no había filas que
+  // nombrar. Con la activación, esas filas EXISTEN, están en el lote canónico y
+  // sobreviven a lo que le pase después a la ruta de pago —fallo, presupuesto
+  // denegado, proveedor caído o cero resultados—. Todo camino de salida que las
+  // ignore le estaría diciendo al usuario que no tiene nada cuando sí tiene.
+  //
+  // 🔴 Se deriva de `prePaidContributed`, la MISMA condición que gobierna la
+  // demanda, y no de una segunda lectura: si el hueco se recortó, hay filas; si no
+  // se recortó, no las hay. Dos condiciones separadas podrían discrepar.
+  //
+  // 🔴 AGENT1-LOCAL-CUT8B — se resuelve AQUÍ, por encima del retorno temprano de
+  // § 15, y no más abajo como hasta este corte. La rama sólo-gratuita necesita
+  // exactamente el mismo aporte libre que la mixta para publicar su metadata
+  // durable, y tenerlo declarado después de su propia salida obligaba a que esa
+  // rama se lo reconstruyera — una segunda vista del mismo hecho.
+  const freeContribution: { batchId: string; persistedCandidates: number } | null =
+    prePaidContributed && prePaidNovelty !== null && prePaidNovelty.batchId !== null
+      ? {
+          batchId: prePaidNovelty.batchId,
+          persistedCandidates: prePaidNovelty.persistedCount,
+        }
+      : null;
+
+  /**
+   * AGENT1-LOCAL-CUT8 §§ 1, 2 — LA ÚNICA ARITMÉTICA DE ACEPTACIÓN DE LA CORRIDA.
+   *
+   * La aceptación hacia el objetivo hace falta en TRES momentos que no coinciden:
+   *
+   *   · antes de la ruta de pago, para decidir si el objetivo ya se cerró gratis
+   *     y para publicar la metadata durable de la rama sólo-gratuita (CUT-8B);
+   *   · dentro del writer de pago, para que el bloque `accepted_for_target` se
+   *     publique en la MISMA escritura de metadata que ese writer ya hacía;
+   *   · después del pipeline, para el resultado de la acción y para el mago.
+   *
+   * Tenerlas como llamadas sueltas a `resolveAcceptedForTarget` habría sido el
+   * mismo defecto de CUT-7 un piso más arriba: expresiones que hoy coinciden y
+   * que mañana pueden separarse. Aquí hay UNA, y las tres la llaman.
+   *
+   * 🔴 Lo que varía entre las llamadas es SÓLO el aporte de pago, porque es lo
+   * único que cambia entre «el proveedor todavía no existe», «el writer acaba de
+   * contar» y «el pipeline ya devolvió». El objetivo, la demanda y el aporte
+   * gratuito son los mismos objetos capturados aquí — no se releen ni se
+   * recalculan.
+   */
+  const resolveRunAcceptance = (paidWriterTruth: {
+    completeValidCandidates: number | null | undefined;
+    persistedCandidates: number;
+  }) =>
+    resolveAcceptedForTarget({
+      demand: apolloResultDemand,
+      freePersistedCandidates: freeContribution?.persistedCandidates ?? 0,
+      paid: paidAcceptedContributionFromWriterTruth(paidWriterTruth),
+    });
+
+  /**
+   * DECISIÓN B — la costura durable. En la ruta de pago se invoca DENTRO del
+   * writer, con lo que el writer acaba de escribir, y lo devuelto se esparce en
+   * su única publicación de metadata. En la rama sólo-gratuita la invoca el
+   * sellado terminal, que es la única escritura post-outcome que esa rama tiene.
+   *
+   * 🔴 NO es una segunda escritura sobre `prospect_batches`: en las dos ramas
+   * viaja DENTRO de una escritura que ya existía. Y NO es una segunda autoridad:
+   * la cifra sale de `resolveRunAcceptance` y se serializa con
+   * `toAcceptedForTargetMetadata`, las dos de CUT-7.
+   *
+   * 🔴 `completeValidCandidates` se pasa TAL CUAL, `null` incluido. Sustituirlo
+   * por `persistedCandidates` publicaría en la base la mentira exacta que CUT-7
+   * cerró en la UI.
+   */
+  const resolveAcceptedForTargetBatchMetadata: ResolveExtraBatchMetadata = (writerOutcome) => ({
+    [ACCEPTED_FOR_TARGET_METADATA_KEY]: toAcceptedForTargetMetadata(
+      resolveRunAcceptance({
+        completeValidCandidates: writerOutcome.completeValidCandidates,
+        persistedCandidates: writerOutcome.persistedCandidates,
+      }),
+    ),
+  });
+
+  /**
+   * AGENT1-LOCAL-CUT8B § 4 — el bloque canónico de una corrida cuya ruta de pago
+   * NO corrió, por el MISMO proyector y con la MISMA forma que el de la mixta.
+   *
+   * 🔴 No hay una clave libre y otra de pago, ni un shape reducido: es la misma
+   * llamada con el aporte de pago declarado ausente. Cualquier variante
+   * —`free_accepted_for_target` y compañía— sería una segunda forma del mismo
+   * hecho, que es lo que este corte existe para impedir.
+   */
+  const freeOnlyAcceptedForTargetMetadata = (): Record<string, unknown> | null =>
+    resolveAcceptedForTargetBatchMetadata(PAID_ROUTE_NOT_RUN_WRITER_TRUTH);
+
+  /**
+   * AGENT1-LOCAL-CUT7-ACCEPTED-FOR-TARGET §§ 1, 6, 9 — cuántos candidatos
+   * CUENTAN hacia el objetivo antes de que la ruta de pago exista.
+   *
+   * 🔴 La mitad de pago entra declarada como «no corrió» —cero CONOCIDO— y no
+   * como una ausencia de medición: en este punto el proveedor todavía no ha
+   * corrido, y «no corrió» es una respuesta, no un dato que falte.
+   *
+   * 🔴 CUT-8B — sale del helper único de corrida, no de una llamada propia a
+   * `resolveAcceptedForTarget`. Es el mismo número que la metadata durable de
+   * esta rama publica, resuelto una sola vez.
+   */
+  const acceptedBeforePaidRoute = resolveRunAcceptance(PAID_ROUTE_NOT_RUN_WRITER_TRUTH);
+
+  // § 15 — hueco cerrado gratis ⇒ NI estimación, NI reserva, NI cliente de
+  // proveedor, NI llamada. Se exige además un lote real: sin él no habría a dónde
+  // mandar al usuario, y anunciar éxito sin candidatos sería falso.
+  //
+  // 🔴 CUT-7 §§ 1, 9 CASO A — la condición de cierre es `targetReached` de la
+  // autoridad de ACEPTACIÓN, no `!providerRequired`. Las dos coinciden hoy —el
+  // hueco de la demanda y el de la autoridad son el mismo número— y esa
+  // coincidencia es justamente lo que hace seguro el cambio: lo que se gana es
+  // que el veredicto de «objetivo alcanzado» de esta rama y el de la rama mixta
+  // salgan de UNA función y no de dos expresiones que puedan separarse. Un lote
+  // con filas gratuitas que NO cierran el objetivo deja de poder salir por aquí
+  // aunque su `providerRequired` se degradara.
+  if (
+    prePaidNovelty &&
+    acceptedBeforePaidRoute.targetReached &&
+    prePaidNovelty.batchId !== null &&
+    prePaidNovelty.persistedCount > 0
+  ) {
+    // ── CUT-5 § 11 — sellar el lote que la capa gratuita cerró sola ──────────
+    //
+    // Consecuencia directa de compartir lote. Cuando esta capa creaba lote
+    // propio, el writer estructurado lo nacía en `ready_for_review`; ahora ADOPTA
+    // el slot del wizard, que nace en `draft` y que ningún escritor de proveedor
+    // va a sellar porque en esta rama el proveedor NO corre. Sin esto, la
+    // respuesta anunciaría `ready_for_review` sobre una fila en `draft`.
+    //
+    // 🔴 El estado NO se decide aquí: lo decide `resolveBatchTerminalStatusDecision`,
+    // la misma máquina de CUT-1 que usan los escritores de proveedor, con el
+    // vocabulario que ya existe. `preExisting` se declara conocido y en 0 porque
+    // esta rama exige `persistedCount > 0`, y lo que ESTE contribuyente escribió
+    // es verdad propia que no depende de ninguna lectura.
+    const sealDecision = resolveBatchTerminalStatusDecision({
+      preExisting: durableCandidatesFromCount(0),
+      persistedCandidates: prePaidNovelty.persistedCount,
+      persistenceFailureCount: 0,
+    });
+    if (sealDecision.action === 'write' && deps.sealFreeOnlyBatchStatus) {
+      // Best-effort: un sellado fallido no puede convertir en error una corrida
+      // que ya persistió candidatos reales y verificables en el lote.
+      await deps
+        .sealFreeOnlyBatchStatus({
+          batchId: prePaidNovelty.batchId,
+          status: sealDecision.status,
+          // 🔴 CUT-8B — la ÚNICA publicación durable de esta rama. Viaja EN el
+          // sellado que ya existía, no en una escritura nueva: es la misma forma
+          // que `candidate-writer` usa en la rama mixta (una escritura terminal
+          // que carga `status` y `metadata` a la vez).
+          metadata: freeOnlyAcceptedForTargetMetadata(),
+        })
+        .catch(() => undefined);
+    }
+
+    return {
+      ok: true,
+      status: 'success_target_reached',
+      batchId: prePaidNovelty.batchId,
+      batchStatus: 'ready_for_review',
+      // 🔴 CUT-7 § 10 — el UNIVERSO DURABLE, que puede ser mayor que el
+      // subconjunto aceptado: con 12 empresas gratuitas y objetivo 10 aquí hay
+      // 12 filas reales que revisar y 10 aceptadas. Ninguna se oculta para que
+      // los números cuadren.
+      candidateCount: prePaidNovelty.persistedCount,
+      redirectPath: `/prospect-batches/${prePaidNovelty.batchId}`,
+      targetPersistibleCandidates: WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
+      targetReached: true,
+      // CUT-7 § 7 — el MISMO tipo canónico que consume la rama mixta.
+      acceptedForTarget: acceptedBeforePaidRoute,
+      runProvider: runProviderOutcome,
+    };
+  }
+
+  /**
+   * CUT-6 § 14 — el bloque que un resultado de FALLO usa para no mentir por
+   * omisión.
+   *
+   * Puro y sin efectos: sólo proyecta lo que ya se sabe. No es un éxito
+   * disfrazado —el `code` y el `retryable` del fallo no se tocan— y no promete
+   * que el objetivo se haya alcanzado: dice cuántas empresas quedaron guardadas y
+   * dónde verlas.
+   */
+  const describeFreeContribution = ():
+    | {
+        freeContribution: {
+          batchId: string;
+          persistedCandidates: number;
+          redirectPath: string;
+        };
+      }
+    | Record<string, never> =>
+    freeContribution === null
+      ? {}
+      : {
+          freeContribution: {
+            batchId: freeContribution.batchId,
+            persistedCandidates: freeContribution.persistedCandidates,
+            redirectPath: `/prospect-batches/${freeContribution.batchId}`,
+          },
+        };
+
+  /**
+   * CUT-6 § 13 — sella el lote canónico en las salidas donde NINGÚN escritor de
+   * proveedor va a hacerlo.
+   *
+   * El slot del wizard nace en `draft` y sólo un writer de proveedor —o el cierre
+   * por fallo— lo mueve. Una corrida que persiste 4 empresas gratuitas y muere en
+   * el presupuesto no pasa por ninguno de los dos, así que sin esto el lote se
+   * quedaría en `draft` con contenido real dentro: filas durables anunciadas como
+   * un borrador que nadie revisa. Eso es descartar el aporte parcial por la puerta
+   * de atrás, que es justo lo que este corte prohíbe.
+   *
+   * 🔴 No es una máquina de estados nueva: decide `resolveBatchTerminalStatusDecision`,
+   * la MISMA de CUT-1 que usan los escritores de proveedor y el sellado de CUT-5.
+   * `preExisting` se declara conocido y en 0 porque el lote canónico lo creó ESTA
+   * ejecución y la capa gratuita es su primer escritor.
+   *
+   * 🔴 NO se llama en las salidas que pasan por `markBatchFailed`: ése ya resuelve
+   * el estado con `resolveBatchFailureStatusDecision` y su propia sonda durable.
+   * Sellar además aquí sería una segunda autoridad sobre la misma fila.
+   */
+  const sealFreeContributionBatch = async (): Promise<void> => {
+    if (freeContribution === null) return;
+    const decision = resolveBatchTerminalStatusDecision({
+      preExisting: NO_PRE_EXISTING_DURABLE_CANDIDATES,
+      persistedCandidates: freeContribution.persistedCandidates,
+      persistenceFailureCount: 0,
+    });
+    if (decision.action !== 'write' || !deps.sealFreeOnlyBatchStatus) return;
+    // Best-effort, igual que el sellado de CUT-5: un sellado fallido no puede
+    // borrar filas que ya existen.
+    await deps
+      .sealFreeOnlyBatchStatus({
+        batchId: freeContribution.batchId,
+        status: decision.status,
+        // 🔴 CUT-8B § 4 CASO 2 — estas salidas terminan la corrida con SÓLO la
+        // contribución gratuita: el presupuesto bloqueó la parte de pago o la
+        // reserva no llegó a existir, así que ningún writer de proveedor va a
+        // publicar nada. La aceptación durable tiene que decir la verdad
+        // —`accepted = 7`, `remaining = 3`, `target_reached = false`— y no
+        // quedarse ausente porque el proveedor no corriera.
+        metadata: freeOnlyAcceptedForTargetMetadata(),
+      })
+      .catch(() => undefined);
+  };
 
   // CUT-2 §§ 8, 11, 12 — el snapshot de memoria PREVIA, con su ausencia nombrada.
   //
@@ -1073,6 +1486,12 @@ export async function executeProspectWizardGeneration(
             requiredCredits: requestedCredits,
           }
         : null;
+    // 🔴 CUT-6 §§ 5, 7, 13 — el presupuesto bloquea la parte PAGADA. Lo que la
+    // capa gratuita ya guardó no se toca, no se revierte y no se calla: se sella
+    // el lote a su estado verdadero y el fallo lo declara. Un bloqueo que
+    // devolviera el resultado de siempre dejaría 4 empresas reales en un `draft`
+    // que nadie mira.
+    await sealFreeContributionBatch();
     return {
       ok: false,
       code: budgetResult.code,
@@ -1081,6 +1500,7 @@ export async function executeProspectWizardGeneration(
       runProvider: runProviderOutcome,
       ...(twoRoundBlockDetail !== null ? { blockDetail: twoRoundBlockDetail } : {}),
       ...(budgetExceeded !== null ? { budgetExceeded } : {}),
+      ...describeFreeContribution(),
     };
   }
 
@@ -1140,9 +1560,9 @@ export async function executeProspectWizardGeneration(
   };
 
   // 8. Build resolved execution context (server-controlled — no client-supplied labels)
-  const countryEntry = LATAM_COUNTRIES.find((c) => c.code === req.countryCode);
-  const countryName = countryEntry?.name ?? req.countryCode;
-
+  // CUT-5 — `countryEntry`/`countryName` se resuelven ahora ANTES del paso 5d,
+  // porque la petición del lote canónico los necesita. Se reutilizan aquí: dos
+  // cálculos del mismo nombre de país podrían divergir en silencio.
   const resolved: ResolvedWizardExecution = {
     userId,
     clientRequestId: req.clientRequestId,
@@ -1164,69 +1584,36 @@ export async function executeProspectWizardGeneration(
   };
 
   // 9. Reserve durable execution slot (idempotency anchor).
+  //
+  // CUT-5 §§ 4, 12 — la reserva ya no se construye aquí: se RESUELVE contra la
+  // autoridad única declarada antes del paso 5d. Si la capa gratuita ya la
+  // materializó, esta llamada devuelve exactamente el mismo lote sin tocar la
+  // base; si no, la crea ahora. En las dos ramas el id es el mismo, que es la
+  // invariante entera del corte.
+  //
+  // 🔴 El payload NO viaja desde aquí a propósito: la petición del lote es verdad
+  // de la PETICIÓN, y si cada rama pudiera pasar el suyo el contenido del lote
+  // dependería de quién llegase primero a resolverlo.
   let reservation: WizardExecutionReservationResult;
   try {
-    reservation = await deps.reserveSlot({
-      userId,
-      clientRequestId: req.clientRequestId,
-      initialBatchPayload: {
-        requestSource: 'chat_wizard',
-        catalogVersionId: catalogResolution.catalog.version,
-        industryId: catalogResolution.industry.id,
-        subindustryIds: catalogResolution.subindustries.map((s) => s.id),
-        countryCode: req.countryCode,
-        additionalCriteria: req.additionalCriteriaRaw,
-        // CUT-2 REVIEW-1 § 3 — LA AUTORIDAD DEL OBJETIVO GLOBAL VIVE AQUÍ.
-        //
-        // 🔴 `WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES` (10) y NO
-        // `WIZARD_SYSTEM_CONTROLS.targetCount` (25): el 25 es la AMPLITUD de
-        // búsqueda del pipeline, no lo que el producto promete persistir. Las dos
-        // rutas del wizard prometen 10 —Apollo por esta constante y Tavily por
-        // `WIZARD_TARGET_PERSISTIBLE_CANDIDATES`—, así que el slot puede
-        // declararlo antes de saber qué proveedor correrá.
-        //
-        // Se establece ANTES de que exista ningún contribuyente. Sin esto, un
-        // residual de pago de 3 sería quien fijara el objetivo del lote entero.
-        targetCount: WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
-        // § 4 — el resto de la verdad request-global, también en origen. Son los
-        // mismos valores canónicos que el adaptador entrega al pipeline: no se
-        // inventa ninguno.
-        country: countryName,
-        industry: catalogResolution.industry.name,
-        searchDepth: WIZARD_PIPELINE_DEFAULTS.searchDepth,
-        // § 8/§ 26 — requested/resolved/reason quedan en el INSERT inicial, para
-        // TODOS los proveedores. La costura `extraBatchMetadata` sólo existe en la
-        // ruta de Apollo, así que sin esto una corrida Tavily con petición
-        // explícita no dejaba rastro de que se pidió otra cosa. También es la fila
-        // que un reintento relee para conservar su proveedor (§ 9).
-        runProviderSelection: toRunProviderSelectionMetadata(runProviderSelection),
-        // MACRO-INDUSTRY-CATALOG-DISCOVERY-1 § 8 — taxonomía declarada, no
-        // deducida: `subindustry_ids: []` no distingue «no había paso» de
-        // «la persona no quiso acotar».
-        discoveryTaxonomy: {
-          ...toDiscoveryTaxonomyMetadata(
-            resolveDiscoveryTaxonomyCapability(catalogResolution.catalog.version),
-          ),
-          macro_industry_key:
-            getMacroIndustryBySlug(catalogResolution.industry.slug)?.key ??
-            resolveMacroIndustryByDisplayName(catalogResolution.industry.name)?.key ??
-            null,
-          macro_industry_display_name: catalogResolution.industry.name,
-          requested_subindustries: catalogResolution.subindustries.map((s) => s.name),
-        },
-      },
-    });
+    reservation = await canonicalBatch.resolve();
   } catch {
     // Slot reservation failed — release budget if it was newly created
     if (budgetWasNew) {
       await deps.releaseBudget({ reservationId, reason: 'slot_reservation_failed' }).catch(() => undefined);
     }
+    // CUT-6 § 5 — inalcanzable cuando la capa gratuita ya aportó (el resolutor
+    // memoriza su reserva exitosa), pero el aporte se declara igual: la
+    // supervivencia de las filas no puede depender de un razonamiento sobre qué
+    // rama llegó primero.
+    await sealFreeContributionBatch();
     return {
       ok: false,
       code: 'GENERATION_FAILED',
       message: 'No se pudo reservar la ejecución. Por favor, intenta nuevamente.',
       retryable: true,
       runProvider: runProviderOutcome,
+      ...describeFreeContribution(),
     };
   }
 
@@ -1268,6 +1655,11 @@ export async function executeProspectWizardGeneration(
         reservedBatchId,
         // Q3F-5BB.11E — additive OBSERVATIONAL routing metadata (never gates).
         extraBatchMetadata: apolloRoutingExtraMetadata,
+        // 🔴 CUT-8 · DECISIÓN B — la aceptación NO puede viajar por
+        // `extraBatchMetadata`: esa costura se arma antes de que el writer corra
+        // y en ese momento la mitad de pago todavía no existe. Va como FUNCIÓN,
+        // que el writer invoca cuando ya contó y antes de publicar.
+        resolveExtraBatchMetadata: resolveAcceptedForTargetBatchMetadata,
         // A1-APOLLO-BUDGET-RECONCILIATION-1 — viaja hasta provider_usage_logs.
         runCorrelation: toRunCorrelationMetadata(runCorrelation),
         // A1-APOLLO-TWO-ROUND-QUALITY-1-FIX § 1/§ 7 — correlación completa: es
@@ -1293,12 +1685,16 @@ export async function executeProspectWizardGeneration(
     const toConfirm = await resolveCreditsToConfirm(reservedBatchId);
     await deps.confirmBudget({ reservationId, actualCreditsConsumed: toConfirm, batchId: reservedBatchId }).catch(() => undefined);
     await deps.markBatchFailed(reservedBatchId, 'pipeline_error').catch(() => undefined);
+    // CUT-6 §§ 5, 13 — sin sellado propio: `markBatchFailed` acaba de resolver el
+    // estado con su sonda durable (CUT-1), así que el lote que contiene el aporte
+    // gratuito queda en `ready_for_review` y no en `failed`. Aquí sólo se declara.
     return {
       ok: false,
       code: 'GENERATION_FAILED',
       message: 'El pipeline de búsqueda falló durante la ejecución.',
       retryable: false,
       runProvider: runProviderOutcome,
+      ...describeFreeContribution(),
     };
   }
 
@@ -1307,12 +1703,14 @@ export async function executeProspectWizardGeneration(
     const toConfirm = await resolveCreditsToConfirm(reservedBatchId);
     await deps.confirmBudget({ reservationId, actualCreditsConsumed: toConfirm, batchId: reservedBatchId }).catch(() => undefined);
     await deps.markBatchFailed(reservedBatchId, 'batchid_mismatch').catch(() => undefined);
+    // CUT-6 § 5 — misma regla que arriba: `markBatchFailed` ya decidió el estado.
     return {
       ok: false,
       code: 'GENERATION_FAILED',
       message: 'Se detectó una inconsistencia interna en el ID del lote generado.',
       retryable: false,
       runProvider: runProviderOutcome,
+      ...describeFreeContribution(),
     };
   }
 
@@ -1350,10 +1748,95 @@ export async function executeProspectWizardGeneration(
   }
 
   // 14. Success
-  const hasNewCandidates = (pipelineResult.candidatesCreated ?? 0) > 0;
   const noveltyExhausted = pipelineResult.metadata?.novelty_exhausted === true;
-  const targetPersistibleCandidates = pipelineResult.targetPersistibleCandidates ?? 10;
-  const targetReached = pipelineResult.targetReached === true;
+
+  // ── CUT-6 §§ 11, 14, 19 — la verdad COMBINADA de la ejecución ───────────────
+  //
+  // El pipeline sólo puede contar lo SUYO. Con el hueco parcial activo eso deja
+  // de ser el resultado: una corrida con 4 empresas gratuitas y 6 de Apollo
+  // reportaría 6, y una con 4 gratuitas y 0 de Apollo reportaría
+  // `no_new_candidates` sobre un lote que tiene 4 empresas dentro. Las dos son
+  // falsas, y la segunda invita al usuario a repetir —y pagar— una búsqueda que
+  // ya le dejó resultados.
+  //
+  // 🔴 La suma la hace `resolveBatchDurableTotals`, la MISMA de CUT-1 que usan
+  // los escritores, y no una aritmética nueva de este archivo. El aporte gratuito
+  // entra como `preExisting` porque se persistió ANTES —el campo lleva el momento
+  // de la lectura en el nombre justo para que nadie lo cuente dos veces—.
+  //
+  // 🔴 Y NO hay doble conteo con lo de pago: una identidad que la capa gratuita ya
+  // dejó en el lote la rechaza el dedupe de CUT-3 dentro del writer, así que
+  // `candidatesCreated` cuenta sólo lo REALMENTE admitido. 6 crudos con 2
+  // duplicados son 4 aquí, y el total queda en 8. No se finge 10.
+  const combinedDurableTotals = resolveBatchDurableTotals({
+    preExisting: durableCandidatesFromCount(freeContribution?.persistedCandidates ?? 0),
+    insertedNow: pipelineResult.candidatesCreated ?? 0,
+  });
+
+  const hasNewCandidates = combinedDurableTotals.totalDurableCandidates > 0;
+
+  // ── AGENT1-LOCAL-CUT7-ACCEPTED-FOR-TARGET §§ 1, 5, 6, 9 ────────────────────
+  //
+  // CUÁNTOS CANDIDATOS CUENTAN DE VERDAD HACIA EL OBJETIVO DE LA PERSONA.
+  //
+  // El defecto que cierra: hasta este corte el veredicto salía de
+  // `combinedDurableTotals`, es decir de FILAS. Y una fila persistida no es una
+  // empresa útil — `candidate-completeness-contract.ts` § D persiste a propósito
+  // el candidato incompleto o ambiguo como `needs_review` para que alguien lo
+  // revise—. Con 10 filas de las que 4 existen sólo para revisión, el wizard
+  // anunciaba «objetivo alcanzado» sobre 6 empresas.
+  //
+  // 🔴 Ninguna política de calidad nueva (§ 3). Las dos mitades entran con la
+  // cifra que su PROPIA autoridad ya resolvía:
+  //
+  //   · gratuita — `apolloResultDemand`, el mismo hueco con el que se le pidió
+  //     al proveedor. Que sea el mismo OBJETO y no dos números recalculados es
+  //     lo que impide que el hueco con el que se pide y el hueco con el que se
+  //     juzga puedan separarse (§ 6).
+  //   · pagada — `completeValidCandidates`, que el writer publica como
+  //     `target_count` desde AGENT1-APOLLO-LINKEDIN-QUALITY-INTEGRATION-1 § E
+  //     con el comentario literal «lo único que puede compararse con el target».
+  //     Existía; este archivo la ignoraba.
+  //
+  // 🔴 Fail-closed: un pipeline que escribió filas y NO midió su completitud
+  // aporta cero, nunca sus filas. Es la misma postura que
+  // `apollo-persisted-candidate-truth.ts` ya sostenía para `null`.
+  //
+  // 🔴 CUT-8 § 2 — la MISMA función que resolvió la metadata durable. Antes de
+  // este corte esta expresión vivía suelta aquí; que exista una sola impide que
+  // lo que la base guarda y lo que el mago enseña puedan discrepar.
+  const acceptedForTarget = resolveRunAcceptance({
+    completeValidCandidates: pipelineResult.persistenceOutcome?.completeValidCandidates ?? null,
+    persistedCandidates: pipelineResult.candidatesCreated ?? 0,
+  });
+
+  // 🔴 § 4/§ 12 — el objetivo PERSISTIBLE que se reporta es el del USUARIO, no el
+  // hueco recortado con el que corrió el proveedor. Decir «6» sobre una petición
+  // de 10 convertiría un detalle de ejecución en una promesa distinta a la que la
+  // persona hizo. `requestedTarget` sale de la demanda ya resuelta, que es la
+  // autoridad existente; no se acuña ninguna segunda.
+  //
+  // Sin aporte gratuito el valor es EXACTAMENTE el de antes, byte por byte.
+  const targetPersistibleCandidates =
+    freeContribution !== null
+      ? apolloResultDemand.requestedTarget
+      : (pipelineResult.targetPersistibleCandidates ?? 10);
+
+  // 🔴 CUT-7 §§ 1, 9 — el objetivo se decide con la autoridad de ACEPTACIÓN, y
+  // con ninguna otra.
+  //
+  // Antes de este corte había dos veredictos y los dos contaban filas: con aporte
+  // gratuito, `totalDurableCandidates >= target`; sin él, el `targetReached` del
+  // pipeline, que es `writerCandidatesCreated >= targetPersistibleCandidates`.
+  // El primero sumaba las filas de revisión de las dos mitades; el segundo, las
+  // de una. Ahora los dos caminos preguntan lo mismo a la misma función, y la
+  // respuesta es `acceptedFree + acceptedPaid >= requestedTarget`.
+  //
+  // 🔴 Esto CAMBIA el veredicto de corridas que antes se declaraban completas: 10
+  // filas de las que 4 son sólo de revisión pasan de `success_target_reached` a
+  // `success_partial`. Ése es el corte, no un efecto colateral: § 11 prohíbe que
+  // una capa anuncie 10 cuando la corrida consiguió 6.
+  const targetReached = acceptedForTarget.targetReached;
 
   // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — cifras reales de la escritura, tal
   // como las devolvió el writer. `null` cuando el pipeline no las produjo.
@@ -1403,15 +1886,30 @@ export async function executeProspectWizardGeneration(
     batchId: reservedBatchId,
     // El lote quedó `failed` por el writer (§ 9): el estado que se reporta es el
     // que la base tiene, no una etiqueta optimista.
-    batchStatus: persistenceBlocked
-      ? 'failed'
-      : hasNewCandidates
-        ? 'ready_for_review'
-        : 'nothing_to_write',
-    candidateCount: pipelineResult.candidatesCreated,
+    //
+    // 🔴 CUT-6 § 13 — salvo que el lote CONTENGA el aporte gratuito. Ahí el writer
+    // NO lo dejó en `failed`: su propia decisión de CUT-1 ve filas durables
+    // preexistentes y escribe `ready_for_review`. Reportar `failed` sobre esa fila
+    // sería la misma etiqueta optimista, en el otro sentido — un estado inventado
+    // que la base no tiene. `completed_with_errors` sigue siendo el estado de la
+    // EJECUCIÓN, porque la escritura de pago sí falló de verdad.
+    batchStatus:
+      persistenceBlocked && freeContribution === null
+        ? 'failed'
+        : hasNewCandidates
+          ? 'ready_for_review'
+          : 'nothing_to_write',
+    // 🔴 CUT-6 § 14 — el conteo COMBINADO. Sin aporte gratuito es idéntico a
+    // `pipelineResult.candidatesCreated`.
+    candidateCount: combinedDurableTotals.totalDurableCandidates,
     redirectPath: `/prospect-batches/${reservedBatchId}`,
     targetPersistibleCandidates,
     targetReached,
+    // 🔴 CUT-7 §§ 5, 7, 11 — el subconjunto ACEPTADO viaja junto al universo
+    // durable y con nombres distintos, para que ningún consumidor tenga que
+    // deducir uno del otro. `candidateCount` sigue siendo las filas; esto es lo
+    // que cuenta hacia el objetivo.
+    acceptedForTarget,
     ...(reconciliationFailed ? { reconciliationWarning: 'BUDGET_RECONCILIATION_FAILED' as const } : {}),
     // A1-APOLLO-BUDGET-RECONCILIATION-1: an overrun must be visible, not just
     // absorbed. The generation still succeeded — the candidates exist and the

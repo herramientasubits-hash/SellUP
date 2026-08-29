@@ -106,13 +106,15 @@ export default async function BatchDetailPage({ params }: Props) {
     ? (chileSubtitle ?? batch.name)
     : (batch.description ?? undefined);
 
-  // `isUsefulReviewCandidate` sigue decidiendo QUÉ FILAS monta la tabla
-  // accionable heredada — no se toca su semántica y no se le añaden filas
-  // nuevas (eso es CUT4-C, que primero debe reutilizar las guardas seguras de
-  // Prospectos). Lo que deja de decidir es CUÁNTOS candidatos dice tener el
-  // lote: ese conteo ya viene del contrato durable, resuelto en el servidor.
-  const usefulCandidates = candidates.filter(isUsefulReviewCandidate);
-  const omittedCandidates = candidates.filter((c) => !isUsefulReviewCandidate(c));
+  // AGENT1-CUT4-C — `isUsefulReviewCandidate` YA NO es la puerta de VISIBILIDAD.
+  // `getCandidatesByBatch` devuelve el universo durable del lote (contrato de
+  // CUT-1, el mismo del que salen los conteos), y ese universo entero se monta.
+  // Un candidato CO sin NIT —el disparador de CUT-4— se ve como cualquier otro.
+  //
+  // El clasificador conserva intacta su semántica y sigue siendo útil AQUÍ para
+  // lo único que le corresponde: ANOTAR por qué una fila está señalada por
+  // calidad. Anotar no es ocultar, y la tabla no lo consulta.
+  const qualityFlaggedCandidates = candidates.filter((c) => !isUsefulReviewCandidate(c));
 
   const counts = {
     total: batch.total_candidates ?? 0,
@@ -123,10 +125,13 @@ export default async function BatchDetailPage({ params }: Props) {
     duplicates: batch.duplicate_count ?? 0,
   };
 
+  // Lo LISTADO es ahora el universo durable recuperado, no un subconjunto de
+  // calidad. Si `listedCount` quedara por debajo del total, sería por lectura
+  // paginada, jamás por el clasificador — y el aviso lo dice sin negar filas.
   const candidatesPanel = resolveBatchCandidatesPanelState({
     batchId: batch.id,
     durableTotal: counts.total,
-    listedCount: usefulCandidates.length,
+    listedCount: candidates.length,
   });
 
   const summaryCards = [
@@ -555,17 +560,20 @@ export default async function BatchDetailPage({ params }: Props) {
             </span>
           </div>
         </div>
-        <CandidatesTableClient candidates={usefulCandidates} />
+        <CandidatesTableClient candidates={candidates} />
         {/*
-          CUT4-A1 — navegación segura. Los candidatos durables que esta tabla no
-          monta NO se le añaden aquí: `CandidateRowActions` conserva fuera de
-          Prospectos el comportamiento heredado de aprobar/descartar/duplicar, y
-          ampliarlo es CUT4-C. Mientras tanto el operador deja de ver un cero
-          falso y tiene una ruta no destructiva a la cola oficial de revisión.
+          CUT4-C — el enlace a la cola oficial SOBREVIVE. Ya no compensa filas
+          ocultas (no las hay): sigue siendo el acceso a la cola canónica de
+          revisión acotada a este lote. El aviso de filas no listadas sólo
+          aparece si la lectura paginada se quedó corta.
         */}
-        {candidatesPanel.showReviewCallout && (
+        {candidatesPanel.hasDurableCandidates && (
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/40 px-5 py-3">
-            <p className="text-xs text-muted-foreground">{candidatesPanel.calloutMessage}</p>
+            <p className="text-xs text-muted-foreground">
+              {candidatesPanel.showReviewCallout
+                ? candidatesPanel.calloutMessage
+                : 'Las acciones de revisión se autorizan con la misma política que la cola de Prospectos.'}
+            </p>
             <Link
               href={candidatesPanel.prospectosHref}
               className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-su-brand hover:bg-su-brand-soft transition-colors"
@@ -577,17 +585,26 @@ export default async function BatchDetailPage({ params }: Props) {
         )}
       </SurfaceCard>
 
-      {/* Omitted candidates */}
-      {omittedCandidates.length > 0 && (
+      {/*
+        CUT4-C — estas filas YA NO están omitidas: se listan en la tabla de
+        arriba como cualquier otra fila durable. Este bloque deja de ser una
+        segunda tabla que las esconde y pasa a ser lo único que aporta de más:
+        POR QUÉ el clasificador de calidad las señala.
+      */}
+      {qualityFlaggedCandidates.length > 0 && (
         <details className="group rounded-xl border border-border/40 bg-card p-4">
           <summary className="flex cursor-pointer items-center justify-between font-semibold text-xs text-muted-foreground hover:text-foreground">
             <span className="flex items-center gap-2">
-              <span>Empresas omitidas ({omittedCandidates.length})</span>
+              <span>Empresas señaladas por calidad ({qualityFlaggedCandidates.length})</span>
               <span className="rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-normal text-amber-700 dark:text-amber-400">
                 Inactivas, disueltas, duplicadas o sin NIT
               </span>
             </span>
           </summary>
+          <p className="mt-2 text-[11px] text-muted-foreground/70">
+            Estas empresas aparecen en la tabla de arriba. Aquí sólo se explica la
+            señal de calidad; no cambia qué acciones autoriza la revisión.
+          </p>
           <div className="mt-4 overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
@@ -599,7 +616,7 @@ export default async function BatchDetailPage({ params }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {omittedCandidates.map((c) => {
+                {qualityFlaggedCandidates.map((c) => {
                   const flags = c.review_flags ?? [];
                   const reasons: string[] = [];
                   if (flags.includes('liquidation_signal')) reasons.push('En liquidación');

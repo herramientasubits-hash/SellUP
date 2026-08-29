@@ -93,21 +93,25 @@ describe('A1-APOLLO-WIZARD-1 · normalización de respuesta', () => {
     assert.equal(result.meta.source_priority, 'organizations_first');
   });
 
-  // ── Caso 12: respuesta defensiva con accounts[] ────────────────────────────
-  it('acepta accounts[] solo, emparejando por organization_id', () => {
+  // ── Caso 12 (AGENT1-APOLLO-NET-NEW-PAGINATION § 2, Scenario H): accounts[]
+  // sin contraparte en organizations[] NUNCA es un candidato de descubrimiento
+  // por su cuenta. organizations[] es la ÚNICA fuente de identidad; accounts[]
+  // sólo completa. Se cuenta para diagnóstico agregado, nunca se materializa.
+  it('descarta accounts[] solo — no es candidato de descubrimiento, sólo diagnóstico', () => {
     const result = normalizeApolloOrganizationsResponse({
       accounts: [{ id: 'acct_9', organization_id: 'org_acme_1', name: 'Acme S.A.S' }],
     });
-    assert.equal(result.organizations.length, 1);
-    const [org] = result.organizations;
-    assert.equal(org.providerReference.providerOrganizationId, 'org_acme_1');
-    assert.equal(org.providerReference.providerAccountId, 'acct_9');
+    assert.equal(result.organizations.length, 0);
     assert.equal(result.meta.accounts_only_count, 1);
   });
 
-  // ── Caso 15: accounts[*].id NO es el organization id ───────────────────────
+  // ── Caso 15 (Scenario I): accounts[*].id NO es el organization id ──────────
+  // Se ejercita vía el camino de FUSIÓN (organizations[] + accounts[] con el
+  // mismo organization_id): sólo ese camino produce un candidato, y es donde
+  // `providerAccountId` se completa.
   it('nunca usa accounts[*].id como Apollo Organization ID', () => {
     const result = normalizeApolloOrganizationsResponse({
+      organizations: [{ id: 'org_real_1', name: 'X' }],
       accounts: [{ id: 'acct_NOT_AN_ORG_ID', organization_id: 'org_real_1', name: 'X' }],
     });
     const [org] = result.organizations;

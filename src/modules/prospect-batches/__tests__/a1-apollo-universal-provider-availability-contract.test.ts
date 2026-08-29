@@ -284,15 +284,18 @@ describe('§ 5 — los candados de ejecución siguen fail-closed', () => {
 });
 
 describe('§ 5 — los topes de la corrida no se movieron', () => {
-  it('los cinco topes absolutos siguen en 5 / 2 / 10 / 20 / 5', () => {
-    assert.equal(TARGET_ELIGIBLE_COMPANIES_ABSOLUTE_MAX, 5);
+  it('los cinco topes absolutos siguen en 10 / 2 / 10 / 20 / 6', () => {
+    // AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING — el tope de target subió de 6 a
+    // 10 (WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES, ver config.ts); el de
+    // enrichment NO se toca — sigue siendo la autoridad de presupuesto real.
+    assert.equal(TARGET_ELIGIBLE_COMPANIES_ABSOLUTE_MAX, 10);
     assert.equal(MAX_SEARCH_ROUNDS_ABSOLUTE_MAX, 2);
     assert.equal(MAX_RESULTS_PER_ROUND_ABSOLUTE_MAX, 10);
     assert.equal(MAX_RAW_RESULTS_PER_RUN_ABSOLUTE_MAX, 20);
-    assert.equal(MAX_ENRICHMENTS_PER_RUN_ABSOLUTE_MAX, 5);
+    assert.equal(MAX_ENRICHMENTS_PER_RUN_ABSOLUTE_MAX, 6);
   });
 
-  it('en los topes, el techo registrable de la corrida sigue siendo 25 créditos', () => {
+  it('en los topes, el techo registrable de la corrida es 15 créditos (Search es por página, no por resultado)', () => {
     const { config } = resolveApolloTwoRoundConfig({
       targetEligibleCompanies: '5',
       maxRounds: '2',
@@ -307,7 +310,10 @@ describe('§ 5 — los topes de la corrida no se movieron', () => {
       maxRawResultsPerRun: 20,
       maxEnrichmentsPerRun: 5,
     });
-    assert.equal(estimateApolloTwoRoundBudget(config).maximumInternalRecordedCredits, 25);
+    // AGENT1-APOLLO-NET-NEW-PAGINATION-LIVE-WIRING — 2 rondas ×
+    // WIZARD_APOLLO_MAX_PAGES_HARD_CAP (5) + 5 enrichments = 15, no 25:
+    // `maxResultsPerRound` ya no participa en la reserva de Search.
+    assert.equal(estimateApolloTwoRoundBudget(config).maximumInternalRecordedCredits, 15);
   });
 });
 

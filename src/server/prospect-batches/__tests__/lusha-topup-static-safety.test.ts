@@ -19,6 +19,14 @@ const SRC = resolve(HERE, '../../../..', 'src');
 const WRITER = resolve(SRC, 'server/prospect-batches/lusha-pending-review.ts');
 const ACTION = resolve(SRC, 'modules/prospect-batches/lusha-pending-review-actions.ts');
 const WIZARD = resolve(SRC, 'components/prospect-batches/chat-wizard/wizard-lusha-final-search.tsx');
+/**
+ * AGENT1-LOCAL-CUT9A § 4 — el reserve-or-return del lote canónico.
+ *
+ * 🔴 La escritura de `prospect_batches` salió de la acción y vive aquí. Entra en
+ * el conjunto MEDIDO porque, si no, esta guarda pasaría a verde justamente por
+ * haber perdido de vista la escritura que dice vigilar.
+ */
+const CANONICAL_BATCH = resolve(SRC, 'server/prospect-batches/lusha-canonical-batch.ts');
 const PREVIEW = resolve(SRC, 'server/prospect-batches/lusha-preview.ts');
 // AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 § 6 — los topes se EXTRAJERON del
 // writer a su propio módulo (mismos nombres, mismos valores) porque el ejecutor
@@ -139,12 +147,23 @@ describe('Q3F-5BB.7B static safety', () => {
 
   it('writer only writes prospect_batches + prospect_candidates (via injected deps)', () => {
     const a = readCode(ACTION);
-    // The action wires exactly these two write surfaces.
-    assert.match(a, /\.from\('prospect_batches'\)[\s\S]*?\.insert\(/);
+    const canonical = readCode(CANONICAL_BATCH);
+    // CUT9A — el lote se escribe en el reserve-or-return; los candidatos, en la acción.
+    assert.match(canonical, /\.from\('prospect_batches'\)[\s\S]*?\.insert\(/);
     assert.match(a, /\.from\('prospect_candidates'\)[\s\S]*?\.insert\(/);
-    // No other .insert/.update/.delete/.upsert against a different table.
-    const forbidden = a.match(/\.from\('(?!prospect_batches|prospect_candidates)[^']+'\)\s*[\s\S]{0,80}?\.(insert|update|delete|upsert)\(/g);
-    assert.equal(forbidden, null);
+    // No other .insert/.update/.delete/.upsert against a different table —
+    // medido sobre la superficie de persistencia ENTERA.
+    for (const source of [a, canonical]) {
+      const forbidden = source.match(/\.from\('(?!prospect_batches|prospect_candidates)[^']+'\)\s*[\s\S]{0,80}?\.(insert|update|delete|upsert)\(/g);
+      assert.equal(forbidden, null);
+    }
+    // 🔴 Y el lote se escribe UNA sola vez en toda la superficie: si la acción
+    // recuperara su propio INSERT, volverían los dos creadores independientes.
+    assert.equal(
+      /\.from\('prospect_batches'\)\s*[\s\S]{0,80}?\.insert\(/.test(a),
+      false,
+      'la acción de Lusha recuperó una escritura de lote propia',
+    );
   });
 
   it('31. no migration files were added in this milestone', () => {

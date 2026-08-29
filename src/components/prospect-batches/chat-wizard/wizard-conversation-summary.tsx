@@ -25,7 +25,8 @@ import { isSubindustrySelectionEnabled } from '@/modules/macro-industry-catalog/
 // pantalla no lee la base, no estima nada y no puede autorizar una corrida.
 import { resolveWizardPreExecutionBudgetBlock } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-preflight';
 import type { WizardBudgetPreflight } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-preflight';
-import { mapBudgetExceeded } from './wizard-execution-error-map';
+import { mapBudgetExceeded, presentFreeContribution } from './wizard-execution-error-map';
+import type { WizardFreeContribution } from '@/modules/prospect-batches/chat-wizard-execution/wizard-execution-types';
 // AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — disponibilidad del discovery de Agente
 // 1, y el catálogo de países del propio wizard como fuente de verdad.
 import {
@@ -143,6 +144,7 @@ export function WizardConversationSummary({
         executionEnabled={executionEnabled}
         onExecute={onExecute}
         executionError={state.executionError}
+        freeContribution={state.executionFreeContribution}
         onEditSearch={onEditSearch}
         onClose={onClose}
         lushaPreviewEnabled={lushaPreviewEnabled}
@@ -168,11 +170,24 @@ export function WizardConversationSummary({
 
   if (state.currentStep === 'success') {
     return (
+      /* 🔴 AGENT1-LOCAL-CUT8 § 3 — CADA número desde su propia autoridad.
+
+         Hasta este corte el panel recibía
+         `candidateCount={state.executionTargetPersistibleCandidates}`: el
+         OBJETIVO entregado como si fuera el conteo de candidatos. Una corrida
+         que pidió 10 y guardó 4 anunciaba «Se generaron 10 candidatos». Y como
+         ese campo del estado no lo despachaba nadie, en la práctica llegaba
+         `undefined` y el panel se quedaba mudo.
+
+         Ahora `candidateCount` son las FILAS durables y nada más. El objetivo
+         PEDIDO y el veredicto viajan dentro del resumen canónico de aceptación
+         —donde CUT-7 los dejó— y el panel los pinta desde ahí. Ninguno de los
+         dos se pasa suelto, para que no pueda volver a ocupar el sitio del otro. */
       <SuccessPanel
         status={state.executionStatus}
         noveltyExhausted={state.executionNoveltyExhausted}
-        candidateCount={state.executionTargetPersistibleCandidates}
-        targetPersistibleCandidates={state.executionTargetPersistibleCandidates}
+        candidateCount={state.executionCandidateCount}
+        acceptedForTarget={state.executionAcceptedForTarget}
         onClose={onClose}
         onEditSearch={onEditSearch}
         twoRoundOutcome={twoRoundOutcome}
@@ -226,6 +241,12 @@ type ValidatedPanelProps = {
   executionEnabled: boolean;
   onExecute: () => void;
   executionError: { code: string; message: string; retryable: boolean } | null;
+  /**
+   * CUT-6B § 3 — lo que la capa gratuita dejó guardado en la ejecución fallida.
+   * `null` = no hay nada que declarar, y el bloque de error se pinta byte por
+   * byte como antes de este corte.
+   */
+  freeContribution: WizardFreeContribution | null;
   onEditSearch: () => void;
   onClose: () => void;
   lushaPreviewEnabled: boolean;
@@ -242,7 +263,7 @@ type ValidatedPanelProps = {
   defaultDiscoveryProvider: WizardRunSelectableProvider | null;
 };
 
-function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute, executionError, onEditSearch, onClose, lushaPreviewEnabled, lushaCriteria, providerOverrideCapability, apolloRunModeLimits, requestedProvider, onRequestedProviderChange, budgetPreflight, defaultDiscoveryProvider }: ValidatedPanelProps) {
+function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute, executionError, freeContribution, onEditSearch, onClose, lushaPreviewEnabled, lushaCriteria, providerOverrideCapability, apolloRunModeLimits, requestedProvider, onRequestedProviderChange, budgetPreflight, defaultDiscoveryProvider }: ValidatedPanelProps) {
   const router = useRouter();
   // Q3F-5BB.3E — Final search step. When the collected criteria resolve to the
   // hidden Lusha provider, the final "Buscar con IA" search runs Lusha read-only
@@ -288,6 +309,11 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
   // sólo produciría el mismo bloqueo otra vez. Se retira también el selector de
   // proveedor, que comparte gate con el botón por diseño: si esta pantalla no
   // puede ejecutar, tampoco ofrece elegir con qué.
+  // 🔴 CUT-6B § 4 — la decisión de mostrar y el texto salen de UNA función pura y
+  // compartida (`presentFreeContribution`), no de una comparación escrita aquí.
+  // Devuelve `null` con aporte ausente o en cero, así que este componente no
+  // puede anunciar empresas que no existen.
+  const freeContributionNotice = presentFreeContribution(freeContribution);
   const isPersistenceBlocked = executionError?.code === 'PERSISTENCE_NOT_READY';
 
   // AGENT1-MACRO-V2-SUMMARY-BUDGET-UX-1 § 4 — un intento anterior ya volvió con
@@ -384,7 +410,30 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
       {executionError && (
         <div className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden />
-          <p className="text-xs text-destructive">{executionError.message}</p>
+          {/* 🔴 CUT-6B § 4 — el bloque de error tiene DOS lecturas posibles y sólo
+              una cambia. Sin aporte durable se pinta el MISMO árbol de antes de
+              este corte —el `<p>` como hijo directo del flex, sin envoltorio— y no
+              una versión equivalente: una rama aparte cuesta tres líneas y hace
+              literal la afirmación de que ese caso no cambió. Con aporte se
+              encabeza con el título y se añade la frase que declara lo guardado.
+
+              El título NO se pone en el caso sin aporte a propósito: cada código
+              ya trae su propia explicación (presupuesto, persistencia, proveedor
+              omitido), y anteponerles un encabezado genérico las reencuadraría a
+              todas por un cambio que sólo pretende dejar de callar un hecho. */}
+          {freeContributionNotice === null ? (
+            <p className="text-xs text-destructive">{executionError.message}</p>
+          ) : (
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-semibold text-destructive">
+                {freeContributionNotice.title}
+              </p>
+              <p className="text-xs text-destructive">{executionError.message}</p>
+              <p className="text-xs text-foreground" data-testid="wizard-free-contribution-notice">
+                {freeContributionNotice.message}
+              </p>
+            </div>
+          )}
         </div>
       )}
 

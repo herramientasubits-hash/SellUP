@@ -61,6 +61,7 @@ import type {
 } from '@/server/agents/prospecting-toolkit/types';
 
 import { preM126FencedInsert } from '@/server/prospect-batches/__tests__/support/lusha-pre-m126-fenced-insert';
+import { preM126BatchEpochSnapshot } from '@/server/prospect-batches/__tests__/support/lusha-batch-epoch-snapshot';
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
 const INPUT: LushaPreviewInput = {
@@ -71,7 +72,12 @@ const INPUT: LushaPreviewInput = {
   searchText: null,
 };
 
-const ACTOR = { internalUserId: 'user-1' };
+const ACTOR = {
+  internalUserId: 'user-1',
+  // AGENT1-LOCAL-CUT9A §§ 3, 8 — identidad de EJECUCIÓN + objetivo PEDIDO.
+  clientRequestId: '11111111-1111-4111-8111-111111111111',
+  requestedTarget: 5,
+};
 
 /** Las tres ramas REALES de `health_pharma`, del catálogo (no escritas a mano). */
 const HEALTH_PHARMA_PLAN = resolveLushaMacroSearchPlan('health_pharma');
@@ -157,13 +163,14 @@ function makeDeps(
       });
       return script[calls.length - 1] ?? successResult([]);
     },
-    insertBatch: async (row) => {
+    reserveBatch: async (row: LushaPendingReviewBatchRow) => {
       batches.push(row);
-      return { id: `batch-${batches.length}` };
+      return { id: `batch-${batches.length}`, adopted: false, identityEpoch: 0 };
     },
     // CUT-3B4-CORRECCIÓN — la valla es OBLIGATORIA; esta prueba modela la 126
     // SIN aplicar por la ÚNICA puerta legítima: la respuesta de la BASE.
     insertCandidatesFenced: preM126FencedInsert,
+    readBatchIdentityEpoch: preM126BatchEpochSnapshot,
     insertCandidates: async (rows) => {
       candidateRows.push(...rows);
       return { insertedCount: rows.length };

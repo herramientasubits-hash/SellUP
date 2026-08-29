@@ -66,6 +66,14 @@ export type ProviderDispatcher = (
   input: WebSearchInput,
   maxResults: number,
   usageContext?: DispatchUsageContext,
+  /**
+   * Quinto argumento opcional, sólo interpretado por el dispatcher real para
+   * el provider de búsqueda de organizaciones estructurado. Tipado como
+   * `unknown` aquí para que este módulo, que debe seguir siendo agnóstico de
+   * proveedor (ver la guardia "26.14" en tavily-usage-logging.test.ts), no
+   * importe la forma concreta de esas opciones.
+   */
+  structuredProviderOptions?: unknown,
 ) => Promise<WebSearchOutput>;
 
 export type TavilyUsageDeps = {

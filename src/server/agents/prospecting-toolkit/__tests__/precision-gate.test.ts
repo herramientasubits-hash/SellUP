@@ -522,7 +522,21 @@ describe('Fixture G — Adaptive metadata reconciliation post-writer', () => {
     });
   }
 
-  it('writer persisted 10 (target 10) → persisted_count=10, remaining=0, result_status=success_target_reached', async () => {
+  /**
+   * AGENT1-LOCAL-CUT8 · DECISIÓN A — estas tres pruebas fijaban el DEFECTO.
+   *
+   * Afirmaban que `adaptive_discovery` publicara `result_status` y
+   * `remaining_to_target` derivados de comparar FILAS persistidas contra el
+   * objetivo. Una fila persistida no es una empresa aceptada, así que
+   * `persisted_count === target ⇒ success_target_reached` declaraba alcanzado un
+   * objetivo que nadie había alcanzado. Mientras estas aserciones existieran,
+   * corregirlo era imposible sin ponerlas en rojo.
+   *
+   * Lo que se comprueba ahora es lo mismo que antes MENOS el veredicto: la
+   * reconciliación de filas sigue siendo exacta, y el veredicto ya no se emite
+   * aquí. Vive en `accepted_for_target`, que es su única autoridad.
+   */
+  it('writer persisted 10 (target 10) → persisted_count=10 y NINGÚN veredicto de objetivo', async () => {
     const result = await runIncrementalProspectingSearch(
       makeSearchInput({ targetPersistibleCandidates: 10 }),
       makeFakeWriter(10),
@@ -532,11 +546,18 @@ describe('Fixture G — Adaptive metadata reconciliation post-writer', () => {
     const adaptive = result.metadata.adaptive_discovery;
     assert.ok(adaptive, 'adaptive_discovery must not be null/undefined');
     assert.equal(adaptive.persisted_count, 10);
-    assert.equal(adaptive.remaining_to_target, 0);
-    assert.equal(adaptive.result_status, 'success_target_reached');
+    // El tope con el que corrió el descubrimiento SÍ se conserva: es el límite
+    // que gobernó la búsqueda, no una afirmación sobre lo conseguido.
+    assert.equal(adaptive.target_persistible_candidates, 10);
+    assert.equal(
+      adaptive.result_status,
+      undefined,
+      '🔴 10 filas no son 10 empresas aceptadas: el veredicto no se emite desde filas',
+    );
+    assert.equal(adaptive.remaining_to_target, undefined);
   });
 
-  it('writer persisted 4 (target 10) → success_partial, remaining=6', async () => {
+  it('writer persisted 4 (target 10) → persisted_count=4 y NINGÚN veredicto de objetivo', async () => {
     const result = await runIncrementalProspectingSearch(
       makeSearchInput({ targetPersistibleCandidates: 10 }),
       makeFakeWriter(4),
@@ -546,11 +567,17 @@ describe('Fixture G — Adaptive metadata reconciliation post-writer', () => {
     const adaptive = result.metadata.adaptive_discovery;
     assert.ok(adaptive, 'adaptive_discovery must not be null/undefined');
     assert.equal(adaptive.persisted_count, 4);
-    assert.equal(adaptive.remaining_to_target, 6);
-    assert.equal(adaptive.result_status, 'success_partial');
+    assert.equal(adaptive.result_status, undefined);
+    assert.equal(adaptive.remaining_to_target, undefined);
   });
 
-  it('writer persisted 0 → no_new_candidates', async () => {
+  /**
+   * 🔴 § J — la semántica de «sin empresas nuevas» del tablero NO cambia. Antes
+   * la llevaba `result_status`; ahora la lleva `persisted_count === 0`, que es
+   * un hecho de FILAS y siempre lo fue. `agent1-effectiveness` lo resuelve desde
+   * aquí para la metadata nueva y sigue leyendo `result_status` en la histórica.
+   */
+  it('writer persisted 0 → persisted_count=0, que es la señal de «sin empresas nuevas»', async () => {
     const result = await runIncrementalProspectingSearch(
       makeSearchInput({ targetPersistibleCandidates: 10 }),
       makeFakeWriter(0),
@@ -560,7 +587,7 @@ describe('Fixture G — Adaptive metadata reconciliation post-writer', () => {
     const adaptive = result.metadata.adaptive_discovery;
     assert.ok(adaptive, 'adaptive_discovery must not be null/undefined');
     assert.equal(adaptive.persisted_count, 0);
-    assert.equal(adaptive.result_status, 'no_new_candidates');
+    assert.equal(adaptive.result_status, undefined);
   });
 
   it('dryRun=true → adaptive_discovery is not null', async () => {

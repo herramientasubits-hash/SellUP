@@ -81,6 +81,26 @@ import type { SearchStrategyV1 } from './types';
 import type { TavilyUsageContext } from './tavily-usage-logging';
 import type { RunCorrelationMetadata } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-correlation';
 import { enrichBatchCandidatesWithTaxResolution } from '@/server/source-catalog/enrichment/tax-identifier-resolution/enrich-with-tax-resolution';
+// AGENT1-APOLLO-DEFAULT-PATH-NET-NEW-PAGINATION — reutiliza EXACTAMENTE la
+// misma maquinaria que ya cablea el camino de dos rondas: la autoridad
+// histórica fuerte previa al pago, el provider Apollo (que ya sabe paginar
+// cuando recibe netNewTarget + evaluateCandidateAcceptance) y la valla durable
+// de página. Ningún motor nuevo — sólo este llamador nunca los invocaba.
+import { evaluatePrepaidHistoricalDuplicate, type HistoricalCandidateRow } from './apollo-prepaid-historical-parity';
+import type { NormalizedApolloOrganization } from './apollo-organizations-response-normalizer';
+import { normalizeDomain } from './normalization';
+import type { ApolloOrgsSearchOptions } from './web-search-providers/apollo-organizations-search-provider';
+import {
+  readApolloPageFenceEntries,
+  upsertApolloPageFenceEntry,
+  type ApolloPageFenceIdentity,
+} from './apollo-two-round/page-fence.server';
+import {
+  toApolloPageFenceOrganization,
+  toApolloDurableResumeState,
+  buildApolloPageFenceReadFailureBlock,
+  type ApolloPageFenceEntry,
+} from './apollo-two-round/page-fence';
 
 /**
  * Q3F-5AU.16: Apollo-only fields layered on top of TavilyUsageContext for the
@@ -426,7 +446,20 @@ export async function runIncrementalProspectingSearch(
   // For testing only: inject a custom pipeline to capture per-round usageContext.
   // Production callers always omit this parameter.
   pipelineOverride?: typeof runProspectingPipeline,
+  // AGENT1-APOLLO-DEFAULT-PATH-NET-NEW-PAGINATION — for testing only: inject
+  // fake page-fence read/write so the durable-fence scenarios (write failure,
+  // resume, indeterminate) are deterministic and never depend on whether a
+  // real Supabase admin client happens to be resolvable in the process env.
+  // Production callers always omit this parameter — the real functions from
+  // `apollo-two-round/page-fence.server` are used, exactly like the two-round
+  // path uses them.
+  pageFenceDepsOverride?: {
+    readEntries: typeof readApolloPageFenceEntries;
+    writeEntry: typeof upsertApolloPageFenceEntry;
+  },
 ): Promise<IncrementalSearchOutput> {
+  const readPageFenceEntriesFn = pageFenceDepsOverride?.readEntries ?? readApolloPageFenceEntries;
+  const writePageFenceEntryFn = pageFenceDepsOverride?.writeEntry ?? upsertApolloPageFenceEntry;
   const minUsefulCandidates = input.minUsefulCandidates ?? DEFAULT_MIN_USEFUL;
   const targetInternal = input.targetInternal ?? DEFAULT_TARGET_INTERNAL;
   const maxRounds = input.maxRounds ?? DEFAULT_MAX_ROUNDS;
@@ -761,6 +794,206 @@ export async function runIncrementalProspectingSearch(
     // Tavily los ignora — sigue usando el texto original del wizard.
     const additionalCriteriaTokens = parseAdditionalCriteriaTokens(input.additionalCriteria);
 
+    // ── AGENT1-APOLLO-DEFAULT-PATH-NET-NEW-PAGINATION ────────────────────────
+    //
+    // El defecto: `ENABLE_APOLLO_TWO_ROUND_DISCOVERY=false` es el camino de
+    // producción REAL y nunca pasaba `netNewTarget`/`evaluateCandidateAcceptance`
+    // a `dispatchToProvider`, así que `apollo-organizations-search-provider.ts`
+    // se quedaba fijo en `maxPages: 1` sin importar cuántas páginas más
+    // reportara Apollo (`pagination.total_pages`). El motor de paginación YA
+    // sabía seguir pidiendo páginas — sólo faltaba que este llamador se lo
+    // pidiera, exactamente como ya hace `apollo-two-round/production-runner
+    // .server.ts`.
+    //
+    // netNewTarget: el residual REAL de esta ronda — cuántos candidatos útiles
+    // todavía faltan para `targetPersistibleCandidates` (que YA refleja lo que
+    // la capa gratuita aportó, vía CUT-2/CUT-6). `Math.max(1, …)` es sólo un
+    // piso defensivo: si el objetivo ya estuviera cumplido, el criterio de
+    // parada de la línea ~910 ya habría cortado el loop antes de llegar aquí.
+    //
+    // evaluateCandidateAcceptance: LA MISMA autoridad histórica fuerte
+    // (`evaluatePrepaidHistoricalDuplicate` sobre `buildNoveltyIndex`) que usa
+    // el camino de dos rondas, con caché por dominio para ESTA ronda. Fail-open
+    // — sin `adminSupabase` (dry run) o con una lectura degradada, el candidato
+    // cuenta como net-new; nunca se afirma una duplicidad sin evidencia.
+    //
+    // 🔴 Esto es aceptación DE PAGINACIÓN, no aceptación FINAL. El writer sigue
+    // siendo la única autoridad de `accepted_for_target` (agrega TODAS las
+    // consultas después de enrichment/validación/persistencia) — un candidato
+    // que aquí cuenta como net-new y luego falla el writer no se re-cuenta
+    // retroactivamente en esta llamada; es el loop de RONDAS (más abajo,
+    // `writerGateAdjustedEstimate`) quien decide si hace falta otra ronda.
+    let apolloSearchOptions: ApolloOrgsSearchOptions | undefined;
+    if (isApolloProvider) {
+      const usefulAccumulatedBeforeRound = allCandidates.filter(isUsefulCandidate).length;
+      const netNewTarget = Math.max(1, targetPersistibleCandidates - usefulAccumulatedBeforeRound);
+
+      const roundHistoricalRowsCache = new Map<string, HistoricalCandidateRow[]>();
+      const roundHistoricalDegradedDomains = new Set<string>();
+      const evaluateCandidateAcceptance = async (
+        organization: NormalizedApolloOrganization,
+      ): Promise<boolean> => {
+        const normalizedDomain = organization.primaryDomain;
+        // Sin dominio no hay eje fuerte que consultar (domain/fiscal): no se
+        // afirma nada, se trata como net-new. Igual que `evaluatePrepaidHistory`.
+        if (normalizedDomain === null || !adminSupabase) return true;
+
+        let rows = roundHistoricalRowsCache.get(normalizedDomain);
+        let degraded = roundHistoricalDegradedDomains.has(normalizedDomain);
+        if (rows === undefined && !degraded) {
+          try {
+            const canonicalDomain = normalizeDomain(normalizedDomain) ?? normalizedDomain;
+            const index = await buildNoveltyIndex(adminSupabase, [canonicalDomain]);
+            rows = (index.get(canonicalDomain) ?? []) as HistoricalCandidateRow[];
+            roundHistoricalRowsCache.set(normalizedDomain, rows);
+          } catch {
+            degraded = true;
+            roundHistoricalDegradedDomains.add(normalizedDomain);
+          }
+        }
+
+        const verdict = evaluatePrepaidHistoricalDuplicate({
+          needle: {
+            normalizedDomain,
+            name: organization.name,
+            // Apollo no trae identificador fiscal en la búsqueda — el eje
+            // existe y se evalúa, pero no se inventa ningún valor.
+            taxIdentifier: null,
+            countryCode: input.countryCode,
+          },
+          rows: rows ?? [],
+          evidenceUnavailable: degraded,
+        });
+        return !verdict.alreadyKnown;
+      };
+
+      apolloSearchOptions = { netNewTarget, evaluateCandidateAcceptance };
+
+      // ── Valla durable de página ─────────────────────────────────────────
+      //
+      // Reutiliza la MISMA tabla/clave (`apollo_two_round_page_fence`) que el
+      // camino de dos rondas: el nombre es histórico, el mecanismo (identidad +
+      // CAS + request_started/succeeded/indeterminate) es genérico y no
+      // interpreta qué modalidad lo usa. `round_number` aquí es la ronda
+      // legacy (1-4), y como cada ronda redacta su propia consulta, su
+      // `search_plan_fingerprint` ya la distingue de cualquier página de la
+      // modalidad de dos rondas — nunca corren en la misma corrida.
+      //
+      // Sólo se activa cuando hay AMBOS: un lote reservado
+      // (`existingBatchId`, que el wizard siempre pasa vía
+      // `reservedBatchId`) y una correlación de corrida
+      // (`apolloRunCorrelation`, con la que se deriva la identidad). Sin
+      // alguno de los dos no hay dónde escribir una fila durable ni con qué
+      // identidad protegerla — la búsqueda sigue corriendo, sólo sin la valla,
+      // exactamente el mismo contrato "ausente ⇒ comportamiento previo" que
+      // documenta `ApolloOrgsSearchOptions.durablePageFence`.
+      const fenceBatchId = input.existingBatchId ?? null;
+      const fenceCorrelation = input.apolloRunCorrelation ?? null;
+      if (fenceBatchId && fenceCorrelation) {
+        const fenceIdentity: ApolloPageFenceIdentity = {
+          idempotencyKey: fenceCorrelation.idempotency_key,
+          requestFingerprint: fenceCorrelation.request_fingerprint,
+        };
+        const fenceReadOutcome = await readPageFenceEntriesFn(fenceBatchId, fenceIdentity);
+
+        // AGENT1-APOLLO-DURABLE-FENCE-HARD-CRASH-FIX · BLOQUEADOR 2 — una
+        // lectura que falló NUNCA se trata como "sin páginas previas": no hay
+        // forma de saber qué ya se intentó. A diferencia del camino de dos
+        // rondas, aquí no hay un punto previo a `pipelineFn` desde el que
+        // saltarse Apollo por completo, así que se reutiliza el mismo camino
+        // fail-closed que ya prueba `beforeRequest` (ver `page-fence.ts`):
+        // `durableResume` se deja AUSENTE (irrelevante — la petición nunca
+        // sale) y `durablePageFence.beforeRequest` bloquea la primera página.
+        if (fenceReadOutcome.kind === 'failed') {
+          apolloSearchOptions.durablePageFence = buildApolloPageFenceReadFailureBlock(
+            fenceReadOutcome.reason,
+          );
+        } else {
+          const existingFenceEntries = fenceReadOutcome.entries.filter(
+            (entry): entry is ApolloPageFenceEntry => entry.round_number === round,
+          );
+
+          apolloSearchOptions.durableResume = toApolloDurableResumeState(existingFenceEntries);
+
+          apolloSearchOptions.durablePageFence = {
+            beforeRequest: async ({ page, requestFingerprint }) => {
+              const outcome = await writePageFenceEntryFn(fenceBatchId, fenceIdentity, {
+                round_number: round,
+                search_plan_fingerprint: requestFingerprint,
+                page,
+                status: 'request_started',
+                organizations: [],
+                // La página posible ya salió hacia Apollo cuando esta valla se
+                // escribe: 1, nunca 0 — un cobro posible nunca se representa
+                // como definitivamente gratis.
+                credits: 1,
+                results_returned: 0,
+                total_pages: null,
+                accepted_count: null,
+              });
+              // `upsertApolloPageFenceEntry` nunca lanza: reporta el fallo como
+              // `{kind: 'failed'}`. Debe LANZAR aquí — es lo único que el motor
+              // de paginación trata como fail-closed antes de emitir la
+              // petición HTTP.
+              if (outcome.kind === 'failed') {
+                throw new Error(`durable_page_fence_write_failed: ${outcome.reason}`);
+              }
+            },
+            onSucceeded: async ({
+              page,
+              requestFingerprint,
+              organizations,
+              credits,
+              resultsReturned,
+              totalPages,
+              acceptedCount,
+            }) => {
+              const outcome = await writePageFenceEntryFn(fenceBatchId, fenceIdentity, {
+                round_number: round,
+                search_plan_fingerprint: requestFingerprint,
+                page,
+                status: 'succeeded',
+                organizations: organizations.map(toApolloPageFenceOrganization),
+                credits,
+                results_returned: resultsReturned,
+                total_pages: totalPages,
+                accepted_count: acceptedCount,
+              });
+              // BLOQUEADOR 3 — igual que `beforeRequest`: debe LANZAR si falla,
+              // porque sólo lo que esta función lanza detiene la paginación
+              // (`durable_fence_terminal_write_failed`). Sin esto, la página
+              // siguiente se pediría aunque ÉSTA se haya quedado en
+              // `request_started` durable — posiblemente cobrada, nunca
+              // confirmada.
+              if (outcome.kind === 'failed') {
+                throw new Error(`durable_page_fence_terminal_write_failed: ${outcome.reason}`);
+              }
+            },
+            onIndeterminate: async ({ page, requestFingerprint }) => {
+              await writePageFenceEntryFn(fenceBatchId, fenceIdentity, {
+                round_number: round,
+                search_plan_fingerprint: requestFingerprint,
+                page,
+                status: 'indeterminate',
+                organizations: [],
+                credits: 1,
+                results_returned: 0,
+                total_pages: null,
+                accepted_count: null,
+              });
+              // BLOQUEADOR 3 — no hace falta inspeccionar el desenlace de esta
+              // escritura: `onIndeterminate` sólo se invoca cuando la
+              // clasificación ya es `retryable: false` (ver el comentario en
+              // `apollo-organizations-paginated-search.ts`), así que el motor
+              // YA se detiene para esta página sin importar si esta escritura
+              // tuvo éxito. El `request_started` que `beforeRequest` ya dejó
+              // durable es la verdad conservadora que protege el reintento.
+            },
+          };
+        }
+      }
+    }
+
     const pipelineOutput = await pipelineFn({
       country: input.country,
       countryCode: input.countryCode,
@@ -778,6 +1011,7 @@ export async function runIncrementalProspectingSearch(
       // versión publicada, la MISMA en todas las rondas de la corrida.
       subindustryCatalogTerms: input.subindustryCatalogTerms ?? null,
       selectionCatalogVersion: input.selectionCatalogVersion ?? null,
+      apolloSearchOptions,
     });
 
     const rawCount = pipelineOutput.webSearch.resultsCount;
@@ -1013,24 +1247,26 @@ export async function runIncrementalProspectingSearch(
       ? 'max_rounds_reached'
       : 'budget_cap_reached';
 
+  // AGENT1-LOCAL-CUT8 · DECISIÓN A — este bloque es observabilidad de FILAS y de
+  // DESCUBRIMIENTO, y ya no emite veredicto de objetivo.
+  //
+  // `result_status` y `remaining_to_target` salían de comparar filas persistidas
+  // contra el objetivo, y una fila persistida no es una empresa aceptada. La
+  // pregunta «¿se alcanzó el objetivo?» tiene ahora una sola respuesta en la
+  // metadata del lote —el bloque `accepted_for_target`—, así que emitirla también
+  // aquí sólo podía crear un segundo veredicto capaz de discrepar del primero.
+  //
+  // `target_persistible_candidates` SÍ se conserva: es el tope con el que corrió
+  // el descubrimiento, no una afirmación sobre lo conseguido.
   const buildAdaptiveDiscovery = (persistedCount: number): AdaptiveDiscoveryMetadata => {
-    const remainingToTarget = Math.max(0, targetPersistibleCandidates - persistedCount);
-    const resultStatus: AdaptiveDiscoveryMetadata['result_status'] =
-      persistedCount >= targetPersistibleCandidates
-        ? 'success_target_reached'
-        : persistedCount > 0
-        ? 'success_partial'
-        : 'no_new_candidates';
     return {
       enabled: true,
       target_persistible_candidates: targetPersistibleCandidates,
       persisted_count: persistedCount,
       persistible_estimate: lastNoveltyPrecheck?.persistable_candidates_count ?? 0,
-      remaining_to_target: remainingToTarget,
       max_rounds: maxRounds,
       rounds_executed: roundsMeta.length,
       stop_reason: adaptiveStopReason,
-      result_status: resultStatus,
     };
   };
 
@@ -1191,6 +1427,10 @@ export async function runIncrementalProspectingSearch(
             : {}),
         },
         existingBatchId: input.existingBatchId ?? null,
+        // CUT-8 · DECISIÓN B — se reenvía TAL CUAL. El pipeline no la invoca: la
+        // aceptación depende de lo que el writer escriba, y aquí eso todavía no
+        // ha pasado.
+        resolveExtraBatchMetadata: input.resolveExtraBatchMetadata ?? null,
       },
       // v1.16K-R: positional args 2-3 of writeProspectingCandidates.
       // adminClientOverride stays undefined (writer reads env).

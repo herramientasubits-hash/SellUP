@@ -582,11 +582,45 @@ describe('CUT-1 § 7 — el escritor obtiene la verdad del lote antes de decidir
 // ─── § 14 / § 18 — trinquetes de alcance ──────────────────────────────────────
 
 describe('CUT-1 § 14/§ 18 — este PR no enciende ni redefine nada fuera de su alcance', () => {
-  it('PARTIAL GAP sigue apagado en Apollo y en Lusha', () => {
+  /**
+   * 🔴 REANCLADO DOS VECES, y por la misma razón las dos.
+   *
+   * · AGENT1-LOCAL-CUT6-PARTIAL-ACTIVATION § 15 — afirmaba `false` en las DOS
+   *   rutas; Apollo pasó a `true` en CUT-6.
+   * · AGENT1-LOCAL-CUT9 § 17 — seguía afirmando `false` en Lusha; CUT-9 lo
+   *   activa.
+   *
+   * Un trinquete que fija el VALOR de una decisión temporal impide arreglarla. Lo
+   * que este corte de verdad promete —y lo único que se congela aquí— es que cada
+   * superficie decide con SU PROPIA constante nombrada, en UN solo sitio literal, y
+   * que ninguna deriva su postura de la otra. El valor vivo lo posee la suite del
+   * corte que lo decide.
+   */
+  it('PARTIAL GAP: cada ruta se decide en su única constante nombrada', () => {
     const apollo = read('src/modules/prospect-batches/chat-wizard-execution/wizard-apollo-executor.ts');
-    assert.ok(/WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED\s*(:[^=]*)?=\s*false/.test(apollo));
+    const apolloDecls = apollo.match(
+      /export const WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED = (?:true|false);/g,
+    );
+    assert.equal(apolloDecls?.length, 1, 'Apollo decide en UN sitio literal');
+
     const lusha = read('src/server/prospect-batches/lusha-pending-review-limits.ts');
-    assert.ok(/LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED\s*(:[^=]*)?=\s*false/.test(lusha));
+    const lushaDecls = lusha.match(
+      /export const LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED = (?:true|false);/g,
+    );
+    assert.equal(lushaDecls?.length, 1, 'Lusha decide en UN sitio literal');
+
+    // 🔴 Y son constantes DISTINTAS en módulos DISTINTOS: ninguna se DERIVA de la
+    // otra, así que activar o apagar una no puede arrastrar a la otra.
+    //
+    // 🔴 Con los COMENTARIOS FUERA: los dos módulos NOMBRAN la constante ajena en
+    // su prosa para explicar la asimetría, y leer el cuerpo crudo confundiría
+    // «citarla» con «leerla».
+    const noComments = (src: string) =>
+      src
+        .replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .replace(/(^|[^:])\/\/.*$/gm, '$1');
+    assert.ok(!noComments(apollo).includes('LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED'));
+    assert.ok(!noComments(lusha).includes('WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED'));
   });
 
   it('no se toca isUsefulReviewCandidate (CUT-4)', () => {

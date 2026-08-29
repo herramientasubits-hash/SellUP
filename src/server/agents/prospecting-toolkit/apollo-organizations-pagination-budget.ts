@@ -5,16 +5,17 @@
  * como parámetro (`elapsedMs`) para que el agotamiento temporal sea testeable.
  *
  * Los límites del contrato de Apollo (per_page ≤ 100, ≤ 500 páginas, 50.000
- * resultados visibles) son el TECHO ABSOLUTO, no el presupuesto. El presupuesto
- * real de una ejecución del wizard se deriva de los guardrails que ya gobiernan
- * Apollo en el repo (apollo-cost-guardrails), no de números nuevos escondidos
- * aquí. Una ejecución del wizard no debe llegar nunca a cientos de páginas.
+ * resultados visibles) son el TECHO ABSOLUTO, no el presupuesto. Una ejecución
+ * del wizard no debe llegar nunca a cientos de páginas.
+ *
+ * AGENT1-APOLLO-NET-NEW-PAGINATION § 4/§ 9 — Apollo Support confirmó que
+ * Organization Search cobra 1 crédito por página NO VACÍA, sin importar
+ * cuántos resultados traiga. Bajo ese modelo, `per_page` deja de ser una
+ * palanca de gasto —100 cuesta lo mismo que 3— y el presupuesto real de una
+ * ejecución es cuántas PÁGINAS puede pagar
+ * (`WIZARD_APOLLO_MAX_SEARCH_CREDITS_DEFAULT`, el mismo techo monetario que
+ * antes limitaba resultados), no cuántos resultados pide por página.
  */
-
-import {
-  resolveApolloMaxQueriesPerRun,
-  resolveApolloMaxResultsPerQuery,
-} from './apollo-cost-guardrails';
 
 // ─── Techos del contrato Apollo ───────────────────────────────────────────────
 
@@ -28,6 +29,20 @@ export const APOLLO_CONTRACT_MAX_PAGES = 500;
  * no un rastreador masivo.
  */
 export const WIZARD_APOLLO_MAX_PAGES_HARD_CAP = 5;
+
+/**
+ * AGENT1-APOLLO-NET-NEW-PAGINATION § 4/§ 6 — techo de créditos de Search por
+ * invocación. Apollo Support confirmó que Organization Search cobra 1 crédito
+ * por página NO VACÍA (nunca por resultado devuelto), así que este mismo número
+ * es ahora, directamente, el techo de PÁGINAS pagadas por invocación.
+ *
+ * Es el MISMO valor monetario que ya regía como
+ * `MAX_APOLLO_ORGANIZATIONS_CREDITS` en el provider (10) — no se sube el techo,
+ * sólo se reinterpreta bajo el modelo de facturación correcto y se centraliza
+ * aquí para que el presupuesto de paginación y el provider lean el mismo
+ * número.
+ */
+export const WIZARD_APOLLO_MAX_SEARCH_CREDITS_DEFAULT = 10;
 
 /** Presupuesto temporal por ejecución de búsqueda Apollo. */
 export const WIZARD_APOLLO_TIMEOUT_BUDGET_MS = 60_000;
@@ -69,6 +84,14 @@ export type ApolloPaginationState = {
   cancelled?: boolean;
   /** Guardrail operativo activado aguas arriba (p.ej. rate limit sin margen). */
   guardrailTripped?: string | null;
+  /**
+   * AGENT1-APOLLO-NET-NEW-PAGINATION § 11 — candidatos NET-NEW aceptados hasta
+   * ahora. `null` cuando la búsqueda no inyectó un evaluador de aceptación: la
+   * autoridad de parada sigue siendo `candidatesCollected` / `maxCandidates`.
+   */
+  acceptedForTargetCount?: number | null;
+  /** Objetivo NET-NEW restante. `null` ⇒ sin objetivo de negocio conocido. */
+  netNewTarget?: number | null;
 };
 
 export type ApolloPaginationStopReason =
@@ -79,7 +102,16 @@ export type ApolloPaginationStopReason =
   | 'time_budget_exhausted'
   | 'cancelled'
   | 'operational_guardrail'
-  | 'contract_page_ceiling';
+  | 'contract_page_ceiling'
+  /**
+   * AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING — una página anterior de ESTA
+   * misma huella de búsqueda quedó con una valla durable de
+   * `request_started` sin desenlace terminal (éxito o indeterminado)
+   * cuando este intento arrancó. Apollo pudo haber cobrado esa página; no se
+   * reintenta automáticamente, y esta invocación no pide ninguna página
+   * nueva. Fail-closed a propósito (ver PARTE B § 8 del corte).
+   */
+  | 'indeterminate_prior_page_pending_reconciliation';
 
 export type ApolloPaginationDecision =
   | { shouldContinue: true; nextPage: number }
@@ -101,46 +133,54 @@ function clampPositive(value: number | undefined, fallback: number, hardCap: num
 }
 
 /**
- * Deriva el presupuesto desde los guardrails Apollo vigentes.
+ * Deriva el presupuesto de paginación bajo el modelo de facturación REAL de
+ * Apollo Organization Search (AGENT1-APOLLO-NET-NEW-PAGINATION § 4/§ 9).
  *
- * - `perPage`   = AGENT1_APOLLO_MAX_RESULTS_PER_QUERY (default 3, hard cap 5),
- *                 acotado además por el techo del contrato (100).
- * - `maxPages`  = AGENT1_APOLLO_MAX_QUERIES_PER_RUN (default 1, hard cap 3),
- *                 acotado por el techo del wizard (5).
- * - `maxCredits`= maxPages × perPage — 1 crédito por resultado, que es cómo
- *                 factura Apollo organizations_search en este repo.
- * - `maxCandidates` = maxCredits, salvo override explícito.
+ * - `perPage`   = techo del contrato (100). Apollo cobra lo mismo por una
+ *                 página no vacía sin importar cuántos resultados traiga, así
+ *                 que pedir menos de 100 sólo obliga a pagar más páginas por
+ *                 el mismo objetivo. `AGENT1_APOLLO_MAX_RESULTS_PER_QUERY`
+ *                 (guardrail legacy de CONTEO de resultados) ya no gobierna
+ *                 este número — sigue existiendo para otros consumidores, pero
+ *                 no para `per_page`.
+ * - `maxPages`  = techo de créditos de Search (10, el mismo valor que regía
+ *                 como `MAX_APOLLO_ORGANIZATIONS_CREDITS`), acotado por el
+ *                 techo del wizard (5). 1 página no vacía = 1 crédito, así que
+ *                 el techo de créditos ES el techo de páginas.
+ * - `maxCredits`= maxPages — 1 crédito por página no vacía.
+ * - `maxCandidates` = maxPages × perPage, salvo override explícito: con
+ *                 per_page=100 el tope de créditos ya no limita cuántas filas
+ *                 crudas puede sostener una página, así que el tope de
+ *                 candidatos debe poder alojarlas todas.
  *
- * Ningún valor arbitrario nuevo: todo procede de una fuente ya existente.
+ * Ningún valor arbitrario nuevo: el techo de créditos es el mismo que ya regía
+ * en el provider; sólo se reinterpreta como páginas y se centraliza aquí.
  */
 export function createApolloPaginationBudget(
   overrides?: ApolloPaginationBudgetOverrides,
 ): ApolloPaginationBudget {
-  const guardrailPerPage = resolveApolloMaxResultsPerQuery();
-  const guardrailMaxPages = resolveApolloMaxQueriesPerRun();
-
   const perPage = clampPositive(
-    overrides?.perPage ?? guardrailPerPage,
-    guardrailPerPage,
+    overrides?.perPage ?? APOLLO_CONTRACT_MAX_PER_PAGE,
+    APOLLO_CONTRACT_MAX_PER_PAGE,
     APOLLO_CONTRACT_MAX_PER_PAGE,
   );
 
   const maxPages = clampPositive(
-    overrides?.maxPages ?? guardrailMaxPages,
-    guardrailMaxPages,
+    overrides?.maxPages ?? WIZARD_APOLLO_MAX_SEARCH_CREDITS_DEFAULT,
+    WIZARD_APOLLO_MAX_SEARCH_CREDITS_DEFAULT,
     WIZARD_APOLLO_MAX_PAGES_HARD_CAP,
   );
 
-  const defaultCredits = maxPages * perPage;
   const maxCredits = clampPositive(
-    overrides?.maxCredits ?? defaultCredits,
-    defaultCredits,
-    defaultCredits,
+    overrides?.maxCredits ?? maxPages,
+    maxPages,
+    maxPages,
   );
 
+  const defaultCandidates = maxPages * perPage;
   const maxCandidates = clampPositive(
-    overrides?.maxCandidates ?? defaultCredits,
-    defaultCredits,
+    overrides?.maxCandidates ?? defaultCandidates,
+    defaultCandidates,
     APOLLO_CONTRACT_MAX_VISIBLE_RESULTS,
   );
 
@@ -157,10 +197,10 @@ export function createApolloPaginationBudget(
     perPage,
     timeoutBudgetMs,
     derivedFrom: {
-      maxPages: 'agent1_apollo_max_queries_per_run',
-      maxCredits: 'max_pages_x_per_page_1_credit_per_result',
+      maxPages: 'wizard_apollo_max_search_credits_1_credit_per_page',
+      maxCredits: 'max_pages_1_credit_per_non_empty_page',
       maxCandidates: 'max_pages_x_per_page',
-      perPage: 'agent1_apollo_max_results_per_query',
+      perPage: 'apollo_contract_max_per_page',
       timeoutBudget: 'wizard_apollo_timeout_budget_ms',
     },
   };
@@ -191,6 +231,17 @@ export function evaluateApolloPaginationDecision(
   }
   if (state.elapsedMs >= budget.timeoutBudgetMs) {
     return { shouldContinue: false, stopReason: 'time_budget_exhausted' };
+  }
+  // AGENT1-APOLLO-NET-NEW-PAGINATION § 11/§ 17 — cuando la búsqueda conoce su
+  // objetivo NET-NEW, ÉSA es la autoridad de parada: un duplicado histórico no
+  // lo consume, así que una página de puro duplicado no basta para detenerse
+  // aquí. Ausente cualquiera de los dos ⇒ criterio previo, sin cambios.
+  if (
+    typeof state.netNewTarget === 'number' &&
+    typeof state.acceptedForTargetCount === 'number' &&
+    state.acceptedForTargetCount >= state.netNewTarget
+  ) {
+    return { shouldContinue: false, stopReason: 'candidate_target_reached' };
   }
   if (state.candidatesCollected >= budget.maxCandidates) {
     return { shouldContinue: false, stopReason: 'candidate_target_reached' };

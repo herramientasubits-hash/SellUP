@@ -7,6 +7,7 @@ import type {
   WizardDiscoveryProvider,
 } from './wizard-run-provider-selection';
 import type { DiscoveryTaxonomyCapability } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
+import type { AcceptedForTargetResult } from '@/modules/prospect-batches/accepted-for-target';
 
 // ── Run-level provider outcome (A1-APOLLO-QA-CONTROL-SURFACE-1 § 10) ──────────
 
@@ -219,6 +220,26 @@ export type WizardExecutionStatus =
   | 'success_target_reached'
   | 'completed_with_errors';
 
+/**
+ * AGENT1-LOCAL-CUT6B-PARTIAL-UI-PROPAGATION § 2 — el aporte gratuito DURABLE, con
+ * un nombre propio para que servidor y UI compartan la MISMA forma.
+ *
+ * Antes de CUT-6B esta forma vivía anónima dentro del miembro `ok:false` de
+ * `WizardExecutionActionResult`. Nombrarla no cambia nada de lo que el servidor
+ * produce —es el mismo objeto, campo por campo— y evita el defecto que CUT-6B
+ * cierra: una segunda forma escrita a mano en la capa de UI podría quedarse atrás
+ * de ésta sin que el compilador dijera nada, y entonces el mago volvería a
+ * describir mal lo que la corrida dejó guardado.
+ *
+ * 🔴 No se acuña un tipo «de frontend» del mismo concepto. Un hecho con dos
+ * formas es cómo dos capas empiezan a discrepar sin que nadie lo note.
+ */
+export type WizardFreeContribution = {
+  batchId: string;
+  persistedCandidates: number;
+  redirectPath: string;
+};
+
 export type WizardExecutionActionResult =
   | {
       ok: true;
@@ -236,6 +257,11 @@ export type WizardExecutionActionResult =
       status: WizardExecutionStatus;
       batchId: string;
       batchStatus: string;
+      /**
+       * AGENT1-LOCAL-CUT6-PARTIAL-ACTIVATION § 14 — candidatos durables de la
+       * ejecución COMPLETA: el aporte gratuito más el pagado, ya deduplicados por
+       * CUT-3. No es el conteo de un solo contribuyente.
+       */
       candidateCount?: number;
       redirectPath: string;
       /** Present when budget reconciliation failed after a successful generation. */
@@ -256,8 +282,27 @@ export type WizardExecutionActionResult =
       noveltyExhausted?: boolean;
       /** The configured target count of persistible candidates. */
       targetPersistibleCandidates?: number;
-      /** True when candidatesCreated >= targetPersistibleCandidates. */
+      /**
+       * AGENT1-LOCAL-CUT7-ACCEPTED-FOR-TARGET §§ 1, 9 — `true` sólo cuando los
+       * candidatos ACEPTADOS hacia el objetivo —gratuitos más pagados— alcanzan
+       * `requestedTarget`.
+       *
+       * 🔴 Ya NO son filas. Hasta CUT-6 este booleano comparaba candidatos
+       * DURABLES contra el objetivo, y una fila persistida sólo para revisión
+       * contaba igual que una empresa completa. Ahora lo decide
+       * `resolveAcceptedForTarget`, y su desglose viaja en `acceptedForTarget`.
+       */
       targetReached?: boolean;
+      /**
+       * CUT-7 §§ 5, 7, 11 — el subconjunto ACEPTADO de la corrida, con su
+       * desglose libre/pago y el hueco que quedó abierto.
+       *
+       * 🔴 Es el tipo canónico reutilizado, no una proyección escrita a mano: un
+       * mismo hecho con dos formas es cómo dos capas empiezan a discrepar. Y no
+       * sustituye a `candidateCount`, que sigue siendo el UNIVERSO DURABLE: las
+       * dos familias de cifras conviven porque son distintas (§ 10).
+       */
+      acceptedForTarget?: AcceptedForTargetResult;
       /**
        * A1-APOLLO-QA-CONTROL-SURFACE-1 § 10 — proveedor REAL de esta corrida.
        *
@@ -372,4 +417,22 @@ export type WizardExecutionActionResult =
         availableCredits: number;
         requiredCredits: number;
       };
+      /**
+       * AGENT1-LOCAL-CUT6-PARTIAL-ACTIVATION §§ 5, 14 — empresas que la capa
+       * GRATUITA ya dejó guardadas antes de que la parte pagada fallara.
+       *
+       * Existe porque desde CUT-6 un aporte gratuito parcial SOBREVIVE: se
+       * persiste en el lote canónico de la ejecución y sigue ahí aunque después el
+       * presupuesto bloquee, el proveedor caiga o el pipeline muera. Sin este
+       * campo, esos caminos devolvían un fallo desnudo y el usuario no tenía forma
+       * de enterarse de que su búsqueda sí le dejó empresas que revisar — que es
+       * la misma pérdida que el todo-o-nada causaba, sólo que por omisión.
+       *
+       * 🔴 No convierte el fallo en éxito. `code`, `message` y `retryable` no se
+       * tocan, y este bloque NO afirma que el objetivo se alcanzara: dice cuántas
+       * empresas quedaron y dónde verlas. Ausente cuando la capa gratuita no
+       * aportó nada durable, que es el caso de todos los fallos anteriores a la
+       * capa gratuita.
+       */
+      freeContribution?: WizardFreeContribution;
     };

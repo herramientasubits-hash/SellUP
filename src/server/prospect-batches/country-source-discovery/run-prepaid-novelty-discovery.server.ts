@@ -20,22 +20,27 @@
  * vivo de la ruta Lusha se decide en UN sitio,
  * `LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED`.
  *
- * 🔴 AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 REVIEW-1 § 2 — la ruta Apollo YA SABE
- * aceptar un objetivo reducido. El motivo textual de antes —«su objetivo de
- * candidatos persistibles vive dentro del orquestador de dos rondas y no viaja por
- * `ResolvedWizardExecution`»— dejó de ser cierto: `resultDemand` viaja por su
- * propio campo hasta el orquestador y hasta `targetPersistibleCandidates`, y
- * `boundByRemainingTarget` es su única cota.
+ * 🔴 AGENT1-LOCAL-CUT6-PARTIAL-ACTIVATION §§ 3, 5, 15 — la ruta APOLLO ya NO pasa
+ * `false`. `WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED` es `true` desde CUT-6, así que
+ * por esta rama un aporte parcial SOBREVIVE: se persiste en el lote canónico de la
+ * ejecución y el hueco que queda es el que la ruta de pago recibe.
  *
- * Lo que sigue en `false` es la ACTIVACIÓN, y por una razón distinta y de PRODUCTO:
- * un aporte parcial gratuito se persiste en su PROPIO lote (esta capa corre antes
- * de la reserva), así que con `true` una sola búsqueda del usuario terminaría en
- * DOS lotes —7 gratis + 3 de Apollo con objetivo 10— y la redirección apuntaría al
- * segundo. La invariante de § 14 se cumple; la experiencia de resultado único no.
- * El hito que lo diseña es `AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1`.
+ * Las dos condiciones que lo bloqueaban están cerradas, y son distintas:
  *
- * El valor vivo de la ruta Apollo se decide en UN sitio,
- * `WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED`. Aquí sólo se obedece.
+ *   · SABER aceptar un objetivo reducido — cerrada por
+ *     AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2: `resultDemand` viaja por su propio
+ *     campo hasta `targetPersistibleCandidates`, y `boundByRemainingTarget` es su
+ *     única cota.
+ *   · Tener DÓNDE persistirlo sin partir el resultado — cerrada por
+ *     AGENT1-LOCAL-CUT5-SINGLE-BATCH-PLUMBING: `resolveBatchId` entrega el lote de
+ *     la ejecución, así que lo gratuito y lo de pago comparten `batch_id` y ya no
+ *     hay una búsqueda que termine en dos lotes.
+ *
+ * 🔴 Lo que sigue en `false` es la ruta LUSHA de pending-review
+ * (`LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED`), y no por inercia: esa superficie
+ * NO recibe `resolveBatchId` —no forma parte de CUT-5 (§ 9)— así que allí el
+ * aporte parcial seguiría creando lote propio. La asimetría ES el contrato, y por
+ * eso este runner sigue OBEDECIENDO el parámetro en vez de decidir por su cuenta.
  *
  * Consecuencia, y por qué esta bandera existe en vez de un apaño: con
  * `partialGapSupported: false` la capa gratuita es TODO-O-NADA. O cierra el
@@ -44,9 +49,9 @@
  * Lo que NO hace es persistir 2 empresas gratis y dejar que Apollo persista 10
  * más: eso rompería la invariante y el usuario recibiría 12 donde pidió 10.
  *
- * 🔴 Un hueco parcial en Apollo se DESCARTA, no se guarda a medias. Descartarlo
- * no cuesta nada —la lectura fue local y gratuita— mientras que guardarlo
- * rompería un contrato de producto.
+ * 🔴 Con `true` la invariante de § 14 la sigue sosteniendo el hueco, no el
+ * descarte: la ruta de pago recibe `residualGap` y su objetivo de ACEPTACIÓN se
+ * recorta a él, así que 2 gratis + 8 de pago siguen siendo 10, nunca 12.
  *
  * 🔴 Lo que el descarte NO tira es la MEDICIÓN: la memoria provider-seen leída con
  * éxito sobrevive al descarte y llega a la ruta de pago. Ver `noContribution`.
@@ -101,14 +106,35 @@ export type PrePaidNoveltyDiscoveryInput = {
    * `true`  — un hueco parcial se aprovecha.
    * `false` — todo o nada. Ver la cabecera.
    *
-   * 🔴 AGENT1-LUSHA-MIXED-TWO-BATCH-CONTAINMENT-1 § 4 — HOY las DOS rutas vivas
-   * pasan `false`: Apollo por `WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED` y Lusha por
-   * `LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED`. La CAPACIDAD de este parámetro
-   * sigue entera y probada —hay suites que lo invocan con `true` a propósito—;
-   * lo que está apagado es la ACTIVACIÓN en producción, en las dos rutas y por
-   * la misma razón de producto. Este runner sólo obedece.
+   * 🔴 AGENT1-LOCAL-CUT6-PARTIAL-ACTIVATION § 15 — las dos rutas vivas ya NO
+   * coinciden, y la diferencia es deliberada: Apollo pasa `true`
+   * (`WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED`) porque CUT-5 le dio lote canónico
+   * compartido; Lusha pending-review sigue en `false`
+   * (`LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED`) porque su superficie no lo
+   * recibe y allí un aporte parcial todavía crearía un segundo lote. Este runner
+   * sólo obedece: no mira constantes ni decide por proveedor.
    */
   partialGapSupported: boolean;
+  /**
+   * AGENT1-LOCAL-CUT5-SINGLE-BATCH-PLUMBING §§ 4, 5, 6 — el lote CANÓNICO de la
+   * ejecución que envuelve a esta capa, resuelto perezosamente.
+   *
+   * Presente ⇒ lo gratuito y lo de pago de UNA misma búsqueda aterrizan en el
+   * MISMO lote. Antes no había nada que pasar: esta capa corre antes de que el
+   * wizard reservara su slot, así que el writer creaba lote propio y una sola
+   * búsqueda podía terminar en dos.
+   *
+   * 🔴 Se resuelve SÓLO cuando de verdad hay empresas que persistir, y por eso es
+   * una función y no un valor. Un `string` obligaría a materializar la fila del
+   * lote en TODA corrida —incluidas las que la puerta descarta sin escribir nada,
+   * que hoy no dejan lote— y eso convertiría un corte de fontanería en un cambio
+   * de comportamiento observable.
+   *
+   * Ausente ⇒ el writer crea lote propio, byte por byte como antes. Es lo que
+   * conserva intacta la ruta Lusha de `lusha-pending-review-actions`, que tiene
+   * su propia superficie y NO forma parte de este corte (§ 9).
+   */
+  resolveBatchId?: () => Promise<string>;
 };
 
 export type PrePaidNoveltyDiscoveryOutcome = {
@@ -279,12 +305,25 @@ export async function runPrePaidNoveltyDiscovery(
     };
   }
 
+  // CUT-5 §§ 5, 6 — el lote canónico se materializa AQUÍ y no antes: es el primer
+  // punto de la capa gratuita en el que existe algo que escribir. Las dos salidas
+  // anteriores —todo-o-nada descartado, y cero empresas aceptadas— ya devolvieron,
+  // así que una corrida que no aporta sigue sin dejar lote.
+  //
+  // Fail-open, igual que el resto de esta capa (§ 12): si el lote canónico no se
+  // puede resolver, se cae a `null` y el writer crea el suyo. Es el comportamiento
+  // previo al corte, y es preferible a perder empresas ya descubiertas.
+  const canonicalBatchId = input.resolveBatchId
+    ? await input.resolveBatchId().catch(() => null)
+    : null;
+
   const persistence = await deps.persist(client, {
     companies: gate.acceptedCompanies,
     countryCode: input.countryCode,
     countryName: input.countryName,
     macroIndustryKey: input.macroIndustryKey ?? '',
     requestedByUserId: input.requestedByUserId,
+    batchId: canonicalBatchId,
     metadata: { prepaid_novelty: gate.telemetry },
   });
 
@@ -295,17 +334,47 @@ export async function runPrePaidNoveltyDiscovery(
 
   if (!input.partialGapSupported && context.providerRequired) {
     // La persistencia guardó menos de lo aceptado y el objetivo volvió a abrirse.
-    // La ruta no puede repartirse el objetivo, así que se reporta como no
-    // contribución: el proveedor corre entero y no se descuenta nada.
-    return noContribution(
-      buildPrePaidNoveltyTelemetry(context, gate.exclusionPlan, null),
-      gate.exclusionPlan.sent,
-      {
-        providerSeenMemory: gate.providerSeenMemory,
-        providerSeenLoad: gate.providerSeen,
-        providerExclusionPlan: gate.providerExclusionPlan,
-      },
-    );
+    // La ruta no puede repartirse el objetivo, así que la CONTRIBUCIÓN se
+    // descarta: el proveedor corre entero y no se descuenta nada.
+    //
+    // 🔴 AGENT1-LOCAL-CUT9A § 6 — lo que NO se descarta es la VERDAD DURABLE.
+    //
+    // Hasta este corte esta rama devolvía `persistedCount: 0` y `batchId: null`
+    // sobre filas REALMENTE escritas y un lote REALMENTE creado. Descartar una
+    // contribución es una decisión de ARITMÉTICA —cuánto objetivo queda por
+    // cubrir—; afirmar que no se escribió nada es una MENTIRA sobre la base, y
+    // dejaba huérfanas unas filas que el usuario sí acaba viendo.
+    //
+    // La distinción es exactamente ésa y no se amplía:
+    //
+    //   descartado (sigue igual)  `residualGap` = objetivo entero
+    //                             `acceptedBeforeProvider` = 0
+    //                             `providerRequired` = true
+    //   preservado (lo nuevo)     `persistedCount` = filas escritas
+    //                             `batchId` = el lote canónico
+    //
+    // 🔴 No se borra ninguna fila para hacer coincidir el resultado, y no se crea
+    // un segundo lote: con `resolveBatchId` cableado, el lote que aquí se reporta
+    // es el MISMO que la mitad de pago va a adoptar.
+    //
+    // Sin filas escritas, «cero» era y sigue siendo la verdad.
+    const durableTruth =
+      persistence.writtenCount > 0
+        ? { batchId: persistence.batchId, persistedCount: persistence.writtenCount }
+        : {};
+
+    return {
+      ...noContribution(
+        buildPrePaidNoveltyTelemetry(context, gate.exclusionPlan, null),
+        gate.exclusionPlan.sent,
+        {
+          providerSeenMemory: gate.providerSeenMemory,
+          providerSeenLoad: gate.providerSeen,
+          providerExclusionPlan: gate.providerExclusionPlan,
+        },
+      ),
+      ...durableTruth,
+    };
   }
 
   return {

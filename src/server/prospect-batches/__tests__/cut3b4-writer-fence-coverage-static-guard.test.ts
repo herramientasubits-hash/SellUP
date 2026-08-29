@@ -130,18 +130,25 @@ describe('CUT-3B4 §§ 20/21/22 — cobertura de los tres escritores', () => {
     );
   });
 
-  it('🔴 la ruta de LUSHA declara que NO adopta lotes preexistentes', () => {
-    // La razón por la que su escritura en bloque puede prescindir de la
-    // re-evaluación: nadie más conoce ese `batchId`. El día que eso cambie, la
-    // constante tiene que cambiar con ello y esta guarda lo obliga.
+  it('🔴 la ruta de LUSHA adopta, y por eso su época NO puede ser un literal', () => {
+    // ── REANCLADA por AGENT1-LOCAL-CUT9A § 4 ────────────────────────────────
+    //
+    // Esta guarda decía «Lusha NO adopta lotes preexistentes», y dejaba escrito
+    // qué había que hacer el día que eso cambiara: «la constante tiene que cambiar
+    // con ello y esta guarda lo obliga». Ese día es éste, así que la guarda no se
+    // retira — se REAPUNTA a la obligación que aquella dejó pendiente.
+    //
+    // Lo que protegía entonces: que la escritura en bloque pudiera prescindir de
+    // la re-evaluación porque nadie más conocía ese `batchId`.
+    // Lo que protege ahora: que la ADOPCIÓN no escriba contra una época inventada.
+    // Es la MISMA propiedad —la escritura declara contra qué estado decidió— sobre
+    // un mundo en el que el lote sí puede venir de otra mitad de la ejecución.
     const source = read(WRITER_C_CORE);
     assert.ok(
-      source.includes('export const LUSHA_PENDING_REVIEW_BATCH_ADOPTION_SUPPORTED = false;'),
-      'la ruta de Lusha dejó de declarar que no adopta lotes',
+      source.includes('export const LUSHA_PENDING_REVIEW_BATCH_ADOPTION_SUPPORTED = true;'),
+      'la ruta de Lusha dejó de declarar que adopta el lote canónico de su ejecución',
     );
-    // Y el hecho estructural que lo sostiene: el `batchId` sólo puede venir de
-    // `deps.insertBatch`, nunca de la entrada.
-    //
+
     // 🔴 Se mide DENTRO de `persistLushaPendingReviewBatch`, no en el archivo entero:
     // los constructores de resultado vecinos reciben su propio `input` con un
     // `batchId` que ya viene resuelto, y confundirlos con la entrada del escritor
@@ -150,14 +157,63 @@ describe('CUT-3B4 §§ 20/21/22 — cobertura de los tres escritores', () => {
     const persistStart = body.indexOf('export async function persistLushaPendingReviewBatch');
     assert.ok(persistStart > 0, 'no se encontró el escritor de Lusha');
     const persistBody = body.slice(persistStart);
+
+    // 1. El lote nace de una RESERVA, no de un INSERT incondicional.
     assert.ok(
-      persistBody.includes('const { id: batchId } = await deps.insertBatch('),
-      'el lote de Lusha dejó de nacer de `deps.insertBatch`',
+      persistBody.includes('const reservation = await deps.reserveBatch('),
+      'el lote de Lusha dejó de nacer de `deps.reserveBatch` (reserve-or-return)',
     );
+    assert.equal(
+      /deps\.insertBatch\(/.test(persistBody),
+      false,
+      'volvió el INSERT incondicional de lote en la ruta de Lusha',
+    );
+
+    // 2. La entrada del escritor SIGUE sin traer lote: la adopción es del
+    //    resolutor canónico de la ejecución, nunca un `batchId` de parámetro.
     assert.equal(
       /input\.batchId/.test(persistBody),
       false,
-      'la entrada de Lusha empezó a traer un lote: la escritura en bloque ya no puede prescindir de la re-evaluación',
+      'la entrada de Lusha empezó a traer un lote por parámetro',
+    );
+
+    // 3. 🔴 La época NO es un literal — y desde CUT9A-FIX-ADOPTED-EPOCH-REFRESH
+    //    tampoco sale de la RESERVA.
+    //
+    //    La propiedad protegida es la MISMA que antes: la escritura declara contra
+    //    el estado sobre el que decidió. Lo que cambió es QUIÉN es ese estado.
+    //    Tomarlo de la reserva parecía suficiente mientras se creyó que la reserva
+    //    traía la época del lote; V9A.1 demostró que trae la del NACIMIENTO del
+    //    lote, porque el resolutor canónico memoiza el objeto entero. En la ruta
+    //    gratuita→pago la capa gratuita ya había avanzado la época, así que la
+    //    reserva declaraba un estado caduco y la valla respondía `stale` —bien— tras
+    //    haber pagado al proveedor.
+    //
+    //    Por eso la guarda se REORIENTA, no se retira: ahora exige la lectura
+    //    ACTUAL y PROHÍBE volver a la reserva, que es exactamente el defecto.
+    const fenceCall = persistBody.slice(
+      persistBody.indexOf('await deps.insertCandidatesFenced({'),
+    );
+    assert.ok(
+      /expectedEpoch: epochEvidence\.epoch/.test(fenceCall),
+      'la escritura vallada de Lusha dejó de tomar la época de la LECTURA ACTUAL',
+    );
+    assert.equal(
+      /reservation\.(identityEpoch|adopted)/.test(fenceCall),
+      false,
+      'la época de la escritura vallada de Lusha volvió a salir de la reserva memoizada (defecto V9A.1)',
+    );
+    // Y la lectura ACTUAL existe, ocurre ANTES de la valla y es la del lote de ESTA
+    // ejecución: sin esto, `epochEvidence` podría ser cualquier cosa.
+    const freshRead = 'const epochEvidence = await deps.readBatchIdentityEpoch(batchId);';
+    assert.ok(
+      persistBody.includes(freshRead),
+      'la mitad de pago de Lusha dejó de releer la época ACTUAL de su lote canónico',
+    );
+    assert.ok(
+      persistBody.indexOf(freshRead) <
+        persistBody.indexOf('await deps.insertCandidatesFenced({'),
+      'la relectura de época dejó de preceder a la escritura vallada',
     );
   });
 });

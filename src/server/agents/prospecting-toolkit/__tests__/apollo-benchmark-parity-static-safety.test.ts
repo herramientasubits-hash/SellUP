@@ -143,9 +143,17 @@ describe('P0-4 · el agregado NO puede volver a salir de la lista recogida', () 
       code.includes('resolveApolloPaidResultsVolume(paginated.pageOutcomes)'),
       'la autoridad es el ledger por página',
     );
+    // AGENT1-APOLLO-NET-NEW-PAGINATION § 5 — Apollo cobra por página no vacía,
+    // no por fila devuelta: los créditos salen de `creditsCharged` (la suma de
+    // créditos YA calculados por página), nunca de `resultsVolume` (el conteo
+    // de filas), que volvería a facturar por resultado.
     assert.ok(
-      code.includes("creditsForApolloOperation('organizations_search', paidVolume.resultsVolume)"),
-      'los créditos salen del volumen pagado',
+      code.includes("creditsForApolloOperation('organizations_search', paidVolume.creditsCharged)"),
+      'los créditos salen de los créditos por página, no del conteo de filas',
+    );
+    assert.ok(
+      !code.includes("creditsForApolloOperation('organizations_search', paidVolume.resultsVolume)"),
+      'los créditos NO pueden volver a derivarse del conteo de filas devueltas',
     );
     assert.ok(
       !code.includes("creditsForApolloOperation('organizations_search', rawOrgs.length)"),

@@ -30,7 +30,12 @@ import {
   APOLLO_DB_BACKED_PRE_WRITER_ADMISSION_CHECKS,
   APOLLO_PENDING_PRE_WRITER_ADMISSION_CHECKS,
 } from '../../apollo-pre-writer-target-conditions';
-import { defaultApolloTwoRoundConfig } from '../index';
+// AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING — esta suite narra un objetivo de 5
+// explícito (nombres de test "objetivo 5", "twoRoundMaxResultsPerRound = 5").
+// Antes coincidía por casualidad con el default de la plataforma; ahora que el
+// default subió a 10 (para no truncar la demanda residual del wizard), el
+// escenario de 5 se fija con esta fixture literal, independiente del default.
+import { testConfig } from './fixtures';
 import {
   runApolloOrganizationsSearch,
   type ApolloOrgsSearchDeps,
@@ -281,7 +286,7 @@ function buildDeps(options: {
     loadEnrichmentUnitCostUsd: async () => 0.02,
     enrichOrganization: (async () => ({ success: true, data: undefined })) as never,
     logEnrichmentUsage: (async () => ({ kind: 'logged' as const })) as never,
-    resolveConfig: () => defaultApolloTwoRoundConfig(),
+    resolveConfig: () => testConfig(),
     // ADAPTIVE-EARLY-STOP § 2 — el prefetch de admisión, contado y DEGRADADO.
     //
     // Degradado a propósito: esta suite no simula la base, y el contrato dice que
@@ -393,7 +398,9 @@ describe('§ 5 · el adaptador declara el límite de dos rondas en cada llamada'
           (round['effective_provider_fingerprint'] as string).length > 0,
         `la ronda ${String(round['round_number'])} debe llevar huella efectiva: si el adaptador no inyectara el constructor, sería null`,
       );
-      assert.equal(round['per_page'], 5);
+      // AGENT1-APOLLO-NET-NEW-PAGINATION § 9 — per_page es siempre el techo del
+      // contrato (100), no el límite por ronda de dos rondas.
+      assert.equal(round['per_page'], 100);
       assert.notEqual(
         round['effective_provider_fingerprint'],
         round['hypothesis_fingerprint'],
@@ -443,8 +450,9 @@ describe('§ 6 · objetivo 5 end-to-end por el adaptador y el writer', () => {
 
     assert.equal(observability['rounds_executed'], 2);
     assert.equal(recorder.searchCalls.length, 2, 'exactamente dos llamadas al proveedor');
-    assert.equal(rounds[0]['per_page'], 5);
-    assert.equal(rounds[1]['per_page'], 5);
+    // AGENT1-APOLLO-NET-NEW-PAGINATION § 9 — per_page es siempre 100.
+    assert.equal(rounds[0]['per_page'], 100);
+    assert.equal(rounds[1]['per_page'], 100);
     assert.equal(runMetrics['total_raw_results'], 10);
     assert.equal(runMetrics['total_unique_organizations'], 10);
     assert.equal(observability['eligible_companies_found'], 5);
@@ -666,23 +674,31 @@ async function runProvider(
   return { bodies, output, limitDiagnostics };
 }
 
-describe('§ 5 · el provider envía el per_page del modo, no el de la variable legacy', () => {
-  test('7. two_round ⇒ per_page = 5 aunque AGENT1_APOLLO_MAX_RESULTS_PER_QUERY = 3', async () => {
+describe('§ 5 · el provider envía per_page=100 (techo del contrato), no el conteo de resultados de ningún modo', () => {
+  // AGENT1-APOLLO-NET-NEW-PAGINATION § 9 — Apollo cobra 1 crédito por página no
+  // vacía, sin importar cuántos resultados traiga: pedir menos de 100 sólo
+  // obliga a pagar más páginas por el mismo objetivo. `per_page` deja de
+  // derivarse de `AGENT1_APOLLO_MAX_RESULTS_PER_QUERY`, del límite por ronda de
+  // dos rondas o de `remainingTarget` — SIEMPRE es el techo del contrato. Esos
+  // límites siguen gobernando la REDACCIÓN de la consulta (diagnóstico
+  // `apollo_max_results_per_*_resolved`), un concepto de negocio distinto.
+  test('7. two_round ⇒ per_page = 100 aunque el límite por ronda sea 5', async () => {
     const { bodies, limitDiagnostics } = await runProvider(
       { resultLimitMode: 'two_round', twoRoundMaxResultsPerRound: 5, sectorGateMode: 'annotate' },
       '3',
     );
 
     assert.equal(bodies.length, 1, 'una invocación = una página');
-    assert.equal(bodies[0]['per_page'], 5);
+    assert.equal(bodies[0]['per_page'], 100);
     assert.equal(bodies[0]['page'], 1);
 
     // § 5 — los DOS límites quedan visibles en la fila económica: un diagnóstico
-    // puede decir cuál gobernó la llamada en vez de deducirlo.
+    // puede decir cuál gobernó la REDACCIÓN de la consulta, aunque ya no
+    // gobiernen `per_page`.
     assert.equal(limitDiagnostics['apollo_result_limit_mode'], 'two_round');
     assert.equal(limitDiagnostics['apollo_max_results_per_query_resolved'], 3);
     assert.equal(limitDiagnostics['apollo_max_results_per_round_resolved'], 5);
-    assert.equal(limitDiagnostics['apollo_per_page_sent'], 5);
+    assert.equal(limitDiagnostics['apollo_per_page_sent'], 100);
     assert.equal(limitDiagnostics['apollo_page_sent'], 1);
     assert.deepEqual(
       limitDiagnostics['apollo_effective_keywords_sent'],
@@ -691,13 +707,13 @@ describe('§ 5 · el provider envía el per_page del modo, no el de la variable 
     );
   });
 
-  test('8. la ruta legacy sigue en per_page = 3 con la misma variable', async () => {
+  test('8. la ruta legacy también envía per_page = 100, no el guardrail legacy', async () => {
     const { bodies, limitDiagnostics } = await runProvider(undefined, '3');
 
-    assert.equal(bodies[0]['per_page'], 3, 'la ruta legacy no cambia de comportamiento');
+    assert.equal(bodies[0]['per_page'], 100, 'per_page es el techo del contrato, no el conteo de resultados legacy');
     assert.equal(limitDiagnostics['apollo_result_limit_mode'], 'legacy');
     assert.equal(limitDiagnostics['apollo_max_results_per_round_resolved'], null);
-    assert.equal(limitDiagnostics['apollo_per_page_sent'], 3);
+    assert.equal(limitDiagnostics['apollo_per_page_sent'], 100);
   });
 
   test('el startPage del modo de dos rondas llega al body', async () => {
@@ -712,7 +728,7 @@ describe('§ 5 · el provider envía el per_page del modo, no el de la variable 
     );
 
     assert.equal(bodies[0]['page'], 2);
-    assert.equal(bodies[0]['per_page'], 5);
+    assert.equal(bodies[0]['per_page'], 100);
   });
 
   test('la huella calculada antes de ejecutar es la del body que se envió', async () => {
@@ -776,6 +792,7 @@ describe('§ 5 · el provider envía el per_page del modo, no el de la variable 
       '3',
     );
 
-    assert.equal(bodies[0]['per_page'], 10, 'ninguna modalidad supera el tope de 10');
+    // Ninguna modalidad supera el techo del contrato (100), pida lo que pida.
+    assert.equal(bodies[0]['per_page'], 100, 'ninguna modalidad supera el tope de 100');
   });
 });

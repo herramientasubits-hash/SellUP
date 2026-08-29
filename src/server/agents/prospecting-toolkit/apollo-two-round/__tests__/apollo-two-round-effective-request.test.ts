@@ -117,8 +117,9 @@ describe('§ 1 · la hipótesis puede diferir y el request efectivo ser el mismo
     assert.deepEqual(round2.effectiveKeywordTags, round1.effectiveKeywordTags);
     assert.equal(round1.page, 1);
     assert.equal(round2.page, 1);
-    assert.equal(round1.perPage, 5);
-    assert.equal(round2.perPage, 5);
+    // AGENT1-APOLLO-NET-NEW-PAGINATION § 9 — per_page es siempre 100.
+    assert.equal(round1.perPage, 100);
+    assert.equal(round2.perPage, 100);
 
     assert.equal(
       round2.effectiveRequestFingerprint,
@@ -515,7 +516,8 @@ describe('§ 10 · la observabilidad distingue hipótesis de request efectivo', 
         round.providerRequestFingerprint,
         'las dos huellas miden cosas distintas y no pueden confundirse',
       );
-      assert.equal(round.perPage, 5);
+      // AGENT1-APOLLO-NET-NEW-PAGINATION § 9 — per_page es siempre 100.
+      assert.equal(round.perPage, 100);
       assert.ok(Array.isArray(round.effectiveKeywordsSent));
     }
 
@@ -535,7 +537,7 @@ describe('§ 10 · la observabilidad distingue hipótesis de request efectivo', 
       metadata['effective_provider_fingerprint'],
       result.rounds[0].effectiveProviderFingerprint,
     );
-    assert.equal(metadata['per_page'], 5);
+    assert.equal(metadata['per_page'], 100);
     assert.ok(Array.isArray(metadata['effective_keywords_sent']));
   });
 

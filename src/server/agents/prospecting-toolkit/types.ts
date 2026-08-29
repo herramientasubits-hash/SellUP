@@ -9,6 +9,7 @@
 
 import type { CandidatePersistenceOutcome } from './prospect-candidate-persistence-readiness';
 import type { ApolloSubindustryCatalogTermsResolution } from './apollo-subindustry-catalog-terms-resolution';
+import type { ResolveExtraBatchMetadata } from './writer-metadata-resolution';
 
 export type DuplicateStatus =
   | "new_candidate"
@@ -478,6 +479,17 @@ export type ProspectingPipelineInput = {
   selectionCatalogVersion?: string | null;
   /** Tokens del criterio adicional del usuario (L2.7). Solo para Apollo; Tavily los ignora. */
   additionalCriteriaTokens?: string[];
+  /**
+   * AGENT1-APOLLO-DEFAULT-PATH-NET-NEW-PAGINATION — opciones opacas del
+   * provider Apollo (netNewTarget, evaluateCandidateAcceptance, valla durable
+   * de página, resume). Se transportan sin interpretarlas hasta
+   * `dispatchToProvider`; sólo `apollo_organizations` las consume, cualquier
+   * otro provider las ignora. Ausente ⇒ comportamiento previo al corte, byte
+   * a byte (una invocación = una página).
+   */
+  apolloSearchOptions?:
+    | import('./web-search-providers/apollo-organizations-search-provider').ApolloOrgsSearchOptions
+    | null;
 };
 
 export type NameInferenceSource = 'title_prefix' | 'domain' | 'title_fallback';
@@ -613,6 +625,17 @@ export type CandidateWriterInput = {
   dryRun?: boolean;
   extraBatchMetadata?: Record<string, unknown> | null;
   /**
+   * AGENT1-LOCAL-CUT8 · DECISIÓN B — metadata ADITIVA que sólo puede resolverse
+   * cuando el resultado del writer ya se conoce.
+   *
+   * 🔴 Es hermana de `extraBatchMetadata`, no su sustituta: aquélla lleva hechos
+   * previos a la corrida, ésta lleva hechos que dependen de lo que la corrida
+   * escribió. Se invoca UNA vez, dentro de la publicación de metadata que el
+   * writer ya hacía; NO abre una segunda escritura sobre `prospect_batches`.
+   * Omitida = comportamiento byte-for-byte previo al corte.
+   */
+  resolveExtraBatchMetadata?: ResolveExtraBatchMetadata | null;
+  /**
    * When provided, the writer reuses this batch instead of creating a new one.
    * The batch must exist, belong to the requesting user, have source='agent_1',
    * and be in a state compatible with receiving pipeline results ('draft' or 'generating').
@@ -746,6 +769,14 @@ export type MultiQuerySearchInput = {
   selectionCatalogVersion?: string | null;
   /** Tokens del criterio adicional del usuario (L2.7). Solo para Apollo; Tavily los ignora. */
   additionalCriteriaTokens?: string[];
+  /**
+   * AGENT1-APOLLO-DEFAULT-PATH-NET-NEW-PAGINATION — ver `ProspectingPipelineInput`.
+   * Se reenvía tal cual a `dispatchToProvider` por cada query Apollo de esta
+   * invocación; Tavily y mock la ignoran.
+   */
+  apolloSearchOptions?:
+    | import('./web-search-providers/apollo-organizations-search-provider').ApolloOrgsSearchOptions
+    | null;
 };
 
 export type MultiQueryQueryResult = {

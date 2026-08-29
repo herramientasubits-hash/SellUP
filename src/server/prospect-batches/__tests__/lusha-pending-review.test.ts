@@ -41,6 +41,7 @@ import type {
 } from '@/server/agents/prospecting-toolkit/types';
 import type { ActiveCandidateRecord } from '@/server/agents/prospecting-toolkit/active-candidate-identity-guard';
 import { preM126FencedInsert } from '@/server/prospect-batches/__tests__/support/lusha-pre-m126-fenced-insert';
+import { preM126BatchEpochSnapshot } from '@/server/prospect-batches/__tests__/support/lusha-batch-epoch-snapshot';
 
 /** A canonical "checked, no duplicate" result (SellUp + HubSpot both clean). */
 function noDuplicateResult(input: DuplicateCheckInput): DuplicateCheckResult {
@@ -64,7 +65,12 @@ const INPUT: LushaPreviewInput = {
   searchText: null,
 };
 
-const ACTOR = { internalUserId: 'user-1' };
+const ACTOR = {
+  internalUserId: 'user-1',
+  // AGENT1-LOCAL-CUT9A §§ 3, 8 — identidad de EJECUCIÓN + objetivo PEDIDO.
+  clientRequestId: '11111111-1111-4111-8111-111111111111',
+  requestedTarget: 5,
+};
 
 /**
  * AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 § 10 — la identidad por defecto se
@@ -194,13 +200,14 @@ function makeDeps(search: LushaPreviewResult, secondPage: LushaPreviewResult = e
       calls.searchInputs.push(input);
       return (input.page ?? 0) > 0 ? secondPage : search;
     },
-    insertBatch: async (row) => {
+    reserveBatch: async (row: LushaPendingReviewBatchRow) => {
       calls.batches.push(row);
-      return { id: `batch-${calls.batches.length}` };
+      return { id: `batch-${calls.batches.length}`, adopted: false, identityEpoch: 0 };
     },
     // CUT-3B4-CORRECCIÓN — la valla es OBLIGATORIA; esta prueba modela la 126
     // SIN aplicar por la ÚNICA puerta legítima: la respuesta de la BASE.
     insertCandidatesFenced: preM126FencedInsert,
+    readBatchIdentityEpoch: preM126BatchEpochSnapshot,
     insertCandidates: async (rows) => {
       calls.candidateBatches.push(rows);
       return { insertedCount: rows.length };
@@ -253,7 +260,7 @@ describe('dedupeLushaCompaniesByIdentity', () => {
 
 describe('builders', () => {
   it('14/15. batch row carries provider metadata + review status/source', () => {
-    const row = buildLushaPendingReviewBatchRow(INPUT, ACTOR, successResult([company()]), 1, {
+    const row = buildLushaPendingReviewBatchRow(INPUT, ACTOR, successResult([company()]), {
       pagesRequested: 1,
       creditsChargedTotal: 1,
       resultsReturnedTotal: 1,
@@ -381,31 +388,48 @@ describe('persistLushaPendingReviewBatch', () => {
     assert.equal(res.skippedCount, 1);
   });
 
-  it('3/4/5/6/7. write surface is exactly insertBatch + insertCandidates; duplicate deps are read-only', async () => {
+  it('3/4/5/6/7. write surface is exactly reserveBatch + insertCandidates; duplicate deps are read-only', async () => {
     const { deps } = makeDeps(successResult([company()]));
     const depKeys = Object.keys(deps).sort();
+    // AGENT1-LOCAL-CUT9A § 4 — la superficie de escritura NO crece: `insertBatch`
+    // pasó a llamarse `reserveBatch` porque su semántica cambió de INSERT
+    // incondicional a reserve-or-return. Sigue siendo la MISMA y única puerta a
+    // `prospect_batches`, y la lista sigue ordenada alfabéticamente.
     assert.deepEqual(depKeys, [
       'checkCompanyDuplicate',
       'fetchActiveCandidates',
-      'insertBatch',
       'insertCandidates',
       // CUT-3B4-CORRECCIÓN — la escritura VALLADA es una dependencia OBLIGATORIA,
       // no una superficie nueva: escribe las MISMAS filas de candidatos que
       // `insertCandidates`, comprobando además la época del lote. Mientras fue
       // opcional, su ausencia abría una escritura sin valla.
       'insertCandidatesFenced',
+      // 🔴 CUT9A-FIX-ADOPTED-EPOCH-REFRESH — dependencia READ-ONLY, y por eso
+      // aparece aquí pero NO en `writeDepNames`. Lee la época ACTUAL del lote
+      // (`read_batch_identity_snapshot`, CUT-3B4) justo antes de la escritura
+      // vallada, porque la reserva canónica memoiza la época del NACIMIENTO del
+      // lote y la capa gratuita ya la avanzó. No abre ninguna puerta de escritura:
+      // el filtro `/^(insert|reserve)/i` la deja fuera por su nombre, y esa
+      // exclusión es la comprobación, no una excepción concedida a mano.
+      'readBatchIdentityEpoch',
+      'reserveBatch',
       'runSearch',
     ]);
-    // The ONLY write deps are insertBatch + the two candidate writers (fenced and
+    // The ONLY write deps are reserveBatch + the two candidate writers (fenced and
     // its pre-B4 compatibility path — the same rows, one transaction apart).
     // checkCompanyDuplicate and fetchActiveCandidates are read-only duplicate
     // detectors — there is still no dep that could create an account, WRITE to
     // HubSpot/enrichment, or write provider_usage_logs / agent_runs.
-    const writeDepNames = depKeys.filter((k) => /^insert/i.test(k));
+    // AGENT1-LOCAL-CUT9A § 4 — el filtro cubre los DOS prefijos de escritura.
+    // 🔴 Ampliarlo era obligatorio, no cosmético: con `/^insert/i` a secas, la
+    // puerta a `prospect_batches` se llamó `reserveBatch` y salió del conjunto
+    // medido — la guarda habría seguido en verde con la única escritura de lote
+    // FUERA de la lista que dice enumerarlas todas.
+    const writeDepNames = depKeys.filter((k) => /^(insert|reserve)/i.test(k)).sort();
     assert.deepEqual(writeDepNames, [
-      'insertBatch',
       'insertCandidates',
       'insertCandidatesFenced',
+      'reserveBatch',
     ]);
     // 🔴 And both candidate writers target prospect_candidates only: the fenced
     // one is not a second, wider surface.

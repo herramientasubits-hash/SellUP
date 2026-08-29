@@ -127,6 +127,91 @@ export type ApolloPaginatedSearchDeps = {
    * Ausente ⇒ el embudo publica `provider_seen_hit: null` con su motivo, nunca 0.
    */
   priorProviderSeen?: ApolloPriorProviderSeen;
+  /**
+   * AGENT1-APOLLO-NET-NEW-PAGINATION § 11 — evalúa si un candidato recién
+   * recogido (deduplicado dentro de la página y entre páginas) cuenta para el
+   * objetivo NET-NEW, o si es un duplicado histórico que no lo consume.
+   *
+   * Se invoca UNA vez por candidato nuevo, en el mismo orden en que Apollo lo
+   * devolvió. Ausente ⇒ el motor no distingue net-new de duplicado histórico y
+   * el tope de paginación sigue siendo `maxCandidates` (comportamiento previo,
+   * byte a byte).
+   *
+   * Fail-closed: si lanza, el candidato se cuenta como NO aceptado — nunca
+   * detiene la paginación antes de tiempo por un fallo del evaluador, pero
+   * tampoco infla el objetivo con un candidato que no se pudo evaluar.
+   */
+  evaluateAcceptance?: (
+    organization: NormalizedApolloOrganization,
+  ) => boolean | Promise<boolean>;
+  /**
+   * AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING PARTE B — valla durable de página,
+   * previa al envío.
+   *
+   * Ausente ⇒ comportamiento previo al corte, byte a byte: sin valla durable,
+   * un proceso que muere a mitad de esta función puede volver a pedir páginas
+   * ya pagadas al reintentar. Presente, las tres funciones se invocan en el
+   * ORDEN que hace la valla real:
+   *
+   *   1. `beforeRequest` — se espera a que TERMINE antes de llamar a
+   *      `deps.fetchPage`. Si nunca se resuelve o falla, esta función NO
+   *      envía la petición (fail-closed sobre la valla misma: mejor no pedir
+   *      que pedir sin haber podido registrar el intento).
+   *   2. `onSucceeded` / `onIndeterminate` — se esperan ANTES de decidir la
+   *      página siguiente, así que un desenlace nunca se pierde por seguir de
+   *      largo.
+   *
+   * Quien implemente estas funciones decide su propia durabilidad (best-effort
+   * o estricta); este módulo sólo garantiza el ORDEN relativo a la red.
+   */
+  durableFence?: {
+    beforeRequest: (input: {
+      page: number;
+      requestFingerprint: string;
+    }) => Promise<void>;
+    onSucceeded: (input: {
+      page: number;
+      requestFingerprint: string;
+      organizations: NormalizedApolloOrganization[];
+      credits: number;
+      resultsReturned: number;
+      totalPages: number | null;
+      acceptedCount: number | null;
+    }) => Promise<void>;
+    onIndeterminate: (input: {
+      page: number;
+      requestFingerprint: string;
+    }) => Promise<void>;
+  };
+};
+
+/** Una página ya conocida de forma durable ANTES de que esta invocación arrancara. */
+export type ApolloDurablePageRecord = {
+  page: number;
+  /** Debe coincidir con el `requestFingerprint` que ESTA invocación calcule; si no, se ignora. */
+  requestFingerprint: string;
+  organizations: NormalizedApolloOrganization[];
+  credits: number;
+  resultsReturned: number;
+  totalPages: number | null;
+  /** `null` cuando esa página se pidió sin evaluador de aceptación NET-NEW. */
+  acceptedCount: number | null;
+};
+
+/**
+ * AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING PARTE B — lo que un reintento ya sabe
+ * de forma durable sobre ESTA ronda/plan de búsqueda, antes de llamar a esta
+ * función de nuevo.
+ *
+ * `succeededPages` con una huella que NO coincide con la que esta invocación
+ * calcula se ignora por completo (§ B7/C13): no es una corrida vieja, es un
+ * plan de búsqueda DISTINTO, y confundirlos sería exactamente el defecto que
+ * la huella existe para prevenir.
+ */
+export type ApolloDurableResumeState = {
+  succeededPages: ApolloDurablePageRecord[];
+  /** Página con valla `request_started` sin desenlace terminal. `null` = ninguna. */
+  indeterminatePage: { page: number; requestFingerprint: string } | null;
 };
 
 export type ApolloPaginatedSearchInput = {
@@ -144,6 +229,23 @@ export type ApolloPaginatedSearchInput = {
    * cobrar.
    */
   startPage?: number;
+  /**
+   * AGENT1-APOLLO-NET-NEW-PAGINATION § 11/§ 17 — cuántos candidatos NET-NEW
+   * (aceptados por `deps.evaluateAcceptance`) hacen falta todavía.
+   *
+   * Es la autoridad de continuación de negocio: mientras no se alcance, la
+   * paginación sigue pidiendo páginas (sujeta a los topes de crédito, páginas y
+   * `total_pages`) aunque una página entera resulte ser puro duplicado
+   * histórico. Ausente o sin `deps.evaluateAcceptance` ⇒ la autoridad de parada
+   * sigue siendo `budget.maxCandidates`, como antes de este hito.
+   */
+  netNewTarget?: number | null;
+  /**
+   * AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING PARTE B — estado durable conocido
+   * de esta ronda/plan de búsqueda antes de esta invocación. Ausente ⇒
+   * comportamiento previo al corte, byte a byte.
+   */
+  durableResume?: ApolloDurableResumeState;
 };
 
 // ─── Resultado ────────────────────────────────────────────────────────────────
@@ -162,7 +264,34 @@ export type ApolloPaginatedSearchResult = {
   organizations: NormalizedApolloOrganization[];
   pagesProcessed: number;
   estimatedCredits: number;
-  stopReason: ApolloPaginationStopReason | 'error_terminated';
+  /**
+   * AGENT1-APOLLO-NET-NEW-PAGINATION § 11 — cuántos candidatos NUEVOS de
+   * `organizations` fueron ACEPTADOS por `deps.evaluateAcceptance`. `null`
+   * cuando ningún evaluador se inyectó: no hay autoridad de negocio con la que
+   * distinguir net-new de duplicado histórico.
+   */
+  acceptedForTargetCount: number | null;
+  stopReason:
+    | ApolloPaginationStopReason
+    | 'error_terminated'
+    /**
+     * AGENT1-APOLLO-FINAL-SAFETY-CLOSURE · PARTE A — la valla durable previa
+     * al envío no pudo persistir `request_started`. PRE_PROVIDER_INFRA_FAILURE:
+     * Apollo nunca fue contactado, 0 créditos, seguro de reintentar en una
+     * invocación posterior.
+     */
+    | 'durable_fence_write_failed'
+    /**
+     * AGENT1-APOLLO-DURABLE-FENCE-HARD-CRASH-FIX · BLOQUEADOR 3 — la página SÍ
+     * se pidió (y pudo cobrarse), pero el desenlace terminal (`succeeded` o
+     * `indeterminate`) no se pudo persistir de forma durable. La valla durable
+     * de esta página se queda en `request_started` — la verdad conservadora
+     * que un reintento debe ver como posiblemente cobrada. Continuar pidiendo
+     * páginas nuevas en ESTA invocación acumularía más páginas sin desenlace
+     * durable confirmado; se detiene aquí, con lo que ya se cobró y recogió
+     * conservado.
+     */
+    | 'durable_fence_terminal_write_failed';
   /** Clasificación del fallo que detuvo la búsqueda. null si terminó limpio. */
   terminalError: ApolloErrorClassification | null;
   /** Páginas cuyo resultado y cobro quedaron indeterminados. Requieren recuperación explícita. */
@@ -225,6 +354,13 @@ export async function runApolloOrganizationsPaginatedSearch(
   const collected: NormalizedApolloOrganization[] = [];
   const seenOrganizationIds = new Set<string>();
   const pageOutcomes: ApolloPageOutcome[] = [];
+  // § 11 — sólo cuenta cuando hay evaluador: su ausencia deja la autoridad de
+  // parada en `maxCandidates`, exactamente el comportamiento previo.
+  let acceptedForTargetCount: number | null = deps.evaluateAcceptance ? 0 : null;
+  const netNewTarget =
+    typeof input.netNewTarget === 'number' && Number.isFinite(input.netNewTarget)
+      ? Math.max(0, input.netNewTarget)
+      : null;
   // P0-2 — el acumulador de memoria vive lo que vive esta búsqueda.
   // CUT-2 § 8 — y arranca con el snapshot PREVIO ya congelado.
   const providerSeenLedger = createApolloProviderSeenLedger(deps.priorProviderSeen);
@@ -278,6 +414,7 @@ export async function runApolloOrganizationsPaginatedSearch(
       organizations: [],
       pagesProcessed: 0,
       estimatedCredits: 0,
+      acceptedForTargetCount,
       stopReason: 'error_terminated',
       terminalError: classifyApolloOrganizationsError({
         httpStatus: 422,
@@ -299,6 +436,96 @@ export async function runApolloOrganizationsPaginatedSearch(
     };
   }
 
+  // ── AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING PARTE B — resumen durable ──────
+  //
+  // Sólo se confía en un registro cuya huella coincide EXACTAMENTE con la de
+  // ESTA invocación (§ B7/C13): una huella distinta describe otro plan de
+  // búsqueda —otra ronda, otros filtros— y tratarlo como propio repetiría el
+  // defecto que la huella existe para impedir.
+  const relevantSucceededPages = (input.durableResume?.succeededPages ?? [])
+    .filter((record) => record.requestFingerprint === requestFingerprint)
+    .sort((a, b) => a.page - b.page);
+  const relevantIndeterminatePage =
+    input.durableResume?.indeterminatePage?.requestFingerprint === requestFingerprint
+      ? input.durableResume.indeterminatePage
+      : null;
+
+  // § B8 — una página con valla `request_started` sin desenlace terminal
+  // bloquea CUALQUIER página nueva de este plan de búsqueda. Apollo pudo
+  // haberla cobrado; fail-closed, sin reintento automático, cero peticiones
+  // nuevas en esta invocación.
+  if (relevantIndeterminatePage !== null) {
+    for (const record of relevantSucceededPages) {
+      for (const organization of record.organizations) {
+        const id = organization.providerReference.providerOrganizationId;
+        const isNewOrganization = !seenOrganizationIds.has(id);
+        if (!isNewOrganization) continue;
+        seenOrganizationIds.add(id);
+        collected.push(organization);
+      }
+      estimatedCredits += record.credits;
+      pagesFetched++;
+      if (typeof record.acceptedCount === 'number') {
+        acceptedForTargetCount = (acceptedForTargetCount ?? 0) + record.acceptedCount;
+      }
+    }
+    return {
+      organizations: collected,
+      pagesProcessed: pagesFetched,
+      estimatedCredits,
+      acceptedForTargetCount,
+      stopReason: 'indeterminate_prior_page_pending_reconciliation',
+      terminalError: null,
+      indeterminatePages: [relevantIndeterminatePage.page],
+      pageOutcomes: [],
+      requestFingerprint,
+      // Ninguna petición salió EN ESTA invocación: la que dejó la página
+      // indeterminada fue un intento anterior.
+      effectiveRequestFingerprintSent: null,
+      omittedFilters: anchorContract.omittedFilters,
+      rejectedForbiddenParams: anchorContract.rejectedForbiddenParams,
+      rejectedUnknownParams: anchorContract.rejectedUnknownParams,
+      lastRateLimit: null,
+      normalizationMeta: null,
+      providerSeen: EMPTY_APOLLO_PROVIDER_SEEN_SUMMARY,
+      paginationMeta: {
+        totalEntries: null,
+        totalPages: relevantSucceededPages.at(-1)?.totalPages ?? null,
+        lastPage: relevantSucceededPages.at(-1)?.page ?? null,
+      },
+    };
+  }
+
+  // Sin indeterminada pendiente: las páginas ya durablemente exitosas se
+  // adoptan sin volver a pedirlas, y la paginación continúa desde la
+  // siguiente.
+  for (const record of relevantSucceededPages) {
+    const key = buildApolloPageIdempotencyKey({
+      wizardRunId: input.wizardRunId,
+      provider: 'apollo',
+      filtersFingerprint: requestFingerprint,
+      page: record.page,
+    });
+    ledger.markSucceeded(key);
+    for (const organization of record.organizations) {
+      const id = organization.providerReference.providerOrganizationId;
+      const isNewOrganization = !seenOrganizationIds.has(id);
+      const hasRemainingCapacity = collected.length < budget.maxCandidates;
+      if (!isNewOrganization) continue;
+      if (!hasRemainingCapacity) break;
+      seenOrganizationIds.add(id);
+      collected.push(organization);
+    }
+    estimatedCredits += record.credits;
+    pagesFetched++;
+    lastPage = lastPage === null ? record.page : Math.max(lastPage, record.page);
+    lastPageResultCount = record.resultsReturned;
+    totalPages = record.totalPages ?? totalPages;
+    if (typeof record.acceptedCount === 'number') {
+      acceptedForTargetCount = (acceptedForTargetCount ?? 0) + record.acceptedCount;
+    }
+  }
+
   // ── Bucle de paginación ─────────────────────────────────────────────────────
   for (;;) {
     const decision = evaluateApolloPaginationDecision(budget, {
@@ -311,6 +538,8 @@ export async function runApolloOrganizationsPaginatedSearch(
       lastPageResultCount,
       cancelled: deps.isCancelled?.() === true,
       guardrailTripped,
+      acceptedForTargetCount,
+      netNewTarget,
     });
 
     if (!decision.shouldContinue) {
@@ -358,6 +587,59 @@ export async function runApolloOrganizationsPaginatedSearch(
       // transporte falle, que es justo cuando hace falta.
       if (effectiveRequestFingerprintSent === null) {
         effectiveRequestFingerprintSent = pageContract.effectiveRequestFingerprint;
+      }
+
+      // AGENT1-APOLLO-FINAL-SAFETY-CLOSURE · PARTE A — la valla se escribe y
+      // se ESPERA antes de la petición, y ahora es FAIL-CLOSED: si la
+      // persistencia durable no confirma el `request_started`, la petición a
+      // Apollo NUNCA sale. Es un PRE_PROVIDER_INFRA_FAILURE — un fallo de la
+      // capa local/Supabase, no de Apollo — y se trata igual que cualquier
+      // otro fallo terminal de esta página: se registra sin costo (0
+      // peticiones, 0 créditos) y detiene la paginación de esta invocación.
+      // Ninguna página quedó pedida sin registro: la próxima invocación puede
+      // reintentarla con seguridad, porque no hay valla `request_started`
+      // huérfana que la bloquee (§ B8) y Apollo nunca la cobró.
+      if (deps.durableFence) {
+        try {
+          await deps.durableFence.beforeRequest({ page, requestFingerprint });
+        } catch (fenceErr: unknown) {
+          const fenceOutcome: ApolloPageOutcome = {
+            page,
+            status: 'error',
+            resultsReturned: 0,
+            estimatedCredits: 0,
+            attempt,
+            errorCode: 'durable_fence_write_failed',
+            billingState: 'not_charged',
+          };
+          pageOutcomes.push(fenceOutcome);
+          await safeLog(deps.logPage, {
+            provider: 'apollo',
+            operation: 'organizations_search',
+            endpoint: APOLLO_ENDPOINT,
+            requestFingerprint,
+            idempotencyKey,
+            page,
+            perPage: budget.perPage,
+            resultsReturned: 0,
+            estimatedCredits: 0,
+            actualCredits: null,
+            rateLimit: toRateLimitLogMetadata(parseApolloRateLimitHeaders(null, deps.now())),
+            status: 'error',
+            latencyMs: deps.now() - attemptStartedAt,
+            attempt,
+            errorCategory: 'pre_provider_infra_failure',
+            errorCode: 'durable_fence_write_failed',
+            billingState: 'not_charged',
+            wizardRunId: input.wizardRunId,
+            agentRunId: input.agentRunId ?? null,
+          });
+          void fenceErr;
+          stopReason = 'durable_fence_write_failed';
+          guardrailTripped = 'durable_fence_write_failed';
+          pageSettled = true;
+          break;
+        }
       }
 
       let response: ApolloPageFetchResult;
@@ -412,20 +694,52 @@ export async function runApolloOrganizationsPaginatedSearch(
         // Dedup defensivo entre páginas: Apollo puede repetir una organización
         // en páginas contiguas si el índice cambia durante el recorrido.
         let newInThisPage = 0;
+        // § B5/B6 — sólo lo NUEVO de esta página, para la valla durable: un
+        // duplicado ya vive en el registro de la página que lo trajo primero.
+        const newOrganizationsThisPage: NormalizedApolloOrganization[] = [];
+        let acceptedInThisPage = 0;
         for (const organization of normalized.organizations) {
           const id = organization.providerReference.providerOrganizationId;
           if (seenOrganizationIds.has(id)) continue;
           if (collected.length >= budget.maxCandidates) break;
           seenOrganizationIds.add(id);
           collected.push(organization);
+          newOrganizationsThisPage.push(organization);
           newInThisPage++;
+
+          // § 11 — sólo el candidato NUEVO de esta página se evalúa: uno ya visto
+          // en una página anterior no puede volver a contar para el objetivo.
+          if (deps.evaluateAcceptance) {
+            let accepted = false;
+            try {
+              accepted = await deps.evaluateAcceptance(organization);
+            } catch {
+              // Fail-closed: un evaluador que lanza no cuenta el candidato, pero
+              // tampoco detiene la búsqueda — sólo se lo trata como no aceptado.
+              accepted = false;
+            }
+            if (accepted) {
+              acceptedForTargetCount = (acceptedForTargetCount ?? 0) + 1;
+              acceptedInThisPage++;
+            }
+          }
         }
 
         const resultsReturned = normalized.organizations.length;
-        // Apollo cobra por resultado devuelto. Una página vacía se espera que
-        // cueste cero, pero eso está pendiente de confirmación por QA controlado:
-        // hasta entonces se estima, no se afirma.
-        const pageCredits = resultsReturned;
+        // AGENT1-APOLLO-NET-NEW-PAGINATION § 4/§ 21 — Apollo Support confirmó el
+        // modelo real de facturación de Organization Search: 1 crédito por página
+        // NO VACÍA, sin importar cuántos resultados traiga (100 cuestan lo mismo
+        // que 1). Cero créditos sólo cuando la página no trajo NADA.
+        //
+        // 🔴 La no-vacuidad se mide sobre la respuesta CRUDA (organizations[] o
+        // accounts[]), no sobre `resultsReturned` — que ya perdió las filas
+        // accounts-only tras el corte de fuga (§ 2). Una página accounts-only
+        // sigue siendo una página con resultados y sigue costando 1 crédito
+        // (Scenario H), aunque produzca cero candidatos de descubrimiento.
+        const rawPageHadResults =
+          normalized.meta.organizations_raw_count > 0 ||
+          normalized.meta.accounts_raw_count > 0;
+        const pageCredits = rawPageHadResults ? 1 : 0;
 
         estimatedCredits += pageCredits;
         pagesFetched++;
@@ -438,13 +752,40 @@ export async function runApolloOrganizationsPaginatedSearch(
         ledger.markSucceeded(idempotencyKey);
         pageSettled = true;
 
+        // § B5 — el desenlace terminal se escribe y se ESPERA ANTES de decidir
+        // la página siguiente.
+        //
+        // AGENT1-APOLLO-DURABLE-FENCE-HARD-CRASH-FIX · BLOQUEADOR 3 — antes de
+        // este corte un fallo aquí era silencioso y la paginación seguía de
+        // largo pidiendo la página siguiente, aunque la valla durable de ESTA
+        // página se hubiera quedado en `request_started` (posiblemente
+        // cobrada, nunca confirmada). Ahora se detiene: lo ya cobrado y
+        // recogido en esta invocación se conserva, pero ninguna página nueva
+        // se pide hasta que un reintento reconcilie esta página.
+        let terminalFenceWriteFailed = false;
+        if (deps.durableFence) {
+          try {
+            await deps.durableFence.onSucceeded({
+              page,
+              requestFingerprint,
+              organizations: newOrganizationsThisPage,
+              credits: pageCredits,
+              resultsReturned,
+              totalPages,
+              acceptedCount: deps.evaluateAcceptance ? acceptedInThisPage : null,
+            });
+          } catch {
+            terminalFenceWriteFailed = true;
+          }
+        }
+
         pageOutcomes.push({
           page,
           status: 'success',
           resultsReturned,
           estimatedCredits: pageCredits,
           attempt,
-          errorCode: null,
+          errorCode: terminalFenceWriteFailed ? 'durable_fence_terminal_write_failed' : null,
           billingState: pageCredits > 0 ? 'charged' : 'not_charged',
         });
 
@@ -463,12 +804,17 @@ export async function runApolloOrganizationsPaginatedSearch(
           status: 'success',
           latencyMs,
           attempt,
-          errorCategory: null,
-          errorCode: null,
+          errorCategory: terminalFenceWriteFailed ? 'pre_provider_infra_failure' : null,
+          errorCode: terminalFenceWriteFailed ? 'durable_fence_terminal_write_failed' : null,
           billingState: pageCredits > 0 ? 'charged' : 'not_charged',
           wizardRunId: input.wizardRunId,
           agentRunId: input.agentRunId ?? null,
         });
+
+        if (terminalFenceWriteFailed) {
+          stopReason = 'durable_fence_terminal_write_failed';
+          guardrailTripped = 'durable_fence_terminal_write_failed';
+        }
 
         // `newInThisPage === 0` con resultados devueltos significa solapamiento
         // total con lo ya recogido — no es motivo para detenerse por sí solo;
@@ -497,6 +843,28 @@ export async function runApolloOrganizationsPaginatedSearch(
 
       if (classification.billingState === 'unknown') {
         ledger.markIndeterminate(idempotencyKey);
+        // § B5/B8/B9 — el desenlace indeterminado también se espera antes de
+        // seguir: es exactamente el estado que un reintento debe encontrar
+        // para no repetir esta página automáticamente.
+        //
+        // BLOQUEADOR 3 — a diferencia de `onSucceeded`, un fallo AQUÍ no
+        // necesita un `stopReason` explícito propio: `billingState ===
+        // 'unknown'` sólo lo produce una clasificación con `retryable: false`
+        // (ver `apollo-organizations-error-taxonomy.ts`), así que las líneas de
+        // abajo YA fuerzan `stopReason = 'error_terminated'` para esta misma
+        // página sin importar si esta escritura tuvo éxito. La verdad
+        // conservadora que protege el reintento es la que `beforeRequest` ya
+        // dejó durable (`request_started`): si esta escritura falla, esa
+        // entrada simplemente no se actualiza a `indeterminate`, y § B1 del
+        // adaptador de resumen (`toApolloDurableResumeState`) trata
+        // `request_started` igual que `indeterminate`.
+        if (deps.durableFence) {
+          try {
+            await deps.durableFence.onIndeterminate({ page, requestFingerprint });
+          } catch {
+            // Intencionalmente silencioso: ver comentario arriba.
+          }
+        }
       }
 
       pageOutcomes.push({
@@ -565,12 +933,27 @@ export async function runApolloOrganizationsPaginatedSearch(
       break;
     }
     if (stopReason === 'time_budget_exhausted') break;
+    if (
+      stopReason === 'durable_fence_write_failed' ||
+      guardrailTripped === 'durable_fence_write_failed'
+    ) {
+      stopReason = 'durable_fence_write_failed';
+      break;
+    }
+    if (
+      stopReason === 'durable_fence_terminal_write_failed' ||
+      guardrailTripped === 'durable_fence_terminal_write_failed'
+    ) {
+      stopReason = 'durable_fence_terminal_write_failed';
+      break;
+    }
   }
 
   return {
     organizations: collected,
     pagesProcessed: pagesFetched,
     estimatedCredits,
+    acceptedForTargetCount,
     stopReason,
     terminalError,
     indeterminatePages: pageOutcomes

@@ -12,6 +12,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { normalizeDomain } from './normalization';
 import { buildIdentityKey } from './canonical-company-identity';
+import { deriveRecordOriginClassification } from '@/modules/agent1-effectiveness/classification';
+// AGENT1-APOLLO-HISTORICAL-DELIVERY-FINALITY § 2 — el conjunto de procedencias
+// que NO son entregas productivas vive en UN solo sitio. Antes había una copia
+// local aquí; dos listas del mismo concepto habrían divergido en el primer corte
+// que tocara una sola de ellas.
+import { NON_DELIVERY_RECORD_ORIGINS } from './apollo-prepaid-historical-parity';
 
 // ─── Tipos públicos ───────────────────────────────────────────────────────────
 
@@ -96,19 +102,42 @@ export function countDomainsInNegativeMemory(
 
 // ─── Carga desde Supabase ─────────────────────────────────────────────────────
 
-type BatchRow = { id: string };
-type CandidateRow = { domain: string | null; name: string | null };
+type CandidateRow = {
+  batch_id?: string | null;
+  domain: string | null;
+  name: string | null;
+  status?: string | null;
+  duplicate_status?: string | null;
+  source_primary?: string | null;
+  review_notes?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
 
 /**
- * Carga la memoria negativa de dominios ya sugeridos recientemente por agent_1.
+ * Carga la memoria negativa de empresas ya sugeridas recientemente.
  *
- * Estrategia de consulta en dos pasos:
- *   1. Obtiene IDs de batches de agent_1 creados en los últimos lookbackDays.
- *   2. Obtiene dominios de prospect_candidates en esos batches.
+ * AGENT1-APOLLO-PREPAID-HISTORICAL-PARITY § 2 — antes esta memoria se construía
+ * en dos pasos, y el primero era `prospect_batches.eq('source','agent_1')`. Ese
+ * filtro hacía INVISIBLES los lotes históricos válidos con cualquier otra fuente
+ * (`socrata_colombia`, `denue_mexico`, `datos_gob_cl`, `apollo`, `imported`,
+ * `external_import`, `manual`), de modo que una empresa entregada por la ruta
+ * gratuita podía volver a costar un enrichment de Apollo.
  *
- * No filtra por country/industry a nivel DB (no hay columna directa en prospect_candidates).
- * Todos los candidatos de agent_1 recientes son relevantes porque compiten por el
- * mismo universo de empresas que el discovery intenta encontrar.
+ * La autoridad de ámbito ya no es la etiqueta del LOTE: es la FILA del candidato.
+ * `prospect_candidates` es el libro de entregas de Agente 1 —ninguna entrega
+ * existe sin una fila aquí— y el clasificador canónico de procedencia
+ * (`deriveRecordOriginClassification`, la misma autoridad que lee el modelo de
+ * efectividad) decide si esa fila salió de una corrida real o de smoke/QA/
+ * limpieza/dato fabricado. No se abre una segunda fuente de verdad y no se
+ * enumera ninguna lista de `source`.
+ *
+ * Ámbito GLOBAL SELLUP por construcción: no se filtra por usuario, organización,
+ * lote ni `client_request_id`. Si la empresa X se entregó, X es histórica.
+ *
+ * No filtra por country/industry a nivel DB (no hay columna directa que lo
+ * permita sin perder filas). Todos los candidatos recientes son relevantes porque
+ * compiten por el mismo universo de empresas que el discovery intenta encontrar.
  *
  * Graceful fallback: devuelve emptyNegativeMemory ante cualquier error de Supabase.
  */
@@ -123,30 +152,29 @@ export async function loadDiscoveryNegativeMemory(
   type SupabaseBase = ReturnType<typeof import('@supabase/supabase-js').createClient>;
   const client = supabase as unknown as SupabaseBase;
 
-  // Paso 1: obtener batch IDs de agent_1 recientes
-  const { data: batchRows, error: batchError } = await client
-    .from('prospect_batches')
-    .select('id')
-    .eq('source', 'agent_1')
-    .gte('created_at', lookbackIso);
-
-  if (batchError || !batchRows || (batchRows as BatchRow[]).length === 0) {
-    return emptyNegativeMemory(scope);
-  }
-
-  const batchIds = (batchRows as BatchRow[]).map((r) => r.id);
-
-  // Paso 2: obtener dominios y nombres de candidatos en esos batches
+  // Una sola consulta, sobre la tabla que ES el libro de entregas. Sin filtro de
+  // `source` y sin join al lote: la procedencia se juzga por fila.
   const { data: candidateRows, error: candidateError } = await client
     .from('prospect_candidates')
-    .select('domain, name')
-    .in('batch_id', batchIds);
+    .select(
+      'batch_id, domain, name, status, duplicate_status, source_primary, review_notes, metadata',
+    )
+    .gte('created_at', lookbackIso);
 
   if (candidateError || !candidateRows) {
     return emptyNegativeMemory(scope);
   }
 
-  const rows = candidateRows as CandidateRow[];
+  const rows = (candidateRows as CandidateRow[]).filter((row) => {
+    const classification = deriveRecordOriginClassification({
+      status: row.status ?? null,
+      duplicate_status: row.duplicate_status ?? null,
+      source_primary: row.source_primary ?? null,
+      review_notes: row.review_notes ?? null,
+      metadata: row.metadata ?? null,
+    });
+    return !NON_DELIVERY_RECORD_ORIGINS.has(classification.recordOrigin);
+  });
 
   // Normalizar y deduplicar dominios
   const excludedDomains = new Set<string>();
@@ -175,7 +203,12 @@ export async function loadDiscoveryNegativeMemory(
     excludedIdentityKeys,
     excludedIdentityKeysSample,
     previousCandidateCount: rows.length,
-    previousBatchCount: batchIds.length,
+    // Se deriva de las filas que SÍ entraron en el ámbito. Antes contaba lotes de
+    // `agent_1`; ahora cuenta los lotes que realmente aportaron entregas, sin
+    // depender de la etiqueta `source`.
+    previousBatchCount: new Set(
+      rows.map((row) => row.batch_id).filter((id): id is string => typeof id === 'string'),
+    ).size,
     scope,
   };
 }

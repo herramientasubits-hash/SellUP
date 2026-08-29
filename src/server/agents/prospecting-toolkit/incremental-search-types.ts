@@ -13,6 +13,7 @@ import type { ProspectingPipelineCandidate } from './types';
 import type { CandidatePersistenceOutcome } from './prospect-candidate-persistence-readiness';
 import type { TavilyUsageBaseContext } from './tavily-usage-logging';
 import type { RunCorrelationMetadata } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-correlation';
+import type { ResolveExtraBatchMetadata } from './writer-metadata-resolution';
 
 // ─── Input ────────────────────────────────────────────────────────────────────
 
@@ -119,6 +120,14 @@ export type IncrementalSearchInput = {
    * cliente. Omitido = comportamiento byte-for-byte previo a 11E.
    */
   extraBatchMetadata?: Record<string, unknown> | null;
+
+  /**
+   * AGENT1-LOCAL-CUT8 · DECISIÓN B — metadata ADITIVA que sólo puede resolverse
+   * con el resultado del writer en la mano. Se reenvía TAL CUAL al writer, que
+   * la invoca una vez dentro de su única publicación de metadata. El pipeline no
+   * la llama, no la inspecciona y no la compone: sólo la transporta.
+   */
+  resolveExtraBatchMetadata?: ResolveExtraBatchMetadata | null;
 };
 
 // ─── Round metadata ───────────────────────────────────────────────────────────
@@ -193,7 +202,13 @@ export type AdaptiveDiscoveryMetadata = {
   /** Candidates estimated persistible before target cap (reconciled post-writer). */
   eligible_before_cap?: number;
   persistible_estimate: number;
-  remaining_to_target: number;
+  /**
+   * AGENT1-LOCAL-CUT8 · DECISIÓN A — OPCIONAL y ausente en escrituras nuevas.
+   * Salía de comparar filas persistidas contra el objetivo, que es exactamente
+   * lo que `accepted_for_target` existe para no confundir. Sigue declarado
+   * porque los lotes HISTÓRICOS lo tienen y se leen tal cual.
+   */
+  remaining_to_target?: number;
   max_rounds: number;
   rounds_executed: number;
   stop_reason:
@@ -201,7 +216,14 @@ export type AdaptiveDiscoveryMetadata = {
     | 'max_rounds_reached'
     | 'budget_cap_reached'
     | 'novelty_exhausted_no_diversification_available';
-  /** High-level result status set after writer completes (Hito 16AB.43.27). */
+  /**
+   * High-level result status set after writer completes (Hito 16AB.43.27).
+   *
+   * AGENT1-LOCAL-CUT8 · DECISIÓN A — ausente en escrituras nuevas: era un
+   * veredicto de objetivo derivado de FILAS. `agent1-effectiveness` lo sigue
+   * leyendo como respaldo HISTÓRICO y, para la metadata nueva, resuelve su
+   * semántica de «sin empresas nuevas» desde `persisted_count === 0`.
+   */
   result_status?: AdaptiveDiscoveryResultStatus;
 };
 

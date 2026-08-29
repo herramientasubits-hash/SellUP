@@ -6,11 +6,28 @@
  * La estimación considera el PEOR caso permitido por la configuración efectiva,
  * no el caso esperado:
  *
- *   búsqueda ronda 1  ≤ maxResultsPerRound        (5)
- *   búsqueda ronda 2  ≤ maxResultsPerRound        (5)
- *   enrichment        ≤ maxEnrichmentsPerRun      (2)
- *   ───────────────────────────────────────────────
- *   máximo interno registrable                    12
+ *   búsqueda ronda 1  ≤ WIZARD_APOLLO_MAX_PAGES_HARD_CAP  (5 páginas)
+ *   búsqueda ronda 2  ≤ WIZARD_APOLLO_MAX_PAGES_HARD_CAP  (5 páginas)
+ *   enrichment        ≤ maxEnrichmentsPerRun              (2)
+ *   ───────────────────────────────────────────────────────
+ *   máximo interno registrable                            12
+ *
+ * AGENT1-APOLLO-NET-NEW-PAGINATION-LIVE-WIRING — la reserva de Search es POR
+ * PÁGINA, no por organización pedida. Apollo cobra 1 crédito por página de
+ * Organization Search NO VACÍA, sin importar cuántos resultados traiga esa
+ * página (hasta 100) — el settlement real ya factura así
+ * (`apollo-organizations-paginated-search.ts`). Con la paginación net-new
+ * conectada en vivo (`production-runner.server.ts`), una ronda puede pedir
+ * varias páginas dentro de UNA sola invocación de búsqueda, y el único techo
+ * real de esa invocación es `WIZARD_APOLLO_MAX_PAGES_HARD_CAP` — el tope de
+ * páginas que `createApolloPaginationBudget` aplica sin excepción — NUNCA
+ * `config.maxResultsPerRound`: pedir 100 organizaciones en una página cuesta
+ * exactamente lo mismo que pedir 5. Reservar por `maxResultsPerRound` (el
+ * formato anterior) sobre-reservaba cuando ese valor superaba el tope de
+ * páginas (p. ej. 10 resultados pedidos reservaba 10 créditos por una
+ * invocación que como mucho cuesta 5) y, al revés, sub-declaraba el gasto real
+ * posible cuando el objetivo restante obligaba a agotar el tope de páginas
+ * pidiendo pocos resultados por ronda.
  *
  * Cuatro cantidades que se confunden habitualmente y aquí no comparten campo:
  *
@@ -19,12 +36,11 @@
  *   recordedUsageCredits     — lo que NUESTROS logs registraron
  *   confirmedProviderCredits — lo que el PROVEEDOR confirmó haber facturado
  *
- * `confirmedProviderCredits` permanece `null` sin evidencia externa aislable. El
- * ledger interno cobra 1 crédito por resultado porque es el modelo conservador
- * que el repo eligió; eso NO permite afirmar que Apollo factura por resultado.
+ * `confirmedProviderCredits` permanece `null` sin evidencia externa aislable.
  *
- * Los créditos por unidad salen de `apollo-operation-pricing`, la misma tabla con
- * la que se reserva y se registra el consumo. Nada de `5 + 5 + 2` aquí.
+ * Los créditos de enrichment salen de `apollo-operation-pricing`, la misma
+ * tabla con la que se reserva y se registra ese consumo — esa mitad NO cambió.
+ * Nada de `5 + 5 + 2` sobre números sueltos aquí.
  *
  * Puro: sin I/O y sin env.
  */
@@ -34,6 +50,7 @@ import {
   APOLLO_PRICING_SOURCE,
   APOLLO_PRICING_VERSION,
 } from '../apollo-operation-pricing';
+import { WIZARD_APOLLO_MAX_PAGES_HARD_CAP } from '../apollo-organizations-pagination-budget';
 import type { ApolloTwoRoundDiscoveryConfig } from './config';
 
 // ─── Desglose del peor caso ───────────────────────────────────────────────────
@@ -63,10 +80,10 @@ export type ApolloTwoRoundBudgetBreakdown = {
 export function estimateApolloTwoRoundBudget(
   config: ApolloTwoRoundDiscoveryConfig,
 ): ApolloTwoRoundBudgetBreakdown {
-  const perRound = creditsForApolloOperation(
-    'organizations_search',
-    config.maxResultsPerRound,
-  );
+  // § arriba — el techo de UNA invocación de búsqueda de ronda es el de
+  // páginas, no el de organizaciones pedidas: `config.maxResultsPerRound` ya
+  // no participa en esta cuenta.
+  const perRound = WIZARD_APOLLO_MAX_PAGES_HARD_CAP;
   const searchCreditsPerRound = Array.from({ length: config.maxRounds }, () => perRound);
   const searchTotal = searchCreditsPerRound.reduce((sum, value) => sum + value, 0);
   const enrichmentMaximum = creditsForApolloOperation(

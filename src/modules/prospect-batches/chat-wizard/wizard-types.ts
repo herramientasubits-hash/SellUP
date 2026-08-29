@@ -1,7 +1,11 @@
+import type { AcceptedForTargetSummary } from '@/modules/prospect-batches/accepted-for-target';
 // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — la unión de estados de ejecución se
 // importa de la acción en vez de reescribirse aquí: dos copias a mano fue cómo
 // `completed_with_errors` habría podido existir en el servidor y no en la UI.
-import type { WizardExecutionStatus } from '@/modules/prospect-batches/chat-wizard-execution/wizard-execution-types';
+import type {
+  WizardExecutionStatus,
+  WizardFreeContribution,
+} from '@/modules/prospect-batches/chat-wizard-execution/wizard-execution-types';
 
 // ── Search mode contracts ─────────────────────────────────────────────────────
 
@@ -111,10 +115,49 @@ export type ProspectWizardState = {
   executionStatus: WizardExecutionStatus | null;
   /** True when novelty pre-check confirms the universe of domains for these criteria is exhausted. */
   executionNoveltyExhausted?: boolean;
-  /** True when execution reached targetPersistibleCandidates. */
-  executionTargetReached?: boolean;
-  /** The target count of persistible candidates configured for the last execution. */
-  executionTargetPersistibleCandidates?: number;
+  /**
+   * AGENT1-LOCAL-CUT8 § 3 — FILAS DURABLES que la ejecución dejó en el lote.
+   *
+   * 🔴 Es el universo durable, no el objetivo y no lo aceptado. Antes de este
+   * corte el panel de éxito recibía como `candidateCount` el objetivo
+   * `executionTargetPersistibleCandidates`, así que una corrida que pidió 10 y
+   * guardó 4 anunciaba «Se generaron 10 candidatos». Este campo existe para que
+   * ese número sea el que la base tiene.
+   *
+   * `undefined` cuando el servidor no lo envió (p. ej. `already_started`, que no
+   * ejecutó nada): entonces el copy no afirma ninguna cifra.
+   */
+  executionCandidateCount?: number;
+  /**
+   * AGENT1-LOCAL-CUT8 §§ 1, 4 — el resumen CANÓNICO de aceptación hacia el
+   * objetivo, tal como lo resolvió `resolveAcceptedForTarget` en el servidor.
+   *
+   * 🔴 Es la ÚNICA autoridad de objetivo del estado del mago. Los campos
+   * `executionTargetReached` y `executionTargetPersistibleCandidates` que vivían
+   * aquí se han retirado a propósito: eran un segundo veredicto y un segundo
+   * objetivo que nadie despachaba —el `dispatch` nunca los enviaba— y que la UI
+   * ya usaba mal. `requestedTarget` y `targetReached` se leen de aquí.
+   *
+   * `null` = esta ejecución no declaró aceptación. Ciclo de vida de UNA
+   * ejecución: se borra al empezar el intento siguiente y al reiniciar el mago,
+   * por la misma razón que `executionFreeContribution` (§ L).
+   */
+  executionAcceptedForTarget: AcceptedForTargetSummary | null;
+  /**
+   * AGENT1-LOCAL-CUT6B-PARTIAL-UI-PROPAGATION §§ 3, 5 — empresas que la capa
+   * GRATUITA dejó guardadas en la ejecución que acaba de FALLAR.
+   *
+   * `null` = esta ejecución no dejó nada durable, que es el caso de todo fallo
+   * anterior a la capa gratuita. NO es lo mismo que `executionBatchId`: ése
+   * describe un lote de una corrida que terminó BIEN, y confundirlos dejaría al
+   * paso de éxito leyendo el lote de un fallo.
+   *
+   * 🔴 Su ciclo de vida es el de UNA ejecución: se guarda al fallar, y se borra
+   * al empezar el intento siguiente, al terminar con éxito y al reiniciar el
+   * mago. Sin ese borrado, un fallo posterior SIN aporte enseñaría las empresas
+   * de una corrida anterior — una mentira peor que el silencio que CUT-6B cierra.
+   */
+  executionFreeContribution: WizardFreeContribution | null;
 };
 
 // ── Action contracts ──────────────────────────────────────────────────────────
@@ -156,8 +199,27 @@ export type ProspectWizardAction =
   | { type: 'RECONCILE_COUNTRY_SUBINDUSTRIES'; compatibleSubindustryIds: string[] }
   | { type: 'APPLY_CRITERIA_GUARD_RESULT'; rawValue: string; result: CriteriaGuardResult }
   | { type: 'BEGIN_EXECUTION' }
-  | { type: 'EXECUTION_SUCCEEDED'; batchId: string; redirectPath: string; status: WizardExecutionStatus; noveltyExhausted?: boolean; targetPersistibleCandidates?: number; targetReached?: boolean }
-  | { type: 'EXECUTION_FAILED'; errorCode: string; message: string; retryable: boolean };
+  // AGENT1-LOCAL-CUT8 § 3 — el éxito transporta lo que el SERVIDOR derivó: las
+  // filas durables y el resumen canónico de aceptación. Ni el objetivo suelto ni
+  // un `targetReached` propio: los dos viven dentro de `acceptedForTarget`, que
+  // es la autoridad, y duplicarlos aquí permitiría despachar un veredicto que no
+  // concuerde con sus propias cifras.
+  | { type: 'EXECUTION_SUCCEEDED'; batchId: string; redirectPath: string; status: WizardExecutionStatus; noveltyExhausted?: boolean; candidateCount?: number; acceptedForTarget: AcceptedForTargetSummary | null }
+  /**
+   * AGENT1-LOCAL-CUT6B-PARTIAL-UI-PROPAGATION § 3 — `freeContribution` viaja en la
+   * acción, no se vuelve a leer del resultado desde el reducer.
+   *
+   * Opcional porque la mayoría de los fallos ocurren antes de la capa gratuita y
+   * no tienen nada que declarar. Ausente ⇒ el reducer guarda `null`, y la UI se
+   * comporta EXACTAMENTE como antes de este corte.
+   */
+  | {
+      type: 'EXECUTION_FAILED';
+      errorCode: string;
+      message: string;
+      retryable: boolean;
+      freeContribution?: WizardFreeContribution;
+    };
 
 // ── Derived message contract ──────────────────────────────────────────────────
 

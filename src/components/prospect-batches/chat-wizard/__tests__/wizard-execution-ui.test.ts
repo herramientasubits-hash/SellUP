@@ -226,8 +226,7 @@ describe('17.7 — EXECUTION_SUCCEEDED with status=created', () => {
       type: 'EXECUTION_SUCCEEDED',
       batchId: BATCH_ID,
       redirectPath: `/prospects`,
-      status: 'created',
-    });
+      status: 'created', acceptedForTarget: null });
     assert.equal(s.currentStep, 'success');
   });
 
@@ -237,8 +236,7 @@ describe('17.7 — EXECUTION_SUCCEEDED with status=created', () => {
       type: 'EXECUTION_SUCCEEDED',
       batchId: BATCH_ID,
       redirectPath: `/prospects`,
-      status: 'created',
-    });
+      status: 'created', acceptedForTarget: null });
     assert.equal(s.executionStatus, 'created');
   });
 
@@ -248,8 +246,7 @@ describe('17.7 — EXECUTION_SUCCEEDED with status=created', () => {
       type: 'EXECUTION_SUCCEEDED',
       batchId: BATCH_ID,
       redirectPath: `/prospects`,
-      status: 'created',
-    });
+      status: 'created', acceptedForTarget: null });
     assert.equal(s.executionBatchId, BATCH_ID);
   });
 
@@ -259,8 +256,7 @@ describe('17.7 — EXECUTION_SUCCEEDED with status=created', () => {
       type: 'EXECUTION_SUCCEEDED',
       batchId: BATCH_ID,
       redirectPath: `/prospects`,
-      status: 'created',
-    });
+      status: 'created', acceptedForTarget: null });
     assert.equal(s.executionError, null);
   });
 });
@@ -274,8 +270,7 @@ describe('17.8 — EXECUTION_SUCCEEDED with status=already_started', () => {
       type: 'EXECUTION_SUCCEEDED',
       batchId: BATCH_ID,
       redirectPath: `/prospects`,
-      status: 'already_started',
-    });
+      status: 'already_started', acceptedForTarget: null });
     assert.equal(s.currentStep, 'success');
   });
 
@@ -285,8 +280,7 @@ describe('17.8 — EXECUTION_SUCCEEDED with status=already_started', () => {
       type: 'EXECUTION_SUCCEEDED',
       batchId: BATCH_ID,
       redirectPath: `/prospects`,
-      status: 'already_started',
-    });
+      status: 'already_started', acceptedForTarget: null });
     assert.equal(s.executionStatus, 'already_started');
   });
 
@@ -296,16 +290,14 @@ describe('17.8 — EXECUTION_SUCCEEDED with status=already_started', () => {
       type: 'EXECUTION_SUCCEEDED',
       batchId: BATCH_ID,
       redirectPath: `/prospects`,
-      status: 'already_started',
-    });
+      status: 'already_started', acceptedForTarget: null });
     assert.equal(s.currentStep, 'success');
 
     const second = prospectWizardReducer(s, {
       type: 'EXECUTION_SUCCEEDED',
       batchId: BATCH_ID,
       redirectPath: `/prospects`,
-      status: 'already_started',
-    });
+      status: 'already_started', acceptedForTarget: null });
     assert.equal(second.currentStep, 'success');
     assert.deepEqual(s, second);
   });
@@ -404,6 +396,7 @@ describe('17.11 — No navigation to /prospect-batches/[batchId]', () => {
     s = prospectWizardReducer(s, {
       type: 'EXECUTION_SUCCEEDED',
       batchId: BATCH_ID,
+      acceptedForTarget: null,
       // The backend currently returns this path — the UI must ignore it for navigation
       redirectPath: `/prospect-batches/${BATCH_ID}`,
       status: 'created',
@@ -426,8 +419,7 @@ describe('17.11 — No navigation to /prospect-batches/[batchId]', () => {
       type: 'EXECUTION_SUCCEEDED',
       batchId: BATCH_ID,
       redirectPath: `/prospects`,
-      status: 'created',
-    });
+      status: 'created', acceptedForTarget: null });
     // clientRequestId is tracked outside reducer (in ref) — state holds batch info
     assert.equal(s.executionBatchId, BATCH_ID);
     assert.equal(s.executionStatus, 'created');

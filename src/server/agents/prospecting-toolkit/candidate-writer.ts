@@ -44,7 +44,10 @@ import { normalizeProspectCompanyName } from "./company-name-normalizer";
 import { evaluateCountryEvidence } from "./country-evidence-gate";
 import type { CountryEvidenceResult } from "./country-evidence-gate";
 import { computeEvidencePersistencePolicy } from "./evidence-persistence-policy";
-import { checkActiveCandidateDuplicate } from "./active-candidate-identity-guard";
+import {
+  checkActiveCandidateDuplicate,
+  ACTIVE_CANDIDATE_STATUSES,
+} from "./active-candidate-identity-guard";
 // AGENT1-CUT3B23 §§ 5/6/8 — evidencia de identidad COMPARTIDA con las otras dos
 // rutas de escritura de Agente 1, y el registro con ámbito de lote que la compara.
 // Esta ruta dedupeaba por DOMINIO/nombre y la gratuita por identidad FISCAL: sin
@@ -382,10 +385,28 @@ export {
 
 // ─── Active duplicate guard — prefetch helper ─────────────────────────────────
 
-const ACTIVE_STATUSES_FOR_GUARD = [
-  'needs_review', 'approved', 'converted', 'ready_for_review',
-  'draft', 'generating', 'pending', 'active', 'ready', 'in_progress',
-];
+/**
+ * AGENT1-APOLLO-PREPAID-HISTORICAL-PARITY § 5 — el PREFILTRO de base y la guarda
+ * en memoria comparten UN conjunto.
+ *
+ * Antes había dos listas literales, una aquí y otra en
+ * `active-candidate-identity-guard.ts`, y las dos arrastraban el mismo defecto:
+ * `converted` (inexistente en la CHECK) en vez de `converted_to_account`, y ni
+ * `generated` ni `normalized`. Dos listas que deben coincidir siempre son una
+ * sola lista con una copia esperando divergir.
+ */
+const ACTIVE_STATUSES_FOR_GUARD = [...ACTIVE_CANDIDATE_STATUSES];
+
+/**
+ * § 20 — tope del prefetch por país. La consulta no ordena, así que un tope
+ * ALCANZADO significa «esta lista es un subconjunto arbitrario».
+ *
+ * No se convierte en paginación masiva ni se sube el tope: se hace OBSERVABLE
+ * para que nadie pueda apoyar una decisión dura sobre una lista truncada en
+ * silencio. El gate PRE-PAGO de este corte no consume este eje: usa
+ * `buildNoveltyIndex`, acotado por los ≤10 dominios de la corrida y sin tope.
+ */
+const ACTIVE_GUARD_PREFETCH_LIMIT = 500;
 
 /**
  * Estado observable del prefetch del Active Duplicate Guard (Q3F-5AW.2 Phase 1).
@@ -403,6 +424,15 @@ export interface ActiveCandidateGuardPrefetch {
   records: ActiveCandidateRecord[];
   status: ActiveCandidateGuardStatus;
   reason: ActiveCandidateGuardReason;
+  /**
+   * § 20 — alguna de las dos consultas devolvió exactamente el tope y no ordena:
+   * la cobertura es un subconjunto ARBITRARIO. No cambia el comportamiento (el
+   * guard sigue fail-open) y no se usa como autoridad de rechazo pre-pago; existe
+   * para que la truncación no sea silenciosa.
+   */
+  truncated: boolean;
+  /** Qué eje se truncó, cuando aplica. */
+  truncatedAxes: readonly ('domain' | 'country')[];
 }
 
 /**
@@ -427,6 +457,7 @@ export async function fetchActiveCandidatesForGuard(
     const result: ActiveCandidateRecord[] = [];
     const seenIds = new Set<string>();
     let sawQueryError = false;
+    const truncatedAxes: ('domain' | 'country')[] = [];
 
     function mapRow(row: Record<string, unknown>): ActiveCandidateRecord {
       const meta = (row['metadata'] ?? {}) as Record<string, unknown>;
@@ -448,9 +479,12 @@ export async function fetchActiveCandidatesForGuard(
         .select('id, name, domain, normalized_name, metadata, status')
         .in('status', ACTIVE_STATUSES_FOR_GUARD)
         .in('domain', batchDomains)
-        .limit(500);
+        .limit(ACTIVE_GUARD_PREFETCH_LIMIT);
 
       if (byDomainError) sawQueryError = true;
+      if (Array.isArray(byDomain) && byDomain.length >= ACTIVE_GUARD_PREFETCH_LIMIT) {
+        truncatedAxes.push('domain');
+      }
       if (Array.isArray(byDomain)) {
         for (const row of byDomain as Record<string, unknown>[]) {
           const rec = mapRow(row);
@@ -469,9 +503,12 @@ export async function fetchActiveCandidatesForGuard(
         .select('id, name, domain, normalized_name, metadata, status')
         .in('status', ACTIVE_STATUSES_FOR_GUARD)
         .eq('country_code', countryCode)
-        .limit(500);
+        .limit(ACTIVE_GUARD_PREFETCH_LIMIT);
 
       if (byCountryError) sawQueryError = true;
+      if (Array.isArray(byCountry) && byCountry.length >= ACTIVE_GUARD_PREFETCH_LIMIT) {
+        truncatedAxes.push('country');
+      }
       if (Array.isArray(byCountry)) {
         for (const row of byCountry as Record<string, unknown>[]) {
           const rec = mapRow(row);
@@ -483,13 +520,23 @@ export async function fetchActiveCandidatesForGuard(
       }
     }
 
+    const truncation = {
+      truncated: truncatedAxes.length > 0,
+      truncatedAxes: [...truncatedAxes] as const,
+    };
     if (sawQueryError) {
-      return { records: result, status: 'degraded', reason: 'query_error' };
+      return { records: result, status: 'degraded', reason: 'query_error', ...truncation };
     }
-    return { records: result, status: 'ok', reason: null };
+    return { records: result, status: 'ok', reason: null, ...truncation };
   } catch {
     // Non-critical: guard degrades gracefully (fail-open) if prefetch throws.
-    return { records: [], status: 'degraded', reason: 'prefetch_failed' };
+    return {
+      records: [],
+      status: 'degraded',
+      reason: 'prefetch_failed',
+      truncated: false,
+      truncatedAxes: [],
+    };
   }
 }
 
@@ -731,7 +778,7 @@ export async function writeProspectingCandidates(
   // Production callers always omit this parameter (feature disabled by default).
   richProfileEnrichmentOverride?: RichProfileEnrichmentOverride,
 ): Promise<CandidateWriterOutput> {
-  const { pipelineOutput, triggeredByUserId, ownerId, batchName, source, dryRun, extraBatchMetadata, existingBatchId } = input;
+  const { pipelineOutput, triggeredByUserId, ownerId, batchName, source, dryRun, extraBatchMetadata, resolveExtraBatchMetadata, existingBatchId } = input;
   const isDryRun = dryRun ?? false;
 
   // Guard: sin candidatos
@@ -3708,40 +3755,54 @@ export async function writeProspectingCandidates(
     // Reconcile adaptive_discovery with actual persisted count (Hito 16AB.43.28).
     // extraBatchMetadata.adaptive_discovery was set as a placeholder before the writer ran.
     // Here we overwrite it with the real persisted count so the DB reflects truth.
-    // Hito 16AB.43.30: also fix stop_reason to be coherent with actual result.
+    //
+    // ── AGENT1-LOCAL-CUT8 · DECISIÓN A ────────────────────────────────────────
+    //
+    // `adaptive_discovery` vuelve a ser lo que su nombre dice: observabilidad de
+    // FILAS y de DESCUBRIMIENTO. Deja de emitir veredictos de objetivo.
+    //
+    // Hasta este corte reconciliaba tres cosas a partir de las filas escritas:
+    // `result_status`, `remaining_to_target` y un `stop_reason` reescrito. Las
+    // tres respondían «¿se alcanzó el objetivo?» contando filas, y una fila
+    // persistida no es una empresa aceptada — `candidate-completeness-contract`
+    // § D guarda a propósito el candidato incompleto como `needs_review`—. Con
+    // 10 filas de las que 3 sólo existen para revisión, este bloque escribía
+    // `success_target_reached` en la base mientras la autoridad de CUT-7
+    // declaraba 7 aceptadas y 3 pendientes.
+    //
+    // 🔴 La respuesta a «¿se alcanzó?» vive ahora en UN solo sitio de la
+    // metadata: el bloque `accepted_for_target` que publica la costura de la
+    // DECISIÓN B. Que este bloque callara y aquél hablara es justamente lo que
+    // impide que la base contenga dos veredictos que puedan discrepar.
+    //
+    // Qué se conserva y por qué:
+    //   · `persisted_count` — hecho de filas, reconciliado como siempre. Es
+    //     además el que `agent1-effectiveness` lee ahora para su semántica de
+    //     «sin empresas nuevas» (`persisted_count === 0`), que NO cambia.
+    //   · `stop_reason` — POR QUÉ paró el bucle de descubrimiento. Es verdad del
+    //     bucle, así que se respeta la que el bucle declaró en vez de
+    //     reescribirla desde las filas: «paré porque alcancé el objetivo» era una
+    //     afirmación de objetivo disfrazada de observabilidad.
+    //
+    // Qué desaparece de las escrituras NUEVAS: `result_status` y
+    // `remaining_to_target`. Los lotes históricos que ya los tienen NO se tocan.
     const storedAdaptive = (extraBatchMetadata as Record<string, unknown> | null)?.['adaptive_discovery'] as Record<string, unknown> | undefined;
     const reconciledAdaptiveForStorage = storedAdaptive != null && targetCap != null
       ? (() => {
-          const persisted = createdCandidateIds.length;
-          const remaining = Math.max(0, targetCap - persisted);
-          const roundsExecuted = (storedAdaptive.rounds_executed as number) ?? 0;
-          const maxRounds = (storedAdaptive.max_rounds as number) ?? 0;
-
-          // Determine coherent stop_reason based on actual outcome
-          let coherentStopReason: string;
-          if (persisted >= targetCap) {
-            coherentStopReason = 'target_reached';
-          } else if (roundsExecuted >= maxRounds) {
-            coherentStopReason = 'max_rounds_exhausted';
-          } else {
-            coherentStopReason = (storedAdaptive.stop_reason as string) ?? 'max_rounds_exhausted';
-          }
-
-          let resultStatus: string;
-          if (persisted >= targetCap) {
-            resultStatus = 'success_target_reached';
-          } else if (persisted > 0) {
-            resultStatus = 'success_partial';
-          } else {
-            resultStatus = 'no_new_candidates';
-          }
+          const {
+            // Se DESESTRUCTURAN para quedar fuera del objeto reconstruido: un
+            // placeholder anterior al corte podría traerlos, y reenviarlos
+            // volvería a publicar un veredicto de objetivo basado en filas.
+            result_status: _legacyResultStatus,
+            remaining_to_target: _legacyRemainingToTarget,
+            ...adaptiveRowObservability
+          } = storedAdaptive;
+          void _legacyResultStatus;
+          void _legacyRemainingToTarget;
 
           return {
-            ...storedAdaptive,
-            persisted_count: persisted,
-            remaining_to_target: remaining,
-            stop_reason: coherentStopReason,
-            result_status: resultStatus,
+            ...adaptiveRowObservability,
+            persisted_count: createdCandidateIds.length,
           };
         })()
       : storedAdaptive;
@@ -3926,8 +3987,37 @@ export async function writeProspectingCandidates(
       },
     );
 
+    // ── AGENT1-LOCAL-CUT8 · DECISIÓN B — metadata que depende del RESULTADO ──
+    //
+    // Único punto del writer donde ya se sabe qué se escribió y todavía no se ha
+    // publicado nada. El llamador entrega una función pura; aquí se le pasan las
+    // cifras canónicas que este writer acaba de contar —las MISMAS que publican
+    // `writer_summary` y el bloque de métricas—, nunca una relectura ni un
+    // recuento paralelo.
+    //
+    // 🔴 `complete_valid_candidates` viaja como `null` cuando no se midió. Un
+    // cero afirmaría que ninguna empresa quedó completa; sustituirlo por las
+    // filas afirmaría que todas lo quedaron. Las dos son mentiras distintas y el
+    // contrato de la costura prohíbe ambas.
+    const resolvedExtraBatchMetadata =
+      typeof resolveExtraBatchMetadata === 'function'
+        ? resolveExtraBatchMetadata({
+            persistedCandidates: createdCandidateIds.length,
+            // Este writer SIEMPRE mide: los contadores canónicos son `number`.
+            // El `null` del contrato existe para las rutas que no miden, y
+            // llegar aquí con un cero fabricado sería justo lo que prohíbe.
+            completeValidCandidates: canonicalCompletenessCounters.complete_valid_candidates,
+            reviewOnlyCandidates: canonicalCompletenessCounters.review_only_candidates,
+          })
+        : null;
+
     const finalMetadata = {
       ...preMergedMetadata,
+      // 🔴 Se esparce ANTES de las claves internas del writer, igual que
+      // `extraBatchMetadata`: una clave de diagnóstico propia siempre gana a lo
+      // que venga de fuera. La aceptación hacia el objetivo es una clave nueva,
+      // así que no pisa nada.
+      ...(resolvedExtraBatchMetadata ?? {}),
       ...(twoRoundReconciled
         ? { [APOLLO_TWO_ROUND_OBSERVABILITY_KEY]: twoRoundReconciled.observability }
         : {}),

@@ -149,13 +149,24 @@ test('§ 11 — B1 no toca los gates de la cola de revisión limpia', () => {
   }
 });
 
-test('§ 3/§ 25 — CUT4-B2 sigue siendo territorio ajeno: actions.ts no proyecta procedencia', () => {
-  // Fija el LÍMITE del corte, no un logro: `createProspectCandidate` y
-  // `createExternalCandidatesBatch` pertenecen a B2 y este PR no los toca. Si algún
-  // día lo hacen, este test se actualiza junto a ese corte — no antes.
+test('§ 3/§ 25 — CUT4-B2 ya cerró: actions.ts proyecta procedencia con la MISMA autoridad', () => {
+  // Este test fijaba el LÍMITE de B1 afirmando que `actions.ts` NO usaba el
+  // resolvedor canónico. Cumplida su función, esa afirmación pasó a ser un
+  // trinquete que DEFENDÍA el defecto: habría bloqueado exactamente la
+  // corrección que B2 tenía que hacer. Se actualiza junto a ese corte, como su
+  // propio texto anticipaba.
+  //
+  // Lo que fija AHORA es lo que importa a B1: que los cuatro writers comparten
+  // una sola autoridad y nadie abrió una segunda. Las guardas específicas de los
+  // writers de `actions.ts` viven en el corte B2
+  // (`src/modules/prospect-batches/__tests__/cut4b2-action-writer-static-guard.test.ts`).
   const src = code(CUT4_B2_FILE);
   assert.ok(
-    !src.includes('resolveCandidateRecordOriginForWriter('),
-    'actions.ts es de CUT4-B2; B1 no debe haberlo modificado',
+    src.includes('resolveCandidateRecordOriginForWriter('),
+    'actions.ts tiene que resolver la procedencia con la autoridad canónica (CUT4-B2)',
+  );
+  assert.ok(
+    !src.includes('deriveRecordOriginClassification'),
+    'actions.ts no puede abrir un segundo clasificador',
   );
 });

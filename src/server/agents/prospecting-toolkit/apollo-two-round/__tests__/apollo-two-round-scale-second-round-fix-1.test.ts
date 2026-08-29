@@ -10,7 +10,7 @@
  *         prioridad, dedupe y truncamiento) colapsa al mismo body. Es el defecto
  *         comprobado: dos hipótesis distintas que Apollo recibe como la misma
  *         petición, cobrada dos veces sin aportar nada nuevo.
- *   § 2 — los nuevos topes absolutos (10/20/5) y que, SIN variables de entorno
+ *   § 2 — los nuevos topes absolutos (10/20/6) y que, SIN variables de entorno
  *         nuevas, el comportamiento por defecto no cambia.
  *   § 4 — el desglose granular de duplicados (SellUp / HubSpot / cooldown) y las
  *         tres cubetas del desenlace de enrichment (confirmado / aún sin
@@ -306,28 +306,38 @@ describe('§ 1B · la ventana se decide por solapamiento de términos efectivos'
 
 // ─── § 2 · topes absolutos elevados, comportamiento por defecto intacto ───────
 
-describe('§ 2 · topes absolutos 10/20/5, sin cambiar el comportamiento por defecto', () => {
+describe('§ 2 · topes absolutos 10/20/6, sin cambiar el comportamiento por defecto', () => {
   test('los topes absolutos son los del hito', () => {
     assert.equal(MAX_RESULTS_PER_ROUND_ABSOLUTE_MAX, 10);
     assert.equal(MAX_RAW_RESULTS_PER_RUN_ABSOLUTE_MAX, 20);
-    assert.equal(MAX_ENRICHMENTS_PER_RUN_ABSOLUTE_MAX, 5);
-    assert.equal(TARGET_ELIGIBLE_COMPANIES_ABSOLUTE_MAX, 5);
+    // AGENT1-APOLLO-NET-NEW-PAGINATION-LIVE-WIRING — +1 deliberado (5→6): con la
+    // paginación net-new conectada en vivo, el enrichment cap real
+    // (`config.maxEnrichmentsPerRun`) puede autorizar un objetivo de 6 sin
+    // sobrepasar ningún otro tope. Ver config.ts.
+    assert.equal(MAX_ENRICHMENTS_PER_RUN_ABSOLUTE_MAX, 6);
+    // AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING — antes 6 (QA cap sin relación
+    // con ningún número de negocio). El wizard promete
+    // WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES=10; la modalidad de dos
+    // rondas no puede tener un tope de aceptación menor que el que la legacy
+    // ya honraba. maxEnrichmentsPerRun NO sube: sigue siendo la autoridad de
+    // presupuesto real (alimenta la reserva atómica del wizard).
+    assert.equal(TARGET_ELIGIBLE_COMPANIES_ABSOLUTE_MAX, 10);
     assert.equal(MAX_SEARCH_ROUNDS_ABSOLUTE_MAX, 2);
   });
 
-  test('sin overrides de entorno la config resuelta sigue siendo 5/2/5/10/2', () => {
+  test('sin overrides de entorno la config resuelta sigue siendo 10/2/10/20/2', () => {
     const resolved = defaultApolloTwoRoundConfig();
     assert.deepEqual(resolved, {
-      targetEligibleCompanies: 5,
+      targetEligibleCompanies: 10,
       maxRounds: 2,
-      maxResultsPerRound: 5,
-      maxRawResultsPerRun: 10,
+      maxResultsPerRound: 10,
+      maxRawResultsPerRun: 20,
       maxEnrichmentsPerRun: 2,
     });
     assert.equal(estimateApolloTwoRoundBudget(resolved).maximumInternalRecordedCredits, 12);
   });
 
-  test('con overrides al nuevo techo, la config resuelve 5/2/10/20/5 y el máximo son 25 créditos', () => {
+  test('con overrides al nuevo techo, la config resuelve 5/2/10/20/5 y el máximo son 15 créditos', () => {
     const { config } = resolveApolloTwoRoundConfig({
       targetEligibleCompanies: '5',
       maxRounds: '2',
@@ -344,11 +354,16 @@ describe('§ 2 · topes absolutos 10/20/5, sin cambiar el comportamiento por def
       maxEnrichmentsPerRun: 5,
     });
 
+    // AGENT1-APOLLO-NET-NEW-PAGINATION-LIVE-WIRING — la reserva de Search ya NO
+    // escala con `maxResultsPerRound` (10 aquí): queda fija en
+    // `WIZARD_APOLLO_MAX_PAGES_HARD_CAP` (5) por ronda, porque ese es el único
+    // techo real de una invocación de búsqueda — pedir 10 resultados en una
+    // página sigue costando 1 crédito de página, no 10.
     const budget = estimateApolloTwoRoundBudget(config);
-    assert.equal(budget.searchRound1Maximum, 10);
-    assert.equal(budget.searchRound2Maximum, 10);
+    assert.equal(budget.searchRound1Maximum, 5);
+    assert.equal(budget.searchRound2Maximum, 5);
     assert.equal(budget.enrichmentMaximum, 5);
-    assert.equal(budget.maximumInternalRecordedCredits, 25);
+    assert.equal(budget.maximumInternalRecordedCredits, 15);
   });
 
   test('un override que exceda el nuevo techo se acota a él, nunca lo supera', () => {
@@ -360,7 +375,7 @@ describe('§ 2 · topes absolutos 10/20/5, sin cambiar el comportamiento por def
 
     assert.equal(config.maxResultsPerRound, 10);
     assert.equal(config.maxRawResultsPerRun, 20);
-    assert.equal(config.maxEnrichmentsPerRun, 5);
+    assert.equal(config.maxEnrichmentsPerRun, 6);
     assert.equal(sources.maxResultsPerRound, 'env_clamped_to_absolute_max');
   });
 });

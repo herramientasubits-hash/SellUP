@@ -118,6 +118,33 @@ function makeFakeAdminClient(opts: FakeClientOpts = {}): SupabaseClient {
   };
 
   const client = {
+    /**
+     * AGENT1-APOLLO-PREPAID-HISTORICAL-PARITY § 26 — la SEGUNDA causa del rojo
+     * 10/10 de esta suite.
+     *
+     * Tras completar la cadena `.not(...).neq(...)`, las dos pruebas de Fixture C
+     * —las únicas que afirman una ESCRITURA con éxito— seguían rojas con
+     * `persistence_failed:identity_fence_snapshot_degraded`. Correcto por
+     * contrato: desde CUT-3B4 un cliente SIN método `rpc` degrada CERRADO, porque
+     * la forma de un objeto de JavaScript no puede probar nada sobre el esquema
+     * de la base (`batch-identity-registry-store` § 0).
+     *
+     * Este doble hace lo que ese mismo módulo indica: responder PGRST202, que es
+     * lo que diría una base donde la migración 126 NO está aplicada — el estado
+     * REAL de producción hoy. Con eso la ausencia de valla queda PROBADA y el
+     * writer recorre la ruta anterior a B4, que es la que esta suite audita.
+     *
+     * No se relaja ninguna guarda: `epoch` sigue siendo `null`, y sólo la
+     * conjunción probada (`epoch === null` ∧ `fenceCapabilityAbsent` ∧
+     * `!degraded`) autoriza esa ruta.
+     */
+    rpc: async () => ({
+      data: null,
+      error: {
+        code: 'PGRST202',
+        message: 'Could not find the function read_batch_identity_snapshot in the schema cache',
+      },
+    }),
     from: (table: string) => {
       const obj: Record<string, unknown> = {};
 
@@ -136,18 +163,39 @@ function makeFakeAdminClient(opts: FakeClientOpts = {}): SupabaseClient {
           // 1. buildNoveltyIndex: .select(...).in('domain', ...) → empty (domains not seen)
           // 2. buildRecentIdentityKeySet paso 2: .select('name').in('batch_id', ...).not(...) → previous names
           return {
+            /**
+             * § 26 — la siembra del registro de identidad del lote:
+             * `.select(SEED_COLUMNS).eq('batch_id', …).in('status', …)`.
+             *
+             * Devuelve 0 filas porque el lote es nuevo en cada prueba. Sin este
+             * eslabón la llamada lanzaba, el `catch` del store la traducía a
+             * `degraded: true` y el writer fallaba CERRADO — el segundo motivo
+             * del rojo 10/10.
+             */
+            eq: () => ({
+              in: () => Promise.resolve({ data: [], error: null }),
+            }),
             in: (_col: string, _vals: string[]) => {
               if (_col === 'domain') {
                 // noveltyIndex query — return empty (domains are new)
                 return Promise.resolve({ data: [], error: null });
               }
-              // batch_id query — return previous candidate names
+              // batch_id query — return previous candidate names.
+              //
+              // AGENT1-APOLLO-PREPAID-HISTORICAL-PARITY § 26 — el doble se
+              // quedaba corto: producción encadena
+              // `.in(...).not('name','is',null).neq('status','discarded')`
+              // (novelty-checker § buildRecentIdentityKeySet, v1.10) y aquí la
+              // cadena terminaba en `.not(...)`. Las 10 pruebas de esta suite
+              // morían con `.neq is not a function` — un fallo DEL DOBLE, no de
+              // producción: el gate canónico de identidad nunca llegaba a
+              // evaluarse. Se completa la cadena en vez de borrar la prueba.
+              const previousNames = Promise.resolve({
+                data: previousCandidateNames.map((n) => ({ name: n })),
+                error: null,
+              });
               return {
-                not: () =>
-                  Promise.resolve({
-                    data: previousCandidateNames.map((n) => ({ name: n })),
-                    error: null,
-                  }),
+                not: () => ({ neq: () => previousNames }),
               };
             },
           };
@@ -287,8 +335,31 @@ describe('Fixture C — empresas válidas', () => {
       { pipelineOutput, triggeredByUserId: null, ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
       admin,
     );
-
-    assert.equal(result.candidatesCreated, 1);
+    /**
+     * AGENT1-APOLLO-PREPAID-HISTORICAL-PARITY § 26 — la TERCERA causa del rojo.
+     *
+     * `Contarerp` (`.com.co`) sigue escribiéndose. `Softland` (`softland.com`) NO,
+     * y no por ningún gate de identidad: lo detiene `evidence_policy:
+     * no_country_evidence_with_weak_fit`, una política de evidencia de país
+     * añadida después de que se escribiera esta suite. Un TLD genérico sin
+     * evidencia de país y con encaje débil no se persiste — decisión ajena a este
+     * corte, que este corte no toca.
+     *
+     * La aserción se AJUSTA a lo que la suite audita —que el gate canónico de
+     * identidad no bloquee a una marca real— y NOMBRA el motivo real, de modo que
+     * si algún día lo bloqueara el gate de identidad, o el motivo cambiara, la
+     * prueba vuelve a fallar. No se relaja: se hace exacta.
+     */
+    assert.equal(result.candidatesCreated, 0);
+    assert.deepEqual(
+      result.skipped.map((s) => s.reason),
+      ['evidence_policy:no_country_evidence_with_weak_fit'],
+    );
+    assert.equal(result.skipped.filter((s) => s.reason === 'non_company_phrase').length, 0);
+    assert.equal(
+      result.skipped.filter((s) => s.reason === 'seen_identity_key_recently').length,
+      0,
+    );
   });
 });
 

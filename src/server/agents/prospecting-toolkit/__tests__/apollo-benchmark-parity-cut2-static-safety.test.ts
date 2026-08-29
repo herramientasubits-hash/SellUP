@@ -379,7 +379,17 @@ describe('MUTACIÓN 6 · la reserva financiera se deriva del hueco residual', ()
     assert.ok(end > start, 'la función cierra');
     const fn = code.slice(start, end);
 
-    assert.ok(fn.includes('config.maxResultsPerRound'), 'se deriva del techo por ronda');
+    // AGENT1-APOLLO-NET-NEW-PAGINATION-LIVE-WIRING — el techo de Search por
+    // ronda dejó de ser `config.maxResultsPerRound` (organizaciones pedidas) y
+    // pasó a ser `WIZARD_APOLLO_MAX_PAGES_HARD_CAP` (páginas): Apollo cobra por
+    // página no vacía, no por organización pedida, así que anclar la reserva al
+    // volumen pedido sobre-reservaba o sub-declaraba el techo real. El ancla
+    // sigue siendo una CONSTANTE por ronda, nunca la demanda — eso es lo que
+    // esta guarda protege — sólo cambió CUÁL constante.
+    assert.ok(
+      fn.includes('WIZARD_APOLLO_MAX_PAGES_HARD_CAP'),
+      'se deriva del techo de páginas por ronda',
+    );
     assert.ok(fn.includes('config.maxRounds'), 'y del número de rondas');
     for (const forbidden of ['targetEligibleCompanies', 'remainingTarget', 'residualGap']) {
       assert.ok(

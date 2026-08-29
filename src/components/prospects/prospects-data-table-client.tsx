@@ -51,9 +51,10 @@ import {
 import { CandidateRowActions } from '@/components/prospect-batches/candidate-row-actions';
 import { CandidateDetailSheet } from '@/components/prospect-batches/candidate-detail-sheet';
 import { getCandidateLinkedInUrl } from '@/modules/prospect-batches/candidate-linkedin-url';
-import { TERMINAL_STATUS } from '@/components/prospects/prospect-review-decision-utils';
-import { evaluateDiscardEligibility } from '@/modules/prospect-review/discard-eligibility';
-import { evaluateDuplicateEligibility } from '@/modules/prospect-review/duplicate-eligibility';
+import {
+  isTerminalApprovalStatus,
+  resolveRowActionAvailability,
+} from '@/components/prospects/prospect-review-decision-utils';
 import {
   FUTURE_ACTION_HINT,
   DISCARD_ACTION,
@@ -219,38 +220,28 @@ function getDisplayStatusStyle(candidate: Row): string {
   return STATUS_STYLES[candidate.status] ?? 'bg-muted text-muted-foreground';
 }
 
-// Row menu / context menu "Aprobar": hidden only for unambiguous terminal
-// states (approved/discarded/duplicate/converted). Any other status still
-// shows the entry — real eligibility is evaluated once the drawer opens.
-function isTerminalApprovalStatus(status: string): boolean {
-  return status in TERMINAL_STATUS;
-}
-
-// Q3F-5AZ.2G-1 — a row is discardable only when it is a clean-production
-// candidate still in needs_review. The row menu / context menu / selection bar
-// use this to offer "Descartar" only where the safe wrapper will actually act;
-// the drawer re-evaluates the same policy before arming its confirmation.
+// AGENT1-CUT4-C — la política de entradas de fila vive AHORA en
+// `prospect-review-decision-utils` (`isTerminalApprovalStatus` /
+// `resolveRowActionAvailability`), para que la ficha del lote importe
+// literalmente la misma y no pueda divergir de esta cola. Estas dos funciones
+// son adaptadores de la fila local a esa autoridad: no deciden nada por su
+// cuenta.
+//
+// Q3F-5AZ.2G-1 — una fila es descartable sólo si es un candidato de producción
+// limpia todavía en needs_review. Q3F-5AZ.2G-2 — marcar duplicado lo espeja.
+// El drawer reevalúa la misma política antes de armar su confirmación.
 function isDiscardEligible(candidate: Row): boolean {
-  return (
-    evaluateDiscardEligibility({
-      status: candidate.status,
-      recordOrigin: candidate.record_origin ?? null,
-    }).decision === 'discard'
-  );
+  return resolveRowActionAvailability({
+    status: candidate.status,
+    recordOrigin: candidate.record_origin ?? null,
+  }).canOfferDiscard;
 }
 
-// Q3F-5AZ.2G-2 — a row is markable as a duplicate only when it is a clean-
-// production candidate still in needs_review. The row menu / context menu /
-// selection bar use this to offer "Marcar duplicado" only where the safe
-// wrapper will actually act; the drawer re-evaluates the same policy before
-// arming its confirmation.
 function isMarkDuplicateEligible(candidate: Row): boolean {
-  return (
-    evaluateDuplicateEligibility({
-      status: candidate.status,
-      recordOrigin: candidate.record_origin ?? null,
-    }).decision === 'mark_duplicate'
-  );
+  return resolveRowActionAvailability({
+    status: candidate.status,
+    recordOrigin: candidate.record_origin ?? null,
+  }).canOfferMarkDuplicate;
 }
 
 function getDisplayStatusKey(candidate: Row): string {

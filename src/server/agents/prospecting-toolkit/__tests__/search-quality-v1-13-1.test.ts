@@ -391,14 +391,40 @@ describe('A-F5 — approved bloquea', () => {
   });
 });
 
-describe('A-F6 — converted bloquea', () => {
-  it('status=converted → matched=true', () => {
+/**
+ * AGENT1-APOLLO-PREPAID-HISTORICAL-PARITY § 5 y § 13 — este caso se escribió con
+ * `status: 'converted'`, un valor que la CHECK `prospect_candidates_status_check`
+ * NO admite (040: los siete son generated, normalized, needs_review, approved,
+ * discarded, duplicate, converted_to_account).
+ *
+ * Con eso, el trinquete verificaba una fila IMPOSIBLE y dejaba sin cubrir la
+ * real: una empresa YA CONVERTIDA EN CUENTA no bloqueaba nada por este eje. Se
+ * corrige el valor —no se elimina el caso— y se añade la comprobación explícita
+ * de que el estado inexistente ya no bloquea, para que no pueda volver.
+ */
+describe('A-F6 — converted_to_account bloquea', () => {
+  it('status=converted_to_account → matched=true', () => {
+    const result = checkActiveCandidateDuplicate(
+      { domain: 'softland.com' },
+      [
+        activeRecord({
+          id: 'x',
+          name: 'Softland',
+          domain: 'softland.com',
+          status: 'converted_to_account',
+        }),
+      ],
+    );
+    assert.ok(result.matched);
+    assert.equal(result.reason, 'same_active_domain');
+  });
+
+  it('el estado INEXISTENTE `converted` no se trata como activo', () => {
     const result = checkActiveCandidateDuplicate(
       { domain: 'softland.com' },
       [activeRecord({ id: 'x', name: 'Softland', domain: 'softland.com', status: 'converted' })],
     );
-    assert.ok(result.matched);
-    assert.equal(result.reason, 'same_active_domain');
+    assert.equal(result.matched, false);
   });
 });
 
@@ -549,8 +575,9 @@ describe('B-F3 — qa_cleanup/discarded no bloquea insert', () => {
   });
 });
 
-describe('B-F5-F6 — approved/converted bloquean insert', () => {
-  for (const blockedStatus of ['approved', 'converted'] as const) {
+// § 5 / § 13 — `converted_to_account` es el estado real; `converted` no existe.
+describe('B-F5-F6 — approved/converted_to_account bloquean insert', () => {
+  for (const blockedStatus of ['approved', 'converted_to_account'] as const) {
     it(`status=${blockedStatus} → candidato no insertado`, async () => {
       const stats: FakeAdminStats = {
         candidateInsertCalls: [],

@@ -127,6 +127,15 @@ export interface SearchOrganizationsParams {
 export interface EnrichOrganizationParams {
   domain: string;
   name?: string;
+  /**
+   * AGENT1-APOLLO-NET-NEW-PAGINATION § 18 — Apollo Support confirmó que
+   * Organization Enrichment acepta domain, website_url, linkedin_url y name
+   * JUNTOS para el mismo crédito. Enviar el website y el LinkedIn cuando se
+   * conocen mejora la confianza del match sin costar más — sigue siendo 1
+   * llamada, 1 crédito.
+   */
+  websiteUrl?: string;
+  linkedinUrl?: string;
 }
 
 export interface SearchPeopleParams {
@@ -393,6 +402,8 @@ export async function enrichApolloOrganization(
   const qs = new URLSearchParams();
   qs.set('domain', params.domain);
   if (params.name) qs.set('name', params.name);
+  if (params.websiteUrl) qs.set('website_url', params.websiteUrl);
+  if (params.linkedinUrl) qs.set('linkedin_url', params.linkedinUrl);
 
   const result = await apolloFetch<{ organization?: ApolloOrganization }>(
     `/api/v1/organizations/enrich?${qs.toString()}`,

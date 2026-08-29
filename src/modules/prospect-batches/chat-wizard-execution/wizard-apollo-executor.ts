@@ -36,47 +36,66 @@ import {
   type ProviderResultDemand,
 } from '@/modules/prospect-batches/prepaid-novelty/provider-result-demand';
 import type { ApolloPriorProviderSeen } from '@/server/agents/prospecting-toolkit/apollo-organizations-provider-seen';
+import type { ResolveExtraBatchMetadata } from '@/server/agents/prospecting-toolkit/writer-metadata-resolution';
 
 export const WIZARD_APOLLO_TARGET_INTERNAL = 25;
 export const WIZARD_APOLLO_MAX_ROUNDS = 4;
 export const WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES = 10;
 
 /**
- * AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 REVIEW-1 § 2 — ¿la ruta Apollo de
- * PRODUCCIÓN aprovecha un hueco PARCIAL de la capa gratuita?
+ * AGENT1-LOCAL-CUT6-PARTIAL-ACTIVATION §§ 3, 15 — ¿la ruta Apollo de PRODUCCIÓN
+ * aprovecha un hueco PARCIAL de la capa gratuita?
  *
- * `false`. La CAPACIDAD existe y está probada —`resultDemand` viaja hasta
- * `per_page`, las dos rondas comparten un hueco, `boundByRemainingTarget` es la
- * única cota— pero la ACTIVACIÓN en producción queda DIFERIDA. La distinción es
- * el punto de esta constante:
+ * `true` desde CUT-6. La CAPACIDAD ya existía desde
+ * AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 —`resultDemand` viaja hasta el `per_page`
+ * real, las dos rondas comparten UN hueco, `boundByRemainingTarget` es la única
+ * cota—; lo que faltaba era la ACTIVACIÓN, y lo que la bloqueaba era un motivo de
+ * PRODUCTO, no de capacidad:
  *
- *   apollo_partial_gap_capability = implemented
- *   apollo_partial_gap_activation = deferred_single_batch
+ *   apollo_partial_gap_capability = implemented   ← CUT-2
+ *   apollo_partial_gap_activation = ON            ← CUT-6 (antes: deferred_single_batch)
  *
- * ── 🔴 Por qué diferida ─────────────────────────────────────────────────────
+ * ── 🔴 Qué desbloqueó la activación ─────────────────────────────────────────
  *
- * Con `true` existe una ruta real de producción en la que UNA búsqueda del usuario
- * termina en DOS lotes: objetivo 10, la fuente gratuita persiste 7 en su lote
- * (`persistCountrySourceCandidates` crea lote propio y corre ANTES de la reserva)
- * y Apollo persiste 3 en el lote reservado, con la redirección apuntando al
- * segundo. La invariante de sistema se respeta —7 + 3 <= 10— pero el RESULTADO que
- * el usuario recibe queda partido, y esa semántica de producto no se ha diseñado.
+ * El motivo del diferimiento era literal: con `true`, objetivo 10 y 7 empresas
+ * gratis, UNA búsqueda del usuario terminaba en DOS lotes —la capa gratuita
+ * persistía en el suyo porque corre ANTES de la reserva, y Apollo en el
+ * reservado—, con la redirección apuntando al segundo. La invariante de sistema
+ * se cumplía (7 + 3 <= 10); el resultado único del producto no.
  *
- * 🔴 Y es alcanzable de verdad, no teórica: la persistencia de la capa gratuita
- * quedó arreglada por #316 (lote `source = agent_1`, candidato
- * `source_primary = public_source`) y la QA-B real en Producción ya la vio
- * escribir. Lo que bloquea no es un CHECK de base de datos, es el diseño del
- * resultado único.
+ * AGENT1-LOCAL-CUT5-SINGLE-BATCH-PLUMBING eliminó esa causa: el lote de la
+ * ejecución se resuelve UNA vez y perezosamente
+ * (`createCanonicalWizardBatchResolver`), y la capa gratuita lo recibe ya, así que
+ * lo gratuito y lo de pago aterrizan en el MISMO `batch_id`. El motivo textual del
+ * diferimiento dejó de describir el código.
  *
- * El hito que lo activará —y que decidirá orden y propiedad del lote— es
- * `AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1`. Hasta entonces la ruta Apollo de
- * producción sigue siendo TODO-O-NADA, exactamente como antes de este corte.
+ * ── 🔴 Qué NO significa `true` ───────────────────────────────────────────────
  *
- * 🔴 Esta constante es el ÚNICO sitio donde el valor vivo se decide. Existe para
- * que el ratchet de cableado pueda leer el mismo valor que produce producción en
- * vez de una copia escrita a mano que podría quedarse atrás.
+ * · No cambia la economía. La reserva la sigue fijando
+ *   `estimateCreditsForProvider(provider)`, que no ve el hueco: el hueco decide
+ *   cuántos RESULTADOS pedir, nunca cuántos créditos reservar (§ 8).
+ * · No cambia la amplitud de búsqueda. `WIZARD_APOLLO_TARGET_INTERNAL` (25) sigue
+ *   intacto; lo que se recorta es el objetivo de ACEPTACIÓN (10).
+ * · No activa ningún proveedor. Los flags de disponibilidad, el enrutado y el
+ *   orden de fallback están exactamente como estaban (§ 9).
+ * · No introduce `accepted_for_target` ni ninguna semántica de aceptación nueva:
+ *   eso es CUT-7 y no existe todavía (§ 4).
+ *
+ * ── 🔴 Por qué la constante SOBREVIVE a su propia activación ─────────────────
+ *
+ * Podría haberse borrado junto con el todo-o-nada. No se borra porque el
+ * parámetro `partialGapSupported` que consume sigue siendo un contrato REAL de
+ * dos rutas, y la otra —`LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED`— sigue en
+ * `false` a propósito: la superficie de pending-review de Lusha NO tiene el ancla
+ * de lote canónico que CUT-5 le dio a esta, así que allí el aporte parcial todavía
+ * produciría dos lotes. Borrar la constante obligaría a cablear un `true` literal
+ * en el sitio de la llamada y dejaría a las dos rutas sin un punto único donde
+ * comparar su postura.
+ *
+ * 🔴 Sigue sin ser un flag de entorno y sigue sin leerse de Producción: es una
+ * constante de código, y éste es el ÚNICO sitio donde el valor vivo se decide.
  */
-export const WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED = false;
+export const WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED = true;
 
 /**
  * A1-APOLLO-TWO-ROUND-QUALITY-1 — qué ruta ejecuta esta corrida.
@@ -103,6 +122,13 @@ export type WizardApolloInput = {
    * de forma aditiva en el metadata del batch. No cambia queries ni proveedor.
    */
   extraBatchMetadata?: Record<string, unknown> | null;
+  /**
+   * AGENT1-LOCAL-CUT8 · DECISIÓN B — resolver de metadata que sólo puede
+   * contestarse con el resultado del writer. Viaja por las DOS modalidades
+   * (legacy y dos rondas) para que la publicación durable de la aceptación no
+   * dependa de qué rama corrió.
+   */
+  resolveExtraBatchMetadata?: ResolveExtraBatchMetadata | null;
   /**
    * A1-APOLLO-BUDGET-RECONCILIATION-1: correlación del run del wizard, para que
    * cada provider_usage_logs de Apollo quede atado a la reserva que lo pagó por
@@ -146,10 +172,11 @@ export type WizardApolloInput = {
    *
    * Ausente ⇒ el objetivo entero, exactamente como antes de este corte.
    *
-   * 🔴 REVIEW-1 § 2 — en PRODUCCIÓN hoy llega siempre con el objetivo entero:
-   * `WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED` es `false`, así que la capa gratuita o
-   * cierra el objetivo (y Apollo no corre) o se descarta. La cota de aquí es
-   * CAPACIDAD probada, no comportamiento vivo de hueco parcial.
+   * 🔴 CUT-6 § 3 — en PRODUCCIÓN ya llega RECORTADO cuando la capa gratuita aportó
+   * de verdad: `WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED` es `true`, así que con
+   * objetivo 10 y 4 empresas gratuitas persistidas el `remainingTarget` es 6. Con
+   * la capa ausente, degradada o sin aporte durable sigue llegando el objetivo
+   * entero, byte por byte como antes.
    */
   resultDemand?: ProviderResultDemand | null;
   /**
@@ -241,6 +268,7 @@ export async function runWizardApolloSearch(
         apollo_discovery_modality: modality,
         ...toApolloTwoRoundConfigDiagnostics(twoRoundResolution),
       },
+      resolveExtraBatchMetadata: input.resolveExtraBatchMetadata ?? null,
       reservedCredits: input.reservedCredits ?? 0,
       // CUT-2 §§ 3, 5 — la demanda y la reserva viajan por campos DISTINTOS y
       // adyacentes, para que se vea que no se derivan la una de la otra.
@@ -282,6 +310,7 @@ export async function runWizardApolloSearch(
     dryRun: false,
     // Q3F-5BB.11E — reenvía la metadata observacional (provider_routing) al writer.
     extraBatchMetadata: input.extraBatchMetadata ?? null,
+    resolveExtraBatchMetadata: input.resolveExtraBatchMetadata ?? null,
     usageInputContext: {
       batchId: input.reservedBatchId,
       triggeredByUserId: input.resolved.userId,

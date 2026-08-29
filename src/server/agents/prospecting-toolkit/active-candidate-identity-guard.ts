@@ -51,13 +51,37 @@ export type DuplicateGuardMatch = {
  * Estados considerados "activos" — candidatos que no deben ser duplicados
  * por un nuevo candidato con misma identidad.
  *
- * Excluye: qa_cleanup, discarded, rejected, duplicate, archived
- * (esos permiten que el candidato sea reconsiderado).
+ * Excluye: discarded y duplicate (esos permiten que el candidato sea
+ * reconsiderado, con la política de cooldown de `novelty-checker`).
+ *
+ * AGENT1-APOLLO-PREPAID-HISTORICAL-PARITY § 5 y § 13 — se corrigen tres defectos
+ * REALES de este conjunto, todos comprobados contra la CHECK
+ * `prospect_candidates_status_check` (`040_prospect_batches_foundation.sql`), que
+ * admite EXACTAMENTE siete valores: generated, normalized, needs_review,
+ * approved, discarded, duplicate, converted_to_account.
+ *
+ *   1. `converted` NO EXISTE en la base. El estado real es
+ *      `converted_to_account`, así que una empresa YA CONVERTIDA EN CUENTA no
+ *      bloqueaba nada por este eje.
+ *   2. `generated` y `normalized` faltaban. No son estados internos
+ *      transitorios: la ficha del lote los agrupa como pendientes
+ *      (`BATCH_PENDING_REVIEW_STATUSES`), la cola los rotula «Necesita revisión»
+ *      y son aprobables. Una empresa en esos estados YA se entregó.
+ *   3. Los siete valores restantes del conjunto anterior —`ready_for_review`,
+ *      `draft`, `generating`, `pending`, `active`, `ready`, `in_progress`— son
+ *      estados de LOTE (`prospect_batches.status`). La CHECK los hace
+ *      inalcanzables en esta columna, así que se conservan como superconjunto
+ *      inerte: quitarlos no cambiaría ningún veredicto y añadiría riesgo a un
+ *      llamador que pasara filas de otra tabla.
  */
-const ACTIVE_CANDIDATE_STATUSES = new Set([
+export const ACTIVE_CANDIDATE_STATUSES: ReadonlySet<string> = new Set([
+  // Los cinco estados que OCUPAN el lote como candidato, según la CHECK real.
+  'generated',
+  'normalized',
   'needs_review',
   'approved',
-  'converted',
+  'converted_to_account',
+  // Superconjunto inerte: estados de lote, inalcanzables en esta columna.
   'ready_for_review',
   'draft',
   'generating',
