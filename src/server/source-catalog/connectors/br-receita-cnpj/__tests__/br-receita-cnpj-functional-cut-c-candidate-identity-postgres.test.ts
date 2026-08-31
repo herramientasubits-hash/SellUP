@@ -54,6 +54,7 @@ import { buildBrReceitaCnpjSnapshotRows } from '../br-receita-cnpj-snapshot-buil
 import {
   sampleParserInput,
   sampleFullCnpj,
+  sampleBrReceitaRunProvenance,
   RAIZ_TECNOLOGIA,
   RAIZ_EDUCACAO,
 } from '../br-receita-cnpj-fixtures';
@@ -132,6 +133,7 @@ async function publishPeriod(
   const planned = planBrReceitaMonthlySnapshotWrite({
     sourcePeriod: PERIOD,
     records: recordsFor(PERIOD, options),
+    runProvenance: sampleBrReceitaRunProvenance(),
     supersedesPublishedRunId: options.supersedes,
   });
   assert.equal(planned.status, 'planned');

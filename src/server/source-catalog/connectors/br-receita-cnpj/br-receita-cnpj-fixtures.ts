@@ -21,6 +21,28 @@ import type {
   BrReceitaSimplesRow,
   BrReceitaLookupRow,
 } from './br-receita-cnpj-types';
+import { BR_RECEITA_CNPJ_PARSER_VERSION } from './br-receita-cnpj-types';
+import type { BrReceitaRunProvenance } from './br-receita-cnpj-compact-storage';
+
+/**
+ * The run-level provenance a test build hands to `planBrReceitaMonthlySnapshotWrite`.
+ *
+ * 🔴 No `source_file_name` here. A real national run reads 24 per-table files; naming any ONE of
+ * them here would be exactly the "one file stands for the whole dataset" lie this fixture must not
+ * tell. There is no dataset-level manifest identifier in this repository yet, so the honest value
+ * is absent, not invented.
+ */
+export function sampleBrReceitaRunProvenance(): BrReceitaRunProvenance {
+  return {
+    parser_version: BR_RECEITA_CNPJ_PARSER_VERSION,
+    // 🔴 Deliberately NOT a 2026-MM-shaped string. Several suites assert that one period's plan
+    // mentions no OTHER period anywhere in its serialized operations — a provenance value that
+    // happened to spell a real sample period (this file uses 2026-06 through 2026-12 throughout)
+    // would read as a cross-period leak that was never there.
+    source_downloaded_at: '2099-01-01T00:00:00.000Z',
+    import_batch_id: 'sample-provenance-batch',
+  };
+}
 
 export const SAMPLE_SOURCE_YEAR = 2026; // Example only — always an explicit input, never hardcoded.
 export const SAMPLE_SOURCE_PERIOD = '2026-07';

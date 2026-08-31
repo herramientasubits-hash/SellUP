@@ -52,6 +52,7 @@ import {
   BR_RECEITA_SNAPSHOT_RUNS_TABLE as COMPACT_RUNS_TABLE,
   brReceitaCompactRowBindings,
   brReceitaCompactUpdateAssignments,
+  brReceitaRunProvenanceMetadata,
 } from './br-receita-cnpj-compact-storage';
 import {
   BR_RECEITA_REPEATED_SAME_PERIOD_REPUBLISH_REVIEW_CODE,
@@ -592,48 +593,70 @@ export function createBrReceitaSqlWriteGateway(
         }
       }
 
-      // `source_year` is left NULL on the run row: 065 declares it nullable there, and the
-      // period is the authority. `status` follows 065's own lifecycle so the pre-existing column
-      // keeps meaning what it always meant; `publish_state` is the separate, Brazil-facing one.
-      const inserted = await run(
-        `
-        INSERT INTO public.${BR_RECEITA_SNAPSHOT_RUNS_TABLE}
-          (source_key, country_code, source_period, publish_state, status, started_at)
-        VALUES ($1, $2, $3, $4, $5, now())
-        RETURNING id
-        `,
-        [
-          operation.source_key,
-          operation.country_code,
-          operation.source_period,
-          operation.publish_state,
-          RUN_STATUS_RUNNING,
-        ],
-      );
+      // The IMPORT's provenance, not the company's — ONE mapper, `brReceitaRunProvenanceMetadata`,
+      // shared with the pure storage module so there is no second place that knows this shape.
+      const runMetadata = brReceitaRunProvenanceMetadata(operation.runProvenance);
 
-      const returned = inserted.rows[0]?.id;
-      if (returned === undefined || returned === null) {
-        throw new BrReceitaGatewayError('begin_period_returned_no_run_id');
+      // 🔴 The run INSERT and the partition creation are now ONE transaction. Before this, a
+      // partition-creation failure left an orphan `preparing`/`running` run row: the INSERT had
+      // already committed (no BEGIN was ever issued), and the executor only assigns its local
+      // `snapshotRunId` after `beginPeriodRun` RETURNS — so a throw here left nothing for
+      // `failPeriod` to clean up. Wrapping both statements in one transaction means a partition
+      // failure rolls back the INSERT too: no row, no partition, nothing to orphan.
+      await run('BEGIN', []);
+      inTransaction = true;
+      try {
+        // `source_year` is left NULL on the run row: 065 declares it nullable there, and the
+        // period is the authority. `status` follows 065's own lifecycle so the pre-existing
+        // column keeps meaning what it always meant; `publish_state` is the separate,
+        // Brazil-facing one.
+        const inserted = await run(
+          `
+          INSERT INTO public.${BR_RECEITA_SNAPSHOT_RUNS_TABLE}
+            (source_key, country_code, source_period, publish_state, status, started_at, metadata)
+          VALUES ($1, $2, $3, $4, $5, now(), $6::jsonb)
+          RETURNING id
+          `,
+          [
+            operation.source_key,
+            operation.country_code,
+            operation.source_period,
+            operation.publish_state,
+            RUN_STATUS_RUNNING,
+            JSON.stringify(runMetadata),
+          ],
+        );
+
+        const returned = inserted.rows[0]?.id;
+        if (returned === undefined || returned === null) {
+          throw new BrReceitaGatewayError('begin_period_returned_no_run_id');
+        }
+        const parsed = parseSnapshotRunId(String(returned));
+        if (!parsed.valid) {
+          throw new BrReceitaGatewayError('begin_period_returned_malformed_run_id');
+        }
+
+        // 🔴 The run's storage is minted here, DETACHED. Until `commitFinalBatchAndPublish`
+        // attaches it, its rows are not reachable through the parent at all — a partial month is
+        // unreadable because it is not part of the table, not merely because a `publish_state`
+        // filter says so. The DDL lives in the migration, in a function; this call passes a uuid
+        // and no identifier. DDL is transactional in PostgreSQL, so a later failure in this same
+        // transaction rolls the CREATE TABLE back along with the INSERT above.
+        const partition = await run(
+          `SELECT public.${BR_RECEITA_BEGIN_PARTITION_FUNCTION}($1::uuid) AS name`,
+          [parsed.runId],
+          'begin_period_partition_failed',
+        );
+        const partitionTable = rememberPartition(parsed.runId, partition.rows[0]?.name);
+
+        await run('COMMIT', []);
+        inTransaction = false;
+
+        return { snapshotRunId: parsed.runId, partitionTable };
+      } catch (error) {
+        await rollbackIfActive();
+        throw toSafeGatewayFailure(error);
       }
-      const parsed = parseSnapshotRunId(String(returned));
-      if (!parsed.valid) {
-        throw new BrReceitaGatewayError('begin_period_returned_malformed_run_id');
-      }
-
-      // 🔴 The run's storage is minted here, DETACHED. Until `commitFinalBatchAndPublish` attaches
-      // it, its rows are not reachable through the parent at all — a partial month is unreadable
-      // because it is not part of the table, not merely because a `publish_state` filter says so.
-      // The DDL lives in the migration, in a function; this call passes a uuid and no identifier.
-      const partition = await run(
-        `SELECT public.${BR_RECEITA_BEGIN_PARTITION_FUNCTION}($1::uuid) AS name`,
-        [parsed.runId],
-        'begin_period_partition_failed',
-      );
-
-      return {
-        snapshotRunId: parsed.runId,
-        partitionTable: rememberPartition(parsed.runId, partition.rows[0]?.name),
-      };
     },
 
     async discardRunRows(operation: DiscardRunRowsOperation): Promise<BrReceitaDiscardResult> {

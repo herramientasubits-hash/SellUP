@@ -35,6 +35,7 @@ import { buildBrReceitaCnpjSnapshotRows } from '../br-receita-cnpj-snapshot-buil
 import {
   sampleParserInput,
   sampleFullCnpj,
+  sampleBrReceitaRunProvenance,
   RAIZ_TECNOLOGIA,
   RAIZ_EDUCACAO,
   SAMPLE_SOURCE_PERIOD,
@@ -163,10 +164,20 @@ function persistedSampleSnapshots(period = SAMPLE_SOURCE_PERIOD): BrReceitaPersi
 const RUN_A = '11111111-1111-4111-8111-111111111111';
 const RUN_B = '22222222-2222-4222-8222-222222222222';
 
+/**
+ * 🔴 `runProvenance` defaults here so the 20+ call sites below that do not care about it stay
+ * unchanged; a caller that DOES care overrides it explicitly. The default is never silently
+ * substituted in the PRODUCTION planner — `planBrReceitaMonthlySnapshotWrite` itself requires it.
+ */
 function plannedOrThrow(
-  input: Parameters<typeof planBrReceitaMonthlySnapshotWrite>[0],
+  input: Omit<Parameters<typeof planBrReceitaMonthlySnapshotWrite>[0], 'runProvenance'> & {
+    runProvenance?: Parameters<typeof planBrReceitaMonthlySnapshotWrite>[0]['runProvenance'];
+  },
 ): BrReceitaSnapshotWritePlan {
-  const result = planBrReceitaMonthlySnapshotWrite(input);
+  const result = planBrReceitaMonthlySnapshotWrite({
+    runProvenance: sampleBrReceitaRunProvenance(),
+    ...input,
+  });
   assert.equal(result.status, 'planned');
   if (result.status !== 'planned') throw new Error('unreachable');
   return result.plan;
@@ -688,7 +699,11 @@ describe('CUT-A · privacy of the exact identity', () => {
 
   it('16. the exact CNPJ is ABSENT from plan summaries, rejections and error projections', () => {
     const records = persistedSampleSnapshots();
-    const planned = planBrReceitaMonthlySnapshotWrite({ sourcePeriod: SAMPLE_SOURCE_PERIOD, records });
+    const planned = planBrReceitaMonthlySnapshotWrite({
+      sourcePeriod: SAMPLE_SOURCE_PERIOD,
+      records,
+      runProvenance: sampleBrReceitaRunProvenance(),
+    });
     assert.equal(planned.status, 'planned');
     if (planned.status !== 'planned') return;
 
@@ -1450,6 +1465,7 @@ describe('CUT-A · run-versioned snapshot isolation', () => {
       planBrReceitaMonthlySnapshotWrite({
         sourcePeriod: SAMPLE_SOURCE_PERIOD,
         records: [],
+        runProvenance: sampleBrReceitaRunProvenance(),
         supersedesPublishedRunId: 'the-current-one',
       }).status,
       'rejected',

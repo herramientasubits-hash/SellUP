@@ -49,7 +49,12 @@ import {
 import { createPostgrestShimClient } from './support/br-receita-cut-b-postgrest-shim';
 
 import { buildBrReceitaCnpjSnapshotRows } from '../br-receita-cnpj-snapshot-builder';
-import { sampleParserInput, sampleFullCnpj, RAIZ_TECNOLOGIA } from '../br-receita-cnpj-fixtures';
+import {
+  sampleParserInput,
+  sampleFullCnpj,
+  sampleBrReceitaRunProvenance,
+  RAIZ_TECNOLOGIA,
+} from '../br-receita-cnpj-fixtures';
 import {
   toBrReceitaPersistedSnapshot,
   type BrReceitaPersistedSnapshot,
@@ -103,6 +108,7 @@ async function publishPeriod(options: { supersedes?: string; legalNameSuffix?: s
   const planned = planBrReceitaMonthlySnapshotWrite({
     sourcePeriod: PERIOD,
     records: recordsFor(PERIOD, options.legalNameSuffix ?? ''),
+    runProvenance: sampleBrReceitaRunProvenance(),
     supersedesPublishedRunId: options.supersedes,
   });
   assert.equal(planned.status, 'planned');

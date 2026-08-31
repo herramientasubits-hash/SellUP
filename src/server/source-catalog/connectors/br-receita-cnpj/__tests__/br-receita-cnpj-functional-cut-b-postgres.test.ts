@@ -53,6 +53,7 @@ import { buildBrReceitaCnpjSnapshotRows } from '../br-receita-cnpj-snapshot-buil
 import {
   sampleParserInput,
   sampleFullCnpj,
+  sampleBrReceitaRunProvenance,
   RAIZ_EDUCACAO,
   RAIZ_TECNOLOGIA,
 } from '../br-receita-cnpj-fixtures';
@@ -71,6 +72,11 @@ import {
   createBrReceitaSqlWriteGateway,
   type BrReceitaSqlExecutor,
 } from '../br-receita-cnpj-monthly-snapshot-write-gateway';
+import {
+  BR_RECEITA_RUN_LEVEL_PROVENANCE_KEYS,
+  brReceitaRunProvenanceMetadata,
+  type BrReceitaRunProvenance,
+} from '../br-receita-cnpj-compact-storage';
 import { executeBrReceitaMonthlySnapshotWrite } from '../br-receita-cnpj-monthly-snapshot-executor';
 import { readBrReceitaPublishedSnapshot } from '../br-receita-cnpj-published-snapshot-reader';
 import { createBrReceitaCnpjEnrichmentAdapter } from '../br-receita-cnpj-enrichment-adapter';
@@ -129,6 +135,7 @@ async function publishPeriod(
   const planned = planBrReceitaMonthlySnapshotWrite({
     sourcePeriod: period,
     records: recordsFor(period, options.legalNameSuffix ?? ''),
+    runProvenance: sampleBrReceitaRunProvenance(),
     supersedesPublishedRunId: options.supersedes,
     batchSize: options.batchSize,
   });
@@ -151,6 +158,7 @@ async function stagePreparingRun(period: string, legalNameSuffix: string): Promi
     country_code: 'BR',
     source_period: period,
     publish_state: 'preparing',
+    runProvenance: sampleBrReceitaRunProvenance(),
     returnsRunId: true,
     resolvesRunHandle: true,
   });
@@ -584,6 +592,7 @@ describe('BR-SOURCE FUNCTIONAL CUT B — snapshot runtime end to end (real Postg
     const planned = planBrReceitaMonthlySnapshotWrite({
       sourcePeriod: period,
       records: poisoned,
+      runProvenance: sampleBrReceitaRunProvenance(),
       supersedesPublishedRunId: publishedRunId,
       batchSize: 1,
     });
@@ -626,9 +635,19 @@ describe('BR-SOURCE FUNCTIONAL CUT B — snapshot runtime end to end (real Postg
 
     // A SQL port that, right before the COMMIT of the publish transaction, asks a DIFFERENT
     // connection what it can see. That is the only honest way to test "never a mixture".
+    //
+    // 🔴 `beginPeriodRun` now opens and commits its OWN transaction (PR #368 correction B, so a
+    // partition-creation failure cannot leave an orphan run row), so `sql === 'COMMIT'` alone no
+    // longer identifies the publish transaction's commit — it fires there too. The attach call
+    // happens ONLY inside `commitFinalBatchAndPublish`, never inside `beginPeriodRun`, so it is
+    // what actually distinguishes the two.
+    let attachedForPublish = false;
     const spyingSql: BrReceitaSqlExecutor = {
       async query(sql, params) {
-        if (sql === 'COMMIT') {
+        if (sql.includes('br_receita_attach_run_partition')) {
+          attachedForPublish = true;
+        }
+        if (sql === 'COMMIT' && attachedForPublish) {
           const midFlight = await readBrReceitaPublishedSnapshot({
             client: observerClient,
             sourcePeriod: period,
@@ -643,6 +662,7 @@ describe('BR-SOURCE FUNCTIONAL CUT B — snapshot runtime end to end (real Postg
     const planned = planBrReceitaMonthlySnapshotWrite({
       sourcePeriod: period,
       records: recordsFor(period, ' [RUN B]'),
+      runProvenance: sampleBrReceitaRunProvenance(),
       supersedesPublishedRunId: runA,
       batchSize: 2,
     });
@@ -703,5 +723,122 @@ describe('BR-SOURCE FUNCTIONAL CUT B — snapshot runtime end to end (real Postg
       [superseded!.id],
     );
     assert.equal(code, '23505');
+  });
+
+  // ── PR #368 pre-merge correction A ──────────────────────────────────────
+  it('run-level provenance persists on source_snapshot_runs.metadata, never per-row', async () => {
+    const period = '2026-11';
+    const provenance: BrReceitaRunProvenance = {
+      parser_version: 'br-receita-cnpj-provenance-proof@1',
+      source_downloaded_at: '2026-11-01T00:00:00.000Z',
+      import_batch_id: 'provenance-proof-batch',
+    };
+
+    const planned = planBrReceitaMonthlySnapshotWrite({
+      sourcePeriod: period,
+      records: recordsFor(period, ' [PROVENANCE]'),
+      runProvenance: provenance,
+    });
+    assert.equal(planned.status, 'planned');
+    if (planned.status !== 'planned') throw new Error('unreachable');
+
+    const execution = await executeBrReceitaMonthlySnapshotWrite({
+      plan: planned.plan,
+      gateway: createBrReceitaSqlWriteGateway(sqlExecutor()),
+    });
+    assert.equal(execution.status, 'published', execution.failure?.reason);
+    const runId = execution.snapshotRunId!;
+
+    // 🔴 It survived on THE RUN, exactly as `brReceitaRunProvenanceMetadata` built it — no second
+    // mapper, no silent drop.
+    const runRow = await rowsOf(
+      'SELECT metadata FROM public.source_snapshot_runs WHERE id = $1',
+      [runId],
+    );
+    assert.deepEqual(runRow[0].metadata, brReceitaRunProvenanceMetadata(provenance));
+
+    // 🔴 And it did NOT move to a per-row column. `br_receita_snapshots` carries no column named
+    // after a single one of the run-level provenance keys.
+    const columns = await rowsOf(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'br_receita_snapshots'`,
+    );
+    const columnNames = columns.map((row) => String(row.column_name));
+    for (const key of BR_RECEITA_RUN_LEVEL_PROVENANCE_KEYS) {
+      assert.equal(columnNames.includes(key), false, `${key} must not be a br_receita_snapshots column`);
+    }
+  });
+
+  // ── PR #368 pre-merge correction B ──────────────────────────────────────
+  it('a partition-creation failure rolls back the run INSERT — no orphan preparing run', async () => {
+    const period = '2026-12';
+
+    // 🔴 A baseline to prove nothing ELSE moved: an already-published run and the total count of
+    // partition relations, taken BEFORE the forced failure.
+    const publishedBefore = await readPublished('2026-07', CNPJ_TECNOLOGIA_MATRIZ);
+    assert.equal(publishedBefore.status, 'FOUND');
+    const runsBefore = await rowsOf(
+      `SELECT count(*)::int AS n FROM public.source_snapshot_runs
+        WHERE source_key = $1 AND source_period = $2`,
+      [BR_RECEITA_CNPJ_SOURCE_KEY, period],
+    );
+    assert.equal(Number(runsBefore[0].n), 0, 'nothing must exist for this period yet');
+    const partitionsBefore = await rowsOf(
+      `SELECT count(*)::int AS n FROM pg_class WHERE relname LIKE 'br_receita_snapshots_p%'`,
+    );
+
+    // A SQL port that lets BEGIN and the run INSERT reach the REAL database, then fails the very
+    // next statement — the call to `br_receita_begin_run_partition` — before it ever executes.
+    // Everything else (BEGIN, the INSERT, and the ROLLBACK the gateway issues in response) is real
+    // PostgreSQL, on the same connection CASE 1 through CASE 8 already used.
+    const poisonedSql: BrReceitaSqlExecutor = {
+      async query(sql, params) {
+        if (sql.includes('br_receita_begin_run_partition')) {
+          throw new Error('SIMULATED_PARTITION_CREATE_FAILURE');
+        }
+        return client.query(sql, params ? [...params] : undefined);
+      },
+    };
+    const gateway = createBrReceitaSqlWriteGateway(poisonedSql);
+
+    await assert.rejects(
+      () =>
+        gateway.beginPeriodRun({
+          kind: 'begin_period',
+          table: 'source_snapshot_runs',
+          source_key: BR_RECEITA_CNPJ_SOURCE_KEY,
+          country_code: 'BR',
+          source_period: period,
+          publish_state: 'preparing',
+          runProvenance: sampleBrReceitaRunProvenance(),
+          returnsRunId: true,
+          resolvesRunHandle: true,
+        }),
+      (error: unknown) => (error as { reason?: string }).reason === 'begin_period_partition_failed',
+    );
+
+    // 🔴 ORPHAN_PREPARING_RUNS_AFTER_FAILURE = 0. The INSERT reached PostgreSQL for real, and the
+    // ROLLBACK the gateway issued on the SAME transaction undid it — there is no run row at all,
+    // published, preparing, or otherwise, for this period.
+    const runsAfter = await rowsOf(
+      `SELECT count(*)::int AS n FROM public.source_snapshot_runs
+        WHERE source_key = $1 AND source_period = $2`,
+      [BR_RECEITA_CNPJ_SOURCE_KEY, period],
+    );
+    assert.equal(Number(runsAfter[0].n), 0, 'ORPHAN_PREPARING_RUNS_AFTER_FAILURE must be 0');
+
+    // 🔴 ORPHAN_PARTITIONS_AFTER_FAILURE = 0. `br_receita_begin_run_partition` never ran — the
+    // fault fired on the call that would have invoked it — but the count is asserted directly
+    // rather than merely inferred from the interception point.
+    const partitionsAfter = await rowsOf(
+      `SELECT count(*)::int AS n FROM pg_class WHERE relname LIKE 'br_receita_snapshots_p%'`,
+    );
+    assert.equal(Number(partitionsAfter[0].n), Number(partitionsBefore[0].n));
+
+    // 🔴 Published runs unchanged; the previous publication unchanged.
+    const publishedAfter = await readPublished('2026-07', CNPJ_TECNOLOGIA_MATRIZ);
+    assert.equal(publishedAfter.status, 'FOUND');
+    assert.equal(publishedAfter.snapshotRunId, publishedBefore.snapshotRunId);
+    assert.equal(publishedAfter.snapshot?.legal_name, publishedBefore.snapshot?.legal_name);
   });
 });

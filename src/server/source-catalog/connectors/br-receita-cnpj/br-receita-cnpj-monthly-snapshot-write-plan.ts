@@ -90,6 +90,7 @@ import {
 import {
   BR_RECEITA_COMPACT_CONFLICT_COLUMNS,
   BR_RECEITA_COMPACT_CONFLICT_IS_PARTIAL,
+  type BrReceitaRunProvenance,
 } from './br-receita-cnpj-compact-storage';
 import {
   createSnapshotRunHandle,
@@ -205,6 +206,13 @@ export interface BeginPeriodOperation {
   readonly country_code: typeof BR_RECEITA_CNPJ_COUNTRY_CODE;
   readonly source_period: string;
   readonly publish_state: 'preparing';
+  /**
+   * The IMPORT's provenance — not the company's. Supplied by the CALLER, never derived from a
+   * record, which is what keeps the planner at ZERO record consumption (see the module header).
+   * The gateway persists it on `source_snapshot_runs.metadata`, once per run, via
+   * `brReceitaRunProvenanceMetadata` — never on a per-row column.
+   */
+  readonly runProvenance: BrReceitaRunProvenance;
   /** The database mints `source_snapshot_runs.id`; the plan never invents one. */
   readonly returnsRunId: true;
   readonly resolvesRunHandle: true;
@@ -432,6 +440,12 @@ export interface BrReceitaSnapshotWritePlanInput {
    */
   readonly records: Iterable<BrReceitaPersistedSnapshot> | AsyncIterable<BrReceitaPersistedSnapshot>;
   /**
+   * The provenance of THIS import. Supplied explicitly by the caller, who already knows it before
+   * a single record is read — never derived by peeking at `records`, which would break the
+   * planner's ZERO-RECORD-CONSUMPTION contract (see the module header).
+   */
+  readonly runProvenance: BrReceitaRunProvenance;
+  /**
    * The run currently published for this period, when there is one, so the publish transaction can
    * demote it in the same commit that promotes this build.
    *
@@ -508,6 +522,7 @@ export function planBrReceitaMonthlySnapshotWrite(
           batchSize,
           duplicatePolicy,
           supersedesRunId,
+          runProvenance: input.runProvenance,
         }),
       onFailure: {
         kind: 'fail_period',
@@ -606,15 +621,18 @@ async function* streamOperations(args: {
   readonly batchSize: number;
   readonly duplicatePolicy: 'collapse_last_wins' | 'reject';
   readonly supersedesRunId: string | undefined;
+  readonly runProvenance: BrReceitaRunProvenance;
 }): AsyncGenerator<BrReceitaSnapshotWriteOperation, void, undefined> {
-  const { periodCoordinates, runHandle, batchSize, duplicatePolicy, supersedesRunId } = args;
+  const { periodCoordinates, runHandle, batchSize, duplicatePolicy, supersedesRunId, runProvenance } =
+    args;
 
-  // ── Header. Zero rows consumed. ──
+  // ── Header. Zero rows consumed. `runProvenance` came from the INPUT, not from a record. ──
   yield {
     kind: 'begin_period',
     table: 'source_snapshot_runs',
     ...periodCoordinates,
     publish_state: 'preparing',
+    runProvenance,
     returnsRunId: true,
     resolvesRunHandle: true,
   };

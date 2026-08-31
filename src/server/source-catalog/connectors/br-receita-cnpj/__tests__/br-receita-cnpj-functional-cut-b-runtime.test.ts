@@ -32,6 +32,7 @@ import { buildBrReceitaCnpjSnapshotRows } from '../br-receita-cnpj-snapshot-buil
 import {
   sampleParserInput,
   sampleFullCnpj,
+  sampleBrReceitaRunProvenance,
   RAIZ_EDUCACAO,
   SAMPLE_SOURCE_PERIOD,
 } from '../br-receita-cnpj-fixtures';
@@ -132,6 +133,7 @@ function planFor(
   const planned = planBrReceitaMonthlySnapshotWrite({
     sourcePeriod: SAMPLE_SOURCE_PERIOD,
     records,
+    runProvenance: sampleBrReceitaRunProvenance(),
     batchSize: options.batchSize,
     supersedesPublishedRunId: options.supersedes,
   });
@@ -358,6 +360,7 @@ describe('BR-SOURCE CUT B — the executor is a dumb, bounded loop over CUT A\'s
     const planned = planBrReceitaMonthlySnapshotWrite({
       sourcePeriod: SAMPLE_SOURCE_PERIOD,
       records: lazyRecords(),
+      runProvenance: sampleBrReceitaRunProvenance(),
       batchSize: 1,
     });
     assert.equal(planned.status, 'planned');

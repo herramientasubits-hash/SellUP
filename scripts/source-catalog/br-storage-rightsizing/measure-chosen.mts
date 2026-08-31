@@ -33,6 +33,7 @@ import {
 } from '../../../src/server/source-catalog/connectors/br-receita-cnpj/__tests__/support/br-receita-cut-e-real-sample';
 import { toBrReceitaPersistedSnapshot } from '../../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-monthly-snapshot-identity';
 import { planBrReceitaMonthlySnapshotWrite } from '../../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-monthly-snapshot-write-plan';
+import { sampleBrReceitaRunProvenance } from '../../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-fixtures';
 import {
   createBrReceitaSqlWriteGateway,
   type BrReceitaSqlExecutor,
@@ -93,6 +94,7 @@ console.error('publishing through the REAL writer...');
 const planned = planBrReceitaMonthlySnapshotWrite({
   sourcePeriod: CUT_E_REAL_PERIOD,
   records: built.snapshots.map(toBrReceitaPersistedSnapshot),
+  runProvenance: sampleBrReceitaRunProvenance(),
   batchSize: 500,
 });
 if (planned.status !== 'planned') throw new Error(`plan refused: ${JSON.stringify(planned)}`);

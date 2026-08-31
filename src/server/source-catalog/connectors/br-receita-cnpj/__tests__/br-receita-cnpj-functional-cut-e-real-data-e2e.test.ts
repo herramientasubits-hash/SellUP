@@ -75,6 +75,7 @@ import {
 } from '../br-receita-cnpj-name-normalization';
 import { toBrReceitaPersistedSnapshot } from '../br-receita-cnpj-monthly-snapshot-identity';
 import { planBrReceitaMonthlySnapshotWrite } from '../br-receita-cnpj-monthly-snapshot-write-plan';
+import { sampleBrReceitaRunProvenance } from '../br-receita-cnpj-fixtures';
 import {
   createBrReceitaSqlWriteGateway,
   type BrReceitaSqlExecutor,
@@ -269,6 +270,7 @@ describe(
       const planned = planBrReceitaMonthlySnapshotWrite({
         sourcePeriod: CUT_E_REAL_PERIOD,
         records: built.snapshots.map(toBrReceitaPersistedSnapshot),
+        runProvenance: sampleBrReceitaRunProvenance(),
       });
       assert.equal(planned.status, 'planned');
       if (planned.status !== 'planned') throw new Error('unreachable');

@@ -40,7 +40,12 @@ import {
 import { createPostgrestShimClient } from './support/br-receita-cut-b-postgrest-shim';
 
 import { buildBrReceitaCnpjSnapshotRows } from '../br-receita-cnpj-snapshot-builder';
-import { sampleParserInput, sampleFullCnpj, RAIZ_TECNOLOGIA } from '../br-receita-cnpj-fixtures';
+import {
+  sampleParserInput,
+  sampleFullCnpj,
+  sampleBrReceitaRunProvenance,
+  RAIZ_TECNOLOGIA,
+} from '../br-receita-cnpj-fixtures';
 import {
   BR_RECEITA_COMPACT_CONFLICT_COLUMNS,
   BR_RECEITA_COMPACT_PERSISTED_COLUMNS,
@@ -468,6 +473,7 @@ describe('BR-PROD-STORAGE-RIGHT-SIZING — against a REAL PostgreSQL', () => {
     const planned = planBrReceitaMonthlySnapshotWrite({
       sourcePeriod: period,
       records: snapshots,
+      runProvenance: sampleBrReceitaRunProvenance(),
       supersedesPublishedRunId: supersedes,
     });
     assert.equal(planned.status, 'planned');
@@ -566,6 +572,7 @@ describe('BR-PROD-STORAGE-RIGHT-SIZING — against a REAL PostgreSQL', () => {
       country_code: 'BR',
       source_period: '2026-09',
       publish_state: 'preparing',
+      runProvenance: sampleBrReceitaRunProvenance(),
       returnsRunId: true,
       resolvesRunHandle: true,
     });
@@ -799,6 +806,7 @@ describe('BR-PROD-STORAGE-RIGHT-SIZING — against a REAL PostgreSQL', () => {
           country_code: 'BR',
           source_period: '2026-11',
           publish_state: 'preparing',
+          runProvenance: sampleBrReceitaRunProvenance(),
           returnsRunId: true,
           resolvesRunHandle: true,
         }),
@@ -835,6 +843,7 @@ describe('BR-PROD-STORAGE-RIGHT-SIZING — against a REAL PostgreSQL', () => {
       country_code: 'BR',
       source_period: '2026-11',
       publish_state: 'preparing',
+      runProvenance: sampleBrReceitaRunProvenance(),
       returnsRunId: true,
       resolvesRunHandle: true,
     });
@@ -854,6 +863,7 @@ describe('BR-PROD-STORAGE-RIGHT-SIZING — against a REAL PostgreSQL', () => {
           country_code: 'BR',
           source_period: '2026-11',
           publish_state: 'preparing',
+          runProvenance: sampleBrReceitaRunProvenance(),
           returnsRunId: true,
           resolvesRunHandle: true,
         }),
