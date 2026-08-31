@@ -3028,6 +3028,51 @@ jobs:
       # Sin red, sin Supabase, sin Lusha, sin Apollo. 0 créditos.
       - name: Run A1 Lusha CUT-L1 client-side exclusion tests
         run: npm run test:a1-lusha-cut-l1-client-side-exclusion
+
+      # AGENT1-LUSHA-CUT-L2-FAILURE-SEMANTICS — la SEMÁNTICA DE FALLO de Lusha
+      # entra al check obligatorio, justo detrás de CUT-L1.
+      #
+      # El hecho HUMANO: el soporte de Lusha confirmó, para
+      # `POST /v3/companies/prospecting`, que 429 y 5xx cuestan 0 créditos, y que
+      # una petición DESPACHADA cuya respuesta se pierde (timeout, conexión
+      # cerrada, 499) PUDO procesarse y cobrarse — sin Idempotency-Key, sin
+      # requestId de cliente y sin API de recuperación.
+      #
+      # Lo que esta suite defiende, dicho como defecto:
+      #   * que un fallo post-despacho vuelva a leerse como «error de red,
+      #     reintenta»: la clasificación mira la FRONTERA DE DESPACHO, no el tipo
+      #     del error, porque `fetch failed` puede ocurrir después de que los
+      #     bytes salieran (L2-E, L2-F);
+      #   * que el 499 caiga en la lectura genérica de 4xx y pierda la
+      #     incertidumbre de cobro (L2-D);
+      #   * que un 4xx genérico herede la garantía de cero créditos del 429, que
+      #     nadie le concedió: sale `unknown`, no `definitely_not_charged` (L2-H);
+      #   * que un 2xx con cuerpo ilegible vuelva a publicarse como página vacía
+      #     exitosa con `ok:true` — un desenlace del que no se sabe si costó
+      #     créditos anunciado como búsqueda limpia (L2-J);
+      #   * que la certeza de liquidación se derive de la PRESENCIA del bloque
+      #     `billing` en vez del importe LEÍDO: un `{"billing": {}}` publicaba
+      #     `settled_from_provider` junto a `creditsCharged: null` (L2-I);
+      #   * que la cuota se lea de headers que Lusha no envía (`x-ratelimit-*`) y
+      #     se registre vacía sin que nadie pueda notarlo (L2-K, L2-L);
+      #   * que el `client_request_id` de SellUp se publique como trace del
+      #     servidor de Lusha, insinuando una idempotencia que no existe (L2-O).
+      #
+      # 🔴 Lo que esta suite NO afirma, porque sería falso: que Lusha sea seguro
+      # de activar. La frontera de despacho es de MEMORIA — una caída dura entre
+      # el `fetch()` y la clasificación deja la petición sin testigo, y cerrar esa
+      # ventana con estado persistido es CUT-L3. Tampoco añade reintentos: que 429
+      # y 5xx salgan `retryable_by_contract` describe lo que el proveedor PERMITE,
+      # no una capacidad que este corte encienda.
+      #
+      # Ratchets de alcance: page size, tope de páginas, objetivo, techo de
+      # créditos y reservas sin tocar. Sin flag nuevo, sin migración, sin cambio
+      # de facturación.
+      #
+      # Puras y offline: `global.fetch` doblado. Sin red, sin Supabase, sin Lusha,
+      # sin Apollo. 0 créditos.
+      - name: Run A1 Lusha CUT-L2 failure semantics tests
+        run: npm run test:a1-lusha-cut-l2-failure-semantics
       # AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1 · CUT-1 — la SUPERVIVENCIA del lote
       # entra al check obligatorio.
       #

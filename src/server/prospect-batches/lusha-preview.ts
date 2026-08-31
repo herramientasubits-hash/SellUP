@@ -25,6 +25,14 @@ import type {
   LushaCompanyProspectingV3Result,
 } from '@/server/integrations/lusha-client';
 import {
+  classifyLushaProspectingOutcome,
+  type LushaProspectingOutcome,
+} from '@/server/integrations/lusha-prospecting-failure-taxonomy';
+import {
+  emptyLushaRateLimitSnapshot,
+  type LushaRateLimitSnapshot,
+} from '@/server/integrations/lusha-rate-limit-headers';
+import {
   isSubIndustryValidForSector,
   resolveLushaSectorOption,
   type LushaSectorKey,
@@ -628,6 +636,52 @@ export type LushaPreviewStatus =
   | 'invalid_input'
   | 'provider_error';
 
+/**
+ * AGENT1-LUSHA-CUT-L2 § P — el desenlace del proveedor, tal cual, atravesando el
+ * núcleo compartido.
+ *
+ * Las DOS rutas reales de Prospecting (`previewLushaCompaniesAction` y la
+ * ejecución pagada de pending-review) pasan por `executeLushaPreview`, así que
+ * publicarlo aquí es lo que impide que una ruta clasifique con el contrato humano
+ * mientras la otra sigue leyendo un `provider_error` indiferenciado.
+ *
+ * Es TRANSPORTE, no una segunda autoridad: nada aquí reinterpreta lo que el
+ * cliente ya decidió.
+ */
+export interface LushaPreviewProviderOutcome {
+  outcomeClass: LushaProspectingOutcome['outcomeClass'];
+  billingCertainty: LushaProspectingOutcome['billingCertainty'];
+  retryContract: LushaProspectingOutcome['retryContract'];
+  providerRequestDispatched: boolean;
+  httpStatus: number | null;
+  /** `x-request-id` de Lusha. null si no vino; jamás sintetizado. */
+  providerRequestId: string | null;
+  rateLimit: LushaRateLimitSnapshot;
+}
+
+/**
+ * Desenlace de un fallo PROBADAMENTE anterior al despacho (§ B / § G).
+ *
+ * Lo usan las salidas que se detienen antes de tocar la red —industria sin mapa,
+ * país desconocido, credencial ausente—: ahí sí se puede afirmar que no hubo
+ * cargo, porque no hubo proveedor.
+ */
+function preDispatchProviderOutcome(): LushaPreviewProviderOutcome {
+  const outcome = classifyLushaProspectingOutcome({
+    httpStatus: null,
+    requestDispatched: false,
+  });
+  return {
+    outcomeClass: outcome.outcomeClass,
+    billingCertainty: outcome.billingCertainty,
+    retryContract: outcome.retryContract,
+    providerRequestDispatched: false,
+    httpStatus: null,
+    providerRequestId: null,
+    rateLimit: emptyLushaRateLimitSnapshot(),
+  };
+}
+
 export interface LushaPreviewResult {
   ok: boolean;
   status: LushaPreviewStatus;
@@ -638,6 +692,13 @@ export interface LushaPreviewResult {
     expectedMaxCredits: typeof LUSHA_PREVIEW_EXPECTED_MAX_CREDITS;
   };
   warnings: string[];
+  /**
+   * CUT-L2 § P — desenlace canónico del intento de proveedor.
+   *
+   * Opcional para no romper a los constructores existentes de
+   * `LushaPreviewResult` (tests y fixtures que fabrican resultados sin proveedor).
+   */
+  providerOutcome?: LushaPreviewProviderOutcome;
   requestSummary: {
     country: string | null;
     countryCode: string;
@@ -714,6 +775,7 @@ export async function executeLushaPreview(
       status: 'missing_mapping',
       results: [],
       billing: emptyBilling(),
+      providerOutcome: preDispatchProviderOutcome(),
       warnings: ['sector_not_supported'],
       requestSummary: baseSummary,
       error: 'El sector seleccionado no está soportado por el preview de Lusha.',
@@ -728,6 +790,7 @@ export async function executeLushaPreview(
       status: 'invalid_input',
       results: [],
       billing: emptyBilling(),
+      providerOutcome: preDispatchProviderOutcome(),
       warnings: ['unknown_country'],
       requestSummary: {
         ...baseSummary,
@@ -800,6 +863,9 @@ export async function executeLushaPreview(
       status: 'provider_unavailable',
       results: [],
       billing: emptyBilling(),
+      // CUT-L2 § G / L2-G — credencial ausente ANTES del fetch: el único tipo de
+      // fallo del que se puede afirmar que la petición no salió.
+      providerOutcome: preDispatchProviderOutcome(),
       warnings: [...warnings, 'provider_unavailable'],
       requestSummary,
       error: 'Lusha no está disponible: falta la API key configurada.',
@@ -820,6 +886,31 @@ export async function executeLushaPreview(
   });
 
   const providerResult = await deps.searchCompanies(apiKey, request);
+
+  // ── CUT-L2 § P — transporte del desenlace, sin reinterpretarlo ────────────
+  //
+  // Si el cliente no publicó `outcome` (un doble de test anterior al corte, por
+  // ejemplo) NO se inventa uno: se degrada CERRADO a «despachada, cobro
+  // desconocido», que es lo que de verdad se sabe de una llamada que ya ocurrió.
+  const providerOutcome: LushaPreviewProviderOutcome = providerResult.outcome
+    ? {
+        outcomeClass: providerResult.outcome.outcomeClass,
+        billingCertainty: providerResult.outcome.billingCertainty,
+        retryContract: providerResult.outcome.retryContract,
+        providerRequestDispatched: providerResult.outcome.providerRequestDispatched,
+        httpStatus: providerResult.outcome.httpStatus,
+        providerRequestId: providerResult.providerRequestId ?? null,
+        rateLimit: providerResult.rateLimit ?? emptyLushaRateLimitSnapshot(),
+      }
+    : {
+        outcomeClass: 'post_send_indeterminate',
+        billingCertainty: 'unknown',
+        retryContract: 'do_not_automatically_retry',
+        providerRequestDispatched: true,
+        httpStatus: providerResult.httpStatus ?? null,
+        providerRequestId: providerResult.providerRequestId ?? null,
+        rateLimit: providerResult.rateLimit ?? emptyLushaRateLimitSnapshot(),
+      };
 
   const billing = {
     creditsCharged: typeof providerResult.creditsCharged === 'number' ? providerResult.creditsCharged : null,
@@ -842,18 +933,19 @@ export async function executeLushaPreview(
     case 'success': {
       const results = normalizeLushaPreviewCompanies(providerResult.results ?? [], criteria);
       if (results.length === 0) {
-        return { ok: true, status: 'empty', results: [], billing, warnings, requestSummary };
+        return { ok: true, status: 'empty', results: [], billing, providerOutcome, warnings, requestSummary };
       }
-      return { ok: true, status: 'success', results, billing, warnings, requestSummary };
+      return { ok: true, status: 'success', results, billing, providerOutcome, warnings, requestSummary };
     }
     case 'no_results':
-      return { ok: true, status: 'empty', results: [], billing, warnings, requestSummary };
+      return { ok: true, status: 'empty', results: [], billing, providerOutcome, warnings, requestSummary };
     case 'rate_limited':
       return {
         ok: false,
         status: 'rate_limited',
         results: [],
         billing,
+        providerOutcome,
         warnings: [...warnings, 'rate_limited'],
         requestSummary,
         error: 'Lusha respondió con límite de tasa (429). Intenta de nuevo en unos minutos.',
@@ -866,6 +958,7 @@ export async function executeLushaPreview(
         status: 'provider_unavailable',
         results: [],
         billing,
+        providerOutcome,
         warnings: [...warnings, providerResult.status],
         requestSummary,
         error: 'Lusha no está disponible en este momento.',
@@ -876,6 +969,7 @@ export async function executeLushaPreview(
         status: 'provider_error',
         results: [],
         billing,
+        providerOutcome,
         warnings: [...warnings, providerResult.status],
         requestSummary,
         error: (providerResult.errorMessage ?? 'Error del proveedor Lusha.').slice(0, 200),
