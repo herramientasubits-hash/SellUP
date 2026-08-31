@@ -19,6 +19,17 @@
  */
 
 import { getLushaApiKey } from '@/server/services/lusha-connection';
+import {
+  classifyLushaProspectingOutcome,
+  lushaBillingSettledFromParsedCredits,
+  type LushaProspectingOutcome,
+} from '@/server/integrations/lusha-prospecting-failure-taxonomy';
+import {
+  emptyLushaRateLimitSnapshot,
+  parseLushaRateLimitHeaders,
+  readLushaProviderRequestId,
+  type LushaRateLimitSnapshot,
+} from '@/server/integrations/lusha-rate-limit-headers';
 
 const LUSHA_BASE_URL = 'https://api.lusha.com';
 
@@ -1360,8 +1371,39 @@ export type LushaCompanyProspectingV3Result = {
     | 'provider_error'
     | 'provider_timeout';
   httpStatus?: number;
+  /**
+   * Trace tal y como el resultado lo publicaba antes de CUT-L2: `raw.requestId`
+   * del cuerpo si viene, y si no el header. Se conserva por compatibilidad.
+   *
+   * 🔴 Para el trace del SERVIDOR de Lusha usa `providerRequestId`: éste puede
+   * salir del cuerpo, y el cuerpo no es el header que el soporte humano nombró.
+   */
   requestId?: string | null;
-  rateLimit?: Record<string, string | null>;
+  /**
+   * AGENT1-LUSHA-CUT-L2 § K — `x-request-id`, y SÓLO ese header.
+   *
+   * null cuando Lusha no lo envía. Nunca se sintetiza: el `client_request_id` de
+   * SellUp es NUESTRO y no identifica la petición dentro de Lusha, así que usarlo
+   * aquí insinuaría una idempotencia de proveedor que el soporte humano confirmó
+   * que no existe.
+   */
+  providerRequestId?: string | null;
+  /**
+   * AGENT1-LUSHA-CUT-L2 §§ I/J — cuota leída de los CUATRO headers confirmados
+   * por el soporte humano. Reemplaza el `Record<string,string|null>` anterior,
+   * que leía `x-ratelimit-*` — nombres que Lusha no envía, así que la cuota se
+   * registraba siempre vacía sin que nadie pudiera notarlo.
+   */
+  rateLimit?: LushaRateLimitSnapshot | null;
+  /**
+   * AGENT1-LUSHA-CUT-L2 §§ A–H — desenlace CANÓNICO del intento.
+   *
+   * Único sitio donde se lee, sin adivinar, si la petición llegó a despacharse,
+   * qué se sabe del cobro y qué permite el contrato sobre repetirla. `status`
+   * sigue existiendo para los consumidores previos al corte, pero colapsa 5xx,
+   * 499, timeout post-envío y rechazo local en `provider_error`.
+   */
+  outcome?: LushaProspectingOutcome;
   resultsReturned: number;
   totalAvailable?: number | null;
   creditsCharged?: number | null;
@@ -1429,6 +1471,36 @@ function extractLushaEmployeeCountRaw(value: unknown): {
   return { employeeCount: null, employeeCountExact: null, employeeCountMin: null, employeeCountMax: null };
 }
 
+/**
+ * Resultado canónico de un 2xx cuyo cuerpo NO se pudo interpretar (CUT-L2 § D).
+ *
+ * 🔴 `ok:false`. Un 2xx malformado no es un 5xx confirmado: el servidor pudo
+ * haber completado una operación facturable y ser SellUp quien no supo leer la
+ * respuesta. De ahí `potentially_charged` — nunca un `creditsCharged: 0`
+ * fabricado para que el código quede más limpio.
+ */
+function buildMalformedLushaProspectingResult(
+  httpStatus: number,
+  rateLimit: LushaRateLimitSnapshot,
+  providerRequestId: string | null,
+): LushaCompanyProspectingV3Result {
+  return {
+    ok: false,
+    status: 'provider_error',
+    httpStatus,
+    resultsReturned: 0,
+    rateLimit,
+    requestId: providerRequestId,
+    providerRequestId,
+    outcome: classifyLushaProspectingOutcome({
+      httpStatus,
+      requestDispatched: true,
+      malformedBody: true,
+    }),
+    errorMessage: 'Lusha respondió 2xx con un cuerpo que no es un objeto JSON interpretable.',
+  };
+}
+
 export async function searchLushaCompaniesV3(input: {
   apiKey: string;
   timeoutMs: number;
@@ -1441,6 +1513,11 @@ export async function searchLushaCompaniesV3(input: {
       ok: false,
       status: 'provider_error',
       resultsReturned: 0,
+      // CUT-L2 § B — rechazo PROBADO antes del fetch: aquí sí se puede afirmar
+      // que no hubo cargo, porque no hubo proveedor.
+      outcome: classifyLushaProspectingOutcome({ httpStatus: null, requestDispatched: false }),
+      rateLimit: emptyLushaRateLimitSnapshot(),
+      providerRequestId: null,
       errorMessage: `pagination.size must not be less than 10 (got ${input.request.pagination.size}). Lusha V3 API rejects values below 10.`,
     };
   }
@@ -1453,12 +1530,28 @@ export async function searchLushaCompaniesV3(input: {
       ok: false,
       status: 'provider_error',
       resultsReturned: 0,
+      // CUT-L2 § B — rechazo PROBADO antes del fetch.
+      outcome: classifyLushaProspectingOutcome({ httpStatus: null, requestDispatched: false }),
+      rateLimit: emptyLushaRateLimitSnapshot(),
+      providerRequestId: null,
       errorMessage: 'Lusha company prospecting requires at least one filter inside filters.companies.include. filters: {} is rejected by Lusha V3 API (HTTP 400: "filters.Company filters cannot be empty").',
     };
   }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), input.timeoutMs);
+
+  // ── AGENT1-LUSHA-CUT-L2 § G — LA FRONTERA DE DESPACHO ─────────────────────
+  //
+  // Este booleano es el corte entero. Pasa a true en el instante ANTERIOR a
+  // invocar `fetch()`, y desde ahí este proceso ya NO puede probar que la
+  // petición no saliera. Todo lo que falle a partir de ahí se clasifica como
+  // posiblemente cobrado, por mucho que el error parezca «de red».
+  //
+  // 🔴 Es de MEMORIA, no durable. Una caída dura del proceso entre el despacho y
+  // esta clasificación deja la petición sin testigo, y ninguna afirmación de
+  // CUT-L2 cubre esa ventana: cerrarla con estado persistido es CUT-L3.
+  let providerRequestDispatched = false;
 
   try {
     // Q3F-5N: schema anidado oficial — filters.companies.include (no nivel raíz)
@@ -1479,6 +1572,12 @@ export async function searchLushaCompaniesV3(input: {
       requestBody['signals'] = input.request.signals;
     }
 
+    // 🔴 Se marca ANTES del await, no después: marcarlo al volver dejaría el
+    // flag en false cuando el fallo ocurre durante la propia llamada, y el
+    // desenlace se leería como «nunca salió» — justo la sobreafirmación de
+    // seguridad pre-envío que el § B prohíbe.
+    providerRequestDispatched = true;
+
     const response = await fetch(`${LUSHA_BASE_URL}/v3/companies/prospecting`, {
       method: 'POST',
       headers: {
@@ -1491,27 +1590,57 @@ export async function searchLushaCompaniesV3(input: {
 
     clearTimeout(timer);
 
-    const rateLimit: Record<string, string | null> = {
-      limit: response.headers.get('x-ratelimit-limit'),
-      remaining: response.headers.get('x-ratelimit-remaining'),
-      reset: response.headers.get('x-ratelimit-reset'),
-    };
-    const headerRequestId = response.headers.get('x-request-id');
+    // CUT-L2 §§ I/J — los CUATRO headers confirmados por el soporte HUMANO.
+    // Antes se leían `x-ratelimit-limit/remaining/reset`, que Lusha no envía: la
+    // cuota se registraba siempre vacía y nadie podía notarlo, porque un null de
+    // «header ausente» es idéntico a un null de «header mal nombrado».
+    const rateLimit = parseLushaRateLimitHeaders(response.headers);
+    // CUT-L2 § K — trace del SERVIDOR de Lusha, sólo desde el header.
+    const providerRequestId = readLushaProviderRequestId(response.headers);
 
     if (!response.ok) {
       const errorBody = await response.text().catch(() => '');
       return {
         ok: false,
+        // `status` conserva el vocabulario anterior al corte para no romper a los
+        // consumidores existentes; la distinción 429 / 5xx / 499 / 4xx genérico
+        // vive en `outcome`, que es la autoridad de este corte.
         status: mapLushaHttpError(response.status),
         httpStatus: response.status,
         resultsReturned: 0,
         rateLimit,
-        requestId: headerRequestId,
+        requestId: providerRequestId,
+        providerRequestId,
+        outcome: classifyLushaProspectingOutcome({
+          httpStatus: response.status,
+          requestDispatched: true,
+        }),
         errorMessage: errorBody.slice(0, 300) || undefined,
       };
     }
 
-    const raw = await response.json().catch(() => ({})) as Record<string, unknown>;
+    // ── CUT-L2 § D / L2-J — un 2xx ilegible NO es una página vacía ──────────
+    //
+    // Antes: `.catch(() => ({}))` convertía un cuerpo imposible de interpretar en
+    // un objeto vacío, que unas líneas más abajo se leía como `no_results` con
+    // `ok:true`. Es decir: un desenlace del que NO se sabe si costó créditos se
+    // publicaba como búsqueda exitosa sin resultados.
+    //
+    // 🔴 Malformado es SÓLO lo estructuralmente inválido: JSON que no parsea, o
+    // un top-level que no es un objeto. Un `{}` que parsea SIGUE siendo
+    // `no_results` — reinterpretar esa ambigüedad excede este corte y se reporta
+    // como hueco conocido en vez de resolverse a ojo.
+    let raw: Record<string, unknown>;
+    try {
+      const parsed: unknown = await response.json();
+      if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        raw = parsed as Record<string, unknown>;
+      } else {
+        return buildMalformedLushaProspectingResult(response.status, rateLimit, providerRequestId);
+      }
+    } catch {
+      return buildMalformedLushaProspectingResult(response.status, rateLimit, providerRequestId);
+    }
 
     // Response shape not confirmed in live test — try common keys conservatively
     const items = Array.isArray(raw['results'])
@@ -1523,7 +1652,7 @@ export async function searchLushaCompaniesV3(input: {
           : [];
 
     const requestId =
-      typeof raw['requestId'] === 'string' ? raw['requestId'] : headerRequestId;
+      typeof raw['requestId'] === 'string' ? raw['requestId'] : providerRequestId;
 
     const totalAvailable =
       typeof raw['total'] === 'number' ? raw['total']
@@ -1534,18 +1663,30 @@ export async function searchLushaCompaniesV3(input: {
       const billingRawNoResults = raw['billing'];
       const billingPresentNoResults = billingRawNoResults !== undefined && billingRawNoResults !== null;
       const { creditsCharged: billingCreditsNoResults, billingShape: billingShapeNoResults } = extractLushaBilling(billingRawNoResults);
+      const creditsChargedNoResults =
+        typeof raw['creditsCharged'] === 'number' ? raw['creditsCharged'] : billingCreditsNoResults;
       return {
         ok: true,
         status: 'no_results',
         httpStatus: response.status,
         resultsReturned: 0,
         totalAvailable,
-        creditsCharged: typeof raw['creditsCharged'] === 'number' ? raw['creditsCharged'] : billingCreditsNoResults,
+        creditsCharged: creditsChargedNoResults,
         billingPresent: billingPresentNoResults,
         billingShape: billingShapeNoResults,
         rawShape: buildRawShape(raw),
         rateLimit,
         requestId,
+        providerRequestId,
+        // CUT-L2 § D — la búsqueda salió bien; la certeza del importe la da el
+        // IMPORTE que el response liquidó, no la presencia del sobre `billing`.
+        // Sin importe leíble no se afirma que costara cero: se dice `unknown`,
+        // que es lo que de verdad se sabe.
+        outcome: classifyLushaProspectingOutcome({
+          httpStatus: response.status,
+          requestDispatched: true,
+          billingSettledByProvider: lushaBillingSettledFromParsedCredits(creditsChargedNoResults),
+        }),
       };
     }
 
@@ -1600,14 +1741,46 @@ export async function searchLushaCompaniesV3(input: {
       results,
       rateLimit,
       requestId,
+      providerRequestId,
+      // CUT-L2 § D — misma autoridad que la rama sin resultados: liquida el
+      // IMPORTE parseado, no el bloque `billing` presente.
+      outcome: classifyLushaProspectingOutcome({
+        httpStatus: response.status,
+        requestDispatched: true,
+        billingSettledByProvider: lushaBillingSettledFromParsedCredits(creditsCharged),
+      }),
     };
   } catch (err: unknown) {
     clearTimeout(timer);
     const isTimeout = err instanceof Error && err.name === 'AbortError';
+
+    // ── AGENT1-LUSHA-CUT-L2 §§ A3 / B — aquí se decide fail-closed ───────────
+    //
+    // La clasificación NO mira el tipo del error, mira `providerRequestDispatched`.
+    // Ésa es la corrección: `TypeError: fetch failed`, `ECONNRESET`, `ETIMEDOUT`,
+    // `socket hang up` y `AbortError` pueden ocurrir DESPUÉS de que los bytes
+    // salieran, y el soporte humano confirmó que en ese caso Lusha pudo procesar
+    // la consulta y deducir créditos. Sin Idempotency-Key, sin requestId de
+    // cliente y sin API de recuperación, no hay forma de averiguarlo después.
+    //
+    // 🔴 Por eso el desenlace es `potentially_charged` + `do_not_automatically_retry`
+    // y no «error de red, reintenta». Degradar hacia «seguro» aquí es exactamente
+    // como se paga dos veces la misma búsqueda.
+    const outcome = classifyLushaProspectingOutcome({
+      httpStatus: null,
+      requestDispatched: providerRequestDispatched,
+      timedOut: isTimeout,
+    });
+
     return {
       ok: false,
       status: isTimeout ? 'provider_timeout' : 'provider_error',
       resultsReturned: 0,
+      outcome,
+      rateLimit: emptyLushaRateLimitSnapshot(),
+      // Sin respuesta no hay header, y no se inventa ninguno.
+      providerRequestId: null,
+      requestId: null,
       errorMessage: isTimeout
         ? 'Request timed out'
         : err instanceof Error ? err.message : 'Unknown error',
