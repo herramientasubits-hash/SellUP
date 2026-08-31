@@ -61,7 +61,7 @@ function parseSelectColumns(columns: string | undefined): string {
 interface QueryState {
   readonly table: string;
   readonly columns: string;
-  readonly filters: { column: string; value: unknown }[];
+  readonly filters: { column: string; value: unknown; op: 'eq' | 'in' }[];
   order: { column: string; ascending: boolean } | null;
   limit: number | null;
 }
@@ -70,7 +70,11 @@ function buildSql(state: QueryState): { sql: string; values: unknown[] } {
   const values: unknown[] = [];
   const where = state.filters.map((filter) => {
     values.push(filter.value);
-    return `${filter.column} = $${values.length}`;
+    // `= ANY($n)` y no `IN (…)`: mantiene UN marcador por filtro, así que una lista de estados no
+    // cambia el número de parámetros ni abre una vía de interpolación.
+    return filter.op === 'in'
+      ? `${filter.column} = ANY($${values.length})`
+      : `${filter.column} = $${values.length}`;
   });
 
   const parts = [`SELECT ${state.columns} FROM public.${state.table}`];
@@ -95,10 +99,18 @@ function toPostgrestError(error: unknown): SnapshotReadPostgrestError {
   return { code, message: 'query failed' };
 }
 
+/**
+ * La superficie del contrato de lectura MÁS `in`, que el contrato no declara porque ningún lector
+ * de snapshot lo usa — pero `loadBatchIdentityRegistry` sí, y es un cliente de Supabase real.
+ */
+type ShimQuery<TRow> = SnapshotReadFilterableQuery<TRow> & {
+  in(column: string, values: readonly unknown[]): ShimQuery<TRow>;
+};
+
 function createQuery<TRow extends SnapshotIdentityRow>(
   sql: ShimSqlClient,
   state: QueryState,
-): SnapshotReadFilterableQuery<TRow> {
+): ShimQuery<TRow> {
   const run = async (): Promise<SnapshotReadListResponse<TRow>> => {
     const { sql: statement, values } = buildSql(state);
     try {
@@ -109,9 +121,17 @@ function createQuery<TRow extends SnapshotIdentityRow>(
     }
   };
 
-  const query: SnapshotReadFilterableQuery<TRow> = {
+  const query: ShimQuery<TRow> = {
     eq(column: string, value: unknown) {
-      state.filters.push({ column: assertSafeIdentifier(column), value });
+      state.filters.push({ column: assertSafeIdentifier(column), value, op: 'eq' });
+      return query;
+    },
+    // 🔴 `in` NO es una ampliación caprichosa del shim: `loadBatchIdentityRegistry` lo usa en su
+    // ruta anterior a la 126, y sin él esa ruta lanza una excepción que el store traduce a
+    // `degraded: true` — es decir, el camino CAPABILITY_ABSENT quedaría INALCANZABLE y una prueba
+    // que lo esperase estaría midiendo la carencia del arnés, no el comportamiento del producto.
+    in(column: string, values_: readonly unknown[]) {
+      state.filters.push({ column: assertSafeIdentifier(column), value: [...values_], op: 'in' });
       return query;
     },
     order(column: string, options?: { ascending?: boolean }) {

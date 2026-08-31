@@ -1142,7 +1142,14 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     // re-declara la 111 —la 129 y la 130 re-emiten la 115 y la 117, la 131 la 128 y la 132 sólo
     // escribe `contacts.metadata`—, así que 4O-F sigue reutilizando la 111 intacta, que es lo que
     // esta guarda afirma.
-    assert.equal(numbered[numbered.length - 1], 132, '4O-F reutiliza la 111 sin crear SQL nuevo');
+    // BR-PRODUCTION-RELEASE mueve el techo a la 133: `133_br_candidate_identity_promotion.sql`,
+    // la promoción VALLADA de la identidad fiscal resuelta de una candidata brasileña
+    // (BR-SOURCE CUT D), numerada al volver ese trabajo a GitHub después de haber vivido en local
+    // sin número mientras el espacio de nombres estaba en disputa. Crea UNA función
+    // (`promote_candidate_fiscal_identity_fenced`) y sus permisos: sin tabla, sin columna, sin
+    // índice, sin constraint y sin backfill. NO es de teléfono y no nombra ninguna tabla, columna
+    // ni función de teléfono, que es lo que esta guarda vigila. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 133, '4O-F reutiliza la 111 sin crear SQL nuevo');
   });
 
   // AGENT2A-PHONE-REVEAL-4O-H3 — este guarda se INVIERTE, no se borra.

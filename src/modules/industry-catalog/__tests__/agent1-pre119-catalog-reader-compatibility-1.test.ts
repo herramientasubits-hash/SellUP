@@ -982,7 +982,11 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
     // proyección de la colección de teléfonos de un candidato ya APROBADO al contacto que su
     // aprobación creó (Agente 2A). No es del catálogo, y el barrido de abajo lo comprueba sobre
     // su SQL. AUTORADA y NO APLICADA.
-    assert.match(last, /^132_/);
+    // BR-PRODUCTION-RELEASE mueve el techo a la 133: la promoción VALLADA de la identidad fiscal
+    // resuelta de una candidata brasileña (BR-SOURCE CUT D). No es del catálogo —crea UNA función
+    // sobre `prospect_candidates`/`prospect_batches` y sus permisos—, y el barrido de abajo lo
+    // comprueba sobre su SQL en vez de creerle a este comentario. AUTORADA y NO APLICADA.
+    assert.match(last, /^133_/);
     // Y por encima de la 119 no hay NINGUNA migración de catálogo. Lo que se vigila
     // NO es el techo por sí mismo: es que ninguna migración posterior al cutover toque
     // las tablas del catálogo. Cada archivo nuevo entra a esta lista con su nombre y
@@ -1057,6 +1061,13 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
       '130_agent2_contact_hubspot_stale_source.sql',
       '131_agent2_post_approval_reveal_stale_producer.sql',
       '132_agent2_hubspot_legacy_sync_state_backfill.sql',
+      //   133 — la promoción VALLADA de la identidad fiscal resuelta de una candidata brasileña
+      //         (BR-SOURCE CUT D, BR-PRODUCTION-RELEASE). Declara UNA función
+      //         (`promote_candidate_fiscal_identity_fenced`) sobre `prospect_candidates` y
+      //         `prospect_batches` más sus permisos; no crea tabla, columna, índice ni constraint
+      //         y no nombra ninguna tabla ni vista del catálogo de industrias — el barrido de
+      //         abajo lo comprueba sobre su SQL. AUTORADA y NO APLICADA.
+      '133_br_candidate_identity_promotion.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);

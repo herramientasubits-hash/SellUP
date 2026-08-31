@@ -726,10 +726,17 @@ describe('la migración 128 — su contrato', () => {
     // única, que es lo que esta suite necesita: el generador de la 131 deriva su cuerpo de ella.
     assert.ok(files.includes(MIGRATION), 'la 128 tiene que seguir existiendo: la 131 la deriva');
     assert.equal(files.filter((f) => f.startsWith('128')).length, 1);
-    assert.equal(files[files.length - 1], '132_agent2_hubspot_legacy_sync_state_backfill.sql');
+    // BR-PRODUCTION-RELEASE mueve el techo a la 133: `133_br_candidate_identity_promotion.sql`,
+    // la promoción VALLADA de la identidad fiscal resuelta de una candidata brasileña
+    // (BR-SOURCE CUT D), numerada al volver ese trabajo a GitHub después de haber vivido en local
+    // sin número mientras el espacio de nombres estaba en disputa. Crea UNA función
+    // (`promote_candidate_fiscal_identity_fenced`) y sus permisos: sin tabla, sin columna, sin
+    // índice, sin constraint y sin backfill. NO es de teléfono y no nombra ninguna tabla, columna
+    // ni función de teléfono, que es lo que esta guarda vigila. AUTORADA y NO APLICADA.
+    assert.equal(files[files.length - 1], '133_br_candidate_identity_promotion.sql');
     const numbers = files.map((f) => Number.parseInt(f.slice(0, 3), 10));
-    assert.equal(Math.max(...numbers), 132);
-    assert.equal(files.length, 132, 'techo y conteo coinciden: ni un hueco');
+    assert.equal(Math.max(...numbers), 133);
+    assert.equal(files.length, 133, 'techo y conteo coinciden: ni un hueco');
   });
 
   it('no edita ninguna migración anterior de la cadena de teléfono', () => {

@@ -444,6 +444,16 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       '130_agent2_contact_hubspot_stale_source.sql',
       '131_agent2_post_approval_reveal_stale_producer.sql',
       '132_agent2_hubspot_legacy_sync_state_backfill.sql',
+      // BR-PRODUCTION-RELEASE añade la 133: la promoción VALLADA de la identidad fiscal resuelta
+      // de una candidata brasileña (BR-SOURCE CUT D), numerada al volver ese trabajo a GitHub.
+      // NO es de teléfono en absoluto: crea UNA función
+      // (`promote_candidate_fiscal_identity_fenced`) sobre `prospect_candidates` y
+      // `prospect_batches` más sus permisos, sin tabla, sin columna, sin índice, sin constraint y
+      // sin backfill. La lista sigue siendo EXACTA, no un rango abierto: una migración nueva que
+      // no se declare aquí rompe la guarda. AUTORADA y NO APLICADA.
+      // Tampoco toca la erasure que esta suite protege: no contiene un solo `DELETE`, no nombra
+      // `mobile_phone` y no reabre la allowlist del escalar que E4 fijó.
+      '133_br_candidate_identity_promotion.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
@@ -482,7 +492,14 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     // la cadena de HubSpot de Agente 2. SÍ es de teléfono, pero no toca la erasure que esta
     // suite protege: ninguna de las cuatro contiene un `DELETE`, y la lista exacta de arriba —que
     // las nombra una por una— es la que impide que una migración nueva entre sin declararse.
-    assert.equal(numbered[numbered.length - 1], 132);
+    // BR-PRODUCTION-RELEASE mueve el techo a la 133: `133_br_candidate_identity_promotion.sql`,
+    // la promoción VALLADA de la identidad fiscal resuelta de una candidata brasileña
+    // (BR-SOURCE CUT D), numerada al volver ese trabajo a GitHub después de haber vivido en local
+    // sin número mientras el espacio de nombres estaba en disputa. Crea UNA función
+    // (`promote_candidate_fiscal_identity_fenced`) y sus permisos: sin tabla, sin columna, sin
+    // índice, sin constraint y sin backfill. NO es de teléfono y no nombra ninguna tabla, columna
+    // ni función de teléfono, que es lo que esta guarda vigila. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 133);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {

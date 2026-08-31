@@ -604,7 +604,25 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     // this line pins is the repository ceiling, kept EXACT so an undeclared migration above the
     // last known milestone breaks the guard. The authorship sweep below is WIDENED to all four,
     // so the guard is stronger than before rather than merely shifted.
-    assert.equal(highest, 132, 'the repository ceiling is 132, and it is not a BR migration');
+    // 🔴 BR-PRODUCTION-RELEASE moved the ceiling AGAIN, and this time it IS a BR migration:
+    // BR-SOURCE CUT D's fenced fiscal-identity promotion, numbered 133 when that work returned to
+    // GitHub. The old message ("…and it is not a BR migration") stops being true here, so it is
+    // CORRECTED rather than kept: what this line pins is the repository ceiling, kept EXACT so an
+    // undeclared migration above the last known milestone still breaks the guard. What GATE
+    // ROUND 2 actually defends is unchanged and asserted right below — CUT A still adds EXACTLY
+    // one migration and it is still 127 — and the authorship sweep further down still refuses
+    // BR authorship for every NON-BR slot, 133 excluded from it precisely because it IS BR.
+    assert.equal(highest, 133, 'the repository ceiling is 133 — BR-SOURCE CUT D, not CUT A');
+    assert.deepEqual(
+      files.filter((f) => f.startsWith('133')),
+      ['133_br_candidate_identity_promotion.sql'],
+      'BR-SOURCE CUT D owns exactly one migration, and it is the ceiling',
+    );
+    assert.equal(
+      files.filter((f) => f.startsWith('127')).length,
+      1,
+      'CUT A still adds EXACTLY one migration',
+    );
     assert.equal(
       files.filter((f) => f.startsWith('125')).length,
       1,

@@ -751,10 +751,17 @@ describe('CUT-A · privacy of the exact identity', () => {
         ? { ...row, uf: poisonedCnpj }
         : row,
     );
-    assert.throws(
-      () => buildBrReceitaCnpjSnapshotRows({ ...input, estabelecimentosRows: rows }),
-      /raw_data sanitization violation/,
+    // 🔴 BR-SOURCE CUT E1 — the sanitizer's disposition is per ROW. It refuses the poisoned row and
+    // returns the rest of the batch; it no longer takes the run down with it. What CUT-A asserts
+    // here is unchanged in substance: the poisoned value never reaches a published row.
+    const result = buildBrReceitaCnpjSnapshotRows({ ...input, estabelecimentosRows: rows });
+    assert.equal(result.summary.rejectedSanitizedRawDataCollision, 1);
+    assert.equal(
+      result.snapshots.some((snap) => JSON.stringify(snap.raw_data).includes(poisonedCnpj)),
+      false,
+      'the poisoned value must not survive into any published row',
     );
+    assert.ok(result.snapshots.length > 0, 'the clean rows still publish — the batch survived');
   });
 });
 

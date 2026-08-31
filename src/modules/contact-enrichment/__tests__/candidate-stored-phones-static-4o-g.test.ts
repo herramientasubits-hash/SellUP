@@ -518,7 +518,14 @@ describe('4O-G — alcance', () => {
     // `stale`, 130 su procedencia, 131 la 128 re-emitida para producirlo con procedencia
     // `reveal`, 132 la línea base de los contactos ya vinculados). Las cuatro nacieron sin número
     // a propósito y lo reciben ahora que la disputa 125/126/127 está cerrada. 4O-G sigue sin aportar SQL.
-    assert.equal(numbered[numbered.length - 1], 132);
+    // BR-PRODUCTION-RELEASE mueve el techo a la 133: `133_br_candidate_identity_promotion.sql`,
+    // la promoción VALLADA de la identidad fiscal resuelta de una candidata brasileña
+    // (BR-SOURCE CUT D), numerada al volver ese trabajo a GitHub después de haber vivido en local
+    // sin número mientras el espacio de nombres estaba en disputa. Crea UNA función
+    // (`promote_candidate_fiscal_identity_fenced`) y sus permisos: sin tabla, sin columna, sin
+    // índice, sin constraint y sin backfill. NO es de teléfono y no nombra ninguna tabla, columna
+    // ni función de teléfono, que es lo que esta guarda vigila. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 133);
     // El CONTEO, no el techo: 121 archivos para los números 001–121, es decir SIN un solo
     // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
     // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
@@ -533,7 +540,9 @@ describe('4O-G — alcance', () => {
     // columnas, índices, triggers ni policies nuevas; M128 únicamente crea/reemplaza una
     // función y sus permisos. Sin backfill: no crea contactos, no re-terminaliza
     // candidatos y no re-declara ninguna función anterior. AUTORADA y NO APLICADA.
-    assert.equal(numbered.length, 132);
+    // 133 archivos para los números 001-133: la 133 de BR-SOURCE CUT D tampoco deja hueco, así
+    // que conteo y techo siguen coincidiendo. Esa coincidencia ES la guarda.
+    assert.equal(numbered.length, 133);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {

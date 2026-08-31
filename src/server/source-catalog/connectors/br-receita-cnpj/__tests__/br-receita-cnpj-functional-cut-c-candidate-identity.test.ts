@@ -188,6 +188,8 @@ interface RecordedSelect {
   table: string;
   columns?: string;
   filters: Array<{ column: string; value: unknown }>;
+  /** `.in(column, values)` — PostgREST's set filter, used by the batch-identity seed read. */
+  setFilters: Array<{ column: string; values: readonly unknown[] }>;
   limit: number | null;
 }
 
@@ -198,13 +200,36 @@ interface FakeDb {
   selects: RecordedSelect[];
   updates: Array<{ table: string; payload: Record<string, unknown> }>;
   failSnapshotSelect?: { code: string };
+  /**
+   * Every `.rpc()` this double was asked for.
+   *
+   * 🔴 CUT D added `rpc` to this double, and the DEFAULT answer is `PGRST202` — which is what the
+   * real database says today, because neither migration 126 nor CUT D's own migration is applied.
+   * That is not a convenience: `batch-identity-registry-store` documents that a client WITHOUT an
+   * `rpc` method is not proof of anything about the schema and must degrade CLOSED, so modelling
+   * "the migration is not applied" by omitting the method would model a DIFFERENT state — an
+   * unsupported client — and CUT D would fail closed instead of preserving CUT C.
+   */
+  rpcCalls: Array<{ fn: string; args: Record<string, unknown> }>;
+  /** Override to model a database where the fenced functions DO exist. */
+  rpcHandler?: (
+    fn: string,
+    args: Record<string, unknown>,
+  ) => { data: unknown; error: unknown } | Promise<{ data: unknown; error: unknown }>;
 }
+
+/** What PostgREST answers for a function its schema cache does not have. */
+const PGRST202 = {
+  code: 'PGRST202',
+  message: 'Could not find the function in the schema cache',
+} as const;
 
 function fakeDb(tables: Record<string, Array<Record<string, unknown>>>): FakeDb {
   const db: FakeDb = {
     tables,
     selects: [],
     updates: [],
+    rpcCalls: [],
     client: null as unknown as SnapshotReadClient<SnapshotIdentityRow>,
     supabase: null as unknown as SupabaseClient,
   };
@@ -213,18 +238,30 @@ function fakeDb(tables: Record<string, Array<Record<string, unknown>>>): FakeDb 
     from(table: string) {
       return {
         select(columns?: string) {
-          const recorded: RecordedSelect = { table, columns, filters: [], limit: null };
+          const recorded: RecordedSelect = {
+            table,
+            columns,
+            filters: [],
+            setFilters: [],
+            limit: null,
+          };
           const evaluate = (): Array<Record<string, unknown>> => {
             db.selects.push(recorded);
             const source = db.tables[table] ?? [];
-            const matched = source.filter((row) =>
-              recorded.filters.every((f) => row[f.column] === f.value),
+            const matched = source.filter(
+              (row) =>
+                recorded.filters.every((f) => row[f.column] === f.value) &&
+                recorded.setFilters.every((f) => f.values.includes(row[f.column])),
             );
             return recorded.limit === null ? matched : matched.slice(0, recorded.limit);
           };
           const query = {
             eq(column: string, value: unknown) {
               recorded.filters.push({ column, value });
+              return query;
+            },
+            in(column: string, values: readonly unknown[]) {
+              recorded.setFilters.push({ column, values });
               return query;
             },
             // Deliberate NO-OP: the pin must compute the greatest period IN CODE.
@@ -266,6 +303,11 @@ function fakeDb(tables: Record<string, Array<Record<string, unknown>>>): FakeDb 
           return query as never;
         },
       };
+    },
+    async rpc(fn: string, args: Record<string, unknown>) {
+      db.rpcCalls.push({ fn, args });
+      if (db.rpcHandler) return db.rpcHandler(fn, args);
+      return { data: null, error: PGRST202 };
     },
   } as unknown as SnapshotReadClient<SnapshotIdentityRow>;
 
@@ -1190,15 +1232,30 @@ describe('CUT C — the recorded contracts say what changed and what did not', (
     assert.ok(!/BR_RECEITA_SNAPSHOT_RUNS_TABLE|publish_state/.test(resolver));
   });
 
-  it('the hook never persists the resolved identity on the candidate', () => {
+  it('the hook never persists the resolved identity UNFENCED, and never in metadata', () => {
     const c = BR_AGENT1_RUNTIME_BINDING_CONTRACT;
-    // 🔴 DURABLE_TAX_ID_SAFE_PATH = NOT_FOUND. Agent 1 evaluates fiscal identity at INSERT time
-    // (TIER 1 refuses two rows sharing a fiscal key) and migration 126 fences INSERTs only; there
-    // is no fenced path for adding a `tax_identifier` to an already-persisted candidate. A bare
-    // update here would bypass that evaluation and leave `identity_key` describing the
-    // pre-resolution candidate. Closing it is an owner decision, not a shortcut in this file.
-    assert.equal(c.persistsResolvedTaxIdentifierOnCandidate, false);
-    assert.equal(c.rewritesCandidateIdentityKey, false);
+    // 🔴 UPDATED BY CUT D, and the update is the point.
+    //
+    // CUT C wrote `DURABLE_TAX_ID_SAFE_PATH = NOT_FOUND` and pinned these two keys to `false` to
+    // record it: Agent 1 evaluated fiscal identity at INSERT time only, migration 126 fenced
+    // INSERTs only, and no fenced path existed for adding a `tax_identifier` to an already
+    // persisted candidate. CUT D built that path. Leaving the assertions at `false` would turn
+    // this test into a ratchet that BLOCKS the correction it was written to describe — the exact
+    // failure mode this repository has already been bitten by — so what the test now defends is
+    // the property that actually keeps the write safe, not the absence of the write.
+    assert.equal(c.persistsResolvedTaxIdentifierOnCandidate, true);
+    assert.equal(c.rewritesCandidateIdentityKey, true);
+    // 🔴 And these are what make the change safe rather than merely present.
+    assert.equal(c.usesBareTaxIdentifierUpdate, false);
+    assert.equal(c.promotesResolvedIdentityUnderEpochFence, true);
+    assert.equal(c.promotesIdentifierAndIdentityKeyTogether, true);
+    assert.equal(c.scopesPromotionByBatch, true);
+    assert.equal(c.refusesPromotionOnFiscalConflict, true);
+    assert.equal(c.overwritesCandidateSuppliedTaxIdentifier, false);
+    assert.equal(c.fallsBackToUnfencedWriteAfterRetries, false);
+    assert.equal(c.enrichesWithUnadjudicatedIdentity, false);
+    // 🔴 UNCHANGED, and it must stay unchanged: the identifier's only authorized durable home is
+    // the `tax_identifier` column. It never enters `metadata.source_enrichment`.
     assert.equal(c.persistsResolvedTaxIdentifierInMetadata, false);
   });
 });

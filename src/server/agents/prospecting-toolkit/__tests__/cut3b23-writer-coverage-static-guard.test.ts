@@ -321,7 +321,16 @@ const POST_APPROVAL_REVEAL_MIGRATION =
 /** AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1, que reclamó el tramo 129–132 al canonicalizar
  * la cadena de sincronización con HubSpot de Agente 2. Nada que ver con este corte; su autoría
  * se policía en el barrido exhaustivo de `authored`. */
-const AGENT2_HUBSPOT_CHAIN_CEILING = '132_agent2_hubspot_legacy_sync_state_backfill.sql';
+/**
+ * 🔴 El techo del repositorio, que este corte no controla.
+ *
+ * Lo movió AGENT2-FINAL-INTEGRATION a la 132 y después BR-PRODUCTION-RELEASE a la 133: la
+ * promoción VALLADA de la identidad fiscal resuelta de una candidata brasileña (BR-SOURCE CUT D).
+ * La 133 REUTILIZA la valla de época de la 126 de CUT-3B4 en vez de inventar una segunda, y no
+ * crea tabla, columna, índice ni constraint: el barrido de AUTORÍA de abajo es el que comprueba
+ * que no es de CUT-3B23, archivo por archivo, en vez de creerle a este comentario.
+ */
+const REPOSITORY_CEILING = '133_br_candidate_identity_promotion.sql';
 
 /**
  * Cuerpo EJECUTABLE de una migración, en minúsculas.
@@ -444,8 +453,8 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     // sin número). La autoría de todas ellas se policía en la prueba de arriba, que barre el
     // directorio completo. La 127 sigue siendo la última de la capa de snapshots de fuente, y es
     // ella —no el techo global— la que este barrido examina.
-    assert.ok(last.startsWith('132'), `última migración inesperada: ${last}`);
-    assert.equal(last, AGENT2_HUBSPOT_CHAIN_CEILING);
+    assert.ok(last.startsWith('133'), `última migración inesperada: ${last}`);
+    assert.equal(last, REPOSITORY_CEILING);
     assert.ok(migrations.includes(POST_APPROVAL_REVEAL_MIGRATION));
     const lastSnapshotMigration = '127_br_receita_monthly_snapshot_identity.sql';
     assert.ok(migrations.includes(lastSnapshotMigration));

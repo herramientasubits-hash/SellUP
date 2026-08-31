@@ -199,6 +199,13 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
       .filter((file) => /^\d+.*\.sql$/.test(file))
       .sort();
     const last = files[files.length - 1];
+    // BR-PRODUCTION-RELEASE mueve el techo a la 133: `133_br_candidate_identity_promotion.sql`,
+    // la promoción VALLADA de la identidad fiscal resuelta de una candidata brasileña
+    // (BR-SOURCE CUT D), numerada al volver ese trabajo a GitHub después de haber vivido en local
+    // sin número mientras el espacio de nombres estaba en disputa. Crea UNA función
+    // (`promote_candidate_fiscal_identity_fenced`) y sus permisos: sin tabla, sin columna, sin
+    // índice, sin constraint y sin backfill. NO es de teléfono y no nombra ninguna tabla, columna
+    // ni función de teléfono, que es lo que esta guarda vigila. AUTORADA y NO APLICADA.
     assert.equal(
       last,
       // 4O-H3 movió el techo a la 116: la APROBACIÓN atómica del candidato sobre ese mismo
@@ -259,7 +266,7 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
       // estado del reveal lo sigue escribiendo el pipeline del candidato en TypeScript. El
       // barrido de autoría de abajo recorre el directorio COMPLETO, así que estas cuatro entran
       // en él sin excepción. AUTORADAS y NO APLICADAS.
-      '132_agent2_hubspot_legacy_sync_state_backfill.sql',
+      '133_br_candidate_identity_promotion.sql',
       `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
     // Y ninguna migración es AUTORÍA de 4O-E1: el hito no escribió SQL.
