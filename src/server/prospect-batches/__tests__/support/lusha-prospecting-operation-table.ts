@@ -9,7 +9,7 @@
  * que es lo que hace un proceso que vuelve a arrancar contra Postgres.
  *
  * Las transiciones replican, una a una, las dos RPC de operación de la migración
- * 134 —incluido que `complete` se NIEGUE mientras alguna petición siga sin verdad
+ * 135 —incluido que `complete` se NIEGUE mientras alguna petición siga sin verdad
  * de facturación asentada—. La suite de PostgreSQL real comprueba que la migración
  * las implementa así.
  *
@@ -40,7 +40,7 @@ export type OperationTable = {
   rows: Map<string, OperationRow>;
   /** Operaciones REALMENTE acuñadas. Una reanudación NO debe incrementarla. */
   operationsCreated: number;
-  /** Fuerza `capability_absent`: la migración 134 no está aplicada. */
+  /** Fuerza `capability_absent`: la migración 135 no está aplicada. */
   capabilityAbsent: boolean;
   /** Fuerza una avería de la RPC. El llamador debe fallar CERRADO. */
   failClaim: boolean;

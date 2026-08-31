@@ -78,14 +78,16 @@ const RUN_SEP = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 
 const digitsOf = (value: string) => value.replace(/\D/g, '');
 
-function rawData(period: string, marker: string): Record<string, unknown> {
+/**
+ * The persisted SIGNAL COLUMNS of one row.
+ *
+ * 🔴 No jsonb, no `parser_version`, no `source_row_index` and no `source_file_name`: those describe
+ * the IMPORT, and BR-PROD-STORAGE-RIGHT-SIZING moved them onto `source_snapshot_runs.metadata`,
+ * once per publication instead of once per establishment. The two constants
+ * (`source_type`, `human_review_required`) are reassembled at read time.
+ */
+function signalColumns(marker: string): Record<string, unknown> {
   return {
-    source_type: 'official_registry',
-    human_review_required: true,
-    parser_version: 'br-receita-cnpj/1',
-    source_period: period,
-    source_row_index: 0,
-    source_file_name: 'ESTABELECIMENTOS0.SAMPLE.csv',
     matrix_branch_flag: '1',
     company_size_code: '03',
     capital_social_value: '100000.00',
@@ -96,7 +98,7 @@ function rawData(period: string, marker: string): Record<string, unknown> {
     // SAME month. Without a per-publication marker, "candidate 2 read A" and "candidate 2 read B"
     // are indistinguishable and the suite would pass either way.
     cnae_main_label: `Desenvolvimento de software (${marker})`,
-    cnae_secondary_codes: ['6202300'],
+    cnae_secondary_codes: '6202300',
     municipality_code: '7107',
     municipality_name: 'SAO PAULO',
     uf: 'SP',
@@ -116,14 +118,11 @@ function runRow(period: string, id: string, publishState = 'published') {
 
 function snapshotRow(period: string, runId: string, cnpj: string, marker: string) {
   return {
-    source_key: BR_RECEITA_CNPJ_SOURCE_KEY,
-    country_code: 'BR',
     source_period: period,
-    source_year: Number.parseInt(period.slice(0, 4), 10),
     snapshot_run_id: runId,
     normalized_tax_id: digitsOf(cnpj),
     legal_name: `Synthetic Tecnologia ${marker}`,
-    raw_data: rawData(period, marker),
+    ...signalColumns(marker),
   };
 }
 
@@ -657,7 +656,7 @@ describe('CUT B2 · CASE 7 — the pin survives its run being superseded', () =>
 
     assert.equal(after.status, 'FOUND');
     assert.equal(after.snapshotRunId, RUN_A);
-    assert.equal(after.snapshot?.raw_data.cnae_main_label, 'Desenvolvimento de software (A)');
+    assert.equal(after.snapshot?.signals.cnae_main_label, 'Desenvolvimento de software (A)');
 
     // 🔴 And it did NOT re-ask which run is published: the runs table was never touched.
     const runsTableReads = db.selects.filter(
@@ -676,14 +675,12 @@ describe('CUT B2 · CASE 7 — the pin survives its run being superseded', () =>
 
     const read = db.selects.filter((s) => s.table === BR_RECEITA_SNAPSHOT_TABLE).at(-1);
     assert.ok(read);
+    // 🔴 Three, not five. `source_key` and `country_code` left the predicate because they left the
+    // TABLE: on a Brazil-only store they were a constant repeated on 72 million rows, and a
+    // predicate on a constant narrows nothing. The run id is now the PARTITION key, so this scope
+    // cannot reach another publication even in principle.
     const columns = read.filters.map((f) => f.column).sort();
-    assert.deepEqual(columns, [
-      'country_code',
-      'normalized_tax_id',
-      'snapshot_run_id',
-      'source_key',
-      'source_period',
-    ]);
+    assert.deepEqual(columns, ['normalized_tax_id', 'snapshot_run_id', 'source_period']);
     // 🔴 The projection must not fetch the identity back.
     assert.ok(!String(read.columns).includes('normalized_tax_id'));
   });
@@ -952,6 +949,7 @@ describe('CUT B2 · CASE 11 — no CNPJ in a pin, a provenance shape, a log or a
     }
     assert.ok(!serialized.includes('Synthetic'), 'no legal name in the pin');
     assert.ok(!serialized.includes('raw_data'));
+    assert.ok(!serialized.includes('signals'));
     assert.equal(pin.sourcePeriod, '2026-08');
     assert.equal(pin.snapshotRunId, RUN_A);
   });

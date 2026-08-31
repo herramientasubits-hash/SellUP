@@ -361,7 +361,7 @@ async function runGenerateLushaPendingReviewBatch(
   // deliberado: si sólo bloqueara la página vieja, las páginas 1 y 2 de la corrida
   // caída seguirían pudiendo comprarse con el clic nuevo.
   //
-  // 🔴 Falla CERRADO. Sin credencial de servicio, sin la 134 aplicada o con la RPC
+  // 🔴 Falla CERRADO. Sin credencial de servicio, sin la 135 aplicada o con la RPC
   // caída no hay operación, y sin operación no se reserva ni se despacha.
   let operationStore: LushaProspectingOperationStore | null = null;
   try {
@@ -933,7 +933,7 @@ async function runLushaSearchWithReservation(args: {
   // corrida contiene varias ramas y varias páginas, y cada una es un cargo
   // distinto que hay que poder distinguir.
   //
-  // 🔴 Va por `service_role` porque la tabla y las tres RPC de la migración 134
+  // 🔴 Va por `service_role` porque la tabla y las tres RPC de la migración 135
   // sólo se lo conceden a él: un cliente de sesión que pudiera reclamar, marcar o
   // liquidar podría fabricar el estado que autoriza —o suprime— una petición
   // pagada.

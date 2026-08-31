@@ -51,10 +51,10 @@ import {
   type BrReceitaPinnedReadResult,
 } from './br-receita-cnpj-pinned-snapshot-reader';
 import type { BrReceitaPinnedPublication } from './br-receita-cnpj-pinned-publication';
+import type { BrReceitaCnpjRuntimeSignals } from './br-receita-cnpj-compact-storage';
 import {
   BR_RECEITA_CNPJ_COUNTRY_CODE,
   BR_RECEITA_CNPJ_SOURCE_KEY,
-  type BrReceitaCnpjSnapshotRawData,
 } from './br-receita-cnpj-types';
 import { normalizeBrazilCnpj } from './br-cnpj';
 import { parseSourcePeriod, sourcePeriodYear } from '../../source-period';
@@ -180,7 +180,7 @@ function matched(
   if (snapshot === null) {
     return errored('published_read_returned_no_snapshot');
   }
-  const raw: BrReceitaCnpjSnapshotRawData = snapshot.raw_data;
+  const raw: BrReceitaCnpjRuntimeSignals = snapshot.signals;
 
   const signals: Record<string, unknown> = {
     registration_status_code: raw.registration_status_code,

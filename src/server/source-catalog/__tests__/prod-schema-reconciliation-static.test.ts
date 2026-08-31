@@ -76,7 +76,24 @@ const MIGRATIONS_129_TO_132_AGENT2 = [
  * trusting this comment. AUTHORED and NOT APPLIED.
  */
 const MIGRATION_133_BR_CUT_D = '133_br_candidate_identity_promotion.sql';
-const MIGRATION_134_AGENT1_LUSHA_FENCE = '134_agent1_lusha_prospecting_request_fence.sql';
+
+/**
+ * BR-COMPACT-SNAPSHOT-PRODUCTIZATION — the dedicated compact national snapshot table.
+ *
+ * 🔴 This one is NOT declared "foreign by milestone" like the 128 and the 129–132 chain, and it
+ * cannot be: it legitimately names `source_snapshot_runs` (it reuses that publication model rather
+ * than inventing a second one) and `source_period`. What CUT A.1 actually reconciles is the
+ * IDENTITY MODEL of `source_company_snapshots`, and the assertion below proves over the SQL — not
+ * over a comment — that 134 never touches that table at all. AUTHORED and NOT APPLIED.
+ */
+const MIGRATION_134_BR_COMPACT = '134_br_receita_compact_snapshot.sql';
+
+/**
+ * AGENT1-LUSHA-CUT-L3 — the durable pre-send fence for one Lusha Company Prospecting request.
+ * Renumbered from 134 to 135 on serial integration, since BR-COMPACT-SNAPSHOT-PRODUCTIZATION
+ * reached main first with that number.
+ */
+const MIGRATION_135_AGENT1_LUSHA_FENCE = '135_agent1_lusha_prospecting_request_fence.sql';
 
 const readMigration = (file: string) => readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
 const stripComments = (sql: string) =>
@@ -117,14 +134,17 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     // proves that over their SQL instead of trusting this comment. The ceiling stays EXACT so
     // that an undeclared migration above the last known milestone still breaks this guard.
     // BR-PRODUCTION-RELEASE then moved it to 133 with BR-SOURCE CUT D's fenced identity
-    // promotion.
+    // promotion, and BR-COMPACT-SNAPSHOT-PRODUCTIZATION moves it to 134 with Brazil's dedicated
+    // compact snapshot table.
     //
-    // AGENT1-LUSHA-CUT-L3 then moved it to 134 with the durable pre-send fence for one Lusha
-    // Company Prospecting request (`lusha_prospecting_request_fence` plus its three RPCs). It is
-    // an Agent-1 spend-safety table: it names no source-catalog object, which the sweep below
-    // proves over its SQL instead of trusting this comment. The ceiling stays EXACT so that an
-    // undeclared migration above the last known milestone still breaks this guard.
-    assert.equal(highest, 134);
+    // AGENT1-LUSHA-CUT-L3 then moved it to 135 — renumbered from 134 on serial integration, since
+    // BR-COMPACT-SNAPSHOT-PRODUCTIZATION reached main first with that number — with the durable
+    // pre-send fence for one Lusha Company Prospecting request (`lusha_prospecting_request_fence`
+    // plus its three RPCs). It is an Agent-1 spend-safety table: it names no source-catalog
+    // object, which the sweep below proves over its SQL instead of trusting this comment. The
+    // ceiling stays EXACT so that an undeclared migration above the last known milestone still
+    // breaks this guard.
+    assert.equal(highest, 135);
     assert.ok(files.includes(MIGRATION_125));
     assert.ok(files.includes(MIGRATION_126_AGENT1));
     assert.ok(files.includes(MIGRATION_127));
@@ -141,18 +161,40 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
       assert.deepEqual(files.filter((f) => f.startsWith(agent2.slice(0, 3))), [agent2]);
     }
     assert.deepEqual(files.filter((f) => f.startsWith('133')), [MIGRATION_133_BR_CUT_D]);
+    assert.deepEqual(files.filter((f) => f.startsWith('134')), [MIGRATION_134_BR_COMPACT]);
+
+    // 🔴 134 gets its OWN, stricter assertion rather than joining the "names no source-catalog
+    // object" sweep below, because it honestly does name `source_snapshot_runs`: it reuses that
+    // publication model instead of building a second one. What must stay true — and what CUT A.1
+    // is actually about — is that it never touches `source_company_snapshots` or the generic
+    // identity model. That is asserted over the EXECUTABLE SQL, with comments stripped, so a
+    // migration that merely MENTIONS the table in prose is not confused with one that alters it.
+    {
+      const compact = stripComments(readMigration(MIGRATION_134_BR_COMPACT));
+      assert.equal(
+        compact.includes('source_company_snapshots'),
+        false,
+        '134 must not touch the generic snapshot table',
+      );
+      // The prohibited identity columns appear only inside the table's descriptive COMMENT string,
+      // never as a column of the new table. Asserting on DDL shape distinguishes naming a thing
+      // from declaring one.
+      assert.equal(/^\s*(tax_id|record_identity_key)\s/m.test(compact), false);
+      assert.match(compact, /CREATE TABLE public\.br_receita_snapshots/);
+      assert.match(compact, /PARTITION BY LIST \(snapshot_run_id\)/);
+    }
     assert.deepEqual(
-      files.filter((f) => f.startsWith('134')),
-      [MIGRATION_134_AGENT1_LUSHA_FENCE],
+      files.filter((f) => f.startsWith('135')),
+      [MIGRATION_135_AGENT1_LUSHA_FENCE],
     );
-    assert.equal(files.some((f) => f.startsWith('135')), false);
+    assert.equal(files.some((f) => f.startsWith('136')), false);
     // And the 128 plus the whole 129–132 chain are provably foreign to this milestone: none of
     // them names a single source-catalog object CUT A.1 reconciles.
     for (const foreign of [
       MIGRATION_128_AGENT2A,
       ...MIGRATIONS_129_TO_132_AGENT2,
       MIGRATION_133_BR_CUT_D,
-      MIGRATION_134_AGENT1_LUSHA_FENCE,
+      MIGRATION_135_AGENT1_LUSHA_FENCE,
     ]) {
       const sql = readMigration(foreign);
       for (const owned of [

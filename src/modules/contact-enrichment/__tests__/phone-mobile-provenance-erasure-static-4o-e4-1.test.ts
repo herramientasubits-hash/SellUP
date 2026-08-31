@@ -471,12 +471,18 @@ describe('4O-E4.1 estático — alcance', () => {
     // (`promote_candidate_fiscal_identity_fenced`) y sus permisos: sin tabla, sin columna, sin
     // índice, sin constraint y sin backfill. NO es de teléfono y no nombra ninguna tabla, columna
     // ni función de teléfono, que es lo que esta guarda vigila. AUTORADA y NO APLICADA.
-    // 🔴 AGENT1-LUSHA-CUT-L3 mueve el techo a la 134: `134_agent1_lusha_prospecting_request_fence.sql`,
-    // la valla DURABLE de una petición de Lusha Company Prospecting: una tabla
-    // (`lusha_prospecting_request_fence`) y tres funciones que se escriben ANTES del envío, para
-    // que una caída dura no repita una petición que el proveedor quizá ya cobró. Es de Agente 1 y
-    // de seguridad de GASTO: no es de teléfono, no es del catálogo y no nombra ninguna tabla,
-    // columna ni función de las cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
+    // BR-COMPACT-SNAPSHOT-PRODUCTIZATION mueve el techo a la 134:
+    // `134_br_receita_compact_snapshot.sql`, la tabla dedicada y particionada del snapshot
+    // nacional de Brasil. NO es de teléfono, no nombra ninguna tabla, columna ni función de
+    // teléfono, y no edita el archivo de ninguna migración anterior. AUTORADA y NO APLICADA.
+    // 🔴 AGENT1-LUSHA-CUT-L3 mueve el techo a la 135 (renumerada desde la 134 al integrarse en
+    // serie después de que BR-COMPACT-SNAPSHOT-PRODUCTIZATION llegara primero a main con ese
+    // número): `135_agent1_lusha_prospecting_request_fence.sql`, la valla DURABLE de una
+    // petición de Lusha Company Prospecting: una tabla (`lusha_prospecting_request_fence`) y
+    // tres funciones que se escriben ANTES del envío, para que una caída dura no repita una
+    // petición que el proveedor quizá ya cobró. Es de Agente 1 y de seguridad de GASTO: no es de
+    // teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de las cadenas
+    // que esta guarda vigila. AUTORADA y NO APLICADA.
     assert.equal(
       numbered[numbered.length - 1],
       // AGENT2A-SEARCH-MORE-PHONES-1 mueve el techo a la 122: «Buscar más números»
@@ -508,8 +514,14 @@ describe('4O-E4.1 estático — alcance', () => {
       // LEE bajo el lock para calcular el saliente, y leer no es escribir— ni introduce
       // procedencia del escalar móvil, que es lo que esta guarda vigila. La lista exacta de
       // migraciones que pueden NOMBRARLO se declara arriba, archivo por archivo.
-      134,
-      'la 134 (la valla durable de petición de Lusha, AGENT1-LUSHA-CUT-L3) es la última',
+      // BR-COMPACT-SNAPSHOT-PRODUCTIZATION mueve el techo a la 134: la tabla dedicada del
+      // snapshot nacional de Brasil. No ASIGNA `mobile_phone`, no lo NOMBRA siquiera, y no
+      // introduce procedencia del escalar móvil, que es lo que esta guarda vigila.
+      // AGENT1-LUSHA-CUT-L3 lo mueve a la 135 (renumerada desde la 134 al integrarse en serie
+      // después de que BR-COMPACT-SNAPSHOT-PRODUCTIZATION llegara primero a main con ese
+      // número): la valla durable de petición de Lusha. No ASIGNA `mobile_phone` tampoco.
+      135,
+      'la 135 (la valla durable de petición de Lusha, AGENT1-LUSHA-CUT-L3, renumerada desde la 134) es la última',
     );
   });
 

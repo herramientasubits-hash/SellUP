@@ -41,7 +41,7 @@ import { fileURLToPath } from 'node:url';
 import {
   applyRealChain,
   bootstrapPlatform,
-  REPO_DERIVED_REAL_CHAIN,
+  BR_RECEITA_COMPACT_CHAIN,
   resolveEmbeddedPostgres,
   type EmbeddedPostgresLike,
   type PgLikeClient,
@@ -148,7 +148,7 @@ describe(
       await client.connect();
 
       await bootstrapPlatform(client);
-      await applyRealChain(client, repoRoot, REPO_DERIVED_REAL_CHAIN);
+      await applyRealChain(client, repoRoot, BR_RECEITA_COMPACT_CHAIN);
     });
 
     after(async () => {

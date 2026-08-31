@@ -392,13 +392,20 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // `identity_epoch` y la 126 en vez de declarar una segunda valla—, y no menciona
     // `AGENT1-CUT3B4`, lo que la lista `authored` de arriba ya comprueba de forma exhaustiva
     // sobre TODAS las migraciones del repo, incluidas las que aún no existían al escribirla.
-    // 🔴 AGENT1-LUSHA-CUT-L3 reclamó después la 134: la valla DURABLE de una petición de Lusha
-    // Company Prospecting. Mismo razonamiento que con la 127, la 128, el tramo 129–132 y la 133:
-    // lo que esta guarda defiende es AUTORÍA, no el número más alto. La 134 no menciona
-    // `AGENT1-CUT3B4` ni reutiliza `identity_epoch` — valla peticiones de PROVEEDOR, no
-    // escrituras de candidatos—, y la lista `authored` de arriba ya lo comprueba de forma
-    // exhaustiva sobre TODAS las migraciones del repo.
-    const CEILING = '134_agent1_lusha_prospecting_request_fence.sql';
+    // 🔴 BR-COMPACT-SNAPSHOT-PRODUCTIZATION reclamó después la 134: la tabla dedicada y
+    // particionada del snapshot nacional de Brasil. Mismo razonamiento que con la 127, la 128, el
+    // tramo 129–132 y la 133: lo que esta guarda defiende es AUTORÍA, no el número más alto. La
+    // 134 no menciona `AGENT1-CUT3B4`, lo que el barrido de abajo comprueba fichero por fichero.
+    const BR_MIGRATION_134 = '134_br_receita_compact_snapshot.sql';
+    // 🔴 AGENT1-LUSHA-CUT-L3 reclamó después la 135 (renumerada desde la 134 al integrarse en
+    // serie después de que BR-COMPACT-SNAPSHOT-PRODUCTIZATION llegara primero a main con ese
+    // número): la valla DURABLE de una petición de Lusha Company Prospecting. Mismo razonamiento
+    // que con la 127, la 128, el tramo 129–132, la 133 y la 134: lo que esta guarda defiende es
+    // AUTORÍA, no el número más alto. La 135 no menciona `AGENT1-CUT3B4` ni reutiliza
+    // `identity_epoch` — valla peticiones de PROVEEDOR, no escrituras de candidatos—, y la lista
+    // `authored` de arriba ya lo comprueba de forma exhaustiva sobre TODAS las migraciones del
+    // repo.
+    const CEILING = '135_agent1_lusha_prospecting_request_fence.sql';
     assert.equal(migrations[migrations.length - 1], CEILING);
     for (const foreign of [
       '127_br_receita_monthly_snapshot_identity.sql',
@@ -407,6 +414,8 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
       '130_agent2_contact_hubspot_stale_source.sql',
       '131_agent2_post_approval_reveal_stale_producer.sql',
       '132_agent2_hubspot_legacy_sync_state_backfill.sql',
+      '133_br_candidate_identity_promotion.sql',
+      BR_MIGRATION_134,
       CEILING,
     ]) {
       assert.equal(
@@ -416,7 +425,9 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
       );
     }
     // Sin huecos: el conteo se mueve con el techo real del repositorio, no con el de este corte.
-    assert.equal(migrations.length, 134);
+    // BR-COMPACT-SNAPSHOT-PRODUCTIZATION añade la 134 y AGENT1-LUSHA-CUT-L3 la 135 (renumerada
+    // desde la 134), así que el conteo sube con ambas.
+    assert.equal(migrations.length, 135);
   });
 
   it('🔴 la 124 (Agente 2A) queda intacta, y la 126 no depende de ella', () => {

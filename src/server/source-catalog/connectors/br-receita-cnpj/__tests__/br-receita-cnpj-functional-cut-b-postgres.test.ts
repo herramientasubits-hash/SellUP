@@ -42,7 +42,7 @@ import { fileURLToPath } from 'node:url';
 import {
   applyRealChain,
   bootstrapPlatform,
-  REPO_DERIVED_REAL_CHAIN,
+  BR_RECEITA_COMPACT_CHAIN,
   resolveEmbeddedPostgres,
   type EmbeddedPostgresLike,
   type PgLikeClient,
@@ -58,12 +58,14 @@ import {
 } from '../br-receita-cnpj-fixtures';
 import {
   toBrReceitaPersistedSnapshot,
+  BR_RECEITA_SNAPSHOT_TABLE,
   type BrReceitaPersistedSnapshot,
 } from '../br-receita-cnpj-monthly-snapshot-identity';
 import {
   planBrReceitaMonthlySnapshotWrite,
   BR_RECEITA_RUN_SCOPED_CONFLICT_COLUMNS,
   BR_RECEITA_RUN_SCOPED_CONFLICT_PREDICATE,
+  BR_RECEITA_RUN_SCOPED_CONFLICT_IS_PARTIAL,
 } from '../br-receita-cnpj-monthly-snapshot-write-plan';
 import {
   createBrReceitaSqlWriteGateway,
@@ -79,7 +81,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, '..', '..', '..', '..', '..', '..');
 
 const FOREIGN_KEY_VIOLATION = '23503';
-const CHECK_VIOLATION = '23514';
+const UNDEFINED_COLUMN = '42703';
 
 const { ctor: EmbeddedPostgresCtor, skip: harnessSkipReason } =
   resolveEmbeddedPostgres(import.meta.url);
@@ -161,12 +163,13 @@ async function stagePreparingRun(period: string, legalNameSuffix: string): Promi
 
   await gateway.upsertBatch({
     kind: 'upsert_batch',
-    table: 'source_company_snapshots',
+    table: BR_RECEITA_SNAPSHOT_TABLE,
     batchIndex: 0,
     snapshot_run_id: started.snapshotRunId,
     rows,
     conflictColumns: BR_RECEITA_RUN_SCOPED_CONFLICT_COLUMNS,
     conflictIndexPredicate: BR_RECEITA_RUN_SCOPED_CONFLICT_PREDICATE,
+    conflictTargetIsPartial: BR_RECEITA_RUN_SCOPED_CONFLICT_IS_PARTIAL,
     collapsedInBatchCount: 0,
   });
 
@@ -185,9 +188,28 @@ const errorCodeOf = async (sql: string, values?: unknown[]): Promise<string | nu
   }
 };
 
+/**
+ * The run's PHYSICAL rows, counted in its own partition.
+ *
+ * 🔴 Through the partition and not through the parent, because those are now two different facts.
+ * A `preparing` run's child is DETACHED, so its rows are real and simultaneously unreachable from
+ * `br_receita_snapshots` — which is exactly the coexistence CASE 2 is about, made structural.
+ */
 const countRowsInRun = async (runId: string): Promise<number> => {
+  const named = await rowsOf('SELECT public.br_receita_run_partition_name($1::uuid) AS name', [runId]);
+  const partition = String(named[0].name);
+  const exists = await rowsOf('SELECT to_regclass($1) IS NOT NULL AS present', [`public.${partition}`]);
+  if (exists[0].present !== true) {
+    return 0;
+  }
+  const rows = await rowsOf(`SELECT count(*)::int AS n FROM public.${partition}`);
+  return Number(rows[0].n);
+};
+
+/** The run's rows as a READER sees them: through the partitioned parent. */
+const countRowsVisibleInRun = async (runId: string): Promise<number> => {
   const rows = await rowsOf(
-    'SELECT count(*)::int AS n FROM public.source_company_snapshots WHERE snapshot_run_id = $1',
+    'SELECT count(*)::int AS n FROM public.br_receita_snapshots WHERE snapshot_run_id = $1',
     [runId],
   );
   return Number(rows[0].n);
@@ -224,7 +246,7 @@ describe('BR-SOURCE FUNCTIONAL CUT B — snapshot runtime end to end (real Postg
     await client.connect();
 
     await bootstrapPlatform(client);
-    await applyRealChain(client, repoRoot, REPO_DERIVED_REAL_CHAIN);
+    await applyRealChain(client, repoRoot, BR_RECEITA_COMPACT_CHAIN);
 
     // A SECOND connection. Without it, "a reader sees A until the COMMIT" is unobservable: one
     // connection always sees its own uncommitted work.
@@ -283,20 +305,34 @@ describe('BR-SOURCE FUNCTIONAL CUT B — snapshot runtime end to end (real Postg
 
   // ── CASE 8 ────────────────────────────────────────────────────────────────
   it('CASE 8 — exactly ONE persisted representation: normalized_tax_id set, the other two NULL', async () => {
+    // 🔴 The refusal is no longer "the column is NULL" but "the column does not exist". On the
+    // dedicated table a second representation is UNREPRESENTABLE, which is a stronger claim than
+    // an unenforced convention and a stronger one than a CHECK.
+    const columns = (
+      await rowsOf(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'br_receita_snapshots'`,
+      )
+    ).map((row) => String(row.column_name));
+
+    assert.ok(columns.includes('normalized_tax_id'), 'the ONE permitted representation must exist');
+    assert.equal(columns.includes('tax_id'), false, 'the raw CNPJ has nowhere to land');
+    assert.equal(columns.includes('record_identity_key'), false, 'tax:<cnpj> has nowhere to land');
+    assert.equal(columns.includes('raw_data'), false, 'no jsonb can smuggle CNPJ material');
+    assert.equal(
+      columns.filter((name) => /cnpj|tax/i.test(name)).length,
+      1,
+      'exactly ONE column may name a tax identifier',
+    );
+
     const rows = await rowsOf(
-      `SELECT normalized_tax_id, tax_id, record_identity_key, source_period, snapshot_run_id, source_year
-         FROM public.source_company_snapshots
-        WHERE source_key = $1`,
-      [BR_RECEITA_CNPJ_SOURCE_KEY],
+      `SELECT normalized_tax_id, source_period, snapshot_run_id FROM public.br_receita_snapshots`,
     );
     assert.ok(rows.length > 0);
     for (const row of rows) {
       assert.ok(row.normalized_tax_id !== null);
-      assert.equal(row.tax_id, null);
-      assert.equal(row.record_identity_key, null);
       assert.ok(row.source_period !== null);
       assert.ok(row.snapshot_run_id !== null);
-      assert.equal(String(row.source_year), String(row.source_period).slice(0, 4));
     }
   });
 
@@ -308,14 +344,14 @@ describe('BR-SOURCE FUNCTIONAL CUT B — snapshot runtime end to end (real Postg
     const runId = runRows[0].id as string;
     const cnpj = sampleFullCnpj(RAIZ_TECNOLOGIA, '0009');
 
+    // 42703 = undefined_column. The table has no `tax_id`, so the statement cannot even parse.
     const code = await errorCodeOf(
-      `INSERT INTO public.source_company_snapshots
-         (source_key, country_code, source_year, source_period, snapshot_run_id,
-          normalized_tax_id, tax_id, raw_data)
-       VALUES ($1, 'BR', 2026, '2026-07', $2, $3, $3, jsonb_build_object('source_period', '2026-07'))`,
-      [BR_RECEITA_CNPJ_SOURCE_KEY, runId, cnpj],
+      `INSERT INTO public.br_receita_snapshots
+         (snapshot_run_id, source_period, normalized_tax_id, tax_id)
+       VALUES ($1, '2026-07', $2, $2)`,
+      [runId, cnpj],
     );
-    assert.equal(code, CHECK_VIOLATION, 'tax_id must be refused for a Brazil row');
+    assert.equal(code, UNDEFINED_COLUMN, 'tax_id must have nowhere to land on a Brazil row');
   });
 
   // ── CASE 7 ────────────────────────────────────────────────────────────────
@@ -325,7 +361,7 @@ describe('BR-SOURCE FUNCTIONAL CUT B — snapshot runtime end to end (real Postg
 
     const read = await readPublished('2026-07', CNPJ_EDUCACAO_MATRIZ);
     assert.equal(read.status, 'FOUND');
-    assert.equal(read.snapshot?.raw_data.cnae_main_code, '8599604');
+    assert.equal(read.snapshot?.signals.cnae_main_code, '8599604');
 
     // And a digits-only reading of the same identity is NOT the same identity.
     const digitsOnly = await readPublished('2026-07', CNPJ_EDUCACAO_MATRIZ.replace(/[A-Z]/g, '0'));
@@ -347,6 +383,15 @@ describe('BR-SOURCE FUNCTIONAL CUT B — snapshot runtime end to end (real Postg
     assert.equal(await countRowsInRun(preparingRunId), 3);
     assert.equal(await publishStateOf(preparingRunId), 'preparing');
 
+    // 🔴 And the staging rows are invisible through the PARENT, not merely filtered out by a
+    // reader that remembered to check `publish_state`. They are physically not part of the table.
+    assert.equal(await countRowsVisibleInRun(publishedRunId), 3);
+    assert.equal(
+      await countRowsVisibleInRun(preparingRunId),
+      0,
+      'a preparing run is DETACHED: even a reader that forgot publish_state cannot reach it',
+    );
+
     // CASE 9 — no cross-run leakage: the reader still answers from run A, unchanged.
     const afterStaging = await readPublished(period, CNPJ_TECNOLOGIA_MATRIZ);
     assert.equal(afterStaging.status, 'FOUND');
@@ -356,7 +401,7 @@ describe('BR-SOURCE FUNCTIONAL CUT B — snapshot runtime end to end (real Postg
 
     // Run isolation: B's upserts never touched A's rows.
     const untouched = await rowsOf(
-      `SELECT legal_name FROM public.source_company_snapshots
+      `SELECT legal_name FROM public.br_receita_snapshots
         WHERE snapshot_run_id = $1 AND normalized_tax_id = $2`,
       [publishedRunId, CNPJ_TECNOLOGIA_MATRIZ],
     );
@@ -393,7 +438,7 @@ describe('BR-SOURCE FUNCTIONAL CUT B — snapshot runtime end to end (real Postg
     const gateway = createBrReceitaSqlWriteGateway(sqlExecutor());
     const attempted = await gateway.discardRunRows({
       kind: 'discard_run_rows',
-      table: 'source_company_snapshots',
+      table: BR_RECEITA_SNAPSHOT_TABLE,
       source_key: BR_RECEITA_CNPJ_SOURCE_KEY,
       country_code: 'BR',
       source_period: period,
@@ -431,12 +476,13 @@ describe('BR-SOURCE FUNCTIONAL CUT B — snapshot runtime end to end (real Postg
       }));
       await gateway.upsertBatch({
         kind: 'upsert_batch',
-        table: 'source_company_snapshots',
+        table: BR_RECEITA_SNAPSHOT_TABLE,
         batchIndex: 1,
         snapshot_run_id: runId,
         rows,
         conflictColumns: BR_RECEITA_RUN_SCOPED_CONFLICT_COLUMNS,
         conflictIndexPredicate: BR_RECEITA_RUN_SCOPED_CONFLICT_PREDICATE,
+        conflictTargetIsPartial: BR_RECEITA_RUN_SCOPED_CONFLICT_IS_PARTIAL,
         collapsedInBatchCount: 0,
       });
       return runId;
@@ -445,23 +491,31 @@ describe('BR-SOURCE FUNCTIONAL CUT B — snapshot runtime end to end (real Postg
     assert.equal(await countRowsInRun(replayRunId), 3, 'a replay must not duplicate rows');
   });
 
-  it('an upsert WITHOUT the partial-index predicate fails loudly rather than duplicating', async () => {
-    // Proving the predicate is load-bearing, not decoration: 42P10 is
-    // "there is no unique or exclusion constraint matching the ON CONFLICT specification".
+  it('an upsert naming the OLD five-column arbiter fails loudly rather than duplicating', async () => {
+    // Proving the conflict target is load-bearing, not decoration. The dedicated table's arbiter is
+    // its PRIMARY KEY; the generic table's five-column partial index does not exist here, and
+    // three of its columns do not either. Either way the statement STOPS — 42703
+    // (undefined_column) or 42P10 (no matching unique constraint) — rather than inserting a second
+    // row for one establishment inside one run.
     const code = await errorCodeOf(
-      `INSERT INTO public.source_company_snapshots
-         (source_key, country_code, source_year, source_period, snapshot_run_id,
-          normalized_tax_id, raw_data)
-       SELECT source_key, country_code, source_year, source_period, snapshot_run_id,
-              normalized_tax_id, raw_data
-         FROM public.source_company_snapshots
-        WHERE source_key = $1
+      `INSERT INTO public.br_receita_snapshots (snapshot_run_id, source_period, normalized_tax_id)
+       SELECT snapshot_run_id, source_period, normalized_tax_id
+         FROM public.br_receita_snapshots
         LIMIT 1
        ON CONFLICT (source_key, country_code, source_period, snapshot_run_id, normalized_tax_id)
        DO NOTHING`,
-      [BR_RECEITA_CNPJ_SOURCE_KEY],
     );
-    assert.equal(code, '42P10');
+    assert.ok(code === UNDEFINED_COLUMN || code === '42P10', `unexpected SQLSTATE ${String(code)}`);
+
+    // And the arbiter that DOES exist is accepted, and is a no-op on a replay.
+    const accepted = await errorCodeOf(
+      `INSERT INTO public.br_receita_snapshots (snapshot_run_id, source_period, normalized_tax_id)
+       SELECT snapshot_run_id, source_period, normalized_tax_id
+         FROM public.br_receita_snapshots
+        LIMIT 1
+       ON CONFLICT (snapshot_run_id, normalized_tax_id) DO NOTHING`,
+    );
+    assert.equal(accepted, null);
   });
 
   // ── CASE 6 ────────────────────────────────────────────────────────────────

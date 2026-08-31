@@ -986,13 +986,18 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
     // resuelta de una candidata brasileña (BR-SOURCE CUT D). No es del catálogo —crea UNA función
     // sobre `prospect_candidates`/`prospect_batches` y sus permisos—, y el barrido de abajo lo
     // comprueba sobre su SQL en vez de creerle a este comentario. AUTORADA y NO APLICADA.
-    // 🔴 AGENT1-LUSHA-CUT-L3 mueve el techo a la 134: `134_agent1_lusha_prospecting_request_fence.sql`,
-    // la valla DURABLE de una petición de Lusha Company Prospecting: una tabla
-    // (`lusha_prospecting_request_fence`) y tres funciones que se escriben ANTES del envío, para
-    // que una caída dura no repita una petición que el proveedor quizá ya cobró. Es de Agente 1 y
-    // de seguridad de GASTO: no es de teléfono, no es del catálogo y no nombra ninguna tabla,
-    // columna ni función de las cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
-    assert.match(last, /^134_/);
+    // BR-COMPACT-SNAPSHOT-PRODUCTIZATION mueve el techo a la 134: el almacenamiento compacto de
+    // BR. Este hito sigue sin añadir ni aplicar migraciones, que es lo único que esta guarda
+    // afirma; lo que se ratchetea es el techo del repositorio, mantenido EXACTO.
+    // 🔴 AGENT1-LUSHA-CUT-L3 mueve el techo a la 135 (renumerada desde la 134 al integrarse en
+    // serie después de que BR-COMPACT-SNAPSHOT-PRODUCTIZATION llegara primero a main con ese
+    // número): `135_agent1_lusha_prospecting_request_fence.sql`, la valla DURABLE de una
+    // petición de Lusha Company Prospecting: una tabla (`lusha_prospecting_request_fence`) y
+    // tres funciones que se escriben ANTES del envío, para que una caída dura no repita una
+    // petición que el proveedor quizá ya cobró. Es de Agente 1 y de seguridad de GASTO: no es de
+    // teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de las cadenas
+    // que esta guarda vigila. AUTORADA y NO APLICADA.
+    assert.match(last, /^135_/);
     // Y por encima de la 119 no hay NINGUNA migración de catálogo. Lo que se vigila
     // NO es el techo por sí mismo: es que ninguna migración posterior al cutover toque
     // las tablas del catálogo. Cada archivo nuevo entra a esta lista con su nombre y
@@ -1074,12 +1079,20 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
       //         y no nombra ninguna tabla ni vista del catálogo de industrias — el barrido de
       //         abajo lo comprueba sobre su SQL. AUTORADA y NO APLICADA.
       '133_br_candidate_identity_promotion.sql',
-      //   134 — AGENT1-LUSHA-CUT-L3: la valla DURABLE de una petición de Lusha Company
-      //         Prospecting. Crea `lusha_prospecting_request_fence` y tres funciones que se
-      //         escriben ANTES del envío al proveedor; ninguna es tabla ni vista del catálogo
-      //         de industrias, y el barrido de abajo lo comprueba sobre su SQL en vez de
-      //         creerle a este comentario. AUTORADA y NO APLICADA.
-      '134_agent1_lusha_prospecting_request_fence.sql',
+      //   134 — la tabla dedicada y particionada del snapshot nacional de Brasil
+      //         (BR-COMPACT-SNAPSHOT-PRODUCTIZATION). Crea `br_receita_snapshots` y sus funciones
+      //         de ciclo de vida de partición, y reutiliza `source_snapshot_runs` sin alterarla;
+      //         no nombra ninguna tabla ni vista del catálogo de industrias — el barrido de abajo
+      //         lo comprueba sobre su SQL. AUTORADA y NO APLICADA.
+      '134_br_receita_compact_snapshot.sql',
+      //   135 — AGENT1-LUSHA-CUT-L3 (renumerada desde la 134 al integrarse en serie después de
+      //         que BR-COMPACT-SNAPSHOT-PRODUCTIZATION llegara primero a main con ese número): la
+      //         valla DURABLE de una petición de Lusha Company Prospecting. Crea
+      //         `lusha_prospecting_request_fence` y tres funciones que se escriben ANTES del envío
+      //         al proveedor; ninguna es tabla ni vista del catálogo de industrias, y el barrido
+      //         de abajo lo comprueba sobre su SQL en vez de creerle a este comentario. AUTORADA
+      //         y NO APLICADA.
+      '135_agent1_lusha_prospecting_request_fence.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);

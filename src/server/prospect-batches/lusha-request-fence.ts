@@ -303,7 +303,7 @@ export type LushaRequestFenceSettlement = {
 export type LushaRequestFenceClaimResult =
   | { status: 'claimed' }
   | { status: 'already_claimed'; state: LushaRequestFenceState }
-  /** La migración 134 no está aplicada. Fallo CERRADO en el llamador. */
+  /** La migración 135 no está aplicada. Fallo CERRADO en el llamador. */
   | { status: 'capability_absent' }
   | { status: 'failed'; code: string };
 
@@ -342,7 +342,7 @@ export type LushaRequestFenceStore = {
 export type LushaRequestFenceBlockedReason =
   /** Ya existe fila para esta petición lógica: otro trabajador o una corrida previa. */
   | 'already_fenced'
-  /** La 134 no está aplicada: sin valla no se despacha. */
+  /** La 135 no está aplicada: sin valla no se despacha. */
   | 'capability_absent'
   /** La valla no pudo escribirse (RPC caída, credencial ausente, identidad inválida). */
   | 'fence_unavailable';

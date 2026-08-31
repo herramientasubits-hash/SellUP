@@ -379,14 +379,21 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
     // protege este corte— se ENSANCHA de nueve números a diez para incluir la 133. La guarda
     // queda otra vez más fuerte que antes, no meramente desplazada: un número libre nunca
     // demostró nada.
-    // 🔴 AGENT1-LUSHA-CUT-L3 reclamó después la 134: la valla DURABLE de una petición de Lusha
-    // Company Prospecting, escrita ANTES del envío para que una caída dura no repita una petición
-    // que el proveedor quizá ya cobró. El proxy «el siguiente número está libre» se mueve por
-    // tanto de la 134 a la 135, y el barrido de AUTORÍA —lo único que de verdad protege este
-    // corte— se ENSANCHA de diez números a once para incluir la 134. La guarda queda otra vez más
-    // fuerte que antes, no meramente desplazada: un número libre nunca demostró nada.
+    // 🔴 BR-COMPACT-SNAPSHOT-PRODUCTIZATION reclamó después la 134: la tabla dedicada y
+    // particionada del snapshot nacional de Brasil. El proxy «el siguiente número está libre» se
+    // mueve por tanto de la 134 a la 135, y el barrido de AUTORÍA —lo único que de verdad protege
+    // este corte— se ENSANCHA de diez números a once para incluir la 134. Otra vez más fuerte que
+    // antes, no meramente desplazada.
+    // 🔴 AGENT1-LUSHA-CUT-L3 reclamó después la 135 (renumerada desde la 134 al integrarse en
+    // serie después de que BR-COMPACT-SNAPSHOT-PRODUCTIZATION llegara primero a main con ese
+    // número): la valla DURABLE de una petición de Lusha Company Prospecting, escrita ANTES del
+    // envío para que una caída dura no repita una petición que el proveedor quizá ya cobró. El
+    // proxy «el siguiente número está libre» se mueve por tanto de la 135 a la 136, y el barrido
+    // de AUTORÍA —lo único que de verdad protege este corte— se ENSANCHA de once números a doce
+    // para incluir la 135. La guarda queda otra vez más fuerte que antes, no meramente
+    // desplazada: un número libre nunca demostró nada.
     assert.equal(
-      migrations.filter((f) => f.startsWith('135')).length,
+      migrations.filter((f) => f.startsWith('136')).length,
       0,
       'este corte no añade migración',
     );
@@ -402,7 +409,8 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
         f.startsWith('131') ||
         f.startsWith('132') ||
         f.startsWith('133') ||
-        f.startsWith('134'),
+        f.startsWith('134') ||
+        f.startsWith('135'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

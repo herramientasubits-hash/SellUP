@@ -235,7 +235,7 @@ export type LushaOperationClaimResult =
    * su id —para que el bloqueo se pueda correlacionar— y NO se acuña otra.
    */
   | { status: 'resumed_unresolved'; operationId: string; state: LushaProspectingOperationState }
-  /** La migración 134 no está aplicada. Fallo CERRADO en el llamador. */
+  /** La migración 135 no está aplicada. Fallo CERRADO en el llamador. */
   | { status: 'capability_absent' }
   | { status: 'failed'; code: string };
 
@@ -260,7 +260,7 @@ export type LushaProspectingOperationStore = {
 export type LushaOperationBlockedReason =
   /** Existe una operación abierta / sin reconciliar para esta misma búsqueda. */
   | 'operation_unresolved'
-  /** La 134 no está aplicada. */
+  /** La 135 no está aplicada. */
   | 'capability_absent'
   /** No se pudo resolver la operación (RPC caída, credencial ausente, entrada inválida). */
   | 'operation_unavailable';

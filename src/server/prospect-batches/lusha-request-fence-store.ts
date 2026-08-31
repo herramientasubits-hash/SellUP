@@ -2,7 +2,7 @@
  * AGENT1-LUSHA-CUT-L3 — la frontera de I/O de la valla durable.
  *
  * TRANSPORTE. No decide nada: no clasifica facturación, no elige estado, no
- * autoriza ni bloquea. Traduce las tres RPC de la migración 134 al contrato puro
+ * autoriza ni bloquea. Traduce las tres RPC de la migración 135 al contrato puro
  * de `lusha-request-fence.ts` y clasifica sus averías.
  *
  * ── Por qué `service_role` ───────────────────────────────────────────────────
@@ -15,7 +15,7 @@
  *
  * ── `capability_absent` NO es una preferencia ────────────────────────────────
  *
- * La 134 se entrega SIN aplicar. Cuando las funciones no existen, la base lo dice
+ * La 135 se entrega SIN aplicar. Cuando las funciones no existen, la base lo dice
  * (SQLSTATE 42883 / PostgREST PGRST202) y esto devuelve `capability_absent`.
  *
  * 🔴 A diferencia de CUT-3B4 —donde la ausencia de la 126 conserva la ruta
@@ -38,7 +38,7 @@ import type {
 } from './lusha-request-fence';
 import { buildLushaRequestFenceKey } from './lusha-request-fence';
 
-/** Las tres funciones de la migración 134. */
+/** Las tres funciones de la migración 135. */
 export const LUSHA_REQUEST_FENCE_CLAIM_RPC = 'claim_lusha_prospecting_request';
 export const LUSHA_REQUEST_FENCE_MARK_RPC = 'mark_lusha_prospecting_request_dispatched';
 export const LUSHA_REQUEST_FENCE_SETTLE_RPC = 'settle_lusha_prospecting_request';
@@ -125,7 +125,7 @@ function buildEvidencePayload(
   };
 }
 
-/** La valla real, contra la migración 134. */
+/** La valla real, contra la migración 135. */
 export function createSupabaseLushaRequestFenceStore(
   client: SupabaseClient,
 ): LushaRequestFenceStore {

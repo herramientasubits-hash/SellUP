@@ -7,7 +7,7 @@
  * «reinicio» se modela creando un store nuevo sobre la MISMA tabla, que es
  * exactamente lo que hace un proceso que vuelve a arrancar contra Postgres.
  *
- * Las transiciones replican, una a una, las tres RPC de la migración 134. La
+ * Las transiciones replican, una a una, las tres RPC de la migración 135. La
  * suite de PostgreSQL real comprueba que la migración las implementa así; esta
  * tabla existe para que los casos de caída y concurrencia se puedan escribir sin
  * levantar una base por caso.
@@ -55,7 +55,7 @@ export type FenceTable = {
    * la tabla. Es lo que distingue una caída dura de un error manejado.
    */
   settleDisabled: boolean;
-  /** Fuerza `capability_absent`: la migración 134 no está aplicada. */
+  /** Fuerza `capability_absent`: la migración 135 no está aplicada. */
   capabilityAbsent: boolean;
 };
 

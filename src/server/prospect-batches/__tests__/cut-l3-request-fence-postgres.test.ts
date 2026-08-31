@@ -15,7 +15,7 @@
  * regla; sólo PostgreSQL puede demostrar que la migración la implementa. Aquí se
  * lanzan las dos transacciones de verdad y se mira cuál pierde.
  *
- * Y una segunda mitad que ninguna suite estática alcanza: que la 134 APLIQUE
+ * Y una segunda mitad que ninguna suite estática alcanza: que la 135 APLIQUE
  * —tres funciones `plpgsql` con dolar-quoting nombrado y un `COMMENT ON TABLE`
  * son justo la superficie donde un lexer de comillas pasa y PostgreSQL falla con
  * 42601—, que los GRANT dejen `anon` y `authenticated` sin nada, y que
@@ -31,7 +31,7 @@
  *   npm run test:a1-lusha-cut-l3-fence:postgres
  *
  * No llama a Lusha, ni a Apollo, ni a HubSpot; no lee un flag; no toca Producción
- * ni ninguna base remota; no gasta un crédito. MIGRATION 134: APPLIED IN
+ * ni ninguna base remota; no gasta un crédito. MIGRATION 135: APPLIED IN
  * PRODUCTION = NO.
  */
 
@@ -163,7 +163,7 @@ async function expectFailure(sql: string, values?: unknown[]): Promise<string> {
   assert.fail(`se esperaba un fallo y la sentencia pasó: ${sql}`);
 }
 
-describe('134 — valla durable de petición Lusha contra PostgreSQL real', { skip: harnessSkipReason }, () => {
+describe('135 — valla durable de petición Lusha contra PostgreSQL real', { skip: harnessSkipReason }, () => {
   before(async () => {
     dataDir = mkdtempSync(join(tmpdir(), 'pg-lusha-fence-'));
     postgres = new EmbeddedPostgresCtor!({

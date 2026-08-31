@@ -266,7 +266,7 @@ describe('CUT-L3 · estados terminales derivados de CUT-L2 (§ 11)', () => {
 });
 
 describe('CUT-L3 · L3-A — sin valla durable NO se toca al proveedor', () => {
-  it('la 134 sin aplicar (capability_absent) bloquea: 0 llamadas HTTP', async () => {
+  it('la 135 sin aplicar (capability_absent) bloquea: 0 llamadas HTTP', async () => {
     const table = createFenceTable();
     table.capabilityAbsent = true;
     const fetchDouble = countingFetch({ status: 200, body: SUCCESS_BODY });
@@ -749,8 +749,8 @@ describe('CUT-L3 · guardas estáticas de orden y alcance', () => {
     assert.match(preview, /LUSHA_PREVIEW_EXPECTED_MAX_CREDITS\s*=\s*1\s+as\s+const/);
   });
 
-  it('la migración 134 existe, no se aplica en remoto y no guarda payload de proveedor', () => {
-    const sql = read('supabase/migrations/134_agent1_lusha_prospecting_request_fence.sql');
+  it('la migración 135 existe, no se aplica en remoto y no guarda payload de proveedor', () => {
+    const sql = read('supabase/migrations/135_agent1_lusha_prospecting_request_fence.sql');
     // 🔴 Contar sobre el archivo CRUDO confunde «nombrarlo» con «declararlo»: la
     // migración explica en prosa por qué fija `search_path`, y esa frase inflaba el
     // conteo. Se cuenta sobre el SQL sin comentarios de línea.

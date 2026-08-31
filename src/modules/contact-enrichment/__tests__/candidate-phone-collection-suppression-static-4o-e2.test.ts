@@ -218,9 +218,18 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // sin backfill. La lista sigue siendo EXACTA, no un rango abierto: una migración nueva que
       // no se declare aquí rompe la guarda. AUTORADA y NO APLICADA.
       '133_br_candidate_identity_promotion.sql',
-      // AGENT1-LUSHA-CUT-L3: la valla DURABLE de una petición de Lusha Prospecting (Agente 1,
-      // seguridad de gasto). No edita la 112 ni ninguna otra de la cadena de teléfono.
-      '134_agent1_lusha_prospecting_request_fence.sql',
+      // BR-COMPACT-SNAPSHOT-PRODUCTIZATION añade la 134: la tabla dedicada y particionada del
+      // snapshot nacional de Brasil. NO es de teléfono en absoluto — crea `br_receita_snapshots`
+      // y sus funciones de ciclo de vida de partición, reutiliza `source_snapshot_runs` sin
+      // alterarla, y no nombra ninguna tabla, columna ni función de teléfono. La lista sigue
+      // siendo EXACTA: una migración nueva que no se declare aquí rompe la guarda.
+      // AUTORADA y NO APLICADA.
+      '134_br_receita_compact_snapshot.sql',
+      // AGENT1-LUSHA-CUT-L3 añade la 135 (renumerada desde la 134 al integrarse en serie después
+      // de que BR-COMPACT-SNAPSHOT-PRODUCTIZATION llegara primero a main con ese número): la
+      // valla DURABLE de una petición de Lusha Prospecting (Agente 1, seguridad de gasto). No
+      // edita la 112 ni ninguna otra de la cadena de teléfono.
+      '135_agent1_lusha_prospecting_request_fence.sql',
     ]);
   });
 

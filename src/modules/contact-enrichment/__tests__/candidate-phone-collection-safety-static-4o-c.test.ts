@@ -205,13 +205,18 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
     // (`promote_candidate_fiscal_identity_fenced`) y sus permisos: sin tabla, sin columna, sin
     // índice, sin constraint y sin backfill. NO es de teléfono y no nombra ninguna tabla, columna
     // ni función de teléfono, que es lo que esta guarda vigila. AUTORADA y NO APLICADA.
-    // 🔴 AGENT1-LUSHA-CUT-L3 mueve el techo a la 134: `134_agent1_lusha_prospecting_request_fence.sql`,
-    // la valla DURABLE de una petición de Lusha Company Prospecting — una tabla
-    // (`lusha_prospecting_request_fence`) y tres funciones que se escriben ANTES del envío para
-    // que una caída dura no repita una petición que el proveedor quizá ya cobró. NO es de
-    // teléfono: es de Agente 1 y de seguridad de gasto, no nombra ninguna tabla, columna ni
-    // función de teléfono, y el barrido de más abajo lo comprueba sobre su SQL. AUTORADA y NO
-    // APLICADA en Producción.
+    // BR-COMPACT-SNAPSHOT-PRODUCTIZATION mueve el techo a la 134:
+    // `134_br_receita_compact_snapshot.sql`, la tabla dedicada y particionada del snapshot
+    // nacional de Brasil. NO es de teléfono, no nombra ninguna tabla, columna ni función de
+    // teléfono, y no edita el archivo de ninguna migración anterior. AUTORADA y NO APLICADA.
+    // 🔴 AGENT1-LUSHA-CUT-L3 mueve el techo a la 135 (renumerada desde la 134 al integrarse en
+    // serie después de que BR-COMPACT-SNAPSHOT-PRODUCTIZATION llegara primero a main con ese
+    // número): `135_agent1_lusha_prospecting_request_fence.sql`, la valla DURABLE de una
+    // petición de Lusha Company Prospecting — una tabla (`lusha_prospecting_request_fence`) y
+    // tres funciones que se escriben ANTES del envío para que una caída dura no repita una
+    // petición que el proveedor quizá ya cobró. NO es de teléfono: es de Agente 1 y de seguridad
+    // de gasto, no nombra ninguna tabla, columna ni función de teléfono, y el barrido de más
+    // abajo lo comprueba sobre su SQL. AUTORADA y NO APLICADA en Producción.
     assert.equal(
       files[files.length - 1],
       // AGENT2A-PHONE-REVEAL-4O-H3 subió el techo a la 116: la APROBACIÓN atómica del
@@ -282,8 +287,8 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // el archivo de la migración que la creó, y ninguna de las tres añade tabla, columna,
       // índice, trigger ni policy. La 132 no la nombra en absoluto —su único UPDATE escribe
       // `contacts.metadata`— y por eso sí pasa por el barrido ciego. AUTORADAS y NO APLICADAS.
-      '134_agent1_lusha_prospecting_request_fence.sql',
-      'el techo conocido es la 133 (la promoción vallada de identidad fiscal de BR-SOURCE CUT D), y ni ella ni el tramo 129–132 editan el archivo de una migración anterior de la cadena de teléfono 109–117',
+      '135_agent1_lusha_prospecting_request_fence.sql',
+      'el techo conocido es la 135: la 133 (la promoción vallada de identidad fiscal de BR-SOURCE CUT D) y la 134 (el almacenamiento compacto de BR) llegaron primero a main, así que AGENT1-LUSHA-CUT-L3 se renumeró de la 134 a la 135 al integrarse en serie; ni ella, ni la 134, ni la 133, ni el tramo 129–132 editan el archivo de una migración anterior de la cadena de teléfono 109–117',
     );
     assert.equal(
       // La ventana sube con el techo DECLARADO arriba: la 125 (reconciliación genérica), la 126
@@ -292,23 +297,24 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // AGENT2-FINAL-INTEGRATION están autorizadas y nombradas una por una, así que lo prohibido
       // pasa a ser la 134 y superiores.
       // BR-PRODUCTION-RELEASE declara la 133: la promoción VALLADA de la identidad fiscal
-      // resuelta de una candidata brasileña (BR-SOURCE CUT D). Queda AUTORIZADA y NOMBRADA como
-      // las anteriores, así que la ventana prohibida sube a la 134 y superiores. La guarda no se
-      // relaja: sigue impidiendo que alguien cuele una POR ENCIMA del último hito conocido sin
-      // declararla.
-      // 🔴 AGENT1-LUSHA-CUT-L3 declara la 134: la valla DURABLE de una petición de Lusha
-      // Company Prospecting (`lusha_prospecting_request_fence` + tres RPC), escrita ANTES del
-      // envío para que una caída dura no repita una petición que el proveedor quizá ya cobró.
-      // Queda AUTORIZADA y NOMBRADA como las anteriores, así que la ventana prohibida sube a la
-      // 135 y superiores. La guarda no se relaja: sigue impidiendo que alguien cuele una POR
-      // ENCIMA del último hito conocido sin declararla.
-      files.some((file) => /^1(3[5-9]|[4-9]\d)/.test(file)),
+      // resuelta de una candidata brasileña (BR-SOURCE CUT D), y
+      // BR-COMPACT-SNAPSHOT-PRODUCTIZATION declara la 134: la tabla dedicada y particionada del
+      // snapshot nacional de Brasil. Ambas quedan AUTORIZADAS y NOMBRADAS como las anteriores.
+      // 🔴 AGENT1-LUSHA-CUT-L3 declara la 135 (renumerada desde la 134 al integrarse en serie
+      // después de que BR-COMPACT-SNAPSHOT-PRODUCTIZATION llegara primero a main con ese
+      // número): la valla DURABLE de una petición de Lusha Company Prospecting
+      // (`lusha_prospecting_request_fence` + tres RPC), escrita ANTES del envío para que una
+      // caída dura no repita una petición que el proveedor quizá ya cobró. Queda AUTORIZADA y
+      // NOMBRADA como las anteriores, así que la ventana prohibida sube a la 136 y superiores.
+      // La guarda no se relaja: sigue impidiendo que alguien cuele una POR ENCIMA del último
+      // hito conocido sin declararla.
+      files.some((file) => /^1(3[6-9]|[4-9]\d)/.test(file)),
       false,
       // La 120, la 121 y la 122 son AUTORIZADAS y están declaradas arriba con lo que hacen. Lo que
       // esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último hito
       // conocido sin declararla; la afirmación de que ninguna de ellas escribe sobre las
       // tablas de la cadena de teléfono se comprueba justo abajo, de forma directa.
-      'ninguna migración 135 o superior',
+      'ninguna migración 136 o superior',
     );
     // La afirmación que de verdad importa, ya no delegada en el orden alfabético:
     // ninguna migración posterior a la ÚLTIMA de la cadena de teléfono escribe sobre sus

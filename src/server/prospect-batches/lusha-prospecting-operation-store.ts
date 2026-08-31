@@ -2,11 +2,11 @@
  * AGENT1-LUSHA-CUT-L3 — la frontera de I/O de la OPERACIÓN LÓGICA durable.
  *
  * TRANSPORTE. No decide nada: no calcula firmas, no elige estado, no autoriza ni
- * bloquea. Traduce las dos RPC de operación de la migración 134 al contrato puro
+ * bloquea. Traduce las dos RPC de operación de la migración 135 al contrato puro
  * de `lusha-prospecting-operation.ts` y clasifica sus averías.
  *
  * Misma credencial y misma postura que la valla de petición: `service_role`, y
- * `capability_absent` cuando la 134 no está aplicada. Un cliente de sesión que
+ * `capability_absent` cuando la 135 no está aplicada. Un cliente de sesión que
  * pudiera acuñar o cerrar operaciones podría fabricar el estado que autoriza —o
  * suprime— una búsqueda pagada, o cerrar a mano una operación sin reconciliar
  * para desbloquearse el gasto.
@@ -27,7 +27,7 @@ import type {
 import { LUSHA_PROSPECTING_OPERATION_STATES } from './lusha-prospecting-operation';
 import { createLushaRequestFenceServiceClient } from './lusha-request-fence-store';
 
-/** Las dos funciones de operación de la migración 134. */
+/** Las dos funciones de operación de la migración 135. */
 export const LUSHA_OPERATION_CLAIM_RPC = 'claim_or_resume_lusha_prospecting_operation';
 export const LUSHA_OPERATION_COMPLETE_RPC = 'complete_lusha_prospecting_operation';
 

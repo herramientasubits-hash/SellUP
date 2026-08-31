@@ -3158,7 +3158,7 @@ jobs:
       - name: Run A1 Lusha CUT-L3 durable operation identity tests
         run: npm run test:a1-lusha-cut-l3-durable-operation-identity
 
-      # AGENT1-LUSHA-CUT-L3 § 22 — la migración 134 contra PostgreSQL REAL.
+      # AGENT1-LUSHA-CUT-L3 § 22 — la migración 135 contra PostgreSQL REAL.
       #
       # La afirmación central del corte es de CONCURRENCIA y no vive en
       # TypeScript: vive en una PRIMARY KEY con `ON CONFLICT DO NOTHING`, en un
@@ -4010,5 +4010,25 @@ jobs:
 
       - name: Run BR-SOURCE CUT B2 pinned publication against real PostgreSQL
         run: npm run test:br-source:functional-cut-b2:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
+      # BR-COMPACT-SNAPSHOT-PRODUCTIZATION — el almacenamiento nacional COMPACTO de Brasil y
+      # la retención por GENERACIÓN de publicación entran al check obligatorio.
+      #
+      # Lo que esta suite defiende no lo puede defender una medición:
+      #   · la fila compacta es SIN PÉRDIDA para todo consumidor de runtime — las doce señales
+      #     de negocio vuelven de columnas tipadas exactamente como salían del jsonb;
+      #   · la retención NO puede borrar una publicación que una corrida viva siga leyendo, y
+      #     eso se decide en la BASE DE DATOS bajo `FOR UPDATE`, no en un llamador que se acuerde;
+      #   · un pin viejo cuya partición ya no existe FALLA CERRADO y NUNCA se re-resuelve a otra
+      #     corrida ni a otro mes;
+      #   · el SEGUNDO republish del mismo periodo no arranca una carga nacional por su cuenta:
+      #     devuelve REPEATED_SAME_PERIOD_REPUBLISH_REQUIRES_STORAGE_REVIEW.
+      #
+      # 0 Producción, 0 escrituras remotas, 0 proveedores, 0 créditos, 0 flags. Todo CNPJ es
+      # sintético y DV-válido por construcción. MIGRATION 134: APPLIED IN PRODUCTION = NO.
+      - name: Run BR compact snapshot storage and retention against real PostgreSQL
+        run: npm run test:br-source:compact-storage-and-retention
         env:
           SELLUP_REQUIRE_POSTGRES_HARNESS: '1'

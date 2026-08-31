@@ -1,4 +1,6 @@
--- Migration 134 — AGENT1-LUSHA-CUT-L3: valla DURABLE de peticion de Prospecting
+-- Migration 135 — AGENT1-LUSHA-CUT-L3: valla DURABLE de peticion de Prospecting
+-- (Renumerada de 134 a 135 al integrarse en serie: BR-COMPACT-SNAPSHOT-PRODUCTIZATION
+-- llego primero a main y reclamo la 134 con supabase/migrations/134_br_receita_compact_snapshot.sql.)
 --
 -- ============================================================================
 -- POR QUE EXISTE

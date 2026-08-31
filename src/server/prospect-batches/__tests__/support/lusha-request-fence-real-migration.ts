@@ -1,4 +1,6 @@
-// AGENT1-LUSHA-CUT-L3 — LA MIGRACIÓN REAL DE LA VALLA DURABLE (134)
+// AGENT1-LUSHA-CUT-L3 — LA MIGRACIÓN REAL DE LA VALLA DURABLE (135, renumerada desde la 134
+// al integrarse en serie después de que BR-COMPACT-SNAPSHOT-PRODUCTIZATION llegara primero a
+// main con ese número)
 //
 // ═══════════════════════════════════════════════════════════════════
 // POR QUÉ ESTE MÓDULO EXISTE
@@ -11,14 +13,14 @@
 // tabla, no sobre un archivo de texto: hay que lanzar las dos transacciones y ver
 // cuál pierde.
 //
-// Y hay una mitad que ninguna suite estática alcanza: que la 134 APLIQUE. Lleva
+// Y hay una mitad que ninguna suite estática alcanza: que la 135 APLIQUE. Lleva
 // tres funciones `plpgsql` con dolar-quoting nombrado y un `COMMENT ON TABLE`;
 // el precedente del repo es explícito sobre por qué un lexer de comillas no basta
 // (la 120 pasaba 20/20 en estático y fallaba con 42601 en PostgreSQL).
 //
 // ── POR QUÉ LA CADENA ES UN SOLO ARCHIVO ───────────────────────────
 //
-// Porque lo es. La 134 no referencia ninguna tabla, función, tipo ni constraint
+// Porque lo es. La 135 no referencia ninguna tabla, función, tipo ni constraint
 // de ninguna migración anterior: crea una tabla nueva, sus índices y sus tres
 // funciones. Sus dos columnas de id (`triggered_by`, `reservation_id`) van SIN
 // clave foránea a propósito —un registro de seguridad de gasto tiene que poder
@@ -45,7 +47,7 @@ export const EMBEDDED_POSTGRES_VERSION = '17.6.0-beta.15';
 
 /** El archivo del hito. Se lee VERBATIM: lo que se prueba es lo que se despliega. */
 export const LUSHA_REQUEST_FENCE_MIGRATION =
-  '134_agent1_lusha_prospecting_request_fence.sql';
+  '135_agent1_lusha_prospecting_request_fence.sql';
 
 export const readMigration = (repoRoot: string, file: string): string =>
   readFileSync(join(repoRoot, 'supabase/migrations', file), 'utf8');
@@ -68,7 +70,7 @@ export const SUPABASE_ROLES_SQL = `
   GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 
   -- La tabla nueva tiene que NACER con los 8 privilegios para los tres roles, o el
-  -- REVOKE de la 134 no tendría nada que quitar y «se revocó» pasaría sin revocar nada.
+  -- REVOKE de la 135 no tendría nada que quitar y «se revocó» pasaría sin revocar nada.
   ALTER DEFAULT PRIVILEGES IN SCHEMA public
     GRANT ALL ON TABLES TO anon, authenticated, service_role;
   ALTER DEFAULT PRIVILEGES IN SCHEMA public

@@ -234,12 +234,21 @@ test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 
       // sólo declara UNA función más sus permisos. La capa gratuita sigue sin necesitar esquema,
       // que es lo único que esta guarda afirma. AUTORADA y NO APLICADA.
       '133_br_candidate_identity_promotion.sql',
-      // 🔴 AGENT1-LUSHA-CUT-L3: la valla DURABLE de una petición de Lusha Prospecting. Es de
-      // Agente 1, pero NO de la capa gratuita: se escribe antes de una petición PAGADA y no
-      // toca ninguna de las tablas que la capa gratuita lee. AUTORADA y NO APLICADA.
-      '134_agent1_lusha_prospecting_request_fence.sql',
+      // BR-COMPACT-SNAPSHOT-PRODUCTIZATION: la tabla dedicada y particionada del snapshot
+      // nacional de Brasil. CREA una tabla, a diferencia de la 133 — pero no una de la capa
+      // GRATUITA de descubrimiento que esta guarda protege: no nombra `provider_seen_entities`
+      // ni ninguna tabla de wizard, no altera `prospect_candidates` ni `prospect_batches`, y
+      // reutiliza `source_snapshot_runs` sin tocarla. La capa gratuita sigue sin necesitar
+      // esquema, que es lo único que esta guarda afirma. AUTORADA y NO APLICADA.
+      '134_br_receita_compact_snapshot.sql',
+      // 🔴 AGENT1-LUSHA-CUT-L3: la valla DURABLE de una petición de Lusha Prospecting —renumerada
+      // de la 134 a la 135 al integrarse en serie después de que BR-COMPACT-SNAPSHOT-
+      // PRODUCTIZATION llegara primero a main con ese número—. Es de Agente 1, pero NO de la capa
+      // gratuita: se escribe antes de una petición PAGADA y no toca ninguna de las tablas que la
+      // capa gratuita lee. AUTORADA y NO APLICADA.
+      '135_agent1_lusha_prospecting_request_fence.sql',
     ],
-    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D y la valla de petición de Lusha',
+    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR y la valla de petición de Lusha',
   );
 
   // 🔴 Ratchet invertido en AGENT1-PROVIDER-SEEN-MEMORY-3: la 123 YA está aplicada

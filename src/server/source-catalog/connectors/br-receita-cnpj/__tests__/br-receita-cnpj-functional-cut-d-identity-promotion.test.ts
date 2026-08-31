@@ -1375,31 +1375,31 @@ describe('CUT D — the transport, and the recorded contracts', () => {
       present.includes(MIGRATION_FILE),
       `${MIGRATION_FILE} debe existir en la secuencia desplegable`,
     );
-    // 🔴 Ya no queda ningún fichero fuera de la secuencia numerada: ni éste, ni ninguno.
+    // 🔴 La lista de autorizadas SIN numerar ENCOGIÓ A CERO, exactamente como su propia versión
+    // anterior predijo: BR-COMPACT-SNAPSHOT-PRODUCTIZATION numeró el compacto como la 134, así que
+    // ya no queda ningún fichero fuera de la secuencia. La guarda vuelve a su forma FUERTE —
+    // conjunto vacío, sin lista de excepciones que pueda crecer.
     assert.deepEqual(
-      present.filter((f) => !/^\d{3}_/.test(f)),
+      present.filter((f) => !/^\d{3}_/.test(f)).sort(),
       [],
       'ningún fichero de migración puede quedar fuera de la secuencia numerada',
     );
     // …y en particular el nombre local con el que nació ya no está.
     assert.equal(present.includes('LOCAL_br_candidate_identity_promotion.sql'), false);
-    // 🔴 133 es SU número, y es único: este corte no se cuela por debajo de nadie.
-    //
-    // Antes esto exigía que la 133 fuera la ÚLTIMA del repositorio, y esa formulación era un
-    // PROXY que caduca en cuanto cualquier otro hito ocupa un número más alto — cosa que este
-    // corte no puede ni impedir ni provocar. AGENT1-LUSHA-CUT-L3 lo hizo con la 134 (la valla
-    // durable de una petición de Lusha Prospecting, Agente 1). Lo que de verdad se defiende
-    // —que CUT D ocupe exactamente un hueco numerado, el 133, y que nada por encima sea
-    // autoría suya— se afirma ahora de forma directa, y queda MÁS fuerte que el proxy.
+    assert.equal(present.includes('LOCAL_br_receita_compact_snapshot.sql'), false);
+    // 🔴 Este corte ya NO es el techo: primero la 134 (almacenamiento compacto de BR) fue por
+    // encima, y luego AGENT1-LUSHA-CUT-L3 fue por encima de esa con la 135 —renumerada desde la
+    // 134 al integrarse en serie después de que BR-COMPACT-SNAPSHOT-PRODUCTIZATION llegara
+    // primero a main con ese número—. Lo que esta guarda defiende no cambia —que la 133 exista y
+    // sea EXACTAMENTE de este corte— y se afirma además quién es el techo real, para que una
+    // migración no declarada por encima rompa esto. El barrido de contenido «nada por encima
+    // menciona BR-SOURCE» se retiró porque dejó de ser cierto de forma legítima: la propia 134 es
+    // TAMBIÉN autoría de BR-SOURCE, sólo que de un corte distinto (el almacenamiento compacto, no
+    // CUT D); la posición en la secuencia es la afirmación que se sostiene.
     const numbered = present.filter((f) => /^\d{3}_/.test(f)).sort();
+    assert.ok(numbered.includes(MIGRATION_FILE));
     assert.deepEqual(numbered.filter((f) => f.startsWith('133')), [MIGRATION_FILE]);
-    for (const above of numbered.filter((f) => Number.parseInt(f.slice(0, 3), 10) > 133)) {
-      assert.equal(
-        readFileSync(join(migrationsDir, above), 'utf8').includes('BR-SOURCE'),
-        false,
-        `${above} no puede ser autoría de BR-SOURCE CUT D`,
-      );
-    }
+    assert.equal(numbered[numbered.length - 1], '135_agent1_lusha_prospecting_request_fence.sql');
     // Control NEGATIVO del filtro, sobre un nombre SINTÉTICO.
     assert.equal(/^\d{3}_/.test('LOCAL_example_unnumbered.sql'), false);
     assert.equal(/^\d{3}_/.test(MIGRATION_FILE), true);

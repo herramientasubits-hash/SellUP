@@ -581,7 +581,7 @@ describe('L3-ID · concurrencia y cierre (§§ 9, 15)', () => {
 });
 
 describe('L3-ID · fallo CERRADO de la operación (§ 21)', () => {
-  it('L3-ID-9 — sin la 134 aplicada NO se reserva ni se despacha', async () => {
+  it('L3-ID-9 — sin la 135 aplicada NO se reserva ni se despacha', async () => {
     const fence = createFenceTable();
     const operations = createOperationTable(fence);
     operations.capabilityAbsent = true;
@@ -724,7 +724,7 @@ describe('L3-ID · guardas estáticas del cableado real (§§ 7, 22)', () => {
   });
 
   it('§ 20 — la migración define la tabla de operaciones y su unicidad PARCIAL', () => {
-    const sql = read('supabase/migrations/134_agent1_lusha_prospecting_request_fence.sql');
+    const sql = read('supabase/migrations/135_agent1_lusha_prospecting_request_fence.sql');
     const ddl = sql.replace(/^\s*--.*$/gm, '');
     assert.match(ddl, /CREATE TABLE IF NOT EXISTS public\.lusha_prospecting_operations/);
     assert.match(ddl, /operation_id\s+uuid\s+PRIMARY KEY DEFAULT gen_random_uuid\(\)/);
