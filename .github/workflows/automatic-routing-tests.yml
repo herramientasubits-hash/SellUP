@@ -4052,3 +4052,30 @@ jobs:
         run: npm run test:br-source:postmerge-corrections
         env:
           SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
+      # BR-PROVENANCE-FINAL-PRIVACY-BOUNDARY — la corrección de frontera de privacidad que se
+      # pidió ANTES de mergear #370 y que no había aterrizado.
+      #
+      #   1. una CLAVE permitida podía cargar un VALOR prohibido: `source_file_name` aceptaba
+      #      cualquier cadena no vacía, así que `/Users/.../receita.csv` o
+      #      `C:\Users\...\receita.csv` — el directorio personal de una operadora — se
+      #      persistían en jsonb, y `parser_version` / `import_batch_id` eran portadores de
+      #      texto libre. Ahora cada valor debe COINCIDIR con su forma, y el que no coincide se
+      #      OMITE: no se hace `basename()` de una ruta absoluta, porque lavar la revelación es
+      #      peor que ausentarla.
+      #
+      #   2. el planificador era la ÚNICA reducción: `beginPeriodRun` persistía
+      #      `JSON.stringify(operation.metadata)` directo, así que un llamador de runtime con un
+      #      objeto casteado se saltaba la lista blanca. La frontera SQL vuelve a pasar la
+      #      metadata por el MISMO reductor autoritativo — sin segundo mapeador.
+      #
+      # La regresión llama `gateway.beginPeriodRun` DIRECTAMENTE, sin planificador, y LEE
+      # `source_snapshot_runs.metadata` de un PostgreSQL real.
+      #
+      # 0 Producción, 0 escrituras remotas, 0 proveedores, 0 créditos, 0 flags, 0 carga
+      # nacional. Todo identificador es sintético. MIGRATION 134: CHANGED = NO, APPLIED IN
+      # PRODUCTION = NO.
+      - name: Run BR run provenance privacy boundary against real PostgreSQL
+        run: npm run test:br-source:provenance-privacy-boundary
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'

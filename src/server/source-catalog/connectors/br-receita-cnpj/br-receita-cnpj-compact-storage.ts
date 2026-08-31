@@ -149,15 +149,79 @@ export interface BrReceitaRunProvenanceInput {
   readonly import_batch_id?: string;
 }
 
-/** A supplied optional value, kept only when it is a non-empty string. */
-const suppliedText = (value: unknown): string | undefined =>
-  typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+/**
+ * The SHAPES a provenance value is allowed to have.
+ *
+ * 🔴 Allowlists, not repairs. A value that does not match is OMITTED — never trimmed, never
+ * `basename()`d, never otherwise laundered. Basenaming `/Users/ana/Downloads/receita.csv` would
+ * turn an operator's home directory into a plausible-looking filename and then persist it, which
+ * is the disclosure this closes rather than a fix for it. Absent is honest; repaired is not.
+ *
+ * 🔴 `/` and `\` are outside every charset by CONSTRUCTION, so no POSIX path, no Windows path,
+ * no `..` traversal and no URL can match. Whitespace is outside them too, so free-text prose
+ * cannot ride in on `parser_version` or `import_batch_id` either.
+ */
+const SAFE_FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+/** A version token: `br-receita-cnpj-local-sample@1`, `v9`, `1.2.3+build`. */
+const SAFE_VERSION_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._+@-]{0,63}$/;
+/** An opaque batch token: `national-2026-07`, a canonical uuid. */
+const SAFE_OPAQUE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+/** A canonical instant, e.g. `2026-07-12T09:18:00.000Z`, with its calendar fields captured. */
+const CANONICAL_INSTANT =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
+
+/** A supplied optional value, kept only when it is a string of the required shape. */
+const shaped =
+  (pattern: RegExp) =>
+  (value: unknown): string | undefined =>
+    typeof value === 'string' && pattern.test(value) ? value : undefined;
+
+const safeFileName = shaped(SAFE_FILE_NAME);
+const safeVersionToken = shaped(SAFE_VERSION_TOKEN);
+const safeOpaqueToken = shaped(SAFE_OPAQUE_TOKEN);
 
 /**
- * Narrows a caller's provenance to the four allowed keys and guarantees `parser_version`.
+ * A timestamp kept only when it is canonical AND denotes a real instant.
+ *
+ * 🔴 The shape alone is not enough, and neither is `Date.parse`: `2026-02-30T00:00:00Z` matches
+ * the shape and `Date.parse` ROLLS IT OVER to March 2nd rather than rejecting it, so a shape-only
+ * check would persist a date that does not exist. The calendar fields are therefore compared back
+ * against the instant they were used to build. Free text of any kind — `'ayer por la tarde'` —
+ * fails the shape and never reaches that comparison.
+ */
+const safeInstant = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') return undefined;
+  const match = CANONICAL_INSTANT.exec(value);
+  if (match === null || !Number.isFinite(Date.parse(value))) return undefined;
+  const [year, month, day, hour, minute, second] = match.slice(1).map(Number);
+  const at = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+  const roundTrips =
+    at.getUTCFullYear() === year &&
+    at.getUTCMonth() === month - 1 &&
+    at.getUTCDate() === day &&
+    at.getUTCHours() === hour &&
+    at.getUTCMinutes() === minute &&
+    at.getUTCSeconds() === second;
+  return roundTrips ? value : undefined;
+};
+
+/**
+ * Narrows a caller's provenance to the four allowed keys, VALIDATES each value's shape, and
+ * guarantees `parser_version`.
+ *
+ * 🔴 The ONE authoritative narrower, called at BOTH ends of the write path: the planner builds
+ * `begin_period.metadata` with it, and the SQL gateway runs the operation's metadata back through
+ * it before binding the run INSERT. Two call sites, no second mapper — a runtime caller that
+ * hands `beginPeriodRun` a cast object never reaches jsonb with it, and there is no narrowing
+ * rule that can drift between the two boundaries because there is only one rule.
  *
  * 🔴 Built key by key, never by spreading `input`. A spread is exactly how an unclassified field
  * would reach `source_snapshot_runs.metadata`, and metadata is jsonb — it would accept it.
+ *
+ * 🔴 Key-level narrowing is not sufficient on its own: an allowed KEY can carry a disallowed
+ * VALUE. `source_file_name: '/Users/ana/receita.csv'` names an operator's home directory, and
+ * `parser_version` / `import_batch_id` are free-text carriers if nothing constrains them. Each
+ * value must therefore match its shape, and a value that does not is dropped rather than fixed.
  *
  * 🔴 An ABSENT `source_file_name` is a legitimate answer for the national producer, whose input is
  * ten multipart establishment files: naming one of them would claim a single file represents the
@@ -167,10 +231,10 @@ export function brReceitaRunProvenanceForRun(
   input: BrReceitaRunProvenanceInput | undefined,
 ): Record<string, string> {
   const provenance: BrReceitaRunProvenance = {
-    parser_version: suppliedText(input?.parser_version) ?? BR_RECEITA_CNPJ_PARSER_VERSION,
-    source_file_name: suppliedText(input?.source_file_name),
-    source_downloaded_at: suppliedText(input?.source_downloaded_at),
-    import_batch_id: suppliedText(input?.import_batch_id),
+    parser_version: safeVersionToken(input?.parser_version) ?? BR_RECEITA_CNPJ_PARSER_VERSION,
+    source_file_name: safeFileName(input?.source_file_name),
+    source_downloaded_at: safeInstant(input?.source_downloaded_at),
+    import_batch_id: safeOpaqueToken(input?.import_batch_id),
   };
   return brReceitaRunProvenanceMetadata(provenance);
 }
@@ -419,6 +483,17 @@ export const BR_RECEITA_COMPACT_STORAGE_CONTRACT = {
   runLevelProvenanceIsPersistedByTheWriter: true,
   runLevelProvenanceParserVersionIsMandatory: true,
   runLevelProvenanceAcceptsArbitraryCallerKeys: false,
+  /**
+   * 🔴 The narrowing happens at the SQL WRITE BOUNDARY as well as in the planner. The gateway
+   * runs `operation.metadata` back through the same `brReceitaRunProvenanceForRun` before binding
+   * it, so a direct runtime caller of `beginPeriodRun` — one that bypasses the planner and casts
+   * its metadata — cannot widen what lands in jsonb.
+   */
+  runLevelProvenanceIsRenarrowedAtTheSqlBoundary: true,
+  /** Allowed KEY, disallowed VALUE: a path, free text or a malformed instant does not persist. */
+  runLevelProvenanceValuesAreShapeValidated: true,
+  /** And an unsafe value is OMITTED, never basenamed, trimmed or otherwise laundered into one. */
+  runLevelProvenanceRepairsUnsafeValues: false,
   indexes: [
     { name: 'PRIMARY KEY', columns: BR_RECEITA_COMPACT_CONFLICT_COLUMNS, serves: ['exact_pinned_cnpj_lookup', 'one_row_per_identity_per_run', 'run_scoped_lifecycle'] },
     { name: 'br_receita_snapshots_name_idx', columns: [BR_RECEITA_SNAPSHOT_RUN_ID_COLUMN, BR_RECEITA_NORMALIZED_LEGAL_NAME_COLUMN], serves: ['exact_normalized_legal_name_lookup'] },
