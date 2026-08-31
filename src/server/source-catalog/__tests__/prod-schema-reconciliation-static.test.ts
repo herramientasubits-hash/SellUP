@@ -77,6 +77,17 @@ const MIGRATIONS_129_TO_132_AGENT2 = [
  */
 const MIGRATION_133_BR_CUT_D = '133_br_candidate_identity_promotion.sql';
 
+/**
+ * BR-COMPACT-SNAPSHOT-PRODUCTIZATION — the dedicated compact national snapshot table.
+ *
+ * 🔴 This one is NOT declared "foreign by milestone" like the 128 and the 129–132 chain, and it
+ * cannot be: it legitimately names `source_snapshot_runs` (it reuses that publication model rather
+ * than inventing a second one) and `source_period`. What CUT A.1 actually reconciles is the
+ * IDENTITY MODEL of `source_company_snapshots`, and the assertion below proves over the SQL — not
+ * over a comment — that 134 never touches that table at all. AUTHORED and NOT APPLIED.
+ */
+const MIGRATION_134_BR_COMPACT = '134_br_receita_compact_snapshot.sql';
+
 const readMigration = (file: string) => readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
 const stripComments = (sql: string) =>
   sql
@@ -98,7 +109,7 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     assert.deepEqual(duplicates, [], `números de migración duplicados: ${duplicates.join(', ')}`);
   });
 
-  it('28. the migration numbering ceiling is 132, and 125/126/127/128 each exist exactly once', () => {
+  it('28. the migration numbering ceiling is 134, and 125/126/127/128 each exist exactly once', () => {
     const files = readdirSync(MIGRATIONS_DIR);
     const numbered = files
       .filter((f) => /^\d{3}_.*\.sql$/.test(f))
@@ -116,9 +127,10 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     // proves that over their SQL instead of trusting this comment. The ceiling stays EXACT so
     // that an undeclared migration above the last known milestone still breaks this guard.
     // BR-PRODUCTION-RELEASE then moved it to 133 with BR-SOURCE CUT D's fenced identity
-    // promotion. The ceiling stays EXACT so that an undeclared migration above the last known
-    // milestone still breaks this guard.
-    assert.equal(highest, 133);
+    // promotion, and BR-COMPACT-SNAPSHOT-PRODUCTIZATION moves it to 134 with Brazil's dedicated
+    // compact snapshot table. The ceiling stays EXACT so that an undeclared migration above the
+    // last known milestone still breaks this guard.
+    assert.equal(highest, 134);
     assert.ok(files.includes(MIGRATION_125));
     assert.ok(files.includes(MIGRATION_126_AGENT1));
     assert.ok(files.includes(MIGRATION_127));
@@ -135,7 +147,29 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
       assert.deepEqual(files.filter((f) => f.startsWith(agent2.slice(0, 3))), [agent2]);
     }
     assert.deepEqual(files.filter((f) => f.startsWith('133')), [MIGRATION_133_BR_CUT_D]);
-    assert.equal(files.some((f) => f.startsWith('134')), false);
+    assert.deepEqual(files.filter((f) => f.startsWith('134')), [MIGRATION_134_BR_COMPACT]);
+    assert.equal(files.some((f) => f.startsWith('135')), false);
+
+    // 🔴 134 gets its OWN, stricter assertion rather than joining the "names no source-catalog
+    // object" sweep below, because it honestly does name `source_snapshot_runs`: it reuses that
+    // publication model instead of building a second one. What must stay true — and what CUT A.1
+    // is actually about — is that it never touches `source_company_snapshots` or the generic
+    // identity model. That is asserted over the EXECUTABLE SQL, with comments stripped, so a
+    // migration that merely MENTIONS the table in prose is not confused with one that alters it.
+    {
+      const compact = stripComments(readMigration(MIGRATION_134_BR_COMPACT));
+      assert.equal(
+        compact.includes('source_company_snapshots'),
+        false,
+        '134 must not touch the generic snapshot table',
+      );
+      // The prohibited identity columns appear only inside the table's descriptive COMMENT string,
+      // never as a column of the new table. Asserting on DDL shape distinguishes naming a thing
+      // from declaring one.
+      assert.equal(/^\s*(tax_id|record_identity_key)\s/m.test(compact), false);
+      assert.match(compact, /CREATE TABLE public\.br_receita_snapshots/);
+      assert.match(compact, /PARTITION BY LIST \(snapshot_run_id\)/);
+    }
     // And the 128 plus the whole 129–132 chain are provably foreign to this milestone: none of
     // them names a single source-catalog object CUT A.1 reconciles.
     for (const foreign of [

@@ -328,8 +328,12 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // vocabulario de procedencia del escalar móvil, lo que las dos aserciones de abajo
       // comprueban sobre su SQL en vez de creerle a este comentario. Las cuatro AUTORADAS y NO
       // APLICADAS en remoto.
-      '133_br_candidate_identity_promotion.sql',
-      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa, la contabilidad de presupuesto, el tramo 129–132 de Agente 2 y la 133 de BR-SOURCE CUT D, no este hito',
+      // BR-COMPACT-SNAPSHOT-PRODUCTIZATION añade la 134: la tabla dedicada y particionada del
+      // snapshot nacional de Brasil. No escribe `mobile_phone` ni inventa vocabulario de
+      // procedencia del escalar móvil, lo que las aserciones de abajo comprueban sobre su SQL.
+      // AUTORADA y NO APLICADA en remoto.
+      '134_br_receita_compact_snapshot.sql',
+      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa, la contabilidad de presupuesto, el tramo 129–132 de Agente 2, la 133 de BR-SOURCE CUT D y la 134 del compacto de BR, no este hito',
     );
     for (const agent2 of [
       '129_agent2_contact_hubspot_stale_completeness.sql',
@@ -362,13 +366,13 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // las anteriores, así que la ventana prohibida sube a la 134 y superiores. La guarda no se
       // relaja: sigue impidiendo que alguien cuele una POR ENCIMA del último hito conocido sin
       // declararla.
-      numbered.some((f) => /^1(3[4-9]|[4-9]\d)/.test(f)),
+      numbered.some((f) => /^1(3[5-9]|[4-9]\d)/.test(f)),
       false,
       // La 120 (Fase 1), la 121 (contabilidad) y la 122 («Buscar más números»)
       // (AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1) son AUTORIZADAS y están declaradas arriba;
       // lo que esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último
       // hito conocido sin declararla.
-      'ninguna migración 134 o superior',
+      'ninguna migración 135 o superior',
     );
   });
 

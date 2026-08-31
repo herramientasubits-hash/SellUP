@@ -986,7 +986,10 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
     // resuelta de una candidata brasileña (BR-SOURCE CUT D). No es del catálogo —crea UNA función
     // sobre `prospect_candidates`/`prospect_batches` y sus permisos—, y el barrido de abajo lo
     // comprueba sobre su SQL en vez de creerle a este comentario. AUTORADA y NO APLICADA.
-    assert.match(last, /^133_/);
+    // BR-COMPACT-SNAPSHOT-PRODUCTIZATION mueve el techo a la 134: el almacenamiento compacto de
+    // BR. Este hito sigue sin añadir ni aplicar migraciones, que es lo único que esta guarda
+    // afirma; lo que se ratchetea es el techo del repositorio, mantenido EXACTO.
+    assert.match(last, /^134_/);
     // Y por encima de la 119 no hay NINGUNA migración de catálogo. Lo que se vigila
     // NO es el techo por sí mismo: es que ninguna migración posterior al cutover toque
     // las tablas del catálogo. Cada archivo nuevo entra a esta lista con su nombre y
@@ -1068,6 +1071,12 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
       //         y no nombra ninguna tabla ni vista del catálogo de industrias — el barrido de
       //         abajo lo comprueba sobre su SQL. AUTORADA y NO APLICADA.
       '133_br_candidate_identity_promotion.sql',
+      //   134 — la tabla dedicada y particionada del snapshot nacional de Brasil
+      //         (BR-COMPACT-SNAPSHOT-PRODUCTIZATION). Crea `br_receita_snapshots` y sus funciones
+      //         de ciclo de vida de partición, y reutiliza `source_snapshot_runs` sin alterarla;
+      //         no nombra ninguna tabla ni vista del catálogo de industrias — el barrido de abajo
+      //         lo comprueba sobre su SQL. AUTORADA y NO APLICADA.
+      '134_br_receita_compact_snapshot.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);

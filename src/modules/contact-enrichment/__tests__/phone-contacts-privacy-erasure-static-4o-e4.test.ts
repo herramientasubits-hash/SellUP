@@ -454,6 +454,15 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       // Tampoco toca la erasure que esta suite protege: no contiene un solo `DELETE`, no nombra
       // `mobile_phone` y no reabre la allowlist del escalar que E4 fijó.
       '133_br_candidate_identity_promotion.sql',
+      // BR-COMPACT-SNAPSHOT-PRODUCTIZATION añade la 134: la tabla dedicada y particionada del
+      // snapshot nacional de Brasil. NO es de teléfono en absoluto — crea `br_receita_snapshots`
+      // y sus funciones de ciclo de vida de partición, reutiliza `source_snapshot_runs` sin
+      // alterarla, y no nombra ninguna tabla, columna ni función de teléfono. La lista sigue
+      // siendo EXACTA: una migración nueva que no se declare aquí rompe la guarda.
+      // AUTORADA y NO APLICADA.
+      // Tampoco toca la erasure que esta suite protege: no contiene un solo `DELETE`, no nombra
+      // `mobile_phone` y no reabre la allowlist del escalar que E4 fijó.
+      '134_br_receita_compact_snapshot.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
@@ -499,7 +508,7 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     // (`promote_candidate_fiscal_identity_fenced`) y sus permisos: sin tabla, sin columna, sin
     // índice, sin constraint y sin backfill. NO es de teléfono y no nombra ninguna tabla, columna
     // ni función de teléfono, que es lo que esta guarda vigila. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 133);
+    assert.equal(numbered[numbered.length - 1], 134);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {

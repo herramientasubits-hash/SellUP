@@ -512,7 +512,12 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
     // protege este corte— se ENSANCHA de nueve números a diez para incluir la 133. La guarda
     // queda otra vez más fuerte que antes, no meramente desplazada: un número libre nunca
     // demostró nada.
-    assert.equal(migrations.filter((f) => f.startsWith('134')).length, 0);
+    // 🔴 BR-COMPACT-SNAPSHOT-PRODUCTIZATION reclamó después la 134: la tabla dedicada y
+    // particionada del snapshot nacional de Brasil. El proxy «el siguiente número está libre» se
+    // mueve por tanto de la 134 a la 135, y el barrido de AUTORÍA —lo único que de verdad protege
+    // este corte— se ENSANCHA de diez números a once para incluir la 134. Otra vez más fuerte que
+    // antes, no meramente desplazada.
+    assert.equal(migrations.filter((f) => f.startsWith('135')).length, 0);
     for (const file of migrations.filter(
       (f) =>
         f.startsWith('124') ||
@@ -524,7 +529,8 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
         f.startsWith('130') ||
         f.startsWith('131') ||
         f.startsWith('132') ||
-        f.startsWith('133'),
+        f.startsWith('133') ||
+        f.startsWith('134'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

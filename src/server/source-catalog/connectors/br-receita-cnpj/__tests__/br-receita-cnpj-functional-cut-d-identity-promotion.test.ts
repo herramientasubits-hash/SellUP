@@ -1375,17 +1375,24 @@ describe('CUT D — the transport, and the recorded contracts', () => {
       present.includes(MIGRATION_FILE),
       `${MIGRATION_FILE} debe existir en la secuencia desplegable`,
     );
-    // 🔴 Ya no queda ningún fichero fuera de la secuencia numerada: ni éste, ni ninguno.
+    // 🔴 La lista de autorizadas SIN numerar ENCOGIÓ A CERO, exactamente como su propia versión
+    // anterior predijo: BR-COMPACT-SNAPSHOT-PRODUCTIZATION numeró el compacto como la 134, así que
+    // ya no queda ningún fichero fuera de la secuencia. La guarda vuelve a su forma FUERTE —
+    // conjunto vacío, sin lista de excepciones que pueda crecer.
     assert.deepEqual(
-      present.filter((f) => !/^\d{3}_/.test(f)),
+      present.filter((f) => !/^\d{3}_/.test(f)).sort(),
       [],
       'ningún fichero de migración puede quedar fuera de la secuencia numerada',
     );
     // …y en particular el nombre local con el que nació ya no está.
     assert.equal(present.includes('LOCAL_br_candidate_identity_promotion.sql'), false);
-    // 🔴 133 es el techo: este corte es el último de la secuencia, no se cuela por debajo.
+    assert.equal(present.includes('LOCAL_br_receita_compact_snapshot.sql'), false);
+    // 🔴 Este corte ya NO es el techo: la 134 (almacenamiento compacto de BR) va por encima. Lo
+    // que esta guarda defiende no cambia —que la 133 exista y sea EXACTAMENTE de este corte— y se
+    // afirma además quién es el techo, para que una migración no declarada por encima rompa esto.
     const numbered = present.filter((f) => /^\d{3}_/.test(f)).sort();
-    assert.equal(numbered[numbered.length - 1], MIGRATION_FILE);
+    assert.ok(numbered.includes(MIGRATION_FILE));
+    assert.equal(numbered[numbered.length - 1], '134_br_receita_compact_snapshot.sql');
     // Control NEGATIVO del filtro, sobre un nombre SINTÉTICO.
     assert.equal(/^\d{3}_/.test('LOCAL_example_unnumbered.sql'), false);
     assert.equal(/^\d{3}_/.test(MIGRATION_FILE), true);

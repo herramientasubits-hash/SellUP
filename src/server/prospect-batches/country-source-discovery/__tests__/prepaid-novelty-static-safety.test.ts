@@ -234,8 +234,15 @@ test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 
       // sólo declara UNA función más sus permisos. La capa gratuita sigue sin necesitar esquema,
       // que es lo único que esta guarda afirma. AUTORADA y NO APLICADA.
       '133_br_candidate_identity_promotion.sql',
+      // BR-COMPACT-SNAPSHOT-PRODUCTIZATION: la tabla dedicada y particionada del snapshot
+      // nacional de Brasil. CREA una tabla, a diferencia de la 133 — pero no una de la capa
+      // GRATUITA de descubrimiento que esta guarda protege: no nombra `provider_seen_entities`
+      // ni ninguna tabla de wizard, no altera `prospect_candidates` ni `prospect_batches`, y
+      // reutiliza `source_snapshot_runs` sin tocarla. La capa gratuita sigue sin necesitar
+      // esquema, que es lo único que esta guarda afirma. AUTORADA y NO APLICADA.
+      '134_br_receita_compact_snapshot.sql',
     ],
-    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider y la promoción vallada de BR CUT D',
+    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D y el almacenamiento compacto de BR',
   );
 
   // 🔴 Ratchet invertido en AGENT1-PROVIDER-SEEN-MEMORY-3: la 123 YA está aplicada

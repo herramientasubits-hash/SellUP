@@ -218,6 +218,13 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // sin backfill. La lista sigue siendo EXACTA, no un rango abierto: una migración nueva que
       // no se declare aquí rompe la guarda. AUTORADA y NO APLICADA.
       '133_br_candidate_identity_promotion.sql',
+      // BR-COMPACT-SNAPSHOT-PRODUCTIZATION añade la 134: la tabla dedicada y particionada del
+      // snapshot nacional de Brasil. NO es de teléfono en absoluto — crea `br_receita_snapshots`
+      // y sus funciones de ciclo de vida de partición, reutiliza `source_snapshot_runs` sin
+      // alterarla, y no nombra ninguna tabla, columna ni función de teléfono. La lista sigue
+      // siendo EXACTA: una migración nueva que no se declare aquí rompe la guarda.
+      // AUTORADA y NO APLICADA.
+      '134_br_receita_compact_snapshot.sql',
     ]);
   });
 

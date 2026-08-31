@@ -44,6 +44,7 @@ import {
   planBrReceitaMonthlySnapshotWrite,
   BR_RECEITA_RUN_SCOPED_CONFLICT_COLUMNS,
   BR_RECEITA_RUN_SCOPED_CONFLICT_PREDICATE,
+  BR_RECEITA_RUN_SCOPED_CONFLICT_IS_PARTIAL,
   type BrReceitaSnapshotWritePlan,
   type UpsertBatchOperation,
 } from '../br-receita-cnpj-monthly-snapshot-write-plan';
@@ -107,6 +108,14 @@ const stripComments = (source: string): string =>
 const RUN_A = '11111111-1111-4111-8111-111111111111';
 const RUN_B = '22222222-2222-4222-8222-222222222222';
 
+/**
+ * What the DATABASE would have named this run's detached child. The doubles here mimic the shape
+ * `br_receita_begin_run_partition` returns; the real name is never assembled outside the database.
+ */
+function partitionTableFor(snapshotRunId: string): string {
+  return `br_receita_snapshots_p${snapshotRunId.replaceAll('-', '')}`;
+}
+
 function persistedSnapshots(): BrReceitaPersistedSnapshot[] {
   return buildBrReceitaCnpjSnapshotRows(sampleParserInput()).snapshots.map(
     toBrReceitaPersistedSnapshot,
@@ -153,7 +162,7 @@ function recordingGateway(
   const base: BrReceitaSnapshotWriteGateway = {
     async beginPeriodRun() {
       calls.push({ kind: 'begin_period' });
-      return { snapshotRunId: runId };
+      return { snapshotRunId: runId, partitionTable: partitionTableFor(runId) };
     },
     async discardRunRows() {
       calls.push({ kind: 'discard_run_rows' });
@@ -259,33 +268,28 @@ const publishedRunRow = (period: string, id: string) => ({
   source_period: period,
 });
 
+/**
+ * One row as the COMPACT table stores it: typed columns, no jsonb, no `source_key`, no
+ * `country_code`, no `source_year`, no import provenance. The two constants and the twelve signals
+ * are reassembled at read time by `brReceitaRuntimeSignalsFromRow`.
+ */
 const snapshotRow = (period: string, runId: string, normalizedTaxId: string) => ({
-  source_key: BR_RECEITA_CNPJ_SOURCE_KEY,
-  country_code: 'BR',
   source_period: period,
-  source_year: Number(period.slice(0, 4)),
   snapshot_run_id: runId,
   normalized_tax_id: normalizedTaxId,
   legal_name: 'Synthetic Educação S.A.',
-  raw_data: {
-    source_type: 'official_registry',
-    human_review_required: true,
-    parser_version: 'br-receita-cnpj-local-sample@1',
-    source_period: period,
-    source_row_index: 0,
-    matrix_branch_flag: '1',
-    company_size_code: '05',
-    capital_social_value: '500000.00',
-    registration_status_code: '02',
-    registration_status_label: null,
-    cnae_main_code: '8599604',
-    cnae_main_label: 'Treinamento',
-    cnae_secondary_codes: [],
-    municipality_code: '7107',
-    municipality_name: 'Synthetic City',
-    uf: 'SP',
-    start_date: null,
-  },
+  matrix_branch_flag: '1',
+  company_size_code: '05',
+  capital_social_value: '500000.00',
+  registration_status_code: '02',
+  registration_status_label: null,
+  cnae_main_code: '8599604',
+  cnae_main_label: 'Treinamento',
+  cnae_secondary_codes: null,
+  municipality_code: '7107',
+  municipality_name: 'Synthetic City',
+  uf: 'SP',
+  start_date: null,
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -347,7 +351,7 @@ describe('BR-SOURCE CUT B — the executor is a dumb, bounded loop over CUT A\'s
     const { gateway } = recordingGateway({
       async beginPeriodRun() {
         pulledAtBeginPeriod = pulled;
-        return { snapshotRunId: RUN_A };
+        return { snapshotRunId: RUN_A, partitionTable: partitionTableFor(RUN_A) };
       },
     });
 
@@ -414,23 +418,28 @@ describe('BR-SOURCE CUT B — a failure is sanitised, run-scoped, and never demo
     // This is what PostgreSQL actually raises on index 4b. Its `detail` contains the CNPJ.
     const pgUniqueViolation = Object.assign(
       new Error(
-        `duplicate key value violates unique constraint "source_company_snapshots_br_period_identity_uidx"`,
+        `duplicate key value violates unique constraint "br_receita_snapshots_p11111111111141118111111111111111_pkey"`,
       ),
       {
         code: '23505',
         detail: `Key (source_key, country_code, source_period, snapshot_run_id, normalized_tax_id)=(br_receita_cnpj_dados_abertos, BR, ${SAMPLE_SOURCE_PERIOD}, ${RUN_A}, ${ALPHANUMERIC_CNPJ}) already exists.`,
-        table: 'source_company_snapshots',
-        constraint: 'source_company_snapshots_br_period_identity_uidx',
+        table: 'br_receita_snapshots',
+        constraint: 'br_receita_snapshots_p11111111111141118111111111111111_pkey',
       },
     );
 
     const sql: BrReceitaSqlExecutor = {
       async query(statement: string) {
-        if (statement.includes('INSERT INTO public.source_company_snapshots')) {
+        if (statement.includes('INSERT INTO public.br_receita_snapshots')) {
           throw pgUniqueViolation;
         }
         if (statement.includes(`INSERT INTO public.${BR_RECEITA_SNAPSHOT_RUNS_TABLE}`)) {
           return { rows: [{ id: RUN_A }] };
+        }
+        // The partition-lifecycle functions the gateway calls with a bind parameter. The DATABASE
+        // names the child; the double answers with the name the real function would return.
+        if (statement.includes('br_receita_begin_run_partition') || statement.includes('br_receita_run_partition_name')) {
+          return { rows: [{ name: partitionTableFor(RUN_A) }] };
         }
         return { rows: [] };
       },
@@ -505,22 +514,37 @@ describe('BR-SOURCE CUT B — a failure is sanitised, run-scoped, and never demo
 // ═══════════════════════════════════════════════════════════════════════════
 describe('BR-SOURCE CUT B — the gateway emits exactly the statement CUT A recorded', () => {
   it('writes an allowlist that has nowhere to put a second CNPJ representation', () => {
+    // 🔴 BR-PROD-STORAGE-RIGHT-SIZING: the twelve business signals became COLUMNS and the jsonb
+    // went away with the import provenance it carried. `source_key`, `country_code` and
+    // `source_year` went away too — the first two were a constant repeated on 72 million rows,
+    // and the third is a substring of `source_period`.
     assert.deepEqual([...BR_RECEITA_PERSISTABLE_COLUMNS], [
-      'source_key',
-      'country_code',
-      'source_year',
-      'source_period',
       'snapshot_run_id',
+      'source_period',
       'normalized_tax_id',
       'legal_name',
       // BR-SOURCE-FUNCTIONAL-CUT-C: the canonical form of `legal_name`, for the name lookup.
       // NOT a second identity representation — it carries no tax material and is not derived
-      // from any. Migration 065 created the column and its index; no migration was authored.
+      // from any.
       'normalized_legal_name',
-      'raw_data',
+      'matrix_branch_flag',
+      'company_size_code',
+      'capital_social_value',
+      'registration_status_code',
+      'registration_status_label',
+      'cnae_main_code',
+      'cnae_main_label',
+      'cnae_secondary_codes',
+      'municipality_code',
+      'municipality_name',
+      'uf',
+      'start_date',
     ]);
     assert.ok(!BR_RECEITA_PERSISTABLE_COLUMNS.includes('tax_id' as never));
     assert.ok(!BR_RECEITA_PERSISTABLE_COLUMNS.includes('record_identity_key' as never));
+    assert.ok(!BR_RECEITA_PERSISTABLE_COLUMNS.includes('raw_data' as never));
+    // Exactly ONE column may name a tax identifier (GATE-4A).
+    assert.equal(BR_RECEITA_PERSISTABLE_COLUMNS.filter((c) => /tax|cnpj/i.test(c)).length, 1);
   });
 
   it('uses the RUN-scoped conflict target and restates the partial-index predicate', () => {
@@ -536,17 +560,18 @@ describe('BR-SOURCE CUT B — the gateway emits exactly the statement CUT A reco
       rows: [{ identity: records[0].identity, snapshot_run_id: RUN_A, payload: records[0].payload }],
       conflictColumns: BR_RECEITA_RUN_SCOPED_CONFLICT_COLUMNS,
       conflictIndexPredicate: BR_RECEITA_RUN_SCOPED_CONFLICT_PREDICATE,
+      conflictTargetIsPartial: BR_RECEITA_RUN_SCOPED_CONFLICT_IS_PARTIAL,
       collapsedInBatchCount: 0,
     };
 
     const { sql, params } = buildUpsertBatchStatement(batch);
 
-    assert.match(
-      sql,
-      /ON CONFLICT \(source_key, country_code, source_period, snapshot_run_id, normalized_tax_id\)/,
-    );
-    // 🔴 Without the predicate Postgres cannot infer a PARTIAL index and raises 42P10.
-    assert.ok(sql.includes(`WHERE ${BR_RECEITA_RUN_SCOPED_CONFLICT_PREDICATE}`));
+    assert.match(sql, /ON CONFLICT \(snapshot_run_id, normalized_tax_id\)/);
+    // 🔴 And NO predicate. The dedicated table's arbiter is its PRIMARY KEY — an ordinary unique
+    // index — and emitting a `WHERE` against a non-partial index raises 42P10 just as loudly as
+    // omitting one against a partial index would. The flag is what decides, not a habit.
+    assert.equal(BR_RECEITA_RUN_SCOPED_CONFLICT_IS_PARTIAL, false);
+    assert.equal(/ON CONFLICT[\s\S]*?WHERE/.test(sql.slice(0, sql.indexOf('DO UPDATE'))), false);
     // The identity columns are never re-assigned on conflict: they ARE the conflict target.
     assert.ok(!/DO UPDATE SET[\s\S]*normalized_tax_id\s*=/.test(sql));
     assert.ok(!/DO UPDATE SET[\s\S]*snapshot_run_id\s*=/.test(sql));
@@ -554,8 +579,8 @@ describe('BR-SOURCE CUT B — the gateway emits exactly the statement CUT A reco
     // One bind parameter per allowlisted column, in allowlist order, and the CNPJ is a
     // PARAMETER — never interpolated into the statement text.
     assert.equal(params.length, BR_RECEITA_PERSISTABLE_COLUMNS.length);
-    assert.equal(params[4], RUN_A);
-    assert.equal(params[5], records[0].identity.normalized_tax_id);
+    assert.equal(params[0], RUN_A);
+    assert.equal(params[2], records[0].identity.normalized_tax_id);
     assert.ok(!sql.includes(String(records[0].identity.normalized_tax_id)));
   });
 
@@ -572,7 +597,7 @@ describe('BR-SOURCE CUT B — the gateway emits exactly the statement CUT A reco
       canDeleteByPeriodAlone: false,
     });
 
-    assert.ok(sql.includes('snapshots.snapshot_run_id = $4'));
+    assert.ok(sql.includes('snapshots.snapshot_run_id = $1'));
     // The "never a published run" rule is a PREDICATE, not a caller-side check.
     assert.ok(sql.includes('runs.publish_state = ANY($5::text[])'));
     assert.deepEqual(params[4], ['preparing', 'failed', 'rolled_back']);
@@ -603,6 +628,7 @@ describe('BR-SOURCE CUT B — the gateway emits exactly the statement CUT A reco
           rows: [],
           conflictColumns: ['source_key) DO NOTHING; DROP TABLE x; --'],
           conflictIndexPredicate: BR_RECEITA_RUN_SCOPED_CONFLICT_PREDICATE,
+          conflictTargetIsPartial: BR_RECEITA_RUN_SCOPED_CONFLICT_IS_PARTIAL,
           collapsedInBatchCount: 0,
         }),
       BrReceitaGatewayError,
@@ -617,7 +643,7 @@ describe('BR-SOURCE CUT B — the published-run reader is two-step and fail-clos
   it('resolves the published run first, then reads scoped by its id', async () => {
     const client = fakeReadClient({
       source_snapshot_runs: [publishedRunRow(period, RUN_A)],
-      source_company_snapshots: [snapshotRow(period, RUN_A, ALPHANUMERIC_CNPJ)],
+      br_receita_snapshots: [snapshotRow(period, RUN_A, ALPHANUMERIC_CNPJ)],
     });
 
     const result = await readBrReceitaPublishedSnapshot({
@@ -648,7 +674,7 @@ describe('BR-SOURCE CUT B — the published-run reader is two-step and fail-clos
         // …and the previous month IS published. A fallback would find it. This must not.
         publishedRunRow('2026-06', RUN_A),
       ],
-      source_company_snapshots: [
+      br_receita_snapshots: [
         snapshotRow(period, RUN_B, ALPHANUMERIC_CNPJ),
         snapshotRow('2026-06', RUN_A, ALPHANUMERIC_CNPJ),
       ],
@@ -697,7 +723,7 @@ describe('BR-SOURCE CUT B — the published-run reader is two-step and fail-clos
   it('reports two published runs instead of picking one', async () => {
     const client = fakeReadClient({
       source_snapshot_runs: [publishedRunRow(period, RUN_A), publishedRunRow(period, RUN_B)],
-      source_company_snapshots: [],
+      br_receita_snapshots: [],
     });
     const result = await readBrReceitaPublishedSnapshot({
       client,
@@ -711,7 +737,7 @@ describe('BR-SOURCE CUT B — the published-run reader is two-step and fail-clos
   it('reports two rows for one identity inside one run instead of picking one', async () => {
     const client = fakeReadClient({
       source_snapshot_runs: [publishedRunRow(period, RUN_A)],
-      source_company_snapshots: [
+      br_receita_snapshots: [
         snapshotRow(period, RUN_A, ALPHANUMERIC_CNPJ),
         snapshotRow(period, RUN_A, ALPHANUMERIC_CNPJ),
       ],
@@ -846,7 +872,7 @@ describe('BR-SOURCE CUT B — the Agent 1 Brazil adapter', () => {
       getClient: () =>
         fakeReadClient({
           source_snapshot_runs: [publishedRunRow(SAMPLE_SOURCE_PERIOD, RUN_A)],
-          source_company_snapshots: [
+          br_receita_snapshots: [
             snapshotRow(SAMPLE_SOURCE_PERIOD, RUN_A, ALPHANUMERIC_CNPJ),
           ],
         }),
@@ -922,7 +948,7 @@ describe('BR-SOURCE CUT B — the Agent 1 Brazil adapter', () => {
       getClient: () =>
         fakeReadClient({
           source_snapshot_runs: [publishedRunRow(SAMPLE_SOURCE_PERIOD, RUN_A)],
-          source_company_snapshots: [
+          br_receita_snapshots: [
             snapshotRow(SAMPLE_SOURCE_PERIOD, RUN_A, ALPHANUMERIC_CNPJ),
           ],
         }),
@@ -970,7 +996,13 @@ describe('BR-SOURCE CUT B — the boundary this cut does not cross', () => {
     // and none of them is CUT B's. A second BR migration appearing without being declared here
     // breaks the guard; before, any BR migration broke it and none could ever be declared.
     const files = fs.readdirSync(join(repoRoot, 'supabase/migrations')).filter((f) => f.endsWith('.sql'));
-    const BR_AUTHORED_ABOVE_127 = ['133_br_candidate_identity_promotion.sql'];
+    // 🔴 BR-COMPACT-SNAPSHOT-PRODUCTIZATION añade la 134. El conjunto declarado CRECE de forma
+    // explícita: sigue siendo EXACTO, así que una tercera migración brasileña que aparezca sin
+    // declararse aquí rompe la guarda igual que antes.
+    const BR_AUTHORED_ABOVE_127 = [
+      '133_br_candidate_identity_promotion.sql',
+      '134_br_receita_compact_snapshot.sql',
+    ];
     const brAuthored = files
       .filter((file) => Number.parseInt(file.slice(0, 3), 10) > 127)
       .filter((name) =>

@@ -1149,7 +1149,11 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     // (`promote_candidate_fiscal_identity_fenced`) y sus permisos: sin tabla, sin columna, sin
     // índice, sin constraint y sin backfill. NO es de teléfono y no nombra ninguna tabla, columna
     // ni función de teléfono, que es lo que esta guarda vigila. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 133, '4O-F reutiliza la 111 sin crear SQL nuevo');
+    // BR-COMPACT-SNAPSHOT-PRODUCTIZATION mueve el techo a la 134:
+    // `134_br_receita_compact_snapshot.sql`, la tabla dedicada y particionada del snapshot
+    // nacional de Brasil. NO es de teléfono, no nombra ninguna tabla, columna ni función de
+    // teléfono, y no edita el archivo de ninguna migración anterior. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 134, '4O-F reutiliza la 111 sin crear SQL nuevo');
   });
 
   // AGENT2A-PHONE-REVEAL-4O-H3 — este guarda se INVIERTE, no se borra.

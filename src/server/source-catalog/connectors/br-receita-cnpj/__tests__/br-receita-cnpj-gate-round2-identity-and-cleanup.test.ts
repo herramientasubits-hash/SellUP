@@ -612,11 +612,21 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     // ROUND 2 actually defends is unchanged and asserted right below — CUT A still adds EXACTLY
     // one migration and it is still 127 — and the authorship sweep further down still refuses
     // BR authorship for every NON-BR slot, 133 excluded from it precisely because it IS BR.
-    assert.equal(highest, 133, 'the repository ceiling is 133 — BR-SOURCE CUT D, not CUT A');
+    // 🔴 BR-COMPACT-SNAPSHOT-PRODUCTIZATION moves the ceiling to 134, and it is BR again: the
+    // dedicated compact national snapshot table. Same reasoning as every prior move — what this
+    // line pins is the repository CEILING, kept EXACT so an undeclared migration above the last
+    // known milestone still breaks the guard. CUT D keeps owning exactly one migration and it is
+    // still 133; it simply is not the top any more, which is asserted rather than assumed.
+    assert.equal(highest, 134, 'the repository ceiling is 134 — BR compact snapshot storage');
+    assert.deepEqual(
+      files.filter((f) => f.startsWith('134')),
+      ['134_br_receita_compact_snapshot.sql'],
+      'BR-COMPACT-SNAPSHOT-PRODUCTIZATION owns exactly one migration, and it is the ceiling',
+    );
     assert.deepEqual(
       files.filter((f) => f.startsWith('133')),
       ['133_br_candidate_identity_promotion.sql'],
-      'BR-SOURCE CUT D owns exactly one migration, and it is the ceiling',
+      'BR-SOURCE CUT D still owns exactly one migration',
     );
     assert.equal(
       files.filter((f) => f.startsWith('127')).length,

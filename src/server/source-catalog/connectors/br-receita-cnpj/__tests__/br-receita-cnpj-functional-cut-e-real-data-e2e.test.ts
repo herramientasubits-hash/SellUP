@@ -48,7 +48,7 @@ import { fileURLToPath } from 'node:url';
 import {
   applyRealChain,
   bootstrapFullOrderPlatform,
-  FULL_REPO_ORDER_CHAIN,
+  BR_RECEITA_COMPACT_FULL_ORDER_CHAIN,
   resolveEmbeddedPostgres,
   type EmbeddedPostgresLike,
   type PgLikeClient,
@@ -263,7 +263,7 @@ describe(
       await obs.connect();
 
       await bootstrapFullOrderPlatform(a);
-      await applyRealChain(a, repoRoot, [...FULL_REPO_ORDER_CHAIN, CUT_D_MIGRATION]);
+      await applyRealChain(a, repoRoot, [...BR_RECEITA_COMPACT_FULL_ORDER_CHAIN, CUT_D_MIGRATION]);
 
       // ── La publicación local, por el planificador y el ejecutor REALES. ──
       const planned = planBrReceitaMonthlySnapshotWrite({
@@ -409,9 +409,8 @@ describe(
       it('CASE 6 — las filas publicadas son las que el constructor REAL aceptó', async () => {
         if (datasetSkip !== false) return;
         const { rows } = await a.query(
-          `SELECT count(*)::int AS n FROM public.source_company_snapshots
-            WHERE source_key = 'br_receita_cnpj_dados_abertos'
-              AND source_period = $1 AND snapshot_run_id = $2`,
+          `SELECT count(*)::int AS n FROM public.br_receita_snapshots
+            WHERE source_period = $1 AND snapshot_run_id = $2`,
           [CUT_E_REAL_PERIOD, publishedRunId],
         );
         assert.equal(Number(rows[0].n), built!.snapshots.length);
@@ -462,9 +461,8 @@ describe(
         // Lo que la publicación real contiene es exactamente lo aceptado: ni la fila excluida
         // reaparece, ni se perdió ninguna otra por su culpa.
         const { rows } = await a.query(
-          `SELECT count(*)::int AS n FROM public.source_company_snapshots
-            WHERE source_key = 'br_receita_cnpj_dados_abertos'
-              AND source_period = $1 AND snapshot_run_id = $2`,
+          `SELECT count(*)::int AS n FROM public.br_receita_snapshots
+            WHERE source_period = $1 AND snapshot_run_id = $2`,
           [CUT_E_REAL_PERIOD, publishedRunId],
         );
         assert.equal(Number(rows[0].n), built!.summary.acceptedRows);
@@ -482,9 +480,8 @@ describe(
         if (datasetSkip !== false) return;
         const { rows } = await a.query(
           `SELECT legal_name, normalized_legal_name
-             FROM public.source_company_snapshots
-            WHERE source_key = 'br_receita_cnpj_dados_abertos'
-              AND source_period = $1 AND snapshot_run_id = $2`,
+             FROM public.br_receita_snapshots
+            WHERE source_period = $1 AND snapshot_run_id = $2`,
           [CUT_E_REAL_PERIOD, publishedRunId],
         );
         assert.ok(rows.length > 1000);
@@ -536,10 +533,8 @@ describe(
         for (const group of probes) {
           const { rows } = await a.query(
             `SELECT normalized_tax_id
-               FROM public.source_company_snapshots
-              WHERE source_key = 'br_receita_cnpj_dados_abertos'
-                AND country_code = 'BR'
-                AND source_period = $1
+               FROM public.br_receita_snapshots
+              WHERE source_period = $1
                 AND snapshot_run_id = $2
                 AND normalized_legal_name = $3`,
             [CUT_E_REAL_PERIOD, publishedRunId, group.canonicalName],

@@ -21,7 +21,7 @@
  * And CASE 15 itself: TWO concurrent promotions, and the invariant that survives them.
  *
  * The migration chain is applied VERBATIM from `supabase/migrations`, in the repository's own
- * order (`FULL_REPO_ORDER_CHAIN`, which already interleaves the `prospect_batches` /
+ * order (`BR_RECEITA_COMPACT_FULL_ORDER_CHAIN`, which already interleaves the `prospect_batches` /
  * `prospect_candidates` chain with the source-snapshot one), followed by this cut's own still
  * unnumbered file. Applying it LAST is also the proof that it depends on migration 126 and on
  * nothing this cut authored.
@@ -42,7 +42,7 @@ import { fileURLToPath } from 'node:url';
 import {
   applyRealChain,
   bootstrapFullOrderPlatform,
-  FULL_REPO_ORDER_CHAIN,
+  BR_RECEITA_COMPACT_FULL_ORDER_CHAIN,
   resolveEmbeddedPostgres,
   type EmbeddedPostgresLike,
   type PgLikeClient,
@@ -208,7 +208,7 @@ describe('CUT D — the fenced promotion against real PostgreSQL', { skip: harne
     await obs.connect();
 
     await bootstrapFullOrderPlatform(a);
-    await applyRealChain(a, repoRoot, [...FULL_REPO_ORDER_CHAIN, CUT_D_MIGRATION]);
+    await applyRealChain(a, repoRoot, [...BR_RECEITA_COMPACT_FULL_ORDER_CHAIN, CUT_D_MIGRATION]);
   });
 
   after(async () => {

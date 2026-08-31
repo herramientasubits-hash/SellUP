@@ -54,16 +54,24 @@ import {
 import {
   BR_RECEITA_CNPJ_SOURCE_KEY,
   BR_RECEITA_CNPJ_COUNTRY_CODE,
-  type BrReceitaCnpjSnapshotRawData,
   type BrReceitaCnpjSnapshotRow,
 } from './br-receita-cnpj-types';
+import {
+  BR_RECEITA_COMPACT_TABLE,
+  brReceitaRuntimeSignalsFromRawData,
+  type BrReceitaCnpjRuntimeSignals,
+} from './br-receita-cnpj-compact-storage';
 import { assertValidSourcePeriod, sourcePeriodYear } from '../../source-period';
-// The one table these snapshots belong to, reused from the existing read contract rather than
-// re-declared: a second table literal is a second thing to keep in sync.
-import { SNAPSHOT_TABLE } from '../../snapshot-read';
 
-/** The physical table Brazil monthly snapshots live in. */
-export const BR_RECEITA_SNAPSHOT_TABLE = SNAPSHOT_TABLE;
+/**
+ * The physical table Brazil monthly snapshots live in.
+ *
+ * 🔴 No longer the generic `source_company_snapshots`. BR-PROD-STORAGE-RIGHT-SIZING measured the
+ * generic projection at 1409 B/row all-in — 94.9 GB for one national month — and moved Brazil to a
+ * dedicated, LIST-partitioned table at 408 B/row. The other ten connectors keep the generic table
+ * unchanged; see `br-receita-cnpj-compact-storage.ts`.
+ */
+export const BR_RECEITA_SNAPSHOT_TABLE = BR_RECEITA_COMPACT_TABLE;
 
 /**
  * The identity half of a persisted Brazil snapshot.
@@ -82,10 +90,18 @@ export interface BrReceitaSnapshotIdentity {
   readonly normalized_tax_id: string;
 }
 
-/** The approved business payload. GATE-3's closed allowlist governs `raw_data`; not widened here. */
+/**
+ * The approved business payload. GATE-3's closed allowlist governs the signals; not widened here.
+ *
+ * 🔴 `signals` rather than `raw_data`. The parser's `raw_data` also carried import provenance
+ * (`parser_version`, `source_file_name`, `source_downloaded_at`, `import_batch_id`), a duplicate
+ * of `source_period`, a `source_row_index` no reader ever consulted, and two constants. Those
+ * describe the IMPORT, not the company, and they now live once on the run instead of 72 million
+ * times on the rows. The twelve business signals are unchanged.
+ */
 export interface BrReceitaSnapshotPayload {
   readonly legal_name: string | null;
-  readonly raw_data: BrReceitaCnpjSnapshotRawData;
+  readonly signals: BrReceitaCnpjRuntimeSignals;
 }
 
 /** Identity + payload. This is the only shape a writer may be handed. */
@@ -104,7 +120,7 @@ export interface BrReceitaPublicSnapshotProjection {
   readonly country_code: typeof BR_RECEITA_CNPJ_COUNTRY_CODE;
   readonly source_period: string;
   readonly legal_name: string | null;
-  readonly raw_data: BrReceitaCnpjSnapshotRawData;
+  readonly signals: BrReceitaCnpjRuntimeSignals;
 }
 
 /**
@@ -140,7 +156,9 @@ export function toBrReceitaPersistedSnapshot(
     },
     payload: {
       legal_name: row.legal_name,
-      raw_data: row.raw_data,
+      // 🔴 Narrowing, not copying: the projection has nowhere to put the import provenance the
+      // parser row carries, so it cannot reach a row even by accident.
+      signals: brReceitaRuntimeSignalsFromRawData(row.raw_data),
     },
   };
 }
@@ -154,7 +172,7 @@ export function toBrReceitaPublicSnapshotProjection(
     country_code: snapshot.identity.country_code,
     source_period: snapshot.identity.source_period,
     legal_name: snapshot.payload.legal_name,
-    raw_data: snapshot.payload.raw_data,
+    signals: snapshot.payload.signals,
   };
 }
 

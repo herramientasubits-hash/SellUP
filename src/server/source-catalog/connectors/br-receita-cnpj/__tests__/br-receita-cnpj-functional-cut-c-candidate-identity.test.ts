@@ -80,6 +80,7 @@ import {
 import {
   BR_RECEITA_RUN_SCOPED_CONFLICT_COLUMNS,
   BR_RECEITA_RUN_SCOPED_CONFLICT_PREDICATE,
+  BR_RECEITA_RUN_SCOPED_CONFLICT_IS_PARTIAL,
   type UpsertBatchOperation,
 } from '../br-receita-cnpj-monthly-snapshot-write-plan';
 import { BR_RECEITA_SNAPSHOT_TABLE } from '../br-receita-cnpj-monthly-snapshot-identity';
@@ -110,7 +111,12 @@ const CNPJ_OTHER = sampleFullCnpj(RAIZ_EDUCACAO, '0001');
 const LEGAL_NAME = 'Synthetic Tecnologia Ltda';
 const CANONICAL_NAME = 'SYNTHETIC TECNOLOGIA LTDA';
 
-/** A snapshot row as the database holds it. `raw_data` is JSONB → a plain object at runtime. */
+/**
+ * A snapshot row as the COMPACT table holds it: typed columns, no jsonb.
+ *
+ * 🔴 `municipality_name` is a COLUMN now, which is why the resolver's probe projects two columns
+ * instead of pulling the whole payload of up to 26 establishments to read one string out of each.
+ */
 function snapshotRow(options: {
   normalizedTaxId: string;
   period?: string;
@@ -119,31 +125,24 @@ function snapshotRow(options: {
   municipality?: string | null;
 }): Record<string, unknown> {
   return {
-    source_key: BR_RECEITA_CNPJ_SOURCE_KEY,
-    country_code: BR_RECEITA_CNPJ_COUNTRY_CODE,
     source_period: options.period ?? PERIOD,
     snapshot_run_id: options.runId ?? RUN_A,
     normalized_tax_id: options.normalizedTaxId,
     legal_name: LEGAL_NAME,
     normalized_legal_name: options.canonicalName ?? CANONICAL_NAME,
-    raw_data: {
-      source_period: options.period ?? PERIOD,
-      municipality_name:
-        options.municipality === undefined ? 'Synthetic City' : options.municipality,
-      municipality_code: '7107',
-      uf: 'SP',
-      registration_status_code: '02',
-      registration_status_label: 'ATIVA',
-      cnae_main_code: '6201501',
-      cnae_main_label: 'Desenvolvimento de programas',
-      cnae_secondary_codes: [],
-      company_size_code: '03',
-      capital_social_value: '100000.00',
-      start_date: '2015-03-10',
-      matrix_branch_flag: '1',
-      human_review_required: false,
-      source_type: 'official_registry',
-    },
+    municipality_name:
+      options.municipality === undefined ? 'Synthetic City' : options.municipality,
+    municipality_code: '7107',
+    uf: 'SP',
+    registration_status_code: '02',
+    registration_status_label: 'ATIVA',
+    cnae_main_code: '6201501',
+    cnae_main_label: 'Desenvolvimento de programas',
+    cnae_secondary_codes: null,
+    company_size_code: '03',
+    capital_social_value: '100000.00',
+    start_date: '2015-03-10',
+    matrix_branch_flag: '1',
   };
 }
 
@@ -444,12 +443,28 @@ describe('CUT C — the WRITER persists the canonical name (CASE 11, CASE 12)', 
           snapshot_run_id: RUN_A,
           payload: {
             legal_name: legalName,
-            raw_data: { source_period: PERIOD } as never,
+            signals: {
+              source_type: 'official_registry',
+              human_review_required: true,
+              matrix_branch_flag: '1',
+              company_size_code: '03',
+              capital_social_value: '100000.00',
+              registration_status_code: '02',
+              registration_status_label: null,
+              cnae_main_code: '6201501',
+              cnae_main_label: 'Desenvolvimento de programas',
+              cnae_secondary_codes: [],
+              municipality_code: '7107',
+              municipality_name: 'Synthetic City',
+              uf: 'SP',
+              start_date: '2015-03-10',
+            },
           },
         },
       ],
       conflictColumns: BR_RECEITA_RUN_SCOPED_CONFLICT_COLUMNS,
       conflictIndexPredicate: BR_RECEITA_RUN_SCOPED_CONFLICT_PREDICATE,
+      conflictTargetIsPartial: BR_RECEITA_RUN_SCOPED_CONFLICT_IS_PARTIAL,
       collapsedInBatchCount: 0,
     };
   }
@@ -557,16 +572,12 @@ describe('CUT C — the RESOLVER, closed result set (CASES 2, 3, 4, 5, 6, 7, 8, 
     assert.equal(result.sourcePeriod, PERIOD);
     assert.equal(result.snapshotRunId, RUN_A);
 
-    // Scoped by all five columns, and by NOTHING else that could widen it.
+    // Scoped by every column the dedicated table has, and by NOTHING else that could widen it.
+    // `source_key` / `country_code` are gone from the predicate because they are gone from the
+    // table; the run id is the partition key, so the probe cannot reach another publication.
     const select = snapshotSelects(db)[0];
     const columns = select.filters.map((f) => f.column).sort();
-    assert.deepEqual(columns, [
-      'country_code',
-      'normalized_legal_name',
-      'snapshot_run_id',
-      'source_key',
-      'source_period',
-    ]);
+    assert.deepEqual(columns, ['normalized_legal_name', 'snapshot_run_id', 'source_period']);
     assert.equal(select.columns, BR_RECEITA_NAME_RESOLUTION_SELECT_COLUMNS);
   });
 
