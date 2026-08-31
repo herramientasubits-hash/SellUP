@@ -3073,6 +3073,115 @@ jobs:
       # sin Apollo. 0 créditos.
       - name: Run A1 Lusha CUT-L2 failure semantics tests
         run: npm run test:a1-lusha-cut-l2-failure-semantics
+      # AGENT1-LUSHA-CUT-L3-DURABLE-REQUEST-FENCE — la VALLA DURABLE DE PRE-ENVÍO
+      # entra al check obligatorio, justo detrás de CUT-L2.
+      #
+      # El defecto que cierra, dicho tal cual. CUT-L2 dejó la frontera de despacho
+      # en MEMORIA y lo declaró: una caída dura entre `fetch()` y la clasificación
+      # deja la petición sin testigo. Con la reserva de corrida devolviendo
+      # `already_reserved` sobre el mismo `client_request_id`,
+      # `guardLushaRunBudget` invoca `run()` igual y la corrida vuelve a pedir la
+      # MISMA página. El soporte HUMANO de Lusha confirmó que eso puede cobrarse
+      # dos veces: no hay Idempotency-Key, no hay requestId de cliente y no hay API
+      # de recuperación de la respuesta.
+      #
+      # Lo que esta suite defiende, dicho como defecto:
+      #   * que el `fetch()` vuelva a ocurrir ANTES de que exista fila durable: la
+      #     valla se espera dentro del propio cliente, en la instrucción anterior
+      #     al envío, y una guarda estática comprueba ese orden (L3-A);
+      #   * que dos trabajadores sobre la MISMA petición lógica lleguen los dos al
+      #     proveedor (L3-C);
+      #   * que un reinicio tras cruzar la frontera repita la petición: al
+      #     reanudar, CERO llamadas y estado `indeterminate` (L3-D, L3-E, L3-F);
+      #   * que un reinicio tras un ÉXITO vuelva a pagar la misma búsqueda (L3-J);
+      #   * que `already_reserved` siga siendo la única autoridad de replay — la
+      #     reserva SIGUE invocando `run()`, y es la valla de PETICIÓN la que
+      #     detiene al proveedor (L3-K, el P0 de la auditoría);
+      #   * que la identidad colapse página 0 con página 1, o rama 0 con rama 1, y
+      #     suprima peticiones legítimas (L3-L, L3-M);
+      #   * que un rechazo local PROBADAMENTE anterior al envío fabrique estado de
+      #     «pudo salir» (L3-N);
+      #   * que el `x-request-id` de Lusha se use como clave de valla: sólo existe
+      #     DESPUÉS de la respuesta, así que no puede vallar nada anterior (§ 12).
+      #
+      # 🔴 Lo que esta suite NO afirma, porque sería falso: que Lusha sea seguro de
+      # activar, y que `dispatch_unsafe` signifique que Lusha recibió la petición.
+      # Significa que SellUp ya no puede probar que NO la recibiera — el sesgo es
+      # deliberado y se paga en COMPLETITUD, nunca en un cargo duplicado.
+      #
+      # 🔴 Y NO añade reintentos. Que 429 y 5xx salgan `retryable_by_contract`
+      # describe lo que el proveedor PERMITE; ejecutarlo es CUT-L4.
+      #
+      # Ratchets de alcance: page size, tope de páginas, objetivo, techo de
+      # créditos y reservas sin tocar. Sin flag nuevo, sin cambio de facturación.
+      #
+      # Puras y offline: `global.fetch` doblado y CONTADO. Sin red, sin Supabase,
+      # sin Lusha, sin Apollo. 0 créditos.
+      - name: Run A1 Lusha CUT-L3 durable request fence tests
+        run: npm run test:a1-lusha-cut-l3-durable-request-fence
+
+      # AGENT1-LUSHA-CUT-L3 · IDENTIDAD DURABLE — el P0 que la revisión final
+      # encontró, y que la primera versión de CUT-L3 NO cerraba.
+      #
+      # El defecto, dicho tal cual. La valla se identificaba con
+      # `client_request_id`, y ese uuid lo acuña el NAVEGADOR con
+      # `crypto.randomUUID()`, fresco por clic. Eso cierra la redelivery del mismo
+      # payload, el reintento del framework y `already_reserved` sobre el mismo id
+      # — pero NO cierra lo único que duplica cargos de verdad:
+      #
+      #     el proceso cae
+      #       -> la valla previa queda `dispatch_unsafe`
+      #         -> la usuaria vuelve a hacer clic
+      #           -> clientRequestId NUEVO ⇒ claves de valla NUEVAS
+      #             -> la MISMA página lógica podía volver a llegar a Lusha
+      #
+      # Lo que esta suite defiende, dicho como defecto:
+      #   * que un clic nuevo tras una caída acuñe operación nueva y vuelva a
+      #     comprar: CERO peticiones, CERO reservas, CERO operaciones (L3-ID-1/2);
+      #   * que el `clientRequestId` vuelva a la identidad de la valla — la guarda
+      #     lee el tipo y la construcción de la clave, no la prosa (L3-ID-7);
+      #   * que la firma se vuelva un dedupe PERMANENTE y vete una búsqueda
+      #     legítima futura (L3-ID-3);
+      #   * que dos búsquedas materialmente distintas colapsen (L3-ID-4);
+      #   * que un actor herede o robe la operación de otro (L3-ID-5);
+      #   * que la operación se cierre por un 200 del proveedor, antes de que la
+      #     corrida sea durable río abajo (L3-ID-8/W4, L3-ID-10);
+      #   * que una avería de la BD abra desvío en vez de fallar cerrado (L3-ID-9).
+      #
+      # 🔴 `clientRequestId` NO desaparece: sigue siendo la correlación con la
+      # reserva y con el lote. Lo que deja de ser es AUTORIDAD de replay.
+      #
+      # 🔴 Y NO añade reintentos. Eso sigue siendo CUT-L4.
+      #
+      # Puras y offline: `global.fetch` doblado y CONTADO. Sin red, sin Supabase,
+      # sin Lusha, sin Apollo. 0 créditos.
+      - name: Run A1 Lusha CUT-L3 durable operation identity tests
+        run: npm run test:a1-lusha-cut-l3-durable-operation-identity
+
+      # AGENT1-LUSHA-CUT-L3 § 22 — la migración 134 contra PostgreSQL REAL.
+      #
+      # La afirmación central del corte es de CONCURRENCIA y no vive en
+      # TypeScript: vive en una PRIMARY KEY con `ON CONFLICT DO NOTHING`, en un
+      # `GET DIAGNOSTICS ROW_COUNT` y en tres `UPDATE ... WHERE state = ...`. Un
+      # doble en memoria puede modelar la regla; sólo PostgreSQL demuestra que la
+      # migración la implementa. Aquí se lanzan dos conexiones de verdad sobre la
+      # misma petición lógica y se comprueba que exactamente una gana.
+      #
+      # Y la mitad que ninguna estática alcanza: que la 134 APLIQUE — tres
+      # funciones `plpgsql` con dolar-quoting nombrado y un `COMMENT ON TABLE` son
+      # justo la superficie donde un lexer de comillas pasa y PostgreSQL falla con
+      # 42601 (precedente de la 120) — y que los GRANT dejen a `anon` y a
+      # `authenticated` sin un solo privilegio sobre una tabla de seguridad de
+      # gasto.
+      #
+      # `embedded-postgres` ya lo instala el paso de más arriba, con la versión
+      # PINCHADA. `SELLUP_REQUIRE_POSTGRES_HARNESS` convierte el skip en FALLO.
+      #
+      # 0 escrituras remotas. MIGRATION 134: APPLIED IN PRODUCTION = NO.
+      - name: Run A1 Lusha CUT-L3 request fence against real PostgreSQL
+        run: npm run test:a1-lusha-cut-l3-fence:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
       # AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1 · CUT-1 — la SUPERVIVENCIA del lote
       # entra al check obligatorio.
       #

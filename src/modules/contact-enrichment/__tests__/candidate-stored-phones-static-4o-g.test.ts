@@ -525,7 +525,13 @@ describe('4O-G — alcance', () => {
     // (`promote_candidate_fiscal_identity_fenced`) y sus permisos: sin tabla, sin columna, sin
     // índice, sin constraint y sin backfill. NO es de teléfono y no nombra ninguna tabla, columna
     // ni función de teléfono, que es lo que esta guarda vigila. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 133);
+    // 🔴 AGENT1-LUSHA-CUT-L3 mueve el techo a la 134: `134_agent1_lusha_prospecting_request_fence.sql`,
+    // la valla DURABLE de una petición de Lusha Company Prospecting: una tabla
+    // (`lusha_prospecting_request_fence`) y tres funciones que se escriben ANTES del envío, para
+    // que una caída dura no repita una petición que el proveedor quizá ya cobró. Es de Agente 1 y
+    // de seguridad de GASTO: no es de teléfono, no es del catálogo y no nombra ninguna tabla,
+    // columna ni función de las cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 134);
     // El CONTEO, no el techo: 121 archivos para los números 001–121, es decir SIN un solo
     // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
     // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
@@ -540,9 +546,9 @@ describe('4O-G — alcance', () => {
     // columnas, índices, triggers ni policies nuevas; M128 únicamente crea/reemplaza una
     // función y sus permisos. Sin backfill: no crea contactos, no re-terminaliza
     // candidatos y no re-declara ninguna función anterior. AUTORADA y NO APLICADA.
-    // 133 archivos para los números 001-133: la 133 de BR-SOURCE CUT D tampoco deja hueco, así
+    // 134 archivos para los números 001-134: la 134 de AGENT1-LUSHA-CUT-L3 tampoco deja hueco, así
     // que conteo y techo siguen coincidiendo. Esa coincidencia ES la guarda.
-    assert.equal(numbered.length, 133);
+    assert.equal(numbered.length, 134);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {

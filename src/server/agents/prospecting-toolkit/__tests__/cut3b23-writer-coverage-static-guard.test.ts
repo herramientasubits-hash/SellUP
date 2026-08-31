@@ -330,7 +330,7 @@ const POST_APPROVAL_REVEAL_MIGRATION =
  * crea tabla, columna, índice ni constraint: el barrido de AUTORÍA de abajo es el que comprueba
  * que no es de CUT-3B23, archivo por archivo, en vez de creerle a este comentario.
  */
-const REPOSITORY_CEILING = '133_br_candidate_identity_promotion.sql';
+const REPOSITORY_CEILING = '134_agent1_lusha_prospecting_request_fence.sql';
 
 /**
  * Cuerpo EJECUTABLE de una migración, en minúsculas.
@@ -453,7 +453,10 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     // sin número). La autoría de todas ellas se policía en la prueba de arriba, que barre el
     // directorio completo. La 127 sigue siendo la última de la capa de snapshots de fuente, y es
     // ella —no el techo global— la que este barrido examina.
-    assert.ok(last.startsWith('133'), `última migración inesperada: ${last}`);
+    // 🔴 AGENT1-LUSHA-CUT-L3 movió el techo a la 134: la valla DURABLE de una petición de Lusha
+    // Company Prospecting. No es una migración de la capa de snapshots ni escribe candidatos, y
+    // su autoría se policía en la prueba de arriba, que barre el directorio completo.
+    assert.ok(last.startsWith('134'), `última migración inesperada: ${last}`);
     assert.equal(last, REPOSITORY_CEILING);
     assert.ok(migrations.includes(POST_APPROVAL_REVEAL_MIGRATION));
     const lastSnapshotMigration = '127_br_receita_monthly_snapshot_identity.sql';

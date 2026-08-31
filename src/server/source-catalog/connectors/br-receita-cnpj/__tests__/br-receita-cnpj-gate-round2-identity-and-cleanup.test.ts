@@ -612,7 +612,12 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     // ROUND 2 actually defends is unchanged and asserted right below — CUT A still adds EXACTLY
     // one migration and it is still 127 — and the authorship sweep further down still refuses
     // BR authorship for every NON-BR slot, 133 excluded from it precisely because it IS BR.
-    assert.equal(highest, 133, 'the repository ceiling is 133 — BR-SOURCE CUT D, not CUT A');
+    // AGENT1-LUSHA-CUT-L3 then moved the ceiling to 134 with the durable pre-send fence for one
+    // Lusha Company Prospecting request. It is an Agent-1 spend-safety migration, not a BR one;
+    // the authorship sweep further down still refuses BR authorship for it. What GATE ROUND 2
+    // defends is unchanged and asserted right below — CUT A still adds EXACTLY one migration and
+    // it is still 127.
+    assert.equal(highest, 134, 'the repository ceiling is 134 — AGENT1-LUSHA-CUT-L3, not CUT A');
     assert.deepEqual(
       files.filter((f) => f.startsWith('133')),
       ['133_br_candidate_identity_promotion.sql'],

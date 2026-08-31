@@ -471,6 +471,12 @@ describe('4O-E4.1 estático — alcance', () => {
     // (`promote_candidate_fiscal_identity_fenced`) y sus permisos: sin tabla, sin columna, sin
     // índice, sin constraint y sin backfill. NO es de teléfono y no nombra ninguna tabla, columna
     // ni función de teléfono, que es lo que esta guarda vigila. AUTORADA y NO APLICADA.
+    // 🔴 AGENT1-LUSHA-CUT-L3 mueve el techo a la 134: `134_agent1_lusha_prospecting_request_fence.sql`,
+    // la valla DURABLE de una petición de Lusha Company Prospecting: una tabla
+    // (`lusha_prospecting_request_fence`) y tres funciones que se escriben ANTES del envío, para
+    // que una caída dura no repita una petición que el proveedor quizá ya cobró. Es de Agente 1 y
+    // de seguridad de GASTO: no es de teléfono, no es del catálogo y no nombra ninguna tabla,
+    // columna ni función de las cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
     assert.equal(
       numbered[numbered.length - 1],
       // AGENT2A-SEARCH-MORE-PHONES-1 mueve el techo a la 122: «Buscar más números»
@@ -502,8 +508,8 @@ describe('4O-E4.1 estático — alcance', () => {
       // LEE bajo el lock para calcular el saliente, y leer no es escribir— ni introduce
       // procedencia del escalar móvil, que es lo que esta guarda vigila. La lista exacta de
       // migraciones que pueden NOMBRARLO se declara arriba, archivo por archivo.
-      133,
-      'la 133 (la promoción vallada de identidad fiscal de BR-SOURCE CUT D) es la última',
+      134,
+      'la 134 (la valla durable de petición de Lusha, AGENT1-LUSHA-CUT-L3) es la última',
     );
   });
 

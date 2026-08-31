@@ -205,6 +205,13 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
     // (`promote_candidate_fiscal_identity_fenced`) y sus permisos: sin tabla, sin columna, sin
     // índice, sin constraint y sin backfill. NO es de teléfono y no nombra ninguna tabla, columna
     // ni función de teléfono, que es lo que esta guarda vigila. AUTORADA y NO APLICADA.
+    // 🔴 AGENT1-LUSHA-CUT-L3 mueve el techo a la 134: `134_agent1_lusha_prospecting_request_fence.sql`,
+    // la valla DURABLE de una petición de Lusha Company Prospecting — una tabla
+    // (`lusha_prospecting_request_fence`) y tres funciones que se escriben ANTES del envío para
+    // que una caída dura no repita una petición que el proveedor quizá ya cobró. NO es de
+    // teléfono: es de Agente 1 y de seguridad de gasto, no nombra ninguna tabla, columna ni
+    // función de teléfono, y el barrido de más abajo lo comprueba sobre su SQL. AUTORADA y NO
+    // APLICADA en Producción.
     assert.equal(
       files[files.length - 1],
       // AGENT2A-PHONE-REVEAL-4O-H3 subió el techo a la 116: la APROBACIÓN atómica del
@@ -275,7 +282,7 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // el archivo de la migración que la creó, y ninguna de las tres añade tabla, columna,
       // índice, trigger ni policy. La 132 no la nombra en absoluto —su único UPDATE escribe
       // `contacts.metadata`— y por eso sí pasa por el barrido ciego. AUTORADAS y NO APLICADAS.
-      '133_br_candidate_identity_promotion.sql',
+      '134_agent1_lusha_prospecting_request_fence.sql',
       'el techo conocido es la 133 (la promoción vallada de identidad fiscal de BR-SOURCE CUT D), y ni ella ni el tramo 129–132 editan el archivo de una migración anterior de la cadena de teléfono 109–117',
     );
     assert.equal(
@@ -289,13 +296,19 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // las anteriores, así que la ventana prohibida sube a la 134 y superiores. La guarda no se
       // relaja: sigue impidiendo que alguien cuele una POR ENCIMA del último hito conocido sin
       // declararla.
-      files.some((file) => /^1(3[4-9]|[4-9]\d)/.test(file)),
+      // 🔴 AGENT1-LUSHA-CUT-L3 declara la 134: la valla DURABLE de una petición de Lusha
+      // Company Prospecting (`lusha_prospecting_request_fence` + tres RPC), escrita ANTES del
+      // envío para que una caída dura no repita una petición que el proveedor quizá ya cobró.
+      // Queda AUTORIZADA y NOMBRADA como las anteriores, así que la ventana prohibida sube a la
+      // 135 y superiores. La guarda no se relaja: sigue impidiendo que alguien cuele una POR
+      // ENCIMA del último hito conocido sin declararla.
+      files.some((file) => /^1(3[5-9]|[4-9]\d)/.test(file)),
       false,
       // La 120, la 121 y la 122 son AUTORIZADAS y están declaradas arriba con lo que hacen. Lo que
       // esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último hito
       // conocido sin declararla; la afirmación de que ninguna de ellas escribe sobre las
       // tablas de la cadena de teléfono se comprueba justo abajo, de forma directa.
-      'ninguna migración 134 o superior',
+      'ninguna migración 135 o superior',
     );
     // La afirmación que de verdad importa, ya no delegada en el orden alfabético:
     // ninguna migración posterior a la ÚLTIMA de la cadena de teléfono escribe sobre sus

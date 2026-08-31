@@ -94,9 +94,20 @@ describe('server actions gate BEFORE any Lusha work (static ordering proof)', ()
     'utf8',
   );
 
-  for (const [name, src] of [
-    ['preview', PREVIEW],
-    ['generate', GENERATE],
+  // AGENT1-LUSHA-CUT-L3 § 16 — los marcadores se declaran POR ACCIÓN porque las dos
+  // acciones dejaron de delegar en lo mismo, no porque la propiedad se haya relajado.
+  //
+  //   · `preview` ya no puede ejecutar Prospecting pagado: su dependencia de
+  //     proveedor es un rechazo LOCAL previo al envío, así que el marcador que
+  //     prueba «el trabajo real va después de la puerta» sigue siendo
+  //     `executeLushaPreview(`, y ya no existe `searchLushaCompaniesV3(` que ordenar.
+  //   · `generate` delega la búsqueda en `createFencedLushaRunSearch(`, que compone
+  //     valla durable + núcleo de preview + cliente. Ése es ahora su punto de
+  //     delegación, y ordenarlo prueba EXACTAMENTE lo mismo que antes: con el flag
+  //     apagado no se construye cliente, no se resuelve credencial y no se pide nada.
+  for (const [name, src, markers] of [
+    ['preview', PREVIEW, ['createClient(', 'getLushaApiKey(', 'executeLushaPreview(']],
+    ['generate', GENERATE, ['createClient(', 'getLushaApiKey(', 'createFencedLushaRunSearch(']],
   ] as const) {
     it(`${name} action imports + invokes the flag guard`, () => {
       assert.match(src, /isLushaPreviewEnabled/, name);
@@ -109,10 +120,15 @@ describe('server actions gate BEFORE any Lusha work (static ordering proof)', ()
       // The real work (client / api key / Lusha search) is delegated to a
       // callback/helper that appears strictly AFTER the guard CALL. Markers use a
       // trailing "(" so they match the call site, not the top-of-file import.
-      for (const marker of ['createClient(', 'getLushaApiKey(', 'executeLushaPreview(']) {
+      for (const marker of markers) {
         const idx = src.indexOf(marker);
         assert.ok(idx > guardIdx, `${marker} must appear after the guard call in ${name}`);
       }
     });
   }
+
+  it('CUT-L3 § 16 — la acción de preview ya no puede llamar al Prospecting pagado', () => {
+    const code = PREVIEW.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    assert.doesNotMatch(code, /searchLushaCompaniesV3\s*\(/);
+  });
 });

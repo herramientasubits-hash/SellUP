@@ -392,7 +392,13 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // `identity_epoch` y la 126 en vez de declarar una segunda valla—, y no menciona
     // `AGENT1-CUT3B4`, lo que la lista `authored` de arriba ya comprueba de forma exhaustiva
     // sobre TODAS las migraciones del repo, incluidas las que aún no existían al escribirla.
-    const CEILING = '133_br_candidate_identity_promotion.sql';
+    // 🔴 AGENT1-LUSHA-CUT-L3 reclamó después la 134: la valla DURABLE de una petición de Lusha
+    // Company Prospecting. Mismo razonamiento que con la 127, la 128, el tramo 129–132 y la 133:
+    // lo que esta guarda defiende es AUTORÍA, no el número más alto. La 134 no menciona
+    // `AGENT1-CUT3B4` ni reutiliza `identity_epoch` — valla peticiones de PROVEEDOR, no
+    // escrituras de candidatos—, y la lista `authored` de arriba ya lo comprueba de forma
+    // exhaustiva sobre TODAS las migraciones del repo.
+    const CEILING = '134_agent1_lusha_prospecting_request_fence.sql';
     assert.equal(migrations[migrations.length - 1], CEILING);
     for (const foreign of [
       '127_br_receita_monthly_snapshot_identity.sql',
@@ -410,7 +416,7 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
       );
     }
     // Sin huecos: el conteo se mueve con el techo real del repositorio, no con el de este corte.
-    assert.equal(migrations.length, 133);
+    assert.equal(migrations.length, 134);
   });
 
   it('🔴 la 124 (Agente 2A) queda intacta, y la 126 no depende de ella', () => {

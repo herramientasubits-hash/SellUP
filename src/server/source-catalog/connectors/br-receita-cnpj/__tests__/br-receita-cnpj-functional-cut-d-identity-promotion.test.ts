@@ -1383,9 +1383,23 @@ describe('CUT D — the transport, and the recorded contracts', () => {
     );
     // …y en particular el nombre local con el que nació ya no está.
     assert.equal(present.includes('LOCAL_br_candidate_identity_promotion.sql'), false);
-    // 🔴 133 es el techo: este corte es el último de la secuencia, no se cuela por debajo.
+    // 🔴 133 es SU número, y es único: este corte no se cuela por debajo de nadie.
+    //
+    // Antes esto exigía que la 133 fuera la ÚLTIMA del repositorio, y esa formulación era un
+    // PROXY que caduca en cuanto cualquier otro hito ocupa un número más alto — cosa que este
+    // corte no puede ni impedir ni provocar. AGENT1-LUSHA-CUT-L3 lo hizo con la 134 (la valla
+    // durable de una petición de Lusha Prospecting, Agente 1). Lo que de verdad se defiende
+    // —que CUT D ocupe exactamente un hueco numerado, el 133, y que nada por encima sea
+    // autoría suya— se afirma ahora de forma directa, y queda MÁS fuerte que el proxy.
     const numbered = present.filter((f) => /^\d{3}_/.test(f)).sort();
-    assert.equal(numbered[numbered.length - 1], MIGRATION_FILE);
+    assert.deepEqual(numbered.filter((f) => f.startsWith('133')), [MIGRATION_FILE]);
+    for (const above of numbered.filter((f) => Number.parseInt(f.slice(0, 3), 10) > 133)) {
+      assert.equal(
+        readFileSync(join(migrationsDir, above), 'utf8').includes('BR-SOURCE'),
+        false,
+        `${above} no puede ser autoría de BR-SOURCE CUT D`,
+      );
+    }
     // Control NEGATIVO del filtro, sobre un nombre SINTÉTICO.
     assert.equal(/^\d{3}_/.test('LOCAL_example_unnumbered.sql'), false);
     assert.equal(/^\d{3}_/.test(MIGRATION_FILE), true);

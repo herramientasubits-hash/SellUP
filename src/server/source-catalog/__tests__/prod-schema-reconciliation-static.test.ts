@@ -76,6 +76,7 @@ const MIGRATIONS_129_TO_132_AGENT2 = [
  * trusting this comment. AUTHORED and NOT APPLIED.
  */
 const MIGRATION_133_BR_CUT_D = '133_br_candidate_identity_promotion.sql';
+const MIGRATION_134_AGENT1_LUSHA_FENCE = '134_agent1_lusha_prospecting_request_fence.sql';
 
 const readMigration = (file: string) => readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
 const stripComments = (sql: string) =>
@@ -98,7 +99,7 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     assert.deepEqual(duplicates, [], `números de migración duplicados: ${duplicates.join(', ')}`);
   });
 
-  it('28. the migration numbering ceiling is 132, and 125/126/127/128 each exist exactly once', () => {
+  it('28. the migration numbering ceiling is 134, and 125/126/127/128 each exist exactly once', () => {
     const files = readdirSync(MIGRATIONS_DIR);
     const numbered = files
       .filter((f) => /^\d{3}_.*\.sql$/.test(f))
@@ -116,9 +117,14 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     // proves that over their SQL instead of trusting this comment. The ceiling stays EXACT so
     // that an undeclared migration above the last known milestone still breaks this guard.
     // BR-PRODUCTION-RELEASE then moved it to 133 with BR-SOURCE CUT D's fenced identity
-    // promotion. The ceiling stays EXACT so that an undeclared migration above the last known
-    // milestone still breaks this guard.
-    assert.equal(highest, 133);
+    // promotion.
+    //
+    // AGENT1-LUSHA-CUT-L3 then moved it to 134 with the durable pre-send fence for one Lusha
+    // Company Prospecting request (`lusha_prospecting_request_fence` plus its three RPCs). It is
+    // an Agent-1 spend-safety table: it names no source-catalog object, which the sweep below
+    // proves over its SQL instead of trusting this comment. The ceiling stays EXACT so that an
+    // undeclared migration above the last known milestone still breaks this guard.
+    assert.equal(highest, 134);
     assert.ok(files.includes(MIGRATION_125));
     assert.ok(files.includes(MIGRATION_126_AGENT1));
     assert.ok(files.includes(MIGRATION_127));
@@ -135,13 +141,18 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
       assert.deepEqual(files.filter((f) => f.startsWith(agent2.slice(0, 3))), [agent2]);
     }
     assert.deepEqual(files.filter((f) => f.startsWith('133')), [MIGRATION_133_BR_CUT_D]);
-    assert.equal(files.some((f) => f.startsWith('134')), false);
+    assert.deepEqual(
+      files.filter((f) => f.startsWith('134')),
+      [MIGRATION_134_AGENT1_LUSHA_FENCE],
+    );
+    assert.equal(files.some((f) => f.startsWith('135')), false);
     // And the 128 plus the whole 129–132 chain are provably foreign to this milestone: none of
     // them names a single source-catalog object CUT A.1 reconciles.
     for (const foreign of [
       MIGRATION_128_AGENT2A,
       ...MIGRATIONS_129_TO_132_AGENT2,
       MIGRATION_133_BR_CUT_D,
+      MIGRATION_134_AGENT1_LUSHA_FENCE,
     ]) {
       const sql = readMigration(foreign);
       for (const owned of [

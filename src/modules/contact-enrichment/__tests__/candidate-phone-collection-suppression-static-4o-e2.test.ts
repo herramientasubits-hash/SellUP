@@ -218,6 +218,9 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // sin backfill. La lista sigue siendo EXACTA, no un rango abierto: una migración nueva que
       // no se declare aquí rompe la guarda. AUTORADA y NO APLICADA.
       '133_br_candidate_identity_promotion.sql',
+      // AGENT1-LUSHA-CUT-L3: la valla DURABLE de una petición de Lusha Prospecting (Agente 1,
+      // seguridad de gasto). No edita la 112 ni ninguna otra de la cadena de teléfono.
+      '134_agent1_lusha_prospecting_request_fence.sql',
     ]);
   });
 

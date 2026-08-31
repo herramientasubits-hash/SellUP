@@ -234,8 +234,12 @@ test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 
       // sólo declara UNA función más sus permisos. La capa gratuita sigue sin necesitar esquema,
       // que es lo único que esta guarda afirma. AUTORADA y NO APLICADA.
       '133_br_candidate_identity_promotion.sql',
+      // 🔴 AGENT1-LUSHA-CUT-L3: la valla DURABLE de una petición de Lusha Prospecting. Es de
+      // Agente 1, pero NO de la capa gratuita: se escribe antes de una petición PAGADA y no
+      // toca ninguna de las tablas que la capa gratuita lee. AUTORADA y NO APLICADA.
+      '134_agent1_lusha_prospecting_request_fence.sql',
     ],
-    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider y la promoción vallada de BR CUT D',
+    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D y la valla de petición de Lusha',
   );
 
   // 🔴 Ratchet invertido en AGENT1-PROVIDER-SEEN-MEMORY-3: la 123 YA está aplicada

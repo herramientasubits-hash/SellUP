@@ -553,6 +553,12 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
     // (`promote_candidate_fiscal_identity_fenced`) y sus permisos: sin tabla, sin columna, sin
     // índice, sin constraint y sin backfill. NO es de teléfono y no nombra ninguna tabla, columna
     // ni función de teléfono, que es lo que esta guarda vigila. AUTORADA y NO APLICADA.
+    // 🔴 AGENT1-LUSHA-CUT-L3 mueve el techo a la 134: `134_agent1_lusha_prospecting_request_fence.sql`,
+    // la valla DURABLE de una petición de Lusha Company Prospecting: una tabla
+    // (`lusha_prospecting_request_fence`) y tres funciones que se escriben ANTES del envío, para
+    // que una caída dura no repita una petición que el proveedor quizá ya cobró. Es de Agente 1 y
+    // de seguridad de GASTO: no es de teléfono, no es del catálogo y no nombra ninguna tabla,
+    // columna ni función de las cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
     assert.equal(
       numbered[numbered.length - 1],
       // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119 (catálogo de
@@ -607,7 +613,7 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // otras tres sólo escriben estado de sincronización en `contacts.metadata`. El barrido de
       // abajo lo comprueba sobre su SQL en vez de creerle a este comentario. Las cuatro AUTORADAS
       // y NO APLICADAS en remoto.
-      '133_br_candidate_identity_promotion.sql',
+      '134_agent1_lusha_prospecting_request_fence.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
     for (const agent2 of [

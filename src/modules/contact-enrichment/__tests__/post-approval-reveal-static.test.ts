@@ -733,10 +733,16 @@ describe('la migración 128 — su contrato', () => {
     // (`promote_candidate_fiscal_identity_fenced`) y sus permisos: sin tabla, sin columna, sin
     // índice, sin constraint y sin backfill. NO es de teléfono y no nombra ninguna tabla, columna
     // ni función de teléfono, que es lo que esta guarda vigila. AUTORADA y NO APLICADA.
-    assert.equal(files[files.length - 1], '133_br_candidate_identity_promotion.sql');
+    // 🔴 AGENT1-LUSHA-CUT-L3 mueve el techo a la 134: `134_agent1_lusha_prospecting_request_fence.sql`,
+    // la valla DURABLE de una petición de Lusha Company Prospecting: una tabla
+    // (`lusha_prospecting_request_fence`) y tres funciones que se escriben ANTES del envío, para
+    // que una caída dura no repita una petición que el proveedor quizá ya cobró. Es de Agente 1 y
+    // de seguridad de GASTO: no es de teléfono, no es del catálogo y no nombra ninguna tabla,
+    // columna ni función de las cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
+    assert.equal(files[files.length - 1], '134_agent1_lusha_prospecting_request_fence.sql');
     const numbers = files.map((f) => Number.parseInt(f.slice(0, 3), 10));
-    assert.equal(Math.max(...numbers), 133);
-    assert.equal(files.length, 133, 'techo y conteo coinciden: ni un hueco');
+    assert.equal(Math.max(...numbers), 134);
+    assert.equal(files.length, 134, 'techo y conteo coinciden: ni un hueco');
   });
 
   it('no edita ninguna migración anterior de la cadena de teléfono', () => {
