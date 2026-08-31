@@ -170,7 +170,14 @@ describe('114 — numeración', () => {
     // con `CREATE OR REPLACE`, y la 131 la 128: ninguna añade tabla, columna, constraint ni índice
     // a `contact_phones` o `contact_phone_sources`, así que la 114 sigue siendo su única dueña —
     // lo que el test siguiente exige archivo por archivo. La 132 no las nombra en absoluto.
-    assert.equal(Math.max(...numbers), 132);
+    // BR-PRODUCTION-RELEASE mueve el techo a la 133: `133_br_candidate_identity_promotion.sql`,
+    // la promoción VALLADA de la identidad fiscal resuelta de una candidata brasileña
+    // (BR-SOURCE CUT D), numerada al volver ese trabajo a GitHub después de haber vivido en local
+    // sin número mientras el espacio de nombres estaba en disputa. Crea UNA función
+    // (`promote_candidate_fiscal_identity_fenced`) y sus permisos: sin tabla, sin columna, sin
+    // índice, sin constraint y sin backfill. NO es de teléfono y no nombra ninguna tabla, columna
+    // ni función de teléfono, que es lo que esta guarda vigila. AUTORADA y NO APLICADA.
+    assert.equal(Math.max(...numbers), 133);
   });
 
   it('114 es la ÚNICA dueña de la forma de las dos tablas oficiales', () => {

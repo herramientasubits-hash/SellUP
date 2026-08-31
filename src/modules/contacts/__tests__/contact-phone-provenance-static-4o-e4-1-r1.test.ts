@@ -268,6 +268,13 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
     assert.equal(/^\d{3}_/.test('132_agent2_hubspot_legacy_sync_state_backfill.sql'), true);
 
     const last = numbered[numbered.length - 1];
+    // BR-PRODUCTION-RELEASE mueve el techo a la 133: `133_br_candidate_identity_promotion.sql`,
+    // la promoción VALLADA de la identidad fiscal resuelta de una candidata brasileña
+    // (BR-SOURCE CUT D), numerada al volver ese trabajo a GitHub después de haber vivido en local
+    // sin número mientras el espacio de nombres estaba en disputa. Crea UNA función
+    // (`promote_candidate_fiscal_identity_fenced`) y sus permisos: sin tabla, sin columna, sin
+    // índice, sin constraint y sin backfill. NO es de teléfono y no nombra ninguna tabla, columna
+    // ni función de teléfono, que es lo que esta guarda vigila. AUTORADA y NO APLICADA.
     assert.equal(
       last,
       // 4O-H3 movió el techo a la 116 (la APROBACIÓN atómica: una sola función
@@ -321,8 +328,8 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // vocabulario de procedencia del escalar móvil, lo que las dos aserciones de abajo
       // comprueban sobre su SQL en vez de creerle a este comentario. Las cuatro AUTORADAS y NO
       // APLICADAS en remoto.
-      '132_agent2_hubspot_legacy_sync_state_backfill.sql',
-      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa, la contabilidad de presupuesto y el tramo 129–132 de Agente 2, no este hito',
+      '133_br_candidate_identity_promotion.sql',
+      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa, la contabilidad de presupuesto, el tramo 129–132 de Agente 2 y la 133 de BR-SOURCE CUT D, no este hito',
     );
     for (const agent2 of [
       '129_agent2_contact_hubspot_stale_completeness.sql',
@@ -349,14 +356,19 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // (AGENT1-CUT3B4, independiente), la 127 (BR, renumerada dos veces), la 128
       // (AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1) y el tramo 129–132 de
       // AGENT2-FINAL-INTEGRATION están autorizadas y nombradas una por una, así que lo que queda
-      // prohibido es la 133 y superiores.
-      numbered.some((f) => /^1(3[3-9]|[4-9]\d)/.test(f)),
+      // prohibido es la 134 y superiores.
+      // BR-PRODUCTION-RELEASE declara la 133: la promoción VALLADA de la identidad fiscal
+      // resuelta de una candidata brasileña (BR-SOURCE CUT D). Queda AUTORIZADA y NOMBRADA como
+      // las anteriores, así que la ventana prohibida sube a la 134 y superiores. La guarda no se
+      // relaja: sigue impidiendo que alguien cuele una POR ENCIMA del último hito conocido sin
+      // declararla.
+      numbered.some((f) => /^1(3[4-9]|[4-9]\d)/.test(f)),
       false,
       // La 120 (Fase 1), la 121 (contabilidad) y la 122 («Buscar más números»)
       // (AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1) son AUTORIZADAS y están declaradas arriba;
       // lo que esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último
       // hito conocido sin declararla.
-      'ninguna migración 133 o superior',
+      'ninguna migración 134 o superior',
     );
   });
 

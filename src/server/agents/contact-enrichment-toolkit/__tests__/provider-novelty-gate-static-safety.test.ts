@@ -126,7 +126,14 @@ describe('modelo de datos — sin migración nueva', () => {
     // canonicalizada desde cuatro archivos que nacieron sin número. Es de teléfono y de HubSpot,
     // pero no de este hito: la aserción de abajo —que el gate de novedad no lee NINGUNA migración
     // suya— es la que de verdad protege este archivo, y no cambia. AUTORADAS y NO APLICADAS.
-    assert.equal(Math.max(...numbers), 132, 'el techo conocido es la 132');
+    // BR-PRODUCTION-RELEASE mueve el techo a la 133: `133_br_candidate_identity_promotion.sql`,
+    // la promoción VALLADA de la identidad fiscal resuelta de una candidata brasileña
+    // (BR-SOURCE CUT D), numerada al volver ese trabajo a GitHub después de haber vivido en local
+    // sin número mientras el espacio de nombres estaba en disputa. Crea UNA función
+    // (`promote_candidate_fiscal_identity_fenced`) y sus permisos: sin tabla, sin columna, sin
+    // índice, sin constraint y sin backfill. NO es de teléfono y no nombra ninguna tabla, columna
+    // ni función de teléfono, que es lo que esta guarda vigila. AUTORADA y NO APLICADA.
+    assert.equal(Math.max(...numbers), 133, 'el techo conocido es la 133');
     assert.equal(
       GATE_SOURCE.includes('supabase/migrations'),
       false,

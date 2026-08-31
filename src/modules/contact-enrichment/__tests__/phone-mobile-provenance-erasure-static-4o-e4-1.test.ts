@@ -464,6 +464,13 @@ describe('4O-E4.1 estático — alcance', () => {
     // del sobrepaso de presupuesto (Agente 1, contabilidad). NO es de teléfono en absoluto
     // —toca `wizard_budget_reservations` y `confirm_wizard_credits`— y no nombra
     // `mobile_phone` en ninguna parte, que es lo que esta guarda vigila.
+    // BR-PRODUCTION-RELEASE mueve el techo a la 133: `133_br_candidate_identity_promotion.sql`,
+    // la promoción VALLADA de la identidad fiscal resuelta de una candidata brasileña
+    // (BR-SOURCE CUT D), numerada al volver ese trabajo a GitHub después de haber vivido en local
+    // sin número mientras el espacio de nombres estaba en disputa. Crea UNA función
+    // (`promote_candidate_fiscal_identity_fenced`) y sus permisos: sin tabla, sin columna, sin
+    // índice, sin constraint y sin backfill. NO es de teléfono y no nombra ninguna tabla, columna
+    // ni función de teléfono, que es lo que esta guarda vigila. AUTORADA y NO APLICADA.
     assert.equal(
       numbered[numbered.length - 1],
       // AGENT2A-SEARCH-MORE-PHONES-1 mueve el techo a la 122: «Buscar más números»
@@ -495,8 +502,8 @@ describe('4O-E4.1 estático — alcance', () => {
       // LEE bajo el lock para calcular el saliente, y leer no es escribir— ni introduce
       // procedencia del escalar móvil, que es lo que esta guarda vigila. La lista exacta de
       // migraciones que pueden NOMBRARLO se declara arriba, archivo por archivo.
-      132,
-      'la 132 (la línea base del estado de HubSpot) es la última',
+      133,
+      'la 133 (la promoción vallada de identidad fiscal de BR-SOURCE CUT D) es la última',
     );
   });
 

@@ -210,6 +210,14 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       '130_agent2_contact_hubspot_stale_source.sql',
       '131_agent2_post_approval_reveal_stale_producer.sql',
       '132_agent2_hubspot_legacy_sync_state_backfill.sql',
+      // BR-PRODUCTION-RELEASE añade la 133: la promoción VALLADA de la identidad fiscal resuelta
+      // de una candidata brasileña (BR-SOURCE CUT D), numerada al volver ese trabajo a GitHub.
+      // NO es de teléfono en absoluto: crea UNA función
+      // (`promote_candidate_fiscal_identity_fenced`) sobre `prospect_candidates` y
+      // `prospect_batches` más sus permisos, sin tabla, sin columna, sin índice, sin constraint y
+      // sin backfill. La lista sigue siendo EXACTA, no un rango abierto: una migración nueva que
+      // no se declare aquí rompe la guarda. AUTORADA y NO APLICADA.
+      '133_br_candidate_identity_promotion.sql',
     ]);
   });
 

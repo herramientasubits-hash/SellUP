@@ -505,7 +505,14 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
     // ni impedir ni provocar—. Lo que de verdad protege este corte es la AUTORÍA, que se barre
     // abajo, y ese barrido se ENSANCHA aquí de cinco números a nueve. La guarda queda más fuerte
     // que antes, no meramente desplazada: un número libre nunca demostró nada.
-    assert.equal(migrations.filter((f) => f.startsWith('133')).length, 0);
+    // 🔴 BR-PRODUCTION-RELEASE reclamó después la 133: la promoción VALLADA de la identidad
+    // fiscal resuelta de una candidata brasileña (BR-SOURCE CUT D), numerada al volver ese
+    // trabajo a GitHub tras vivir en local sin número. El proxy «el siguiente número está libre»
+    // se mueve por tanto de la 133 a la 134, y el barrido de AUTORÍA —lo único que de verdad
+    // protege este corte— se ENSANCHA de nueve números a diez para incluir la 133. La guarda
+    // queda otra vez más fuerte que antes, no meramente desplazada: un número libre nunca
+    // demostró nada.
+    assert.equal(migrations.filter((f) => f.startsWith('134')).length, 0);
     for (const file of migrations.filter(
       (f) =>
         f.startsWith('124') ||
@@ -516,7 +523,8 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
         f.startsWith('129') ||
         f.startsWith('130') ||
         f.startsWith('131') ||
-        f.startsWith('132'),
+        f.startsWith('132') ||
+        f.startsWith('133'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

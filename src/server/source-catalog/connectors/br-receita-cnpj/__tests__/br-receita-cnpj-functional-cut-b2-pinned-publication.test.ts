@@ -1143,9 +1143,47 @@ describe('CUT B2 · structure', () => {
   });
 
   it('authors no migration and touches none of 125–128', () => {
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // BR-PRODUCTION-RELEASE — ratchet INVERTED, not deleted (and it was already RED on main)
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    //
+    // OLD_ASSERTION: no migration numbered 129 or 130 exists. That was a PROXY for "CUT B2
+    // authored no migration", true only while 129/130 happened to be the next free numbers.
+    //
+    // WHY_OBSOLETE — and this guard did not merely become obsolete, it became FALSE: Agent 2's
+    // HubSpot chain claimed 129 and 130 on `main` (AGENT2-FINAL-INTEGRATION-PREPARATION-LOCAL-1),
+    // so this line has been failing on `origin/main` ever since, for a reason that has nothing to
+    // do with CUT B2. It went unnoticed because this suite was never a step of the required
+    // check — BR-PRODUCTION-RELEASE adds it, so the next number somebody claims cannot rot it in
+    // silence again.
+    //
+    // NEW_INVARIANT, STRICTLY STRONGER: authorship, swept over EVERY migration in the repository
+    // instead of two hard-coded numbers. No migration file is named after this cut AND no
+    // migration's SQL carries this cut's milestone token (`CUT B1`/`CUT B2`) as its author.
+    // The token is the AUTHORSHIP marker the repo actually uses; a loose phrase like "pinned
+    // publication" is not, because a later migration may legitimately DESCRIBE this cut's
+    // output in its prose without being authored by it — migration 133 does exactly that — which stays true no matter how high the
+    // repository ceiling climbs, and which the number-based form never actually checked.
     const dir = join(repoRoot, 'supabase', 'migrations');
-    const migrations = fs.readdirSync(dir);
+    const migrations = fs.readdirSync(dir).filter((f) => f.endsWith('.sql'));
+    assert.ok(migrations.length > 0, 'the migrations directory must not read empty');
     assert.ok(!migrations.some((f) => /cut[-_]?b2|pinned[-_]?publication/i.test(f)));
-    assert.ok(!migrations.some((f) => /^(129|130)_/.test(f)));
+    for (const file of migrations) {
+      const sql = fs.readFileSync(join(dir, file), 'utf8');
+      assert.equal(
+        /CUT[-_\s]?B2\b/i.test(sql),
+        false,
+        `${file} must not be authored by CUT B2 — the pin lives in metadata, not schema`,
+      );
+    }
+    // 🔴 …and 125–128 are still byte-untouched by this cut, which is the other half of the title.
+    for (const untouched of [
+      '125_reconcile_source_snapshot_record_identity.sql',
+      '126_agent1_batch_identity_atomicity.sql',
+      '127_br_receita_monthly_snapshot_identity.sql',
+      '128_project_approved_candidate_phones_onto_contact.sql',
+    ]) {
+      assert.ok(migrations.includes(untouched), `${untouched} must still exist, unrenamed`);
+    }
   });
 });

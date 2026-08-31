@@ -65,6 +65,17 @@ const MIGRATIONS_129_TO_132_AGENT2 = [
   '131_agent2_post_approval_reveal_stale_producer.sql',
   '132_agent2_hubspot_legacy_sync_state_backfill.sql',
 ] as const;
+/**
+ * BR-SOURCE CUT D, numbered by BR-PRODUCTION-RELEASE — the FENCED promotion of a Brazilian
+ * candidate's resolved fiscal identity.
+ *
+ * 🔴 This one IS a BR-SOURCE migration, unlike the 128 and the 129–132 chain, so it is declared
+ * separately and NOT as "foreign by milestone". It is still foreign to what CUT A.1 reconciles:
+ * it declares ONE function over `prospect_candidates` / `prospect_batches` and its grants, and
+ * names no source-catalog object at all — which the sweep below proves over its SQL instead of
+ * trusting this comment. AUTHORED and NOT APPLIED.
+ */
+const MIGRATION_133_BR_CUT_D = '133_br_candidate_identity_promotion.sql';
 
 const readMigration = (file: string) => readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
 const stripComments = (sql: string) =>
@@ -104,7 +115,10 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     // a source-catalog migration and none touches anything this milestone owns; the sweep below
     // proves that over their SQL instead of trusting this comment. The ceiling stays EXACT so
     // that an undeclared migration above the last known milestone still breaks this guard.
-    assert.equal(highest, 132);
+    // BR-PRODUCTION-RELEASE then moved it to 133 with BR-SOURCE CUT D's fenced identity
+    // promotion. The ceiling stays EXACT so that an undeclared migration above the last known
+    // milestone still breaks this guard.
+    assert.equal(highest, 133);
     assert.ok(files.includes(MIGRATION_125));
     assert.ok(files.includes(MIGRATION_126_AGENT1));
     assert.ok(files.includes(MIGRATION_127));
@@ -120,10 +134,15 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     for (const agent2 of MIGRATIONS_129_TO_132_AGENT2) {
       assert.deepEqual(files.filter((f) => f.startsWith(agent2.slice(0, 3))), [agent2]);
     }
-    assert.equal(files.some((f) => f.startsWith('133')), false);
+    assert.deepEqual(files.filter((f) => f.startsWith('133')), [MIGRATION_133_BR_CUT_D]);
+    assert.equal(files.some((f) => f.startsWith('134')), false);
     // And the 128 plus the whole 129–132 chain are provably foreign to this milestone: none of
     // them names a single source-catalog object CUT A.1 reconciles.
-    for (const foreign of [MIGRATION_128_AGENT2A, ...MIGRATIONS_129_TO_132_AGENT2]) {
+    for (const foreign of [
+      MIGRATION_128_AGENT2A,
+      ...MIGRATIONS_129_TO_132_AGENT2,
+      MIGRATION_133_BR_CUT_D,
+    ]) {
       const sql = readMigration(foreign);
       for (const owned of [
         'source_company_snapshots',
