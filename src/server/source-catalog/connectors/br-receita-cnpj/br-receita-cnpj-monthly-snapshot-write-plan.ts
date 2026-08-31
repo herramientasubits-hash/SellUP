@@ -90,6 +90,8 @@ import {
 import {
   BR_RECEITA_COMPACT_CONFLICT_COLUMNS,
   BR_RECEITA_COMPACT_CONFLICT_IS_PARTIAL,
+  brReceitaRunProvenanceForRun,
+  type BrReceitaRunProvenanceInput,
 } from './br-receita-cnpj-compact-storage';
 import {
   createSnapshotRunHandle,
@@ -205,9 +207,24 @@ export interface BeginPeriodOperation {
   readonly country_code: typeof BR_RECEITA_CNPJ_COUNTRY_CODE;
   readonly source_period: string;
   readonly publish_state: 'preparing';
+  /**
+   * The RUN-LEVEL import provenance, for `source_snapshot_runs.metadata`.
+   *
+   * 🔴 This is the other half of the compact row. The projection stopped carrying
+   * `parser_version` / `source_file_name` / `source_downloaded_at` / `import_batch_id` on all 72
+   * million establishments *because* they describe the import rather than the company — which is
+   * only true if they are written SOMEWHERE, once. Here is that somewhere, and it travels on the
+   * operation so the write path cannot be built without it.
+   *
+   * 🔴 Already narrowed to the four allowed keys by `brReceitaRunProvenanceForRun`, with
+   * `parser_version` guaranteed present. The gateway binds this object as-is and adds nothing.
+   */
+  readonly metadata: Readonly<Record<string, string>>;
   /** The database mints `source_snapshot_runs.id`; the plan never invents one. */
   readonly returnsRunId: true;
   readonly resolvesRunHandle: true;
+  /** 🔴 Persisted, not merely declared. See `BR_RECEITA_COMPACT_STORAGE_CONTRACT`. */
+  readonly persistsRunProvenance: true;
 }
 
 /**
@@ -397,6 +414,13 @@ export interface BrReceitaSnapshotWritePlan {
    */
   readonly runHandle: SnapshotRunHandle;
   /**
+   * The run-level import provenance this plan will stamp on `source_snapshot_runs.metadata`.
+   *
+   * 🔴 Exposed so a caller can assert on what will be written WITHOUT executing the plan, and so
+   * the four allowed keys are inspectable rather than buried inside the generator.
+   */
+  readonly runMetadata: Readonly<Record<string, string>>;
+  /**
    * The whole ordered sequence, LAZILY:
    *
    *   begin_period → discard_run_rows → upsert_batch* → publish_period
@@ -450,6 +474,19 @@ export interface BrReceitaSnapshotWritePlanInput {
    */
   readonly onDuplicateIdentityInBatch?: 'collapse_last_wins' | 'reject';
   readonly batchSize?: number;
+  /**
+   * Provenance of the IMPORT, persisted once on the run row rather than on every establishment.
+   *
+   * 🔴 A TYPED allowlist of four optional keys, never a free-form record — see
+   * `BrReceitaRunProvenanceInput`. Omitting the whole field is legitimate: `parser_version` then
+   * comes from `BR_RECEITA_CNPJ_PARSER_VERSION`, the same constant the parser stamps rows with,
+   * so a run row can never be published without a parser version on it.
+   *
+   * 🔴 Reading this costs ZERO records. It is a caller-supplied object; the planner never derives
+   * provenance by peeking at the first snapshot, which would consume one and break the O(BATCH)
+   * bound the whole national load depends on.
+   */
+  readonly runProvenance?: BrReceitaRunProvenanceInput;
 }
 
 // ─── The planner ────────────────────────────────────────────────────────────
@@ -495,15 +532,22 @@ export function planBrReceitaMonthlySnapshotWrite(
 
   const runHandle = createSnapshotRunHandle();
 
+  // 🔴 Built HERE, from the caller's declaration only. No record is pulled to derive it: the
+  // planner's zero-record-consumption property is what lets a caller hand over a producer that
+  // has not opened its file yet.
+  const runMetadata = brReceitaRunProvenanceForRun(input.runProvenance);
+
   return {
     status: 'planned',
     plan: {
       ...periodCoordinates,
       runHandle,
+      runMetadata,
       operations: () =>
         streamOperations({
           periodCoordinates,
           runHandle,
+          runMetadata,
           records: input.records,
           batchSize,
           duplicatePolicy,
@@ -600,6 +644,7 @@ function discardRunRowsOperation(
 async function* streamOperations(args: {
   readonly periodCoordinates: PeriodCoordinates;
   readonly runHandle: SnapshotRunHandle;
+  readonly runMetadata: Readonly<Record<string, string>>;
   readonly records:
     | Iterable<BrReceitaPersistedSnapshot>
     | AsyncIterable<BrReceitaPersistedSnapshot>;
@@ -607,7 +652,8 @@ async function* streamOperations(args: {
   readonly duplicatePolicy: 'collapse_last_wins' | 'reject';
   readonly supersedesRunId: string | undefined;
 }): AsyncGenerator<BrReceitaSnapshotWriteOperation, void, undefined> {
-  const { periodCoordinates, runHandle, batchSize, duplicatePolicy, supersedesRunId } = args;
+  const { periodCoordinates, runHandle, runMetadata, batchSize, duplicatePolicy, supersedesRunId } =
+    args;
 
   // ── Header. Zero rows consumed. ──
   yield {
@@ -615,8 +661,10 @@ async function* streamOperations(args: {
     table: 'source_snapshot_runs',
     ...periodCoordinates,
     publish_state: 'preparing',
+    metadata: runMetadata,
     returnsRunId: true,
     resolvesRunHandle: true,
+    persistsRunProvenance: true,
   };
 
   // 🔴 The first thing after `begin_period` is the demand for its run id. Everything downstream —

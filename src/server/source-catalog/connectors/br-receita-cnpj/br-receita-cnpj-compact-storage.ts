@@ -45,6 +45,7 @@
 
 import {
   BR_RECEITA_CNPJ_COUNTRY_CODE,
+  BR_RECEITA_CNPJ_PARSER_VERSION,
   BR_RECEITA_CNPJ_SOURCE_KEY,
   type BrReceitaCnpjSnapshotRawData,
 } from './br-receita-cnpj-types';
@@ -126,6 +127,52 @@ export function brReceitaRunProvenanceMetadata(
     metadata.import_batch_id = provenance.import_batch_id;
   }
   return metadata;
+}
+
+/**
+ * The run-level provenance a CALLER is allowed to supply.
+ *
+ * 🔴 Four OPTIONAL keys and nothing else — deliberately not `Record<string, unknown>`. The
+ * persisted object is the one place a Brazil publication could grow a field nobody classified,
+ * so the surface is an allowlist rather than a bag: a caller literally cannot hand over a CNPJ,
+ * a legal name, a row, a local path, a contact or an address, because there is no key to put
+ * one in.
+ *
+ * `parser_version` is optional HERE and mandatory in what is PERSISTED. The default is the
+ * authoritative `BR_RECEITA_CNPJ_PARSER_VERSION` constant the parser already stamps rows with —
+ * there is no second literal for it anywhere in this codebase.
+ */
+export interface BrReceitaRunProvenanceInput {
+  readonly parser_version?: string;
+  readonly source_file_name?: string;
+  readonly source_downloaded_at?: string;
+  readonly import_batch_id?: string;
+}
+
+/** A supplied optional value, kept only when it is a non-empty string. */
+const suppliedText = (value: unknown): string | undefined =>
+  typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+
+/**
+ * Narrows a caller's provenance to the four allowed keys and guarantees `parser_version`.
+ *
+ * 🔴 Built key by key, never by spreading `input`. A spread is exactly how an unclassified field
+ * would reach `source_snapshot_runs.metadata`, and metadata is jsonb — it would accept it.
+ *
+ * 🔴 An ABSENT `source_file_name` is a legitimate answer for the national producer, whose input is
+ * ten multipart establishment files: naming one of them would claim a single file represents the
+ * whole national dataset. Absent is honest; invented is not.
+ */
+export function brReceitaRunProvenanceForRun(
+  input: BrReceitaRunProvenanceInput | undefined,
+): Record<string, string> {
+  const provenance: BrReceitaRunProvenance = {
+    parser_version: suppliedText(input?.parser_version) ?? BR_RECEITA_CNPJ_PARSER_VERSION,
+    source_file_name: suppliedText(input?.source_file_name),
+    source_downloaded_at: suppliedText(input?.source_downloaded_at),
+    import_batch_id: suppliedText(input?.import_batch_id),
+  };
+  return brReceitaRunProvenanceMetadata(provenance);
 }
 
 // ─── The signal columns ─────────────────────────────────────────────────────
@@ -362,6 +409,16 @@ export const BR_RECEITA_COMPACT_STORAGE_CONTRACT = {
   persistsImportProvenancePerRow: false,
   runLevelProvenanceKeys: BR_RECEITA_RUN_LEVEL_PROVENANCE_KEYS,
   runLevelProvenanceLivesOn: `${BR_RECEITA_SNAPSHOT_RUNS_TABLE}.metadata`,
+  /**
+   * 🔴 The run row is where the provenance ACTUALLY LANDS, not merely where it is documented to
+   * belong. `planBrReceitaMonthlySnapshotWrite` builds it, `begin_period` carries it and the
+   * gateway binds it into the run INSERT, so "moved to the run" is a write path rather than a
+   * claim. The suite proves it by reading `source_snapshot_runs.metadata` back out of a real
+   * PostgreSQL after a real publication.
+   */
+  runLevelProvenanceIsPersistedByTheWriter: true,
+  runLevelProvenanceParserVersionIsMandatory: true,
+  runLevelProvenanceAcceptsArbitraryCallerKeys: false,
   indexes: [
     { name: 'PRIMARY KEY', columns: BR_RECEITA_COMPACT_CONFLICT_COLUMNS, serves: ['exact_pinned_cnpj_lookup', 'one_row_per_identity_per_run', 'run_scoped_lifecycle'] },
     { name: 'br_receita_snapshots_name_idx', columns: [BR_RECEITA_SNAPSHOT_RUN_ID_COLUMN, BR_RECEITA_NORMALIZED_LEGAL_NAME_COLUMN], serves: ['exact_normalized_legal_name_lookup'] },

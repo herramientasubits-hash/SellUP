@@ -50,6 +50,7 @@ import {
   BR_RECEITA_CONSTANT_SIGNALS,
   BR_RECEITA_RUN_LEVEL_PROVENANCE_KEYS,
   brReceitaCompactRowBindings,
+  brReceitaRunProvenanceForRun,
   brReceitaRunProvenanceMetadata,
   brReceitaRuntimeSignalsFromRawData,
   brReceitaRuntimeSignalsFromRow,
@@ -566,8 +567,10 @@ describe('BR-PROD-STORAGE-RIGHT-SIZING — against a REAL PostgreSQL', () => {
       country_code: 'BR',
       source_period: '2026-09',
       publish_state: 'preparing',
+      metadata: brReceitaRunProvenanceForRun(undefined),
       returnsRunId: true,
       resolvesRunHandle: true,
+      persistsRunProvenance: true,
     });
 
     assert.match(started.partitionTable, /^br_receita_snapshots_p[0-9a-f]{32}$/);
@@ -799,8 +802,10 @@ describe('BR-PROD-STORAGE-RIGHT-SIZING — against a REAL PostgreSQL', () => {
           country_code: 'BR',
           source_period: '2026-11',
           publish_state: 'preparing',
+          metadata: brReceitaRunProvenanceForRun(undefined),
           returnsRunId: true,
           resolvesRunHandle: true,
+          persistsRunProvenance: true,
         }),
       (error: unknown) =>
         (error as { reason?: string }).reason ===
@@ -835,8 +840,10 @@ describe('BR-PROD-STORAGE-RIGHT-SIZING — against a REAL PostgreSQL', () => {
       country_code: 'BR',
       source_period: '2026-11',
       publish_state: 'preparing',
+      metadata: brReceitaRunProvenanceForRun(undefined),
       returnsRunId: true,
       resolvesRunHandle: true,
+      persistsRunProvenance: true,
     });
     assert.match(started.partitionTable, /^br_receita_snapshots_p[0-9a-f]{32}$/);
 
@@ -854,8 +861,10 @@ describe('BR-PROD-STORAGE-RIGHT-SIZING — against a REAL PostgreSQL', () => {
           country_code: 'BR',
           source_period: '2026-11',
           publish_state: 'preparing',
+          metadata: brReceitaRunProvenanceForRun(undefined),
           returnsRunId: true,
           resolvesRunHandle: true,
+          persistsRunProvenance: true,
         }),
       (error: unknown) =>
         (error as { reason?: string }).reason ===
