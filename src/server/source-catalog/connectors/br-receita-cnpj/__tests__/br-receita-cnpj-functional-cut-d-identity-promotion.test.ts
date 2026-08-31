@@ -33,7 +33,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -1081,11 +1081,49 @@ describe('CUT D — the transport, and the recorded contracts', () => {
     assert.ok(resolver.includes('persistsAnything: false'));
   });
 
-  it('the local migration is deliberately UNNUMBERED and touches no numbered slot', () => {
-    const sql = readFileSync(
-      join(repoRoot, 'supabase', 'migrations', 'LOCAL_br_candidate_identity_promotion.sql'),
-      'utf8',
+  // ══════════════════════════════════════════════════════════════════════════
+  // BR-PRODUCTION-RELEASE — trinquete INVERTIDO, no borrado
+  // ══════════════════════════════════════════════════════════════════════════
+  //
+  // OLD_ASSERTION: «la migración local está DELIBERADAMENTE SIN NUMERAR». Era cierta mientras
+  // este corte vivía en local sin PR: el espacio de nombres estaba disputado y un número
+  // reclamado desde una rama sin PR habría colisionado o forzado un renombrado.
+  //
+  // WHY_OBSOLETE: el hito que ese comentario anticipaba —«numbering happens when this work
+  // returns to GitHub»— es ESTE. Un trinquete que siguiera exigiendo `LOCAL_` bloquearía
+  // exactamente la operación que describía como pendiente.
+  //
+  // NEW_INVARIANT, ESTRICTAMENTE MÁS FUERTE: la migración ocupa un slot NUMERADO concreto
+  // (133), y todo lo que el trinquete original defendía —sin índice, sin constraint, sin
+  // columna, sin backfill, sin redefinir las dos funciones de la 126, SECURITY INVOKER con
+  // `search_path` fijado, `anon`/PUBLIC fuera— se sigue afirmando IGUAL, sobre el mismo
+  // fichero. Se añade además que el nombre ya NO es `LOCAL_`, para que un retroceso a un
+  // fichero sin numerar rompa esta guarda en vez de pasar inadvertido.
+  it('the migration occupies numbered slot 133 and touches no other numbered slot', () => {
+    const MIGRATION_FILE = '133_br_candidate_identity_promotion.sql';
+    const migrationsDir = join(repoRoot, 'supabase', 'migrations');
+    const present = readdirSync(migrationsDir).filter((f) => f.endsWith('.sql'));
+
+    assert.ok(
+      present.includes(MIGRATION_FILE),
+      `${MIGRATION_FILE} debe existir en la secuencia desplegable`,
     );
+    // 🔴 Ya no queda ningún fichero fuera de la secuencia numerada: ni éste, ni ninguno.
+    assert.deepEqual(
+      present.filter((f) => !/^\d{3}_/.test(f)),
+      [],
+      'ningún fichero de migración puede quedar fuera de la secuencia numerada',
+    );
+    // …y en particular el nombre local con el que nació ya no está.
+    assert.equal(present.includes('LOCAL_br_candidate_identity_promotion.sql'), false);
+    // 🔴 133 es el techo: este corte es el último de la secuencia, no se cuela por debajo.
+    const numbered = present.filter((f) => /^\d{3}_/.test(f)).sort();
+    assert.equal(numbered[numbered.length - 1], MIGRATION_FILE);
+    // Control NEGATIVO del filtro, sobre un nombre SINTÉTICO.
+    assert.equal(/^\d{3}_/.test('LOCAL_example_unnumbered.sql'), false);
+    assert.equal(/^\d{3}_/.test(MIGRATION_FILE), true);
+
+    const sql = readFileSync(join(migrationsDir, MIGRATION_FILE), 'utf8');
     assert.ok(sql.includes(`CREATE OR REPLACE FUNCTION public.${PROMOTE_FISCAL_IDENTITY_RPC}`));
     // 🔴 It creates NO index and NO unique constraint — the same refusal migration 126 records,
     // for the same reasons.

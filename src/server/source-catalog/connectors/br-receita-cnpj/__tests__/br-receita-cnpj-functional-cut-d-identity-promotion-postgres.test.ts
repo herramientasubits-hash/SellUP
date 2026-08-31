@@ -62,7 +62,11 @@ const { ctor: EmbeddedPostgresCtor, skip: harnessSkipReason } = resolveEmbeddedP
 );
 
 /** This cut's own migration, applied AFTER the whole repository order. */
-const CUT_D_MIGRATION = 'LOCAL_br_candidate_identity_promotion.sql';
+// 🔴 BR-PRODUCTION-RELEASE numbered this migration 133 (`origin/main` ceiling was 132;
+// nothing in flight claimed 133 or above). It is still applied LAST, after the whole
+// repository order, because 133 sorts after every file in that chain — the harness order
+// and the deployable order agree. Referenced BY NAME so a rename breaks the test.
+const CUT_D_MIGRATION = '133_br_candidate_identity_promotion.sql';
 
 const PROMOTE_FN = `public.${PROMOTE_FISCAL_IDENTITY_RPC}`;
 const FENCE_FN = 'public.insert_fenced_prospect_candidates';

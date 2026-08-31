@@ -1,19 +1,38 @@
 -- ============================================================================
--- LOCAL (UNNUMBERED) — BR-SOURCE FUNCTIONAL CUT D
+-- 133 — BR-SOURCE FUNCTIONAL CUT D
 -- Fenced promotion of a resolved Receita identity onto a prospect_candidate
 -- ============================================================================
 --
--- 🔴 THIS FILE IS DELIBERATELY UNNUMBERED.
+-- 🔴 NUMBERED 133 AT RELEASE. NOT APPLIED TO PRODUCTION BY THIS BRANCH.
 --
--- The repository's migration namespace is contended: 125, 126, 127 and 128 were
--- each claimed by a different line of work, twice with renames mid-review. This
--- cut is being developed LOCALLY, with no PR and no remote branch, so claiming a
--- number now would either collide with whatever lands next or force a rename
--- later. `LOCAL_` also keeps the file outside every ceiling guard in the repo,
--- all of which select migrations with `/^\d{3}_/` or `parseInt(name.slice(0,3))`
--- — so this file cannot make an unrelated suite fail while it has no number.
+-- This file was developed locally as `LOCAL_br_candidate_identity_promotion.sql`,
+-- deliberately unnumbered, because the migration namespace was contended: 125,
+-- 126, 127 and 128 were each claimed by a different line of work, twice with
+-- renames mid-review, and claiming a number from a branch with no PR would
+-- either collide with whatever landed next or force a rename later.
 --
--- Numbering happens when this work returns to GitHub, and not before.
+-- BR-PRODUCTION-RELEASE numbers it, because that is the milestone that returns
+-- this work to GitHub. The slot was NOT assumed — it was resolved against the
+-- real namespace:
+--
+--   · `origin/main` (fetched at release time) carries 132 migration files, the
+--     highest being `132_agent2_hubspot_legacy_sync_state_backfill.sql`. 129-132
+--     were claimed by Agent 2's HubSpot integration AFTER this cut was written,
+--     which is exactly why 129 could not be assumed.
+--   · No remote branch and no local branch declares any migration at 133 or
+--     above, so 133 collides with nothing in flight, Agent 1's parallel work
+--     included.
+--   · 133 sorts after 132 in the deployable sequence, so repository order and
+--     numeric order agree: this migration is applied last.
+--
+-- Numbering also puts the file back INSIDE every ceiling guard in the repo — all
+-- of which select `/^\d{3}_/` — so the guards that assert "the repository's last
+-- migration is N, and my milestone contributed none" now see 133 and name it.
+-- Those guards were updated in the same commit; none was relaxed.
+--
+-- The function name, signature, body, security posture and grants are UNCHANGED
+-- from the locally approved version. Numbering is a namespace operation, not a
+-- redesign: no refactor was performed during the release.
 --
 --
 -- WHAT THIS CLOSES, STATED AS THE DEFECT
