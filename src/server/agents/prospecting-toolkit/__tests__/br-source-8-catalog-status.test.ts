@@ -1,6 +1,38 @@
 /**
  * Tests — BR-SOURCE-8B-UI-STANDARDIZE — Brazil source catalog standardization.
  *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * BR-PRODUCTION-RELEASE — tres trinquetes INVERTIDOS, ninguno borrado
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * OLD_ASSERTIONS: `br_receita_dados_abertos` es `discovery` + `pending_integration_design` +
+ * `not_connected`, y NO aparece en el tab "Operativas IA". Eran ciertas mientras lo único listo
+ * era la preparación LOCAL y no existía diseño de integración.
+ *
+ * WHY_OBSOLETE: los cortes funcionales A→E1 construyeron la integración (snapshot mensual con
+ * `snapshot_run_id`, ejecutor + gateway SQL + adapter consumido por Agent 1, periodo congelado y
+ * publicación fijada, resolución por nombre canónico exacto, promoción vallada de la identidad
+ * fiscal, sanitización por fila). Un trinquete que siguiera exigiendo «pendiente diseño de
+ * integración» BLOQUEARÍA la corrección que ese propio estado anticipaba; y `discovery` afirmaba
+ * lo contrario de lo que Brasil hace: Receita NO descubre empresas, enriquece a una candidata que
+ * ya existe.
+ *
+ * NEW_INVARIANTS, ESTRICTAMENTE MÁS FUERTES — lo que este hito defiende no es «los valores de
+ * antes» sino «el display no sobre-afirma»:
+ *   - `sellupUse` es `enrichment` y NUNCA `discovery` (afirmación NUEVA: antes el uso no se
+ *     afirmaba por sí mismo, sólo indirectamente vía labels).
+ *   - `aiFlowStatus` es `partial_pending_data`, y sigue sin ser `connected` ni
+ *     `connected_post_approval`: lo que falta son DATOS, no diseño.
+ *   - `connectionMode` es `read_only_snapshot` — el contrato real es un snapshot mensual offline
+ *     de sólo lectura — y sigue sin ser `automatic_enrichment` ni `credential_configured`.
+ *   - `operationalStatus` SIGUE en `validation_only`, y se afirma explícitamente que NO es
+ *     `operational_verified`: sin la migración 133 aplicada y sin snapshot nacional cargado,
+ *     Brasil produce cero salida automática en Producción.
+ *   - La acción SIGUE siendo "Ver detalle" y NUNCA "Conectar", y la ficha SIGUE omitiendo los
+ *     paneles genéricos de conexión. Eso se afirma igual que antes, sobre el modo nuevo.
+ *   - Brasil AHORA sí aparece en "Operativas IA" — como parcial/pendiente datos, que es
+ *     exactamente para lo que existe ese estado en filterTab.
+ *
  * Alinea las fuentes de Brasil con el estándar visual/semántico existente del
  * Source Catalog (mismo patrón que ec_sercop / ec_ekos):
  *   - br_receita_dados_abertos (bulk principal): usa estados estándar
@@ -75,22 +107,39 @@ describe('BR-SOURCE-8B — br_receita_dados_abertos uses standard catalog states
     assert.equal(label, 'Solo validación');
   });
 
-  it('aiFlowStatus is pending_integration_design (standard, NOT dry_run_validated)', () => {
-    assert.equal(receita?.aiFlowStatus, 'pending_integration_design');
-    assert.notEqual(receita?.aiFlowStatus, 'dry_run_validated');
-    assert.notEqual(receita?.aiFlowStatus, 'connected');
-    assert.notEqual(receita?.aiFlowStatus, 'connected_post_approval');
-    const label = AI_FLOW_STATUS_LABELS[receita!.aiFlowStatus!];
-    assert.equal(label, 'Pendiente diseño de integración');
+  it('sellupUse is enrichment — post-discovery — and NEVER discovery', () => {
+    // 🔴 §5 del contrato de release: Brasil NO se presenta como fuente de discovery. Receita
+    // entra DESPUÉS del descubrimiento, sobre una candidata que ya existe.
+    assert.equal(receita?.sellupUse, 'enrichment');
+    assert.notEqual(receita?.sellupUse, 'discovery');
+    assert.equal(SELLUP_USE_LABELS[receita!.sellupUse!], 'Enrichment');
   });
 
-  it('connectionMode is not_connected (standard, NOT not_persisted)', () => {
-    assert.equal(receita?.connectionMode, 'not_connected');
-    assert.notEqual(receita?.connectionMode, 'not_persisted');
-    assert.notEqual(receita?.connectionMode, 'backend_connected');
+  it('aiFlowStatus is partial_pending_data — built, awaiting DATA, not connected', () => {
+    assert.equal(receita?.aiFlowStatus, 'partial_pending_data');
+    // 🔴 Ya NO es «pendiente diseño de integración»: el diseño existe y está verde en local.
+    assert.notEqual(receita?.aiFlowStatus, 'pending_integration_design');
+    // 🔴 …y sigue SIN afirmar conexión: la 133 no está aplicada y no hay snapshot nacional.
+    assert.notEqual(receita?.aiFlowStatus, 'connected');
+    assert.notEqual(receita?.aiFlowStatus, 'connected_post_approval');
+    assert.notEqual(receita?.aiFlowStatus, 'snapshot_persisted');
+    // …ni las etiquetas experimentales que BR-SOURCE-8B sacó del listado.
+    assert.notEqual(receita?.aiFlowStatus, 'dry_run_validated');
+    const label = AI_FLOW_STATUS_LABELS[receita!.aiFlowStatus!];
+    assert.equal(label, 'Parcial / pendiente datos');
+  });
+
+  it('connectionMode is read_only_snapshot — the real access contract', () => {
+    // 🔴 No hay API live ni credenciales: se lee un snapshot mensual publicado, offline y de
+    // sólo lectura. `not_connected` describía mal ese contrato.
+    assert.equal(receita?.connectionMode, 'read_only_snapshot');
+    assert.notEqual(receita?.connectionMode, 'not_connected');
+    // …y sigue sin afirmar enrichment automático ni credencial configurada.
     assert.notEqual(receita?.connectionMode, 'automatic_enrichment');
+    assert.notEqual(receita?.connectionMode, 'credential_configured');
+    assert.notEqual(receita?.connectionMode, 'not_persisted');
     const label = CONNECTION_MODE_LABELS[receita!.connectionMode!];
-    assert.equal(label, 'No conectada');
+    assert.equal(label, 'Read-only snapshot');
   });
 
   it('listing labels contain NONE of the experimental labels', () => {
@@ -113,8 +162,12 @@ describe('BR-SOURCE-8B — br_receita_dados_abertos uses standard catalog states
     assert.notEqual(action.label, 'Conectar');
   });
 
-  it('does NOT appear in the "Operativas IA" tab', () => {
-    assert.ok(!operativasKeys().includes('br_receita_dados_abertos'));
+  it('appears in the "Operativas IA" tab as partial / pending data', () => {
+    // 🔴 Trinquete INVERTIDO. Antes quedaba FUERA porque `pending_integration_design` no está en
+    // la lista de estados operativos de filterTab. Ahora entra por `partial_pending_data`, que es
+    // el estado que ese tab tiene precisamente para una integración construida a la que le faltan
+    // datos. Sigue sin ofrecer "Conectar" y sigue sin paneles de conexión (se afirma abajo).
+    assert.ok(operativasKeys().includes('br_receita_dados_abertos'));
   });
 
   it('detail page SKIPS generic connection panels (no connect/test CTA)', () => {
@@ -185,10 +238,47 @@ describe('BR-SOURCE-8B — Brazil source_key reconciliation preserved', () => {
     assert.equal(bulkBrazil.length, 1, 'la fuente bulk de Brasil debe ser única');
   });
 
-  it('standardization does not flip status to active/live/connected', () => {
+  it('the release does NOT flip the source to operational/live/connected', () => {
+    // 🔴 Esto es lo que el trinquete original protegía de verdad, y se conserva: el hito de
+    // release NO declara Brasil operativa. Mientras la 133 no esté aplicada en Producción y el
+    // snapshot nacional no esté cargado, la fuente produce cero salida automática.
     assert.equal(receita?.operationalStatus, 'validation_only');
-    assert.equal(receita?.aiFlowStatus, 'pending_integration_design');
-    assert.equal(receita?.connectionMode, 'not_connected');
+    assert.notEqual(receita?.operationalStatus, 'operational_verified');
+    assert.notEqual(receita?.operationalStatus, 'validated');
+    assert.notEqual(receita?.operationalStatus, 'partial_snapshot');
+    assert.notEqual(receita?.aiFlowStatus, 'connected');
+    assert.notEqual(receita?.aiFlowStatus, 'connected_post_approval');
+    assert.notEqual(receita?.connectionMode, 'automatic_enrichment');
+    assert.notEqual(receita?.connectionMode, 'credential_configured');
+  });
+
+  it('nextAction names the two Production steps that are still pending', () => {
+    // 🔴 El display no puede decir «listo» sin decir QUÉ falta: aplicar la 133 y cargar el
+    // snapshot nacional. Si alguien borra una de las dos, esta guarda cae.
+    const na = receita?.nextAction ?? '';
+    assert.match(na, /133/, 'nextAction debe nombrar la migración 133');
+    assert.match(na, /snapshot nacional/i, 'nextAction debe nombrar la carga del snapshot nacional');
+  });
+
+  it('the listed copy exposes no QSA / sócios / CPF / phone / email / address material', () => {
+    // 🔴 §5 del contrato de release. Se mira TODO el copy que el catálogo puede pintar para esta
+    // fuente, no sólo un campo.
+    const copy = [
+      receita?.name,
+      receita?.nextAction,
+      receita?.recommendedUse,
+      ...(receita?.limitations ?? []),
+      ...(receita?.riskNotes ?? []),
+    ]
+      .join(' ')
+      .toLowerCase();
+    for (const forbidden of ['qsa', 'sócio', 'socio', 'societário', 'societario', 'cpf']) {
+      assert.equal(
+        copy.includes(forbidden),
+        false,
+        `el copy del catálogo no debe exponer "${forbidden}"`,
+      );
+    }
   });
 });
 

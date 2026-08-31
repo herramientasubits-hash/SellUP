@@ -1305,24 +1305,52 @@ export const CATALOG_SOURCES: CatalogSource[] = [
   {
     key: 'br_receita_dados_abertos',
     name: 'Receita Federal CNPJ Dados Abertos (Bulk)',
-    // Estado operativo real (BR-SOURCE-8B-UI-STANDARDIZE): preparación técnica
-    // local lista, pero la fuente NO está conectada ni operativa. GO Legal/Privacy
-    // (BR-LEGAL-2), parser de muestra local (BR-SOURCE-2), validador de manifiesto
-    // (BR-SOURCE-6) y dry-run local sobre archivo real (BR-SOURCE-7) están listos.
-    // La importación, el runtime enrichment, la integración live con Agent 1 y la
-    // sincronización con HubSpot siguen BLOQUEADAS hasta un hito separado con
-    // aprobación explícita. Presentacional — no habilita ningún flujo.
+    // ── Estado operativo real — BR-PRODUCTION-RELEASE ────────────────────────
     //
-    // Alineación con el estándar del catálogo (mismo patrón que ec_sercop): usa
-    // los estados existentes `pending_integration_design` + `not_connected` en
-    // lugar de los estados experimentales `dry_run_validated`/`not_persisted`.
-    // Con ello el listado muestra labels estándar ("Pendiente diseño de
-    // integración", "No conectada", "Solo validación"), la acción es "Ver detalle"
-    // (nunca "Conectar", ver action-presentation.ts) y la ficha de detalle omite
-    // los paneles de conexión (ver shouldSkipGenericConnectionPanels).
-    sellupUse: 'discovery',
-    aiFlowStatus: 'pending_integration_design',
-    connectionMode: 'not_connected',
+    // Historia: BR-SOURCE-8B-UI-STANDARDIZE clasificó esta fuente como
+    // `discovery` + `pending_integration_design` + `not_connected` cuando lo único
+    // listo era la preparación LOCAL (GO Legal/Privacy BR-LEGAL-2, parser de
+    // muestra BR-SOURCE-2, validador de manifiesto BR-SOURCE-6, dry-run local
+    // BR-SOURCE-7) y no existía diseño de integración.
+    //
+    // Qué cambió: los cortes funcionales A→E1 construyeron la integración
+    // completa — snapshot mensual con identidad y `snapshot_run_id` (CUT A,
+    // migración 127), ejecutor + gateway SQL + adapter BR consumidos por Agent 1
+    // (CUT B), periodo congelado y publicación fijada (CUT B1/B2), resolución de
+    // la candidata al establecimiento por nombre canónico exacto dentro de la
+    // publicación fijada (CUT C), promoción VALLADA de la identidad fiscal
+    // resuelta (CUT D, migración 133) y sanitización a nivel de fila (CUT E1).
+    // Por eso los tres valores anteriores dejaron de ser ciertos:
+    //
+    //   · `discovery` era incorrecto: Brasil NO descubre empresas. Receita entra
+    //     DESPUÉS del descubrimiento, a enriquecer e identificar fiscalmente a una
+    //     candidata que ya existe → `enrichment`.
+    //   · `pending_integration_design` era incorrecto: el diseño de integración ya
+    //     no está pendiente, está construido y verde en local. Lo que sigue
+    //     pendiente son los DATOS: la migración 133 no está aplicada en Producción
+    //     y el snapshot nacional de Receita no está cargado → `partial_pending_data`.
+    //   · `not_connected` describía mal el CONTRATO de acceso: no hay API live ni
+    //     credenciales; se lee un snapshot mensual publicado, offline y de sólo
+    //     lectura → `read_only_snapshot`.
+    //
+    // Qué NO cambia, deliberadamente:
+    //
+    //   · `operationalStatus` sigue en `validation_only` ("Solo validación").
+    //     Mientras la 133 no esté aplicada y el snapshot nacional no esté cargado,
+    //     esta fuente produce CERO salida automática en Producción, y el estado
+    //     operativo no debe afirmar operatividad que el producto todavía no tiene.
+    //     La operación de Producción que aplique la 133 y cargue el snapshot es la
+    //     que puede llevarlo a `operational_verified` + `connected_post_approval`,
+    //     igual que `pe_sunat_bulk`. NO antes.
+    //   · `read_only_snapshot` mantiene la acción en "Ver detalle" —nunca
+    //     "Conectar"— por el `default` de action-presentation.ts, y mantiene la
+    //     ficha de detalle SIN paneles genéricos de conexión, porque
+    //     shouldSkipGenericConnectionPanels ya cubre ese connection mode.
+    //     Presentacional: ningún valor de aquí habilita import, runtime, Agent 1
+    //     live ni HubSpot.
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'partial_pending_data',
+    connectionMode: 'read_only_snapshot',
     // Reconciliación de clave (BR-SOURCE-8-UI-FIX1): la UI/registry conserva la
     // clave existente `br_receita_dados_abertos` para no duplicar la fuente de
     // Brasil. Los contratos técnicos (parser, staging, dry-run) usan la clave
@@ -1336,7 +1364,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
         'La clave existente del catálogo/UI se conserva para evitar duplicar la fuente de Brasil; los contratos técnicos de parser, staging y dry-run usan la clave canónica br_receita_cnpj_dados_abertos.',
     },
     nextAction:
-      'Preparación técnica lista (parser, validador de manifiesto, dry-run local). Import, runtime, HubSpot y generación live permanecen bloqueados hasta un hito separado con aprobación explícita.',
+      'Integración construida y verde en local (snapshot mensual, publicación fijada, resolución por nombre, promoción vallada de identidad fiscal). Pendiente en Producción: aplicar la migración 133 y cargar el snapshot nacional de Receita. Import, runtime, HubSpot y generación live permanecen bloqueados hasta esa operación de Producción con aprobación explícita.',
     countryCodes: ['BR'],
     sectors: [],
     priority: 'P0',
@@ -1344,7 +1372,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     type: 'official_registry',
     url: 'https://dadosabertos.rfb.gov.br/CNPJ/',
     automationLevel: 'high',
-    recommendedUse: 'Dataset más completo de LATAM — ~60M CNPJs (~22M activos). Archivos ZIP: CNPJ, razão social, CNAE, município, situação cadastral, capital social, porte, quadro societário. Preparación técnica local lista (parser + validador de manifiesto + dry-run local), pero la ingesta masiva/offline permanece BLOQUEADA hasta un hito de importación con aprobación explícita.',
+    recommendedUse: 'Registro empresarial oficial de Brasil, usado para ENRIQUECER después del descubrimiento: nunca descubre empresas. Dataset más completo de LATAM — ~60M CNPJs (~22M activos). Archivos ZIP: CNPJ, razão social, CNAE, município, situação cadastral, capital social, porte. Lectura de snapshot mensual publicado (offline, sólo lectura, sin credenciales). La ingesta nacional permanece BLOQUEADA hasta una operación de Producción con aprobación explícita.',
     limitations: [
       'Descarga ~4.7 GB comprimido / ~17 GB descomprimido — procesamiento batch offline obligatorio',
       'Acceso desde fuera de Brasil puede dar timeout; usar mirror: dados.gov.br o arquivos.receitafederal.gov.br',
