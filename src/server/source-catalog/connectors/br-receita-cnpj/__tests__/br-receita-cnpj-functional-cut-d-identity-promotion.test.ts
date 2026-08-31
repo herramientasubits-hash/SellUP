@@ -1387,12 +1387,19 @@ describe('CUT D — the transport, and the recorded contracts', () => {
     // …y en particular el nombre local con el que nació ya no está.
     assert.equal(present.includes('LOCAL_br_candidate_identity_promotion.sql'), false);
     assert.equal(present.includes('LOCAL_br_receita_compact_snapshot.sql'), false);
-    // 🔴 Este corte ya NO es el techo: la 134 (almacenamiento compacto de BR) va por encima. Lo
-    // que esta guarda defiende no cambia —que la 133 exista y sea EXACTAMENTE de este corte— y se
-    // afirma además quién es el techo, para que una migración no declarada por encima rompa esto.
+    // 🔴 Este corte ya NO es el techo: primero la 134 (almacenamiento compacto de BR) fue por
+    // encima, y luego AGENT1-LUSHA-CUT-L3 fue por encima de esa con la 135 —renumerada desde la
+    // 134 al integrarse en serie después de que BR-COMPACT-SNAPSHOT-PRODUCTIZATION llegara
+    // primero a main con ese número—. Lo que esta guarda defiende no cambia —que la 133 exista y
+    // sea EXACTAMENTE de este corte— y se afirma además quién es el techo real, para que una
+    // migración no declarada por encima rompa esto. El barrido de contenido «nada por encima
+    // menciona BR-SOURCE» se retiró porque dejó de ser cierto de forma legítima: la propia 134 es
+    // TAMBIÉN autoría de BR-SOURCE, sólo que de un corte distinto (el almacenamiento compacto, no
+    // CUT D); la posición en la secuencia es la afirmación que se sostiene.
     const numbered = present.filter((f) => /^\d{3}_/.test(f)).sort();
     assert.ok(numbered.includes(MIGRATION_FILE));
-    assert.equal(numbered[numbered.length - 1], '134_br_receita_compact_snapshot.sql');
+    assert.deepEqual(numbered.filter((f) => f.startsWith('133')), [MIGRATION_FILE]);
+    assert.equal(numbered[numbered.length - 1], '135_agent1_lusha_prospecting_request_fence.sql');
     // Control NEGATIVO del filtro, sobre un nombre SINTÉTICO.
     assert.equal(/^\d{3}_/.test('LOCAL_example_unnumbered.sql'), false);
     assert.equal(/^\d{3}_/.test(MIGRATION_FILE), true);

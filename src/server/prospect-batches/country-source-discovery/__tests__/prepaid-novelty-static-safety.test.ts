@@ -241,8 +241,14 @@ test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 
       // reutiliza `source_snapshot_runs` sin tocarla. La capa gratuita sigue sin necesitar
       // esquema, que es lo único que esta guarda afirma. AUTORADA y NO APLICADA.
       '134_br_receita_compact_snapshot.sql',
+      // 🔴 AGENT1-LUSHA-CUT-L3: la valla DURABLE de una petición de Lusha Prospecting —renumerada
+      // de la 134 a la 135 al integrarse en serie después de que BR-COMPACT-SNAPSHOT-
+      // PRODUCTIZATION llegara primero a main con ese número—. Es de Agente 1, pero NO de la capa
+      // gratuita: se escribe antes de una petición PAGADA y no toca ninguna de las tablas que la
+      // capa gratuita lee. AUTORADA y NO APLICADA.
+      '135_agent1_lusha_prospecting_request_fence.sql',
     ],
-    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D y el almacenamiento compacto de BR',
+    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR y la valla de petición de Lusha',
   );
 
   // 🔴 Ratchet invertido en AGENT1-PROVIDER-SEEN-MEMORY-3: la 123 YA está aplicada

@@ -181,7 +181,15 @@ describe('114 — numeración', () => {
     // `134_br_receita_compact_snapshot.sql`, la tabla dedicada y particionada del snapshot
     // nacional de Brasil. NO es de teléfono, no nombra ninguna tabla, columna ni función de
     // teléfono, y no edita el archivo de ninguna migración anterior. AUTORADA y NO APLICADA.
-    assert.equal(Math.max(...numbers), 134);
+    // 🔴 AGENT1-LUSHA-CUT-L3 mueve el techo a la 135 (renumerada desde la 134 al integrarse en
+    // serie después de que BR-COMPACT-SNAPSHOT-PRODUCTIZATION llegara primero a main con ese
+    // número): `135_agent1_lusha_prospecting_request_fence.sql`, la valla DURABLE de una
+    // petición de Lusha Company Prospecting: una tabla (`lusha_prospecting_request_fence`) y
+    // tres funciones que se escriben ANTES del envío, para que una caída dura no repita una
+    // petición que el proveedor quizá ya cobró. Es de Agente 1 y de seguridad de GASTO: no es de
+    // teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de las cadenas
+    // que esta guarda vigila. AUTORADA y NO APLICADA.
+    assert.equal(Math.max(...numbers), 135);
   });
 
   it('114 es la ÚNICA dueña de la forma de las dos tablas oficiales', () => {

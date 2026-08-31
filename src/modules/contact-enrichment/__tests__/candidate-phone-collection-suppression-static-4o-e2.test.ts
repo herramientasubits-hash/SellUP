@@ -225,6 +225,11 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // siendo EXACTA: una migración nueva que no se declare aquí rompe la guarda.
       // AUTORADA y NO APLICADA.
       '134_br_receita_compact_snapshot.sql',
+      // AGENT1-LUSHA-CUT-L3 añade la 135 (renumerada desde la 134 al integrarse en serie después
+      // de que BR-COMPACT-SNAPSHOT-PRODUCTIZATION llegara primero a main con ese número): la
+      // valla DURABLE de una petición de Lusha Prospecting (Agente 1, seguridad de gasto). No
+      // edita la 112 ni ninguna otra de la cadena de teléfono.
+      '135_agent1_lusha_prospecting_request_fence.sql',
     ]);
   });
 
