@@ -751,25 +751,30 @@ describe(
         assert.equal((await candidateOf(candidateId!)).tax_identifier, null);
       });
 
-      it('CASE 17B — 🔴 la capacidad es MONÓTONA: perderla a mitad NO es prueba de que falte', async () => {
+      it('CASE 17B — 🔴 LA TOPOLOGÍA DE PRODUCCIÓN: 126 aplicada, 133 AUSENTE', async () => {
         if (datasetSkip !== false) return;
-        // La foto se toma con la base REAL —la capacidad se observa VIVA— y sólo entonces
-        // desaparece la promoción. Ese es el modo de fallo de un despliegue inconsistente (caché
-        // de esquema rancia, función caída), y tratarlo como «la migración no está aplicada» es
-        // exactamente lo que dejaría evaporarse la valla a mitad de un lote.
+        // 🔴 Esta es la topología REAL del despliegue, y CASE 17 no la modela: allí AMBAS
+        // funciones fingen faltar, así que la época sale `null` y el corredor nunca llega a la
+        // promoción. Producción tiene la 126 —época real, snapshot legible— y le falta SÓLO la
+        // 133, de modo que la única que responde «esa función no existe» es la promoción.
         //
-        // La primera versión de esta prueba esperaba CAPABILITY_ABSENT aquí. El producto tenía
-        // razón y la prueba no: la corrección de CUT-3B4 existe precisamente para esto.
+        // Leer esa respuesta como «la valla se observó viva y se evaporó» dejaba al candidato SIN
+        // adjudicar, y por tanto la segunda pasada exacta de CUT C no se ejecutaba: una REGRESIÓN
+        // de un corte ya entregado durante toda la ventana entre el merge y el apply.
+        //
+        // La época no PRUEBA nada sobre la 133. Son dos migraciones distintas.
         const group = uniqueGroups()[5]!;
         const batchId = await newBatch();
         const [candidateId] = await newCandidates(batchId, await epochOf(batchId), [
           { name: group.rows[0]!.legalName, country_code: 'BR' },
         ]);
 
+        // 🔴 La 126 NO se ciega aquí: la foto se lee contra la base real.
         const honest = supabaseShim();
         const snapshot = await loadBatchIdentityRegistry(honest, batchId);
-        assert.equal(snapshot.fenceCapabilityAbsent, false, 'la capacidad no se observó viva');
-        assert.notEqual(snapshot.epoch, null);
+        assert.equal(snapshot.fenceCapabilityAbsent, false, 'la 126 se leyó como ausente');
+        assert.equal(snapshot.degraded, false);
+        assert.notEqual(snapshot.epoch, null, 'la 126 está aplicada: la época es real');
 
         const blindedPromotionOnly = createCutESupabaseShim(a, {
           pretendMissing: new Set([PROMOTE_FISCAL_IDENTITY_RPC]),
@@ -783,11 +788,67 @@ describe(
           candidateName: group.rows[0]!.legalName,
           snapshot,
         });
-        assert.equal(promotion.status, 'ERROR', promotion.reason);
-        assert.equal(promotion.reason, 'promotion_capability_lost');
-        assert.notEqual(promotion.status, 'CAPABILITY_ABSENT');
+        assert.equal(promotion.status, 'CAPABILITY_ABSENT', promotion.reason);
+        assert.equal(promotion.reason, 'promotion_migration_not_applied');
+        // 🔴 ADJUDICADO: es lo que deja sobrevivir intacto el comportamiento de CUT C.
+        assert.equal(promotion.adjudicated, true);
+        assert.equal(promotion.promotionCapability, 'ABSENT');
         assert.equal(promotion.mutated, false);
         assert.equal((await candidateOf(candidateId!)).tax_identifier, null);
+      });
+
+      it('CASE 17C — 🔴 la capacidad es MONÓTONA: OBSERVADA viva, perderla es fallo CERRADO', async () => {
+        if (datasetSkip !== false) return;
+        // La otra mitad del invariante. Aquí la 133 no se supone: se OBSERVA, porque una promoción
+        // real la ejecuta contra la base de verdad. Sólo entonces desaparece, y eso ya no es «la
+        // migración no está aplicada» sino un despliegue inconsistente (caché de esquema rancia,
+        // función caída). Tratarlo como prueba de ausencia es lo que dejaría evaporarse la valla a
+        // mitad de un lote — el defecto que la corrección de CUT-3B4 cerró.
+        const observed = uniqueGroups()[6]!;
+        const lost = uniqueGroups()[7]!;
+        const batchId = await newBatch();
+        const [firstId, secondId] = await newCandidates(batchId, await epochOf(batchId), [
+          { name: observed.rows[0]!.legalName, country_code: 'BR' },
+          { name: lost.rows[0]!.legalName, country_code: 'BR' },
+        ]);
+
+        const honest = supabaseShim();
+        const snapshot = await loadBatchIdentityRegistry(honest, batchId);
+        const first = await runFencedIdentityPromotion({
+          client: honest,
+          batchId,
+          candidateId: firstId!,
+          countryCode: 'BR',
+          taxIdentifier: observed.rows[0]!.normalizedTaxId,
+          candidateName: observed.rows[0]!.legalName,
+          snapshot,
+        });
+        assert.equal(first.status, 'PROMOTED', first.reason);
+        // 🔴 La ÚNICA prueba de que la 133 existe: la promoción respondió.
+        assert.equal(first.promotionCapability, 'PRESENT');
+
+        const blindedPromotionOnly = createCutESupabaseShim(a, {
+          pretendMissing: new Set([PROMOTE_FISCAL_IDENTITY_RPC]),
+        });
+        const second = await runFencedIdentityPromotion({
+          client: blindedPromotionOnly,
+          batchId,
+          candidateId: secondId!,
+          countryCode: 'BR',
+          taxIdentifier: lost.rows[0]!.normalizedTaxId,
+          candidateName: lost.rows[0]!.legalName,
+          snapshot: first.snapshot,
+          // 🔴 Lo que la CORRIDA ya estableció, hilado por quien llama.
+          promotionCapability: first.promotionCapability,
+        });
+        assert.equal(second.status, 'ERROR', second.reason);
+        assert.equal(second.reason, 'promotion_capability_lost');
+        assert.notEqual(second.status, 'CAPABILITY_ABSENT');
+        // 🔴 Y NO adjudicado: de esa identidad no sale un reintento exacto contra el adaptador.
+        assert.equal(second.adjudicated, false);
+        assert.equal(second.promotionCapability, 'PRESENT', 'PRESENT dejó de ser terminal');
+        assert.equal(second.mutated, false);
+        assert.equal((await candidateOf(secondId!)).tax_identifier, null);
       });
     });
 

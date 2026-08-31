@@ -140,6 +140,10 @@ import {
   type BatchIdentitySeedOutcome,
 } from '@/server/prospect-batches/batch-identity-registry-store';
 import {
+  INITIAL_PROMOTION_CAPABILITY_STATE,
+  type PromotionCapabilityState,
+} from '@/server/prospect-batches/promotion-capability-state';
+import {
   runFencedIdentityPromotion,
   type FencedIdentityPromotionResult,
 } from '@/server/prospect-batches/run-fenced-identity-promotion';
@@ -645,6 +649,18 @@ export async function enrichBrBatchWithValidatedSources(
      * Local variable only — never logged, never persisted, never returned.
      */
     const promotedFiscalKeys = new Set<string>();
+    /**
+     * What this RUN has established about migration 133 — the promotion function.
+     *
+     * 🔴 Threaded, not per candidate, and NEVER derived from `identitySnapshot`. The snapshot's
+     * epoch proves migration 126 and nothing else, and production ran with 126 applied and 133
+     * not: in that window the promotion answers "no such function" and the honest reading is that
+     * the migration is unapplied, so CUT C's enrichment must survive untouched. Once the promotion
+     * HAS answered in this run the state is `PRESENT` and terminal — a later absence is a
+     * deployment inconsistency and fails closed, which is how the fence is stopped from evaporating
+     * between candidate 1 and candidate 7 of the same batch.
+     */
+    let promotionCapability: PromotionCapabilityState = INITIAL_PROMOTION_CAPABILITY_STATE;
 
     for (let i = 0; i < working.length; i += 1) {
       const slot = outcomes[i];
@@ -693,9 +709,11 @@ export async function enrichBrBatchWithValidatedSources(
             candidateName: (candidate['name'] as string | null) ?? null,
             snapshot: identitySnapshot,
             promotedFiscalKeys,
+            promotionCapability,
             dryRun,
           });
           identitySnapshot = promotion.snapshot;
+          promotionCapability = promotion.promotionCapability;
           slot.promotion = promotion;
 
           result.identityPromotion.attempted += 1;
@@ -992,8 +1010,15 @@ export const BR_AGENT1_RUNTIME_BINDING_CONTRACT = {
   fallsBackToUnfencedWriteAfterRetries: false,
   /** 🔴 Only an ADJUDICATED identity reaches the exact-CNPJ adapter. */
   enrichesWithUnadjudicatedIdentity: false,
-  /** With the CUT D migration unapplied, the CUT C behaviour is preserved exactly. */
+  /**
+   * With the CUT D migration unapplied, the CUT C behaviour is preserved exactly — including in
+   * the PRODUCTION topology, where migration 126 IS applied and only 133 is missing.
+   */
   preservesCutCBehaviourWhenPromotionCapabilityAbsent: true,
+  /** 🔴 …and the promotion's capability is tracked across candidates, per run. */
+  threadsPromotionCapabilityAcrossCandidates: true,
+  /** …never inferred from the identity snapshot's epoch, which is a different migration. */
+  infersPromotionCapabilityFromSnapshotEpoch: false,
   /** Neither the promotion metadata nor any promotion counter carries a CNPJ. */
   persistsPromotionOutcomeWithoutIdentifier: true,
 } as const;

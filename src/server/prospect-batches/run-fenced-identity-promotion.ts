@@ -17,13 +17,16 @@
  *                                      other key: FISCAL_IDENTITY_CONFLICT
  *   evaluate with the authority of B23  ← `evaluateCandidateIdentity`, never another
  *     a batch peer IS this fiscal identity ⇒ FISCAL_IDENTITY_CONFLICT
- *   no epoch                         ⇒ proven-absent: CAPABILITY_ABSENT
- *                                      otherwise:     ERROR (fail closed)
+ *   no epoch (migration 126)         ⇒ 133 already answered: ERROR (fail closed)
+ *                                      proven-absent:      CAPABILITY_ABSENT
+ *                                      otherwise:          ERROR (fail closed)
  *   dry run                          ⇒ SKIPPED_DRY_RUN, after all the refusals above
  *   promote, fenced against THAT photograph's epoch
  *     promoted / already_same        ⇒ done
  *     stale                          ⇒ RELOAD, RE-EVALUATE, retry
  *     retries exhausted              ⇒ STALE_IDENTITY_EPOCH, fail closed
+ *     no such function (migration 133) ⇒ never observed in this run: CAPABILITY_ABSENT
+ *                                        observed before:            ERROR (fail closed)
  *
  * 🔴 The re-evaluation after `stale` is not cosmetic, and it is the reason a
  * bounded retry is safe: the candidate that was promotable against the old
@@ -48,18 +51,37 @@
  *
  * ── 🔴 CAPABILITY_ABSENT keeps CUT C intact, and nothing more ───────────────
  *
- * While the CUT D migration is unapplied the database says so (42883 / PGRST202)
- * and the caller keeps EXACTLY the CUT C behaviour: the resolved identity stays
- * transient and the enrichment still happens. Refusing to enrich in that window
- * would REGRESS a shipped cut for every deployment between merge and apply. It is
- * not a flag, nobody can turn it on, and the moment the migration applies the
- * branch is unreachable.
+ * While a migration this cut needs is unapplied the database says so (42883 /
+ * PGRST202) and the caller keeps EXACTLY the CUT C behaviour: the resolved
+ * identity stays transient and the enrichment still happens. Refusing to enrich in
+ * that window would REGRESS a shipped cut for every deployment between merge and
+ * apply. It is not a flag, nobody can turn it on, and the moment the migrations
+ * apply the branch is unreachable.
  *
- * A degraded read is NOT that. `epoch === null` on its own has always been the
- * trap — a failed query, an invisible batch or an unsupported client produce it
- * too — so the authorization is `isProvenFenceCapabilityAbsent`, imported from
- * the fenced-persistence module rather than restated, and everything else fails
- * CLOSED as `ERROR`.
+ * 🔴 There are TWO migrations, and each has its OWN proof of absence:
+ *
+ *   · 126 — the epoch and the snapshot read. `epoch === null` on its own has
+ *     always been the trap (a failed query, an invisible batch or an unsupported
+ *     client produce it too), so the authorization is
+ *     `isProvenFenceCapabilityAbsent`, imported from the fenced-persistence module
+ *     rather than restated, and everything else fails CLOSED as `ERROR`.
+ *   · 133 — the promotion function itself. A non-null epoch says NOTHING about it,
+ *     and production ran with 126 applied and 133 not. Its proof is the run-scoped
+ *     `PromotionCapabilityState`: an absence is credible until the promotion has
+ *     ANSWERED, and never again afterwards.
+ *
+ * The implication runs ONE way: 133 depends on 126, so a run that observed 133 has
+ * observed 126 too, and a later photograph claiming 126 absent fails CLOSED as
+ * well. 126 alone still proves nothing about 133 — that is the whole defect.
+ *
+ * ── 🔴 The capability is MONOTONE, per RUN ──────────────────────────────────
+ *
+ * Once the promotion has really answered, `PRESENT` is terminal: a later "that
+ * function does not exist" is a deployment inconsistency — a stale schema cache, a
+ * dropped function — and fails CLOSED as `promotion_capability_lost`. That is what
+ * stops the fence evaporating halfway through a batch. The state is threaded by the
+ * caller between candidates, exactly like the identity photograph, because the
+ * invariant is about the RUN and not about one call.
  *
  * ── 🔴 Privacy (§ 6) ────────────────────────────────────────────────────────
  *
@@ -92,9 +114,16 @@ import {
   type BatchIdentitySeedOutcome,
 } from './batch-identity-registry-store';
 import {
+  observedPromotionCapability,
   promoteCandidateFiscalIdentityFenced,
   type FencedIdentityPromotionRpcResult,
 } from './candidate-fiscal-identity-promotion';
+import {
+  advancePromotionCapabilityState,
+  INITIAL_PROMOTION_CAPABILITY_STATE,
+  promotionAbsenceIsCredible,
+  type PromotionCapabilityState,
+} from './promotion-capability-state';
 
 /** The closed outcome set. Nothing here is a row value. */
 export type FencedIdentityPromotionStatus =
@@ -136,6 +165,15 @@ export interface FencedIdentityPromotionResult {
   readonly adjudicated: boolean;
   /** Photograph the caller should carry into the next candidate. */
   readonly snapshot: BatchIdentitySeedOutcome;
+  /**
+   * What this RUN now knows about migration 133, to carry into the next candidate.
+   *
+   * 🔴 Threaded exactly like `snapshot`, and for the same reason: candidate 1
+   * proving the promotion alive is what makes candidate 7's `capability_absent` a
+   * deployment inconsistency instead of an unapplied migration. Dropping it on
+   * the floor between candidates re-opens that hole.
+   */
+  readonly promotionCapability: PromotionCapabilityState;
   readonly telemetry: {
     readonly identityEpochInitial: number | null;
     readonly identityEpochFinal: number | null;
@@ -228,6 +266,14 @@ export type RunFencedIdentityPromotionArgs = {
    * the part of the answer the fence cannot give while it does not exist.
    */
   promotedFiscalKeys?: ReadonlySet<string>;
+  /**
+   * What the RUN already established about migration 133. Defaults to `UNKNOWN`.
+   *
+   * 🔴 Never derived from the snapshot's epoch or from `fenceCapabilityAbsent`:
+   * migration 126 and migration 133 are separate deployables and production ran
+   * with the first applied and the second not.
+   */
+  promotionCapability?: PromotionCapabilityState;
   /** Live-shadow: evaluate every refusal, write nothing. */
   dryRun?: boolean;
   maxRetries?: number;
@@ -257,6 +303,8 @@ export async function runFencedIdentityPromotion(
 
   let snapshot = args.snapshot;
   let staleRetries = 0;
+  let promotionCapability =
+    args.promotionCapability ?? INITIAL_PROMOTION_CAPABILITY_STATE;
 
   const done = (
     status: FencedIdentityPromotionStatus,
@@ -268,6 +316,7 @@ export async function runFencedIdentityPromotion(
     mutated: extra.mutated ?? false,
     adjudicated: extra.adjudicated ?? false,
     snapshot,
+    promotionCapability,
     telemetry: {
       identityEpochInitial: args.snapshot.epoch,
       identityEpochFinal: snapshot.epoch,
@@ -338,6 +387,15 @@ export async function runFencedIdentityPromotion(
 
     // ── 5. Can this be fenced at all? ───────────────────────────────────────
     if (snapshot.epoch === null) {
+      // 🔴 The same monotonicity, one migration down. Migration 133 DEPENDS on 126, so a run in
+      // which the promotion has already ANSWERED has proven 126 applied as well. A photograph
+      // arriving after that and claiming 126 absent is a deployment inconsistency, exactly like a
+      // promotion that vanishes mid-flight — reachable on a `stale` retry, whose reload is a fresh
+      // read — and it fails CLOSED. Without this, the retry path could still hand back an
+      // `adjudicated` outcome on the strength of an absence the run had already contradicted.
+      if (!promotionAbsenceIsCredible(promotionCapability)) {
+        return done('ERROR', 'identity_fence_capability_lost');
+      }
       if (isProvenFenceCapabilityAbsent(snapshot)) {
         return done('CAPABILITY_ABSENT', 'identity_fence_migration_not_applied', {
           adjudicated: true,
@@ -359,6 +417,14 @@ export async function runFencedIdentityPromotion(
       identityKey,
       blockingStatuses: BATCH_IDENTITY_BLOCKING_CANDIDATE_STATUSES,
     });
+
+    // 🔴 Folded BEFORE any branch reads it, so every outcome below — including a
+    // `stale` retry that then loses the function — decides against what this run
+    // has actually observed about migration 133.
+    promotionCapability = advancePromotionCapabilityState(
+      promotionCapability,
+      observedPromotionCapability(outcome),
+    );
 
     if (outcome.status === 'promoted') {
       snapshot = snapshotAfterPromotion(
@@ -392,13 +458,26 @@ export async function runFencedIdentityPromotion(
     }
 
     if (outcome.status === 'capability_absent') {
-      // 🔴 Fail CLOSED, with no condition that softens it. This branch is only
-      // reachable HAVING called the fence, and the fence is only called with a
-      // non-null epoch — so the capability was OBSERVED alive in this very
-      // attempt. A function that disappears mid-flight is a deployment
-      // inconsistency (stale schema cache, a dropped function), never proof that
-      // the migration was never applied. Treating it as proof is what would let
-      // the fence evaporate halfway through.
+      // 🔴 WHICH migration is missing decides this, and only ONE of the two
+      // answers is a degradation.
+      //
+      // A non-null epoch proves migration 126 — nothing more. Migration 133 is a
+      // separate deployable, and production ran with 126 applied and 133 not: the
+      // exact window between merging this cut and applying it. Reading that as
+      // "the fence evaporated mid-flight" is what regressed CUT C's shipped
+      // enrichment for every deployment in the window, because the candidate was
+      // left unadjudicated and the exact-CNPJ second pass never ran.
+      //
+      // So: while this run has NEVER seen the promotion answer, an absence is the
+      // migration being unapplied — CUT C survives, nothing is persisted. Once the
+      // promotion HAS answered, `promotionCapability` is `PRESENT`, absence is a
+      // deployment inconsistency (stale schema cache, a dropped function) and this
+      // fails CLOSED. `PRESENT` is terminal, so no ordering of calls can soften it.
+      if (promotionAbsenceIsCredible(promotionCapability)) {
+        return done('CAPABILITY_ABSENT', 'promotion_migration_not_applied', {
+          adjudicated: true,
+        });
+      }
       return done('ERROR', 'promotion_capability_lost');
     }
 
@@ -450,6 +529,12 @@ export const FENCED_IDENTITY_PROMOTION_CONTRACT = {
   fallsBackToUnfencedWriteAfterRetries: false,
   degradedSnapshotAuthorizesWrite: false,
   observedCapabilityCanDegrade: false,
+  /** 🔴 The promotion's capability is tracked per RUN, never per call. */
+  promotionCapabilityIsRunScoped: true,
+  /** …and never inferred from migration 126's fence, which is a different deployable. */
+  infersPromotionCapabilityFromFenceCapability: false,
+  /** An absence the run has not contradicted keeps CUT C intact instead of failing it. */
+  unobservedPromotionAbsencePreservesCutC: true,
   // ── Output ───────────────────────────────────────────────────────────────
   returnsClosedStatusSet: true,
   returnsFiscalIdentifier: false,

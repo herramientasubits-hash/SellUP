@@ -38,6 +38,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type { PromotionCapabilityObservation } from './promotion-capability-state';
 
 /** The fenced promotion of the local (still unnumbered) CUT D migration. */
 export const PROMOTE_FISCAL_IDENTITY_RPC = 'promote_candidate_fiscal_identity_fenced';
@@ -88,6 +89,40 @@ export function isMissingPromotionCapabilityError(error: unknown): boolean {
       lower.includes('could not find') ||
       lower.includes('schema cache'))
   );
+}
+
+/**
+ * `promotion_failed` codes that were produced WITHOUT the promotion ever answering.
+ *
+ * 🔴 The distinction is load-bearing for CUT D's run-scoped capability state: only a
+ * result that came BACK FROM the function may prove the function exists. A client
+ * without `.rpc`, a throw before the wire and a driver error carrying no SQLSTATE
+ * reached nothing, so they prove neither presence nor absence.
+ */
+export const PROMOTION_CAPABILITY_UNPROVEN_CODES: ReadonlyArray<string> = [
+  'promotion_client_without_rpc',
+  'promotion_rpc_threw',
+  'promotion_rpc_error',
+];
+
+/**
+ * What ONE transport result says about migration 133 EXISTING.
+ *
+ * `capability_absent` is the only proof of absence (42883 / PGRST202, and nothing
+ * else reaches it). Every other status either carries a payload the function
+ * produced or a SQLSTATE the function's own execution raised — both of which are
+ * proof of presence. The unproven codes above are the third answer, and returning
+ * `PRESENT` for them is exactly what would turn a network blip into a permanent
+ * claim that the migration is applied.
+ */
+export function observedPromotionCapability(
+  result: FencedIdentityPromotionRpcResult,
+): PromotionCapabilityObservation {
+  if (result.status === 'capability_absent') return 'ABSENT';
+  if (result.status === 'promotion_failed') {
+    return PROMOTION_CAPABILITY_UNPROVEN_CODES.includes(result.code) ? 'UNPROVEN' : 'PRESENT';
+  }
+  return 'PRESENT';
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

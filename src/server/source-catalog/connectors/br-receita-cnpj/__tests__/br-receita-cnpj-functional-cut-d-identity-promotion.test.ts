@@ -44,10 +44,18 @@ import {
 } from '@/server/prospect-batches/run-fenced-identity-promotion';
 import {
   PROMOTE_FISCAL_IDENTITY_RPC,
+  PROMOTION_CAPABILITY_UNPROVEN_CODES,
   isMissingPromotionCapabilityError,
+  observedPromotionCapability,
   parseFencedIdentityPromotionPayload,
   promoteCandidateFiscalIdentityFenced,
 } from '@/server/prospect-batches/candidate-fiscal-identity-promotion';
+import {
+  advancePromotionCapabilityState,
+  INITIAL_PROMOTION_CAPABILITY_STATE,
+  promotionAbsenceIsCredible,
+  PROMOTION_CAPABILITY_STATE_CONTRACT,
+} from '@/server/prospect-batches/promotion-capability-state';
 import { BATCH_IDENTITY_BLOCKING_CANDIDATE_STATUSES } from '@/server/agents/prospecting-toolkit/batch-identity-registry';
 import { BATCH_IDENTITY_SNAPSHOT_RPC } from '@/server/prospect-batches/batch-identity-fence';
 import { loadBatchIdentityRegistry } from '@/server/prospect-batches/batch-identity-registry-store';
@@ -83,6 +91,13 @@ const OTHER_BATCH_ID = '55555555-5555-4555-8555-555555555555';
 const CNPJ_TEC = sampleFullCnpj(RAIZ_TECNOLOGIA, '0001');
 const CNPJ_TEC_FILIAL = sampleFullCnpj(RAIZ_TECNOLOGIA, '0002');
 const CNPJ_EDU = sampleFullCnpj(RAIZ_EDUCACAO, '0001');
+/**
+ * The SAME establishment, with the alphanumeric raiz intact.
+ *
+ * 🔴 `RAIZ_EDUCACAO` is a post-July-2026 alphanumeric raiz, so `digits()` mangles it into 11
+ * characters. That is harmless for a distractor row, and fatal for a row a test actually resolves.
+ */
+const CNPJ_EDU_FULL = CNPJ_EDU.replace(/[^0-9A-Z]/gi, '');
 const ALL_CNPJS = [CNPJ_TEC, CNPJ_TEC_FILIAL, CNPJ_EDU] as const;
 
 const TEC_NAME = 'Synthetic Tecnologia Ltda';
@@ -174,8 +189,21 @@ interface FakeDb {
   tables: Record<string, Array<Record<string, unknown>>>;
   updates: Array<{ table: string; payload: Record<string, unknown> }>;
   rpcCalls: Array<{ fn: string; args: Record<string, unknown> }>;
-  /** When true, both fenced functions answer PGRST202 — the migration is not applied. */
+  /** When true, both fenced functions answer PGRST202 — NEITHER migration is applied. */
   fenceUnapplied: boolean;
+  /**
+   * 🔴 THE PRODUCTION TOPOLOGY. Migration 126 is applied — the snapshot read answers, the epoch
+   * is real — and ONLY migration 133 is missing, so just the promotion answers PGRST202.
+   *
+   * This is not a hypothetical: it is the state production was actually in when this release was
+   * reviewed, and it is the state of every deployment between merging this cut and applying 133.
+   * `fenceUnapplied` cannot model it, because blinding the snapshot read too makes the epoch
+   * `null` and the runner never reaches the promotion at all.
+   *
+   * Mutable on purpose: a run that observes the promotion ALIVE and then loses it is the other
+   * half of the invariant, and a test flips this to `true` mid-run to produce it.
+   */
+  promotionUnapplied: boolean;
   /** Runs before every promotion RPC. The seam a competing writer is injected through. */
   beforePromote?: (args: Record<string, unknown>) => void;
 }
@@ -194,6 +222,7 @@ function fakeDb(options: {
   snapshots?: Array<Record<string, unknown>>;
   batches?: Array<Record<string, unknown>>;
   fenceUnapplied?: boolean;
+  promotionUnapplied?: boolean;
 } = {}): FakeDb {
   const db: FakeDb = {
     tables: {
@@ -216,6 +245,7 @@ function fakeDb(options: {
     updates: [],
     rpcCalls: [],
     fenceUnapplied: options.fenceUnapplied ?? false,
+    promotionUnapplied: options.promotionUnapplied ?? false,
     client: null as unknown as SnapshotReadClient<SnapshotIdentityRow>,
     supabase: null as unknown as SupabaseClient,
   };
@@ -380,7 +410,12 @@ function fakeDb(options: {
       db.rpcCalls.push({ fn, args });
       if (db.fenceUnapplied) return { data: null, error: PGRST202 };
       if (fn === BATCH_IDENTITY_SNAPSHOT_RPC) return readSnapshotRpc(args);
-      if (fn === PROMOTE_FISCAL_IDENTITY_RPC) return promoteRpc(args);
+      if (fn === PROMOTE_FISCAL_IDENTITY_RPC) {
+        // 🔴 Read at CALL time, not at construction: `promotionUnapplied` is how a run that saw
+        // the promotion alive then loses it is produced.
+        if (db.promotionUnapplied) return { data: null, error: PGRST202 };
+        return promoteRpc(args);
+      }
       return { data: null, error: PGRST202 };
     },
   } as unknown as SnapshotReadClient<SnapshotIdentityRow>;
@@ -869,6 +904,119 @@ describe('CUT D · CASE 10/11/13 — the orchestrator only promotes what CUT C r
     assert.equal(candidateById(db, 'c1').tax_identifier, null, 'an inert cut wrote anyway');
   });
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // 🔴 THE PRODUCTION DEPLOYMENT WINDOW — migration 126 applied, 133 NOT.
+  //
+  // The case above blinds BOTH functions, which is the state of a database with
+  // NEITHER migration. That is not the state this release deploys into. Production
+  // has 126 — `identity_epoch` and `read_batch_identity_snapshot` are live — and
+  // only 133 is missing, so the snapshot read SUCCEEDS with a real epoch and only
+  // the promotion answers `PGRST202 / 42883`.
+  //
+  // Read as "the fence was observed alive and then vanished", that answer left the
+  // candidate UNADJUDICATED and the exact-CNPJ second pass never ran: CUT C's
+  // shipped enrichment regressed for every deployment between merge and apply.
+  // These two cases pin BOTH halves of the correction.
+  // ═══════════════════════════════════════════════════════════════════════
+
+  it('PROD TOPOLOGY — 126 applied and 133 absent keeps CUT C, and never writes unfenced', async () => {
+    const db = fakeDb({
+      candidates: [candidateRow({ id: 'c1', name: TEC_NAME, legalName: TEC_NAME })],
+      promotionUnapplied: true,
+    });
+
+    // 🔴 The premise, asserted rather than assumed: the M126 snapshot RPC is NOT blinded here.
+    assert.equal(db.fenceUnapplied, false, 'this case must NOT make the M126 RPC absent');
+    const snapshot = await loadBatchIdentityRegistry(db.supabase, BATCH_ID);
+    assert.equal(snapshot.epoch, 0, 'migration 126 is applied: the epoch is real');
+    assert.equal(snapshot.fenceCapabilityAbsent, false);
+    assert.equal(snapshot.degraded, false);
+
+    const result = await enrichBrBatchWithValidatedSources(db.supabase, BATCH_ID, {});
+
+    assert.equal(result.identityResolvedCount, 1, 'CUT C still resolves it');
+    assert.equal(result.identityPromotion.attempted, 1);
+    assert.equal(result.identityPromotion.capabilityAbsent, 1);
+    assert.equal(result.identityPromotion.error, 0, 'an unapplied 133 is not an operational error');
+    assert.equal(result.identityPromotion.adjudicated, 1);
+    assert.equal(result.identityPromotion.promoted, 0);
+
+    // 🔴 The consequence the review is actually about: the second pass RAN.
+    assert.equal(result.matchedCount, 1, 'the exact-CNPJ second pass did not run');
+    assert.equal(result.missingCnpjWithoutAdjudicatedIdentityCount, 0);
+
+    // …and nothing was persisted, fenced or otherwise.
+    assert.equal(candidateById(db, 'c1').tax_identifier, null);
+    assert.equal(epochOf(db), 0, 'an inert cut advanced the epoch');
+    assert.deepEqual(db.updates.filter((u) => 'tax_identifier' in u.payload), []);
+
+    const meta = candidateById(db, 'c1').metadata as Record<string, unknown>;
+    const summary = (meta.source_enrichment as Record<string, unknown>)._summary as Record<
+      string,
+      unknown
+    >;
+    const promotionMeta = summary.identity_promotion as Record<string, unknown>;
+    assert.equal(promotionMeta.status, 'CAPABILITY_ABSENT');
+    assert.equal(promotionMeta.adjudicated, true);
+    assert.equal(promotionMeta.mutated, false);
+    assert.equal(promotionMeta.reason, 'promotion_migration_not_applied');
+  });
+
+  it('PROD TOPOLOGY — a capability OBSERVED in this run cannot then be absent', async () => {
+    // c1 promotes for real, which is the only thing that proves 133 exists. Only THEN does the
+    // function disappear, and c2 must fail CLOSED — not inherit c1's proof as an excuse to call
+    // the absence honest, and not retry the exact adapter from an identity nobody adjudicated.
+    const db = fakeDb({
+      candidates: [
+        candidateRow({ id: 'c1', name: TEC_NAME, legalName: TEC_NAME }),
+        candidateRow({ id: 'c2', name: EDU_NAME, legalName: EDU_NAME }),
+      ],
+      // 🔴 The EDU row of the default fixture carries `digits(CNPJ_EDU)`, which strips the letters
+      // out of an ALPHANUMERIC raiz and leaves 11 characters. It is fine as a distractor nobody
+      // resolves, but this case DOES resolve it, so the row has to carry the real 14-character
+      // identifier — the resolver re-validates what it reads and would fail closed otherwise.
+      snapshots: [
+        snapshotRow({ normalizedTaxId: digits(CNPJ_TEC), canonicalName: TEC_CANONICAL, legalName: TEC_NAME }),
+        snapshotRow({ normalizedTaxId: CNPJ_EDU_FULL, canonicalName: EDU_CANONICAL, legalName: EDU_NAME }),
+      ],
+    });
+    // The seam fires INSIDE the promotion call, past the "does the function exist?" dispatch — so
+    // c1's own promotion still executes and succeeds, and every call after it finds 133 gone.
+    db.beforePromote = (args) => {
+      if (args.p_candidate_id === 'c1') db.promotionUnapplied = true;
+    };
+
+    const result = await enrichBrBatchWithValidatedSources(db.supabase, BATCH_ID, {});
+
+    assert.equal(result.identityResolvedCount, 2, 'CUT C resolved both');
+    assert.equal(result.identityPromotion.attempted, 2);
+    assert.equal(result.identityPromotion.promoted, 1, 'c1 proved the capability alive');
+    assert.equal(
+      result.identityPromotion.capabilityAbsent,
+      0,
+      'an observed capability was allowed to un-exist',
+    );
+    assert.equal(result.identityPromotion.error, 1, 'c2 did not fail closed');
+    assert.equal(result.identityPromotion.adjudicated, 1);
+    assert.equal(result.missingCnpjWithoutAdjudicatedIdentityCount, 1);
+
+    // c1 kept its durable identity; c2 got neither an identity nor an exact lookup.
+    assert.equal(candidateById(db, 'c1').tax_identifier, digits(CNPJ_TEC));
+    assert.equal(candidateById(db, 'c2').tax_identifier, null);
+    assert.equal(result.matchedCount, 1, 'only the adjudicated candidate reaches the adapter');
+    assert.equal(epochOf(db), 1, 'exactly ONE promotion advanced the epoch');
+
+    const meta = candidateById(db, 'c2').metadata as Record<string, unknown>;
+    const summary = (meta.source_enrichment as Record<string, unknown>)._summary as Record<
+      string,
+      unknown
+    >;
+    const promotionMeta = summary.identity_promotion as Record<string, unknown>;
+    assert.equal(promotionMeta.status, 'ERROR');
+    assert.equal(promotionMeta.reason, 'promotion_capability_lost');
+    assert.equal(promotionMeta.adjudicated, false);
+  });
+
   it('a dry run evaluates every refusal and writes nothing', async () => {
     const db = fakeDb({ candidates: [candidateRow({ id: 'c1', name: TEC_NAME, legalName: TEC_NAME })] });
 
@@ -957,6 +1105,8 @@ describe('CUT D · CASE 14 — no CNPJ escapes', () => {
     for (const file of [
       'candidate-fiscal-identity-promotion.ts',
       'run-fenced-identity-promotion.ts',
+      // The release correction's own module. Silent for the same reason as the other two.
+      'promotion-capability-state.ts',
     ]) {
       const code = strip(readFileSync(join(root, file), 'utf8'));
       assert.ok(!/console\./.test(code), `${file} must not log`);
@@ -1049,6 +1199,9 @@ describe('CUT D — the transport, and the recorded contracts', () => {
     assert.equal(c.fallsBackToUnfencedWriteAfterRetries, false);
     assert.equal(c.degradedSnapshotAuthorizesWrite, false);
     assert.equal(c.observedCapabilityCanDegrade, false);
+    assert.equal(c.promotionCapabilityIsRunScoped, true);
+    assert.equal(c.infersPromotionCapabilityFromFenceCapability, false);
+    assert.equal(c.unobservedPromotionAbsencePreservesCutC, true);
     assert.equal(c.returnsFiscalIdentifier, false);
     assert.equal(c.identityAuthority, 'batch-identity-registry.evaluateCandidateIdentity');
   });
@@ -1067,6 +1220,120 @@ describe('CUT D — the transport, and the recorded contracts', () => {
     assert.equal(c.ambiguousNameFailsClosed, true);
     assert.equal(c.noMatchFailsClosed, true);
     assert.equal(c.usesUfForDisambiguation, false);
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 🔴 The run-scoped capability state — the CORRECTION's own unit surface.
+  //
+  // Migration 126 and migration 133 are separate deployables. Everything below
+  // exists so no future reader re-derives "the epoch is non-null, therefore the
+  // promotion exists", which is the inference that regressed CUT C.
+  // ═══════════════════════════════════════════════════════════════════════
+
+  it('the capability state is MONOTONE: PRESENT absorbs everything', () => {
+    assert.equal(INITIAL_PROMOTION_CAPABILITY_STATE, 'UNKNOWN');
+    // UNKNOWN can still go either way…
+    assert.equal(advancePromotionCapabilityState('UNKNOWN', 'ABSENT'), 'ABSENT');
+    assert.equal(advancePromotionCapabilityState('UNKNOWN', 'PRESENT'), 'PRESENT');
+    assert.equal(advancePromotionCapabilityState('UNKNOWN', 'UNPROVEN'), 'UNKNOWN');
+    // …ABSENT is not terminal: applying the migration mid-run is allowed to be seen.
+    assert.equal(advancePromotionCapabilityState('ABSENT', 'PRESENT'), 'PRESENT');
+    assert.equal(advancePromotionCapabilityState('ABSENT', 'ABSENT'), 'ABSENT');
+    assert.equal(advancePromotionCapabilityState('ABSENT', 'UNPROVEN'), 'ABSENT');
+    // 🔴 …and PRESENT is. No observation, in any order, walks it back.
+    for (const observation of ['ABSENT', 'PRESENT', 'UNPROVEN'] as const) {
+      assert.equal(advancePromotionCapabilityState('PRESENT', observation), 'PRESENT');
+    }
+  });
+
+  it('an absence is credible ONLY until the promotion has answered', () => {
+    assert.equal(promotionAbsenceIsCredible('UNKNOWN'), true);
+    assert.equal(promotionAbsenceIsCredible('ABSENT'), true);
+    assert.equal(promotionAbsenceIsCredible('PRESENT'), false);
+  });
+
+  it('only a result that CAME BACK from the function proves the function exists', () => {
+    // Absence: the one proof, and nothing else reaches it.
+    assert.equal(observedPromotionCapability({ status: 'capability_absent' }), 'ABSENT');
+
+    // Presence: any answer the function itself produced, refusals included.
+    for (const result of [
+      { status: 'promoted', previousEpoch: 0, nextEpoch: 1 },
+      { status: 'already_same_identity', currentEpoch: 3 },
+      { status: 'fiscal_identity_conflict', conflict: 'batch_peer_holds_identity' },
+      { status: 'stale', currentEpoch: 9 },
+      { status: 'candidate_not_found' },
+      { status: 'batch_not_found' },
+      { status: 'invalid_input' },
+      // A payload that came back unreadable still came BACK.
+      { status: 'promotion_failed', code: 'promotion_unreadable_payload' },
+      // A different SQLSTATE is the function's own execution failing, not its absence.
+      { status: 'promotion_failed', code: '40001' },
+    ] as const) {
+      assert.equal(observedPromotionCapability(result), 'PRESENT', JSON.stringify(result));
+    }
+
+    // 🔴 UNPROVEN — never reached the function, so it proves NEITHER thing. Calling any of these
+    // PRESENT would let a network blip permanently claim the migration is applied.
+    for (const code of PROMOTION_CAPABILITY_UNPROVEN_CODES) {
+      assert.equal(
+        observedPromotionCapability({ status: 'promotion_failed', code }),
+        'UNPROVEN',
+        code,
+      );
+    }
+  });
+
+  it('a 126 absence that the run ALREADY contradicted fails closed too', async () => {
+    // 133 depends on 126, so a run in which the promotion answered has proven BOTH applied. A
+    // photograph arriving afterwards and claiming 126 absent is a deployment inconsistency, and an
+    // `adjudicated` CAPABILITY_ABSENT built on it would be an absence the run had disproved.
+    const db = fakeDb({ candidates: [candidateRow({ id: 'c1', name: TEC_NAME, legalName: TEC_NAME })] });
+    const snapshot = await loadBatchIdentityRegistry(db.supabase, BATCH_ID);
+    const blinded = { ...snapshot, epoch: null, fenceCapabilityAbsent: true, degraded: false };
+
+    const proven = await runFencedIdentityPromotion({
+      client: db.supabase,
+      batchId: BATCH_ID,
+      candidateId: 'c1',
+      countryCode: BR_RECEITA_CNPJ_COUNTRY_CODE,
+      taxIdentifier: digits(CNPJ_TEC),
+      candidateName: TEC_NAME,
+      snapshot: blinded,
+      // The run already saw the promotion answer.
+      promotionCapability: 'PRESENT',
+    });
+    assert.equal(proven.status, 'ERROR');
+    assert.equal(proven.reason, 'identity_fence_capability_lost');
+    assert.equal(proven.adjudicated, false);
+    assert.equal(candidateById(db, 'c1').tax_identifier, null);
+
+    // …and with nothing observed yet, the SAME photograph is still an honest unapplied 126.
+    const unobserved = await runFencedIdentityPromotion({
+      client: db.supabase,
+      batchId: BATCH_ID,
+      candidateId: 'c1',
+      countryCode: BR_RECEITA_CNPJ_COUNTRY_CODE,
+      taxIdentifier: digits(CNPJ_TEC),
+      candidateName: TEC_NAME,
+      snapshot: blinded,
+    });
+    assert.equal(unobserved.status, 'CAPABILITY_ABSENT');
+    assert.equal(unobserved.reason, 'identity_fence_migration_not_applied');
+    assert.equal(unobserved.adjudicated, true);
+  });
+
+  it('the capability state contract never conflates the two migrations', () => {
+    const c = PROMOTION_CAPABILITY_STATE_CONTRACT;
+    assert.deepEqual([...c.states], ['UNKNOWN', 'ABSENT', 'PRESENT']);
+    assert.equal(c.initial, 'UNKNOWN');
+    assert.equal(c.inferredFromFenceCapability, false);
+    assert.equal(c.inferredFromSnapshotEpoch, false);
+    assert.equal(c.provenOnlyByPromotionResponse, true);
+    assert.equal(c.monotone, true);
+    assert.equal(c.presentCanDegradeToAbsent, false);
+    assert.equal(c.scope, 'run');
+    assert.equal(c.isFlagControlled, false);
   });
 
   it('the CUT C resolver was not touched by this cut', () => {
