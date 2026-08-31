@@ -31,6 +31,16 @@
  * 🔴 The regression for that one does NOT test the planner. It calls `gateway.beginPeriodRun`
  * DIRECTLY against a real database and reads `source_snapshot_runs.metadata` back out, because
  * only a real read can tell "narrowed at the boundary" apart from "narrowed upstream".
+ *
+ * ── 3. A shape-valid VALUE could still BE an identifier ─────────────────────
+ *
+ * Shape validation closed paths and prose, and left one thing open: an unformatted CNPJ is
+ * fourteen digits and nothing else, so it satisfies every safe-token charset by itself and rides
+ * into jsonb inside an APPROVED key — `parser_version`, `source_file_name`, `import_batch_id`.
+ * GATE-4A allows the source exactly ONE persisted exact CNPJ representation,
+ * `br_receita_snapshots.normalized_tax_id`, and `source_snapshot_runs.metadata` is not it.
+ * A CNPJ-shaped value is now refused SEMANTICALLY, by shape and never by check digit, and the
+ * refusal is an OMISSION — no normalisation, no repair, and no identifier in any error.
  */
 
 import { after, before, describe, it } from 'node:test';
@@ -53,6 +63,7 @@ import {
   BR_RECEITA_COMPACT_STORAGE_CONTRACT,
   BR_RECEITA_RUN_LEVEL_PROVENANCE_KEYS,
   brReceitaRunProvenanceForRun,
+  containsForbiddenCnpjDigits,
 } from '../br-receita-cnpj-compact-storage';
 import {
   BR_RECEITA_CNPJ_COUNTRY_CODE,
@@ -73,6 +84,45 @@ const SIMPLE_FILE_NAME = 'estabelecimentos0.csv';
 /** Two operator-side absolute paths. Neither is a filename, and neither may persist. */
 const LOCAL_ABSOLUTE_PATH = '/Users/test/receita.csv';
 const WINDOWS_ABSOLUTE_PATH = 'C:\\Users\\test\\receita.csv';
+
+/**
+ * A SYNTHETIC CNPJ-shaped identifier, assembled from its parts so that no fourteen-digit literal
+ * sits in this source. It denotes no real company; it exists only to be refused.
+ */
+const SYNTHETIC_CNPJ = ['11222333', '0001', '81'].join('');
+/** The same shape with deliberately WRONG check digits — refusal must not depend on the DV. */
+const SYNTHETIC_CNPJ_BAD_DV = ['11222333', '0001', '00'].join('');
+
+/**
+ * The three carriers. Each is a value that PASSES its safe-token shape and still hides a CNPJ:
+ * a filename, a version token and a batch token. This is the surface the key allowlist cannot see.
+ */
+const CNPJ_CARRYING_FILE_NAME = `${SYNTHETIC_CNPJ}.csv`;
+const CNPJ_CARRYING_PARSER_VERSION = `br-receita-cnpj-${SYNTHETIC_CNPJ}@1`;
+const CNPJ_CARRYING_BATCH_ID = `national-${SYNTHETIC_CNPJ}`;
+
+/**
+ * The nearest legitimate MISS: a canonical UUID's longest digit run is its twelve-character final
+ * group, so it must survive a rule that refuses fourteen.
+ */
+const LEGITIMATE_UUID_BATCH_ID = '33333333-3333-4333-8333-333333333333';
+
+/** Asserts a value is absent WITHOUT echoing the synthetic identifier into the message. */
+const assertKeyAbsent = (
+  metadata: Record<string, unknown>,
+  key: string,
+  carrier: string,
+): void => {
+  assert.equal(key in metadata, false, `${key} must be omitted when it carries a CNPJ shape`);
+  for (const persisted of Object.values(metadata)) {
+    assert.equal(
+      typeof persisted === 'string' && persisted.includes(SYNTHETIC_CNPJ),
+      false,
+      `no persisted provenance value may contain the refused identifier (via ${key})`,
+    );
+    assert.equal(persisted === carrier, false, `the raw carrier must not persist under ${key}`);
+  }
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PURE — the value shapes, with no database involved.
@@ -155,6 +205,80 @@ describe('BR-PROVENANCE-PRIVACY — an allowed key may not carry a disallowed va
       const built = brReceitaRunProvenanceForRun({ import_batch_id: prose });
       assert.equal('import_batch_id' in built, false, 'prose must not persist as a batch id');
     }
+  });
+
+  it('🔴 a CNPJ-shaped value does not persist under ANY approved provenance key', () => {
+    // Each carrier PASSES its safe-token shape. Only the value rule stops it.
+    const built = brReceitaRunProvenanceForRun({
+      parser_version: CNPJ_CARRYING_PARSER_VERSION,
+      source_file_name: CNPJ_CARRYING_FILE_NAME,
+      import_batch_id: CNPJ_CARRYING_BATCH_ID,
+    });
+    // parser_version is MANDATORY, so it falls back rather than disappearing.
+    assert.deepEqual(built, { parser_version: BR_RECEITA_CNPJ_PARSER_VERSION });
+    assertKeyAbsent(built, 'source_file_name', CNPJ_CARRYING_FILE_NAME);
+    assertKeyAbsent(built, 'import_batch_id', CNPJ_CARRYING_BATCH_ID);
+  });
+
+  it('🔴 a bare CNPJ, and one with WRONG check digits, are refused alike', () => {
+    // The refusal is by SHAPE. Check-digit validation would have admitted the second one, and
+    // this is a privacy boundary: conservative omission beats a checksum that persists a near-miss.
+    for (const carrier of [SYNTHETIC_CNPJ, SYNTHETIC_CNPJ_BAD_DV]) {
+      const built = brReceitaRunProvenanceForRun({
+        source_file_name: carrier,
+        import_batch_id: carrier,
+        parser_version: carrier,
+      });
+      assert.deepEqual(built, { parser_version: BR_RECEITA_CNPJ_PARSER_VERSION });
+    }
+    assert.equal(containsForbiddenCnpjDigits(SYNTHETIC_CNPJ_BAD_DV), true);
+    assert.equal(
+      BR_RECEITA_COMPACT_STORAGE_CONTRACT.runLevelProvenanceCnpjRefusalIsCheckDigitIndependent,
+      true,
+    );
+  });
+
+  it('the refusal is a shape rule, not a list of known identifiers', () => {
+    assert.equal(containsForbiddenCnpjDigits(SYNTHETIC_CNPJ), true);
+    assert.equal(containsForbiddenCnpjDigits(CNPJ_CARRYING_PARSER_VERSION), true);
+    // Fifteen or more digits is a superset of the shape, not an escape from it.
+    assert.equal(containsForbiddenCnpjDigits(`${SYNTHETIC_CNPJ}7`), true);
+    // And the legitimate values stay legitimate.
+    for (const safe of [
+      BR_RECEITA_CNPJ_PARSER_VERSION,
+      SIMPLE_FILE_NAME,
+      'national-2026-07',
+      LEGITIMATE_UUID_BATCH_ID,
+      '2026-07-12T09:18:00.000Z',
+    ]) {
+      assert.equal(containsForbiddenCnpjDigits(safe), false, 'must remain persistable');
+    }
+  });
+
+  it('legitimate provenance is UNCHANGED by the CNPJ rule', () => {
+    assert.deepEqual(
+      brReceitaRunProvenanceForRun({
+        parser_version: BR_RECEITA_CNPJ_PARSER_VERSION,
+        source_file_name: SIMPLE_FILE_NAME,
+        source_downloaded_at: '2026-07-12T09:18:00.000Z',
+        import_batch_id: 'national-2026-07',
+      }),
+      {
+        parser_version: BR_RECEITA_CNPJ_PARSER_VERSION,
+        source_file_name: SIMPLE_FILE_NAME,
+        source_downloaded_at: '2026-07-12T09:18:00.000Z',
+        import_batch_id: 'national-2026-07',
+      },
+    );
+    // The nearest miss: a UUID batch id runs to twelve digits and must survive.
+    assert.equal(
+      brReceitaRunProvenanceForRun({ import_batch_id: LEGITIMATE_UUID_BATCH_ID }).import_batch_id,
+      LEGITIMATE_UUID_BATCH_ID,
+    );
+    assert.equal(
+      BR_RECEITA_COMPACT_STORAGE_CONTRACT.runLevelProvenanceRefusesCnpjShapedValues,
+      true,
+    );
   });
 
   it('a non-string value in an allowed key persists nothing', () => {
@@ -298,11 +422,97 @@ describe('BR-PROVENANCE-PRIVACY — the gateway re-narrows at the write boundary
     });
   });
 
+  maybe(
+    '🔴 a CNPJ in import_batch_id does NOT survive the SQL boundary',
+    async () => {
+      const metadata = await runMetadataOf(
+        await beginPeriodDirectly('2027-01', { import_batch_id: CNPJ_CARRYING_BATCH_ID }),
+      );
+      assertKeyAbsent(metadata, 'import_batch_id', CNPJ_CARRYING_BATCH_ID);
+      assert.deepEqual(metadata, { parser_version: BR_RECEITA_CNPJ_PARSER_VERSION });
+    },
+  );
+
+  maybe(
+    '🔴 a CNPJ in parser_version does NOT survive, and falls back to the constant',
+    async () => {
+      const metadata = await runMetadataOf(
+        await beginPeriodDirectly('2027-02', { parser_version: CNPJ_CARRYING_PARSER_VERSION }),
+      );
+      // parser_version is mandatory in what is PERSISTED, so the refusal shows up as the
+      // authoritative constant rather than as an absent key.
+      assert.equal(metadata.parser_version, BR_RECEITA_CNPJ_PARSER_VERSION);
+      assert.deepEqual(metadata, { parser_version: BR_RECEITA_CNPJ_PARSER_VERSION });
+      for (const persisted of Object.values(metadata)) {
+        assert.equal(
+          typeof persisted === 'string' && persisted.includes(SYNTHETIC_CNPJ),
+          false,
+          'the refused identifier must not reach run metadata',
+        );
+      }
+    },
+  );
+
+  maybe(
+    '🔴 a CNPJ in source_file_name does NOT survive the SQL boundary',
+    async () => {
+      const metadata = await runMetadataOf(
+        await beginPeriodDirectly('2027-03', { source_file_name: CNPJ_CARRYING_FILE_NAME }),
+      );
+      assertKeyAbsent(metadata, 'source_file_name', CNPJ_CARRYING_FILE_NAME);
+      assert.deepEqual(metadata, { parser_version: BR_RECEITA_CNPJ_PARSER_VERSION });
+    },
+  );
+
+  maybe(
+    '🔴 all three carriers at once, cast past the compile-time allowlist',
+    async () => {
+      const metadata = await runMetadataOf(
+        await beginPeriodDirectly('2027-04', {
+          parser_version: CNPJ_CARRYING_PARSER_VERSION,
+          source_file_name: CNPJ_CARRYING_FILE_NAME,
+          import_batch_id: CNPJ_CARRYING_BATCH_ID,
+          // A bare one too, under a key the allowlist already refuses.
+          normalized_tax_id: SYNTHETIC_CNPJ,
+        }),
+      );
+      assert.deepEqual(metadata, { parser_version: BR_RECEITA_CNPJ_PARSER_VERSION });
+      // GATE-4A, read back off the real row: the persisted jsonb holds no CNPJ representation.
+      assert.equal(
+        JSON.stringify(metadata).includes(SYNTHETIC_CNPJ),
+        false,
+        'run metadata may not carry any CNPJ representation',
+      );
+    },
+  );
+
+  maybe('LEGITIMATE provenance still survives the same boundary', async () => {
+    const metadata = await runMetadataOf(
+      await beginPeriodDirectly('2027-05', {
+        parser_version: BR_RECEITA_CNPJ_PARSER_VERSION,
+        source_file_name: SIMPLE_FILE_NAME,
+        source_downloaded_at: '2026-07-12T09:18:00.000Z',
+        import_batch_id: LEGITIMATE_UUID_BATCH_ID,
+      }),
+    );
+    assert.deepEqual(metadata, {
+      parser_version: BR_RECEITA_CNPJ_PARSER_VERSION,
+      source_file_name: SIMPLE_FILE_NAME,
+      source_downloaded_at: '2026-07-12T09:18:00.000Z',
+      import_batch_id: LEGITIMATE_UUID_BATCH_ID,
+    });
+  });
+
   maybe('the contract claim about the SQL boundary is the behaviour just proved', async () => {
     const c = BR_RECEITA_COMPACT_STORAGE_CONTRACT;
     assert.equal(c.runLevelProvenanceIsRenarrowedAtTheSqlBoundary, true);
     assert.equal(c.runLevelProvenanceValuesAreShapeValidated, true);
     assert.equal(c.runLevelProvenanceAcceptsArbitraryCallerKeys, false);
+    assert.equal(c.runLevelProvenanceRefusesCnpjShapedValues, true);
+    assert.equal(c.runLevelProvenanceCnpjRefusalIsCheckDigitIndependent, true);
+    // GATE-4A's one representation is a column, and it is not this jsonb.
+    assert.equal(c.identityRepresentationCount, 1);
+    assert.equal(c.identityRepresentationQualifiedColumn, 'br_receita_snapshots.normalized_tax_id');
     // Proved once more through the door itself, with a value of every refused kind at once.
     const metadata = await runMetadataOf(
       await beginPeriodDirectly('2026-12', {

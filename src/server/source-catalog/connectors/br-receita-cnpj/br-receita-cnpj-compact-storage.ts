@@ -170,11 +170,57 @@ const SAFE_OPAQUE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const CANONICAL_INSTANT =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
 
-/** A supplied optional value, kept only when it is a string of the required shape. */
+/**
+ * A CNPJ-shaped unformatted identifier: fourteen or more consecutive digits.
+ *
+ * 🔴 GATE-4A allows the source exactly ONE persisted exact CNPJ representation, and it is
+ * `br_receita_snapshots.normalized_tax_id`. `source_snapshot_runs.metadata` is not it. Shape
+ * validation alone does not close that: an unformatted CNPJ is fourteen digits and nothing else,
+ * so it satisfies `SAFE_FILE_NAME`, `SAFE_VERSION_TOKEN` and `SAFE_OPAQUE_TOKEN` on its own and
+ * rides into jsonb inside an APPROVED key. The key allowlist cannot see it; only a rule about the
+ * VALUE can.
+ *
+ * 🔴 Deliberately NOT check-digit validated. A módulo-11 filter would admit every
+ * DV-invalid fourteen-digit run — which is still a real CNPJ typed with one wrong character, or a
+ * real one at all if the DV algorithm is ever wrong about it — and this is a privacy boundary, so
+ * the conservative answer is to omit anything CNPJ-SHAPED rather than to persist whatever survives
+ * a checksum. `containsBrazilCnpjLikeIdentifier` is the right tool for REPORT sanitisation, where
+ * false positives make output unusable; it is the wrong one here, where a false positive costs an
+ * absent provenance field and a false negative costs a persisted identifier.
+ *
+ * ⚪ `\d{14}` is unanchored on purpose: it also catches a run of fifteen or more, and a CNPJ
+ * embedded inside an otherwise shape-valid token (`br-receita-cnpj-<14 digits>@1`). The FORMATTED
+ * mask cannot arrive here at all — `.`/`/`/`-` punctuation puts a `/` in the value and no safe
+ * charset contains one. A canonical UUID's longest digit run is its twelve-character final group,
+ * so `33333333-3333-4333-8333-333333333333` is untouched by this rule.
+ */
+const CNPJ_SHAPED_DIGIT_RUN = /\d{14}/;
+
+/**
+ * True when `value` carries a CNPJ-shaped unformatted digit run and therefore may not be persisted
+ * into run metadata under any key. Never normalises, never repairs and never returns the offending
+ * value — the caller's only move is to OMIT.
+ */
+export function containsForbiddenCnpjDigits(value: string): boolean {
+  return CNPJ_SHAPED_DIGIT_RUN.test(value);
+}
+
+/**
+ * A supplied optional value, kept only when it is a string of the required shape AND carries no
+ * CNPJ-shaped identifier.
+ *
+ * 🔴 The semantic guard lives HERE, on the one combinator the three token validators share,
+ * rather than being repeated at each call site — so `parser_version`, `source_file_name` and
+ * `import_batch_id` are all covered by construction and none can be added later without it.
+ * `safeInstant` does not go through `shaped`, which is exactly why the canonical timestamp is
+ * excluded from this rule by CONSTRUCTION rather than by a remembered exception.
+ */
 const shaped =
   (pattern: RegExp) =>
   (value: unknown): string | undefined =>
-    typeof value === 'string' && pattern.test(value) ? value : undefined;
+    typeof value === 'string' && pattern.test(value) && !containsForbiddenCnpjDigits(value)
+      ? value
+      : undefined;
 
 const safeFileName = shaped(SAFE_FILE_NAME);
 const safeVersionToken = shaped(SAFE_VERSION_TOKEN);
@@ -222,6 +268,13 @@ const safeInstant = (value: unknown): string | undefined => {
  * VALUE. `source_file_name: '/Users/ana/receita.csv'` names an operator's home directory, and
  * `parser_version` / `import_batch_id` are free-text carriers if nothing constrains them. Each
  * value must therefore match its shape, and a value that does not is dropped rather than fixed.
+ *
+ * 🔴 Nor is SHAPE validation sufficient on its own. An unformatted CNPJ is fourteen digits
+ * and nothing else, so it satisfies every safe-token charset above and would travel into
+ * `source_snapshot_runs.metadata` inside an approved key. GATE-4A allows exactly ONE persisted
+ * exact CNPJ representation — `br_receita_snapshots.normalized_tax_id` — and run metadata is not
+ * it, so a CNPJ-shaped value is refused SEMANTICALLY as well: see `containsForbiddenCnpjDigits`.
+ * The canonical timestamp is out of that rule's scope by construction, not by exception.
  *
  * 🔴 An ABSENT `source_file_name` is a legitimate answer for the national producer, whose input is
  * ten multipart establishment files: naming one of them would claim a single file represents the
@@ -494,6 +547,15 @@ export const BR_RECEITA_COMPACT_STORAGE_CONTRACT = {
   runLevelProvenanceValuesAreShapeValidated: true,
   /** And an unsafe value is OMITTED, never basenamed, trimmed or otherwise laundered into one. */
   runLevelProvenanceRepairsUnsafeValues: false,
+  /**
+   * 🔴 GATE-4A, at the VALUE level. A shape-valid token that carries a CNPJ-shaped
+   * unformatted digit run is refused in every provenance key, so the one persisted exact CNPJ
+   * representation stays `identityRepresentationQualifiedColumn` and cannot be a second one hiding
+   * in `parser_version`, `source_file_name` or `import_batch_id`.
+   */
+  runLevelProvenanceRefusesCnpjShapedValues: true,
+  /** Refusal is by SHAPE, never by check digit — a DV-invalid fourteen-digit run is refused too. */
+  runLevelProvenanceCnpjRefusalIsCheckDigitIndependent: true,
   indexes: [
     { name: 'PRIMARY KEY', columns: BR_RECEITA_COMPACT_CONFLICT_COLUMNS, serves: ['exact_pinned_cnpj_lookup', 'one_row_per_identity_per_run', 'run_scoped_lifecycle'] },
     { name: 'br_receita_snapshots_name_idx', columns: [BR_RECEITA_SNAPSHOT_RUN_ID_COLUMN, BR_RECEITA_NORMALIZED_LEGAL_NAME_COLUMN], serves: ['exact_normalized_legal_name_lookup'] },
