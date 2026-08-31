@@ -197,71 +197,113 @@ describe('GATE-ROUND-1 § 2 · the full CNPJ cannot be reconstructed from the ou
 });
 
 // ─── 3 · the sanitizer now inspects VALUES ────────────────────────────────────
+//
+// 🔴 BR-SOURCE CUT E1 — the DISPOSITION of every case below changed from "throws, batch destroyed"
+// to "that row is rejected, batch survives". The DETECTION is untouched: the same four inputs that
+// used to throw are the same four inputs that are refused now, and each assertion below still
+// proves the value never reached the output. What changed is the price: one row, not the run.
 
 describe('GATE-ROUND-1 § 3 · a forbidden VALUE under a PERMITTED key is rejected', () => {
-  it('🔴 the básico smuggled into matrix_branch_flag throws', () => {
+  /** The row-0 rejection this suite expects, or a failure naming what came back instead. */
+  const rejectionForRowZero = (input: BrReceitaCnpjParserInput) => {
+    const result = buildBrReceitaCnpjSnapshotRows(input);
+    const rejection = result.rejected.find((r) => r.sourceRowIndex === 0);
+    assert.ok(rejection, 'row 0 was neither accepted-and-clean nor rejected — it vanished');
+    assert.equal(rejection.reasonCode, 'sanitized_raw_data_collision');
+    // 🔴 The poisoned row is NOT published, and no field of it was stripped to salvage it.
+    assert.equal(
+      result.snapshots.some((snap) => snap.normalized_tax_id === TECNOLOGIA_MATRIZ_FULL),
+      false,
+      'the offending row must not be published under any shape',
+    );
+    // 🔴 And the batch SURVIVED: the fixture's other two clean rows are still there.
+    assert.equal(result.summary.acceptedRows, 2);
+    assert.equal(result.summary.rejectedSanitizedRawDataCollision, 1);
+    return result;
+  };
+
+  it('🔴 the básico smuggled into matrix_branch_flag rejects THAT ROW', () => {
     // `matrix_branch_flag` is an ALLOWED key carrying free source text. Key-only sanitization saw
-    // nothing wrong with this row; that is precisely the hole being closed.
-    assert.throws(
-      () =>
-        buildBrReceitaCnpjSnapshotRows(
-          inputWithEstablishmentOverride({ identificador_matriz_filial: RAIZ_TECNOLOGIA }),
-        ),
-      (error: unknown) =>
-        error instanceof BrReceitaCnpjForbiddenSourceError &&
-        error.message.includes('CNPJ básico'),
+    // nothing wrong with this row; that is precisely the hole GATE-ROUND-1 closed.
+    rejectionForRowZero(
+      inputWithEstablishmentOverride({ identificador_matriz_filial: RAIZ_TECNOLOGIA }),
     );
   });
 
-  it('🔴 the full CNPJ smuggled into capital_social throws', () => {
-    assert.throws(
-      () =>
-        buildBrReceitaCnpjSnapshotRows(
-          inputWithEmpresaOverride({ capital_social: TECNOLOGIA_MATRIZ_FULL }),
-        ),
-      (error: unknown) => error instanceof BrReceitaCnpjForbiddenSourceError,
+  it('🔴 the full CNPJ smuggled into capital_social rejects THAT ROW', () => {
+    // The EMPRESAS root is shared by matriz and filial, so poisoning `capital_social` rejects BOTH
+    // of that root's establishments — each on its own account, each counted — while the unrelated
+    // alphanumeric row still publishes. That is the CUT E1 property: a bad value costs its rows,
+    // not the run.
+    const result = buildBrReceitaCnpjSnapshotRows(
+      inputWithEmpresaOverride({ capital_social: TECNOLOGIA_MATRIZ_FULL }),
     );
+    assert.equal(result.summary.rejectedSanitizedRawDataCollision, 2, 'matriz and filial both');
+    assert.equal(
+      result.snapshots.some((snap) =>
+        JSON.stringify(snap.raw_data).includes(TECNOLOGIA_MATRIZ_FULL),
+      ),
+      false,
+    );
+    assert.ok(result.snapshots.length > 0, 'the clean alphanumeric row still publishes');
+    // 🔴 The three pre-existing categories are untouched in kind and in count.
+    assert.equal(result.summary.rejectedInvalidCnpj, 1);
+    assert.equal(result.summary.rejectedDuplicateRecordIdentity, 1);
+    assert.equal(result.summary.rejectedMissingRootCompany, 1);
   });
 
   it('a DV-valid CNPJ belonging to NO row is rejected too — shape plus DV, not just derivation', () => {
     assert.equal(normalizeBrazilCnpj(FOREIGN_DV_VALID_CNPJ).status, 'valid', 'fixture precondition');
 
-    assert.throws(
-      () =>
-        buildBrReceitaCnpjSnapshotRows(
-          inputWithEstablishmentOverride({ identificador_matriz_filial: FOREIGN_DV_VALID_CNPJ }),
-        ),
-      (error: unknown) =>
-        error instanceof BrReceitaCnpjForbiddenSourceError &&
-        error.message.includes('CNPJ-shaped, DV-valid'),
+    rejectionForRowZero(
+      inputWithEstablishmentOverride({ identificador_matriz_filial: FOREIGN_DV_VALID_CNPJ }),
     );
   });
 
   it('a punctuated full CNPJ is rejected — punctuation is not an escape', () => {
     const punctuated = `${TECNOLOGIA_MATRIZ_FULL.slice(0, 2)}.${TECNOLOGIA_MATRIZ_FULL.slice(2, 5)}.${TECNOLOGIA_MATRIZ_FULL.slice(5, 8)}/${TECNOLOGIA_MATRIZ_FULL.slice(8, 12)}-${TECNOLOGIA_MATRIZ_FULL.slice(12)}`;
-    assert.throws(
-      () =>
-        buildBrReceitaCnpjSnapshotRows(
-          inputWithEstablishmentOverride({ identificador_matriz_filial: punctuated }),
-        ),
-      (error: unknown) => error instanceof BrReceitaCnpjForbiddenSourceError,
+    rejectionForRowZero(
+      inputWithEstablishmentOverride({ identificador_matriz_filial: punctuated }),
     );
   });
 
-  it('🔴 the violation message never quotes the offending value', () => {
-    try {
-      buildBrReceitaCnpjSnapshotRows(
-        inputWithEstablishmentOverride({ identificador_matriz_filial: TECNOLOGIA_MATRIZ_FULL }),
-      );
-      assert.fail('expected a fail-closed rejection');
-    } catch (error) {
-      assert.ok(error instanceof BrReceitaCnpjForbiddenSourceError);
+  it('🔴 the rejection record never carries the offending value', () => {
+    // Before CUT E1 this was a property of the THROWN MESSAGE. The message is gone; the property is
+    // not. It is stronger now, because the record has nowhere to put a value: it is asserted over
+    // the WHOLE serialized rejection, not over one string a future edit could add a field beside.
+    const result = buildBrReceitaCnpjSnapshotRows(
+      inputWithEstablishmentOverride({ identificador_matriz_filial: TECNOLOGIA_MATRIZ_FULL }),
+    );
+    const serialized = JSON.stringify(result.rejected);
+    assert.ok(serialized.length > 0, 'there is a rejection to inspect');
+    assert.equal(
+      serialized.includes(TECNOLOGIA_MATRIZ_FULL),
+      false,
+      'a diagnostic that printed what it caught would be the leak it prevents',
+    );
+    assert.equal(serialized.includes(RAIZ_TECNOLOGIA), false);
+    // Nor does it name the offending KEY: the category is the whole diagnostic.
+    assert.equal(serialized.includes('matrix_branch_flag'), false);
+    // And the summary — the other thing a reader reads — carries no value either.
+    assert.equal(JSON.stringify(result.summary).includes(RAIZ_TECNOLOGIA), false);
+  });
+
+  it('🔴 no exception escapes the batch for ANY of the four detected shapes', () => {
+    // The mutation this asserts against: restoring the global throw. Each input below reached the
+    // sanitizer and was refused; if any of them threw, this test fails outright.
+    const inputs: BrReceitaCnpjParserInput[] = [
+      inputWithEstablishmentOverride({ identificador_matriz_filial: RAIZ_TECNOLOGIA }),
+      inputWithEstablishmentOverride({ identificador_matriz_filial: TECNOLOGIA_MATRIZ_FULL }),
+      inputWithEstablishmentOverride({ identificador_matriz_filial: FOREIGN_DV_VALID_CNPJ }),
+      inputWithEmpresaOverride({ capital_social: TECNOLOGIA_MATRIZ_FULL }),
+    ];
+    for (const input of inputs) {
+      const result = buildBrReceitaCnpjSnapshotRows(input);
       assert.equal(
-        error.message.includes(TECNOLOGIA_MATRIZ_FULL),
-        false,
-        'a guard that printed what it caught would be the leak it prevents',
+        result.summary.acceptedRows + result.summary.rejectedRows,
+        result.summary.totalEstablishmentRows,
+        'the summary must reconcile even when a row is excluded by the sanitizer',
       );
-      assert.equal(error.message.includes(RAIZ_TECNOLOGIA), false);
     }
   });
 });
@@ -276,16 +318,21 @@ describe('GATE-ROUND-1 § 4 · alphanumeric CNPJ material is caught in canonical
     // Row index 2 is the alphanumeric matriz.
     rows[2] = { ...rows[2]!, identificador_matriz_filial: RAIZ_EDUCACAO.toLowerCase() };
 
-    assert.throws(
-      () =>
-        buildBrReceitaCnpjSnapshotRows({
-          ...sampleParserInput(),
-          estabelecimentosRows: rows,
-        }),
-      (error: unknown) =>
-        error instanceof BrReceitaCnpjForbiddenSourceError &&
-        error.message.includes('CNPJ básico'),
+    // 🔴 CUT E1 — rejected, not thrown. The alphanumeric row is the one excluded; the two legacy
+    // rows keep publishing, which is exactly what a per-row disposition means.
+    const result = buildBrReceitaCnpjSnapshotRows({
+      ...sampleParserInput(),
+      estabelecimentosRows: rows,
+    });
+    const rejection = result.rejected.find((r) => r.sourceRowIndex === 2);
+    assert.ok(rejection, 'the alphanumeric row was neither published nor rejected');
+    assert.equal(rejection.reasonCode, 'sanitized_raw_data_collision');
+    assert.equal(
+      result.snapshots.some((snap) => snap.normalized_tax_id === EDUCACAO_MATRIZ_FULL),
+      false,
+      'a lower-case alphanumeric raiz is the same identifier — it must not publish',
     );
+    assert.equal(result.summary.acceptedRows, 2);
   });
 
   it('the alphanumeric row is still ACCEPTED when nothing is smuggled', () => {

@@ -198,6 +198,13 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       1,
       '4O-C-R1 aporta exactamente una migración',
     );
+    // BR-PRODUCTION-RELEASE mueve el techo a la 133: `133_br_candidate_identity_promotion.sql`,
+    // la promoción VALLADA de la identidad fiscal resuelta de una candidata brasileña
+    // (BR-SOURCE CUT D), numerada al volver ese trabajo a GitHub después de haber vivido en local
+    // sin número mientras el espacio de nombres estaba en disputa. Crea UNA función
+    // (`promote_candidate_fiscal_identity_fenced`) y sus permisos: sin tabla, sin columna, sin
+    // índice, sin constraint y sin backfill. NO es de teléfono y no nombra ninguna tabla, columna
+    // ni función de teléfono, que es lo que esta guarda vigila. AUTORADA y NO APLICADA.
     assert.equal(
       files[files.length - 1],
       // AGENT2A-PHONE-REVEAL-4O-H3 subió el techo a la 116: la APROBACIÓN atómica del
@@ -268,22 +275,27 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // el archivo de la migración que la creó, y ninguna de las tres añade tabla, columna,
       // índice, trigger ni policy. La 132 no la nombra en absoluto —su único UPDATE escribe
       // `contacts.metadata`— y por eso sí pasa por el barrido ciego. AUTORADAS y NO APLICADAS.
-      '132_agent2_hubspot_legacy_sync_state_backfill.sql',
-      'el techo conocido es la 132 (la línea base del estado de HubSpot), y ninguna del tramo 129–132 edita el archivo de una migración anterior de la cadena de teléfono 109–117',
+      '133_br_candidate_identity_promotion.sql',
+      'el techo conocido es la 133 (la promoción vallada de identidad fiscal de BR-SOURCE CUT D), y ni ella ni el tramo 129–132 editan el archivo de una migración anterior de la cadena de teléfono 109–117',
     );
     assert.equal(
       // La ventana sube con el techo DECLARADO arriba: la 125 (reconciliación genérica), la 126
       // (AGENT1-CUT3B4, independiente), la 127 (BR, renumerada dos veces), la 128
       // (AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1) y el tramo 129–132 de
       // AGENT2-FINAL-INTEGRATION están autorizadas y nombradas una por una, así que lo prohibido
-      // pasa a ser la 133 y superiores.
-      files.some((file) => /^1(3[3-9]|[4-9]\d)/.test(file)),
+      // pasa a ser la 134 y superiores.
+      // BR-PRODUCTION-RELEASE declara la 133: la promoción VALLADA de la identidad fiscal
+      // resuelta de una candidata brasileña (BR-SOURCE CUT D). Queda AUTORIZADA y NOMBRADA como
+      // las anteriores, así que la ventana prohibida sube a la 134 y superiores. La guarda no se
+      // relaja: sigue impidiendo que alguien cuele una POR ENCIMA del último hito conocido sin
+      // declararla.
+      files.some((file) => /^1(3[4-9]|[4-9]\d)/.test(file)),
       false,
       // La 120, la 121 y la 122 son AUTORIZADAS y están declaradas arriba con lo que hacen. Lo que
       // esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último hito
       // conocido sin declararla; la afirmación de que ninguna de ellas escribe sobre las
       // tablas de la cadena de teléfono se comprueba justo abajo, de forma directa.
-      'ninguna migración 133 o superior',
+      'ninguna migración 134 o superior',
     );
     // La afirmación que de verdad importa, ya no delegada en el orden alfabético:
     // ninguna migración posterior a la ÚLTIMA de la cadena de teléfono escribe sobre sus

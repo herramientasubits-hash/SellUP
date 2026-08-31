@@ -954,13 +954,41 @@ describe('BR-SOURCE CUT B — the boundary this cut does not cross', () => {
     // ever claimed. What CUT B actually claims, and what stays true regardless of how high the
     // ceiling climbs, is narrower and content-based: no migration file above CUT A's 127 is
     // BR/Receita/CNPJ-authored, because CUT B's contract is MIGRATION = NONE.
+    // ════════════════════════════════════════════════════════════════════════════════════════
+    // BR-PRODUCTION-RELEASE — ratchet INVERTED, not deleted
+    // ════════════════════════════════════════════════════════════════════════════════════════
+    //
+    // OLD_ASSERTION: NO migration above CUT A's 127 is BR/Receita/CNPJ-authored. True as long as
+    // CUT B was the newest BR cut.
+    //
+    // WHY_OBSOLETE: BR-SOURCE CUT D authored one, and BR-PRODUCTION-RELEASE numbered it 133.
+    // Keeping the blanket refusal would make this guard fail on a LATER Brazilian cut's
+    // legitimate migration — which says nothing about CUT B, the only thing this guard is for.
+    //
+    // NEW_INVARIANT, STRICTLY STRONGER — it is now about AUTHORSHIP by name, not about the
+    // absence of Brazilian SQL: the BR-authored files above 127 are an EXACT, enumerated set,
+    // and none of them is CUT B's. A second BR migration appearing without being declared here
+    // breaks the guard; before, any BR migration broke it and none could ever be declared.
     const files = fs.readdirSync(join(repoRoot, 'supabase/migrations')).filter((f) => f.endsWith('.sql'));
-    for (const name of files.filter((file) => Number.parseInt(file.slice(0, 3), 10) > 127)) {
+    const BR_AUTHORED_ABOVE_127 = ['133_br_candidate_identity_promotion.sql'];
+    const brAuthored = files
+      .filter((file) => Number.parseInt(file.slice(0, 3), 10) > 127)
+      .filter((name) =>
+        /BR-SOURCE|RECEITA|CNPJ/i.test(fs.readFileSync(join(repoRoot, 'supabase/migrations', name), 'utf8')),
+      )
+      .sort();
+    assert.deepEqual(
+      brAuthored,
+      BR_AUTHORED_ABOVE_127,
+      'the BR-authored migrations above CUT A\'s 127 are exactly the declared set',
+    );
+    // 🔴 …and CUT B authored NONE of them, which is what this guard has always been about.
+    for (const name of brAuthored) {
       const sql = fs.readFileSync(join(repoRoot, 'supabase/migrations', name), 'utf8');
       assert.equal(
-        /BR-SOURCE|RECEITA|CNPJ/i.test(sql),
+        /CUT\s*B\b/i.test(sql),
         false,
-        `${name} must not be authored by a BR cut — CUT B authored no migration`,
+        `${name} must not be authored by CUT B — CUT B authored no migration`,
       );
     }
     for (const expected of [

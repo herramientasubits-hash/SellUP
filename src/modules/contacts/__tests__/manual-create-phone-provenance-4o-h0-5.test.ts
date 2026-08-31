@@ -546,6 +546,13 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
     // que esta guarda fija es que H0.5 no aportó esquema, no cuál es el número más alto; el
     // nombre exacto se mantiene para que una migración colada por encima del último hito
     // conocido rompa la guarda.
+    // BR-PRODUCTION-RELEASE mueve el techo a la 133: `133_br_candidate_identity_promotion.sql`,
+    // la promoción VALLADA de la identidad fiscal resuelta de una candidata brasileña
+    // (BR-SOURCE CUT D), numerada al volver ese trabajo a GitHub después de haber vivido en local
+    // sin número mientras el espacio de nombres estaba en disputa. Crea UNA función
+    // (`promote_candidate_fiscal_identity_fenced`) y sus permisos: sin tabla, sin columna, sin
+    // índice, sin constraint y sin backfill. NO es de teléfono y no nombra ninguna tabla, columna
+    // ni función de teléfono, que es lo que esta guarda vigila. AUTORADA y NO APLICADA.
     assert.equal(
       numbered[numbered.length - 1],
       // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119 (catálogo de
@@ -600,7 +607,7 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // otras tres sólo escriben estado de sincronización en `contacts.metadata`. El barrido de
       // abajo lo comprueba sobre su SQL en vez de creerle a este comentario. Las cuatro AUTORADAS
       // y NO APLICADAS en remoto.
-      '132_agent2_hubspot_legacy_sync_state_backfill.sql',
+      '133_br_candidate_identity_promotion.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
     for (const agent2 of [

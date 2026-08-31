@@ -227,8 +227,15 @@ test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 
       '130_agent2_contact_hubspot_stale_source.sql',
       '131_agent2_post_approval_reveal_stale_producer.sql',
       '132_agent2_hubspot_legacy_sync_state_backfill.sql',
+      // BR-PRODUCTION-RELEASE: la promoción VALLADA de la identidad fiscal resuelta de una
+      // candidata brasileña (BR-SOURCE CUT D). Toca `prospect_candidates` y `prospect_batches`,
+      // pero NO es de la capa GRATUITA de descubrimiento que esta guarda protege: no crea ni
+      // altera ninguna tabla, no nombra `provider_seen_entities` ni ninguna tabla de wizard, y
+      // sólo declara UNA función más sus permisos. La capa gratuita sigue sin necesitar esquema,
+      // que es lo único que esta guarda afirma. AUTORADA y NO APLICADA.
+      '133_br_candidate_identity_promotion.sql',
     ],
-    'ninguna migración nueva salvo la memoria provider-seen y la identidad cross-provider',
+    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider y la promoción vallada de BR CUT D',
   );
 
   // 🔴 Ratchet invertido en AGENT1-PROVIDER-SEEN-MEMORY-3: la 123 YA está aplicada

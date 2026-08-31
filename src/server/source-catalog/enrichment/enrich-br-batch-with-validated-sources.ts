@@ -73,16 +73,33 @@
  * more than one surviving establishment yields NO identity at all. Nothing here prefers the
  * matriz, the filial, the first row or the lower CNPJ.
  *
- * ── 🔴 The resolved CNPJ is NOT persisted as the candidate's fiscal identity ─
+ * ── 🔴 CUT D: the resolved CNPJ becomes DURABLE, and only under a fence ─────
  *
- * It is used for the lookup and then dropped. Writing it into `prospect_candidates.tax_identifier`
- * would be a durable IDENTITY change, and Agent 1's identity authority (`fiscal-identity.ts`,
- * `batch-identity-registry.ts`, the optimistic `identity_epoch` fence of migration 126) evaluates
- * identity at INSERT time only: TIER 1 refuses two rows that share a fiscal key, and there is no
- * fenced UPDATE path for adding one afterwards. A bare `.update({ tax_identifier })` here would
- * bypass that evaluation and leave the persisted `identity_key` describing the pre-resolution
- * candidate. See `DURABLE_TAX_ID_SAFE_PATH = NOT_FOUND` in the CUT C report; closing it needs an
- * owner decision, not a shortcut in this file.
+ * Through CUT C the resolved identity was used for the lookup and then dropped, because there was
+ * nowhere safe to put it: Agent 1's identity authority evaluated identity at INSERT time only, and
+ * a bare `.update({ tax_identifier })` would have declared no epoch, filtered by `id` alone, never
+ * looked at whether another candidate of the batch already held that identity, and left the
+ * persisted `identity_key` describing the pre-resolution candidate. That was
+ * `DURABLE_TAX_ID_SAFE_PATH = NOT_FOUND`.
+ *
+ * CUT D adds the missing operation — `promote_candidate_fiscal_identity_fenced` — and inserts it
+ * BETWEEN the resolution and the second pass:
+ *
+ *   resolution → RESOLVED_UNIQUE → PROMOTION (fenced) → second pass, only if adjudicated
+ *
+ * 🔴 The promotion is where the identity is DECIDED, and the second pass only happens for a
+ * candidate whose identity the promotion adjudicated. A `FISCAL_IDENTITY_CONFLICT`, a lost race or
+ * an error therefore never becomes an exact Receita lookup on an identity nobody adjudicated: the
+ * candidate keeps a non-identifying category and is left for review/dedup.
+ *
+ * 🔴 A candidate that ALREADY carries a `tax_identifier` is not promoted either, for the same
+ * reason it is not name-resolved (§ 8): overriding source-supplied fiscal data with a resolved
+ * guess is a different, unapproved decision. The refusal is enforced three times over — by the
+ * CUT C gate that never offers it to the resolver, by the registry evidence, and by the SQL itself.
+ *
+ * 🔴 While the CUT D migration is unapplied the database says so, and this hook keeps EXACTLY the
+ * CUT C behaviour: the identity stays transient and the enrichment still happens. That window is
+ * counted (`identityPromotion.capabilityAbsent`), never silent.
  *
  * ── Privacy (§ 8) ───────────────────────────────────────────────────────────
  *
@@ -118,6 +135,19 @@ import type {
   SnapshotReadClient,
 } from '../snapshot-read/snapshot-read-contract';
 import type { SourceEnrichmentAdapter, SourceEnrichmentOutput } from './types';
+import {
+  loadBatchIdentityRegistry,
+  type BatchIdentitySeedOutcome,
+} from '@/server/prospect-batches/batch-identity-registry-store';
+import {
+  INITIAL_PROMOTION_CAPABILITY_STATE,
+  type PromotionCapabilityState,
+} from '@/server/prospect-batches/promotion-capability-state';
+import {
+  runFencedIdentityPromotion,
+  type FencedIdentityPromotionResult,
+} from '@/server/prospect-batches/run-fenced-identity-promotion';
+import { buildFiscalIdentityKeyFromRaw } from '@/server/agents/prospecting-toolkit/fiscal-identity';
 
 /** The batch-level provenance key under `prospect_batches.metadata`. */
 export const BR_RUN_SOURCE_CONTEXT_KEY = 'source_context' as const;
@@ -178,6 +208,38 @@ export interface BrFrozenPeriodDecision {
   readonly snapshotRunId: string | null;
 }
 
+/**
+ * Per-status accounting of the CUT D promotion pass. Numbers only (§ 6).
+ */
+export interface BrIdentityPromotionBreakdown {
+  /** How many RESOLVED_UNIQUE identities were offered to the fence. */
+  attempted: number;
+  /** …of which became durable, advancing the batch's identity epoch. */
+  promoted: number;
+  /** …already stored exactly that identity. Idempotent replay. */
+  alreadySameIdentity: number;
+  /** …were refused: the row, a batch peer or this run already claims that identity. */
+  conflict: number;
+  /** …lost the bounded race and failed CLOSED. */
+  staleExhausted: number;
+  /** …named a candidate that is not in this batch. */
+  candidateNotFound: number;
+  /** …carried an identity the canonical authority cannot compose. */
+  invalidIdentity: number;
+  /** …ran while the CUT D migration is unapplied. CUT C behaviour preserved. */
+  capabilityAbsent: number;
+  /** …ran in live-shadow: every refusal evaluated, nothing written. */
+  skippedDryRun: number;
+  /** …failed operationally. Never a claim about the company. */
+  error: number;
+  /**
+   * …ended with an identity the caller may use downstream.
+   *
+   * 🔴 The ONLY population that reaches the second (exact-CNPJ) pass.
+   */
+  adjudicated: number;
+}
+
 export interface BrBatchValidatedSourceEnrichmentResult {
   attempted: boolean;
   /** The run-level decision. `sourcePeriod` is the ONE month the whole run used. */
@@ -223,6 +285,23 @@ export interface BrBatchValidatedSourceEnrichmentResult {
    * Equals ambiguous + no-match + invalid-input + error.
    */
   missingCnpjUnresolvedCount: number;
+  // ── CUT D identity-promotion breakdown ────────────────────────────────────
+  /**
+   * What happened to each RESOLVED identity when it was offered to the fence.
+   *
+   * 🔴 Counts and nothing else. No CNPJ, no name, no candidate id reaches this
+   * object, so a batch summary cannot leak an identity the run was refused.
+   */
+  identityPromotion: BrIdentityPromotionBreakdown;
+  /**
+   * Missing-CNPJ candidates that ended the run WITHOUT an adjudicated identity.
+   *
+   * 🔴 The number CUT D is measured by, and deliberately not folded into
+   * `missingCnpjUnresolvedCount`, which keeps its CUT C meaning (the RESOLVER's
+   * residue). A candidate the resolver answered and the fence then refused is a
+   * different, newer outcome and has to stay countable on its own.
+   */
+  missingCnpjWithoutAdjudicatedIdentityCount: number;
   errorCount: number;
   /** Candidates left untouched because their `country_code` is not BR. */
   nonBrSkippedCount: number;
@@ -261,6 +340,10 @@ export interface BrBatchEnrichmentDeps {
   createAdapter?: (config: BrReceitaEnrichmentConfig) => SourceEnrichmentAdapter;
   /** CUT C's candidate → Receita name resolver. Injected only so the fallback is provable offline. */
   resolveIdentity?: typeof resolveBrReceitaCandidateIdentity;
+  /** CUT D's fenced promotion. Injected only so the fence is provable offline. */
+  promoteIdentity?: typeof runFencedIdentityPromotion;
+  /** CUT D's coherent (rows + epoch) photograph loader. Injected only for tests. */
+  loadIdentitySnapshot?: typeof loadBatchIdentityRegistry;
   now?: () => string;
 }
 
@@ -287,6 +370,20 @@ function emptyResult(dryRun: boolean): BrBatchValidatedSourceEnrichmentResult {
     identityErrorCount: 0,
     identityResolutionAttemptCount: 0,
     missingCnpjUnresolvedCount: 0,
+    identityPromotion: {
+      attempted: 0,
+      promoted: 0,
+      alreadySameIdentity: 0,
+      conflict: 0,
+      staleExhausted: 0,
+      candidateNotFound: 0,
+      invalidIdentity: 0,
+      capabilityAbsent: 0,
+      skippedDryRun: 0,
+      error: 0,
+      adjudicated: 0,
+    },
+    missingCnpjWithoutAdjudicatedIdentityCount: 0,
     errorCount: 0,
     nonBrSkippedCount: 0,
     updatedCount: 0,
@@ -380,6 +477,8 @@ export async function enrichBrBatchWithValidatedSources(
   const pinPublication = deps.pinPublication ?? pinBrReceitaPublication;
   const createAdapter = deps.createAdapter ?? createBrReceitaCnpjEnrichmentAdapter;
   const resolveIdentity = deps.resolveIdentity ?? resolveBrReceitaCandidateIdentity;
+  const promoteIdentity = deps.promoteIdentity ?? runFencedIdentityPromotion;
+  const loadIdentitySnapshot = deps.loadIdentitySnapshot ?? loadBatchIdentityRegistry;
   const now = deps.now ?? (() => new Date().toISOString());
 
   const result = emptyResult(dryRun);
@@ -497,12 +596,14 @@ export async function enrichBrBatchWithValidatedSources(
       output: SourceEnrichmentOutput | undefined;
       enrichmentMetadata: Record<string, unknown>;
       resolution: BrReceitaCandidateIdentityResolution | null;
+      promotion: FencedIdentityPromotionResult | null;
     }
     const outcomes: CandidateOutcome[] = working.map(() => ({
       seen: false,
       output: undefined,
       enrichmentMetadata: {},
       resolution: null,
+      promotion: null,
     }));
 
     for (const r of firstPass.results) {
@@ -528,6 +629,39 @@ export async function enrichBrBatchWithValidatedSources(
     // Sequential on purpose. This is one bounded, indexed equality probe per unresolved candidate,
     // and running them in lockstep keeps the load predictable and the order deterministic.
     const retryIndexes: number[] = [];
+
+    /**
+     * The batch's coherent (rows + epoch) photograph, loaded LAZILY.
+     *
+     * 🔴 Lazily on purpose. A run whose Brazilian candidates all arrived with a CNPJ never
+     * promotes anything, and making it pay for — and fail on — a fence read it does not use would
+     * be CUT D charging CUT B2 for a feature CUT B2 does not want. Once loaded it is THREADED: one
+     * read per run, and each promotion hands back the photograph the next candidate decides
+     * against, exactly as `runFencedPersistence` does after an insert.
+     */
+    let identitySnapshot: BatchIdentitySeedOutcome | null = null;
+    /**
+     * Fiscal identities this RUN already adjudicated.
+     *
+     * 🔴 The durable check cannot cover the window in which CUT D is inert: with the migration
+     * unapplied nothing is written, so a second candidate resolving to the SAME establishment
+     * would find no peer holding it. This closes that, and it costs nothing in the applied case.
+     * Local variable only — never logged, never persisted, never returned.
+     */
+    const promotedFiscalKeys = new Set<string>();
+    /**
+     * What this RUN has established about migration 133 — the promotion function.
+     *
+     * 🔴 Threaded, not per candidate, and NEVER derived from `identitySnapshot`. The snapshot's
+     * epoch proves migration 126 and nothing else, and production ran with 126 applied and 133
+     * not: in that window the promotion answers "no such function" and the honest reading is that
+     * the migration is unapplied, so CUT C's enrichment must survive untouched. Once the promotion
+     * HAS answered in this run the state is `PRESENT` and terminal — a later absence is a
+     * deployment inconsistency and fails closed, which is how the fence is stopped from evaporating
+     * between candidate 1 and candidate 7 of the same batch.
+     */
+    let promotionCapability: PromotionCapabilityState = INITIAL_PROMOTION_CAPABILITY_STATE;
+
     for (let i = 0; i < working.length; i += 1) {
       const slot = outcomes[i];
       const candidate = working[i];
@@ -548,10 +682,84 @@ export async function enrichBrBatchWithValidatedSources(
       slot.resolution = resolution;
 
       switch (resolution.status) {
-        case 'RESOLVED_UNIQUE':
+        case 'RESOLVED_UNIQUE': {
           result.identityResolvedCount += 1;
-          retryIndexes.push(i);
+
+          // ── CUT D — the identity is DECIDED here, not by the adapter. ──────
+          const resolvedTaxId = resolution.resolvedNormalizedTaxId;
+          if (resolvedTaxId === null) {
+            // Unreachable by the resolver's own contract (`RESOLVED_UNIQUE` always carries one),
+            // and handled rather than asserted: an identity that is not there cannot be promoted
+            // and must not silently reach the exact adapter either.
+            result.identityPromotion.attempted += 1;
+            result.identityPromotion.invalidIdentity += 1;
+            break;
+          }
+
+          if (identitySnapshot === null) {
+            identitySnapshot = await loadIdentitySnapshot(supabase, batchId);
+          }
+
+          const promotion = await promoteIdentity({
+            client: supabase,
+            batchId,
+            candidateId: candidate['id'] as string,
+            countryCode: BR_RECEITA_CNPJ_COUNTRY_CODE,
+            taxIdentifier: resolvedTaxId,
+            candidateName: (candidate['name'] as string | null) ?? null,
+            snapshot: identitySnapshot,
+            promotedFiscalKeys,
+            promotionCapability,
+            dryRun,
+          });
+          identitySnapshot = promotion.snapshot;
+          promotionCapability = promotion.promotionCapability;
+          slot.promotion = promotion;
+
+          result.identityPromotion.attempted += 1;
+          switch (promotion.status) {
+            case 'PROMOTED':
+              result.identityPromotion.promoted += 1;
+              break;
+            case 'ALREADY_SAME_IDENTITY':
+              result.identityPromotion.alreadySameIdentity += 1;
+              break;
+            case 'FISCAL_IDENTITY_CONFLICT':
+              result.identityPromotion.conflict += 1;
+              break;
+            case 'STALE_IDENTITY_EPOCH':
+              result.identityPromotion.staleExhausted += 1;
+              break;
+            case 'CANDIDATE_NOT_FOUND':
+              result.identityPromotion.candidateNotFound += 1;
+              break;
+            case 'INVALID_IDENTITY':
+              result.identityPromotion.invalidIdentity += 1;
+              break;
+            case 'CAPABILITY_ABSENT':
+              result.identityPromotion.capabilityAbsent += 1;
+              break;
+            case 'SKIPPED_DRY_RUN':
+              result.identityPromotion.skippedDryRun += 1;
+              break;
+            default:
+              result.identityPromotion.error += 1;
+              break;
+          }
+
+          // 🔴 The gate. Only an ADJUDICATED identity reaches the exact-CNPJ adapter; a conflict,
+          // a lost race or an error leaves the candidate with its category and no Receita match.
+          if (promotion.adjudicated) {
+            result.identityPromotion.adjudicated += 1;
+            const fiscalKey = buildFiscalIdentityKeyFromRaw({
+              value: resolvedTaxId,
+              countryCode: BR_RECEITA_CNPJ_COUNTRY_CODE,
+            });
+            if (fiscalKey !== null) promotedFiscalKeys.add(fiscalKey);
+            retryIndexes.push(i);
+          }
           break;
+        }
         case 'AMBIGUOUS':
           result.identityAmbiguousCount += 1;
           break;
@@ -572,6 +780,13 @@ export async function enrichBrBatchWithValidatedSources(
       result.identityNoMatchCount +
       result.identityInvalidInputCount +
       result.identityErrorCount;
+
+    // 🔴 The CUT D residue: everything the resolver could not answer, PLUS everything the fence
+    // refused to adjudicate. Kept separate from the line above so the CUT C number keeps meaning
+    // exactly what CUT C said it meant.
+    result.missingCnpjWithoutAdjudicatedIdentityCount =
+      result.missingCnpjUnresolvedCount +
+      (result.identityPromotion.attempted - result.identityPromotion.adjudicated);
 
     // ── 8. SECOND PASS — the SAME adapter, now handed the resolved identity (§ 9). ──
     //
@@ -629,6 +844,7 @@ export async function enrichBrBatchWithValidatedSources(
       const matched = status === 'matched';
       const existingMeta = (candidate['metadata'] as Record<string, unknown>) ?? {};
       const resolution = slot.resolution;
+      const promotion = slot.promotion;
 
       const updatedMeta: Record<string, unknown> = {
         ...existingMeta,
@@ -662,6 +878,22 @@ export async function enrichBrBatchWithValidatedSources(
                     reason: resolution.reason,
                     observed_count: resolution.observedCount,
                     disambiguated_by_city: resolution.disambiguatedByCity,
+                  },
+            // 🔴 CUT D provenance: whether the resolved identity became DURABLE, and why not when
+            // it did not. `null` for a candidate that never reached the fence, so "the promotion
+            // did not run" and "the promotion was refused" stay distinguishable.
+            //
+            // 🔴 There is deliberately NO CNPJ here and none is derivable from it: a status, a
+            // category reason and two booleans. A candidate refused for a fiscal conflict cannot
+            // leak the identity it collided with — which is the whole point of refusing.
+            identity_promotion:
+              promotion === null
+                ? null
+                : {
+                    status: promotion.status,
+                    reason: promotion.reason,
+                    mutated: promotion.mutated,
+                    adjudicated: promotion.adjudicated,
                   },
           },
         },
@@ -751,9 +983,42 @@ export const BR_AGENT1_RUNTIME_BINDING_CONTRACT = {
   /** The resolved identity re-enters through the existing exact-CNPJ adapter, not a second path. */
   reusesExactCnpjAdapterForResolvedIdentity: true,
   duplicatesEnrichmentProjection: false,
-  /** 🔴 The resolved CNPJ is transient: no `tax_identifier` write, no `identity_key` rewrite. */
-  persistsResolvedTaxIdentifierOnCandidate: false,
-  rewritesCandidateIdentityKey: false,
   /** Neither the resolution metadata nor any counter carries a CNPJ. */
   persistsResolvedTaxIdentifierInMetadata: false,
+  // ── CUT D ─────────────────────────────────────────────────────────────────
+  /**
+   * 🔴 Both flipped from `false` by BR-SOURCE-FUNCTIONAL-CUT-D. Through CUT C the resolved CNPJ
+   * was transient because there was no fenced UPDATE path for adding a fiscal identity to an
+   * existing row. There is one now, and leaving these keys at `false` while the promotion exists
+   * would be a guard defending the very gap it was written to describe. The properties that keep
+   * the write safe are the ones below, and they are what a reviewer must read.
+   */
+  persistsResolvedTaxIdentifierOnCandidate: true,
+  rewritesCandidateIdentityKey: true,
+  /** …and NEVER through a bare `.update({ tax_identifier })`. */
+  usesBareTaxIdentifierUpdate: false,
+  promotesResolvedIdentityUnderEpochFence: true,
+  /** `tax_identifier` and `identity_key` move together, in ONE transaction. */
+  promotesIdentifierAndIdentityKeyTogether: true,
+  /** The promotion is scoped by `(id, batch_id)`: one batch's fence cannot write another's row. */
+  scopesPromotionByBatch: true,
+  /** A batch peer that already holds the identity refuses the promotion (TIER 1). */
+  refusesPromotionOnFiscalConflict: true,
+  /** A candidate that arrived with a `tax_identifier` is never promoted over. */
+  overwritesCandidateSuppliedTaxIdentifier: false,
+  /** A lost race fails CLOSED — there is no unfenced fallback write. */
+  fallsBackToUnfencedWriteAfterRetries: false,
+  /** 🔴 Only an ADJUDICATED identity reaches the exact-CNPJ adapter. */
+  enrichesWithUnadjudicatedIdentity: false,
+  /**
+   * With the CUT D migration unapplied, the CUT C behaviour is preserved exactly — including in
+   * the PRODUCTION topology, where migration 126 IS applied and only 133 is missing.
+   */
+  preservesCutCBehaviourWhenPromotionCapabilityAbsent: true,
+  /** 🔴 …and the promotion's capability is tracked across candidates, per run. */
+  threadsPromotionCapabilityAcrossCandidates: true,
+  /** …never inferred from the identity snapshot's epoch, which is a different migration. */
+  infersPromotionCapabilityFromSnapshotEpoch: false,
+  /** Neither the promotion metadata nor any promotion counter carries a CNPJ. */
+  persistsPromotionOutcomeWithoutIdentifier: true,
 } as const;

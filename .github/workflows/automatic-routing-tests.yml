@@ -3775,3 +3775,86 @@ jobs:
         run: npm run test:agent2a:final-local-integration:postgres
         env:
           SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
+      # ══════════════════════════════════════════════════════════════════════════════════════════
+      # BR-PRODUCTION-RELEASE — las cinco suites de Brasil que NUNCA estuvieron en el check
+      # ══════════════════════════════════════════════════════════════════════════════════════════
+      #
+      # CUT A, CUT B y la reconciliación de esquema ya eran pasos obligatorios. CUT B1, B2, C, D y
+      # E1 no lo eran de ninguna forma, y el precio de esa omisión ya se cobró: cuando Agente 2
+      # reclamó la 129 y la 130, las guardas de B1 y de B2 que afirmaban «no existe ninguna
+      # migración 129 ni 130» —un PROXY de «este corte no aporta migración»— pasaron a fallar en
+      # `origin/main` y nadie lo vio, porque ninguna corrida las ejecutaba. BR-PRODUCTION-RELEASE
+      # las convirtió en guardas de AUTORÍA y las mete aquí, que es lo que impide que el próximo
+      # número que alguien reclame vuelva a podrirlas en silencio.
+      #
+      # Brasil va a Producción con estos cortes, así que su cadena entera entra al check:
+      #   · CUT B1 — el mes resuelto UNA vez y congelado para toda la corrida.
+      #   · CUT B2 — la PUBLICACIÓN fijada (periodo + `snapshot_run_id`), no sólo el mes: un mes
+      #     republicado tiene dos publicaciones y el mes solo ya no dice cuál se leyó.
+      #   · CUT C  — la candidata sin CNPJ resuelta a UN establecimiento por nombre canónico
+      #     EXACTO dentro de la publicación fijada; ambigüedad y no-match fallan CERRADO.
+      #   · CUT D  — la promoción VALLADA de esa identidad (migración 133): época, `(id, batch_id)`,
+      #     backstop de pares del lote, `tax_identifier` e `identity_key` escritos JUNTOS, todo en
+      #     una transacción. Nunca last-write-wins, nunca un fallback sin valla.
+      #   · CUT E1 — una colisión del sanitizador de salida rechaza SÓLO su fila; antes tumbaba el
+      #     lote entero.
+      #
+      # Deterministas: sin flags de Producción, sin proveedores, sin créditos, sin HubSpot y sin DB
+      # remota. Sin `continue-on-error` y sin `|| true`.
+      - name: Run BR-SOURCE CUT B1 frozen-period tests
+        run: npm run test:br-source:functional-cut-b1-frozen-period
+
+      - name: Run BR-SOURCE CUT B2 pinned-publication tests
+        run: npm run test:br-source:functional-cut-b2-pinned-publication
+
+      - name: Run BR-SOURCE CUT C candidate-identity tests
+        run: npm run test:br-source:functional-cut-c-candidate-identity
+
+      - name: Run BR-SOURCE CUT D fenced identity-promotion tests
+        run: npm run test:br-source:functional-cut-d-identity-promotion
+
+      - name: Run BR-SOURCE CUT E1 row-level sanitization tests
+        run: npm run test:br-source:functional-cut-e1-row-level-sanitization
+
+      # El catálogo de fuentes es la otra mitad del hito: Brasil tiene que APARECER, y aparecer
+      # diciendo la verdad. Esta suite fija que la fuente se presenta como `enrichment`
+      # POST-descubrimiento y nunca como `discovery`, que el modo es el contrato real
+      # (`read_only_snapshot`), que el estado NO afirma operatividad mientras la 133 esté sin
+      # aplicar y el snapshot nacional sin cargar, que `nextAction` nombra esos DOS pendientes, y
+      # que el copy del listado no expone QSA, sócios ni CPF.
+      - name: Run BR source catalog status and display tests
+        run: npm run test:br-source:8-catalog-status
+
+      # ══════════════════════════════════════════════════════════════════════════════════════════
+      # BR-PRODUCTION-RELEASE — la 133 contra PostgreSQL REAL
+      # ══════════════════════════════════════════════════════════════════════════════════════════
+      #
+      # Una migración que PostgreSQL no puede aplicar tiene que romper este check, y una estática
+      # no lo detecta: CUT-3B5 probó contra Producción que un `search_path` mal fijado deja la
+      # 126 verde en estático y la tumba con 42P01 en RLS. La 133 lleva el `search_path` corregido
+      # por ese motivo, y estos pasos lo ejecutan de verdad.
+      #
+      # `embedded-postgres` ya lo instala el paso de Agente 2A de más arriba, con la versión
+      # PINCHADA. `SELLUP_REQUIRE_POSTGRES_HARNESS` convierte el skip en FALLO: sin ella, que el
+      # arnés no resolviera pondría estos pasos verdes con una cadena inaplicable.
+      #
+      # CUT E además corre la cadena entera contra datos REALES de Receita cuando están presentes
+      # en local; en CI se salta sola por ausencia de los archivos, y por eso NO se declara aquí
+      # como garantía de CI: lo que entra al check es lo que CI puede probar de verdad.
+      #
+      # 0 escrituras remotas. MIGRATION 133: APPLIED IN PRODUCTION = NO.
+      - name: Run BR-SOURCE CUT C against real PostgreSQL
+        run: npm run test:br-source:functional-cut-c:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
+      - name: Run BR-SOURCE CUT D fenced promotion against real PostgreSQL
+        run: npm run test:br-source:functional-cut-d:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
+      - name: Run BR-SOURCE CUT B2 pinned publication against real PostgreSQL
+        run: npm run test:br-source:functional-cut-b2:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
