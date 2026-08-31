@@ -216,8 +216,11 @@ export interface BeginPeriodOperation {
    * only true if they are written SOMEWHERE, once. Here is that somewhere, and it travels on the
    * operation so the write path cannot be built without it.
    *
-   * 🔴 Already narrowed to the four allowed keys by `brReceitaRunProvenanceForRun`, with
-   * `parser_version` guaranteed present. The gateway binds this object as-is and adds nothing.
+   * 🔴 Already narrowed to the four allowed keys — with each value's shape validated and
+   * `parser_version` guaranteed present — by `brReceitaRunProvenanceForRun`. The gateway adds
+   * nothing to it, and runs it back through the SAME narrower before binding, so this field being
+   * narrowed here is a convenience for readers rather than the only thing standing between a
+   * runtime caller and jsonb.
    */
   readonly metadata: Readonly<Record<string, string>>;
   /** The database mints `source_snapshot_runs.id`; the plan never invents one. */

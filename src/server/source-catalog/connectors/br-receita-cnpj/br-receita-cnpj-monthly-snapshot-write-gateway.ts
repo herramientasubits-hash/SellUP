@@ -52,6 +52,7 @@ import {
   BR_RECEITA_SNAPSHOT_RUNS_TABLE as COMPACT_RUNS_TABLE,
   brReceitaCompactRowBindings,
   brReceitaCompactUpdateAssignments,
+  brReceitaRunProvenanceForRun,
 } from './br-receita-cnpj-compact-storage';
 import {
   BR_RECEITA_REPEATED_SAME_PERIOD_REPUBLISH_REVIEW_CODE,
@@ -629,9 +630,16 @@ export function createBrReceitaSqlWriteGateway(
         // keeps meaning what it always meant; `publish_state` is the separate, Brazil-facing one.
         //
         // 🔴 `metadata` is the run-level import provenance the compact row no longer carries.
-        // It arrives already narrowed to the four allowed keys with `parser_version` guaranteed
-        // (`brReceitaRunProvenanceForRun`), and it is BOUND as jsonb — never interpolated, and
-        // never widened here by adding a key of the gateway's own.
+        // It is BOUND as jsonb — never interpolated — and never widened here by adding a key of
+        // the gateway's own.
+        //
+        // 🔴 It is also RE-NARROWED here, at the write boundary, by the same authoritative
+        // `brReceitaRunProvenanceForRun` the planner used. Not redundant: the planner's allowlist
+        // protects callers who go through the planner, and `beginPeriodRun` is a public gateway
+        // method that a runtime caller can reach directly with a cast object. jsonb would accept
+        // whatever that object holds — a CNPJ, a legal name, a raw row, an absolute local path.
+        // The last thing that touches the value before it becomes jsonb is therefore the narrower
+        // itself, not a caller's promise that it already ran.
         const inserted = await run(
           `
           INSERT INTO public.${BR_RECEITA_SNAPSHOT_RUNS_TABLE}
@@ -645,7 +653,7 @@ export function createBrReceitaSqlWriteGateway(
             operation.source_period,
             operation.publish_state,
             RUN_STATUS_RUNNING,
-            JSON.stringify(operation.metadata),
+            JSON.stringify(brReceitaRunProvenanceForRun(operation.metadata)),
           ],
         );
 
