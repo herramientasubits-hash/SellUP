@@ -148,10 +148,20 @@ export type PrePaidNoveltyContext = {
   /** Empresas ya presentes en HubSpot (§ 10). */
   knownHubspotCount: number;
   /**
-   * Dominios que el proveedor puede excluir, YA normalizados, deduplicados y
-   * acotados. Pista ECONÓMICA, nunca la autoridad de dedupe (§ 11).
+   * 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 3, 7 — dominios que SellUp YA
+   * CONOCE, normalizados y deduplicados. Supresión LOCAL, no una petición.
+   *
+   * Antes se llamaba `exclusionDomains` y llevaba lo que se ENVIABA al proveedor.
+   * Ese envío ya no existe: Lusha V3 no soporta exclusión del lado del servidor
+   * (contrato HUMANO), así que conservar el nombre antiguo habría dejado un campo
+   * que dice «excluye esto en la petición» transportando algo que nunca sale de
+   * casa. El nombre nuevo dice lo que hay: conocimiento local con el que se siembra
+   * la supresión CLIENTE.
+   *
+   * 🔴 No está acotado por `PREPAID_EXCLUSION_DOMAIN_CAP`: ese tope acotaba una
+   * petición, y aquí no hay petición que acotar. Recortarlo tiraría evidencia.
    */
-  exclusionDomains: readonly string[];
+  knownSuppressionDomains: readonly string[];
   /**
    * ADDENDUM PROVIDER-SEEN § 3 — cuántas identidades de corridas ANTERIORES trae
    * la memoria provider-seen de este proveedor.
@@ -168,6 +178,12 @@ export type PrePaidNoveltyContext = {
    * ADDENDUM PROVIDER-SEEN §§ 3, 6 — las identidades CANDIDATAS a exclusión, sin
    * decidir todavía cuáles viajan. Quién puede recibirlas lo decide la capacidad
    * del proveedor en `planProviderExclusions`.
+   *
+   * 🔴 CUT-L1 § 3 — y desde este corte llevan de verdad los CANDIDATOS
+   * (`availableValues`), no lo enviado. Antes se alimentaban de `sent`, así que con
+   * la capacidad apagada un campo llamado «candidatos» habría publicado listas
+   * vacías sobre identidades que sí se conocían. Hoy ninguna de las dos
+   * dimensiones viaja a ningún proveedor vivo.
    */
   providerExclusionCandidates: {
     readonly ids: readonly string[];
@@ -188,7 +204,7 @@ export type BuildPrePaidNoveltyContextInput = {
   freeSource?: PrePaidFreeSourceOutcome;
   knownSellupCount?: number;
   knownHubspotCount?: number;
-  exclusionDomains?: readonly string[];
+  knownSuppressionDomains?: readonly string[];
   providerSeenKnown?: number;
   providerExclusionCandidates?: {
     readonly ids?: readonly string[];
@@ -232,7 +248,7 @@ export function buildPrePaidNoveltyContext(
     freeSource,
     knownSellupCount: Math.max(0, Math.trunc(input.knownSellupCount ?? 0)),
     knownHubspotCount: Math.max(0, Math.trunc(input.knownHubspotCount ?? 0)),
-    exclusionDomains: input.exclusionDomains ?? [],
+    knownSuppressionDomains: input.knownSuppressionDomains ?? [],
     providerSeenKnown: Math.max(0, Math.trunc(input.providerSeenKnown ?? 0)),
     providerExclusionCandidates: {
       ids: input.providerExclusionCandidates?.ids ?? [],
@@ -246,7 +262,7 @@ export function buildPrePaidNoveltyContext(
 
 /**
  * El contexto que reproduce EXACTAMENTE el comportamiento previo al hito: sin
- * fuente, sin conocidos, sin exclusiones, hueco = objetivo.
+ * fuente, sin conocidos, sin supresión local, hueco = objetivo.
  *
  * Existe para que una ruta sin capacidad de país no tenga que construir a mano
  * un contexto «vacío» y pueda equivocarse al hacerlo.
@@ -306,7 +322,7 @@ export function withFreeSourcePersistenceOutcome(
     freeSource: { ...context.freeSource, acceptedNovel: persisted },
     knownSellupCount: context.knownSellupCount,
     knownHubspotCount: context.knownHubspotCount,
-    exclusionDomains: context.exclusionDomains,
+    knownSuppressionDomains: context.knownSuppressionDomains,
     providerSeenKnown: context.providerSeenKnown,
     providerExclusionCandidates: context.providerExclusionCandidates,
   });

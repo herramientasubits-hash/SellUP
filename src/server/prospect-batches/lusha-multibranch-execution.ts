@@ -330,7 +330,28 @@ export type LushaRunTelemetry = {
   pagesSkippedZeroNovelty: number;
   maxRawResults: number;
   rawResultsTotal: number;
+  /**
+   * Empresas retiradas por identidad ya vista DENTRO de la corrida del proveedor
+   * (páginas y ramas).
+   *
+   * 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION § 4 — NO incluye las que cayeron
+   * por la siembra de conocidos: ésas van en `localKnownSuppressedTotal`. Este
+   * contador afirma «el proveedor devolvió lo mismo dos veces», y un conocido
+   * histórico no lo hizo; mezclarlos haría ilegible el embudo de duplicados.
+   */
   crossBranchDuplicatesRemoved: number;
+  /**
+   * 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 4, 5 — empresas que el
+   * proveedor DEVOLVIÓ y que SellUp ya conocía por dominio antes de empezar.
+   *
+   * Lusha V3 no tiene exclusión del lado del servidor, así que estas filas ya
+   * pudieron cobrar su crédito de Prospecting. Lo que este número afirma es lo
+   * único afirmable: no contaron como net-new y no arrastraron trabajo pagado
+   * aguas abajo. NO es un ahorro y no se publica como tal (§ 20).
+   */
+  localKnownSuppressedTotal: number;
+  /** Cuántos dominios conocidos entraron a la siembra CLIENTE de esta corrida. */
+  localKnownSeedCount: number;
   duplicateReasonCounts: Record<LushaIdentityDuplicateReason, number>;
   uniqueResultsTotal: number;
   usefulResultsTotal: number;
@@ -382,6 +403,10 @@ export function toLushaRunTelemetryMetadata(
     max_raw_results: telemetry.maxRawResults,
     raw_results_total: telemetry.rawResultsTotal,
     cross_branch_duplicates_removed: telemetry.crossBranchDuplicatesRemoved,
+    // 🔴 CUT-L1 §§ 4, 5 — «se sabía» y «no se envió» conviven en la misma foto:
+    // `local_known_seed_count > 0` con `provider_exclusion_domains_sent: 0`.
+    local_known_suppressed_total: telemetry.localKnownSuppressedTotal,
+    local_known_seed_count: telemetry.localKnownSeedCount,
     duplicate_reason_counts: { ...telemetry.duplicateReasonCounts },
     unique_results_total: telemetry.uniqueResultsTotal,
     useful_results_total: telemetry.usefulResultsTotal,

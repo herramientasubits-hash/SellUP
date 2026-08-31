@@ -60,9 +60,16 @@
  * el PLAN DE EXCLUSIÓN ya resuelto. La lista de dominios sobrevivía al descarte
  * desde el corte anterior, pero su vista explicable volvía al plan vacío, así que
  * la telemetría publicaba `provider_exclusion_domains_sent: 0` sobre un envío REAL
- * de 3 en la ruta Lusha. Eran dos vistas del MISMO envío contándolo distinto: la
- * que viaja (`exclusionDomains`) y la que se mide (`providerExclusionPlan`). Ahora
- * las dos salen del plan que la puerta ya resolvió, así que no pueden divergir.
+ * de 3 en la ruta Lusha. Ahora las dos salen del plan que la puerta ya resolvió,
+ * así que no pueden divergir.
+ *
+ * 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 3, 7 — y ese envío ya no existe.
+ * Lusha V3 no soporta exclusión del lado del servidor (contrato HUMANO), así que
+ * `provider_exclusion_domains_sent` es 0 SIEMPRE, y esta vez la cifra es verdad.
+ * Lo que sobrevive al descarte —y lo que este runner devuelve— es el CONOCIMIENTO
+ * local: `knownSuppressionDomains`, que antes se llamaba `exclusionDomains` y que
+ * la ruta de pago usa para sembrar su supresión CLIENTE. El nombre cambió porque
+ * su significado cambió: dejar «exclusion» habría sugerido un envío inexistente.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -154,10 +161,14 @@ export type PrePaidNoveltyDiscoveryOutcome = {
   batchId: string | null;
   persistedCount: number;
   /**
-   * Dominios que el proveedor puede excluir (§ 11). Vacío cuando la ruta no los
-   * soporta o cuando no hay proveedor que los reciba.
+   * 🔴 CUT-L1 §§ 3, 4, 7 — dominios que SellUp YA CONOCE, normalizados y
+   * deduplicados. NO son «lo que se le pide al proveedor que no devuelva»: eso ya
+   * no existe. Son la evidencia con la que la ruta de pago siembra
+   * `lusha-run-identity-registry` DESPUÉS de la respuesta.
+   *
+   * Vacío cuando no hubo puerta que resolver o cuando no hay proveedor que corra.
    */
-  exclusionDomains: readonly string[];
+  knownSuppressionDomains: readonly string[];
   /**
    * ADDENDUM PROVIDER-SEEN § 4 — memoria de corridas anteriores, consultable.
    * Vacía cuando no hay autoridad de persistencia todavía.
@@ -216,9 +227,13 @@ export async function runPrePaidNoveltyDiscovery(
    *
    * Antes se reconstruía aquí como plan VACÍO. Con Apollo eso era verdad —su
    * capacidad de exclusión está apagada y nada viaja—, pero con Lusha era FALSO:
-   * `exclusionDomains` sí sobrevivía al descarte y sí llegaba al cuerpo de la
-   * petición como `excludeDomains`, así que la única vista MEDIBLE del envío
-   * reportaba 0 sobre 3 dominios realmente enviados.
+   * los dominios sí sobrevivían al descarte y sí llegaban al cuerpo de la petición
+   * como `excludeDomains`, así que la única vista MEDIBLE del envío reportaba 0
+   * sobre 3 dominios realmente enviados.
+   *
+   * 🔴 CUT-L1 § 2 — ese cuerpo de petición ya no lleva exclusión ninguna. El plan
+   * sigue arrastrándose por el mismo sitio y por un motivo que sigue vigente: es
+   * de donde sale `availableValues`, la siembra de la supresión CLIENTE.
    *
    * 🔴 El plan NO se reconstruye a partir de los dominios: se ARRASTRA el que la
    * puerta ya resolvió. Reconstruirlo daría una segunda lista calculada aparte —
@@ -231,7 +246,7 @@ export async function runPrePaidNoveltyDiscovery(
    */
   const noContribution = (
     telemetry: Record<string, unknown>,
-    exclusionDomains: readonly string[] = [],
+    knownSuppressionDomains: readonly string[] = [],
     resolvedByGate: {
       providerSeenMemory: ProviderSeenMemory;
       providerSeenLoad: ProviderSeenLoadSummary;
@@ -254,14 +269,13 @@ export async function runPrePaidNoveltyDiscovery(
     providerRequired: true,
     batchId: null,
     persistedCount: 0,
-    exclusionDomains,
+    knownSuppressionDomains,
     providerSeenMemory: resolvedByGate.providerSeenMemory,
     providerSeenLoad: resolvedByGate.providerSeenLoad,
-    // 🔴 La MISMA autoridad que `exclusionDomains`, no una copia reconstruida: la
-    // vista que se mide y la que viaja tienen que contar el mismo envío. Con
-    // Apollo el plan arrastrado sigue saliendo con `sent: []` —su capacidad está
-    // apagada por § 10 y ahí «vacío» es la verdad—; con Lusha sale con los
-    // dominios que de verdad se piden.
+    // 🔴 La MISMA autoridad que `knownSuppressionDomains`, no una copia
+    // reconstruida: la vista que se mide y la que suprime tienen que contar el
+    // mismo conocimiento. 🔴 CUT-L1 — con las dos capacidades apagadas el plan sale
+    // con `sent: []` en las dos rutas, y con `availableValues` íntegro.
     providerExclusionPlan: resolvedByGate.providerExclusionPlan,
     freeSource: notAttemptedFreeSourceOutcome(),
     telemetry,
@@ -278,12 +292,15 @@ export async function runPrePaidNoveltyDiscovery(
   // entero ⇒ esta corrida no usa nada de la fuente. No se persiste, no se
   // descuenta, y no se gastó nada en averiguarlo.
   if (!input.partialGapSupported && gate.context.providerRequired) {
-    return noContribution(gate.telemetry, gate.exclusionPlan.sent, {
+    // 🔴 CUT-L1 § 3 — `availableValues`, NO `sent`: `sent` está vacío por capacidad
+    // y sembrar de ahí dejaría a la ruta de pago sin ninguna protección.
+    return noContribution(gate.telemetry, gate.exclusionPlan.availableValues, {
       providerSeenMemory: gate.providerSeenMemory,
       providerSeenLoad: gate.providerSeen,
-      // 🔴 El plan que la puerta YA resolvió, del que `gate.exclusionPlan.sent`
-      // de la línea de arriba es la vista heredada de su dimensión de dominios.
-      // Las dos salen de aquí, así que no hay dos listas que puedan divergir.
+      // 🔴 El plan que la puerta YA resolvió, del que
+      // `gate.exclusionPlan.availableValues` de la línea de arriba es la vista
+      // heredada de su dimensión de dominios. Las dos salen de aquí, así que no
+      // hay dos listas que puedan divergir.
       providerExclusionPlan: gate.providerExclusionPlan,
     });
   }
@@ -296,7 +313,7 @@ export async function runPrePaidNoveltyDiscovery(
       providerRequired: gate.context.providerRequired,
       batchId: null,
       persistedCount: 0,
-      exclusionDomains: gate.context.exclusionDomains,
+      knownSuppressionDomains: gate.context.knownSuppressionDomains,
       providerSeenMemory: gate.providerSeenMemory,
       providerSeenLoad: gate.providerSeen,
       providerExclusionPlan: gate.providerExclusionPlan,
@@ -366,7 +383,7 @@ export async function runPrePaidNoveltyDiscovery(
     return {
       ...noContribution(
         buildPrePaidNoveltyTelemetry(context, gate.exclusionPlan, null),
-        gate.exclusionPlan.sent,
+        gate.exclusionPlan.availableValues,
         {
           providerSeenMemory: gate.providerSeenMemory,
           providerSeenLoad: gate.providerSeen,
@@ -384,7 +401,7 @@ export async function runPrePaidNoveltyDiscovery(
     providerRequired: context.providerRequired,
     batchId: persistence.batchId,
     persistedCount: persistence.writtenCount,
-    exclusionDomains: context.exclusionDomains,
+    knownSuppressionDomains: context.knownSuppressionDomains,
     providerSeenMemory: gate.providerSeenMemory,
     providerSeenLoad: gate.providerSeen,
     providerExclusionPlan: gate.providerExclusionPlan,

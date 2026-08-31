@@ -1268,9 +1268,18 @@ export type LushaCompanyProspectingV3Filters = {
       // Q3F-5Y: sics rechazado ("property sics should not exist") — omitido.
       // Q3F-5AA: naics rechazado ("property naics should not exist") — omitido.
     };
-    exclude?: {
-      domains?: string[];
-    };
+    /**
+     * 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 1, 2 — NO existe `exclude`.
+     *
+     * El soporte HUMANO de Lusha confirmó que `POST /v3/companies/prospecting` no
+     * soporta exclusión del lado del servidor: ni `excludeDomains` ni
+     * `excludeCompanyIds`. Este tipo declaraba `exclude.domains` como si el
+     * contrato estuviera verificado; no lo estaba. Quitarlo del TIPO —y no sólo
+     * del constructor de la petición— convierte la regla en algo que el compilador
+     * impide violar.
+     *
+     * La supresión de empresas ya conocidas es CLIENTE y posterior a la respuesta.
+     */
   };
 };
 
@@ -1280,7 +1289,8 @@ export type LushaCompanyProspectingV3Request = {
    *   filters.companies.include.locations, sizes, etc.
    * Enviar locations/sizes en el nivel raíz de filters era incorrecto.
    * Q3F-5F confirmó que filters DEBE ser un objeto (no array) — HTTP 400 si array.
-   * Q3F-5H confirmó que filters sin companies.include/exclude válido → HTTP 400.
+   * Q3F-5H confirmó que filters sin companies.include válido → HTTP 400.
+   * CUT-L1: `companies.exclude` no existe — Lusha V3 no tiene exclusión server-side.
    */
   filters?: LushaCompanyProspectingV3Filters;
   pagination?: {
@@ -1368,13 +1378,17 @@ export type LushaCompanyProspectingV3Result = {
 };
 
 /**
- * Comprueba si filters contiene al menos un filtro real dentro de companies.include o companies.exclude.
- * Q3F-5N: el schema anidado exige filters.companies.include.* o filters.companies.exclude.*.
- * filters:{} o filters.companies:{} o companies sin include/exclude útil → rechazado localmente.
+ * Comprueba si filters contiene al menos un filtro real dentro de companies.include.
+ * Q3F-5N: el schema anidado exige filters.companies.include.*.
+ * filters:{} o filters.companies:{} o companies sin include útil → rechazado localmente.
+ *
+ * 🔴 CUT-L1 § 2 — ya NO se acepta un bloque de exclusión como «filtro real»: no
+ * existe. Una petición cuyo único contenido fuera una exclusión no tendría filtro
+ * ninguno, y eso es exactamente lo que Lusha rechaza con HTTP 400.
  */
 function hasCompanyFilters(filters: LushaCompanyProspectingV3Filters | undefined): boolean {
   if (!filters?.companies) return false;
-  const { include, exclude } = filters.companies;
+  const { include } = filters.companies;
   if (include) {
     if (include.locations?.length) return true;
     if (include.sizes?.length) return true;
@@ -1387,7 +1401,6 @@ function hasCompanyFilters(filters: LushaCompanyProspectingV3Filters | undefined
     if (include.names?.length) return true;
     // naics omitted — Q3F-5AA: rejected by API
   }
-  if (exclude?.domains?.length) return true;
   return false;
 }
 
@@ -1432,14 +1445,15 @@ export async function searchLushaCompaniesV3(input: {
     };
   }
 
-  // Q3F-5N: schema anidado oficial — filters debe tener companies.include.* o companies.exclude.*
+  // Q3F-5N: schema anidado oficial — filters debe tener companies.include.*
+  // CUT-L1: sin `companies.exclude` — Lusha V3 no lo soporta.
   // Q3F-5H: filters:{} rechazado — HTTP 400 "filters.Company filters cannot be empty"
   if (!hasCompanyFilters(input.request.filters)) {
     return {
       ok: false,
       status: 'provider_error',
       resultsReturned: 0,
-      errorMessage: 'Lusha company prospecting requires at least one filter inside filters.companies.include or filters.companies.exclude. filters: {} is rejected by Lusha V3 API (HTTP 400: "filters.Company filters cannot be empty").',
+      errorMessage: 'Lusha company prospecting requires at least one filter inside filters.companies.include. filters: {} is rejected by Lusha V3 API (HTTP 400: "filters.Company filters cannot be empty").',
     };
   }
 
@@ -1447,7 +1461,7 @@ export async function searchLushaCompaniesV3(input: {
   const timer = setTimeout(() => controller.abort(), input.timeoutMs);
 
   try {
-    // Q3F-5N: schema anidado oficial — filters.companies.include/exclude (no nivel raíz)
+    // Q3F-5N: schema anidado oficial — filters.companies.include (no nivel raíz)
     // pagination.page base 0 (OpenAPI V3 oficial confirmado Q3F-5N)
     // options.includePartialProfiles=false por defecto
     const pag = input.request.pagination;

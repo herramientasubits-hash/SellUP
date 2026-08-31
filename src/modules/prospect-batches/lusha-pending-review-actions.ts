@@ -396,9 +396,14 @@ async function runGenerateLushaPendingReviewBatch(
     requestedTarget,
     requestedByUserId: internalUserId,
     partialGapSupported: LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED,
-    // ADDENDUM PROVIDER-SEEN §§ 5, 6 — la exclusión por dominios es lo único que
-    // el contrato verificado de Lusha V3 soporta; los ids quedan congelados hasta
-    // la confirmación escrita del soporte humano.
+    // ADDENDUM PROVIDER-SEEN §§ 5, 6 — el proveedor decide la CAPACIDAD de
+    // exclusión y de qué memoria se lee.
+    //
+    // 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION § 1 — y la capacidad de Lusha
+    // está APAGADA en las dos dimensiones: el soporte HUMANO confirmó que
+    // `POST /v3/companies/prospecting` no tiene exclusión del lado del servidor.
+    // Los dominios conocidos se siguen recogiendo, y sirven para la supresión
+    // CLIENTE posterior a la respuesta.
     provider: 'lusha',
     // 🔴 CUT9A § 5 — la MISMA autoridad que usará la mitad de pago. El runner lo
     // invoca SÓLO cuando de verdad tiene empresas que escribir, y envuelto en su
@@ -960,13 +965,21 @@ async function runLushaSearchWithReservation(args: {
                   request,
                 }),
             },
-            {
-              ...input,
-              // § 11 — pista ECONÓMICA, no autoridad de dedupe. Es la única
-              // exclusión que el contrato verificado de Lusha V3 soporta; el
-              // dedupe local posterior sigue corriendo entero.
-              excludeDomains: prePaid.exclusionDomains,
-            },
+            // 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 1, 2 — la entrada
+            // viaja TAL CUAL, sin exclusión ninguna.
+            //
+            // Aquí se inyectaba `excludeDomains: prePaid.exclusionDomains`, que
+            // acababa en `filters.companies.exclude.domains`. El soporte HUMANO de
+            // Lusha confirmó que `POST /v3/companies/prospecting` no soporta
+            // exclusión del lado del servidor, así que ese envío se retira entero y
+            // no se sustituye por otro campo adivinado.
+            //
+            // 🔴 Los dominios conocidos NO se pierden: viajan por la ejecución en
+            // `providerExclusionPlan.domains.availableValues` y siembran la
+            // supresión CLIENTE del registro de identidad de la corrida. Lo que
+            // este corte no puede es ahorrar el crédito de Prospecting de una
+            // empresa histórica: la respuesta ya llegó cuando se la reconoce.
+            input,
           ),
         // Write dep #1 — prospect_batches ONLY.
         //

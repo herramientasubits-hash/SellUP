@@ -43,10 +43,15 @@
  * `resolveProviderSeenStore()` devuelve el store PERSISTENTE. Lo que cambia con
  * respecto al gate anterior es exactamente una cosa: la memoria ya sobrevive a la
  * corrida. Lo que NO cambia es quién decide: la memoria se lee para EXPLICAR y
- * para construir la pista de exclusión, y se escribe para recordar; el dedupe
- * local sigue siendo la única autoridad sobre qué se persiste (§ 6), y ningún
- * acierto de memoria recorta el objetivo (`residualGap`), que lo fija la capa
- * gratuita y sólo ella.
+ * para alimentar la supresión de lo ya conocido, y se escribe para recordar; el
+ * dedupe local sigue siendo la única autoridad sobre qué se persiste (§ 6), y
+ * ningún acierto de memoria recorta el objetivo (`residualGap`), que lo fija la
+ * capa gratuita y sólo ella.
+ *
+ * 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 1, 4 — y esa supresión es
+ * CLIENTE. Lusha V3 no soporta exclusión del lado del servidor (contrato HUMANO),
+ * así que los dominios que esta memoria devuelve ya no viajan en la petición:
+ * siembran el registro de identidad de la corrida, DESPUÉS de la respuesta.
  *
  * 🔴 El orden importaba y se respetó: primero la tabla, después el resolutor. Al
  * revés, cada corrida habría escrito contra una tabla inexistente.

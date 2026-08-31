@@ -117,14 +117,29 @@ test('§ 9 — no se fabrica economía derivada en ninguna parte de la memoria',
   }
 });
 
-test('§ 5 — la petición a Lusha sigue emitiendo SÓLO `exclude.domains`', () => {
+/**
+ * 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 1, 2, 8 — RATCHET INVERTIDO.
+ *
+ * Esta guarda exigía `exclude: { domains: excludeDomains }` en el constructor de
+ * la petición, es decir, FIJABA el envío que el soporte HUMANO de Lusha acaba de
+ * desmentir: `POST /v3/companies/prospecting` no tiene exclusión del lado del
+ * servidor, ni por dominio ni por id. Un trinquete que fija el valor defectuoso
+ * bloquea su corrección, así que la cobertura se invierte en vez de borrarse.
+ */
+test('§ 5 · CUT-L1 — la petición a Lusha NO emite exclusión de ninguna clase', () => {
   const code = stripTsComments(read(LUSHA_PREVIEW));
 
-  assert.ok(code.includes('exclude: { domains: excludeDomains }'), 'la exclusión por dominios sigue');
-  for (const forbidden of ['exclude.ids', 'exclude: { ids', 'excludeIds', 'excludeCompanyIds']) {
+  for (const forbidden of [
+    'exclude:',
+    'exclude.domains',
+    'exclude.ids',
+    'excludeDomains',
+    'excludeIds',
+    'excludeCompanyIds',
+  ]) {
     assert.ok(
       !code.includes(forbidden),
-      `el contrato de ids está congelado hasta la confirmación escrita (${forbidden})`,
+      `Lusha V3 no soporta exclusión server-side (${forbidden})`,
     );
   }
 });

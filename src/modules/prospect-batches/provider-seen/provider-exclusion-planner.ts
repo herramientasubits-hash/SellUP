@@ -13,52 +13,63 @@
  * de SellUp, dominios locales de HubSpot, la propia corrida), y un plan que no
  * sepa explicarse convierte un recorte en un misterio.
  *
- * ── 🔴 CAPACIDAD, no preferencia (§ 5) ───────────────────────────────────────
+ * ── 🔴 CUT-L1 · NINGÚN proveedor vivo excluye del lado del servidor (§ 5) ────
  *
- * `supportsIdExclusion` está en `false` para TODOS los proveedores, y no porque
- * excluir por id sea mala idea: porque el contrato de
- * `POST /v3/companies/prospecting` que gobierna `filters.companies.exclude` está
- * pendiente de confirmación ESCRITA del soporte humano de Lusha (Sandeep). Hasta
- * que llegue, este PR no puede depender de:
+ * AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION § 1. El soporte HUMANO de Lusha
+ * confirmó que `POST /v3/companies/prospecting` NO soporta array de exclusión
+ * server-side: ni `excludeDomains` ni `excludeCompanyIds`. Antes de este corte
+ * este módulo declaraba `supportsDomainExclusion: true` para Lusha citando un
+ * contrato «verificado» que nunca existió. Ese contrato HUMANO es ahora la
+ * autoridad, y las dos dimensiones de Lusha están en `false`.
  *
- *   · `filters.companies.exclude.ids`,
- *   · la semántica de `ids` + `domains` COMBINADOS,
- *   · la estabilidad a largo plazo del id de empresa,
- *   · un máximo de elementos en el array de exclusión,
- *   · el orden entre exclusión y paginación,
- *   · si la exclusión rellena («backfill») la página o la deja corta.
+ * Apollo ya estaba en `false` por su propio motivo (su contrato de Organization
+ * Search no prueba exclusiones), así que hoy la capacidad está apagada en las dos
+ * rutas — por razones DISTINTAS, y cada una lo dice con su propio motivo.
  *
- * Lo que sí se construye es el sitio donde eso encajará: los ids se RECOGEN, se
- * CUENTAN y se declaran `available`, y una sola constante decide si se envían. El
- * día que llegue el contrato escrito, se cambia la capacidad y se añaden sus
- * pruebas; no se reescribe nada.
+ * Lo que sí se conserva es el sitio donde una capacidad real encajaría: los
+ * valores se RECOGEN, se NORMALIZAN, se CUENTAN y viajan en `availableValues`; una
+ * sola constante por dimensión decide si además se ENVÍAN.
+ *
+ * ── 🔴 «Nada enviado» ≠ «nada conocido» (§ 3) ────────────────────────────────
+ *
+ * Es la distinción que este módulo tiene que sostener, porque es la que un corte
+ * apresurado destruye:
+ *
+ *   A. lo que SellUp CONOCE  → `available` / `availableValues`, íntegro.
+ *   B. lo que PUEDE ENVIARSE → `sent`, hoy vacío por capacidad.
+ *
+ * Con la capacidad apagada, `sent` queda vacío pero `availableValues` NO: es la
+ * evidencia con la que la supresión CLIENTE siembra el registro de identidad de la
+ * corrida. Derivar la supresión local de `sent` habría tirado esa evidencia y
+ * dejado la ruta sin ninguna protección.
+ *
+ * `unsupportedReason` acompaña siempre al vacío, para que la telemetría no lea
+ * «0 enviados» como «no había nada que enviar».
  *
  * ── 🔴 Ids y dominios se planifican POR SEPARADO ─────────────────────────────
  *
  * Nunca se calcula un tope conjunto ni una lista mezclada. Un plan de dominios
  * tiene que salir idéntico haya o no haya ids disponibles, y hay una prueba que
- * lo fija. Es la forma concreta de no depender de una semántica combinada que
- * nadie ha confirmado.
+ * lo fija. Id de proveedor y dominio son evidencia INDEPENDIENTE, y CUT-L1 § 6 lo
+ * mantiene así: ninguno se convierte en clave histórica del otro.
  *
  * ── 🔴 El tope sigue siendo NUESTRO ──────────────────────────────────────────
  *
  * `PREPAID_EXCLUSION_DOMAIN_CAP` es una decisión propia y conservadora del hito
- * base, no un límite publicado por ningún proveedor. No se inventa aquí un
- * «chunk size» ni un máximo de ids: mientras los ids no viajen, su tope es 0 por
- * capacidad, que es un hecho, y no un número mágico.
+ * base, no un límite publicado por ningún proveedor. Con las dos capacidades
+ * apagadas los topes efectivos son 0, que es un HECHO de capacidad y no un número
+ * mágico.
  *
  * ── 🔴 La exclusión no es autoridad de dedupe (§ 6) ──────────────────────────
  *
- * El proveedor puede ignorarla, puede devolver la misma empresa bajo otro dominio
- * y la lista viaja acotada. El dedupe local posterior corre entero e igual.
+ * El dedupe local posterior corre entero e igual — y desde CUT-L1 es, además, la
+ * ÚNICA protección: no hay exclusión previa al cobro que pueda ahorrar el crédito
+ * de Prospecting de una empresa histórica.
  *
  * Puro: sin env, sin I/O, sin proveedor, sin DB, sin reloj.
  */
 
-import {
-  planProviderExclusionDomains,
-  PREPAID_EXCLUSION_DOMAIN_CAP,
-} from '@/modules/prospect-batches/prepaid-novelty/provider-exclusion-domains';
+import { planProviderExclusionDomains } from '@/modules/prospect-batches/prepaid-novelty/provider-exclusion-domains';
 import type { ProviderSeenProvider } from './provider-seen-identity';
 
 // ─── Procedencias (§ 6) ───────────────────────────────────────────────────────
@@ -117,18 +128,29 @@ export type ProviderExclusionCapability = {
 };
 
 /**
- * Lusha: dominios SÍ —es lo único que el repo tiene verificado del contrato V3 y
- * lo que la ruta ya emite en Producción—, ids NO mientras el contrato escrito no
- * llegue.
+ * 🔴 CUT-L1 § 1 — el motivo CANÓNICO, y es el mismo para las dos dimensiones
+ * porque el hecho es uno: `POST /v3/companies/prospecting` no tiene bloque de
+ * exclusión del lado del servidor. No es «pendiente de confirmar»: está
+ * confirmado, por un humano, en NEGATIVO.
+ */
+export const LUSHA_NO_SERVER_SIDE_EXCLUSION_REASON =
+  'lusha_v3_no_server_side_exclusion_human_confirmed';
+
+/**
+ * Lusha: NINGUNA exclusión server-side. Ni dominios ni ids.
+ *
+ * 🔴 CUT-L1 § 1 — confirmado por el soporte HUMANO de Lusha. Los dominios
+ * conocidos siguen recogiéndose y siguen viajando en `availableValues`; lo que no
+ * ocurre es que salgan en la petición.
  */
 export const LUSHA_EXCLUSION_CAPABILITY: ProviderExclusionCapability = {
   provider: 'lusha',
-  supportsDomainExclusion: true,
+  supportsDomainExclusion: false,
   supportsIdExclusion: false,
-  domainCap: PREPAID_EXCLUSION_DOMAIN_CAP,
+  domainCap: 0,
   idCap: 0,
-  idExclusionUnsupportedReason: 'lusha_exclude_ids_contract_unconfirmed',
-  domainExclusionUnsupportedReason: null,
+  idExclusionUnsupportedReason: LUSHA_NO_SERVER_SIDE_EXCLUSION_REASON,
+  domainExclusionUnsupportedReason: LUSHA_NO_SERVER_SIDE_EXCLUSION_REASON,
 };
 
 /**
@@ -159,9 +181,20 @@ export function resolveProviderExclusionCapability(
 // ─── Plan ─────────────────────────────────────────────────────────────────────
 
 export type ProviderExclusionDimensionPlan<T> = {
-  /** Valores únicos y utilizables que SellUp conoce. */
+  /** Cuántos valores únicos y utilizables conoce SellUp. */
   available: number;
-  /** Los que realmente viajan. Vacío si la capacidad está apagada. */
+  /**
+   * 🔴 CUT-L1 § 3 — los valores conocidos EN SÍ, ya normalizados, deduplicados y
+   * en orden determinista. SOBREVIVEN a la capacidad apagada: son evidencia
+   * LOCAL, no una petición.
+   *
+   * Es de aquí de donde se siembra la supresión cliente. Nunca de `sent`.
+   */
+  availableValues: readonly T[];
+  /**
+   * Los que realmente viajan al proveedor. Vacío si la capacidad está apagada —y
+   * hoy lo está en las dos rutas vivas, cada una por su motivo.
+   */
   sent: readonly T[];
   /** Conocidos que no viajaron por el tope propio. */
   omittedDueToCap: number;
@@ -223,6 +256,8 @@ function planIdDimension(
   if (!capability.supportsIdExclusion) {
     return {
       available: ordered.length,
+      // 🔴 CUT-L1 § 3 — lo conocido sobrevive a la capacidad apagada.
+      availableValues: ordered,
       sent: [],
       omittedDueToCap: 0,
       omittedDueToCapability: ordered.length,
@@ -235,6 +270,7 @@ function planIdDimension(
   const sent = ordered.slice(0, cap);
   return {
     available: ordered.length,
+    availableValues: ordered,
     sent,
     omittedDueToCap: ordered.length - sent.length,
     omittedDueToCapability: 0,
@@ -257,14 +293,20 @@ function planDomainDimension(
     }
   }
 
-  // 🔴 Se REUSA el planificador del hito base: normalización, dedupe, orden
+  // 🔴 Se REUSA el colector del hito base: normalización, dedupe, orden
   // determinista y recorte contado ya son suyos. Duplicarlos aquí crearía dos
   // listas que podrían divergir y sólo una viaja al proveedor.
+  //
+  // 🔴 CUT-L1 § 3 — y por eso `availableValues` sale también de él: hay UN
+  // normalizador de dominios de exclusión, no dos.
   const base = planProviderExclusionDomains(all, capability.domainCap);
 
   if (!capability.supportsDomainExclusion) {
     return {
       available: base.available,
+      // 🔴 CUT-L1 § 3 — ÉSTA es la línea que impide que el corte tire la
+      // evidencia: la capacidad apagada vacía `sent`, jamás lo conocido.
+      availableValues: base.availableValues,
       sent: [],
       omittedDueToCap: 0,
       omittedDueToCapability: base.available,
@@ -275,6 +317,7 @@ function planDomainDimension(
 
   return {
     available: base.available,
+    availableValues: base.availableValues,
     sent: base.sent,
     omittedDueToCap: base.omittedDueToCap,
     omittedDueToCapability: 0,

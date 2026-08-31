@@ -62,14 +62,18 @@ function makeDeps(input: {
       failed: false,
       failureCode: null,
     },
-    exclusionDomains: input.exclusionSent ?? [],
+    knownSuppressionDomains: input.exclusionSent ?? [],
   });
 
   const gateResult: PrePaidNoveltyGateResult = {
     context,
+    // 🔴 CUT-L1 § 3 — el doble refleja el mundo real: lo conocido va en
+    // `availableValues` y `sent` queda vacío, porque ningún proveedor vivo puede
+    // recibir una exclusión.
     exclusionPlan: {
       available: (input.exclusionSent ?? []).length,
-      sent: input.exclusionSent ?? [],
+      availableValues: input.exclusionSent ?? [],
+      sent: [],
       omittedDueToCap: 0,
     },
     // ADDENDUM PROVIDER-SEEN — el doble del gate declara las tres claves nuevas.
@@ -173,7 +177,7 @@ test('§ 13 — la ruta todo-o-nada descarta su contribución si la escritura no
   assert.equal(outcome.providerRequired, true);
 });
 
-test('§ 11 — las exclusiones viajan cuando habrá proveedor, en ambas rutas', async () => {
+test('§ 11 · CUT-L1 — los conocidos LLEGAN a la ruta de pago cuando habrá proveedor, en ambas rutas', async () => {
   const { deps } = makeDeps({
     acceptedNovel: 0,
     requestedTarget: 5,
@@ -184,5 +188,10 @@ test('§ 11 — las exclusiones viajan cuando habrá proveedor, en ambas rutas',
     { ...BASE, requestedTarget: 5, partialGapSupported: true },
     deps,
   );
-  assert.deepEqual([...outcome.exclusionDomains], ['conocida.example', 'otra.example']);
+  // 🔴 CUT-L1 §§ 3, 7 — llegan para SEMBRAR la supresión cliente, no para viajar
+  // en la petición. La paridad entre rutas que este fichero defiende es la misma.
+  assert.deepEqual(
+    [...outcome.knownSuppressionDomains],
+    ['conocida.example', 'otra.example'],
+  );
 });

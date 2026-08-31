@@ -25,18 +25,31 @@ const BASE = {
 
 const KNOWN_DOMAINS = ['https://Conocida.com/x', 'conocida.com', null, 'otra.example'];
 
-test('§ 6 — con memoria VACÍA la lista de exclusión es exactamente la de siempre', async () => {
+test('§ 6 · CUT-L1 — con memoria VACÍA la lista de CONOCIDOS es la de siempre', async () => {
   const sinMemoria = await runPrePaidNoveltyGate(
     { ...BASE, provider: 'lusha' },
     { listKnownExclusionDomains: async () => KNOWN_DOMAINS },
   );
 
-  assert.deepEqual([...sinMemoria.exclusionPlan.sent], ['conocida.com', 'otra.example']);
+  // 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 1, 3 — la recogida, la
+  // normalización y el dedupe son los de siempre; lo que cambió es el destino.
+  // Antes se afirmaba sobre `sent` (lo que viajaba a Lusha); hoy `sent` está vacío
+  // por contrato HUMANO y la evidencia vive en `availableValues`.
+  assert.deepEqual(
+    [...sinMemoria.exclusionPlan.availableValues],
+    ['conocida.com', 'otra.example'],
+  );
+  assert.deepEqual([...sinMemoria.exclusionPlan.sent], [], '🔴 y nada viaja');
+  assert.deepEqual(
+    [...sinMemoria.context.knownSuppressionDomains],
+    ['conocida.com', 'otra.example'],
+    '🔴 el contexto lleva el conocimiento, no el envío',
+  );
   // La vista heredada y la dimensión de dominios del plan nuevo son LA MISMA
   // lista: se deriva, no se calcula dos veces.
   assert.deepEqual(
-    [...sinMemoria.exclusionPlan.sent],
-    [...sinMemoria.providerExclusionPlan.domains.sent],
+    [...sinMemoria.exclusionPlan.availableValues],
+    [...sinMemoria.providerExclusionPlan.domains.availableValues],
   );
   assert.equal(sinMemoria.providerSeen.loaded, false);
   // 🔴 El motivo dejó de ser «autoridad pendiente» en AGENT1-PROVIDER-SEEN-MEMORY-3:
@@ -47,7 +60,7 @@ test('§ 6 — con memoria VACÍA la lista de exclusión es exactamente la de si
   assert.equal(sinMemoria.context.providerSeenKnown, 0);
 });
 
-test('§ 6 — con memoria poblada, los dominios ya pagados se suman a la exclusión', async () => {
+test('§ 6 · CUT-L1 — con memoria poblada, los dominios ya pagados se suman a lo CONOCIDO', async () => {
   const store = createInMemoryProviderSeenStore();
   await store.record({
     observations: collectProviderSeenObservations('lusha', [
@@ -66,22 +79,26 @@ test('§ 6 — con memoria poblada, los dominios ya pagados se suman a la exclus
     },
   );
 
+  // 🔴 CUT-L1 § 3 — `provider_seen` sigue APORTANDO al conocimiento local, que es
+  // lo que siembra la supresión cliente. Que no viaje al proveedor no lo hace
+  // menos útil: es la única capa que queda.
   assert.deepEqual(
-    [...result.exclusionPlan.sent],
+    [...result.exclusionPlan.availableValues],
     ['conocida.com', 'otra.example', 'yapagada.example'],
   );
+  assert.deepEqual([...result.exclusionPlan.sent], []);
   assert.equal(result.providerSeen.loaded, true);
   assert.equal(result.providerSeen.idsAvailable, 2);
   assert.equal(result.providerSeen.domainsAvailable, 1);
   assert.equal(result.providerExclusionPlan.domains.bySource.provider_seen, 1);
 
-  // 🔴 Los ids se conocen y se cuentan… pero NO viajan: el contrato humano de
-  // Lusha sigue pendiente (§ 5).
+  // 🔴 Los ids se conocen y se cuentan… pero NO viajan: el contrato HUMANO de
+  // Lusha confirmó que V3 no tiene exclusión server-side (CUT-L1 § 1).
   assert.equal(result.providerExclusionPlan.ids.available, 2);
   assert.deepEqual([...result.providerExclusionPlan.ids.sent], []);
   assert.equal(
     result.providerExclusionPlan.ids.unsupportedReason,
-    'lusha_exclude_ids_contract_unconfirmed',
+    'lusha_v3_no_server_side_exclusion_human_confirmed',
   );
 });
 
@@ -130,6 +147,12 @@ test('§ 6 — Apollo no recibe exclusiones, aunque la memoria esté llena', asy
   assert.deepEqual([...result.exclusionPlan.sent], []);
   assert.equal(result.providerExclusionPlan.domains.available, 3, 'se sabe, pero no viaja');
   assert.equal(result.providerExclusionPlan.domains.omittedDueToCapability, 3);
+  // 🔴 CUT-L1 § 1 — y el motivo de Apollo sigue siendo el SUYO, no el de Lusha:
+  // las dos capacidades están apagadas por razones distintas.
+  assert.equal(
+    result.providerExclusionPlan.domains.unsupportedReason,
+    'apollo_exclusion_contract_unverified',
+  );
 });
 
 test('§ 12 — una memoria que revienta NO rompe la corrida: degrada a «no se cargó»', async () => {
@@ -149,7 +172,10 @@ test('§ 12 — una memoria que revienta NO rompe la corrida: degrada a «no se 
   );
 
   assert.equal(result.providerSeen.loaded, false);
-  assert.deepEqual([...result.exclusionPlan.sent], ['conocida.com', 'otra.example']);
+  assert.deepEqual(
+    [...result.exclusionPlan.availableValues],
+    ['conocida.com', 'otra.example'],
+  );
   assert.equal(result.context.residualGap, 5, 'fail-open: el proveedor hace lo de hoy');
 });
 
