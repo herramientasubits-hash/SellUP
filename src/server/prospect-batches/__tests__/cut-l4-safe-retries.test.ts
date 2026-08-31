@@ -997,4 +997,44 @@ describe('CUT-L4 · alcance: lo que este corte NO movió (§ 31, § 34, § 44)',
   it('§ 44 — el preview no cambió su tope de créditos esperado', () => {
     assert.match(preview, /LUSHA_PREVIEW_EXPECTED_MAX_CREDITS/);
   });
+
+  /**
+   * § 43 — EL TRINQUETE DE CI, y por qué vive DENTRO de la suite que protege.
+   *
+   * 🔴 Una suite que no corre no defiende nada, y quitarla del check obligatorio
+   * es la forma más barata de desactivar un corte entero sin tocar una sola línea
+   * de producción. Este repo ya lo aprendió con CUT-L2 y CUT-L3: el cableado de
+   * CI se les olvidó y las suites pasaban en local sin bloquear nada.
+   *
+   * Que la guarda sea autorreferencial es el punto: si alguien borra el paso del
+   * workflow, la suite que se quedó sin correr en CI todavía FALLA en local y en
+   * cualquier otro paso que la invoque.
+   */
+  it('§ 43 — las dos suites de CUT-L4 están cableadas al check obligatorio', () => {
+    const workflow = read('.github/workflows/automatic-routing-tests.yml');
+    const pkg = read('package.json');
+
+    for (const script of [
+      'test:a1-lusha-cut-l4-safe-retries',
+      'test:a1-lusha-cut-l4-attempts:postgres',
+    ]) {
+      assert.ok(pkg.includes(`"${script}"`), `falta el script npm ${script}`);
+      assert.ok(
+        workflow.includes(`npm run ${script}`),
+        `el paso obligatorio de CI no corre ${script}`,
+      );
+    }
+
+    // Y la suite de PostgreSQL tiene que correr con el arnés EXIGIDO: sin esta
+    // variable se SALTA sola cuando falta `embedded-postgres`, y un paso que se
+    // salta solo es un paso decorativo.
+    const pgStep = workflow.slice(
+      workflow.indexOf('npm run test:a1-lusha-cut-l4-attempts:postgres'),
+    );
+    assert.match(
+      pgStep.slice(0, 200),
+      /SELLUP_REQUIRE_POSTGRES_HARNESS: '1'/,
+      'la suite de PostgreSQL puede saltarse sola: el paso no exige el arnés',
+    );
+  });
 });
