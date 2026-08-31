@@ -4032,3 +4032,23 @@ jobs:
         run: npm run test:br-source:compact-storage-and-retention
         env:
           SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
+      # BR-COMPACT-POST-MERGE-CORRECTIONS — los DOS defectos hallados después de mergear #368.
+      #
+      #   A. la procedencia de la CORRIDA estaba DECLARADA y no se escribía: el INSERT de
+      #      `source_snapshot_runs` no ligaba `metadata`, así que los cuatro campos salieron de
+      #      la fila compacta y no llegaron a ninguna parte. Esta suite los LEE de vuelta de un
+      #      `source_snapshot_runs.metadata` real después de una publicación real.
+      #
+      #   B. `beginPeriodRun` podía dejar una corrida HUÉRFANA: el INSERT commiteaba solo y la
+      #      partición se creaba después, así que un fallo intermedio tiraba ANTES de que el
+      #      ejecutor recibiera el id — con `snapshotRunId = null` su limpieza no corría. Ahora
+      #      INSERT + DDL son UNA transacción, y la regresión lo prueba haciendo que el
+      #      `CREATE TABLE` REAL ocurra dentro de ella y falle el paso siguiente.
+      #
+      # 0 Producción, 0 escrituras remotas, 0 proveedores, 0 créditos, 0 flags. Todo CNPJ es
+      # sintético. MIGRATION 134: CHANGED = NO, APPLIED IN PRODUCTION = NO.
+      - name: Run BR post-merge run provenance and begin atomicity against real PostgreSQL
+        run: npm run test:br-source:postmerge-corrections
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'

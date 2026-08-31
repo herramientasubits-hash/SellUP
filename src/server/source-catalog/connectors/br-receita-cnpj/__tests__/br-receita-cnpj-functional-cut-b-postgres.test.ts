@@ -49,6 +49,7 @@ import {
 } from '../../../__tests__/support/source-snapshot-identity-real-migration-chain';
 import { createPostgrestShimClient } from './support/br-receita-cut-b-postgrest-shim';
 
+import { brReceitaRunProvenanceForRun } from '../br-receita-cnpj-compact-storage';
 import { buildBrReceitaCnpjSnapshotRows } from '../br-receita-cnpj-snapshot-builder';
 import {
   sampleParserInput,
@@ -151,8 +152,10 @@ async function stagePreparingRun(period: string, legalNameSuffix: string): Promi
     country_code: 'BR',
     source_period: period,
     publish_state: 'preparing',
+    metadata: brReceitaRunProvenanceForRun(undefined),
     returnsRunId: true,
     resolvesRunHandle: true,
+    persistsRunProvenance: true,
   });
 
   const rows = recordsFor(period, legalNameSuffix).map((record) => ({
@@ -659,8 +662,19 @@ describe('BR-SOURCE FUNCTIONAL CUT B — snapshot runtime end to end (real Postg
     assert.notEqual(runB, runA);
     assert.equal(execution.supersededRunId, runA);
 
-    // 🔴 BEFORE the commit, the outside world still saw run A — complete, never a mixture.
-    assert.deepEqual(observedMidTransaction, [`FOUND:${runA}`]);
+    // 🔴 BEFORE every commit this publication makes, the outside world still saw run A —
+    // complete, never a mixture.
+    //
+    // 🔴 BR-COMPACT-POST-MERGE: there are now TWO commits in a publication, not one. The run row
+    // and its detached partition are created in a transaction of their own (that is what stops a
+    // failed `begin_period` leaving an orphan run behind), so the observer is asked at that
+    // boundary too. Asserting on EVERY observation rather than on a one-element array is the
+    // stricter statement: it says no commit of this publication — not just the cutover — ever
+    // exposed run B early or made the period unreadable.
+    assert.ok(observedMidTransaction.length >= 1, 'the observer ran at least at the cutover');
+    for (const observed of observedMidTransaction) {
+      assert.equal(observed, `FOUND:${runA}`, 'never a mixture, at any commit boundary');
+    }
 
     // AFTER the commit, it sees run B, and A is `superseded` rather than deleted.
     const after = await readBrReceitaPublishedSnapshot({
