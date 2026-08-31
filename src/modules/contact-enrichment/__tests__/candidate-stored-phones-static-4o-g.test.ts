@@ -529,7 +529,15 @@ describe('4O-G — alcance', () => {
     // `134_br_receita_compact_snapshot.sql`, la tabla dedicada y particionada del snapshot
     // nacional de Brasil. NO es de teléfono, no nombra ninguna tabla, columna ni función de
     // teléfono, y no edita el archivo de ninguna migración anterior. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 134);
+    // 🔴 AGENT1-LUSHA-CUT-L3 mueve el techo a la 135 (renumerada desde la 134 al integrarse en
+    // serie después de que BR-COMPACT-SNAPSHOT-PRODUCTIZATION llegara primero a main con ese
+    // número): `135_agent1_lusha_prospecting_request_fence.sql`, la valla DURABLE de una
+    // petición de Lusha Company Prospecting: una tabla (`lusha_prospecting_request_fence`) y
+    // tres funciones que se escriben ANTES del envío, para que una caída dura no repita una
+    // petición que el proveedor quizá ya cobró. Es de Agente 1 y de seguridad de GASTO: no es de
+    // teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de las cadenas
+    // que esta guarda vigila. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 135);
     // El CONTEO, no el techo: 121 archivos para los números 001–121, es decir SIN un solo
     // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
     // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
@@ -544,9 +552,10 @@ describe('4O-G — alcance', () => {
     // columnas, índices, triggers ni policies nuevas; M128 únicamente crea/reemplaza una
     // función y sus permisos. Sin backfill: no crea contactos, no re-terminaliza
     // candidatos y no re-declara ninguna función anterior. AUTORADA y NO APLICADA.
-    // 134 archivos para los números 001-134: la 134 del compacto de BR tampoco deja hueco, así
+    // 135 archivos para los números 001-135: la 134 del compacto de BR y la 135 de
+    // AGENT1-LUSHA-CUT-L3 (renumerada desde la 134) tampoco dejan hueco, así
     // que conteo y techo siguen coincidiendo. Esa coincidencia ES la guarda.
-    assert.equal(numbered.length, 134);
+    assert.equal(numbered.length, 135);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {

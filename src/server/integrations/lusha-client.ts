@@ -1505,6 +1505,27 @@ export async function searchLushaCompaniesV3(input: {
   apiKey: string;
   timeoutMs: number;
   request: LushaCompanyProspectingV3Request;
+  /**
+   * AGENT1-LUSHA-CUT-L3 § 7 — LA VALLA DURABLE DE PRE-ENVÍO.
+   *
+   * Se espera (`await`) inmediatamente ANTES de `fetch()`, sin ninguna otra
+   * instrucción en medio. Su implementación de producción compromete una
+   * transacción que deja escrito que esta petición PUEDE haber salido, de modo
+   * que una caída dura entre el envío y la clasificación deje testigo.
+   *
+   * 🔴 Que esté AQUÍ y no en el llamador es la propiedad estructural del corte:
+   * ésta es la única función del repo que llama al endpoint de Prospecting, así
+   * que no existe un camino al proveedor que la esquive.
+   *
+   * 🔴 Si LANZA, no se despacha: la excepción cae en el `catch` con
+   * `providerRequestDispatched` todavía en false, y el desenlace se clasifica
+   * como fallo local PROBADAMENTE anterior al envío. Ésa es la afirmación fuerte
+   * que sostiene el resto: sin valla, no hubo bytes.
+   *
+   * Opcional para no romper a los llamadores que no pagan (diagnósticos,
+   * fixtures). La ruta pagada de Agente 1 la inyecta siempre.
+   */
+  beforeDispatch?: () => Promise<void>;
 }): Promise<LushaCompanyProspectingV3Result> {
   // smoke_test_minimum_page_size_observed=10 (Q3F-5E)
   // Lusha V3 API rechaza HTTP 400 con "pagination.size must not be less than 10"
@@ -1570,6 +1591,23 @@ export async function searchLushaCompaniesV3(input: {
     };
     if (input.request.signals !== undefined) {
       requestBody['signals'] = input.request.signals;
+    }
+
+    // ── AGENT1-LUSHA-CUT-L3 § 7 — EL ORDEN, que es el corte entero ──────────
+    //
+    //     escribir DURABLEMENTE que la petición puede salir
+    //       → COMMIT
+    //         → sólo entonces `fetch()`
+    //
+    // 🔴 Al revés —`fetch()` y después persistir— una caída entre las dos líneas
+    // pierde la evidencia, y al reanudar SellUp repite a ciegas una petición que
+    // Lusha pudo haber procesado y cobrado. No hay Idempotency-Key con la que
+    // arreglarlo después.
+    //
+    // 🔴 Si esto lanza, se sale por el `catch` con `providerRequestDispatched`
+    // aún en false: fallo local PROBADO antes del envío, cero bytes, cero cargo.
+    if (input.beforeDispatch) {
+      await input.beforeDispatch();
     }
 
     // 🔴 Se marca ANTES del await, no después: marcarlo al volver dejaría el

@@ -517,7 +517,15 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
     // mueve por tanto de la 134 a la 135, y el barrido de AUTORÍA —lo único que de verdad protege
     // este corte— se ENSANCHA de diez números a once para incluir la 134. Otra vez más fuerte que
     // antes, no meramente desplazada.
-    assert.equal(migrations.filter((f) => f.startsWith('135')).length, 0);
+    // 🔴 AGENT1-LUSHA-CUT-L3 reclamó después la 135 (renumerada desde la 134 al integrarse en
+    // serie después de que BR-COMPACT-SNAPSHOT-PRODUCTIZATION llegara primero a main con ese
+    // número): la valla DURABLE de una petición de Lusha Company Prospecting, escrita ANTES del
+    // envío para que una caída dura no repita una petición que el proveedor quizá ya cobró. El
+    // proxy «el siguiente número está libre» se mueve por tanto de la 135 a la 136, y el barrido
+    // de AUTORÍA —lo único que de verdad protege este corte— se ENSANCHA de once números a doce
+    // para incluir la 135. La guarda queda otra vez más fuerte que antes, no meramente
+    // desplazada: un número libre nunca demostró nada.
+    assert.equal(migrations.filter((f) => f.startsWith('136')).length, 0);
     for (const file of migrations.filter(
       (f) =>
         f.startsWith('124') ||
@@ -530,7 +538,8 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
         f.startsWith('131') ||
         f.startsWith('132') ||
         f.startsWith('133') ||
-        f.startsWith('134'),
+        f.startsWith('134') ||
+        f.startsWith('135'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

@@ -88,6 +88,13 @@ const MIGRATION_133_BR_CUT_D = '133_br_candidate_identity_promotion.sql';
  */
 const MIGRATION_134_BR_COMPACT = '134_br_receita_compact_snapshot.sql';
 
+/**
+ * AGENT1-LUSHA-CUT-L3 — the durable pre-send fence for one Lusha Company Prospecting request.
+ * Renumbered from 134 to 135 on serial integration, since BR-COMPACT-SNAPSHOT-PRODUCTIZATION
+ * reached main first with that number.
+ */
+const MIGRATION_135_AGENT1_LUSHA_FENCE = '135_agent1_lusha_prospecting_request_fence.sql';
+
 const readMigration = (file: string) => readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
 const stripComments = (sql: string) =>
   sql
@@ -128,9 +135,16 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     // that an undeclared migration above the last known milestone still breaks this guard.
     // BR-PRODUCTION-RELEASE then moved it to 133 with BR-SOURCE CUT D's fenced identity
     // promotion, and BR-COMPACT-SNAPSHOT-PRODUCTIZATION moves it to 134 with Brazil's dedicated
-    // compact snapshot table. The ceiling stays EXACT so that an undeclared migration above the
-    // last known milestone still breaks this guard.
-    assert.equal(highest, 134);
+    // compact snapshot table.
+    //
+    // AGENT1-LUSHA-CUT-L3 then moved it to 135 — renumbered from 134 on serial integration, since
+    // BR-COMPACT-SNAPSHOT-PRODUCTIZATION reached main first with that number — with the durable
+    // pre-send fence for one Lusha Company Prospecting request (`lusha_prospecting_request_fence`
+    // plus its three RPCs). It is an Agent-1 spend-safety table: it names no source-catalog
+    // object, which the sweep below proves over its SQL instead of trusting this comment. The
+    // ceiling stays EXACT so that an undeclared migration above the last known milestone still
+    // breaks this guard.
+    assert.equal(highest, 135);
     assert.ok(files.includes(MIGRATION_125));
     assert.ok(files.includes(MIGRATION_126_AGENT1));
     assert.ok(files.includes(MIGRATION_127));
@@ -148,7 +162,6 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     }
     assert.deepEqual(files.filter((f) => f.startsWith('133')), [MIGRATION_133_BR_CUT_D]);
     assert.deepEqual(files.filter((f) => f.startsWith('134')), [MIGRATION_134_BR_COMPACT]);
-    assert.equal(files.some((f) => f.startsWith('135')), false);
 
     // 🔴 134 gets its OWN, stricter assertion rather than joining the "names no source-catalog
     // object" sweep below, because it honestly does name `source_snapshot_runs`: it reuses that
@@ -170,12 +183,18 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
       assert.match(compact, /CREATE TABLE public\.br_receita_snapshots/);
       assert.match(compact, /PARTITION BY LIST \(snapshot_run_id\)/);
     }
+    assert.deepEqual(
+      files.filter((f) => f.startsWith('135')),
+      [MIGRATION_135_AGENT1_LUSHA_FENCE],
+    );
+    assert.equal(files.some((f) => f.startsWith('136')), false);
     // And the 128 plus the whole 129–132 chain are provably foreign to this milestone: none of
     // them names a single source-catalog object CUT A.1 reconciles.
     for (const foreign of [
       MIGRATION_128_AGENT2A,
       ...MIGRATIONS_129_TO_132_AGENT2,
       MIGRATION_133_BR_CUT_D,
+      MIGRATION_135_AGENT1_LUSHA_FENCE,
     ]) {
       const sql = readMigration(foreign);
       for (const owned of [

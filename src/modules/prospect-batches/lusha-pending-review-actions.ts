@@ -47,10 +47,21 @@ import { isLushaPreviewEnabled } from '@/lib/feature-flags.server';
 import { requireActiveUser } from '@/modules/prospect-batches/actions';
 import { getLushaApiKey } from '@/server/services/lusha-connection';
 import { searchLushaCompaniesV3 } from '@/server/integrations/lusha-client';
+// ── AGENT1-LUSHA-CUT-L3 — la valla DURABLE de pre-envío ─────────────────────
 import {
-  executeLushaPreview,
-  LUSHA_PREVIEW_TIMEOUT_MS,
-} from '@/server/prospect-batches/lusha-preview';
+  createFencedLushaRunSearch,
+  buildLushaFenceBlockedPreviewResult,
+  buildLushaFenceUnavailableBlock,
+} from '@/server/prospect-batches/lusha-fenced-prospecting-search';
+import { resolveLushaRequestFenceStore } from '@/server/prospect-batches/lusha-request-fence-store';
+import {
+  resolveLushaProspectingOperation,
+  LUSHA_OPERATION_UNAVAILABLE_CODE,
+  type LushaProspectingOperationStore,
+} from '@/server/prospect-batches/lusha-prospecting-operation';
+import { resolveLushaProspectingOperationStore } from '@/server/prospect-batches/lusha-prospecting-operation-store';
+import type { LushaRequestFenceStore } from '@/server/prospect-batches/lusha-request-fence';
+import { LUSHA_PREVIEW_TIMEOUT_MS } from '@/server/prospect-batches/lusha-preview';
 // AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 12/15/25 — la capa GRATUITA,
 // idéntica para Apollo y para Lusha, que corre ANTES de que exista una reserva.
 import { runPrePaidNoveltyDiscovery } from '@/server/prospect-batches/country-source-discovery/run-prepaid-novelty-discovery.server';
@@ -231,6 +242,16 @@ export type GenerateLushaPendingReviewBatchInput = z.infer<typeof GenerateInputS
 /** Client-facing result — never exposes raw provider payloads or secrets. */
 export type GenerateLushaPendingReviewBatchActionResult = PersistLushaPendingReviewResult;
 
+/**
+ * Lo que se le dice a la persona cuando la operación lógica no autoriza.
+ *
+ * 🔴 No promete que se pueda reintentar «en un momento». Una operación sin
+ * resolver puede exigir reconciliación HUMANA (CUT-L4), y prometer un reintento
+ * inmediato sería empujar a la usuaria a hacer clic contra una puerta cerrada.
+ */
+const LUSHA_OPERATION_BLOCKED_MESSAGE =
+  'Esta búsqueda ya tiene una ejecución sin cerrar. No se repitió para no volver a cobrarla.';
+
 function invalidInputResult(): GenerateLushaPendingReviewBatchActionResult {
   return buildLushaPendingReviewFailure('Parámetros de búsqueda inválidos.', 'invalid_input');
 }
@@ -314,6 +335,169 @@ async function runGenerateLushaPendingReviewBatch(
   // Una macro admitida SIEMPRE tiene plan (la capacidad es la que lo garantiza),
   // así que aquí no puede aparecer un `null` que degradase la reserva a 2.
   const { clientRequestId, ...searchInput } = parsed.data;
+
+  // ══ AGENT1-LUSHA-CUT-L3 · IDENTIDAD DURABLE — LA PUERTA ECONÓMICA ══════════
+  //
+  // Antes de este arreglo, lo único que separaba una búsqueda pagada de otra era
+  // `clientRequestId`, y ese uuid lo acuña el NAVEGADOR con `crypto.randomUUID()`,
+  // fresco por clic. La valla de petición cerraba la redelivery del mismo payload
+  // y el reintento del framework, pero no cerraba lo que de verdad duplica cargos:
+  //
+  //     el proceso cae
+  //       → la valla previa queda `dispatch_unsafe`
+  //         → la usuaria vuelve a hacer clic
+  //           → clientRequestId NUEVO ⇒ claves de valla NUEVAS
+  //             → la MISMA página lógica podía volver a llegar a Lusha
+  //
+  // La operación lógica la acuña ahora el SERVIDOR y se reencuentra por
+  // (ámbito del actor, firma canónica de la búsqueda). Un clic nuevo sobre una
+  // operación sin resolver NO acuña otra: se bloquea la entrada ENTERA.
+  //
+  // 🔴 Va ANTES de la mitad gratuita, ANTES de la reserva y ANTES del proveedor.
+  // Ese orden es el que hace verdad las tres cifras que importan tras una caída:
+  // cero peticiones al proveedor, cero reservas nuevas, cero operaciones nuevas.
+  //
+  // 🔴 Bloquear la entrada entera —y no sólo la página que ya tenía valla— es
+  // deliberado: si sólo bloqueara la página vieja, las páginas 1 y 2 de la corrida
+  // caída seguirían pudiendo comprarse con el clic nuevo.
+  //
+  // 🔴 Falla CERRADO. Sin credencial de servicio, sin la 135 aplicada o con la RPC
+  // caída no hay operación, y sin operación no se reserva ni se despacha.
+  let operationStore: LushaProspectingOperationStore | null = null;
+  try {
+    operationStore = resolveLushaProspectingOperationStore();
+  } catch {
+    operationStore = null;
+  }
+  if (operationStore === null) {
+    return buildLushaPendingReviewFailure(
+      LUSHA_OPERATION_BLOCKED_MESSAGE,
+      LUSHA_OPERATION_UNAVAILABLE_CODE,
+    );
+  }
+
+  const operation = await resolveLushaProspectingOperation({
+    store: operationStore,
+    internalUserId,
+    // 🔴 La firma se deriva SERVIDOR-side de la semántica normalizada de lo que
+    // hace gastar. Nada efímero entra: ni `clientRequestId`, ni `reservationId`,
+    // ni relojes. Ver `buildLushaOperationSignaturePayload`.
+    criteria: {
+      countryCode: parsed.data.countryCode,
+      macroIndustryKey: parsed.data.macroIndustryKey,
+      subIndustryId: parsed.data.subIndustryId ?? null,
+      sizeBandKey: parsed.data.sizeBandKey ?? null,
+      searchText: parsed.data.searchText ?? null,
+    },
+    // TRAZA de correlación. NO participa en la identidad.
+    clientRequestId,
+  });
+
+  if (operation.status === 'blocked') {
+    console.warn('[lusha_prospecting_operation_blocked]', {
+      reason: operation.block.reason,
+      state: operation.block.state,
+      operation_id: operation.block.operationId,
+      code: operation.block.code,
+    });
+    return buildLushaPendingReviewFailure(
+      LUSHA_OPERATION_BLOCKED_MESSAGE,
+      operation.block.code,
+    );
+  }
+
+  const outcome = await runLushaPendingReviewUnderOperation({
+    parsed,
+    internalUserId,
+    clientRequestId,
+    searchInput,
+    routingMetadata,
+    routingPlan,
+    operationId: operation.operationId,
+  });
+
+  // ── EL CIERRE, y por qué está AQUÍ y no antes ──────────────────────────────
+  //
+  // 🔴 La operación NO se cierra porque Lusha devolviera 200. La revisión final
+  // probó que existe esta ventana:
+  //
+  //     éxito del proveedor → valla marcada → CAÍDA antes de persistir candidatos
+  //
+  // Las empresas se pierden y la corrida no terminó. Por eso el cierre exige que
+  // `runLushaPendingReviewUnderOperation` haya devuelto NORMALMENTE: la
+  // persistencia de candidatos LANZA cuando falla —tanto el INSERT todo-o-nada
+  // como `fence_snapshot_unavailable`—, así que un fallo de persistencia sale por
+  // la excepción de abajo y nunca llega hasta aquí. La operación se queda sin
+  // resolver, y un clic nuevo se topa con ella.
+  //
+  // 🔴 Y la segunda mitad vive en la BASE: `complete_lusha_prospecting_operation`
+  // se niega a cerrar si alguna petición sigue sin verdad de facturación asentada
+  // (`prepared`, `dispatch_unsafe`, `indeterminate`, `unknown`), y en ese caso
+  // deja la operación en `reconciliation_required`. Ninguna de las dos mitades
+  // basta sola.
+  await completeLushaOperationObservably(operationStore, operation.operationId);
+  return outcome;
+}
+
+/**
+ * El cierre durable de la operación. Best-effort y NUNCA lanza: la contabilidad
+ * de identidad no puede tumbar una corrida cuyos candidatos ya son durables.
+ *
+ * 🔴 Lo que NO se hace es silenciarlo. Un cierre denegado significa que esa
+ * búsqueda queda bloqueada para la usuaria hasta que alguien reconcilie, y eso
+ * tiene que ser legible sin ir a mirar la tabla a mano.
+ */
+async function completeLushaOperationObservably(
+  store: LushaProspectingOperationStore,
+  operationId: string,
+): Promise<void> {
+  try {
+    const closed = await store.complete(operationId);
+    if (closed.status !== 'completed' && closed.status !== 'already_completed') {
+      console.warn('[lusha_prospecting_operation_not_completed]', {
+        operation_id: operationId,
+        status: closed.status,
+        unsettled: closed.status === 'blocked_unsettled_requests' ? closed.unsettled : null,
+        code: closed.status === 'failed' ? closed.code : null,
+      });
+    }
+  } catch {
+    console.warn('[lusha_prospecting_operation_not_completed]', {
+      operation_id: operationId,
+      status: 'threw',
+      unsettled: null,
+      code: 'operation_complete_threw',
+    });
+  }
+}
+
+/**
+ * El cuerpo de la corrida, ya AUTORIZADO por una operación lógica recién acuñada.
+ *
+ * Sólo se llega aquí con `operationId` de una operación que ESTA entrada creó. Una
+ * reanudada sin resolver se detiene arriba, antes de la mitad gratuita y antes de
+ * la reserva, así que aquí no hay ninguna decisión de replay que tomar.
+ */
+async function runLushaPendingReviewUnderOperation(ctx: {
+  parsed: { data: GenerateLushaPendingReviewBatchInput };
+  internalUserId: string;
+  clientRequestId: string;
+  searchInput: Omit<GenerateLushaPendingReviewBatchInput, 'clientRequestId'>;
+  routingMetadata: ReturnType<typeof buildProviderRoutingMetadata>;
+  routingPlan: ReturnType<typeof resolveProviderRoutingPlan>;
+  /** Identidad DURABLE de la operación. La valla de petición cuelga de ella. */
+  operationId: string;
+}): Promise<GenerateLushaPendingReviewBatchActionResult> {
+  const {
+    parsed,
+    internalUserId,
+    clientRequestId,
+    searchInput,
+    routingMetadata,
+    routingPlan,
+    operationId,
+  } = ctx;
+
 
   // ── AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 12/15 — TODO lo gratuito ──
   //
@@ -539,6 +723,7 @@ async function runGenerateLushaPendingReviewBatch(
         searchInput,
         internalUserId,
         clientRequestId,
+        operationId,
         requestedTarget,
         canonicalBatch,
         reservation,
@@ -640,6 +825,15 @@ async function runLushaSearchWithReservation(args: {
   internalUserId: string;
   /** AGENT1-LOCAL-CUT9A § 3 — identidad de EJECUCIÓN, la que va a la fila del lote. */
   clientRequestId: string;
+  /**
+   * AGENT1-LUSHA-CUT-L3 — identidad DURABLE de la operación lógica.
+   *
+   * 🔴 Es la que valla las peticiones pagadas, y es DISTINTA de
+   * `clientRequestId`: aquélla la acuña el navegador y es fresca por clic, ésta la
+   * acuña el servidor y sobrevive al reinicio. Confundirlas es el defecto que este
+   * arreglo cierra.
+   */
+  operationId: string;
   /** § 8 — el objetivo PEDIDO, la autoridad que `target_count` publica. */
   requestedTarget: number;
   /**
@@ -695,6 +889,7 @@ async function runLushaSearchWithReservation(args: {
     searchInput,
     internalUserId,
     clientRequestId,
+    operationId,
     requestedTarget,
     canonicalBatch,
     reservation,
@@ -725,6 +920,41 @@ async function runLushaSearchWithReservation(args: {
   // § 12 — duración de la corrida, para la fila de uso. Se toma aquí y no en el
   // núcleo puro: el writer no mide tiempo y no debe empezar a hacerlo.
   const runStartedAtMs = Date.now();
+
+  // ── 🔴 AGENT1-LUSHA-CUT-L3 §§ 2, 7 — LA VALLA DURABLE DE PRE-ENVÍO ─────────
+  //
+  // Antes de este corte, la única barrera entre esta corrida y el proveedor era
+  // la reserva de presupuesto, y la reserva es de CORRIDA: devuelve
+  // `already_reserved` sobre el mismo `client_request_id` y `guardLushaRunBudget`
+  // invoca `run()` igual, así que una re-ejecución tras una caída dura volvía a
+  // pedir las MISMAS páginas. Sin Idempotency-Key, eso puede cobrarse dos veces.
+  //
+  // 🔴 La valla es por PETICIÓN (corrida + rama + página), no por corrida. Una
+  // corrida contiene varias ramas y varias páginas, y cada una es un cargo
+  // distinto que hay que poder distinguir.
+  //
+  // 🔴 Va por `service_role` porque la tabla y las tres RPC de la migración 135
+  // sólo se lo conceden a él: un cliente de sesión que pudiera reclamar, marcar o
+  // liquidar podría fabricar el estado que autoriza —o suprime— una petición
+  // pagada.
+  //
+  // 🔴 Se resuelve PEREZOSAMENTE y falla CERRADO. Sin credencial de servicio no
+  // hay valla, y sin valla no se despacha: `runSearch` devuelve un bloqueo y el
+  // ejecutor detiene la corrida sin haber tocado al proveedor. Degradar abierto
+  // reabriría la ventana de replay justo cuando no hay testigo.
+  let requestFenceStore: LushaRequestFenceStore | null = null;
+  let requestFenceUnavailable = false;
+  const resolveRequestFence = (): LushaRequestFenceStore | null => {
+    if (requestFenceStore !== null) return requestFenceStore;
+    if (requestFenceUnavailable) return null;
+    try {
+      requestFenceStore = resolveLushaRequestFenceStore();
+      return requestFenceStore;
+    } catch {
+      requestFenceUnavailable = true;
+      return null;
+    }
+  };
 
   /**
    * Liquidación de la reserva. Se llama en TODOS los caminos de salida por
@@ -954,33 +1184,78 @@ async function runLushaSearchWithReservation(args: {
     const result = await persistLushaPendingReviewBatch(
       {
         // Lusha runs through the read-only preview core → guardrails inherited.
-        runSearch: (input) =>
-          executeLushaPreview(
-            {
-              resolveApiKey: () => getLushaApiKey(),
-              searchCompanies: (apiKey, request) =>
-                searchLushaCompaniesV3({
-                  apiKey,
-                  timeoutMs: LUSHA_PREVIEW_TIMEOUT_MS,
-                  request,
-                }),
+        //
+        // 🔴 AGENT1-LUSHA-CUT-L3 § 7 — y AHORA detrás de la valla durable. La
+        // composición vive en `createFencedLushaRunSearch`, no aquí, para que el
+        // orden «persistir → COMMIT → fetch» se pueda probar contando llamadas
+        // HTTP sin levantar Supabase, Vault ni presupuesto.
+        //
+        // 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 1, 2 — la entrada sigue
+        // viajando TAL CUAL, sin exclusión ninguna. Aquí se inyectaba
+        // `excludeDomains: prePaid.exclusionDomains`, que acababa en
+        // `filters.companies.exclude.domains`; el soporte HUMANO de Lusha
+        // confirmó que `POST /v3/companies/prospecting` no soporta exclusión del
+        // lado del servidor, así que ese envío se retiró entero y no se sustituyó
+        // por otro campo adivinado. Los dominios conocidos NO se pierden: viajan
+        // por la ejecución en `providerExclusionPlan.domains.availableValues` y
+        // siembran la supresión CLIENTE del registro de identidad de la corrida.
+        runSearch: async (input, coordinates) => {
+          const store = resolveRequestFence();
+          if (store === null) {
+            // Sin valla no se despacha. El ejecutor lo lee como fallo de
+            // proveedor y detiene la corrida — cero peticiones, cero escrituras.
+            return buildLushaFenceBlockedPreviewResult(
+              input,
+              buildLushaFenceUnavailableBlock(),
+            );
+          }
+          return createFencedLushaRunSearch({
+            store,
+            // 🔴 La identidad DURABLE de la operación, acuñada por el SERVIDOR.
+            //
+            // Aquí viajaba `clientRequestId`, y ése era el defecto: lo acuña el
+            // navegador con `crypto.randomUUID()`, así que un clic nuevo tras una
+            // caída dura producía claves de valla vírgenes y la MISMA página podía
+            // volver a comprarse. `operationId` se reencuentra por (actor, firma),
+            // de modo que el clic nuevo reconstruye las MISMAS claves.
+            operationId,
+            context: {
+              triggeredByUserId: internalUserId,
+              // Evidencia, NUNCA parte de la clave: una reserva recreada no debe
+              // poder acuñar identidad nueva para una petición vieja.
+              reservationId: reservation.reservationId,
+              // TRAZA. Correlaciona la fila de valla con la reserva y con el lote;
+              // no gobierna nada.
+              clientRequestId,
             },
-            // 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 1, 2 — la entrada
-            // viaja TAL CUAL, sin exclusión ninguna.
-            //
-            // Aquí se inyectaba `excludeDomains: prePaid.exclusionDomains`, que
-            // acababa en `filters.companies.exclude.domains`. El soporte HUMANO de
-            // Lusha confirmó que `POST /v3/companies/prospecting` no soporta
-            // exclusión del lado del servidor, así que ese envío se retira entero y
-            // no se sustituye por otro campo adivinado.
-            //
-            // 🔴 Los dominios conocidos NO se pierden: viajan por la ejecución en
-            // `providerExclusionPlan.domains.availableValues` y siembran la
-            // supresión CLIENTE del registro de identidad de la corrida. Lo que
-            // este corte no puede es ahorrar el crédito de Prospecting de una
-            // empresa histórica: la respuesta ya llegó cuando se la reconoce.
-            input,
-          ),
+            resolveApiKey: () => getLushaApiKey(),
+            searchCompanies: (apiKey, request, beforeDispatch) =>
+              searchLushaCompaniesV3({
+                apiKey,
+                timeoutMs: LUSHA_PREVIEW_TIMEOUT_MS,
+                request,
+                // 🔴 La marca durable, esperada inmediatamente antes de
+                // `fetch()` dentro del propio cliente.
+                beforeDispatch,
+              }),
+            onSettlementIssue: (issue) => {
+              console.warn('[lusha_request_fence_settlement_failed]', {
+                fence_key: issue.fenceKey,
+                code: issue.code,
+                wizard_run_id: reservedCorrelation.wizardRunId,
+              });
+            },
+            onBlocked: (block) => {
+              console.warn('[lusha_request_fence_blocked]', {
+                fence_key: block.fenceKey,
+                reason: block.reason,
+                state: block.state,
+                code: block.code,
+                wizard_run_id: reservedCorrelation.wizardRunId,
+              });
+            },
+          })(input, coordinates);
+        },
         // Write dep #1 — prospect_batches ONLY.
         //
         // ── AGENT1-LOCAL-CUT9A § 4 — RESERVE-OR-RETURN, no INSERT incondicional ──

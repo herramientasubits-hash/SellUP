@@ -476,9 +476,32 @@ export interface PersistLushaPendingReviewActor {
   requestedTarget: number;
 }
 
+/**
+ * AGENT1-LUSHA-CUT-L3 § 5 — QUÉ distingue una petición lógica de otra.
+ *
+ * `page` ya viaja dentro de `LushaPreviewInput`, pero `branchIndex` no existía en
+ * ninguna parte de la entrada: dos ramas del plan que compartieran industria
+ * principal y sub habrían producido la MISMA identidad, y la valla durable habría
+ * suprimido la segunda como si fuera un replay. Se pasa aparte, y no dentro de
+ * `LushaPreviewInput`, porque el índice de rama es del EJECUTOR: el núcleo de
+ * preview no sabe que existe un plan multi-rama y no debe empezar a saberlo.
+ */
+export type LushaProviderRequestCoordinates = {
+  /** Índice de la rama dentro del plan de la corrida, base 0. */
+  branchIndex: number;
+  /** Página pedida al proveedor, base 0. La misma que viaja en el input. */
+  page: number;
+};
+
 /** Runs Lusha once. Backed by the read-only `executeLushaPreview` core so the
- *  page/size/credit guardrails are inherited verbatim. */
-export type RunLushaSearch = (input: LushaPreviewInput) => Promise<LushaPreviewResult>;
+ *  page/size/credit guardrails are inherited verbatim.
+ *
+ *  El segundo argumento es OPCIONAL para no romper a los dobles de prueba
+ *  anteriores a CUT-L3; la ruta pagada de producción lo pasa siempre. */
+export type RunLushaSearch = (
+  input: LushaPreviewInput,
+  coordinates?: LushaProviderRequestCoordinates,
+) => Promise<LushaPreviewResult>;
 
 /** READ-ONLY. Canonical SellUp + HubSpot duplicate checker. Can only detect
  *  duplicates — it never writes. */
@@ -2245,20 +2268,26 @@ export async function persistLushaPendingReviewBatch(
         break;
       }
 
-      const search = await deps.runSearch({
-        ...input,
-        page,
-        // Rama legacy ⇒ no se manda `industryBranch` y el preview deriva la
-        // industria del sector, exactamente como hoy.
-        ...(branch !== null
-          ? {
-              industryBranch: {
-                mainIndustryId: branch.mainIndustryId,
-                subIndustryId: branch.subIndustryId ?? null,
-              },
-            }
-          : {}),
-      });
+      const search = await deps.runSearch(
+        {
+          ...input,
+          page,
+          // Rama legacy ⇒ no se manda `industryBranch` y el preview deriva la
+          // industria del sector, exactamente como hoy.
+          ...(branch !== null
+            ? {
+                industryBranch: {
+                  mainIndustryId: branch.mainIndustryId,
+                  subIndustryId: branch.subIndustryId ?? null,
+                },
+              }
+            : {}),
+        },
+        // 🔴 AGENT1-LUSHA-CUT-L3 § 5 — las coordenadas de la petición LÓGICA.
+        // `branchIndex` y `page` juntos son lo que impide que la valla durable
+        // confunda la página 1 con la 0, o la rama 2 con la 1.
+        { branchIndex, page },
+      );
       providerRequestsUsed++;
       branchProviderRequests++;
       branchPagesAttempted++;

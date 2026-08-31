@@ -275,6 +275,18 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
     // (`promote_candidate_fiscal_identity_fenced`) y sus permisos: sin tabla, sin columna, sin
     // índice, sin constraint y sin backfill. NO es de teléfono y no nombra ninguna tabla, columna
     // ni función de teléfono, que es lo que esta guarda vigila. AUTORADA y NO APLICADA.
+    // BR-COMPACT-SNAPSHOT-PRODUCTIZATION mueve el techo a la 134:
+    // `134_br_receita_compact_snapshot.sql`, la tabla dedicada y particionada del snapshot
+    // nacional de Brasil. NO es de teléfono, no nombra ninguna tabla, columna ni función de
+    // teléfono, y no edita el archivo de ninguna migración anterior. AUTORADA y NO APLICADA.
+    // 🔴 AGENT1-LUSHA-CUT-L3 mueve el techo a la 135 (renumerada desde la 134 al integrarse en
+    // serie después de que BR-COMPACT-SNAPSHOT-PRODUCTIZATION llegara primero a main con ese
+    // número): `135_agent1_lusha_prospecting_request_fence.sql`, la valla DURABLE de una
+    // petición de Lusha Company Prospecting — una tabla (`lusha_prospecting_request_fence`) y
+    // tres funciones que se escriben ANTES del envío para que una caída dura no repita una
+    // petición que el proveedor quizá ya cobró. NO es de teléfono: es de Agente 1 y de seguridad
+    // de gasto, no nombra ninguna tabla, columna ni función de teléfono, y el barrido de más
+    // abajo lo comprueba sobre su SQL. AUTORADA y NO APLICADA en Producción.
     assert.equal(
       last,
       // 4O-H3 movió el techo a la 116 (la APROBACIÓN atómica: una sola función
@@ -332,8 +344,12 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // snapshot nacional de Brasil. No escribe `mobile_phone` ni inventa vocabulario de
       // procedencia del escalar móvil, lo que las aserciones de abajo comprueban sobre su SQL.
       // AUTORADA y NO APLICADA en remoto.
-      '134_br_receita_compact_snapshot.sql',
-      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa, la contabilidad de presupuesto, el tramo 129–132 de Agente 2, la 133 de BR-SOURCE CUT D y la 134 del compacto de BR, no este hito',
+      // AGENT1-LUSHA-CUT-L3 añade la 135 (renumerada desde la 134 al integrarse en serie después
+      // de que BR-COMPACT-SNAPSHOT-PRODUCTIZATION llegara primero a main con ese número): la
+      // valla DURABLE de una petición de Lusha Prospecting. Tampoco escribe `mobile_phone` ni
+      // inventa vocabulario de procedencia del escalar móvil. AUTORADA y NO APLICADA en remoto.
+      '135_agent1_lusha_prospecting_request_fence.sql',
+      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa, la contabilidad de presupuesto, el tramo 129–132 de Agente 2, la 133 de BR-SOURCE CUT D, la 134 del compacto de BR y la 135 de la valla de Lusha (AGENT1-LUSHA-CUT-L3, renumerada desde la 134), no este hito',
     );
     for (const agent2 of [
       '129_agent2_contact_hubspot_stale_completeness.sql',
@@ -362,17 +378,24 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // AGENT2-FINAL-INTEGRATION están autorizadas y nombradas una por una, así que lo que queda
       // prohibido es la 134 y superiores.
       // BR-PRODUCTION-RELEASE declara la 133: la promoción VALLADA de la identidad fiscal
-      // resuelta de una candidata brasileña (BR-SOURCE CUT D). Queda AUTORIZADA y NOMBRADA como
-      // las anteriores, así que la ventana prohibida sube a la 134 y superiores. La guarda no se
-      // relaja: sigue impidiendo que alguien cuele una POR ENCIMA del último hito conocido sin
-      // declararla.
-      numbered.some((f) => /^1(3[5-9]|[4-9]\d)/.test(f)),
+      // resuelta de una candidata brasileña (BR-SOURCE CUT D), y BR-COMPACT-SNAPSHOT-
+      // PRODUCTIZATION declara la 134: la tabla dedicada y particionada del snapshot nacional de
+      // Brasil. Ambas quedan AUTORIZADAS y NOMBRADAS como las anteriores.
+      // 🔴 AGENT1-LUSHA-CUT-L3 declara la 135 (renumerada desde la 134 al integrarse en serie
+      // después de que BR-COMPACT-SNAPSHOT-PRODUCTIZATION llegara primero a main con ese
+      // número): la valla DURABLE de una petición de Lusha Company Prospecting
+      // (`lusha_prospecting_request_fence` + tres RPC), escrita ANTES del envío para que una
+      // caída dura no repita una petición que el proveedor quizá ya cobró. Queda AUTORIZADA y
+      // NOMBRADA como las anteriores, así que la ventana prohibida sube a la 136 y superiores.
+      // La guarda no se relaja: sigue impidiendo que alguien cuele una POR ENCIMA del último
+      // hito conocido sin declararla.
+      numbered.some((f) => /^1(3[6-9]|[4-9]\d)/.test(f)),
       false,
       // La 120 (Fase 1), la 121 (contabilidad) y la 122 («Buscar más números»)
       // (AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1) son AUTORIZADAS y están declaradas arriba;
       // lo que esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último
       // hito conocido sin declararla.
-      'ninguna migración 135 o superior',
+      'ninguna migración 136 o superior',
     );
   });
 
