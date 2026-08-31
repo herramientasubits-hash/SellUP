@@ -279,7 +279,19 @@ export type BrReceitaCnpjRejectionReason =
   | 'invalid_cnpj'
   | 'duplicate_record_identity_key'
   | 'missing_root_company'
-  | 'incompatible_root_company';
+  | 'incompatible_root_company'
+  /**
+   * 🔴 BR-SOURCE CUT E1 — a value of the row's own `raw_data` carried CNPJ material that the
+   * output sanitizer forbids. The row is NOT published; the batch is NOT destroyed.
+   *
+   * This is a CATEGORY, and the category is the whole diagnostic. The offending key, the offending
+   * value, the CNPJ, the básico and the legal name are all absent from the rejection record by
+   * construction — `BrReceitaCnpjRejectedRow` has nowhere to put them. GATE-1 R4 forbids the CNPJ
+   * and every fingerprint of it anywhere, a rejection diagnostic included, and CUT E1 does not
+   * carve an exception: `sourceRowIndex` already identifies WHICH row, and this code already
+   * identifies WHY.
+   */
+  | 'sanitized_raw_data_collision';
 
 export interface BrReceitaCnpjRejectedRow {
   sourceRowIndex: number;
@@ -303,6 +315,17 @@ export interface BrReceitaCnpjParserSummary {
   rejectedDuplicateRecordIdentity: number;
   rejectedMissingRootCompany: number;
   rejectedIncompatibleRootCompany: number;
+  /**
+   * 🔴 BR-SOURCE CUT E1 — rows excluded by the `raw_data` output sanitizer.
+   *
+   * INTERNAL parser accounting, on the same surface as its four siblings above. It is NOT a new
+   * public metric: the GATE-5 public report contract (`br-receita-cnpj-gate5-output-contract.ts`)
+   * enumerates the keys a REPORT may carry, and this summary is not that surface — no module
+   * outside the parser and its tests reads it. Before CUT E1 the count did not exist because the
+   * condition it counts aborted the run instead of producing a row, so there was never a summary
+   * to put it in.
+   */
+  rejectedSanitizedRawDataCollision: number;
   distinctRecordIdentityKeys: number;
   meiFlaggedRows: number;
   // Invariants — nothing is ever written in this hito.

@@ -706,112 +706,63 @@ export function toEmpresaRow(company: CutERealCompany): BrReceitaEmpresaRow {
 // ─── El constructor REAL, aplicado a la muestra REAL ─────────────────────────
 
 /**
- * Una fila real que hace ABORTAR al constructor entero.
+ * 🔴 BR-SOURCE CUT E1 — este bloque ANTES contenía un workaround, y ya no.
  *
- * 🔴 Es un HALLAZGO de datos reales, no una categoría de diseño. `assertSanitizedRawData` comprueba
- * que ningún valor de `raw_data` contenga el `cnpj_basico` de SU PROPIA fila, y su comentario dice
- * que en ese caso «the row is rejected rather than published». La implementación no rechaza la
- * fila: LANZA, y una excepción en mitad de un lote se lleva por delante el lote completo. Con
- * CNPJ sintéticos la diferencia es invisible porque la coincidencia nunca ocurre; con datos reales
- * ocurre, y basta UNA fila para que no se publique NADA.
+ * CUT E encontró que `assertSanitizedRawData` LANZABA ante una colisión, y que una excepción en
+ * mitad del lote se llevaba el lote completo: DOS filas reales impedían publicar el mes entero.
+ * Para poder MEDIR igualmente, este módulo bisecaba la entrada por bloques, localizaba las filas
+ * culpables, las excluía y las contaba — todo por FUERA del parser.
  *
- * `key` viene del mensaje del propio guardián, que nombra la CLAVE y nunca el valor.
+ * Ese workaround ha sido ELIMINADO. CUT E1 corrigió la disposición en el producto: el parser
+ * rechaza la fila y sigue. Por tanto el arnés hace UNA sola llamada, con la muestra COMPLETA, y no
+ * excluye nada: si volviera a aparecer un abort global, esta función LANZARÍA y CUT E fallaría, que
+ * es exactamente lo que debe ocurrir. El arnés ya no tapa el defecto.
+ *
+ * 🔴 Los rechazos por sanitización se leen del RESULTADO del parser (`reasonCode:
+ * 'sanitized_raw_data_collision'`), no de un mensaje de excepción parseado con una expresión
+ * regular. Son un dato del producto, no un artefacto del arnés.
  */
-export interface CutEGuardAbort {
-  /** Posición de la fila en la entrada del constructor. Un ordinal, nunca un identificador. */
-  readonly rowIndex: number;
-  /** La clave de `raw_data` que el guardián nombró. Categoría, nunca valor. */
-  readonly key: string;
-  /** La clase de violación que el guardián nombró. Categoría, nunca valor. */
-  readonly violation: string;
-}
-
 export interface CutERealBuildOutcome {
   /** Lo que el constructor REAL aceptó, ya proyectado a la forma persistible. */
   readonly snapshots: ReturnType<typeof buildBrReceitaCnpjSnapshotRows>['snapshots'];
-  /** Rechazos ORDINARIOS del constructor (`missing_root_company`, `invalid_cnpj`, …). */
+  /** TODOS los rechazos del constructor, con su categoría. Nada se filtra aquí. */
   readonly rejected: ReturnType<typeof buildBrReceitaCnpjSnapshotRows>['rejected'];
-  /** Las filas que hacen abortar el lote entero. Se EXCLUYEN y se CUENTAN. */
-  readonly guardAborts: readonly CutEGuardAbort[];
+  /** El resumen del constructor, tal cual. Incluye la reconciliación y los contadores. */
+  readonly summary: ReturnType<typeof buildBrReceitaCnpjSnapshotRows>['summary'];
+  /** Sólo los rechazos por colisión de sanitización (CUT E1). */
+  readonly sanitizationRejections: ReturnType<typeof buildBrReceitaCnpjSnapshotRows>['rejected'];
   /** Cuántas filas se ofrecieron al constructor. */
   readonly offeredRows: number;
 }
 
-const GUARD_MESSAGE = /raw_data sanitization violation — key "([^"]+)" (.+)$/;
-
 /**
- * Construye los snapshots de la muestra real con el constructor REAL, aislando las filas que
- * abortan el lote.
+ * Construye los snapshots de la muestra real con el constructor REAL, en UNA llamada.
  *
- * 🔴 NO se corrige el guardián y NO se relaja ninguna política: este corte VALIDA, no legisla
- * sobre GATE-3. Lo que hace es dividir para localizar (bisección por bloques), EXCLUIR la fila
- * culpable y CONTARLA, de modo que la publicación local contenga exactamente lo que el
- * constructor real acepta y el informe pueda decir cuántas filas reales no pasan.
- *
- * La construcción FINAL se hace de una sola vez sobre el conjunto conservado, no pegando trozos:
- * la detección de duplicados del constructor es por llamada, y coserla desde bloques produciría
- * un resultado que el constructor nunca habría devuelto.
+ * No bisecta, no captura excepciones, no excluye filas y no relaja ninguna política. Si el parser
+ * lanza, la excepción PROPAGA: un abort global vuelve a ser un fallo visible del corte, no algo que
+ * el arnés absorbe.
  */
-export function buildCutERealSnapshots(
-  sample: CutERealSample,
-  options: { readonly chunkSize?: number } = {},
-): CutERealBuildOutcome {
-  const chunkSize = options.chunkSize ?? 250;
+export function buildCutERealSnapshots(sample: CutERealSample): CutERealBuildOutcome {
   const establishmentRows = sample.establishments.map(toEstabelecimentoRow);
   const empresasRows = [...sample.companiesByBasico.values()].map(toEmpresaRow);
 
-  const build = (rows: readonly BrReceitaEstabelecimentoRow[]) =>
-    buildBrReceitaCnpjSnapshotRows({
-      sourceYear: CUT_E_REAL_YEAR,
-      sourcePeriod: CUT_E_REAL_PERIOD,
-      empresasRows,
-      estabelecimentosRows: [...rows],
-      cnaesRows: [...sample.cnaes],
-      municipiosRows: [...sample.municipalities],
-      naturezasRows: [...sample.naturezas],
-    });
-
-  const guardAborts: CutEGuardAbort[] = [];
-  const aborting = new Set<number>();
-
-  const locate = (indexes: readonly number[]): void => {
-    try {
-      build(indexes.map((index) => establishmentRows[index]!));
-      return;
-    } catch (error) {
-      if (indexes.length === 1) {
-        const index = indexes[0]!;
-        const message = error instanceof Error ? error.message : String(error);
-        const match = GUARD_MESSAGE.exec(message);
-        aborting.add(index);
-        guardAborts.push({
-          rowIndex: index,
-          key: match?.[1] ?? 'unknown_key',
-          violation: match?.[2] ?? 'unknown_violation',
-        });
-        return;
-      }
-      const middle = Math.floor(indexes.length / 2);
-      locate(indexes.slice(0, middle));
-      locate(indexes.slice(middle));
-    }
-  };
-
-  for (let start = 0; start < establishmentRows.length; start += chunkSize) {
-    const indexes: number[] = [];
-    for (let offset = 0; offset < chunkSize && start + offset < establishmentRows.length; offset += 1) {
-      indexes.push(start + offset);
-    }
-    locate(indexes);
-  }
-
-  const kept = establishmentRows.filter((_, index) => !aborting.has(index));
-  const parsed = build(kept);
+  const parsed = buildBrReceitaCnpjSnapshotRows({
+    sourceYear: CUT_E_REAL_YEAR,
+    sourcePeriod: CUT_E_REAL_PERIOD,
+    empresasRows,
+    estabelecimentosRows: establishmentRows,
+    cnaesRows: [...sample.cnaes],
+    municipiosRows: [...sample.municipalities],
+    naturezasRows: [...sample.naturezas],
+  });
 
   return {
     snapshots: parsed.snapshots,
     rejected: parsed.rejected,
-    guardAborts,
+    summary: parsed.summary,
+    sanitizationRejections: parsed.rejected.filter(
+      (row) => row.reasonCode === 'sanitized_raw_data_collision',
+    ),
     offeredRows: establishmentRows.length,
   };
 }

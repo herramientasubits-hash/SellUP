@@ -28,7 +28,9 @@
  *   - duplicate full CNPJ within the input → rejected.
  *   - establishment with no matching EMPRESAS root → rejected.
  *   - incompatible duplicate EMPRESAS root → its establishments rejected.
+ *   - 🔴 CUT E1: raw_data value carrying the row's own CNPJ material → THAT ROW rejected, batch kept.
  *   - SOCIOS / QSA / CPF anywhere in the input → hard error (never processed).
+ *   - a forbidden raw_data KEY → hard error: the keys are literals here, so it is a code defect.
  *   - contact fields / fine address are never mapped into output (§ 5.3).
  */
 
@@ -204,6 +206,33 @@ type RowIdentifierMaterial = {
  * of the record being built. A date is not that value, unless it coincidentally equals it — in which
  * case fail-closed is the correct outcome and the row is rejected rather than published.
  *
+ * ── 🔴 BR-SOURCE CUT E1 · what "rejected rather than published" costs ────────
+ *
+ * That sentence above was the CONTRACT from the day this guard was written, and the implementation
+ * did not honour it: checks 2 and 3 THREW, and a throw raised from inside the row loop unwinds
+ * `buildBrReceitaCnpjSnapshotRows` entirely. One offending row therefore published NOTHING — not
+ * the other 49 999. With synthetic CNPJs the collision never occurs and the gap is invisible; CUT E
+ * ran the real July-2026 Receita sample and TWO real rows hit it, so the whole month could not be
+ * published without bisecting the input by hand from outside the parser.
+ *
+ * CUT E1 aligns the implementation with the contract: a detected collision REJECTS THAT ROW, with
+ * `reasonCode: 'sanitized_raw_data_collision'`, and the loop continues. Fail closed = the row is
+ * excluded. Not = the batch is destroyed.
+ *
+ * 🔴 The DETECTION RULE IS UNCHANGED — same pattern, same sensitivity, no allowlist, same CNPJ and
+ * raw_data policy. CUT E1 changed the DISPOSITION and nothing else. (The two real cases look like
+ * false positives — a `capital_social_value` that happens to contain the row's básico — but proving
+ * that is a separate decision needing its own evidence, and relaxing a privacy detector on a hunch
+ * is how a leak ships.)
+ *
+ * ── 🔴 Why check 1 still THROWS while 2 and 3 reject the row ─────────────────
+ *
+ * Check 1 inspects KEYS, and every key of `rawData` is a LITERAL written in this file. No source
+ * row can introduce one. So check 1 firing does not mean "this row's data is bad", it means "the
+ * parser was edited wrongly" — and it would then fire on every row identically. Demoting it to a
+ * per-row rejection would publish zero rows while reporting a data problem, which is the loud
+ * failure turned quiet. A code defect must stay a code defect.
+ *
  * ── What is deliberately NOT checked ────────────────────────────────────────
  *
  * The 4-position `cnpj_ordem` and the 2-position DV are NOT matched by containment. Four digits
@@ -211,10 +240,7 @@ type RowIdentifierMaterial = {
  * capital figure — and matching them would reject nearly every real row. They are removed
  * STRUCTURALLY instead: no field carries them, and neither is reconstructable from what remains.
  */
-function assertSanitizedRawData(
-  rawData: BrReceitaCnpjSnapshotRawData,
-  identifier: RowIdentifierMaterial,
-): void {
+function assertNoForbiddenRawDataKey(rawData: BrReceitaCnpjSnapshotRawData): void {
   for (const key of Object.keys(rawData)) {
     if (keyHasToken(key, FORBIDDEN_OUTPUT_KEY_TOKENS)) {
       throw new BrReceitaCnpjForbiddenSourceError(
@@ -222,43 +248,42 @@ function assertSanitizedRawData(
       );
     }
   }
-
-  for (const [key, value] of Object.entries(rawData as unknown as Record<string, unknown>)) {
-    for (const leaf of Array.isArray(value) ? value : [value]) {
-      if (typeof leaf !== 'string' || leaf.length === 0) continue;
-      assertValueCarriesNoCnpjMaterial(key, leaf, identifier);
-    }
-  }
 }
 
 /**
- * Rejects one leaf value that carries CNPJ material. The message names the KEY and the KIND of
- * violation, never the value: a guard that printed what it caught would be the leak it prevents.
+ * 🔴 BR-SOURCE CUT E1 — the VALUE half of the sanitizer, as a PREDICATE.
+ *
+ * Returns `true` when some leaf value of `rawData` carries forbidden CNPJ material. It returns a
+ * bare boolean on purpose: the caller's only lawful response is to reject the row under one
+ * category, and a richer return value — the offending key, the kind of match, the value — would be
+ * material the rejection record is forbidden to carry (GATE-1 R4). A detector that handed back what
+ * it caught would be the leak it exists to prevent, so it does not hand it back at all.
+ *
+ * The three checks below are byte-for-byte the ones that threw before CUT E1.
  */
-function assertValueCarriesNoCnpjMaterial(
-  key: string,
-  value: string,
+function rawDataCarriesForbiddenCnpjMaterial(
+  rawData: BrReceitaCnpjSnapshotRawData,
   identifier: RowIdentifierMaterial,
-): void {
-  if (containsBrazilCnpjLikeIdentifier(value)) {
-    throw new BrReceitaCnpjForbiddenSourceError(
-      `BR Receita CNPJ parser: raw_data sanitization violation — key "${key}" carries a CNPJ-shaped, DV-valid value`,
-    );
+): boolean {
+  for (const value of Object.values(rawData as unknown as Record<string, unknown>)) {
+    for (const leaf of Array.isArray(value) ? value : [value]) {
+      if (typeof leaf !== 'string' || leaf.length === 0) continue;
+      if (valueCarriesCnpjMaterial(leaf, identifier)) return true;
+    }
   }
+  return false;
+}
+
+/** One leaf value. Same rule, same sensitivity, same order as before CUT E1. */
+function valueCarriesCnpjMaterial(value: string, identifier: RowIdentifierMaterial): boolean {
+  if (containsBrazilCnpjLikeIdentifier(value)) return true;
 
   const canonical = stripBrazilCnpjPunctuationAndUpper(value);
-  if (canonical.length === 0) return;
+  if (canonical.length === 0) return false;
 
-  if (identifier.full.length > 0 && canonical.includes(identifier.full)) {
-    throw new BrReceitaCnpjForbiddenSourceError(
-      `BR Receita CNPJ parser: raw_data sanitization violation — key "${key}" carries the row's full CNPJ`,
-    );
-  }
-  if (identifier.basico.length > 0 && canonical.includes(identifier.basico)) {
-    throw new BrReceitaCnpjForbiddenSourceError(
-      `BR Receita CNPJ parser: raw_data sanitization violation — key "${key}" carries the row's CNPJ básico`,
-    );
-  }
+  if (identifier.full.length > 0 && canonical.includes(identifier.full)) return true;
+  if (identifier.basico.length > 0 && canonical.includes(identifier.basico)) return true;
+  return false;
 }
 
 function normalizeText(value: unknown): string | null {
@@ -338,8 +363,13 @@ function indexSimples(rows: BrReceitaSimplesRow[] | undefined): Map<string, BrRe
  * Builds sanitized BR Receita CNPJ snapshot rows from raw local/sample rows.
  * Pure: no Supabase, no disk, no network, no providers.
  *
- * @throws {BrReceitaCnpjForbiddenSourceError} if sourceYear is invalid or a
- * SOCIOS/QSA/CPF source is supplied.
+ * 🔴 BR-SOURCE CUT E1 — a row whose `raw_data` carries forbidden CNPJ material is REJECTED, not
+ * thrown on: it lands in `rejected` with `reasonCode: 'sanitized_raw_data_collision'` and the rest
+ * of the batch is built and returned. One bad row costs one row.
+ *
+ * @throws {BrReceitaCnpjForbiddenSourceError} if sourceYear is invalid, a SOCIOS/QSA/CPF source is
+ * supplied, or `raw_data` carries a forbidden KEY — the last of which no input can cause, since
+ * every key is a literal in this module.
  */
 export function buildBrReceitaCnpjSnapshotRows(
   input: BrReceitaCnpjParserInput,
@@ -409,6 +439,18 @@ export function buildBrReceitaCnpjSnapshotRows(
       continue;
     }
 
+    // 🔴 BR-SOURCE CUT E1 — this claim stays EXACTLY where it was, ABOVE the sanitizer.
+    //
+    // It is tempting to move it below, so a row the sanitizer refuses does not reserve an identity
+    // it never published. That would be a SECOND behaviour change, and a worse one: the fixture's
+    // duplicate-CNPJ row would stop being `duplicate_record_identity_key` and would publish the very
+    // identity the sanitizer had just refused, from a different source row. CUT E1 changes the
+    // DISPOSITION of one guard and nothing else — so a refused row still consumes its identity, and
+    // a later duplicate of it is still refused as a duplicate. Fail-closed stays fail-closed.
+    //
+    // The visible consequence: when the sanitizer refuses a row, `distinctRecordIdentityKeys` counts
+    // an identity that `acceptedRows` does not. That is faithful — the key WAS seen and claimed —
+    // and it is the same accounting the pre-CUT-E1 code did, back when the throw made it unobservable.
     seenIdentityKeys.add(recordIdentityKey);
     const empresa = empresas.byBasico.get(basicoKey)!;
     const simplesRow = simples.get(basicoKey);
@@ -458,10 +500,25 @@ export function buildBrReceitaCnpjSnapshotRows(
     // The row's own identifier material, in canonical form, for the value checks. The básico is
     // taken from the NORMALIZED full CNPJ rather than from `rawBasico`: a source row whose raiz
     // carried punctuation would otherwise be compared in a form the output never uses.
-    assertSanitizedRawData(rawData, {
-      full: stripBrazilCnpjPunctuationAndUpper(normalizedTaxId),
-      basico: stripBrazilCnpjPunctuationAndUpper(normalizedTaxId).slice(0, 8),
-    });
+    assertNoForbiddenRawDataKey(rawData);
+
+    // 🔴 BR-SOURCE CUT E1 — a collision REJECTS THIS ROW. It does not abort the batch.
+    //
+    // `continue` is the whole fix. The row is not published, its `raw_data` is NOT edited to make it
+    // pass, the offending field is NOT stripped to salvage the row, no exception escapes to the
+    // caller, and the next row is processed. The row is counted under
+    // `rejectedSanitizedRawDataCollision`, so an excluded row is a REPORTED row, never a silently
+    // missing one.
+    const canonicalFull = stripBrazilCnpjPunctuationAndUpper(normalizedTaxId);
+    if (
+      rawDataCarriesForbiddenCnpjMaterial(rawData, {
+        full: canonicalFull,
+        basico: canonicalFull.slice(0, 8),
+      })
+    ) {
+      reject(i, 'sanitized_raw_data_collision');
+      continue;
+    }
 
     snapshots.push({
       source_key: BR_RECEITA_CNPJ_SOURCE_KEY,
@@ -504,6 +561,10 @@ export function buildBrReceitaCnpjSnapshotRows(
       rejectedDuplicateRecordIdentity: countReason('duplicate_record_identity_key'),
       rejectedMissingRootCompany: countReason('missing_root_company'),
       rejectedIncompatibleRootCompany: countReason('incompatible_root_company'),
+      // 🔴 BR-SOURCE CUT E1 — the count that makes an excluded row visible. `acceptedRows +
+      // rejectedRows === totalEstablishmentRows` still holds: every iteration ends in exactly one
+      // `reject(...)` or exactly one `snapshots.push(...)`, and this branch is a `reject`.
+      rejectedSanitizedRawDataCollision: countReason('sanitized_raw_data_collision'),
       distinctRecordIdentityKeys: seenIdentityKeys.size,
       // 🔴 GATE-ROUND-2 (RB-3) — counted off the CONTROL array now that the payload no longer
       // carries the marker. This count was `mei_flag`'s only non-test consumer, and it survives

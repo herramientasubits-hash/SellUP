@@ -414,29 +414,60 @@ describe(
         assert.ok(built!.snapshots.length > 1000, 'la publicación es demasiado pequeña para medir');
       });
 
-      it('CASE 7 — 🔴 HALLAZGO: filas reales que ABORTAN el lote entero se cuentan, no se ocultan', () => {
+      it('CASE 7 — 🔴 CUT E1: las colisiones de sanitización EXCLUYEN SU FILA, no el lote', () => {
         if (datasetSkip !== false) return;
-        // `assertSanitizedRawData` dice en su comentario que una coincidencia entre un valor de
-        // `raw_data` y el `cnpj_basico` de la propia fila hace que «the row is rejected rather than
-        // published». La implementación LANZA, y una excepción se lleva el lote entero.
+        // El HALLAZGO de CUT E: `assertSanitizedRawData` documentaba que «the row is rejected rather
+        // than published» y la implementación LANZABA, así que DOS filas reales impedían publicar el
+        // mes completo. CUT E1 corrigió la disposición EN EL PRODUCTO.
         //
-        // Con CNPJ sintéticos la coincidencia no ocurre nunca y la diferencia es invisible. Con
-        // datos reales ocurre. Este corte NO corrige el guardián —eso es política de GATE-3— pero
-        // se niega a que el hecho quede sin registrar.
-        for (const abort of built!.guardAborts) {
-          assert.ok(abort.key.length > 0);
-          assert.ok(
-            abort.violation.length > 0,
-            'el guardián nombró una violación sin categoría legible',
-          );
-          // 🔴 El mensaje del guardián nombra la CLAVE, nunca el valor. Se comprueba.
-          assert.equal(/\d{8}/.test(abort.violation), false, 'el mensaje del guardián citó dígitos');
-        }
-        // No se afirma un número: se afirma que el conteo EXISTE y es coherente.
+        // 🔴 La prueba de que el lote NO abortó es estructural, no una aserción: `buildCutERealSnapshots`
+        // hace UNA llamada con la muestra COMPLETA y no captura nada. Si el parser volviera a lanzar,
+        // el `before` de este describe habría fallado y no habría publicación que inspeccionar.
+        const sanitization = built!.sanitizationRejections;
         assert.equal(
-          built!.offeredRows,
-          sample!.establishments.length,
-          'el constructor no recibió la muestra completa',
+          sanitization.length,
+          2,
+          'la muestra real de julio-2026 contiene exactamente dos filas con colisión',
+        );
+
+        // La exclusión la hace el PARSER, y se ve en su propio resumen — no un contador del arnés.
+        assert.equal(built!.summary.rejectedSanitizedRawDataCollision, sanitization.length);
+        assert.equal(built!.offeredRows, sample!.establishments.length, 'muestra completa ofrecida');
+        assert.equal(built!.summary.totalEstablishmentRows, built!.offeredRows);
+        assert.equal(
+          built!.summary.acceptedRows + built!.summary.rejectedRows,
+          built!.summary.totalEstablishmentRows,
+          'el resumen reconcilia sobre datos REALES, con colisiones presentes',
+        );
+
+        // 🔴 El registro de rechazo no lleva CNPJ ni valor ofensor, tampoco con datos reales.
+        const serialized = JSON.stringify(sanitization);
+        assert.equal(/\d{8}/.test(serialized), false, 'ninguna tirada de ocho dígitos');
+        for (const rejection of sanitization) {
+          assert.deepEqual(Object.keys(rejection).sort(), [
+            'reasonCode',
+            'safeIdentifier',
+            'sourceFile',
+            'sourceRowIndex',
+          ]);
+        }
+      });
+
+      it('CASE 7B — 🔴 las filas excluidas NO están publicadas, y las demás SÍ', async () => {
+        if (datasetSkip !== false) return;
+        // Lo que la publicación real contiene es exactamente lo aceptado: ni la fila excluida
+        // reaparece, ni se perdió ninguna otra por su culpa.
+        const { rows } = await a.query(
+          `SELECT count(*)::int AS n FROM public.source_company_snapshots
+            WHERE source_key = 'br_receita_cnpj_dados_abertos'
+              AND source_period = $1 AND snapshot_run_id = $2`,
+          [CUT_E_REAL_PERIOD, publishedRunId],
+        );
+        assert.equal(Number(rows[0].n), built!.summary.acceptedRows);
+        assert.equal(
+          Number(rows[0].n),
+          built!.offeredRows - built!.summary.rejectedRows,
+          'publicado = ofrecido − rechazado, sin bisección externa',
         );
       });
     });
