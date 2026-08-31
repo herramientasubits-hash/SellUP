@@ -113,6 +113,10 @@ function fixtureTelemetry(overrides: Partial<LushaRunTelemetry> = {}): LushaRunT
     maxRawResults: 60,
     rawResultsTotal: 30,
     crossBranchDuplicatesRemoved: 4,
+    // 🔴 CUT-L1 §§ 4, 5 — la supresión CLIENTE de conocidos se cuenta aparte de
+    // los duplicados de corrida, y su siembra también.
+    localKnownSuppressedTotal: 0,
+    localKnownSeedCount: 0,
     duplicateReasonCounts: {} as LushaRunTelemetry['duplicateReasonCounts'],
     uniqueResultsTotal: 26,
     usefulResultsTotal: 5,

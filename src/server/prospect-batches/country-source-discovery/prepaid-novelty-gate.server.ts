@@ -98,9 +98,13 @@ export async function runProductionPrePaidNoveltyGate(
       ? buildKnownExclusionDomainsReader(adminClient)
       : null,
     // ADDENDUM PROVIDER-SEEN § 4 — la memoria de corridas anteriores. Sólo LEE, y
-    // sólo alimenta la pista de exclusión: no decide dedupe (§ 6) y no recorta el
-    // objetivo, que lo fija la capa gratuita. Una lectura rota degrada a memoria
-    // vacía, que es exactamente el gasto de siempre.
+    // sólo alimenta la supresión de lo ya conocido: no decide dedupe (§ 6) y no
+    // recorta el objetivo, que lo fija la capa gratuita. Una lectura rota degrada a
+    // memoria vacía, que es exactamente el gasto de siempre.
+    //
+    // 🔴 CUT-L1 §§ 1, 4 — esa supresión es CLIENTE desde este corte: Lusha V3 no
+    // tiene exclusión del lado del servidor, así que lo que la memoria alimenta es
+    // la siembra del registro de identidad de la corrida.
     providerSeenStore: resolveProviderSeenStore(),
   });
 }

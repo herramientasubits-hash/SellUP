@@ -644,17 +644,26 @@ describe('§ 6 — la carga alimenta la exclusión y nada más', () => {
     assert.equal(conMemoria.context.residualGap, GATE_INPUT.requestedTarget);
     assert.equal(conMemoria.context.acceptedBeforeProvider, 0);
 
-    // Lo que sí cambia —y lo único— es la pista de exclusión.
-    assert.equal(conMemoria.providerExclusionPlan.domains.sent.length, 6);
+    // 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 1, 3 — lo que sí cambia —y lo
+    // único— es el CONOCIMIENTO local. Antes se afirmaba sobre `sent`, cuando la
+    // memoria alimentaba una exclusión server-side que el contrato HUMANO de Lusha
+    // desmintió. Los 6 dominios siguen apareciendo, y ahora en el campo del que de
+    // verdad se alimentan: la siembra de la supresión cliente.
+    assert.equal(conMemoria.providerExclusionPlan.domains.availableValues.length, 6);
+    assert.equal(sinMemoria.providerExclusionPlan.domains.availableValues.length, 0);
+    // Y ninguno viaja, en ninguno de los dos casos.
+    assert.equal(conMemoria.providerExclusionPlan.domains.sent.length, 0);
     assert.equal(sinMemoria.providerExclusionPlan.domains.sent.length, 0);
   });
 
-  it('(5 del enunciado) la normalización de dominio es la MISMA al escribir, al leer y al enviar', async () => {
+  it('(5 del enunciado) la normalización de dominio es la MISMA al escribir, al leer y al suprimir', async () => {
     // La tabla guarda ya normalizado (CHECK que espeja `normalizeExclusionDomain`),
-    // así que la lectura es verbatim y el envío vuelve a pasar por la misma función.
-    // La propiedad que hay que demostrar es que ese segundo paso es IDEMPOTENTE: si
-    // no lo fuera, el dominio que viaja no sería el que está guardado y la exclusión
-    // sería memoria inerte —nunca coincidiría con nada.
+    // así que la lectura es verbatim y la recogida vuelve a pasar por la misma
+    // función. La propiedad que hay que demostrar es que ese segundo paso es
+    // IDEMPOTENTE: si no lo fuera, el dominio con el que se siembra la supresión no
+    // sería el que está guardado y la memoria sería inerte —nunca coincidiría con
+    // nada. 🔴 CUT-L1 § 3 — la propiedad es la misma; el destino de la lista dejó de
+    // ser la petición y pasó a ser el registro de identidad de la corrida.
     const guardados = ['vista-0.example', 'clinica-andes.com.co', 'sub.dominio.example'];
     for (const domain of guardados) {
       assert.equal(normalizeExclusionDomain(domain), domain, `${domain} no es un punto fijo`);
@@ -674,7 +683,10 @@ describe('§ 6 — la carga alimenta la exclusión y nada más', () => {
     });
 
     const gate = await runPrePaidNoveltyGate(GATE_INPUT, { providerSeenStore: store });
-    assert.deepEqual([...gate.providerExclusionPlan.domains.sent].sort(), [...guardados].sort());
+    assert.deepEqual(
+      [...gate.providerExclusionPlan.domains.availableValues].sort(),
+      [...guardados].sort(),
+    );
   });
 
   it('la carga sigue ACOTADA: una memoria sin cota encarecería lo gratuito', async () => {
@@ -763,22 +775,36 @@ test('(16) ninguna escritura a HubSpot: la memoria no toca el CRM', () => {
   }
 });
 
-test('(17) `supportsIdExclusion` sigue en false: el contrato de Lusha está CONGELADO', () => {
+test('(17) · CUT-L1 — Lusha NO excluye server-side: ni ids NI dominios', () => {
+  // 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION § 1 — el soporte HUMANO de Lusha
+  // confirmó que `POST /v3/companies/prospecting` no tiene array de exclusión del
+  // lado del servidor. El motivo dejó de ser «pendiente de confirmación escrita»:
+  // está confirmado, en NEGATIVO, y es el MISMO para las dos dimensiones.
   assert.equal(LUSHA_EXCLUSION_CAPABILITY.supportsIdExclusion, false);
+  assert.equal(LUSHA_EXCLUSION_CAPABILITY.supportsDomainExclusion, false);
   assert.equal(LUSHA_EXCLUSION_CAPABILITY.idCap, 0);
-  assert.equal(
+  assert.equal(LUSHA_EXCLUSION_CAPABILITY.domainCap, 0);
+  for (const reason of [
     LUSHA_EXCLUSION_CAPABILITY.idExclusionUnsupportedReason,
-    'lusha_exclude_ids_contract_unconfirmed',
-  );
+    LUSHA_EXCLUSION_CAPABILITY.domainExclusionUnsupportedReason,
+  ]) {
+    assert.equal(reason, 'lusha_v3_no_server_side_exclusion_human_confirmed');
+  }
 
-  // 🔴 Y la petición real sigue emitiendo SÓLO dominios. Encender la memoria da MÁS
-  // ids que nunca —es justo lo que la tabla guarda— y ésa es exactamente la razón
-  // por la que esta guarda importa más hoy que ayer: la tentación de enviarlos
-  // existe por primera vez.
+  // 🔴 Y la petición real no emite NINGUNA exclusión. Encender la memoria da más
+  // ids y más dominios que nunca —es justo lo que la tabla guarda— y ésa es
+  // exactamente la razón por la que esta guarda importa: la tentación de enviarlos
+  // existe, y el proveedor no tiene dónde recibirlos.
   const preview = stripTsComments(read('src/server/prospect-batches/lusha-preview.ts'));
-  assert.ok(preview.includes('exclude: { domains: excludeDomains }'));
-  for (const forbidden of ['exclude.ids', 'exclude: { ids', 'excludeIds', 'excludeCompanyIds']) {
-    assert.ok(!preview.includes(forbidden), `contrato de ids roto (${forbidden})`);
+  for (const forbidden of [
+    'exclude:',
+    'exclude.domains',
+    'exclude.ids',
+    'excludeDomains',
+    'excludeIds',
+    'excludeCompanyIds',
+  ]) {
+    assert.ok(!preview.includes(forbidden), `contrato de exclusión roto (${forbidden})`);
   }
 });
 

@@ -2976,8 +2976,10 @@ jobs:
       # la ruta de descarte (4 pruebas ROJAS) pone esta suite en ROJO.
       #
       # Ratchets de alcance que siguen vivos: `WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED`
-      # en `false` y sin tocar, Tavily sin cambios, `exclude.ids` congelado, y
-      # `LUSHA_CONTRACT_STILL_UNCONFIRMED` sigue en true. Sin flag nuevo, sin
+      # en `false` y sin tocar, Tavily sin cambios, y
+      # `LUSHA_CONTRACT_STILL_UNCONFIRMED` sigue en true. (La exclusión
+      # server-side de Lusha ya no está «congelada» sino DESCARTADA por el
+      # contrato HUMANO — ver el paso de CUT-L1 justo debajo.) Sin flag nuevo, sin
       # migración, sin cambio de facturación ni de reservas.
       #
       # Offline y determinista: sólo se doblan los dos bordes de I/O del runner
@@ -2985,6 +2987,47 @@ jobs:
       # 0 créditos.
       - name: Run A1 Lusha mixed two-batch partial-gap containment tests
         run: npm run test:a1-lusha-partial-gap-containment
+
+      # AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION — el contrato HUMANO de Lusha V3
+      # entra al check obligatorio.
+      #
+      # El hecho: el soporte HUMANO de Lusha confirmó que
+      # `POST /v3/companies/prospecting` NO soporta un array de exclusión del lado
+      # del servidor. No existe `excludeDomains` y no existe `excludeCompanyIds`.
+      # El repo declaraba `filters.companies.exclude.domains` como contrato
+      # VERIFICADO y lo emitía en Producción.
+      #
+      # Lo que esta suite defiende, dicho como defecto:
+      #   * que la petición vuelva a emitir `filters.companies.exclude` en
+      #     cualquier forma —o que se sustituya por otro campo adivinado— y Lusha
+      #     rechace la petición ENTERA con HTTP 400, como ya hizo con `sics` y con
+      #     `naics`;
+      #   * que apagar la capacidad se lleve por delante la evidencia LOCAL. Es el
+      #     riesgo concreto del corte: derivar la supresión de `sent` —vacío por
+      #     capacidad— en vez de `availableValues` dejaría la ruta de pago sin
+      #     ninguna protección, y en silencio. L1-B y L1-C lo pinchan;
+      #   * que una empresa que SellUp ya conocía vuelva a contar como net-new
+      #     porque el proveedor ya no puede excluirla antes de cobrar (L1-C), o que
+      #     la contribución gratuita y la de pago cuenten dos veces la misma
+      #     empresa (L1-E);
+      #   * que el id de empresa de Lusha se convierta en clave histórica o se
+      #     colapse con el dominio en una identidad combinada (L1-D);
+      #   * que un corte de CONTRATO mueva una constante MONETARIA (L1-F).
+      #
+      # 🔴 Lo que esta suite NO afirma, porque sería falso: que CUT-L1 ahorre el
+      # crédito de Prospecting de una empresa histórica. Sin exclusión previa al
+      # cobro, la respuesta llega —y puede cobrarse— antes de reconocerla. La
+      # supresión es CLIENTE: evita que cuente como net-new y que arrastre trabajo
+      # pagado aguas abajo, nada más.
+      #
+      # Ratchets de alcance: page size, tope de páginas, objetivo, techo de
+      # créditos y `PREPAID_EXCLUSION_DOMAIN_CAP` sin tocar. Sin flag nuevo, sin
+      # migración, sin cambio de facturación ni de reservas.
+      #
+      # Puras y offline: `persistLushaPendingReviewBatch` con sus deps dobladas.
+      # Sin red, sin Supabase, sin Lusha, sin Apollo. 0 créditos.
+      - name: Run A1 Lusha CUT-L1 client-side exclusion tests
+        run: npm run test:a1-lusha-cut-l1-client-side-exclusion
       # AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1 · CUT-1 — la SUPERVIVENCIA del lote
       # entra al check obligatorio.
       #

@@ -1,11 +1,24 @@
 /**
- * AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 11, 18 — la exclusión de
- * dominios en la petición REAL a Lusha.
+ * AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 1, 2, 10 (L1-A) — la petición REAL
+ * a Lusha, y el bloque de exclusión que NO puede volver a aparecer en ella.
  *
- * Lo que estas pruebas defienden, dicho como defecto: emitir una exclusión que el
- * contrato del proveedor no soporta hace fallar la petición ENTERA con HTTP 400 —
- * el repo ya lo verificó con `sics` y con `naics`— y emitir un `exclude` vacío
- * ensucia la petición sin excluir nada.
+ * ── 🔴 RATCHET INVERTIDO ─────────────────────────────────────────────────────
+ *
+ * Este archivo fijaba lo contrario. Se llamaba «los dominios conocidos viajan en
+ * `filters.companies.exclude.domains`» y afirmaba que ése era el contrato
+ * verificado de Lusha V3. El soporte HUMANO de Lusha confirmó que NO existe
+ * exclusión del lado del servidor en `POST /v3/companies/prospecting`: ni
+ * `excludeDomains` ni `excludeCompanyIds`.
+ *
+ * Un trinquete que fija el valor defectuoso bloquea su corrección, así que la
+ * cobertura no se borra: se invierte. Lo que se defiende ahora, dicho como
+ * defecto: emitir una exclusión que el contrato no soporta hace fallar la petición
+ * ENTERA con HTTP 400 —el repo ya lo verificó con `sics` y con `naics`— y ya se
+ * sabe que `exclude` está en esa familia.
+ *
+ * 🔴 Lo que este corte NO puede hacer, y no se afirma en ninguna prueba: ahorrar
+ * el crédito de Prospecting de una empresa histórica. Sin exclusión previa al
+ * cobro, la respuesta llega —y puede cobrarse— antes de que se la reconozca.
  */
 
 import test from 'node:test';
@@ -22,50 +35,72 @@ const BASE = {
   page: 0,
 };
 
-test('§ 11 — los dominios conocidos viajan en filters.companies.exclude.domains', () => {
-  const request = buildLushaPreviewRequest({
-    ...BASE,
-    excludeDomains: ['conocida.example', 'otra.example'],
-  });
+/**
+ * La forma cruda de la petición. Se inspecciona por `Record` y no por el tipo,
+ * porque el tipo YA no declara `exclude`: si se leyera tipado, la prueba se
+ * limitaría a repetir lo que el compilador acaba de decir, y no vería una
+ * propiedad colada por un `as any` o por un objeto construido a mano.
+ */
+function rawCompanies(request: unknown): Record<string, unknown> {
+  const filters = (request as Record<string, Record<string, unknown>>).filters;
+  return filters.companies as Record<string, unknown>;
+}
 
-  assert.deepEqual(request.filters?.companies?.exclude?.domains, [
-    'conocida.example',
-    'otra.example',
-  ]);
-  // Y el include sigue intacto: la exclusión es aditiva.
-  assert.deepEqual(request.filters?.companies?.include?.mainIndustriesIds, [11]);
+test('🔴 L1-A · la petición NUNCA emite filters.companies.exclude', () => {
+  const request = buildLushaPreviewRequest({ ...BASE });
+  const companies = rawCompanies(request);
+
+  assert.equal(companies.exclude, undefined, '🔴 no hay bloque de exclusión');
+  assert.deepEqual(
+    Object.keys(companies),
+    ['include'],
+    '🔴 SÓLO inclusión: cualquier otra clave sería un contrato inventado',
+  );
 });
 
-test('sin dominios conocidos, la petición es la de siempre: NO se emite `exclude`', () => {
-  for (const excludeDomains of [undefined, null, [], ['', '   ']]) {
-    const request = buildLushaPreviewRequest({ ...BASE, excludeDomains });
-    assert.equal(
-      request.filters?.companies?.exclude,
-      undefined,
-      `un exclude vacío no debe emitirse (${JSON.stringify(excludeDomains)})`,
-    );
+test('🔴 L1-A · ni con dominios conocidos en la mano aparece una exclusión', () => {
+  // La entrada del constructor ya NO tiene dónde poner una exclusión —el campo se
+  // retiró del tipo— así que el intento se hace por la puerta de atrás, como lo
+  // haría un llamador que reintrodujera el defecto con un cast.
+  const sneaked = {
+    ...BASE,
+    excludeDomains: ['conocida.example', 'otra.example'],
+    excludeCompanyIds: ['v1.ZpAq'],
+  } as unknown as Parameters<typeof buildLushaPreviewRequest>[0];
+
+  const companies = rawCompanies(buildLushaPreviewRequest(sneaked));
+
+  assert.equal(companies.exclude, undefined, '🔴 el constructor lo ignora entero');
+  assert.deepEqual(Object.keys(companies), ['include']);
+  // Y no se ha sustituido por otro campo adivinado en la raíz de la petición.
+  const serialized = JSON.stringify(buildLushaPreviewRequest(sneaked));
+  for (const forbidden of ['exclude', 'excludeDomains', 'excludeCompanyIds']) {
+    assert.ok(!serialized.includes(forbidden), `🔴 ${forbidden} no viaja en el cuerpo`);
   }
 });
 
-test('🔴 § 18 — NO se emite ninguna exclusión que el contrato no pruebe', () => {
-  const request = buildLushaPreviewRequest({
-    ...BASE,
-    excludeDomains: ['conocida.example'],
-  });
-  const exclude = request.filters?.companies?.exclude as Record<string, unknown> | undefined;
-  assert.ok(exclude);
-  // El contrato verificado de Lusha V3 sólo tiene `domains`. Nombres, LinkedIn,
-  // identificadores fiscales e ids de empresa NO están probados y una propiedad
-  // desconocida hace fallar la petición entera.
-  assert.deepEqual(Object.keys(exclude), ['domains']);
+test('🔴 § 18 — no hay exclusión por nombre, LinkedIn, identidad fiscal ni id', () => {
+  const include = rawCompanies(buildLushaPreviewRequest({ ...BASE })).include as Record<
+    string,
+    unknown
+  >;
+
+  // El include sigue siendo exactamente el de siempre: país, industria y tamaño.
+  assert.deepEqual(include.mainIndustriesIds, [11]);
+  assert.deepEqual(include.locations, [{ country: 'Colombia' }]);
+  assert.deepEqual(include.sizes, [{ min: 201, max: 5000 }]);
+  for (const forbidden of ['names', 'domains', 'linkedinUrls', 'taxIds', 'ids']) {
+    assert.equal(include[forbidden], undefined, `🔴 ${forbidden} no se emite`);
+  }
 });
 
-test('la exclusión no altera paginación, tamaño ni opciones', () => {
-  const withExclusion = buildLushaPreviewRequest({ ...BASE, excludeDomains: ['x.example'] });
-  const without = buildLushaPreviewRequest({ ...BASE });
+test('🔴 L1-F · retirar la exclusión no toca paginación, tamaño ni opciones', () => {
+  const request = buildLushaPreviewRequest({ ...BASE });
 
-  assert.deepEqual(withExclusion.pagination, without.pagination);
-  assert.deepEqual(withExclusion.options, without.options);
+  // Los invariantes económicos del preview son los de siempre: página server
+  // authoritative y tamaño fijo. Este corte es de CONTRATO, no monetario.
+  assert.deepEqual(request.pagination, { page: 0, size: 10 });
+  assert.deepEqual(request.options, { includePartialProfiles: false });
   // `signals` sigue ausente: nunca se emite en preview (puede generar cargos).
-  assert.equal(withExclusion.signals, undefined);
+  assert.equal(request.signals, undefined);
 });

@@ -148,7 +148,7 @@ function freeLayerDeps(input: {
 
   const gateResult: PrePaidNoveltyGateResult = {
     context,
-    exclusionPlan: { available: 0, sent: [], omittedDueToCap: 0 },
+    exclusionPlan: { available: 0, availableValues: [], sent: [], omittedDueToCap: 0 },
     providerExclusionPlan: planProviderExclusions('apollo', {}),
     providerSeen: input.providerSeen ?? PROVIDER_SEEN_LOAD_EMPTY,
     providerSeenMemory: memory,

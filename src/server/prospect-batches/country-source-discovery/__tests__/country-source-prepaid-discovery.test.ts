@@ -94,8 +94,8 @@ test('§ 22(A) SOURCE SUFFICIENT — 5 nuevas confirmadas ⇒ hueco 0 y el prove
   assert.equal(result.context.residualGap, 0);
   assert.equal(result.context.providerRequired, false);
   assert.equal(result.acceptedCompanies.length, 5);
-  // Sin proveedor no se construye lista de exclusión: sería una lectura para nadie.
-  assert.deepEqual([...result.context.exclusionDomains], []);
+  // Sin proveedor no se construye lista de conocidos: sería una lectura para nadie.
+  assert.deepEqual([...result.context.knownSuppressionDomains], []);
 });
 
 test('§ 22(B) SOURCE PARTIAL — 2 nuevas de 5 ⇒ el proveedor recibe hueco 3', async () => {
@@ -180,14 +180,25 @@ test('§ 22(G) COUNTRY WITHOUT SOURCE — la ruta de pago queda intacta y nada s
   assert.equal(result.context.residualGap, 5);
 });
 
-test('§ 22(H) PROVIDER EXCLUSION — con proveedor por delante, los conocidos viajan normalizados y deduplicados', async () => {
+test('§ 22(H) · CUT-L1 — con proveedor por delante, los conocidos se RECOGEN normalizados y deduplicados', async () => {
   const rows = ['1'].map((k) => row({ record_identity_key: k }));
   const result = await gate(rows, (i) => sellupExact(i));
 
   assert.equal(result.context.providerRequired, true);
-  assert.deepEqual([...result.context.exclusionDomains], ['conocida.com']);
+  // 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 1, 3 — se RECOGEN, no se
+  // envían: Lusha V3 no tiene exclusión server-side (contrato HUMANO). Antes esta
+  // prueba se llamaba «los conocidos VIAJAN» y leía `exclusionDomains`; el hecho
+  // que defiende sigue vivo —la normalización y el dedupe— y su destino cambió.
+  assert.deepEqual([...result.context.knownSuppressionDomains], ['conocida.com']);
   assert.equal(result.exclusionPlan.available, 1);
+  assert.deepEqual([...result.exclusionPlan.availableValues], ['conocida.com']);
   assert.equal(result.exclusionPlan.omittedDueToCap, 0);
+  // 🔴 Y NADA viaja: el plan lo dice y dice por qué.
+  assert.deepEqual([...result.exclusionPlan.sent], []);
+  assert.equal(
+    result.providerExclusionPlan.domains.unsupportedReason,
+    'lusha_v3_no_server_side_exclusion_human_confirmed',
+  );
 });
 
 test('§ 22(I) NO WEBSITE — la empresa se evalúa por identidad legal y NO aporta dominio inventado', async () => {
@@ -206,9 +217,13 @@ test('§ 22(I) NO WEBSITE — la empresa se evalúa por identidad legal y NO apo
     assert.ok(input.taxIdentifier && input.taxIdentifier.length > 0);
     assert.ok(input.normalizedName && input.normalizedName.length > 0);
   }
-  // Y ninguna aporta dominio a la exclusión: la lista es EXACTAMENTE la de los
+  // Y ninguna aporta dominio a la supresión: la lista es EXACTAMENTE la de los
   // conocidos de SellUp, sin una sola entrada procedente de la fuente gratuita.
-  assert.deepEqual([...result.exclusionPlan.sent], ['conocida.com']);
+  //
+  // 🔴 CUT-L1 § 3 — se afirma sobre `availableValues` porque `sent` está vacío por
+  // capacidad; afirmarlo ahí pasaría por verde con la lista vacía y dejaría de
+  // detectar un dominio fabricado, que es justo lo que este caso vigila.
+  assert.deepEqual([...result.exclusionPlan.availableValues], ['conocida.com']);
 });
 
 test('§ 4 — una macro SIN cobertura de códigos no consulta la fuente: devuelve cero, no una muestra genérica', async () => {

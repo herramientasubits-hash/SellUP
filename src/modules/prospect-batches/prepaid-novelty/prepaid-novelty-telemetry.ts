@@ -65,6 +65,12 @@ export function buildPrePaidNoveltyTelemetry(
       accepted_before_provider: context.acceptedBeforeProvider,
       residual_gap: context.residualGap,
       known_domain_count: exclusionPlan.available,
+      // 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION § 3 — `available` sigue
+      // contando lo CONOCIDO y `sent` lo ENVIADO. Con la capacidad apagada por el
+      // contrato HUMANO de Lusha, `sent` es 0 y `available` NO: eso es lo que
+      // impide que «nada enviado» se lea como «nada conocido». El motivo por el
+      // que no se envió viaja en `provider_exclusion_domains_unsupported_reason`
+      // (ver `toProviderExclusionPlanMetadata`).
       exclusion_domains_available: exclusionPlan.available,
       exclusion_domains_sent: exclusionPlan.sent.length,
       exclusion_domains_omitted: exclusionPlan.omittedDueToCap,

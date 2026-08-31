@@ -56,6 +56,31 @@
  * No hay lógica difusa nueva: ni conteo de empleados, ni descripción, ni
  * ubicación. Nada de eso identifica una empresa.
  *
+ * ── 🔴 CUT-L1 · la SIEMBRA de dominios ya conocidos ───────────────────────────
+ *
+ * AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 4, 5. Lusha V3 no soporta
+ * exclusión del lado del servidor —contrato HUMANO—, así que la protección
+ * económica que antes se intentaba en la petición ahora ocurre AQUÍ, y sólo aquí.
+ * `seedLushaKnownDomains` mete los dominios que SellUp ya conoce
+ * (`provider_seen`, conocidos de SellUp, HubSpot local, aceptados de la fuente
+ * gratuita) en el MISMO registro, sin crear un segundo.
+ *
+ * 🔴 Los conocidos viven en su PROPIO conjunto, no mezclados con los de la
+ * corrida, y su rechazo tiene su PROPIO motivo (`known_domain_seed`). No es
+ * cosmética: un duplicado de corrida dice «el proveedor repitió un resultado» y un
+ * conocido dice «esto ya lo teníamos antes de empezar». Contar el segundo como el
+ * primero haría ilegible la telemetría de duplicados justo en el corte que la
+ * necesita.
+ *
+ * 🔴 Sólo DOMINIOS. El id de empresa de Lusha NO se siembra: CUT-L1 § 6 mantiene
+ * id y dominio como evidencia independiente y prohíbe convertir el id del
+ * proveedor en clave histórica permanente. El nombre tampoco se siembra: seguiría
+ * siendo la colisión de homónimos que la cabecera ya rechaza.
+ *
+ * 🔴 Lo que la siembra NO puede hacer es ahorrar el crédito de Prospecting de una
+ * empresa histórica: la respuesta ya llegó y ya pudo cobrarse. Lo que evita es que
+ * cuente como net-new y que arrastre trabajo pagado aguas abajo.
+ *
  * Puro: sin env, sin I/O, sin cliente de proveedor, sin DB, sin reloj.
  */
 
@@ -86,7 +111,13 @@ export type LushaIdentityDuplicateReason =
   | 'provider_company_id'
   | 'normalized_domain'
   | 'normalized_linkedin_url'
-  | 'normalized_name_fallback';
+  | 'normalized_name_fallback'
+  /**
+   * 🔴 CUT-L1 §§ 4, 5 — el dominio ya lo conocía SellUp ANTES de esta corrida
+   * (`provider_seen`, conocidos, HubSpot local, fuente gratuita). NO es un
+   * resultado repetido por el proveedor; es una empresa que no es net-new.
+   */
+  | 'known_domain_seed';
 
 export type LushaIdentityVerdict =
   | { outcome: 'unique'; identity: LushaCompanyIdentity }
@@ -107,6 +138,14 @@ export type LushaRunIdentityRegistry = {
   normalizedDomains: ReadonlySet<string>;
   normalizedLinkedInUrls: ReadonlySet<string>;
   normalizedNames: ReadonlySet<string>;
+  /**
+   * 🔴 CUT-L1 §§ 4, 5 — dominios que SellUp ya conocía ANTES de la corrida.
+   *
+   * Conjunto SEPARADO de `normalizedDomains` a propósito: los dos suprimen, pero
+   * responden a preguntas distintas y su telemetría no puede confundirse. Nada lo
+   * añade salvo `seedLushaKnownDomains`; aceptar una empresa nunca escribe aquí.
+   */
+  knownDomains: ReadonlySet<string>;
 };
 
 export function createLushaRunIdentityRegistry(): LushaRunIdentityRegistry {
@@ -115,7 +154,33 @@ export function createLushaRunIdentityRegistry(): LushaRunIdentityRegistry {
     normalizedDomains: new Set<string>(),
     normalizedLinkedInUrls: new Set<string>(),
     normalizedNames: new Set<string>(),
+    knownDomains: new Set<string>(),
   };
+}
+
+/**
+ * Siembra el registro con los dominios que SellUp YA conoce y devuelve uno NUEVO.
+ *
+ * 🔴 CUT-L1 § 3 — la lista entra tal cual la produjo el colector canónico
+ * (`providerExclusionPlan.domains.availableValues`) y se vuelve a pasar por
+ * `normalizeDomain`, el normalizador del registro, para que las claves vivan en el
+ * MISMO espacio que las de la respuesta del proveedor. No se inventa aquí ninguna
+ * normalización: son los dos normalizadores que ya existían, cada uno en su sitio.
+ *
+ * Lista vacía ⇒ el registro sale idéntico, byte por byte el comportamiento previo
+ * a CUT-L1: sin memoria, sin conocidos y sin fuente gratuita no hay nada que
+ * sembrar y «vacío» es la verdad.
+ */
+export function seedLushaKnownDomains(
+  registry: LushaRunIdentityRegistry,
+  domains: Iterable<string | null | undefined>,
+): LushaRunIdentityRegistry {
+  const knownDomains = new Set(registry.knownDomains);
+  for (const raw of domains) {
+    const domain = normalizeDomain(raw);
+    if (domain !== null) knownDomains.add(domain);
+  }
+  return { ...registry, knownDomains };
 }
 
 // ─── Normalización ────────────────────────────────────────────────────────────
@@ -197,6 +262,16 @@ export function evaluateLushaCompanyIdentity(
   ) {
     return { outcome: 'duplicate', identity, reason: 'normalized_domain' };
   }
+  // 🔴 CUT-L1 §§ 4, 5 — ya conocido de antes de la corrida. Se comprueba DESPUÉS
+  // del duplicado de corrida porque, cuando las dos señales aplican, la más
+  // específica del hecho observado es «el proveedor lo repitió aquí»; el orden
+  // decide sólo el MOTIVO reportado, nunca el desenlace.
+  if (
+    identity.normalizedDomain !== null &&
+    registry.knownDomains.has(identity.normalizedDomain)
+  ) {
+    return { outcome: 'duplicate', identity, reason: 'known_domain_seed' };
+  }
   if (
     identity.normalizedLinkedInUrl !== null &&
     registry.normalizedLinkedInUrls.has(identity.normalizedLinkedInUrl)
@@ -249,6 +324,10 @@ export function registerLushaCompanyIdentity(
     normalizedDomains,
     normalizedLinkedInUrls,
     normalizedNames,
+    // 🔴 CUT-L1 — aceptar una empresa NUNCA amplía la siembra de conocidos: ese
+    // conjunto describe lo que se sabía antes de empezar y aceptar no cambia el
+    // pasado. Se arrastra intacto.
+    knownDomains: registry.knownDomains,
   };
 }
 
@@ -258,8 +337,21 @@ export type LushaIdentityDedupeResult = {
   unique: LushaPreviewCompany[];
   /** Filas impersistibles (sin nombre). NO son duplicados. */
   unusableCount: number;
-  /** Empresas descartadas por identidad ya conocida. */
+  /**
+   * Empresas descartadas por identidad ya conocida — de la corrida O de la
+   * siembra. Es el TOTAL retirado, y `knownSeedRejectedCount` es el subconjunto
+   * atribuible a la siembra.
+   */
   duplicateCount: number;
+  /**
+   * 🔴 CUT-L1 §§ 4, 5 — cuántas de esas empresas cayeron por la SIEMBRA de
+   * conocidos, no por repetición del proveedor.
+   *
+   * Existe para que el llamador pueda sumar cada cosa donde le corresponde: un
+   * conocido no es un duplicado «entre ramas», y meterlo en ese contador diría que
+   * el proveedor repitió resultados que nunca repitió.
+   */
+  knownSeedRejectedCount: number;
   /** Cuántos duplicados por cada señal. Telemetría, no decisión. */
   duplicateReasonCounts: Record<LushaIdentityDuplicateReason, number>;
   /** Registro resultante: el llamador lo encadena a la siguiente página/rama. */
@@ -272,6 +364,7 @@ function emptyReasonCounts(): Record<LushaIdentityDuplicateReason, number> {
     normalized_domain: 0,
     normalized_linkedin_url: 0,
     normalized_name_fallback: 0,
+    known_domain_seed: 0,
   };
 }
 
@@ -290,6 +383,7 @@ export function dedupeLushaCompaniesByIdentity(
   const duplicateReasonCounts = emptyReasonCounts();
   let unusableCount = 0;
   let duplicateCount = 0;
+  let knownSeedRejectedCount = 0;
   let current = registry;
 
   for (const company of companies) {
@@ -301,6 +395,7 @@ export function dedupeLushaCompaniesByIdentity(
     if (verdict.outcome === 'duplicate') {
       duplicateCount++;
       duplicateReasonCounts[verdict.reason]++;
+      if (verdict.reason === 'known_domain_seed') knownSeedRejectedCount++;
       continue;
     }
     current = registerLushaCompanyIdentity(current, verdict.identity);
@@ -311,6 +406,7 @@ export function dedupeLushaCompaniesByIdentity(
     unique,
     unusableCount,
     duplicateCount,
+    knownSeedRejectedCount,
     duplicateReasonCounts,
     registry: current,
   };
@@ -325,5 +421,9 @@ export function toLushaIdentityRegistrySnapshot(
     normalized_domain_count: registry.normalizedDomains.size,
     normalized_linkedin_url_count: registry.normalizedLinkedInUrls.size,
     normalized_name_count: registry.normalizedNames.size,
+    // 🔴 CUT-L1 § 3 — cuántos conocidos entraron a la siembra. Que sea > 0 con
+    // `provider_exclusion_domains_sent: 0` es exactamente la lectura que este
+    // corte necesita: se sabía, y no se envió porque no hay dónde enviarlo.
+    known_seed_count: registry.knownDomains.size,
   };
 }

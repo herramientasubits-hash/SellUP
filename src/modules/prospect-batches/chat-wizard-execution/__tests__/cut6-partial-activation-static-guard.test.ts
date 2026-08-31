@@ -153,7 +153,7 @@ function freeLayer(persistedCount: number): FreeLayer {
   });
   const gateResult: PrePaidNoveltyGateResult = {
     context,
-    exclusionPlan: { available: 0, sent: [], omittedDueToCap: 0 },
+    exclusionPlan: { available: 0, availableValues: [], sent: [], omittedDueToCap: 0 },
     providerExclusionPlan: planProviderExclusions('apollo', {}),
     providerSeen: PROVIDER_SEEN_LOAD_EMPTY,
     providerSeenMemory: EMPTY_PROVIDER_SEEN_MEMORY,

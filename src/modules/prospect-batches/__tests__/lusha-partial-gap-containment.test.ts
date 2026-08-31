@@ -139,6 +139,13 @@ function freeLayer(input: {
       failed: false,
       failureCode: null,
     },
+    // 🔴 CUT-L1 §§ 3, 7 — el contexto lleva el CONOCIMIENTO local, igual que la
+    // puerta real (`withDomains.knownSuppressionDomains`). Sin esto el doble no
+    // podría distinguir la ruta que descarta —que devuelve el plan directamente—
+    // de la que persiste, que devuelve el contexto.
+    knownSuppressionDomains: accepted
+      .map((c) => c.domain)
+      .filter((domain): domain is string => typeof domain === 'string'),
   });
 
   const memory =
@@ -151,9 +158,11 @@ function freeLayer(input: {
         )
       : EMPTY_PROVIDER_SEEN_MEMORY;
 
-  // 🔴 Los dominios de exclusión de Lusha son capacidad VERIFICADA y viajan de
-  // verdad. El plan se construye con los dominios que la fuente gratuita aceptó,
-  // que es la procedencia real de esta ruta.
+  // 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION § 1 — los dominios de Lusha YA NO
+  // viajan: el soporte HUMANO confirmó que V3 no soporta exclusión server-side. Lo
+  // que sigue existiendo, y lo que esta suite defiende, es el CONOCIMIENTO local
+  // que sobrevive al descarte. El plan se construye con los dominios que la fuente
+  // gratuita aceptó, que es la procedencia real de esta ruta.
   const exclusionPlan = planProviderExclusions(provider, {
     freeSourceAcceptedDomains: accepted.map((c) => c.domain),
   });
@@ -162,6 +171,7 @@ function freeLayer(input: {
     context,
     exclusionPlan: {
       available: exclusionPlan.domains.available,
+      availableValues: exclusionPlan.domains.availableValues,
       sent: exclusionPlan.domains.sent,
       omittedDueToCap: exclusionPlan.domains.omittedDueToCap,
     },
@@ -462,45 +472,57 @@ describe('§ 8 · el descarte se lleva la CONTRIBUCIÓN, nunca la medición', ()
     assert.equal(outcome.residualGap, TARGET);
   });
 
-  it('🔴 § 3 · los dominios de exclusión de Lusha SIGUEN viajando tras el descarte', async () => {
-    // Es la capacidad VERIFICADA del contrato V3 y la ruta ya la emite en
-    // Producción. La contención no puede llevársela: es lo que evita volver a
-    // pagar por empresas que la fuente gratuita acaba de ver.
+  it('🔴 § 3 · el CONOCIMIENTO de dominios SOBREVIVE al descarte', async () => {
+    // 🔴 CUT-L1 §§ 1, 3, 7 — la afirmación cambió porque el hecho cambió: estos
+    // dominios ya NO llegan al proveedor (V3 no tiene exclusión server-side), pero
+    // la contención tampoco puede llevárselos. Son la evidencia con la que la ruta
+    // de pago siembra su supresión CLIENTE, y sin ellos volveríamos a contar como
+    // net-new empresas que la fuente gratuita acaba de ver.
     const free = freeLayer({ acceptedNovel: 3, persistedCount: 3 });
 
     const outcome = await runLive(free.deps);
 
     assert.equal(free.persistCalls, 0, 'el aporte se descartó');
     assert.deepEqual(
-      [...outcome.exclusionDomains].sort(),
+      [...outcome.knownSuppressionDomains].sort(),
       ['sintetica-libre-0.co', 'sintetica-libre-1.co', 'sintetica-libre-2.co'],
-      '🔴 y aun así los dominios llegan al proveedor',
+      '🔴 y aun así los dominios conocidos siguen en la mano',
+    );
+    assert.deepEqual(
+      [...outcome.providerExclusionPlan.domains.sent],
+      [],
+      '🔴 y NINGUNO viaja al proveedor: Lusha V3 no puede recibirlos',
     );
   });
 
   /**
    * 🔴 REVIEW-1 §§ 3, 4, 9 — el RATCHET INVERTIDO.
    *
-   * Este caso existía en el corte anterior fijando el defecto: `exclusionDomains`
-   * (lo que VIAJA a Lusha) sobrevivía al descarte, pero `providerExclusionPlan`
-   * (la vista MEDIBLE) volvía al plan vacío que `noContribution` reconstruía. Ese
-   * `noContribution` se escribió para Apollo, donde la capacidad de exclusión está
-   * apagada y un plan vacío es la verdad; en Lusha NO lo era, así que la
-   * telemetría publicaba `provider_exclusion_domains_sent: 0` sobre un envío REAL
-   * de 3 dominios.
+   * Este caso existía en el corte anterior fijando el defecto: la lista de dominios
+   * sobrevivía al descarte, pero `providerExclusionPlan` (la vista MEDIBLE) volvía
+   * al plan vacío que `noContribution` reconstruía, así que la telemetría publicaba
+   * `provider_exclusion_domains_sent: 0` sobre lo que entonces era un envío real.
    *
-   * La cobertura no se borra: se INVIERTE. Lo que ahora se exige es el acuerdo —
-   * la lista que se envía y la que se mide tienen que contar el MISMO envío.
+   * 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 1, 3 — ese envío nunca debió
+   * existir: el contrato HUMANO de Lusha dice que V3 no soporta exclusión
+   * server-side. La cobertura no se borra, se INVIERTE otra vez, y sobre el hecho
+   * que sí queda: el CONOCIMIENTO local y la vista medible tienen que contar la
+   * misma lista, y lo enviado tiene que ser 0 con su motivo dicho.
    */
-  it('🔴 RATCHET INVERTIDO · lo que viaja y lo que se mide cuentan el MISMO envío', async () => {
+  it('🔴 RATCHET INVERTIDO · lo que se conoce y lo que se mide son la MISMA lista', async () => {
+    // 🔴 CUT-L1 § 3 — el acuerdo sigue exigiéndose, pero entre las dos vistas que
+    // hoy existen de verdad: el conocimiento que el runner devuelve y el
+    // `availableValues` del plan medible. `sent` ya no participa porque ya no hay
+    // envío; exigir que coincidiera con el conocimiento fijaría el defecto que
+    // este corte arregla (evidencia local tirada al apagar la capacidad).
     const free = freeLayer({ acceptedNovel: 3, persistedCount: 3 });
 
     const outcome = await runLive(free.deps);
 
     assert.equal(free.persistCalls, 0, 'el aporte se descartó');
-    assert.equal(outcome.exclusionDomains.length, 3, 'viajan 3 dominios de verdad');
+    assert.equal(outcome.knownSuppressionDomains.length, 3, 'se conocen 3 dominios');
     assert.equal(
-      outcome.providerExclusionPlan.domains.sent.length,
+      outcome.providerExclusionPlan.domains.available,
       3,
       '🔴 y el plan medible dice 3, no 0',
     );
@@ -509,9 +531,17 @@ describe('§ 8 · el descarte se lleva la CONTRIBUCIÓN, nunca la medición', ()
     // 🔴 El acuerdo se afirma sobre las LISTAS, no sólo sobre sus longitudes: dos
     // cuentas iguales sobre dominios distintos seguirían siendo una divergencia.
     assert.deepEqual(
-      [...outcome.providerExclusionPlan.domains.sent].sort(),
-      [...outcome.exclusionDomains].sort(),
+      [...outcome.providerExclusionPlan.domains.availableValues].sort(),
+      [...outcome.knownSuppressionDomains].sort(),
       '🔴 misma lista, no sólo misma cantidad',
+    );
+
+    // 🔴 Y el envío es CERO, con su motivo dicho. «0 enviados» aquí no puede
+    // leerse como «no había nada»: `available` sigue en 3.
+    assert.equal(outcome.providerExclusionPlan.domains.sent.length, 0);
+    assert.equal(
+      outcome.providerExclusionPlan.domains.unsupportedReason,
+      'lusha_v3_no_server_side_exclusion_human_confirmed',
     );
   });
 
@@ -535,19 +565,34 @@ describe('§ 8 · el descarte se lleva la CONTRIBUCIÓN, nunca la medición', ()
       exclusionPlan: outcome.providerExclusionPlan,
     });
 
+    // 🔴 CUT-L1 §§ 1, 2 — lo enviado es 0, y ahora eso es la VERDAD.
     assert.equal(
       published.provider_exclusion_domains_sent,
+      0,
+      '🔴 Lusha V3 no recibe exclusión ninguna',
+    );
+    // 🔴 Y lo CONOCIDO sigue siendo 3, publicado en su propio campo. Ésta es la
+    // lectura entera del corte: se sabía, y no se envió porque no hay dónde.
+    assert.equal(
+      published.provider_exclusion_domains_available,
+      outcome.knownSuppressionDomains.length,
+      '🔴 «nada enviado» no puede leerse como «nada conocido»',
+    );
+    assert.equal(published.provider_exclusion_domains_available, 3);
+    // El desglose por qué NO se envió vive en el plan; `buildProviderSeenTelemetry`
+    // publica el motivo, y `toProviderExclusionPlanMetadata` los contadores.
+    assert.equal(
+      outcome.providerExclusionPlan.domains.omittedDueToCapability,
       3,
-      '🔴 la telemetría ya no reporta 0 sobre un envío de 3',
+      '🔴 los 3 se omitieron por CAPACIDAD, no por el tope propio',
     );
+    assert.equal(outcome.providerExclusionPlan.domains.omittedDueToCap, 0);
+    // La capacidad de dominios de Lusha está APAGADA por contrato HUMANO, y el
+    // motivo viaja para que nadie tenga que adivinarlo.
     assert.equal(
-      published.provider_exclusion_domains_sent,
-      outcome.exclusionDomains.length,
-      '🔴 las dos vistas del MISMO envío tienen que estar de acuerdo',
+      published.provider_exclusion_domains_unsupported_reason,
+      'lusha_v3_no_server_side_exclusion_human_confirmed',
     );
-    // La capacidad de dominios de Lusha está encendida: «0 enviados» nunca puede
-    // leerse como «no soportado» en esta ruta.
-    assert.equal(published.provider_exclusion_domains_unsupported_reason, null);
   });
 
   /**
@@ -568,7 +613,7 @@ describe('§ 8 · el descarte se lleva la CONTRIBUCIÓN, nunca la medición', ()
     // exclusiones de Apollo es una verdad de CAPACIDAD y no un efecto del
     // descarte — y eso se demuestra MEJOR ahora, con el aporte conservado.
     assert.equal(free.persistCalls, 1, 'el aporte parcial se persiste (CUT-6)');
-    assert.deepEqual([...outcome.exclusionDomains], [], 'Apollo no envía exclusiones');
+    assert.deepEqual([...outcome.providerExclusionPlan.domains.sent], [], 'Apollo no envía exclusiones');
     assert.deepEqual(
       [...outcome.providerExclusionPlan.domains.sent],
       [],
@@ -610,7 +655,11 @@ describe('§ 8 · el descarte se lleva la CONTRIBUCIÓN, nunca la medición', ()
 
     // 🔴 Lo que viaja: idéntico. Es el invariante de § 5 del acta.
     assert.equal(domains.sent.length, 0, '🔴 Apollo no gana ni una exclusión enviada');
-    assert.equal(outcome.exclusionDomains.length, 0);
+    // 🔴 CUT-L1 § 3 — y lo CONOCIDO no está en 0: el runner devuelve los 3
+    // dominios, porque son evidencia local y no una petición. Antes esta línea
+    // afirmaba `exclusionDomains.length === 0` sobre el mismo hecho, y era la
+    // confusión que este corte deshace.
+    assert.equal(outcome.knownSuppressionDomains.length, 3);
 
     // Lo que se MIDE: ahora es verdad.
     assert.equal(domains.available, 3, 'se conocían 3 dominios');
@@ -643,16 +692,16 @@ describe('§ 8 · el descarte se lleva la CONTRIBUCIÓN, nunca la medición', ()
 
     const outcome = await runLive(free.deps);
 
-    assert.deepEqual([...outcome.exclusionDomains], [], 'no había dominios que enviar');
+    assert.deepEqual([...outcome.knownSuppressionDomains], [], 'no se conocía ninguno');
     assert.deepEqual(
-      [...outcome.providerExclusionPlan.domains.sent],
+      [...outcome.providerExclusionPlan.domains.availableValues],
       [],
       '🔴 y el plan lo dice sin inventar nada',
     );
     // El acuerdo se sostiene también en el caso degenerado.
     assert.equal(
-      outcome.providerExclusionPlan.domains.sent.length,
-      outcome.exclusionDomains.length,
+      outcome.providerExclusionPlan.domains.availableValues.length,
+      outcome.knownSuppressionDomains.length,
     );
   });
 });
@@ -819,13 +868,22 @@ describe('§ 3 · lo que viaja y lo que se mide comparten autoridad', () => {
   it('🔴 el ejecutor de pago lee las DOS vistas del mismo `prePaid`', () => {
     const code = stripTsComments(read(LUSHA_ACTION));
 
-    assert.ok(
-      code.includes('excludeDomains: prePaid.exclusionDomains,'),
-      'la lista que viaja al cuerpo de la petición sigue siendo la del runner',
-    );
+    // 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 2, 8 — RATCHET INVERTIDO.
+    //
+    // Esta guarda exigía `excludeDomains: prePaid.exclusionDomains,` en el sitio
+    // de la llamada, es decir, FIJABA el envío que el contrato HUMANO de Lusha
+    // acaba de desmentir. Un trinquete que fija el valor defectuoso bloquea su
+    // corrección, así que se invierte: lo que ahora se exige es que NINGUNA forma
+    // de exclusión viaje al proveedor desde aquí.
+    for (const forbidden of ['excludeDomains', 'excludeCompanyIds', 'exclude:']) {
+      assert.ok(
+        !code.includes(forbidden),
+        `🔴 ${forbidden} no puede reaparecer en el cuerpo de la petición`,
+      );
+    }
     assert.ok(
       code.includes('providerExclusionPlan: prePaid.providerExclusionPlan,'),
-      '🔴 y la vista medible viaja al mismo sitio, desde el mismo resultado',
+      '🔴 y la vista medible —de la que sale la siembra CLIENTE— sigue viajando',
     );
   });
 

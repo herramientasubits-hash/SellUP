@@ -157,5 +157,5 @@ test('sin fuente intentada el contexto es indistinguible del comportamiento prev
   });
   assert.equal(context.residualGap, context.requestedTarget);
   assert.equal(context.providerRequired, true);
-  assert.deepEqual([...context.exclusionDomains], []);
+  assert.deepEqual([...context.knownSuppressionDomains], []);
 });

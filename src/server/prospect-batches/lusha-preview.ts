@@ -188,11 +188,19 @@ export interface BuildLushaPreviewRequestInput {
   /** Página solicitada. Por defecto 0; clamp a [0, LUSHA_PREVIEW_MAX_PAGE]. */
   page?: number | null;
   /**
-   * AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 § 11 — dominios que ya se
-   * conocen y que por tanto no hace falta pagar. Ya normalizados, deduplicados y
-   * acotados por `planProviderExclusionDomains`; aquí sólo se emiten.
+   * 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 1, 2 — NO existe un campo de
+   * exclusión en esta entrada, y su ausencia es el contrato.
+   *
+   * El soporte HUMANO de Lusha confirmó que `POST /v3/companies/prospecting` no
+   * soporta exclusión del lado del servidor (ni `excludeDomains` ni
+   * `excludeCompanyIds`). Esta entrada tenía `excludeDomains` y esta función
+   * emitía `filters.companies.exclude.domains` sobre un contrato que nunca se
+   * verificó. Quitar el campo —en vez de dejarlo y no usarlo— es lo que impide
+   * que un llamador futuro vuelva a creer que hay dónde ponerlo.
+   *
+   * La supresión de empresas ya conocidas ocurre en el CLIENTE, tras la respuesta:
+   * `lusha-run-identity-registry` se siembra con los dominios conocidos.
    */
-  excludeDomains?: readonly string[] | null;
 }
 
 /**
@@ -212,6 +220,8 @@ export function clampLushaPreviewPage(page: number | null | undefined): number {
  * Construye el request POST /v3/companies/prospecting para el preview.
  * Fuerza page=0 y size=10. NUNCA emite technologies, intentTopics ni signals.
  * subIndustriesIds y searchText solo se incluyen cuando vienen válidos.
+ *
+ * 🔴 CUT-L1 § 2 — y NUNCA emite `filters.companies.exclude`, en ninguna forma.
  */
 export function buildLushaPreviewRequest(
   input: BuildLushaPreviewRequestInput,
@@ -243,28 +253,20 @@ export function buildLushaPreviewRequest(
   }
 
   /**
-   * AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 § 11 — exclusión de dominios.
+   * 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION § 2 — SÓLO filtros de inclusión.
    *
-   * Es la ÚNICA exclusión que el contrato verificado de Lusha V3 soporta
-   * (`filters.companies.exclude.domains`). No se emite exclusión por nombre, por
-   * LinkedIn, por identificador fiscal ni por id de empresa: ninguna está
-   * probada y enviarla haría fallar la petición entera con HTTP 400.
+   * `filters.companies.exclude` NO se emite nunca, y por tanto tampoco
+   * `filters.companies.exclude.domains`. Lusha V3 no soporta exclusión
+   * server-side —contrato HUMANO— y tampoco se sustituye por otro campo adivinado:
+   * no hay exclusión por dominio, por id de empresa, por nombre, por LinkedIn ni
+   * por identificador fiscal.
    *
-   * 🔴 Es una PISTA ECONÓMICA. El dedupe local posterior al proveedor sigue
-   * corriendo entero: el proveedor puede ignorar la exclusión, puede devolver la
-   * misma empresa bajo otro dominio, y la lista viaja acotada.
-   *
-   * Ausente o vacía ⇒ el objeto `exclude` NO se emite. Un `exclude: { domains: [] }`
-   * es ruido en la petición y `hasCompanyFilters` no lo cuenta como filtro.
+   * La supresión de lo ya conocido es CLIENTE y posterior a la respuesta. Eso
+   * significa, sin adornos, que el crédito de Prospecting de una empresa histórica
+   * puede haberse cobrado ya: este corte no lo ahorra y no pretende ahorrarlo.
    */
-  const excludeDomains = (input.excludeDomains ?? []).filter(
-    (domain): domain is string => typeof domain === 'string' && domain.trim() !== '',
-  );
-
   const companies: NonNullable<LushaCompanyProspectingV3Request['filters']>['companies'] =
-    excludeDomains.length > 0
-      ? { include, exclude: { domains: excludeDomains } }
-      : { include };
+    { include };
 
   return {
     filters: { companies },
@@ -572,17 +574,14 @@ export interface LushaPreviewInput {
    */
   page?: number | null;
   /**
-   * AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 § 11 — dominios que SellUp ya
-   * conoce y que no hace falta pagar otra vez.
+   * 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 1, 2 — esta entrada YA NO
+   * lleva `excludeDomains`, y la ausencia es deliberada.
    *
-   * Ausente/vacío = comportamiento de hoy sin diferencia. La lista la construye
-   * la capa previa al pago (`planProviderExclusionDomains`): ya viene normalizada,
-   * deduplicada, ordenada y acotada, así que aquí no se vuelve a tocar.
-   *
-   * 🔴 Pista económica, NUNCA autoridad de dedupe: el dedupe local posterior sigue
-   * siendo obligatorio y sigue siendo el que decide qué se persiste.
+   * Lusha V3 no soporta exclusión server-side (contrato HUMANO). Los dominios que
+   * SellUp ya conoce siguen viajando por la ejecución
+   * (`execution.providerExclusionPlan.domains.availableValues`) y siembran la
+   * supresión CLIENTE; lo que no hacen es entrar en el cuerpo de la petición.
    */
-  excludeDomains?: readonly string[] | null;
   /**
    * AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 § 2 — la RAMA que esta petición
    * ejecuta.
@@ -817,8 +816,7 @@ export async function executeLushaPreview(
     sizeBand: sizeBand ? { min: sizeBand.min, max: sizeBand.max } : null,
     searchText: hasSearchText ? trimmedSearch : null,
     page: input.page,
-    // § 11 — la pista económica. Ausente ⇒ la petición es byte a byte la de hoy.
-    excludeDomains: input.excludeDomains ?? null,
+    // 🔴 CUT-L1 § 2 — no hay nada que pasar: la petición es de INCLUSIÓN pura.
   });
 
   const providerResult = await deps.searchCompanies(apiKey, request);

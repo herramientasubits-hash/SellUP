@@ -585,7 +585,7 @@ function makePartialPersistenceDeps(input: {
 
   const gateResult: PrePaidNoveltyGateResult = {
     context,
-    exclusionPlan: { available: 0, sent: [], omittedDueToCap: 0 },
+    exclusionPlan: { available: 0, availableValues: [], sent: [], omittedDueToCap: 0 },
     providerExclusionPlan: planProviderExclusions('lusha', {}),
     providerSeen: PROVIDER_SEEN_LOAD_UNAVAILABLE,
     providerSeenMemory: EMPTY_PROVIDER_SEEN_MEMORY,

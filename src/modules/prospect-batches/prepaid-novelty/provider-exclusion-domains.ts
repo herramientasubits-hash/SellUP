@@ -1,49 +1,78 @@
 /**
- * provider-exclusion-domains.ts — la lista de dominios que se le pide al
- * proveedor que NO devuelva.
+ * provider-exclusion-domains.ts — el colector CANÓNICO de dominios conocidos:
+ * qué sabe SellUp, ya normalizado, y cuánto de eso podría viajar.
  *
  * AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 11, 18, 22(H), 22(I).
+ * AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 1, 2, 3.
  *
- * ── 🔴 Esto es una PISTA ECONÓMICA, no la autoridad de dedupe ─────────────────
+ * ── 🔴 CUT-L1 · Lusha V3 NO tiene exclusión server-side ──────────────────────
  *
- * Excluir dominios ahorra filas pagadas; no decide qué se persiste. El dedupe
- * local POSTERIOR al proveedor sigue siendo obligatorio y sigue siendo el único
- * que manda, por tres razones que no se pueden arreglar aquí: el proveedor puede
- * ignorar la exclusión, puede devolver la misma empresa bajo otro dominio, y la
- * lista viaja acotada (ver el tope de abajo) así que nunca es completa.
+ * El soporte HUMANO de Lusha confirmó que `POST /v3/companies/prospecting` NO
+ * soporta un array de exclusión del lado del servidor: ni por dominio ni por id
+ * de empresa. No existe `excludeDomains` y no existe `excludeCompanyIds`. Este
+ * contrato HUMANO reemplaza cualquier afirmación anterior de este repo según la
+ * cual `filters.companies.exclude.domains` estaba verificado — no lo estaba, y la
+ * petición ya no emite ningún bloque de exclusión.
  *
- * ── 🔴 Sólo dominios. Nada más está probado ──────────────────────────────────
+ * Consecuencia económica, dicha sin adornos: la supresión de empresas ya
+ * conocidas ocurre en el CLIENTE, DESPUÉS de la respuesta. Una empresa histórica
+ * que Lusha devuelva puede haber costado ya sus créditos de Prospecting, y CUT-L1
+ * no puede ahorrar ese crédito. Lo que sí impide es que vuelva a contar como
+ * net-new y que arrastre trabajo pagado aguas abajo.
  *
- * El contrato de Lusha V3 que el repo tiene verificado es
- * `filters.companies.exclude.domains: string[]` — y sólo eso. Excluir por nombre,
- * por LinkedIn, por identificador fiscal o por id de empresa del proveedor NO
- * está demostrado en ningún sitio, así que este módulo no los modela. Apollo no
- * recibe exclusiones por la misma razón: su contrato no las prueba (§ 18).
+ * ── 🔴 Dos preguntas DISTINTAS, y aquí no se mezclan ─────────────────────────
+ *
+ *   A. ¿Qué CONOCE SellUp?     → `availableValues`, siempre completo.
+ *   B. ¿Qué puede ENVIARSE?    → `sent`, que hoy queda vacío para Lusha porque
+ *                                su capacidad está apagada por contrato.
+ *
+ * Confundirlas fue el riesgo concreto de este corte: derivar la supresión local
+ * de `sent` habría tirado a la basura la evidencia de dominios conocidos justo
+ * cuando es la ÚNICA protección que queda. Por eso `availableValues` existe y por
+ * eso viaja aparte.
+ *
+ * ── 🔴 Esto nunca fue la autoridad de dedupe ─────────────────────────────────
+ *
+ * No decide qué se persiste. El dedupe local POSTERIOR al proveedor sigue siendo
+ * obligatorio y sigue siendo el único que manda.
  *
  * ── 🔴 El tope es NUESTRO, no del proveedor ──────────────────────────────────
  *
- * Ninguna documentación verificada del repo declara un máximo de dominios en
- * `exclude.domains`. Por eso el tope de abajo se declara como decisión propia y
- * conservadora, no como «el límite del proveedor»: llamarlo límite del proveedor
- * sería inventar un hecho. Lo que sí se hace es CONTARLO — `omittedDueToCap` deja
- * dicho cuántos conocidos no viajaron, para que un recorte silencioso no se lea
- * como «se excluyó todo lo que sabíamos» (§ 20, «no silent caps»).
+ * `PREPAID_EXCLUSION_DOMAIN_CAP` es una decisión propia y conservadora, no un
+ * límite publicado por ningún proveedor. Acota SÓLO lo que podría viajar; nunca
+ * recorta `availableValues`, que es evidencia local y no una petición.
  *
  * Puro: sin env, sin I/O, sin proveedor, sin DB, sin reloj.
  */
 
 /**
- * Cuántos dominios como MÁXIMO viajan al proveedor en una petición.
+ * Cuántos dominios como MÁXIMO viajarían al proveedor en una petición.
  *
- * Decisión propia (ver cabecera). 100 es holgado frente a los pocos cientos de
- * dominios que SellUp conoce hoy y sigue siendo una URL/JSON manejable.
+ * Decisión propia (ver cabecera). 🔴 CUT-L1: hoy NINGÚN proveedor vivo tiene la
+ * capacidad encendida, así que este tope no recorta ninguna petición real. Se
+ * conserva porque es el tope de la DIMENSIÓN, no del proveedor, y borrarlo
+ * obligaría a reinventarlo el día que un proveedor sí soporte exclusión.
  */
 export const PREPAID_EXCLUSION_DOMAIN_CAP = 100;
 
 export type ProviderExclusionDomainPlan = {
-  /** Dominios conocidos y utilizables, ya normalizados y deduplicados. */
+  /** Cuántos dominios conocidos y utilizables hay, ya normalizados y deduplicados. */
   available: number;
-  /** Los que realmente viajan, en orden determinista. */
+  /**
+   * 🔴 CUT-L1 § 3 — los dominios conocidos EN SÍ, normalizados, deduplicados y en
+   * orden determinista. Es la respuesta a «¿qué sabe SellUp?», y NO se recorta por
+   * el tope: el tope acota lo que se ENVÍA, no lo que se sabe.
+   *
+   * Ésta es la lista de la que se alimenta la supresión CLIENTE. Derivarla de
+   * `sent` tiraría la evidencia entera cuando la capacidad está apagada.
+   */
+  availableValues: readonly string[];
+  /**
+   * Los que realmente viajarían al proveedor, en orden determinista.
+   *
+   * 🔴 CUT-L1 § 2 — vacío para Lusha por contrato HUMANO. «Vacío» aquí significa
+   * «el proveedor no puede recibirlos», nunca «no había nada».
+   */
   sent: readonly string[];
   /** Cuántos conocidos se quedaron fuera por el tope. */
   omittedDueToCap: number;
@@ -80,7 +109,11 @@ export function normalizeExclusionDomain(value: string | null | undefined): stri
 }
 
 /**
- * Construye la lista acotada que viaja al proveedor.
+ * Colecta los dominios conocidos y construye, de la MISMA lista, la vista acotada
+ * que podría viajar al proveedor.
+ *
+ * 🔴 CUT-L1 § 3 — una sola normalización, un solo dedupe, un solo orden: las dos
+ * vistas (`availableValues` y `sent`) salen de aquí para que no puedan divergir.
  *
  * La selección cuando hay más conocidos que tope es DETERMINISTA (§ 11): orden
  * lexicográfico y recorte por la cola. Determinista y no «los N más recientes»
@@ -104,6 +137,8 @@ export function planProviderExclusionDomains(
 
   return {
     available: ordered.length,
+    // 🔴 CUT-L1 § 3 — la evidencia local COMPLETA, sin recortar por tope.
+    availableValues: ordered,
     sent,
     omittedDueToCap: ordered.length - sent.length,
   };

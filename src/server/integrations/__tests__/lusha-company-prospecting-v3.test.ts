@@ -629,7 +629,7 @@ describe('Q3F-5O — nested filters schema (OpenAPI oficial)', () => {
     assert.ok(result.errorMessage?.includes('at least one filter'));
   });
 
-  it('filters.companies sin include ni exclude bloquea sin fetch', async () => {
+  it('filters.companies sin include bloquea sin fetch', async () => {
     resetMock({ ok: true, status: 200, body: {} });
 
     const result = await searchLushaCompaniesV3({
@@ -683,7 +683,6 @@ describe('Q3F-5O — nested filters schema (OpenAPI oficial)', () => {
     const filtersWithSicsOnly = {
       companies: {
         include: { sics: ['7372'] },
-        exclude: {},
       },
     } as unknown as import('../lusha-client').LushaCompanyProspectingV3Filters;
 
@@ -704,7 +703,7 @@ describe('Q3F-5O — nested filters schema (OpenAPI oficial)', () => {
       apiKey: FAKE_API_KEY,
       timeoutMs: TIMEOUT_MS,
       request: {
-        filters: { companies: { include: { mainIndustriesIds: [17] }, exclude: {} } },
+        filters: { companies: { include: { mainIndustriesIds: [17] } } },
         pagination: { page: 0, size: 10 },
       },
     });
@@ -720,7 +719,7 @@ describe('Q3F-5O — nested filters schema (OpenAPI oficial)', () => {
       apiKey: FAKE_API_KEY,
       timeoutMs: TIMEOUT_MS,
       request: {
-        filters: { companies: { include: { locations: [{ country: 'Colombia' }] }, exclude: {} } },
+        filters: { companies: { include: { locations: [{ country: 'Colombia' }] } } },
         pagination: { page: 0, size: 10 },
       },
     });
@@ -737,7 +736,6 @@ describe('Q3F-5O — nested filters schema (OpenAPI oficial)', () => {
     const filtersWithNaicsOnly = {
       companies: {
         include: { naics: ['3672'] },
-        exclude: {},
       },
     } as unknown as import('../lusha-client').LushaCompanyProspectingV3Filters;
 

@@ -72,7 +72,12 @@ import type { CountrySourceAdapter, CountrySourceCompany } from './country-sourc
 
 /**
  * Lector ACOTADO de dominios que SellUp ya conoce (cuentas y candidatos
- * activos), para la pista de exclusión.
+ * activos), para la supresión de lo ya conocido.
+ *
+ * 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 1, 4 — estos dominios ya NO
+ * viajan al proveedor: Lusha V3 no soporta exclusión del lado del servidor
+ * (contrato HUMANO). Siguen leyéndose porque son la evidencia con la que la ruta de
+ * pago siembra su supresión CLIENTE.
  *
  * 🔴 § 10 / § 30(E) — deliberadamente NO existe un lector de «todos los dominios
  * de HubSpot». Enumerar el CRM entero para construir esta lista sería una
@@ -147,6 +152,7 @@ export type PrePaidNoveltyGateResult = {
 
 const EMPTY_EXCLUSION_PLAN: ProviderExclusionDomainPlan = {
   available: 0,
+  availableValues: [],
   sent: [],
   omittedDueToCap: 0,
 };
@@ -229,8 +235,9 @@ async function listSellupKnownDomains(
       limit: PREPAID_EXCLUSION_DOMAIN_CAP * 2,
     });
   } catch {
-    // Sin dominios conocidos la exclusión queda más corta. Es una pista, no una
-    // autoridad: el dedupe local posterior sigue intacto.
+    // Sin dominios conocidos la supresión queda más corta y la corrida ADMITE
+    // más. Fail-open deliberado: una lectura caída no puede convertirse en «esta
+    // empresa ya la teníamos». El resto del dedupe local sigue intacto.
     return [];
   }
 }
@@ -263,7 +270,7 @@ export async function runPrePaidNoveltyGate(
     if (!context.providerRequired) {
       const idlePlan = planProviderExclusions(input.provider, {});
       return {
-        context: { ...context, exclusionDomains: EMPTY_EXCLUSION_PLAN.sent },
+        context: { ...context, knownSuppressionDomains: EMPTY_EXCLUSION_PLAN.availableValues },
         exclusionPlan: EMPTY_EXCLUSION_PLAN,
         providerExclusionPlan: idlePlan,
         providerSeen: PROVIDER_SEEN_LOAD_UNAVAILABLE,
@@ -271,7 +278,7 @@ export async function runPrePaidNoveltyGate(
         acceptedCompanies: accepted,
         telemetry: {
           ...buildPrePaidNoveltyTelemetry(
-            { ...context, exclusionDomains: EMPTY_EXCLUSION_PLAN.sent },
+            { ...context, knownSuppressionDomains: EMPTY_EXCLUSION_PLAN.availableValues },
             EMPTY_EXCLUSION_PLAN,
             null,
           ),
@@ -305,18 +312,27 @@ export async function runPrePaidNoveltyGate(
 
     const exclusionPlan: ProviderExclusionDomainPlan = {
       available: providerExclusionPlan.domains.available,
+      availableValues: providerExclusionPlan.domains.availableValues,
       sent: providerExclusionPlan.domains.sent,
       omittedDueToCap: providerExclusionPlan.domains.omittedDueToCap,
     };
 
     const withDomains: PrePaidNoveltyContext = {
       ...context,
-      exclusionDomains: exclusionPlan.sent,
+      // 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 3, 7 — lo CONOCIDO, no lo
+      // enviado. Antes esto era `exclusionPlan.sent` y de ahí salía el cuerpo de la
+      // petición; con la capacidad de Lusha apagada por contrato HUMANO, `sent`
+      // está vacío y leer de él habría tirado la evidencia local justo cuando pasa
+      // a ser la única protección que queda.
+      knownSuppressionDomains: exclusionPlan.availableValues,
       // 🔴 Informativo. NO reduce el hueco — ver el campo en el contexto.
       providerSeenKnown: providerSeen.ids.length + providerSeen.domains.length,
       providerExclusionCandidates: {
-        ids: providerExclusionPlan.ids.sent,
-        domains: providerExclusionPlan.domains.sent,
+        // 🔴 CUT-L1 § 3 — CANDIDATOS de verdad. Hoy ninguno viaja a ningún
+        // proveedor vivo, y por eso publicarlos como «lo enviado» habría publicado
+        // dos ceros sobre identidades que sí se conocen.
+        ids: providerExclusionPlan.ids.availableValues,
+        domains: providerExclusionPlan.domains.availableValues,
       },
     };
 

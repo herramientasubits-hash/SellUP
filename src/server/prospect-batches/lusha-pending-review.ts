@@ -171,6 +171,9 @@ import {
   createLushaRunIdentityRegistry,
   dedupeLushaCompaniesByIdentity,
   normalizeLushaCompanyName,
+  // 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION § 4 — la supresión de conocidos
+  // se siembra en el registro que YA existe. No hay un segundo registro.
+  seedLushaKnownDomains,
   type LushaIdentityDuplicateReason,
   type LushaRunIdentityRegistry,
 } from './lusha-run-identity-registry';
@@ -811,8 +814,27 @@ export interface PersistLushaPendingReviewResult {
   targetGap?: number;
   /** Hueco que quedó abierto al terminar. 0 = objetivo alcanzado. */
   remainingGapFinal?: number;
-  /** Empresas descartadas por identidad ya vista (páginas Y ramas). */
+  /**
+   * Empresas descartadas por identidad ya vista DENTRO de la corrida del
+   * proveedor (páginas Y ramas).
+   *
+   * 🔴 CUT-L1 § 4 — NO incluye las que cayeron por la siembra de conocidos: ésas
+   * van en `localKnownSuppressedTotal`. Un conocido histórico no es un resultado
+   * que el proveedor haya repetido.
+   */
   crossBranchDuplicatesRemoved?: number;
+  /**
+   * 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 4, 5 — empresas que Lusha
+   * DEVOLVIÓ y que SellUp ya conocía por dominio antes de empezar.
+   *
+   * Lusha V3 no tiene exclusión server-side, así que estas filas ya pudieron
+   * cobrar su crédito de Prospecting. Lo que este contador afirma es lo único que
+   * se puede afirmar: no contaron como net-new y no arrastraron trabajo pagado
+   * aguas abajo. NO es un ahorro y no se publica como tal.
+   */
+  localKnownSuppressedTotal?: number;
+  /** Cuántos dominios conocidos entraron a la siembra CLIENTE de la corrida. */
+  localKnownSeedCount?: number;
   /** Filas crudas del proveedor acumuladas en toda la corrida. */
   rawResultsTotal?: number;
   /** Por qué la corrida dejó de pedir. */
@@ -913,6 +935,8 @@ export function buildLushaProviderNotRequiredResult(input: {
     targetGap: input.targetGap,
     remainingGapFinal: 0,
     crossBranchDuplicatesRemoved: 0,
+    localKnownSuppressedTotal: 0,
+    localKnownSeedCount: 0,
     rawResultsTotal: 0,
     reviewableFoundTotal: input.createdCandidatesCount,
     targetOverflowDiscarded: 0,
@@ -2061,7 +2085,28 @@ export async function persistLushaPendingReviewBatch(
   const expectedMaxCredits = branches.length * LUSHA_PENDING_REVIEW_EXPECTED_MAX_CREDITS;
 
   // § 10/§ 11 — UN registro de identidad para todas las páginas de todas las ramas.
-  let identityRegistry: LushaRunIdentityRegistry = createLushaRunIdentityRegistry();
+  //
+  // 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 3, 4, 5 — y sembrado con los
+  // dominios que SellUp YA conoce, porque Lusha V3 no tiene exclusión del lado del
+  // servidor y ésta es la única capa que queda para no volver a contar como
+  // net-new una empresa que ya teníamos.
+  //
+  // 🔴 La siembra sale de `availableValues`, NO de `sent`. `sent` está vacío por
+  // capacidad —el contrato HUMANO la apagó— y sembrar de ahí habría tirado la
+  // evidencia entera justo al retirar la exclusión de la petición. Las dos vistas
+  // salen del MISMO plan que la puerta previa al pago ya resolvió, así que no hay
+  // una segunda lista que pueda divergir.
+  //
+  // 🔴 Sólo dominios: el id de Lusha NO se siembra (CUT-L1 § 6 lo mantiene como
+  // evidencia independiente y no como clave histórica), y el nombre tampoco.
+  //
+  // Ausente ⇒ registro vacío, byte por byte el comportamiento anterior.
+  const localKnownSeed = execution?.providerExclusionPlan?.domains.availableValues ?? [];
+  let identityRegistry: LushaRunIdentityRegistry = seedLushaKnownDomains(
+    createLushaRunIdentityRegistry(),
+    localKnownSeed,
+  );
+  let localKnownSuppressedTotal = 0;
   const useful: ResolvedLushaCandidate[] = [];
   // Q3F-5BB.11D — observational counters for the provider attempt metadata.
   // `rawResultsTotal` = raw provider rows across every branch/page (pre dedupe);
@@ -2089,6 +2134,9 @@ export async function persistLushaPendingReviewBatch(
     normalized_domain: 0,
     normalized_linkedin_url: 0,
     normalized_name_fallback: 0,
+    // 🔴 CUT-L1 §§ 4, 5 — conocido de ANTES de la corrida, no repetido por el
+    // proveedor. Se cuenta aparte por eso.
+    known_domain_seed: 0,
   };
   let creditsChargedTotal: number | null = null;
   let resultsReturnedTotal: number | null = null;
@@ -2315,8 +2363,15 @@ export async function persistLushaPendingReviewBatch(
       const dedupe = dedupeLushaCompaniesByIdentity(search.results ?? [], identityRegistry);
       identityRegistry = dedupe.registry;
       skippedUnusableCount += dedupe.unusableCount;
-      crossBranchDuplicatesRemoved += dedupe.duplicateCount;
-      branchDuplicatesRemoved += dedupe.duplicateCount;
+      // 🔴 CUT-L1 § 4 — los dos desenlaces se suman por SEPARADO, y la resta no es
+      // un ajuste cosmético: `crossBranchDuplicatesRemoved` afirma «el proveedor
+      // devolvió esto dos veces en esta corrida», y un conocido histórico no lo
+      // hizo. Nada se pierde: la suma de los dos sigue siendo `duplicateCount`, y
+      // los dos entran en `skippedCount` más abajo.
+      const runDuplicatesRemoved = dedupe.duplicateCount - dedupe.knownSeedRejectedCount;
+      localKnownSuppressedTotal += dedupe.knownSeedRejectedCount;
+      crossBranchDuplicatesRemoved += runDuplicatesRemoved;
+      branchDuplicatesRemoved += runDuplicatesRemoved;
       for (const reason of Object.keys(duplicateReasonCounts) as LushaIdentityDuplicateReason[]) {
         duplicateReasonCounts[reason] += dedupe.duplicateReasonCounts[reason];
       }
@@ -2605,9 +2660,16 @@ export async function persistLushaPendingReviewBatch(
   // otros tres sumandos se cuentan ANTES de que `useful` llegue a la admisión, y
   // este cuarto sólo cuenta filas que sobrevivieron a los tres y cayeron después.
   // Siguen sin ser errores.
+  //
+  // 🔴 CUT-L1 § 4 — la supresión CLIENTE de conocidos suma aquí como quinto
+  // sumando, y tiene que sumar: son filas que el proveedor devolvió y que no
+  // llegaron a candidato. Dejarlas fuera haría que la UI dijera «0 omitidas» tras
+  // retirar media página. No hay doble conteo: se restaron de
+  // `crossBranchDuplicatesRemoved` en el punto donde se cuentan.
   const totalSkipped =
     skippedUnusableCount +
     crossBranchDuplicatesRemoved +
+    localKnownSuppressedTotal +
     skippedActiveDuplicatesCount +
     batchIdentityDuplicateSkippedCount;
   const topUpTriggered = pagesRequested > 1;
@@ -2632,6 +2694,11 @@ export async function persistLushaPendingReviewBatch(
     maxRawResults: LUSHA_RUN_MAX_RAW_RESULTS,
     rawResultsTotal,
     crossBranchDuplicatesRemoved,
+    // 🔴 CUT-L1 §§ 4, 5 — lo devuelto que ya conocíamos, y cuánto se sembró.
+    // `localKnownSeedCount > 0` con `provider_exclusion_domains_sent: 0` es la
+    // lectura correcta del corte: se sabía, y no se envió porque no hay dónde.
+    localKnownSuppressedTotal,
+    localKnownSeedCount: localKnownSeed.length,
     duplicateReasonCounts,
     uniqueResultsTotal: normalizedCount,
     usefulResultsTotal: useful.length,
@@ -2689,6 +2756,7 @@ export async function persistLushaPendingReviewBatch(
     targetGap,
     remainingGapFinal,
     crossBranchDuplicatesRemoved,
+    localKnownSuppressedTotal,
     rawResultsTotal,
     stopReason,
     reviewableFoundTotal,

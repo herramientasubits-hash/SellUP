@@ -8,7 +8,14 @@ import assert from 'node:assert/strict';
 import { buildPrePaidNoveltyContext } from '../prepaid-novelty-context';
 import { buildPrePaidNoveltyTelemetry } from '../prepaid-novelty-telemetry';
 
-const PLAN = { available: 12, sent: ['a.example', 'b.example'], omittedDueToCap: 10 };
+// 🔴 CUT-L1 § 3 — `availableValues` lleva los 12 CONOCIDOS y `sent` lo que
+// viajaría. La telemetría tiene que poder decir las dos cosas por separado.
+const PLAN = {
+  available: 12,
+  availableValues: Array.from({ length: 12 }, (_, i) => `k${i}.example`),
+  sent: ['a.example', 'b.example'],
+  omittedDueToCap: 10,
+};
 
 function context(acceptedNovel: number, requestedTarget = 5) {
   return buildPrePaidNoveltyContext({
