@@ -54,9 +54,12 @@ import type { BrReceitaPublicSnapshotProjection } from './br-receita-cnpj-monthl
 import { parseSnapshotRunId, SNAPSHOT_RUN_ID_COLUMN } from './br-receita-cnpj-monthly-snapshot-run-handle';
 import { BR_RECEITA_SNAPSHOT_RUNS_TABLE } from './br-receita-cnpj-monthly-snapshot-write-gateway';
 import {
+  BR_RECEITA_COMPACT_READ_COLUMNS,
+  brReceitaRuntimeSignalsFromRow,
+} from './br-receita-cnpj-compact-storage';
+import {
   BR_RECEITA_CNPJ_COUNTRY_CODE,
   BR_RECEITA_CNPJ_SOURCE_KEY,
-  type BrReceitaCnpjSnapshotRawData,
 } from './br-receita-cnpj-types';
 import { parseSourcePeriod } from '../../source-period';
 import type {
@@ -73,8 +76,21 @@ import type {
  * Brazil by CHECK anyway. `snapshot_run_id` is absent too — the reader resolved it in step 1 and
  * returns it from there.
  */
+/**
+ * What the exact-lookup read projects.
+ *
+ * 🔴 Three columns left this list and none of them is a loss.
+ *   · `source_key` and `country_code` are constants of a dedicated Brazil table, so selecting them
+ *     asked the database to send back two values the caller already knew.
+ *   · `source_year` was selected and then never used: the projection has no year field and the
+ *     adapter derives it with `sourcePeriodYear(snapshot.source_period)`. It is a substring of a
+ *     column that is still here.
+ *   · `raw_data` is gone with the jsonb. The twelve business signals are now real columns and are
+ *     reassembled by `brReceitaRuntimeSignalsFromRow`, which returns the same fourteen keys the
+ *     adapter has always read.
+ */
 export const BR_RECEITA_PUBLISHED_READ_SELECT_COLUMNS =
-  'source_key, country_code, source_period, source_year, legal_name, raw_data' as const;
+  BR_RECEITA_COMPACT_READ_COLUMNS.join(', ');
 
 /** The columns step 1 projects: the run's id and the state that proves it is readable. */
 export const BR_RECEITA_PUBLISHED_RUN_SELECT_COLUMNS = 'id, publish_state' as const;
@@ -280,13 +296,15 @@ export async function readBrReceitaPublishedSnapshot(
   }
 
   // ── Step 2 ──
-  // Scoped by all five physical key columns. `.limit(2)` for the same reason as step 1: two rows
-  // for one establishment inside one run breaches index 4b and must be reported, never collapsed.
+  // Scoped by all THREE physical key columns the dedicated table has. `source_key` and
+  // `country_code` are not among them and their absence narrows nothing: on a Brazil-only table
+  // they were constants, and the run id is the PARTITION key, so this predicate cannot reach
+  // another source, another country, another period or another run. `.limit(2)` for the same
+  // reason as step 1: two rows for one establishment inside one run breaches the primary key and
+  // must be reported, never collapsed.
   const { data, error } = await input.client
     .from(BR_RECEITA_SNAPSHOT_TABLE)
     .select(BR_RECEITA_PUBLISHED_READ_SELECT_COLUMNS)
-    .eq('source_key', BR_RECEITA_CNPJ_SOURCE_KEY)
-    .eq('country_code', BR_RECEITA_CNPJ_COUNTRY_CODE)
     .eq('source_period', sourcePeriod)
     .eq(SNAPSHOT_RUN_ID_COLUMN, snapshotRunId)
     .eq('normalized_tax_id', normalizedTaxId)
@@ -322,7 +340,7 @@ export async function readBrReceitaPublishedSnapshot(
       country_code: BR_RECEITA_CNPJ_COUNTRY_CODE,
       source_period: sourcePeriod,
       legal_name: typeof row.legal_name === 'string' ? row.legal_name : null,
-      raw_data: row.raw_data as BrReceitaCnpjSnapshotRawData,
+      signals: brReceitaRuntimeSignalsFromRow(row),
     },
     observedCount: 1,
   };

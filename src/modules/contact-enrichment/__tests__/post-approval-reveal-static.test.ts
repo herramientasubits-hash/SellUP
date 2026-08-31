@@ -733,10 +733,14 @@ describe('la migración 128 — su contrato', () => {
     // (`promote_candidate_fiscal_identity_fenced`) y sus permisos: sin tabla, sin columna, sin
     // índice, sin constraint y sin backfill. NO es de teléfono y no nombra ninguna tabla, columna
     // ni función de teléfono, que es lo que esta guarda vigila. AUTORADA y NO APLICADA.
-    assert.equal(files[files.length - 1], '133_br_candidate_identity_promotion.sql');
+    // BR-COMPACT-SNAPSHOT-PRODUCTIZATION mueve el techo a la 134:
+    // `134_br_receita_compact_snapshot.sql`, la tabla dedicada y particionada del snapshot
+    // nacional de Brasil. NO es de teléfono, no nombra ninguna tabla, columna ni función de
+    // teléfono, y no edita el archivo de ninguna migración anterior. AUTORADA y NO APLICADA.
+    assert.equal(files[files.length - 1], '134_br_receita_compact_snapshot.sql');
     const numbers = files.map((f) => Number.parseInt(f.slice(0, 3), 10));
-    assert.equal(Math.max(...numbers), 133);
-    assert.equal(files.length, 133, 'techo y conteo coinciden: ni un hueco');
+    assert.equal(Math.max(...numbers), 134);
+    assert.equal(files.length, 134, 'techo y conteo coinciden: ni un hueco');
   });
 
   it('no edita ninguna migración anterior de la cadena de teléfono', () => {

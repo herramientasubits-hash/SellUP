@@ -47,40 +47,66 @@ import {
   type UpsertBatchOperation,
 } from './br-receita-cnpj-monthly-snapshot-write-plan';
 import { BR_RECEITA_SNAPSHOT_TABLE } from './br-receita-cnpj-monthly-snapshot-identity';
+import {
+  BR_RECEITA_COMPACT_PERSISTED_COLUMNS,
+  BR_RECEITA_SNAPSHOT_RUNS_TABLE as COMPACT_RUNS_TABLE,
+  brReceitaCompactRowBindings,
+  brReceitaCompactUpdateAssignments,
+} from './br-receita-cnpj-compact-storage';
+import {
+  BR_RECEITA_REPEATED_SAME_PERIOD_REPUBLISH_REVIEW_CODE,
+  checkBrReceitaRepublishStorage,
+} from './br-receita-cnpj-republish-storage-preflight';
 import { normalizeBrCompanyLegalName } from './br-receita-cnpj-name-normalization';
 import { parseSnapshotRunId } from './br-receita-cnpj-monthly-snapshot-run-handle';
 
 /** The run table CUT A's operations name. Re-declared nowhere else in CUT B. */
-export const BR_RECEITA_SNAPSHOT_RUNS_TABLE = 'source_snapshot_runs' as const;
+export const BR_RECEITA_SNAPSHOT_RUNS_TABLE = COMPACT_RUNS_TABLE;
+
+/**
+ * The partition-lifecycle functions the LOCAL compact migration defines.
+ *
+ * 🔴 The gateway calls them with a uuid bind parameter and NEVER assembles a table identifier
+ * itself. A writer that could build `br_receita_snapshots_p<hex>` from a string is a writer that
+ * can be talked into naming someone else's table; this one can only pass a run id, and the
+ * function decides what that id is allowed to touch.
+ */
+export const BR_RECEITA_BEGIN_PARTITION_FUNCTION = 'br_receita_begin_run_partition' as const;
+export const BR_RECEITA_BUILD_PARTITION_INDEXES_FUNCTION =
+  'br_receita_build_run_partition_indexes' as const;
+export const BR_RECEITA_ATTACH_PARTITION_FUNCTION = 'br_receita_attach_run_partition' as const;
+export const BR_RECEITA_DROP_PARTITION_FUNCTION = 'br_receita_drop_run_partition' as const;
+export const BR_RECEITA_PARTITION_NAME_FUNCTION = 'br_receita_run_partition_name' as const;
+
+/**
+ * The only shape a partition name is allowed to have.
+ *
+ * 🔴 The name is MINTED BY THE DATABASE and returned by `br_receita_begin_run_partition`; this
+ * pattern is the gateway refusing to interpolate anything else into a statement. The gateway never
+ * builds the name itself, and a value that does not match this is a bug loud enough to stop the
+ * run rather than an identifier to try.
+ */
+export const BR_RECEITA_PARTITION_NAME_PATTERN = /^br_receita_snapshots_p[0-9a-f]{32}$/;
 
 /**
  * The columns a Brazil snapshot row is written with — an ALLOWLIST, exactly like the EC SCVS
  * writer's `EC_SCVS_PERSISTABLE_COLUMNS` and for the same reason: the payload is built from this
  * list, so a column that is not on it cannot be written even if a future row shape grows one.
  *
- * 🔴 `tax_id` and `record_identity_key` are ABSENT, deliberately. Omitting them from the INSERT
- * leaves them NULL, which is what migration 127's Brazil CHECK requires — "exactly ONE persisted
- * representation" is enforced by the statement's shape here, by the CHECK in the database, and by
- * the persisted projection's shape in CUT A. Three independent barriers, none of them a comment.
+ * 🔴 Re-exported from `br-receita-cnpj-compact-storage.ts` rather than re-declared. The list, the
+ * bind values and the read-time reassembly are derived from ONE table of column descriptors there,
+ * so a column cannot be written without being readable and cannot be renamed in one direction only.
  *
- * 🔴 BR-SOURCE-FUNCTIONAL-CUT-C added `normalized_legal_name`, and it is NOT a fourth identity
- * candidate: it is the canonical form of `legal_name`, which is already an `INCLUDED_OUTPUT` field
- * of GATE-3's allowlist and already travels in the public projection. It carries no tax material
- * and is not derived from any — migration 065 created the column and its
- * `(source_key, normalized_legal_name)` index, so no migration is authored to fill it. The count
- * of persisted exact CNPJ representations stays exactly ONE.
+ * 🔴 `tax_id` and `record_identity_key` are ABSENT, deliberately — and now unrepresentable: the
+ * dedicated table has no such columns at all. "Exactly ONE persisted representation" (GATE-4A) is
+ * enforced by the statement's shape, by the table's shape, and by the persisted projection's shape.
+ * Three independent barriers, none of them a comment.
+ *
+ * 🔴 `normalized_legal_name` is NOT a second identity candidate: it is the canonical form of
+ * `legal_name`, which is already an `INCLUDED_OUTPUT` field of GATE-3's allowlist and already
+ * travels in the public projection. It carries no tax material and is not derived from any.
  */
-export const BR_RECEITA_PERSISTABLE_COLUMNS = [
-  'source_key',
-  'country_code',
-  'source_year',
-  'source_period',
-  'snapshot_run_id',
-  'normalized_tax_id',
-  'legal_name',
-  'normalized_legal_name',
-  'raw_data',
-] as const;
+export const BR_RECEITA_PERSISTABLE_COLUMNS = BR_RECEITA_COMPACT_PERSISTED_COLUMNS;
 
 /** Columns 065's `status` lifecycle uses. Kept coherent; never repurposed as `publish_state`. */
 const RUN_STATUS_RUNNING = 'running' as const;
@@ -109,6 +135,11 @@ export interface BrReceitaSqlExecutor {
 export type BrReceitaGatewayFailureReason =
   | 'begin_period_returned_no_run_id'
   | 'begin_period_returned_malformed_run_id'
+  | 'begin_period_partition_failed'
+  | 'repeated_same_period_republish_requires_storage_review'
+  | 'begin_period_returned_malformed_partition_name'
+  | 'publish_partition_index_build_failed'
+  | 'publish_partition_attach_failed'
   | 'publish_promote_affected_no_run'
   | 'publish_demote_affected_no_run'
   | 'conflict_target_rejected'
@@ -172,6 +203,14 @@ export function toSafeGatewayFailure(
 
 export interface BrReceitaBeginPeriodResult {
   readonly snapshotRunId: string;
+  /**
+   * The DETACHED child the run's rows are loaded into, as the database named it.
+   *
+   * 🔴 Batches are written HERE, not into the parent. Until `commitFinalBatchAndPublish` attaches
+   * it, this table is not part of `br_receita_snapshots` at all — which is what makes a partial
+   * month unreadable structurally rather than by a `publish_state` filter a reader might forget.
+   */
+  readonly partitionTable: string;
 }
 
 export interface BrReceitaDiscardResult {
@@ -276,33 +315,44 @@ function valuesPlaceholders(rowCount: number, columnCount: number): string {
  */
 function rowBindings(row: BrReceitaRunScopedSnapshotRow): unknown[] {
   const canonicalName = normalizeBrCompanyLegalName(row.payload.legal_name);
-  return [
-    row.identity.source_key,
-    row.identity.country_code,
-    row.identity.source_year,
-    row.identity.source_period,
-    row.snapshot_run_id,
-    row.identity.normalized_tax_id,
-    row.payload.legal_name,
-    canonicalName.status === 'valid' ? canonicalName.normalized : null,
-    JSON.stringify(row.payload.raw_data),
-  ];
+  return brReceitaCompactRowBindings({
+    snapshot_run_id: row.snapshot_run_id,
+    source_period: row.identity.source_period,
+    normalized_tax_id: row.identity.normalized_tax_id,
+    legal_name: row.payload.legal_name,
+    normalized_legal_name: canonicalName.status === 'valid' ? canonicalName.normalized : null,
+    signals: row.payload.signals,
+  });
 }
 
 /**
  * The upsert statement for one batch, built FROM the operation.
  *
- * The conflict target and its index predicate are read off `operation`, not re-derived here, so
- * the arbiter Postgres infers is the one CUT A recorded and the one migration 127 created. The
- * predicate is mandatory: `source_company_snapshots_br_period_identity_uidx` is PARTIAL, and a
- * bare `ON CONFLICT (…)` does not match a partial index — Postgres raises 42P10 rather than
- * silently inserting duplicates, which is safe but broken.
+ * The conflict target is read off `operation`, not re-derived here, so the arbiter Postgres infers
+ * is the one the plan recorded and the one the LOCAL compact migration created.
+ *
+ * 🔴 No `WHERE` predicate any more, and that is a decision rather than an omission.
+ * `operation.conflictTargetIsPartial` is `false` because the dedicated table's arbiter is its
+ * PRIMARY KEY. On the shared generic table the arbiter had to be partial
+ * (`source_key = 'br_receita_cnpj_dados_abertos'`) so it would not collide with ten other tenants,
+ * and a bare `ON CONFLICT (…)` against a partial index raises 42P10. Emitting a predicate against
+ * a NON-partial index raises 42P10 just as loudly, so the flag is checked rather than assumed.
  */
-export function buildUpsertBatchStatement(operation: UpsertBatchOperation): {
+export function buildUpsertBatchStatement(
+  operation: UpsertBatchOperation,
+  /**
+   * The physical table to write into. Defaults to the operation's logical table (the partitioned
+   * parent), which is what a pure unit test asserts against. The SQL gateway overrides it with the
+   * DETACHED child the database named at `begin_period`, because the parent has no partition for a
+   * preparing run and would reject the row — correctly.
+   */
+  targetTable: string = operation.table,
+): {
   readonly sql: string;
   readonly params: readonly unknown[];
 } {
   assertSafeIdentifiers(operation.conflictColumns);
+  assertSafeIdentifiers([targetTable]);
 
   const columns = BR_RECEITA_PERSISTABLE_COLUMNS;
   const params: unknown[] = [];
@@ -310,18 +360,19 @@ export function buildUpsertBatchStatement(operation: UpsertBatchOperation): {
     params.push(...rowBindings(row));
   }
 
-  // Only the payload is refreshed on conflict. The five identity columns are the conflict target
-  // itself, so re-assigning them would be a no-op that reads as if a row could change identity.
+  // Only the payload is refreshed on conflict. The conflict columns ARE the identity, so
+  // re-assigning them would be a no-op that reads as if a row could change identity.
+  const arbiterPredicate =
+    operation.conflictTargetIsPartial === true && operation.conflictIndexPredicate !== null
+      ? `\n      WHERE ${String(operation.conflictIndexPredicate)}`
+      : '';
+
   const sql = `
-    INSERT INTO public.${BR_RECEITA_SNAPSHOT_TABLE} (${columns.join(', ')})
+    INSERT INTO public.${targetTable} (${columns.join(', ')})
     VALUES ${valuesPlaceholders(operation.rows.length, columns.length)}
-    ON CONFLICT (${operation.conflictColumns.join(', ')})
-      WHERE ${operation.conflictIndexPredicate}
+    ON CONFLICT (${operation.conflictColumns.join(', ')})${arbiterPredicate}
     DO UPDATE SET
-      source_year           = EXCLUDED.source_year,
-      legal_name            = EXCLUDED.legal_name,
-      normalized_legal_name = EXCLUDED.normalized_legal_name,
-      raw_data              = EXCLUDED.raw_data
+      ${brReceitaCompactUpdateAssignments().join(',\n      ')}
     RETURNING 1 AS written
   `;
 
@@ -336,20 +387,31 @@ export function buildUpsertBatchStatement(operation: UpsertBatchOperation): {
  * that remember it; this predicate protects the statement itself, so a future caller that
  * passed a published run's id would delete zero rows rather than the live month.
  */
-export function buildDiscardRunRowsStatement(operation: DiscardRunRowsOperation): {
+export function buildDiscardRunRowsStatement(
+  operation: DiscardRunRowsOperation,
+  targetTable: string = operation.table,
+): {
   readonly sql: string;
   readonly params: readonly unknown[];
 } {
+  assertSafeIdentifiers([targetTable]);
+  // 🔴 The statement targets the run's PARTITION, by name, through the parent's partition key.
+  // `source_key` and `country_code` are gone from the predicate because they are gone from the
+  // table: on a dedicated Brazil table they were a constant repeated 31 B × 72M times, and a
+  // predicate on a constant filters nothing. What replaces them is stronger, not weaker — the run
+  // id IS the partition key, so a DELETE scoped to it cannot physically touch another run's
+  // storage, and `source_period` is still restated so a caller that paired the wrong period with
+  // the right run deletes nothing.
   const sql = `
-    DELETE FROM public.${BR_RECEITA_SNAPSHOT_TABLE} AS snapshots
-     WHERE snapshots.source_key      = $1
-       AND snapshots.country_code    = $2
-       AND snapshots.source_period   = $3
-       AND snapshots.snapshot_run_id = $4
+    DELETE FROM public.${targetTable} AS snapshots
+     WHERE snapshots.snapshot_run_id = $1
+       AND snapshots.source_period   = $2
        AND EXISTS (
              SELECT 1
                FROM public.${BR_RECEITA_SNAPSHOT_RUNS_TABLE} AS runs
               WHERE runs.id = snapshots.snapshot_run_id
+                AND runs.source_key    = $3
+                AND runs.country_code  = $4
                 AND runs.publish_state = ANY($5::text[])
            )
     RETURNING 1 AS deleted
@@ -357,10 +419,10 @@ export function buildDiscardRunRowsStatement(operation: DiscardRunRowsOperation)
   return {
     sql,
     params: [
+      operation.snapshot_run_id,
+      operation.source_period,
       operation.source_key,
       operation.country_code,
-      operation.source_period,
-      operation.snapshot_run_id,
       [...operation.onlyWhenRunPublishStateIn],
     ],
   };
@@ -374,9 +436,27 @@ export function buildDiscardRunRowsStatement(operation: DiscardRunRowsOperation)
  * 🔴 It never creates the executor. A writer that could build its own connection is a writer
  * that can reach Production from a test; this one physically cannot.
  */
+export interface BrReceitaWriteGatewayOptions {
+  /**
+   * Periods whose REPEATED same-period republish a human has already reviewed for storage.
+   *
+   * 🔴 Empty by default, which is what makes the preflight fail closed: a caller that has not
+   * looked at the disk cannot start the second same-period national load by simply not knowing
+   * the check exists. Naming a period here is the storage review, recorded as an argument.
+   *
+   * It is a list of PERIODS, not a boolean. A blanket `storageReviewed: true` would carry over to
+   * the next month, which is precisely the month nobody reviewed.
+   */
+  readonly repeatedSamePeriodRepublishStorageReviewedFor?: readonly string[];
+}
+
 export function createBrReceitaSqlWriteGateway(
   sql: BrReceitaSqlExecutor,
+  options: BrReceitaWriteGatewayOptions = {},
 ): BrReceitaSnapshotWriteGateway {
+  const storageReviewedPeriods = new Set(
+    options.repeatedSamePeriodRepublishStorageReviewedFor ?? [],
+  );
   // Owned by this gateway because it is the only thing that issues BEGIN. `failPeriod` consults
   // it so a failure inside the cutover cannot leave the session in an aborted-transaction state
   // that would poison the cleanup running right after it.
@@ -392,6 +472,38 @@ export function createBrReceitaSqlWriteGateway(
     } catch (error) {
       throw toSafeGatewayFailure(error, reason);
     }
+  };
+
+  /**
+   * Which DETACHED child each run's batches go into, as the DATABASE named it.
+   *
+   * 🔴 Populated only from `br_receita_begin_run_partition`'s return value or from
+   * `br_receita_run_partition_name`, and validated against `BR_RECEITA_PARTITION_NAME_PATTERN`
+   * before it can reach a statement. The gateway never assembles a table identifier.
+   */
+  const partitionByRun = new Map<string, string>();
+
+  const rememberPartition = (snapshotRunId: string, name: unknown): string => {
+    const value = typeof name === 'string' ? name : '';
+    if (!BR_RECEITA_PARTITION_NAME_PATTERN.test(value)) {
+      throw new BrReceitaGatewayError('begin_period_returned_malformed_partition_name');
+    }
+    partitionByRun.set(snapshotRunId, value);
+    return value;
+  };
+
+  const partitionFor = async (snapshotRunId: string): Promise<string> => {
+    const known = partitionByRun.get(snapshotRunId);
+    if (known !== undefined) {
+      return known;
+    }
+    // A gateway instance that did not begin this run asks the database what the child is called,
+    // rather than reconstructing the name from the uuid.
+    const resolved = await run(
+      `SELECT public.${BR_RECEITA_PARTITION_NAME_FUNCTION}($1::uuid) AS name`,
+      [snapshotRunId],
+    );
+    return rememberPartition(snapshotRunId, resolved.rows[0]?.name);
   };
 
   const rollbackIfActive = async (): Promise<void> => {
@@ -461,6 +573,25 @@ export function createBrReceitaSqlWriteGateway(
 
   return {
     async beginPeriodRun(operation: BeginPeriodOperation): Promise<BrReceitaBeginPeriodResult> {
+      // 🔴 The REPEATED same-period republish storage preflight, before a single row is written.
+      //
+      // It runs HERE rather than in an operator script because a check a caller has to remember
+      // is a check that protects only the callers who remember it. `beginPeriodRun` is the one
+      // door a national load must pass through, so the guard sits in the doorway.
+      //
+      // It withholds the AUTOMATIC start and nothing else: a period whose repeated republish a
+      // human has reviewed is named in `repeatedSamePeriodRepublishStorageReviewedFor`, and the
+      // load proceeds. It never deletes a retained superseded run to make room, and it never
+      // guesses whether a batch is actively pinned.
+      if (!storageReviewedPeriods.has(operation.source_period)) {
+        const storage = await checkBrReceitaRepublishStorage(sql, operation.source_period);
+        if (storage.code === BR_RECEITA_REPEATED_SAME_PERIOD_REPUBLISH_REVIEW_CODE) {
+          throw new BrReceitaGatewayError(
+            'repeated_same_period_republish_requires_storage_review',
+          );
+        }
+      }
+
       // `source_year` is left NULL on the run row: 065 declares it nullable there, and the
       // period is the authority. `status` follows 065's own lifecycle so the pre-existing column
       // keeps meaning what it always meant; `publish_state` is the separate, Brazil-facing one.
@@ -488,11 +619,28 @@ export function createBrReceitaSqlWriteGateway(
       if (!parsed.valid) {
         throw new BrReceitaGatewayError('begin_period_returned_malformed_run_id');
       }
-      return { snapshotRunId: parsed.runId };
+
+      // 🔴 The run's storage is minted here, DETACHED. Until `commitFinalBatchAndPublish` attaches
+      // it, its rows are not reachable through the parent at all — a partial month is unreadable
+      // because it is not part of the table, not merely because a `publish_state` filter says so.
+      // The DDL lives in the migration, in a function; this call passes a uuid and no identifier.
+      const partition = await run(
+        `SELECT public.${BR_RECEITA_BEGIN_PARTITION_FUNCTION}($1::uuid) AS name`,
+        [parsed.runId],
+        'begin_period_partition_failed',
+      );
+
+      return {
+        snapshotRunId: parsed.runId,
+        partitionTable: rememberPartition(parsed.runId, partition.rows[0]?.name),
+      };
     },
 
     async discardRunRows(operation: DiscardRunRowsOperation): Promise<BrReceitaDiscardResult> {
-      const statement = buildDiscardRunRowsStatement(operation);
+      const statement = buildDiscardRunRowsStatement(
+        operation,
+        await partitionFor(operation.snapshot_run_id),
+      );
       const result = await run(statement.sql, statement.params);
       return { deletedRows: result.rows.length };
     },
@@ -501,7 +649,10 @@ export function createBrReceitaSqlWriteGateway(
       if (operation.rows.length === 0) {
         return { writtenRows: 0 };
       }
-      const statement = buildUpsertBatchStatement(operation);
+      const statement = buildUpsertBatchStatement(
+        operation,
+        await partitionFor(operation.snapshot_run_id),
+      );
       const result = await run(statement.sql, statement.params);
       return { writtenRows: result.rows.length };
     },
@@ -510,15 +661,37 @@ export function createBrReceitaSqlWriteGateway(
       finalBatch: UpsertBatchOperation | null,
       publish: PublishPeriodOperation,
     ): Promise<BrReceitaPublishResult> {
+      const finalBatchPartition = await partitionFor(publish.snapshot_run_id);
+
+      // 🔴 OUTSIDE the transaction, on purpose. Building the read-path index on 72 million rows is
+      // the slow step of a national publish, and it touches a DETACHED table no reader can see —
+      // so it costs nothing to do it before the transaction and would cost a long-held lock to do
+      // it inside. Building it once, by sort, also packs the index at ~78 B/row instead of the
+      // ~127 B/row it reaches when grown row-by-row under random-order inserts.
+      await run(
+        `SELECT public.${BR_RECEITA_BUILD_PARTITION_INDEXES_FUNCTION}($1::uuid)`,
+        [publish.snapshot_run_id],
+        'publish_partition_index_build_failed',
+      );
+
       await run('BEGIN', []);
       inTransaction = true;
       try {
         let finalBatchRows = 0;
         if (finalBatch !== null && finalBatch.rows.length > 0) {
-          const statement = buildUpsertBatchStatement(finalBatch);
+          const statement = buildUpsertBatchStatement(finalBatch, finalBatchPartition);
           const written = await run(statement.sql, statement.params);
           finalBatchRows = written.rows.length;
         }
+
+        // 🔴 INSIDE the transaction: the month becomes reachable in the same commit that promotes
+        // the run. Visibility and publication are one event, so there is no window in which the
+        // rows are attached but the run is not published, or the reverse.
+        await run(
+          `SELECT public.${BR_RECEITA_ATTACH_PARTITION_FUNCTION}($1::uuid)`,
+          [publish.snapshot_run_id],
+          'publish_partition_attach_failed',
+        );
 
         const { promotedRunId, supersededRunId } = await promoteAndDemote(publish);
 
@@ -552,18 +725,31 @@ export function createBrReceitaSqlWriteGateway(
 
       // Then discard ITS rows, run-scoped, through the same statement builder the planned
       // discard uses — there is no second, looser deletion path.
-      const statement = buildDiscardRunRowsStatement({
-        kind: 'discard_run_rows',
-        table: BR_RECEITA_SNAPSHOT_TABLE,
-        source_key: operation.source_key,
-        country_code: operation.country_code,
-        source_period: operation.source_period,
-        snapshot_run_id: snapshotRunId,
-        onlyWhenRunPublishStateIn: BR_RECEITA_DISCARDABLE_PUBLISH_STATES,
-        canDeletePublishedRun: false,
-        canDeleteByPeriodAlone: false,
-      });
+      const statement = buildDiscardRunRowsStatement(
+        {
+          kind: 'discard_run_rows',
+          table: BR_RECEITA_SNAPSHOT_TABLE,
+          source_key: operation.source_key,
+          country_code: operation.country_code,
+          source_period: operation.source_period,
+          snapshot_run_id: snapshotRunId,
+          onlyWhenRunPublishStateIn: BR_RECEITA_DISCARDABLE_PUBLISH_STATES,
+          canDeletePublishedRun: false,
+          canDeleteByPeriodAlone: false,
+        },
+        await partitionFor(snapshotRunId),
+      );
       const deleted = await run(statement.sql, statement.params);
+
+      // 🔴 Then remove the storage itself. The DELETE above is what makes `deletedRows` an honest
+      // count; this is what stops an abandoned run leaving 27 GB of dead tuples and an orphan
+      // partition behind. The guard is in the function: it refuses any run whose period is still a
+      // retained publication generation, so a wrong id here removes nothing.
+      await run(
+        `SELECT public.${BR_RECEITA_DROP_PARTITION_FUNCTION}($1::uuid)`,
+        [snapshotRunId],
+      ).catch(() => undefined);
+
       return { deletedRows: deleted.rows.length };
     },
   };

@@ -58,10 +58,10 @@ import {
   type BrReceitaPinnedPublication,
 } from './br-receita-cnpj-pinned-publication';
 import { BR_RECEITA_PUBLISHED_READ_SELECT_COLUMNS } from './br-receita-cnpj-published-snapshot-reader';
+import { brReceitaRuntimeSignalsFromRow } from './br-receita-cnpj-compact-storage';
 import {
   BR_RECEITA_CNPJ_COUNTRY_CODE,
   BR_RECEITA_CNPJ_SOURCE_KEY,
-  type BrReceitaCnpjSnapshotRawData,
 } from './br-receita-cnpj-types';
 import type {
   SnapshotIdentityRow,
@@ -190,14 +190,12 @@ export async function readBrReceitaPinnedSnapshot(
     });
   }
 
-  // ── The read. Scoped by all five physical key columns, including the PINNED run. ──
-  // `.limit(2)`: two rows for one establishment inside one publication breaches index 4b and must
-  // be reported, never collapsed to an arbitrary pick.
+  // ── The read. Scoped by every physical key column the dedicated table has, PINNED run first. ──
+  // `.limit(2)`: two rows for one establishment inside one publication breaches the primary key and
+  // must be reported, never collapsed to an arbitrary pick.
   const { data, error } = await input.client
     .from(BR_RECEITA_SNAPSHOT_TABLE)
     .select(BR_RECEITA_PUBLISHED_READ_SELECT_COLUMNS)
-    .eq('source_key', BR_RECEITA_CNPJ_SOURCE_KEY)
-    .eq('country_code', BR_RECEITA_CNPJ_COUNTRY_CODE)
     .eq('source_period', sourcePeriod)
     .eq(SNAPSHOT_RUN_ID_COLUMN, snapshotRunId)
     .eq('normalized_tax_id', normalizedTaxId)
@@ -238,7 +236,7 @@ export async function readBrReceitaPinnedSnapshot(
       country_code: BR_RECEITA_CNPJ_COUNTRY_CODE,
       source_period: sourcePeriod,
       legal_name: typeof row.legal_name === 'string' ? row.legal_name : null,
-      raw_data: row.raw_data as BrReceitaCnpjSnapshotRawData,
+      signals: brReceitaRuntimeSignalsFromRow(row),
     },
     observedCount: 1,
   };

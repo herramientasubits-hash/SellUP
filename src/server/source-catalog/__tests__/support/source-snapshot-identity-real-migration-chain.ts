@@ -89,6 +89,29 @@ export const FULL_REPO_ORDER_CHAIN = [
   '127_br_receita_monthly_snapshot_identity.sql',
 ] as const;
 
+/**
+ * The compact-storage migration (BR-COMPACT-SNAPSHOT-PRODUCTIZATION), NUMBERED 134.
+ *
+ * 🔴 It is kept OUT of `REPO_DERIVED_REAL_CHAIN` and `FULL_REPO_ORDER_CHAIN` on purpose, even
+ * though it is now numbered: those two chains are the ones every OTHER connector's suite applies,
+ * and none of them needs Brazil's dedicated table. Brazil's suites append it explicitly, which
+ * keeps "the chain a generic snapshot test needs" and "the chain Brazil needs" two visibly
+ * different lists instead of one that quietly grew a Brazil-only table.
+ */
+export const BR_RECEITA_COMPACT_MIGRATION = '134_br_receita_compact_snapshot.sql';
+
+/** The numbered chain plus the compact-storage migration. Brazil suites use this one. */
+export const BR_RECEITA_COMPACT_CHAIN = [
+  ...REPO_DERIVED_REAL_CHAIN,
+  BR_RECEITA_COMPACT_MIGRATION,
+] as const;
+
+/** The full repository order plus the compact-storage migration. */
+export const BR_RECEITA_COMPACT_FULL_ORDER_CHAIN = [
+  ...FULL_REPO_ORDER_CHAIN,
+  BR_RECEITA_COMPACT_MIGRATION,
+] as const;
+
 export const MIGRATION_065 = '065_create_source_snapshot_tables.sql';
 export const MIGRATION_087 = '087_add_record_identity_key_to_source_company_snapshots.sql';
 export const MIGRATION_125 = '125_reconcile_source_snapshot_record_identity.sql';

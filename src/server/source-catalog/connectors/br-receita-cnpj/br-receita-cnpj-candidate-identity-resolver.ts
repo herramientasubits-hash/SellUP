@@ -62,7 +62,7 @@
  * ── 🔴 Bounded, never a national scan ───────────────────────────────────────
  *
  * The query is an EQUALITY probe on `normalized_legal_name` inside one publication, served by
- * migration 065's `(source_key, normalized_legal_name)` index, and it fetches at most
+ * the dedicated table's `(snapshot_run_id, normalized_legal_name)` index, and it fetches at most
  * `BR_RECEITA_NAME_RESOLUTION_ROW_LIMIT + 1` rows. The `+ 1` is what distinguishes "this many
  * branches" from "more than this resolver is willing to adjudicate": overflowing the window is
  * AMBIGUOUS, never a silent truncation to whatever the first N rows happened to be.
@@ -94,6 +94,11 @@ import {
   type BrReceitaPinnedPublication,
 } from './br-receita-cnpj-pinned-publication';
 import {
+  BR_RECEITA_COMPACT_NAME_RESOLUTION_COLUMNS,
+  BR_RECEITA_MUNICIPALITY_NAME_COLUMN,
+  BR_RECEITA_NORMALIZED_LEGAL_NAME_COLUMN as COMPACT_NORMALIZED_LEGAL_NAME_COLUMN,
+} from './br-receita-cnpj-compact-storage';
+import {
   BR_RECEITA_CNPJ_COUNTRY_CODE,
   BR_RECEITA_CNPJ_SOURCE_KEY,
 } from './br-receita-cnpj-types';
@@ -102,20 +107,24 @@ import type {
   SnapshotReadClient,
 } from '../../snapshot-read/snapshot-read-contract';
 
-/** The persisted canonical-name column migration 065 created and CUT C now writes. */
-export const BR_RECEITA_NORMALIZED_LEGAL_NAME_COLUMN = 'normalized_legal_name' as const;
+/** The persisted canonical-name column the writer fills and this probe filters on. */
+export const BR_RECEITA_NORMALIZED_LEGAL_NAME_COLUMN =
+  COMPACT_NORMALIZED_LEGAL_NAME_COLUMN;
 
 /**
  * The two columns the resolution projects.
  *
- * 🔴 `normalized_tax_id` because it IS the answer, and `raw_data` because the municipality that
- * disambiguates branches lives inside it (`raw_data.municipality_name`, an
- * `INCLUDED_OUTPUT` field of GATE-3's closed allowlist). `legal_name` is NOT projected: the filter
- * already proved the canonical name matches, and re-reading the display form would only invite it
- * into a log line.
+ * 🔴 `normalized_tax_id` because it IS the answer, and `municipality_name` because it is what
+ * disambiguates branches (an `INCLUDED_OUTPUT` field of GATE-3's closed allowlist). `legal_name`
+ * is NOT projected: the filter already proved the canonical name matches, and re-reading the
+ * display form would only invite it into a log line.
+ *
+ * 🔴 It used to be `normalized_tax_id, raw_data` — the ENTIRE payload of up to 26 establishments,
+ * pulled across the wire so that one string could be read out of each. The tie-break field is now
+ * a column, so the probe reads the tie-break field.
  */
 export const BR_RECEITA_NAME_RESOLUTION_SELECT_COLUMNS =
-  'normalized_tax_id, raw_data' as const;
+  BR_RECEITA_COMPACT_NAME_RESOLUTION_COLUMNS.join(', ');
 
 /**
  * How many same-name establishments this resolver is willing to adjudicate.
@@ -209,20 +218,14 @@ function outcome(
 }
 
 /**
- * Reads the municipality off a snapshot row's `raw_data`.
+ * Reads the municipality off a snapshot row's `municipality_name` column.
  *
- * Defensive on purpose: `raw_data` is JSONB, so its runtime shape is whatever the database holds
- * rather than whatever the TypeScript type promises. A row whose municipality is missing or not a
- * string simply cannot participate in location disambiguation — it is DROPPED from the filtered
- * set, never treated as a wildcard that matches every city.
+ * Still defensive: the value arrives over a wire protocol as `unknown`, so a row whose
+ * municipality is missing or not a string simply cannot participate in location disambiguation —
+ * it is DROPPED from the filtered set, never treated as a wildcard that matches every city.
  */
 function municipalityOf(row: Record<string, unknown>): string | null {
-  const rawData = row.raw_data;
-  if (typeof rawData !== 'object' || rawData === null) {
-    return null;
-  }
-  const municipality = (rawData as Record<string, unknown>).municipality_name;
-  const normalized = normalizeBrMunicipalityName(municipality);
+  const normalized = normalizeBrMunicipalityName(row[BR_RECEITA_MUNICIPALITY_NAME_COLUMN]);
   return normalized.status === 'valid' ? normalized.normalized : null;
 }
 
@@ -299,8 +302,9 @@ export async function resolveBrReceitaCandidateIdentity(
     const { data, error } = await input.client
       .from(BR_RECEITA_SNAPSHOT_TABLE)
       .select(BR_RECEITA_NAME_RESOLUTION_SELECT_COLUMNS)
-      .eq('source_key', BR_RECEITA_CNPJ_SOURCE_KEY)
-      .eq('country_code', BR_RECEITA_CNPJ_COUNTRY_CODE)
+      // No `source_key` / `country_code` predicate: the dedicated table has neither column, and on
+      // a Brazil-only table they filtered nothing. The run id is the partition key, so the probe
+      // cannot reach another publication.
       .eq('source_period', sourcePeriod)
       .eq(SNAPSHOT_RUN_ID_COLUMN, snapshotRunId)
       .eq(BR_RECEITA_NORMALIZED_LEGAL_NAME_COLUMN, canonicalName.normalized)

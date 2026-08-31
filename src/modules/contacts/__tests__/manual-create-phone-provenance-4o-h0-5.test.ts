@@ -607,7 +607,10 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // otras tres sólo escriben estado de sincronización en `contacts.metadata`. El barrido de
       // abajo lo comprueba sobre su SQL en vez de creerle a este comentario. Las cuatro AUTORADAS
       // y NO APLICADAS en remoto.
-      '133_br_candidate_identity_promotion.sql',
+      // BR-COMPACT-SNAPSHOT-PRODUCTIZATION añade la 134: la tabla dedicada y particionada del
+      // snapshot nacional de Brasil. No crea contacto alguno y no escribe `phone_source`.
+      // AUTORADA y NO APLICADA en remoto.
+      '134_br_receita_compact_snapshot.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
     for (const agent2 of [

@@ -43,7 +43,7 @@ import { fileURLToPath } from 'node:url';
 import {
   applyRealChain,
   bootstrapPlatform,
-  REPO_DERIVED_REAL_CHAIN,
+  BR_RECEITA_COMPACT_CHAIN,
   resolveEmbeddedPostgres,
   type EmbeddedPostgresLike,
   type PgLikeClient,
@@ -111,10 +111,10 @@ function recordsFor(period: string, options: RecordOptions = {}): BrReceitaPersi
         ...snapshot.payload,
         legal_name:
           suffix === '' ? snapshot.payload.legal_name : `${snapshot.payload.legal_name ?? ''}${suffix}`,
-        raw_data:
+        signals:
           municipality === undefined
-            ? snapshot.payload.raw_data
-            : { ...snapshot.payload.raw_data, municipality_name: municipality },
+            ? snapshot.payload.signals
+            : { ...snapshot.payload.signals, municipality_name: municipality },
       },
     };
   });
@@ -182,7 +182,7 @@ describe(
       await client.connect();
 
       await bootstrapPlatform(client);
-      await applyRealChain(client, repoRoot, REPO_DERIVED_REAL_CHAIN);
+      await applyRealChain(client, repoRoot, BR_RECEITA_COMPACT_CHAIN);
     });
 
     after(async () => {
@@ -191,7 +191,7 @@ describe(
       if (dataDir) rmSync(dataDir, { recursive: true, force: true });
     });
 
-    it('CASE 11 — the real writer lands a canonical name in the real column, and 065\'s index exists', async () => {
+    it('CASE 11 — the real writer lands a canonical name in the real column, and its index exists', async () => {
       const runA = await publishPeriod({
         municipalityByTaxId: { [CNPJ_FILIAL]: 'Rio de Janeiro' },
       });
@@ -200,7 +200,7 @@ describe(
       // `legal_name` in the SAME row — read back out of PostgreSQL, not out of a JS object.
       const { rows } = await client.query(
         `SELECT normalized_tax_id, legal_name, normalized_legal_name
-           FROM public.source_company_snapshots
+           FROM public.br_receita_snapshots
           WHERE snapshot_run_id = $1
           ORDER BY normalized_tax_id`,
         [runA],
@@ -218,15 +218,30 @@ describe(
       );
       assert.equal(tecnologia.length, 2);
 
-      // 🔴 No migration was authored: the index this lookup rides has existed since 065.
-      const { rows: indexes } = await client.query(
+      // 🔴 The index this lookup rides is declared on the PARTITIONED PARENT, so every partition
+      // is guaranteed to carry it, and it leads with `snapshot_run_id` — the probe is bounded to
+      // ONE publication by the index itself, not only by the WHERE clause.
+      const { rows: parentIndexes } = await client.query(
         `SELECT indexdef FROM pg_indexes
           WHERE schemaname = 'public'
-            AND tablename = 'source_company_snapshots'
-            AND indexname = 'idx_source_company_snapshots_normalized_name'`,
+            AND tablename = 'br_receita_snapshots'
+            AND indexname = 'br_receita_snapshots_name_idx'`,
       );
-      assert.equal(indexes.length, 1);
-      assert.ok((indexes[0].indexdef as string).includes('normalized_legal_name'));
+      assert.equal(parentIndexes.length, 1);
+      assert.match(
+        parentIndexes[0].indexdef as string,
+        /\(snapshot_run_id, normalized_legal_name\)/,
+      );
+
+      // …and the run's own partition really carries a matching physical index, attached to it.
+      const { rows: childIndexes } = await client.query(
+        `SELECT i.indexrelid::regclass::text AS name
+           FROM pg_index i
+          WHERE i.indrelid = ('public.' || public.br_receita_run_partition_name($1::uuid))::regclass
+            AND i.indisvalid`,
+        [runA],
+      );
+      assert.equal(childIndexes.length, 2, 'the primary key and the name index');
     });
 
     it('CASE 12 / CASE 2 — a DIFFERENTLY-SPELLED candidate name resolves to one establishment', async () => {

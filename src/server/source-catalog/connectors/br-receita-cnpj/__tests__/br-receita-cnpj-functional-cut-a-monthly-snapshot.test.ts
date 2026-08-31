@@ -84,6 +84,7 @@ import {
   BRAZIL_RECEITA_GATE4_PERSISTED_IDENTITY_FIELDS,
   BRAZIL_RECEITA_GATE4A_APPROVAL,
   BRAZIL_RECEITA_CUT_A_MONTHLY_IDENTITY_AUTHORIZATION,
+  BRAZIL_RECEITA_GATE4A_LOCATION_AMENDMENT,
   BrazilReceitaGate4NonPersistableRowError,
   findBrazilReceitaSnapshotRowPersistabilityViolations,
   assertBrazilReceitaSnapshotRowIsPersistable,
@@ -538,13 +539,27 @@ describe('CUT-A · uniqueness and idempotency', () => {
     );
     assert.equal(brIndexStatement.includes('source_year'), false, 'a year-scoped key is the overwrite bug');
 
-    // The plan's conflict target agrees with the index, and with neither year-scoped constant.
+    // 🔴 BR-PROD-STORAGE-RIGHT-SIZING moved Brazil off the shared table. Migration 127's index
+    // above is unchanged and still says what it always said; what changed is which arbiter the
+    // PLAN names. The property this case defends — the write key is RUN-scoped, so month N+1
+    // cannot overwrite month N and staging run B cannot overwrite published run A — is now
+    // stronger, because the run id is the PARTITION key rather than one column of five.
     assert.deepEqual(
       [...BR_RECEITA_RUN_SCOPED_CONFLICT_COLUMNS],
-      ['source_key', 'country_code', 'source_period', 'snapshot_run_id', 'normalized_tax_id'],
+      ['snapshot_run_id', 'normalized_tax_id'],
     );
-    // 🔴 And the PARTIAL index's predicate is restated, or Postgres cannot infer the arbiter.
-    assert.ok(brIndexStatement.includes(BR_RECEITA_RUN_SCOPED_CONFLICT_PREDICATE));
+    assert.equal(
+      BR_RECEITA_RUN_SCOPED_CONFLICT_COLUMNS.includes('source_year'),
+      false,
+      'a year-scoped write key is the cross-month overwrite bug',
+    );
+    // The dedicated table's arbiter is its PRIMARY KEY — an ordinary unique index — so there is no
+    // predicate to restate, and emitting one would raise 42P10 just as loudly as omitting one
+    // against a partial index would.
+    assert.equal(BR_RECEITA_RUN_SCOPED_CONFLICT_PREDICATE, null);
+    const compactSql = sqlWithoutComments(migrationSql('134_br_receita_compact_snapshot.sql'));
+    assert.match(compactSql, /PRIMARY KEY \(snapshot_run_id, normalized_tax_id\)/);
+    assert.match(compactSql, /PARTITION BY LIST \(snapshot_run_id\)/);
 
     // A record from another month is REFUSED, never silently relabelled into the period being built.
     const plan = plannedOrThrow({ sourcePeriod: '2026-07', records: persistedSampleSnapshots('2026-08') });
@@ -659,13 +674,13 @@ describe('CUT-A · privacy of the exact identity', () => {
       assert.equal('record_identity_key' in projection, false);
       // ...while the business payload survives, so the projection is not vacuously clean.
       assert.equal(projection.source_period, SAMPLE_SOURCE_PERIOD);
-      assert.ok('raw_data' in projection);
+      assert.ok('signals' in projection);
     }
   });
 
   it('15. the exact CNPJ is ABSENT from raw_data', () => {
     for (const snapshot of persistedSampleSnapshots()) {
-      const rawData = JSON.stringify(snapshot.payload.raw_data);
+      const rawData = JSON.stringify(snapshot.payload.signals);
       assert.equal(rawData.includes(cnpjOf(snapshot)), false);
       assert.equal(rawData.includes(cnpjOf(snapshot).slice(0, 8)), false);
     }
@@ -1666,10 +1681,49 @@ describe('CUT-A · governance and operational boundary', () => {
       'tax_id',
     ]);
     assert.equal(BRAZIL_RECEITA_CUT_A_MONTHLY_IDENTITY_AUTHORIZATION.identityRepresentationCount, 1);
+
+    // 🔴 BR-COMPACT-SNAPSHOT-PRODUCTIZATION: the owner amended the authorized LOCATION of the one
+    // persisted representation onto Brazil's dedicated table. What this block defends is unchanged
+    // and is asserted STRICTLY MORE than before: the count is still exactly one, the pre-amendment
+    // location is still recorded so the move is auditable rather than silent, and the amendment
+    // itself has to say — in the record, not in a comment — that it did not widen anything.
     assert.equal(
       BRAZIL_RECEITA_CUT_A_MONTHLY_IDENTITY_AUTHORIZATION.persistedIdentityColumn,
+      'br_receita_snapshots.normalized_tax_id',
+    );
+    assert.equal(
+      BRAZIL_RECEITA_CUT_A_MONTHLY_IDENTITY_AUTHORIZATION.persistedIdentityColumnBeforeAmendment,
       'source_company_snapshots.normalized_tax_id',
     );
+    assert.equal(
+      BRAZIL_RECEITA_GATE4A_LOCATION_AMENDMENT.fromPersistedIdentityColumn,
+      BRAZIL_RECEITA_CUT_A_MONTHLY_IDENTITY_AUTHORIZATION.persistedIdentityColumnBeforeAmendment,
+    );
+    assert.equal(
+      BRAZIL_RECEITA_GATE4A_LOCATION_AMENDMENT.toPersistedIdentityColumn,
+      BRAZIL_RECEITA_CUT_A_MONTHLY_IDENTITY_AUTHORIZATION.persistedIdentityColumn,
+    );
+    assert.equal(BRAZIL_RECEITA_GATE4A_LOCATION_AMENDMENT.changes, 'location_only');
+    assert.equal(BRAZIL_RECEITA_GATE4A_LOCATION_AMENDMENT.identityRepresentationCount, 1);
+    assert.equal(BRAZIL_RECEITA_GATE4A_LOCATION_AMENDMENT.approvedByAgent, false);
+    for (const notWidened of [
+      'widensThePermission',
+      'authorizesASecondRepresentation',
+      'authorizesAnyOtherTable',
+      'authorizesAnyOtherConnector',
+      'authorizesAnApply',
+    ] as const) {
+      assert.equal(BRAZIL_RECEITA_GATE4A_LOCATION_AMENDMENT[notWidened], false, notWidened);
+    }
+    // The prohibitions 4A attached to the permission travel WITH the amended location.
+    assert.deepEqual([...BRAZIL_RECEITA_GATE4A_LOCATION_AMENDMENT.stillProhibited].sort(), [
+      'CNPJ fragments',
+      'CNPJ in JSON',
+      'hash/fingerprint/surrogate derived from CNPJ',
+      'logging/reporting/public projection of normalized_tax_id',
+      'record_identity_key persistence',
+      'tax_id persistence',
+    ]);
 
     // 🔴 The second representations stay refused, and the `tax:` namespace is still caught on its
     // own — nulling tax_id must not make a tax-namespaced key look clean.
@@ -1730,8 +1784,20 @@ describe('CUT-A · governance and operational boundary', () => {
         assert.equal(source.includes(forbidden), false, `${modulePath} must not reach for ${forbidden}`);
       }
     }
-    // The table this cut targets is the existing generic one, not a new parallel store.
-    assert.equal(BR_RECEITA_SNAPSHOT_TABLE, 'source_company_snapshots');
+    // 🔴 BR-PROD-STORAGE-RIGHT-SIZING moved this cut's target OFF the generic table. Measured on
+    // real Receita 2026-07 rows, the generic projection cost 1409 B/row — 94.9 GB for one national
+    // month — because it carried a jsonb whose key names alone were ~61% of its text, a constant
+    // 29-byte source_key, a surrogate uuid, and SEVEN indexes, one of which was UNIQUE over a
+    // column Brazil is forbidden to populate. The dedicated table costs 408 B/row.
+    //
+    // It is a SEPARATE store, not a SECOND publication system: `source_snapshot_runs` is reused
+    // unchanged, and the other ten connectors keep `source_company_snapshots` exactly as it is.
+    assert.equal(BR_RECEITA_SNAPSHOT_TABLE, 'br_receita_snapshots');
+    assert.equal(
+      connectorSource('../br-receita-cnpj-compact-storage.ts').includes("'source_snapshot_runs'"),
+      true,
+      'publication must stay on the run table migration 127 governs',
+    );
   });
 
   it('no dataset filename or real-data path is introduced', () => {

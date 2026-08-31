@@ -88,8 +88,11 @@ import {
   type BrReceitaPersistedSnapshot,
 } from './br-receita-cnpj-monthly-snapshot-identity';
 import {
+  BR_RECEITA_COMPACT_CONFLICT_COLUMNS,
+  BR_RECEITA_COMPACT_CONFLICT_IS_PARTIAL,
+} from './br-receita-cnpj-compact-storage';
+import {
   createSnapshotRunHandle,
-  SNAPSHOT_RUN_ID_COLUMN,
   type SnapshotRunHandle,
 } from './br-receita-cnpj-monthly-snapshot-run-handle';
 import { BR_RECEITA_CNPJ_SOURCE_KEY, BR_RECEITA_CNPJ_COUNTRY_CODE } from './br-receita-cnpj-types';
@@ -116,13 +119,8 @@ export const BR_RECEITA_SNAPSHOT_BATCH_ROWS = 500 as const;
  *   · logical read key    → `BR_RECEITA_PERIOD_EXACT_LOOKUP_COLUMNS`, valid only INSIDE one
  *                           published run
  */
-export const BR_RECEITA_RUN_SCOPED_CONFLICT_COLUMNS: readonly string[] = [
-  'source_key',
-  'country_code',
-  'source_period',
-  SNAPSHOT_RUN_ID_COLUMN,
-  'normalized_tax_id',
-] as const;
+export const BR_RECEITA_RUN_SCOPED_CONFLICT_COLUMNS: readonly string[] =
+  BR_RECEITA_COMPACT_CONFLICT_COLUMNS;
 
 /**
  * The `WHERE` clause an upsert must restate for Postgres to infer index 4b as its arbiter.
@@ -134,8 +132,21 @@ export const BR_RECEITA_RUN_SCOPED_CONFLICT_COLUMNS: readonly string[] = [
  * insert, which is the safe direction, but still a broken executor. Recorded here so CUT B emits it
  * by construction; the CUT-A suite asserts this string appears verbatim in migration 126.
  */
-export const BR_RECEITA_RUN_SCOPED_CONFLICT_PREDICATE =
-  "source_key = 'br_receita_cnpj_dados_abertos'" as const;
+export const BR_RECEITA_RUN_SCOPED_CONFLICT_PREDICATE: string | null = null;
+
+/**
+ * Whether the arbiter is a PARTIAL index, and therefore whether the upsert has to restate a
+ * predicate for Postgres to infer it.
+ *
+ * 🔴 It no longer is. On the generic table the arbiter was
+ * `source_company_snapshots_br_period_identity_uidx`, partial on
+ * `source_key = 'br_receita_cnpj_dados_abertos'` because ten other connectors shared the table.
+ * The dedicated table has no other tenant, so its arbiter is the PRIMARY KEY — an ordinary unique
+ * index — and a `WHERE` clause the gateway would have to invent is exactly the kind of string that
+ * silently stops matching. `false` here is what tells the gateway not to emit one.
+ */
+export const BR_RECEITA_RUN_SCOPED_CONFLICT_IS_PARTIAL: boolean =
+  BR_RECEITA_COMPACT_CONFLICT_IS_PARTIAL;
 
 /**
  * The logical identity of a snapshot INSIDE one published run. Retained because it is what the
@@ -245,7 +256,16 @@ export interface UpsertBatchOperation {
    * The predicate the upsert must restate so Postgres can infer the PARTIAL index 4b as arbiter.
    * Omitting it makes the statement fail outright rather than silently insert duplicates.
    */
-  readonly conflictIndexPredicate: typeof BR_RECEITA_RUN_SCOPED_CONFLICT_PREDICATE;
+  readonly conflictIndexPredicate: string | null;
+  /**
+   * Whether the arbiter is a PARTIAL index. `false` today: the arbiter is the dedicated table's
+   * PRIMARY KEY, so no `WHERE` clause is emitted.
+   *
+   * 🔴 Typed `boolean` rather than the literal `false` on purpose. A literal would let the
+   * compiler erase the gateway's check, and the check is what makes a future partial arbiter emit
+   * its predicate instead of raising 42P10 at run time.
+   */
+  readonly conflictTargetIsPartial: boolean;
   /** Exact for THIS batch. 🔴 Never a period-wide figure — see the module header. */
   readonly collapsedInBatchCount: number;
 }
@@ -708,6 +728,7 @@ function upsertBatchOperation(
     rows,
     conflictColumns: BR_RECEITA_RUN_SCOPED_CONFLICT_COLUMNS,
     conflictIndexPredicate: BR_RECEITA_RUN_SCOPED_CONFLICT_PREDICATE,
+    conflictTargetIsPartial: BR_RECEITA_RUN_SCOPED_CONFLICT_IS_PARTIAL,
     collapsedInBatchCount,
   };
 }

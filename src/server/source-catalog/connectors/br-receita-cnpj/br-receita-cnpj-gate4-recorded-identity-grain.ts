@@ -426,6 +426,83 @@ export const BRAZIL_RECEITA_GATE4A_APPROVAL = {
   decisionDate: '2026-08-24',
 } as const;
 
+/**
+ * 🔴 GATE-4A LOCATION AMENDMENT — BR-COMPACT-SNAPSHOT-PRODUCTIZATION.
+ *
+ * Recorded SEPARATELY from `BRAZIL_RECEITA_GATE4A_APPROVAL`, which is preserved verbatim above,
+ * because 4A is the evidentiary record of what the legal/privacy owner approved on 2026-08-24 and
+ * that record does not get rewritten. This is a later, narrower owner decision ABOUT that record.
+ *
+ * ── What changed ────────────────────────────────────────────────────────────
+ *
+ * ONLY the location of the single permitted representation:
+ *
+ *     FROM  public.source_company_snapshots.normalized_tax_id
+ *     TO    public.br_receita_snapshots.normalized_tax_id
+ *
+ * BR-PROD-STORAGE-RIGHT-SIZING measured the generic projection at 1409 B/row — 94.9 GB for one
+ * national month — and moved Brazil onto a dedicated, run-partitioned table. The single persisted
+ * exact-CNPJ representation moved with it. The SUBSTANCE of 4A is untouched: still exactly one,
+ * still never printed, never logged, never reported, never publicly projected.
+ *
+ * ── 🔴 What is still prohibited, and is now UNREPRESENTABLE ─────────────────
+ *
+ * `br_receita_snapshots` has no `tax_id` column, no `record_identity_key` column and no jsonb at
+ * all, so the prohibitions below are enforced by the table's shape rather than by a writer that
+ * remembers them:
+ *
+ *   · `tax_id` persistence · `record_identity_key` persistence · CNPJ in JSON
+ *   · CNPJ fragments · any hash/fingerprint/surrogate derived from the CNPJ
+ *   · logging, reporting or public projection of `normalized_tax_id`
+ *
+ * ── 🔴 What this amendment is NOT ───────────────────────────────────────────
+ *
+ * It is not a WIDENING. It authorizes no second representation, no additional column, no other
+ * table and no other connector — `appliesToBrazilOnly` is the whole scope. And it authorizes no
+ * apply: migration 134 is authored and numbered, not applied.
+ */
+export const BRAZIL_RECEITA_GATE4A_LOCATION_AMENDMENT = {
+  milestone: 'BR-COMPACT-SNAPSHOT-PRODUCTIZATION',
+  amends: 'BRAZIL_RECEITA_GATE4A_APPROVAL',
+  approvedBy: 'OWNER',
+  approvedByAgent: false,
+  decision: 'approved',
+  changes: 'location_only',
+  fromPersistedIdentityColumn: 'source_company_snapshots.normalized_tax_id',
+  toPersistedIdentityColumn: 'br_receita_snapshots.normalized_tax_id',
+  /** The count 4A granted, unchanged. */
+  identityRepresentationCount: 1,
+  widensThePermission: false,
+  appliesToBrazilOnly: true,
+  authorizesASecondRepresentation: false,
+  authorizesAnyOtherTable: false,
+  authorizesAnyOtherConnector: false,
+  authorizesAnApply: false,
+  /** Still prohibited, verbatim from the owner decision. */
+  stillProhibited: [
+    'tax_id persistence',
+    'record_identity_key persistence',
+    'CNPJ in JSON',
+    'CNPJ fragments',
+    'hash/fingerprint/surrogate derived from CNPJ',
+    'logging/reporting/public projection of normalized_tax_id',
+  ] as readonly string[],
+  migrationFile: '134_br_receita_compact_snapshot.sql',
+  migrationApplied: false,
+  ownerReference: 'OWNER_REF_GATE4A_LOCATION_AMENDMENT_BR_COMPACT_SNAPSHOT_PRODUCTIZATION',
+} as const;
+
+/**
+ * The location that is AUTHORITATIVE today.
+ *
+ * 🔴 One exported constant, so a reader never has to decide which of two historical records to
+ * believe. `BRAZIL_RECEITA_GATE4A_APPROVAL` and `BRAZIL_RECEITA_CUT_A_MONTHLY_IDENTITY_AUTHORIZATION`
+ * both still name the pre-amendment location, correctly, as the record of what was approved and
+ * what CUT A built at the time.
+ */
+export const BRAZIL_RECEITA_CURRENT_PERSISTED_IDENTITY_COLUMN =
+  BRAZIL_RECEITA_GATE4A_LOCATION_AMENDMENT.toPersistedIdentityColumn;
+
 export const BRAZIL_RECEITA_GATE4B_APPROVAL = {
   approvedBy: 'DATA_ARCHITECTURE_OWNER',
   approvedByAgent: false,
@@ -660,8 +737,21 @@ export const BRAZIL_RECEITA_CUT_A_MONTHLY_IDENTITY_AUTHORIZATION = {
   milestone: 'BR-SOURCE-FUNCTIONAL-CUT-A',
   exercisesGate4aException: true,
   exceptionOwnerReference: 'OWNER_REF_GATE4A_LEGAL_PRIVACY_OWNER_RELAY_2026_08_24',
-  /** The single persisted representation, as an exact table.column. */
-  persistedIdentityColumn: 'source_company_snapshots.normalized_tax_id',
+  /**
+   * The single persisted representation, as an exact table.column.
+   *
+   * 🔴 AMENDED by BR-COMPACT-SNAPSHOT-PRODUCTIZATION. The owner moved the authorized LOCATION —
+   * and only the location — onto Brazil's dedicated table; see
+   * `BRAZIL_RECEITA_GATE4A_LOCATION_AMENDMENT`. The pre-amendment value is kept alongside rather
+   * than erased, because migration 126's Brazil constraints on `source_company_snapshots` still
+   * exist in Production: what changed is that no Brazil row is written there any more, so that
+   * column is no longer where the one representation lives.
+   *
+   * The COUNT is untouched. It was one, it is one, and the new table has nowhere to put a second.
+   */
+  persistedIdentityColumn: 'br_receita_snapshots.normalized_tax_id',
+  persistedIdentityColumnBeforeAmendment: 'source_company_snapshots.normalized_tax_id',
+  persistedIdentityColumnAmendedBy: 'BRAZIL_RECEITA_GATE4A_LOCATION_AMENDMENT',
   identityRepresentation: 'normalized 14-character establishment CNPJ',
   identityRepresentationCount: 1,
   /** Character set of the identity — alphanumeric-aware, never digits-only. */

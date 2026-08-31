@@ -502,8 +502,11 @@ describe('4O-E4.1 estático — alcance', () => {
       // LEE bajo el lock para calcular el saliente, y leer no es escribir— ni introduce
       // procedencia del escalar móvil, que es lo que esta guarda vigila. La lista exacta de
       // migraciones que pueden NOMBRARLO se declara arriba, archivo por archivo.
-      133,
-      'la 133 (la promoción vallada de identidad fiscal de BR-SOURCE CUT D) es la última',
+      // BR-COMPACT-SNAPSHOT-PRODUCTIZATION mueve el techo a la 134: la tabla dedicada del
+      // snapshot nacional de Brasil. No ASIGNA `mobile_phone`, no lo NOMBRA siquiera, y no
+      // introduce procedencia del escalar móvil, que es lo que esta guarda vigila.
+      134,
+      'la 134 (el almacenamiento compacto del snapshot nacional de BR) es la última',
     );
   });
 

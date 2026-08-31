@@ -133,7 +133,12 @@ describe('modelo de datos — sin migración nueva', () => {
     // (`promote_candidate_fiscal_identity_fenced`) y sus permisos: sin tabla, sin columna, sin
     // índice, sin constraint y sin backfill. NO es de teléfono y no nombra ninguna tabla, columna
     // ni función de teléfono, que es lo que esta guarda vigila. AUTORADA y NO APLICADA.
-    assert.equal(Math.max(...numbers), 133, 'el techo conocido es la 133');
+    // BR-COMPACT-SNAPSHOT-PRODUCTIZATION mueve el techo a la 134:
+    // `134_br_receita_compact_snapshot.sql`, la tabla dedicada y particionada del snapshot
+    // nacional de Brasil. Crea UNA tabla y sus funciones de ciclo de vida de partición. NO es de
+    // teléfono y no nombra ninguna tabla, columna ni función de teléfono, que es lo que esta
+    // guarda vigila. AUTORADA y NO APLICADA.
+    assert.equal(Math.max(...numbers), 134, 'el techo conocido es la 134');
     assert.equal(
       GATE_SOURCE.includes('supabase/migrations'),
       false,

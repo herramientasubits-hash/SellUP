@@ -266,7 +266,12 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
       // estado del reveal lo sigue escribiendo el pipeline del candidato en TypeScript. El
       // barrido de autoría de abajo recorre el directorio COMPLETO, así que estas cuatro entran
       // en él sin excepción. AUTORADAS y NO APLICADAS.
-      '133_br_candidate_identity_promotion.sql',
+      // BR-COMPACT-SNAPSHOT-PRODUCTIZATION mueve el techo a la 134: la tabla dedicada y
+      // particionada del snapshot nacional de Brasil. Crea `br_receita_snapshots` y sus funciones
+      // de ciclo de vida de partición, y reutiliza `source_snapshot_runs` sin alterarla. NO es de
+      // teléfono y no nombra ninguna tabla, columna ni función de teléfono, que es lo que esta
+      // guarda vigila. AUTORADA y NO APLICADA.
+      '134_br_receita_compact_snapshot.sql',
       `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
     // Y ninguna migración es AUTORÍA de 4O-E1: el hito no escribió SQL.

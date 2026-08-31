@@ -177,7 +177,11 @@ describe('114 — numeración', () => {
     // (`promote_candidate_fiscal_identity_fenced`) y sus permisos: sin tabla, sin columna, sin
     // índice, sin constraint y sin backfill. NO es de teléfono y no nombra ninguna tabla, columna
     // ni función de teléfono, que es lo que esta guarda vigila. AUTORADA y NO APLICADA.
-    assert.equal(Math.max(...numbers), 133);
+    // BR-COMPACT-SNAPSHOT-PRODUCTIZATION mueve el techo a la 134:
+    // `134_br_receita_compact_snapshot.sql`, la tabla dedicada y particionada del snapshot
+    // nacional de Brasil. NO es de teléfono, no nombra ninguna tabla, columna ni función de
+    // teléfono, y no edita el archivo de ninguna migración anterior. AUTORADA y NO APLICADA.
+    assert.equal(Math.max(...numbers), 134);
   });
 
   it('114 es la ÚNICA dueña de la forma de las dos tablas oficiales', () => {
