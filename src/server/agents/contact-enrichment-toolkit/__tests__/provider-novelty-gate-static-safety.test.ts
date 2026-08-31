@@ -146,7 +146,8 @@ describe('modelo de datos — sin migración nueva', () => {
     // petición que el proveedor quizá ya cobró. Es de Agente 1 y de seguridad de GASTO: no es de
     // teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de las cadenas
     // que esta guarda vigila. AUTORADA y NO APLICADA.
-    assert.equal(Math.max(...numbers), 135, 'el techo conocido es la 135');
+    // AGENT1-LUSHA-CUT-L4 mueve el techo a la 136: historial DURABLE de INTENTOS y reclamo atomico de UN reintento seguro (solo tras 429 o 5xx). AUTORADA y NO APLICADA.
+    assert.equal(Math.max(...numbers), 136, 'el techo conocido es la 136');
     assert.equal(
       GATE_SOURCE.includes('supabase/migrations'),
       false,

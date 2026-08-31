@@ -469,6 +469,11 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       // gasto; no contiene un solo `DELETE` y no toca la erasure que esta suite protege.
       // AUTORADA y NO APLICADA.
       '135_agent1_lusha_prospecting_request_fence.sql',
+      // AGENT1-LUSHA-CUT-L4 anade la 136: el historial DURABLE de INTENTOS de una peticion de
+      // Lusha Prospecting y el reclamo atomico de UN reintento seguro (solo tras un 429 o un
+      // 5xx, que el contrato HUMANO del proveedor declara a 0 creditos). Es de Agente 1 y de
+      // seguridad de gasto. AUTORADA y NO APLICADA.
+      '136_agent1_lusha_prospecting_safe_retry_attempts.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
@@ -526,7 +531,8 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     // petición que el proveedor quizá ya cobró. Es de Agente 1 y de seguridad de GASTO: no es de
     // teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de las cadenas
     // que esta guarda vigila. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 135);
+    // AGENT1-LUSHA-CUT-L4 mueve el techo a la 136: historial DURABLE de INTENTOS y reclamo atomico de UN reintento seguro (solo tras 429 o 5xx). AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 136);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {

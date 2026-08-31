@@ -23,9 +23,22 @@
  *      instrucción antes de `fetch()`, dentro del propio cliente.
  *   4. `settle` con el desenlace canónico de CUT-L2.
  *
- * 🔴 Este módulo NO reintenta. Ni siquiera un `429`, que CUT-L2 declara
- * `retryable_by_contract`: eso describe lo que Lusha permite, y ejecutarlo es
- * CUT-L4.
+ * ── AGENT1-LUSHA-CUT-L4 — el reintento vive DEBAJO de este punto ────────────
+ *
+ * CUT-L3 no reintentaba. CUT-L4 sí, y en el sitio exacto: DENTRO de
+ * `runFencedLushaProspectingRequest`, es decir por DEBAJO de la abstracción de
+ * página. Eso tiene tres consecuencias que son el corte entero:
+ *
+ *   1. `persistLushaPendingReviewBatch` sigue viendo UNA llamada a `runSearch` por
+ *      página. `providerRequestsUsed`, el tope de páginas y la reserva NO cambian.
+ *   2. Río abajo sólo llega el resultado FINAL. Un `429` que luego tuvo éxito no
+ *      produce candidatos, ni memoria de provider-seen, ni una página fallida:
+ *      produce el éxito, una vez.
+ *   3. Los créditos que suma la corrida son los del intento que los reportó. Un
+ *      `503` seguido de un éxito de 1 crédito suma 1, no 2 — porque el `503` no
+ *      trae importe y el contrato humano dice que costó cero.
+ *
+ * 🔴 Y sigue sin reintentarse nada que no sea `429` o `5xx`.
  */
 
 import type {
@@ -43,6 +56,7 @@ import type {
   LushaProviderRequestCoordinates,
   RunLushaSearch,
 } from './lusha-pending-review';
+import type { LushaRetrySleep } from './lusha-safe-retry-policy';
 import {
   LUSHA_REQUEST_FENCE_UNAVAILABLE_CODE,
   resolveLushaRequestFenceTerminalState,
@@ -171,6 +185,18 @@ export type FencedLushaSearchDeps = {
   onSettlementIssue?: (issue: { fenceKey: string; code: string }) => void;
   /** Telemetría segura de bloqueo. */
   onBlocked?: (block: LushaRequestFenceBlock & { fenceKey: string | null }) => void;
+  /**
+   * AGENT1-LUSHA-CUT-L4 — la espera entre intentos, INYECTADA.
+   *
+   * Ausente ⇒ no se espera. Las suites la doblan con `async () => {}`: una prueba
+   * que de verdad durmiera un segundo por caso convertiría el paso obligatorio de
+   * CI en algo que alguien acabaría quitando.
+   */
+  sleep?: LushaRetrySleep;
+  /** Telemetría segura del reintento concedido. */
+  onRetry?: (event: { fenceKey: string; attemptNo: number; outcomeClass: string | null }) => void;
+  /** Telemetría segura del reintento NO concedido. */
+  onRetryRefused?: (event: { fenceKey: string; code: string }) => void;
 };
 
 /**
@@ -219,6 +245,11 @@ export function createFencedLushaRunSearch(deps: FencedLushaSearchDeps): RunLush
         ),
       settlementFrom: buildLushaRequestFenceSettlementFromPreview,
       onSettlementIssue: deps.onSettlementIssue,
+      // AGENT1-LUSHA-CUT-L4. Sin `sleep` no hay espera; sin `claimRetryAttempt` en
+      // la valla no hay reintento. Las dos ausencias degradan a CUT-L3 exacto.
+      sleep: deps.sleep,
+      onRetry: deps.onRetry,
+      onRetryRefused: deps.onRetryRefused,
     });
 
     if (outcome.status === 'blocked') {

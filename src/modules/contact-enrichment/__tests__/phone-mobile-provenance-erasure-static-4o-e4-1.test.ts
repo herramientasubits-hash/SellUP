@@ -520,7 +520,8 @@ describe('4O-E4.1 estático — alcance', () => {
       // AGENT1-LUSHA-CUT-L3 lo mueve a la 135 (renumerada desde la 134 al integrarse en serie
       // después de que BR-COMPACT-SNAPSHOT-PRODUCTIZATION llegara primero a main con ese
       // número): la valla durable de petición de Lusha. No ASIGNA `mobile_phone` tampoco.
-      135,
+      // AGENT1-LUSHA-CUT-L4 mueve el techo a la 136: historial DURABLE de INTENTOS y reclamo atomico de UN reintento seguro (solo tras 429 o 5xx). AUTORADA y NO APLICADA.
+      136,
       'la 135 (la valla durable de petición de Lusha, AGENT1-LUSHA-CUT-L3, renumerada desde la 134) es la última',
     );
   });

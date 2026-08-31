@@ -286,7 +286,11 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
       // AGENT1-LUSHA-CUT-L3 mueve el techo a la 135 (renumerada desde la 134 al integrarse en
       // serie después de que BR-COMPACT-SNAPSHOT-PRODUCTIZATION llegara primero a main con ese
       // número): la valla durable de petición de Lusha.
-      '135_agent1_lusha_prospecting_request_fence.sql',
+      // AGENT1-LUSHA-CUT-L4 anade la 136: el historial DURABLE de INTENTOS de una peticion de
+      // Lusha Prospecting y el reclamo atomico de UN reintento seguro (solo tras un 429 o un
+      // 5xx, que el contrato HUMANO del proveedor declara a 0 creditos). Es de Agente 1 y de
+      // seguridad de gasto. AUTORADA y NO APLICADA.
+      '136_agent1_lusha_prospecting_safe_retry_attempts.sql',
       `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
     // Y ninguna migración es AUTORÍA de 4O-E1: el hito no escribió SQL.

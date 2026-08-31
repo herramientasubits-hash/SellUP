@@ -537,7 +537,8 @@ describe('4O-G — alcance', () => {
     // petición que el proveedor quizá ya cobró. Es de Agente 1 y de seguridad de GASTO: no es de
     // teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de las cadenas
     // que esta guarda vigila. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 135);
+    // AGENT1-LUSHA-CUT-L4 mueve el techo a la 136: historial DURABLE de INTENTOS y reclamo atomico de UN reintento seguro (solo tras 429 o 5xx). AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 136);
     // El CONTEO, no el techo: 121 archivos para los números 001–121, es decir SIN un solo
     // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
     // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
@@ -555,7 +556,7 @@ describe('4O-G — alcance', () => {
     // 135 archivos para los números 001-135: la 134 del compacto de BR y la 135 de
     // AGENT1-LUSHA-CUT-L3 (renumerada desde la 134) tampoco dejan hueco, así
     // que conteo y techo siguen coincidiendo. Esa coincidencia ES la guarda.
-    assert.equal(numbered.length, 135);
+    assert.equal(numbered.length, 136);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {

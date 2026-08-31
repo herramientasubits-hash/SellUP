@@ -336,7 +336,8 @@ const POST_APPROVAL_REVEAL_MIGRATION =
  * integrarse en serie después de que BR-COMPACT-SNAPSHOT-PRODUCTIZATION llegara primero a main
  * con ese número—: la valla DURABLE de una petición de Lusha Company Prospecting.
  */
-const REPOSITORY_CEILING = '135_agent1_lusha_prospecting_request_fence.sql';
+// AGENT1-LUSHA-CUT-L4 mueve el techo a la 136: historial DURABLE de INTENTOS y reclamo atomico de UN reintento seguro (solo tras 429 o 5xx). AUTORADA y NO APLICADA.
+const REPOSITORY_CEILING = '136_agent1_lusha_prospecting_safe_retry_attempts.sql';
 
 /**
  * Cuerpo EJECUTABLE de una migración, en minúsculas.
@@ -465,7 +466,7 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     // número): la valla DURABLE de una petición de Lusha Company Prospecting. No es una migración
     // de la capa de snapshots ni escribe candidatos, y su autoría se policía en la prueba de
     // arriba, que barre el directorio completo.
-    assert.ok(last.startsWith('135'), `última migración inesperada: ${last}`);
+    assert.ok(last.startsWith('136'), `última migración inesperada: ${last}`);
     assert.equal(last, REPOSITORY_CEILING);
     assert.ok(migrations.includes(POST_APPROVAL_REVEAL_MIGRATION));
     const lastSnapshotMigration = '127_br_receita_monthly_snapshot_identity.sql';

@@ -21,12 +21,29 @@ import type {
   LushaRequestFenceContext,
   LushaRequestFenceDispatchMarkResult,
   LushaRequestFenceIdentity,
+  LushaRequestFenceRetryClaimResult,
   LushaRequestFenceSettlement,
   LushaRequestFenceSettleResult,
   LushaRequestFenceState,
   LushaRequestFenceStore,
 } from '../../lusha-request-fence';
 import { buildLushaRequestFenceKey } from '../../lusha-request-fence';
+import { LUSHA_MAX_ATTEMPTS_PER_LOGICAL_REQUEST } from '../../lusha-safe-retry-policy';
+
+/**
+ * AGENT1-LUSHA-CUT-L4 — UN intento, es decir UN despacho HTTP posible.
+ *
+ * Réplica en memoria de una fila de `lusha_prospecting_request_attempts`. Que sea
+ * una lista y no un par de campos en `FenceRow` no es cosmética: lo que las
+ * suites tienen que poder afirmar es que el intento 1 SIGUE ahí después de que
+ * arranque el 2, y eso sólo se puede afirmar sobre algo que se acumula.
+ */
+export type AttemptRow = {
+  attemptNo: number;
+  state: LushaRequestFenceState;
+  settlement: LushaRequestFenceSettlement | null;
+  dispatched: boolean;
+};
 
 export type FenceRow = {
   fenceKey: string;
@@ -42,6 +59,12 @@ export type FenceRow = {
   dispatched: boolean;
   settled: boolean;
   settlement: LushaRequestFenceSettlement | null;
+  /**
+   * AGENT1-LUSHA-CUT-L4. El HISTORIAL, en orden. `state`/`settlement` de arriba
+   * son la PROYECCIÓN del último intento —igual que en la 136— y se reinician
+   * cuando arranca el intento 2; esta lista NO.
+   */
+  attempts: AttemptRow[];
 };
 
 export type FenceTable = {
@@ -57,6 +80,14 @@ export type FenceTable = {
   settleDisabled: boolean;
   /** Fuerza `capability_absent`: la migración 135 no está aplicada. */
   capabilityAbsent: boolean;
+  /**
+   * AGENT1-LUSHA-CUT-L4 — fuerza `capability_absent` SÓLO en el reclamo de
+   * reintento: la 135 aplicada y la 136 NO. Es la topología de despliegue del
+   * § 37, y tiene que poder probarse por separado.
+   */
+  retryCapabilityAbsent: boolean;
+  /** Reclamos de reintento CONCEDIDOS. Un duplicado NO debe incrementarla. */
+  retryClaimsGranted: number;
 };
 
 export function createFenceTable(): FenceTable {
@@ -66,6 +97,8 @@ export function createFenceTable(): FenceTable {
     dispatchMarks: 0,
     settleDisabled: false,
     capabilityAbsent: false,
+    retryCapabilityAbsent: false,
+    retryClaimsGranted: 0,
   };
 }
 
@@ -92,6 +125,9 @@ export function createFenceStoreOn(table: FenceTable): LushaRequestFenceStore {
         dispatched: false,
         settled: false,
         settlement: null,
+        // El intento 1 nace CON la valla, en la misma «transacción». Una valla sin
+        // intento sería el único estado desde el que no se puede decidir nada.
+        attempts: [{ attemptNo: 1, state: 'prepared', settlement: null, dispatched: false }],
       });
       table.claimsGranted += 1;
       return { status: 'claimed' };
@@ -102,6 +138,13 @@ export function createFenceStoreOn(table: FenceTable): LushaRequestFenceStore {
       const row = table.rows.get(fenceKey);
       if (!row) return { status: 'not_claimable', state: null };
       if (row.state !== 'prepared') return { status: 'not_claimable', state: row.state };
+      const attempt = latestAttempt(row);
+      // O se marcan la valla Y el intento, o no se marca ninguno.
+      if (!attempt || attempt.state !== 'prepared') {
+        return { status: 'not_claimable', state: attempt?.state ?? row.state };
+      }
+      attempt.state = 'dispatch_unsafe';
+      attempt.dispatched = true;
       row.state = 'dispatch_unsafe';
       row.dispatched = true;
       table.dispatchMarks += 1;
@@ -125,12 +168,85 @@ export function createFenceStoreOn(table: FenceTable): LushaRequestFenceStore {
       if (row.state !== 'prepared' && row.state !== 'dispatch_unsafe') {
         return { status: 'already_terminal', state: row.state };
       }
+      const attempt = latestAttempt(row);
+      if (!attempt || (attempt.state !== 'prepared' && attempt.state !== 'dispatch_unsafe')) {
+        return { status: 'already_terminal', state: row.state };
+      }
+      // 🔴 El intento se liquida y queda INMUTABLE. La valla sólo lo PROYECTA.
+      attempt.state = settlement.state;
+      attempt.settlement = settlement;
       row.state = settlement.state;
       row.settled = true;
       row.settlement = settlement;
       return { status: 'settled' };
     },
+
+    /**
+     * AGENT1-LUSHA-CUT-L4 — el reclamo del intento siguiente, replicando una a una
+     * las comprobaciones de `claim_lusha_prospecting_retry_attempt` de la 136.
+     *
+     * 🔴 La elegibilidad se lee de la EVIDENCIA del intento anterior, no de un
+     * argumento. Si el doble aceptara que el llamador declarase «esto es
+     * reintentable», la suite estaría probando su propia afirmación.
+     */
+    async claimRetryAttempt(fenceKey: string): Promise<LushaRequestFenceRetryClaimResult> {
+      if (table.capabilityAbsent || table.retryCapabilityAbsent) {
+        return { status: 'capability_absent' };
+      }
+      const row = table.rows.get(fenceKey);
+      if (!row) return { status: 'failed', code: 'fence_retry_fence_not_found' };
+      const last = latestAttempt(row);
+      if (!last) return { status: 'failed', code: 'fence_retry_no_attempt_history' };
+
+      const evidence = last.settlement;
+      const eligible =
+        last.state === 'definitely_not_charged' &&
+        evidence !== null &&
+        evidence.billingCertainty === 'definitely_not_charged' &&
+        evidence.retryContract === 'retryable_by_contract' &&
+        (evidence.outcomeClass === 'http_429_rate_limited' ||
+          evidence.outcomeClass === 'http_5xx_provider_failure');
+
+      if (!eligible) {
+        return {
+          status: 'not_retryable',
+          state: last.state,
+          code: 'fence_retry_not_retryable',
+        };
+      }
+
+      const nextNo = last.attemptNo + 1;
+      if (nextNo > LUSHA_MAX_ATTEMPTS_PER_LOGICAL_REQUEST) {
+        return { status: 'attempts_exhausted', attemptNo: last.attemptNo };
+      }
+      if (row.attempts.some((a) => a.attemptNo === nextNo)) {
+        return { status: 'already_claimed', attemptNo: nextNo };
+      }
+
+      row.attempts.push({
+        attemptNo: nextNo,
+        state: 'prepared',
+        settlement: null,
+        dispatched: false,
+      });
+      // La PROYECCIÓN se reinicia; el intento 1 sigue en `row.attempts[0]`.
+      row.state = 'prepared';
+      row.dispatched = false;
+      row.settled = false;
+      row.settlement = null;
+      table.retryClaimsGranted += 1;
+      return { status: 'claimed', attemptNo: nextNo };
+    },
   };
+}
+
+function latestAttempt(row: FenceRow): AttemptRow | undefined {
+  return row.attempts.length === 0 ? undefined : row.attempts[row.attempts.length - 1];
+}
+
+/** El HISTORIAL de intentos de una petición lógica, en orden. */
+export function readAttempts(table: FenceTable, key: string): AttemptRow[] {
+  return table.rows.get(key)?.attempts ?? [];
 }
 
 export function readFenceRow(table: FenceTable, key: string): FenceRow | undefined {

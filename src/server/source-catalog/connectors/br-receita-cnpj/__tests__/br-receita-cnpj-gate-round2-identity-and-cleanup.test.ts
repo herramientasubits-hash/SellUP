@@ -628,11 +628,22 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     // spend-safety migration, not a BR one; the authorship sweep further down still refuses BR
     // authorship for it. What GATE ROUND 2 defends is unchanged and asserted right below — CUT A
     // still adds EXACTLY one migration and it is still 127.
-    assert.equal(highest, 135, 'the repository ceiling is 135 — AGENT1-LUSHA-CUT-L3, not CUT A');
+    // AGENT1-LUSHA-CUT-L4 then moved the ceiling to 136 with the durable ATTEMPT history for a
+    // Lusha Company Prospecting request and the atomic claim of ONE safe retry (only after a 429
+    // or a 5xx, which the provider's HUMAN contract declares to be 0 credits). Like the 135, it
+    // is an Agent-1 spend-safety migration, not a BR one; the authorship sweep further down still
+    // refuses BR authorship for it. What GATE ROUND 2 defends is unchanged and asserted right
+    // below — CUT A still adds EXACTLY one migration and it is still 127.
+    assert.equal(highest, 136, 'the repository ceiling is 136 — AGENT1-LUSHA-CUT-L4, not CUT A');
     assert.deepEqual(
       files.filter((f) => f.startsWith('135')),
       ['135_agent1_lusha_prospecting_request_fence.sql'],
-      'AGENT1-LUSHA-CUT-L3 owns exactly one migration, and it is the ceiling',
+      'AGENT1-LUSHA-CUT-L3 owns exactly one migration',
+    );
+    assert.deepEqual(
+      files.filter((f) => f.startsWith('136')),
+      ['136_agent1_lusha_prospecting_safe_retry_attempts.sql'],
+      'AGENT1-LUSHA-CUT-L4 owns exactly one migration, and it is the ceiling',
     );
     assert.deepEqual(
       files.filter((f) => f.startsWith('133')),
@@ -668,7 +679,9 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
       );
     }
     for (const name of files.filter((f) =>
-      ['124', '126', '128', '129', '130', '131', '132'].some((n) => f.startsWith(n)),
+      // 135 and 136 join the sweep: both are Agent-1 spend-safety migrations, and neither may be
+      // authored by a BR round. Asserting it is cheaper than trusting the comment above.
+      ['124', '126', '128', '129', '130', '131', '132', '135', '136'].some((n) => f.startsWith(n)),
     )) {
       const sql = fs.readFileSync(
         new URL(`../../../../../../supabase/migrations/${name}`, import.meta.url),

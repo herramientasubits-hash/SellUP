@@ -247,6 +247,11 @@ test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 
       // gratuita: se escribe antes de una petición PAGADA y no toca ninguna de las tablas que la
       // capa gratuita lee. AUTORADA y NO APLICADA.
       '135_agent1_lusha_prospecting_request_fence.sql',
+      // AGENT1-LUSHA-CUT-L4 anade la 136: el historial DURABLE de INTENTOS de una peticion de
+      // Lusha Prospecting y el reclamo atomico de UN reintento seguro (solo tras un 429 o un
+      // 5xx, que el contrato HUMANO del proveedor declara a 0 creditos). Es de Agente 1 y de
+      // seguridad de gasto. AUTORADA y NO APLICADA.
+      '136_agent1_lusha_prospecting_safe_retry_attempts.sql',
     ],
     'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR y la valla de petición de Lusha',
   );

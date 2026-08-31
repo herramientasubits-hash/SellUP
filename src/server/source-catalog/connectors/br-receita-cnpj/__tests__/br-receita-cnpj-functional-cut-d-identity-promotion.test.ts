@@ -1399,7 +1399,8 @@ describe('CUT D — the transport, and the recorded contracts', () => {
     const numbered = present.filter((f) => /^\d{3}_/.test(f)).sort();
     assert.ok(numbered.includes(MIGRATION_FILE));
     assert.deepEqual(numbered.filter((f) => f.startsWith('133')), [MIGRATION_FILE]);
-    assert.equal(numbered[numbered.length - 1], '135_agent1_lusha_prospecting_request_fence.sql');
+    // AGENT1-LUSHA-CUT-L4 mueve el techo a la 136: historial DURABLE de INTENTOS y reclamo atomico de UN reintento seguro (solo tras 429 o 5xx). AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], '136_agent1_lusha_prospecting_safe_retry_attempts.sql');
     // Control NEGATIVO del filtro, sobre un nombre SINTÉTICO.
     assert.equal(/^\d{3}_/.test('LOCAL_example_unnumbered.sql'), false);
     assert.equal(/^\d{3}_/.test(MIGRATION_FILE), true);

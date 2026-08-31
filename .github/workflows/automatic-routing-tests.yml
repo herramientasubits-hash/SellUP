@@ -3182,6 +3182,78 @@ jobs:
         run: npm run test:a1-lusha-cut-l3-fence:postgres
         env:
           SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
+      # AGENT1-LUSHA-CUT-L4 · REINTENTOS SEGUROS — la primera vez que Agente 1
+      # vuelve a llamar a Lusha por su cuenta, y por eso entra al check obligatorio.
+      #
+      # El defecto que cierra: CUT-L2 obtuvo del soporte HUMANO de Lusha que `429`
+      # y `5xx` devuelven CERO créditos, y CUT-L3 lo dejó anotado sin ejecutarlo —
+      # su regla es que CUALQUIER fila de valla existente bloquea la re-ejecución.
+      # El resultado es que hoy una limitación de tasa, que es gratuita,
+      # recuperable y esperable en una API con cuota por minuto, tira la corrida.
+      #
+      # Lo que esta suite defiende, dicho como defecto:
+      #   * que se reintente algo que NO esté probado a cero: 499, timeout, red
+      #     caída, 4xx genérico, 2xx ilegible o éxito (L4-G a L4-K, L4-M, L4-O);
+      #   * que el rechazo local previo al envío gane reintento automático por ser
+      #     técnicamente gratis — es un fallo de SellUp, y repetirlo un segundo
+      #     después lo repite (L4-L);
+      #   * que exista un tercer intento (L4-C, L4-D, L4-N, L4-R);
+      #   * que el intento 2 salga antes de que su frontera esté COMPROMETIDA
+      #     (L4-P: la marca falla ⇒ segunda llamada = 0);
+      #   * que dos trabajadores despachen dos reintentos (L4-Q);
+      #   * que el intento 2 borre la evidencia del 1 — el historial es la
+      #     autoridad, la valla sólo lo proyecta;
+      #   * que el reintento se cuele en la contabilidad como un crédito: `503` +
+      #     éxito(1) suma 1, y `429` + `429` suma 0 (L4-W, L4-X);
+      #   * que un reintento exitoso procese candidatos o provider-seen dos veces
+      #     (L4-U, L4-V) — el reintento vive DEBAJO de la abstracción de página;
+      #   * que la ausencia de la 136 degrade a un segundo `fetch()` sin valla
+      #     (§ 37): degrada a CUT-L3 exacto, cero reintentos.
+      #
+      # 🔴 Lo que esta suite NO afirma: que Lusha sea seguro de activar; que
+      # `dispatch_unsafe` signifique que Lusha recibió la petición; ni que
+      # `mayReExecuteLushaFencedRequest()` haya cambiado — sigue devolviendo
+      # `false`, y una guarda lo comprueba. El reintento NO se consiguió ablandando
+      # la valla de CUT-L3: se consiguió dándole INTENTOS a la petición.
+      #
+      # Ratchets de alcance: page size, tope de páginas, objetivo, techo de
+      # créditos y reservas sin tocar. Sin flag nuevo, sin preview pagado.
+      #
+      # Puras y offline: `global.fetch` doblado y CONTADO, y la espera de 1000 ms
+      # inyectada a cero — una suite que durmiera de verdad acabaría fuera del
+      # check. Sin red, sin Supabase, sin Lusha, sin Apollo. 0 créditos.
+      - name: Run A1 Lusha CUT-L4 safe retry tests
+        run: npm run test:a1-lusha-cut-l4-safe-retries
+
+      # AGENT1-LUSHA-CUT-L4 § 40 — la migración 136 contra PostgreSQL REAL.
+      #
+      # Las tres afirmaciones centrales del corte no viven en TypeScript:
+      #
+      #   1. «dos trabajadores que reclamen el intento 2 producen UNA fila» es una
+      #      PRIMARY KEY compuesta con `ON CONFLICT DO NOTHING`;
+      #   2. «una operación no puede completarse por encima de un intento activo»
+      #      es un `SELECT ... FOR UPDATE` compartido entre el reclamo y el cierre
+      #      — hay que cruzarlos de verdad, en dos conexiones, y ver que uno espera;
+      #   3. «no hay un tercer intento» es un CHECK, y un CHECK sólo se demuestra
+      #      intentando violarlo.
+      #
+      # Y la mitad que ninguna estática alcanza: que la 136 APLIQUE ENCIMA de la
+      # 135 —cinco funciones `plpgsql` con dólar-quoting nombrado, un bloque
+      # `DO $$` anónimo y un `COMMENT ON COLUMN` son justo la superficie donde un
+      # lexer de comillas pasa y PostgreSQL falla con 42601 (precedente de la
+      # 120)—, que el backfill del intento 1 sea idempotente, y que los GRANT
+      # dejen a `anon` y `authenticated` sin un solo privilegio sobre un historial
+      # de gasto que `service_role` tampoco puede borrar.
+      #
+      # `embedded-postgres` ya lo instala el paso de más arriba, con la versión
+      # PINCHADA. `SELLUP_REQUIRE_POSTGRES_HARNESS` convierte el skip en FALLO.
+      #
+      # 0 escrituras remotas. MIGRACIONES 135 Y 136: APPLIED IN PRODUCTION = NO.
+      - name: Run A1 Lusha CUT-L4 retry attempts against real PostgreSQL
+        run: npm run test:a1-lusha-cut-l4-attempts:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
       # AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1 · CUT-1 — la SUPERVIVENCIA del lote
       # entra al check obligatorio.
       #

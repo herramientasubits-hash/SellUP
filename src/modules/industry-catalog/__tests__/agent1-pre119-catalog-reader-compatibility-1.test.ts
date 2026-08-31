@@ -997,7 +997,8 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
     // petición que el proveedor quizá ya cobró. Es de Agente 1 y de seguridad de GASTO: no es de
     // teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de las cadenas
     // que esta guarda vigila. AUTORADA y NO APLICADA.
-    assert.match(last, /^135_/);
+    // AGENT1-LUSHA-CUT-L4 mueve el techo a la 136: historial DURABLE de INTENTOS y reclamo atomico de UN reintento seguro (solo tras 429 o 5xx). AUTORADA y NO APLICADA.
+    assert.match(last, /^136_/);
     // Y por encima de la 119 no hay NINGUNA migración de catálogo. Lo que se vigila
     // NO es el techo por sí mismo: es que ninguna migración posterior al cutover toque
     // las tablas del catálogo. Cada archivo nuevo entra a esta lista con su nombre y
@@ -1093,6 +1094,13 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
       //         de abajo lo comprueba sobre su SQL en vez de creerle a este comentario. AUTORADA
       //         y NO APLICADA.
       '135_agent1_lusha_prospecting_request_fence.sql',
+      //   136 — AGENT1-LUSHA-CUT-L4: el historial DURABLE de INTENTOS de esa misma petición
+      //         y el reclamo atómico de UN reintento seguro, autorizado sólo tras un 429 o un
+      //         5xx. Crea `lusha_prospecting_request_attempts` y reemplaza tres funciones de
+      //         la 135; ninguna es tabla ni vista del catálogo de industrias, y el barrido de
+      //         abajo lo comprueba sobre su SQL en vez de creerle a este comentario. AUTORADA
+      //         y NO APLICADA.
+      '136_agent1_lusha_prospecting_safe_retry_attempts.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);

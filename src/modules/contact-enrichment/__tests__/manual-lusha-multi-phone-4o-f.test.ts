@@ -1161,7 +1161,8 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     // petición que el proveedor quizá ya cobró. Es de Agente 1 y de seguridad de GASTO: no es de
     // teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de las cadenas
     // que esta guarda vigila. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 135, '4O-F reutiliza la 111 sin crear SQL nuevo');
+    // AGENT1-LUSHA-CUT-L4 mueve el techo a la 136: historial DURABLE de INTENTOS y reclamo atomico de UN reintento seguro (solo tras 429 o 5xx). AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 136, '4O-F reutiliza la 111 sin crear SQL nuevo');
   });
 
   // AGENT2A-PHONE-REVEAL-4O-H3 — este guarda se INVIERTE, no se borra.

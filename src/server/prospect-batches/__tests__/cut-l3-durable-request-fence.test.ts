@@ -435,21 +435,46 @@ describe('CUT-L3 · L3-E / L3-F / L3-O — desenlaces INDETERMINADOS (§ 11)', (
   }
 });
 
-describe('CUT-L3 · L3-G / L3-H — 0 créditos por contrato, 0 reintentos aquí (§ 17)', () => {
+describe('CUT-L3 · L3-G / L3-H — 0 créditos por contrato (§ 17)', () => {
+  /**
+   * 🔴 ESTE BLOQUE SE ENMENDÓ EN AGENT1-LUSHA-CUT-L4, y merece explicarse.
+   *
+   * Afirmaba «exactamente UNA petición: CUT-L3 no reintenta». Era verdad cuando
+   * se escribió y describía correctamente el alcance de CUT-L3 — pero al fijar el
+   * conteo de despachos convirtió una LIMITACIÓN declarada en un trinquete que
+   * DEFENDÍA esa limitación: la corrección que CUT-L4 existe para hacer no podía
+   * aterrizar sin romperlo.
+   *
+   * Lo que este bloque afirmaba de verdad, y sigue afirmando intacto, es la
+   * CLASIFICACIÓN: `429` y `5xx` se liquidan `definitely_not_charged` con
+   * contrato `retryable_by_contract`, y un `4xx` genérico jamás hereda esa
+   * garantía. Eso es CUT-L3 y no lo toca nadie.
+   *
+   * Lo que se enmienda es sólo el conteo, porque el número de despachos pasó a
+   * ser competencia de CUT-L4 y su suite dedicada lo cubre caso a caso. Aquí se
+   * conserva la propiedad que SÍ es de CUT-L3 y que CUT-L4 no puede aflojar: el
+   * reintento está ACOTADO, y una corrida REANUDADA sigue sin llamar a nadie.
+   */
   for (const status of [429, 500, 503] as const) {
-    it(`HTTP ${status} ⇒ definitely_not_charged + retryable_by_contract, y 0 reintentos`, async () => {
+    it(`HTTP ${status} ⇒ definitely_not_charged + retryable_by_contract`, async () => {
       const table = createFenceTable();
       const fetchDouble = countingFetch({ status, bodyText: 'error' });
       const runner = makeRunSearch(table);
       await withFetch(fetchDouble.fn, () => runner.runSearch(PREVIEW_INPUT, COORD_B0_P0));
 
-      assert.equal(fetchDouble.calls.length, 1, 'exactamente UNA petición: CUT-L3 no reintenta');
+      // El reintento seguro de CUT-L4: como mucho DOS despachos, nunca más.
+      assert.ok(
+        fetchDouble.calls.length <= 2,
+        `el reintento está acotado a 2 despachos, hubo ${fetchDouble.calls.length}`,
+      );
       const row = table.rows.get(KEY_B0_P0);
       assert.equal(row?.state, 'definitely_not_charged');
       assert.equal(row?.settlement?.billingCertainty, 'definitely_not_charged');
       assert.equal(row?.settlement?.retryContract, 'retryable_by_contract');
 
-      // Y al reanudar tampoco: la elegibilidad de reintento es CUT-L4.
+      // 🔴 Y al REANUDAR sigue sin llamarse a nadie. Ésta es la propiedad de
+      // CUT-L3, y es la que CUT-L4 no puede aflojar: los intentos se agotaron
+      // dentro de la petición lógica, y la valla existente bloquea igual.
       const resume = countingFetch({ status: 200, body: SUCCESS_BODY });
       const second = makeRunSearch(table);
       await withFetch(resume.fn, () => second.runSearch(PREVIEW_INPUT, COORD_B0_P0));
