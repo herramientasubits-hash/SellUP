@@ -35,7 +35,11 @@ import {
   LUSHA_PENDING_REVIEW_MAX_PAGES,
   LUSHA_PENDING_REVIEW_MIN_USEFUL_CANDIDATES,
 } from './lusha-pending-review-limits';
-import { LUSHA_PREVIEW_SIZE } from './lusha-preview';
+// AGENT1-LUSHA-CUT-L5 § 3 — el tamaño de página que la ruta PAGADA solicita.
+// Ya no es `LUSHA_PREVIEW_SIZE` (10, y del preview): el techo de filas crudas
+// tiene que escalar con lo que de verdad se pide, o subir el tamaño de página
+// convertiría la cota de escaneo en un recorte silencioso de ramas.
+import { LUSHA_PROSPECTING_PAGE_SIZE } from '@/server/integrations/lusha-prospecting-contract';
 import {
   LUSHA_MACRO_SEARCH_PLAN_MAX_BRANCHES,
   type LushaIndustryBranch,
@@ -146,16 +150,22 @@ export function resolveLushaProviderRequestsAllowed(branchCount: number): number
 /**
  * Techo de filas crudas que la corrida puede acumular a través de TODAS las ramas.
  *
- * ramas máximas (3) × páginas (2) × tamaño de página (10) = 60, que es el número
- * que el diseño previo perseguía; aquí queda DERIVADO de las tres constantes
- * reales en vez de escrito. Es un tope de ámbito de CORRIDA, no de página: sin él,
- * la acumulación a través de ramas no tendría cota declarada aunque cada petición
- * la tenga.
+ * ramas máximas (3) × páginas (2) × tamaño de página pagado (25) = 150. Es un tope
+ * de ámbito de CORRIDA, no de página: sin él, la acumulación a través de ramas no
+ * tendría cota declarada aunque cada petición la tenga.
+ *
+ * 🔴 AGENT1-LUSHA-CUT-L5 § 3 — el factor pasó de 10 a 25 porque el tamaño de
+ * página pagado pasó de 10 a 25, y la derivación es la MISMA fórmula. Dejarlo en
+ * 60 no habría ahorrado un solo crédito: habría hecho que la tercera petición de
+ * una corrida chocara con `raw_scan_cap_reached` teniendo objetivo abierto y
+ * páginas reservadas, es decir, un recorte de cobertura disfrazado de guarda de
+ * seguridad. El gasto lo acota `providerRequestsAllowed` (ramas × páginas), que NO
+ * cambia con este corte.
  */
 export const LUSHA_RUN_MAX_RAW_RESULTS =
   LUSHA_MACRO_SEARCH_PLAN_MAX_BRANCHES *
   LUSHA_PENDING_REVIEW_MAX_PAGES *
-  LUSHA_PREVIEW_SIZE;
+  LUSHA_PROSPECTING_PAGE_SIZE;
 
 // ─── Decisión de pedir o no (§§ 5, 6, 15, 16, 17) ─────────────────────────────
 
@@ -189,6 +199,17 @@ export type LushaRunStopReason =
   | 'request_cap_reached'
   | 'raw_scan_cap_reached'
   | 'provider_failure'
+  /**
+   * 🔴 AGENT1-LUSHA-CUT-L5 §§ 8, 9 — el proveedor liquidó algo que el contrato de
+   * bloques no explica: cobró distinto de `max(1, ceil(resultados / 25))`, o cobró
+   * por encima de la responsabilidad reservada para esa página.
+   *
+   * No es fallo del proveedor —la respuesta llegó y sus empresas se conservan— y
+   * no es techo de peticiones. Es una corrida que deja de COMPRAR porque su modelo
+   * económico dejó de describir lo que está pagando. Lo ya cobrado no se deshace;
+   * lo que se evita es el siguiente bloque.
+   */
+  | 'provider_billing_anomaly'
   | 'no_results'
   | 'post_admission_identity_gap'
   | 'post_admission_persistence_gap';

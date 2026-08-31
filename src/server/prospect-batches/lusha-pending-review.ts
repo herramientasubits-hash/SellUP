@@ -144,6 +144,17 @@ import {
   type LushaRunStopReason,
   type LushaRunTelemetry,
 } from './lusha-multibranch-execution';
+// AGENT1-LUSHA-CUT-L5 §§ 2-9 — el contrato de BLOQUES de facturación de Lusha
+// Prospecting y el contraste esperado ↔ real. Módulo puro: sin env, sin red, sin
+// DB. No sustituye a `billing.creditsCharged`, que sigue siendo la liquidación.
+import { resolveLushaRunMaxProviderCredits } from './lusha-run-liability';
+import {
+  evaluateLushaProspectingBillingContrast,
+  LUSHA_PROSPECTING_BILLING_BLOCK_SIZE,
+  LUSHA_PROSPECTING_PAGE_SIZE,
+  shouldStopPaidPaginationOnBillingContrast,
+  type LushaProspectingBillingContrast,
+} from '@/server/integrations/lusha-prospecting-contract';
 // AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 17-19 — la SEGUNDA puerta de
 // paginación: la primera pregunta si queda hueco y quedan peticiones; ésta mira
 // lo que la página YA PAGADA rindió. Vive en `prepaid-novelty` porque es política
@@ -762,6 +773,17 @@ export interface PersistLushaPendingReviewResult {
   expectedMaxCredits: number;
   /** Sum of credits charged across every page requested (null if none reported). */
   creditsChargedTotal: number | null;
+  /**
+   * AGENT1-LUSHA-CUT-L5 §§ 7, 8 — el resumen de facturación de la corrida.
+   *
+   * 🔴 Los tres números viven aparte a propósito. `creditsChargedTotal` (arriba)
+   * es lo que Lusha liquidó y sigue siendo la única autoridad; esto es lo que su
+   * contrato de bloques decía que debía costar, y si no coinciden hay que poder
+   * verlo sin abrir la base.
+   *
+   * Ausente en corridas que no despacharon ninguna petición.
+   */
+  billingContract?: LushaRunBillingContractSummary;
   /** Reviewable candidates persisted (no_match + possible_duplicate). */
   usefulCandidatesCount: number;
   /** Exact duplicates EXCLUDED from persistence (never inserted as reviewable). */
@@ -1379,10 +1401,41 @@ export function isUsefulLushaResolution(resolution: LushaCandidateDuplicateResol
   return resolution.dbDuplicateStatus !== 'exact_duplicate';
 }
 
+/**
+ * AGENT1-LUSHA-CUT-L5 §§ 7, 8 — lo ESPERADO frente a lo REAL, de la corrida entera.
+ *
+ * `expectedCreditsTotal` sale de `max(1, ceil(resultados / 25))` por página;
+ * `actualCreditsTotal` es la suma de `billing.creditsCharged`. Que difieran no se
+ * corrige: se publica.
+ */
+export type LushaRunBillingContractSummary = {
+  /** Resultados por bloque, tal como el contrato HUMANO los define. */
+  billingBlockSize: number;
+  /** Tamaño de página que la ruta pagada solicitó. */
+  requestedPageSize: number;
+  /** Techo de créditos de UNA petición de ese tamaño. */
+  requestLiabilityCreditsPerPage: number | null;
+  /** Suma de lo que el contrato esperaba. `null` si ninguna página fue tasable. */
+  expectedCreditsTotal: number | null;
+  /** Suma de lo REAL. Nunca derivada. */
+  actualCreditsTotal: number | null;
+  /** Páginas cuyo cargo real no coincidió con el esperado. */
+  mismatchedPages: number;
+  /** `true` = todo cuadró · `false` = hubo incumplimiento · `null` = indeterminable. */
+  matchesContract: boolean | null;
+  /** Una página cobró por encima de su responsabilidad reservada (§ 9). */
+  exceededRequestLiability: boolean;
+};
+
 /** Aggregate top-up + duplicate-classification metrics for the batch summary. */
 export interface LushaPendingReviewBatchMetrics {
   pagesRequested: number;
   creditsChargedTotal: number | null;
+  /**
+   * CUT-L5 §§ 7, 8 — esperado vs real. Opcional para que los llamadores legacy
+   * sigan compilando; ausente ⇒ los metadatos conservan su forma previa al corte.
+   */
+  billingContract?: LushaRunBillingContractSummary;
   resultsReturnedTotal: number | null;
   usefulCandidatesCount: number;
   possibleDuplicatesCount: number;
@@ -1481,6 +1534,28 @@ export function buildLushaPendingReviewBatchRow(
               LUSHA_PENDING_REVIEW_EXPECTED_MAX_CREDITS
             : LUSHA_PENDING_REVIEW_EXPECTED_MAX_CREDITS,
         pages_requested: metrics.pagesRequested,
+        // ── CUT-L5 §§ 7, 8 — el contraste, junto al importe REAL ──────────────
+        //
+        // 🔴 `credits_charged` (arriba) NO se toca: sigue siendo la liquidación.
+        // Esto es lo que el contrato de bloques decía, y `billing_contract_match`
+        // es la única forma de descubrir sin abrir la base que el proveedor cobró
+        // por reglas distintas de las que dijo tener.
+        //
+        // Ausente cuando la corrida no despachó nada, para que un lote anterior al
+        // corte conserve su forma byte por byte.
+        ...(metrics.billingContract
+          ? {
+              billing_block_size: metrics.billingContract.billingBlockSize,
+              requested_page_size: metrics.billingContract.requestedPageSize,
+              request_liability_credits_per_page:
+                metrics.billingContract.requestLiabilityCreditsPerPage,
+              expected_credits_total: metrics.billingContract.expectedCreditsTotal,
+              billing_contract_match: metrics.billingContract.matchesContract,
+              billing_contract_mismatched_pages: metrics.billingContract.mismatchedPages,
+              billing_exceeded_request_liability:
+                metrics.billingContract.exceededRequestLiability,
+            }
+          : {}),
       },
       // §§ 18/19 — ejecución multi-rama. Sólo se emite cuando el core la pasa, de
       // modo que un lote de la ruta legacy conserva su forma exacta.
@@ -2105,7 +2180,11 @@ export async function persistLushaPendingReviewBatch(
   // sector, donde no hay macro industria y el comportamiento es el de hoy.
   const macroKeyForPrecision = plan?.macroKey ?? null;
   const providerRequestsAllowed = resolveLushaProviderRequestsAllowed(branches.length);
-  const expectedMaxCredits = branches.length * LUSHA_PENDING_REVIEW_EXPECTED_MAX_CREDITS;
+  // CUT-L5 § 16 — ramas × (páginas × créditos por petición). El factor por
+  // petición sale del contrato de bloques y del tamaño de página pagado, no de una
+  // constante «1 por petición»: con 25 vale 1 y la reserva NO se mueve; con 50
+  // valdría 2 y la reserva subiría sola, en el mismo commit.
+  const expectedMaxCredits = branches.length * resolveLushaRunMaxProviderCredits();
 
   // § 10/§ 11 — UN registro de identidad para todas las páginas de todas las ramas.
   //
@@ -2163,6 +2242,15 @@ export async function persistLushaPendingReviewBatch(
   };
   let creditsChargedTotal: number | null = null;
   let resultsReturnedTotal: number | null = null;
+  // ── CUT-L5 §§ 7, 8 — las TRES cifras, separadas a propósito ────────────────
+  //
+  // `creditsChargedTotal` es lo REAL. Estos dos son lo ESPERADO por el contrato de
+  // bloques, y existen para poder decir «el proveedor cobró distinto de lo que su
+  // propio contrato dice» sin tocar ni un dígito de lo real.
+  let expectedCreditsTotal: number | null = null;
+  let billingContractMismatchPages = 0;
+  let firstBillingContrast: LushaProspectingBillingContrast | null = null;
+  let billingAnomalyContrast: LushaProspectingBillingContrast | null = null;
   let providerRequestsUsed = 0;
   let firstSearch: LushaPreviewResult | null = null;
   const branchTelemetry: LushaBranchTelemetry[] = [];
@@ -2272,6 +2360,18 @@ export async function persistLushaPendingReviewBatch(
         {
           ...input,
           page,
+          // 🔴 AGENT1-LUSHA-CUT-L5 §§ 3, 13 — LA AUTORIDAD DE TAMAÑO DE PÁGINA DE
+          // LA RUTA PAGADA, y el único sitio del producto que la fija.
+          //
+          // 25 = exactamente UN bloque de facturación. Con 25 el proveedor no
+          // puede devolver 26–50 y cobrar 2 créditos de golpe; SellUp inspecciona
+          // el bloque, deduplica contra lo que ya conoce y sólo compra el
+          // siguiente si queda hueco. Con 50 se pagarían los dos bloques antes de
+          // saber si el primero ya cerraba el objetivo.
+          //
+          // Se fija AQUÍ y no en el llamador: `input` viene de la server action y
+          // el navegador no puede elegir cuánto cuesta una página.
+          pageSize: LUSHA_PROSPECTING_PAGE_SIZE,
           // Rama legacy ⇒ no se manda `industryBranch` y el preview deriva la
           // industria del sector, exactamente como hoy.
           ...(branch !== null
@@ -2298,6 +2398,32 @@ export async function persistLushaPendingReviewBatch(
       branchCredits = addCredits(branchCredits, pageCredits);
       if (typeof search.billing?.resultsReturned === 'number') {
         resultsReturnedTotal = (resultsReturnedTotal ?? 0) + search.billing.resultsReturned;
+      }
+
+      // ── CUT-L5 §§ 7, 8, 9, 23 — CONTRASTE, no corrección ────────────────────
+      //
+      // Se calcula para TODA petición despachada, incluida la que falló: un `429`
+      // sin importe produce `matchesContract: null` y no dispara nada, que es
+      // exactamente lo que debe pasar (§ 11 — un intento fallido NO hereda el
+      // mínimo de un crédito).
+      //
+      // 🔴 `pageCredits` entra tal cual y sale tal cual. Si Lusha dice 2 donde el
+      // contrato tasa 1, el 2 es lo que se suma y lo que se reporta; lo que este
+      // bloque produce es la ETIQUETA de que no cuadra. Recortar el real a la
+      // reserva sería mentir sobre dinero ya gastado.
+      const billingContrast = evaluateLushaProspectingBillingContrast({
+        requestedPageSize: LUSHA_PROSPECTING_PAGE_SIZE,
+        resultsReturned: search.billing?.resultsReturned ?? null,
+        creditsCharged: pageCredits,
+      });
+      if (firstBillingContrast === null) firstBillingContrast = billingContrast;
+      if (billingContrast.expectedCredits !== null) {
+        expectedCreditsTotal = (expectedCreditsTotal ?? 0) + billingContrast.expectedCredits;
+      }
+      if (billingContrast.matchesContract === false) billingContractMismatchPages++;
+      const billingAnomaly = shouldStopPaidPaginationOnBillingContrast(billingContrast);
+      if (billingAnomaly && billingAnomalyContrast === null) {
+        billingAnomalyContrast = billingContrast;
       }
 
       if (!search.ok) {
@@ -2539,6 +2665,25 @@ export async function persistLushaPendingReviewBatch(
         if (remainingPages > 0) pagesSkippedZeroNovelty += remainingPages;
         break;
       }
+
+      // ── CUT-L5 § 9 — la corrida deja de COMPRAR tras una anomalía ───────────
+      //
+      // 🔴 Aquí abajo y no arriba: esta página ya está pagada, sus empresas son
+      // reales y descartarlas sería tirar lo que se acaba de comprar. Lo que la
+      // anomalía prohíbe es el bloque SIGUIENTE —el de esta rama y el de todas las
+      // que quedan, porque `runStopped` cierra el bucle de ramas—.
+      //
+      // 🔴 `provider_failure` y esto NO son lo mismo, y por eso hay un motivo de
+      // parada propio: el proveedor respondió, la respuesta era buena, y lo que
+      // falló fue el ACUERDO económico. Reportarlo como fallo de proveedor
+      // escondería el único síntoma de que el contrato de bloques dejó de
+      // describir la factura.
+      if (billingAnomaly) {
+        stopReason = 'provider_billing_anomaly';
+        runStopped = true;
+        branchOutcome = 'completed';
+        break;
+      }
     }
 
     const remainingGapAfter = resolveLushaRemainingGap(targetGap, useful.length);
@@ -2766,8 +2911,31 @@ export async function persistLushaPendingReviewBatch(
       : {}),
   };
 
+  // CUT-L5 §§ 7, 8 — el resumen de facturación de la corrida. `null` cuando no se
+  // despachó ninguna petición: ahí no hay contrato que contrastar.
+  const billingContract: LushaRunBillingContractSummary | undefined =
+    firstBillingContrast === null
+      ? undefined
+      : {
+          billingBlockSize: LUSHA_PROSPECTING_BILLING_BLOCK_SIZE,
+          requestedPageSize: LUSHA_PROSPECTING_PAGE_SIZE,
+          requestLiabilityCreditsPerPage: firstBillingContrast.requestLiabilityCredits,
+          expectedCreditsTotal: expectedCreditsTotal,
+          // 🔴 Lo REAL, sin tocar. Ver la nota del tipo.
+          actualCreditsTotal: creditsChargedTotal,
+          mismatchedPages: billingContractMismatchPages,
+          matchesContract:
+            billingContractMismatchPages > 0
+              ? false
+              : expectedCreditsTotal === null || creditsChargedTotal === null
+                ? null
+                : true,
+          exceededRequestLiability: billingAnomalyContrast?.exceedsRequestLiability === true,
+        };
+
   const baseMetrics = {
     pagesRequested,
+    billingContract,
     // Techo de la CORRIDA (ramas × techo por rama): 1 rama → 2 · 2 → 4 · 3 → 6.
     // Es el mismo producto del que sale la reserva, no una segunda cuenta.
     expectedMaxCredits,
@@ -2824,6 +2992,7 @@ export async function persistLushaPendingReviewBatch(
     {
       pagesRequested,
       creditsChargedTotal,
+      billingContract,
       resultsReturnedTotal,
       usefulCandidatesCount: useful.length,
       possibleDuplicatesCount,

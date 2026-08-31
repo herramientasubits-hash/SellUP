@@ -67,9 +67,14 @@ describe('Q3F-5BB.7B static safety', () => {
       /safeBranchCount \* LUSHA_PENDING_REVIEW_MAX_PAGES/,
       'el techo de peticiones debe salir de ramas × páginas',
     );
+    // 🔴 AGENT1-LUSHA-CUT-L5 § 3 — el tercer factor pasó de `LUSHA_PREVIEW_SIZE`
+    // (10, del preview) a `LUSHA_PROSPECTING_PAGE_SIZE` (25, el de la ruta que
+    // paga). La fórmula es la MISMA y la propiedad defendida también: el techo de
+    // filas crudas se DERIVA del tamaño de página real, así que no puede quedarse
+    // atrás y convertirse en un recorte de ramas disfrazado de guarda.
     assert.match(
       execution,
-      /LUSHA_MACRO_SEARCH_PLAN_MAX_BRANCHES \*\s*LUSHA_PENDING_REVIEW_MAX_PAGES \*\s*LUSHA_PREVIEW_SIZE/,
+      /LUSHA_MACRO_SEARCH_PLAN_MAX_BRANCHES \*\s*LUSHA_PENDING_REVIEW_MAX_PAGES \*\s*LUSHA_PROSPECTING_PAGE_SIZE/,
       'el techo de filas crudas debe salir de ramas × páginas × tamaño de página',
     );
   });

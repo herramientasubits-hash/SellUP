@@ -3254,6 +3254,50 @@ jobs:
         run: npm run test:a1-lusha-cut-l4-attempts:postgres
         env:
           SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
+      # AGENT1-LUSHA-CUT-L5 § 29 — el contrato de BLOQUES de facturación y la
+      # página de 25 entran al check obligatorio.
+      #
+      # El defecto que cierra: la economía de Prospecting descansaba sobre una
+      # OBSERVACIÓN del microbenchmark Q3F-5R —tres peticiones de `size=10`
+      # devolvieron `creditsCharged=1`— y de ahí el repo dedujo «1 crédito por
+      # petición». La deducción era correcta por ACCIDENTE (10 resultados caben en
+      # un bloque de 25) y se rompía en silencio en cuanto alguien subiera el
+      # tamaño de página. El soporte HUMANO confirmó el contrato real:
+      # `max(1, ceil(resultados / 25))`, con mínimo de 1 crédito incluso a cero
+      # resultados.
+      #
+      # Lo que esta suite defiende, dicho como defecto:
+      #   * que la página vuelva a 10 o suba a 50 (M1, M2, L5-A);
+      #   * que una consulta de CERO resultados se tase en 0 créditos (M3, L5-E);
+      #   * que 26 resultados se tasen en 1 (M4);
+      #   * que la fórmula esperada SUSTITUYA a `billing.creditsCharged` como
+      #     liquidación, o que el real se recorte a la reserva (M5, L5-I/J/K);
+      #   * que se compre otro bloque con el objetivo YA cerrado (M6, L5-B);
+      #   * que los duplicados LOCALES se descuenten de los créditos del
+      #     proveedor — suprimir tras la respuesta no devuelve el crédito
+      #     (M7, L5-C);
+      #   * que un `size` de 51 o una página fuera de [0, 999] lleguen a HTTP
+      #     (M8, L5-M, L5-N);
+      #   * que el tope de páginas del PRODUCTO suba (M9) o que la reserva crezca
+      #     por encima de 2 con la política de 25/2 páginas (M10, L5-D);
+      #   * que un `429` o un `5xx` empiecen a contar el mínimo de un crédito
+      #     (M11, M12, L5-F/G/H);
+      #   * que un incumplimiento de facturación se acepte en silencio y la
+      #     corrida siga comprando (M13, L5-I).
+      #
+      # 🔴 Lo que NO afirma: que Lusha sea seguro de activar, que el preview
+      # pagado se haya reactivado —sigue incapacitado, y su tamaño sigue siendo
+      # 10—, ni que ninguna migración se haya aplicado.
+      #
+      # Ratchets de alcance: tope de páginas, objetivo y reserva sin tocar. Sin
+      # flag nuevo, sin migración nueva (§ 28).
+      #
+      # Pura y offline: `global.fetch` doblado y CONTADO, espera de reintento a
+      # cero, escrituras por dobles inyectados. Sin red, sin Supabase, sin Lusha,
+      # sin Apollo. 0 créditos.
+      - name: Run A1 Lusha CUT-L5 billing block + page size tests
+        run: npm run test:a1-lusha-cut-l5-billing-blocks
       # AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1 · CUT-1 — la SUPERVIVENCIA del lote
       # entra al check obligatorio.
       #

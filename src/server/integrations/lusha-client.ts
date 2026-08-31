@@ -30,6 +30,17 @@ import {
   readLushaProviderRequestId,
   type LushaRateLimitSnapshot,
 } from '@/server/integrations/lusha-rate-limit-headers';
+// AGENT1-LUSHA-CUT-L5 §§ 20, 21 — los límites que el PROVEEDOR publica, en su
+// único dueño. Módulo puro: sin env, sin red, sin DB.
+import {
+  exceedsLushaProspectingResultWindow,
+  isDispatchableLushaProspectingPage,
+  isDispatchableLushaProspectingPageSize,
+  LUSHA_PROSPECTING_MAX_PAGE_SIZE,
+  LUSHA_PROSPECTING_MAX_PROVIDER_PAGE_INDEX,
+  LUSHA_PROSPECTING_MAX_PROVIDER_RESULTS,
+  LUSHA_PROSPECTING_MIN_PAGE_SIZE,
+} from '@/server/integrations/lusha-prospecting-contract';
 
 const LUSHA_BASE_URL = 'https://api.lusha.com';
 
@@ -1527,20 +1538,76 @@ export async function searchLushaCompaniesV3(input: {
    */
   beforeDispatch?: () => Promise<void>;
 }): Promise<LushaCompanyProspectingV3Result> {
-  // smoke_test_minimum_page_size_observed=10 (Q3F-5E)
-  // Lusha V3 API rechaza HTTP 400 con "pagination.size must not be less than 10"
-  if (input.request.pagination !== undefined && input.request.pagination.size < 10) {
-    return {
-      ok: false,
-      status: 'provider_error',
-      resultsReturned: 0,
-      // CUT-L2 § B — rechazo PROBADO antes del fetch: aquí sí se puede afirmar
-      // que no hubo cargo, porque no hubo proveedor.
-      outcome: classifyLushaProspectingOutcome({ httpStatus: null, requestDispatched: false }),
-      rateLimit: emptyLushaRateLimitSnapshot(),
-      providerRequestId: null,
-      errorMessage: `pagination.size must not be less than 10 (got ${input.request.pagination.size}). Lusha V3 API rejects values below 10.`,
-    };
+  // ── Límites de paginación del PROVEEDOR (AGENT1-LUSHA-CUT-L5 §§ 20, 21) ────
+  //
+  // Ésta es la única función del repo que llama a `/v3/companies/prospecting`, así
+  // que es el único sitio donde una validación de límites no se puede esquivar.
+  //
+  // 🔴 Los tres rechazos son PROBADAMENTE anteriores al `fetch()`: `requestDispatched:
+  // false`, cero bytes, cero créditos. Un `size` inválido NO se recorta y se envía
+  // igualmente — recortarlo convertiría un error de programación en una petición
+  // pagada con un tamaño que nadie pidió.
+  const pagination = input.request.pagination;
+  if (pagination !== undefined) {
+    // smoke_test_minimum_page_size_observed=10 (Q3F-5E)
+    // Lusha V3 API rechaza HTTP 400 con "pagination.size must not be less than 10"
+    if (pagination.size < LUSHA_PROSPECTING_MIN_PAGE_SIZE) {
+      return {
+        ok: false,
+        status: 'provider_error',
+        resultsReturned: 0,
+        // CUT-L2 § B — rechazo PROBADO antes del fetch: aquí sí se puede afirmar
+        // que no hubo cargo, porque no hubo proveedor.
+        outcome: classifyLushaProspectingOutcome({ httpStatus: null, requestDispatched: false }),
+        rateLimit: emptyLushaRateLimitSnapshot(),
+        providerRequestId: null,
+        errorMessage: `pagination.size must not be less than ${LUSHA_PROSPECTING_MIN_PAGE_SIZE} (got ${pagination.size}). Lusha V3 API rejects values below ${LUSHA_PROSPECTING_MIN_PAGE_SIZE}.`,
+      };
+    }
+
+    // CUT-L5 § 20 — máximo del proveedor (contrato HUMANO). Un `size` de 51 no
+    // llega al proveedor, y un `size` de 50 costaría 2 créditos: la ruta de
+    // producción pide 25 y esta guarda impide que un cambio futuro lo rebase sin
+    // que una prueba lo diga.
+    if (!isDispatchableLushaProspectingPageSize(pagination.size)) {
+      return {
+        ok: false,
+        status: 'provider_error',
+        resultsReturned: 0,
+        outcome: classifyLushaProspectingOutcome({ httpStatus: null, requestDispatched: false }),
+        rateLimit: emptyLushaRateLimitSnapshot(),
+        providerRequestId: null,
+        errorMessage: `pagination.size must be an integer in [${LUSHA_PROSPECTING_MIN_PAGE_SIZE}, ${LUSHA_PROSPECTING_MAX_PAGE_SIZE}] (got ${pagination.size}).`,
+      };
+    }
+
+    // CUT-L5 § 20 — página base 0, tope 1000 páginas ⇒ índices 0…999.
+    if (!isDispatchableLushaProspectingPage(pagination.page)) {
+      return {
+        ok: false,
+        status: 'provider_error',
+        resultsReturned: 0,
+        outcome: classifyLushaProspectingOutcome({ httpStatus: null, requestDispatched: false }),
+        rateLimit: emptyLushaRateLimitSnapshot(),
+        providerRequestId: null,
+        errorMessage: `pagination.page must be an integer in [0, ${LUSHA_PROSPECTING_MAX_PROVIDER_PAGE_INDEX}] (got ${pagination.page}).`,
+      };
+    }
+
+    // CUT-L5 § 21 — invariante dura del proveedor: 50.000 resultados paginables.
+    // SellUp pide como mucho la página 1, así que esto no se alcanza hoy; existe
+    // para que no se alcance mañana en silencio.
+    if (exceedsLushaProspectingResultWindow(pagination.page, pagination.size)) {
+      return {
+        ok: false,
+        status: 'provider_error',
+        resultsReturned: 0,
+        outcome: classifyLushaProspectingOutcome({ httpStatus: null, requestDispatched: false }),
+        rateLimit: emptyLushaRateLimitSnapshot(),
+        providerRequestId: null,
+        errorMessage: `pagination window exceeds the Lusha maximum of ${LUSHA_PROSPECTING_MAX_PROVIDER_RESULTS} results (page ${pagination.page}, size ${pagination.size}).`,
+      };
+    }
   }
 
   // Q3F-5N: schema anidado oficial — filters debe tener companies.include.*

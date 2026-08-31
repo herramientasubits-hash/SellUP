@@ -173,14 +173,30 @@ describe('§4 — no se copia el modelo de costo de Apollo', () => {
       );
     }
     // Sí importa las constantes de Lusha, que son su única fuente de verdad.
-    assert.ok(imports.some((line) => line.includes('lusha-preview')));
-    assert.ok(imports.some((line) => line.includes('lusha-pending-review')));
+    //
+    // 🔴 AGENT1-LUSHA-CUT-L5 §§ 6, 16 — la fuente del techo POR PETICIÓN dejó de
+    // ser `lusha-preview` y pasó a ser `lusha-prospecting-contract`, el dueño del
+    // contrato de BLOQUES de facturación. Y el techo de páginas se lee ahora de
+    // `lusha-pending-review-limits` en vez de la re-exportación del writer, para
+    // no cerrar el ciclo writer → liability → writer.
+    //
+    // Lo que esta guarda defiende no cambió: el techo sale de constantes de Lusha
+    // IMPORTADAS, nunca de literales locales ni del modelo de Apollo.
+    assert.ok(imports.some((line) => line.includes('lusha-prospecting-contract')));
+    assert.ok(imports.some((line) => line.includes('lusha-pending-review-limits')));
   });
 
   it('el techo se deriva de constantes importadas, no de literales', () => {
+    // CUT-L5 § 16 — páginas × créditos por petición, y el segundo factor sale del
+    // contrato de bloques (`max(1, ceil(size / 25))`) en vez de la constante
+    // «1 crédito por petición» que sólo era cierta para páginas de 10.
     assert.match(
       liability,
-      /LUSHA_PENDING_REVIEW_MAX_PAGES\s*\*\s*LUSHA_PREVIEW_EXPECTED_MAX_CREDITS/,
+      /LUSHA_PENDING_REVIEW_MAX_PAGES\s*\*\s*resolveLushaMaxCreditsPerProviderRequest\(\)/,
+    );
+    assert.match(
+      liability,
+      /expectedLushaProspectingCreditsForPageSize\(LUSHA_PROSPECTING_PAGE_SIZE\)/,
     );
     // Sin "25" (Apollo dos rondas) ni "20" (Tavily) como techo de Lusha.
     assert.equal(/return\s+25\b/.test(liability), false);
