@@ -11,6 +11,7 @@ import { createBrazilReceitaFullJoinOpenHandleLedger } from '../br-receita-cnpj-
 import type { BrReceitaSnapshotWriteGateway } from '../br-receita-cnpj-monthly-snapshot-write-gateway';
 
 const RUN_ID = '66666666-6666-4666-8666-666666666666';
+const INVENTORY_FINGERPRINT = `sha256:${'a'.repeat(64)}`;
 
 function quotedRow(columns: readonly string[]): string {
   return columns.map((value) => `"${value.replace(/"/g, '""')}"`).join(';');
@@ -132,6 +133,7 @@ test('engine abort disposes projector handles without flushing buffered rows', a
     snapshotRunId: RUN_ID,
     sourcePeriod: '2026-07',
     sourceYear: 2026,
+    inventoryFingerprint: INVENTORY_FINGERPRINT,
     partitionOrdinalStart: 0,
     partitionOrdinalCount: 1,
     materializationCaps: {
