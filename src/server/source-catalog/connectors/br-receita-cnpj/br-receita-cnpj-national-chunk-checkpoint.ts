@@ -3,7 +3,8 @@ import { parseSnapshotRunId } from './br-receita-cnpj-monthly-snapshot-run-handl
 import { BR_RECEITA_NATIONAL_EXPECTED_PARTITION_COUNT } from './br-receita-cnpj-existing-run-chunk-writer';
 import type { BrReceitaNationalChunkLoadedResult } from './br-receita-cnpj-national-chunk-loader';
 
-export const BR_RECEITA_NATIONAL_CHUNK_CHECKPOINT_VERSION = 1 as const;
+export const BR_RECEITA_NATIONAL_CHUNK_CHECKPOINT_VERSION = 2 as const;
+const INVENTORY_FINGERPRINT_PATTERN = /^sha256:[a-f0-9]{64}$/;
 
 export interface BrReceitaNationalCompletedOrdinalRange {
   readonly start: number;
@@ -11,13 +12,15 @@ export interface BrReceitaNationalCompletedOrdinalRange {
 }
 
 /**
- * Serializable control-plane checkpoint: publication coordinates plus ORDINAL ranges only.
- * No CNPJ, legal name, path, raw row, source-file name or row reference can be represented here.
+ * Serializable control-plane checkpoint: publication coordinates, inventory fingerprint and
+ * ORDINAL ranges only. No CNPJ, legal name, path, raw row, source-file name or row reference can be
+ * represented here.
  */
 export interface BrReceitaNationalChunkCheckpoint {
   readonly version: typeof BR_RECEITA_NATIONAL_CHUNK_CHECKPOINT_VERSION;
   readonly snapshotRunId: string;
   readonly sourcePeriod: string;
+  readonly inventoryFingerprint: string;
   readonly expectedPartitionCount: typeof BR_RECEITA_NATIONAL_EXPECTED_PARTITION_COUNT;
   readonly completedRanges: readonly BrReceitaNationalCompletedOrdinalRange[];
 }
@@ -26,12 +29,15 @@ export type BrReceitaNationalChunkCheckpointFailureReason =
   | 'run_id_malformed'
   | 'source_period_malformed'
   | 'checkpoint_version_mismatch'
+  | 'checkpoint_inventory_fingerprint_invalid'
   | 'checkpoint_partition_count_mismatch'
   | 'checkpoint_range_invalid'
   | 'chunk_not_successfully_loaded'
   | 'chunk_run_mismatch'
   | 'chunk_period_mismatch'
-  | 'chunk_range_invalid';
+  | 'chunk_inventory_mismatch'
+  | 'chunk_range_invalid'
+  | 'chunk_accounting_invalid';
 
 export class BrReceitaNationalChunkCheckpointError extends Error {
   readonly reason: BrReceitaNationalChunkCheckpointFailureReason;
@@ -44,6 +50,12 @@ export class BrReceitaNationalChunkCheckpointError extends Error {
 }
 
 type MutableRange = { start: number; endExclusive: number };
+
+function assertInventoryFingerprint(value: unknown): asserts value is string {
+  if (typeof value !== 'string' || !INVENTORY_FINGERPRINT_PATTERN.test(value)) {
+    throw new BrReceitaNationalChunkCheckpointError('checkpoint_inventory_fingerprint_invalid');
+  }
+}
 
 function canonicalRange(range: BrReceitaNationalCompletedOrdinalRange): MutableRange {
   if (
@@ -79,16 +91,19 @@ function normalizeRanges(
 export function createBrReceitaNationalChunkCheckpoint(args: {
   readonly snapshotRunId: string;
   readonly sourcePeriod: string;
+  readonly inventoryFingerprint: string;
 }): BrReceitaNationalChunkCheckpoint {
   const run = parseSnapshotRunId(args.snapshotRunId);
   if (!run.valid) throw new BrReceitaNationalChunkCheckpointError('run_id_malformed');
   const period = parseSourcePeriod(args.sourcePeriod);
   if (!period.valid) throw new BrReceitaNationalChunkCheckpointError('source_period_malformed');
+  assertInventoryFingerprint(args.inventoryFingerprint);
 
   return Object.freeze({
     version: BR_RECEITA_NATIONAL_CHUNK_CHECKPOINT_VERSION,
     snapshotRunId: run.runId,
     sourcePeriod: period.sourcePeriod,
+    inventoryFingerprint: args.inventoryFingerprint,
     expectedPartitionCount: BR_RECEITA_NATIONAL_EXPECTED_PARTITION_COUNT,
     completedRanges: Object.freeze([]),
   });
@@ -109,6 +124,7 @@ export function parseBrReceitaNationalChunkCheckpoint(
   if (!run.valid) throw new BrReceitaNationalChunkCheckpointError('run_id_malformed');
   const period = parseSourcePeriod(raw.sourcePeriod);
   if (!period.valid) throw new BrReceitaNationalChunkCheckpointError('source_period_malformed');
+  assertInventoryFingerprint(raw.inventoryFingerprint);
   if (raw.expectedPartitionCount !== BR_RECEITA_NATIONAL_EXPECTED_PARTITION_COUNT) {
     throw new BrReceitaNationalChunkCheckpointError('checkpoint_partition_count_mismatch');
   }
@@ -133,14 +149,49 @@ export function parseBrReceitaNationalChunkCheckpoint(
     version: BR_RECEITA_NATIONAL_CHUNK_CHECKPOINT_VERSION,
     snapshotRunId: run.runId,
     sourcePeriod: period.sourcePeriod,
+    inventoryFingerprint: raw.inventoryFingerprint,
     expectedPartitionCount: BR_RECEITA_NATIONAL_EXPECTED_PARTITION_COUNT,
     completedRanges: Object.freeze([...completedRanges]),
   });
 }
 
+function assertLoadedChunkAccounting(chunk: BrReceitaNationalChunkLoadedResult): void {
+  const summaryMatches = chunk.engine.partitionSummaries.reduce(
+    (total, summary) => total + summary.matchesEmitted,
+    0,
+  );
+  if (
+    chunk.engine.exitStatus !== 'completed' ||
+    chunk.engine.exact.partitionsCreated !== BR_RECEITA_NATIONAL_EXPECTED_PARTITION_COUNT ||
+    chunk.engine.exact.partitionDepthReached !== 0 ||
+    !chunk.projector.finalized ||
+    chunk.projector.materializationBreach !== null ||
+    summaryMatches !== chunk.projector.matchesReceived ||
+    chunk.projector.matchesReceived !==
+      chunk.projector.parserAcceptedRows + chunk.projector.parserRejectedRows ||
+    chunk.writer.acceptedRows !== chunk.projector.parserAcceptedRows ||
+    !chunk.writer.finalized ||
+    chunk.writer.pendingRows !== 0 ||
+    chunk.writer.writtenRows + chunk.writer.collapsedInBatchCount !== chunk.writer.acceptedRows
+  ) {
+    throw new BrReceitaNationalChunkCheckpointError('chunk_accounting_invalid');
+  }
+
+  const executed = chunk.engine.executedPartitionOrdinalRange;
+  if (
+    executed === null ||
+    executed.start !== chunk.partitionOrdinalStart ||
+    executed.endExclusive !== chunk.partitionOrdinalEndExclusive
+  ) {
+    throw new BrReceitaNationalChunkCheckpointError('chunk_accounting_invalid');
+  }
+}
+
 /**
  * Records one successfully loaded, still-detached chunk. Overlap/replay merge idempotently; gaps
- * remain gaps. Run and period must match the checkpoint exactly before any range is credited.
+ * remain gaps. Run, period and inventory fingerprint must match the checkpoint exactly before any
+ * range is credited. The checkpoint revalidates the loader accounting instead of trusting the type
+ * alone.
  */
 export function recordBrReceitaLoadedNationalChunk(args: {
   readonly checkpoint: BrReceitaNationalChunkCheckpoint;
@@ -157,6 +208,9 @@ export function recordBrReceitaLoadedNationalChunk(args: {
   if (chunk.sourcePeriod !== checkpoint.sourcePeriod) {
     throw new BrReceitaNationalChunkCheckpointError('chunk_period_mismatch');
   }
+  if (chunk.inventoryFingerprint !== checkpoint.inventoryFingerprint) {
+    throw new BrReceitaNationalChunkCheckpointError('chunk_inventory_mismatch');
+  }
   if (
     !Number.isSafeInteger(chunk.partitionOrdinalStart) ||
     !Number.isSafeInteger(chunk.partitionOrdinalCount) ||
@@ -169,6 +223,7 @@ export function recordBrReceitaLoadedNationalChunk(args: {
   ) {
     throw new BrReceitaNationalChunkCheckpointError('chunk_range_invalid');
   }
+  assertLoadedChunkAccounting(chunk);
 
   const completedRanges = normalizeRanges([
     ...checkpoint.completedRanges,
