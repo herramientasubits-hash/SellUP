@@ -7,6 +7,7 @@ import {
   type BrReceitaNationalChunkEngineBaseRequest,
 } from '../br-receita-cnpj-national-chunk-loader';
 import type { BrazilReceitaFullJoinEngineResult } from '../br-receita-cnpj-full-join-engine';
+import { createBrazilReceitaFullJoinOpenHandleLedger } from '../br-receita-cnpj-full-join-open-handle-ledger';
 import type {
   BrReceitaSnapshotWriteGateway,
   BrReceitaSqlExecutor,
@@ -74,7 +75,7 @@ function engineRequest(partitionCount = 1024, maxPartitionCount = 1024) {
     workspaceParentDirectory: '/opaque',
     workspaceBoundaries: {},
     resourceDependencies: {},
-    openHandleLedger: {},
+    openHandleLedger: createBrazilReceitaFullJoinOpenHandleLedger(64),
     maxOpenPartitionFiles: 32,
     minimumFreeDiskBeforeStart: 1,
     minimumFreeDiskReserve: 1,
@@ -120,6 +121,7 @@ const catalogs = { cnaesRows: [], municipiosRows: [], naturezasRows: [] } as con
 
 test('successful chunk is loaded but structurally cannot publish', async () => {
   let engineSawMaterializingSink = false;
+  const request = engineRequest();
   const loaded = await loadBrReceitaNationalChunk({
     snapshotRunId: RUN_ID,
     sourcePeriod: '2026-07',
@@ -129,10 +131,10 @@ test('successful chunk is loaded but structurally cannot publish', async () => {
     sql: sqlReady(),
     gateway: gatewayNoPublish(),
     catalogs,
-    engineRequest: engineRequest(),
-    runEngine: async (request) => {
-      engineSawMaterializingSink = request.sinkMaterializesRows;
-      await request.sink.finalize();
+    engineRequest: request,
+    runEngine: async (engineRequestValue) => {
+      engineSawMaterializingSink = engineRequestValue.sinkMaterializesRows;
+      await engineRequestValue.sink.finalize();
       return result({ start: 64, endExclusive: 128 });
     },
   });
@@ -143,6 +145,7 @@ test('successful chunk is loaded but structurally cannot publish', async () => {
   assert.equal(loaded.partitionOrdinalEndExclusive, 128);
   assert.equal(loaded.published, false);
   assert.equal(loaded.writer.finalized, true);
+  assert.equal(request.openHandleLedger.openNow(), 0);
 });
 
 test('partition map must be pinned to 1024 before preflight or engine execution', async () => {
