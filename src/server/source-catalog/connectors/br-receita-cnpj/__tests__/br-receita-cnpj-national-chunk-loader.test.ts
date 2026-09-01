@@ -14,6 +14,7 @@ import type {
 } from '../br-receita-cnpj-monthly-snapshot-write-gateway';
 
 const RUN_ID = '22222222-2222-4222-8222-222222222222';
+const INVENTORY_FINGERPRINT = `sha256:${'a'.repeat(64)}`;
 const MATERIALIZATION_CAPS = {
   maxAdditionalBytesRead: 1_000_000,
   maxRowsRehydrated: 10_000,
@@ -134,6 +135,7 @@ test('successful chunk is loaded but structurally cannot publish', async () => {
     snapshotRunId: RUN_ID,
     sourcePeriod: '2026-07',
     sourceYear: 2026,
+    inventoryFingerprint: INVENTORY_FINGERPRINT,
     partitionOrdinalStart: 64,
     partitionOrdinalCount: 64,
     materializationCaps: MATERIALIZATION_CAPS,
@@ -152,6 +154,7 @@ test('successful chunk is loaded but structurally cannot publish', async () => {
   assert.equal(loaded.status, 'loaded_not_published');
   assert.equal(loaded.snapshotRunId, RUN_ID);
   assert.equal(loaded.sourcePeriod, '2026-07');
+  assert.equal(loaded.inventoryFingerprint, INVENTORY_FINGERPRINT);
   assert.equal(loaded.partitionOrdinalStart, 64);
   assert.equal(loaded.partitionOrdinalEndExclusive, 128);
   assert.equal(loaded.published, false);
@@ -168,6 +171,7 @@ test('invalid materialization caps refuse before preflight or engine execution',
         snapshotRunId: RUN_ID,
         sourcePeriod: '2026-07',
         sourceYear: 2026,
+        inventoryFingerprint: INVENTORY_FINGERPRINT,
         partitionOrdinalStart: 0,
         partitionOrdinalCount: 64,
         materializationCaps: null,
@@ -202,6 +206,7 @@ test('partition map must be pinned to 1024 before preflight or engine execution'
         snapshotRunId: RUN_ID,
         sourcePeriod: '2026-07',
         sourceYear: 2026,
+        inventoryFingerprint: INVENTORY_FINGERPRINT,
         partitionOrdinalStart: 0,
         partitionOrdinalCount: 64,
         materializationCaps: MATERIALIZATION_CAPS,
@@ -235,6 +240,7 @@ test('national loader refuses any duplicate policy other than reject before pref
         snapshotRunId: RUN_ID,
         sourcePeriod: '2026-07',
         sourceYear: 2026,
+        inventoryFingerprint: INVENTORY_FINGERPRINT,
         partitionOrdinalStart: 0,
         partitionOrdinalCount: 64,
         materializationCaps: MATERIALIZATION_CAPS,
@@ -255,11 +261,41 @@ test('national loader refuses any duplicate policy other than reject before pref
   assert.equal(sqlCalls, 0);
 });
 
+test('malformed inventory fingerprint refuses before preflight', async () => {
+  let sqlCalls = 0;
+  await assert.rejects(
+    () =>
+      loadBrReceitaNationalChunk({
+        snapshotRunId: RUN_ID,
+        sourcePeriod: '2026-07',
+        sourceYear: 2026,
+        inventoryFingerprint: 'not-a-fingerprint',
+        partitionOrdinalStart: 0,
+        partitionOrdinalCount: 64,
+        materializationCaps: MATERIALIZATION_CAPS,
+        sql: {
+          async query() {
+            sqlCalls += 1;
+            return { rows: [{ ready: true }] };
+          },
+        },
+        gateway: gatewayNoPublish(),
+        catalogs,
+        engineRequest: engineRequest(),
+      }),
+    (error: unknown) =>
+      error instanceof BrReceitaNationalChunkLoaderError &&
+      error.reason === 'inventory_fingerprint_invalid',
+  );
+  assert.equal(sqlCalls, 0);
+});
+
 test('aborted engine never reports a completed chunk and never publishes', async () => {
   const loaded = await loadBrReceitaNationalChunk({
     snapshotRunId: RUN_ID,
     sourcePeriod: '2026-07',
     sourceYear: 2026,
+    inventoryFingerprint: INVENTORY_FINGERPRINT,
     partitionOrdinalStart: 0,
     partitionOrdinalCount: 32,
     materializationCaps: MATERIALIZATION_CAPS,
@@ -282,6 +318,7 @@ test('effective repartition after execution refuses the checkpoint', async () =>
         snapshotRunId: RUN_ID,
         sourcePeriod: '2026-07',
         sourceYear: 2026,
+        inventoryFingerprint: INVENTORY_FINGERPRINT,
         partitionOrdinalStart: 0,
         partitionOrdinalCount: 64,
         materializationCaps: MATERIALIZATION_CAPS,
@@ -307,6 +344,7 @@ test('executed ordinal range must equal the requested checkpoint exactly', async
         snapshotRunId: RUN_ID,
         sourcePeriod: '2026-07',
         sourceYear: 2026,
+        inventoryFingerprint: INVENTORY_FINGERPRINT,
         partitionOrdinalStart: 128,
         partitionOrdinalCount: 64,
         materializationCaps: MATERIALIZATION_CAPS,
