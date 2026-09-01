@@ -11,6 +11,7 @@ import { createBrazilReceitaFullJoinOpenHandleLedger } from '../br-receita-cnpj-
 import type { BrReceitaSnapshotWriteGateway } from '../br-receita-cnpj-monthly-snapshot-write-gateway';
 
 const RUN_ID = '55555555-5555-4555-8555-555555555555';
+const INVENTORY_FINGERPRINT = `sha256:${'a'.repeat(64)}`;
 
 function gatewayNoPublish(): BrReceitaSnapshotWriteGateway {
   return {
@@ -79,6 +80,7 @@ test('completed engine cannot credit a chunk when its summaries claim a match th
         snapshotRunId: RUN_ID,
         sourcePeriod: '2026-07',
         sourceYear: 2026,
+        inventoryFingerprint: INVENTORY_FINGERPRINT,
         partitionOrdinalStart: 0,
         partitionOrdinalCount: 1,
         materializationCaps: {
