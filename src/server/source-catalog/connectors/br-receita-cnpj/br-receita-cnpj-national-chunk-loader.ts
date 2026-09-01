@@ -14,6 +14,11 @@ import {
   type BrReceitaNationalProjectorStats,
   type BrReceitaNationalReferenceCatalogs,
 } from './br-receita-cnpj-national-match-projector';
+import {
+  createBrReceitaNationalMaterializationGuard,
+  resolveBrReceitaNationalMaterializationCaps,
+  type BrReceitaNationalMaterializationCapKey,
+} from './br-receita-cnpj-national-materialization-envelope';
 import type {
   BrReceitaSnapshotWriteGateway,
   BrReceitaSqlExecutor,
@@ -22,8 +27,8 @@ import type {
 export type BrReceitaNationalChunkLoaderRefusalReason =
   | 'partition_range_invalid'
   | 'partition_map_not_pinned_to_1024'
+  | 'materialization_caps_invalid'
   | 'existing_run_not_ready'
-  | 'engine_aborted'
   | 'effective_partition_map_changed'
   | 'partition_depth_changed'
   | 'executed_range_mismatch';
@@ -44,7 +49,6 @@ export type BrReceitaNationalChunkEngineBaseRequest = Omit<
 >;
 
 interface BrReceitaNationalChunkCoordinates {
-  /** Publication-version identifier. Never CNPJ-derived. */
   readonly snapshotRunId: string;
   readonly sourcePeriod: string;
 }
@@ -103,8 +107,11 @@ function assertPinnedMap(request: BrReceitaNationalChunkEngineBaseRequest): void
 }
 
 /**
- * Loads exactly one Stage-3 ordinal window into an ALREADY-EXISTING detached run.
- * It cannot publish: successful completion calls `commitChunk`, never the gateway cutover API.
+ * Loads one Stage-3 ordinal window into an ALREADY-EXISTING detached run. It cannot publish.
+ *
+ * Materialization caps are a SECOND, explicit envelope for the extra full-row reads performed by
+ * the sink after the engine has already re-read the rows to compare join keys. They have no defaults
+ * and are deliberately not borrowed from benchmark caps.
  */
 export async function loadBrReceitaNationalChunk(args: {
   readonly snapshotRunId: string;
@@ -112,6 +119,9 @@ export async function loadBrReceitaNationalChunk(args: {
   readonly sourceYear: number;
   readonly partitionOrdinalStart: number;
   readonly partitionOrdinalCount: number;
+  readonly materializationCaps:
+    | Readonly<Partial<Record<BrReceitaNationalMaterializationCapKey, unknown>>>
+    | null;
   readonly sql: BrReceitaSqlExecutor;
   readonly gateway: BrReceitaSnapshotWriteGateway;
   readonly catalogs: BrReceitaNationalReferenceCatalogs;
@@ -121,14 +131,18 @@ export async function loadBrReceitaNationalChunk(args: {
   assertRange(args.partitionOrdinalStart, args.partitionOrdinalCount);
   assertPinnedMap(args.engineRequest);
 
+  const materializationCaps = resolveBrReceitaNationalMaterializationCaps(args.materializationCaps);
+  if (!materializationCaps.ok) {
+    throw new BrReceitaNationalChunkLoaderError('materialization_caps_invalid');
+  }
+  const materializationGuard = createBrReceitaNationalMaterializationGuard(materializationCaps.caps);
+
   const preflight = await preflightBrReceitaExistingRunForChunkLoad({
     sql: args.sql,
     snapshotRunId: args.snapshotRunId,
     sourcePeriod: args.sourcePeriod,
   });
-  if (!preflight.ready) {
-    throw new BrReceitaNationalChunkLoaderError('existing_run_not_ready');
-  }
+  if (!preflight.ready) throw new BrReceitaNationalChunkLoaderError('existing_run_not_ready');
 
   const writer = createBrReceitaExistingRunChunkWriter({
     gateway: args.gateway,
@@ -141,6 +155,7 @@ export async function loadBrReceitaNationalChunk(args: {
     descriptors: args.engineRequest.sources,
     fileSystem: args.engineRequest.readerFileSystem,
     openHandleLedger: args.engineRequest.openHandleLedger,
+    materializationGuard,
     maxRowBytes: Number(args.engineRequest.readerCaps?.maxRowBytes ?? 0),
     catalogs: args.catalogs,
     writer,
