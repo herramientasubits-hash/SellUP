@@ -146,6 +146,7 @@
     "test:a1-lusha-cut-l4-safe-retries": "node --import tsx --test src/server/prospect-batches/__tests__/cut-l4-safe-retries.test.ts",
     "test:a1-lusha-cut-l4-attempts:postgres": "node --import tsx --test src/server/prospect-batches/__tests__/cut-l4-retry-attempts-postgres.test.ts",
     "test:a1-lusha-cut-l5-billing-blocks": "node --import tsx --test src/server/prospect-batches/__tests__/cut-l5-billing-blocks-page-size.test.ts",
+    "test:a1-active-candidate-domain-canonicalization": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/agent1-active-candidate-domain-canonicalization.test.ts src/server/prospect-batches/__tests__/agent1-active-candidate-domain-canonicalization-live-batch.test.ts",
     "test:a1-lusha-cut-l7-shared-identity": "node --import tsx --test src/server/prospect-batches/__tests__/cut-l7-shared-identity-correction.test.ts",
     "test:a1-shared-fiscal-identity-country-scope": "node --import tsx --test src/server/prospect-batches/__tests__/agent1-shared-fiscal-identity-country-scope.test.ts",
     "test:a1-lusha-cut-l1-client-side-exclusion": "node --import tsx --test src/server/prospect-batches/__tests__/cut-l1-client-side-exclusion.test.ts src/server/prospect-batches/__tests__/agent1-prepaid-exclusion-request.test.ts src/modules/prospect-batches/provider-seen/__tests__/provider-exclusion-planner.test.ts src/modules/prospect-batches/prepaid-novelty/__tests__/provider-exclusion-domains.test.ts",

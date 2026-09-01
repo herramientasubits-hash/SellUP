@@ -3342,6 +3342,46 @@ jobs:
       # Apollo. 0 créditos.
       - name: Run A1 Lusha CUT-L7 shared identity correction tests
         run: npm run test:a1-lusha-cut-l7-shared-identity
+
+      # AGENT1-ACTIVE-CANDIDATE-DOMAIN-CANONICALIZATION — el eje FUERTE de la guarda de
+      # candidatos activos vuelve a ver el MISMO dominio cuando una de las dos caras lleva
+      # `www.`.
+      #
+      # El defecto lo descubrió el PRIMER despacho REAL de Lusha Prospecting (lote
+      # 26f49596-1c89-4da4-a769-8838fe4baf06): cinco candidatas PAGADAS —EPM, ETB, RCN TV,
+      # Controles Empresariales y Avantel— se persistieron como `possible_duplicate` y
+      # CONTARON para el objetivo, teniendo cada una un `prospect_candidate` ACTIVO anterior
+      # con el MISMO dominio. Quien llama construye `input.domain` canonicalizado por
+      # `normalizeDomain` (que quita `www.`); la fila existente llega TAL CUAL se persistió, y
+      # en Producción se persiste con `www.`. `'une.com.co' === 'www.une.com.co'` es `false`,
+      # así que el eje fuerte se perdía y la guarda caía al eje de NOMBRE, que CUT-L7 debilitó
+      # a propósito. NO es un error de política de CUT-L7: es asimetría de canonicalización.
+      #
+      # Lo que estas suites congelan, y que quedaría verde si sólo se comparara en crudo:
+      #
+      #   1. `www.`, protocolo, barra final y mayúsculas dejan de partir en dos un dominio, con
+      #      las dos caras pasando por la MISMA autoridad compartida (`normalization.ts`) — sin
+      #      segundo normalizador y sin recortar `www.` dentro de la guarda.
+      #   2. Los límites no se mueven: dos dominios DISTINTOS siguen fundiéndose sólo por
+      #      NOMBRE (débil), un valor que no es dominio de empresa (`localhost`, una IP, una
+      #      cadena sin punto) NO funda el eje fuerte, y un histórico
+      #      `discarded`/`duplicate`/`rejected` sigue permitiendo reconsideración.
+      #   3. PARIDAD pre-writer / writer sobre la misma igualdad: el evaluador PRE-writer
+      #      declara `active_duplicate_guard` fallido con `duplicate_guard:same_active_domain` y
+      #      el writer REAL descarta con esa MISMA causa. Es la parte económica: el pre-writer
+      #      no puede creer que el objetivo está lleno con candidatas que el writer rechaza.
+      #   4. La CUENTA del lote vivo, recorrida por la tubería de selección REAL: 25 crudas → 23
+      #      revisables → 12 saltos por dominio activo → 8 duplicados exactos → 3 útiles, con
+      #      residual 2 (NUNCA 5), 0 descartes por cupo y la SEGUNDA página pedida. El fixture
+      #      está construido para que una regresión de la guarda reproduzca exactamente las
+      #      cifras VIVAS (5 aceptadas / 3 por cupo / hueco 0 / `target_reached` / 1 página).
+      #
+      # No se toca la valla de peticiones, el modelo de intentos, los reintentos, la
+      # facturación, el tamaño de página, la reserva, el uso de proveedor ni el cliente de
+      # Lusha. 0 proveedores, 0 créditos, 0 Producción, 0 escrituras, 0 flags, 0 presupuesto.
+      # MIGRACIONES 135 y 136: CHANGED = NO, APPLIED IN PRODUCTION = NO.
+      - name: Run Agent1 active-candidate domain canonicalization
+        run: npm run test:a1-active-candidate-domain-canonicalization
       # AGENT1-SHARED-FISCAL-IDENTITY-COUNTRY-SCOPE-CORRECTION — la identidad
       # fiscal ACOTADA POR PAÍS entra al check obligatorio.
       #
