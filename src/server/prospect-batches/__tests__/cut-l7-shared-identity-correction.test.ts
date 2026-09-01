@@ -776,15 +776,52 @@ describe('CUT-L7 §§ 5, 23, 29, 40, 43 — alcance, fidelidad y cableado', () =
     assert.match(sellup, /status: 'existing_in_sellup',\s*\n\s*confidence: 88/);
   });
 
-  it('§ 41 · la deuda de identidad fiscal SIN ámbito de país se REGISTRA, no se corrige', () => {
-    const sellup = read('src/server/agents/prospecting-toolkit/sellup-duplicate-checker.ts');
-    // Sigue exactamente como estaba: `ilike` sobre tax_identifier sin country_code.
-    assert.match(sellup, /\.ilike\('tax_identifier', `%\$\{normalizedTaxId\}%`\)/);
+  it('§ 41 · la identidad fiscal fuerte está ACOTADA POR PAÍS (deuda ya corregida)', () => {
+    // 🔴 ENMIENDA DELIBERADA de política de pruebas, no churn.
+    //
+    // Esta prueba afirmaba lo contrario: que el bloque fiscal de
+    // `sellup-duplicate-checker` NO contenía `country_code` y que la aguja era el
+    // normalizador legacy `normalizedTaxId`. Es decir, TRINQUETABA EL DEFECTO: un
+    // `123456789` colombiano igualaba a un `123456789` mexicano y esa igualdad
+    // quedaba fijada por la suite, de modo que corregirla la habría reprobado.
+    //
+    // AGENT1-SHARED-FISCAL-IDENTITY-COUNTRY-SCOPE-CORRECTION cerró esa deuda. La
+    // expectativa se INVIERTE al invariante corregido —no se borra la guarda—.
+    const sellup = readCode('src/server/agents/prospecting-toolkit/sellup-duplicate-checker.ts');
     const taxBlock = sellup.slice(
-      sellup.indexOf('// ── 2. Tax identifier exacto'),
+      sellup.indexOf('const candidateFiscalScope'),
       sellup.indexOf('// ── 3. normalized_name'),
     );
-    assert.doesNotMatch(taxBlock, /country_code/);
+    assert.ok(taxBlock.length > 0, 'el bloque de identidad fiscal debe existir');
+
+    // 1. La identidad fiscal fuerte está acotada por PAÍS.
+    assert.match(taxBlock, /matchedCountryCode: row\.country_code/);
+    assert.match(taxBlock, /resolveFiscalCountryScope/);
+
+    // 2. El helper canónico de CUT-3B1 es la autoridad importada y usada.
+    assert.match(sellup, /from '\.\/fiscal-identity'/);
+    assert.match(sellup, /from '\.\/fiscal-duplicate-classification'/);
+    assert.match(taxBlock, /classifyFiscalDuplicateIdentity\(\{/);
+
+    // 3. `normalizeTaxIdentifier` ya NO es la autoridad fiscal de este checker.
+    assert.doesNotMatch(sellup, /normalizeTaxIdentifier/);
+    assert.doesNotMatch(sellup, /normalizedTaxId/);
+
+    // 4. El `92` vive detrás de la guarda del veredicto, nunca antes.
+    const guard = taxBlock.indexOf('if (!verdict.proven) continue;');
+    const strong = taxBlock.indexOf('confidence: 92');
+    assert.ok(guard > 0 && strong > guard);
+  });
+
+  it('§ 41 · la suite dedicada de la corrección fiscal EXISTE y está cableada', () => {
+    const suite = 'src/server/prospect-batches/__tests__/agent1-shared-fiscal-identity-country-scope.test.ts';
+    assert.ok(read(suite).length > 0);
+    const pkg = JSON.parse(read('package.json')) as { scripts: Record<string, string> };
+    const script = pkg.scripts['test:a1-shared-fiscal-identity-country-scope'];
+    assert.ok(script, 'debe existir el script npm de la suite');
+    assert.match(script, /agent1-shared-fiscal-identity-country-scope\.test\.ts/);
+    const ci = read('.github/workflows/automatic-routing-tests.yml');
+    assert.match(ci, /npm run test:a1-shared-fiscal-identity-country-scope/);
   });
 
   it('M13 · § 29 · la confianza INVENTADA 90 de HubSpot no vuelve al fixture de paridad', () => {

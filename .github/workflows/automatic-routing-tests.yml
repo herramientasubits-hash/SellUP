@@ -3342,6 +3342,45 @@ jobs:
       # Apollo. 0 créditos.
       - name: Run A1 Lusha CUT-L7 shared identity correction tests
         run: npm run test:a1-lusha-cut-l7-shared-identity
+      # AGENT1-SHARED-FISCAL-IDENTITY-COUNTRY-SCOPE-CORRECTION — la identidad
+      # fiscal ACOTADA POR PAÍS entra al check obligatorio.
+      #
+      # El defecto que cierra: los dos checkers de duplicados emitían su señal
+      # fiscal FUERTE (`sellup 92`, `hubspot 95` — ambas fuertes para el lector
+      # compartido de CUT-L7) a partir de un identificador fiscal DESNUDO, sin
+      # ámbito de país y sin la canonicalización autoritativa de CUT-3B1:
+      #
+      #   * falso POSITIVO transfronterizo: un `123456789` colombiano y un
+      #     `123456789` mexicano eran la MISMA empresa, así que en el pre-pago
+      #     gratuito el candidato quedaba `sellup_known` y en Lusha post-pago
+      #     `exact_duplicate` — una empresa distinta se descartaba EN SILENCIO;
+      #   * falso NEGATIVO colombiano: el normalizador legacy en línea BORRABA el
+      #     guion (`900123456-7` -> `9001234567`) en vez de recortar el DV
+      #     derivado, de modo que el MISMO NIT almacenado sin DV no igualaba.
+      #
+      # Lo que este paso fija:
+      #   * la identidad fiscal fuerte exige PAÍS + CANÓNICO probados en AMBOS
+      #     lados (matrices SellUp S-A..S-G y HubSpot H-A..H-F);
+      #   * lo que no se prueba se DEGRADA a bandas débiles REALES de produccion
+      #     (`hubspot 85`), nunca se descarta ni inventa confianzas nuevas;
+      #   * el DV colombiano, los identificadores alfanuméricos y los ceros a la
+      #     izquierda se delegan en `fiscal-identity.ts` (CUT-3B1);
+      #   * el lector compartido de CUT-L7 NO se modificó: sigue leyendo 92/95
+      #     como fuertes — el defecto era del PRODUCTOR;
+      #   * la expectativa de la suite de CUT-L7 que TRINQUETABA el defecto
+      #     (`doesNotMatch(taxBlock, /country_code/)`) queda invertida al
+      #     invariante corregido.
+      #
+      # 🔴 Lo que NO afirma: que Lusha sea seguro de activar; que se haya resuelto
+      # la canonicalización global de nombres de país (`CO` vs `COL` vs `Colombia`
+      # siguen siendo ámbitos distintos, deuda registrada para
+      # AGENT1-SHARED-COUNTRY-SCOPE-CANONICALIZATION); ni que ninguna migración se
+      # haya aplicado. Este corte no añade migración: el techo sigue en 136.
+      #
+      # Pura y offline: dobles locales. Sin red, sin Supabase, sin HubSpot, sin
+      # Lusha, sin Apollo. 0 créditos.
+      - name: Run A1 shared fiscal identity country-scope correction tests
+        run: npm run test:a1-shared-fiscal-identity-country-scope
       # AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1 · CUT-1 — la SUPERVIVENCIA del lote
       # entra al check obligatorio.
       #

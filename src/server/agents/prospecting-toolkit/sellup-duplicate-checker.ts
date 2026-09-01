@@ -9,6 +9,8 @@
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import type { DuplicateCheckInput, DuplicateMatch, DuplicateStatus } from './types';
 import { buildCompanySearchTerms, normalizeCompanyName } from './normalization';
+import { buildFiscalLookupNeedles, resolveFiscalCountryScope } from './fiscal-identity';
+import { classifyFiscalDuplicateIdentity } from './fiscal-duplicate-classification';
 
 // ============================================================
 // Admin client — service_role bypasea RLS
@@ -53,8 +55,9 @@ interface AccountRow {
 export async function checkSellUpDuplicates(
   input: DuplicateCheckInput
 ): Promise<DuplicateMatch[]> {
-  const { normalizedName, domain, normalizedTaxId, countryCode } =
-    buildCompanySearchTerms(input);
+  // `normalizedTaxId` (derivación legacy `normalizeTaxIdentifier`) ya NO se
+  // consume aquí: dejó de ser la autoridad de igualdad fiscal (CUT-3B1).
+  const { normalizedName, domain, countryCode } = buildCompanySearchTerms(input);
 
   const isInsufficient =
     !input.name?.trim() && !domain && !input.country && !input.countryCode;
@@ -103,34 +106,73 @@ export async function checkSellUpDuplicates(
     }
   }
 
-  // ── 2. Tax identifier exacto ──────────────────────────────────
-  if (normalizedTaxId && normalizedTaxId.length >= 6) {
-    const { data } = await admin
-      .from('accounts')
-      .select(SELECT)
-      .ilike('tax_identifier', `%${normalizedTaxId}%`)
-      .is('archived_at', null)
-      .limit(5);
+  // ── 2. Identidad fiscal con ÁMBITO DE PAÍS ────────────────
+  //
+  // AGENT1-SHARED-FISCAL-IDENTITY-COUNTRY-SCOPE-CORRECTION.
+  //
+  // Antes: la igualdad se decidía con un normalizador legacy en línea
+  // (`toLowerCase().replace(/[\s.\-_]/g,'')`) y SIN mirar `country_code`. Eso
+  // producía los dos defectos a la vez: un `123456789` colombiano igualaba a un
+  // `123456789` mexicano (falso POSITIVO transfronterizo, y con confianza 92 —
+  // FUERTE para el lector de CUT-L7), mientras que `900123456-7` no igualaba al
+  // mismo NIT almacenado sin DV porque el guion se borraba en vez de recortarse
+  // (falso NEGATIVO colombiano).
+  //
+  // Ahora la autoridad es CUT-3B1: PAÍS + IDENTIFICADOR FISCAL CANÓNICO. La
+  // consulta sigue siendo un PREFILTRO respaldado por índice; quien decide la
+  // identidad es la comparación canónica en memoria.
+  const candidateFiscalScope = resolveFiscalCountryScope(countryCode);
+  const fiscalNeedles = buildFiscalLookupNeedles([input.taxIdentifier], countryCode);
+
+  // Fail-closed: sin ámbito de país o sin canónico utilizable NO puede existir
+  // identidad fiscal automática, así que no se gasta ni una lectura. La evidencia
+  // débil sigue disponible por los ejes de nombre de más abajo.
+  if (candidateFiscalScope && fiscalNeedles.canonical.length > 0) {
+    // El prefiltro busca por SUBSTRING del canónico. Es deliberadamente amplio
+    // —alcanza `900123456`, `900123456-7`, `NIT 900123456`— y no puede producir
+    // falsos positivos porque toda fila leída se revalida canónicamente abajo.
+    // Las variantes `<canónico>-<dígito>` que `buildFiscalLookupNeedles` enumera
+    // para Colombia ya quedan cubiertas por ese substring, así que no se añaden
+    // términos redundantes al filtro.
+    let query = admin.from('accounts').select(SELECT).is('archived_at', null).limit(5);
+
+    query =
+      fiscalNeedles.canonical.length === 1
+        ? query.ilike('tax_identifier', `%${fiscalNeedles.canonical[0]}%`)
+        : query.or(
+            fiscalNeedles.canonical
+              .map((needle) => `tax_identifier.ilike.%${needle}%`)
+              .join(','),
+          );
+
+    const { data } = await query;
 
     if (data && data.length > 0) {
       for (const row of data as AccountRow[]) {
-        if (!row.tax_identifier) continue;
-        const rowNormalized = row.tax_identifier
-          .toLowerCase()
-          .replace(/[\s.\-_]/g, '');
-        if (rowNormalized === normalizedTaxId) {
-          matches.push({
-            source: 'sellup',
-            status: 'existing_in_sellup',
-            confidence: 92,
-            matchedId: row.id,
-            matchedName: row.name,
-            matchedDomain: row.domain,
-            matchedWebsite: row.website,
-            matchedTaxIdentifier: row.tax_identifier,
-            reason: `Identificador fiscal exacto coincide`,
-          });
-        }
+        // AUTORIDAD: país del candidato == país de la fila, Y canónico == canónico.
+        // `row.country_code` entra aquí como post-filtro y no como filtro de
+        // consulta: un país almacenado con otra representación debe degradar la
+        // evidencia, nunca ocultar la fila.
+        const verdict = classifyFiscalDuplicateIdentity({
+          candidateCountryCode: countryCode,
+          candidateTaxId: input.taxIdentifier,
+          matchedCountryCode: row.country_code,
+          matchedTaxId: row.tax_identifier,
+        });
+
+        if (!verdict.proven) continue;
+
+        matches.push({
+          source: 'sellup',
+          status: 'existing_in_sellup',
+          confidence: 92,
+          matchedId: row.id,
+          matchedName: row.name,
+          matchedDomain: row.domain,
+          matchedWebsite: row.website,
+          matchedTaxIdentifier: row.tax_identifier,
+          reason: `Identificador fiscal exacto coincide (${verdict.namespace})`,
+        });
       }
       if (matches.length > 0) return matches;
     }
