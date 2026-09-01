@@ -34,6 +34,8 @@ function loaded(
       parserRejectedRows: 0,
       rejectionCounts: {},
       batchesParsed: 0,
+      materialization: { additionalBytesRead: 0, rowsRehydrated: 0 },
+      materializationBreach: null,
       finalized: true,
     },
     writer: {
