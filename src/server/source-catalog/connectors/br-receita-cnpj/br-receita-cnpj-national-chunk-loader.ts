@@ -150,6 +150,7 @@ export async function loadBrReceitaNationalChunk(args: {
     sourceYear: args.sourceYear,
     descriptors: args.engineRequest.sources,
     fileSystem: args.engineRequest.readerFileSystem,
+    openHandleLedger: args.engineRequest.openHandleLedger,
     maxRowBytes: Number(args.engineRequest.readerCaps?.maxRowBytes ?? 0),
     catalogs: args.catalogs,
     writer,
