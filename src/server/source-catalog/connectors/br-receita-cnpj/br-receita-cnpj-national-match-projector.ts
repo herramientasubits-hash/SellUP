@@ -16,6 +16,11 @@ import {
   withBrazilReceitaFullJoinLedgerAccounting,
   type BrazilReceitaFullJoinOpenHandleLedger,
 } from './br-receita-cnpj-full-join-open-handle-ledger';
+import {
+  type BrReceitaNationalMaterializationBreach,
+  type BrReceitaNationalMaterializationGuard,
+  type BrReceitaNationalMaterializationObservations,
+} from './br-receita-cnpj-national-materialization-envelope';
 import { buildBrReceitaCnpjSnapshotRows } from './br-receita-cnpj-snapshot-builder';
 import { toBrReceitaPersistedSnapshot } from './br-receita-cnpj-monthly-snapshot-identity';
 import type { BrReceitaExistingRunChunkWriter } from './br-receita-cnpj-existing-run-chunk-writer';
@@ -56,12 +61,12 @@ export type BrReceitaNationalMatchProjectorFailureReason =
   | 'row_read_failed'
   | 'row_short_read'
   | 'row_close_failed'
+  | 'materialization_resource_cap_exceeded'
   | 'empresa_layout_mismatch'
   | 'estabelecimento_layout_mismatch'
   | 'sink_already_finalized'
   | 'parser_returned_multiple_rows';
 
-/** Fixed-code failure: never includes a path, CNPJ, legal name or raw row. */
 export class BrReceitaNationalMatchProjectorError extends Error {
   readonly reason: BrReceitaNationalMatchProjectorFailureReason;
 
@@ -84,6 +89,8 @@ export interface BrReceitaNationalProjectorStats {
   readonly parserRejectedRows: number;
   readonly rejectionCounts: Readonly<Partial<Record<BrReceitaCnpjRejectionReason, number>>>;
   readonly batchesParsed: number;
+  readonly materialization: BrReceitaNationalMaterializationObservations;
+  readonly materializationBreach: BrReceitaNationalMaterializationBreach | null;
   readonly finalized: boolean;
 }
 
@@ -133,22 +140,11 @@ interface ReferencedRowReader {
   closeAll(): void;
 }
 
-/**
- * Rehydrates opaque row references through a BOUNDED descriptor cache.
- *
- * A national chunk can emit tens of millions of matches. Opening and closing a source file for every
- * match would turn a bounded join into tens of millions of syscalls, so one descriptor is retained
- * per source-file ordinal and reused for random-access reads. The authoritative national inventory
- * has only the EMPRESAS/ESTABELECIMENTOS descriptors the engine already validated; every held handle
- * is additionally charged to the SAME global open-handle ledger used by the engine/workspace.
- *
- * `closeAll()` releases every descriptor at sink finalization. Any read failure closes the cache
- * before propagating a fixed-code error, so an aborted chunk does not leak descriptor budget.
- */
 export function createBrReceitaReferencedRowReader(args: {
   readonly descriptors: readonly BrazilReceitaFullJoinSourceFileDescriptor[];
   readonly fileSystem: BrazilReceitaFullJoinReaderFileSystem;
   readonly openHandleLedger: BrazilReceitaFullJoinOpenHandleLedger;
+  readonly materializationGuard: BrReceitaNationalMaterializationGuard;
   readonly maxRowBytes: number;
 }): ReferencedRowReader {
   const descriptorByOrdinal = new Map(
@@ -171,9 +167,7 @@ export function createBrReceitaReferencedRowReader(args: {
       }
     }
     handleByOrdinal.clear();
-    if (closeFailed) {
-      throw new BrReceitaNationalMatchProjectorError('row_close_failed');
-    }
+    if (closeFailed) throw new BrReceitaNationalMatchProjectorError('row_close_failed');
   };
 
   const failAndClose = (reason: BrReceitaNationalMatchProjectorFailureReason): never => {
@@ -188,20 +182,15 @@ export function createBrReceitaReferencedRowReader(args: {
   return {
     read(reference): string {
       const validation = validateBrazilReceitaFullJoinRowReference(reference);
-      if (!validation.ok) {
-        return failAndClose('reference_invalid');
-      }
-      if (reference.byteLength > args.maxRowBytes) {
-        return failAndClose('row_too_large');
-      }
+      if (!validation.ok) return failAndClose('reference_invalid');
+      if (reference.byteLength > args.maxRowBytes) return failAndClose('row_too_large');
+
+      const reservation = args.materializationGuard.reserveRow(reference.byteLength);
+      if (!reservation.ok) return failAndClose('materialization_resource_cap_exceeded');
 
       const descriptor = descriptorByOrdinal.get(reference.sourceFileOrdinal);
-      if (descriptor === undefined) {
-        return failAndClose('descriptor_missing');
-      }
-      if (descriptor.family !== reference.family) {
-        return failAndClose('reference_family_mismatch');
-      }
+      if (descriptor === undefined) return failAndClose('descriptor_missing');
+      if (descriptor.family !== reference.family) return failAndClose('reference_family_mismatch');
 
       let handle = handleByOrdinal.get(reference.sourceFileOrdinal);
       if (handle === undefined) {
@@ -222,9 +211,7 @@ export function createBrReceitaReferencedRowReader(args: {
           reference.byteLength,
           reference.byteOffset,
         );
-        if (bytesRead !== reference.byteLength) {
-          return failAndClose('row_short_read');
-        }
+        if (bytesRead !== reference.byteLength) return failAndClose('row_short_read');
         return buffer.toString(descriptor.encoding === 'latin1' ? 'latin1' : 'utf8');
       } catch (error) {
         if (error instanceof BrReceitaNationalMatchProjectorError) throw error;
@@ -240,29 +227,22 @@ interface RawPair {
   readonly estabelecimento: BrReceitaEstabelecimentoRow;
 }
 
-/**
- * Sink used by Stage 3 of the national join.
- *
- * It buffers at most 500 matched pairs, runs the existing approved parser over that bounded set,
- * projects accepted rows to the persisted shape, and forwards them to the existing-run writer.
- * Rejections are counted only by category; no rejected value or identifier is retained.
- */
 export function createBrReceitaNationalMatchProjectorSink(args: {
   readonly sourcePeriod: string;
   readonly sourceYear: number;
   readonly descriptors: readonly BrazilReceitaFullJoinSourceFileDescriptor[];
   readonly fileSystem: BrazilReceitaFullJoinReaderFileSystem;
   readonly openHandleLedger: BrazilReceitaFullJoinOpenHandleLedger;
+  readonly materializationGuard: BrReceitaNationalMaterializationGuard;
   readonly maxRowBytes: number;
   readonly catalogs: BrReceitaNationalReferenceCatalogs;
   readonly writer: BrReceitaExistingRunChunkWriter;
-}): BrazilReceitaFullJoinSink & {
-  readonly stats: () => BrReceitaNationalProjectorStats;
-} {
+}): BrazilReceitaFullJoinSink & { readonly stats: () => BrReceitaNationalProjectorStats } {
   const rowReader = createBrReceitaReferencedRowReader({
     descriptors: args.descriptors,
     fileSystem: args.fileSystem,
     openHandleLedger: args.openHandleLedger,
+    materializationGuard: args.materializationGuard,
     maxRowBytes: args.maxRowBytes,
   });
 
@@ -280,12 +260,13 @@ export function createBrReceitaNationalMatchProjectorSink(args: {
     parserRejectedRows,
     rejectionCounts: { ...rejectionCounts },
     batchesParsed,
+    materialization: args.materializationGuard.observations(),
+    materializationBreach: args.materializationGuard.breach(),
     finalized,
   });
 
   const flush = async (): Promise<void> => {
     if (pairs.length === 0) return;
-
     const parsed = buildBrReceitaCnpjSnapshotRows({
       sourceYear: args.sourceYear,
       sourcePeriod: args.sourcePeriod,
@@ -295,7 +276,6 @@ export function createBrReceitaNationalMatchProjectorSink(args: {
       municipiosRows: [...args.catalogs.municipiosRows],
       naturezasRows: [...args.catalogs.naturezasRows],
     });
-
     if (parsed.snapshots.length > pairs.length) {
       throw new BrReceitaNationalMatchProjectorError('parser_returned_multiple_rows');
     }
@@ -309,7 +289,6 @@ export function createBrReceitaNationalMatchProjectorSink(args: {
     for (const snapshot of parsed.snapshots) {
       await args.writer.push(toBrReceitaPersistedSnapshot(snapshot));
     }
-
     pairs = [];
   };
 
@@ -328,9 +307,7 @@ export function createBrReceitaNationalMatchProjectorSink(args: {
 
   return {
     async onMatch(match: BrazilReceitaFullJoinBoundedJoinedRecord): Promise<void> {
-      if (finalized) {
-        throw new BrReceitaNationalMatchProjectorError('sink_already_finalized');
-      }
+      if (finalized) throw new BrReceitaNationalMatchProjectorError('sink_already_finalized');
       await failClosed(async () => {
         matchesReceived += 1;
         const empresaLine = rowReader.read(match.empresaReference);
@@ -339,9 +316,7 @@ export function createBrReceitaNationalMatchProjectorSink(args: {
           empresa: toEmpresaRow(empresaLine),
           estabelecimento: toEstabelecimentoRow(estabelecimentoLine),
         });
-        if (pairs.length >= PROJECTOR_BATCH_ROWS) {
-          await flush();
-        }
+        if (pairs.length >= PROJECTOR_BATCH_ROWS) await flush();
       });
     },
     async onPartitionComplete(): Promise<void> {
