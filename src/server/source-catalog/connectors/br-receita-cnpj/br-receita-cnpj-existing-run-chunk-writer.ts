@@ -90,6 +90,13 @@ export async function preflightBrReceitaExistingRunForChunkLoad(args: {
            AND to_regclass(
                  format('public.%I', public.br_receita_run_partition_name(r.id))
                ) IS NOT NULL
+           AND NOT EXISTS (
+                 SELECT 1
+                   FROM pg_catalog.pg_inherits AS i
+                  WHERE i.inhrelid = to_regclass(
+                    format('public.%I', public.br_receita_run_partition_name(r.id))
+                  )
+               )
       ) AS ready
     `,
     [
