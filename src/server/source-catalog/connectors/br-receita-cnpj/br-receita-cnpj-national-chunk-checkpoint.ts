@@ -1,8 +1,6 @@
 import { parseSourcePeriod } from '../../source-period';
 import { parseSnapshotRunId } from './br-receita-cnpj-monthly-snapshot-run-handle';
-import {
-  BR_RECEITA_NATIONAL_EXPECTED_PARTITION_COUNT,
-} from './br-receita-cnpj-existing-run-chunk-writer';
+import { BR_RECEITA_NATIONAL_EXPECTED_PARTITION_COUNT } from './br-receita-cnpj-existing-run-chunk-writer';
 import type { BrReceitaNationalChunkLoadedResult } from './br-receita-cnpj-national-chunk-loader';
 
 export const BR_RECEITA_NATIONAL_CHUNK_CHECKPOINT_VERSION = 1 as const;
@@ -13,8 +11,8 @@ export interface BrReceitaNationalCompletedOrdinalRange {
 }
 
 /**
- * Serializable control-plane checkpoint. It contains publication coordinates and ORDINAL ranges only:
- * no CNPJ, legal name, path, raw row, source-file name or row reference.
+ * Serializable control-plane checkpoint: publication coordinates plus ORDINAL ranges only.
+ * No CNPJ, legal name, path, raw row, source-file name or row reference can be represented here.
  */
 export interface BrReceitaNationalChunkCheckpoint {
   readonly version: typeof BR_RECEITA_NATIONAL_CHUNK_CHECKPOINT_VERSION;
@@ -28,8 +26,6 @@ export type BrReceitaNationalChunkCheckpointFailureReason =
   | 'run_id_malformed'
   | 'source_period_malformed'
   | 'checkpoint_version_mismatch'
-  | 'checkpoint_run_mismatch'
-  | 'checkpoint_period_mismatch'
   | 'checkpoint_partition_count_mismatch'
   | 'checkpoint_range_invalid'
   | 'chunk_not_successfully_loaded'
@@ -47,7 +43,9 @@ export class BrReceitaNationalChunkCheckpointError extends Error {
   }
 }
 
-function canonicalRange(range: BrReceitaNationalCompletedOrdinalRange): BrReceitaNationalCompletedOrdinalRange {
+type MutableRange = { start: number; endExclusive: number };
+
+function canonicalRange(range: BrReceitaNationalCompletedOrdinalRange): MutableRange {
   if (
     !Number.isSafeInteger(range.start) ||
     !Number.isSafeInteger(range.endExclusive) ||
@@ -63,8 +61,10 @@ function canonicalRange(range: BrReceitaNationalCompletedOrdinalRange): BrReceit
 function normalizeRanges(
   ranges: readonly BrReceitaNationalCompletedOrdinalRange[],
 ): readonly BrReceitaNationalCompletedOrdinalRange[] {
-  const ordered = ranges.map(canonicalRange).sort((a, b) => a.start - b.start || a.endExclusive - b.endExclusive);
-  const merged: BrReceitaNationalCompletedOrdinalRange[] = [];
+  const ordered = ranges
+    .map(canonicalRange)
+    .sort((a, b) => a.start - b.start || a.endExclusive - b.endExclusive);
+  const merged: MutableRange[] = [];
   for (const current of ordered) {
     const previous = merged[merged.length - 1];
     if (previous === undefined || current.start > previous.endExclusive) {
@@ -94,10 +94,7 @@ export function createBrReceitaNationalChunkCheckpoint(args: {
   });
 }
 
-/**
- * Narrows untrusted JSON back into a checkpoint. This is the read boundary a future operator CLI
- * uses before trusting a persisted local control file after a restart.
- */
+/** Narrows untrusted JSON before a resumed operator process trusts it. */
 export function parseBrReceitaNationalChunkCheckpoint(
   value: unknown,
 ): BrReceitaNationalChunkCheckpoint {
@@ -142,8 +139,8 @@ export function parseBrReceitaNationalChunkCheckpoint(
 }
 
 /**
- * Records one SUCCESSFULLY loaded, non-published chunk. Overlap and exact replay are idempotently
- * merged; gaps remain gaps. An aborted result is not accepted by type or runtime shape.
+ * Records one successfully loaded, still-detached chunk. Overlap/replay merge idempotently; gaps
+ * remain gaps. Run and period must match the checkpoint exactly before any range is credited.
  */
 export function recordBrReceitaLoadedNationalChunk(args: {
   readonly checkpoint: BrReceitaNationalChunkCheckpoint;
@@ -154,11 +151,18 @@ export function recordBrReceitaLoadedNationalChunk(args: {
   if (chunk.status !== 'loaded_not_published' || chunk.published !== false) {
     throw new BrReceitaNationalChunkCheckpointError('chunk_not_successfully_loaded');
   }
-  if (!Number.isSafeInteger(chunk.partitionOrdinalStart) || !Number.isSafeInteger(chunk.partitionOrdinalEndExclusive)) {
-    throw new BrReceitaNationalChunkCheckpointError('chunk_range_invalid');
+  if (chunk.snapshotRunId !== checkpoint.snapshotRunId) {
+    throw new BrReceitaNationalChunkCheckpointError('chunk_run_mismatch');
+  }
+  if (chunk.sourcePeriod !== checkpoint.sourcePeriod) {
+    throw new BrReceitaNationalChunkCheckpointError('chunk_period_mismatch');
   }
   if (
+    !Number.isSafeInteger(chunk.partitionOrdinalStart) ||
+    !Number.isSafeInteger(chunk.partitionOrdinalCount) ||
+    !Number.isSafeInteger(chunk.partitionOrdinalEndExclusive) ||
     chunk.partitionOrdinalStart < 0 ||
+    chunk.partitionOrdinalCount <= 0 ||
     chunk.partitionOrdinalEndExclusive <= chunk.partitionOrdinalStart ||
     chunk.partitionOrdinalEndExclusive > BR_RECEITA_NATIONAL_EXPECTED_PARTITION_COUNT ||
     chunk.partitionOrdinalEndExclusive - chunk.partitionOrdinalStart !== chunk.partitionOrdinalCount
@@ -166,10 +170,6 @@ export function recordBrReceitaLoadedNationalChunk(args: {
     throw new BrReceitaNationalChunkCheckpointError('chunk_range_invalid');
   }
 
-  // The chunk result itself does not carry run/period because those are intentionally supplied by
-  // the loader call rather than echoed into reports. The engine result, however, must still prove
-  // the map and exact range; those were already checked by loadBrReceitaNationalChunk. This ledger
-  // therefore binds the result to the checkpoint by operator invocation, not by inferred source data.
   const completedRanges = normalizeRanges([
     ...checkpoint.completedRanges,
     {
