@@ -14,6 +14,10 @@ import type {
 } from '../br-receita-cnpj-monthly-snapshot-write-gateway';
 
 const RUN_ID = '22222222-2222-4222-8222-222222222222';
+const MATERIALIZATION_CAPS = {
+  maxAdditionalBytesRead: 1_000_000,
+  maxRowsRehydrated: 10_000,
+} as const;
 
 function sqlReady(): BrReceitaSqlExecutor {
   return {
@@ -128,6 +132,7 @@ test('successful chunk is loaded but structurally cannot publish', async () => {
     sourceYear: 2026,
     partitionOrdinalStart: 64,
     partitionOrdinalCount: 64,
+    materializationCaps: MATERIALIZATION_CAPS,
     sql: sqlReady(),
     gateway: gatewayNoPublish(),
     catalogs,
@@ -141,11 +146,47 @@ test('successful chunk is loaded but structurally cannot publish', async () => {
 
   assert.equal(engineSawMaterializingSink, true);
   assert.equal(loaded.status, 'loaded_not_published');
+  assert.equal(loaded.snapshotRunId, RUN_ID);
+  assert.equal(loaded.sourcePeriod, '2026-07');
   assert.equal(loaded.partitionOrdinalStart, 64);
   assert.equal(loaded.partitionOrdinalEndExclusive, 128);
   assert.equal(loaded.published, false);
   assert.equal(loaded.writer.finalized, true);
   assert.equal(request.openHandleLedger.openNow(), 0);
+});
+
+test('invalid materialization caps refuse before preflight or engine execution', async () => {
+  let sqlCalls = 0;
+  let engineCalls = 0;
+  await assert.rejects(
+    () =>
+      loadBrReceitaNationalChunk({
+        snapshotRunId: RUN_ID,
+        sourcePeriod: '2026-07',
+        sourceYear: 2026,
+        partitionOrdinalStart: 0,
+        partitionOrdinalCount: 64,
+        materializationCaps: null,
+        sql: {
+          async query() {
+            sqlCalls += 1;
+            return { rows: [{ ready: true }] };
+          },
+        },
+        gateway: gatewayNoPublish(),
+        catalogs,
+        engineRequest: engineRequest(),
+        runEngine: async () => {
+          engineCalls += 1;
+          return result({ start: 0, endExclusive: 64 });
+        },
+      }),
+    (error: unknown) =>
+      error instanceof BrReceitaNationalChunkLoaderError &&
+      error.reason === 'materialization_caps_invalid',
+  );
+  assert.equal(sqlCalls, 0);
+  assert.equal(engineCalls, 0);
 });
 
 test('partition map must be pinned to 1024 before preflight or engine execution', async () => {
@@ -159,6 +200,7 @@ test('partition map must be pinned to 1024 before preflight or engine execution'
         sourceYear: 2026,
         partitionOrdinalStart: 0,
         partitionOrdinalCount: 64,
+        materializationCaps: MATERIALIZATION_CAPS,
         sql: {
           async query() {
             sqlCalls += 1;
@@ -188,6 +230,7 @@ test('aborted engine never reports a completed chunk and never publishes', async
     sourceYear: 2026,
     partitionOrdinalStart: 0,
     partitionOrdinalCount: 32,
+    materializationCaps: MATERIALIZATION_CAPS,
     sql: sqlReady(),
     gateway: gatewayNoPublish(),
     catalogs,
@@ -209,6 +252,7 @@ test('effective repartition after execution refuses the checkpoint', async () =>
         sourceYear: 2026,
         partitionOrdinalStart: 0,
         partitionOrdinalCount: 64,
+        materializationCaps: MATERIALIZATION_CAPS,
         sql: sqlReady(),
         gateway: gatewayNoPublish(),
         catalogs,
@@ -233,6 +277,7 @@ test('executed ordinal range must equal the requested checkpoint exactly', async
         sourceYear: 2026,
         partitionOrdinalStart: 128,
         partitionOrdinalCount: 64,
+        materializationCaps: MATERIALIZATION_CAPS,
         sql: sqlReady(),
         gateway: gatewayNoPublish(),
         catalogs,
