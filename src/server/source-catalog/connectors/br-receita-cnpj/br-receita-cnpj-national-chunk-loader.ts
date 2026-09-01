@@ -38,7 +38,8 @@ export type BrReceitaNationalChunkLoaderRefusalReason =
   | 'materialization_breach_on_completed_engine'
   | 'partition_summary_match_mismatch'
   | 'projector_accounting_mismatch'
-  | 'writer_accounting_mismatch';
+  | 'writer_accounting_mismatch'
+  | 'writer_post_commit_accounting_mismatch';
 
 export class BrReceitaNationalChunkLoaderError extends Error {
   readonly reason: BrReceitaNationalChunkLoaderRefusalReason;
@@ -162,6 +163,16 @@ function assertCompletedChunkAccounting(args: {
   }
 }
 
+function assertCommittedWriterAccounting(writer: BrReceitaExistingRunWriterStats): void {
+  if (
+    !writer.finalized ||
+    writer.pendingRows !== 0 ||
+    writer.writtenRows + writer.collapsedInBatchCount !== writer.acceptedRows
+  ) {
+    throw new BrReceitaNationalChunkLoaderError('writer_post_commit_accounting_mismatch');
+  }
+}
+
 /**
  * Loads one Stage-3 ordinal window into an ALREADY-EXISTING detached run. It cannot publish.
  * Materialization caps cover the extra full-row reads performed after key matching; no defaults.
@@ -271,6 +282,7 @@ export async function loadBrReceitaNationalChunk(args: {
   });
 
   const writerStats = await writer.commitChunk();
+  assertCommittedWriterAccounting(writerStats);
   return {
     status: 'loaded_not_published',
     snapshotRunId: args.snapshotRunId,
