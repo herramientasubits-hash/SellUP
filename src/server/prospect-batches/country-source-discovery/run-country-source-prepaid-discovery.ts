@@ -41,6 +41,7 @@ import type {
   DuplicateCheckInput,
   DuplicateCheckResult,
 } from '@/server/agents/prospecting-toolkit/types';
+import { hasStrongIdentityDuplicateMatch } from '@/server/agents/prospecting-toolkit/strong-identity-duplicate-match';
 import {
   assessCountrySourceMacroPrecision,
   isCountrySourceMacroPrecisionAdmitted,
@@ -111,17 +112,35 @@ function buildDuplicateCheckInput(
  * justo lo que un humano tiene que revisar; tratarla como conocida escondería
  * empresas nuevas, y tratarla como nueva es seguro porque el candidato llega a
  * revisión con su estado de duplicado a la vista.
+ *
+ * ── AGENT1-LUSHA-CUT-L7 § 11 — «conocida» exige identidad FUERTE ─────────────
+ *
+ * 🔴 Antes bastaba la ETIQUETA `existing_in_sellup` / `existing_in_hubspot`, que
+ * los checkers ponen tanto a un dominio o identificador fiscal exactos como a un
+ * NOMBRE normalizado (sellup 88, hubspot 82). Un homónimo —«Servicios
+ * Integrales S.A.S.», decenas en Colombia con NITs y dominios distintos—
+ * marcaba `sellup_known` a una empresa gratuita GENUINAMENTE nueva: no entraba
+ * al lote, el hueco residual no bajaba y el proveedor de PAGO recibía un
+ * objetivo más grande. El falso positivo no ahorraba dinero: lo GASTABA.
+ *
+ * Ahora sólo suprime la identidad fuerte que `strong-identity-duplicate-match`
+ * reconoce (dominio o identidad fiscal oficial exactos). La evidencia de nombre
+ * NO se pierde: la empresa se acepta y llega a revisión con su estado de
+ * duplicado a la vista, igual que un `possible_duplicate`.
+ *
+ * El dominio del CANDIDATO se pasa como contexto para el veto de § 8: dos
+ * dominios presentes y distintos jamás se fusionan por nombre.
  */
 function classifyKnownness(result: DuplicateCheckResult): 'sellup_known' | 'hubspot_known' | 'novel' {
-  const sellupExact = result.matches.some(
-    (m) => m.source === 'sellup' && m.status === 'existing_in_sellup',
-  );
-  if (sellupExact) return 'sellup_known';
+  const context = { candidateDomain: result.input?.domain ?? null };
 
-  const hubspotExact = result.matches.some(
-    (m) => m.source === 'hubspot' && m.status === 'existing_in_hubspot',
-  );
-  if (hubspotExact) return 'hubspot_known';
+  if (hasStrongIdentityDuplicateMatch(result.matches, 'sellup', context)) {
+    return 'sellup_known';
+  }
+
+  if (hasStrongIdentityDuplicateMatch(result.matches, 'hubspot', context)) {
+    return 'hubspot_known';
+  }
 
   return 'novel';
 }

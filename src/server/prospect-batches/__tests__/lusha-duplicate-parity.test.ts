@@ -158,16 +158,22 @@ const NO_GUARD: DuplicateGuardMatch = {
 };
 
 function sellupExact(accountId: string): DuplicateMatch {
-  return { source: 'sellup', status: 'existing_in_sellup', confidence: 95, matchedId: accountId, matchedName: 'Acme', reason: 'domain' };
+  return { source: 'sellup', status: 'existing_in_sellup', confidence: 95, matchedId: accountId, matchedDomain: 'acme.com', matchedName: 'Acme', reason: 'domain' };
 }
 function sellupPossible(accountId: string): DuplicateMatch {
   return { source: 'sellup', status: 'possible_duplicate', confidence: 65, matchedId: accountId, matchedName: 'Acme SAS', reason: 'name' };
 }
+// AGENT1-LUSHA-CUT-L7 § 29 — estas dos fábricas emitían confianzas que
+// PRODUCCIÓN NUNCA EMITE (90 y 60). Un fixture inventado no defiende nada: con
+// la fuerza de identidad leída de la confianza real, un 90 no habría sido
+// reconocido como dominio exacto y la suite habría pasado en verde sobre un eje
+// que no existe. Se sustituyen por las de `hubspot-duplicate-checker`:
+// 92 = dominio exacto, 65 = contenido de nombre.
 function hubspotExact(hsId: string): DuplicateMatch {
-  return { source: 'hubspot', status: 'existing_in_hubspot', confidence: 90, matchedId: hsId, matchedName: 'Acme', reason: 'domain' };
+  return { source: 'hubspot', status: 'existing_in_hubspot', confidence: 92, matchedId: hsId, matchedDomain: 'acme.com', matchedName: 'Acme', reason: 'domain' };
 }
 function hubspotPossible(hsId: string): DuplicateMatch {
-  return { source: 'hubspot', status: 'possible_duplicate', confidence: 60, matchedId: hsId, matchedName: 'Acme Inc', reason: 'name' };
+  return { source: 'hubspot', status: 'possible_duplicate', confidence: 65, matchedId: hsId, matchedName: 'Acme Inc', reason: 'name' };
 }
 
 // ── Flow harness: configurable read-only deps, spy on writes ──────────────────

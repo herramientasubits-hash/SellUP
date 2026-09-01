@@ -77,10 +77,18 @@ import {
   type DuplicateGuardInput,
   type DuplicateGuardMatch,
 } from '@/server/agents/prospecting-toolkit/active-candidate-identity-guard';
+// AGENT1-LUSHA-CUT-L7 — el lector COMPARTIDO de fuerza de identidad. El mismo
+// que usan el pre-pago gratuito, la guarda de activos y Apollo.
+import {
+  classifyDuplicateIdentityEvidence,
+  findStrongIdentityDuplicateMatch,
+  findWeakIdentityDuplicateMatch,
+  isStrongActiveGuardReason,
+  isWeakActiveGuardReason,
+} from '@/server/agents/prospecting-toolkit/strong-identity-duplicate-match';
 import type {
   DuplicateCheckInput,
   DuplicateCheckResult,
-  DuplicateMatch,
 } from '@/server/agents/prospecting-toolkit/types';
 import {
   normalizeDomain,
@@ -1184,12 +1192,17 @@ export function buildLushaGuardInput(company: LushaPreviewCompany): DuplicateGua
   };
 }
 
-/** Strong active matches are SKIPPED before insert (canonical writer behavior). */
+/**
+ * Strong active matches are SKIPPED before insert (canonical writer behavior).
+ *
+ * AGENT1-LUSHA-CUT-L7 § 17 — el eje fuerte es el DOMINIO y sólo el dominio.
+ * `same_inferred_identity` comparaba `inferred_company_name` normalizado: es
+ * NOMBRE, y saltaba duro sin dejar rastro, así que dos empresas homónimas con
+ * dominios distintos se reducían a una en silencio. Ahora sobrevive como
+ * evidencia de posible duplicado (`resolveLushaCandidateDuplicateState`).
+ */
 export function isStrongActiveGuardMatch(match: DuplicateGuardMatch): boolean {
-  return (
-    match.matched &&
-    (match.reason === 'same_active_domain' || match.reason === 'same_inferred_identity')
-  );
+  return match.matched && isStrongActiveGuardReason(match.reason);
 }
 
 /**
@@ -1221,11 +1234,6 @@ export function classifyActiveGuardMatchType(
     default:
       return 'unknown';
   }
-}
-
-/** True for the checker statuses that mean a confirmed (exact) match. */
-function isExactCheckerStatus(status: DuplicateMatch['status']): boolean {
-  return status === 'existing_in_sellup' || status === 'existing_in_hubspot';
 }
 
 const SOURCE_LABEL: Record<LushaDuplicateDetailSource['source'], string> = {
@@ -1266,11 +1274,15 @@ export function buildLushaDuplicateDetails(
   guardMatch: DuplicateGuardMatch,
 ): LushaDuplicateDetails | null {
   const sources: LushaDuplicateDetailSource[] = [];
+  // § 14 — la FUERZA que se le muestra al revisor sale del lector compartido, no
+  // de la etiqueta del checker: un `existing_in_sellup` por NOMBRE es `possible`.
+  const identityContext = { candidateDomain: dupResult.input?.domain ?? null };
 
   for (const m of dupResult.matches) {
     if (m.source !== 'sellup' && m.source !== 'hubspot') continue;
-    const exact = isExactCheckerStatus(m.status);
-    const possible = m.status === 'possible_duplicate';
+    const evidence = classifyDuplicateIdentityEvidence(m, identityContext);
+    const exact = evidence.strength === 'strong';
+    const possible = evidence.strength === 'weak';
     if (!exact && !possible) continue; // ignore insufficient_data / new_candidate / unchecked
 
     const detail: LushaDuplicateDetailSource = {
@@ -1291,8 +1303,11 @@ export function buildLushaDuplicateDetails(
     sources.push(detail);
   }
 
-  // Active-candidate canonical match contributes a possible-duplicate source.
-  if (guardMatch.matched && guardMatch.reason === 'same_canonical_identity') {
+  // § 17 — cualquier coincidencia de NOMBRE contra un candidato activo
+  // (`same_canonical_identity` o `same_inferred_identity`) aporta evidencia de
+  // posible duplicado. Antes `same_inferred_identity` saltaba duro y no dejaba
+  // rastro alguno para el revisor.
+  if (guardMatch.matched && isWeakActiveGuardReason(guardMatch.reason)) {
     const detail: LushaDuplicateDetailSource = {
       source: 'active_candidate',
       matchType: classifyActiveGuardMatchType(guardMatch.reason),
@@ -1301,7 +1316,10 @@ export function buildLushaDuplicateDetails(
     if (guardMatch.matchedName) detail.matchedName = guardMatch.matchedName;
     if (guardMatch.matchedDomain) detail.matchedDomain = guardMatch.matchedDomain;
     if (guardMatch.matchedCandidateId) detail.matchedCandidateId = guardMatch.matchedCandidateId;
-    detail.reason = 'Mismo nombre normalizado que un candidato activo';
+    detail.reason =
+      guardMatch.reason === 'same_inferred_identity'
+        ? 'Mismo nombre inferido que un candidato activo'
+        : 'Mismo nombre normalizado que un candidato activo';
     sources.push(detail);
   }
 
@@ -1334,13 +1352,14 @@ export function resolveLushaCandidateDuplicateState(
   dupResult: DuplicateCheckResult,
   guardMatch: DuplicateGuardMatch,
 ): LushaCandidateDuplicateResolution {
-  const sellupMatches = dupResult.matches.filter((m) => m.source === 'sellup');
-  const hubspotMatches = dupResult.matches.filter((m) => m.source === 'hubspot');
+  // AGENT1-LUSHA-CUT-L7 §§ 14-16 — «exacto» exige identidad FUERTE, no la
+  // etiqueta. El dominio del candidato entra como contexto del veto de § 8.
+  const identityContext = { candidateDomain: dupResult.input?.domain ?? null };
 
-  const sellupExact = sellupMatches.find((m) => m.status === 'existing_in_sellup') ?? null;
-  const sellupPossible = sellupMatches.find((m) => m.status === 'possible_duplicate') ?? null;
-  const hubspotExact = hubspotMatches.find((m) => m.status === 'existing_in_hubspot') ?? null;
-  const hubspotPossible = hubspotMatches.find((m) => m.status === 'possible_duplicate') ?? null;
+  const sellupExact = findStrongIdentityDuplicateMatch(dupResult.matches, 'sellup', identityContext);
+  const sellupPossible = findWeakIdentityDuplicateMatch(dupResult.matches, 'sellup', identityContext);
+  const hubspotExact = findStrongIdentityDuplicateMatch(dupResult.matches, 'hubspot', identityContext);
+  const hubspotPossible = findWeakIdentityDuplicateMatch(dupResult.matches, 'hubspot', identityContext);
 
   const hubspotChecked = dupResult.checkedSources.includes('hubspot');
   const hubspotErrored = (dupResult.errors ?? []).some((e) => /hubspot/i.test(e));
@@ -1371,16 +1390,18 @@ export function resolveLushaCandidateDuplicateState(
         ? 'performed_possible_duplicate'
         : 'performed_no_match';
 
-  const activeCanonical =
-    guardMatch.matched && guardMatch.reason === 'same_canonical_identity';
-  const activeCandidateDuplicateCheck: ActiveCandidateDuplicateCheckTrace = activeCanonical
+  // § 17 — `same_inferred_identity` es igualdad de NOMBRE, igual que
+  // `same_canonical_identity`. Deja de ser un salto duro y pasa a contribuir
+  // evidencia de posible duplicado, en vez de desaparecer sin dejar rastro.
+  const activeWeakName = guardMatch.matched && isWeakActiveGuardReason(guardMatch.reason);
+  const activeCandidateDuplicateCheck: ActiveCandidateDuplicateCheckTrace = activeWeakName
     ? 'performed_possible_duplicate'
     : 'performed_no_match';
 
   const dbDuplicateStatus: LushaDbDuplicateStatus =
     sellupExact || hubspotExact
       ? 'exact_duplicate'
-      : sellupPossible || hubspotPossible || activeCanonical
+      : sellupPossible || hubspotPossible || activeWeakName
         ? 'possible_duplicate'
         : 'no_match';
 

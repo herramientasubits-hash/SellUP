@@ -45,12 +45,21 @@ function noMatch(input: DuplicateCheckInput): DuplicateCheckResult {
   };
 }
 
+// AGENT1-LUSHA-CUT-L7 § 29 — estas dos fábricas emitían `confidence: 100`, un
+// valor que NINGÚN checker de producción produce. Con la fuerza de identidad
+// leída de la confianza real, un 100 no corresponde a ningún eje y la suite
+// habría defendido un escenario inexistente. Se sustituyen por las confianzas
+// que `sellup-duplicate-checker` y `hubspot-duplicate-checker` emiten de verdad
+// para la intención declarada de cada fábrica —identidad FISCAL exacta—:
+// sellup 92 (`tax_identifier` exacto) y hubspot 95 (identificador fiscal
+// oficial exacto). Los dos siguen siendo ejes FUERTES, así que la intención de
+// los casos § 22(B) y § 22(C) se conserva intacta.
 function sellupExact(input: DuplicateCheckInput): DuplicateCheckResult {
   return {
     ...noMatch(input),
     status: 'existing_in_sellup',
     matches: [
-      { source: 'sellup', status: 'existing_in_sellup', confidence: 100, reason: 'tax_identifier' },
+      { source: 'sellup', status: 'existing_in_sellup', confidence: 92, reason: 'tax_identifier' },
     ],
   };
 }
@@ -60,7 +69,7 @@ function hubspotExact(input: DuplicateCheckInput): DuplicateCheckResult {
     ...noMatch(input),
     status: 'existing_in_hubspot',
     matches: [
-      { source: 'hubspot', status: 'existing_in_hubspot', confidence: 100, reason: 'nit' },
+      { source: 'hubspot', status: 'existing_in_hubspot', confidence: 95, reason: 'nit' },
     ],
   };
 }

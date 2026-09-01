@@ -3298,6 +3298,50 @@ jobs:
       # sin Apollo. 0 créditos.
       - name: Run A1 Lusha CUT-L5 billing block + page size tests
         run: npm run test:a1-lusha-cut-l5-billing-blocks
+      # AGENT1-LUSHA-CUT-L7 — el NOMBRE es evidencia DÉBIL de identidad de
+      # empresa, y la corrección es COMPARTIDA por los cuatro consumidores.
+      #
+      # El defecto que cierra: los dos checkers legacy ponen la MISMA etiqueta
+      # `existing_in_sellup` / `existing_in_hubspot` a un dominio o identificador
+      # fiscal exactos y a un NOMBRE normalizado. Sus consumidores leían `status`
+      # a secas, así que un homónimo —«Servicios Integrales S.A.S.», decenas en
+      # Colombia con NITs y dominios distintos— descartaba en silencio una
+      # empresa potencialmente distinta: en el pre-pago gratuito como
+      # `sellup_known` (el hueco residual no bajaba y el proveedor de PAGO
+      # recibía un objetivo mayor: el falso positivo GASTABA), y en Lusha
+      # post-pago como `exact_duplicate` (el candidato YA PAGADO salía de
+      # revisión y podía comprarse otra página).
+      #
+      # Lo que esta suite defiende, dicho como defecto:
+      #   * que `sellup 88` (nombre + país) o `hubspot 82` (nombre sin país)
+      #     vuelvan a ser identidad fuerte (M1, M2);
+      #   * que dos dominios presentes y DISTINTOS se fusionen por nombre (M3);
+      #   * que un nombre sin dominio se declare `exact_duplicate` (M4);
+      #   * que el pre-pago vuelva a marcar `sellup_known` por nombre (M5) o que
+      #     Lusha vuelva a `exact_duplicate` por nombre (M6);
+      #   * que `same_inferred_identity` —igualdad de nombre inferido— vuelva a
+      #     ser un salto DURO en la guarda de activos (M7);
+      #   * que la semántica de NOMBRE de Apollo cambie (M8);
+      #   * que el mismo dominio (M9) o la identidad fiscal (M10) dejen de ser
+      #     duplicado duro;
+      #   * que el id de proveedor se promueva a identidad global (M11);
+      #   * que la supresión por dominio conocido de CUT-L1 se debilite (M12);
+      #   * que reaparezca la confianza INVENTADA 90 de HubSpot en el fixture de
+      #     paridad —producción emite 92, nunca 90 (M13);
+      #   * que la suite salga del check obligatorio (M14).
+      #
+      # 🔴 Lo que NO afirma: que Lusha sea seguro de activar, que el preview
+      # pagado se haya reactivado —sigue incapacitado—, ni que ninguna migración
+      # se haya aplicado. CUT-L7 no añade migración: el techo sigue en 136.
+      #
+      # 🔴 Deuda REGISTRADA y no tocada: la búsqueda de identificador fiscal
+      # desnudo de `sellup-duplicate-checker` no está acotada por país. Corte
+      # aparte: AGENT1-SHARED-FISCAL-IDENTITY-COUNTRY-SCOPE.
+      #
+      # Pura y offline: dobles locales. Sin red, sin Supabase, sin Lusha, sin
+      # Apollo. 0 créditos.
+      - name: Run A1 Lusha CUT-L7 shared identity correction tests
+        run: npm run test:a1-lusha-cut-l7-shared-identity
       # AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1 · CUT-1 — la SUPERVIVENCIA del lote
       # entra al check obligatorio.
       #
