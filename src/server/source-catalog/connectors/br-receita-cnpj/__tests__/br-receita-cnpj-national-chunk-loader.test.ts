@@ -47,7 +47,11 @@ function gatewayNoPublish(): BrReceitaSnapshotWriteGateway {
   };
 }
 
-function engineRequest(partitionCount = 1024, maxPartitionCount = 1024) {
+function engineRequest(
+  partitionCount = 1024,
+  maxPartitionCount = 1024,
+  duplicateKeyPolicy: unknown = 'reject',
+) {
   const readerFileSystem = {
     size: () => 0,
     open: () => {
@@ -73,7 +77,7 @@ function engineRequest(partitionCount = 1024, maxPartitionCount = 1024) {
       maxReferenceBytesPerPartition: 2_097_152,
     },
     resourceCaps: {},
-    duplicateKeyPolicy: 'pair_with_every_duplicate',
+    duplicateKeyPolicy,
     readerFileSystem,
     workspaceFileSystem: {},
     workspaceParentDirectory: '/opaque',
@@ -221,6 +225,34 @@ test('partition map must be pinned to 1024 before preflight or engine execution'
   );
   assert.equal(sqlCalls, 0);
   assert.equal(engineCalls, 0);
+});
+
+test('national loader refuses any duplicate policy other than reject before preflight', async () => {
+  let sqlCalls = 0;
+  await assert.rejects(
+    () =>
+      loadBrReceitaNationalChunk({
+        snapshotRunId: RUN_ID,
+        sourcePeriod: '2026-07',
+        sourceYear: 2026,
+        partitionOrdinalStart: 0,
+        partitionOrdinalCount: 64,
+        materializationCaps: MATERIALIZATION_CAPS,
+        sql: {
+          async query() {
+            sqlCalls += 1;
+            return { rows: [{ ready: true }] };
+          },
+        },
+        gateway: gatewayNoPublish(),
+        catalogs,
+        engineRequest: engineRequest(1024, 1024, 'pair_with_every_duplicate'),
+      }),
+    (error: unknown) =>
+      error instanceof BrReceitaNationalChunkLoaderError &&
+      error.reason === 'duplicate_policy_not_reject',
+  );
+  assert.equal(sqlCalls, 0);
 });
 
 test('aborted engine never reports a completed chunk and never publishes', async () => {
