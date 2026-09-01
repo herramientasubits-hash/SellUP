@@ -94,6 +94,12 @@ export interface BrReceitaNationalProjectorStats {
   readonly finalized: boolean;
 }
 
+export interface BrReceitaNationalMatchProjectorSink extends BrazilReceitaFullJoinSink {
+  stats(): BrReceitaNationalProjectorStats;
+  /** Closes cached source handles and drops buffered raw pairs without parsing or writing them. */
+  dispose(): void;
+}
+
 function field(line: string, index: number): string {
   const raw = readBrazilReceitaFullJoinFieldAt(line, OFFICIAL_DELIMITER, index);
   if (raw === null) return '';
@@ -185,12 +191,12 @@ export function createBrReceitaReferencedRowReader(args: {
       if (!validation.ok) return failAndClose('reference_invalid');
       if (reference.byteLength > args.maxRowBytes) return failAndClose('row_too_large');
 
-      const reservation = args.materializationGuard.reserveRow(reference.byteLength);
-      if (!reservation.ok) return failAndClose('materialization_resource_cap_exceeded');
-
       const descriptor = descriptorByOrdinal.get(reference.sourceFileOrdinal);
       if (descriptor === undefined) return failAndClose('descriptor_missing');
       if (descriptor.family !== reference.family) return failAndClose('reference_family_mismatch');
+
+      const reservation = args.materializationGuard.reserveRow(reference.byteLength);
+      if (!reservation.ok) return failAndClose('materialization_resource_cap_exceeded');
 
       let handle = handleByOrdinal.get(reference.sourceFileOrdinal);
       if (handle === undefined) {
@@ -237,7 +243,7 @@ export function createBrReceitaNationalMatchProjectorSink(args: {
   readonly maxRowBytes: number;
   readonly catalogs: BrReceitaNationalReferenceCatalogs;
   readonly writer: BrReceitaExistingRunChunkWriter;
-}): BrazilReceitaFullJoinSink & { readonly stats: () => BrReceitaNationalProjectorStats } {
+}): BrReceitaNationalMatchProjectorSink {
   const rowReader = createBrReceitaReferencedRowReader({
     descriptors: args.descriptors,
     fileSystem: args.fileSystem,
@@ -252,6 +258,7 @@ export function createBrReceitaNationalMatchProjectorSink(args: {
   let parserRejectedRows = 0;
   let batchesParsed = 0;
   let finalized = false;
+  let disposed = false;
   const rejectionCounts: Partial<Record<BrReceitaCnpjRejectionReason, number>> = {};
 
   const stats = (): BrReceitaNationalProjectorStats => ({
@@ -307,7 +314,9 @@ export function createBrReceitaNationalMatchProjectorSink(args: {
 
   return {
     async onMatch(match: BrazilReceitaFullJoinBoundedJoinedRecord): Promise<void> {
-      if (finalized) throw new BrReceitaNationalMatchProjectorError('sink_already_finalized');
+      if (finalized || disposed) {
+        throw new BrReceitaNationalMatchProjectorError('sink_already_finalized');
+      }
       await failClosed(async () => {
         matchesReceived += 1;
         const empresaLine = rowReader.read(match.empresaReference);
@@ -320,15 +329,26 @@ export function createBrReceitaNationalMatchProjectorSink(args: {
       });
     },
     async onPartitionComplete(): Promise<void> {
+      if (disposed) throw new BrReceitaNationalMatchProjectorError('sink_already_finalized');
       await failClosed(flush);
     },
     async finalize(): Promise<void> {
       if (finalized) return;
+      if (disposed) throw new BrReceitaNationalMatchProjectorError('sink_already_finalized');
       try {
         await flush();
       } finally {
         rowReader.closeAll();
         finalized = true;
+      }
+    },
+    dispose(): void {
+      if (finalized || disposed) return;
+      pairs = [];
+      try {
+        rowReader.closeAll();
+      } finally {
+        disposed = true;
       }
     },
     stats,
