@@ -11,6 +11,7 @@ import type { BrReceitaPersistedSnapshot } from '../br-receita-cnpj-monthly-snap
 import type { BrazilReceitaFullJoinReaderFileSystem } from '../br-receita-cnpj-full-join-streaming-reader';
 import type { BrazilReceitaFullJoinSourceFileDescriptor } from '../br-receita-cnpj-full-join-engine-contract';
 import { createBrazilReceitaFullJoinOpenHandleLedger } from '../br-receita-cnpj-full-join-open-handle-ledger';
+import { createBrReceitaNationalMaterializationGuard } from '../br-receita-cnpj-national-materialization-envelope';
 
 function quotedRow(columns: readonly string[]): string {
   return columns.map((value) => `"${value.replace(/"/g, '""')}"`).join(';');
@@ -46,6 +47,13 @@ estabelecimentoColumns[21] = '11';
 estabelecimentoColumns[22] = '99999999';
 estabelecimentoColumns[27] = 'nao-persistir@example.com';
 const estabelecimentoLine = quotedRow(estabelecimentoColumns);
+
+function materializationGuard(maxAdditionalBytesRead = 10_000_000, maxRowsRehydrated = 10_000) {
+  return createBrReceitaNationalMaterializationGuard({
+    maxAdditionalBytesRead,
+    maxRowsRehydrated,
+  });
+}
 
 interface InstrumentedFileSystem {
   readonly fileSystem: BrazilReceitaFullJoinReaderFileSystem;
@@ -154,10 +162,12 @@ test('referenced row reader reads only the declared byte slice and reuses its ha
   const source = `${prefix}${empresaLine}ignored-suffix`;
   const fs = fsFor({ '/opaque/empresa': source });
   const ledger = createBrazilReceitaFullJoinOpenHandleLedger(64);
+  const budget = materializationGuard();
   const reader = createBrReceitaReferencedRowReader({
     descriptors: [descriptors[0]!],
     fileSystem: fs.fileSystem,
     openHandleLedger: ledger,
+    materializationGuard: budget,
     maxRowBytes: 64 * 1024,
   });
 
@@ -172,10 +182,46 @@ test('referenced row reader reads only the declared byte slice and reuses its ha
   assert.equal(reader.read(reference), empresaLine);
 
   assert.equal(fs.openCalls(), 1, 'one descriptor must serve repeated random-access reads');
+  assert.deepEqual(budget.observations(), {
+    additionalBytesRead: reference.byteLength * 3,
+    rowsRehydrated: 3,
+  });
   assert.equal(ledger.openNow(), 1);
   reader.closeAll();
   assert.equal(fs.closeCalls(), 1);
   assert.equal(ledger.openNow(), 0);
+});
+
+test('materialization bytes are refused before the filesystem read that would exceed the cap', () => {
+  const fs = fsFor({ '/opaque/empresa': empresaLine });
+  const ledger = createBrazilReceitaFullJoinOpenHandleLedger(64);
+  const exactBytes = Buffer.byteLength(empresaLine, 'latin1');
+  const budget = materializationGuard(exactBytes, 2);
+  const reader = createBrReceitaReferencedRowReader({
+    descriptors: [descriptors[0]!],
+    fileSystem: fs.fileSystem,
+    openHandleLedger: ledger,
+    materializationGuard: budget,
+    maxRowBytes: 64 * 1024,
+  });
+  const reference = {
+    sourceFileOrdinal: 0,
+    family: 'empresas' as const,
+    byteOffset: 0,
+    byteLength: exactBytes,
+  };
+
+  assert.equal(reader.read(reference), empresaLine);
+  assert.throws(
+    () => reader.read(reference),
+    (error: unknown) =>
+      error instanceof BrReceitaNationalMatchProjectorError &&
+      error.reason === 'materialization_resource_cap_exceeded',
+  );
+  assert.equal(fs.openCalls(), 1);
+  assert.equal(fs.closeCalls(), 1);
+  assert.equal(ledger.openNow(), 0);
+  assert.equal(budget.breach()?.cap, 'maxAdditionalBytesRead');
 });
 
 test('national match is projected through the approved parser and sensitive source fields disappear', async () => {
@@ -185,12 +231,14 @@ test('national match is projected through the approved parser and sensitive sour
     '/opaque/estabelecimento': estabelecimentoLine,
   });
   const ledger = createBrazilReceitaFullJoinOpenHandleLedger(64);
+  const budget = materializationGuard();
   const sink = createBrReceitaNationalMatchProjectorSink({
     sourcePeriod: '2026-07',
     sourceYear: 2026,
     descriptors,
     fileSystem: fs.fileSystem,
     openHandleLedger: ledger,
+    materializationGuard: budget,
     maxRowBytes: 64 * 1024,
     catalogs: {
       cnaesRows: [
@@ -236,7 +284,6 @@ test('national match is projected through the approved parser and sensitive sour
   assert.equal(serialized.includes('99999999'), false);
   assert.equal(serialized.includes('nao-persistir@example.com'), false);
   assert.equal(serialized.includes('SEGREDO'), false);
-  assert.equal(serialized.includes('NOME FANTASIA QUE NAO PUEDE PERSISTIR'), false);
   assert.equal(serialized.includes('NOME FANTASIA QUE NAO PODE PERSISTIR'), false);
   assert.equal(fs.openCalls(), 2, 'one cached handle per descriptor, not per match');
   assert.equal(fs.closeCalls(), 2);
@@ -247,6 +294,12 @@ test('national match is projected through the approved parser and sensitive sour
     parserRejectedRows: 0,
     rejectionCounts: {},
     batchesParsed: 1,
+    materialization: {
+      additionalBytesRead:
+        Buffer.byteLength(empresaLine, 'latin1') + Buffer.byteLength(estabelecimentoLine, 'latin1'),
+      rowsRehydrated: 2,
+    },
+    materializationBreach: null,
     finalized: true,
   });
 });
@@ -265,6 +318,7 @@ test('layout mismatch refuses before a malformed row reaches the approved parser
     descriptors,
     fileSystem: fs.fileSystem,
     openHandleLedger: ledger,
+    materializationGuard: materializationGuard(),
     maxRowBytes: 64 * 1024,
     catalogs: { cnaesRows: [], municipiosRows: [], naturezasRows: [] },
     writer: recorder.writer,
@@ -302,6 +356,7 @@ test('reference family mismatch fails closed without exposing source data', () =
     descriptors: [descriptors[0]!],
     fileSystem: fs.fileSystem,
     openHandleLedger: ledger,
+    materializationGuard: materializationGuard(),
     maxRowBytes: 64 * 1024,
   });
   assert.throws(
