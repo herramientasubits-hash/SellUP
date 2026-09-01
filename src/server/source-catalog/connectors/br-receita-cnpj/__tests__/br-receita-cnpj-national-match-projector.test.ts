@@ -10,6 +10,7 @@ import type { BrReceitaExistingRunChunkWriter } from '../br-receita-cnpj-existin
 import type { BrReceitaPersistedSnapshot } from '../br-receita-cnpj-monthly-snapshot-identity';
 import type { BrazilReceitaFullJoinReaderFileSystem } from '../br-receita-cnpj-full-join-streaming-reader';
 import type { BrazilReceitaFullJoinSourceFileDescriptor } from '../br-receita-cnpj-full-join-engine-contract';
+import { createBrazilReceitaFullJoinOpenHandleLedger } from '../br-receita-cnpj-full-join-open-handle-ledger';
 
 function quotedRow(columns: readonly string[]): string {
   return columns.map((value) => `"${value.replace(/"/g, '""')}"`).join(';');
@@ -46,30 +47,44 @@ estabelecimentoColumns[22] = '99999999';
 estabelecimentoColumns[27] = 'nao-persistir@example.com';
 const estabelecimentoLine = quotedRow(estabelecimentoColumns);
 
-function fsFor(files: Readonly<Record<string, string>>): BrazilReceitaFullJoinReaderFileSystem {
+interface InstrumentedFileSystem {
+  readonly fileSystem: BrazilReceitaFullJoinReaderFileSystem;
+  readonly openCalls: () => number;
+  readonly closeCalls: () => number;
+}
+
+function fsFor(files: Readonly<Record<string, string>>): InstrumentedFileSystem {
   let nextHandle = 1;
+  let opens = 0;
+  let closes = 0;
   const pathByHandle = new Map<number, string>();
   return {
-    size(path) {
-      return Buffer.byteLength(files[path] ?? '', 'latin1');
-    },
-    open(path) {
-      if (!(path in files)) throw new Error('missing');
-      const handle = nextHandle;
-      nextHandle += 1;
-      pathByHandle.set(handle, path);
-      return handle;
-    },
-    read(handle, target, targetOffset, length, position) {
-      const path = pathByHandle.get(handle);
-      if (path === undefined) throw new Error('closed');
-      const source = Buffer.from(files[path]!, 'latin1');
-      const available = Math.max(0, Math.min(length, source.length - position));
-      if (available > 0) source.copy(target, targetOffset, position, position + available);
-      return available;
-    },
-    close(handle) {
-      if (!pathByHandle.delete(handle)) throw new Error('closed');
+    openCalls: () => opens,
+    closeCalls: () => closes,
+    fileSystem: {
+      size(path) {
+        return Buffer.byteLength(files[path] ?? '', 'latin1');
+      },
+      open(path) {
+        if (!(path in files)) throw new Error('missing');
+        opens += 1;
+        const handle = nextHandle;
+        nextHandle += 1;
+        pathByHandle.set(handle, path);
+        return handle;
+      },
+      read(handle, target, targetOffset, length, position) {
+        const path = pathByHandle.get(handle);
+        if (path === undefined) throw new Error('closed');
+        const source = Buffer.from(files[path]!, 'latin1');
+        const available = Math.max(0, Math.min(length, source.length - position));
+        if (available > 0) source.copy(target, targetOffset, position, position + available);
+        return available;
+      },
+      close(handle) {
+        if (!pathByHandle.delete(handle)) throw new Error('closed');
+        closes += 1;
+      },
     },
   };
 }
@@ -134,34 +149,48 @@ function writerRecorder(): {
   };
 }
 
-test('referenced row reader reads only the declared byte slice', () => {
+test('referenced row reader reads only the declared byte slice and reuses its handle', () => {
   const prefix = 'ignored-prefix';
   const source = `${prefix}${empresaLine}ignored-suffix`;
+  const fs = fsFor({ '/opaque/empresa': source });
+  const ledger = createBrazilReceitaFullJoinOpenHandleLedger(64);
   const reader = createBrReceitaReferencedRowReader({
     descriptors: [descriptors[0]!],
-    fileSystem: fsFor({ '/opaque/empresa': source }),
+    fileSystem: fs.fileSystem,
+    openHandleLedger: ledger,
     maxRowBytes: 64 * 1024,
   });
 
-  const row = reader.read({
+  const reference = {
     sourceFileOrdinal: 0,
-    family: 'empresas',
+    family: 'empresas' as const,
     byteOffset: Buffer.byteLength(prefix, 'latin1'),
     byteLength: Buffer.byteLength(empresaLine, 'latin1'),
-  });
-  assert.equal(row, empresaLine);
+  };
+  assert.equal(reader.read(reference), empresaLine);
+  assert.equal(reader.read(reference), empresaLine);
+  assert.equal(reader.read(reference), empresaLine);
+
+  assert.equal(fs.openCalls(), 1, 'one descriptor must serve repeated random-access reads');
+  assert.equal(ledger.openNow(), 1);
+  reader.closeAll();
+  assert.equal(fs.closeCalls(), 1);
+  assert.equal(ledger.openNow(), 0);
 });
 
 test('national match is projected through the approved parser and sensitive source fields disappear', async () => {
   const recorder = writerRecorder();
+  const fs = fsFor({
+    '/opaque/empresa': empresaLine,
+    '/opaque/estabelecimento': estabelecimentoLine,
+  });
+  const ledger = createBrazilReceitaFullJoinOpenHandleLedger(64);
   const sink = createBrReceitaNationalMatchProjectorSink({
     sourcePeriod: '2026-07',
     sourceYear: 2026,
     descriptors,
-    fileSystem: fsFor({
-      '/opaque/empresa': empresaLine,
-      '/opaque/estabelecimento': estabelecimentoLine,
-    }),
+    fileSystem: fs.fileSystem,
+    openHandleLedger: ledger,
     maxRowBytes: 64 * 1024,
     catalogs: {
       cnaesRows: [
@@ -207,7 +236,11 @@ test('national match is projected through the approved parser and sensitive sour
   assert.equal(serialized.includes('99999999'), false);
   assert.equal(serialized.includes('nao-persistir@example.com'), false);
   assert.equal(serialized.includes('SEGREDO'), false);
+  assert.equal(serialized.includes('NOME FANTASIA QUE NAO PUEDE PERSISTIR'), false);
   assert.equal(serialized.includes('NOME FANTASIA QUE NAO PODE PERSISTIR'), false);
+  assert.equal(fs.openCalls(), 2, 'one cached handle per descriptor, not per match');
+  assert.equal(fs.closeCalls(), 2);
+  assert.equal(ledger.openNow(), 0, 'finalize must release every source descriptor');
   assert.deepEqual(sink.stats(), {
     matchesReceived: 1,
     parserAcceptedRows: 1,
@@ -218,17 +251,20 @@ test('national match is projected through the approved parser and sensitive sour
   });
 });
 
-test('layout mismatch refuses before a malformed row reaches the approved parser', async () => {
+test('layout mismatch refuses before a malformed row reaches the approved parser and closes handles', async () => {
   const recorder = writerRecorder();
   const badEmpresa = '"11222333";"ONLY_TWO"';
+  const fs = fsFor({
+    '/opaque/empresa': badEmpresa,
+    '/opaque/estabelecimento': estabelecimentoLine,
+  });
+  const ledger = createBrazilReceitaFullJoinOpenHandleLedger(64);
   const sink = createBrReceitaNationalMatchProjectorSink({
     sourcePeriod: '2026-07',
     sourceYear: 2026,
     descriptors,
-    fileSystem: fsFor({
-      '/opaque/empresa': badEmpresa,
-      '/opaque/estabelecimento': estabelecimentoLine,
-    }),
+    fileSystem: fs.fileSystem,
+    openHandleLedger: ledger,
     maxRowBytes: 64 * 1024,
     catalogs: { cnaesRows: [], municipiosRows: [], naturezasRows: [] },
     writer: recorder.writer,
@@ -256,12 +292,16 @@ test('layout mismatch refuses before a malformed row reaches the approved parser
       error.reason === 'empresa_layout_mismatch',
   );
   assert.equal(recorder.snapshots.length, 0);
+  assert.equal(ledger.openNow(), 0);
 });
 
 test('reference family mismatch fails closed without exposing source data', () => {
+  const fs = fsFor({ '/opaque/empresa': empresaLine });
+  const ledger = createBrazilReceitaFullJoinOpenHandleLedger(64);
   const reader = createBrReceitaReferencedRowReader({
     descriptors: [descriptors[0]!],
-    fileSystem: fsFor({ '/opaque/empresa': empresaLine }),
+    fileSystem: fs.fileSystem,
+    openHandleLedger: ledger,
     maxRowBytes: 64 * 1024,
   });
   assert.throws(
@@ -276,4 +316,5 @@ test('reference family mismatch fails closed without exposing source data', () =
       error instanceof BrReceitaNationalMatchProjectorError &&
       error.reason === 'reference_family_mismatch',
   );
+  assert.equal(ledger.openNow(), 0);
 });
