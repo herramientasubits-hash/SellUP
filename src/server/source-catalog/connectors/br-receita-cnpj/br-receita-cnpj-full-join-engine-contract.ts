@@ -241,6 +241,178 @@ export function resolveBrazilReceitaFullJoinPartitioningCaps(
   return { ok: true, caps: Object.freeze(resolved) };
 }
 
+// ─── Stage-3 partition ordinal range (BR-RECEITA-CHUNKED-JOIN-RANGE) ──────────
+
+/**
+ * The OPTIONAL Stage-3 window, so one national dataset can be joined by several sequential
+ * executions instead of one execution that must survive from end to end.
+ *
+ * ── Why this is a range over ORDINALS and not over rows ─────────────────────────
+ * A partition ordinal is the only unit of this join that is independently completable: every row
+ * carrying a given key lands in exactly one ordinal in BOTH families, so ordinals 4..7 can be joined
+ * by one process and 8..11 by another with no shared state, no coordination and no risk that a match
+ * falls between two chunks. A row range would have neither property.
+ *
+ * ── What it deliberately does NOT do ───────────────────────────────────────────
+ * It does not skip Stage 1 or Stage 2. Every execution still scans both families to end of file and
+ * writes its own references, because the partition assignment for ordinal 4 is not knowable without
+ * reading the rows that might land in it. The saving is Stage-3 work — the row re-reads, the key
+ * window and the sink — and nothing else. A caller who expects a ranged execution to be 4/16 of a
+ * full execution END TO END is expecting something this capability does not provide, and the counters
+ * in the result say so.
+ *
+ * ── Absent means FULL, malformed means REFUSED ──────────────────────────────────
+ * With neither field supplied the resolution is `null` and Stage 3 iterates `0 .. partitionCount`,
+ * which is what it did before this capability existed. With one field supplied and not the other the
+ * run is REFUSED rather than completed over a range the engine guessed: a chunked import whose
+ * chunk boundaries were invented is worse than one that would not start.
+ */
+export interface BrazilReceitaFullJoinPartitionOrdinalRange {
+  readonly start: number;
+  /** How many ordinals to attempt from `start`. Clamped DOWN to the map at Stage 3, never up. */
+  readonly count: number;
+}
+
+export const BRAZIL_RECEITA_FULL_JOIN_PARTITION_ORDINAL_RANGE_REJECTION_REASONS = [
+  /** One of the two fields was supplied and the other was not. No range is inferred from a half. */
+  'range_partially_declared',
+  'range_start_not_a_number',
+  'range_start_not_finite',
+  'range_start_not_an_integer',
+  'range_start_negative',
+  'range_count_not_a_number',
+  'range_count_not_finite',
+  'range_count_not_an_integer',
+  'range_count_not_positive',
+  /**
+   * `start` is outside the DECLARED map. Refused rather than clamped, and refused against the
+   * declared `partitionCount` rather than against whatever a controlled repartition might widen it
+   * to: an ordinal that only becomes addressable after an escalation is exactly the unstable
+   * checkpoint a chunked import must not silently accept.
+   */
+  'range_start_above_declared_partition_count',
+  /** `start + count` is not representable as a safe integer, so the Stage-3 clamp is not arithmetic. */
+  'range_count_not_safely_clampable',
+] as const;
+
+export type BrazilReceitaFullJoinPartitionOrdinalRangeRejectionReason =
+  (typeof BRAZIL_RECEITA_FULL_JOIN_PARTITION_ORDINAL_RANGE_REJECTION_REASONS)[number];
+
+export interface BrazilReceitaFullJoinPartitionOrdinalRangeRejection {
+  readonly field: 'partitionOrdinalStart' | 'partitionOrdinalCount';
+  readonly reason: BrazilReceitaFullJoinPartitionOrdinalRangeRejectionReason;
+}
+
+export type BrazilReceitaFullJoinPartitionOrdinalRangeResolution =
+  | { readonly ok: true; readonly range: BrazilReceitaFullJoinPartitionOrdinalRange | null }
+  | {
+      readonly ok: false;
+      readonly rejections: readonly BrazilReceitaFullJoinPartitionOrdinalRangeRejection[];
+    };
+
+/** The Stage-3 iteration bounds, half-open: `start` inclusive, `endExclusive` exclusive. */
+export interface BrazilReceitaFullJoinPartitionOrdinalBounds {
+  readonly start: number;
+  readonly endExclusive: number;
+}
+
+function ordinalFieldRejections(
+  field: 'partitionOrdinalStart' | 'partitionOrdinalCount',
+  raw: unknown,
+): readonly BrazilReceitaFullJoinPartitionOrdinalRangeRejection[] {
+  const isStart = field === 'partitionOrdinalStart';
+  if (typeof raw !== 'number') {
+    return [{ field, reason: isStart ? 'range_start_not_a_number' : 'range_count_not_a_number' }];
+  }
+  if (!Number.isFinite(raw)) {
+    return [{ field, reason: isStart ? 'range_start_not_finite' : 'range_count_not_finite' }];
+  }
+  if (!Number.isInteger(raw)) {
+    return [
+      { field, reason: isStart ? 'range_start_not_an_integer' : 'range_count_not_an_integer' },
+    ];
+  }
+  if (isStart ? raw < 0 : raw <= 0) {
+    return [{ field, reason: isStart ? 'range_start_negative' : 'range_count_not_positive' }];
+  }
+  return [];
+}
+
+/**
+ * Resolves the optional Stage-3 range, or refuses.
+ *
+ * Validation only. It does not clamp, does not repair, and returns no range it was not given — the
+ * clamp against the EFFECTIVE partition count is a separate, explicit step
+ * (`brazilReceitaFullJoinPartitionOrdinalBounds`), because the effective count is not known until
+ * the reference passes have settled on a partition depth.
+ */
+export function resolveBrazilReceitaFullJoinPartitionOrdinalRange(input: {
+  readonly start: unknown;
+  readonly count: unknown;
+  readonly declaredPartitionCount: number;
+}): BrazilReceitaFullJoinPartitionOrdinalRangeResolution {
+  const startAbsent = input.start === undefined || input.start === null;
+  const countAbsent = input.count === undefined || input.count === null;
+  if (startAbsent && countAbsent) return { ok: true, range: null };
+  if (startAbsent) {
+    return {
+      ok: false,
+      rejections: [{ field: 'partitionOrdinalStart', reason: 'range_partially_declared' }],
+    };
+  }
+  if (countAbsent) {
+    return {
+      ok: false,
+      rejections: [{ field: 'partitionOrdinalCount', reason: 'range_partially_declared' }],
+    };
+  }
+
+  const rejections = [
+    ...ordinalFieldRejections('partitionOrdinalStart', input.start),
+    ...ordinalFieldRejections('partitionOrdinalCount', input.count),
+  ];
+  if (rejections.length > 0) return { ok: false, rejections };
+
+  const start = input.start as number;
+  const count = input.count as number;
+
+  if (start >= input.declaredPartitionCount) {
+    return {
+      ok: false,
+      rejections: [
+        { field: 'partitionOrdinalStart', reason: 'range_start_above_declared_partition_count' },
+      ],
+    };
+  }
+  if (start + count > Number.MAX_SAFE_INTEGER) {
+    return {
+      ok: false,
+      rejections: [{ field: 'partitionOrdinalCount', reason: 'range_count_not_safely_clampable' }],
+    };
+  }
+
+  return { ok: true, range: Object.freeze({ start, count }) };
+}
+
+/**
+ * The half-open Stage-3 bounds for a resolved range under an EFFECTIVE partition count.
+ *
+ * `null` is the pre-existing behaviour, stated as arithmetic rather than as a branch nobody can see:
+ * `0 .. partitionCount`. A range's end is clamped DOWN to the map and never up, so a caller asking
+ * for four ordinals starting at twelve on a map of sixteen gets twelve..fifteen rather than a run
+ * that walks off the end.
+ */
+export function brazilReceitaFullJoinPartitionOrdinalBounds(
+  range: BrazilReceitaFullJoinPartitionOrdinalRange | null,
+  partitionCount: number,
+): BrazilReceitaFullJoinPartitionOrdinalBounds {
+  if (range === null) return { start: 0, endExclusive: partitionCount };
+  return {
+    start: range.start,
+    endExclusive: Math.min(range.start + range.count, partitionCount),
+  };
+}
+
 // ─── Joined record & sink ─────────────────────────────────────────────────────
 
 /**
@@ -367,6 +539,7 @@ export const BRAZIL_RECEITA_FULL_JOIN_ENGINE_ABORT_CODES = [
   'partitioning_caps_incomplete',
   'resource_caps_incomplete',
   'duplicate_policy_not_declared',
+  'partition_ordinal_range_invalid',
   'source_descriptors_invalid',
   'temporary_storage_policy_not_approved',
   'temporary_workspace_unavailable',

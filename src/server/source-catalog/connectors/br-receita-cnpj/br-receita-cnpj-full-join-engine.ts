@@ -71,15 +71,20 @@
 
 import {
   BRAZIL_RECEITA_FULL_JOIN_KEY_COLUMN_INDEX,
+  brazilReceitaFullJoinPartitionOrdinalBounds,
   brazilReceitaFullJoinPartitionOrdinalFor,
   isBrazilReceitaFullJoinDuplicateKeyPolicy,
   normalizeBrazilReceitaFullJoinKey,
+  resolveBrazilReceitaFullJoinPartitionOrdinalRange,
   resolveBrazilReceitaFullJoinPartitioningCaps,
   type BrazilReceitaFullJoinBoundedJoinedRecord,
   type BrazilReceitaFullJoinDuplicateKeyPolicy,
   type BrazilReceitaFullJoinEngineAbortCode,
   type BrazilReceitaFullJoinEngineAbortStage,
   type BrazilReceitaFullJoinEngineExitStatus,
+  type BrazilReceitaFullJoinPartitionOrdinalBounds,
+  type BrazilReceitaFullJoinPartitionOrdinalRange,
+  type BrazilReceitaFullJoinPartitionOrdinalRangeRejection,
   type BrazilReceitaFullJoinPartitionSummary,
   type BrazilReceitaFullJoinPartitioningCaps,
   type BrazilReceitaFullJoinPartitioningCapRejection,
@@ -187,6 +192,23 @@ export interface BrazilReceitaFullJoinEngineRequest {
    * is a control rather than a claim about the sink's implementation.
    */
   readonly sinkMaterializesRows: boolean;
+  /**
+   * OPTIONAL Stage-3 window (BR-RECEITA-CHUNKED-JOIN-RANGE). Both fields together or neither.
+   *
+   * Absent on both means the pre-existing behaviour, exactly: Stage 3 iterates every ordinal of the
+   * map. Present means Stage 3 iterates `[start, min(start + count, partitionCount))` and does no
+   * row re-read, no key-window load and no sink call for any ordinal outside it — the selection is at
+   * the LOOP, not at the sink, because a sink-level filter would still pay for the whole join.
+   *
+   * Nothing else about the run changes. Both input families are still scanned to end of file and both
+   * reference passes still run in full, because which rows land in ordinal 4 is not knowable without
+   * reading the rows that might.
+   *
+   * Half-declared or malformed is REFUSED at `before_first_read`; see
+   * `resolveBrazilReceitaFullJoinPartitionOrdinalRange`.
+   */
+  readonly partitionOrdinalStart?: number;
+  readonly partitionOrdinalCount?: number;
 }
 
 export interface BrazilReceitaFullJoinEngineResult {
@@ -196,11 +218,23 @@ export interface BrazilReceitaFullJoinEngineResult {
   readonly resourceBreach: BrazilReceitaFullJoinResourceBreach | null;
   readonly readerCapRejections: readonly BrazilReceitaFullJoinReaderCapRejection[];
   readonly partitioningCapRejections: readonly BrazilReceitaFullJoinPartitioningCapRejection[];
+  readonly partitionOrdinalRangeRejections: readonly BrazilReceitaFullJoinPartitionOrdinalRangeRejection[];
   readonly resourceCapRejections: readonly BrazilReceitaFullJoinCapRejection[];
   readonly workspaceRejections: readonly BrazilReceitaFullJoinWorkspaceRejection[];
   readonly exact: BrazilReceitaFullJoinEngineExactObservations;
   readonly publicReport: BrazilReceitaFullJoinEnginePublicReport;
   readonly partitionSummaries: readonly BrazilReceitaFullJoinPartitionSummary[];
+  /**
+   * The half-open ordinal window Stage 3 ACTUALLY iterated, or `null` when the run never reached
+   * Stage 3 (BR-RECEITA-CHUNKED-JOIN-RANGE).
+   *
+   * Reported because a chunked import's bookkeeping is only as good as its knowledge of which
+   * ordinals a given execution covered, and because `partitionOrdinalCount` is a REQUEST while this
+   * is the OUTCOME after the clamp to the effective map. Read it together with
+   * `exact.partitionsCreated`: if that is not the count the operator pinned, the ordinals in this
+   * window mean something different from the ones the previous execution covered.
+   */
+  readonly executedPartitionOrdinalRange: BrazilReceitaFullJoinPartitionOrdinalBounds | null;
   /** Chunk-boundary offsets from the first traversed file. Evidence of progression, not a report. */
   readonly firstFileOffsetProgression: readonly number[];
   readonly cleanupOutcome: BrazilReceitaFullJoinWorkspaceCleanupOutcome | null;
@@ -274,6 +308,9 @@ export function createBrazilReceitaFullJoinStreamingEngine(): BrazilReceitaFullJ
     let filesReleased = 0;
     let partitionCount = 0;
     let partitionDepth = 0;
+    // Set once, immediately before the Stage-3 loop. `null` until then, so a run that aborted in the
+    // reference passes reports that it covered no ordinals rather than implying it covered the map.
+    let executedPartitionOrdinalRange: BrazilReceitaFullJoinPartitionOrdinalBounds | null = null;
     let temporaryBytes = 0;
     // Sampled from the pool BEFORE each disposal, because a disposed workspace can no longer be
     // asked, and a repartition disposes one workspace and builds another. Taking the maximum across
@@ -306,6 +343,7 @@ export function createBrazilReceitaFullJoinStreamingEngine(): BrazilReceitaFullJ
       rejections: {
         reader?: readonly BrazilReceitaFullJoinReaderCapRejection[];
         partitioning?: readonly BrazilReceitaFullJoinPartitioningCapRejection[];
+        partitionOrdinalRange?: readonly BrazilReceitaFullJoinPartitionOrdinalRangeRejection[];
         resource?: readonly BrazilReceitaFullJoinCapRejection[];
         workspace?: readonly BrazilReceitaFullJoinWorkspaceRejection[];
       } = {},
@@ -355,11 +393,13 @@ export function createBrazilReceitaFullJoinStreamingEngine(): BrazilReceitaFullJ
         resourceBreach: enforcer?.breach() ?? null,
         readerCapRejections: rejections.reader ?? [],
         partitioningCapRejections: rejections.partitioning ?? [],
+        partitionOrdinalRangeRejections: rejections.partitionOrdinalRange ?? [],
         resourceCapRejections: rejections.resource ?? [],
         workspaceRejections: rejections.workspace ?? [],
         exact,
         publicReport,
         partitionSummaries,
+        executedPartitionOrdinalRange,
         firstFileOffsetProgression,
         cleanupOutcome,
       };
@@ -417,6 +457,26 @@ export function createBrazilReceitaFullJoinStreamingEngine(): BrazilReceitaFullJ
     if (!validateBrazilReceitaFullJoinSourceDescriptors(request.sources)) {
       return finish('source_descriptors_invalid', 'before_first_read', {}, duplicatePolicy);
     }
+
+    // Validated HERE, at `before_first_read`, against the DECLARED partition count — so a malformed
+    // or out-of-map chunk boundary costs zero data access instead of being discovered after two full
+    // scans. The engine still does not clamp anything at this point; the clamp to the EFFECTIVE map
+    // happens at Stage 3, where the effective map is finally known.
+    const ordinalRangeResolution = resolveBrazilReceitaFullJoinPartitionOrdinalRange({
+      start: request.partitionOrdinalStart,
+      count: request.partitionOrdinalCount,
+      declaredPartitionCount: partitioningCaps.partitionCount,
+    });
+    if (!ordinalRangeResolution.ok) {
+      return finish(
+        'partition_ordinal_range_invalid',
+        'before_first_read',
+        { partitionOrdinalRange: ordinalRangeResolution.rejections },
+        duplicatePolicy,
+      );
+    }
+    const ordinalRange: BrazilReceitaFullJoinPartitionOrdinalRange | null =
+      ordinalRangeResolution.range;
 
     enforcer = createBrazilReceitaFullJoinResourceEnforcer(
       resourceResolution.caps,
@@ -722,7 +782,19 @@ export function createBrazilReceitaFullJoinStreamingEngine(): BrazilReceitaFullJ
 
     guard.beginPhase('estabelecimentos_read');
 
-    for (let ordinal = 0; ordinal < partitionCount && joinFailure === null; ordinal += 1) {
+    // The ONE line this capability changes: the same loop, over a window instead of over the map.
+    // With no range declared the window IS the map (`0 .. partitionCount`), so this is byte-for-byte
+    // the previous traversal. With a range declared, every skipped ordinal costs nothing — no
+    // `readPartitionSlice`, no `keyOf`, no row re-read, no key window, no sink call — because the
+    // selection is the loop bound and not a filter downstream of the work.
+    const ordinalBounds = brazilReceitaFullJoinPartitionOrdinalBounds(ordinalRange, partitionCount);
+    executedPartitionOrdinalRange = ordinalBounds;
+
+    for (
+      let ordinal = ordinalBounds.start;
+      ordinal < ordinalBounds.endExclusive && joinFailure === null;
+      ordinal += 1
+    ) {
       // The BOUNDED key window: one partition's Empresas keys, cleared before the next partition.
       const window = new Map<string, readonly BrazilReceitaFullJoinRowReference[]>();
       const matched = new Set<string>();
