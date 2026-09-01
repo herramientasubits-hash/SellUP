@@ -38,19 +38,18 @@ export class BrReceitaNationalChunkLoaderError extends Error {
   }
 }
 
-/**
- * All engine capabilities except the sink and ordinal range, which this loader owns.
- *
- * The caller still supplies every resource cap and temporary-storage approval explicitly. This
- * module does not turn benchmark caps into production caps, does not infer authorization and does not
- * create filesystem or database connections.
- */
 export type BrReceitaNationalChunkEngineBaseRequest = Omit<
   BrazilReceitaFullJoinEngineRequest,
   'sink' | 'sinkMaterializesRows' | 'partitionOrdinalStart' | 'partitionOrdinalCount'
 >;
 
-export interface BrReceitaNationalChunkLoadedResult {
+interface BrReceitaNationalChunkCoordinates {
+  /** Publication-version identifier. Never CNPJ-derived. */
+  readonly snapshotRunId: string;
+  readonly sourcePeriod: string;
+}
+
+export interface BrReceitaNationalChunkLoadedResult extends BrReceitaNationalChunkCoordinates {
   readonly status: 'loaded_not_published';
   readonly partitionOrdinalStart: number;
   readonly partitionOrdinalCount: number;
@@ -58,11 +57,10 @@ export interface BrReceitaNationalChunkLoadedResult {
   readonly engine: BrazilReceitaFullJoinEngineResult;
   readonly projector: BrReceitaNationalProjectorStats;
   readonly writer: BrReceitaExistingRunWriterStats;
-  /** Structural statement: this API has no publish call. */
   readonly published: false;
 }
 
-export interface BrReceitaNationalChunkAbortedResult {
+export interface BrReceitaNationalChunkAbortedResult extends BrReceitaNationalChunkCoordinates {
   readonly status: 'engine_aborted';
   readonly partitionOrdinalStart: number;
   readonly partitionOrdinalCount: number;
@@ -106,15 +104,7 @@ function assertPinnedMap(request: BrReceitaNationalChunkEngineBaseRequest): void
 
 /**
  * Loads exactly one Stage-3 ordinal window into an ALREADY-EXISTING detached run.
- *
- * Deliberately NOT a publication API:
- *   - no `beginPeriodRun` — the writer receives the existing run id;
- *   - no `commitFinalBatchAndPublish` — successful completion calls `commitChunk` only;
- *   - no Agent 1, catalog-state or provider side effects.
- *
- * A failed execution may already have idempotent upserts from earlier batches of this SAME chunk.
- * The chunk is nevertheless NOT reported complete. Re-running the same range is safe because the
- * physical key is run-scoped and the gateway uses upsert semantics.
+ * It cannot publish: successful completion calls `commitChunk`, never the gateway cutover API.
  */
 export async function loadBrReceitaNationalChunk(args: {
   readonly snapshotRunId: string;
@@ -168,6 +158,8 @@ export async function loadBrReceitaNationalChunk(args: {
   if (engine.exitStatus !== 'completed') {
     return {
       status: 'engine_aborted',
+      snapshotRunId: args.snapshotRunId,
+      sourcePeriod: args.sourcePeriod,
       partitionOrdinalStart: args.partitionOrdinalStart,
       partitionOrdinalCount: args.partitionOrdinalCount,
       engine,
@@ -197,6 +189,8 @@ export async function loadBrReceitaNationalChunk(args: {
   const writerStats = await writer.commitChunk();
   return {
     status: 'loaded_not_published',
+    snapshotRunId: args.snapshotRunId,
+    sourcePeriod: args.sourcePeriod,
     partitionOrdinalStart: args.partitionOrdinalStart,
     partitionOrdinalCount: args.partitionOrdinalCount,
     partitionOrdinalEndExclusive: expectedEnd,
