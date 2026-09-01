@@ -49,7 +49,7 @@ function engineRequest(): BrReceitaNationalChunkEngineBaseRequest {
       maxReferenceBytesPerPartition: 2_097_152,
     },
     resourceCaps: {},
-    duplicateKeyPolicy: 'pair_with_every_duplicate',
+    duplicateKeyPolicy: 'reject',
     readerFileSystem: {
       size: () => 0,
       open: () => {
