@@ -194,6 +194,56 @@ const SOFTWARE_INDUSTRY_TERMS: readonly string[] = [
   'internet',
 ];
 
+/**
+ * Industrias declaradas que nombran el COMERCIO como la actividad de la empresa.
+ *
+ * AGENT1-PREPAID-TECHNOLOGY-CIIU-FALSE-POSITIVE-CORRECTION § 3.
+ *
+ * ── El defecto que cierran ───────────────────────────────────────────────────
+ *
+ * Corrida de Producción del 2026-09-01 (lote `2610bda2`, CO / technology /
+ * objetivo 5): la fuente gratuita `co_siis_discovery` devolvió CINCO empresas con
+ * CIIU `4791`, «Comercio al por menor por correo y por internet», y las cinco
+ * contaron contra el objetivo. Hueco 0, proveedor no requerido, Lusha no ejecutó.
+ *
+ * La palabra que las admitió fue `internet`, término confirmatorio de Tecnología.
+ * Pero ahí `internet` no nombra la actividad: nombra el CANAL por el que un
+ * minorista vende. `4791` era, además, el ÚNICO código del índice de Tecnología:
+ * la cobertura entera de esa macro era este falso positivo.
+ *
+ * ── Por qué se corrige aquí y no en el término ni en el adaptador ────────────
+ *
+ * `internet` NO se degrada ni se borra: es un valor de industria REAL que Apollo
+ * declara (`industry: "Internet"`) y quitarlo destruiría un verdadero positivo
+ * para probar un falso. Y el adaptador CIIU no puede llevar un `if technology
+ * then exclude 4791`: § 2 prohíbe una segunda taxonomía.
+ *
+ * Lo que faltaba era la regla 1 del evaluador —exclusión ANTES que confirmación,
+ * medida SÓLO contra la industria declarada—, que existe exactamente para esta
+ * clase de precedencia (ver `assessDeclaredMacroIndustryEvidence`). Una empresa
+ * cuya industria declarada dice explícitamente que su actividad es comerciar no
+ * puede pertenecer a Tecnología porque su descripción mencione un canal.
+ *
+ * Se declaran las dos lenguas y las dos escalas —minorista y mayorista— porque el
+ * mismo modo de fallo es simétrico: `Comercio al por mayor de computadoras` es un
+ * distribuidor, no un fabricante de tecnología. `retail` absorbe por substring a
+ * `retail banking`, que por eso deja de listarse aparte.
+ *
+ * 🔴 Alcance deliberado: hoy SÓLO las compone `technology`. Las demás macros
+ * tienen códigos de comercio en su índice cuyo PRODUCTO comerciado sí es su
+ * dominio (`4773` farmacéuticos → Salud, `4663` materiales de construcción →
+ * Propiedad & Construcción), y esa es una decisión de producto distinta que este
+ * hito no toma. Ver el informe de seguimiento.
+ */
+const TRADE_INDUSTRY_TERMS: readonly string[] = [
+  'retail',
+  'wholesale',
+  'comercio al por menor',
+  'comercio al por mayor',
+  'comercio minorista',
+  'comercio mayorista',
+];
+
 const PROFESSIONAL_SERVICES_INDUSTRY_TERMS: readonly string[] = [
   'management consulting',
   'consulting',
@@ -333,7 +383,10 @@ export const MACRO_INDUSTRIES: readonly MacroIndustryDefinition[] = [
         'electronics',
       ],
       excludingIndustries: [
-        'retail banking',
+        // 🔴 El COMERCIO declarado gana antes que cualquier término tecnológico.
+        // Sin esto, `internet` admitía a un minorista que sólo vende por internet
+        // — el falso positivo de CIIU 4791. Ver `TRADE_INDUSTRY_TERMS`.
+        ...TRADE_INDUSTRY_TERMS,
         'commercial banking',
         'hospital & health care',
         'pharmaceuticals',
