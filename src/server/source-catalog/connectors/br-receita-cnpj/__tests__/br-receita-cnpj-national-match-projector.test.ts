@@ -325,8 +325,8 @@ test('layout mismatch refuses before a malformed row reaches the approved parser
   });
 
   await assert.rejects(
-    () =>
-      sink.onMatch({
+    async () => {
+      await sink.onMatch({
         partitionOrdinal: 0,
         empresaReference: {
           sourceFileOrdinal: 0,
@@ -340,7 +340,8 @@ test('layout mismatch refuses before a malformed row reaches the approved parser
           byteOffset: 0,
           byteLength: Buffer.byteLength(estabelecimentoLine, 'latin1'),
         },
-      }),
+      });
+    },
     (error: unknown) =>
       error instanceof BrReceitaNationalMatchProjectorError &&
       error.reason === 'empresa_layout_mismatch',
