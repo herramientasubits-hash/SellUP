@@ -36,7 +36,7 @@ function loaded(
       exact: { partitionsCreated: 1024, partitionDepthReached: 0 },
       partitionSummaries: [],
       executedPartitionOrdinalRange: { start, endExclusive: start + count },
-    } as BrReceitaNationalChunkLoadedResult['engine'],
+    } as unknown as BrReceitaNationalChunkLoadedResult['engine'],
     projector: {
       matchesReceived: 0,
       parserAcceptedRows: 0,
