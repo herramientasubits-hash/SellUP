@@ -49,6 +49,24 @@ export const EMBEDDED_POSTGRES_VERSION = '17.6.0-beta.15';
 export const LUSHA_REQUEST_FENCE_MIGRATION =
   '135_agent1_lusha_prospecting_request_fence.sql';
 
+/**
+ * AGENT1-LUSHA-CUT-L4 — la 136, que se aplica SOBRE la 135.
+ *
+ * 🔴 La cadena es de DOS archivos y el orden importa, a diferencia de la de
+ * CUT-L3. La 136 no es autocontenida: añade columnas a `lusha_prospecting_request_fence`,
+ * cuelga una clave foránea de ella y de `lusha_prospecting_operations`, y
+ * REEMPLAZA tres de sus funciones. Aplicarla sobre una base sin la 135 tiene que
+ * fallar, y la suite lo comprueba en vez de suponerlo.
+ */
+export const LUSHA_SAFE_RETRY_ATTEMPTS_MIGRATION =
+  '136_agent1_lusha_prospecting_safe_retry_attempts.sql';
+
+/** La cadena COMPLETA, en el orden en que Producción la aplicaría. */
+export const LUSHA_RETRY_MIGRATION_CHAIN: readonly string[] = [
+  LUSHA_REQUEST_FENCE_MIGRATION,
+  LUSHA_SAFE_RETRY_ATTEMPTS_MIGRATION,
+];
+
 export const readMigration = (repoRoot: string, file: string): string =>
   readFileSync(join(repoRoot, 'supabase/migrations', file), 'utf8');
 

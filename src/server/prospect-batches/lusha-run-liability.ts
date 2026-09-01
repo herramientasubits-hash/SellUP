@@ -19,24 +19,48 @@
  *      bloquearía corridas que caben de sobra.
  *   2. NO inventa el techo. Los dos factores se IMPORTAN de las constantes que
  *      el runtime ya obedece —`LUSHA_PENDING_REVIEW_MAX_PAGES` (el `for` que
- *      pagina) y `LUSHA_PREVIEW_EXPECTED_MAX_CREDITS` (el techo por petición que
- *      el core de preview declara)— de modo que subir el número de páginas sube
- *      la reserva en el mismo commit. `assertLushaRunLiabilityCoherent` deja
+ *      pagina) y `resolveLushaMaxCreditsPerProviderRequest` (el techo por
+ *      petición, derivado del contrato de BLOQUES de facturación y del tamaño de
+ *      página pagado)— de modo que subir el número de páginas —o el tamaño de
+ *      página por encima de un bloque— sube la reserva en el mismo commit. `assertLushaRunLiabilityCoherent` deja
  *      constancia de que el producto sigue coincidiendo con el techo que el
  *      writer ya publicaba.
  *
  * El coste en USD sale de `provider_pricing_config` (migración 081, unidad
- * `per_credit`), nunca de la observación «1 crédito por 25 resultados»: esa
- * medición del microbenchmark describe UNA respuesta, no el contrato.
+ * `per_credit`), nunca de un conteo de resultados.
+ *
+ * 🔴 AGENT1-LUSHA-CUT-L5 § 2 — «1 crédito por 25 resultados» dejó de ser una
+ * observación de microbenchmark y pasó a ser CONTRATO confirmado por el soporte
+ * HUMANO de Lusha: 0 resultados ⇒ mínimo 1 crédito, 1–25 ⇒ 1, 26–50 ⇒ 2. Vive en
+ * `lusha-prospecting-contract`, y sigue sin sustituir a `billing.creditsCharged`
+ * como autoridad de liquidación.
  *
  * Puro: sin env, sin I/O, sin cliente de proveedor, sin DB.
  */
 
-import { LUSHA_PREVIEW_EXPECTED_MAX_CREDITS } from './lusha-preview';
+// AGENT1-LUSHA-CUT-L5 §§ 6, 16 — la responsabilidad por PETICIÓN sale del
+// contrato de bloques de facturación y del tamaño de página que la ruta pagada
+// solicita, no de una constante «1 crédito por petición». Módulo puro.
+import {
+  expectedLushaProspectingCreditsForPageSize,
+  LUSHA_PROSPECTING_PAGE_SIZE,
+} from '@/server/integrations/lusha-prospecting-contract';
+// 🔴 AGENT1-LUSHA-CUT-L5 — desde `lusha-pending-review-limits`, NO desde
+// `lusha-pending-review`.
+//
+// El writer RE-EXPORTA estas dos constantes y este módulo las leía por ahí. Eso
+// dejó de ser inocuo en cuanto el propio writer pasó a importar
+// `resolveLushaRunMaxProviderCredits` para derivar su techo (§ 16): writer →
+// liability → writer es un ciclo de inicialización de módulos, justo el que la
+// cabecera de `lusha-pending-review-limits` documenta como el motivo de su
+// existencia —el tipo de ciclo en el que una `const` se lee como `undefined` y un
+// techo de gasto se evalúa como `NaN`—.
+//
+// Mismo valor, mismo dueño, sin la arista.
 import {
   LUSHA_PENDING_REVIEW_MAX_PAGES,
   LUSHA_PENDING_REVIEW_EXPECTED_MAX_CREDITS,
-} from './lusha-pending-review';
+} from './lusha-pending-review-limits';
 import type { LushaCompanyProspectingPricingConfig } from '@/server/integrations/lusha-company-prospecting-billing';
 import type { LushaMacroSearchPlan } from './lusha-macro-search-plan';
 // AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 §§ 12/19 — las macro industrias
@@ -71,14 +95,39 @@ export type LushaRunLiability = {
 export const LUSHA_RUN_LIABILITY_SOURCE = 'lusha_company_prospecting_worst_case' as const;
 
 /**
+ * Responsabilidad máxima de UNA petición pagada, en créditos.
+ *
+ * AGENT1-LUSHA-CUT-L5 §§ 6, 16 — antes era la constante
+ * `LUSHA_PREVIEW_EXPECTED_MAX_CREDITS` (1), y ese 1 era correcto POR ACCIDENTE:
+ * describía una página de 10 resultados, que cabe entera en un bloque de 25. El
+ * día que alguien subiera el tamaño de página a 50 la reserva se habría quedado a
+ * la mitad del gasto real sin que ninguna prueba lo dijera.
+ *
+ * Ahora sale del contrato: `max(1, ceil(size / 25))` sobre el tamaño que la ruta
+ * pagada pide de verdad. Con 25 vale 1 —la reserva NO cambia con este corte— y
+ * con 50 valdría 2, solo.
+ */
+export function resolveLushaMaxCreditsPerProviderRequest(): number {
+  const derived = expectedLushaProspectingCreditsForPageSize(LUSHA_PROSPECTING_PAGE_SIZE);
+  if (derived === null) {
+    // Inalcanzable con una constante válida; fallar cerrado en vez de reservar
+    // `NaN`, que se propagaría como «cabe todo» a través de cualquier comparación.
+    throw new Error(
+      `lusha_run_liability_invalid_page_size: ${String(LUSHA_PROSPECTING_PAGE_SIZE)}`,
+    );
+  }
+  return derived;
+}
+
+/**
  * Techo de créditos de proveedor de una corrida «Buscar con IA».
  *
- * páginas (2) × créditos por página (1) = 2. No hay pierna de enrichment de
- * proveedor que sumar: si algún día la hubiera, se suma AQUÍ y la reserva la
- * cubre sin tocar el llamador.
+ * páginas (2) × créditos por página (1, porque 25 resultados son UN bloque) = 2.
+ * No hay pierna de enrichment de proveedor que sumar: si algún día la hubiera, se
+ * suma AQUÍ y la reserva la cubre sin tocar el llamador.
  */
 export function resolveLushaRunMaxProviderCredits(): number {
-  return LUSHA_PENDING_REVIEW_MAX_PAGES * LUSHA_PREVIEW_EXPECTED_MAX_CREDITS;
+  return LUSHA_PENDING_REVIEW_MAX_PAGES * resolveLushaMaxCreditsPerProviderRequest();
 }
 
 /**
@@ -116,7 +165,7 @@ export function resolveLushaRunLiability(
 
   return {
     maxPages: LUSHA_PENDING_REVIEW_MAX_PAGES,
-    maxCreditsPerPage: LUSHA_PREVIEW_EXPECTED_MAX_CREDITS,
+    maxCreditsPerPage: resolveLushaMaxCreditsPerProviderRequest(),
     maxProviderCredits,
     // 1:1 hoy. Ver la nota del tipo.
     normalizedBudgetCredits: maxProviderCredits,

@@ -114,13 +114,19 @@ function noDuplicate(input: DuplicateCheckInput): DuplicateCheckResult {
   };
 }
 
+// AGENT1-LUSHA-CUT-L7 § 29 — esta fábrica emitía `confidence` 100, un valor que
+// NINGÚN checker de producción produce. Con la fuerza de identidad leída de la
+// confianza real, 100 no corresponde a ningún eje. Se sustituye por la que
+// `sellup-duplicate-checker` emite de verdad para su intención declarada
+// (`reason: 'domain'`): 95, dominio exacto — que sigue siendo un eje FUERTE, así
+// que la intención de cada caso se conserva intacta.
 function exactDuplicate(input: DuplicateCheckInput): DuplicateCheckResult {
   return {
     status: 'existing_in_sellup',
-    confidence: 100,
+    confidence: 95,
     input,
     matches: [
-      { source: 'sellup', status: 'existing_in_sellup', confidence: 100, reason: 'domain' },
+      { source: 'sellup', status: 'existing_in_sellup', confidence: 95, reason: 'domain' },
     ],
     summary: 'duplicado',
     checkedSources: ['sellup', 'hubspot'],

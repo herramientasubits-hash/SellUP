@@ -392,8 +392,14 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
     // de AUTORÍA —lo único que de verdad protege este corte— se ENSANCHA de once números a doce
     // para incluir la 135. La guarda queda otra vez más fuerte que antes, no meramente
     // desplazada: un número libre nunca demostró nada.
+    // 🔴 AGENT1-LUSHA-CUT-L4 reclamó después la 136: el historial DURABLE de INTENTOS de esa
+    // misma petición y el reclamo atómico de UN reintento seguro, autorizado sólo cuando el
+    // intento anterior fue un 429 o un 5xx —los dos únicos desenlaces que el contrato HUMANO
+    // del proveedor declara a 0 créditos—. El proxy «el siguiente número está libre» se mueve
+    // por tanto de la 136 a la 137, y el barrido de AUTORÍA se ENSANCHA de doce números a trece
+    // para incluir la 136. Otra vez más fuerte que antes, no meramente desplazada.
     assert.equal(
-      migrations.filter((f) => f.startsWith('136')).length,
+      migrations.filter((f) => f.startsWith('137')).length,
       0,
       'este corte no añade migración',
     );
@@ -410,7 +416,8 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
         f.startsWith('132') ||
         f.startsWith('133') ||
         f.startsWith('134') ||
-        f.startsWith('135'),
+        f.startsWith('135') ||
+        f.startsWith('136'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

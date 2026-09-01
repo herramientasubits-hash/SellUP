@@ -625,7 +625,11 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // 134 al integrarse en serie después de que BR-COMPACT-SNAPSHOT-PRODUCTIZATION llegara
       // primero a main con ese número): la valla DURABLE de una petición de Lusha Prospecting.
       // Tampoco crea contacto alguno ni escribe `phone_source`. AUTORADA y NO APLICADA en remoto.
-      '135_agent1_lusha_prospecting_request_fence.sql',
+      // AGENT1-LUSHA-CUT-L4 anade la 136: el historial DURABLE de INTENTOS de una peticion de
+      // Lusha Prospecting y el reclamo atomico de UN reintento seguro (solo tras un 429 o un
+      // 5xx, que el contrato HUMANO del proveedor declara a 0 creditos). Es de Agente 1 y de
+      // seguridad de gasto. AUTORADA y NO APLICADA.
+      '136_agent1_lusha_prospecting_safe_retry_attempts.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
     for (const agent2 of [

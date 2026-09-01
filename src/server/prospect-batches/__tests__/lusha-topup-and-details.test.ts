@@ -39,6 +39,7 @@ import {
   type LushaPreviewInput,
   type LushaPreviewResult,
 } from '@/server/prospect-batches/lusha-preview';
+import { LUSHA_PROSPECTING_PAGE_SIZE } from '@/server/integrations/lusha-prospecting-contract';
 import type {
   DuplicateCheckInput,
   DuplicateCheckResult,
@@ -238,12 +239,22 @@ describe('Q3F-5BB.7B top-up pagination', () => {
     assert.equal(res.usefulCandidatesCount, 2); // still < 5, but no page 2
   });
 
-  it('4. size is always 10 and page is clamped to [0,1] in the request', () => {
+  it('4. size defaults to the preview 10, the paid route asks 25, and page is clamped to [0,1]', () => {
+    // 🔴 AGENT1-LUSHA-CUT-L5 § 13 — el tamaño dejó de estar cableado: sin
+    // `pageSize` sigue siendo el del PREVIEW (10, y el preview pagado sigue
+    // incapacitado); la ruta que paga pasa 25, un bloque de facturación exacto.
     const p0 = buildLushaPreviewRequest({ countryName: 'Colombia', mainIndustriesIds: [7], page: 0 }).pagination;
     assert.ok(p0);
     assert.equal(p0.size, LUSHA_PREVIEW_SIZE);
     assert.equal(p0.size, 10);
     assert.equal(p0.page, 0);
+    const paid = buildLushaPreviewRequest({
+      countryName: 'Colombia',
+      mainIndustriesIds: [7],
+      page: 0,
+      pageSize: LUSHA_PROSPECTING_PAGE_SIZE,
+    }).pagination;
+    assert.equal(paid?.size, 25);
     const p1 = buildLushaPreviewRequest({ countryName: 'Colombia', mainIndustriesIds: [7], page: 1 }).pagination;
     assert.ok(p1);
     assert.equal(p1.page, 1);

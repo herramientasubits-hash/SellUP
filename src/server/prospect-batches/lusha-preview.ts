@@ -32,6 +32,14 @@ import {
   emptyLushaRateLimitSnapshot,
   type LushaRateLimitSnapshot,
 } from '@/server/integrations/lusha-rate-limit-headers';
+// AGENT1-LUSHA-CUT-L5 §§ 4, 5, 6 — el contrato de bloques de facturación y de
+// límites de paginación del proveedor, en su único dueño. Módulo puro: sin env,
+// sin red, sin DB.
+import {
+  expectedLushaProspectingCreditsForPageSize,
+  LUSHA_PROSPECTING_MAX_PAGE_SIZE,
+  LUSHA_PROSPECTING_MIN_PAGE_SIZE,
+} from '@/server/integrations/lusha-prospecting-contract';
 import {
   isSubIndustryValidForSector,
   resolveLushaSectorOption,
@@ -62,7 +70,15 @@ export const LUSHA_PREVIEW_PAGE = 0;
  * útiles. NUNCA se acepta una página > 1: paginación profunda queda prohibida.
  */
 export const LUSHA_PREVIEW_MAX_PAGE = 1;
-/** Tamaño de página forzado. Mínimo aceptado por Lusha V3 (Q3F-5E). */
+/**
+ * Tamaño de página del PREVIEW. Mínimo aceptado por Lusha V3 (Q3F-5E).
+ *
+ * 🔴 AGENT1-LUSHA-CUT-L5 § 13 — sigue valiendo 10 y NO es el tamaño de la ruta
+ * pagada. El preview pagado está incapacitado desde CUT-L3; subir su tamaño aquí
+ * habría cambiado una superficie que este corte no toca. La ruta pagada pasa su
+ * propio `pageSize` (25, un bloque de facturación) y esta constante es sólo el
+ * respaldo de quien no pase ninguno.
+ */
 export const LUSHA_PREVIEW_SIZE = 10;
 /** Crédito máximo esperado por preview (1 crédito/página, Q3F-5BB.2B). */
 export const LUSHA_PREVIEW_EXPECTED_MAX_CREDITS = 1 as const;
@@ -196,6 +212,14 @@ export interface BuildLushaPreviewRequestInput {
   /** Página solicitada. Por defecto 0; clamp a [0, LUSHA_PREVIEW_MAX_PAGE]. */
   page?: number | null;
   /**
+   * AGENT1-LUSHA-CUT-L5 § 13 — tamaño de página solicitado.
+   *
+   * Ausente ⇒ `LUSHA_PREVIEW_SIZE` (10), el tamaño histórico del preview. La ruta
+   * PAGADA de pending-review pasa `LUSHA_PROSPECTING_PAGE_SIZE` (25) y es el único
+   * sitio del producto que lo hace.
+   */
+  pageSize?: number | null;
+  /**
    * 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 1, 2 — NO existe un campo de
    * exclusión en esta entrada, y su ausencia es el contrato.
    *
@@ -216,6 +240,53 @@ export interface BuildLushaPreviewRequestInput {
  * valor no numérico, negativo o > LUSHA_PREVIEW_MAX_PAGE colapsa dentro del rango
  * — el cliente NUNCA puede forzar paginación profunda.
  */
+/**
+ * Tamaño de página efectivo de UNA petición de Prospecting.
+ *
+ * AGENT1-LUSHA-CUT-L5 §§ 4, 13.
+ *
+ * Ausente, no numérico, fraccionario o `NaN` ⇒ `LUSHA_PREVIEW_SIZE` (10): el
+ * comportamiento del preview, byte por byte. Presente ⇒ se recorta al rango
+ * DESPACHABLE del proveedor [10, 50].
+ *
+ * 🔴 El recorte es defensa en profundidad, no la validación. La validación de
+ * verdad vive en el cliente (`searchLushaCompaniesV3`), que es la única función
+ * del repo que llama al endpoint: un `size` fuera de rango que llegue por
+ * cualquier otro camino se rechaza allí SIN despachar. Aquí se recorta para que
+ * producción no pueda emitirlo, no para que el cliente confíe.
+ */
+export function resolveLushaProspectingPageSize(
+  requested: number | null | undefined,
+): number {
+  if (typeof requested !== 'number' || !Number.isInteger(requested)) {
+    return LUSHA_PREVIEW_SIZE;
+  }
+  if (requested < LUSHA_PROSPECTING_MIN_PAGE_SIZE) return LUSHA_PROSPECTING_MIN_PAGE_SIZE;
+  if (requested > LUSHA_PROSPECTING_MAX_PAGE_SIZE) return LUSHA_PROSPECTING_MAX_PAGE_SIZE;
+  return requested;
+}
+
+/**
+ * Techo de créditos de UNA petición de este tamaño (§ 6).
+ *
+ * 🔴 Ya no es la constante `LUSHA_PREVIEW_EXPECTED_MAX_CREDITS`. Ese 1 era
+ * correcto POR ACCIDENTE —10 resultados caben en un bloque de 25— y se habría
+ * quedado mintiendo el día que alguien pidiera 50. Ahora sale del contrato de
+ * bloques, así que `size 25 → 1` y `size 50 → 2` sin tocar nada más.
+ *
+ * Un tamaño no representable degrada al techo histórico del preview (1), que es
+ * lo que el respaldo `LUSHA_PREVIEW_SIZE` va a pedir de todas formas.
+ */
+export function resolveLushaProspectingExpectedMaxCredits(
+  requestedPageSize: number | null | undefined,
+): number {
+  return (
+    expectedLushaProspectingCreditsForPageSize(
+      resolveLushaProspectingPageSize(requestedPageSize),
+    ) ?? LUSHA_PREVIEW_EXPECTED_MAX_CREDITS
+  );
+}
+
 export function clampLushaPreviewPage(page: number | null | undefined): number {
   if (typeof page !== 'number' || !Number.isFinite(page)) return LUSHA_PREVIEW_PAGE;
   const truncated = Math.trunc(page);
@@ -278,7 +349,11 @@ export function buildLushaPreviewRequest(
 
   return {
     filters: { companies },
-    pagination: { page: clampLushaPreviewPage(input.page), size: LUSHA_PREVIEW_SIZE },
+    pagination: {
+      page: clampLushaPreviewPage(input.page),
+      // CUT-L5 § 13 — el tamaño ya no está cableado: lo decide quien paga.
+      size: resolveLushaProspectingPageSize(input.pageSize),
+    },
     options: { includePartialProfiles: false },
     // signals intencionalmente ausente — nunca se emite en preview.
   };
@@ -582,6 +657,17 @@ export interface LushaPreviewInput {
    */
   page?: number | null;
   /**
+   * AGENT1-LUSHA-CUT-L5 §§ 3, 13 — cuántos resultados pide ESTA petición.
+   *
+   * Ausente ⇒ 10, el tamaño histórico del preview. El único caller que lo envía
+   * es el ejecutor PAGADO de pending-review, que pasa 25 —exactamente un bloque
+   * de facturación— para que ninguna página pueda costar 2 créditos.
+   *
+   * 🔴 No viaja desde el navegador. Es política de servidor, igual que `page`: si
+   * el cliente pudiera elegirlo, podría elegir 50 y duplicar el coste por página.
+   */
+  pageSize?: number | null;
+  /**
    * 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 1, 2 — esta entrada YA NO
    * lleva `excludeDomains`, y la ausencia es deliberada.
    *
@@ -689,7 +775,12 @@ export interface LushaPreviewResult {
   billing: {
     creditsCharged: number | null;
     resultsReturned: number | null;
-    expectedMaxCredits: typeof LUSHA_PREVIEW_EXPECTED_MAX_CREDITS;
+    /**
+     * CUT-L5 § 6 — ya no es el literal `1`: es el techo de bloques del tamaño de
+     * página que ESTA petición pidió. El tipo se ensanchó a `number` porque con
+     * `size 50` el techo honesto es 2, y un literal lo habría impedido.
+     */
+    expectedMaxCredits: number;
   };
   warnings: string[];
   /**
@@ -882,6 +973,8 @@ export async function executeLushaPreview(
     sizeBand: sizeBand ? { min: sizeBand.min, max: sizeBand.max } : null,
     searchText: hasSearchText ? trimmedSearch : null,
     page: input.page,
+    // CUT-L5 § 13 — el tamaño de la ruta que paga. Ausente ⇒ preview (10).
+    pageSize: input.pageSize,
     // 🔴 CUT-L1 § 2 — no hay nada que pasar: la petición es de INCLUSIÓN pura.
   });
 
@@ -916,7 +1009,9 @@ export async function executeLushaPreview(
     creditsCharged: typeof providerResult.creditsCharged === 'number' ? providerResult.creditsCharged : null,
     resultsReturned:
       typeof providerResult.resultsReturned === 'number' ? providerResult.resultsReturned : null,
-    expectedMaxCredits: LUSHA_PREVIEW_EXPECTED_MAX_CREDITS,
+    // CUT-L5 § 6 — techo de ESTA petición, derivado del tamaño que se pidió.
+    // Con 10 y con 25 vale 1; con 50 valdría 2, sin que nadie tenga que acordarse.
+    expectedMaxCredits: resolveLushaProspectingExpectedMaxCredits(input.pageSize),
   };
 
   const criteria: LushaPreviewCriteria = {

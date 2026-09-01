@@ -290,7 +290,7 @@ import {
   writeTwoRoundCheckpoint,
   type CheckpointWriteOutcome,
 } from './checkpoint.server';
-import { hasStrongIdentityDuplicateMatch } from './apollo-strong-identity-duplicate-match';
+import { hasStrongIdentityDuplicateMatch } from '../strong-identity-duplicate-match';
 // AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING PARTE B — valla durable de página.
 import {
   readApolloPageFenceEntries,
@@ -673,8 +673,17 @@ export function foldSubindustryPrecisionIntoSectorState(
  * checker ya documenta como derivada de dominio/tax_identifier exacto — nunca
  * por `status` a secas, que mezcla ejes fuertes y de nombre bajo la misma
  * etiqueta. Los checkers compartidos con Lusha (`checkSellUpDuplicates`,
- * `checkHubSpotDuplicates`, `duplicate-checker.ts`) NO se tocan: esta función
- * sigue siendo Apollo-scoped, viviendo en `apollo-two-round/`.
+ * `checkHubSpotDuplicates`, `duplicate-checker.ts`) NO se tocan.
+ *
+ * AGENT1-LUSHA-CUT-L7 — este lector dejó de ser Apollo-scoped: ahora es el
+ * lector COMPARTIDO `../strong-identity-duplicate-match`, el MISMO que usan el
+ * pre-pago gratuito, Lusha post-pago y la guarda de candidatos activos. La
+ * semántica de nombre-vs-identidad no cambia. La única diferencia de veredicto
+ * es que `hubspot 95` —identificador fiscal OFICIAL exacto, el mismo eje que
+ * `sellup 92`— pasa a contar como identidad fuerte; antes se omitía de la lista
+ * y una empresa que HubSpot ya tenía con ese identificador podía comprarse otra
+ * vez. El cambio va en la dirección conservadora y NO afecta a ningún eje de
+ * nombre.
  */
 export function readDuplicateVerdict(
   candidate: ProspectingPipelineCandidate,

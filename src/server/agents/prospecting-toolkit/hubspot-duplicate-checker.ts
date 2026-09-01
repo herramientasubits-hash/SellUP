@@ -13,6 +13,11 @@
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import type { DuplicateCheckInput, DuplicateMatch } from './types';
 import { buildCompanySearchTerms, normalizeCompanyName } from './normalization';
+import { buildFiscalLookupNeedles } from './fiscal-identity';
+import {
+  classifyHubSpotFiscalResult,
+  HUBSPOT_FISCAL_PROPERTIES,
+} from './fiscal-duplicate-classification';
 
 // ============================================================
 // Admin client + Vault
@@ -314,40 +319,70 @@ async function searchByName(
   return data.results ?? [];
 }
 
+/**
+ * Tope determinístico de agujas por propiedad fiscal.
+ *
+ * AGENT1-SHARED-FISCAL-IDENTITY-COUNTRY-SCOPE-CORRECTION § 20. `filterGroups`
+ * se mantiene en UNA por propiedad fiscal —el mismo número que ya emitía este
+ * checker— porque HubSpot acota los grupos de filtro; las variantes canónicas
+ * viajan DENTRO de un único filtro `IN` en vez de multiplicar grupos. El tope
+ * sólo existe para que un helper que algún día enumere más variantes no haga
+ * crecer el cuerpo sin límite; hoy `buildFiscalLookupNeedles` produce como
+ * máximo 12 valores para Colombia (crudo + canónico + 10 DV) y ninguno se
+ * descarta.
+ */
+const MAX_FISCAL_LOOKUP_NEEDLES = 16;
+
+/**
+ * Ordena las agujas de forma determinística y acotada, con el CANÓNICO y el
+ * valor crudo primero, para que el tope nunca pueda recortar la intención
+ * canónica y para que primario y fallback envíen exactamente lo mismo (§ 21).
+ */
+function buildBoundedFiscalNeedles(
+  taxIdentifier: string,
+  countryCode: string | null,
+): string[] {
+  const needles = buildFiscalLookupNeedles([taxIdentifier], countryCode);
+  const ordered = [
+    ...needles.canonical,
+    taxIdentifier.trim(),
+    ...needles.lookupValues,
+  ];
+  return [...new Set(ordered.filter((value) => value.length > 0))].slice(
+    0,
+    MAX_FISCAL_LOOKUP_NEEDLES,
+  );
+}
+
+/** Cuerpo de búsqueda fiscal: un `filterGroup` por propiedad, un `IN` por grupo. */
+function buildFiscalSearchBody(properties: string[], needles: string[]) {
+  return {
+    filterGroups: properties.map((prop) => ({
+      filters: [{ propertyName: prop, operator: 'IN', values: needles }],
+    })),
+    // Las propiedades FISCALES deben volver en la respuesta: sin ellas no se
+    // puede revalidar la igualdad canónica y el `95` no podría ganarse.
+    properties: [...new Set([...HS_PROPERTIES, ...HUBSPOT_FISCAL_PROPERTIES])],
+    limit: 5,
+  };
+}
+
 async function searchByTaxIdentifier(
   token: string,
-  taxIdentifier: string
+  taxIdentifier: string,
+  countryCode: string | null
 ): Promise<HubSpotSearchResult[]> {
   const cleanedTaxId = taxIdentifier.trim();
   if (!cleanedTaxId) return [];
 
-  // Propiedades fiscales posibles
-  const possibleProperties = [
-    'nit',
-    'identificacion_fiscal',
-    'rfc',
-    'ruc',
-    'tax_id',
-    'tax_identifier',
-    'identificacion_fiscal_nit_rfc_ruc'
-  ];
+  // Agujas canónicas: HubSpot almacena la representación que le cargaron, así
+  // que un `EQ` sobre el valor crudo perdía `900123456-7` cuando el candidato
+  // llegaba como `900.123.456`. Sigue siendo sólo RECUPERACIÓN: la identidad la
+  // decide la validación canónica con ámbito de país sobre lo devuelto.
+  const needles = buildBoundedFiscalNeedles(cleanedTaxId, countryCode);
+  if (needles.length === 0) return [];
 
-  // Cada filtro va en un filterGroup separado (es decir, OR)
-  const filterGroups = possibleProperties.map(prop => ({
-    filters: [
-      {
-        propertyName: prop,
-        operator: 'EQ',
-        value: cleanedTaxId
-      }
-    ]
-  }));
-
-  const body = {
-    filterGroups,
-    properties: HS_PROPERTIES,
-    limit: 5,
-  };
+  const possibleProperties = [...HUBSPOT_FISCAL_PROPERTIES];
 
   const res = await fetch('https://api.hubapi.com/crm/v3/objects/companies/search', {
     method: 'POST',
@@ -355,27 +390,13 @@ async function searchByTaxIdentifier(
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify(buildFiscalSearchBody(possibleProperties, needles)),
   });
 
   if (res.status === 400) {
-    // Fallback con propiedades confirmadas
+    // Fallback con propiedades confirmadas en el portal. Usa las MISMAS agujas
+    // canónicas (§ 21): la identidad no puede depender de un HTTP 400.
     const fallbackProps = ['nit', 'identificacion_fiscal'];
-    const fallbackFilterGroups = fallbackProps.map(prop => ({
-      filters: [
-        {
-          propertyName: prop,
-          operator: 'EQ',
-          value: cleanedTaxId
-        }
-      ]
-    }));
-
-    const fallbackBody = {
-      filterGroups: fallbackFilterGroups,
-      properties: HS_PROPERTIES,
-      limit: 5,
-    };
 
     const fallbackRes = await fetch('https://api.hubapi.com/crm/v3/objects/companies/search', {
       method: 'POST',
@@ -383,7 +404,7 @@ async function searchByTaxIdentifier(
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(fallbackBody),
+      body: JSON.stringify(buildFiscalSearchBody(fallbackProps, needles)),
     });
 
     if (!fallbackRes.ok) return [];
@@ -522,56 +543,94 @@ export async function checkHubSpotDuplicates(
     return { connected: false, skipped: true, matches: [], error: 'Token de HubSpot no disponible en Vault' };
   }
 
-  const { domain } = buildCompanySearchTerms(input);
+  const { domain, countryCode } = buildCompanySearchTerms(input);
 
   try {
     const matches: DuplicateMatch[] = [];
 
     // ── Búsqueda por identificador fiscal (oficial o candidato) ──────
+    //
+    // AGENT1-SHARED-FISCAL-IDENTITY-COUNTRY-SCOPE-CORRECTION.
+    //
+    // Antes: bastaba con que HubSpot DEVOLVIERA una fila para emitir `95` —la
+    // confianza que el lector compartido de CUT-L7 lee como identidad fiscal
+    // FUERTE—. No se comprobaba el país de la fila ni la igualdad canónica del
+    // identificador, así que un `123456789` mexicano en HubSpot suprimía a un
+    // `123456789` colombiano.
+    //
+    // Ahora el `95` se GANA: exige ámbito de país probado e igual, e igualdad
+    // fiscal canónica (CUT-3B1). Cuando no se puede probar, la coincidencia NO
+    // se descarta: baja a la banda DÉBIL real que ya existe en producción
+    // (`hubspot 85`, `candidate_fiscal_identity`, `requires_human_review`), que
+    // el lector de CUT-L7 clasifica como débil. Sin números inventados.
     const taxId = input.taxIdentifier || input.taxIdentifierCandidate;
     if (taxId && taxId.trim().length >= 4) {
-      const results = await searchByTaxIdentifier(token, taxId);
+      const results = await searchByTaxIdentifier(token, taxId, countryCode);
       for (const r of results) {
         const alreadyFound = matches.some((m) => m.matchedId === r.id);
-        if (!alreadyFound) {
-          if (!input.taxIdentifier && input.taxIdentifierCandidate) {
-            const rDomain = r.properties.domain?.toLowerCase().trim() ?? null;
-            const rName = r.properties.name ?? null;
-            matches.push({
-              source: 'hubspot',
-              status: 'possible_duplicate',
-              confidence: 85,
-              matchedId: r.id,
-              matchedName: rName,
-              matchedDomain: rDomain,
-              matchedWebsite: r.properties.website,
-              matchedTaxIdentifier: r.properties.nit || r.properties.identificacion_fiscal || r.properties.tax_id || r.properties.rfc || r.properties.ruc,
-              reason: `Coincidencia por NIT candidato en HubSpot: ${taxId}`,
-              raw: {
-                ...r.properties,
-                tax_identifier_candidate_used: taxId,
-                source: 'hubspot_tax_identifier_candidate',
-                requires_human_review: true,
-                matched_by: 'tax_identifier_candidate'
-              }
-            });
-          } else {
-            const rDomain = r.properties.domain?.toLowerCase().trim() ?? null;
-            const rName = r.properties.name ?? null;
-            matches.push({
-              source: 'hubspot',
-              status: 'existing_in_hubspot',
-              confidence: 95,
-              matchedId: r.id,
-              matchedName: rName,
-              matchedDomain: rDomain,
-              matchedWebsite: r.properties.website,
-              matchedTaxIdentifier: r.properties.nit || r.properties.identificacion_fiscal || r.properties.tax_id || r.properties.rfc || r.properties.ruc,
-              reason: `Identificador fiscal exacto coincide en HubSpot: ${taxId}`,
-              raw: r.properties,
-            });
-          }
+        if (alreadyFound) continue;
+
+        const rDomain = r.properties.domain?.toLowerCase().trim() ?? null;
+        const rName = r.properties.name ?? null;
+        const matchedTaxIdentifier =
+          r.properties.nit ||
+          r.properties.identificacion_fiscal ||
+          r.properties.tax_id ||
+          r.properties.rfc ||
+          r.properties.ruc;
+
+        const verdict = classifyHubSpotFiscalResult({
+          candidateCountryCode: countryCode,
+          candidateTaxId: taxId,
+          properties: r.properties,
+        });
+
+        // Un identificador CANDIDATO (inferido, no declarado) nunca fue identidad
+        // fuerte y sigue sin serlo: esa política es previa a este corte.
+        const isOfficialTaxId = Boolean(input.taxIdentifier);
+        const isStrongFiscalIdentity = isOfficialTaxId && verdict.proven;
+
+        if (isStrongFiscalIdentity) {
+          matches.push({
+            source: 'hubspot',
+            status: 'existing_in_hubspot',
+            confidence: 95,
+            matchedId: r.id,
+            matchedName: rName,
+            matchedDomain: rDomain,
+            matchedWebsite: r.properties.website,
+            matchedTaxIdentifier,
+            reason: `Identificador fiscal exacto coincide en HubSpot (${verdict.proven ? verdict.namespace : ''}): ${taxId}`,
+            raw: r.properties,
+          });
+          continue;
         }
+
+        matches.push({
+          source: 'hubspot',
+          status: 'possible_duplicate',
+          confidence: 85,
+          matchedId: r.id,
+          matchedName: rName,
+          matchedDomain: rDomain,
+          matchedWebsite: r.properties.website,
+          matchedTaxIdentifier,
+          reason: isOfficialTaxId
+            ? `Coincidencia fiscal en HubSpot SIN identidad probada (${verdict.proven ? 'proven' : verdict.rejection}) — requiere revisión humana: ${taxId}`
+            : `Coincidencia por NIT candidato en HubSpot: ${taxId}`,
+          raw: {
+            ...r.properties,
+            tax_identifier_candidate_used: taxId,
+            source: isOfficialTaxId
+              ? 'hubspot_tax_identifier_unproven_scope'
+              : 'hubspot_tax_identifier_candidate',
+            requires_human_review: true,
+            matched_by: isOfficialTaxId
+              ? 'tax_identifier_unproven_country_scope'
+              : 'tax_identifier_candidate',
+            fiscal_identity_rejection: verdict.proven ? null : verdict.rejection,
+          },
+        });
       }
     }
 

@@ -405,7 +405,8 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // `identity_epoch` — valla peticiones de PROVEEDOR, no escrituras de candidatos—, y la lista
     // `authored` de arriba ya lo comprueba de forma exhaustiva sobre TODAS las migraciones del
     // repo.
-    const CEILING = '135_agent1_lusha_prospecting_request_fence.sql';
+    // AGENT1-LUSHA-CUT-L4 mueve el techo a la 136: historial DURABLE de INTENTOS y reclamo atomico de UN reintento seguro (solo tras 429 o 5xx). AUTORADA y NO APLICADA.
+    const CEILING = '136_agent1_lusha_prospecting_safe_retry_attempts.sql';
     assert.equal(migrations[migrations.length - 1], CEILING);
     for (const foreign of [
       '127_br_receita_monthly_snapshot_identity.sql',
@@ -427,7 +428,7 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // Sin huecos: el conteo se mueve con el techo real del repositorio, no con el de este corte.
     // BR-COMPACT-SNAPSHOT-PRODUCTIZATION añade la 134 y AGENT1-LUSHA-CUT-L3 la 135 (renumerada
     // desde la 134), así que el conteo sube con ambas.
-    assert.equal(migrations.length, 135);
+    assert.equal(migrations.length, 136);
   });
 
   it('🔴 la 124 (Agente 2A) queda intacta, y la 126 no depende de ella', () => {

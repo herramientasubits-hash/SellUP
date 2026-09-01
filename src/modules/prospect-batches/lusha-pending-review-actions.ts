@@ -60,6 +60,7 @@ import {
   type LushaProspectingOperationStore,
 } from '@/server/prospect-batches/lusha-prospecting-operation';
 import { resolveLushaProspectingOperationStore } from '@/server/prospect-batches/lusha-prospecting-operation-store';
+import { lushaRealRetrySleep } from '@/server/prospect-batches/lusha-safe-retry-policy';
 import type { LushaRequestFenceStore } from '@/server/prospect-batches/lusha-request-fence';
 import { LUSHA_PREVIEW_TIMEOUT_MS } from '@/server/prospect-batches/lusha-preview';
 // AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 12/15/25 — la capa GRATUITA,
@@ -1251,6 +1252,31 @@ async function runLushaSearchWithReservation(args: {
                 reason: block.reason,
                 state: block.state,
                 code: block.code,
+                wizard_run_id: reservedCorrelation.wizardRunId,
+              });
+            },
+            // ── AGENT1-LUSHA-CUT-L4 — el reintento seguro, en producción ────────
+            //
+            // 🔴 La espera REAL sólo se inyecta aquí. El módulo de política no
+            // llama a `setTimeout` por su cuenta, y por eso las suites pueden
+            // probar el reintento sin tardar un segundo por caso.
+            //
+            // 🔴 Que el reintento OCURRA no depende de esta línea: depende de que
+            // la 136 esté aplicada y de que la BASE conceda el reclamo tras releer
+            // la evidencia del intento anterior. Sin 136 esto se degrada a CUT-L3.
+            sleep: lushaRealRetrySleep,
+            onRetry: (event) => {
+              console.warn('[lusha_request_fence_safe_retry]', {
+                fence_key: event.fenceKey,
+                attempt_no: event.attemptNo,
+                previous_outcome_class: event.outcomeClass,
+                wizard_run_id: reservedCorrelation.wizardRunId,
+              });
+            },
+            onRetryRefused: (event) => {
+              console.warn('[lusha_request_fence_safe_retry_refused]', {
+                fence_key: event.fenceKey,
+                code: event.code,
                 wizard_run_id: reservedCorrelation.wizardRunId,
               });
             },

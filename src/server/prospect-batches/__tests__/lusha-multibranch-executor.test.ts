@@ -247,8 +247,17 @@ describe('política del ejecutor (pura)', () => {
     assert.equal(resolveLushaProviderRequestsAllowed(0), 2);
   });
 
-  it('techo de filas crudas: 3 ramas × 2 páginas × 10 por página = 60', () => {
-    assert.equal(LUSHA_RUN_MAX_RAW_RESULTS, 60);
+  it('techo de filas crudas: 3 ramas × 2 páginas × 25 por página = 150', () => {
+    // 🔴 AGENT1-LUSHA-CUT-L5 § 3 — el tercer factor pasó de 10 a 25 porque el
+    // tamaño de página PAGADO pasó de 10 a 25. La fórmula no cambió, y por eso el
+    // techo tenía que moverse: dejarlo en 60 habría hecho que la tercera petición
+    // de una corrida chocara con `raw_scan_cap_reached` con objetivo abierto y
+    // páginas ya reservadas — un recorte de cobertura disfrazado de guarda.
+    //
+    // El GASTO no se mueve: lo acota `providerRequestsAllowed` (ramas × páginas),
+    // que este corte no toca.
+    assert.equal(LUSHA_RUN_MAX_RAW_RESULTS, 150);
+    assert.equal(LUSHA_RUN_MAX_RAW_RESULTS, 3 * 2 * 25);
   });
 
   it('el hueco nunca es negativo', () => {
@@ -269,7 +278,7 @@ describe('política del ejecutor (pura)', () => {
       { allowed: false, stopReason: 'request_cap_reached' },
     );
     assert.deepEqual(
-      decideLushaProviderRequest({ ...base, remainingGap: 3, rawResultsTotal: 60 }),
+      decideLushaProviderRequest({ ...base, remainingGap: 3, rawResultsTotal: 150 }),
       { allowed: false, stopReason: 'raw_scan_cap_reached' },
     );
   });
@@ -660,7 +669,7 @@ describe('§§ 18/19 — telemetría', () => {
     assert.equal(multi.credits_reserved, 4);
     assert.equal(multi.credits_reported_actual, 3);
     assert.equal(multi.stop_reason, 'target_reached');
-    assert.equal(multi.max_raw_results, 60);
+    assert.equal(multi.max_raw_results, 150);
     assert.equal((multi.branches as unknown[]).length, 2);
 
     // Sin PII ni payload del proveedor: sólo ids de industria, conteos y motivos.

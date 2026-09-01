@@ -230,6 +230,11 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // valla DURABLE de una petición de Lusha Prospecting (Agente 1, seguridad de gasto). No
       // edita la 112 ni ninguna otra de la cadena de teléfono.
       '135_agent1_lusha_prospecting_request_fence.sql',
+      // AGENT1-LUSHA-CUT-L4 anade la 136: el historial DURABLE de INTENTOS de una peticion de
+      // Lusha Prospecting y el reclamo atomico de UN reintento seguro (solo tras un 429 o un
+      // 5xx, que el contrato HUMANO del proveedor declara a 0 creditos). Es de Agente 1 y de
+      // seguridad de gasto. AUTORADA y NO APLICADA.
+      '136_agent1_lusha_prospecting_safe_retry_attempts.sql',
     ]);
   });
 

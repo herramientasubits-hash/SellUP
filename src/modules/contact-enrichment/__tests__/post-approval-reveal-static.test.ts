@@ -745,10 +745,11 @@ describe('la migración 128 — su contrato', () => {
     // petición que el proveedor quizá ya cobró. Es de Agente 1 y de seguridad de GASTO: no es de
     // teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de las cadenas
     // que esta guarda vigila. AUTORADA y NO APLICADA.
-    assert.equal(files[files.length - 1], '135_agent1_lusha_prospecting_request_fence.sql');
+    // AGENT1-LUSHA-CUT-L4 mueve el techo a la 136: historial DURABLE de INTENTOS y reclamo atomico de UN reintento seguro (solo tras 429 o 5xx). AUTORADA y NO APLICADA.
+    assert.equal(files[files.length - 1], '136_agent1_lusha_prospecting_safe_retry_attempts.sql');
     const numbers = files.map((f) => Number.parseInt(f.slice(0, 3), 10));
-    assert.equal(Math.max(...numbers), 135);
-    assert.equal(files.length, 135, 'techo y conteo coinciden: ni un hueco');
+    assert.equal(Math.max(...numbers), 136);
+    assert.equal(files.length, 136, 'techo y conteo coinciden: ni un hueco');
   });
 
   it('no edita ninguna migración anterior de la cadena de teléfono', () => {

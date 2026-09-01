@@ -48,6 +48,7 @@ import {
   checkActiveCandidateDuplicate,
   ACTIVE_CANDIDATE_STATUSES,
 } from "./active-candidate-identity-guard";
+import { isStrongActiveGuardReason } from "./strong-identity-duplicate-match";
 // AGENT1-CUT3B23 §§ 5/6/8 — evidencia de identidad COMPARTIDA con las otras dos
 // rutas de escritura de Agente 1, y el registro con ámbito de lote que la compara.
 // Esta ruta dedupeaba por DOMINIO/nombre y la gratuita por identidad FISCAL: sin
@@ -2108,10 +2109,10 @@ export async function writeProspectingCandidates(
           normalizedName: normalizeName(preGuardName),
         };
         const preGuardMatch = checkActiveCandidateDuplicate(preGuardInput, activeCandidatesForGuard);
+        // AGENT1-LUSHA-CUT-L7 § 21 — sólo el DOMINIO activo bloquea. Espeja
+        // exactamente la decisión del bucle de escritura (Pass 4).
         const isBlockedByDuplicateGuard =
-          preGuardMatch.matched &&
-          (preGuardMatch.reason === 'same_active_domain' ||
-            preGuardMatch.reason === 'same_inferred_identity');
+          preGuardMatch.matched && isStrongActiveGuardReason(preGuardMatch.reason);
 
         // Pre-check evidence persistence policy: blocked candidates won't be inserted.
         const prePolicy = computeEvidencePersistencePolicy({ countryEvidence: cer, businessFit: bfr });
@@ -2187,10 +2188,10 @@ export async function writeProspectingCandidates(
           normalizedName: normalizeName(preGuardName),
         };
         const preGuardMatch = checkActiveCandidateDuplicate(preGuardInput, activeCandidatesForGuard);
+        // AGENT1-LUSHA-CUT-L7 § 21 — sólo el DOMINIO activo bloquea. Espeja
+        // exactamente la decisión del bucle de escritura (Pass 4).
         const isBlockedByDuplicateGuard =
-          preGuardMatch.matched &&
-          (preGuardMatch.reason === 'same_active_domain' ||
-            preGuardMatch.reason === 'same_inferred_identity');
+          preGuardMatch.matched && isStrongActiveGuardReason(preGuardMatch.reason);
 
         // Pre-check evidence policy
         const prePolicy = computeEvidencePersistencePolicy({ countryEvidence: cer, businessFit: bfr });
@@ -2304,9 +2305,12 @@ export async function writeProspectingCandidates(
     duplicateGuardData.checkedCount++;
 
     if (guardMatch.matched) {
-      const isStrongMatch =
-        guardMatch.reason === 'same_active_domain' ||
-        guardMatch.reason === 'same_inferred_identity';
+      // AGENT1-LUSHA-CUT-L7 § 21 — `same_inferred_identity` era un salto DURO y
+      // es sólo igualdad de NOMBRE inferido normalizado: dos empresas homónimas
+      // con dominios distintos se reducían a una, en silencio y sin rastro para
+      // el revisor. Ahora cae al camino de posible duplicado de abajo, junto a
+      // `same_canonical_identity`. El DOMINIO activo sigue bloqueando igual.
+      const isStrongMatch = isStrongActiveGuardReason(guardMatch.reason);
 
       if (isStrongMatch) {
         skipped.push({
@@ -2332,7 +2336,8 @@ export async function writeProspectingCandidates(
         continue;
       }
 
-      // same_canonical_identity: persist as possible_duplicate and annotate
+      // same_canonical_identity / same_inferred_identity (evidencia de NOMBRE):
+      // se persiste como posible duplicado y se anota.
       duplicateGuardData.possibleDuplicateCount++;
       if (duplicateGuardData.samples.length < 10) {
         duplicateGuardData.samples.push({

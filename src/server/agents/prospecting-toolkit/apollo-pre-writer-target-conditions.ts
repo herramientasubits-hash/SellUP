@@ -75,6 +75,7 @@ import {
   checkActiveCandidateDuplicate,
   type ActiveCandidateRecord,
 } from './active-candidate-identity-guard';
+import { isStrongActiveGuardReason } from './strong-identity-duplicate-match';
 import { normalizeDomain } from './normalization';
 import type { GateVerdict } from './candidate-completeness-contract';
 import type { ProspectingPipelineCandidate } from './types';
@@ -727,10 +728,10 @@ export function evaluateCandidatePreWriterAdmission(input: {
       },
       [...prefetch.activeCandidates],
     );
-    const isStrongMatch =
-      guardMatch.matched &&
-      (guardMatch.reason === 'same_active_domain' ||
-        guardMatch.reason === 'same_inferred_identity');
+    // AGENT1-LUSHA-CUT-L7 § 21 — mismo criterio que Pass 4 del writer: sólo el
+    // DOMINIO activo es identidad fuerte. La igualdad de nombre inferido dejó de
+    // reprobar esta condición.
+    const isStrongMatch = guardMatch.matched && isStrongActiveGuardReason(guardMatch.reason);
     checks.push(
       isStrongMatch
         ? failed('active_duplicate_guard', `duplicate_guard:${guardMatch.reason}`)

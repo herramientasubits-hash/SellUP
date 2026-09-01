@@ -95,6 +95,14 @@ const MIGRATION_134_BR_COMPACT = '134_br_receita_compact_snapshot.sql';
  */
 const MIGRATION_135_AGENT1_LUSHA_FENCE = '135_agent1_lusha_prospecting_request_fence.sql';
 
+/**
+ * AGENT1-LUSHA-CUT-L4 — the durable ATTEMPT history for one Lusha Company Prospecting request,
+ * plus the atomic claim of ONE safe retry (only after a 429 or a 5xx, which the provider's HUMAN
+ * contract declares to be 0 credits). Another Agent-1 spend-safety migration: it names no
+ * source-catalog object, which the sweep below proves over its SQL rather than trusting this.
+ */
+const MIGRATION_136_AGENT1_LUSHA_RETRY = '136_agent1_lusha_prospecting_safe_retry_attempts.sql';
+
 const readMigration = (file: string) => readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
 const stripComments = (sql: string) =>
   sql
@@ -144,7 +152,7 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     // object, which the sweep below proves over its SQL instead of trusting this comment. The
     // ceiling stays EXACT so that an undeclared migration above the last known milestone still
     // breaks this guard.
-    assert.equal(highest, 135);
+    assert.equal(highest, 136);
     assert.ok(files.includes(MIGRATION_125));
     assert.ok(files.includes(MIGRATION_126_AGENT1));
     assert.ok(files.includes(MIGRATION_127));
@@ -187,7 +195,11 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
       files.filter((f) => f.startsWith('135')),
       [MIGRATION_135_AGENT1_LUSHA_FENCE],
     );
-    assert.equal(files.some((f) => f.startsWith('136')), false);
+    assert.deepEqual(
+      files.filter((f) => f.startsWith('136')),
+      [MIGRATION_136_AGENT1_LUSHA_RETRY],
+    );
+    assert.equal(files.some((f) => f.startsWith('137')), false);
     // And the 128 plus the whole 129–132 chain are provably foreign to this milestone: none of
     // them names a single source-catalog object CUT A.1 reconciles.
     for (const foreign of [
@@ -195,6 +207,7 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
       ...MIGRATIONS_129_TO_132_AGENT2,
       MIGRATION_133_BR_CUT_D,
       MIGRATION_135_AGENT1_LUSHA_FENCE,
+      MIGRATION_136_AGENT1_LUSHA_RETRY,
     ]) {
       const sql = readMigration(foreign);
       for (const owned of [
