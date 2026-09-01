@@ -6,15 +6,38 @@
  * una capa adicional que verifica contra candidatos en estado activo.
  *
  * Reglas:
- *   1. Mismo domain contra candidato activo → same_active_domain
+ *   1. Mismo domain CANÓNICO contra candidato activo → same_active_domain
  *   2. Mismo inferred_company_name → same_inferred_identity
  *   3. Mismo normalized_name → same_canonical_identity
  *   4. qa_cleanup / discarded / rejected → NO bloquean (permiten reconsideración)
  *
  * Determinística: no hace fetch, no llama APIs, no depende de estado externo.
- * Consumida por candidate-writer.ts para proteger contra duplicados funcionales
- * que la deduplicación de accounts no cubre.
+ * Consumida por candidate-writer.ts para proteger duplicados funcionales que la
+ * deduplicación de accounts no cubre.
+ *
+ * ── AGENT1-ACTIVE-CANDIDATE-DOMAIN-CANONICALIZATION ─────────────────────────
+ *
+ * El eje FUERTE de esta guarda es el dominio, y comparaba las dos caras en
+ * formas distintas: quien llama construye `input.domain` con el dominio ya
+ * canonicalizado (`normalizeDomain`, que quita `www.`), mientras que
+ * `existingCandidate.domain` llega TAL CUAL se persistió — y en Producción se
+ * persiste con `www.`. `une.com.co === 'www.une.com.co'` es `false`, así que la
+ * igualdad de dominio se PERDÍA y la guarda caía al eje de NOMBRE, que
+ * CUT-L7 debilitó a propósito: el candidato sobrevivía como
+ * `possible_duplicate` y contaba para el objetivo.
+ *
+ * La corrección canonicaliza AMBAS caras con la MISMA autoridad compartida
+ * (`normalization.ts` → `normalizeDomain`). No se recorta `www.` aquí a mano ni
+ * se crea un segundo normalizador. La igualdad fuerte exige que las dos formas
+ * canónicas EXISTAN: un valor que la autoridad rechaza (`localhost`, una IP
+ * desnuda, una cadena sin punto) no funda identidad de empresa.
+ *
+ * NO cambia la interpretación de CUT-L7: el nombre sigue siendo evidencia
+ * DÉBIL, y el orden de prioridad (dominio fuerte → nombre inferido → nombre
+ * canónico) es el mismo.
  */
+
+import { normalizeDomain } from './normalization';
 
 // ─── Tipos públicos ───────────────────────────────────────────────────────────
 
@@ -112,9 +135,9 @@ function normalizeIdentity(name: string): string {
  * El llamador (candidate-writer) es responsable de cargar los candidatos relevantes.
  *
  * Prioridad de checks:
- *   1. domain exacto contra candidato activo
- *   2. inferred_company_name normalizado
- *   3. normalized_name exacto
+ *   1. domain CANÓNICO contra candidato activo (eje FUERTE)
+ *   2. inferred_company_name normalizado (eje DÉBIL — CUT-L7)
+ *   3. normalized_name exacto (eje DÉBIL — CUT-L7)
  *
  * @param input - Identidad del candidato nuevo a evaluar
  * @param existingCandidates - Candidatos existentes (sin filtrar por status)
@@ -128,9 +151,20 @@ export function checkActiveCandidateDuplicate(
     ACTIVE_CANDIDATE_STATUSES.has(c.status),
   );
 
-  // 1. Domain exacto contra candidato activo
-  if (input.domain) {
-    const domainMatch = activeCandidates.find((c) => c.domain === input.domain);
+  // 1. Domain CANÓNICO contra candidato activo.
+  //
+  // Las dos caras pasan por la MISMA autoridad compartida antes de compararse,
+  // de modo que `www.`, el protocolo, el path y las mayúsculas dejan de partir
+  // en dos la identidad de un mismo dominio. `null` de cualquiera de los dos
+  // lados NO funda igualdad: la autoridad rechaza lo que no es un dominio de
+  // empresa utilizable.
+  const inputCanonicalDomain = input.domain ? normalizeDomain(input.domain) : null;
+  if (inputCanonicalDomain) {
+    const domainMatch = activeCandidates.find((c) => {
+      if (!c.domain) return false;
+      const existingCanonicalDomain = normalizeDomain(c.domain);
+      return existingCanonicalDomain !== null && existingCanonicalDomain === inputCanonicalDomain;
+    });
     if (domainMatch) {
       return {
         matched: true,
