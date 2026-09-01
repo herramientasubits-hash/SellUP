@@ -27,6 +27,8 @@ import type {
 export type BrReceitaNationalChunkLoaderRefusalReason =
   | 'partition_range_invalid'
   | 'partition_map_not_pinned_to_1024'
+  | 'duplicate_policy_not_reject'
+  | 'reader_caps_invalid'
   | 'materialization_caps_invalid'
   | 'existing_run_not_ready'
   | 'effective_partition_map_changed'
@@ -111,6 +113,25 @@ function assertPinnedMap(request: BrReceitaNationalChunkEngineBaseRequest): void
   }
 }
 
+function assertNationalDuplicatePolicy(request: BrReceitaNationalChunkEngineBaseRequest): void {
+  if (request.duplicateKeyPolicy !== 'reject') {
+    throw new BrReceitaNationalChunkLoaderError('duplicate_policy_not_reject');
+  }
+}
+
+function resolveMaxRowBytes(request: BrReceitaNationalChunkEngineBaseRequest): number {
+  const raw = request.readerCaps?.maxRowBytes;
+  if (
+    typeof raw !== 'number' ||
+    !Number.isFinite(raw) ||
+    !Number.isSafeInteger(raw) ||
+    raw <= 0
+  ) {
+    throw new BrReceitaNationalChunkLoaderError('reader_caps_invalid');
+  }
+  return raw;
+}
+
 function assertCompletedChunkAccounting(args: {
   readonly engine: BrazilReceitaFullJoinEngineResult;
   readonly projector: BrReceitaNationalProjectorStats;
@@ -162,6 +183,8 @@ export async function loadBrReceitaNationalChunk(args: {
 }): Promise<BrReceitaNationalChunkLoadResult> {
   assertRange(args.partitionOrdinalStart, args.partitionOrdinalCount);
   assertPinnedMap(args.engineRequest);
+  assertNationalDuplicatePolicy(args.engineRequest);
+  const maxRowBytes = resolveMaxRowBytes(args.engineRequest);
 
   const materializationCaps = resolveBrReceitaNationalMaterializationCaps(args.materializationCaps);
   if (!materializationCaps.ok) {
@@ -188,19 +211,25 @@ export async function loadBrReceitaNationalChunk(args: {
     fileSystem: args.engineRequest.readerFileSystem,
     openHandleLedger: args.engineRequest.openHandleLedger,
     materializationGuard,
-    maxRowBytes: Number(args.engineRequest.readerCaps?.maxRowBytes ?? 0),
+    maxRowBytes,
     catalogs: args.catalogs,
     writer,
   });
 
   const runEngine = args.runEngine ?? runBrazilReceitaFullJoinStreamingEngineOnce;
-  const engine = await runEngine({
-    ...args.engineRequest,
-    sink: projector,
-    sinkMaterializesRows: true,
-    partitionOrdinalStart: args.partitionOrdinalStart,
-    partitionOrdinalCount: args.partitionOrdinalCount,
-  });
+  let engine: BrazilReceitaFullJoinEngineResult;
+  try {
+    engine = await runEngine({
+      ...args.engineRequest,
+      duplicateKeyPolicy: 'reject',
+      sink: projector,
+      sinkMaterializesRows: true,
+      partitionOrdinalStart: args.partitionOrdinalStart,
+      partitionOrdinalCount: args.partitionOrdinalCount,
+    });
+  } finally {
+    projector.dispose();
+  }
 
   if (engine.exitStatus !== 'completed') {
     return {
