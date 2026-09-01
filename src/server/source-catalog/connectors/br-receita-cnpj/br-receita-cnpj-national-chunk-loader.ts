@@ -31,7 +31,12 @@ export type BrReceitaNationalChunkLoaderRefusalReason =
   | 'existing_run_not_ready'
   | 'effective_partition_map_changed'
   | 'partition_depth_changed'
-  | 'executed_range_mismatch';
+  | 'executed_range_mismatch'
+  | 'projector_not_finalized'
+  | 'materialization_breach_on_completed_engine'
+  | 'partition_summary_match_mismatch'
+  | 'projector_accounting_mismatch'
+  | 'writer_accounting_mismatch';
 
 export class BrReceitaNationalChunkLoaderError extends Error {
   readonly reason: BrReceitaNationalChunkLoaderRefusalReason;
@@ -106,12 +111,39 @@ function assertPinnedMap(request: BrReceitaNationalChunkEngineBaseRequest): void
   }
 }
 
+function assertCompletedChunkAccounting(args: {
+  readonly engine: BrazilReceitaFullJoinEngineResult;
+  readonly projector: BrReceitaNationalProjectorStats;
+  readonly writer: BrReceitaExistingRunWriterStats;
+}): void {
+  if (!args.projector.finalized) {
+    throw new BrReceitaNationalChunkLoaderError('projector_not_finalized');
+  }
+  if (args.projector.materializationBreach !== null) {
+    throw new BrReceitaNationalChunkLoaderError('materialization_breach_on_completed_engine');
+  }
+
+  const summaryMatches = args.engine.partitionSummaries.reduce(
+    (total, summary) => total + summary.matchesEmitted,
+    0,
+  );
+  if (summaryMatches !== args.projector.matchesReceived) {
+    throw new BrReceitaNationalChunkLoaderError('partition_summary_match_mismatch');
+  }
+  if (
+    args.projector.matchesReceived !==
+    args.projector.parserAcceptedRows + args.projector.parserRejectedRows
+  ) {
+    throw new BrReceitaNationalChunkLoaderError('projector_accounting_mismatch');
+  }
+  if (args.writer.acceptedRows !== args.projector.parserAcceptedRows) {
+    throw new BrReceitaNationalChunkLoaderError('writer_accounting_mismatch');
+  }
+}
+
 /**
  * Loads one Stage-3 ordinal window into an ALREADY-EXISTING detached run. It cannot publish.
- *
- * Materialization caps are a SECOND, explicit envelope for the extra full-row reads performed by
- * the sink after the engine has already re-read the rows to compare join keys. They have no defaults
- * and are deliberately not borrowed from benchmark caps.
+ * Materialization caps cover the extra full-row reads performed after key matching; no defaults.
  */
 export async function loadBrReceitaNationalChunk(args: {
   readonly snapshotRunId: string;
@@ -201,6 +233,14 @@ export async function loadBrReceitaNationalChunk(args: {
     throw new BrReceitaNationalChunkLoaderError('executed_range_mismatch');
   }
 
+  const projectorStats = projector.stats();
+  const writerBeforeCommit = writer.stats();
+  assertCompletedChunkAccounting({
+    engine,
+    projector: projectorStats,
+    writer: writerBeforeCommit,
+  });
+
   const writerStats = await writer.commitChunk();
   return {
     status: 'loaded_not_published',
@@ -210,7 +250,7 @@ export async function loadBrReceitaNationalChunk(args: {
     partitionOrdinalCount: args.partitionOrdinalCount,
     partitionOrdinalEndExclusive: expectedEnd,
     engine,
-    projector: projector.stats(),
+    projector: projectorStats,
     writer: writerStats,
     published: false,
   };
