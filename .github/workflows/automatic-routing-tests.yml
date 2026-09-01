@@ -4278,3 +4278,25 @@ jobs:
         run: npm run test:br-source:provenance-privacy-boundary
         env:
           SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
+      # BR-RECEITA-CHUNKED-JOIN-RANGE — la ventana OPCIONAL de ordinales sobre la ETAPA 3, para que
+      # una unión nacional pueda completarse en varias ejecuciones secuenciales desde el Mac de la
+      # dueña en lugar de una sola que tiene que sobrevivir de punta a punta.
+      #
+      # Lo que esta suite prueba, y que quedaría verde si sólo se filtrara al final:
+      #
+      #   1. SIN rango declarado la etapa 3 recorre el mapa completo — el comportamiento anterior,
+      #      comparado contra el oráculo independiente y no contra un número escrito a mano.
+      #   2. CON rango, la selección está en el BUCLE: el contador de lecturas del puerto real
+      #      demuestra que una ventana de 4 de 16 hace exactamente un cuarto de las re-lecturas de
+      #      fila de la etapa 3, no 16/16. Contadores deterministas, nunca tiempos.
+      #   3. Un rango MALFORMADO (mitad declarada, negativo, cero, fraccionario, fuera del mapa)
+      #      se rechaza en `before_first_read`: 0 bytes leídos, 0 workspace temporal.
+      #   4. La unión de 0-3, 4-7, 8-11 y 12-15 es EXACTAMENTE la unión completa, comparada como
+      #      MULTICONJUNTO de identidades de registro unido — a una fila perdida y a una fila
+      #      duplicada les falla igual.
+      #
+      # 0 Producción, 0 escrituras remotas, 0 proveedores, 0 créditos, 0 flags, 0 migraciones, 0
+      # carga nacional. Todo identificador es un marcador sintético `SYN_K`.
+      - name: Run BR Receita Stage-3 partition ordinal range
+        run: npm run test:br-source:partition-ordinal-range
