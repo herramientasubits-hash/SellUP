@@ -24,11 +24,14 @@ import type {
   BrReceitaSqlExecutor,
 } from './br-receita-cnpj-monthly-snapshot-write-gateway';
 
+const INVENTORY_FINGERPRINT_PATTERN = /^sha256:[a-f0-9]{64}$/;
+
 export type BrReceitaNationalChunkLoaderRefusalReason =
   | 'partition_range_invalid'
   | 'partition_map_not_pinned_to_1024'
   | 'duplicate_policy_not_reject'
   | 'reader_caps_invalid'
+  | 'inventory_fingerprint_invalid'
   | 'materialization_caps_invalid'
   | 'existing_run_not_ready'
   | 'effective_partition_map_changed'
@@ -59,6 +62,7 @@ export type BrReceitaNationalChunkEngineBaseRequest = Omit<
 interface BrReceitaNationalChunkCoordinates {
   readonly snapshotRunId: string;
   readonly sourcePeriod: string;
+  readonly inventoryFingerprint: string;
 }
 
 export interface BrReceitaNationalChunkLoadedResult extends BrReceitaNationalChunkCoordinates {
@@ -133,6 +137,12 @@ function resolveMaxRowBytes(request: BrReceitaNationalChunkEngineBaseRequest): n
   return raw;
 }
 
+function assertInventoryFingerprint(value: string): void {
+  if (!INVENTORY_FINGERPRINT_PATTERN.test(value)) {
+    throw new BrReceitaNationalChunkLoaderError('inventory_fingerprint_invalid');
+  }
+}
+
 function assertCompletedChunkAccounting(args: {
   readonly engine: BrazilReceitaFullJoinEngineResult;
   readonly projector: BrReceitaNationalProjectorStats;
@@ -181,6 +191,7 @@ export async function loadBrReceitaNationalChunk(args: {
   readonly snapshotRunId: string;
   readonly sourcePeriod: string;
   readonly sourceYear: number;
+  readonly inventoryFingerprint: string;
   readonly partitionOrdinalStart: number;
   readonly partitionOrdinalCount: number;
   readonly materializationCaps:
@@ -195,6 +206,7 @@ export async function loadBrReceitaNationalChunk(args: {
   assertRange(args.partitionOrdinalStart, args.partitionOrdinalCount);
   assertPinnedMap(args.engineRequest);
   assertNationalDuplicatePolicy(args.engineRequest);
+  assertInventoryFingerprint(args.inventoryFingerprint);
   const maxRowBytes = resolveMaxRowBytes(args.engineRequest);
 
   const materializationCaps = resolveBrReceitaNationalMaterializationCaps(args.materializationCaps);
@@ -247,6 +259,7 @@ export async function loadBrReceitaNationalChunk(args: {
       status: 'engine_aborted',
       snapshotRunId: args.snapshotRunId,
       sourcePeriod: args.sourcePeriod,
+      inventoryFingerprint: args.inventoryFingerprint,
       partitionOrdinalStart: args.partitionOrdinalStart,
       partitionOrdinalCount: args.partitionOrdinalCount,
       engine,
@@ -287,6 +300,7 @@ export async function loadBrReceitaNationalChunk(args: {
     status: 'loaded_not_published',
     snapshotRunId: args.snapshotRunId,
     sourcePeriod: args.sourcePeriod,
+    inventoryFingerprint: args.inventoryFingerprint,
     partitionOrdinalStart: args.partitionOrdinalStart,
     partitionOrdinalCount: args.partitionOrdinalCount,
     partitionOrdinalEndExclusive: expectedEnd,
