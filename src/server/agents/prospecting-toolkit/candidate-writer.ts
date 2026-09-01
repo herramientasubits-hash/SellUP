@@ -49,6 +49,11 @@ import {
   ACTIVE_CANDIDATE_STATUSES,
 } from "./active-candidate-identity-guard";
 import { isStrongActiveGuardReason } from "./strong-identity-duplicate-match";
+// AGENT1-ACTIVE-CANDIDATE-DOMAIN-CANONICALIZATION (addendum) — la MISMA autoridad
+// de dominio que usa la guarda. El prefetch la necesita para RECUPERAR, no solo
+// para comparar: una consulta exacta contra la forma canónica no ve la fila
+// histórica persistida con `www.`.
+import { normalizeDomain } from "./normalization";
 // AGENT1-CUT3B23 §§ 5/6/8 — evidencia de identidad COMPARTIDA con las otras dos
 // rutas de escritura de Agente 1, y el registro con ámbito de lote que la compara.
 // Esta ruta dedupeaba por DOMINIO/nombre y la gratuita por identidad FISCAL: sin
@@ -410,6 +415,58 @@ const ACTIVE_STATUSES_FOR_GUARD = [...ACTIVE_CANDIDATE_STATUSES];
 const ACTIVE_GUARD_PREFETCH_LIMIT = 500;
 
 /**
+ * AGENT1-ACTIVE-CANDIDATE-DOMAIN-CANONICALIZATION (addendum) § 4 — formas de
+ * búsqueda EXACTA que hay que pedirle a la base para un dominio.
+ *
+ * La corrección anterior arregló la COMPARACIÓN: las dos caras del dominio pasan
+ * por `normalizeDomain` antes de compararse. Pero comparar no sirve si la fila
+ * nunca se recupera. El prefetch consultaba `domain IN (<dominios del lote>)` con
+ * igualdad EXACTA, y las dos caras siguen sin coincidir en la BASE:
+ *
+ *   consulta:    une.com.co        (canónica — `normalizeDomain` quita `www.`)
+ *   persistida:  www.une.com.co    (tal cual la entregó el proveedor)
+ *   → la fila no se recupera → la guarda nunca la ve → eje FUERTE perdido
+ *
+ * En el primer lote vivo esto quedó TAPADO porque las mismas filas volvían por el
+ * prefetch por país. Esa cobertura es accidental: depende de que el histórico sea
+ * del MISMO país y de caber en las 500 filas sin orden del eje de país. La
+ * identidad de dominio es GLOBAL y no puede depender de ninguna de las dos cosas.
+ *
+ * Contrato REAL de `prospect_candidates.domain` auditado en Producción (289 filas,
+ * 262 con dominio): 70 se persisten con `www.` y 192 sin él; CERO traen protocolo,
+ * path, querystring, mayúsculas, espacios, punto final, `@` inicial o falta de
+ * punto. `internexa.com` y `softwareone.com` guardan HOY las dos formas para el
+ * mismo dominio canónico. Por eso el conjunto de variantes es exactamente dos, y
+ * no se inventan formas que la base nunca ha escrito.
+ *
+ * Canonicalizar PRIMERO y expandir después cubre las cuatro combinaciones, lo
+ * cual hace falta porque los llamadores tampoco son homogéneos: el runner de
+ * Apollo canonicaliza con `normalizeDomain` antes de llamar, mientras que el
+ * writer usa `candidate.domain` tal cual lo entrega el proveedor (con `www.`) y
+ * solo cae a `extractDomain` cuando ese campo falta.
+ *
+ * La consulta es SOLO recuperación. La igualdad final sigue siendo
+ * `normalizeDomain(input) === normalizeDomain(existing)` dentro de la guarda
+ * compartida: esto amplía lo que la guarda PUEDE ver, nunca lo que decide.
+ */
+export function buildActiveGuardDomainLookupVariants(
+  batchDomains: readonly (string | null | undefined)[],
+): string[] {
+  const variants = new Set<string>();
+  for (const raw of batchDomains) {
+    if (!raw) continue;
+    const canonical = normalizeDomain(raw);
+    // La autoridad rechaza lo que no es un dominio de empresa utilizable
+    // (`localhost`, una IP desnuda, una cadena sin punto). Un valor que no funda
+    // identidad tampoco debe ensanchar la consulta.
+    if (!canonical) continue;
+    variants.add(canonical);
+    variants.add(`www.${canonical}`);
+  }
+  return [...variants];
+}
+
+/**
  * Estado observable del prefetch del Active Duplicate Guard (Q3F-5AW.2 Phase 1).
  *
  *   - 'ok'       → el prefetch corrió sin errores (aunque haya 0 filas).
@@ -440,8 +497,14 @@ export interface ActiveCandidateGuardPrefetch {
  * Carga candidatos activos relevantes desde Supabase para el Active Duplicate Guard.
  *
  * Hace dos consultas acotadas:
- *   1. Por dominio exacto (para detectar same_active_domain cross-country)
+ *   1. Por dominio, contra las formas realmente persistidas que produce
+ *      `buildActiveGuardDomainLookupVariants` (para detectar same_active_domain
+ *      cross-country). NO filtra por país: la identidad de dominio es global.
  *   2. Por country_code (para detectar same_inferred_identity dentro del país)
+ *
+ * Las filas de las dos consultas se unen deduplicando por ID DURABLE: una fila
+ * encontrada por los dos caminos aparece UNA vez, y el camino por el que se
+ * encontró no cambia su fuerza — eso lo decide la guarda compartida.
  *
  * Diseñado para degradar de forma segura (fail-open) si la query falla o si el
  * cliente no soporta el método (e.g., fake admin en tests): retorna records=[]
@@ -473,13 +536,20 @@ export async function fetchActiveCandidatesForGuard(
       };
     }
 
-    // Primary: by domain (catches same_active_domain globally, cross-country)
-    if (batchDomains.length > 0) {
+    // Primary: by domain (catches same_active_domain globally, cross-country).
+    //
+    // Addendum § 4/§ 5 — se consulta el conjunto MÍNIMO de formas persistidas
+    // (canónica y `www.` + canónica), NO el dominio del lote tal cual llegó. Sin
+    // esto la fila histórica guardada con `www.` era invisible para el eje fuerte
+    // y solo aparecía por accidente vía el prefetch por país. La consulta NO
+    // exige igualdad de país: la identidad de dominio es global.
+    const domainLookupVariants = buildActiveGuardDomainLookupVariants(batchDomains);
+    if (domainLookupVariants.length > 0) {
       const { data: byDomain, error: byDomainError } = await (admin as ReturnType<typeof import('@supabase/supabase-js').createClient>)
         .from('prospect_candidates')
         .select('id, name, domain, normalized_name, metadata, status')
         .in('status', ACTIVE_STATUSES_FOR_GUARD)
-        .in('domain', batchDomains)
+        .in('domain', domainLookupVariants)
         .limit(ACTIVE_GUARD_PREFETCH_LIMIT);
 
       if (byDomainError) sawQueryError = true;

@@ -67,7 +67,10 @@ import type {
   LushaPreviewInput,
   LushaPreviewResult,
 } from '@/server/prospect-batches/lusha-preview';
+import type { SupabaseClient } from '@supabase/supabase-js';
+
 import type { ActiveCandidateRecord } from '@/server/agents/prospecting-toolkit/active-candidate-identity-guard';
+import { fetchActiveCandidatesForGuard } from '@/server/agents/prospecting-toolkit/candidate-writer';
 import type {
   DuplicateCheckInput,
   DuplicateCheckResult,
@@ -301,7 +304,11 @@ type Harness = {
   batches: LushaPendingReviewBatchRow[];
 };
 
-function makeHarness(script: LushaPreviewResult[]): Harness {
+function makeHarness(
+  script: LushaPreviewResult[],
+  fetchActiveCandidates: PersistLushaPendingReviewDeps['fetchActiveCandidates'] = async () =>
+    liveActiveCandidates(),
+): Harness {
   const calls: Array<number | null | undefined> = [];
   const batches: LushaPendingReviewBatchRow[] = [];
   const candidateRows: LushaPendingReviewCandidateRow[] = [];
@@ -322,16 +329,21 @@ function makeHarness(script: LushaPreviewResult[]): Harness {
       return { insertedCount: rows.length };
     },
     checkCompanyDuplicate: async (dupInput) => duplicateResultFor(dupInput),
-    fetchActiveCandidates: async () => liveActiveCandidates(),
+    fetchActiveCandidates,
   };
 
   return { deps, calls, candidateRows, batches };
 }
 
-async function runLiveShape() {
+async function runLiveShape(
+  fetchActiveCandidates?: PersistLushaPendingReviewDeps['fetchActiveCandidates'],
+) {
   // Página 0 = las 25 filas reales. Página 1 = vacía: si la corrida la pide, es
   // porque el objetivo NO estaba lleno, que es justamente lo que se prueba.
-  const harness = makeHarness([successResult(livePage()), successResult([])]);
+  const harness = makeHarness(
+    [successResult(livePage()), successResult([])],
+    fetchActiveCandidates,
+  );
   const res = await persistLushaPendingReviewBatch(harness.deps, INPUT, ACTOR, undefined, {
     plan: { macroKey: 'technology', branches: [{ mainIndustryId: 17, label: 'Technology' }] },
     targetGap: LIVE.targetGap,
@@ -448,5 +460,176 @@ describe('§ 2 · el objetivo recalculado por la tubería de selección', () => 
       res.skippedActiveDuplicatesCount + res.excludedExactDuplicatesCount + res.usefulCandidatesCount,
       LIVE.uniqueResultsTotal,
     );
+  });
+});
+
+// ─── § 3 · la MISMA cuenta, con el PREFETCH REAL ──────────────────────────────
+
+/**
+ * ADDENDUM (RECUPERACIÓN) — cierre de la composición.
+ *
+ * Las secciones anteriores doblan `fetchActiveCandidates` y devuelven las 12
+ * filas activas SIN mirar los dominios pedidos. Eso prueba que la CUENTA es
+ * correcta cuando la guarda recibe las filas, pero no que la tubería REAL las
+ * reciba: el doble esconde justamente el eslabón que fallaba en Producción, la
+ * consulta `domain IN (…)`.
+ *
+ * Aquí la dependencia se cablea al prefetch REAL (`fetchActiveCandidatesForGuard`)
+ * sobre un doble de Supabase que filtra como Postgres: igualdad EXACTA de cadena
+ * en `in`, `eq` por país y `limit` como ventana sin orden. Las 12 filas se
+ * siembran tal como están en Producción (once con `www.`, una sin él).
+ *
+ * 🔴 Vuelve el prefetch a `.in('domain', batchDomains)` y esta sección se pone
+ * ROJA: las once filas con `www.` dejan de recuperarse, las cinco falsas
+ * reaparecen como objetivo y el residual vuelve a mentir.
+ */
+
+const LIVE_DB_COUNTRY = 'CO';
+
+/** Doble de Supabase FIEL: filtra de verdad, y registra qué trajo cada eje. */
+function makeFilteringPrefetchClient(rows: readonly ActiveCandidateRecord[]) {
+  const dbRows = rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    domain: r.domain,
+    normalized_name: r.normalizedName,
+    metadata: {},
+    status: r.status,
+    country_code: LIVE_DB_COUNTRY,
+  }));
+  const domainQueryIds: string[] = [];
+
+  function makeBuilder() {
+    const inFilters: Record<string, readonly string[]> = {};
+    const eqFilters: Record<string, string> = {};
+    let limitValue: number | null = null;
+
+    function resolve() {
+      let out = dbRows.filter((row) => {
+        for (const [column, allowed] of Object.entries(inFilters)) {
+          const value = (row as unknown as Record<string, unknown>)[column];
+          if (typeof value !== 'string' || !allowed.includes(value)) return false;
+        }
+        for (const [column, expected] of Object.entries(eqFilters)) {
+          if ((row as unknown as Record<string, unknown>)[column] !== expected) return false;
+        }
+        return true;
+      });
+      if (limitValue != null) out = out.slice(0, limitValue);
+      if (inFilters['domain'] !== undefined) domainQueryIds.push(...out.map((r) => r.id));
+      return Promise.resolve({ data: out.map((r) => ({ ...r })), error: null });
+    }
+
+    const builder: Record<string, unknown> = {};
+    builder.select = () => builder;
+    builder.in = (column: string, values: readonly string[]) => {
+      inFilters[column] = [...values];
+      return builder;
+    };
+    builder.eq = (column: string, value: string) => {
+      eqFilters[column] = value;
+      return builder;
+    };
+    builder.limit = (n: number) => {
+      limitValue = n;
+      return resolve();
+    };
+    return builder;
+  }
+
+  const client = {
+    from(table: string) {
+      if (table !== 'prospect_candidates') throw new Error(`tabla no simulada: ${table}`);
+      return makeBuilder();
+    },
+  } as unknown as SupabaseClient;
+
+  return { client, domainQueryIds };
+}
+
+/**
+ * La dependencia cableada al prefetch REAL. `countryCode` se pasa a `null` a
+ * propósito: así el eje de PAÍS no puede tapar nada y lo único que puede
+ * recuperar las once filas con `www.` es el eje de DOMINIO.
+ */
+function realPrefetchActiveCandidates() {
+  const db = makeFilteringPrefetchClient(liveActiveCandidates());
+  const dep: PersistLushaPendingReviewDeps['fetchActiveCandidates'] = async (domains) => {
+    const out = await fetchActiveCandidatesForGuard(db.client, [...domains], null);
+    assert.equal(out.status, 'ok', 'el prefetch no puede degradar en esta prueba');
+    return out.records;
+  };
+  return { dep, db };
+}
+
+describe('§ 3 · la cuenta se sostiene con el PREFETCH REAL (no con un doble)', () => {
+  test('las once filas con `www.` se recuperan POR EL EJE DE DOMINIO', async () => {
+    const { dep, db } = realPrefetchActiveCandidates();
+    await runLiveShape(dep);
+
+    const wwwIds = liveActiveCandidates()
+      .filter((c) => (c.domain ?? '').startsWith('www.'))
+      .map((c) => c.id);
+    assert.equal(wwwIds.length, FIVE_FALSE_TARGETS.length + SIX_EXACT_WITH_WWW_ACTIVE.length);
+    for (const id of wwwIds) {
+      assert.ok(
+        db.domainQueryIds.includes(id),
+        `${id}: la consulta por dominio DEBE recuperar la fila persistida con www.`,
+      );
+    }
+  });
+
+  test('§ 11 — la contabilidad de la PRIMERA página no cambia', async () => {
+    const { dep } = realPrefetchActiveCandidates();
+    const { res, calls, candidateRows } = await runLiveShape(dep);
+
+    // PAGE1_ACCEPTED = 3
+    assert.equal(res.usefulCandidatesCount, THREE_OVERFLOW.length);
+    assert.equal(candidateRows.length, THREE_OVERFLOW.length);
+    // possible duplicates persisted = 0
+    assert.equal(res.possibleDuplicatesCount, 0);
+    // PAGE1_REMAINING_GAP = 2
+    assert.equal(res.remainingGapFinal, LIVE.targetGap - THREE_OVERFLOW.length);
+    // PAGE2_REQUIRED = YES
+    assert.equal(calls.length, 2);
+    assert.notEqual(res.stopReason, 'target_reached');
+    // Y los mismos 12 / 8 de la sección anterior.
+    assert.equal(
+      res.skippedActiveDuplicatesCount,
+      FIVE_FALSE_TARGETS.length + SIX_EXACT_WITH_WWW_ACTIVE.length + LIVE.activeDuplicatesSkipped,
+    );
+    assert.equal(res.excludedExactDuplicatesCount, EIGHT_EXACT_NO_ACTIVE.length);
+  });
+
+  test('la cuenta con prefetch REAL es IDÉNTICA a la del doble', async () => {
+    // Si las dos difieren, o el doble mentía o el prefetch no está completo.
+    const withDouble = await runLiveShape();
+    const { dep } = realPrefetchActiveCandidates();
+    const withRealPrefetch = await runLiveShape(dep);
+
+    for (const key of [
+      'usefulCandidatesCount',
+      'possibleDuplicatesCount',
+      'skippedActiveDuplicatesCount',
+      'excludedExactDuplicatesCount',
+      'targetOverflowDiscarded',
+      'remainingGapFinal',
+    ] as const) {
+      assert.equal(
+        withRealPrefetch.res[key],
+        withDouble.res[key],
+        `${key}: la recuperación real y el doble deben coincidir`,
+      );
+    }
+    assert.equal(withRealPrefetch.calls.length, withDouble.calls.length);
+  });
+
+  test('las cinco falsas siguen fuera cuando la recuperación es real', async () => {
+    const { dep } = realPrefetchActiveCandidates();
+    const { candidateRows } = await runLiveShape(dep);
+    const names = candidateRows.map((r) => r.name);
+    for (const falseTarget of FIVE_FALSE_TARGETS) {
+      assert.equal(names.includes(falseTarget.name), false, `${falseTarget.name}: no puede persistirse`);
+    }
   });
 });

@@ -3380,6 +3380,22 @@ jobs:
       # facturación, el tamaño de página, la reserva, el uso de proveedor ni el cliente de
       # Lusha. 0 proveedores, 0 créditos, 0 Producción, 0 escrituras, 0 flags, 0 presupuesto.
       # MIGRACIONES 135 y 136: CHANGED = NO, APPLIED IN PRODUCTION = NO.
+      #
+      # ADDENDUM (RECUPERACIÓN) — el mismo paso cubre ahora el prefetch, porque
+      # arreglar la COMPARACIÓN no basta si la fila nunca se recupera:
+      #   5. El prefetch pedía a la base igualdad EXACTA contra el dominio CANÓNICO
+      #      (`une.com.co`), mientras Producción persiste `www.une.com.co` — 70 de
+      #      262 filas con dominio. La fila histórica no se recuperaba, así que la
+      #      guarda corregida nunca la veía. En el lote vivo quedó TAPADO porque el
+      #      prefetch por PAÍS devolvía las mismas filas; esa cobertura exige mismo
+      #      país y caber en 500 filas SIN ORDEN, y la identidad de dominio es GLOBAL.
+      #   6. El doble de Supabase de la suite anterior devolvía TODAS las filas
+      #      sembradas ignorando `.in('domain', …)`: con ese arnés un prefetch roto
+      #      pasa. El doble nuevo filtra como Postgres y REGISTRA qué consulta trajo
+      #      qué IDs, de modo que «lo recuperó el eje de dominio» sea verificado.
+      #   7. Cubre las CINCO vivas y las SEIS ocultas por el eje de DOMINIO con
+      #      `countryCode = null` (sin coartada de país), independencia del tope 500,
+      #      unión deduplicada por ID durable y paridad pre-writer / writer.
       - name: Run Agent1 active-candidate domain canonicalization
         run: npm run test:a1-active-candidate-domain-canonicalization
       # AGENT1-SHARED-FISCAL-IDENTITY-COUNTRY-SCOPE-CORRECTION — la identidad
