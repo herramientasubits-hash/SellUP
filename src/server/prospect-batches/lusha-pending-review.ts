@@ -2214,17 +2214,34 @@ export async function persistLushaPendingReviewBatch(
   // servidor y ésta es la única capa que queda para no volver a contar como
   // net-new una empresa que ya teníamos.
   //
-  // 🔴 La siembra sale de `availableValues`, NO de `sent`. `sent` está vacío por
-  // capacidad —el contrato HUMANO la apagó— y sembrar de ahí habría tirado la
-  // evidencia entera justo al retirar la exclusión de la petición. Las dos vistas
-  // salen del MISMO plan que la puerta previa al pago ya resolvió, así que no hay
-  // una segunda lista que pueda divergir.
+  // 🔴 La siembra NO sale de `sent`: está vacío por capacidad —el contrato HUMANO
+  // la apagó— y sembrar de ahí habría tirado la evidencia entera justo al retirar
+  // la exclusión de la petición.
+  //
+  // 🔴 AGENT1-LUSHA-PROVIDER-SEEN-DEDUPE-FIX §§ 2, 3 — y TAMPOCO sale de
+  // `availableValues`. Sale de `dedupeAuthorityValues`, que es lo mismo menos lo
+  // que sólo aporta `provider_seen`.
+  //
+  // El defecto que esto cierra, medido en Producción (CO / technology, fingerprint
+  // `7aa292ef…`): la primera corrida persistió 5 candidatos y dejó sus 25 dominios
+  // en la memoria provider-seen. Las dos siguientes volvieron a pedir la MISMA
+  // página —Lusha V3 no excluye del lado del servidor—, la cobraron, y sembraron
+  // esos 25 dominios aquí. Las 25 filas cayeron con `known_domain_seed`, `useful`
+  // quedó vacío y la corrida salió por `status: 'empty'`: sin lote, sin candidatos
+  // y con el crédito cobrado.
+  //
+  // «Ya pagamos por verla» NO es «ya es nuestra». Entre esas 25 había empresas
+  // descartadas por sobrante de objetivo y por precisión: nadie las posee y son
+  // candidatas legítimas. Quien SÍ prueba propiedad —cuentas de SellUp, HubSpot,
+  // lo que la capa gratuita aceptó, lo que otra rama de esta corrida ya entregó—
+  // sigue sembrando igual, y el dedupe canónico posterior (HubSpot + cuentas +
+  // guarda de candidato activo) no se toca en absoluto.
   //
   // 🔴 Sólo dominios: el id de Lusha NO se siembra (CUT-L1 § 6 lo mantiene como
   // evidencia independiente y no como clave histórica), y el nombre tampoco.
   //
   // Ausente ⇒ registro vacío, byte por byte el comportamiento anterior.
-  const localKnownSeed = execution?.providerExclusionPlan?.domains.availableValues ?? [];
+  const localKnownSeed = execution?.providerExclusionPlan?.domains.dedupeAuthorityValues ?? [];
   let identityRegistry: LushaRunIdentityRegistry = seedLushaKnownDomains(
     createLushaRunIdentityRegistry(),
     localKnownSeed,

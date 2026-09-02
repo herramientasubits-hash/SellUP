@@ -37,6 +37,13 @@
  *
  *   A. lo que SellUp CONOCE  → `available` / `availableValues`, íntegro.
  *   B. lo que PUEDE ENVIARSE → `sent`, hoy vacío por capacidad.
+ *   C. lo que puede DECIDIR UN DUPLICADO → `dedupeAuthorityValues`, que es A menos
+ *      lo que sólo aporta `provider_seen`.
+ *
+ * 🔴 AGENT1-LUSHA-PROVIDER-SEEN-DEDUPE-FIX — C es nueva, y su ausencia era un
+ * defecto vivo en Producción: la supresión cliente se sembraba de A, así que «ya
+ * pagamos por verla» pesaba lo mismo que «ya es nuestra». Ver
+ * `PROVIDER_EXCLUSION_DEDUPE_AUTHORITY_SOURCES`.
  *
  * Con la capacidad apagada, `sent` queda vacío pero `availableValues` NO: es la
  * evidencia con la que la supresión CLIENTE siembra el registro de identidad de la
@@ -88,6 +95,50 @@ export const PROVIDER_EXCLUSION_SOURCES = [
 ] as const;
 
 export type ProviderExclusionSource = (typeof PROVIDER_EXCLUSION_SOURCES)[number];
+
+/**
+ * 🔴 AGENT1-LUSHA-PROVIDER-SEEN-DEDUPE-FIX § 1 — las procedencias que SÍ pueden
+ * decidir un duplicado.
+ *
+ * ── El defecto que esta separación cierra ────────────────────────────────────
+ *
+ * Corrida de Producción del 2026-09-01/02 (CO / technology, fingerprint
+ * `7aa292ef…`, tres peticiones idénticas): la PRIMERA persistió 5 candidatos y
+ * dejó los 25 dominios devueltos en la memoria provider-seen. La SEGUNDA y la
+ * TERCERA volvieron a pedir la misma página —Lusha V3 no excluye del lado del
+ * servidor, así que la petición no puede pedir «no me devuelvas éstos»—, cobraron
+ * su crédito, y sembraron esos 25 dominios como «conocidos». Las 25 filas cayeron
+ * con motivo `known_domain_seed`, `useful.length` quedó en 0, y la corrida salió
+ * por `status: 'empty'`: sin lote, sin candidatos, con el crédito cobrado y sin
+ * telemetría durable que lo explicara.
+ *
+ * ── Por qué `provider_seen` NO es autoridad ──────────────────────────────────
+ *
+ * Las otras cuatro procedencias responden «esta empresa YA ES NUESTRA»: una cuenta
+ * de SellUp, una empresa en HubSpot, una que la fuente gratuita ya aceptó en esta
+ * misma corrida, o una que otra rama/página de esta corrida ya entregó.
+ *
+ * `provider_seen` responde otra cosa: «ya PAGAMOS por verla». Eso incluye a las
+ * que se descartaron por sobrante de objetivo (`target_overflow_discarded`) y a
+ * las que se rechazaron por precisión — empresas que nadie posee y que son
+ * candidatas legítimas en la corrida siguiente. Tratarlas como propias es
+ * exactamente lo que `provider-exclusion-planner` § 6 prohíbe: «la exclusión no es
+ * autoridad de dedupe».
+ *
+ * ── Lo que este recorte NO pretende ──────────────────────────────────────────
+ *
+ * No ahorra ningún crédito, y no se afirma que lo haga. Mientras Lusha V3 no
+ * excluya server-side, una empresa ya vista puede volver a cobrarse: eso lo fijó
+ * CUT-L1 y sigue siendo cierto. Lo que cambia es que el resultado de esa página
+ * pagada deje de tirarse entero.
+ */
+export const PROVIDER_EXCLUSION_DEDUPE_AUTHORITY_SOURCES: readonly ProviderExclusionSource[] =
+  Object.freeze(PROVIDER_EXCLUSION_SOURCES.filter((source) => source !== 'provider_seen'));
+
+/** ¿Puede esta procedencia decidir por sí sola que una empresa es duplicada? */
+export function isProviderExclusionDedupeAuthority(source: ProviderExclusionSource): boolean {
+  return source !== 'provider_seen';
+}
 
 export type ProviderExclusionInputs = {
   /** Ids del proveedor vistos en corridas ANTERIORES. */
@@ -188,9 +239,24 @@ export type ProviderExclusionDimensionPlan<T> = {
    * en orden determinista. SOBREVIVEN a la capacidad apagada: son evidencia
    * LOCAL, no una petición.
    *
-   * Es de aquí de donde se siembra la supresión cliente. Nunca de `sent`.
+   * 🔴 NO es de aquí de donde se siembra la supresión cliente: eso es
+   * `dedupeAuthorityValues`. Ver AGENT1-LUSHA-PROVIDER-SEEN-DEDUPE-FIX.
    */
   availableValues: readonly T[];
+  /**
+   * 🔴 AGENT1-LUSHA-PROVIDER-SEEN-DEDUPE-FIX § 2 — el subconjunto de
+   * `availableValues` cuya procedencia SÍ prueba propiedad, y por tanto el único
+   * que puede sembrar la supresión cliente del registro de identidad.
+   *
+   * Es `availableValues` menos lo que sólo aporta `provider_seen`. Un valor que
+   * llega por DOS procedencias —vista antes Y cuenta de SellUp— sigue aquí: lo que
+   * se retira es la procedencia, no el valor.
+   *
+   * Se calcula con el MISMO colector que `availableValues` (misma normalización,
+   * mismo dedupe, mismo orden), así que las dos vistas no pueden divergir en nada
+   * que no sea la procedencia.
+   */
+  dedupeAuthorityValues: readonly T[];
   /**
    * Los que realmente viajan al proveedor. Vacío si la capacidad está apagada —y
    * hoy lo está en las dos rutas vivas, cada una por su motivo.
@@ -241,6 +307,10 @@ function planIdDimension(
 ): ProviderExclusionDimensionPlan<string> {
   const bySource = emptyBySource();
   const unique = new Set<string>();
+  // 🔴 PROVIDER-SEEN-DEDUPE-FIX § 2 — se acumula EN PARALELO, con el mismo
+  // normalizador y el mismo dedupe. Un segundo recorrido posterior sobre
+  // `ordered` no podría reconstruir la procedencia: aquí es donde se conoce.
+  const dedupeAuthority = new Set<string>();
 
   for (const contribution of contributions) {
     for (const raw of contribution.values) {
@@ -248,16 +318,19 @@ function planIdDimension(
       if (id === null) continue;
       bySource[contribution.source]++;
       unique.add(id);
+      if (isProviderExclusionDedupeAuthority(contribution.source)) dedupeAuthority.add(id);
     }
   }
 
   const ordered = [...unique].sort();
+  const orderedAuthority = [...dedupeAuthority].sort();
 
   if (!capability.supportsIdExclusion) {
     return {
       available: ordered.length,
       // 🔴 CUT-L1 § 3 — lo conocido sobrevive a la capacidad apagada.
       availableValues: ordered,
+      dedupeAuthorityValues: orderedAuthority,
       sent: [],
       omittedDueToCap: 0,
       omittedDueToCapability: ordered.length,
@@ -271,6 +344,7 @@ function planIdDimension(
   return {
     available: ordered.length,
     availableValues: ordered,
+    dedupeAuthorityValues: orderedAuthority,
     sent,
     omittedDueToCap: ordered.length - sent.length,
     omittedDueToCapability: 0,
@@ -285,11 +359,17 @@ function planDomainDimension(
 ): ProviderExclusionDimensionPlan<string> {
   const bySource = emptyBySource();
   const all: (string | null | undefined)[] = [];
+  // 🔴 PROVIDER-SEEN-DEDUPE-FIX § 2 — la lista de las procedencias con autoridad,
+  // recogida cruda para pasarla por el MISMO colector canónico. No se filtra
+  // después sobre los normalizados: se filtra ANTES, que es donde la procedencia
+  // todavía existe.
+  const dedupeAuthorityRaw: (string | null | undefined)[] = [];
 
   for (const contribution of contributions) {
     for (const raw of contribution.values) {
       all.push(raw);
       bySource[contribution.source]++;
+      if (isProviderExclusionDedupeAuthority(contribution.source)) dedupeAuthorityRaw.push(raw);
     }
   }
 
@@ -300,6 +380,8 @@ function planDomainDimension(
   // 🔴 CUT-L1 § 3 — y por eso `availableValues` sale también de él: hay UN
   // normalizador de dominios de exclusión, no dos.
   const base = planProviderExclusionDomains(all, capability.domainCap);
+  // El MISMO colector, con el mismo tope: sólo cambia el conjunto de entrada.
+  const authority = planProviderExclusionDomains(dedupeAuthorityRaw, capability.domainCap);
 
   if (!capability.supportsDomainExclusion) {
     return {
@@ -307,6 +389,7 @@ function planDomainDimension(
       // 🔴 CUT-L1 § 3 — ÉSTA es la línea que impide que el corte tire la
       // evidencia: la capacidad apagada vacía `sent`, jamás lo conocido.
       availableValues: base.availableValues,
+      dedupeAuthorityValues: authority.availableValues,
       sent: [],
       omittedDueToCap: 0,
       omittedDueToCapability: base.available,
@@ -318,6 +401,7 @@ function planDomainDimension(
   return {
     available: base.available,
     availableValues: base.availableValues,
+    dedupeAuthorityValues: authority.availableValues,
     sent: base.sent,
     omittedDueToCap: base.omittedDueToCap,
     omittedDueToCapability: 0,
@@ -361,12 +445,18 @@ export function toProviderExclusionPlanMetadata(
   return {
     provider: plan.provider,
     provider_exclusion_domains_available: plan.domains.available,
+    // 🔴 PROVIDER-SEEN-DEDUPE-FIX § 5 — la TERCERA cifra. Sin ella, «37 conocidos,
+    // 0 enviados» no dice cuántos de esos 37 podían de verdad tumbar una empresa,
+    // y la diferencia entre 37 y 12 es la diferencia entre una corrida vacía y una
+    // con candidatos.
+    provider_exclusion_domains_dedupe_authority: plan.domains.dedupeAuthorityValues.length,
     provider_exclusion_domains_sent: plan.domains.sent.length,
     provider_exclusion_domains_omitted_cap: plan.domains.omittedDueToCap,
     provider_exclusion_domains_omitted_capability: plan.domains.omittedDueToCapability,
     provider_exclusion_domains_by_source: { ...plan.domains.bySource },
     provider_exclusion_domains_unsupported_reason: plan.domains.unsupportedReason,
     provider_exclusion_ids_available: plan.ids.available,
+    provider_exclusion_ids_dedupe_authority: plan.ids.dedupeAuthorityValues.length,
     provider_exclusion_ids_sent: plan.ids.sent.length,
     provider_exclusion_ids_omitted_cap: plan.ids.omittedDueToCap,
     provider_exclusion_ids_omitted_capability: plan.ids.omittedDueToCapability,

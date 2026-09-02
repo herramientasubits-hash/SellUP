@@ -1198,8 +1198,8 @@ async function runLushaSearchWithReservation(args: {
         // confirmó que `POST /v3/companies/prospecting` no soporta exclusión del
         // lado del servidor, así que ese envío se retiró entero y no se sustituyó
         // por otro campo adivinado. Los dominios conocidos NO se pierden: viajan
-        // por la ejecución en `providerExclusionPlan.domains.availableValues` y
-        // siembran la supresión CLIENTE del registro de identidad de la corrida.
+        // por la ejecución en `providerExclusionPlan.domains.dedupeAuthorityValues`
+        // y siembran la supresión CLIENTE del registro de identidad de la corrida.
         runSearch: async (input, coordinates) => {
           const store = resolveRequestFence();
           if (store === null) {

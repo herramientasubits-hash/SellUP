@@ -162,7 +162,9 @@ export function createLushaRunIdentityRegistry(): LushaRunIdentityRegistry {
  * Siembra el registro con los dominios que SellUp YA conoce y devuelve uno NUEVO.
  *
  * 🔴 CUT-L1 § 3 — la lista entra tal cual la produjo el colector canónico
- * (`providerExclusionPlan.domains.availableValues`) y se vuelve a pasar por
+ * (`providerExclusionPlan.domains.dedupeAuthorityValues`; NO `availableValues`,
+ * que incluye `provider_seen` — ver AGENT1-LUSHA-PROVIDER-SEEN-DEDUPE-FIX) y se
+ * vuelve a pasar por
  * `normalizeDomain`, el normalizador del registro, para que las claves vivan en el
  * MISMO espacio que las de la respuesta del proveedor. No se inventa aquí ninguna
  * normalización: son los dos normalizadores que ya existían, cada uno en su sitio.
