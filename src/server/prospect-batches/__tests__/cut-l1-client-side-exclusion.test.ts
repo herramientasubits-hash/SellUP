@@ -356,13 +356,20 @@ describe('L1-C · una empresa ya conocida NO cuenta como net-new', () => {
     }
   });
 
-  it('🔴 las cuatro procedencias de conocidos suprimen igual', async () => {
-    for (const source of [
-      'provider_seen',
-      'sellup_known',
-      'hubspot_local',
-      'free_source_accepted',
-    ] as const) {
+  /**
+   * 🔴 CORREGIDA por AGENT1-LUSHA-PROVIDER-SEEN-DEDUPE-FIX § 4.
+   *
+   * Esta prueba afirmaba «las CUATRO procedencias suprimen igual», con
+   * `provider_seen` entre ellas, y por tanto FIJABA el defecto: era un trinquete
+   * que defendía el valor defectuoso y bloqueaba su corrección.
+   *
+   * Lo que era cierto y se conserva: las procedencias que prueban PROPIEDAD
+   * suprimen, y suprimen igual entre sí. Lo que era falso y se retira:
+   * `provider_seen` no prueba propiedad, y su inclusión aquí es lo que dejó una
+   * corrida repetida sin un solo candidato. La cara negativa se afirma abajo.
+   */
+  it('🔴 las tres procedencias que prueban PROPIEDAD suprimen igual', async () => {
+    for (const source of ['sellup_known', 'hubspot_local', 'free_source_accepted'] as const) {
       const { res } = await run(
         [
           successResult([
@@ -375,6 +382,25 @@ describe('L1-C · una empresa ya conocida NO cuenta como net-new', () => {
       assert.equal(res.usefulCandidatesCount, 0, `${source} no suprimió`);
       assert.equal(res.multiBranch?.localKnownSuppressedTotal, 1, `${source} no se contó`);
     }
+  });
+
+  it('🔴 y `provider_seen` NO suprime: «ya pagamos por verla» no es «ya es nuestra»', async () => {
+    const { res, candidateRows, duplicateChecks } = await run(
+      [
+        successResult([
+          company({ providerCompanyId: 'p-vista', name: 'Vista antes', domain: 'conocida.com' }),
+        ]),
+      ],
+      executionKnowing(['conocida.com'], 'provider_seen'),
+    );
+
+    assert.equal(res.usefulCandidatesCount, 1, '🔴 una empresa ya vista sigue siendo candidata');
+    assert.equal(res.multiBranch?.localKnownSuppressedTotal, 0);
+    assert.equal(res.multiBranch?.duplicateReasonCounts.known_domain_seed, 0);
+    assert.deepEqual(candidateRows.map((r) => r.name), ['Vista antes']);
+    // 🔴 Y la autoridad canónica SÍ la mira: no se la salta, se la somete.
+    assert.equal(duplicateChecks.length, 1);
+    assert.equal(duplicateChecks[0]?.domain, 'conocida.com');
   });
 });
 
@@ -578,9 +604,13 @@ describe('L1-F · ninguna constante económica se mueve', () => {
       company({ providerCompanyId: 'k-2', name: 'K2', domain: 'k2.example' }),
     ]);
 
+    // 🔴 PROVIDER-SEEN-DEDUPE-FIX § 4 — la procedencia pasa de `provider_seen` a
+    // `sellup_known`. Lo que esta prueba mide —el tope de páginas y que no se
+    // invente ningún ahorro— es igual de cierto y sigue afirmándose; lo que ya no
+    // se puede usar para montarlo es una procedencia que no suprime.
     const { res } = await run(
       [knownPage, successResult([])],
-      executionKnowing(['k1.example', 'k2.example'], 'provider_seen'),
+      executionKnowing(['k1.example', 'k2.example'], 'sellup_known'),
     );
 
     assert.ok(

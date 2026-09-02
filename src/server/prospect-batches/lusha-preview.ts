@@ -673,8 +673,8 @@ export interface LushaPreviewInput {
    *
    * Lusha V3 no soporta exclusión server-side (contrato HUMANO). Los dominios que
    * SellUp ya conoce siguen viajando por la ejecución
-   * (`execution.providerExclusionPlan.domains.availableValues`) y siembran la
-   * supresión CLIENTE; lo que no hacen es entrar en el cuerpo de la petición.
+   * (`execution.providerExclusionPlan.domains.dedupeAuthorityValues`) y siembran
+   * la supresión CLIENTE; lo que no hacen es entrar en el cuerpo de la petición.
    */
   /**
    * AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 § 2 — la RAMA que esta petición
