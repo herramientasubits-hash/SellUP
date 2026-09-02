@@ -170,8 +170,8 @@ describe('P0-4 · D — una sola página sin truncado se comporta igual que ante
 
 // ─── La estimación se declara como tal ────────────────────────────────────────
 
-describe('P0-4 · el modelo de facturación NO se afirma', () => {
-  it('el bloque de metadata declara que el proveedor no lo reportó', () => {
+describe('P0-4 · el IMPORTE no se afirma (AGENT1-APOLLO-BILLING-MODE-V2: el MODELO sí)', () => {
+  it('el bloque de metadata declara que el proveedor no reportó el importe', () => {
     const volume = resolveApolloPaidResultsVolume([
       { status: 'success', resultsReturned: 7, estimatedCredits: 1 },
     ]);
@@ -182,9 +182,21 @@ describe('P0-4 · el modelo de facturación NO se afirma', () => {
     assert.equal(metadata['discarded_by_local_dedupe_or_truncation'], 4);
     assert.equal(metadata['provider_reported'], false);
     assert.equal(metadata['estimate_basis'], APOLLO_PAID_VOLUME_ESTIMATE_BASIS);
+    // AGENT1-APOLLO-BILLING-MODE-V2 — la etiqueta ya no puede decir que el
+    // MODELO esté sin confirmar: Apollo Support confirmó el cobro por página no
+    // vacía. Lo que sigue sin reportar es el IMPORTE (la respuesta de Search no
+    // trae créditos), y eso es lo que la etiqueta tiene que seguir diciendo.
     assert.ok(
-      String(metadata['estimate_basis']).includes('unconfirmed'),
-      'la etiqueta tiene que decir que el proveedor no lo ha confirmado',
+      String(metadata['estimate_basis']).includes('non_empty_page'),
+      'la etiqueta tiene que nombrar la unidad real de facturación',
+    );
+    assert.ok(
+      String(metadata['estimate_basis']).includes('amount_unreported'),
+      'la etiqueta tiene que decir que el importe no lo reporta el proveedor',
+    );
+    assert.ok(
+      !String(metadata['estimate_basis']).includes('results_volume'),
+      'el modelo por volumen de resultados es el defecto que se cerró',
     );
   });
 

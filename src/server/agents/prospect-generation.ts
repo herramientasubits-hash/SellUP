@@ -38,6 +38,11 @@ import { enrichEcBatchWithValidatedSources } from '@/server/source-catalog/enric
 import { enrichBrBatchWithValidatedSources } from '@/server/source-catalog/enrichment/enrich-br-batch-with-validated-sources';
 import { isUsefulReviewCandidate } from '@/modules/prospect-batches/types';
 import { isApolloCompanySearchEnabled } from '@/lib/feature-flags.server';
+// AGENT1-APOLLO-BILLING-MODE-V2 — fuente única del modelo de precios Apollo.
+import {
+  toApolloPricingMetadata,
+  APOLLO_PRICING_METADATA_KEY,
+} from './prospecting-toolkit/apollo-operation-pricing';
 
 // ============================================================
 // Types
@@ -156,7 +161,18 @@ interface ApolloCostEstimate {
   note: string;
 }
 
-async function estimateApolloCost(resultsReturned: number): Promise<ApolloCostEstimate> {
+/**
+ * AGENT1-APOLLO-BILLING-MODE-V2 — el argumento son PÁGINAS NO VACÍAS, no
+ * resultados.
+ *
+ * Esta ruta legacy (`mixed_companies_search`) pedía UNA página y anotaba un
+ * crédito por cada organización devuelta: 25 de las 100 filas de Prod que
+ * midieron la sobre-anotación salieron de aquí. Apollo Support confirmó que
+ * Organization Search cobra 1 crédito por página no vacía, así que una sola
+ * página cuesta 1 crédito si trajo algo y 0 si vino vacía — sin importar si
+ * trajo 3 o 100 empresas.
+ */
+async function estimateApolloCost(nonEmptyPagesCharged: number): Promise<ApolloCostEstimate> {
   try {
     const admin = getAdminClient();
     const { data } = await admin
@@ -171,7 +187,7 @@ async function estimateApolloCost(resultsReturned: number): Promise<ApolloCostEs
 
     if (!data) {
       return {
-        creditsUsed: resultsReturned,
+        creditsUsed: nonEmptyPagesCharged,
         estimatedCostUsd: 0,
         pricingSource: 'missing_config',
         unitCostUsd: null,
@@ -181,7 +197,7 @@ async function estimateApolloCost(resultsReturned: number): Promise<ApolloCostEs
     }
 
     const unitCostUsd = Number(data.unit_cost_usd);
-    const creditsUsed = resultsReturned;
+    const creditsUsed = nonEmptyPagesCharged;
     const estimatedCostUsd = creditsUsed * unitCostUsd;
 
     return {
@@ -189,12 +205,12 @@ async function estimateApolloCost(resultsReturned: number): Promise<ApolloCostEs
       estimatedCostUsd,
       pricingSource: 'provider_pricing_config',
       unitCostUsd,
-      pricingBasis: 'estimated_per_result_as_credit',
+      pricingBasis: 'estimated_per_non_empty_page_as_credit',
       note: `${creditsUsed} crédito(s) estimado(s) × $${unitCostUsd} USD`,
     };
   } catch {
     return {
-      creditsUsed: resultsReturned,
+      creditsUsed: nonEmptyPagesCharged,
       estimatedCostUsd: 0,
       pricingSource: 'missing_config',
       unitCostUsd: null,
@@ -1587,7 +1603,12 @@ export async function runProspectGenerationAgent(
     const apolloDuration = Date.now() - apolloStepStart;
     const apolloCompanies = apolloResult.data ?? [];
 
-    const apolloCost = await estimateApolloCost(apolloCompanies.length);
+    // AGENT1-APOLLO-BILLING-MODE-V2 — esta ruta pide UNA sola página
+    // (`page: 1`), así que lo facturable es 1 crédito si esa página trajo algo
+    // y 0 si vino vacía. `apolloCompanies.length` sigue siendo el conteo de
+    // resultados y viaja como `results_returned`, nunca como créditos.
+    const apolloNonEmptyPagesCharged = apolloCompanies.length > 0 ? 1 : 0;
+    const apolloCost = await estimateApolloCost(apolloNonEmptyPagesCharged);
     totalEstimatedCost += apolloCost.estimatedCostUsd;
 
     await logProviderUsage({
@@ -1610,6 +1631,11 @@ export async function runProspectGenerationAgent(
         pricing_basis: apolloCost.pricingBasis,
         unit_cost_usd: apolloCost.unitCostUsd,
         credits_estimation_note: apolloCost.note,
+        non_empty_pages_charged: apolloNonEmptyPagesCharged,
+        // Bajo qué modelo se calculó `credits_used` de esta fila. Sin el
+        // estampado, una fila de esta ruta es indistinguible de las de julio,
+        // cuyos créditos contaban organizaciones.
+        [APOLLO_PRICING_METADATA_KEY]: toApolloPricingMetadata('organizations_search'),
       },
     });
 

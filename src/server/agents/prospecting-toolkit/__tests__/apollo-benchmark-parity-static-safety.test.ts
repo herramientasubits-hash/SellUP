@@ -147,16 +147,19 @@ describe('P0-4 · el agregado NO puede volver a salir de la lista recogida', () 
     // no por fila devuelta: los créditos salen de `creditsCharged` (la suma de
     // créditos YA calculados por página), nunca de `resultsVolume` (el conteo
     // de filas), que volvería a facturar por resultado.
+    // AGENT1-APOLLO-BILLING-MODE-V2 — la conversión pasa por el envoltorio
+    // NOMBRADO, que lleva la unidad (páginas no vacías) en su propio nombre:
+    // así ninguna llamada futura puede pasarle un conteo de filas por descuido.
     assert.ok(
-      code.includes("creditsForApolloOperation('organizations_search', paidVolume.creditsCharged)"),
+      code.includes('creditsForApolloNonEmptyPages(paidVolume.creditsCharged)'),
       'los créditos salen de los créditos por página, no del conteo de filas',
     );
     assert.ok(
-      !code.includes("creditsForApolloOperation('organizations_search', paidVolume.resultsVolume)"),
+      !/creditsFor\w*\([^)]*paidVolume\.resultsVolume/.test(code),
       'los créditos NO pueden volver a derivarse del conteo de filas devueltas',
     );
     assert.ok(
-      !code.includes("creditsForApolloOperation('organizations_search', rawOrgs.length)"),
+      !/creditsFor\w*\([^)]*rawOrgs\.length/.test(code),
       'la base NO puede volver a ser la lista ya truncada y deduplicada',
     );
     assert.ok(
@@ -169,15 +172,21 @@ describe('P0-4 · el agregado NO puede volver a salir de la lista recogida', () 
     );
   });
 
-  it('el modelo de facturación de Apollo NO se decide en código', () => {
+  it('el IMPORTE facturado por Apollo NO se afirma en código', () => {
     const code = stripTsComments(
       read('src/server/agents/prospecting-toolkit/apollo-organizations-paid-volume.ts'),
     );
 
-    // P0-1 sigue sin confirmación externa: la etiqueta lo dice y nadie afirma
-    // que el proveedor haya reportado la factura.
+    // AGENT1-APOLLO-BILLING-MODE-V2 — el MODELO ya está confirmado por Apollo
+    // Support (1 crédito por página no vacía) y la etiqueta lo nombra. Lo que
+    // sigue sin reportar es el IMPORTE: la respuesta de Search no trae
+    // créditos, así que nadie puede afirmar la factura.
     assert.ok(code.includes('providerReported: false'));
-    assert.ok(code.includes("'results_volume_model_provider_unconfirmed'"));
+    assert.ok(code.includes("'non_empty_page_model_support_confirmed_amount_unreported'"));
+    assert.ok(
+      !code.includes("'results_volume_model_provider_unconfirmed'"),
+      'la etiqueta por volumen de resultados describe el modelo desmentido',
+    );
     for (const forbidden of ['providerReported: true', 'billed_by_provider', 'invoiced_credits']) {
       assert.ok(!code.includes(forbidden), `no se puede afirmar la factura (${forbidden})`);
     }

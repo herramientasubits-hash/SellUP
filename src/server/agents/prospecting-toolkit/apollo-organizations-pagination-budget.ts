@@ -44,6 +44,20 @@ export const WIZARD_APOLLO_MAX_PAGES_HARD_CAP = 5;
  */
 export const WIZARD_APOLLO_MAX_SEARCH_CREDITS_DEFAULT = 10;
 
+/**
+ * AGENT1-APOLLO-BILLING-MODE-V2 — páginas que paga UNA invocación de búsqueda
+ * sin paginación net-new.
+ *
+ * Sin `netNewTarget` + evaluador de aceptación, el provider construye su
+ * presupuesto con `{ maxPages: 1 }`: la invocación pide una sola página y por
+ * tanto no puede costar más de un crédito. Ese número vive aquí, y no como
+ * literal en el provider, porque la RESERVA lo multiplica
+ * (`estimateApolloRunCreditBreakdown`): si el provider empezara a pedir dos
+ * páginas y la reserva siguiera reservando una, la corrida gastaría por encima
+ * de lo reservado y `budgetExceeded()` la cortaría a mitad, después de pagar.
+ */
+export const APOLLO_LEGACY_MAX_PAGES_PER_INVOCATION = 1;
+
 /** Presupuesto temporal por ejecución de búsqueda Apollo. */
 export const WIZARD_APOLLO_TIMEOUT_BUDGET_MS = 60_000;
 
@@ -177,6 +191,12 @@ export function createApolloPaginationBudget(
     maxPages,
   );
 
+  // AGENT1-APOLLO-BILLING-MODE-V2 — 🔴 `maxCandidates` NO puede derivarse de
+  // `maxCredits`. Bajo v1 ambos valían `maxPages × perPage` y compartir la
+  // variable era inocuo; con créditos por página, `maxCredits` vale `maxPages`
+  // (5) y reutilizar esa cifra como tope de candidatos dejaría la corrida
+  // recogiendo 5 organizaciones en vez de 500. Son dos magnitudes distintas:
+  // una cuenta dinero, la otra filas. Hay trinquete que lo fija.
   const defaultCandidates = maxPages * perPage;
   const maxCandidates = clampPositive(
     overrides?.maxCandidates ?? defaultCandidates,

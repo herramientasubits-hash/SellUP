@@ -20,12 +20,13 @@
  *
  * ── 🔴 Esto sigue siendo una ESTIMACIÓN, y lo dice ───────────────────────────
  *
- * P0-1 —el contrato de facturación escrito de Apollo para Organization Search—
- * sigue sin confirmación externa. Este módulo NO decide que la búsqueda sea
- * gratuita, ni que se cobre por petición, ni que se cobre por resultado, ni que
- * el volumen mostrado sean los créditos facturados. Arregla de qué CIFRA se
- * deriva la contabilidad, no bajo qué contrato se factura, y publica esa
- * distinción en la propia metadata: `provider_reported: false`.
+ * AGENT1-APOLLO-BILLING-MODE-V2 — el MODELO ya no está en duda: Apollo Support
+ * confirmó 1 crédito por página no vacía, y `creditsCharged` lo aplica. Lo que
+ * sigue sin confirmación es el IMPORTE: la respuesta de Organization Search no
+ * trae créditos, así que este total es nuestro ledger y no la factura de
+ * Apollo. Este módulo NO afirma que el volumen mostrado sean los créditos
+ * facturados, y publica la distinción en la propia metadata:
+ * `provider_reported: false`.
  *
  * Puro: sin env, sin I/O, sin proveedor, sin DB, sin reloj.
  */
@@ -49,11 +50,19 @@ export const APOLLO_PAID_VOLUME_SOURCE = 'apollo_page_outcomes_pre_truncation' a
 /**
  * Bajo qué modelo se interpreta ese volumen como créditos.
  *
- * 🔴 El nombre dice explícitamente que el proveedor no lo ha confirmado. Un
- * consumidor que lo lea no puede confundirlo con la factura.
+ * AGENT1-APOLLO-BILLING-MODE-V2 — el nombre anterior
+ * (`results_volume_model_provider_unconfirmed`) decía dos cosas que ya no son
+ * ciertas: que el modelo era «volumen de resultados» y que el proveedor no lo
+ * había confirmado. Apollo Support confirmó el modelo por PÁGINA NO VACÍA, y
+ * `creditsCharged` ya se cuenta así.
+ *
+ * 🔴 Lo que sigue SIN confirmar es la CIFRA: Apollo no devuelve créditos en la
+ * respuesta de Organization Search, así que el total es nuestro ledger, no su
+ * factura. Por eso `providerReported` sigue en `false` y el nombre dice
+ * `model_confirmed` (el modelo), nunca `amount_confirmed` (el importe).
  */
 export const APOLLO_PAID_VOLUME_ESTIMATE_BASIS =
-  'results_volume_model_provider_unconfirmed' as const;
+  'non_empty_page_model_support_confirmed_amount_unreported' as const;
 
 export type ApolloPaidResultsVolume = {
   /** Filas que el proveedor devolvió, sumadas sobre las páginas exitosas. */
