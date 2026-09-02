@@ -4404,3 +4404,40 @@ jobs:
       # sintético y el motor está falseado: el proveedor es lo que se prueba, no el join.
       - name: Run BR Receita national chunk operator CLI and runtime provider
         run: npm run test:br-source:prod-resume-operator-chunk
+
+      # BR-RECEITA-REAL-BENCHMARK-ALIAS — el ALIAS `br-source:receita-real-benchmark`, que da nombre
+      # de npm al operador de MEDICIÓN PURA que ya existía y que nadie podía encontrar.
+      #
+      # Por qué un alias y no un CLI nuevo: el único `npm run` cuyo modo se llamaba `benchmark` era
+      # `br-source:operator-chunk`, y ése COMMITEA filas. El medidor real
+      # (`run-br-receita-cnpj-real-full-scan-resource-benchmark.ts`) ya corría el mismo manifiesto, el
+      # mismo filesystem, el mismo fingerprint y el mismo motor de unión contra un sink NULO — sólo le
+      # faltaba entrada en `package.json`. Un segundo CLI sobre el mismo motor habría sido una ruta al
+      # intento real #3, que el ledger rechaza incondicionalmente: un punto de entrada que no
+      # consultara el ledger no sería otro benchmark, sería el mismo con su control de presupuesto
+      # quitado.
+      #
+      # Lo que esta suite prueba:
+      #
+      #   1. El alias EXISTE y resuelve al operador PREEXISTENTE, no a uno nuevo, y NO apunta al
+      #      loader que commitea filas (`br-receita-operator-chunk`, `--mode`).
+      #   2. El alias no hornea NINGUNA bandera de aprobación ni número de intento: nombrarlo no
+      #      puede pre-autorizar nada. Tampoco lleva `DATABASE_URL`, `--env-file` ni credencial.
+      #   3. El operador nombrado sigue midiendo contra un sink nulo: `maxOutputRows: 0`,
+      #      `sinkMaterializesRows: false`, y un tally cuyo `rowsEmitted` es un literal `0` — con la
+      #      lista de claves del tally asertada, para que no aparezca un campo que pueda guardar fila.
+      #   4. El operador no alcanza writer, ni método del gateway de snapshots
+      #      (`commitFinalBatchAndPublish`, `beginPeriodRun`, `upsertBatch`, …), ni chunk loader, ni
+      #      Agent 1, ni proveedor, ni HubSpot, ni flags. Asertado sobre la fuente SIN comentarios:
+      #      ambos archivos describen largamente lo que rehúsan hacer, y un grep crudo confundiría
+      #      NOMBRAR una llamada prohibida con HACERLA.
+      #   5. El ledger de intentos queda INTACTO por este milestone: 2 consumidos, 2 soportados,
+      #      intento 3 prohibido, presupuesto agotado — y el intento #3 se sigue rechazando por
+      #      código (`real_benchmark_attempt_limit_reached`), no por comentario. También se rechaza
+      #      un re-run que se hace pasar por un intento ya consumido.
+      #
+      # Este milestone NO sube el presupuesto de intentos, NO toca `maxExternalMemoryBytes` y NO
+      # ejecuta el benchmark. 0 Producción, 0 Supabase, 0 escrituras, 0 datos reales de Receita, 0
+      # proveedores, 0 créditos, 0 flags, 0 migraciones, 0 filas.
+      - name: Run BR Receita real benchmark operator alias
+        run: npm run test:br-source:receita-real-benchmark-alias
