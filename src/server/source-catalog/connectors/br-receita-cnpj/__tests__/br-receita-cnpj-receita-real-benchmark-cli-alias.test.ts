@@ -242,6 +242,17 @@ describe('br-source:receita-real-benchmark — the operator it names measures an
 
 // ─── The control this milestone did NOT touch ─────────────────────────────────
 
+/**
+ * These four are an INTENTIONAL TRIPWIRE on a control this milestone promised not to move, not an
+ * accident of over-specification.
+ *
+ * Read them as: "adding a name for the measurement operator did not hand anybody a third attempt."
+ * They will therefore FAIL the day the project owner legitimately authorizes attempt #3 — and that is
+ * the design. Raising the budget is supposed to be a reviewed source edit with an owner decision
+ * attached, so it should cost a deliberate, visible update here rather than sliding in as a side
+ * effect. When that decision is really made, update these expectations IN THE SAME CHANGE as the
+ * ledger, and never the other way round: a test loosened first would leave the ledger unguarded.
+ */
 describe('br-source:receita-real-benchmark — the attempt ledger is untouched', () => {
   it('still records two consumed attempts against a ceiling of two', () => {
     assert.equal(BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED, 2);
