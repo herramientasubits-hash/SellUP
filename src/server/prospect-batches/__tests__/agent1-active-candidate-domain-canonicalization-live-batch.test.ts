@@ -76,6 +76,7 @@ import type {
   DuplicateCheckResult,
 } from '@/server/agents/prospecting-toolkit/types';
 
+import { planProviderExclusions } from '@/modules/prospect-batches/provider-seen/provider-exclusion-planner';
 import { preM126FencedInsert } from '@/server/prospect-batches/__tests__/support/lusha-pre-m126-fenced-insert';
 import { preM126BatchEpochSnapshot } from '@/server/prospect-batches/__tests__/support/lusha-batch-epoch-snapshot';
 
@@ -281,6 +282,17 @@ function successResult(results: LushaPreviewCompany[]): LushaPreviewResult {
  * `providerExclusionPlan` con los dominios locales conocidos. `sent` va VACÍO
  * porque Lusha V3 no soporta exclusión servidor (CUT-L1, confirmado por soporte
  * HUMANO): la supresión es de CLIENTE, y es la que quita las dos primeras.
+ *
+ * 🔴 AGENT1-LUSHA-PROVIDER-SEEN-DEDUPE-FIX § 4 — se construye con el planificador
+ * REAL en vez de a mano. El literal previo pasaba por un `as unknown as`, así que
+ * el compilador no podía avisar cuando el plan ganó `dedupeAuthorityValues`: el
+ * doble habría seguido en verde sembrando CERO dominios, midiendo un flujo que ya
+ * no era el de Producción. Un doble que no se comporta como el real deja pasar el
+ * defecto en verde, que es justo lo que esta suite existe para impedir.
+ *
+ * La procedencia es `sellup_known` porque eso es lo que estos dominios son:
+ * empresas que SellUp YA posee. Es también la razón por la que siguen suprimiendo
+ * después del corte.
  */
 function exclusionPlan(): NonNullable<LushaMultiBranchExecution['providerExclusionPlan']> {
   // 🔴 SÓLO los dos que la página trae. Los otros doce completan el conteo vivo
@@ -291,10 +303,7 @@ function exclusionPlan(): NonNullable<LushaMultiBranchExecution['providerExclusi
     ...TWO_LOCAL_KNOWN.map((c) => c.domain),
     ...Array.from({ length: 12 }, (_, i) => `otro-conocido-${i + 1}.com.co`),
   ];
-  return {
-    domains: { available: known.length, availableValues: known, sent: [], omittedDueToCap: 0 },
-    ids: { available: 0, availableValues: [], sent: [], omittedDueToCap: 0 },
-  } as unknown as NonNullable<LushaMultiBranchExecution['providerExclusionPlan']>;
+  return planProviderExclusions('lusha', { sellupKnownDomains: known });
 }
 
 type Harness = {
