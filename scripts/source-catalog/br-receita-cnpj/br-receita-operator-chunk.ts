@@ -27,9 +27,13 @@
  * The SQL executor, the write gateway, the reference catalogs and the engine request are
  * INJECTED. There is no production wiring in this file and no connection string anywhere near
  * it — an invocation that arrives without ports is refused with `runtime_ports_not_wired`
- * rather than defaulting to some environment the operator did not name. Until the runtime
- * provider lands, `--mode benchmark` is exercisable only by a caller that supplies its own
- * ports; the CLI cannot invent one.
+ * rather than defaulting to some environment the operator did not name.
+ *
+ * `runBrReceitaOperatorChunkCli()` is the executable path: it asks
+ * `br-receita-operator-chunk-runtime` for those ports and hands them to `main()`. The provider is
+ * a SEPARATE module on purpose — it is the only file that reads `DATABASE_URL`, resolves the
+ * manifest and refuses the transaction pooler, so this file's "cannot invent a runtime" property
+ * stays a property of this source rather than a claim about it. `main(argv, null)` still refuses.
  *
  * ── What it prints ──────────────────────────────────────────────────────────────
  * Mode, period, run id, fingerprint, ordinals, statuses and counts. No path, no file name, no
@@ -43,7 +47,15 @@
  *     --fingerprint sha256:<64 hex> \
  *     --partition-start 0 \
  *     --partition-count 128 \
- *     --mode benchmark
+ *     --mode benchmark \
+ *     --manifest /absolute/path/to/manifest.json \
+ *     --workspace-parent /absolute/path/outside/repo/and/home \
+ *     --max-output-rows <n> \
+ *     --second-real-attempt-owner-authorized \
+ *     --temporary-storage-policy-approved \
+ *     --cap-input-policy-approved
+ *
+ * with `DATABASE_URL` pointing at a SESSION or DIRECT connection on port 5432.
  */
 
 import { BR_RECEITA_NATIONAL_EXPECTED_PARTITION_COUNT } from '../../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-existing-run-chunk-writer';
@@ -60,6 +72,13 @@ import type {
   BrReceitaSnapshotWriteGateway,
   BrReceitaSqlExecutor,
 } from '../../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-monthly-snapshot-write-gateway';
+import {
+  BrReceitaOperatorChunkRuntimeError,
+  createBrReceitaOperatorChunkRuntimeEnvironment,
+  parseBrReceitaOperatorChunkRuntimeArgs,
+  provideBrReceitaOperatorChunkRuntime,
+  type BrReceitaOperatorChunkRuntimeEnvironment,
+} from './br-receita-operator-chunk-runtime';
 
 /**
  * The whole mode surface. A mode absent from this tuple is refused at parse time — which is why
@@ -357,11 +376,56 @@ export async function main(
     : BR_RECEITA_OPERATOR_CHUNK_EXIT.engineAborted;
 }
 
-// Only auto-run when executed directly (never when imported by the test file, whose path ends
-// with ".test.ts", not with the CLI filename).
+/**
+ * The EXECUTABLE path: provision a runtime, run one window, release the session.
+ *
+ * Kept separate from `main()` so `main(argv, null)` keeps meaning exactly what it meant — a
+ * declaration that arrived with no runtime is refused, not quietly provisioned.
+ *
+ * The declaration's SHAPE is checked first, by the same parser `main()` uses. Parsing twice is the
+ * price of an ordering guarantee worth having: a missing `--run-id` must not open a manifest, read a
+ * catalog or connect to a database before anyone notices, and the parser is pure.
+ */
+export async function runBrReceitaOperatorChunkCli(
+  argv: readonly string[] = process.argv.slice(2),
+  environment: BrReceitaOperatorChunkRuntimeEnvironment = createBrReceitaOperatorChunkRuntimeEnvironment(),
+): Promise<number> {
+  try {
+    parseBrReceitaOperatorChunkArgs(argv);
+  } catch (error) {
+    const code =
+      error instanceof BrReceitaOperatorChunkRefusalError ? error.code : 'mode_not_supported';
+    process.stderr.write(`REFUSED ${code}\n`);
+    return BR_RECEITA_OPERATOR_CHUNK_EXIT.refused;
+  }
+
+  let runtime: Awaited<ReturnType<typeof provideBrReceitaOperatorChunkRuntime>>;
+  try {
+    runtime = await provideBrReceitaOperatorChunkRuntime(
+      parseBrReceitaOperatorChunkRuntimeArgs(argv),
+      environment,
+    );
+  } catch (error) {
+    const code =
+      error instanceof BrReceitaOperatorChunkRuntimeError ? error.code : 'runtime_ports_not_wired';
+    process.stderr.write(`REFUSED ${code}\n`);
+    return BR_RECEITA_OPERATOR_CHUNK_EXIT.refused;
+  }
+
+  try {
+    return await main(argv, runtime.ports);
+  } finally {
+    // Released whatever happened, including a refusal inside the loader: a held session would keep
+    // the run's detached partition pinned by an idle backend.
+    await runtime.close();
+  }
+}
+
+// Only auto-run when executed directly (never when imported by a test file, whose path ends with
+// ".test.ts", and never from the runtime module, whose path ends with "-runtime.ts").
 const executedFile = process.argv[1] ?? '';
 if (executedFile.endsWith('br-receita-operator-chunk.ts')) {
-  void main().then((exit) => {
+  void runBrReceitaOperatorChunkCli().then((exit) => {
     process.exitCode = exit;
   });
 }

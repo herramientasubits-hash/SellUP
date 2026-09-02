@@ -4324,7 +4324,27 @@ jobs:
       #   5. Sin puertos de runtime inyectados el CLI rechaza (`runtime_ports_not_wired`) en vez de
       #      inventarse una conexión: no hay lookup de entorno ni gateway por defecto.
       #
+      # Y el PROVEEDOR DE RUNTIME que hace ejecutable `br-source:operator-chunk`, que es donde vive
+      # todo lo que el CLI se niega a inventar:
+      #
+      #   6. Sin `DATABASE_URL` el proveedor rechaza CERRADO — y sin abrir sesión ni leer manifiesto.
+      #      Un puerto ausente NO se completa a 5432: "el operador no lo dijo" no es evidencia de
+      #      modo sesión.
+      #   7. El TRANSACTION POOLER se rechaza POR NOMBRE antes de que exista un socket: puerto 6543
+      #      y `pgbouncer=true` aun sobre 5432. El gateway es con estado entre sentencias (posee el
+      #      BEGIN, recuerda el nombre de la partición desprendida de cada corrida) y un pooler de
+      #      transacciones no promete el mismo backend fuera de una transacción explícita.
+      #   8. Un inventario 2026-07 INCOMPLETO se rechaza: falta una parte de Empresas o de
+      #      Estabelecimentos, falta un catálogo de referencia, un archivo consumido declarado sin
+      #      SHA-256 y tamaño verificados, un manifiesto de otro periodo, o un fingerprint que no
+      #      corresponde a lo que el manifiesto declara. Ninguno de esos rechazos abre conexión.
+      #   9. Con puertos falsos, `--mode benchmark` resuelve Empresas0..9 + Estabelecimentos0..9 +
+      #      CNAE + Municipios + Naturezas en 20 descriptores y 3 catálogos, con el mapa fijado en
+      #      1024/1024 y `duplicateKeyPolicy: 'reject'`, corre UNA ventana por el loader real y
+      #      reporta `loaded_not_published`.
+      #
       # 0 Producción, 0 Supabase, 0 escrituras remotas, 0 proveedores, 0 créditos, 0 flags, 0
-      # migraciones, 0 carga nacional, 0 publicación. Todo identificador es sintético.
-      - name: Run BR Receita national chunk operator CLI
+      # migraciones, 0 carga nacional, 0 publicación, 0 conexiones reales. Todo identificador es
+      # sintético y el motor está falseado: el proveedor es lo que se prueba, no el join.
+      - name: Run BR Receita national chunk operator CLI and runtime provider
         run: npm run test:br-source:prod-resume-operator-chunk
