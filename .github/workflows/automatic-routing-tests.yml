@@ -4300,3 +4300,31 @@ jobs:
       # carga nacional. Todo identificador es un marcador sintético `SYN_K`.
       - name: Run BR Receita Stage-3 partition ordinal range
         run: npm run test:br-source:partition-ordinal-range
+
+      # BR-RECEITA-PROD-RESUME-OPERATOR-CHUNK — el CLI operador que ejecuta UNA ventana de
+      # ordinales de la etapa 3 contra el loader nacional YA EXISTENTE, más el loader y sus
+      # piezas (checkpoint v2, fingerprint de inventario, projector, existing-run writer) que
+      # hasta ahora no tenían paso propio en CI.
+      #
+      # Lo que esta suite prueba, y que quedaría verde si sólo se mirara el camino feliz:
+      #
+      #   1. Una declaración incompleta o malformada — sin run-id, run-id que no es identificador,
+      #      periodo inválido, fingerprint ausente/malformado, ordinal negativo, fraccionario,
+      #      hexadecimal, ventana de ancho cero o que se sale del mapa fijado en 1024 — se rechaza
+      #      ANTES de tocar un puerto: 0 SQL, 0 gateway, 0 bytes leídos.
+      #   2. `--mode benchmark` llega al loader REAL `loadBrReceitaNationalChunk()` y sale 0. El CLI
+      #      no reimplementa acumulación ni reglas: un request con el mapa despinneado parsea bien
+      #      y lo rechaza el LOADER, que es lo que demuestra que el CLI no está decidiendo por él.
+      #   3. `publish`, `attach` y `begin-run` NO son modos pendientes de implementar: no están en
+      #      la tupla de modos, así que se rechazan en tiempo de parseo con `mode_not_supported`.
+      #   4. La publicación y la creación de run son inalcanzables — comprobado en RUNTIME con un
+      #      gateway que cuenta cada llamada (beginPeriodRun = 0, commitFinalBatchAndPublish = 0) y
+      #      ESTÁTICAMENTE contra el fuente SIN COMENTARIOS, para que nombrarlo en prosa nunca se
+      #      confunda con llamarlo.
+      #   5. Sin puertos de runtime inyectados el CLI rechaza (`runtime_ports_not_wired`) en vez de
+      #      inventarse una conexión: no hay lookup de entorno ni gateway por defecto.
+      #
+      # 0 Producción, 0 Supabase, 0 escrituras remotas, 0 proveedores, 0 créditos, 0 flags, 0
+      # migraciones, 0 carga nacional, 0 publicación. Todo identificador es sintético.
+      - name: Run BR Receita national chunk operator CLI
+        run: npm run test:br-source:prod-resume-operator-chunk
