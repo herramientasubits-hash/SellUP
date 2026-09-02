@@ -1,0 +1,356 @@
+import { countBrReceitaCnpjDelimitedColumns } from './br-receita-cnpj-file-reader';
+import {
+  readBrazilReceitaFullJoinFieldAt,
+  type BrazilReceitaFullJoinReaderFileSystem,
+} from './br-receita-cnpj-full-join-streaming-reader';
+import {
+  validateBrazilReceitaFullJoinRowReference,
+  type BrazilReceitaFullJoinRowReference,
+} from './br-receita-cnpj-full-join-partition-workspace';
+import type {
+  BrazilReceitaFullJoinBoundedJoinedRecord,
+  BrazilReceitaFullJoinSink,
+  BrazilReceitaFullJoinSourceFileDescriptor,
+} from './br-receita-cnpj-full-join-engine-contract';
+import {
+  withBrazilReceitaFullJoinLedgerAccounting,
+  type BrazilReceitaFullJoinOpenHandleLedger,
+} from './br-receita-cnpj-full-join-open-handle-ledger';
+import {
+  type BrReceitaNationalMaterializationBreach,
+  type BrReceitaNationalMaterializationGuard,
+  type BrReceitaNationalMaterializationObservations,
+} from './br-receita-cnpj-national-materialization-envelope';
+import { buildBrReceitaCnpjSnapshotRows } from './br-receita-cnpj-snapshot-builder';
+import { toBrReceitaPersistedSnapshot } from './br-receita-cnpj-monthly-snapshot-identity';
+import type { BrReceitaExistingRunChunkWriter } from './br-receita-cnpj-existing-run-chunk-writer';
+import type {
+  BrReceitaEmpresaRow,
+  BrReceitaEstabelecimentoRow,
+  BrReceitaLookupRow,
+  BrReceitaCnpjRejectionReason,
+} from './br-receita-cnpj-types';
+
+const OFFICIAL_DELIMITER = ';';
+const EMPRESA_COLUMNS = 7;
+const ESTABELECIMENTO_COLUMNS = 30;
+const PROJECTOR_BATCH_ROWS = 500;
+
+const EMP_CNPJ_BASICO = 0;
+const EMP_RAZAO_SOCIAL = 1;
+const EMP_NATUREZA = 2;
+const EMP_CAPITAL = 4;
+const EMP_PORTE = 5;
+
+const EST_CNPJ_BASICO = 0;
+const EST_CNPJ_ORDEM = 1;
+const EST_CNPJ_DV = 2;
+const EST_MATRIZ_FILIAL = 3;
+const EST_SITUACAO = 5;
+const EST_DATA_INICIO = 10;
+const EST_CNAE_PRINCIPAL = 11;
+const EST_CNAE_SECUNDARIA = 12;
+const EST_UF = 19;
+const EST_MUNICIPIO = 20;
+
+export type BrReceitaNationalMatchProjectorFailureReason =
+  | 'reference_invalid'
+  | 'descriptor_missing'
+  | 'reference_family_mismatch'
+  | 'row_too_large'
+  | 'row_read_failed'
+  | 'row_short_read'
+  | 'row_close_failed'
+  | 'materialization_resource_cap_exceeded'
+  | 'empresa_layout_mismatch'
+  | 'estabelecimento_layout_mismatch'
+  | 'sink_already_finalized'
+  | 'parser_returned_multiple_rows';
+
+export class BrReceitaNationalMatchProjectorError extends Error {
+  readonly reason: BrReceitaNationalMatchProjectorFailureReason;
+
+  constructor(reason: BrReceitaNationalMatchProjectorFailureReason) {
+    super(`br receita national match projector refused (${reason})`);
+    this.name = 'BrReceitaNationalMatchProjectorError';
+    this.reason = reason;
+  }
+}
+
+export interface BrReceitaNationalReferenceCatalogs {
+  readonly cnaesRows: readonly BrReceitaLookupRow[];
+  readonly municipiosRows: readonly BrReceitaLookupRow[];
+  readonly naturezasRows: readonly BrReceitaLookupRow[];
+}
+
+export interface BrReceitaNationalProjectorStats {
+  readonly matchesReceived: number;
+  readonly parserAcceptedRows: number;
+  readonly parserRejectedRows: number;
+  readonly rejectionCounts: Readonly<Partial<Record<BrReceitaCnpjRejectionReason, number>>>;
+  readonly batchesParsed: number;
+  readonly materialization: BrReceitaNationalMaterializationObservations;
+  readonly materializationBreach: BrReceitaNationalMaterializationBreach | null;
+  readonly finalized: boolean;
+}
+
+export interface BrReceitaNationalMatchProjectorSink extends BrazilReceitaFullJoinSink {
+  stats(): BrReceitaNationalProjectorStats;
+  /** Closes cached source handles and drops buffered raw pairs without parsing or writing them. */
+  dispose(): void;
+}
+
+function field(line: string, index: number): string {
+  const raw = readBrazilReceitaFullJoinFieldAt(line, OFFICIAL_DELIMITER, index);
+  if (raw === null) return '';
+  const trimmed = raw.trim();
+  if (trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    return trimmed.slice(1, -1).replace(/""/g, '"').trim();
+  }
+  return trimmed;
+}
+
+function toEmpresaRow(line: string): BrReceitaEmpresaRow {
+  if (countBrReceitaCnpjDelimitedColumns(line, OFFICIAL_DELIMITER) !== EMPRESA_COLUMNS) {
+    throw new BrReceitaNationalMatchProjectorError('empresa_layout_mismatch');
+  }
+  return {
+    cnpj_basico: field(line, EMP_CNPJ_BASICO),
+    razao_social: field(line, EMP_RAZAO_SOCIAL),
+    natureza_juridica: field(line, EMP_NATUREZA),
+    capital_social: field(line, EMP_CAPITAL),
+    porte_empresa: field(line, EMP_PORTE),
+  };
+}
+
+function toEstabelecimentoRow(line: string): BrReceitaEstabelecimentoRow {
+  if (countBrReceitaCnpjDelimitedColumns(line, OFFICIAL_DELIMITER) !== ESTABELECIMENTO_COLUMNS) {
+    throw new BrReceitaNationalMatchProjectorError('estabelecimento_layout_mismatch');
+  }
+  return {
+    cnpj_basico: field(line, EST_CNPJ_BASICO),
+    cnpj_ordem: field(line, EST_CNPJ_ORDEM),
+    cnpj_dv: field(line, EST_CNPJ_DV),
+    identificador_matriz_filial: field(line, EST_MATRIZ_FILIAL) || null,
+    situacao_cadastral: field(line, EST_SITUACAO) || null,
+    data_inicio_atividade: field(line, EST_DATA_INICIO) || null,
+    cnae_fiscal_principal: field(line, EST_CNAE_PRINCIPAL) || null,
+    cnae_fiscal_secundaria: field(line, EST_CNAE_SECUNDARIA) || null,
+    uf: field(line, EST_UF) || null,
+    municipio: field(line, EST_MUNICIPIO) || null,
+  };
+}
+
+interface ReferencedRowReader {
+  read(reference: BrazilReceitaFullJoinRowReference): string;
+  closeAll(): void;
+}
+
+export function createBrReceitaReferencedRowReader(args: {
+  readonly descriptors: readonly BrazilReceitaFullJoinSourceFileDescriptor[];
+  readonly fileSystem: BrazilReceitaFullJoinReaderFileSystem;
+  readonly openHandleLedger: BrazilReceitaFullJoinOpenHandleLedger;
+  readonly materializationGuard: BrReceitaNationalMaterializationGuard;
+  readonly maxRowBytes: number;
+}): ReferencedRowReader {
+  const descriptorByOrdinal = new Map(
+    args.descriptors.map((descriptor) => [descriptor.sourceFileOrdinal, descriptor] as const),
+  );
+  const accountedFileSystem = withBrazilReceitaFullJoinLedgerAccounting(
+    args.fileSystem,
+    args.openHandleLedger,
+    'source_file',
+  );
+  const handleByOrdinal = new Map<number, number>();
+
+  const closeAll = (): void => {
+    let closeFailed = false;
+    for (const handle of handleByOrdinal.values()) {
+      try {
+        accountedFileSystem.close(handle);
+      } catch {
+        closeFailed = true;
+      }
+    }
+    handleByOrdinal.clear();
+    if (closeFailed) throw new BrReceitaNationalMatchProjectorError('row_close_failed');
+  };
+
+  const failAndClose = (reason: BrReceitaNationalMatchProjectorFailureReason): never => {
+    try {
+      closeAll();
+    } catch {
+      throw new BrReceitaNationalMatchProjectorError('row_close_failed');
+    }
+    throw new BrReceitaNationalMatchProjectorError(reason);
+  };
+
+  return {
+    read(reference): string {
+      const validation = validateBrazilReceitaFullJoinRowReference(reference);
+      if (!validation.ok) return failAndClose('reference_invalid');
+      if (reference.byteLength > args.maxRowBytes) return failAndClose('row_too_large');
+
+      const descriptor = descriptorByOrdinal.get(reference.sourceFileOrdinal);
+      if (descriptor === undefined) return failAndClose('descriptor_missing');
+      if (descriptor.family !== reference.family) return failAndClose('reference_family_mismatch');
+
+      const reservation = args.materializationGuard.reserveRow(reference.byteLength);
+      if (!reservation.ok) return failAndClose('materialization_resource_cap_exceeded');
+
+      let handle = handleByOrdinal.get(reference.sourceFileOrdinal);
+      if (handle === undefined) {
+        try {
+          handle = accountedFileSystem.open(descriptor.filePath);
+          handleByOrdinal.set(reference.sourceFileOrdinal, handle);
+        } catch {
+          return failAndClose('row_read_failed');
+        }
+      }
+
+      try {
+        const buffer = Buffer.allocUnsafe(reference.byteLength);
+        const bytesRead = accountedFileSystem.read(
+          handle,
+          buffer,
+          0,
+          reference.byteLength,
+          reference.byteOffset,
+        );
+        if (bytesRead !== reference.byteLength) return failAndClose('row_short_read');
+        return buffer.toString(descriptor.encoding === 'latin1' ? 'latin1' : 'utf8');
+      } catch (error) {
+        if (error instanceof BrReceitaNationalMatchProjectorError) throw error;
+        return failAndClose('row_read_failed');
+      }
+    },
+    closeAll,
+  };
+}
+
+interface RawPair {
+  readonly empresa: BrReceitaEmpresaRow;
+  readonly estabelecimento: BrReceitaEstabelecimentoRow;
+}
+
+export function createBrReceitaNationalMatchProjectorSink(args: {
+  readonly sourcePeriod: string;
+  readonly sourceYear: number;
+  readonly descriptors: readonly BrazilReceitaFullJoinSourceFileDescriptor[];
+  readonly fileSystem: BrazilReceitaFullJoinReaderFileSystem;
+  readonly openHandleLedger: BrazilReceitaFullJoinOpenHandleLedger;
+  readonly materializationGuard: BrReceitaNationalMaterializationGuard;
+  readonly maxRowBytes: number;
+  readonly catalogs: BrReceitaNationalReferenceCatalogs;
+  readonly writer: BrReceitaExistingRunChunkWriter;
+}): BrReceitaNationalMatchProjectorSink {
+  const rowReader = createBrReceitaReferencedRowReader({
+    descriptors: args.descriptors,
+    fileSystem: args.fileSystem,
+    openHandleLedger: args.openHandleLedger,
+    materializationGuard: args.materializationGuard,
+    maxRowBytes: args.maxRowBytes,
+  });
+
+  let pairs: RawPair[] = [];
+  let matchesReceived = 0;
+  let parserAcceptedRows = 0;
+  let parserRejectedRows = 0;
+  let batchesParsed = 0;
+  let finalized = false;
+  let disposed = false;
+  const rejectionCounts: Partial<Record<BrReceitaCnpjRejectionReason, number>> = {};
+
+  const stats = (): BrReceitaNationalProjectorStats => ({
+    matchesReceived,
+    parserAcceptedRows,
+    parserRejectedRows,
+    rejectionCounts: { ...rejectionCounts },
+    batchesParsed,
+    materialization: args.materializationGuard.observations(),
+    materializationBreach: args.materializationGuard.breach(),
+    finalized,
+  });
+
+  const flush = async (): Promise<void> => {
+    if (pairs.length === 0) return;
+    const parsed = buildBrReceitaCnpjSnapshotRows({
+      sourceYear: args.sourceYear,
+      sourcePeriod: args.sourcePeriod,
+      empresasRows: pairs.map((pair) => pair.empresa),
+      estabelecimentosRows: pairs.map((pair) => pair.estabelecimento),
+      cnaesRows: [...args.catalogs.cnaesRows],
+      municipiosRows: [...args.catalogs.municipiosRows],
+      naturezasRows: [...args.catalogs.naturezasRows],
+    });
+    if (parsed.snapshots.length > pairs.length) {
+      throw new BrReceitaNationalMatchProjectorError('parser_returned_multiple_rows');
+    }
+
+    parserAcceptedRows += parsed.snapshots.length;
+    parserRejectedRows += parsed.rejected.length;
+    batchesParsed += 1;
+    for (const rejection of parsed.rejected) {
+      rejectionCounts[rejection.reasonCode] = (rejectionCounts[rejection.reasonCode] ?? 0) + 1;
+    }
+    for (const snapshot of parsed.snapshots) {
+      await args.writer.push(toBrReceitaPersistedSnapshot(snapshot));
+    }
+    pairs = [];
+  };
+
+  const failClosed = async (work: () => Promise<void>): Promise<void> => {
+    try {
+      await work();
+    } catch (error) {
+      try {
+        rowReader.closeAll();
+      } catch {
+        throw new BrReceitaNationalMatchProjectorError('row_close_failed');
+      }
+      throw error;
+    }
+  };
+
+  return {
+    async onMatch(match: BrazilReceitaFullJoinBoundedJoinedRecord): Promise<void> {
+      if (finalized || disposed) {
+        throw new BrReceitaNationalMatchProjectorError('sink_already_finalized');
+      }
+      await failClosed(async () => {
+        matchesReceived += 1;
+        const empresaLine = rowReader.read(match.empresaReference);
+        const estabelecimentoLine = rowReader.read(match.estabelecimentoReference);
+        pairs.push({
+          empresa: toEmpresaRow(empresaLine),
+          estabelecimento: toEstabelecimentoRow(estabelecimentoLine),
+        });
+        if (pairs.length >= PROJECTOR_BATCH_ROWS) await flush();
+      });
+    },
+    async onPartitionComplete(): Promise<void> {
+      if (disposed) throw new BrReceitaNationalMatchProjectorError('sink_already_finalized');
+      await failClosed(flush);
+    },
+    async finalize(): Promise<void> {
+      if (finalized) return;
+      if (disposed) throw new BrReceitaNationalMatchProjectorError('sink_already_finalized');
+      try {
+        await flush();
+      } finally {
+        rowReader.closeAll();
+        finalized = true;
+      }
+    },
+    dispose(): void {
+      if (finalized || disposed) return;
+      pairs = [];
+      try {
+        rowReader.closeAll();
+      } finally {
+        disposed = true;
+      }
+    },
+    stats,
+  };
+}

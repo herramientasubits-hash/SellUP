@@ -4356,3 +4356,51 @@ jobs:
       # carga nacional. Todo identificador es un marcador sintético `SYN_K`.
       - name: Run BR Receita Stage-3 partition ordinal range
         run: npm run test:br-source:partition-ordinal-range
+
+      # BR-RECEITA-PROD-RESUME-OPERATOR-CHUNK — el CLI operador que ejecuta UNA ventana de
+      # ordinales de la etapa 3 contra el loader nacional YA EXISTENTE, más el loader y sus
+      # piezas (checkpoint v2, fingerprint de inventario, projector, existing-run writer) que
+      # hasta ahora no tenían paso propio en CI.
+      #
+      # Lo que esta suite prueba, y que quedaría verde si sólo se mirara el camino feliz:
+      #
+      #   1. Una declaración incompleta o malformada — sin run-id, run-id que no es identificador,
+      #      periodo inválido, fingerprint ausente/malformado, ordinal negativo, fraccionario,
+      #      hexadecimal, ventana de ancho cero o que se sale del mapa fijado en 1024 — se rechaza
+      #      ANTES de tocar un puerto: 0 SQL, 0 gateway, 0 bytes leídos.
+      #   2. `--mode benchmark` llega al loader REAL `loadBrReceitaNationalChunk()` y sale 0. El CLI
+      #      no reimplementa acumulación ni reglas: un request con el mapa despinneado parsea bien
+      #      y lo rechaza el LOADER, que es lo que demuestra que el CLI no está decidiendo por él.
+      #   3. `publish`, `attach` y `begin-run` NO son modos pendientes de implementar: no están en
+      #      la tupla de modos, así que se rechazan en tiempo de parseo con `mode_not_supported`.
+      #   4. La publicación y la creación de run son inalcanzables — comprobado en RUNTIME con un
+      #      gateway que cuenta cada llamada (beginPeriodRun = 0, commitFinalBatchAndPublish = 0) y
+      #      ESTÁTICAMENTE contra el fuente SIN COMENTARIOS, para que nombrarlo en prosa nunca se
+      #      confunda con llamarlo.
+      #   5. Sin puertos de runtime inyectados el CLI rechaza (`runtime_ports_not_wired`) en vez de
+      #      inventarse una conexión: no hay lookup de entorno ni gateway por defecto.
+      #
+      # Y el PROVEEDOR DE RUNTIME que hace ejecutable `br-source:operator-chunk`, que es donde vive
+      # todo lo que el CLI se niega a inventar:
+      #
+      #   6. Sin `DATABASE_URL` el proveedor rechaza CERRADO — y sin abrir sesión ni leer manifiesto.
+      #      Un puerto ausente NO se completa a 5432: "el operador no lo dijo" no es evidencia de
+      #      modo sesión.
+      #   7. El TRANSACTION POOLER se rechaza POR NOMBRE antes de que exista un socket: puerto 6543
+      #      y `pgbouncer=true` aun sobre 5432. El gateway es con estado entre sentencias (posee el
+      #      BEGIN, recuerda el nombre de la partición desprendida de cada corrida) y un pooler de
+      #      transacciones no promete el mismo backend fuera de una transacción explícita.
+      #   8. Un inventario 2026-07 INCOMPLETO se rechaza: falta una parte de Empresas o de
+      #      Estabelecimentos, falta un catálogo de referencia, un archivo consumido declarado sin
+      #      SHA-256 y tamaño verificados, un manifiesto de otro periodo, o un fingerprint que no
+      #      corresponde a lo que el manifiesto declara. Ninguno de esos rechazos abre conexión.
+      #   9. Con puertos falsos, `--mode benchmark` resuelve Empresas0..9 + Estabelecimentos0..9 +
+      #      CNAE + Municipios + Naturezas en 20 descriptores y 3 catálogos, con el mapa fijado en
+      #      1024/1024 y `duplicateKeyPolicy: 'reject'`, corre UNA ventana por el loader real y
+      #      reporta `loaded_not_published`.
+      #
+      # 0 Producción, 0 Supabase, 0 escrituras remotas, 0 proveedores, 0 créditos, 0 flags, 0
+      # migraciones, 0 carga nacional, 0 publicación, 0 conexiones reales. Todo identificador es
+      # sintético y el motor está falseado: el proveedor es lo que se prueba, no el join.
+      - name: Run BR Receita national chunk operator CLI and runtime provider
+        run: npm run test:br-source:prod-resume-operator-chunk
