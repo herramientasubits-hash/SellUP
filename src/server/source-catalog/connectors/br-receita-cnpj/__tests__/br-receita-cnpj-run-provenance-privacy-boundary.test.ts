@@ -63,7 +63,7 @@ import {
   BR_RECEITA_COMPACT_STORAGE_CONTRACT,
   BR_RECEITA_RUN_LEVEL_PROVENANCE_KEYS,
   brReceitaRunProvenanceForRun,
-  containsForbiddenCnpjDigits,
+  containsForbiddenCnpjIdentifierShape,
 } from '../br-receita-cnpj-compact-storage';
 import {
   BR_RECEITA_CNPJ_COUNTRY_CODE,
@@ -231,7 +231,7 @@ describe('BR-PROVENANCE-PRIVACY — an allowed key may not carry a disallowed va
       });
       assert.deepEqual(built, { parser_version: BR_RECEITA_CNPJ_PARSER_VERSION });
     }
-    assert.equal(containsForbiddenCnpjDigits(SYNTHETIC_CNPJ_BAD_DV), true);
+    assert.equal(containsForbiddenCnpjIdentifierShape(SYNTHETIC_CNPJ_BAD_DV), true);
     assert.equal(
       BR_RECEITA_COMPACT_STORAGE_CONTRACT.runLevelProvenanceCnpjRefusalIsCheckDigitIndependent,
       true,
@@ -239,10 +239,10 @@ describe('BR-PROVENANCE-PRIVACY — an allowed key may not carry a disallowed va
   });
 
   it('the refusal is a shape rule, not a list of known identifiers', () => {
-    assert.equal(containsForbiddenCnpjDigits(SYNTHETIC_CNPJ), true);
-    assert.equal(containsForbiddenCnpjDigits(CNPJ_CARRYING_PARSER_VERSION), true);
+    assert.equal(containsForbiddenCnpjIdentifierShape(SYNTHETIC_CNPJ), true);
+    assert.equal(containsForbiddenCnpjIdentifierShape(CNPJ_CARRYING_PARSER_VERSION), true);
     // Fifteen or more digits is a superset of the shape, not an escape from it.
-    assert.equal(containsForbiddenCnpjDigits(`${SYNTHETIC_CNPJ}7`), true);
+    assert.equal(containsForbiddenCnpjIdentifierShape(`${SYNTHETIC_CNPJ}7`), true);
     // And the legitimate values stay legitimate.
     for (const safe of [
       BR_RECEITA_CNPJ_PARSER_VERSION,
@@ -251,7 +251,7 @@ describe('BR-PROVENANCE-PRIVACY — an allowed key may not carry a disallowed va
       LEGITIMATE_UUID_BATCH_ID,
       '2026-07-12T09:18:00.000Z',
     ]) {
-      assert.equal(containsForbiddenCnpjDigits(safe), false, 'must remain persistable');
+      assert.equal(containsForbiddenCnpjIdentifierShape(safe), false, 'must remain persistable');
     }
   });
 

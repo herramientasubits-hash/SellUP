@@ -4441,3 +4441,32 @@ jobs:
       # proveedores, 0 créditos, 0 flags, 0 migraciones, 0 filas.
       - name: Run BR Receita real benchmark operator alias
         run: npm run test:br-source:receita-real-benchmark-alias
+      # BR-RECEITA-ALPHANUMERIC-CNPJ-REDACTION — el CNPJ ALFANUMÉRICO (§ 3.1/§ 3.4, vigente desde
+      # julio 2026) frente a los detectores que sólo saben de dígitos.
+      #
+      # BR-SOURCE-14B.0M cerró la brecha en CUATRO superficies (clasificador, hard-block del dry-run
+      # local, sanitizador de salida, canal privado de métricas) enrutándolas al detector compartido
+      # con validación de DV. La auditoría de este milestone encontró DOS que 14B.0M no alcanzó:
+      #
+      #   1. La valla de procedencia de `compact-storage` (`\d{14}`). Es una frontera de
+      #      PERSISTENCIA: decide si `parser_version`, `source_file_name` o `import_batch_id`
+      #      aterrizan en `source_snapshot_runs.metadata`. Las letras están dentro de todos los
+      #      charsets seguros, así que un CNPJ alfanumérico pasaba cada control de forma, no
+      #      coincidía con ninguna regla de dígitos, y se habría persistido como una SEGUNDA
+      #      representación exacta de CNPJ — lo que GATE-4A permite exactamente una vez.
+      #   2. `assertSanitizedRunnerOutput` del `controlled-parser` (`\b\d{14}\b`). Sus runners
+      #      hermanos ya llevaban también el chequeo alfanumérico; el parser controlado — el runner
+      #      que de hecho parsea archivos de Receita — no.
+      #
+      # La suite fija los TRES casos en cada superficie: (A) CNPJ numérico histórico ⇒ redacta;
+      # (B) CNPJ alfanumérico Receita 2026 ⇒ redacta; (C) parecido que NO es CNPJ ⇒ no redacta.
+      # Las dos superficies responden C con filtros distintos a propósito: un REPORTE filtra por DV
+      # (marcar cada token de 14 caracteres haría ilegible toda salida), una PERSISTENCIA filtra por
+      # forma delimitada (allí un falso positivo cuesta un campo opcional ausente, y un falso
+      # negativo persiste un identificador). Cierra con un trinquete estático: ningún detector
+      # sólo-dígitos puede volver a aparecer en el conector sin una regla que sepa de letras.
+      #
+      # NO toca full-join engine, loader, checkpoint, ATTEMPTS, topes de memoria ni Supabase.
+      # 0 Producción, 0 migraciones, 0 escrituras, 0 datos reales de Receita, 0 créditos, 0 filas.
+      - name: Run BR Receita alphanumeric CNPJ redaction suites
+        run: npm run test:br-source:alphanumeric-cnpj-redaction
