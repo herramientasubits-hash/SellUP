@@ -10,7 +10,9 @@
  * Guardrails (real-limited):
  *   APOLLO_ORGANIZATIONS_ABSOLUTE_MAX_RESULTS = 10  orgs como máximo por invocación.
  *   MAX_APOLLO_ORGANIZATIONS_CREDITS    = 10  créditos estimados máximos por invocación.
- *   1 organización retornada = 1 crédito estimado.
+ *   AGENT1-APOLLO-BILLING-MODE-V2 — 1 PÁGINA NO VACÍA = 1 crédito estimado
+ *   (modelo confirmado por Apollo Support). NO 1 por organización retornada:
+ *   una página de 100 cuesta lo mismo que una de 3, y una página vacía cuesta 0.
  *
  * Errores controlados:
  *   - API key faltante       → skipped con skipReason 'apollo_api_key_missing'.
@@ -92,6 +94,7 @@ import {
 import {
   createApolloPaginationBudget,
   WIZARD_APOLLO_MAX_SEARCH_CREDITS_DEFAULT,
+  APOLLO_LEGACY_MAX_PAGES_PER_INVOCATION,
 } from '../apollo-organizations-pagination-budget';
 // AGENT1-APOLLO-BENCHMARK-PARITY-CUT-1 — P0-2/P0-4/P1-3: memoria provider-seen,
 // volumen pagado ANTES del recorte local, y el embudo comparable con Lusha.
@@ -118,7 +121,13 @@ import {
   toApolloSpendObservabilityMetadata,
   APOLLO_SPEND_OBSERVABILITY_KEY,
 } from '../apollo-spend-observability';
-import { creditsForApolloOperation } from '../apollo-operation-pricing';
+// AGENT1-APOLLO-BILLING-MODE-V2 — el envoltorio NOMBRADO deja la unidad en el
+// nombre (páginas no vacías), y el estampado de pricing viaja en cada fila.
+import {
+  creditsForApolloNonEmptyPages,
+  toApolloPricingMetadata,
+  APOLLO_PRICING_METADATA_KEY,
+} from '../apollo-operation-pricing';
 import { RUN_CORRELATION_METADATA_KEY } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-correlation';
 import type { NormalizedApolloOrganization } from '../apollo-organizations-response-normalizer';
 import {
@@ -995,7 +1004,11 @@ export async function runApolloOrganizationsSearch(
   const paginationBudget = createApolloPaginationBudget(
     netNewPaginationEnabled
       ? { perPage: effective.perPage }
-      : { perPage: effective.perPage, maxPages: 1 },
+      // AGENT1-APOLLO-BILLING-MODE-V2 — el `1` sale de la constante compartida
+      // con la RESERVA (`estimateApolloRunCreditBreakdown`), no de un literal:
+      // las dos cifras tienen que moverse juntas o la corrida gastaría más
+      // páginas de las reservadas.
+      : { perPage: effective.perPage, maxPages: APOLLO_LEGACY_MAX_PAGES_PER_INVOCATION },
   );
   const apolloPageLogs: ApolloPageLogEntry[] = [];
 
@@ -1062,7 +1075,7 @@ export async function runApolloOrganizationsSearch(
   // resultado. Es `paidVolume.creditsCharged`: la suma de 1 crédito por página
   // no vacía, 0 por página vacía, tal como Apollo Support confirmó.
   const paidCreditsUsed = Math.min(
-    creditsForApolloOperation('organizations_search', paidVolume.creditsCharged),
+    creditsForApolloNonEmptyPages(paidVolume.creditsCharged),
     MAX_APOLLO_ORGANIZATIONS_CREDITS,
   );
   const paidEstimatedCostUsd = paidCreditsUsed * APOLLO_ORGANIZATIONS_UNIT_COST_USD;
@@ -1352,8 +1365,11 @@ export async function runApolloOrganizationsSearch(
   const filteredMapped = sectorGateMode === 'annotate' ? enrichedMapped : gateResult.passed;
 
   // ── Cálculo de créditos y costo ───────────────────────────────────────────────
-  // Créditos basados en resultados retornados por Apollo (antes del gate),
-  // porque Apollo ya cobró por la búsqueda.
+  // Créditos observados ANTES del gate, porque Apollo ya cobró la búsqueda.
+  //
+  // AGENT1-APOLLO-BILLING-MODE-V2 — la unidad es la PÁGINA NO VACÍA, no la
+  // organización devuelta; el histórico de este bloque (puntos 1 y 2) describe
+  // la base equivocada y se conserva sólo para leer los registros de entonces.
   //
   // A1-APOLLO-BUDGET-RECONCILIATION-1: dos precisiones.
   //  1) La base es `rawOrgs.length` — lo que Apollo devolvió y cobró — y no
@@ -1701,6 +1717,12 @@ function buildUsageMetadata(
     provider_mode: dryRun ? 'dry_run' : 'real_limited',
     status,
     mapping_version: APOLLO_QUERY_MAPPING_VERSION,
+    // AGENT1-APOLLO-BILLING-MODE-V2 — bajo qué modelo se calculó el
+    // `credits_used` de ESTA fila. Va en todas las filas de la operación
+    // (éxito, error, dry-run) porque el modelo es un hecho de la fila y no de
+    // su desenlace, y porque una fila sin estampar significa v1 —el modelo por
+    // organización— para `resolveApolloPricingModelFromMetadata`.
+    [APOLLO_PRICING_METADATA_KEY]: toApolloPricingMetadata('organizations_search'),
     ...(apolloParamsSanitized ? { apollo_params_sanitized: apolloParamsSanitized } : {}),
   };
 }

@@ -4470,3 +4470,37 @@ jobs:
       # 0 Producción, 0 migraciones, 0 escrituras, 0 datos reales de Receita, 0 créditos, 0 filas.
       - name: Run BR Receita alphanumeric CNPJ redaction suites
         run: npm run test:br-source:alphanumeric-cnpj-redaction
+      # AGENT1-APOLLO-BILLING-MODE-V2 — la REPRESENTACIÓN interna del costo de Apollo
+      # Organization Search frente al modelo que Apollo Support confirmó: 1 crédito por
+      # PÁGINA NO VACÍA, sin importar cuántos resultados traiga esa página (100 cuestan lo
+      # mismo que 3), 0 por página vacía.
+      #
+      # El runtime ya facturaba así (ledger por página + volumen pagado). Lo que seguía
+      # hablando el modelo viejo —«1 crédito por organización devuelta»— y este milestone
+      # cierra:
+      #
+      #   1. La UNIDAD declarada en `apollo-operation-pricing.ts`, que inducía al siguiente
+      #      llamador a pasar un conteo de organizaciones y compilaba en verde.
+      #   2. `estimateApolloRunCreditBreakdown`, que reservaba `maxQueries × maxResults`
+      #      (1 × 3 = 3 créditos) por una invocación legacy que como mucho paga 1 página.
+      #   3. `APOLLO_PRICING_VERSION`, congelada en `v1` aunque el modelo ya había cambiado:
+      #      una fila o reserva estampada hoy era indistinguible de una de julio, cuyos
+      #      créditos cuentan organizaciones y están sobre-anotados ~4,8× (565 anotados por
+      #      100 páginas reales en Prod).
+      #   4. La ruta legacy `mixed_companies_search` de `prospect-generation.ts`, que anotaba
+      #      un crédito por empresa devuelta — 25 de esas 100 filas salieron de ahí.
+      #
+      # La suite fija cinco invariantes: (A) el crédito lo produce la página, no el resultado
+      # —una página de 1 y una de 100 cuestan lo mismo—; (B) página vacía ⇒ 0 y `not_charged`,
+      # request no enviado ⇒ 0, request enviado sin respuesta ⇒ `unknown` que nunca se
+      # promueve; (C) la reserva cuenta páginas y `per_page` no participa; (D) `maxCandidates`
+      # NO sigue a `maxCredits` (confundirlos dejaría la corrida recogiendo 5 organizaciones
+      # en vez de 500); (E) una fila SIN estampar se lee como v1 y no es comparable con v2 —
+      # la ausencia jamás se resuelve como v2. Cierra con trinquetes estáticos contra el
+      # retorno del cobro por resultado en cualquiera de las cuatro superficies.
+      #
+      # NO sube `per_page`, NO cambia el cap de queries, NO toca routing, dominios, query
+      # intelligence ni presupuesto productivo. Sin backfill de `provider_usage_logs`.
+      # 0 Producción, 0 migraciones, 0 escrituras, 0 créditos, 0 llamadas a Apollo, 0 flags.
+      - name: Run Agent1 Apollo billing mode v2 invariants
+        run: npm run test:a1-apollo-billing-mode-v2

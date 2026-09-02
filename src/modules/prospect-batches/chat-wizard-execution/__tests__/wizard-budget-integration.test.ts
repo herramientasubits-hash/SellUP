@@ -677,13 +677,17 @@ describe('v1.16K-AG — Apollo provider uses provider-aware credit estimate', ()
     });
   }
 
-  it('AG-1: Apollo provider → requestedCredits = 3 (1 query × 3 results, defaults)', async () => {
+  // AGENT1-APOLLO-BILLING-MODE-V2 — la reserva de Apollo cuenta invocaciones ×
+  // PÁGINAS (1 crédito por página no vacía, confirmado por Apollo Support), no
+  // invocaciones × resultados pedidos. Los números de este bloque se
+  // reautorizaron: 1 × 1 = 1 en defaults, y 3 × 1 = 3 con los topes duros.
+  it('AG-1: Apollo provider → requestedCredits = 1 (1 invocación × 1 página, defaults)', async () => {
     await withFlagAsync(true, async () => {
       await withApolloProviderEnv({}, async () => {
         const deps = makeApolloDeps();
         await executeProspectWizardGeneration(VALID_REQUEST, deps);
         assert.equal(deps.budgetCalls.length, 1);
-        assert.equal(deps.budgetCalls[0]!.requestedCredits, 3);
+        assert.equal(deps.budgetCalls[0]!.requestedCredits, 1);
       });
     });
   });
@@ -697,7 +701,7 @@ describe('v1.16K-AG — Apollo provider uses provider-aware credit estimate', ()
     });
   });
 
-  it('AG-3: Apollo available=12, max=25, estimate=3 → reserveBudget called with 3, not blocked', async () => {
+  it('AG-3: Apollo available=12, max=25, estimate=1 → reserveBudget called with 1, not blocked', async () => {
     await withFlagAsync(true, async () => {
       await withApolloProviderEnv({}, async () => {
         let receivedCredits: number | undefined;
@@ -705,23 +709,24 @@ describe('v1.16K-AG — Apollo provider uses provider-aware credit estimate', ()
           reserveBudget: async (input) => {
             deps.budgetCalls.push(input);
             receivedCredits = input.requestedCredits;
-            return { status: 'reserved', reservationId: RESERVATION_A, creditsReserved: 3 };
+            return { status: 'reserved', reservationId: RESERVATION_A, creditsReserved: 1 };
           },
         });
         const result = await executeProspectWizardGeneration(VALID_REQUEST, deps);
         assert.equal(result.ok, true);
-        assert.equal(receivedCredits, 3);
+        assert.equal(receivedCredits, 1);
       });
     });
   });
 
-  it('AG-4: Apollo with env 99/99 → hard caps apply → requestedCredits = 15', async () => {
+  it('AG-4: Apollo with env 99/99 → hard caps apply → requestedCredits = 3', async () => {
     await withFlagAsync(true, async () => {
       await withApolloProviderEnv({ queries: '99', results: '99' }, async () => {
         const deps = makeApolloDeps();
         await executeProspectWizardGeneration(VALID_REQUEST, deps);
-        // Hard cap: queries ≤ 3, results ≤ 5 → 15
-        assert.equal(deps.budgetCalls[0]!.requestedCredits, 15);
+        // Hard cap de invocaciones: queries ≤ 3, × 1 página cada una = 3.
+        // `results` ya no multiplica: subirlo a 99 no compra más créditos.
+        assert.equal(deps.budgetCalls[0]!.requestedCredits, 3);
       });
     });
   });

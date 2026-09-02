@@ -25,6 +25,10 @@ import {
   BUDGET_EXCEEDED_TWO_ROUND_APOLLO,
 } from '../budget';
 import { testConfig } from './fixtures';
+import {
+  APOLLO_PRICING_VERSION,
+  APOLLO_PRICING_VERSION_V1_PER_RESULT,
+} from '../../apollo-operation-pricing';
 
 // ─── § 2: configuración ───────────────────────────────────────────────────────
 
@@ -205,6 +209,10 @@ describe('§ 10 · presupuesto', () => {
   test('el pricing sale de la tabla compartida, no de números sueltos', () => {
     const breakdown = estimateApolloTwoRoundBudget(testConfig());
     assert.equal(breakdown.pricingSource, 'apollo_operation_pricing_table');
-    assert.equal(breakdown.pricingVersion, 'a1-apollo-operation-pricing-v1');
+    // AGENT1-APOLLO-BILLING-MODE-V2 — la versión que la tabla estampa es v2
+    // (cobro por página no vacía). Fijar aquí la cadena v1 habría convertido
+    // esta prueba en un trinquete que defiende el modelo por resultado.
+    assert.equal(breakdown.pricingVersion, APOLLO_PRICING_VERSION);
+    assert.notEqual(breakdown.pricingVersion, APOLLO_PRICING_VERSION_V1_PER_RESULT);
   });
 });
