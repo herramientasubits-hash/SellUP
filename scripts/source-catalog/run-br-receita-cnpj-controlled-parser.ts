@@ -280,6 +280,13 @@ export function assertSanitizedRunnerOutput(rendered: string, sensitiveFullCnpjs
   if (/\b\d{14}\b/.test(rendered)) {
     throw new RunnerOutputSanitizationError('rendered output contains a 14-digit CNPJ-like literal');
   }
+  // …and none in the § 3.1 ALPHANUMERIC shape either, in force from July 2026. The digit check
+  // above requires fourteen DIGITS, so before this the one CNPJ form that could reach a rendered
+  // report was the one this source is about to start parsing. Same rule, same wording and same
+  // fail-closed throw as the sibling runners (`privacy-safe-dry-run`, `local-dry-run`).
+  if (/\b[A-Z0-9]{14}\b/.test(rendered)) {
+    throw new RunnerOutputSanitizationError('rendered output contains a 14-char CNPJ-like literal');
+  }
 }
 
 // ─── Arg parsing ───────────────────────────────────────────────────────────────

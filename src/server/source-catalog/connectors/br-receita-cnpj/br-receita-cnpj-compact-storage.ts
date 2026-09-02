@@ -197,12 +197,55 @@ const CANONICAL_INSTANT =
 const CNPJ_SHAPED_DIGIT_RUN = /\d{14}/;
 
 /**
- * True when `value` carries a CNPJ-shaped unformatted digit run and therefore may not be persisted
- * into run metadata under any key. Never normalises, never repairs and never returns the offending
- * value — the caller's only move is to OMIT.
+ * A CNPJ-shaped ALPHANUMERIC identifier: the § 3.1 grammar in force from July 2026 — twelve
+ * `[A-Za-z0-9]` identity positions (raiz + ordem) followed by two NUMERIC check digits — isolated
+ * as a run of EXACTLY fourteen alphanumerics.
+ *
+ * 🔴 Why the digit rule above cannot see it. `\d{14}` requires fourteen DIGITS, and an alphanumeric
+ * CNPJ contains letters — which are inside every safe charset above. So `12ABC345ABCD35` satisfies
+ * `SAFE_FILE_NAME`, `SAFE_VERSION_TOKEN` and `SAFE_OPAQUE_TOKEN`, matches no digit rule, and would
+ * ride into `source_snapshot_runs.metadata` as a SECOND persisted exact CNPJ representation —
+ * precisely the thing GATE-4A allows exactly once, in `identityRepresentationQualifiedColumn`.
+ *
+ * 🔴 Boundary-delimited, unlike the digit rule, and the difference is deliberate rather than an
+ * oversight. A fourteen-DIGIT run is unambiguous, so the digit rule stays unanchored and also
+ * catches one embedded in a longer token. An alphanumeric run is NOT unambiguous: searching it
+ * unanchored would match a fourteen-character window inside any long hex digest that happens to end
+ * in two digits, and would then drop a legitimate `import_batch_id` on every write. Requiring the
+ * run to be exactly fourteen with no adjacent alphanumeric keeps a 32-character digest, a
+ * 40-character digest and a canonical UUID (longest run: twelve) outside the rule entirely.
+ *
+ * 🔴 Still NOT check-digit validated, for the same reason the digit rule is not: at a PERSISTENCE
+ * boundary a false positive costs one absent optional provenance field, while a false negative
+ * persists an identifier for as long as the run row lives. `containsBrazilCnpjLikeIdentifier`
+ * (DV-filtered) is the right tool for REPORT surfaces, where false positives make output unusable;
+ * it stays the wrong one here.
+ *
+ * ⚪ The recorded residual: an alphanumeric CNPJ GLUED to further alphanumerics with no separator
+ * (`brreceita12ABC345ABCD35`) is not refused, because nothing distinguishes it from a token that
+ * merely ends in a CNPJ-shaped tail. Every carrier the shapes above admit separates its segments
+ * with `.`, `-`, `_`, `+` or `@`, so the realistic carrier IS delimited and IS refused.
  */
-export function containsForbiddenCnpjDigits(value: string): boolean {
-  return CNPJ_SHAPED_DIGIT_RUN.test(value);
+const CNPJ_SHAPED_ALPHANUMERIC_RUN = /(?<![A-Za-z0-9])[A-Za-z0-9]{12}[0-9]{2}(?![A-Za-z0-9])/g;
+
+/** A run must carry a LETTER to be this rule's business; the all-digit case is the digit rule's. */
+const RUN_CARRIES_A_LETTER = /[A-Za-z]/;
+
+function containsCnpjShapedAlphanumericRun(value: string): boolean {
+  for (const match of value.matchAll(CNPJ_SHAPED_ALPHANUMERIC_RUN)) {
+    if (RUN_CARRIES_A_LETTER.test(match[0])) return true;
+  }
+  return false;
+}
+
+/**
+ * True when `value` carries a CNPJ-shaped identifier — an unformatted DIGIT run, or the § 3.1
+ * ALPHANUMERIC shape — and therefore may not be persisted into run metadata under any key. Never
+ * normalises, never repairs and never returns the offending value — the caller's only move is to
+ * OMIT.
+ */
+export function containsForbiddenCnpjIdentifierShape(value: string): boolean {
+  return CNPJ_SHAPED_DIGIT_RUN.test(value) || containsCnpjShapedAlphanumericRun(value);
 }
 
 /**
@@ -218,7 +261,7 @@ export function containsForbiddenCnpjDigits(value: string): boolean {
 const shaped =
   (pattern: RegExp) =>
   (value: unknown): string | undefined =>
-    typeof value === 'string' && pattern.test(value) && !containsForbiddenCnpjDigits(value)
+    typeof value === 'string' && pattern.test(value) && !containsForbiddenCnpjIdentifierShape(value)
       ? value
       : undefined;
 
@@ -273,7 +316,7 @@ const safeInstant = (value: unknown): string | undefined => {
  * and nothing else, so it satisfies every safe-token charset above and would travel into
  * `source_snapshot_runs.metadata` inside an approved key. GATE-4A allows exactly ONE persisted
  * exact CNPJ representation — `br_receita_snapshots.normalized_tax_id` — and run metadata is not
- * it, so a CNPJ-shaped value is refused SEMANTICALLY as well: see `containsForbiddenCnpjDigits`.
+ * it, so a CNPJ-shaped value is refused SEMANTICALLY as well: see `containsForbiddenCnpjIdentifierShape`.
  * The canonical timestamp is out of that rule's scope by construction, not by exception.
  *
  * 🔴 An ABSENT `source_file_name` is a legitimate answer for the national producer, whose input is
@@ -556,6 +599,14 @@ export const BR_RECEITA_COMPACT_STORAGE_CONTRACT = {
   runLevelProvenanceRefusesCnpjShapedValues: true,
   /** Refusal is by SHAPE, never by check digit — a DV-invalid fourteen-digit run is refused too. */
   runLevelProvenanceCnpjRefusalIsCheckDigitIndependent: true,
+  /**
+   * 🔴 And the shape rule covers the § 3.1 ALPHANUMERIC CNPJ in force from July 2026, not only
+   * digit runs. Letters are inside every safe provenance charset, so before this an alphanumeric
+   * CNPJ was the one CNPJ that could reach `source_snapshot_runs.metadata` under an approved key.
+   */
+  runLevelProvenanceRefusesAlphanumericCnpjShapedValues: true,
+  /** The alphanumeric half is boundary-delimited, so a long hex digest is not a false positive. */
+  runLevelProvenanceAlphanumericRefusalIsBoundaryDelimited: true,
   indexes: [
     { name: 'PRIMARY KEY', columns: BR_RECEITA_COMPACT_CONFLICT_COLUMNS, serves: ['exact_pinned_cnpj_lookup', 'one_row_per_identity_per_run', 'run_scoped_lifecycle'] },
     { name: 'br_receita_snapshots_name_idx', columns: [BR_RECEITA_SNAPSHOT_RUN_ID_COLUMN, BR_RECEITA_NORMALIZED_LEGAL_NAME_COLUMN], serves: ['exact_normalized_legal_name_lookup'] },
