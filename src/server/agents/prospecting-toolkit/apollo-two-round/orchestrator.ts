@@ -294,6 +294,22 @@ export type RoundProviderRequestPreview = {
   /** Términos que sobrevivieron a la prioridad, la dedupe y el truncamiento. */
   effectiveKeywordTags: readonly string[];
   /**
+   * V3-A-FIX § 1 — familia semántica que el body efectivo emitió DE VERDAD.
+   *
+   * No es la clave que la hipótesis pidió: es la que el redactor RESOLVIÓ contra
+   * el catálogo (`plan.macroQueryVariantKey`), y por tanto `null` cuando la clave
+   * pedida no existe en esa macro industria — donde el redactor emite el plan
+   * completo, no una familia.
+   *
+   * Es la única identidad de familia con la que se puede afirmar «esto es otro
+   * universo»: una clave desconocida cambia el texto y NO cambia la pregunta, así
+   * que no puede desactivar el suelo de página de SCALE-SECOND-ROUND-FIX-1B.
+   *
+   * Opcional para no romper las suites puras que inyectan un preview simulado;
+   * ausente ⇒ no hay identidad de familia y rige el suelo de siempre (fail-closed).
+   */
+  macroQueryResolvedVariantKey?: string | null;
+  /**
    * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 §§ 6 y 7 — cobertura del body
    * efectivo de esta ronda sobre las subindustrias pedidas.
    *
@@ -1782,7 +1798,56 @@ export async function runApolloTwoRoundDiscovery(
         round2PlanFingerprint,
       );
       const hypothesisPage = round2.queryParameters.page;
-      const overlapFloorPage = escalationReason !== null ? 2 : 1;
+
+      /**
+       * 🔴 V3-A-FIX § 1 — el suelo de solapamiento vale DENTRO de un universo, no
+       * al estrenar uno.
+       *
+       * El suelo de 2 de SCALE-SECOND-ROUND-FIX-1B supone que las dos rondas
+       * recorren el MISMO ranking: por eso un solo término efectivo compartido
+       * basta para que la página 1 de la ronda 2 devuelva lo que la ronda 1 ya
+       * compró. Ese supuesto es el mismo que #383 corrigió para el cursor, y es
+       * igual de falso aquí en cuanto la ronda 2 cambia de FAMILIA semántica.
+       *
+       * Retail lo demuestra con el cableado real (`production-runner.server.ts`
+       * pasa `hypothesis.queryParameters.keywordTags` como
+       * `additionalCriteriaTokens`): F1 y F2 son familias declaradas y disjuntas,
+       * pero las etiquetas del catálogo sectorial viajan además de la familia y
+       * dejan `[cadena de tiendas, retailer, comercio minorista]` en común. El
+       * solapamiento es REAL —y por eso `escalationReason` se conserva—, pero el
+       * universo NO es el mismo: el `search_plan_fingerprint` de F2 es otro y de
+       * él no consta consumo. Aplicarle el suelo compraba la página 2 de un plan
+       * cuya página 1 no había comprado nadie: bajo el modelo por página de #380,
+       * una página pagada y saltada.
+       *
+       * Fail-closed hacia el suelo: hacen falta las DOS pruebas de universo nuevo.
+       *
+       *   1. la ronda 2 declara una familia DISTINTA de la que emitió la ronda 1
+       *      (identidad semántica: es otra pregunta, no otra redacción);
+       *   2. su plan de búsqueda efectivo es DISTINTO del de la ronda 1
+       *      (identidad de paginación: es demostrablemente otro universo).
+       *
+       * Cualquier dato ausente —sin familias, familia igual, plan desconocido—
+       * deja el suelo exactamente como estaba. El caso legacy de #1B (misma
+       * pregunta, sinónimos, huella distinta pero ventana igual) NO declara
+       * familias, así que conserva su suelo de 2 sin cambio alguno.
+       */
+      const round1PlanFingerprint = round1Metrics?.searchPlanFingerprint ?? null;
+      // 🔴 La identidad es la familia RESUELTA por el redactor, no la pedida por la
+      // hipótesis: una clave que el catálogo no reconoce emite el plan completo —
+      // la misma pregunta— y no puede declarar universo nuevo.
+      const round1VariantKey = round1Metrics?.macroQueryResolvedVariantKey ?? null;
+      const round2VariantKey = round2Build.preview?.macroQueryResolvedVariantKey ?? null;
+      const round2OpensNewFamilyUniverse =
+        round1VariantKey !== null &&
+        round2VariantKey !== null &&
+        round2VariantKey !== round1VariantKey &&
+        round1PlanFingerprint !== null &&
+        round2PlanFingerprint !== null &&
+        round2PlanFingerprint !== round1PlanFingerprint;
+
+      const overlapFloorPage =
+        escalationReason !== null && !round2OpensNewFamilyUniverse ? 2 : 1;
       const requestedPage = Math.max(hypothesisPage, overlapFloorPage, netNewCursorPage);
       const pageMoveNeeded = requestedPage > hypothesisPage;
       // Pedir una página que el proveedor no declaró sigue prohibido: sería pagar
@@ -1816,6 +1881,7 @@ export async function runApolloTwoRoundDiscovery(
         netNewCursorPage,
         netNewCursorPlanFingerprint: round2PlanFingerprint,
         advancedByNetNewCursor,
+        round2OpensNewFamilyUniverse,
         escalationBlockedReason: !pageMoveNeeded || requestedPageDeclared
           ? null
           : providerTotalPages === null
@@ -1886,6 +1952,16 @@ export async function runApolloTwoRoundDiscovery(
         // V2 — el PLAN de esta ronda queda en el checkpoint desde antes de
         // buscar: es la clave con la que la ronda siguiente lee el cursor.
         searchPlanFingerprint: requestPreview?.searchPlanFingerprint ?? null,
+        // V3-A § 5 — la familia que esta ronda emitió queda en el checkpoint junto
+        // al plan de búsqueda que produjo. Son el mismo hecho visto por sus dos
+        // caras: la familia explica POR QUÉ el plan es distinto al de la ronda
+        // anterior, y el plan es la clave con la que el cursor de página razona.
+        macroQueryVariantKey: hypothesis.macroQueryVariantKey,
+        // V3-A-FIX § 1 — y la que el redactor RESOLVIÓ, que es con la que la ronda
+        // siguiente decide si estrena universo. Las dos, porque no siempre
+        // coinciden: pedir una clave que no existe emite el plan completo.
+        macroQueryResolvedVariantKey: requestPreview?.macroQueryResolvedVariantKey ?? null,
+        macroQueryFamiliesAvailable: hypothesis.macroQueryFamiliesAvailable,
         specificTermsSent: hypothesis.queryParameters.keywordTags,
         effectiveKeywordsSent: requestPreview?.effectiveKeywordTags ?? [],
       },

@@ -43,6 +43,8 @@ import { APOLLO_MAX_FILTER_VALUES } from './apollo-organizations-request-contrac
 import { apolloKeywordDedupeKey, normalizeApolloTermKey } from './apollo-subindustry-query-terms';
 import {
   MACRO_INDUSTRY_CATALOG_VERSION,
+  macroIndustryQueryFamilyKeys,
+  resolveMacroIndustryQueryFamily,
   type MacroIndustryDefinition,
 } from '@/modules/macro-industry-catalog/macro-industries';
 
@@ -80,7 +82,17 @@ export const MACRO_QUERY_MAX_BROAD_SHARE = 0.25;
 export type MacroBroadTermWithheldReason =
   | 'broad_term_cap_reached'
   | 'insufficient_specific_terms'
-  | 'keyword_budget_exhausted';
+  | 'keyword_budget_exhausted'
+  /**
+   * V3-A § 2 — la variante pedida NO es la primera familia, y una familia
+   * posterior viaja sola.
+   *
+   * No es una limitación de presupuesto ni de cuota: es la regla de la variante.
+   * Una familia posterior existe para preguntar por un dominio ESTRECHO que el OR
+   * completo de la macro industria no dejaba ver; añadirle un amplio la devolvería
+   * al conjunto genérico del que existe para salir.
+   */
+  | 'variant_family_excludes_broad';
 
 export type MacroIndustryQueryPlan = {
   version: typeof APOLLO_MACRO_INDUSTRY_QUERY_VERSION;
@@ -106,6 +118,21 @@ export type MacroIndustryQueryPlan = {
   keywordBudget: number;
   /** Cuántos amplios podían entrar como máximo, ya resuelto el tope y la cuota. */
   broadTermAllowance: number;
+
+  /**
+   * V3-A § 2 — familia semántica que ESTA redacción emitió, o `null` cuando la
+   * consulta se redactó con el conjunto completo de `specific`.
+   *
+   * `null` cubre tres casos deliberadamente distinguibles por
+   * `macroQueryFamiliesAvailable`: la macro industria no declara familias (lista
+   * vacía), no se pidió variante, o se pidió una clave que no le pertenece. En
+   * los tres el plan es el de siempre, byte por byte.
+   */
+  macroQueryVariantKey: string | null;
+  /** Posición de la variante emitida. `null` sin variante. `0` es la primera. */
+  macroQueryVariantIndex: number | null;
+  /** Claves de familia que esta macro industria declara, en orden de emisión. */
+  macroQueryFamiliesAvailable: string[];
 
   coverage: MacroIndustryQueryCoverage;
   /** Digest determinista del plan. Dos macro industrias distintas no colisionan. */
@@ -176,6 +203,14 @@ export type BuildMacroIndustryQueryPlanInput = {
   additionalCriteriaTerms?: readonly string[];
   /** Versión del catálogo que gobierna. Por defecto la del catálogo macro. */
   catalogVersion?: string;
+  /**
+   * V3-A § 2 — familia semántica a emitir.
+   *
+   * Ausente, `null` o desconocida ⇒ el plan se redacta con TODOS los `specific`,
+   * exactamente como antes de este hito. La variante no se adivina: una clave que
+   * la macro industria no declara no puede estrechar la consulta en silencio.
+   */
+  variantKey?: string | null;
 };
 
 /**
@@ -195,7 +230,26 @@ export function buildMacroIndustryQueryPlan(
     Math.floor(input.keywordBudget ?? APOLLO_MAX_FILTER_VALUES),
   );
 
-  const specificTerms = sanitizeTerms(definition.discovery.specific);
+  /**
+   * V3-A § 2 — la variante decide QUÉ cubeta de específicos redacta la consulta.
+   *
+   * Sin variante resuelta, `specificTerms` es la lista completa del catálogo y
+   * todo lo que sigue es idéntico al comportamiento anterior al hito: los mismos
+   * keywords, en el mismo orden, con la misma huella.
+   */
+  const macroQueryFamiliesAvailable = macroIndustryQueryFamilyKeys(definition);
+  const resolvedFamily = resolveMacroIndustryQueryFamily(definition, input.variantKey);
+  const macroQueryVariantKey = resolvedFamily?.family.key ?? null;
+  const macroQueryVariantIndex = resolvedFamily?.index ?? null;
+  /**
+   * Sólo la PRIMERA familia lleva amplios. Es la que hereda el racionamiento
+   * calibrado del § 15; las posteriores viajan solas por diseño.
+   */
+  const variantExcludesBroad = macroQueryVariantIndex !== null && macroQueryVariantIndex > 0;
+
+  const specificTerms = sanitizeTerms(
+    resolvedFamily ? resolvedFamily.family.terms : definition.discovery.specific,
+  );
   const broadTerms = sanitizeTerms(definition.discovery.broad);
   const exclusionTerms = sanitizeTerms(definition.discovery.exclusions);
   const additionalTerms = sanitizeTerms(input.additionalCriteriaTerms ?? []);
@@ -224,14 +278,52 @@ export function buildMacroIndustryQueryPlan(
   //    que impide que un presupuesto generoso reabra el modo de fallo.
   const proportionalAllowance = Math.floor(keywordBudget * MACRO_QUERY_MAX_BROAD_SHARE);
   const hasEnoughSpecific = coveringSpecificTerms.length >= MACRO_QUERY_MIN_SPECIFIC_FOR_BROAD;
-  const broadTermAllowance = hasEnoughSpecific
-    ? Math.max(0, Math.min(MACRO_QUERY_MAX_BROAD_TERMS, proportionalAllowance))
-    : 0;
+  /**
+   * V3-A § 2 — cuota medida sobre lo que la VARIANTE emite, no sobre el
+   * presupuesto.
+   *
+   * `proportionalAllowance` raciona contra `keywordBudget` (25), que es el techo
+   * del filtro y no lo que va a viajar. Con el catálogo completo la diferencia no
+   * importaba: 2 amplios sobre 16 términos son el 12,5%. Con una familia de cinco
+   * específicos, esos mismos 2 amplios son el 28,6% — por encima de
+   * `MACRO_QUERY_MAX_BROAD_SHARE`, así que la cobertura salía `broad_terms_dominate`
+   * y la precondición de bootstrap bloqueaba el gasto de la variante entera.
+   *
+   * La cota es la que despeja la propia definición de la cuota:
+   *
+   *     b / (s + b) <= SHARE   ⇔   b <= s · SHARE / (1 - SHARE)
+   *
+   * Con SHARE = 0,25 eso es `floor(s / 3)`. Se aplica SÓLO cuando hay variante
+   * resuelta: sin ella el plan tiene que ser byte por byte el de antes del hito,
+   * y una tercera cota podría recortar amplios en definiciones sintéticas con
+   * pocos específicos.
+   */
+  const shareBoundedAllowance =
+    resolvedFamily === null
+      ? Number.POSITIVE_INFINITY
+      : Math.floor(
+          (coveringSpecificTerms.length * MACRO_QUERY_MAX_BROAD_SHARE) /
+            (1 - MACRO_QUERY_MAX_BROAD_SHARE),
+        );
+  const broadTermAllowance =
+    hasEnoughSpecific && !variantExcludesBroad
+      ? Math.max(
+          0,
+          Math.min(MACRO_QUERY_MAX_BROAD_TERMS, proportionalAllowance, shareBoundedAllowance),
+        )
+      : 0;
 
   const admittedBroadTerms: string[] = [];
   const withheldBroadTerms: Array<{ term: string; reason: MacroBroadTermWithheldReason }> = [];
 
   for (const term of broadTerms) {
+    // V3-A — la regla de la variante se evalúa ANTES que el recuento de
+    // específicos: el motivo publicado tiene que nombrar la causa REAL, y una
+    // familia posterior no lleva amplios aunque tenga específicos de sobra.
+    if (variantExcludesBroad) {
+      withheldBroadTerms.push({ term, reason: 'variant_family_excludes_broad' });
+      continue;
+    }
     if (!hasEnoughSpecific) {
       withheldBroadTerms.push({ term, reason: 'insufficient_specific_terms' });
       continue;
@@ -282,6 +374,9 @@ export function buildMacroIndustryQueryPlan(
     withheldBroadTerms,
     keywordBudget,
     broadTermAllowance,
+    macroQueryVariantKey,
+    macroQueryVariantIndex,
+    macroQueryFamiliesAvailable,
     coverage,
     fingerprint: fingerprintMacroIndustryQueryPlan({
       catalogVersion,
@@ -383,6 +478,11 @@ export function toMacroIndustryQueryMetadata(
     macro_industry_query_coverage_complete: plan.coverage.complete,
     macro_industry_query_incomplete_reason: plan.coverage.incompleteReason,
     macro_industry_query_fingerprint: plan.fingerprint,
+    // V3-A § 5 — la observabilidad tiene que distinguir «no había familias» de
+    // «se emitió F1» y de «se emitió F2». Dos campos, no uno: sin la lista de
+    // disponibles, un `null` no dice si la macro industria está migrada.
+    macro_query_variant_key: plan.macroQueryVariantKey,
+    macro_query_families_available: plan.macroQueryFamiliesAvailable,
     // Las exclusiones se declaran para auditoría, y se declara que NO viajaron.
     macro_industry_local_exclusion_terms: plan.exclusionTerms,
     macro_industry_exclusions_sent_to_provider: false,

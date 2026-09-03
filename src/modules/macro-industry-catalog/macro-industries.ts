@@ -106,6 +106,45 @@ export const MACRO_INDUSTRY_COUNT = 12;
 // ─── Contrato ─────────────────────────────────────────────────────────────────
 
 /**
+ * A1-APOLLO-QUERY-QUALITY-V3-A § 2 — una FAMILIA SEMÁNTICA de la macro industria.
+ *
+ * ── El defecto que las familias cierran ──────────────────────────────────────
+ *
+ * Las dos rondas de una corrida macro emitían el MISMO plan de búsqueda: los
+ * mismos `specific` en el mismo orden, así que el mismo `search_plan_fingerprint`
+ * y, con él, el mismo universo de paginación. La ronda 2 sólo podía avanzar de
+ * página dentro del ranking que la ronda 1 ya había recorrido — nunca preguntar
+ * otra cosa.
+ *
+ * Una macro industria, sin embargo, no es un solo dominio comercial. «Transporte
+ * & Logística» contiene operadores logísticos Y transportadores de carga;
+ * «Seguros y Servicios Financieros» contiene aseguradoras Y bancos. Preguntar por
+ * las dos cosas a la vez, en un OR plano de catorce términos, hace que el ranking
+ * de Apollo decida cuál de los dos dominios representa la macro entera.
+ *
+ * Una familia es una partición DECLARADA de `specific`: un subconjunto disjunto
+ * que se puede emitir por sí solo. Cada familia redacta una consulta distinta y,
+ * por tanto, produce un `search_plan_fingerprint` distinto — un universo de
+ * paginación independiente que arranca en la página 1.
+ *
+ * ── Lo que una familia NO es ─────────────────────────────────────────────────
+ *
+ * No es una subindustria: no se publica, no se selecciona en el wizard, no entra
+ * en la evidencia y no toca `apollo-subindustry-precision`. Es una forma de
+ * partir la PREGUNTA, no la taxonomía.
+ *
+ * Y no inventa vocabulario: sus términos salen literalmente de `specific`. Una
+ * familia con un término que el catálogo no declara sería una hipótesis que nadie
+ * calibró.
+ */
+export type MacroIndustryQueryFamily = {
+  /** Clave estable y ASCII. Es lo que viaja como `macroQueryVariantKey`. */
+  key: string;
+  /** Subconjunto de `specific`. Disjunto respecto de las demás familias. */
+  terms: readonly string[];
+};
+
+/**
  * Términos de DESCUBRIMIENTO de una macro industria.
  *
  * El redactor de consulta consume estas tres cubetas por separado; nunca las
@@ -128,6 +167,18 @@ export type MacroIndustryDiscoveryTerms = {
    * antes de cualquier gasto.
    */
   exclusions: readonly string[];
+  /**
+   * V3-A § 2 — partición semántica de `specific`, en orden de emisión.
+   *
+   * `families[0]` es la que la ronda 1 emite y la ÚNICA que puede llevar términos
+   * amplios: es la que hereda el comportamiento calibrado del § 15. Las demás
+   * viajan solas, sin amplios, porque un amplio en una consulta ya estrecha la
+   * devuelve al conjunto genérico del que la familia existe para salir.
+   *
+   * Ausente ⇒ la macro industria no está migrada y las dos rondas se comportan
+   * exactamente como antes de este hito.
+   */
+  families?: readonly MacroIndustryQueryFamily[];
 };
 
 /**
@@ -284,6 +335,39 @@ export const MACRO_INDUSTRIES: readonly MacroIndustryDefinition[] = [
         'trucking company',
       ],
       broad: ['logistics', 'logistica', 'transportation', 'transporte', 'supply chain'],
+      /**
+       * V3-A — `third party logistics` vive en `freight_and_trade` y no en
+       * `logistics_operations`, que es donde su semántica lo pondría: la familia
+       * que lleva amplios no puede contener un término que el amplio `logistics`
+       * ya absorbe por substring, porque ahí el término específico es INERTE —
+       * exactamente el modo de fallo del § 15.
+       */
+      families: [
+        {
+          key: 'logistics_operations',
+          terms: [
+            'operador logistico',
+            'warehousing',
+            'fulfillment',
+            'cadena de frio',
+            'operador portuario',
+          ],
+        },
+        {
+          key: 'freight_and_trade',
+          terms: [
+            'third party logistics',
+            'freight forwarder',
+            'transporte de carga',
+            'transporte terrestre de carga',
+            'trucking company',
+            'agencia de aduana',
+            'customs broker',
+            'courier',
+            'mensajeria empresarial',
+          ],
+        },
+      ],
       exclusions: [
         ...FINANCIAL_INDUSTRY_TERMS,
         ...SOFTWARE_INDUSTRY_TERMS,
@@ -347,6 +431,37 @@ export const MACRO_INDUSTRIES: readonly MacroIndustryDefinition[] = [
         'plataforma digital',
       ],
       broad: ['software', 'technology', 'tecnologia', 'information technology'],
+      /**
+       * V3-A — los cuatro términos con `software` dentro (`software empresarial`,
+       * `enterprise software`, `software factory`, `desarrollo de software`) van a
+       * la familia que NO lleva amplios: el amplio `software` los absorbe.
+       */
+      families: [
+        {
+          key: 'platform_infrastructure',
+          terms: [
+            'saas platform',
+            'cloud infrastructure',
+            'devops',
+            'ciberseguridad',
+            'cybersecurity',
+            'plataforma digital',
+          ],
+        },
+        {
+          key: 'engineering_data_ai',
+          terms: [
+            'software empresarial',
+            'enterprise software',
+            'software factory',
+            'desarrollo de software',
+            'data analytics',
+            'business intelligence',
+            'inteligencia artificial',
+            'machine learning',
+          ],
+        },
+      ],
       exclusions: [
         'retail banking',
         'commercial banking',
@@ -421,6 +536,43 @@ export const MACRO_INDUSTRIES: readonly MacroIndustryDefinition[] = [
         'credito empresarial',
       ],
       broad: ['insurance', 'seguros', 'financial services', 'servicios financieros', 'banking'],
+      /**
+       * 🔴 V3-A — el ORDEN de estas dos familias está invertido respecto del eje
+       * semántico natural (seguros primero), y la inversión es forzada, no
+       * estética: los SEIS términos de seguros del catálogo contienen `insurance`
+       * o `seguros`, que son los dos amplios que viajan. Una familia de seguros en
+       * `families[0]` emitiría seis términos específicos inertes bajo su propio
+       * amplio — la consulta genérica que el § 15 prohíbe.
+       *
+       * Con banca en `families[0]` las dos son emitibles: la de banca lleva
+       * amplios que no la absorben, y la de seguros viaja sola y estrecha.
+       */
+      families: [
+        {
+          key: 'banking_and_finance',
+          terms: [
+            'banca comercial',
+            'commercial banking',
+            'cooperativa financiera',
+            'factoring',
+            'leasing financiero',
+            'fondo de inversion',
+            'asset management',
+            'credito empresarial',
+          ],
+        },
+        {
+          key: 'insurance_carriers_brokers',
+          terms: [
+            'compania de seguros',
+            'insurance carrier',
+            'seguros generales',
+            'seguros de vida',
+            'corredor de seguros',
+            'insurance broker',
+          ],
+        },
+      ],
       exclusions: [
         ...SOFTWARE_INDUSTRY_TERMS,
         'hospital',
@@ -492,6 +644,37 @@ export const MACRO_INDUSTRIES: readonly MacroIndustryDefinition[] = [
         'entidad promotora de salud',
       ],
       broad: ['health', 'healthcare', 'salud', 'medical', 'medicina'],
+      /**
+       * V3-A — `health insurer` acompaña al aseguramiento en la segunda familia:
+       * el amplio `health` lo absorbe y la primera familia sí lleva amplios.
+       */
+      families: [
+        {
+          key: 'providers_and_diagnostics',
+          terms: [
+            'clinica',
+            'hospital',
+            'red hospitalaria',
+            'ips salud',
+            'laboratorio clinico',
+            'diagnostico clinico',
+          ],
+        },
+        {
+          key: 'pharma_devices_coverage',
+          terms: [
+            'laboratorio farmaceutico',
+            'pharmaceutical manufacturer',
+            'distribuidor farmaceutico',
+            'pharmaceutical distribution',
+            'dispositivos medicos',
+            'medical devices',
+            'medicina prepagada',
+            'health insurer',
+            'entidad promotora de salud',
+          ],
+        },
+      ],
       exclusions: [
         ...FINANCIAL_INDUSTRY_TERMS,
         ...SOFTWARE_INDUSTRY_TERMS,
@@ -565,6 +748,32 @@ export const MACRO_INDUSTRIES: readonly MacroIndustryDefinition[] = [
         'ecommerce retail',
       ],
       broad: ['retail store', 'retail trade', 'consumer services', 'omnicanal'],
+      families: [
+        {
+          key: 'food_retail_and_chains',
+          terms: [
+            'supermercado',
+            'hipermercado',
+            'grocery store',
+            'grocery chain',
+            'retail chain',
+            'cadena de tiendas',
+            'almacen de cadena',
+            'tienda de conveniencia',
+          ],
+        },
+        {
+          key: 'non_food_and_ecommerce',
+          terms: [
+            'retailer',
+            'comercio minorista',
+            'tienda por departamento',
+            'department store',
+            'farmacia cadena',
+            'ecommerce retail',
+          ],
+        },
+      ],
       exclusions: [
         ...FINANCIAL_INDUSTRY_TERMS,
         ...SOFTWARE_INDUSTRY_TERMS,
@@ -624,6 +833,30 @@ export const MACRO_INDUSTRIES: readonly MacroIndustryDefinition[] = [
         'edificacion',
       ],
       broad: ['construction', 'construccion', 'real estate', 'inmobiliaria'],
+      families: [
+        {
+          key: 'construction_and_infrastructure',
+          terms: [
+            'constructora',
+            'general contractor',
+            'obra civil',
+            'civil engineering',
+            'infraestructura vial',
+            'concesion vial',
+            'edificacion',
+          ],
+        },
+        {
+          key: 'real_estate_and_property',
+          terms: [
+            'promotora inmobiliaria',
+            'real estate developer',
+            'desarrollo inmobiliario',
+            'property management',
+            'administracion de propiedad horizontal',
+          ],
+        },
+      ],
       exclusions: [
         ...FINANCIAL_INDUSTRY_TERMS,
         ...SOFTWARE_INDUSTRY_TERMS,
@@ -687,6 +920,46 @@ export const MACRO_INDUSTRIES: readonly MacroIndustryDefinition[] = [
         'zona franca manufactura',
       ],
       broad: ['manufacturing', 'manufactura', 'industrial', 'chemicals', 'automotive'],
+      /**
+       * V3-A — la ÚNICA macro industria con TRES familias, y por el motivo que
+       * § 17 ya describía: su nombre reúne cuatro dominios sin proceso común. Dos
+       * familias dejarían una de ellas con nueve términos de tres dominios
+       * distintos, que es el OR plano que este hito parte.
+       *
+       * `manufacturing plant` y `zona franca manufactura` caen en la tercera
+       * familia porque el amplio `manufacturing`/`manufactura` los absorbe.
+       */
+      families: [
+        {
+          key: 'automotive_and_metalworking',
+          terms: [
+            'metalmecanica',
+            'autopartes',
+            'auto parts',
+            'ensambladora automotriz',
+            'automotive manufacturer',
+          ],
+        },
+        {
+          key: 'chemicals_plastics_packaging',
+          terms: [
+            'industria quimica',
+            'chemical manufacturer',
+            'plasticos industriales',
+            'packaging industrial',
+          ],
+        },
+        {
+          key: 'machinery_and_production_plants',
+          terms: [
+            'bienes de capital',
+            'maquinaria industrial',
+            'planta de produccion',
+            'manufacturing plant',
+            'zona franca manufactura',
+          ],
+        },
+      ],
       exclusions: [
         ...FINANCIAL_INDUSTRY_TERMS,
         ...SOFTWARE_INDUSTRY_TERMS,
@@ -746,6 +1019,27 @@ export const MACRO_INDUSTRIES: readonly MacroIndustryDefinition[] = [
         'instituto publico',
       ],
       broad: ['government', 'gobierno', 'public sector', 'sector publico'],
+      /**
+       * V3-A — `government agency` viaja con el nivel nacional porque el amplio
+       * `government` lo absorbe y la primera familia sí lleva amplios.
+       */
+      families: [
+        {
+          key: 'territorial_entities',
+          terms: ['alcaldia', 'gobernacion', 'municipality', 'public administration'],
+        },
+        {
+          key: 'national_and_decentralized',
+          terms: [
+            'entidad publica',
+            'government agency',
+            'ministerio',
+            'superintendencia',
+            'instituto publico',
+            'empresa industrial y comercial del estado',
+          ],
+        },
+      ],
       exclusions: [
         ...FINANCIAL_INDUSTRY_TERMS,
         ...SOFTWARE_INDUSTRY_TERMS,
@@ -805,6 +1099,37 @@ export const MACRO_INDUSTRIES: readonly MacroIndustryDefinition[] = [
         'waste management',
       ],
       broad: ['energy', 'energia', 'mining', 'mineria', 'utilities', 'environmental'],
+      /**
+       * V3-A — los tres términos con `energia`/`energy` dentro caen en la segunda
+       * familia, donde ningún amplio viaja para absorberlos.
+       */
+      families: [
+        {
+          key: 'hydrocarbons_and_mining',
+          terms: [
+            'exploracion y produccion de petroleo',
+            'oil and gas operator',
+            'refineria',
+            'gas natural',
+            'operacion minera',
+            'mining operation',
+          ],
+        },
+        {
+          key: 'power_and_environment',
+          terms: [
+            'generacion electrica',
+            'power generation',
+            'transmision electrica',
+            'comercializadora de energia',
+            'energia renovable',
+            'renewable energy',
+            'tratamiento de aguas residuales',
+            'gestion de residuos',
+            'waste management',
+          ],
+        },
+      ],
       exclusions: [
         ...FINANCIAL_INDUSTRY_TERMS,
         ...SOFTWARE_INDUSTRY_TERMS,
@@ -870,6 +1195,30 @@ export const MACRO_INDUSTRIES: readonly MacroIndustryDefinition[] = [
         'planta de alimentos',
       ],
       broad: ['consumer goods', 'fmcg', 'food', 'beverages', 'bienes de consumo'],
+      families: [
+        {
+          key: 'food_and_beverage',
+          terms: [
+            'fabricante de alimentos',
+            'food manufacturer',
+            'productor de bebidas',
+            'beverage producer',
+            'planta de alimentos',
+          ],
+        },
+        {
+          key: 'personal_home_and_brands',
+          terms: [
+            'cuidado personal',
+            'personal care manufacturer',
+            'higiene del hogar',
+            'household products',
+            'consumo masivo',
+            'fast moving consumer goods',
+            'marca de consumo',
+          ],
+        },
+      ],
       exclusions: [
         ...FINANCIAL_INDUSTRY_TERMS,
         ...SOFTWARE_INDUSTRY_TERMS,
@@ -939,6 +1288,32 @@ export const MACRO_INDUSTRIES: readonly MacroIndustryDefinition[] = [
         'investigacion de mercados',
       ],
       broad: ['professional services', 'servicios profesionales', 'outsourcing', 'advisory'],
+      families: [
+        {
+          key: 'advisory_and_professional',
+          terms: [
+            'consultoria de gestion',
+            'management consulting',
+            'firma de auditoria',
+            'audit firm',
+            'servicios legales corporativos',
+            'investigacion de mercados',
+          ],
+        },
+        {
+          key: 'outsourcing_and_facilities',
+          terms: [
+            'bpo',
+            'business process outsourcing',
+            'contact center',
+            'staffing',
+            'servicios temporales',
+            'facility management',
+            'aseo industrial',
+            'seguridad privada',
+          ],
+        },
+      ],
       exclusions: [
         ...FINANCIAL_INDUSTRY_TERMS,
         ...SOFTWARE_INDUSTRY_TERMS,
@@ -1011,6 +1386,32 @@ export const MACRO_INDUSTRIES: readonly MacroIndustryDefinition[] = [
         'exportador agricola',
       ],
       broad: ['agriculture', 'agricultura', 'farming', 'agro', 'agrícola'],
+      families: [
+        {
+          key: 'crops_and_livestock',
+          terms: [
+            'produccion agricola',
+            'crop production',
+            'ganaderia',
+            'livestock',
+            'plantacion de banano',
+            'floricultura',
+            'flower grower',
+            'acuicultura',
+            'aquaculture',
+          ],
+        },
+        {
+          key: 'processing_and_export',
+          terms: [
+            'agroindustria',
+            'agribusiness',
+            'ingenio azucarero',
+            'procesamiento primario agricola',
+            'exportador agricola',
+          ],
+        },
+      ],
       exclusions: [
         ...FINANCIAL_INDUSTRY_TERMS,
         ...SOFTWARE_INDUSTRY_TERMS,
@@ -1120,4 +1521,38 @@ export function resolveMacroIndustryByDisplayName(
 /** ¿Es esta cadena una clave canónica de la taxonomía macro? */
 export function isMacroIndustryKey(value: string | null | undefined): value is MacroIndustryKey {
   return value != null && BY_KEY.has(value as MacroIndustryKey);
+}
+
+// ─── Familias semánticas (V3-A § 2) ───────────────────────────────────────────
+
+/**
+ * Claves de familia de una macro industria, en orden de emisión.
+ *
+ * Vacío cuando la macro industria no declara familias. Un consumidor que reciba
+ * `[]` debe comportarse EXACTAMENTE como antes de este hito: no hay variante que
+ * elegir y las dos rondas siguen el camino de siempre.
+ */
+export function macroIndustryQueryFamilyKeys(
+  definition: MacroIndustryDefinition | null | undefined,
+): string[] {
+  return (definition?.discovery.families ?? []).map((family) => family.key);
+}
+
+/**
+ * Familia por clave, con su posición.
+ *
+ * La posición importa: sólo `families[0]` puede llevar términos amplios, así que
+ * quien redacta necesita saber si la variante pedida es la primera o una
+ * posterior. `null` cuando la clave no pertenece a esta macro industria — y ahí
+ * el llamador NO adivina: cae al comportamiento sin variante.
+ */
+export function resolveMacroIndustryQueryFamily(
+  definition: MacroIndustryDefinition | null | undefined,
+  familyKey: string | null | undefined,
+): { family: MacroIndustryQueryFamily; index: number } | null {
+  const families = definition?.discovery.families ?? [];
+  if (!familyKey?.trim()) return null;
+  const index = families.findIndex((family) => family.key === familyKey.trim());
+  if (index < 0) return null;
+  return { family: families[index], index };
 }

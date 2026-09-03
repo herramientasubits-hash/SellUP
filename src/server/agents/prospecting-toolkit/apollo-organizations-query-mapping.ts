@@ -845,6 +845,10 @@ export function buildApolloOrganizationsSearchParams(
     industry: input.industry,
     selectionCatalogVersion: input.selectionCatalogVersion,
     additionalCriteriaTokens,
+    // V3-A § 2 — la familia semántica de ESTA ronda. Ausente ⇒ el plan completo
+    // de siempre; presente ⇒ sólo los específicos de esa familia, y por tanto
+    // otro `search_plan_fingerprint`. Nada más del body cambia por esta clave.
+    macroQueryVariantKey: input.macroQueryVariantKey ?? null,
   });
   const macroPlan =
     macroIndustryRequest.mode === 'macro_industry' ? macroIndustryRequest.plan : null;

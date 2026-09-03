@@ -287,6 +287,15 @@ export type WebSearchInput = {
    * Null/undefined → no se envía filtro de tamaño.
    */
   targetEmployeeThreshold?: number | null;
+  /**
+   * A1-APOLLO-QUERY-QUALITY-V3-A § 2 — familia semántica de la macro industria
+   * que ESTA búsqueda emite.
+   *
+   * Sólo la consume la taxonomía macro (`resolveApolloMacroIndustryRequest`).
+   * Ausente o desconocida ⇒ la consulta se redacta con el conjunto completo de
+   * términos específicos, como antes del hito. Tavily no la usa.
+   */
+  macroQueryVariantKey?: string | null;
 };
 
 export type WebSearchResult = {

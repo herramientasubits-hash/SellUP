@@ -4504,3 +4504,42 @@ jobs:
       # 0 Producción, 0 migraciones, 0 escrituras, 0 créditos, 0 llamadas a Apollo, 0 flags.
       - name: Run Agent1 Apollo billing mode v2 invariants
         run: npm run test:a1-apollo-billing-mode-v2
+
+      # ── A1-APOLLO-QUERY-QUALITY-V3-A (+ V3-A-FIX) ──────────────────────────────
+      #
+      # La suite de familias semánticas existía desde V3-A y NINGÚN step la corría:
+      # 39 tests verdes en local que CI no ejercitaba. Este step los ejecuta, junto
+      # con las dos suites de #383 cuyo camino de código comparte —el cursor por plan
+      # y la decisión de página de la ronda 2—, porque el arreglo toca el suelo de
+      # solapamiento que las tres miden desde ángulos distintos.
+      #
+      # Qué fija:
+      #
+      #   A–D  Las 12 macro industrias declaran familias disjuntas que particionan
+      #        `discovery.specific`; cada familia redacta un plan de búsqueda propio,
+      #        y sólo la primera lleva términos amplios.
+      #   E    R1 emite F1 y R2 emite F2 en la PÁGINA 1 de su propio universo: el
+      #        cursor de #383 no cruza entre planes.
+      #   F    #380 (crédito por página no vacía, misma `pricing_version`) y #382
+      #        (veredicto de ownership) no se movieron bajo ninguna variante.
+      #   G    V3-A-FIX. El defecto económico que el diff review encontró: con el
+      #        cableado REAL —`production-runner.server.ts` manda
+      #        `additionalCriteriaTokens: hypothesis.queryParameters.keywordTags`—
+      #        Retail deja `[cadena de tiendas, retailer, comercio minorista]` en
+      #        común entre F1 y F2, el suelo de SCALE-SECOND-ROUND-FIX-1B se
+      #        activaba y la ronda 2 compraba la PÁGINA 2 de un universo cuya página
+      #        1 no había comprado nadie. Bajo el modelo por página de #380, una
+      #        página pagada y saltada.
+      #
+      #        El suelo NO se elimina: se limita al caso para el que se escribió —dos
+      #        rondas dentro del MISMO universo—. La identidad de "universo nuevo" es
+      #        la familia RESUELTA por el redactor (no la pedida) más un
+      #        `search_plan_fingerprint` distinto; cualquier dato ausente deja el
+      #        suelo intacto (fail-closed). G2 mide que el caso legacy de #1B
+      #        conserva su página 2, G5 que una clave inventada no puede desactivar
+      #        el suelo, y G0 es el trinquete de FIDELIDAD del arnés: si alguien
+      #        vuelve a poner `additionalCriteriaTokens: []`, el step cae.
+      #
+      # 0 llamadas a Apollo, 0 créditos, 0 escrituras, 0 migraciones, 0 flags.
+      - name: Run Agent1 Apollo macro query family variants (V3-A) and net-new pagination
+        run: npm run test:a1-apollo-macro-query-family-variants-v3

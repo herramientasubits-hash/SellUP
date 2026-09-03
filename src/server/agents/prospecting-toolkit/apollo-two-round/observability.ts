@@ -102,6 +102,22 @@ export type ApolloRound2PageDecision = {
    */
   advancedByNetNewCursor: boolean;
   /**
+   * V3-A-FIX § 1 — la ronda 2 estrena el universo de una familia semántica NUEVA,
+   * así que el suelo de página 2 del solapamiento NO se aplica.
+   *
+   * El suelo de SCALE-SECOND-ROUND-FIX-1B existe para cuando las dos rondas
+   * recorren el MISMO universo de paginación: ahí un término efectivo compartido
+   * basta para que la página 1 vuelva a caer sobre el ranking que la ronda 1 ya
+   * compró. Con una familia declarada distinta el universo es otro —lo prueba el
+   * `search_plan_fingerprint`—, y su página 1 no la ha comprado nadie: aplicarle
+   * el suelo saltaría la primera página de un plan nuevo y la dejaría pagada sin
+   * recorrer, bajo el modelo por página de #380.
+   *
+   * `escalationReason` NO se anula: el solapamiento existió y queda dicho. Lo que
+   * este campo declara es por qué, existiendo, no movió la página.
+   */
+  round2OpensNewFamilyUniverse: boolean;
+  /**
    * Por qué el salto hacía falta y NO se pudo dar. Pedir una página que el
    * proveedor no declara es pagar por una respuesta vacía, así que la corrida
    * sigue en la página 1 y lo deja dicho en vez de esconderlo.
@@ -134,6 +150,8 @@ export function toRound2PageDecisionMetadata(
     net_new_cursor_page: decision.netNewCursorPage,
     net_new_cursor_plan_fingerprint: decision.netNewCursorPlanFingerprint,
     advanced_by_net_new_cursor: decision.advancedByNetNewCursor,
+    // V3-A-FIX § 1 — por qué un solapamiento declarado no movió la página.
+    round2_opens_new_family_universe: decision.round2OpensNewFamilyUniverse,
     escalation_blocked_reason: decision.escalationBlockedReason,
   };
 }
@@ -229,6 +247,24 @@ export type ApolloTwoRoundRoundMetrics = {
   page: number | null;
   /** § 10 — `per_page` que el request efectivo llevó. Null si no se construyó. */
   perPage: number | null;
+  /**
+   * A1-APOLLO-QUERY-QUALITY-V3-A § 5 — familia semántica que ESTA ronda emitió.
+   *
+   * `null` con `macroQueryFamiliesAvailable` vacío ⇒ no había familias que elegir
+   * (corrida legacy o macro industria sin migrar). `null` con familias
+   * disponibles ⇒ la ronda no pidió variante. Los dos casos son distintos y el
+   * QA tiene que poder separarlos sin volver a gastar.
+   */
+  macroQueryVariantKey: string | null;
+  /**
+   * V3-A-FIX § 1 — familia que el body efectivo de esta ronda emitió realmente.
+   *
+   * Difiere de `macroQueryVariantKey` cuando la clave pedida no existe en la
+   * macro industria: ahí el redactor emite el plan COMPLETO y esto queda `null`.
+   */
+  macroQueryResolvedVariantKey: string | null;
+  /** V3-A § 5 — familias declaradas por la macro industria, en orden de emisión. */
+  macroQueryFamiliesAvailable: string[];
   /** § 12 — términos de la HIPÓTESIS. Ni el texto humano ni una paráfrasis. */
   specificTermsSent: string[];
   /** § 10 — términos que EFECTIVAMENTE viajaron, tras prioridad y truncamiento. */
@@ -295,6 +331,11 @@ export function buildEmptyRoundMetrics(
     perPage?: number | null;
     /** V2 — huella del plan (body efectivo SIN `page`). */
     searchPlanFingerprint?: string | null;
+    /** V3-A § 5 — familia semántica emitida por esta ronda. */
+    macroQueryVariantKey?: string | null;
+    macroQueryResolvedVariantKey?: string | null;
+    /** V3-A § 5 — familias que la macro industria declara. */
+    macroQueryFamiliesAvailable?: readonly string[];
     specificTermsSent?: readonly string[];
     effectiveKeywordsSent?: readonly string[];
     subindustryCoverage?: ApolloRoundSubindustryCoverage | null;
@@ -332,6 +373,9 @@ export function buildEmptyRoundMetrics(
     effectiveRequestBuildErrorCode: provider.effectiveRequestBuildErrorCode ?? null,
     page: provider.page ?? null,
     perPage: provider.perPage ?? null,
+    macroQueryVariantKey: provider.macroQueryVariantKey ?? null,
+    macroQueryResolvedVariantKey: provider.macroQueryResolvedVariantKey ?? null,
+    macroQueryFamiliesAvailable: [...(provider.macroQueryFamiliesAvailable ?? [])],
     specificTermsSent: [...(provider.specificTermsSent ?? [])],
     effectiveKeywordsSent: [...(provider.effectiveKeywordsSent ?? [])],
     providerTotalPages: null,
@@ -663,6 +707,11 @@ export function toRoundMetricsMetadata(
     per_page: metrics.perPage,
     specific_terms_sent: metrics.specificTermsSent,
     effective_keywords_sent: metrics.effectiveKeywordsSent,
+    // V3-A § 5 — los DOS campos, para distinguir «no había familias» de «F1» y de
+    // «F2». Un checkpoint anterior al hito no los trae: se leen con respaldo.
+    macro_query_variant_key: metrics.macroQueryVariantKey ?? null,
+    macro_query_resolved_variant_key: metrics.macroQueryResolvedVariantKey ?? null,
+    macro_query_families_available: metrics.macroQueryFamiliesAvailable ?? [],
     provider_total_pages: metrics.providerTotalPages,
     // V2 — el plan de búsqueda de la ronda y hasta dónde lo dejó consumido.
     search_plan_fingerprint: metrics.searchPlanFingerprint,

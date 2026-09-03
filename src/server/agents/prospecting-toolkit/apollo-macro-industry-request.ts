@@ -87,6 +87,15 @@ export type ResolveApolloMacroIndustryRequestInput = {
   additionalCriteriaTokens?: readonly string[] | null;
   /** Presupuesto de keywords. Inyectable para pruebas. */
   keywordBudget?: number;
+  /**
+   * V3-A § 2 — familia semántica que esta ronda emite.
+   *
+   * Fluye tal cual hasta el redactor, que es quien decide si la clave pertenece a
+   * la macro industria resuelta. Aquí no se valida ni se corrige: una clave
+   * desconocida produce el plan completo de siempre, nunca uno estrechado por
+   * accidente.
+   */
+  macroQueryVariantKey?: string | null;
 };
 
 /**
@@ -120,6 +129,7 @@ export function resolveApolloMacroIndustryRequest(
     definition,
     additionalCriteriaTerms: input.additionalCriteriaTokens ?? [],
     catalogVersion: capability.catalogVersion ?? undefined,
+    variantKey: input.macroQueryVariantKey ?? null,
     ...(input.keywordBudget !== undefined ? { keywordBudget: input.keywordBudget } : {}),
   });
 
