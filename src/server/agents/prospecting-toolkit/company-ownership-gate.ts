@@ -12,8 +12,19 @@
  *   - Excepciones: dominios .com.co, .com, .net, .org con señales de marca
  *     en el path también pueden ser válidos si la marca aparece en el dominio.
  *
+ * AGENT1-OWNERSHIP-GATE-GOVERNMENT-P0 — las cuatro reglas anteriores comparan
+ * CADENAS CONCATENADAS (`normalizeForDomain` borra espacios y guiones), así que
+ * el nombre oficial de una entidad pública nunca podía alcanzar su dominio
+ * oficial: el nombre lleva el sustantivo institucional que el dominio abrevia u
+ * omite, y el dominio lleva el calificativo que el nombre no dice. Se añade una
+ * quinta regla que razona por TOKENS —`institutional-domain-ownership.ts`— y que
+ * sólo puede AÑADIR pases: exige correspondencia demostrable, nunca acepta por
+ * TLD, y no mira el sector. Sector ≠ ownership.
+ *
  * Sin IA. Sin llamadas externas. Determinístico.
  */
+
+import { evaluateInstitutionalNameDomainCorrespondence } from './institutional-domain-ownership';
 
 export type CompanyOwnershipConfidence = 'high' | 'medium' | 'low' | 'reject' | 'domain_inferred';
 
@@ -225,7 +236,33 @@ export function evaluateCompanyOwnership(
     };
   }
 
-  // ── 5. Check if domain is a generic word that doesn't represent a company ──
+  // ── 5. Correspondencia institucional por TOKENS (P0 entidades públicas) ────
+  //
+  // Última regla POSITIVA antes del rechazo. Se evalúa después de las cuatro de
+  // subcadena porque sólo tiene que atender lo que ellas no pueden ver, y antes
+  // del descarte por palabra genérica porque una correspondencia institucional
+  // demostrada es evidencia más fuerte que esa heurística.
+  //
+  // No mira el TLD: `.gov.co` no es un pase. Lo que evalúa es identidad —
+  // topónimo, abreviatura o sigla— entre el nombre y el dominio.
+  const institutional = evaluateInstitutionalNameDomainCorrespondence(
+    companyName,
+    domainIdentityKey,
+  );
+  if (institutional.matched && institutional.signal !== null) {
+    matchedSignals.push(institutional.signal);
+    return {
+      allowed: true,
+      confidence: 'medium',
+      reason: `Institutional name/domain correspondence: ${institutional.detail}`,
+      candidateIdentityKey,
+      domainIdentityKey,
+      matchedSignals,
+      missingSignals,
+    };
+  }
+
+  // ── 6. Check if domain is a generic word that doesn't represent a company ──
   if (domainNamePart.length >= 3 && GENERIC_DOMAIN_WORDS.has(domainNamePart)) {
     matchedSignals.push('generic_domain_word');
     return {
@@ -239,7 +276,7 @@ export function evaluateCompanyOwnership(
     };
   }
 
-  // ── 6. No match found ──────────────────────────────────────────────────────
+  // ── 7. No match found ──────────────────────────────────────────────────────
   missingSignals.push('domain_name_match');
   return {
     allowed: false,
