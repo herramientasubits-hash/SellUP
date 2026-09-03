@@ -179,6 +179,11 @@ import {
   toRunMetricsMetadata,
 } from './observability';
 import {
+  summarizeApolloSearchPlanPageConsumption,
+  type ApolloPageConsumptionOutcome,
+  type ApolloSearchPlanPageConsumption,
+} from './net-new-page-cursor';
+import {
   estimateApolloTwoRoundBudget,
   buildApolloTwoRoundSpendAccounting,
   toApolloTwoRoundBudgetMetadata,
@@ -1701,6 +1706,12 @@ export async function runApolloTwoRoundWizardDiscovery(
       const coverage = effective.subindustryCoverage;
       return {
         effectiveRequestFingerprint: effective.effectiveRequestFingerprint,
+        // A1-APOLLO-NET-NEW-PAGINATION-V2 — la huella del body efectivo SIN
+        // `page`, tal como el contrato ya la calcula. Es la MISMA que la
+        // búsqueda paginada publica como `request_fingerprint`, porque las dos
+        // salen de `buildApolloOrganizationsRequestContract` sobre los mismos
+        // filtros y el mismo `per_page`. Identifica el PLAN, no la página.
+        searchPlanFingerprint: effective.filtersFingerprint,
         page: effective.page,
         perPage: effective.perPage,
         effectiveKeywordTags: effective.effectiveKeywordTags,
@@ -1896,6 +1907,9 @@ export async function runApolloTwoRoundWizardDiscovery(
         indeterminate: readSearchIndeterminacy(output),
         // § 3 — lo que el proveedor DECLARÓ, no lo que nos convenga suponer.
         providerTotalPages: readProviderTotalPages(output),
+        // V2 — qué páginas de qué plan quedaron consumidas. Es lo que permite
+        // que la ronda siguiente del MISMO plan arranque donde ésta terminó.
+        consumedPages: readApolloSearchPlanPageConsumption(output),
       };
     },
 
@@ -3563,6 +3577,63 @@ export function readProviderTotalPages(output: WebSearchOutput): number | null {
   const pagination = metadata['apollo_pagination'] as { total_pages?: unknown } | undefined;
   const totalPages = pagination?.total_pages;
   return typeof totalPages === 'number' && Number.isFinite(totalPages) ? totalPages : null;
+}
+
+/**
+ * A1-APOLLO-NET-NEW-PAGINATION-V2 — lee, del metadata que la búsqueda paginada
+ * ya publica, qué páginas dejó consumidas y de qué PLAN de búsqueda.
+ *
+ * No añade ninguna medición nueva: `apollo_pagination.page_outcomes` es el
+ * registro por página que el motor ya emitía, y `apollo_pagination.request_fingerprint`
+ * es la huella del body efectivo SIN `page` (el ancla idempotente de la
+ * paginación). Este lector sólo los cruza.
+ *
+ * `null` cuando no hay desenlaces por página —una búsqueda saltada, un doble de
+ * test que no los emite—: sin evidencia no hay cursor, y el llamador conserva el
+ * comportamiento previo al corte en vez de suponer una página. La huella sí es
+ * opcional: cuando falta, el llamador atribuye las páginas al plan que ESA ronda
+ * construyó, que es el único plan que pudo haberlas pedido.
+ */
+export function readApolloSearchPlanPageConsumption(
+  output: WebSearchOutput,
+): ApolloSearchPlanPageConsumption | null {
+  const metadata = (output.metadata ?? {}) as Record<string, unknown>;
+  const pagination = metadata['apollo_pagination'] as
+    | { request_fingerprint?: unknown; page_outcomes?: unknown }
+    | undefined;
+  const rawOutcomes = pagination?.page_outcomes;
+  if (!Array.isArray(rawOutcomes)) return null;
+  const rawFingerprint = pagination?.request_fingerprint;
+  const fingerprint =
+    typeof rawFingerprint === 'string' && rawFingerprint.length > 0 ? rawFingerprint : null;
+
+  const outcomes: ApolloPageConsumptionOutcome[] = [];
+  for (const raw of rawOutcomes) {
+    if (raw === null || typeof raw !== 'object') continue;
+    const entry = raw as Record<string, unknown>;
+    const page = entry['page'];
+    const status = entry['status'];
+    const billingState = entry['billing_state'] ?? entry['billingState'];
+    if (typeof page !== 'number' || !Number.isFinite(page)) continue;
+    if (
+      status !== 'success' &&
+      status !== 'error' &&
+      status !== 'rate_limited' &&
+      status !== 'indeterminate'
+    ) {
+      continue;
+    }
+    outcomes.push({
+      page,
+      status,
+      // Un desenlace sin estado de cobro legible NO se lee como «no cobrada»:
+      // `unknown` es la lectura conservadora, y deja la página consumida.
+      billingState:
+        billingState === 'not_charged' || billingState === 'charged' ? billingState : 'unknown',
+    });
+  }
+
+  return summarizeApolloSearchPlanPageConsumption(fingerprint, outcomes);
 }
 
 /**
