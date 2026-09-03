@@ -84,13 +84,36 @@ export type ApolloRound2PageDecision = {
   /** `total_pages` que el proveedor declaró en la ronda 1. */
   providerTotalPages: number | null;
   /**
+   * A1-APOLLO-NET-NEW-PAGINATION-V2 — primera página que el PLAN de búsqueda de
+   * la ronda 2 todavía no había consumido, `última consumida + 1`.
+   *
+   * `1` cuando de ese plan no consta consumo alguno: un fingerprint distinto es
+   * un universo de paginación independiente y no hereda el cursor de otro plan.
+   */
+  netNewCursorPage: number;
+  /** Huella del plan de búsqueda (body efectivo SIN `page`) de la ronda 2. */
+  netNewCursorPlanFingerprint: string | null;
+  /**
+   * V2 — `true` cuando la página pedida la eligió el CURSOR, por encima de lo que
+   * la hipótesis y el suelo de solapamiento pedían por su cuenta.
+   *
+   * Es lo que distingue «la ronda 2 pidió la 2 porque no tenía variante» de «la
+   * ronda 2 pidió la 5 porque la 1..4 de ese plan ya estaban compradas».
+   */
+  advancedByNetNewCursor: boolean;
+  /**
    * Por qué el salto hacía falta y NO se pudo dar. Pedir una página que el
    * proveedor no declara es pagar por una respuesta vacía, así que la corrida
    * sigue en la página 1 y lo deja dicho en vez de esconderlo.
+   *
+   * V2 — `provider_page_range_exhausted`: el cursor net-new apunta más allá de
+   * la última página que el proveedor declaró para este plan. Ese plan ya se
+   * recorrió entero; retroceder a una página ya consumida sería volver a pagarla.
    */
   escalationBlockedReason:
     | 'provider_total_pages_unknown'
     | 'provider_declared_single_page'
+    | 'provider_page_range_exhausted'
     | null;
 };
 
@@ -107,6 +130,10 @@ export function toRound2PageDecisionMetadata(
     shared_effective_keywords: decision.sharedEffectiveKeywords,
     shared_effective_keyword_count: decision.sharedEffectiveKeywords.length,
     provider_total_pages: decision.providerTotalPages,
+    // V2 — la página que el cursor por plan de búsqueda eligió, y sobre qué plan.
+    net_new_cursor_page: decision.netNewCursorPage,
+    net_new_cursor_plan_fingerprint: decision.netNewCursorPlanFingerprint,
+    advanced_by_net_new_cursor: decision.advancedByNetNewCursor,
     escalation_blocked_reason: decision.escalationBlockedReason,
   };
 }
@@ -209,6 +236,29 @@ export type ApolloTwoRoundRoundMetrics = {
   /** § 12 — `total_pages` que el proveedor declaró en esta ronda. */
   providerTotalPages: number | null;
   /**
+   * A1-APOLLO-NET-NEW-PAGINATION-V2 — huella del PLAN de búsqueda de esta ronda:
+   * el body efectivo SIN `page` (`filtersFingerprint` en el contrato,
+   * `requestFingerprint` en la búsqueda paginada).
+   *
+   * Es la unidad lógica del universo de páginas. Viaja en el checkpoint porque
+   * un reintento que sólo ejecute la ronda 2 tiene que poder saber por dónde
+   * quedó la ronda 1 de ESE MISMO plan, y `effectiveProviderFingerprint` no
+   * sirve: incluye la página, así que la página 1 y la 2 del mismo plan tienen
+   * huellas distintas.
+   *
+   * `null` cuando la ronda no pudo construir su request efectivo.
+   */
+  searchPlanFingerprint: string | null;
+  /**
+   * V2 — página MÁS ALTA que esta ronda dejó consumida de `searchPlanFingerprint`.
+   *
+   * Consumida incluye la página vacía (entregada, 0 créditos bajo #380) y la
+   * indeterminada (pudo cobrarse). No incluye una página que probadamente no
+   * salió ni se cobró. `null` ⇒ no consta consumo: la ronda no informó
+   * desenlaces por página, y el cursor no inventa uno.
+   */
+  lastConsumedPage: number | null;
+  /**
    * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 6 — cobertura de ESTA ronda.
    *
    * Por ronda y no sólo por corrida: el § 3 exige que las dos rondas representen a
@@ -243,6 +293,8 @@ export function buildEmptyRoundMetrics(
     effectiveRequestBuildErrorCode?: string | null;
     page?: number | null;
     perPage?: number | null;
+    /** V2 — huella del plan (body efectivo SIN `page`). */
+    searchPlanFingerprint?: string | null;
     specificTermsSent?: readonly string[];
     effectiveKeywordsSent?: readonly string[];
     subindustryCoverage?: ApolloRoundSubindustryCoverage | null;
@@ -283,6 +335,10 @@ export function buildEmptyRoundMetrics(
     specificTermsSent: [...(provider.specificTermsSent ?? [])],
     effectiveKeywordsSent: [...(provider.effectiveKeywordsSent ?? [])],
     providerTotalPages: null,
+    searchPlanFingerprint: provider.searchPlanFingerprint ?? null,
+    // Se rellena cuando la búsqueda de esta ronda informa sus desenlaces por
+    // página. Antes de buscar no consta consumo alguno.
+    lastConsumedPage: null,
     subindustryCoverage: provider.subindustryCoverage ?? null,
   };
 }
@@ -608,6 +664,9 @@ export function toRoundMetricsMetadata(
     specific_terms_sent: metrics.specificTermsSent,
     effective_keywords_sent: metrics.effectiveKeywordsSent,
     provider_total_pages: metrics.providerTotalPages,
+    // V2 — el plan de búsqueda de la ronda y hasta dónde lo dejó consumido.
+    search_plan_fingerprint: metrics.searchPlanFingerprint,
+    last_consumed_page: metrics.lastConsumedPage,
     // MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 6 — cobertura POR RONDA. Los
     // campos van planos, con el prefijo `round_`, para que una consulta pueda
     // preguntar «¿esta ronda representó a las dos subindustrias?» sin desanidar.

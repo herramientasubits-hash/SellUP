@@ -86,6 +86,13 @@ import {
   type SubindustryMatchVerdict,
 } from '../candidate-completeness-contract';
 import type { CompanyFieldMappingStatus } from '../apollo-company-fields-mapping';
+import {
+  EMPTY_APOLLO_SEARCH_PLAN_PAGE_CURSORS,
+  resolveApolloNextNetNewPage,
+  withApolloSearchPlanPageConsumption,
+  type ApolloSearchPlanPageConsumption,
+  type ApolloSearchPlanPageCursors,
+} from './net-new-page-cursor';
 
 // ─── Entrada del proveedor ────────────────────────────────────────────────────
 
@@ -121,6 +128,17 @@ export type RoundSearchOutcome = {
    * reintenta y las que dependen de ella no se ejecutan.
    */
   indeterminate?: boolean;
+  /**
+   * A1-APOLLO-NET-NEW-PAGINATION-V2 — qué páginas dejó consumidas esta búsqueda,
+   * y de QUÉ plan de búsqueda (`search_plan_fingerprint`, el body efectivo SIN
+   * `page`).
+   *
+   * Es lo que permite que la ronda siguiente del MISMO plan arranque en la
+   * primera página que ese plan todavía no ha pedido, en vez de en un literal.
+   * Ausente o `null` ⇒ la búsqueda no informó desenlaces por página y el cursor
+   * no inventa ninguno: se conserva el comportamiento previo al corte.
+   */
+  consumedPages?: ApolloSearchPlanPageConsumption | null;
 };
 
 // ─── Evaluación barata ────────────────────────────────────────────────────────
@@ -261,6 +279,16 @@ export type ApolloTwoRoundCandidateTargetConditions = {
 export type RoundProviderRequestPreview = {
   /** Huella del body efectivo, `page` incluida. Base de la decisión económica. */
   effectiveRequestFingerprint: string;
+  /**
+   * A1-APOLLO-NET-NEW-PAGINATION-V2 — huella del body efectivo SIN `page`
+   * (`filtersFingerprint` del contrato). Identifica el PLAN de búsqueda, que es
+   * la unidad lógica del universo de páginas: la página 1 y la 2 del mismo plan
+   * la comparten, y por eso `effectiveRequestFingerprint` no sirve para esto.
+   *
+   * Opcional para no romper las suites puras que inyectan un preview simulado;
+   * ausente ⇒ no hay cursor por plan y rige el comportamiento previo al corte.
+   */
+  searchPlanFingerprint?: string | null;
   page: number;
   perPage: number;
   /** Términos que sobrevivieron a la prioridad, la dedupe y el truncamiento. */
@@ -533,7 +561,18 @@ export type SecondRoundSkippedReason =
    * Código heredado del hito anterior. Se conserva SÓLO para poder rehidratar un
    * checkpoint escrito antes de este cambio; ninguna corrida nueva lo emite.
    */
-  | 'round2_hypothesis_identical_to_round1';
+  | 'round2_hypothesis_identical_to_round1'
+  /**
+   * A1-APOLLO-NET-NEW-PAGINATION-V2 § 1 — la única página que la ronda 2 podría
+   * pedir de este PLAN de búsqueda ya la consumió una ronda anterior, y el
+   * proveedor no declara ninguna posterior.
+   *
+   * Fail-closed y a favor del dinero: sin páginas nuevas que pedir, ejecutar la
+   * ronda 2 sería volver a comprar exactamente lo que la ronda 1 acaba de pagar.
+   * No es «no había variante»: la variante existía y era otra página, pero ese
+   * plan ya se recorrió entero.
+   */
+  | 'net_new_pages_exhausted';
 
 export type AccumulatedCompany = {
   candidateKey: string;
@@ -1074,6 +1113,22 @@ export async function runApolloTwoRoundDiscovery(
   // vienen de un checkpoint anterior a este hito. Sin backfill de la huella.
   const roundMetrics: ApolloTwoRoundRoundMetrics[] = (resume?.rounds ?? []).map(
     normalizeRestoredRoundMetrics,
+  );
+  /**
+   * A1-APOLLO-NET-NEW-PAGINATION-V2 — cursor de página POR PLAN DE BÚSQUEDA.
+   *
+   * Se siembra desde las rondas rehidratadas: un reintento que sólo ejecute la
+   * ronda 2 tiene que saber por dónde dejó la ronda 1 ese MISMO plan. Un
+   * checkpoint anterior a este hito no trae los campos y simplemente no aporta
+   * cursor — el comportamiento previo, sin adivinar páginas.
+   */
+  let searchPlanPageCursors: ApolloSearchPlanPageCursors = roundMetrics.reduce(
+    (cursors, round) =>
+      withApolloSearchPlanPageConsumption(cursors, {
+        searchPlanFingerprint: round.searchPlanFingerprint ?? null,
+        lastConsumedPage: round.lastConsumedPage ?? null,
+      }),
+    EMPTY_APOLLO_SEARCH_PLAN_PAGE_CURSORS,
   );
   const enrichmentSelections: EnrichmentSelection[] = [];
   const enrichmentSkips: EnrichmentSkip[] = [];
@@ -1694,15 +1749,57 @@ export async function runApolloTwoRoundDiscovery(
           : sharedEffectiveKeywords.length > 0
             ? 'overlapping_effective_keywords'
             : null;
-      const nextPageDeclared = providerTotalPages !== null && providerTotalPages >= 2;
+      /**
+       * A1-APOLLO-NET-NEW-PAGINATION-V2 § 1 — la página de arranque de la ronda 2
+       * sale del CURSOR DEL PLAN, no de un literal.
+       *
+       * Hasta este corte había DOS sitios que la fijaban en 2, los dos bajo el
+       * mismo supuesto —que una ronda nueva estrena universo de páginas—:
+       *
+       *   1. `buildRound2Hypothesis`, variante `same_query_next_page` (sin
+       *      términos ni región alternativos, la única forma de traer algo nuevo
+       *      es otra página);
+       *   2. el salto por solapamiento de SCALE-SECOND-ROUND-FIX-1B.
+       *
+       * El supuesto es falso. La unidad lógica del universo de páginas es el PLAN
+       * de búsqueda (`searchPlanFingerprint`: el body efectivo SIN `page`), y la
+       * ronda es sólo una etapa de su ejecución. Con la paginación net-new
+       * conectada la ronda 1 ya no consume UNA página sino varias, así que el 2
+       * aterrizaba en mitad de lo ya comprado: la corrida real pidió 1,2,3,4 en la
+       * ronda 1 y 2,3,4,5 en la ronda 2 — tres páginas pagadas dos veces.
+       *
+       *     nextPage = última página consumida por ESE plan + 1
+       *
+       * Un plan del que no consta consumo devuelve 1: un fingerprint distinto es
+       * un universo de paginación INDEPENDIENTE y no hereda el cursor de otro. Por
+       * eso el 2 del solapamiento se conserva como SUELO —es el remedio de
+       * SCALE-SECOND-ROUND-FIX-1B y no depende del cursor— y el cursor sólo puede
+       * empujar la página hacia adelante, nunca hacia atrás.
+       */
+      const round2PlanFingerprint = round2Build.preview?.searchPlanFingerprint ?? null;
+      const netNewCursorPage = resolveApolloNextNetNewPage(
+        searchPlanPageCursors,
+        round2PlanFingerprint,
+      );
+      const hypothesisPage = round2.queryParameters.page;
+      const overlapFloorPage = escalationReason !== null ? 2 : 1;
+      const requestedPage = Math.max(hypothesisPage, overlapFloorPage, netNewCursorPage);
+      const pageMoveNeeded = requestedPage > hypothesisPage;
+      // Pedir una página que el proveedor no declaró sigue prohibido: sería pagar
+      // por una respuesta vacía. Con cursor, lo que se comprueba es que exista la
+      // página CONCRETA a la que se movería, no que exista «una segunda».
+      const requestedPageDeclared =
+        providerTotalPages !== null && providerTotalPages >= requestedPage;
 
       let escalatedToPage2 = false;
-      if (escalationReason !== null && round2.queryParameters.page === 1 && nextPageDeclared) {
-        round2 = withRequestedPage(round2, 2, round1HypothesisFingerprint);
+      let advancedByNetNewCursor = false;
+      if (pageMoveNeeded && requestedPageDeclared) {
+        round2 = withRequestedPage(round2, requestedPage, round1HypothesisFingerprint);
         // La página no toca los términos, así que `sharedEffectiveKeywords` sigue
         // describiendo el solapamiento que motivó el salto.
         round2Build = buildRoundEffectiveRequest(2, round2, requestedResultLimit);
-        escalatedToPage2 = true;
+        escalatedToPage2 = hypothesisPage === 1 && escalationReason !== null;
+        advancedByNetNewCursor = netNewCursorPage > Math.max(hypothesisPage, overlapFloorPage);
       }
 
       round2PageDecision = {
@@ -1716,13 +1813,34 @@ export async function runApolloTwoRoundDiscovery(
         escalationReason,
         sharedEffectiveKeywords,
         providerTotalPages,
-        escalationBlockedReason:
-          escalationReason === null || escalatedToPage2 || round2.queryParameters.page > 1
-            ? null
-            : providerTotalPages === null
-              ? 'provider_total_pages_unknown'
-              : 'provider_declared_single_page',
+        netNewCursorPage,
+        netNewCursorPlanFingerprint: round2PlanFingerprint,
+        advancedByNetNewCursor,
+        escalationBlockedReason: !pageMoveNeeded || requestedPageDeclared
+          ? null
+          : providerTotalPages === null
+            ? 'provider_total_pages_unknown'
+            : // V2 — con `total_pages` declarado, la causa deja de ser siempre «el
+              // proveedor declaró una sola página»: puede ser que el plan ya se
+              // recorriera entero y el cursor apunte más allá del final. Retroceder
+              // sería volver a comprar lo que la ronda anterior acaba de pagar.
+              providerTotalPages < 2
+              ? 'provider_declared_single_page'
+              : 'provider_page_range_exhausted',
       };
+
+      /**
+       * V2 § 1 — si la página que la ronda 2 iba a pedir ya está consumida por
+       * ESTE plan y no se pudo avanzar a una posterior, la ronda no se emite.
+       *
+       * Caer de vuelta a la página que la hipótesis proponía sería re-comprar lo
+       * que la ronda 1 acaba de pagar: exactamente el gasto que este corte
+       * elimina. La ronda 1, sus resultados y su gasto se conservan.
+       */
+      if (pageMoveNeeded && !requestedPageDeclared && netNewCursorPage > hypothesisPage) {
+        secondRoundSkippedReason = 'net_new_pages_exhausted';
+        break;
+      }
 
       const distinct = compareEffective(round2Build);
       if (distinct === null) {
@@ -1765,6 +1883,9 @@ export async function runApolloTwoRoundDiscovery(
         effectiveRequestBuildErrorCode: effectiveBuild.errorCode,
         page: requestPreview?.page ?? hypothesis.queryParameters.page,
         perPage: requestPreview?.perPage ?? null,
+        // V2 — el PLAN de esta ronda queda en el checkpoint desde antes de
+        // buscar: es la clave con la que la ronda siguiente lee el cursor.
+        searchPlanFingerprint: requestPreview?.searchPlanFingerprint ?? null,
         specificTermsSent: hypothesis.queryParameters.keywordTags,
         effectiveKeywordsSent: requestPreview?.effectiveKeywordTags ?? [],
       },
@@ -1834,6 +1955,9 @@ export async function runApolloTwoRoundDiscovery(
       metrics.providerRequestCount = outcome.providerRequestCount;
       metrics.rawResultsReturned = outcome.organizations.length;
       metrics.internalRecordedCredits = outcome.internalRecordedCredits;
+      // V2 — un desenlace indeterminado NO borra las páginas que sí salieron.
+      // Son exactamente las que no pueden volver a pedirse.
+      recordRoundPageConsumption(metrics, outcome);
       totalSearchCredits += outcome.internalRecordedCredits;
       roundMetrics.push(metrics);
       // La ronda queda registrada, así que ya no hay nada pendiente de ella: lo
@@ -1846,6 +1970,7 @@ export async function runApolloTwoRoundDiscovery(
     metrics.rawResultsReturned = outcome.organizations.length;
     metrics.internalRecordedCredits = outcome.internalRecordedCredits;
     metrics.providerTotalPages = outcome.providerTotalPages ?? null;
+    recordRoundPageConsumption(metrics, outcome);
     totalSearchCredits += outcome.internalRecordedCredits;
 
     // ── Procesamiento barato, en el orden del § 4 ────────────────────────────
@@ -1857,6 +1982,47 @@ export async function runApolloTwoRoundDiscovery(
       if (roundNumber < config.maxRounds) secondRoundSkippedReason = 'target_reached';
       break;
     }
+  }
+
+  /**
+   * A1-APOLLO-NET-NEW-PAGINATION-V2 — anota en la ronda, y en el cursor de la
+   * corrida, qué páginas dejó consumidas su búsqueda y de qué plan.
+   *
+   * La búsqueda que no informa desenlaces por página no aporta cursor: se
+   * conserva el comportamiento previo al corte en vez de adivinar un número.
+   */
+  function recordRoundPageConsumption(
+    metrics: ApolloTwoRoundRoundMetrics,
+    outcome: RoundSearchOutcome,
+  ): void {
+    const consumption = outcome.consumedPages ?? null;
+    if (consumption === null) return;
+    /**
+     * El plan al que pertenecen estas páginas es el que ESTA ronda construyó con
+     * el mismo constructor que gobierna la llamada real
+     * (`RoundProviderRequestPreview.searchPlanFingerprint`). No se toma la huella
+     * que la búsqueda reporta: eso ataría el cursor a que dos capas calculen la
+     * misma cadena, cuando lo que la corrida ya garantiza es que el request
+     * construido ANTES de ejecutar es el que sale (HARDENING-3 § 2).
+     */
+    const planFingerprint = metrics.searchPlanFingerprint;
+    if (planFingerprint === null) return;
+    /**
+     * Defensa en profundidad: si la búsqueda SÍ declaró un plan y no es éste, sus
+     * páginas no se atribuyen a ninguno. Un cursor apuntando al plan equivocado
+     * saltaría páginas que nadie pidió, o repetiría las que sí.
+     */
+    if (
+      consumption.searchPlanFingerprint !== null &&
+      consumption.searchPlanFingerprint !== planFingerprint
+    ) {
+      return;
+    }
+    metrics.lastConsumedPage = consumption.lastConsumedPage;
+    searchPlanPageCursors = withApolloSearchPlanPageConsumption(searchPlanPageCursors, {
+      searchPlanFingerprint: planFingerprint,
+      lastConsumedPage: consumption.lastConsumedPage,
+    });
   }
 
   /**
