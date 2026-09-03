@@ -125,10 +125,37 @@ describe('el gate de generación conoce el bloqueo de presupuesto', () => {
       /!isPersistenceBlocked &&\s*\n\s*!isBudgetBlocked && \(\s*<Button/,
       'el botón «Generar prospectos» debe estar gateado por !isBudgetBlocked',
     );
+    // A1-LUSHA-APOLLO-RUN-OVERRIDE — el selector ya no se gatea inline en su
+    // JSX: el gate vive en `showRunProviderSelector`/`canOverrideLushaWithApollo`,
+    // introducidos para poder ofrecer también la escotilla hacia Apollo dentro de
+    // la rama Lusha. El invariante se pin ahora contra esas dos definiciones.
     assert.match(
       src.summary,
-      /!isPersistenceBlocked &&\s*\n\s*!isBudgetBlocked &&\s*\n\s*onRequestedProviderChange !== undefined/,
-      'el selector de proveedor debe estar gateado por !isBudgetBlocked',
+      /!lushaRouteInEffect &&\s*\n\s*discoveryAvailability\.available &&\s*\n\s*executionEnabled &&\s*\n\s*!isPersistenceBlocked &&\s*\n\s*!isBudgetBlocked\)/,
+      'la rama Agente 1 del selector debe seguir gateada por !isBudgetBlocked',
+    );
+    // 🔴 HALLAZGO-B — `!isBudgetBlocked` sigue gateando la escotilla ANTES de que
+    // la usuaria elija proveedor; después de elegir Apollo, no. Un
+    // `BUDGET_EXCEEDED` de Apollo retiraba el selector con Apollo ya pedido, y
+    // entonces ni Apollo ni Lusha eran alcanzables. Se pin la forma nueva entera
+    // —con la autorización server-derived como término obligatorio— en vez de la
+    // conjunción vieja, que a estas alturas defendería el atrapamiento.
+    assert.match(
+      src.summary,
+      /canOverrideLushaWithApollo =\s*\n\s*lushaRouteInEffect &&\s*\n\s*isProviderOptionEnabled\(providerOverrideCapability, 'apollo_organizations'\) &&\s*\n\s*\(runProviderAlreadyChosen \|\| \(!isPersistenceBlocked && !isBudgetBlocked\)\)/,
+      'la escotilla hacia Apollo sólo puede soltar !isBudgetBlocked tras una selección explícita',
+    );
+
+    // El presupuesto NO se cuela en la contención de la ruta Lusha: es por
+    // proveedor, y que Apollo se quedara sin créditos no habla de los de Lusha.
+    assert.match(
+      src.summary,
+      /const lushaExecutionOffered = useLushaFinalSearch && !isPersistenceBlocked;/,
+    );
+    assert.doesNotMatch(
+      src.summary,
+      /const lushaExecutionOffered =[^;]*isBudgetBlocked/,
+      'el bloqueo de presupuesto de Apollo no puede cerrar la ruta de Lusha',
     );
   });
 

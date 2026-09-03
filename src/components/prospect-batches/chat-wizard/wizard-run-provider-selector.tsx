@@ -47,6 +47,15 @@ type WizardRunProviderSelectorProps = {
   apolloLimits: ApolloRunModeLimits | null;
   /** Bloquea el control mientras una ejecución está en vuelo. */
   disabled?: boolean;
+  /**
+   * A1-LUSHA-APOLLO-RUN-OVERRIDE — sustituye SOLO el texto mostrado para la
+   * opción `'tavily'` (el "sin override"). El `value` que viaja al elegirla
+   * sigue siendo literalmente `'tavily'`; esto es presentación pura para el
+   * llamador que monta este selector dentro de una búsqueda Lusha-elegible,
+   * donde "sin override" no ejecuta Tavily sino que mantiene la ruta Lusha.
+   * `undefined` conserva el label por defecto ("Tavily").
+   */
+  automaticOptionLabel?: string;
 };
 
 export function WizardRunProviderSelector({
@@ -55,6 +64,7 @@ export function WizardRunProviderSelector({
   onChange,
   apolloLimits,
   disabled = false,
+  automaticOptionLabel,
 }: WizardRunProviderSelectorProps) {
   // Sin capacidad no hay control. El return temprano es la garantía estructural:
   // no hay rama de render en la que un no-admin vea estas opciones.
@@ -102,7 +112,11 @@ export function WizardRunProviderSelector({
                 }}
                 className="size-3.5 accent-su-brand"
               />
-              <span className="font-medium">{RUN_PROVIDER_OPTION_LABELS[provider]}</span>
+              <span className="font-medium">
+                {provider === 'tavily' && automaticOptionLabel
+                  ? automaticOptionLabel
+                  : RUN_PROVIDER_OPTION_LABELS[provider]}
+              </span>
             </label>
           );
         })}

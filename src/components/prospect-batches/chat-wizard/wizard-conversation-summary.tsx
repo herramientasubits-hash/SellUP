@@ -50,9 +50,13 @@ import { WizardRunProviderSelector } from './wizard-run-provider-selector';
 import { SubmittingPanel, SuccessPanel } from './wizard-execution-panels';
 import type { NoNewCandidatesBreakdown } from '@/modules/prospect-batches/chat-wizard-execution/wizard-no-new-candidates-copy';
 import type { WizardPersistenceOutcome } from '@/modules/prospect-batches/chat-wizard-execution/wizard-result-copy';
-import type { ApolloRunModeLimits } from './wizard-run-provider-copy';
+import {
+  type ApolloRunModeLimits,
+  RUN_PROVIDER_AUTOMATIC_LUSHA_LABEL,
+} from './wizard-run-provider-copy';
 import {
   NO_PROVIDER_OVERRIDE_CAPABILITY,
+  isProviderOptionEnabled,
   type WizardProviderOverrideCapability,
   type WizardRunSelectableProvider,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-provider-capability';
@@ -272,10 +276,23 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
   // AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — la ruta de Lusha se pregunta por su
   // predicado, no comparando literales: con el flag apagado `isLushaRouteHonored`
   // es false y Lusha no corre, que es la propiedad de seguridad de 10C3.
-  const useLushaFinalSearch =
+  //
+  // A1-LUSHA-APOLLO-RUN-OVERRIDE — se separa "¿esta búsqueda es Lusha-elegible?"
+  // de "¿corre Lusha en ESTA corrida?". `lushaRouteInEffect` es EXACTAMENTE la
+  // regla de siempre. `overridingLushaWithApollo` es la única condición nueva, y
+  // sólo puede ser true si el servidor ya autorizó a este usuario a pedir Apollo
+  // (`isProviderOptionEnabled` lee la MISMA capacidad sanitizada que gobierna el
+  // selector Tavily/Apollo) — nunca por el valor crudo de `requestedProvider`.
+  const lushaRouteInEffect =
     lushaPreviewEnabled &&
     isLushaRouteHonored(lushaCriteria.provider) &&
     lushaCriteria.input !== null;
+
+  const overridingLushaWithApollo =
+    requestedProvider === 'apollo_organizations' &&
+    isProviderOptionEnabled(providerOverrideCapability, 'apollo_organizations');
+
+  const useLushaFinalSearch = lushaRouteInEffect && !overridingLushaWithApollo;
 
   // AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — disponibilidad del discovery de
   // Agente 1 (Tavily / Apollo), decidida por la FORMA de la búsqueda y por nada
@@ -376,12 +393,85 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
       ? mapBudgetExceeded(preExecutionBudgetBlock).message
       : null;
 
+  // A1-LUSHA-APOLLO-RUN-OVERRIDE § HALLAZGO-B — ¿el administrador YA fijó el
+  // proveedor de ESTA corrida?
+  //
+  // Dentro de la rama Lusha esta pregunta separa las dos mitades de la regla, y
+  // no por convención: es una propiedad del propio código de arriba. Sin
+  // selección, `useLushaFinalSearch` es `true`, y entonces (a) el preflight de
+  // Apollo/Tavily ni se evalúa (`preExecutionBudgetBlock` queda en `null`) y (b)
+  // «Generar prospectos» no existe, así que no hay forma de producir un
+  // `executionError`. Es decir: en la rama Lusha, TODO bloqueo visible llegó
+  // DESPUÉS de que la usuaria eligiera proveedor — nunca antes.
+  //
+  // No autoriza nada. La opción Apollo sigue saliendo de la MISMA capacidad
+  // sanitizada por el servidor (`isProviderOptionEnabled`), y un
+  // `requestedProvider` que un no-admin nunca pudo fijar no abre nada.
+  const runProviderAlreadyChosen = requestedProvider !== undefined;
+
+  // A1-LUSHA-APOLLO-RUN-OVERRIDE — escotilla de escape: el selector se ofrece
+  // TAMBIÉN dentro de la rama Lusha, pero sólo si el servidor ya declaró que este
+  // usuario puede pedir Apollo. Para cualquier otro usuario esta condición es
+  // `false` y el árbol de render es IDÉNTICO al de antes de este hito: el
+  // selector sigue sin existir, no sólo oculto por CSS.
+  //
+  // ANTES de elegir proveedor comparte `!isPersistenceBlocked && !isBudgetBlocked`
+  // con la rama Agente 1, por el MISMO motivo que ya rige el botón «Generar
+  // prospectos»: si esta pantalla no puede ejecutar, tampoco ofrece elegir con qué.
+  //
+  // DESPUÉS de elegirlo, no. 🔴 HALLAZGO-B: retirar el selector por un bloqueo que
+  // sólo apareció PORQUE la usuaria eligió Apollo dejaba la corrida sin salida —
+  // `requestedProvider` seguía en `apollo_organizations`, luego
+  // `useLushaFinalSearch` seguía en `false`, luego no se ofrecía ni Apollo ni
+  // Lusha y la única puerta era «Comenzar de nuevo», perdiendo los criterios. El
+  // selector es justamente el control que deshace esa elección, así que es lo
+  // último que puede desaparecer al fallar.
+  //
+  // Mantenerlo visible NO ejecuta nada y NO reescribe `requestedProvider`: sólo
+  // la usuaria puede volver a «Automático (usa Lusha)». Y las ofertas de
+  // ejecución siguen gateadas por el bloqueo, cada una por su lado («Generar
+  // prospectos» por `!isPersistenceBlocked && !isBudgetBlocked`, la ruta Lusha por
+  // `lushaExecutionOffered`).
+  const canOverrideLushaWithApollo =
+    lushaRouteInEffect &&
+    isProviderOptionEnabled(providerOverrideCapability, 'apollo_organizations') &&
+    (runProviderAlreadyChosen || (!isPersistenceBlocked && !isBudgetBlocked));
+
+  // La rama Agente 1 (Tavily/Apollo) conserva EXACTAMENTE su gate previo; se le
+  // añade una segunda vía de entrada para la escotilla de escape de Lusha.
+  const showRunProviderSelector =
+    (!lushaRouteInEffect &&
+      discoveryAvailability.available &&
+      executionEnabled &&
+      !isPersistenceBlocked &&
+      !isBudgetBlocked) ||
+    canOverrideLushaWithApollo;
+
+  // 🔴 HALLAZGO-B § contención — la ruta Lusha se OFRECE sólo si el bloqueo de
+  // persistencia no está en pantalla.
+  //
+  // `PERSISTENCE_NOT_READY` no es de un proveedor: dice que `prospect_candidates`
+  // no puede guardar, y el escritor de Lusha inserta en ESA misma tabla. Como
+  // ahora el selector sobrevive al bloqueo, volver a «Automático (usa Lusha)»
+  // remontaría el panel de Lusha con su CTA — una ruta de gasto que el bloqueo
+  // acababa de cerrar para Apollo. El término extra la cierra también para Lusha.
+  //
+  // Es un no-op para todo flujo anterior a la escotilla: sin override,
+  // `executionError` no puede existir dentro de la rama Lusha (no hay botón que
+  // lo produzca), así que `isPersistenceBlocked` es `false` y esta condición vale
+  // exactamente `useLushaFinalSearch`.
+  //
+  // El presupuesto NO entra aquí a propósito: es POR PROVEEDOR. Que Apollo se
+  // quedara sin créditos no dice nada de los de Lusha, y la ruta Lusha conserva
+  // su propio aviso previo plan-aware dentro de `WizardLushaFinalSearch`.
+  const lushaExecutionOffered = useLushaFinalSearch && !isPersistenceBlocked;
+
   // § 6 — «la configuración es válida» describe los CRITERIOS (país, industria,
   // proveedor…), no si la corrida puede ejecutarse ahora mismo. Con un bloqueo
   // conocido (presupuesto o persistencia) el cuerpo del banner verde deja de
   // prometer una ejecución que no va a ocurrir; el motivo concreto vive en el
   // banner rojo de abajo, nunca duplicado aquí.
-  const validBody = useLushaFinalSearch
+  const validBody = lushaExecutionOffered
     ? 'Revisa los criterios y ejecuta la búsqueda. Nada se guarda todavía.'
     : isPersistenceBlocked || isBudgetBlocked
       ? 'Los criterios de la búsqueda son correctos, pero todavía no puede ejecutarse. Revisa el aviso debajo.'
@@ -472,7 +562,7 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
           banner and the primary "Buscar con IA" CTA all live inside. On click it
           persists the results as pending-review prospects and shows a brief
           confirmation (NOT a results list) with "Ver prospectos". */}
-      {useLushaFinalSearch && lushaCriteria.input && (
+      {lushaExecutionOffered && lushaCriteria.input && (
         <WizardLushaFinalSearch
           input={lushaCriteria.input}
           recap={finalRecap}
@@ -496,21 +586,22 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
           pantalla no puede ejecutar, tampoco ofrece elegir con qué. El propio
           selector se autocensura cuando la capacidad no lo permite, así que para
           un no-admin no se renderiza nada. */}
-      {!useLushaFinalSearch &&
-        discoveryAvailability.available &&
-        executionEnabled &&
-        !isPersistenceBlocked &&
-        !isBudgetBlocked &&
-        onRequestedProviderChange !== undefined && (
-          <WizardRunProviderSelector
-            capability={providerOverrideCapability}
-            // § 3 — sin selección explícita el control muestra Tavily, y la
-            // solicitud sigue viajando SIN campo de proveedor.
-            value={requestedProvider ?? 'tavily'}
-            onChange={onRequestedProviderChange}
-            apolloLimits={apolloRunModeLimits}
-          />
-        )}
+      {showRunProviderSelector && onRequestedProviderChange !== undefined && (
+        <WizardRunProviderSelector
+          capability={providerOverrideCapability}
+          // § 3 — sin selección explícita el control muestra el proveedor
+          // automático, y la solicitud sigue viajando SIN campo de proveedor.
+          value={requestedProvider ?? 'tavily'}
+          onChange={onRequestedProviderChange}
+          apolloLimits={apolloRunModeLimits}
+          // A1-LUSHA-APOLLO-RUN-OVERRIDE — dentro de la rama Lusha, "sin
+          // override" no ejecuta Tavily: mantiene la ruta Lusha oculta que ya
+          // iba a correr. Etiquetarla "Tavily" mentiría sobre qué va a pasar.
+          automaticOptionLabel={
+            lushaRouteInEffect ? RUN_PROVIDER_AUTOMATIC_LUSHA_LABEL : undefined
+          }
+        />
+      )}
 
       {/* La conjunción `!useLushaFinalSearch && discoveryAvailability.available &&
           executionEnabled && !isPersistenceBlocked` es la que fija el gate de
