@@ -161,15 +161,38 @@ describe('Final search step persists Lusha results as pending review (Q3F-5BB.4)
       /import \{[^}]*\bisLushaRouteHonored\b[^}]*\} from '@\/modules\/prospect-batches\/prospect-discovery-provider'/,
     );
     // The gate keeps BOTH terms: the preview flag AND the honored Lusha route.
+    //
+    // A1-LUSHA-APOLLO-RUN-OVERRIDE split that expression in two so the screen can
+    // tell "is this search Lusha-eligible?" (`lushaRouteInEffect`) from "does
+    // Lusha run in THIS run?" (`useLushaFinalSearch`). Both terms survive the
+    // split untouched — they simply live one hop away — and the escape hatch can
+    // only ever REMOVE Lusha from a run the admin explicitly redirected to
+    // Apollo, never add it. The pin follows the chain instead of the old literal,
+    // which would now forbid the split rather than protect the gate.
     assert.match(
       sources.summary,
-      /const useLushaFinalSearch =[\s\S]{0,400}?\blushaPreviewEnabled\b[\s\S]{0,400}?\bisLushaRouteHonored\(lushaCriteria\.provider\)/,
+      /const lushaRouteInEffect =[\s\S]{0,400}?\blushaPreviewEnabled\b[\s\S]{0,400}?\bisLushaRouteHonored\(lushaCriteria\.provider\)/,
+    );
+    assert.match(
+      sources.summary,
+      /const useLushaFinalSearch = lushaRouteInEffect && !overridingLushaWithApollo;/,
     );
     // ...and WizardLushaFinalSearch is mounted in exactly one place: behind it.
     assert.equal([...sources.summary.matchAll(/<WizardLushaFinalSearch/g)].length, 1);
+    // A1-LUSHA-APOLLO-RUN-OVERRIDE § HALLAZGO-B — el punto de montaje sigue
+    // siendo uno solo y sigue estando detrás de `useLushaFinalSearch`; lo que se
+    // añade es un término que sólo puede RETIRAR la oferta: un
+    // `PERSISTENCE_NOT_READY` en pantalla cierra también la ruta Lusha, que
+    // escribe en la misma tabla cuya sonda falló. Sin la escotilla hacia Apollo
+    // ese error no puede existir dentro de esta rama, así que para todo flujo
+    // previo la condición vale exactamente `useLushaFinalSearch`.
     assert.match(
       sources.summary,
-      /\{useLushaFinalSearch && lushaCriteria\.input && \(\s*<WizardLushaFinalSearch/,
+      /const lushaExecutionOffered = useLushaFinalSearch && !isPersistenceBlocked;/,
+    );
+    assert.match(
+      sources.summary,
+      /\{lushaExecutionOffered && lushaCriteria\.input && \(\s*<WizardLushaFinalSearch/,
     );
   });
 

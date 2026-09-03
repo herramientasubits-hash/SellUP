@@ -37,6 +37,17 @@ export const RUN_PROVIDER_OPTION_LABELS: Record<WizardRunSelectableProvider, str
 };
 
 /**
+ * A1-LUSHA-APOLLO-RUN-OVERRIDE — label de la opción `'tavily'` cuando el
+ * selector se monta dentro de una búsqueda Lusha-elegible.
+ *
+ * En ese contexto "sin override" no ejecuta Tavily: mantiene la ruta Lusha
+ * oculta que ya iba a correr. Anunciarla como "Tavily" prometería un proveedor
+ * que no va a ejecutarse; "Automático" describe lo que en verdad ocurre — el
+ * routing normal decide, y hoy decide Lusha.
+ */
+export const RUN_PROVIDER_AUTOMATIC_LUSHA_LABEL = 'Automático (usa Lusha)';
+
+/**
  * § 4 — explicación cuando el override está activo pero Apollo no se puede
  * ofrecer.
  *
