@@ -279,6 +279,16 @@ export type ApolloTwoRoundQueryContext = {
   targetLocations?: readonly string[];
   /** Rangos de empleados ya mapeados al vocabulario de Apollo. */
   employeeRanges?: readonly string[];
+  /**
+   * A1-APOLLO-QUERY-QUALITY-V3-A § 2 — familias semánticas que la macro industria
+   * de esta corrida declara, en orden de emisión.
+   *
+   * Vacío o ausente ⇒ la corrida NO es macro o su macro industria no está
+   * migrada, y las dos rondas se redactan exactamente como antes del hito. Este
+   * módulo no resuelve el catálogo: recibe las claves ya resueltas, igual que
+   * recibe las subindustrias.
+   */
+  macroQueryFamilies?: readonly string[];
 };
 
 /**
@@ -387,6 +397,16 @@ export type ApolloTwoRoundQueryHypothesis = {
    * aportaron cada término de la hipótesis. Vacío cuando sólo habló el sector.
    */
   subindustryTermProvenance: Record<string, string[]>;
+  /**
+   * V3-A § 2 — familia semántica que esta ronda pide emitir. `null` cuando la
+   * macro industria no declara familias (o la corrida no es macro).
+   *
+   * Viaja hasta `WebSearchInput.macroQueryVariantKey`, y es lo que hace que dos
+   * rondas de la misma macro industria tengan planes de búsqueda distintos.
+   */
+  macroQueryVariantKey: string | null;
+  /** V3-A § 5 — familias disponibles, para que la observabilidad distinga casos. */
+  macroQueryFamiliesAvailable: string[];
 };
 
 function dedupeTrimmed(values: readonly (string | null | undefined)[]): string[] {
@@ -425,6 +445,25 @@ function collectContradictoryTerms(
 }
 
 /**
+ * V3-A § 2 — claves de familia declaradas, saneadas y sin repetir.
+ *
+ * El saneamiento importa: una lista con huecos o duplicados haría que la ronda 2
+ * eligiera «la segunda» y acabara emitiendo la misma que la ronda 1 — una segunda
+ * búsqueda pagada por el mismo plan, que es justo lo que este hito elimina.
+ */
+function macroQueryFamilyKeys(context: ApolloTwoRoundQueryContext): string[] {
+  const seen = new Set<string>();
+  const keys: string[] = [];
+  for (const key of context.macroQueryFamilies ?? []) {
+    const trimmed = key?.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    keys.push(trimmed);
+  }
+  return keys;
+}
+
+/**
  * Ronda 1 — la hipótesis MÁS específica disponible.
  *
  * Prefiere las señales de las subindustrias sobre las del sector: buscar
@@ -445,6 +484,10 @@ export function buildRound1Hypothesis(
   const label = contextLabel(context);
   const countryLabel = context.country?.trim() || context.countryCode?.trim() || 'sin país';
 
+  // V3-A § 2 — la ronda 1 emite SIEMPRE la primera familia. Es la única que lleva
+  // términos amplios, así que es la que conserva el comportamiento calibrado.
+  const families = macroQueryFamilyKeys(context);
+
   const queryParameters: ApolloTwoRoundQueryParameters = {
     locations: dedupeTrimmed([context.country, ...(context.targetLocations ?? [])]),
     keywordTags: dedupeTrimmed(positive.terms),
@@ -462,6 +505,8 @@ export function buildRound1Hypothesis(
     requestedResultLimit,
     sectorSignalsMissing: sets.allSignalsMissing,
     subindustryTermProvenance: positive.provenanceByTerm,
+    macroQueryVariantKey: families[0] ?? null,
+    macroQueryFamiliesAvailable: [...families],
   };
 }
 
@@ -503,6 +548,24 @@ export function buildRound2Hypothesis(
   const round1 = buildRound1Hypothesis(context, requestedResultLimit);
   const sets = resolveSectorSignalSets(context.sector, context.subindustries);
 
+  /**
+   * V3-A §§ 2 y 4 — la variante de FAMILIA se decide antes que nada.
+   *
+   * La ronda 2 pide la SIGUIENTE familia declarada. Es una hipótesis
+   * genuinamente distinta —otro subconjunto de términos específicos del mismo
+   * catálogo—, así que cae en `alternative_specific_terms`, el primer eslabón de
+   * la cadena del § 3, y arranca en la página 1.
+   *
+   * La página 1 no es una preferencia estética: un conjunto de términos distinto
+   * produce otro `search_plan_fingerprint`, y un plan nuevo es un universo de
+   * paginación INDEPENDIENTE del que la ronda 1 recorrió. Empezar en la 2 saltaría
+   * la primera página de un universo que nadie ha comprado todavía.
+   */
+  const families = macroQueryFamilyKeys(context);
+  const round2FamilyKey =
+    families.length >= 2 && families[1] !== families[0] ? families[1] : null;
+  const familyVariantActive = round2FamilyKey !== null;
+
   // § 3 — los sinónimos también se reparten round-robin: la variante de la ronda 2
   // conserva la cobertura de la ronda 1 en vez de estrecharse a un solo dominio.
   const synonymTerms = buildInterleavedSignalTerms(sets, (signals) => signals.round2Synonyms);
@@ -510,7 +573,23 @@ export function buildRound2Hypothesis(
   // Las señales de la ronda 1 que no dieron elegibles siguen valiendo como
   // ancla del sector; los sinónimos van DELANTE para que, con el tope de
   // valores, la consulta 2 sea genuinamente distinta y no la 1 recortada.
-  const keywordTags = dedupeTrimmed([...synonyms, ...round1.queryParameters.keywordTags]);
+  //
+  // 🔴 V3-A § 4 — salvo cuando la ronda 2 cambia de familia. Ahí las anclas de la
+  // ronda 1 NO se heredan, y no por elegancia: estas etiquetas viajan como
+  // criterio adicional hasta `effectiveKeywordTags`, y un solo término efectivo
+  // compartido activa el suelo de página 2 de SCALE-SECOND-ROUND-FIX-1B. Ese
+  // suelo existe para cuando las dos rondas comparten universo; con una familia
+  // nueva el universo es otro, y arrastrar el ancla haría que la ronda 2 se
+  // saltara la página 1 de un plan que nadie ha comprado.
+  //
+  // La resta es contra la ronda 1 ya redactada, no contra el catálogo: es la
+  // lista concreta que va a salir la que no puede solaparse.
+  const round1TagKeys = new Set(
+    round1.queryParameters.keywordTags.map(normalizeKey).filter((value) => value !== ''),
+  );
+  const keywordTags = familyVariantActive
+    ? dedupeTrimmed(synonyms).filter((term) => !round1TagKeys.has(normalizeKey(term)))
+    : dedupeTrimmed([...synonyms, ...round1.queryParameters.keywordTags]);
 
   const locations = dedupeTrimmed([
     ...(context.targetLocations ?? []),
@@ -559,7 +638,24 @@ export function buildRound2Hypothesis(
   let variantStrategy: ApolloRound2VariantStrategy;
   let queryParameters: ApolloTwoRoundQueryParameters;
 
-  if (termsChanged) {
+  if (familyVariantActive) {
+    // V3-A § 4 — la familia manda, y manda ANTES que la cadena existente.
+    //
+    // Sin esta rama, una macro industria cuyo sector SÍ tiene señales en
+    // `SECTOR_SIGNAL_CATALOG` podía caer en `same_query_next_page` y pedir la
+    // página 2: `withRequestedPage` no sabe que el plan cambió, y el `max()` del
+    // orquestador tomaría el 2 de la hipótesis por encima del 1 del cursor del
+    // plan nuevo. La corrección es declarar la variante correcta aquí, no tocar
+    // ninguna de las dos piezas de aguas abajo.
+    variantStrategy = 'alternative_specific_terms';
+    queryParameters = {
+      locations,
+      keywordTags,
+      employeeRanges: round1.queryParameters.employeeRanges,
+      page: 1,
+    };
+    adaptationParts.push('familia_semantica_alternativa');
+  } else if (termsChanged) {
     variantStrategy = 'alternative_specific_terms';
     queryParameters = {
       locations,
@@ -603,11 +699,14 @@ export function buildRound2Hypothesis(
   return {
     roundNumber: 2,
     queryHypothesis:
-      variantStrategy === 'same_query_next_page'
-        ? `${label} en ${countryLabel} — misma búsqueda, página 2, ` +
+      familyVariantActive
+        ? `${label} en ${countryLabel} — familia semántica «${round2FamilyKey}», ` +
           'excluyendo señales financieras y organizaciones ya vistas'
-        : `${label} en ${countryLabel} — sinónimos controlados y regiones objetivo, ` +
-          'excluyendo señales financieras y organizaciones ya vistas',
+        : variantStrategy === 'same_query_next_page'
+          ? `${label} en ${countryLabel} — misma búsqueda, página 2, ` +
+            'excluyendo señales financieras y organizaciones ya vistas'
+          : `${label} en ${countryLabel} — sinónimos controlados y regiones objetivo, ` +
+            'excluyendo señales financieras y organizaciones ya vistas',
     queryParameters,
     providerRequestFingerprint,
     locallyExcludedTerms,
@@ -621,6 +720,10 @@ export function buildRound2Hypothesis(
       ...round1.subindustryTermProvenance,
       ...synonymTerms.provenanceByTerm,
     },
+    // V3-A § 2 — sin familia siguiente, la ronda 2 emite la MISMA que la ronda 1
+    // y todo se comporta como antes del hito.
+    macroQueryVariantKey: round2FamilyKey ?? round1.macroQueryVariantKey,
+    macroQueryFamiliesAvailable: [...families],
     differsFromRound1,
     variantStrategy,
   };
@@ -729,5 +832,8 @@ export function toQueryHypothesisMetadata(
     sector_signals_missing: hypothesis.sectorSignalsMissing,
     // MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 6 — a quién representa cada término.
     subindustry_term_provenance: hypothesis.subindustryTermProvenance,
+    // V3-A § 5 — qué familia emitió esta ronda y cuáles había para elegir.
+    macro_query_variant_key: hypothesis.macroQueryVariantKey,
+    macro_query_families_available: hypothesis.macroQueryFamiliesAvailable,
   };
 }

@@ -1886,6 +1886,12 @@ export async function runApolloTwoRoundDiscovery(
         // V2 — el PLAN de esta ronda queda en el checkpoint desde antes de
         // buscar: es la clave con la que la ronda siguiente lee el cursor.
         searchPlanFingerprint: requestPreview?.searchPlanFingerprint ?? null,
+        // V3-A § 5 — la familia que esta ronda emitió queda en el checkpoint junto
+        // al plan de búsqueda que produjo. Son el mismo hecho visto por sus dos
+        // caras: la familia explica POR QUÉ el plan es distinto al de la ronda
+        // anterior, y el plan es la clave con la que el cursor de página razona.
+        macroQueryVariantKey: hypothesis.macroQueryVariantKey,
+        macroQueryFamiliesAvailable: hypothesis.macroQueryFamiliesAvailable,
         specificTermsSent: hypothesis.queryParameters.keywordTags,
         effectiveKeywordsSent: requestPreview?.effectiveKeywordTags ?? [],
       },

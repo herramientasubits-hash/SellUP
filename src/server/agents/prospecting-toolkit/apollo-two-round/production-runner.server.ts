@@ -83,6 +83,11 @@ import {
   resolveDiscoveryTaxonomyCapability,
   toDiscoveryTaxonomyMetadata,
 } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
+// A1-APOLLO-QUERY-QUALITY-V3-A § 2 — familias semánticas de la macro industria.
+import {
+  macroIndustryQueryFamilyKeys,
+  resolveMacroIndustryByDisplayName,
+} from '@/modules/macro-industry-catalog/macro-industries';
 import {
   assessMacroIndustryEvidence,
   toMacroIndustryEvidenceMetadata,
@@ -1576,6 +1581,10 @@ export async function runApolloTwoRoundWizardDiscovery(
       subindustryCatalogTerms: input.subindustryCatalogTerms ?? null,
       selectionCatalogVersion: input.selectionCatalogVersion ?? null,
       additionalCriteriaTokens: hypothesis.queryParameters.keywordTags,
+      // A1-APOLLO-QUERY-QUALITY-V3-A § 2 — la familia semántica de ESTA ronda.
+      // Es lo único que separa el plan de búsqueda de la ronda 2 del de la ronda
+      // 1 en una corrida macro; el resto del body se construye igual que siempre.
+      macroQueryVariantKey: hypothesis.macroQueryVariantKey ?? null,
     };
 
     // AGENT1-APOLLO-NET-NEW-PAGINATION-LIVE-WIRING — el ÚNICO cableado que
@@ -2552,6 +2561,17 @@ export async function runApolloTwoRoundWizardDiscovery(
         // § 1 — TODAS las subindustrias pedidas llegan a la redacción de la
         // consulta, en el orden de la solicitud.
         subindustries: input.subindustries,
+        // V3-A § 2 — las familias de la macro industria pedida, ya resueltas.
+        //
+        // Sólo en modo macro: en modo legacy no hay macro industria que partir y
+        // la lista vacía deja las dos rondas exactamente como estaban. La
+        // resolución es por nombre visible, la MISMA puerta que usa el redactor
+        // de la consulta, para que las dos no puedan discrepar sobre qué familias
+        // existen.
+        macroQueryFamilies:
+          discoveryTaxonomy.mode === 'macro_industry'
+            ? macroIndustryQueryFamilyKeys(resolveMacroIndustryByDisplayName(input.industry))
+            : [],
       },
       correlation: input.correlation,
       resume: restored ? toResumeStateFromCheckpoint(restored) : null,

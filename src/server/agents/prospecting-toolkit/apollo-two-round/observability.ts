@@ -229,6 +229,17 @@ export type ApolloTwoRoundRoundMetrics = {
   page: number | null;
   /** § 10 — `per_page` que el request efectivo llevó. Null si no se construyó. */
   perPage: number | null;
+  /**
+   * A1-APOLLO-QUERY-QUALITY-V3-A § 5 — familia semántica que ESTA ronda emitió.
+   *
+   * `null` con `macroQueryFamiliesAvailable` vacío ⇒ no había familias que elegir
+   * (corrida legacy o macro industria sin migrar). `null` con familias
+   * disponibles ⇒ la ronda no pidió variante. Los dos casos son distintos y el
+   * QA tiene que poder separarlos sin volver a gastar.
+   */
+  macroQueryVariantKey: string | null;
+  /** V3-A § 5 — familias declaradas por la macro industria, en orden de emisión. */
+  macroQueryFamiliesAvailable: string[];
   /** § 12 — términos de la HIPÓTESIS. Ni el texto humano ni una paráfrasis. */
   specificTermsSent: string[];
   /** § 10 — términos que EFECTIVAMENTE viajaron, tras prioridad y truncamiento. */
@@ -295,6 +306,10 @@ export function buildEmptyRoundMetrics(
     perPage?: number | null;
     /** V2 — huella del plan (body efectivo SIN `page`). */
     searchPlanFingerprint?: string | null;
+    /** V3-A § 5 — familia semántica emitida por esta ronda. */
+    macroQueryVariantKey?: string | null;
+    /** V3-A § 5 — familias que la macro industria declara. */
+    macroQueryFamiliesAvailable?: readonly string[];
     specificTermsSent?: readonly string[];
     effectiveKeywordsSent?: readonly string[];
     subindustryCoverage?: ApolloRoundSubindustryCoverage | null;
@@ -332,6 +347,8 @@ export function buildEmptyRoundMetrics(
     effectiveRequestBuildErrorCode: provider.effectiveRequestBuildErrorCode ?? null,
     page: provider.page ?? null,
     perPage: provider.perPage ?? null,
+    macroQueryVariantKey: provider.macroQueryVariantKey ?? null,
+    macroQueryFamiliesAvailable: [...(provider.macroQueryFamiliesAvailable ?? [])],
     specificTermsSent: [...(provider.specificTermsSent ?? [])],
     effectiveKeywordsSent: [...(provider.effectiveKeywordsSent ?? [])],
     providerTotalPages: null,
@@ -663,6 +680,10 @@ export function toRoundMetricsMetadata(
     per_page: metrics.perPage,
     specific_terms_sent: metrics.specificTermsSent,
     effective_keywords_sent: metrics.effectiveKeywordsSent,
+    // V3-A § 5 — los DOS campos, para distinguir «no había familias» de «F1» y de
+    // «F2». Un checkpoint anterior al hito no los trae: se leen con respaldo.
+    macro_query_variant_key: metrics.macroQueryVariantKey ?? null,
+    macro_query_families_available: metrics.macroQueryFamiliesAvailable ?? [],
     provider_total_pages: metrics.providerTotalPages,
     // V2 — el plan de búsqueda de la ronda y hasta dónde lo dejó consumido.
     search_plan_fingerprint: metrics.searchPlanFingerprint,
