@@ -59,9 +59,11 @@ import {
 } from '../apollo-operation-pricing';
 import { evaluateCompanyOwnership } from '../company-ownership-gate';
 import {
+  buildApolloRoundProviderFingerprint,
   buildRound1Hypothesis,
   buildRound2Hypothesis,
   type ApolloTwoRoundQueryContext,
+  type ApolloTwoRoundQueryHypothesis,
 } from '../apollo-two-round/query-hypothesis';
 import {
   runApolloTwoRoundDiscovery,
@@ -133,10 +135,27 @@ function expectedBroadAllowance(specificCount: number): number {
 
 const CO_SPAIN_COUNTRY_TERMS = ['colombia', 'co', 'bogota', 'bogotá'];
 
-/** Corrida macro con la versión del catálogo v2 — la que activa la taxonomía. */
+/**
+ * Corrida macro con la versión del catálogo v2 — la que activa la taxonomía.
+ *
+ * 🔴 V3-A-FIX § 2 — FIDELIDAD DEL ARNÉS.
+ *
+ * `additionalCriteriaTokens` es un PARÁMETRO, nunca `[]` fijo. Producción no
+ * manda una lista vacía: `production-runner.server.ts` manda
+ * `hypothesis.queryParameters.keywordTags` (las etiquetas que el catálogo
+ * sectorial redactó para ESA ronda), y son ellas las que hacen que dos rondas de
+ * familias distintas compartan términos efectivos. Con `[]` la suite medía un
+ * cableado que no existe y el solapamiento de Retail no aparecía nunca.
+ *
+ * Las secciones A–D siguen pasando `[]` a propósito: miden propiedades del
+ * CATÁLOGO y de la redacción por familia, donde el wizard no aporta criterios.
+ * La sección E, que es la que ejercita la decisión de página del orquestador,
+ * pasa las etiquetas reales de la hipótesis — igual que producción.
+ */
 function macroSearchInput(
   definition: MacroIndustryDefinition,
   variantKey: string | null,
+  additionalCriteriaTokens: readonly string[] = [],
 ): WebSearchInput {
   return {
     query: `descubrimiento ${definition.key}`,
@@ -148,7 +167,7 @@ function macroSearchInput(
     provider: 'apollo_organizations',
     subindustries: [],
     selectionCatalogVersion: '2.0.0',
-    additionalCriteriaTokens: [],
+    additionalCriteriaTokens: [...additionalCriteriaTokens],
     macroQueryVariantKey: variantKey,
   };
 }
@@ -608,7 +627,14 @@ describe('V3-A · D. el body efectivo real de cada familia', () => {
 
 type SpyDeps = {
   deps: ApolloTwoRoundDeps;
-  searchCalls: Array<{ roundNumber: number; page: number; plan: string; variantKey: string | null }>;
+  searchCalls: Array<{
+    roundNumber: number;
+    page: number;
+    plan: string;
+    variantKey: string | null;
+    /** V3-A-FIX § 2 — lo que el body EFECTIVO de esa ronda llevó realmente. */
+    effectiveKeywords: string[];
+  }>;
   providerCallCount: () => number;
   usageLogWrites: () => number;
 };
@@ -629,9 +655,21 @@ function macroSpyDeps(definition: MacroIndustryDefinition, providerTotalPages: n
   let providerCalls = 0;
   const usageLogs: unknown[] = [];
 
-  const planFor = (variantKey: string | null, page: number) =>
+  /**
+   * 🔴 El MISMO `WebSearchInput` que arma `production-runner.server.ts`.
+   *
+   * Los tres campos que deciden la redacción salen de la hipótesis, no del test:
+   * la familia (`macroQueryVariantKey`), la página, y —lo que faltaba— las
+   * etiquetas (`additionalCriteriaTokens: hypothesis.queryParameters.keywordTags`).
+   * Sin la tercera, la suite construía un body que producción nunca emite.
+   */
+  const planFor = (hypothesis: ApolloTwoRoundQueryHypothesis, page: number) =>
     buildApolloOrganizationsEffectiveRequest({
-      input: macroSearchInput(definition, variantKey),
+      input: macroSearchInput(
+        definition,
+        hypothesis.macroQueryVariantKey,
+        hypothesis.queryParameters.keywordTags,
+      ),
       requestedMaxResults: 5,
       resultLimitMode: 'two_round',
       twoRoundMaxResultsPerRound: 5,
@@ -641,27 +679,31 @@ function macroSpyDeps(definition: MacroIndustryDefinition, providerTotalPages: n
 
   const deps: ApolloTwoRoundDeps = {
     buildRoundProviderRequest: ({ hypothesis }) => {
-      const effective = planFor(
-        hypothesis.macroQueryVariantKey,
-        hypothesis.queryParameters.page,
-      );
+      const effective = planFor(hypothesis, hypothesis.queryParameters.page);
       return {
         effectiveRequestFingerprint: effective.effectiveRequestFingerprint,
         searchPlanFingerprint: effective.filtersFingerprint,
         page: effective.page,
         perPage: effective.perPage,
         effectiveKeywordTags: effective.effectiveKeywordTags,
+        // 🔴 Igual que producción: la familia que el redactor RESOLVIÓ, no la
+        // que la hipótesis pidió. Una clave desconocida resuelve a `null`.
+        macroQueryResolvedVariantKey:
+          effective.macroIndustryRequest.mode === 'macro_industry'
+            ? (effective.macroIndustryRequest.plan?.macroQueryVariantKey ?? null)
+            : null,
       };
     },
     searchRound: async ({ roundNumber, hypothesis }) => {
       providerCalls += 1;
       const page = hypothesis.queryParameters.page;
-      const effective = planFor(hypothesis.macroQueryVariantKey, page);
+      const effective = planFor(hypothesis, page);
       searchCalls.push({
         roundNumber,
         page,
         plan: effective.filtersFingerprint,
         variantKey: hypothesis.macroQueryVariantKey,
+        effectiveKeywords: [...effective.effectiveKeywordTags],
       });
       return {
         organizations: orgs(`r${roundNumber}-`, 3),
@@ -692,6 +734,25 @@ function macroSpyDeps(definition: MacroIndustryDefinition, providerTotalPages: n
     providerCallCount: () => providerCalls,
     usageLogWrites: () => usageLogs.length,
   };
+}
+
+/**
+ * Corre las dos rondas con el arnés fiel y devuelve la decisión de página.
+ *
+ * Un solo sitio construye la corrida, así que todos los escenarios de la
+ * sección G miden EL MISMO cableado: el de `production-runner.server.ts`.
+ */
+async function runFamilyScenario(
+  definition: MacroIndustryDefinition,
+  context: ApolloTwoRoundQueryContext,
+  providerTotalPages = 52,
+) {
+  const spy = macroSpyDeps(definition, providerTotalPages);
+  const result = await runApolloTwoRoundDiscovery(
+    { config: testConfig(), queryContext: context, correlation: testCorrelation() },
+    spy.deps,
+  );
+  return { spy, result, decision: result.round2PageDecision };
 }
 
 describe('V3-A · E. la ronda 2 estrena universo y arranca en la página 1', () => {
@@ -725,9 +786,34 @@ describe('V3-A · E. la ronda 2 estrena universo y arranca en la página 1', () 
       assert.equal(result.round2PageDecision?.netNewCursorPage, 1);
       assert.equal(result.round2PageDecision?.advancedByNetNewCursor, false);
       assert.equal(result.round2PageDecision?.escalatedToPage2, false);
-      assert.equal(result.round2PageDecision?.escalationReason, null);
-      assert.deepEqual(result.round2PageDecision?.sharedEffectiveKeywords, []);
       assert.equal(result.round2PageDecision?.netNewCursorPlanFingerprint, round2.plan);
+
+      /**
+       * 🔴 V3-A-FIX § 1 — lo que esta aserción NO puede exigir.
+       *
+       * Con el arnés fiel, `escalationReason` ya no es `null` en todas las macro
+       * industrias: donde el sector SÍ tiene señales en `SECTOR_SIGNAL_CATALOG`
+       * (Retail), las etiquetas que producción manda como
+       * `additionalCriteriaTokens` dejan términos efectivos compartidos entre F1
+       * y F2. El solapamiento es real y se declara.
+       *
+       * Lo invariante es la PÁGINA: exista o no solapamiento, una familia nueva
+       * estrena universo y arranca en la 1. Cuando el solapamiento existe, la
+       * causa de que no moviera la página queda dicha en
+       * `round2OpensNewFamilyUniverse`.
+       */
+      const decision = result.round2PageDecision;
+      assert.ok(decision);
+      if (decision.sharedEffectiveKeywords.length > 0) {
+        assert.equal(decision.escalationReason, 'overlapping_effective_keywords');
+        assert.equal(
+          decision.round2OpensNewFamilyUniverse,
+          true,
+          `${definition.key}: hubo solapamiento y NO se declaró universo nuevo`,
+        );
+      } else {
+        assert.equal(decision.escalationReason, null);
+      }
 
       // 21 y 22 — dos llamadas al doble, cero llamadas reales, cero créditos.
       assert.equal(spy.providerCallCount(), 2);
@@ -817,6 +903,297 @@ describe('V3-A · F. #380 y #382 no se movieron', () => {
     assert.equal(
       resolveMacroIndustryQueryFamily(transport, macroIndustryQueryFamilyKeys(transport)[1])?.index,
       1,
+    );
+  });
+});
+
+// ─── G · V3-A-FIX · una familia NUEVA arranca en la página 1 ──────────────────
+//
+// El defecto que esta sección cierra, con el cableado REAL:
+//
+//   `production-runner.server.ts:1583` manda
+//   `additionalCriteriaTokens: hypothesis.queryParameters.keywordTags`.
+//
+//   En Retail eso deja `[cadena de tiendas, retailer, comercio minorista]` en
+//   común entre F1 y F2 ⇒ `escalationReason = overlapping_effective_keywords`
+//   ⇒ `overlapFloorPage = 2` ⇒ la ronda 2 compraba la PÁGINA 2 de un universo
+//   cuya página 1 no había comprado nadie. Con el crédito por página de #380,
+//   una página pagada y saltada.
+//
+// La regla nueva NO elimina el suelo: lo limita al caso para el que se escribió
+// —dos rondas dentro del MISMO universo—. Una familia declarada distinta cuyo
+// `search_plan_fingerprint` también difiere estrena universo y empieza en la 1.
+
+/** La macro industria cuyo sector SÍ tiene señales en `SECTOR_SIGNAL_CATALOG`. */
+const RETAIL = MACRO_INDUSTRIES.find((d) => d.key === 'retail') as MacroIndustryDefinition;
+
+describe('V3-A-FIX · G. familia nueva ⇒ página 1, mismo universo ⇒ suelo intacto', () => {
+  test('G0 — FIDELIDAD: el arnés manda las etiquetas que manda producción', async () => {
+    /**
+     * 🔴 MUTATION GUARD del § P1.
+     *
+     * Si alguien vuelve a poner `additionalCriteriaTokens: []` en el arnés, los
+     * términos efectivos de la ronda 1 dejan de contener las etiquetas del
+     * catálogo sectorial y este test cae. Es la prueba de que la suite mide el
+     * cableado de producción y no uno inventado.
+     */
+    const round1 = buildRound1Hypothesis(macroContext(RETAIL), 5);
+    assert.ok(
+      round1.queryParameters.keywordTags.length > 0,
+      'Retail debe redactar etiquetas sectoriales: sin ellas el escenario no existe',
+    );
+
+    const { spy } = await runFamilyScenario(RETAIL, macroContext(RETAIL));
+    const [r1Call] = spy.searchCalls;
+
+    // Cada etiqueta que producción manda como criterio adicional tiene que
+    // aparecer en el body efectivo de la ronda 1.
+    for (const tag of round1.queryParameters.keywordTags) {
+      assert.ok(
+        r1Call.effectiveKeywords.some((k) => norm(k) === norm(tag)),
+        `el arnés no propagó «${tag}»: additionalCriteriaTokens volvió a ser []`,
+      );
+    }
+  });
+
+  test('G1 — Retail F1→F2 con solapamiento REAL: página 1', async () => {
+    const [f1, f2] = macroIndustryQueryFamilyKeys(RETAIL);
+    const { spy, result, decision } = await runFamilyScenario(RETAIL, macroContext(RETAIL));
+
+    assert.equal(spy.searchCalls.length, 2);
+    const [round1, round2] = spy.searchCalls;
+    assert.equal(round1.variantKey, f1);
+    assert.equal(round2.variantKey, f2);
+
+    assert.ok(decision);
+    // 🔴 El solapamiento EXISTE — no se esconde ni se anula.
+    assert.ok(
+      decision.sharedEffectiveKeywords.length > 0,
+      'Retail debe compartir términos efectivos: si no, el defecto no se está midiendo',
+    );
+    assert.equal(decision.escalationReason, 'overlapping_effective_keywords');
+
+    // 🔴 …y aun así la ronda 2 arranca en la PÁGINA 1, porque F2 es otro universo.
+    assert.equal(decision.requestedPage, 1, 'la ronda 2 se saltó la página 1 de F2');
+    assert.equal(round2.page, 1, 'el proveedor recibió una página distinta de la 1');
+    assert.equal(decision.round2OpensNewFamilyUniverse, true);
+    assert.equal(decision.escalatedToPage2, false);
+    assert.equal(decision.pageSource, 'first_page');
+
+    // El universo es demostrablemente otro, y su cursor está en 1.
+    assert.notEqual(round1.plan, round2.plan);
+    assert.equal(decision.netNewCursorPage, 1);
+    assert.equal(decision.netNewCursorPlanFingerprint, round2.plan);
+
+    // Sin proveedor, sin créditos, sin escrituras.
+    assert.equal(spy.providerCallCount(), 2);
+    assert.equal(result.runMetrics.totalSearchCredits, 0);
+    assert.equal(result.runMetrics.totalEnrichmentCredits, 0);
+    assert.equal(spy.usageLogWrites(), 0);
+  });
+
+  test('G2 — MISMO universo con solapamiento: el suelo de #383/#1B sigue en 2', async () => {
+    /**
+     * El caso legacy de SCALE-SECOND-ROUND-FIX-1B, intacto: el MISMO sector de
+     * Retail sin familias declaradas. La ronda 2 hereda las anclas de la ronda 1
+     * (`[...synonyms, ...round1.keywordTags]`), comparte términos efectivos y no
+     * declara familia alguna ⇒ no hay universo nuevo que probar ⇒ el suelo de 2
+     * se aplica exactamente como antes de este arreglo.
+     */
+    const sinFamilias = macroContext(RETAIL, { macroQueryFamilies: [] });
+    const { spy, decision } = await runFamilyScenario(RETAIL, sinFamilias);
+
+    assert.equal(spy.searchCalls.length, 2);
+    const [round1, round2] = spy.searchCalls;
+    assert.equal(round1.variantKey, null);
+    assert.equal(round2.variantKey, null);
+
+    assert.ok(decision);
+    assert.ok(
+      decision.sharedEffectiveKeywords.length > 0,
+      'sin familias la ronda 2 hereda las anclas: tiene que solaparse',
+    );
+    assert.equal(decision.escalationReason, 'overlapping_effective_keywords');
+    // 🔴 Sin familia nueva NO hay universo nuevo: el suelo manda y la página sube.
+    assert.equal(decision.round2OpensNewFamilyUniverse, false);
+    assert.equal(decision.requestedPage, 2);
+    assert.equal(round2.page, 2);
+    assert.equal(decision.escalatedToPage2, true);
+    assert.equal(decision.pageSource, 'effective_request_escalation');
+  });
+
+  test('G2b — una sola familia declarada: misma familia en las dos rondas ⇒ suelo intacto', async () => {
+    /**
+     * Con UNA sola familia, `buildRound2Hypothesis` no encuentra siguiente y las
+     * dos rondas emiten la misma clave. La identidad de familia no cambia, así
+     * que tampoco hay universo nuevo que declarar.
+     */
+    const [f1] = macroIndustryQueryFamilyKeys(RETAIL);
+    const unaFamilia = macroContext(RETAIL, { macroQueryFamilies: [f1] });
+    const { spy, decision } = await runFamilyScenario(RETAIL, unaFamilia);
+
+    const [round1, round2] = spy.searchCalls;
+    assert.equal(round1.variantKey, f1);
+    assert.equal(round2.variantKey, f1, 'sin familia siguiente la ronda 2 repite la de la ronda 1');
+
+    assert.ok(decision);
+    assert.equal(decision.round2OpensNewFamilyUniverse, false);
+    if (decision.escalationReason !== null) {
+      assert.equal(decision.requestedPage, 2, 'mismo universo con solapamiento debe subir de página');
+    }
+  });
+
+  test('G3 — familia nueva SIN solapamiento: página 1 (y la causa es `first_page`)', async () => {
+    /**
+     * Las 11 macro industrias cuyo sector no está en `SECTOR_SIGNAL_CATALOG`: sin
+     * etiquetas sectoriales no hay términos compartidos, así que la página 1 no
+     * necesitaba el arreglo. Se mide para que la corrección no la haya movido.
+     */
+    for (const definition of MACRO_INDUSTRIES) {
+      if (definition.key === RETAIL.key) continue;
+      const { spy, decision } = await runFamilyScenario(definition, macroContext(definition));
+      const [, round2] = spy.searchCalls;
+
+      assert.ok(decision, `${definition.key}: no hubo decisión de página`);
+      assert.deepEqual(decision.sharedEffectiveKeywords, [], `${definition.key}`);
+      assert.equal(decision.escalationReason, null, `${definition.key}`);
+      assert.equal(decision.requestedPage, 1, `${definition.key}`);
+      assert.equal(round2.page, 1, `${definition.key}`);
+      assert.equal(decision.pageSource, 'first_page', `${definition.key}`);
+      // Sin solapamiento el suelo ya era 1: la regla nueva no tiene nada que hacer.
+      assert.equal(decision.round2OpensNewFamilyUniverse, true, `${definition.key}`);
+    }
+  });
+
+  test('G4 — macro SIN familias: idéntico al baseline anterior al hito', async () => {
+    /**
+     * El contrato de no-regresión. Sin `macroQueryFamilies` la hipótesis se
+     * redacta como antes de V3-A: misma clave (`null`), mismas etiquetas, misma
+     * huella —incluida la huella de hipótesis, que sin variante NO lleva
+     * componente nuevo (§ P3)—.
+     */
+    const sinFamilias = macroContext(RETAIL, { macroQueryFamilies: [] });
+    const round1 = buildRound1Hypothesis(sinFamilias, 5);
+    const round2 = buildRound2Hypothesis(
+      sinFamilias,
+      {
+        remainingTarget: 5,
+        excludedSeenOrganizationCount: 0,
+        observedRejectionReasons: [],
+        providerTotalPages: 52,
+      },
+      5,
+    );
+
+    assert.equal(round1.macroQueryVariantKey, null);
+    assert.equal(round2.macroQueryVariantKey, null);
+    assert.deepEqual(round1.macroQueryFamiliesAvailable, []);
+
+    // 🔴 P3 — la huella legacy es BYTE POR BYTE la de antes: sin variante no se
+    // añade componente alguno.
+    assert.equal(
+      round1.providerRequestFingerprint,
+      buildApolloRoundProviderFingerprint(round1.queryParameters),
+    );
+    assert.ok(!round1.providerRequestFingerprint.includes('macro_query_variant_key'));
+    assert.ok(!round2.providerRequestFingerprint.includes('macro_query_variant_key'));
+
+    // Y la ronda 2 sigue heredando las anclas de la ronda 1, como antes.
+    for (const tag of round1.queryParameters.keywordTags) {
+      assert.ok(round2.queryParameters.keywordTags.some((t) => norm(t) === norm(tag)));
+    }
+  });
+
+  test('G5 — clave de familia desconocida: plan completo, comportamiento legacy', async () => {
+    /**
+     * Una clave que la macro industria no declara no estrecha la consulta ni
+     * inventa un universo: el plan se redacta entero, como si no hubiera
+     * variante. La decisión de página vuelve a depender sólo del solapamiento.
+     */
+    const desconocida = buildMacroIndustryQueryPlan({
+      definition: RETAIL,
+      variantKey: 'familia_que_no_existe',
+    });
+    const completo = buildMacroIndustryQueryPlan({ definition: RETAIL, variantKey: null });
+    assert.deepEqual(desconocida.effectiveKeywords, completo.effectiveKeywords);
+
+    // En el orquestador: dos claves desconocidas NO son familias distintas, así
+    // que no pueden declarar universo nuevo — la identidad exige que la ronda 1
+    // haya emitido una familia REAL y la ronda 2 otra.
+    const contexto = macroContext(RETAIL, {
+      macroQueryFamilies: ['familia_que_no_existe', 'tampoco_esta'],
+    });
+    const { spy, decision } = await runFamilyScenario(RETAIL, contexto);
+    const [round1, round2] = spy.searchCalls;
+
+    // Las claves viajan (el redactor las ignora), pero el body es el plan completo.
+    assert.equal(round1.variantKey, 'familia_que_no_existe');
+    assert.equal(round2.variantKey, 'tampoco_esta');
+    assert.ok(decision);
+    /**
+     * 🔴 Ninguna de las dos claves estrecha la consulta: el redactor las resuelve
+     * a `null` y emite el plan COMPLETO en las dos rondas. Los planes efectivos
+     * sí difieren —las etiquetas del wizard cambian entre ronda 1 y ronda 2, que
+     * es el camino legacy—, pero eso NO es una familia nueva.
+     *
+     * Si la identidad se tomara de la clave PEDIDA en vez de la RESUELTA, estas
+     * dos claves inventadas desactivarían el suelo de página con una consulta que
+     * nadie ha cambiado. Fail-closed: no hay universo nuevo que declarar.
+     */
+    assert.equal(decision.round2OpensNewFamilyUniverse, false);
+  });
+
+  test('G6 — P3: `differsFromRound1` deja de mentir cuando R1=F1 y R2=F2', () => {
+    /**
+     * 🔴 El defecto de observabilidad del § P3.
+     *
+     * `buildApolloRoundProviderFingerprint` sólo cubría `queryParameters`, pero
+     * desde V3-A la familia viaja al proveedor por su PROPIO campo de
+     * `WebSearchInput`. En 11 de las 12 macro industrias el sector no aporta
+     * etiquetas, los `keywordTags` de las dos rondas colapsan a la misma lista y
+     * la huella declaraba «la misma búsqueda» de dos búsquedas distintas:
+     * `differsFromRound1 = false` con R1=F1 y R2=F2.
+     */
+    let macrosSinEtiquetas = 0;
+    for (const definition of MACRO_INDUSTRIES) {
+      const [f1, f2] = macroIndustryQueryFamilyKeys(definition);
+      const context = macroContext(definition);
+      const round1 = buildRound1Hypothesis(context, 5);
+      const round2 = buildRound2Hypothesis(
+        context,
+        {
+          remainingTarget: 5,
+          excludedSeenOrganizationCount: 0,
+          observedRejectionReasons: [],
+          providerTotalPages: 52,
+        },
+        5,
+      );
+
+      assert.equal(round1.macroQueryVariantKey, f1);
+      assert.equal(round2.macroQueryVariantKey, f2);
+
+      if (round2.queryParameters.keywordTags.length === 0) macrosSinEtiquetas += 1;
+
+      // La huella lleva la familia, así que las dos rondas SIEMPRE difieren.
+      assert.notEqual(
+        round1.providerRequestFingerprint,
+        round2.providerRequestFingerprint,
+        `${definition.key}: dos familias distintas con la misma huella de hipótesis`,
+      );
+      assert.equal(
+        round2.differsFromRound1,
+        true,
+        `${definition.key}: differsFromRound1 sigue mintiendo`,
+      );
+      assert.ok(round1.providerRequestFingerprint.includes(`macro_query_variant_key=${norm(f1)}`));
+      assert.ok(round2.providerRequestFingerprint.includes(`macro_query_variant_key=${norm(f2)}`));
+    }
+
+    // La condición que producía la mentira existe de verdad: no es un caso teórico.
+    assert.ok(
+      macrosSinEtiquetas >= 10,
+      `se esperaban ≥10 macros sin etiquetas sectoriales, hubo ${macrosSinEtiquetas}`,
     );
   });
 });

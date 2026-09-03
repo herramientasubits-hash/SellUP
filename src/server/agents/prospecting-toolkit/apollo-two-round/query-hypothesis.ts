@@ -318,19 +318,42 @@ export type ApolloTwoRoundQueryParameters = {
  *
  * Normaliza igual que el contrato: minúsculas, sin acentos, arrays ordenados.
  * Incluye la página, porque la página SÍ cambia lo que Apollo devuelve.
+ *
+ * ── V3-A-FIX § 3 — la variante de familia también SALE ────────────────────────
+ *
+ * `queryParameters` dejó de ser todo lo que viaja al proveedor. Desde V3-A,
+ * `macroQueryVariantKey` llega a `WebSearchInput` por su propio campo
+ * (`production-runner.server.ts`) y hace que el mapper redacte OTRA consulta: en
+ * 11 de las 12 macro industrias el sector no tiene señales en
+ * `SECTOR_SIGNAL_CATALOG`, así que las dos rondas salían con `keywordTags`
+ * vacíos, la misma huella de hipótesis y `differsFromRound1 = false` — mientras
+ * el body real de la ronda 2 pedía la familia 2. La huella decía "la misma
+ * búsqueda" de dos búsquedas distintas.
+ *
+ * La variante se añade como un componente MÁS, y sólo cuando existe: sin
+ * familias el valor es `null` y la cadena resultante es byte por byte la de
+ * antes del hito. Ninguna huella histórica cambia.
+ *
+ * Esta huella es diagnóstico y observabilidad. La decisión económica la sigue
+ * tomando el orquestador con `effectiveRequestFingerprint` /
+ * `searchPlanFingerprint`, que NO se tocan (#383, #380).
  */
 export function buildApolloRoundProviderFingerprint(
   parameters: ApolloTwoRoundQueryParameters,
+  macroQueryVariantKey: string | null = null,
 ): string {
   const normalizeList = (values: readonly string[]): string =>
     [...values].map(normalizeKey).filter((value) => value !== '').sort().join(',');
 
-  return [
+  const base = [
     `organization_locations=${normalizeList(parameters.locations)}`,
     `organization_num_employees_ranges=${normalizeList(parameters.employeeRanges)}`,
     `page=${parameters.page}`,
     `q_organization_keyword_tags=${normalizeList(parameters.keywordTags)}`,
   ].join('|');
+
+  const variant = macroQueryVariantKey?.trim();
+  return variant ? `${base}|macro_query_variant_key=${normalizeKey(variant)}` : base;
 }
 
 /**
@@ -499,7 +522,10 @@ export function buildRound1Hypothesis(
     roundNumber: 1,
     queryHypothesis: `${label} en ${countryLabel} — señales estrictas de subindustria`,
     queryParameters,
-    providerRequestFingerprint: buildApolloRoundProviderFingerprint(queryParameters),
+    providerRequestFingerprint: buildApolloRoundProviderFingerprint(
+      queryParameters,
+      families[0] ?? null,
+    ),
     locallyExcludedTerms: dedupeTrimmed(collectContradictoryTerms(sets)),
     queryAdaptationReason: null,
     requestedResultLimit,
@@ -692,7 +718,14 @@ export function buildRound2Hypothesis(
     };
   }
 
-  const providerRequestFingerprint = buildApolloRoundProviderFingerprint(queryParameters);
+  // V3-A-FIX § 3 — la familia que ESTA ronda emite entra en la huella: es lo que
+  // separa el body de la ronda 2 del de la ronda 1 cuando el sector no aporta
+  // etiquetas y los `keywordTags` de las dos rondas colapsan a la misma lista.
+  const round2VariantKey = round2FamilyKey ?? round1.macroQueryVariantKey;
+  const providerRequestFingerprint = buildApolloRoundProviderFingerprint(
+    queryParameters,
+    round2VariantKey,
+  );
   const differsFromRound1 =
     providerRequestFingerprint !== round1.providerRequestFingerprint;
 
@@ -722,7 +755,7 @@ export function buildRound2Hypothesis(
     },
     // V3-A § 2 — sin familia siguiente, la ronda 2 emite la MISMA que la ronda 1
     // y todo se comporta como antes del hito.
-    macroQueryVariantKey: round2FamilyKey ?? round1.macroQueryVariantKey,
+    macroQueryVariantKey: round2VariantKey,
     macroQueryFamiliesAvailable: [...families],
     differsFromRound1,
     variantStrategy,
@@ -765,7 +798,12 @@ export function withRequestedPage(
     employeeRanges: [...hypothesis.queryParameters.employeeRanges],
     page: requestedPage,
   };
-  const providerRequestFingerprint = buildApolloRoundProviderFingerprint(queryParameters);
+  // V3-A-FIX § 3 — cambiar de página no cambia de familia: la huella recalculada
+  // conserva la variante que esta hipótesis ya declaraba.
+  const providerRequestFingerprint = buildApolloRoundProviderFingerprint(
+    queryParameters,
+    hypothesis.macroQueryVariantKey,
+  );
   const adaptationParts = (hypothesis.queryAdaptationReason ?? '')
     .split('+')
     .filter((part) => part !== '' && part !== 'sin_senales_de_adaptacion');

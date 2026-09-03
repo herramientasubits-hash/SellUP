@@ -1724,6 +1724,13 @@ export async function runApolloTwoRoundWizardDiscovery(
         page: effective.page,
         perPage: effective.perPage,
         effectiveKeywordTags: effective.effectiveKeywordTags,
+        // V3-A-FIX § 1 — la familia que el redactor RESOLVIÓ contra el catálogo.
+        // `null` en modo legacy y cuando la clave pedida no existe: en los dos
+        // casos el body es el plan completo, no una familia.
+        macroQueryResolvedVariantKey:
+          effective.macroIndustryRequest.mode === 'macro_industry'
+            ? (effective.macroIndustryRequest.plan?.macroQueryVariantKey ?? null)
+            : null,
         // MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 §§ 6 y 7 — la cobertura del body
         // efectivo y su veredicto de gasto viajan con el preview: el orquestador
         // decide con ellos ANTES de emitir la búsqueda.
