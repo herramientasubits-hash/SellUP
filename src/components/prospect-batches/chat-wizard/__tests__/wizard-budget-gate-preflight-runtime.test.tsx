@@ -17,6 +17,12 @@
  *
  * Estas pruebas fallan contra ese comportamiento y pasan con el bloqueo previo.
  *
+ * AGENT1-WIZARD-BUDGET-UI-APOLLO-DECOUPLE-1 — el escenario base de esta suite
+ * pasó de Apollo a Tavily: desde #386 Apollo reserva su propia cuota de
+ * proveedor, no este pool, así que Tavily es quien de verdad sigue financiado
+ * por él. La cobertura de que Apollo YA NO se bloquea por este pool vive en
+ * § 1B.
+ *
  * Sin red, sin proveedor, sin base, sin créditos.
  */
 
@@ -98,10 +104,16 @@ const ADMIN_CAPABILITY: WizardProviderOverrideCapability = {
   allowedProviders: ['tavily', 'apollo_organizations'],
 };
 
-/** El presupuesto real de Producción en el momento de la QA. */
+/**
+ * El presupuesto real de Producción en el momento de la QA.
+ *
+ * AGENT1-WIZARD-BUDGET-UI-APOLLO-DECOUPLE-1 — sin entrada de Apollo: desde #386
+ * ya no se financia con este pool, así que la forma REAL que produce
+ * `resolveWizardBudgetPreflightForSurface` tampoco la trae.
+ */
 const PROD_PREFLIGHT: WizardBudgetPreflight = {
   availableCredits: 5,
-  requiredCreditsByProvider: { tavily: 20, apollo_organizations: 25 },
+  requiredCreditsByProvider: { tavily: 20 },
 };
 
 function validatedState(overrides: Partial<ProspectWizardState> = {}): ProspectWizardState {
@@ -133,9 +145,15 @@ type RenderOptions = {
 /**
  * Ojo con `requestedProvider`: `undefined` es un VALOR con significado propio
  * («el administrador no tocó el selector»), así que no puede resolverse con un
- * default de desestructuración — ése lo repondría a Apollo y la prueba dejaría
- * de ejercitar el camino del predeterminado del servidor. Se lee por presencia
- * de la clave.
+ * default de desestructuración — ése lo repondría al default fijo de abajo y la
+ * prueba dejaría de ejercitar el camino del predeterminado del servidor. Se lee
+ * por presencia de la clave.
+ *
+ * AGENT1-WIZARD-BUDGET-UI-APOLLO-DECOUPLE-1 — el default pasó de
+ * `apollo_organizations` a `tavily`: Tavily es el proveedor que ESTE pool sigue
+ * financiando, así que es el escenario correcto para ejercitar «el bloqueo
+ * existe antes del primer clic» por defecto. La cobertura de Apollo (que ya NO
+ * bloquea por este pool) vive en su propio bloque, § 1B.
  */
 function renderSummary(options: RenderOptions = {}) {
   const {
@@ -145,7 +163,7 @@ function renderSummary(options: RenderOptions = {}) {
   } = options;
   const requestedProvider = 'requestedProvider' in options
     ? options.requestedProvider
-    : ('apollo_organizations' as WizardRunSelectableProvider);
+    : ('tavily' as WizardRunSelectableProvider);
   return render(
     <WizardConversationSummary
       state={state}
@@ -182,13 +200,13 @@ afterEach(() => {
   cleanup();
 });
 
-describe('§ 1 — available 5 / required 25, SIN intento previo: el bloqueo existe antes del primer clic', () => {
+describe('§ 1 — Tavily: available 5 / required 20, SIN intento previo: el bloqueo existe antes del primer clic', () => {
   it('muestra el aviso con el motivo y las DOS cifras', () => {
     renderSummary();
     const notice = screen.getByTestId('wizard-budget-preflight-notice');
     assert.match(notice.textContent ?? '', /El presupuesto disponible no alcanza para esta corrida\./);
     assert.match(notice.textContent ?? '', /Disponibles: 5 créditos\./);
-    assert.match(notice.textContent ?? '', /Requeridos: 25 créditos\./);
+    assert.match(notice.textContent ?? '', /Requeridos: 20 créditos\./);
   });
 
   it('«Generar prospectos» deja de ofrecerse — no hay CTA que pueda gastar', () => {
@@ -213,10 +231,36 @@ describe('§ 1 — available 5 / required 25, SIN intento previo: el bloqueo exi
   });
 });
 
+describe('§ 1B — Apollo: AGENT1-WIZARD-BUDGET-UI-APOLLO-DECOUPLE-1 — este pool ya NO lo bloquea', () => {
+  it('con el MISMO presupuesto que bloquea a Tavily (5 disponibles), Apollo no muestra aviso', () => {
+    renderSummary({ requestedProvider: 'apollo_organizations' });
+    assert.equal(screen.queryByTestId('wizard-budget-preflight-notice'), null);
+  });
+
+  it('«Generar prospectos» se sigue ofreciendo', () => {
+    renderSummary({ requestedProvider: 'apollo_organizations' });
+    assert.ok(screen.getByText('Generar prospectos'));
+  });
+
+  it('el selector de proveedor se sigue ofreciendo', () => {
+    renderSummary({ requestedProvider: 'apollo_organizations' });
+    assert.ok(screen.getByText('Proveedor de esta corrida'));
+  });
+
+  it('con el pool en 0 (agotado del todo) Apollo TAMPOCO se bloquea', () => {
+    renderSummary({
+      requestedProvider: 'apollo_organizations',
+      budgetPreflight: { ...PROD_PREFLIGHT, availableCredits: 0 },
+    });
+    assert.equal(screen.queryByTestId('wizard-budget-preflight-notice'), null);
+    assert.ok(screen.getByText('Generar prospectos'));
+  });
+});
+
 describe('§ 2 — presupuesto suficiente: la pantalla se comporta como siempre', () => {
   const enough: WizardBudgetPreflight = {
     availableCredits: 25,
-    requiredCreditsByProvider: { tavily: 20, apollo_organizations: 25 },
+    requiredCreditsByProvider: { tavily: 20 },
   };
 
   it('available = required (25/25) no muestra aviso y conserva el CTA', () => {

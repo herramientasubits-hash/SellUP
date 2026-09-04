@@ -83,12 +83,25 @@ export async function resolveWizardBudgetPreflightForSurface(): Promise<WizardBu
     );
     if (!snapshot) return null;
 
+    // AGENT1-WIZARD-BUDGET-UI-APOLLO-DECOUPLE-1 — sólo los proveedores que este
+    // pool realmente financia. Apollo es seleccionable
+    // (`WIZARD_RUN_SELECTABLE_PROVIDERS` sigue intacto: eso decide qué puede
+    // ELEGIR un admin, no quién paga), pero desde
+    // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 (#386) reserva su propia cuota de
+    // Providers & Consumption, no `wizard_monthly_budget_periods`. Publicar aquí
+    // un coste de Apollo comparado contra `snapshot.availableCredits` —el saldo de
+    // ESE pool— generaría un aviso previo falso. Tavily sigue financiado por este
+    // pool sin cambios.
+    const wizardBudgetFundedProviders = WIZARD_RUN_SELECTABLE_PROVIDERS.filter(
+      (provider) => provider !== 'apollo_organizations',
+    );
+
     const requiredCreditsByProvider = Object.fromEntries(
-      WIZARD_RUN_SELECTABLE_PROVIDERS.map((provider) => [
+      wizardBudgetFundedProviders.map((provider) => [
         provider,
         estimateCreditsForProvider(provider),
       ]),
-    ) as Record<WizardRunSelectableProvider, number>;
+    ) as Partial<Record<WizardRunSelectableProvider, number>>;
 
     // Un techo de Lusha no resoluble no puede bloquear ni inventar un número: se
     // publica `null` y la reserva atómica sigue siendo la autoridad.

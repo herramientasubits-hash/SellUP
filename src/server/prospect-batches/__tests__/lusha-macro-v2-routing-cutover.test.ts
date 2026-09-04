@@ -711,7 +711,12 @@ describe('§ 13 — las 12 rutas están listas y OPERATIVAMENTE cerradas', () =>
       false,
     );
     // Y el techo de Lusha vive en un campo APARTE del preflight, no dentro de
-    // `requiredCreditsByProvider`, que está indexado por esa misma unión.
+    // `requiredCreditsByProvider`, que sigue indexado por esa misma unión.
+    //
+    // AGENT1-WIZARD-BUDGET-UI-APOLLO-DECOUPLE-1 — `Partial<Record<...>>`, no
+    // `Record<...>`: desde #386 Apollo no se financia con este pool, así que su
+    // clave puede faltar (ver wizard-budget-preflight.server.ts). La unión que
+    // indexa el campo —y que mantiene a Lusha fuera— no cambió.
     const preflight = stripComments(
       readFileSync(
         path.join(SRC_ROOT, 'modules/prospect-batches/chat-wizard-execution/wizard-budget-preflight.ts'),
@@ -719,7 +724,10 @@ describe('§ 13 — las 12 rutas están listas y OPERATIVAMENTE cerradas', () =>
       ),
     );
     assert.match(preflight, /lushaRequiredCreditsByMacroIndustry\?:/);
-    assert.match(preflight, /requiredCreditsByProvider: Record<WizardRunSelectableProvider, number>/);
+    assert.match(
+      preflight,
+      /requiredCreditsByProvider: Partial<Record<WizardRunSelectableProvider, number>>/,
+    );
   });
 });
 

@@ -407,10 +407,14 @@ describe('§9 — reconciliación del gasto real', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-describe('§6 — aviso previo: mismo comparador que Apollo, sin ensanchar el radio', () => {
+describe('§6 — aviso previo: mismo comparador que Tavily, sin ensanchar el radio', () => {
+  // AGENT1-WIZARD-BUDGET-UI-APOLLO-DECOUPLE-1 — la fixture ya no trae una
+  // entrada de Apollo: desde #386 Apollo no se financia con este pool, así que
+  // `requiredCreditsByProvider` real tampoco la trae (ver
+  // wizard-budget-preflight.server.ts). Tavily sigue exactamente igual.
   const preflight = (available: number, lusha: number | null): WizardBudgetPreflight => ({
     availableCredits: available,
-    requiredCreditsByProvider: { tavily: 20, apollo_organizations: 25 },
+    requiredCreditsByProvider: { tavily: 20 },
     lushaRequiredCredits: lusha,
   });
 
@@ -445,22 +449,18 @@ describe('§6 — aviso previo: mismo comparador que Apollo, sin ensanchar el ra
 
   it('techo de Lusha no resoluble → NO bloquea, y NO cae al número de otro proveedor', () => {
     assert.equal(resolveLushaPreExecutionBudgetBlock(preflight(1, null)), null);
-    // Con 1 disponible, el techo de Apollo (25) sí bloquearía. Que Lusha no
+    // Con 1 disponible, el techo de Tavily (20) sí bloquearía. Que Lusha no
     // bloquee prueba que no está leyendo la casilla equivocada.
-    assert.notEqual(
-      resolveWizardPreExecutionBudgetBlock(preflight(1, null), 'apollo_organizations'),
-      null,
-    );
+    assert.notEqual(resolveWizardPreExecutionBudgetBlock(preflight(1, null), 'tavily'), null);
   });
 
-  it('NO hay regresión cruzada: los números de Apollo y Tavily no cambian', () => {
+  it('NO hay regresión cruzada: el número de Tavily no cambia, y Apollo sigue sin bloquearse por este pool', () => {
     const p = preflight(21, 2);
-    // 21 disponibles: cabe Tavily (20), no cabe Apollo (25), cabe Lusha (2).
+    // 21 disponibles: cabe Tavily (20), cabe Lusha (2).
     assert.equal(resolveWizardPreExecutionBudgetBlock(p, 'tavily'), null);
-    assert.equal(
-      resolveWizardPreExecutionBudgetBlock(p, 'apollo_organizations')?.requiredCredits,
-      25,
-    );
+    // AGENT1-WIZARD-BUDGET-UI-APOLLO-DECOUPLE-1 — Apollo ya no se compara contra
+    // este pool en absoluto, así que ningún saldo de este pool puede bloquearlo.
+    assert.equal(resolveWizardPreExecutionBudgetBlock(p, 'apollo_organizations'), null);
     assert.equal(resolveLushaPreExecutionBudgetBlock(p), null);
   });
 

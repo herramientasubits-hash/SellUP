@@ -5,9 +5,18 @@
  * AGENT1-WIZARD-BUDGET-ADMIN-F1B.
  *
  * Vive como sección HERMANA de la tabla de proveedores, no dentro del drawer de
- * Apollo, porque el presupuesto que administra no es de Apollo: es el pozo
- * interno compartido por Apollo, Tavily y Lusha. Meterlo en el drawer de un
- * proveedor sugeriría que cambiarlo cambia la cuota de ese proveedor.
+ * ningún proveedor, porque el presupuesto que administra no es de un proveedor
+ * concreto: es el pozo interno que financia las corridas de Tavily y Lusha.
+ * Meterlo en el drawer de un proveedor sugeriría que cambiarlo cambia la cuota
+ * de ese proveedor.
+ *
+ * AGENT1-WIZARD-BUDGET-UI-APOLLO-DECOUPLE-1 — Apollo YA NO gasta de este pool
+ * desde AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 (#386): usa su propia cuota de
+ * Providers & Consumption (`tool_catalog.monthly_credits_allowance` +
+ * `provider_usage_logs`). Por eso esta tarjeta ya no lo lista como consumidor
+ * del pool ni le atribuye un costo aquí — su cuota se muestra vía
+ * `ProviderQuotaAside`, la MISMA superficie de sólo lectura que ya existía para
+ * no duplicar esa información.
  *
  * Las dos cifras se muestran juntas a propósito —«cuota Apollo» y «presupuesto
  * Wizard»— porque la confusión entre ambas es justo lo que esta pantalla existe
@@ -192,7 +201,7 @@ export function WizardBudgetCard({ snapshot, providerQuotaContext }: Props) {
       <SectionHeader
         eyebrow="Agente 1"
         title="Presupuesto de ejecución — Wizard (Agente 1)"
-        description="Pozo compartido por Apollo, Tavily y Lusha. Independiente de la cuota contratada de cada proveedor."
+        description="Pozo interno que financia las corridas de Tavily y Lusha. Apollo usa su propia cuota de proveedor (abajo) y no gasta de este pool."
       />
 
       <SurfaceCard>
@@ -322,18 +331,23 @@ export function WizardBudgetCard({ snapshot, providerQuotaContext }: Props) {
                   className="h-9"
                 />
                 <p className="text-[11px] text-muted-foreground/70">
-                  Límite <strong>global del Wizard</strong>, no específico de Apollo: una corrida con
-                  cualquier proveedor que estime más créditos que este techo queda bloqueada con
-                  <code className="font-mono"> execution_limit_exceeded</code>.
+                  Techo que valida <code className="font-mono">try_reserve_wizard_credits</code> al
+                  reservar: se aplica a las corridas que pasan por ESTE pool —Tavily y Lusha— y las
+                  bloquea con <code className="font-mono">execution_limit_exceeded</code>. Apollo ya
+                  no reserva aquí (usa su propia cuota de proveedor), así que este techo no lo alcanza.
                 </p>
               </div>
 
               <div className="rounded-md bg-muted/10 px-3 py-2.5 space-y-1">
                 <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 font-medium">
-                  Costo peor caso por proveedor
+                  Costo peor caso por proveedor (este pool)
                 </p>
+                {/* AGENT1-WIZARD-BUDGET-UI-APOLLO-DECOUPLE-1 — Apollo NO aparece
+                    aquí: desde #386 no gasta de este pool, así que un «costo»
+                    suyo en esta lista compararía contra el saldo equivocado. Su
+                    cuota propia se muestra en `ProviderQuotaAside`, más abajo. */}
                 <ul className="space-y-0.5">
-                  {(['apollo', 'tavily', 'lusha'] as const).map((key) => (
+                  {(['tavily', 'lusha'] as const).map((key) => (
                     <li key={key} className="flex justify-between text-xs">
                       <span className="text-muted-foreground">{PROVIDER_LABEL[key]}</span>
                       <span className="tabular-nums text-foreground">
