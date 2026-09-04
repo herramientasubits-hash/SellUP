@@ -538,7 +538,12 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
     // la 138, y el barrido de AUTORÍA —lo único que de verdad protege este corte— se ENSANCHA
     // de trece números a catorce para incluir la 137. Otra vez más fuerte que antes, no
     // meramente desplazada: un número libre nunca demostró nada.
-    assert.equal(migrations.filter((f) => f.startsWith('138')).length, 0);
+    // 🔴 AGENT1-DISCARDED-PROSPECTS-REVIEW-1 reclamó después la 138: la disposición durable de
+    // una empresa descartada, para "Descartadas" de Prospectos (issue #389). El proxy «el
+    // siguiente número está libre» se mueve por tanto de la 138 a la 139, y el barrido de
+    // AUTORÍA se ENSANCHA de catorce números a quince para incluir la 138. Otra vez más fuerte
+    // que antes, no meramente desplazada.
+    assert.equal(migrations.filter((f) => f.startsWith('139')).length, 0);
     for (const file of migrations.filter(
       (f) =>
         f.startsWith('124') ||
@@ -554,7 +559,8 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
         f.startsWith('134') ||
         f.startsWith('135') ||
         f.startsWith('136') ||
-        f.startsWith('137'),
+        f.startsWith('137') ||
+        f.startsWith('138'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

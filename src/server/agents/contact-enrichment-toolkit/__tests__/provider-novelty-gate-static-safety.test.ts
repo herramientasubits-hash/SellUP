@@ -154,7 +154,11 @@ describe('modelo de datos — sin migración nueva', () => {
     // catálogo y no nombra ninguna tabla, columna ni función de las cadenas que esta guarda
     // vigila. La aserción que de verdad protege este archivo es la de abajo —que el gate de
     // novedad no lee NINGUNA migración— y no cambia. AUTORADA y NO APLICADA.
-    assert.equal(Math.max(...numbers), 137, 'el techo conocido es la 137');
+    // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 mueve el techo a la 138: la disposición durable de
+    // una empresa descartada, para "Descartadas" de Prospectos (issue #389). No es de
+    // teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de las
+    // cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
+    assert.equal(Math.max(...numbers), 138, 'el techo conocido es la 138');
     assert.equal(
       GATE_SOURCE.includes('supabase/migrations'),
       false,

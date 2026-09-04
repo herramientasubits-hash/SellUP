@@ -242,6 +242,11 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // no es de teléfono, no es del catálogo y no nombra ninguna tabla, columna
       // ni función de las cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
       '137_wizard_budget_period_admin_audit.sql',
+      // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 añade la 138: la disposición durable de una empresa
+      // descartada, para la pestaña "Descartadas" de Prospectos (issue #389). No es de
+      // teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de las
+      // cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
+      '138_prospect_discarded_dispositions.sql',
     ]);
   });
 
