@@ -13,7 +13,6 @@ import {
 } from '@/components/prospect-batches/generate-ai-batch-experience';
 import { ProspectsDataTableClient } from '@/components/prospects/prospects-data-table-client';
 import { ModuleTabsNav } from '@/components/navigation/module-tabs-nav';
-import { ProspectsSubTabsNav } from '@/components/prospects/prospects-sub-tabs-nav';
 import { DiscardedProspectsPanel } from '@/components/prospects/discarded-prospects-panel';
 import { PROSPECTOS_TAB_ROUTE } from '@/config/navigation';
 import {
@@ -229,12 +228,7 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
     <DataTablePage
       title="Prospectos"
       description="Genera, importa y revisa empresas candidatas antes de convertirlas en cuentas listas para trabajar."
-      tabs={
-        <div className="flex flex-col gap-2">
-          <ModuleTabsNav active="prospectos" />
-          <ProspectsSubTabsNav active="por_revisar" />
-        </div>
-      }
+      tabs={<ModuleTabsNav active="prospectos" />}
       actions={
         <div className="flex flex-wrap items-center gap-2">
           <GenerateAIBatchDrawer experience={experience} unavailableKind={unavailableKind} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} discoveryProvider={wizardDiscoveryProvider} providerOverrideCapability={wizardProviderOverrideCapability} apolloRunModeLimits={apolloRunModeLimits} budgetPreflight={wizardBudgetPreflight} />
