@@ -216,8 +216,15 @@ function deps(free: PrePaidNoveltyDiscoveryDeps): {
           free,
         ),
       reserveBudget: async ({ requestedCredits }) => {
-        observed.budgetCalls.push(requestedCredits);
         return { status: 'reserved', reservationId: 'res-1', creditsReserved: requestedCredits };
+      },
+      // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — este archivo sólo ejercita
+      // Apollo, que ya no reserva vía `reserveBudget`. `budgetCalls` sigue
+      // registrando el estimado de créditos del preflight, ahora desde su
+      // puerta real.
+      checkApolloProviderQuota: async ({ estimatedCredits }) => {
+        observed.budgetCalls.push(estimatedCredits);
+        return { status: 'available' as const, providerCreditsAvailable: 999 };
       },
       confirmBudget: async () => ({ status: 'confirmed' as const }),
       releaseBudget: async () => ({ status: 'released' as const }),

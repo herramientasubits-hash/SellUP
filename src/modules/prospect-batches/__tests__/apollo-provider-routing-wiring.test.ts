@@ -293,6 +293,8 @@ function makeDeps(
     checkApolloAvailability: async () => ({ available: true } as const),
     reserveBudget: async () =>
       ({ status: 'reserved', reservationId: FAKE_RESERVATION_ID, creditsReserved: 10 } satisfies ReserveBudgetDepResult),
+    // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — puerta real de Apollo.
+    checkApolloProviderQuota: async () => ({ status: 'available', providerCreditsAvailable: 999 }),
     confirmBudget: async () => ({ status: 'confirmed' }),
     releaseBudget: async () => ({ status: 'released' }),
     readConsumedCredits: async () => 10,

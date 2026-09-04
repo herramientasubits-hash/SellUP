@@ -95,6 +95,8 @@ function makeBaseDeps(overrides: Partial<WizardExecutionDeps> = {}): WizardExecu
     // pruebas que ejercitan la ruta Apollo deben declararlo disponible.
     checkApolloAvailability: async () => ({ available: true } as const),
     reserveBudget: async () => ({ status: 'reserved', reservationId: 'res-001', creditsReserved: 20 }),
+    // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — puerta real de Apollo.
+    checkApolloProviderQuota: async () => ({ status: 'available', providerCreditsAvailable: 999 }),
     confirmBudget: async () => ({ status: 'confirmed' as const }),
     releaseBudget: async () => ({ status: 'released' as const }),
     readConsumedCredits: async () => 5,

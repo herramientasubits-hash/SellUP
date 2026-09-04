@@ -86,6 +86,9 @@ function buildDeps(
       spy.reserveBudgetCalls++;
       return { status: 'reserved', reservationId: 'res_1', creditsReserved: 12 };
     },
+    // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — puerta real de Apollo (el
+    // único proveedor de este archivo).
+    checkApolloProviderQuota: async () => ({ status: 'available', providerCreditsAvailable: 999 }),
     confirmBudget: async () => {
       spy.confirmBudgetCalls++;
       return { status: 'confirmed' } as never;

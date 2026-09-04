@@ -107,6 +107,8 @@ function makeDeps(
       reservationId: 'res-001',
       creditsReserved: 20,
     }),
+    // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — puerta real de Apollo.
+    checkApolloProviderQuota: async () => ({ status: 'available', providerCreditsAvailable: 999 }),
     confirmBudget: async () => ({ status: 'confirmed' as const }),
     releaseBudget: async () => ({ status: 'released' as const }),
     readConsumedCredits: async () => 1,

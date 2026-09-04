@@ -108,22 +108,28 @@ type BudgetCall  = { userId: string; clientRequestId: string; requestedCredits: 
 type ConfirmCall = { reservationId: string; actualCreditsConsumed: number; batchId?: string | null };
 type ReleaseCall = { reservationId: string; batchId?: string | null; reason?: string | null };
 
+// AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — la puerta real de Apollo ya no
+// es `reserveBudget`.
+type ApolloQuotaCall = { estimatedCredits: number };
+
 type TrackedDeps = WizardExecutionDeps & {
-  budgetCalls:   BudgetCall[];
-  confirmCalls:  ConfirmCall[];
-  releaseCalls:  ReleaseCall[];
-  slotCalls:     WizardExecutionReservationInput[];
-  tavilyCalls:   WizardTavilyInput[];
-  consumedCalls: string[];
+  budgetCalls:      BudgetCall[];
+  apolloQuotaCalls: ApolloQuotaCall[];
+  confirmCalls:     ConfirmCall[];
+  releaseCalls:     ReleaseCall[];
+  slotCalls:        WizardExecutionReservationInput[];
+  tavilyCalls:      WizardTavilyInput[];
+  consumedCalls:    string[];
 };
 
 function makeDeps(overrides: Partial<WizardExecutionDeps> = {}): TrackedDeps {
-  const budgetCalls:   BudgetCall[]  = [];
-  const confirmCalls:  ConfirmCall[] = [];
-  const releaseCalls:  ReleaseCall[] = [];
-  const slotCalls:     WizardExecutionReservationInput[] = [];
-  const tavilyCalls:   WizardTavilyInput[] = [];
-  const consumedCalls: string[] = [];
+  const budgetCalls:      BudgetCall[]      = [];
+  const apolloQuotaCalls: ApolloQuotaCall[] = [];
+  const confirmCalls:     ConfirmCall[] = [];
+  const releaseCalls:     ReleaseCall[] = [];
+  const slotCalls:        WizardExecutionReservationInput[] = [];
+  const tavilyCalls:      WizardTavilyInput[] = [];
+  const consumedCalls:    string[] = [];
 
   const base: WizardExecutionDeps = {
     getActiveUserId: async () => FAKE_USER_ID,
@@ -138,6 +144,11 @@ function makeDeps(overrides: Partial<WizardExecutionDeps> = {}): TrackedDeps {
     reserveBudget: async (input) => {
       budgetCalls.push(input);
       return { status: 'reserved', reservationId: RESERVATION_A, creditsReserved: 10 } satisfies ReserveBudgetDepResult;
+    },
+    // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — puerta real de Apollo.
+    checkApolloProviderQuota: async ({ estimatedCredits }) => {
+      apolloQuotaCalls.push({ estimatedCredits });
+      return { status: 'available', providerCreditsAvailable: 999 };
     },
     confirmBudget: async (input) => {
       confirmCalls.push(input);
@@ -166,6 +177,7 @@ function makeDeps(overrides: Partial<WizardExecutionDeps> = {}): TrackedDeps {
     ...base,
     ...overrides,
     budgetCalls,
+    apolloQuotaCalls,
     confirmCalls,
     releaseCalls,
     slotCalls,
@@ -686,8 +698,9 @@ describe('v1.16K-AG — Apollo provider uses provider-aware credit estimate', ()
       await withApolloProviderEnv({}, async () => {
         const deps = makeApolloDeps();
         await executeProspectWizardGeneration(VALID_REQUEST, deps);
-        assert.equal(deps.budgetCalls.length, 1);
-        assert.equal(deps.budgetCalls[0]!.requestedCredits, 1);
+        assert.equal(deps.budgetCalls.length, 0, 'Apollo no debe tocar wizard_monthly_budget_periods');
+        assert.equal(deps.apolloQuotaCalls.length, 1);
+        assert.equal(deps.apolloQuotaCalls[0]!.estimatedCredits, 1);
       });
     });
   });
@@ -701,20 +714,23 @@ describe('v1.16K-AG — Apollo provider uses provider-aware credit estimate', ()
     });
   });
 
-  it('AG-3: Apollo available=12, max=25, estimate=1 → reserveBudget called with 1, not blocked', async () => {
+  it('AG-3: Apollo con cuota propia disponible, estimate=1 → checkApolloProviderQuota llamado con 1, no bloqueado', async () => {
     await withFlagAsync(true, async () => {
       await withApolloProviderEnv({}, async () => {
         let receivedCredits: number | undefined;
         const deps = makeApolloDeps({
-          reserveBudget: async (input) => {
-            deps.budgetCalls.push(input);
-            receivedCredits = input.requestedCredits;
-            return { status: 'reserved', reservationId: RESERVATION_A, creditsReserved: 1 };
+          // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — Apollo ya no reserva
+          // vía `reserveBudget`: su puerta es `checkApolloProviderQuota`.
+          checkApolloProviderQuota: async (input) => {
+            deps.apolloQuotaCalls.push(input);
+            receivedCredits = input.estimatedCredits;
+            return { status: 'available', providerCreditsAvailable: 12 };
           },
         });
         const result = await executeProspectWizardGeneration(VALID_REQUEST, deps);
         assert.equal(result.ok, true);
         assert.equal(receivedCredits, 1);
+        assert.equal(deps.budgetCalls.length, 0, 'Apollo no debe tocar wizard_monthly_budget_periods');
       });
     });
   });
@@ -726,7 +742,7 @@ describe('v1.16K-AG — Apollo provider uses provider-aware credit estimate', ()
         await executeProspectWizardGeneration(VALID_REQUEST, deps);
         // Hard cap de invocaciones: queries ≤ 3, × 1 página cada una = 3.
         // `results` ya no multiplica: subirlo a 99 no compra más créditos.
-        assert.equal(deps.budgetCalls[0]!.requestedCredits, 3);
+        assert.equal(deps.apolloQuotaCalls[0]!.estimatedCredits, 3);
       });
     });
   });

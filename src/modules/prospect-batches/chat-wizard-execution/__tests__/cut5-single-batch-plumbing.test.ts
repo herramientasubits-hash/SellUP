@@ -257,6 +257,13 @@ function wiring(options: WiringOptions = {}): {
             message: 'Presupuesto agotado para el período.',
           }
         : { status: 'reserved' as const, reservationId: 'res-1', creditsReserved: 3 },
+    // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — Apollo ya no pasa por
+    // `reserveBudget`; `options.budgetBlocked` sigue bloqueando la ruta Apollo,
+    // ahora vía su propia cuota.
+    checkApolloProviderQuota: async () =>
+      options.budgetBlocked
+        ? { status: 'blocked' as const, providerCreditsAvailable: 0 }
+        : { status: 'available' as const, providerCreditsAvailable: 999 },
     confirmBudget: async () => ({ status: 'confirmed' as const }),
     releaseBudget: async () => ({ status: 'released' as const }),
     readConsumedCredits: async () => 0,

@@ -215,6 +215,10 @@ type Observed = {
   apolloCalls: WizardApolloInput[];
   reserveSlotCalls: WizardExecutionReservationInput[];
   reserveBudgetCalls: { requestedCredits: number }[];
+  // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — la puerta real de Apollo ya no
+  // es `reserveBudget`; este array es su equivalente para las aserciones de
+  // orden y de estimación de crédito de las CASOS 10b/10c.
+  checkApolloProviderQuotaCalls: { estimatedCredits: number }[];
   sealed: { batchId: string; status: string }[];
   markedFailed: { batchId: string; reason: string }[];
 };
@@ -239,6 +243,7 @@ function wiring(options: WiringOptions = {}): {
     apolloCalls: [],
     reserveSlotCalls: [],
     reserveBudgetCalls: [],
+    checkApolloProviderQuotaCalls: [],
     sealed: [],
     markedFailed: [],
   };
@@ -282,6 +287,15 @@ function wiring(options: WiringOptions = {}): {
             message: 'Presupuesto agotado para el período.',
           }
         : { status: 'reserved' as const, reservationId: 'res-1', creditsReserved: 3 };
+    },
+    // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — Apollo (el único proveedor de
+    // este archivo) pasa por AQUÍ, no por `reserveBudget`. `budgetBlocked` sigue
+    // bloqueando la ruta, ahora vía la cuota propia del proveedor.
+    checkApolloProviderQuota: async ({ estimatedCredits }) => {
+      observed.checkApolloProviderQuotaCalls.push({ estimatedCredits });
+      return options.budgetBlocked
+        ? { status: 'blocked' as const, providerCreditsAvailable: 0 }
+        : { status: 'available' as const, providerCreditsAvailable: 999 };
     },
     confirmBudget: async () => ({ status: 'confirmed' as const }),
     releaseBudget: async () => ({ status: 'released' as const }),
@@ -641,10 +655,13 @@ describe('CUT-6 §§ 7, 10 · el orden económico y el lote único', () => {
         return innerPersist(client, input);
       };
       const wired = wiring({ free: free.deps, paid: { kind: 'returns', raw: 6 } });
-      const innerReserve = wired.deps.reserveBudget;
-      wired.deps.reserveBudget = async (input) => {
+      // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — Apollo (único proveedor de
+      // este archivo) ya no reserva vía `reserveBudget`: la puerta previa al
+      // pago es `checkApolloProviderQuota`.
+      const innerCheckQuota = wired.deps.checkApolloProviderQuota!;
+      wired.deps.checkApolloProviderQuota = async (input) => {
         order.push('budget_reserve');
-        return innerReserve(input);
+        return innerCheckQuota(input);
       };
 
       await executeProspectWizardGeneration(REQUEST, wired.deps);
@@ -662,8 +679,8 @@ describe('CUT-6 §§ 7, 10 · el orden económico y el lote único', () => {
       await executeProspectWizardGeneration(REQUEST, withFree.deps);
 
       assert.equal(
-        withFree.observed.reserveBudgetCalls[0]!.requestedCredits,
-        withoutFree.observed.reserveBudgetCalls[0]!.requestedCredits,
+        withFree.observed.checkApolloProviderQuotaCalls[0]!.estimatedCredits,
+        withoutFree.observed.checkApolloProviderQuotaCalls[0]!.estimatedCredits,
         '🔴 § 8 — el hueco decide RESULTADOS, jamás créditos',
       );
     });
