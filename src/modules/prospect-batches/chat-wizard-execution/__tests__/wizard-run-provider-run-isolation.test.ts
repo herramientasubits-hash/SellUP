@@ -82,6 +82,13 @@ type RunTrace = {
   batchIdsPipelined: string[];
   reservedCredits: number[];
   reservationClientRequestIds: string[];
+  // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — la puerta real de Apollo ya no
+  // es `reserveBudget` (que no recibe clientRequestId ni credits por corrida:
+  // es la cuota GLOBAL del proveedor, no un pool por-usuario). Este contador
+  // prueba el aislamiento que le corresponde a Apollo: su propia puerta se
+  // consultó, y `reservationClientRequestIds`/`reservedCredits` — el pool del
+  // piloto — se quedan intactos en 0 para esa corrida.
+  apolloQuotaCalls: number;
   slotPayloads: WizardExecutionReservationInput['initialBatchPayload'][];
   apolloExtraMetadata: Record<string, unknown> | null;
 };
@@ -93,6 +100,7 @@ function emptyTrace(): RunTrace {
     batchIdsPipelined: [],
     reservedCredits: [],
     reservationClientRequestIds: [],
+    apolloQuotaCalls: 0,
     slotPayloads: [],
     apolloExtraMetadata: null,
   };
@@ -156,6 +164,11 @@ function makeDeps(trace: RunTrace, options: RunOptions): WizardExecutionDeps {
         reservationId: `res-${options.batchId}`,
         creditsReserved: requestedCredits,
       };
+    },
+    // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — puerta real de Apollo.
+    checkApolloProviderQuota: async () => {
+      trace.apolloQuotaCalls++;
+      return { status: 'available', providerCreditsAvailable: 999 };
     },
     confirmBudget: async () => ({ status: 'confirmed' as const }),
     releaseBudget: async () => ({ status: 'released' as const }),
@@ -247,7 +260,15 @@ describe('A1-APOLLO-QA-CONTROL-SURFACE-1 · aislamiento y reintento', () => {
     // Lote, reserva y clave de idempotencia: disjuntos.
     assert.deepEqual(traceA.batchIdsPipelined, [BATCH_A]);
     assert.deepEqual(traceB.batchIdsPipelined, [BATCH_B]);
-    assert.deepEqual(traceA.reservationClientRequestIds, [CLIENT_REQUEST_A]);
+    // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — A es Apollo: su puerta es su
+    // propia cuota, nunca `reserveBudget` (el pool del piloto que Tavily y
+    // Lusha siguen usando). B es Tavily y sigue reservando ahí, sin cambios.
+    assert.equal(traceA.apolloQuotaCalls, 1, 'la corrida Apollo consultó su propia cuota');
+    assert.deepEqual(
+      traceA.reservationClientRequestIds,
+      [],
+      'Apollo NUNCA toca wizard_monthly_budget_periods',
+    );
     assert.deepEqual(traceB.reservationClientRequestIds, [CLIENT_REQUEST_B]);
 
     // La reserva de cada corrida corresponde a SU proveedor: reservar para Tavily

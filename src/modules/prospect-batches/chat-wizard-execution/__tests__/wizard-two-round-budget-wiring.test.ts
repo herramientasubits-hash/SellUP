@@ -171,12 +171,18 @@ describe('§ 10 · el bloqueo real de presupuesto explica el techo de la modalid
       // no ejercita el preflight de persistencia.
       checkPersistenceReadiness: async () => ({ status: 'available' as const }),
       checkApolloAvailability: async () => ({ available: true } as const),
-      // La AUTORIDAD: la reserva atómica bloquea. Nada de lo que añade este hito
-      // puede desbloquearla.
+      // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — Apollo ya no pasa por la
+      // reserva atómica del pool del piloto: la AUTORIDAD que bloquea es su
+      // propia cuota. `reserveBudget` queda sin ejercitar para esta corrida —
+      // se conserva sólo para probar que NUNCA se llama.
       reserveBudget: async () => ({
         status: 'blocked',
         code: 'EXECUTION_CREDIT_LIMIT_EXCEEDED',
         message: 'limite por ejecución',
+      }),
+      checkApolloProviderQuota: async () => ({
+        status: 'blocked',
+        providerCreditsAvailable: 0,
       }),
       confirmBudget: async () => ({ status: 'confirmed' as const }),
       releaseBudget: async () => ({ status: 'released' as const }),
@@ -193,20 +199,37 @@ describe('§ 10 · el bloqueo real de presupuesto explica el techo de la modalid
     };
   }
 
-  it('con la modalidad activa el bloqueo lleva su blockDetail', async () => {
+  // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — Apollo ya no reserva del pool
+  // del piloto (`wizard_monthly_budget_periods`), así que ya no puede
+  // bloquear con `EXECUTION_CREDIT_LIMIT_EXCEEDED` ni con el `blockDetail` de
+  // dos rondas que explicaba ESE bloqueo: los dos eran vocabulario de la
+  // reserva atómica del piloto. El bloqueo real de Apollo es su propia cuota
+  // (`BUDGET_EXCEEDED`, sin `blockDetail`), con o sin la modalidad de dos
+  // rondas encendida — `reserveBudget` NUNCA se llama para verificarlo.
+
+  it('con la modalidad activa el bloqueo es BUDGET_EXCEEDED de la cuota propia, sin blockDetail ni reserva del piloto', async () => {
     const savedExecution = process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION;
     process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION = 'true';
     const savedApollo = process.env.ENABLE_APOLLO_COMPANY_SEARCH;
     process.env.ENABLE_APOLLO_COMPANY_SEARCH = 'true';
+    let reserveBudgetCalls = 0;
     try {
       // `withTwoRoundMode` es sincrónica y esta prueba es asíncrona, así que el
       // flag se maneja aquí con el mismo cuidado: se pone y se restaura en finally.
       process.env.ENABLE_APOLLO_TWO_ROUND_DISCOVERY = 'true';
-      const result = await executeProspectWizardGeneration(request, blockedDeps());
+      const deps = blockedDeps();
+      const result = await executeProspectWizardGeneration(request, {
+        ...deps,
+        reserveBudget: async (...args) => {
+          reserveBudgetCalls++;
+          return deps.reserveBudget(...args);
+        },
+      });
 
       assert.ok(result.ok === false);
-      assert.equal(result.code, 'EXECUTION_CREDIT_LIMIT_EXCEEDED', 'la autoridad no cambia');
-      assert.equal(result.blockDetail, BUDGET_EXCEEDED_TWO_ROUND_APOLLO);
+      assert.equal(result.code, 'BUDGET_EXCEEDED');
+      assert.equal(result.blockDetail, undefined, 'sin vocabulario del piloto para la cuota propia de Apollo');
+      assert.equal(reserveBudgetCalls, 0, 'Apollo no debe tocar wizard_monthly_budget_periods');
     } finally {
       delete process.env.ENABLE_APOLLO_TWO_ROUND_DISCOVERY;
       if (savedApollo === undefined) delete process.env.ENABLE_APOLLO_COMPANY_SEARCH;
@@ -216,7 +239,7 @@ describe('§ 10 · el bloqueo real de presupuesto explica el techo de la modalid
     }
   });
 
-  it('con la modalidad apagada el bloqueo conserva su forma previa, sin blockDetail', async () => {
+  it('con la modalidad apagada el bloqueo es igual: BUDGET_EXCEEDED de la cuota propia, sin blockDetail', async () => {
     const savedExecution = process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION;
     process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION = 'true';
     const savedApollo = process.env.ENABLE_APOLLO_COMPANY_SEARCH;
@@ -225,7 +248,7 @@ describe('§ 10 · el bloqueo real de presupuesto explica el techo de la modalid
     try {
       const result = await executeProspectWizardGeneration(request, blockedDeps());
       assert.ok(result.ok === false);
-      assert.equal(result.code, 'EXECUTION_CREDIT_LIMIT_EXCEEDED');
+      assert.equal(result.code, 'BUDGET_EXCEEDED');
       assert.equal(result.blockDetail, undefined);
     } finally {
       if (savedApollo === undefined) delete process.env.ENABLE_APOLLO_COMPANY_SEARCH;

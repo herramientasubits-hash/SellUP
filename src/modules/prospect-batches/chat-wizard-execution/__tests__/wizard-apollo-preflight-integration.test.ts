@@ -27,6 +27,9 @@ const VALID_REQUEST = {
 
 type Spy = {
   reserveBudgetCalls: number;
+  // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — la puerta real de Apollo ya no
+  // es `reserveBudget`.
+  checkApolloProviderQuotaCalls: number;
   reserveSlotCalls: number;
   apolloPipelineCalls: number;
   tavilyPipelineCalls: number;
@@ -52,6 +55,12 @@ function buildDeps(
       spy.reserveBudgetCalls++;
       return { status: 'reserved', reservationId: 'res_1', creditsReserved: 3 };
     },
+    // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — Apollo pasa por AQUÍ, no por
+    // `reserveBudget`.
+    checkApolloProviderQuota: async () => {
+      spy.checkApolloProviderQuotaCalls++;
+      return { status: 'available', providerCreditsAvailable: 999 };
+    },
     confirmBudget: async () => ({ status: 'confirmed' }) as never,
     releaseBudget: async () => ({ status: 'released' }) as never,
     readConsumedCredits: async () => 0,
@@ -74,7 +83,13 @@ function buildDeps(
 }
 
 function freshSpy(): Spy {
-  return { reserveBudgetCalls: 0, reserveSlotCalls: 0, apolloPipelineCalls: 0, tavilyPipelineCalls: 0 };
+  return {
+    reserveBudgetCalls: 0,
+    checkApolloProviderQuotaCalls: 0,
+    reserveSlotCalls: 0,
+    apolloPipelineCalls: 0,
+    tavilyPipelineCalls: 0,
+  };
 }
 
 before(() => { process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION = 'true'; });
@@ -153,7 +168,10 @@ describe('A1-APOLLO-WIZARD-1 · preflight antes de cualquier reserva', () => {
     );
 
     assert.equal(result.ok, true);
-    assert.equal(spy.reserveBudgetCalls, 1);
+    // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — Apollo ya no reserva del pool
+    // del piloto: usa su propia cuota (`checkApolloProviderQuota`).
+    assert.equal(spy.reserveBudgetCalls, 0, 'Apollo no debe tocar wizard_monthly_budget_periods');
+    assert.equal(spy.checkApolloProviderQuotaCalls, 1);
     assert.equal(spy.reserveSlotCalls, 1);
     assert.equal(spy.apolloPipelineCalls, 1);
     assert.equal(spy.tavilyPipelineCalls, 0);

@@ -13,7 +13,8 @@ export type {
 } from './types';
 
 export { getPeriodBounds, periodStartIso, periodEndIso } from './periods';
-export { checkBudget, getAdminBudgetSummary } from './budget-resolution';
+export { checkBudget, getAdminBudgetSummary, checkProviderQuotaAvailable } from './budget-resolution';
+export type { ProviderQuotaAvailability } from './budget-resolution';
 export { updateProviderAllowance } from './allowance-actions';
 export type { UpdateProviderAllowanceResult } from './allowance-actions';
 export { syncProviderQuota, useApiQuotaAsPrimary } from './quota-sync-actions';

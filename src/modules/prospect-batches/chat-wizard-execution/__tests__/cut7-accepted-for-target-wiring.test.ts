@@ -215,6 +215,9 @@ type Observed = {
   apolloCalls: WizardApolloInput[];
   reserveSlotCalls: WizardExecutionReservationInput[];
   reserveBudgetCalls: { requestedCredits: number }[];
+  // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — la puerta real de Apollo (el
+  // único proveedor de este archivo) ya no es `reserveBudget`.
+  checkApolloProviderQuotaCalls: { estimatedCredits: number }[];
   sealed: { batchId: string; status: string }[];
 };
 
@@ -233,6 +236,7 @@ function wiring(options: WiringOptions = {}): {
     apolloCalls: [],
     reserveSlotCalls: [],
     reserveBudgetCalls: [],
+    checkApolloProviderQuotaCalls: [],
     sealed: [],
   };
   const slots = options.slots ?? new Map<string, string>();
@@ -269,6 +273,12 @@ function wiring(options: WiringOptions = {}): {
     reserveBudget: async (input) => {
       observed.reserveBudgetCalls.push({ requestedCredits: input.requestedCredits });
       return { status: 'reserved' as const, reservationId: 'res-1', creditsReserved: 3 };
+    },
+    // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — Apollo pasa por AQUÍ, no por
+    // `reserveBudget`.
+    checkApolloProviderQuota: async ({ estimatedCredits }) => {
+      observed.checkApolloProviderQuotaCalls.push({ estimatedCredits });
+      return { status: 'available' as const, providerCreditsAvailable: 999 };
     },
     confirmBudget: async () => ({ status: 'confirmed' as const }),
     releaseBudget: async () => ({ status: 'released' as const }),
@@ -622,8 +632,8 @@ describe('CUT-7 §§ 0, 12, 13 · invariantes de entrada preservadas', () => {
       const withoutFree = wiring({ paid: { kind: 'returns', rows: TARGET, accepted: TARGET } });
       await executeProspectWizardGeneration(REQUEST, withoutFree.deps);
 
-      assert.equal(withFree.observed.reserveBudgetCalls[0]?.requestedCredits, expected);
-      assert.equal(withoutFree.observed.reserveBudgetCalls[0]?.requestedCredits, expected);
+      assert.equal(withFree.observed.checkApolloProviderQuotaCalls[0]?.estimatedCredits, expected);
+      assert.equal(withoutFree.observed.checkApolloProviderQuotaCalls[0]?.estimatedCredits, expected);
     });
   });
 

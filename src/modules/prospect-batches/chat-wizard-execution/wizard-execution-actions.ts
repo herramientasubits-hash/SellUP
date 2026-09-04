@@ -70,12 +70,7 @@ import {
   type WizardRunProviderSelection,
   type ProviderSelectionAuthority,
 } from './wizard-run-provider-selection';
-import {
-  isWizardRunProviderOverrideEnabled,
-  isApolloTwoRoundDiscoveryEnabled,
-} from '@/lib/feature-flags.server';
-// § 10 — código explicativo del techo de la modalidad de dos rondas.
-import { BUDGET_EXCEEDED_TWO_ROUND_APOLLO } from '@/server/agents/prospecting-toolkit/apollo-two-round';
+import { isWizardRunProviderOverrideEnabled } from '@/lib/feature-flags.server';
 // Q3F-5BB.11E — OBSERVATIONAL Apollo provider-routing wiring. The adapter is pure
 // (no env, no provider client, no Supabase, no contact-enrichment / phone reveal).
 // The barrel exposes the pure 11B resolver + 11C metadata builder. This produces
@@ -188,6 +183,13 @@ import {
   type WizardRunUsageRowsClient,
 } from './wizard-run-reconciliation';
 import type { ConsumedCreditsDbClient } from './wizard-budget-reconciliation';
+// AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — la cuota PROPIA de Apollo
+// (tool_catalog.monthly_credits_allowance + provider_usage_logs), la misma
+// infraestructura de Providers & Consumption que ya gobierna el resto del
+// catálogo. Nunca crea ni lee un `budget_rule`: eso es `checkBudget`, un
+// concepto distinto (límite de gasto configurado por un admin) que esta
+// puerta no toca.
+import { checkProviderQuotaAvailable } from '@/modules/budgets';
 
 // ── Dependency injection boundary ─────────────────────────────────────────────
 // All I/O dependencies are injected here. The public server action provides real
@@ -209,6 +211,18 @@ export type ReserveBudgetDepResult =
        */
       budgetSnapshot?: WizardBudgetPeriodSnapshot | null;
     };
+
+/**
+ * AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — resultado de la puerta de cuota
+ * PROPIA de Apollo. A diferencia de `ReserveBudgetDepResult`, nunca lleva
+ * `reservationId`: no hay ninguna fila de `wizard_budget_reservations` /
+ * `wizard_monthly_budget_periods` que confirmar o liberar después, porque esta
+ * puerta no reserva nada — sólo lee `tool_catalog.monthly_credits_allowance` y
+ * `provider_usage_logs`, ya gastados por corridas anteriores.
+ */
+export type ApolloProviderQuotaGateResult =
+  | { status: 'available'; providerCreditsAvailable: number | null }
+  | { status: 'blocked'; providerCreditsAvailable: number };
 
 export type WizardExecutionDeps = {
   getActiveUserId: () => Promise<string>;
@@ -294,11 +308,34 @@ export type WizardExecutionDeps = {
     metadata?: Record<string, unknown> | null;
   }) => Promise<void>;
   // Budget guardrail operations — period calculation and settings load are encapsulated here.
+  // Usado por Tavily y Lusha, SIN CAMBIOS. Apollo ya no pasa por aquí — ver
+  // `checkApolloProviderQuota` abajo.
   reserveBudget: (input: {
     userId: string;
     clientRequestId: string;
     requestedCredits: number;
   }) => Promise<ReserveBudgetDepResult>;
+  /**
+   * AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — puerta previa al pago EXCLUSIVA
+   * de Apollo. Reemplaza a `reserveBudget` para este proveedor: en vez de
+   * reservar del pool `wizard_monthly_budget_periods` que comparten Tavily y
+   * Lusha, comprueba la cuota PROPIA del proveedor
+   * (`tool_catalog.monthly_credits_allowance` + `provider_usage_logs`, la
+   * misma infraestructura de Providers & Consumption que ya gobierna el resto
+   * del catálogo). Sin `budget_rule` para Apollo no se inventa ningún límite:
+   * la cuota queda `null` (ilimitada), igual que en el panel de
+   * administración.
+   *
+   * No reserva nada: no hay `reservationId` que confirmar o liberar después,
+   * así que las llamadas a `confirmBudget`/`releaseBudget` se omiten
+   * enteramente para Apollo.
+   *
+   * Opcional: sin ella Apollo falla cerrado, con la misma disciplina que
+   * `checkApolloAvailability` ausente.
+   */
+  checkApolloProviderQuota?: (input: {
+    estimatedCredits: number;
+  }) => Promise<ApolloProviderQuotaGateResult>;
   confirmBudget: (input: {
     reservationId: string;
     actualCreditsConsumed: number;
@@ -530,6 +567,21 @@ export async function executeProspectWizardGenerationAction(
         reservationId: record.id,
         creditsReserved: record.credits_reserved,
       };
+    },
+
+    // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — cuota PROPIA de Apollo, no el
+    // pool del piloto. `estimatedCredits` no participa en la decisión: la regla
+    // es la simple del hito («si hay créditos, sigue; si llega a 0, bloquea»),
+    // no una proyección de sobregasto que esta puerta no fue pedida a hacer.
+    checkApolloProviderQuota: async () => {
+      const quota = await checkProviderQuotaAvailable('apollo');
+      if (!quota.allowed) {
+        return {
+          status: 'blocked',
+          providerCreditsAvailable: quota.providerCreditsAvailable ?? 0,
+        };
+      }
+      return { status: 'available', providerCreditsAvailable: quota.providerCreditsAvailable };
     },
 
     confirmBudget: (input) =>
@@ -1454,58 +1506,123 @@ export async function executeProspectWizardGeneration(
   // que con hueco 5. Un `requestedCredits = residualGap` sería sencillamente falso.
   const requestedCredits = estimateCreditsForProvider(discoveryProvider);
 
-  // 7. Atomic budget reservation — pilot kill-switch, allowlist, period, concurrency all checked by RPC
-  const budgetResult = await deps.reserveBudget({
-    userId,
-    clientRequestId: req.clientRequestId,
-    requestedCredits,
-  });
+  // 7. Budget gate — provider-aware.
+  //
+  // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — Apollo YA NO pasa por la
+  // reserva atómica del pool del piloto (`wizard_monthly_budget_periods`),
+  // que Tavily y Lusha siguen usando SIN CAMBIOS (rama `else`, intacta byte
+  // por byte). Apollo usa su PROPIA cuota de Providers & Consumption
+  // (`tool_catalog.monthly_credits_allowance` + `provider_usage_logs`), así
+  // que no hay `reservationId`: nada que confirmar ni liberar más abajo.
+  //
+  // `isApolloBudgetGate` (en vez de comparar `discoveryProvider` directamente
+  // en el `if`) evita que TypeScript estreche el tipo de `discoveryProvider`
+  // dentro de la rama `else` — el chequeo legacy de dos rondas de esa rama
+  // sigue comparando contra `'apollo_organizations'`, y una comparación
+  // TS2367 rompería la build sin que el comportamiento de #380-#384 cambiara
+  // en absoluto.
+  const isApolloBudgetGate = discoveryProvider === 'apollo_organizations';
+  let reservationId: string | null;
+  let creditsReserved: number;
+  let budgetWasNew = false;
 
-  if (budgetResult.status === 'blocked') {
-    // § 10 — la reserva atómica es la autoridad y sigue decidiendo sola. Lo que se
-    // añade es el estado EXPLICATIVO: con la modalidad de dos rondas activa, el
-    // número que no cupo es su techo de peor caso, y decirlo evita que un
-    // operador lo lea como el guardrail legacy.
-    const twoRoundBlockDetail =
-      discoveryProvider === 'apollo_organizations' && isApolloTwoRoundDiscoveryEnabled()
-        ? BUDGET_EXCEEDED_TWO_ROUND_APOLLO
-        : null;
-    // AGENT1-MACRO-V2-SUMMARY-BUDGET-UX-1 — «se agotó» sólo es cierto cuando no
-    // queda NADA. Con presupuesto disponible > 0 pero por debajo de lo que esta
-    // corrida necesita, decir «se agotó» es falso y confunde con un estado
-    // recuperable distinto (esperar al siguiente período) del real (esta corrida
-    // en concreto no cabe). `requiredCredits` es el MISMO número ya reservado
-    // arriba (`requestedCredits`), nunca una estimación distinta.
-    const budgetExceeded =
-      budgetResult.code === 'BUDGET_EXCEEDED' && budgetResult.budgetSnapshot
-        ? {
-            reason: (budgetResult.budgetSnapshot.availableCredits <= 0
-              ? 'exhausted'
-              : 'insufficient_for_run') as 'exhausted' | 'insufficient_for_run',
-            availableCredits: budgetResult.budgetSnapshot.availableCredits,
-            requiredCredits: requestedCredits,
-          }
-        : null;
-    // 🔴 CUT-6 §§ 5, 7, 13 — el presupuesto bloquea la parte PAGADA. Lo que la
-    // capa gratuita ya guardó no se toca, no se revierte y no se calla: se sella
-    // el lote a su estado verdadero y el fallo lo declara. Un bloqueo que
-    // devolviera el resultado de siempre dejaría 4 empresas reales en un `draft`
-    // que nadie mira.
-    await sealFreeContributionBatch();
-    return {
-      ok: false,
-      code: budgetResult.code,
-      message: GUARDRAIL_MESSAGES[budgetResult.code] ?? budgetResult.message,
-      retryable: false,
-      runProvider: runProviderOutcome,
-      ...(twoRoundBlockDetail !== null ? { blockDetail: twoRoundBlockDetail } : {}),
-      ...(budgetExceeded !== null ? { budgetExceeded } : {}),
-      ...describeFreeContribution(),
-    };
+  if (isApolloBudgetGate) {
+    const checkApolloQuota = deps.checkApolloProviderQuota;
+    if (!checkApolloQuota) {
+      // Fail-closed: sin forma de comprobar la cuota propia de Apollo no se
+      // gasta nada. Misma disciplina que `checkApolloAvailability` ausente.
+      await sealFreeContributionBatch();
+      return {
+        ok: false,
+        code: 'PROVIDER_UNAVAILABLE',
+        message: 'No se pudo verificar la cuota disponible del proveedor de búsqueda.',
+        retryable: true,
+        runProvider: runProviderOutcome,
+        ...describeFreeContribution(),
+      };
+    }
+
+    const quotaResult = await checkApolloQuota({ estimatedCredits: requestedCredits });
+    if (quotaResult.status === 'blocked') {
+      // 🔴 CUT-6 §§ 5, 7, 13 — el presupuesto bloquea la parte PAGADA. Lo que la
+      // capa gratuita ya guardó no se toca, no se revierte y no se calla: se
+      // sella el lote a su estado verdadero y el fallo lo declara.
+      await sealFreeContributionBatch();
+      return {
+        ok: false,
+        code: 'BUDGET_EXCEEDED',
+        message: 'La cuota disponible del proveedor de búsqueda (Apollo) se agotó.',
+        retryable: false,
+        runProvider: runProviderOutcome,
+        budgetExceeded: {
+          reason: quotaResult.providerCreditsAvailable <= 0 ? 'exhausted' : 'insufficient_for_run',
+          availableCredits: quotaResult.providerCreditsAvailable,
+          requiredCredits: requestedCredits,
+        },
+        ...describeFreeContribution(),
+      };
+    }
+
+    // Nada que reservar: la cuota es del proveedor, no del pool del piloto.
+    reservationId = null;
+    creditsReserved = requestedCredits;
+  } else {
+    // Atomic budget reservation — pilot kill-switch, allowlist, period, concurrency all checked by RPC
+    const budgetResult = await deps.reserveBudget({
+      userId,
+      clientRequestId: req.clientRequestId,
+      requestedCredits,
+    });
+
+    if (budgetResult.status === 'blocked') {
+      // § 10 — la reserva atómica es la autoridad y sigue decidiendo sola.
+      //
+      // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — esta rama (`else` de
+      // `isApolloBudgetGate`) sólo corre para Tavily y Lusha:
+      // `discoveryProvider` está ESTRECHADO por TypeScript a `'tavily'` aquí
+      // (Apollo se resuelve arriba, en su propia rama). El `blockDetail` de la
+      // modalidad de dos rondas —que sólo existe para Apollo— es por tanto
+      // vocabulario MUERTO en esta rama: Apollo ya no puede bloquear vía la
+      // reserva del piloto, así que ya no hay bloqueo real que explicar con
+      // ese detalle. Se elimina en vez de dejar una comparación que TypeScript
+      // marca sin solape (TS2367) por construcción.
+      // AGENT1-MACRO-V2-SUMMARY-BUDGET-UX-1 — «se agotó» sólo es cierto cuando no
+      // queda NADA. Con presupuesto disponible > 0 pero por debajo de lo que esta
+      // corrida necesita, decir «se agotó» es falso y confunde con un estado
+      // recuperable distinto (esperar al siguiente período) del real (esta corrida
+      // en concreto no cabe). `requiredCredits` es el MISMO número ya reservado
+      // arriba (`requestedCredits`), nunca una estimación distinta.
+      const budgetExceeded =
+        budgetResult.code === 'BUDGET_EXCEEDED' && budgetResult.budgetSnapshot
+          ? {
+              reason: (budgetResult.budgetSnapshot.availableCredits <= 0
+                ? 'exhausted'
+                : 'insufficient_for_run') as 'exhausted' | 'insufficient_for_run',
+              availableCredits: budgetResult.budgetSnapshot.availableCredits,
+              requiredCredits: requestedCredits,
+            }
+          : null;
+      // 🔴 CUT-6 §§ 5, 7, 13 — el presupuesto bloquea la parte PAGADA. Lo que la
+      // capa gratuita ya guardó no se toca, no se revierte y no se calla: se sella
+      // el lote a su estado verdadero y el fallo lo declara. Un bloqueo que
+      // devolviera el resultado de siempre dejaría 4 empresas reales en un `draft`
+      // que nadie mira.
+      await sealFreeContributionBatch();
+      return {
+        ok: false,
+        code: budgetResult.code,
+        message: GUARDRAIL_MESSAGES[budgetResult.code] ?? budgetResult.message,
+        retryable: false,
+        runProvider: runProviderOutcome,
+        ...(budgetExceeded !== null ? { budgetExceeded } : {}),
+        ...describeFreeContribution(),
+      };
+    }
+
+    reservationId = budgetResult.reservationId;
+    creditsReserved = budgetResult.creditsReserved;
+    budgetWasNew = budgetResult.status === 'reserved';
   }
-
-  const { reservationId, creditsReserved } = budgetResult;
-  const budgetWasNew = budgetResult.status === 'reserved';
 
   // 7b. A1-APOLLO-BUDGET-RECONCILIATION-1 — correlación del run.
   // Se construye en cuanto existe la reserva: sin ella, dos corridas
@@ -1598,8 +1715,11 @@ export async function executeProspectWizardGeneration(
   try {
     reservation = await canonicalBatch.resolve();
   } catch {
-    // Slot reservation failed — release budget if it was newly created
-    if (budgetWasNew) {
+    // Slot reservation failed — release budget if it was newly created.
+    // `reservationId !== null` is always true here when `budgetWasNew` is true
+    // (Apollo never sets `budgetWasNew`, since it never reserves anything) —
+    // spelled out explicitly so TypeScript narrows `reservationId` too.
+    if (budgetWasNew && reservationId !== null) {
       await deps.releaseBudget({ reservationId, reason: 'slot_reservation_failed' }).catch(() => undefined);
     }
     // CUT-6 § 5 — inalcanzable cuando la capa gratuita ya aportó (el resolutor
@@ -1620,7 +1740,7 @@ export async function executeProspectWizardGeneration(
   // 10. Batch idempotency: already_reserved means a prior request owns this execution
   if (reservation.status === 'already_reserved') {
     // Budget newly reserved but batch already exists → release budget; another execution owns it
-    if (budgetWasNew) {
+    if (budgetWasNew && reservationId !== null) {
       await deps.releaseBudget({
         reservationId,
         batchId: reservation.batchId,
@@ -1683,7 +1803,13 @@ export async function executeProspectWizardGeneration(
   } catch {
     // Reconcile conservatively — the provider may have partially executed
     const toConfirm = await resolveCreditsToConfirm(reservedBatchId);
-    await deps.confirmBudget({ reservationId, actualCreditsConsumed: toConfirm, batchId: reservedBatchId }).catch(() => undefined);
+    // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — Apollo nunca reservó nada
+    // aquí (`reservationId === null`): no hay reserva del piloto que
+    // confirmar. Su gasto ya quedó en `provider_usage_logs`, que es lo que
+    // `resolveCreditsToConfirm` acaba de leer arriba para el reporte.
+    if (reservationId !== null) {
+      await deps.confirmBudget({ reservationId, actualCreditsConsumed: toConfirm, batchId: reservedBatchId }).catch(() => undefined);
+    }
     await deps.markBatchFailed(reservedBatchId, 'pipeline_error').catch(() => undefined);
     // CUT-6 §§ 5, 13 — sin sellado propio: `markBatchFailed` acaba de resolver el
     // estado con su sonda durable (CUT-1), así que el lote que contiene el aporte
@@ -1701,7 +1827,9 @@ export async function executeProspectWizardGeneration(
   // 12. Verify batchId consistency — pipeline must return the exact same batchId we reserved
   if (pipelineResult.batchId !== reservedBatchId) {
     const toConfirm = await resolveCreditsToConfirm(reservedBatchId);
-    await deps.confirmBudget({ reservationId, actualCreditsConsumed: toConfirm, batchId: reservedBatchId }).catch(() => undefined);
+    if (reservationId !== null) {
+      await deps.confirmBudget({ reservationId, actualCreditsConsumed: toConfirm, batchId: reservedBatchId }).catch(() => undefined);
+    }
     await deps.markBatchFailed(reservedBatchId, 'batchid_mismatch').catch(() => undefined);
     // CUT-6 § 5 — misma regla que arriba: `markBatchFailed` ya decidió el estado.
     return {
@@ -1721,30 +1849,37 @@ export async function executeProspectWizardGeneration(
   const actualToConfirm = await resolveCreditsToConfirm(reservedBatchId);
 
   let reconciliationFailed = false;
-  try {
-    // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 § 13 — el resultado de la liquidación se
-    // MIRA. Antes se descartaba, y el wrapper no lanza: devuelve
-    // `{ status: 'error' }`. Así que una liquidación RECHAZADA por la RPC —el caso
-    // exacto que la migración 121 cierra, `actual > reserved` →
-    // `invalid_actual_credits`— era indistinguible de una exitosa, y la reserva se
-    // quedaba en `reserved` bloqueando la corrida siguiente sin que nada lo dijera.
-    //
-    // `confirmed_with_overage` es un ÉXITO y NO enciende el aviso: el gasto real
-    // entero quedó en el período y la reserva quedó cerrada. Tratarlo como fallo
-    // sería el mismo error de lectura, sólo en el otro sentido.
-    const settlement = await deps.confirmBudget({
-      reservationId,
-      actualCreditsConsumed: actualToConfirm,
-      batchId: reservedBatchId,
-      // Sólo para describir la magnitud de un sobrepaso; no decide nada.
-      creditsReserved,
-    });
-    if (settlement.status === 'error') {
+  // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — Apollo no reservó nada del
+  // pool del piloto (`reservationId === null`): no hay liquidación de una
+  // reserva del piloto que hacer. Su gasto real ya vive en
+  // `provider_usage_logs`, escrito por el propio pipeline de Apollo, no por
+  // esta liquidación.
+  if (reservationId !== null) {
+    try {
+      // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 § 13 — el resultado de la liquidación se
+      // MIRA. Antes se descartaba, y el wrapper no lanza: devuelve
+      // `{ status: 'error' }`. Así que una liquidación RECHAZADA por la RPC —el caso
+      // exacto que la migración 121 cierra, `actual > reserved` →
+      // `invalid_actual_credits`— era indistinguible de una exitosa, y la reserva se
+      // quedaba en `reserved` bloqueando la corrida siguiente sin que nada lo dijera.
+      //
+      // `confirmed_with_overage` es un ÉXITO y NO enciende el aviso: el gasto real
+      // entero quedó en el período y la reserva quedó cerrada. Tratarlo como fallo
+      // sería el mismo error de lectura, sólo en el otro sentido.
+      const settlement = await deps.confirmBudget({
+        reservationId,
+        actualCreditsConsumed: actualToConfirm,
+        batchId: reservedBatchId,
+        // Sólo para describir la magnitud de un sobrepaso; no decide nada.
+        creditsReserved,
+      });
+      if (settlement.status === 'error') {
+        reconciliationFailed = true;
+      }
+    } catch {
+      // Generation succeeded — do NOT convert to failure. Log warning internally.
       reconciliationFailed = true;
     }
-  } catch {
-    // Generation succeeded — do NOT convert to failure. Log warning internally.
-    reconciliationFailed = true;
   }
 
   // 14. Success

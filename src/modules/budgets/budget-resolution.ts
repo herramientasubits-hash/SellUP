@@ -355,6 +355,92 @@ export async function checkBudget(
   };
 }
 
+// ─── Provider-level quota gate (no budget_rule, no Wizard pool) ────────────────
+
+/**
+ * AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — whether a provider still has
+ * quota under its OWN contracted allowance, using ONLY
+ * `tool_catalog.monthly_credits_allowance` (or the live external balance when
+ * `quota_source = 'api_synced'`) and `provider_usage_logs`. No `budget_rule`
+ * is read or required: a `budget_rule` is an admin-configured SPEND LIMIT
+ * (what `checkBudget` above resolves), which is a different concept from the
+ * provider's own contracted quota resolved here. When no allowance is
+ * configured for the provider, nothing is enforced — exactly like
+ * `checkBudget`'s "no rule ⇒ allowed" contract, no limit is ever invented.
+ *
+ * This mirrors, for a single provider, the SAME `providerCreditsAvailable`
+ * figure `getAdminBudgetSummary` already computes and shows on the admin
+ * panel — same allowance source, same consumption resolver
+ * (`resolveEffectiveConsumption`, which already accounts for in-flight phone
+ * reveal reservations for apollo/lusha). It does not change what that summary
+ * computes or displays.
+ */
+export interface ProviderQuotaAvailability {
+  /** True when the provider still has quota (or none is configured). */
+  allowed: boolean;
+  /** null = no allowance configured for this provider — treated as unlimited. */
+  providerCreditsAvailable: number | null;
+  consumedCredits: number;
+  reservedCredits: number;
+  periodStart: string;
+  periodEnd: string;
+}
+
+export async function checkProviderQuotaAvailable(
+  providerKey: string,
+): Promise<ProviderQuotaAvailability> {
+  const admin = getAdminClient();
+
+  const [catalogEntries, bounds] = await Promise.all([
+    getActiveCatalogEntries(admin),
+    Promise.resolve(getPeriodBounds('monthly')),
+  ]);
+  const entry = catalogEntries.find((e) => e.providerKey === providerKey) ?? null;
+
+  const periodStart = bounds.start.toISOString();
+  const periodEnd = bounds.end.toISOString();
+
+  const isApiSyncedLive =
+    entry?.quotaSource === 'api_synced' &&
+    !entry.quotaOverrideManual &&
+    entry.creditsRemainingExternal !== null;
+
+  // No catalog entry, or no configured quota and no live external balance ⇒
+  // nothing to enforce against. The absence of a configured quota never
+  // invents a limit — same discipline as `checkBudget` with no matched rule.
+  if (!entry || (!isApiSyncedLive && entry.monthlyCreditsAllowance === null)) {
+    return {
+      allowed: true,
+      providerCreditsAvailable: null,
+      consumedCredits: 0,
+      reservedCredits: 0,
+      periodStart,
+      periodEnd,
+    };
+  }
+
+  const usageLogs = await getConsumptionGlobal(admin, providerKey, periodStart, periodEnd);
+  const consumed = await resolveEffectiveConsumption(admin, {
+    usageLogs,
+    providerKeys: [providerKey],
+    periodStart,
+    periodEnd,
+  });
+
+  const providerCreditsAvailable = isApiSyncedLive
+    ? entry.creditsRemainingExternal!
+    : entry.monthlyCreditsAllowance! - consumed.credits - consumed.reservedCredits;
+
+  return {
+    allowed: providerCreditsAvailable > 0,
+    providerCreditsAvailable,
+    consumedCredits: consumed.credits,
+    reservedCredits: consumed.reservedCredits,
+    periodStart,
+    periodEnd,
+  };
+}
+
 /**
  * Returns a budget summary for all active providers.
  * Uses the global rule (if any) for each provider to determine the period.

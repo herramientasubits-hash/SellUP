@@ -220,8 +220,13 @@ function wiring(options: {
       );
     },
     reserveBudget: async () => {
-      observed.order.push('budget_reserve');
       return { status: 'reserved' as const, reservationId: 'res-1', creditsReserved: 3 };
+    },
+    // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — Apollo (único proveedor de
+    // este archivo) pasa por AQUÍ, no por `reserveBudget`.
+    checkApolloProviderQuota: async () => {
+      observed.order.push('budget_reserve');
+      return { status: 'available' as const, providerCreditsAvailable: 999 };
     },
     confirmBudget: async () => ({ status: 'confirmed' as const }),
     releaseBudget: async () => ({ status: 'released' as const }),
@@ -467,7 +472,14 @@ describe('CUT-6 §§ 20, 21 · E — duplicado pagado contado como hueco cerrado
 // ── GUARDA F · un reintento no puede reservar dos veces ─────────────────────
 
 describe('CUT-6 §§ 20, 21 · F — segunda reserva en el reintento', () => {
-  it('🔴 EN NEGATIVO — el reintento libera el presupuesto y no ejecuta el proveedor', async () => {
+  // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — este archivo sólo ejercita
+  // Apollo, que ya no reserva del pool del piloto: su puerta
+  // (`checkApolloProviderQuota`) es una lectura de sólo consulta sobre la
+  // cuota del proveedor, no una reserva que un reintento tenga que liberar.
+  // `released` se queda deliberadamente en 0 — no porque el reintento haya
+  // dejado de vigilar el doble gasto, sino porque para Apollo NUNCA hubo nada
+  // que reservar del piloto en primer lugar.
+  it('🔴 EN NEGATIVO — el reintento no ejecuta el proveedor ni libera un presupuesto que Apollo nunca reservó', async () => {
     await withEnv(async () => {
       const slots = new Map<string, string>();
       const released: string[] = [];
@@ -494,7 +506,7 @@ describe('CUT-6 §§ 20, 21 · F — segunda reserva en el reintento', () => {
 
       assert.equal(result.ok && result.status, 'already_started');
       assert.equal(second.observed.apolloCalls.length, 0, '🔴 0 ejecuciones pagadas en el reintento');
-      assert.deepEqual(released, ['batch_already_reserved'], '🔴 la segunda reserva se libera');
+      assert.deepEqual(released, [], 'Apollo no reservó nada del piloto: nada que liberar');
       assert.equal(slots.size, 1);
     });
   });
