@@ -38,7 +38,16 @@ import type { WizardRunSelectableProvider } from './wizard-run-provider-capabili
  */
 export type WizardBudgetPreflight = {
   availableCredits: number;
-  requiredCreditsByProvider: Record<WizardRunSelectableProvider, number>;
+  /**
+   * AGENT1-WIZARD-BUDGET-UI-APOLLO-DECOUPLE-1 — `Partial`, no `Record`, a
+   * propósito: `availableCredits` es el saldo de `wizard_monthly_budget_periods`,
+   * y desde AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 (#386) Apollo YA NO
+   * reserva de ese pool — usa su propia cuota de Providers & Consumption. Un
+   * `requiredCreditsByProvider.apollo_organizations` numérico aquí compararía el
+   * coste de Apollo contra el saldo EQUIVOCADO. `wizard-budget-preflight.server.ts`
+   * por eso no publica esa clave: Tavily sigue con la suya, sin cambios.
+   */
+  requiredCreditsByProvider: Partial<Record<WizardRunSelectableProvider, number>>;
   /**
    * AGENT1-LUSHA-BUDGET-GATE-1 § 6 — techo de la ruta Lusha.
    *
@@ -101,6 +110,18 @@ export function resolveWizardPreExecutionBudgetBlock(
   provider: WizardRunSelectableProvider,
 ): WizardBudgetPreflightBlock | null {
   if (!preflight) return null;
+
+  // AGENT1-WIZARD-BUDGET-UI-APOLLO-DECOUPLE-1 — condición separada, no un
+  // accidente de datos ausentes. Apollo → cuota propia de proveedor (verificada
+  // en la ejecución real por `checkApolloProviderQuota`, wizard-execution-actions.ts
+  // § 7); Tavily/Lusha → este pool, sin cambios. `availableCredits` es el saldo
+  // de `wizard_monthly_budget_periods`, y Apollo dejó de reservar ahí en
+  // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 (#386): compararlo contra ESE saldo
+  // produciría un aviso previo falso, porque la ejecución real ya no puede
+  // bloquearse por él. Esta rama es la autoridad explícita — no depende de que
+  // `requiredCreditsByProvider` deje su clave sin publicar.
+  if (provider === 'apollo_organizations') return null;
+
   return comparePreflightBudget(
     preflight.availableCredits,
     preflight.requiredCreditsByProvider[provider],
