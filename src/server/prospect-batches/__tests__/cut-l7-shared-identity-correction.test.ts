@@ -890,8 +890,25 @@ describe('CUT-L7 §§ 5, 23, 29, 40, 43 — alcance, fidelidad y cableado', () =
         `la 137 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
       );
     }
-    // Ninguna 138 o superior, se llame como se llame.
-    assert.equal(migrations.filter((f) => /^13[89]_|^1[4-9]\d_/.test(f)).length, 0);
+    // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 reclamó la 138: la disposición durable de una empresa
+    // descartada, para la pestaña "Descartadas" de Prospectos (issue #389). Misma exigencia por
+    // AUTORÍA que la 137: se EXIGE que la 138 sea exactamente esa migración y que su cuerpo no
+    // mencione CUT-L7 ni la identidad compartida que este corte toca.
+    assert.deepEqual(
+      migrations.filter((f) => /^138_/.test(f)),
+      ['138_prospect_discarded_dispositions.sql'],
+      'la 138 tiene que ser la disposición durable de descartes de Prospectos, y sólo ella',
+    );
+    const discardedDispositions = read('supabase/migrations/138_prospect_discarded_dispositions.sql');
+    for (const foreign of ['CUT-L7', 'shared_fiscal_identity', 'provider_seen_entities']) {
+      assert.equal(
+        discardedDispositions.includes(foreign),
+        false,
+        `la 138 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
+      );
+    }
+    // Ninguna 139 o superior, se llame como se llame.
+    assert.equal(migrations.filter((f) => /^139_|^1[4-9]\d_/.test(f)).length, 0);
   });
 
   it('M14 · § 43 · la suite está cableada al check OBLIGATORIO', () => {

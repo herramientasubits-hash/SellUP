@@ -481,6 +481,11 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       // no es de teléfono, no es del catálogo y no nombra ninguna tabla, columna
       // ni función de las cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
       '137_wizard_budget_period_admin_audit.sql',
+      // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 mueve el techo a la 138: la disposición durable de
+      // una empresa descartada, para "Descartadas" de Prospectos (issue #389). No es de
+      // teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de las
+      // cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
+      '138_prospect_discarded_dispositions.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
@@ -545,7 +550,11 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     // bitácora en una misma transacción—. Es de Agente 1 y de CONFIGURACIÓN de gasto:
     // no es de teléfono, no es del catálogo y no nombra ninguna tabla,
     // columna ni función de las cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 137);
+    // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 mueve el techo a la 138: la disposición durable de
+    // descartes de Prospectos (issue #389). No es de teléfono, no es del catálogo y no nombra
+    // ninguna tabla, columna ni función de las cadenas que esta guarda vigila. AUTORADA y NO
+    // APLICADA.
+    assert.equal(numbered[numbered.length - 1], 138);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {
