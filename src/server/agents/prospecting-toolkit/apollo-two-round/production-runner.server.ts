@@ -2693,6 +2693,18 @@ export async function runApolloTwoRoundWizardDiscovery(
     };
   };
 
+  /**
+   * AGENT1-DISCARDED-TRACEABILITY-1 — con qué nombre llegó cada candidata
+   * pre-writer a la lista que el writer recibe.
+   *
+   * Es la única llave que permite casar una candidata del orquestador con
+   * `CandidateWriterOutput.skipped[]`: `createdCandidateIds` son UUID de la base
+   * y no se pueden traducir de vuelta a un `candidateKey` sin releer la tabla.
+   * Una clave que NO aparezca aquí es una candidata que nunca llegó al writer,
+   * y por tanto no pudo crearse.
+   */
+  const writerCandidateNameByKey = new Map<string, string>();
+
   const resolvePersistableCandidates = async (): Promise<ProspectingPipelineCandidate[]> => {
     const resolved: ProspectingPipelineCandidate[] = [];
     // AGENT1-APOLLO-LINKEDIN-QUALITY-INTEGRATION-1 § D — las ambiguas viajan al
@@ -2719,6 +2731,7 @@ export async function runApolloTwoRoundWizardDiscovery(
           },
           evidenceForOfficialSource,
         );
+        writerCandidateNameByKey.set(entry.candidateKey, withIdentity.name);
         resolved.push(withIdentity);
         continue;
       }
@@ -2742,6 +2755,7 @@ export async function runApolloTwoRoundWizardDiscovery(
         { ...rebuilt.candidate, providerEnrichmentCapture: capture },
         evidence,
       );
+      writerCandidateNameByKey.set(entry.candidateKey, withIdentity.name);
       resolved.push(withIdentity);
     }
     return resolved;
@@ -2950,15 +2964,48 @@ export async function runApolloTwoRoundWizardDiscovery(
       requestedCountryCode: input.countryCode ?? null,
       requestedIndustry: input.industry ?? null,
       sourcePrimary: 'apollo',
-      evaluatedCandidates: runResult.evaluatedCandidates.map((c) => ({
-        candidateKey: c.candidateKey,
-        identity: {
-          providerOrganizationId: c.identity.providerOrganizationId,
-          normalizedDomain: c.identity.normalizedDomain,
-          canonicalName: c.identity.canonicalName,
-        },
-      })),
+      evaluatedCandidates: runResult.evaluatedCandidates.map((c) => {
+        // AGENT1-DISCARDED-TRACEABILITY-1 — la contabilidad del enrichment de
+        // ESTE candidato, tomada de `enrichment_snapshots`, que la corrida ya
+        // tiene en memoria. Sin ella la fila persistida no puede distinguir el
+        // presupuesto agotado ANTES del intento de un enrichment que Apollo
+        // cobró y que aun así perdió su cupo en un reintento posterior.
+        const snapshots = enrichmentSnapshots.filter((s) => s.candidate_key === c.candidateKey);
+        return {
+          candidateKey: c.candidateKey,
+          identity: {
+            providerOrganizationId: c.identity.providerOrganizationId,
+            normalizedDomain: c.identity.normalizedDomain,
+            canonicalName: c.identity.canonicalName,
+          },
+          enrichment: {
+            attempted: c.enrichmentExecuted === true || snapshots.length > 0,
+            status: enrichmentStatusByKey.get(c.candidateKey) ?? null,
+            // `null` en cuanto UNA operación quedó indeterminada: sumar los
+            // conocidos afirmaría un total que nadie puede sostener.
+            recordedCredits: snapshots.some((s) => s.recorded_credits === null)
+              ? null
+              : snapshots.reduce((sum, s) => sum + (s.recorded_credits ?? 0), 0),
+            operationIds: snapshots.map((s) => s.operation_id),
+          },
+        };
+      }),
       finalDispositions: evaluateApolloCandidateFinalDispositions(runResult),
+      // AGENT1-DISCARDED-TRACEABILITY-1 — el desenlace REAL de las candidatas
+      // que el orquestador entregó al writer. Sin esto, una candidata que el
+      // writer no llegó a crear se queda sin fila de candidato Y sin fila de
+      // disposición: invisible en toda persistencia.
+      writerOutcome: {
+        candidatesCreated: writerResult.candidatesCreated,
+        skipped: writerResult.skipped.map((entry) => ({
+          name: entry.name,
+          reason: entry.reason,
+        })),
+        preWriterCandidates: [...runResult.persisted, ...runResult.reviewOnly].map((entry) => ({
+          candidateKey: entry.candidateKey,
+          reachedWriterAsName: writerCandidateNameByKey.get(entry.candidateKey) ?? null,
+        })),
+      },
     }).catch((err) => {
       console.error(
         '[apollo-two-round] persistApolloRejectedDispositions threw unexpectedly (non-critical):',
