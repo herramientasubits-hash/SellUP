@@ -13,6 +13,8 @@ import {
 } from '@/components/prospect-batches/generate-ai-batch-experience';
 import { ProspectsDataTableClient } from '@/components/prospects/prospects-data-table-client';
 import { ModuleTabsNav } from '@/components/navigation/module-tabs-nav';
+import { ProspectsSubTabsNav } from '@/components/prospects/prospects-sub-tabs-nav';
+import { DiscardedProspectsPanel } from '@/components/prospects/discarded-prospects-panel';
 import { PROSPECTOS_TAB_ROUTE } from '@/config/navigation';
 import {
   getGlobalCandidatesList,
@@ -69,6 +71,13 @@ export interface ProspectsPanelSearchParams {
   groupId?: string;
   /** Scope refinement: filter by role key. Applied client-side via ScopeFiltersClient. */
   roleKey?: string;
+  /**
+   * AGENT1-DISCARDED-PROSPECTS-REVIEW-1 — sub-tab selector inside Prospectos
+   * (issue #389). `'descartadas'` renders the discarded-dispositions panel
+   * instead of the default "Por revisar" queue below. Any other value (or
+   * absence) keeps the existing behaviour unchanged.
+   */
+  view?: string;
 }
 
 interface ProspectsModulePanelProps {
@@ -85,6 +94,14 @@ interface ProspectsModulePanelProps {
  */
 export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps) {
   await requireActiveUser();
+
+  // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 (issue #389) — "Descartadas" is a
+  // sibling sub-tab, not a variant of this queue. Branching here, before any
+  // of the wizard/flag resolution below runs, keeps that panel independent
+  // and guarantees zero change to the "Por revisar" behaviour that follows.
+  if (params.view === 'descartadas') {
+    return <DiscardedProspectsPanel params={params} />;
+  }
 
   // Feature flags: read server-side only — never NEXT_PUBLIC_
   // A1-LEGACY-PATH-FENCE-1 (P0-1): both flags are parsed through the canonical
@@ -212,7 +229,12 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
     <DataTablePage
       title="Prospectos"
       description="Genera, importa y revisa empresas candidatas antes de convertirlas en cuentas listas para trabajar."
-      tabs={<ModuleTabsNav active="prospectos" />}
+      tabs={
+        <div className="flex flex-col gap-2">
+          <ModuleTabsNav active="prospectos" />
+          <ProspectsSubTabsNav active="por_revisar" />
+        </div>
+      }
       actions={
         <div className="flex flex-wrap items-center gap-2">
           <GenerateAIBatchDrawer experience={experience} unavailableKind={unavailableKind} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} discoveryProvider={wizardDiscoveryProvider} providerOverrideCapability={wizardProviderOverrideCapability} apolloRunModeLimits={apolloRunModeLimits} budgetPreflight={wizardBudgetPreflight} />
