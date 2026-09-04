@@ -11,8 +11,11 @@
 //   2. The branch is placed BEFORE every existing line of the function so
 //      the legacy code path is reached completely unmodified (no interleaving).
 //   3. The legacy "Por revisar" render (`<ProspectsDataTableClient ... />`)
-//      is still present, unedited in its own call, only wrapped with an
-//      additional sibling `<ProspectsSubTabsNav>` in the `tabs` prop.
+//      is still present, unedited in its own call.
+//
+// AGENT1-DISCARDED-TAB-PARITY-1 — se añade una cuarta garantía: "Descartadas"
+// dejó de ser una sub-pestaña y ya no puede volver a serlo. El panel renderiza
+// UNA sola fila de pills (<ModuleTabsNav>) y ningún componente de sub-tabs.
 //
 // Run: node --import tsx --test <this file>
 
@@ -54,5 +57,33 @@ describe('ProspectsModulePanel — "Por revisar" regression guard (Test O)', () 
 
   it('getGlobalCandidatesList is still called with the historical default statuses fallback', () => {
     assert.match(content, /statuses = \['needs_review', 'generated', 'normalized'\]/);
+  });
+});
+
+describe('ProspectsModulePanel — una sola fila de pestañas (sin tabs dentro de tabs)', () => {
+  const content = readFileSync(PANEL_PATH, 'utf8');
+  const discardedPanel = readFileSync(
+    path.join(__dirname, '..', 'discarded-prospects-panel.tsx'),
+    'utf8',
+  );
+
+  it('renderiza <ModuleTabsNav> como la única fila de pestañas del panel', () => {
+    assert.match(content, /tabs=\{<ModuleTabsNav active="prospectos" \/>\}/);
+  });
+
+  it('el panel de Descartadas usa la MISMA fila de pestañas, marcada activa', () => {
+    assert.match(discardedPanel, /<ModuleTabsNav active="descartadas"/);
+  });
+
+  it('ningún panel reintroduce un componente de sub-pestañas', () => {
+    for (const [name, source] of [
+      ['prospects-module-panel', content],
+      ['discarded-prospects-panel', discardedPanel],
+    ] as const) {
+      assert.ok(
+        !/SubTabsNav/.test(source),
+        `${name} no debe renderizar pestañas dentro de pestañas`,
+      );
+    }
   });
 });
