@@ -998,7 +998,14 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
     // teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de las cadenas
     // que esta guarda vigila. AUTORADA y NO APLICADA.
     // AGENT1-LUSHA-CUT-L4 mueve el techo a la 136: historial DURABLE de INTENTOS y reclamo atomico de UN reintento seguro (solo tras 429 o 5xx). AUTORADA y NO APLICADA.
-    assert.match(last, /^136_/);
+    // AGENT1-WIZARD-BUDGET-ADMIN-F1B mueve el techo a la 137: la superficie ADMINISTRATIVA del
+    // presupuesto del Wizard —`wizard_monthly_budget_periods.updated_by`, la bitácora
+    // append-only `wizard_budget_period_changes` y dos funciones que escriben valor y
+    // bitácora en una misma transacción—. No es del catálogo: no nombra
+    // `industry_catalog_versions`, ni `macro_industry_catalog`, ni ninguna vista del
+    // catálogo, y el barrido de abajo lo comprueba sobre su SQL en vez de creerle a este
+    // comentario. AUTORADA y NO APLICADA.
+    assert.match(last, /^137_/);
     // Y por encima de la 119 no hay NINGUNA migración de catálogo. Lo que se vigila
     // NO es el techo por sí mismo: es que ninguna migración posterior al cutover toque
     // las tablas del catálogo. Cada archivo nuevo entra a esta lista con su nombre y
@@ -1101,6 +1108,13 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
       //         abajo lo comprueba sobre su SQL en vez de creerle a este comentario. AUTORADA
       //         y NO APLICADA.
       '136_agent1_lusha_prospecting_safe_retry_attempts.sql',
+      //   137 — AGENT1-WIZARD-BUDGET-ADMIN-F1B: la superficie ADMINISTRATIVA del presupuesto
+      //         del Wizard. Añade `wizard_monthly_budget_periods.updated_by`, la bitácora
+      //         append-only `wizard_budget_period_changes` y dos funciones que escriben valor
+      //         y bitácora en una misma transacción; ninguna es tabla ni vista del catálogo de
+      //         industrias, y el barrido de abajo lo comprueba sobre su SQL en vez de creerle a
+      //         este comentario. AUTORADA y NO APLICADA.
+      '137_wizard_budget_period_admin_audit.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);

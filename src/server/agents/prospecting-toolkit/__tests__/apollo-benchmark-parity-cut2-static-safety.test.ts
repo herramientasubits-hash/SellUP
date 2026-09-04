@@ -531,7 +531,14 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
     // del proveedor declara a 0 créditos—. El proxy «el siguiente número está libre» se mueve
     // por tanto de la 136 a la 137, y el barrido de AUTORÍA se ENSANCHA de doce números a trece
     // para incluir la 136. Otra vez más fuerte que antes, no meramente desplazada.
-    assert.equal(migrations.filter((f) => f.startsWith('137')).length, 0);
+    // 🔴 AGENT1-WIZARD-BUDGET-ADMIN-F1B reclamó después la 137: la superficie ADMINISTRATIVA
+    // del presupuesto del Wizard (columna `updated_by` en el período, bitácora append-only
+    // `wizard_budget_period_changes` y dos funciones que aplican valor y bitácora en una
+    // transacción). El proxy «el siguiente número está libre» se mueve por tanto de la 137 a
+    // la 138, y el barrido de AUTORÍA —lo único que de verdad protege este corte— se ENSANCHA
+    // de trece números a catorce para incluir la 137. Otra vez más fuerte que antes, no
+    // meramente desplazada: un número libre nunca demostró nada.
+    assert.equal(migrations.filter((f) => f.startsWith('138')).length, 0);
     for (const file of migrations.filter(
       (f) =>
         f.startsWith('124') ||
@@ -546,7 +553,8 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
         f.startsWith('133') ||
         f.startsWith('134') ||
         f.startsWith('135') ||
-        f.startsWith('136'),
+        f.startsWith('136') ||
+        f.startsWith('137'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

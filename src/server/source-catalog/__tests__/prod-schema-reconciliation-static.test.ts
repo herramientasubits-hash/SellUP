@@ -103,6 +103,15 @@ const MIGRATION_135_AGENT1_LUSHA_FENCE = '135_agent1_lusha_prospecting_request_f
  */
 const MIGRATION_136_AGENT1_LUSHA_RETRY = '136_agent1_lusha_prospecting_safe_retry_attempts.sql';
 
+/**
+ * AGENT1-WIZARD-BUDGET-ADMIN-F1B — the ADMINISTRATIVE surface of the Wizard budget:
+ * `wizard_monthly_budget_periods.updated_by`, the append-only `wizard_budget_period_changes`
+ * log, and two functions that write the value and the log entry in one transaction. Another
+ * Agent-1 spend-CONFIGURATION migration: it names no source-catalog object, which the sweep
+ * below proves over its SQL rather than trusting this comment. AUTHORED and NOT APPLIED.
+ */
+const MIGRATION_137_WIZARD_BUDGET_ADMIN = '137_wizard_budget_period_admin_audit.sql';
+
 const readMigration = (file: string) => readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
 const stripComments = (sql: string) =>
   sql
@@ -152,7 +161,11 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     // object, which the sweep below proves over its SQL instead of trusting this comment. The
     // ceiling stays EXACT so that an undeclared migration above the last known milestone still
     // breaks this guard.
-    assert.equal(highest, 136);
+    // AGENT1-WIZARD-BUDGET-ADMIN-F1B then moved it to 137 with the Wizard budget's
+    // ADMINISTRATIVE surface. Same shape as the 135 and the 136: an Agent-1 spend migration
+    // that names no source-catalog object, proven below rather than asserted here, and it
+    // JOINS the foreign-authorship sweep instead of merely displacing the number.
+    assert.equal(highest, 137);
     assert.ok(files.includes(MIGRATION_125));
     assert.ok(files.includes(MIGRATION_126_AGENT1));
     assert.ok(files.includes(MIGRATION_127));
@@ -199,7 +212,11 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
       files.filter((f) => f.startsWith('136')),
       [MIGRATION_136_AGENT1_LUSHA_RETRY],
     );
-    assert.equal(files.some((f) => f.startsWith('137')), false);
+    assert.deepEqual(
+      files.filter((f) => f.startsWith('137')),
+      [MIGRATION_137_WIZARD_BUDGET_ADMIN],
+    );
+    assert.equal(files.some((f) => f.startsWith('138')), false);
     // And the 128 plus the whole 129–132 chain are provably foreign to this milestone: none of
     // them names a single source-catalog object CUT A.1 reconciles.
     for (const foreign of [
@@ -208,6 +225,7 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
       MIGRATION_133_BR_CUT_D,
       MIGRATION_135_AGENT1_LUSHA_FENCE,
       MIGRATION_136_AGENT1_LUSHA_RETRY,
+      MIGRATION_137_WIZARD_BUDGET_ADMIN,
     ]) {
       const sql = readMigration(foreign);
       for (const owned of [

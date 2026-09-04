@@ -538,7 +538,13 @@ describe('4O-G — alcance', () => {
     // teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de las cadenas
     // que esta guarda vigila. AUTORADA y NO APLICADA.
     // AGENT1-LUSHA-CUT-L4 mueve el techo a la 136: historial DURABLE de INTENTOS y reclamo atomico de UN reintento seguro (solo tras 429 o 5xx). AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 136);
+    // AGENT1-WIZARD-BUDGET-ADMIN-F1B mueve el techo a la 137: la superficie ADMINISTRATIVA
+    // del presupuesto del Wizard —`wizard_monthly_budget_periods.updated_by`, la bitácora
+    // append-only `wizard_budget_period_changes` y dos funciones que escriben valor y
+    // bitácora en una misma transacción—. Es de Agente 1 y de CONFIGURACIÓN de gasto: no
+    // es de teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de
+    // las cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 137);
     // El CONTEO, no el techo: 121 archivos para los números 001–121, es decir SIN un solo
     // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
     // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
@@ -556,7 +562,10 @@ describe('4O-G — alcance', () => {
     // 135 archivos para los números 001-135: la 134 del compacto de BR y la 135 de
     // AGENT1-LUSHA-CUT-L3 (renumerada desde la 134) tampoco dejan hueco, así
     // que conteo y techo siguen coincidiendo. Esa coincidencia ES la guarda.
-    assert.equal(numbered.length, 136);
+    // 137 archivos para los números 001-137: la 136 del historial de intentos seguros de
+    // Lusha y la 137 de la auditoría administrativa del presupuesto del Wizard tampoco dejan
+    // hueco, así que conteo y techo siguen coincidiendo. Esa coincidencia ES la guarda.
+    assert.equal(numbered.length, 137);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {

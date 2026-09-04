@@ -337,7 +337,13 @@ const POST_APPROVAL_REVEAL_MIGRATION =
  * con ese número—: la valla DURABLE de una petición de Lusha Company Prospecting.
  */
 // AGENT1-LUSHA-CUT-L4 mueve el techo a la 136: historial DURABLE de INTENTOS y reclamo atomico de UN reintento seguro (solo tras 429 o 5xx). AUTORADA y NO APLICADA.
-const REPOSITORY_CEILING = '136_agent1_lusha_prospecting_safe_retry_attempts.sql';
+// AGENT1-WIZARD-BUDGET-ADMIN-F1B mueve el techo a la 137: la superficie ADMINISTRATIVA del
+// presupuesto del Wizard —`wizard_monthly_budget_periods.updated_by`, la bitácora append-only
+// `wizard_budget_period_changes` y dos funciones que escriben valor y bitácora en una misma
+// transacción—. No es una migración de la capa de snapshots de fuente, no escribe candidatos
+// y no nombra ningún símbolo de CUT-3B23; su autoría se policía por el mismo criterio que la
+// 126 y la 128, no por el número. AUTORADA y NO APLICADA.
+const REPOSITORY_CEILING = '137_wizard_budget_period_admin_audit.sql';
 
 /**
  * Cuerpo EJECUTABLE de una migración, en minúsculas.
@@ -466,7 +472,7 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     // número): la valla DURABLE de una petición de Lusha Company Prospecting. No es una migración
     // de la capa de snapshots ni escribe candidatos, y su autoría se policía en la prueba de
     // arriba, que barre el directorio completo.
-    assert.ok(last.startsWith('136'), `última migración inesperada: ${last}`);
+    assert.ok(last.startsWith('137'), `última migración inesperada: ${last}`);
     assert.equal(last, REPOSITORY_CEILING);
     assert.ok(migrations.includes(POST_APPROVAL_REVEAL_MIGRATION));
     const lastSnapshotMigration = '127_br_receita_monthly_snapshot_identity.sql';

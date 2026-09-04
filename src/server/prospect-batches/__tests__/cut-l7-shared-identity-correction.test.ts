@@ -40,7 +40,8 @@
  *
  * 🔴 Lo que esta suite NO afirma: que Lusha sea seguro de activar; que el
  * preview pagado se haya reactivado —sigue incapacitado—; ni que ninguna
- * migración se haya aplicado. CUT-L7 no añade migración: el techo sigue en 136.
+ * migración se haya aplicado. CUT-L7 no añade migración: el techo lo movió
+ * AGENT1-WIZARD-BUDGET-ADMIN-F1B a la 137, y § 40 lo comprueba por AUTORÍA.
  *
  * 🔴 Deuda REGISTRADA y NO tocada aquí: la búsqueda de identificador fiscal
  * desnudo de `sellup-duplicate-checker` NO está acotada por país
@@ -865,12 +866,32 @@ describe('CUT-L7 §§ 5, 23, 29, 40, 43 — alcance, fidelidad y cableado', () =
     assert.doesNotMatch(seen, /normalizedName|canonicalName|normalized_name/);
   });
 
-  it('§ 40 · CUT-L7 no añade ninguna migración: el techo sigue en 136', () => {
+  it('§ 40 · CUT-L7 no añade ninguna migración: el techo lo movió F1-b a la 137', () => {
     assert.ok(read('supabase/migrations/135_agent1_lusha_prospecting_request_fence.sql').length > 0);
     assert.ok(read('supabase/migrations/136_agent1_lusha_prospecting_safe_retry_attempts.sql').length > 0);
-    // Ninguna 137, se llame como se llame.
+    // 🔴 AGENT1-WIZARD-BUDGET-ADMIN-F1B reclamó la 137: la superficie ADMINISTRATIVA del
+    // presupuesto del Wizard —`wizard_monthly_budget_periods.updated_by`, la bitácora
+    // append-only `wizard_budget_period_changes` y dos funciones que escriben valor y bitácora
+    // en una misma transacción—. Lo que esta guarda afirma —que CUT-L7 no aporta migración— NO
+    // se relaja: en vez de dejar el 137 libre, se EXIGE por AUTORÍA que la 137 sea exactamente
+    // la de F1-b y que su cuerpo no mencione CUT-L7 ni la identidad compartida que este corte
+    // toca. Eso es estrictamente más fuerte que un número libre. AUTORADA y NO APLICADA.
     const migrations = readdirSync(join(repoRoot, 'supabase/migrations'));
-    assert.equal(migrations.filter((f) => /^13[7-9]_|^1[4-9]\d_/.test(f)).length, 0);
+    assert.deepEqual(
+      migrations.filter((f) => /^137_/.test(f)),
+      ['137_wizard_budget_period_admin_audit.sql'],
+      'la 137 tiene que ser la auditoría administrativa del presupuesto del Wizard, y sólo ella',
+    );
+    const f1b = read('supabase/migrations/137_wizard_budget_period_admin_audit.sql');
+    for (const foreign of ['CUT-L7', 'shared_fiscal_identity', 'provider_seen_entities', 'prospect_candidates']) {
+      assert.equal(
+        f1b.includes(foreign),
+        false,
+        `la 137 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
+      );
+    }
+    // Ninguna 138 o superior, se llame como se llame.
+    assert.equal(migrations.filter((f) => /^13[89]_|^1[4-9]\d_/.test(f)).length, 0);
   });
 
   it('M14 · § 43 · la suite está cableada al check OBLIGATORIO', () => {

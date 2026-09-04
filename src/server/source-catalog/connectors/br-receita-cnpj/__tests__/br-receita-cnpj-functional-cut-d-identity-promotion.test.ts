@@ -1400,7 +1400,13 @@ describe('CUT D — the transport, and the recorded contracts', () => {
     assert.ok(numbered.includes(MIGRATION_FILE));
     assert.deepEqual(numbered.filter((f) => f.startsWith('133')), [MIGRATION_FILE]);
     // AGENT1-LUSHA-CUT-L4 mueve el techo a la 136: historial DURABLE de INTENTOS y reclamo atomico de UN reintento seguro (solo tras 429 o 5xx). AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], '136_agent1_lusha_prospecting_safe_retry_attempts.sql');
+    // AGENT1-WIZARD-BUDGET-ADMIN-F1B mueve el techo a la 137: la superficie ADMINISTRATIVA del
+    // presupuesto del Wizard —`wizard_monthly_budget_periods.updated_by`, la bitácora append-only
+    // `wizard_budget_period_changes` y dos funciones que escriben valor y bitácora en una misma
+    // transacción—. No es autoría de BR-SOURCE ni de CUT D: lo que esta guarda sostiene —que la
+    // 133 es EXACTAMENTE la promoción vallada de identidad fiscal y que CUT D no aporta otra— se
+    // comprueba justo arriba por AUTORÍA, no por ocupar el último puesto. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], '137_wizard_budget_period_admin_audit.sql');
     // Control NEGATIVO del filtro, sobre un nombre SINTÉTICO.
     assert.equal(/^\d{3}_/.test('LOCAL_example_unnumbered.sql'), false);
     assert.equal(/^\d{3}_/.test(MIGRATION_FILE), true);

@@ -521,8 +521,14 @@ describe('4O-E4.1 estático — alcance', () => {
       // después de que BR-COMPACT-SNAPSHOT-PRODUCTIZATION llegara primero a main con ese
       // número): la valla durable de petición de Lusha. No ASIGNA `mobile_phone` tampoco.
       // AGENT1-LUSHA-CUT-L4 mueve el techo a la 136: historial DURABLE de INTENTOS y reclamo atomico de UN reintento seguro (solo tras 429 o 5xx). AUTORADA y NO APLICADA.
-      136,
-      'la 135 (la valla durable de petición de Lusha, AGENT1-LUSHA-CUT-L3, renumerada desde la 134) es la última',
+      // AGENT1-WIZARD-BUDGET-ADMIN-F1B mueve el techo a la 137: la superficie ADMINISTRATIVA del
+      // presupuesto del Wizard —`wizard_monthly_budget_periods.updated_by`, la bitácora
+      // append-only `wizard_budget_period_changes` y dos funciones que escriben valor y
+      // bitácora en una misma transacción—. Es de Agente 1 y de CONFIGURACIÓN de gasto:
+      // no ASIGNA `mobile_phone`, no lo NOMBRA siquiera y no introduce
+      // procedencia del escalar móvil, que es lo que esta guarda vigila. AUTORADA y NO APLICADA.
+      137,
+      'la 137 (la auditoría administrativa del presupuesto del Wizard, AGENT1-WIZARD-BUDGET-ADMIN-F1B) es la última',
     );
   });
 
