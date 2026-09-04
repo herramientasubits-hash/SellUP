@@ -261,8 +261,16 @@ test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 
       // redefine ninguna de las tres RPC de reserva. La capa gratuita sigue sin necesitar
       // esquema, que es lo único que esta guarda afirma. AUTORADA y NO APLICADA.
       '137_wizard_budget_period_admin_audit.sql',
+      // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 añade la 138: la disposición durable de una empresa
+      // descartada, para "Descartadas" de Prospectos (issue #389). No es de la capa GRATUITA de
+      // descubrimiento que esta guarda protege: no nombra `provider_seen_entities`, no toca
+      // `prospect_batches`, y sólo referencia `prospect_candidates` como FK de su propia tabla
+      // nueva (una disposición ya persistida, no una escritura de la capa gratuita). La capa
+      // gratuita sigue sin necesitar esquema, que es lo único que esta guarda afirma. AUTORADA y
+      // NO APLICADA.
+      '138_prospect_discarded_dispositions.sql',
     ],
-    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR, la valla de petición de Lusha y la auditoría administrativa del presupuesto del Wizard',
+    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR, la valla de petición de Lusha, la auditoría administrativa del presupuesto del Wizard y la disposición durable de descartes de Prospectos',
   );
 
   // 🔴 Ratchet invertido en AGENT1-PROVIDER-SEEN-MEMORY-3: la 123 YA está aplicada

@@ -358,8 +358,12 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // bitácora en una misma transacción—. Es de Agente 1 y de CONFIGURACIÓN de gasto:
       // no escribe `mobile_phone` ni inventa vocabulario de procedencia
       // del escalar móvil, que es lo que esta guarda vigila. AUTORADA y NO APLICADA.
-      '137_wizard_budget_period_admin_audit.sql',
-      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa, la contabilidad de presupuesto, el tramo 129–132 de Agente 2, la 133 de BR-SOURCE CUT D, la 134 del compacto de BR y la 135 de la valla de Lusha (AGENT1-LUSHA-CUT-L3, renumerada desde la 134), la 136 del historial de intentos seguros de Lusha y la 137 de la auditoría administrativa del presupuesto del Wizard, no este hito',
+      // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 mueve el techo a la 138: la disposición durable de
+      // una empresa descartada, para "Descartadas" de Prospectos (issue #389). No escribe
+      // `mobile_phone` ni inventa vocabulario de procedencia del escalar móvil. AUTORADA y NO
+      // APLICADA.
+      '138_prospect_discarded_dispositions.sql',
+      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa, la contabilidad de presupuesto, el tramo 129–132 de Agente 2, la 133 de BR-SOURCE CUT D, la 134 del compacto de BR y la 135 de la valla de Lusha (AGENT1-LUSHA-CUT-L3, renumerada desde la 134), la 136 del historial de intentos seguros de Lusha, la 137 de la auditoría administrativa del presupuesto del Wizard y la 138 de la disposición durable de descartes de Prospectos, no este hito',
     );
     for (const agent2 of [
       '129_agent2_contact_hubspot_stale_completeness.sql',
@@ -400,16 +404,20 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // 🔴 AGENT1-LUSHA-CUT-L4 declara la 136 (historial DURABLE de INTENTOS y reclamo atómico de
       // UN reintento seguro) y AGENT1-WIZARD-BUDGET-ADMIN-F1B declara la 137 (la superficie
       // ADMINISTRATIVA del presupuesto del Wizard). Ambas quedan AUTORIZADAS y NOMBRADAS como
-      // las anteriores, así que la ventana prohibida sube a la 138 y superiores.
+      // las anteriores.
+      //
+      // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 declara la 138 (la disposición durable de descartes
+      // de Prospectos, issue #389). Queda AUTORIZADA y NOMBRADA como las anteriores, así que la
+      // ventana prohibida sube a la 139 y superiores.
       // La guarda no se relaja: sigue impidiendo que alguien cuele una POR ENCIMA del último
       // hito conocido sin declararla.
-      numbered.some((f) => /^1(3[89]|[4-9]\d)/.test(f)),
+      numbered.some((f) => /^1(39|[4-9]\d)/.test(f)),
       false,
       // La 120 (Fase 1), la 121 (contabilidad) y la 122 («Buscar más números»)
       // (AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1) son AUTORIZADAS y están declaradas arriba;
       // lo que esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último
       // hito conocido sin declararla.
-      'ninguna migración 138 o superior',
+      'ninguna migración 139 o superior',
     );
   });
 

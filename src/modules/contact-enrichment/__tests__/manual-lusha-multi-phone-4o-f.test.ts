@@ -1168,7 +1168,11 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     // bitácora en una misma transacción—. Es de Agente 1 y de CONFIGURACIÓN de gasto: no
     // es de teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de
     // las cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 137, '4O-F reutiliza la 111 sin crear SQL nuevo');
+    // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 mueve el techo a la 138: la disposición durable de
+    // una empresa descartada, para "Descartadas" de Prospectos (issue #389). No es de
+    // teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de las
+    // cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 138, '4O-F reutiliza la 111 sin crear SQL nuevo');
   });
 
   // AGENT2A-PHONE-REVEAL-4O-H3 — este guarda se INVIERTE, no se borra.

@@ -53,6 +53,13 @@ export interface NavAccessContext {
 export const ACCOUNTS_ROUTE = "/accounts";
 export const ACCOUNTS_EMPRESAS_ROUTE = "/accounts?tab=empresas";
 export const PROSPECTOS_TAB_ROUTE = "/accounts?tab=prospectos";
+/**
+ * AGENT1-DISCARDED-PROSPECTS-REVIEW-1 — "Descartadas" sub-tab inside
+ * Prospectos (issue #389). Sibling pill to the default "Por revisar" view,
+ * same module, same route, distinguished by the `view` query param so it
+ * never collides with the `tab` param that switches Empresas ⇄ Prospectos.
+ */
+export const PROSPECTOS_DISCARDED_TAB_ROUTE = "/accounts?tab=prospectos&view=descartadas";
 
 /**
  * Canonical routes for the unified "Contactos" module (Hito 17A.4A).

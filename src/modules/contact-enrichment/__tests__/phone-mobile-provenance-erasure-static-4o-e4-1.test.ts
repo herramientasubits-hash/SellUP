@@ -527,8 +527,12 @@ describe('4O-E4.1 estático — alcance', () => {
       // bitácora en una misma transacción—. Es de Agente 1 y de CONFIGURACIÓN de gasto:
       // no ASIGNA `mobile_phone`, no lo NOMBRA siquiera y no introduce
       // procedencia del escalar móvil, que es lo que esta guarda vigila. AUTORADA y NO APLICADA.
-      137,
-      'la 137 (la auditoría administrativa del presupuesto del Wizard, AGENT1-WIZARD-BUDGET-ADMIN-F1B) es la última',
+      // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 mueve el techo a la 138: la disposición durable de
+      // una empresa descartada, para "Descartadas" de Prospectos (issue #389). No ASIGNA
+      // `mobile_phone`, no lo NOMBRA siquiera y no introduce procedencia del escalar móvil.
+      // AUTORADA y NO APLICADA.
+      138,
+      'la 138 (la disposición durable de descartes de Prospectos, AGENT1-DISCARDED-PROSPECTS-REVIEW-1) es la última',
     );
   });
 

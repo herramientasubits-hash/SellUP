@@ -1406,7 +1406,10 @@ describe('CUT D — the transport, and the recorded contracts', () => {
     // transacción—. No es autoría de BR-SOURCE ni de CUT D: lo que esta guarda sostiene —que la
     // 133 es EXACTAMENTE la promoción vallada de identidad fiscal y que CUT D no aporta otra— se
     // comprueba justo arriba por AUTORÍA, no por ocupar el último puesto. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], '137_wizard_budget_period_admin_audit.sql');
+    // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 mueve el techo a la 138: la disposición durable de
+    // descartes de Prospectos (issue #389). Tampoco es autoría de BR-SOURCE ni de CUT D.
+    // AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], '138_prospect_discarded_dispositions.sql');
     // Control NEGATIVO del filtro, sobre un nombre SINTÉTICO.
     assert.equal(/^\d{3}_/.test('LOCAL_example_unnumbered.sql'), false);
     assert.equal(/^\d{3}_/.test(MIGRATION_FILE), true);

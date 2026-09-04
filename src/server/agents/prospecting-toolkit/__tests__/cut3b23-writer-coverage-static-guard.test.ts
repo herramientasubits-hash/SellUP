@@ -343,7 +343,12 @@ const POST_APPROVAL_REVEAL_MIGRATION =
 // transacción—. No es una migración de la capa de snapshots de fuente, no escribe candidatos
 // y no nombra ningún símbolo de CUT-3B23; su autoría se policía por el mismo criterio que la
 // 126 y la 128, no por el número. AUTORADA y NO APLICADA.
-const REPOSITORY_CEILING = '137_wizard_budget_period_admin_audit.sql';
+// AGENT1-DISCARDED-PROSPECTS-REVIEW-1 mueve el techo a la 138: la disposición durable de una
+// empresa descartada, para "Descartadas" de Prospectos (issue #389). No es una migración de la
+// capa de snapshots de fuente y no nombra ningún símbolo de CUT-3B23 (sólo referencia
+// `prospect_candidates` como FK de su propia tabla nueva, ajena a este corte). AUTORADA y NO
+// APLICADA.
+const REPOSITORY_CEILING = '138_prospect_discarded_dispositions.sql';
 
 /**
  * Cuerpo EJECUTABLE de una migración, en minúsculas.
@@ -472,7 +477,7 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     // número): la valla DURABLE de una petición de Lusha Company Prospecting. No es una migración
     // de la capa de snapshots ni escribe candidatos, y su autoría se policía en la prueba de
     // arriba, que barre el directorio completo.
-    assert.ok(last.startsWith('137'), `última migración inesperada: ${last}`);
+    assert.ok(last.startsWith('138'), `última migración inesperada: ${last}`);
     assert.equal(last, REPOSITORY_CEILING);
     assert.ok(migrations.includes(POST_APPROVAL_REVEAL_MIGRATION));
     const lastSnapshotMigration = '127_br_receita_monthly_snapshot_identity.sql';

@@ -218,6 +218,11 @@ import {
   evaluateApolloCandidateFinalDispositions,
   toCandidateFinalDispositionsMetadata,
 } from './candidate-final-disposition';
+// AGENT1-DISCARDED-PROSPECTS-REVIEW-1 — best-effort, additive persistence of
+// every terminal rejection this module already computes (see the call site
+// below, right after the writer runs). Isolated module: no Apollo call, no
+// budget/credit write, never throws. See pipeline-writer.server.ts.
+import { persistApolloRejectedDispositions } from '@/modules/prospect-discards/pipeline-writer.server';
 import type { CandidateSectorEvidenceState } from './enrichment-ranking';
 import {
   APOLLO_TWO_ROUND_CHECKPOINT_CONTRACT_VERSION,
@@ -2930,6 +2935,36 @@ export async function runApolloTwoRoundWizardDiscovery(
     persistedCandidateIds = writerResult.createdCandidateIds ?? [];
     persistenceOutcome = writerResult.persistence;
     candidatesPersisted = true;
+
+    // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 — durable, per-company record of
+    // every terminal rejection (país/sector/dominio/duplicado/presupuesto de
+    // enriquecimiento) this run already computed, so "Descartadas" can show
+    // it later without re-querying Apollo. Runs AFTER the writer, on data
+    // already in memory (`runResult`) — makes zero provider calls, spends no
+    // budget, and never touches `prospect_candidates`/`prospect_batches`.
+    // Best-effort by construction (the function itself never throws); the
+    // `catch` below is a second line of defense so a persistence failure can
+    // never fail or alter this run's own result.
+    await persistApolloRejectedDispositions({
+      batchId: input.reservedBatchId,
+      requestedCountryCode: input.countryCode ?? null,
+      requestedIndustry: input.industry ?? null,
+      sourcePrimary: 'apollo',
+      evaluatedCandidates: runResult.evaluatedCandidates.map((c) => ({
+        candidateKey: c.candidateKey,
+        identity: {
+          providerOrganizationId: c.identity.providerOrganizationId,
+          normalizedDomain: c.identity.normalizedDomain,
+          canonicalName: c.identity.canonicalName,
+        },
+      })),
+      finalDispositions: evaluateApolloCandidateFinalDispositions(runResult),
+    }).catch((err) => {
+      console.error(
+        '[apollo-two-round] persistApolloRejectedDispositions threw unexpectedly (non-critical):',
+        err,
+      );
+    });
 
     // § 3 — el checkpoint final se escribe DESPUÉS del writer y RELEYENDO el
     // documento, así que conserva la metadata que el writer acaba de dejar.

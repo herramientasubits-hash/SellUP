@@ -438,8 +438,13 @@ const BATCH_OWNER_COLUMNS = ['owner_id', 'created_by'] as const;
  *  - `null` → no constraint (scope flag off, or admin / view-all).
  *  - `[]`   → nothing visible.
  *  - `[ids]`→ restrict candidates to these batch ids.
+ *
+ * Exported (AGENT1-DISCARDED-PROSPECTS-REVIEW-1) so `prospect-discards`
+ * queries can apply the exact same commercial-scope filter over
+ * `prospect_discarded_dispositions`, which is scoped via its `batch_id` the
+ * same way `prospect_candidates` is — no second scope implementation.
  */
-async function resolveAllowedBatchIds(): Promise<string[] | null> {
+export async function resolveAllowedBatchIds(): Promise<string[] | null> {
   if (!isCommercialScopeEnabled()) return null;
   const scope = await resolveCommercialScope();
   if (!scope) return [];

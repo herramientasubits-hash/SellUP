@@ -189,7 +189,11 @@ describe('115 — numeración', () => {
     // bitácora en una misma transacción—. Es de Agente 1 y de CONFIGURACIÓN de gasto: no
     // es de teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de
     // las cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
-    assert.equal(Math.max(...numbers), 137);
+    // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 mueve el techo a la 138: la disposición durable de
+    // una empresa descartada, para "Descartadas" de Prospectos (issue #389). No es de
+    // teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de las
+    // cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
+    assert.equal(Math.max(...numbers), 138);
   });
 
   it('declara NO estar aplicada en Producción', () => {

@@ -634,7 +634,10 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // append-only `wizard_budget_period_changes` y dos funciones que escriben valor y
       // bitácora en una misma transacción—. Es de Agente 1 y de CONFIGURACIÓN de gasto: no
       // crea contacto alguno y no escribe `phone_source`. AUTORADA y NO APLICADA.
-      '137_wizard_budget_period_admin_audit.sql',
+      // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 mueve el techo a la 138: la disposición durable de
+      // una empresa descartada, para "Descartadas" de Prospectos (issue #389). No crea contacto
+      // alguno y no escribe `phone_source`. AUTORADA y NO APLICADA.
+      '138_prospect_discarded_dispositions.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
     for (const agent2 of [

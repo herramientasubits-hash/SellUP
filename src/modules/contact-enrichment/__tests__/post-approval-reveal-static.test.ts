@@ -752,10 +752,15 @@ describe('la migración 128 — su contrato', () => {
     // bitácora en una misma transacción—. Es de Agente 1 y de CONFIGURACIÓN de gasto: no
     // es de teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de
     // las cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
-    assert.equal(files[files.length - 1], '137_wizard_budget_period_admin_audit.sql');
+    // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 mueve el techo a la 138: la disposición durable de
+    // una empresa descartada (por el pipeline de Apollo o por un descarte manual), para la
+    // pestaña "Descartadas" de Prospectos (issue #389). No es de teléfono, no es del catálogo
+    // y no nombra ninguna tabla, columna ni función de las cadenas que esta guarda vigila.
+    // AUTORADA y NO APLICADA.
+    assert.equal(files[files.length - 1], '138_prospect_discarded_dispositions.sql');
     const numbers = files.map((f) => Number.parseInt(f.slice(0, 3), 10));
-    assert.equal(Math.max(...numbers), 137);
-    assert.equal(files.length, 137, 'techo y conteo coinciden: ni un hueco');
+    assert.equal(Math.max(...numbers), 138);
+    assert.equal(files.length, 138, 'techo y conteo coinciden: ni un hueco');
   });
 
   it('no edita ninguna migración anterior de la cadena de teléfono', () => {

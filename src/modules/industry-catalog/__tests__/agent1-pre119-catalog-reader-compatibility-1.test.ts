@@ -1005,7 +1005,14 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
     // `industry_catalog_versions`, ni `macro_industry_catalog`, ni ninguna vista del
     // catálogo, y el barrido de abajo lo comprueba sobre su SQL en vez de creerle a este
     // comentario. AUTORADA y NO APLICADA.
-    assert.match(last, /^137_/);
+    // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 mueve el techo a la 138: la disposición durable de
+    // una empresa descartada por el pipeline (país/sector/dominio/duplicado/presupuesto de
+    // enrichment) o por un descarte manual, para la pestaña "Descartadas" de Prospectos
+    // (issue #389). Crea `prospect_discarded_dispositions` y ensancha aditivamente el CHECK
+    // de `prospect_candidate_audit.action_type`; ninguna de las dos es tabla ni vista del
+    // catálogo de industrias, y el barrido de abajo lo comprueba sobre su SQL en vez de
+    // creerle a este comentario. AUTORADA y NO APLICADA.
+    assert.match(last, /^138_/);
     // Y por encima de la 119 no hay NINGUNA migración de catálogo. Lo que se vigila
     // NO es el techo por sí mismo: es que ninguna migración posterior al cutover toque
     // las tablas del catálogo. Cada archivo nuevo entra a esta lista con su nombre y
@@ -1115,6 +1122,13 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
       //         industrias, y el barrido de abajo lo comprueba sobre su SQL en vez de creerle a
       //         este comentario. AUTORADA y NO APLICADA.
       '137_wizard_budget_period_admin_audit.sql',
+      //   138 — AGENT1-DISCARDED-PROSPECTS-REVIEW-1: `prospect_discarded_dispositions` (una fila
+      //         persistente por empresa/disposición descartada, idempotente por
+      //         `(batch_id, source_key)`) y el ensanchamiento aditivo del CHECK de
+      //         `prospect_candidate_audit.action_type` con `candidate_sent_to_review`; ninguna
+      //         es tabla ni vista del catálogo de industrias, y el barrido de abajo lo comprueba
+      //         sobre su SQL en vez de creerle a este comentario. AUTORADA y NO APLICADA.
+      '138_prospect_discarded_dispositions.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);

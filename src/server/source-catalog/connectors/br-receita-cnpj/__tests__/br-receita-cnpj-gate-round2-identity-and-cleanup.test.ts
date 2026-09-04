@@ -641,7 +641,10 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     // a BR one; the authorship sweep further down is WIDENED to include it rather than merely
     // shifted, so it still refuses BR authorship for it. What GATE ROUND 2 defends is unchanged
     // and asserted right below — CUT A still adds EXACTLY one migration and it is still 127.
-    assert.equal(highest, 137, 'the repository ceiling is 137 — AGENT1-WIZARD-BUDGET-ADMIN-F1B, not CUT A');
+    // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 then moved the ceiling to 138 with the durable
+    // disposition of a discarded prospect, for "Descartadas" (issue #389). Like the 135/136/137,
+    // it is not a BR migration; the authorship sweep further down is WIDENED to include it.
+    assert.equal(highest, 138, 'the repository ceiling is 138 — AGENT1-DISCARDED-PROSPECTS-REVIEW-1, not CUT A');
     assert.deepEqual(
       files.filter((f) => f.startsWith('135')),
       ['135_agent1_lusha_prospecting_request_fence.sql'],
@@ -655,7 +658,12 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     assert.deepEqual(
       files.filter((f) => f.startsWith('137')),
       ['137_wizard_budget_period_admin_audit.sql'],
-      'AGENT1-WIZARD-BUDGET-ADMIN-F1B owns exactly one migration, and it is the ceiling',
+      'AGENT1-WIZARD-BUDGET-ADMIN-F1B owns exactly one migration',
+    );
+    assert.deepEqual(
+      files.filter((f) => f.startsWith('138')),
+      ['138_prospect_discarded_dispositions.sql'],
+      'AGENT1-DISCARDED-PROSPECTS-REVIEW-1 owns exactly one migration, and it is the ceiling',
     );
     assert.deepEqual(
       files.filter((f) => f.startsWith('133')),
@@ -691,10 +699,13 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
       );
     }
     for (const name of files.filter((f) =>
-      // 135, 136 and 137 join the sweep: all three are Agent-1 spend migrations, and none of them
-      // may be authored by a BR round. Asserting it is cheaper than trusting the comment above,
-      // and the sweep GROWS with each new ceiling instead of moving off the previous one.
-      ['124', '126', '128', '129', '130', '131', '132', '135', '136', '137'].some((n) => f.startsWith(n)),
+      // 135, 136, 137 and 138 join the sweep: all four are Agent-1 spend/discard migrations, and
+      // none of them may be authored by a BR round. Asserting it is cheaper than trusting the
+      // comment above, and the sweep GROWS with each new ceiling instead of moving off the
+      // previous one.
+      ['124', '126', '128', '129', '130', '131', '132', '135', '136', '137', '138'].some((n) =>
+        f.startsWith(n),
+      ),
     )) {
       const sql = fs.readFileSync(
         new URL(`../../../../../../supabase/migrations/${name}`, import.meta.url),

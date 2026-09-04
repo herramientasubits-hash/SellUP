@@ -54,7 +54,11 @@ export type CandidateAuditAction =
   | 'candidate_discarded'
   | 'candidate_marked_duplicate'
   | 'candidate_converted_to_account'
-  | 'candidate_marked_ready_for_approval';
+  | 'candidate_marked_ready_for_approval'
+  // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 — human override that sends a
+  // discarded disposition (with or without a pre-existing candidate row)
+  // back to needs_review. Migration 138 widens the DB CHECK constraint.
+  | 'candidate_sent_to_review';
 
 // ── Tipos para candidatos estructurados ───────────────────────
 
