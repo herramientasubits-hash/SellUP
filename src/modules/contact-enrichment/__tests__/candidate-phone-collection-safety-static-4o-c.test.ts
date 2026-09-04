@@ -291,8 +291,14 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // Lusha Prospecting y el reclamo atomico de UN reintento seguro (solo tras un 429 o un
       // 5xx, que el contrato HUMANO del proveedor declara a 0 creditos). Es de Agente 1 y de
       // seguridad de gasto. AUTORADA y NO APLICADA.
-      '136_agent1_lusha_prospecting_safe_retry_attempts.sql',
-      'el techo conocido es la 135: la 133 (la promoción vallada de identidad fiscal de BR-SOURCE CUT D) y la 134 (el almacenamiento compacto de BR) llegaron primero a main, así que AGENT1-LUSHA-CUT-L3 se renumeró de la 134 a la 135 al integrarse en serie; ni ella, ni la 134, ni la 133, ni el tramo 129–132 editan el archivo de una migración anterior de la cadena de teléfono 109–117',
+      // AGENT1-WIZARD-BUDGET-ADMIN-F1B mueve el techo a la 137: la superficie ADMINISTRATIVA del
+      // presupuesto del Wizard —`wizard_monthly_budget_periods.updated_by`, la bitácora
+      // append-only `wizard_budget_period_changes` y dos funciones que escriben valor y
+      // bitácora en una misma transacción—. Es de Agente 1 y de CONFIGURACIÓN de gasto: no es
+      // de teléfono, no es del catálogo y no edita el archivo de ninguna migración anterior de
+      // la cadena de teléfono 109–117. AUTORADA y NO APLICADA.
+      '137_wizard_budget_period_admin_audit.sql',
+      'el techo conocido es la 135: la 133 (la promoción vallada de identidad fiscal de BR-SOURCE CUT D) y la 134 (el almacenamiento compacto de BR) llegaron primero a main, así que AGENT1-LUSHA-CUT-L3 se renumeró de la 134 a la 135 al integrarse en serie; ni ella, ni la 134, ni la 133, ni el tramo 129–132 editan el archivo de una migración anterior de la cadena de teléfono 109–117; la 136 (el historial de intentos seguros de Lusha) y la 137 (la auditoría administrativa del presupuesto del Wizard) tampoco',
     );
     assert.equal(
       // La ventana sube con el techo DECLARADO arriba: la 125 (reconciliación genérica), la 126
@@ -310,15 +316,21 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // (`lusha_prospecting_request_fence` + tres RPC), escrita ANTES del envío para que una
       // caída dura no repita una petición que el proveedor quizá ya cobró. Queda AUTORIZADA y
       // NOMBRADA como las anteriores, así que la ventana prohibida sube a la 136 y superiores.
+      // 🔴 AGENT1-LUSHA-CUT-L4 declara la 136 (historial DURABLE de INTENTOS y reclamo atómico
+      // de UN reintento seguro) y AGENT1-WIZARD-BUDGET-ADMIN-F1B declara la 137 (la superficie
+      // ADMINISTRATIVA del presupuesto del Wizard: `updated_by`, la bitácora append-only
+      // `wizard_budget_period_changes` y las dos funciones que escriben valor y bitácora en una
+      // misma transacción). Ambas quedan AUTORIZADAS y NOMBRADAS como las anteriores, así que la
+      // ventana prohibida sube a la 138 y superiores.
       // La guarda no se relaja: sigue impidiendo que alguien cuele una POR ENCIMA del último
       // hito conocido sin declararla.
-      files.some((file) => /^1(3[7-9]|[4-9]\d)/.test(file)),
+      files.some((file) => /^1(3[89]|[4-9]\d)/.test(file)),
       false,
       // La 120, la 121 y la 122 son AUTORIZADAS y están declaradas arriba con lo que hacen. Lo que
       // esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último hito
       // conocido sin declararla; la afirmación de que ninguna de ellas escribe sobre las
       // tablas de la cadena de teléfono se comprueba justo abajo, de forma directa.
-      'ninguna migración 137 o superior',
+      'ninguna migración 138 o superior',
     );
     // La afirmación que de verdad importa, ya no delegada en el orden alfabético:
     // ninguna migración posterior a la ÚLTIMA de la cadena de teléfono escribe sobre sus

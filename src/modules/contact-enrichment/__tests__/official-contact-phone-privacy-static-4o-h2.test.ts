@@ -183,7 +183,13 @@ describe('115 — numeración', () => {
     // teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de las cadenas
     // que esta guarda vigila. AUTORADA y NO APLICADA.
     // AGENT1-LUSHA-CUT-L4 mueve el techo a la 136: historial DURABLE de INTENTOS y reclamo atomico de UN reintento seguro (solo tras 429 o 5xx). AUTORADA y NO APLICADA.
-    assert.equal(Math.max(...numbers), 136);
+    // AGENT1-WIZARD-BUDGET-ADMIN-F1B mueve el techo a la 137: la superficie ADMINISTRATIVA
+    // del presupuesto del Wizard —`wizard_monthly_budget_periods.updated_by`, la bitácora
+    // append-only `wizard_budget_period_changes` y dos funciones que escriben valor y
+    // bitácora en una misma transacción—. Es de Agente 1 y de CONFIGURACIÓN de gasto: no
+    // es de teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de
+    // las cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
+    assert.equal(Math.max(...numbers), 137);
   });
 
   it('declara NO estar aplicada en Producción', () => {

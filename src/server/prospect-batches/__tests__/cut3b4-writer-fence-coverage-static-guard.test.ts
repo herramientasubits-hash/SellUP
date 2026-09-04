@@ -406,7 +406,16 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // `authored` de arriba ya lo comprueba de forma exhaustiva sobre TODAS las migraciones del
     // repo.
     // AGENT1-LUSHA-CUT-L4 mueve el techo a la 136: historial DURABLE de INTENTOS y reclamo atomico de UN reintento seguro (solo tras 429 o 5xx). AUTORADA y NO APLICADA.
-    const CEILING = '136_agent1_lusha_prospecting_safe_retry_attempts.sql';
+    // 🔴 AGENT1-WIZARD-BUDGET-ADMIN-F1B reclamó después la 137: la superficie ADMINISTRATIVA del
+    // presupuesto del Wizard —`wizard_monthly_budget_periods.updated_by`, la bitácora append-only
+    // `wizard_budget_period_changes` y dos funciones que escriben valor y bitácora en una misma
+    // transacción—. Como con la 133, la 134, la 135 y la 136: lo que esta guarda defiende es
+    // AUTORÍA, no el número más alto. La 137 no menciona `AGENT1-CUT3B4` ni escribe candidatos,
+    // y el barrido explícito de abajo se ENSANCHA para incluir la 136 —el techo anterior— en vez
+    // de limitarse a desplazarse a la 137. La lista `authored` de arriba, además, ya lo comprueba
+    // de forma exhaustiva sobre TODAS las migraciones del repo. AUTORADA y NO APLICADA.
+    const LUSHA_RETRY_136 = '136_agent1_lusha_prospecting_safe_retry_attempts.sql';
+    const CEILING = '137_wizard_budget_period_admin_audit.sql';
     assert.equal(migrations[migrations.length - 1], CEILING);
     for (const foreign of [
       '127_br_receita_monthly_snapshot_identity.sql',
@@ -417,6 +426,7 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
       '132_agent2_hubspot_legacy_sync_state_backfill.sql',
       '133_br_candidate_identity_promotion.sql',
       BR_MIGRATION_134,
+      LUSHA_RETRY_136,
       CEILING,
     ]) {
       assert.equal(
@@ -427,8 +437,10 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     }
     // Sin huecos: el conteo se mueve con el techo real del repositorio, no con el de este corte.
     // BR-COMPACT-SNAPSHOT-PRODUCTIZATION añade la 134 y AGENT1-LUSHA-CUT-L3 la 135 (renumerada
-    // desde la 134), así que el conteo sube con ambas.
-    assert.equal(migrations.length, 136);
+    // desde la 134), así que el conteo sube con ambas. AGENT1-LUSHA-CUT-L4 añade la 136 y
+    // AGENT1-WIZARD-BUDGET-ADMIN-F1B la 137, así que el conteo vuelve a subir con las dos: sin
+    // huecos, conteo y techo siguen coincidiendo.
+    assert.equal(migrations.length, 137);
   });
 
   it('🔴 la 124 (Agente 2A) queda intacta, y la 126 no depende de ella', () => {

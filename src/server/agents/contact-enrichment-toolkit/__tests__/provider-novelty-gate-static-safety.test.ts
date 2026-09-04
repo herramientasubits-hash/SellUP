@@ -147,7 +147,14 @@ describe('modelo de datos — sin migración nueva', () => {
     // teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de las cadenas
     // que esta guarda vigila. AUTORADA y NO APLICADA.
     // AGENT1-LUSHA-CUT-L4 mueve el techo a la 136: historial DURABLE de INTENTOS y reclamo atomico de UN reintento seguro (solo tras 429 o 5xx). AUTORADA y NO APLICADA.
-    assert.equal(Math.max(...numbers), 136, 'el techo conocido es la 136');
+    // AGENT1-WIZARD-BUDGET-ADMIN-F1B mueve el techo a la 137: la superficie ADMINISTRATIVA
+    // del presupuesto del Wizard (columna `updated_by` en el período, bitácora append-only
+    // `wizard_budget_period_changes` y dos funciones que aplican valor y bitácora en una
+    // transacción). Es de Agente 1 y de configuración de GASTO: no es de teléfono, no es del
+    // catálogo y no nombra ninguna tabla, columna ni función de las cadenas que esta guarda
+    // vigila. La aserción que de verdad protege este archivo es la de abajo —que el gate de
+    // novedad no lee NINGUNA migración— y no cambia. AUTORADA y NO APLICADA.
+    assert.equal(Math.max(...numbers), 137, 'el techo conocido es la 137');
     assert.equal(
       GATE_SOURCE.includes('supabase/migrations'),
       false,

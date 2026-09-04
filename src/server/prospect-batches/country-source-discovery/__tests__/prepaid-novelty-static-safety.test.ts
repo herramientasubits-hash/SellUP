@@ -252,8 +252,17 @@ test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 
       // 5xx, que el contrato HUMANO del proveedor declara a 0 creditos). Es de Agente 1 y de
       // seguridad de gasto. AUTORADA y NO APLICADA.
       '136_agent1_lusha_prospecting_safe_retry_attempts.sql',
+      // AGENT1-WIZARD-BUDGET-ADMIN-F1B añade la 137: la superficie ADMINISTRATIVA del
+      // presupuesto del Wizard —`wizard_monthly_budget_periods.updated_by`, la bitácora
+      // append-only `wizard_budget_period_changes` y dos funciones que escriben valor y
+      // bitácora en una transacción—. Es de Agente 1 y de CONFIGURACIÓN de gasto, no de la
+      // capa GRATUITA de descubrimiento que esta guarda protege: no nombra
+      // `provider_seen_entities`, no toca `prospect_candidates` ni `prospect_batches`, y no
+      // redefine ninguna de las tres RPC de reserva. La capa gratuita sigue sin necesitar
+      // esquema, que es lo único que esta guarda afirma. AUTORADA y NO APLICADA.
+      '137_wizard_budget_period_admin_audit.sql',
     ],
-    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR y la valla de petición de Lusha',
+    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR, la valla de petición de Lusha y la auditoría administrativa del presupuesto del Wizard',
   );
 
   // 🔴 Ratchet invertido en AGENT1-PROVIDER-SEEN-MEMORY-3: la 123 YA está aplicada

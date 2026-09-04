@@ -746,10 +746,16 @@ describe('la migración 128 — su contrato', () => {
     // teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de las cadenas
     // que esta guarda vigila. AUTORADA y NO APLICADA.
     // AGENT1-LUSHA-CUT-L4 mueve el techo a la 136: historial DURABLE de INTENTOS y reclamo atomico de UN reintento seguro (solo tras 429 o 5xx). AUTORADA y NO APLICADA.
-    assert.equal(files[files.length - 1], '136_agent1_lusha_prospecting_safe_retry_attempts.sql');
+    // AGENT1-WIZARD-BUDGET-ADMIN-F1B mueve el techo a la 137: la superficie ADMINISTRATIVA
+    // del presupuesto del Wizard —`wizard_monthly_budget_periods.updated_by`, la bitácora
+    // append-only `wizard_budget_period_changes` y dos funciones que escriben valor y
+    // bitácora en una misma transacción—. Es de Agente 1 y de CONFIGURACIÓN de gasto: no
+    // es de teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de
+    // las cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
+    assert.equal(files[files.length - 1], '137_wizard_budget_period_admin_audit.sql');
     const numbers = files.map((f) => Number.parseInt(f.slice(0, 3), 10));
-    assert.equal(Math.max(...numbers), 136);
-    assert.equal(files.length, 136, 'techo y conteo coinciden: ni un hueco');
+    assert.equal(Math.max(...numbers), 137);
+    assert.equal(files.length, 137, 'techo y conteo coinciden: ni un hueco');
   });
 
   it('no edita ninguna migración anterior de la cadena de teléfono', () => {

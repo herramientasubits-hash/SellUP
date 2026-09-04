@@ -2069,6 +2069,41 @@ jobs:
         env:
           SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
 
+      # ── AGENT1-WIZARD-BUDGET-ADMIN-F1B ──────────────────────────────────
+      #
+      # La superficie ADMINISTRATIVA del presupuesto del Wizard: quién puede cambiar el
+      # presupuesto de un período, y que cada cambio quede en una bitácora append-only.
+      # Es configuración de GASTO, así que entra al check obligatorio como el resto de
+      # las guardas de presupuesto —M121 y la reconciliación de sobrepaso, justo arriba—.
+      #
+      # La suite de acciones corre con `--experimental-test-module-mocks` porque mockea
+      # el cliente de Supabase por alias; la estática no lo necesita y corre aparte, en
+      # el mismo script encadenado con `&&` para que un fallo de cualquiera de las dos
+      # ponga el paso en rojo.
+      #
+      # Entra en el MISMO job que el resto de las guardas: un contexto requerido nuevo no
+      # protegería nada hasta que alguien lo marcara obligatorio.
+      - name: Run A1 wizard budget admin tests
+        run: npm run test:a1-wizard-budget-admin
+
+      # La mitad que NINGUNA suite de TypeScript puede cubrir: que la 137 APLIQUE y que
+      # PostgreSQL se comporte como el hito afirma —que `updated_by` se escriba, que la
+      # bitácora `wizard_budget_period_changes` sea append-only de verdad (sin UPDATE ni
+      # DELETE posibles), y que valor y entrada de bitácora caigan en la MISMA
+      # transacción, de modo que un fallo a mitad no deje presupuesto cambiado sin
+      # rastro—. Aplica la cadena REAL (064, 121 y 137) leyendo los archivos verbatim de
+      # `supabase/migrations`.
+      #
+      # `embedded-postgres` ya está instalado por el paso de Agente 2A de más arriba, con
+      # la versión PINCHADA 17.6.0-beta.15 (la serie de Producción; el rango `@17` no
+      # resuelve). `SELLUP_REQUIRE_POSTGRES_HARNESS` convierte el skip en FALLO: sin
+      # ella, que el arnés no resolviera pondría este paso verde con una migración
+      # inaplicable. Sin `continue-on-error` y sin `|| true`.
+      - name: Run A1 wizard budget admin tests against real PostgreSQL
+        run: npm run test:a1-wizard-budget-admin:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
       # ── AGENT2A-SEARCH-MORE-PHONES-1 ────────────────────────────────────
       #
       # «Buscar más números»: la tercera operación de teléfono. No es «Revelar teléfono»
