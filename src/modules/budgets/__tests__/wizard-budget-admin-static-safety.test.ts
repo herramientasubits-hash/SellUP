@@ -1,13 +1,17 @@
 // Agente 1 — VALLAS ESTÁTICAS DE LA SUPERFICIE ADMINISTRATIVA DEL PRESUPUESTO
-// (AGENT1-WIZARD-BUDGET-ADMIN-F1B)
+// (AGENT1-WIZARD-BUDGET-ADMIN-F1B, recortada por AGENT1-WIZARD-BUDGET-UI-REMOVAL-2)
 //
 // ═══════════════════════════════════════════════════════════════════
 // QUÉ DEFIENDE ESTA SUITE Y POR QUÉ NO BASTA LA DE COMPORTAMIENTO
 // ═══════════════════════════════════════════════════════════════════
 //
-// Las pruebas de comportamiento demuestran lo que el código HACE hoy. Estas
-// defienden lo que el código NO DEBE PODER HACER nunca, aunque alguien lo
-// escriba sin querer:
+// AGENT1-WIZARD-BUDGET-UI-REMOVAL-2 quitó la tarjeta admin de este pool de
+// "Proveedores y consumo" (era la superficie que comparaba la cuota
+// contratada de un proveedor con el presupuesto del Wizard en la misma
+// pantalla — la confusión que esa pantalla existe para deshacer). El pool en
+// sí (`wizard_monthly_budget_periods`, sus tres RPC de reserva y la 137) sigue
+// siendo runtime real: financia las corridas de Tavily y Lusha y no se tocó.
+// Estas vallas ahora protegen SÓLO lo que sigue existiendo:
 //
 //   * derivar el presupuesto del Wizard de la cuota contratada de un proveedor
 //     (500 créditos de Apollo NO son 500 créditos del Wizard);
@@ -17,6 +21,9 @@
 //   * saltarse `isCurrentUserAdmin()` o invertir su orden respecto de
 //     `getAdminClient()`;
 //   * y tocar la semántica de la reserva atómica desde la migración 137.
+//
+// Una sección aparte (§ I) defiende la eliminación misma: que no exista un
+// archivo de tarjeta ni una referencia a él en la página de proveedores.
 //
 // ── COMENTARIOS FUERA ANTES DE GREPEAR ──────────────────────────
 //
@@ -28,7 +35,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
 const MODULE_DIR = path.join(__dirname, '..');
@@ -57,13 +64,9 @@ function stripSqlComments(source: string): string {
 
 const ACTIONS_SRC = read(path.join(MODULE_DIR, 'wizard-budget-period-actions.ts'));
 const QUERIES_SRC = read(path.join(MODULE_DIR, 'wizard-budget-period-queries.ts'));
-const CARD_SRC = read(path.join(APP_PROVIDERS_DIR, 'wizard-budget-card.tsx'));
-const PAGE_SRC = read(path.join(APP_PROVIDERS_DIR, 'page.tsx'));
 
 const ACTIONS_CODE = stripTsComments(ACTIONS_SRC);
 const QUERIES_CODE = stripTsComments(QUERIES_SRC);
-const CARD_CODE = stripTsComments(CARD_SRC);
-const PAGE_CODE = stripTsComments(PAGE_SRC);
 
 const MIGRATION_137 = '137_wizard_budget_period_admin_audit.sql';
 const MIGRATION_SRC = read(path.join(MIGRATIONS_DIR, MIGRATION_137));
@@ -154,17 +157,6 @@ describe('§ B — period_start jamás viene del cliente', () => {
       assert.ok(!/date/i.test(sig), `la firma no puede recibir una fecha: ${sig}`);
     }
   });
-
-  it('la tarjeta de UI no envía ningún período al servidor', () => {
-    assert.ok(
-      !/updateWizardBudgetPeriod\([^)]*period/i.test(CARD_CODE),
-      'la llamada del cliente no puede transportar el período',
-    );
-    // Las dos llamadas del cliente, con sus argumentos exactos: presupuesto y
-    // cierre en una, techo por ejecución en la otra. Ningún período.
-    assert.match(CARD_CODE, /await updateWizardBudgetPeriod\(parsedBudget, closedInput\)/);
-    assert.match(CARD_CODE, /await updateWizardMaxCreditsPerExecution\(parsedMax\)/);
-  });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -200,16 +192,10 @@ describe('§ C — max_credits_per_execution se valida', () => {
 // ═══════════════════════════════════════════════════════════════
 
 describe('§ D — credits_consumed / credits_reserved son de las RPC', () => {
-  for (const [name, code] of [
-    ['acciones', ACTIONS_CODE],
-    ['tarjeta de UI', CARD_CODE],
-    ['página', PAGE_CODE],
-  ] as const) {
-    it(`el código de ${name} no nombra los contadores de gasto`, () => {
-      assert.ok(!code.includes('credits_consumed'), `${name} no puede escribir credits_consumed`);
-      assert.ok(!code.includes('credits_reserved'), `${name} no puede escribir credits_reserved`);
-    });
-  }
+  it('las acciones no nombran los contadores de gasto', () => {
+    assert.ok(!ACTIONS_CODE.includes('credits_consumed'), 'no puede escribir credits_consumed');
+    assert.ok(!ACTIONS_CODE.includes('credits_reserved'), 'no puede escribir credits_reserved');
+  });
 
   it('la lectura los nombra sólo para LEERLOS del snapshot compartido', () => {
     // La lectura sí los muestra. Lo que no puede es escribirlos: no hay update,
@@ -271,34 +257,6 @@ describe('§ E — cuota contratada ≠ presupuesto del Wizard', () => {
     for (const token of QUOTA_TOKENS) {
       assert.ok(!MIGRATION_CODE.includes(token), token);
     }
-  });
-
-  it('la tarjeta muestra la cuota como texto, nunca la mezcla con el presupuesto', () => {
-    // La cuota entra por un prop dedicado y se consume en un componente aparte.
-    assert.match(CARD_CODE, /function ProviderQuotaAside\(\{ quota \}/);
-    // Ninguna línea de código pone la cuota y un campo de presupuesto juntos.
-    const budgetFields = /budgetCredits|budgetInput|maxCreditsInput|parsedBudget|parsedMax/;
-    for (const line of CARD_CODE.split('\n')) {
-      if (/providerQuotaContext|monthlyCreditsAllowance|creditsAvailable/.test(line)) {
-        assert.ok(
-          !budgetFields.test(line),
-          `la cuota no puede aparecer en la misma expresión que el presupuesto: ${line.trim()}`,
-        );
-      }
-    }
-  });
-
-  it('el estado del formulario se inicializa desde el presupuesto, no desde una cuota', () => {
-    assert.match(CARD_CODE, /useState\(\s*period \? String\(period\.budgetCredits\) : ''/);
-    assert.match(
-      CARD_CODE,
-      /useState\(\s*snapshot\.maxCreditsPerExecution !== null \? String\(snapshot\.maxCreditsPerExecution\) : ''/,
-    );
-  });
-
-  it('la página pasa la cuota por un prop separado y de sólo lectura', () => {
-    assert.match(PAGE_CODE, /providerQuotaContext=\{apolloQuotaContext\}/);
-    assert.match(PAGE_CODE, /const apolloQuotaContext: ProviderQuotaContext \| null/);
   });
 });
 
@@ -405,22 +363,9 @@ describe('§ F — la migración 137 no toca la semántica de la reserva', () =>
 describe('§ G — la migración ocupa el techo real, sin colisiones', () => {
   const files = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql'));
 
-  it('137 es el siguiente número libre y no hay dos archivos con él', () => {
-    const numbered = files
-      .map((f) => /^(\d{3})_/.exec(f))
-      .filter((m): m is RegExpExecArray => m !== null)
-      .map((m) => Number(m[1]));
+  it('137 sigue siendo un archivo único de la cadena', () => {
     const with137 = files.filter((f) => f.startsWith('137_'));
     assert.equal(with137.length, 1, `un solo archivo 137: ${with137.join(', ')}`);
-    assert.equal(Math.max(...numbered), 137, 'la 137 debe ser el techo de la cadena');
-  });
-
-  it('la migración es la única de este hito: no se añadieron otras', () => {
-    const above136 = files.filter((f) => {
-      const m = /^(\d{3})_/.exec(f);
-      return m !== null && Number(m[1]) > 136;
-    });
-    assert.deepEqual(above136, [MIGRATION_137]);
   });
 });
 
@@ -430,14 +375,14 @@ describe('§ G — la migración ocupa el techo real, sin colisiones', () => {
 
 describe('§ H — nada de este hito alcanza a Lusha, Tavily, Apollo ni al Agente 2A', () => {
   it('el hito no llama a ningún proveedor', () => {
-    for (const code of [ACTIONS_CODE, QUERIES_CODE, CARD_CODE]) {
+    for (const code of [ACTIONS_CODE, QUERIES_CODE]) {
       assert.ok(!/fetch\(/.test(code), 'ninguna llamada HTTP');
       assert.ok(!/apollo-organizations-provider|lusha-client|tavily-client/.test(code));
     }
   });
 
   it('no toca las superficies de teléfono del Agente 2A', () => {
-    for (const code of [ACTIONS_CODE, QUERIES_CODE, CARD_CODE, MIGRATION_CODE]) {
+    for (const code of [ACTIONS_CODE, QUERIES_CODE, MIGRATION_CODE]) {
       for (const token of [
         'phone_reveal',
         'phone-reveal',
@@ -467,5 +412,45 @@ describe('§ H — nada de este hito alcanza a Lusha, Tavily, Apollo ni al Agent
       !/budgetCredits\s*-\s*creditsConsumed\s*-\s*creditsReserved/.test(QUERIES_CODE),
       'no puede existir una segunda fórmula de disponible',
     );
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// § I — AGENT1-WIZARD-BUDGET-UI-REMOVAL-2: la tarjeta admin ya no existe
+// ═══════════════════════════════════════════════════════════════
+//
+// "Proveedores y consumo" debe quedar como la única fuente administrativa de
+// presupuestos por proveedor. La tarjeta que presentaba el pool interno del
+// Wizard junto a la cuota de Apollo — la confusión Global/Rol/Grupo/Usuario
+// vs. pool interno — se eliminó. Esto NO borra el pool ni sus RPC de reserva
+// (siguen financiando Tavily/Lusha): sólo borra la UI que lo mostraba ahí.
+
+describe('§ I — la superficie admin del Wizard ya no vive en Proveedores y consumo', () => {
+  const CARD_PATH = path.join(APP_PROVIDERS_DIR, 'wizard-budget-card.tsx');
+  const PAGE_CODE = stripTsComments(read(path.join(APP_PROVIDERS_DIR, 'page.tsx')));
+
+  it('el archivo de la tarjeta ya no existe', () => {
+    assert.ok(!existsSync(CARD_PATH), 'wizard-budget-card.tsx debe estar eliminado');
+  });
+
+  it('la página de proveedores no la importa ni la renderiza', () => {
+    assert.ok(!PAGE_CODE.includes('wizard-budget-card'), 'no debe importar el módulo eliminado');
+    assert.ok(!PAGE_CODE.includes('WizardBudgetCard'), 'no debe renderizar el componente eliminado');
+    assert.ok(!PAGE_CODE.includes('getWizardBudgetAdminSnapshot'), 'no debe leer el snapshot del pool aquí');
+    assert.ok(!PAGE_CODE.includes('ProviderQuotaContext'), 'no debe fabricar contexto de cuota para la tarjeta');
+  });
+
+  it('la página no contiene el texto de la superficie eliminada', () => {
+    assert.ok(!PAGE_CODE.includes('Presupuesto de ejecución'), 'texto de la tarjeta eliminada');
+    assert.ok(!PAGE_CODE.includes('Wizard (Agente 1)'), 'texto de la tarjeta eliminada');
+  });
+
+  it('el pool del Wizard sigue existiendo para Tavily/Lusha: sólo se quitó la UI, no el runtime', () => {
+    // Las acciones y la migración 137 —el pool y sus RPC de reserva— no se
+    // tocaron. Esta valla falla si alguien las borra creyendo que son parte
+    // de "la UI residual".
+    assert.ok(ACTIONS_CODE.includes('admin_set_wizard_budget_period'));
+    assert.ok(ACTIONS_CODE.includes('admin_set_wizard_max_credits_per_execution'));
+    assert.ok(existsSync(path.join(MIGRATIONS_DIR, MIGRATION_137)), '137 debe seguir existiendo');
   });
 });

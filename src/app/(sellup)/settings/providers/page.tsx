@@ -1,12 +1,11 @@
 import { redirect } from 'next/navigation';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
-import { getAdminBudgetSummary, getWizardBudgetAdminSnapshot } from '@/modules/budgets';
+import { getAdminBudgetSummary } from '@/modules/budgets';
 import { getBudgetRulesForAdmin } from '@/modules/budgets/rule-queries';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { BudgetSummaryCards } from '../budget-credits/budget-summary-cards';
 import { BudgetProvidersTable } from '../budget-credits/budget-providers-table';
-import { WizardBudgetCard, type ProviderQuotaContext } from './wizard-budget-card';
 import {
   getApolloConnection,
   getLushaConnection,
@@ -18,27 +17,13 @@ export default async function ProvidersConsumptionPage() {
   const isAdmin = await isCurrentUserAdmin();
   if (!isAdmin) redirect('/settings');
 
-  const [summary, rules, apolloConn, lushaConn, aiProviders, wizardBudget] = await Promise.all([
+  const [summary, rules, apolloConn, lushaConn, aiProviders] = await Promise.all([
     getAdminBudgetSummary(),
     getBudgetRulesForAdmin(),
     getApolloConnection().catch(() => null),
     getLushaConnection().catch(() => null),
     getAllAIProviders().catch(() => [] as Awaited<ReturnType<typeof getAllAIProviders>>),
-    getWizardBudgetAdminSnapshot(),
   ]);
-
-  // Contexto de SÓLO LECTURA. La cuota contratada de Apollo viaja a la tarjeta
-  // del Wizard para que las dos cifras se puedan comparar en pantalla — que es
-  // justo la confusión que esta sección deshace. No alimenta ningún cálculo: la
-  // tarjeta la renderiza como texto en un bloque aparte.
-  const apolloRow = summary.providers.find((p) => p.providerKey === 'apollo') ?? null;
-  const apolloQuotaContext: ProviderQuotaContext | null = apolloRow
-    ? {
-        providerLabel: apolloRow.displayName ?? 'Apollo',
-        monthlyCreditsAllowance: apolloRow.providerMonthlyCreditsAllowance,
-        creditsAvailable: apolloRow.providerCreditsAvailable,
-      }
-    : null;
 
   const notConfigured: ProspectingConnectionPanelState = {
     supported: true,
@@ -106,12 +91,6 @@ export default async function ProvidersConsumptionPage() {
             />
           </div>
         </SurfaceCard>
-
-        {/*
-          Sección HERMANA, no un panel dentro del drawer de Apollo: el pozo que
-          administra es del Wizard y lo comparten Apollo, Tavily y Lusha.
-        */}
-        <WizardBudgetCard snapshot={wizardBudget} providerQuotaContext={apolloQuotaContext} />
       </div>
     </div>
   );
