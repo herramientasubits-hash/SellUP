@@ -143,6 +143,12 @@ import {
   type DiscoveryNegativeMemory,
 } from '../discovery-negative-memory';
 import { normalizeDomain } from '../normalization';
+// NULL-DOMAIN-IDENTITY § 2/§ 3 — los ÚNICOS lectores de identidad autorizados
+// para un resultado de Apollo. Ninguno lee `result.url`.
+import {
+  readApolloCandidateDomain,
+  readApolloProviderOrganizationId,
+} from '../apollo-candidate-identity-readers';
 import {
   captureApolloCompanyFields,
   mergeCompanyLinkedInCapture,
@@ -727,9 +733,16 @@ export function toRawDiscoveredOrganization(
     (typeof profile['industry'] === 'string' ? (profile['industry'] as string) : null);
 
   return {
-    providerOrganizationId: readString('apollo_organization_id') ?? readString('organization_id'),
+    providerOrganizationId: readApolloProviderOrganizationId(result),
     name: result.title,
-    domain: readString('domain') ?? normalizeDomain(result.url),
+    // NULL-DOMAIN-IDENTITY § 4 (F1) — el dominio sale de lo que Apollo DECLARÓ y
+    // de nada más. Antes caía a `normalizeDomain(result.url)`, y para una
+    // organización sin dominio esa URL es `https://apollo.io/companies/{id}`:
+    // dos organizaciones distintas entraban al seen-registry con el mismo
+    // `normalizedDomain='apollo.io'` y la segunda se descartaba como duplicada.
+    // Sin dominio la identidad la sostiene `providerOrganizationId`, que es el
+    // eje que el registro comprueba PRIMERO.
+    domain: readApolloCandidateDomain(result),
     linkedinUrl: readString('linkedin_url'),
     providerRank,
     declaredIndustry,
@@ -1150,9 +1163,12 @@ export async function runApolloTwoRoundWizardDiscovery(
   const collectRunDomains = (): string[] => {
     const domains = new Set<string>();
     for (const snapshot of evidenceByKey.values()) {
-      // El snapshot ya trae el dominio resuelto; `url` es el respaldo cuando la
-      // búsqueda no lo declaró por separado.
-      const raw = snapshot.domain ?? snapshot.url ?? null;
+      // NULL-DOMAIN-IDENTITY § 4 (F3) — sólo el dominio que la búsqueda declaró.
+      // `snapshot.url` era el respaldo, y para una organización sin dominio esa
+      // URL es el perfil de Apollo: la consulta histórica pre-pago acababa
+      // preguntando por `apollo.io` y devolvía las filas de CUALQUIER otra
+      // organización sin dominio, que es una respuesta a otra pregunta.
+      const raw = snapshot.domain ?? null;
       const normalized = raw ? normalizeDomain(raw) : null;
       if (normalized) domains.add(normalized);
     }
@@ -3611,12 +3627,18 @@ function readEvidenceResult(
   return snapshot === undefined ? null : fromCandidateEvidenceSnapshot(snapshot);
 }
 
-/** Dominio que las comprobaciones dependientes de dominio usarían (§ 8). */
+/**
+ * Dominio que las comprobaciones dependientes de dominio usarían (§ 8).
+ *
+ * NULL-DOMAIN-IDENTITY § 4 (F2) — la ruta de REANUDACIÓN tenía la misma fuga que
+ * `toRawDiscoveredOrganization`: sin dominio declarado caía a la URL, que para
+ * una organización sin sitio es el perfil sintético de Apollo. Un reintento
+ * producía así un dominio que el intento original nunca tuvo. Ahora ausencia es
+ * ausencia, y los dos caminos vuelven a dar el mismo veredicto.
+ */
 function readEvidenceDomain(result: WebSearchResult): string | null {
-  const meta = (result.metadata ?? {}) as Record<string, unknown>;
-  const profile = (meta['apollo_profile'] ?? {}) as Record<string, unknown>;
-  const raw = meta['domain'] ?? profile['primary_domain'];
-  if (typeof raw !== 'string' || raw.trim() === '') return normalizeDomain(result.url);
+  const raw = readApolloCandidateDomain(result);
+  if (raw === null) return null;
   return normalizeDomain(raw) ?? raw.trim().toLowerCase();
 }
 
