@@ -2724,6 +2724,10 @@ export async function writeProspectingCandidates(
       website: candidate.website ?? null,
       countryCode: candidate.countryCode ?? null,
       taxIdentifier: officialSourceTypedColumns.tax_identifier,
+      // AGENT1-APOLLO-NULL-DOMAIN-IDENTITY-1 § 7 — sólo decide cuando NO hay
+      // identidad fiscal NI dominio. Un candidato con dominio real conserva su
+      // `domain:<dominio>` exactamente como antes.
+      apolloOrganizationId: candidate.apolloOrganizationId ?? null,
     });
 
     // `providerCompanyFields` se resolvió al principio de la iteración (§ D): es la

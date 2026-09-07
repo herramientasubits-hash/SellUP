@@ -20,6 +20,12 @@ import {
   type ApolloOrganizationSearchResultMetadata,
 } from '../web-search-providers/apollo-organizations-search-provider';
 import { runWebSearch } from '../web-search-tool';
+import {
+  isApolloSyntheticProfileUrl,
+  readApolloCandidateDomain,
+  readApolloCandidateWebsite,
+  readApolloProviderOrganizationId,
+} from '../apollo-candidate-identity-readers';
 
 // ─── A. Mapping puro ──────────────────────────────────────────────────────────
 
@@ -315,7 +321,15 @@ describe('compatibilidad con pipeline', () => {
     assert.ok(result.url.length > 0);
   });
 
-  it('resultado Apollo sin website ni domain usa fallback de apollo.io (url válida)', () => {
+  // AGENT1-APOLLO-NULL-DOMAIN-IDENTITY-1 § 9 — este test EXIGÍA que la URL
+  // sintética existiera y ahí se quedaba, así que fijaba el valor defectuoso: un
+  // trinquete que defendía el defecto y habría bloqueado su corrección.
+  //
+  // La URL de perfil SIGUE existiendo —`WebSearchResult.url` es `string` y
+  // `runMultiQuerySearch` descarta lo que no parsea— pero ahora el test declara
+  // lo que de verdad importa: esa URL es TRAZABILIDAD, y ni el dominio ni el
+  // website del candidato se derivan de ella.
+  it('resultado Apollo sin website ni domain: url de perfil trazable, pero identidad SIN dominio', () => {
     const org: ApolloOrganizationInput = {
       id: 'org-no-url-123',
       name: 'No URL Corp',
@@ -325,8 +339,58 @@ describe('compatibilidad con pipeline', () => {
 
     const result = mapApolloOrganizationToSearchResult(org, 1);
 
+    // La url sigue siendo una URL válida y navegable (contrato del pipeline).
     assert.equal(typeof result.url, 'string');
-    assert.ok(result.url.includes('apollo.io'));
+    assert.ok(result.url.length > 0);
+    assert.doesNotThrow(() => new URL(result.url));
+    assert.ok(isApolloSyntheticProfileUrl(result.url), 'es la URL de perfil, no un sitio de empresa');
+
+    // Y la identidad NO la toca: sin dominio declarado, el dominio es null.
+    assert.equal(readApolloCandidateDomain(result), null);
+    assert.equal(readApolloCandidateWebsite(result), null);
+    const meta = result.metadata as Record<string, unknown>;
+    assert.equal(meta['domain'], null);
+    assert.equal(meta['website'], null);
+
+    // Lo que SÍ identifica a esta organización es el id que Apollo emitió.
+    assert.equal(readApolloProviderOrganizationId(result), 'org-no-url-123');
+  });
+
+  it('resultado Apollo CON website real: dominio y website se conservan igual que antes', () => {
+    const org: ApolloOrganizationInput = {
+      id: 'org-with-site',
+      name: 'Con Sitio SAS',
+      website_url: 'https://www.consitio.com.co',
+      primary_domain: null,
+    };
+
+    const result = mapApolloOrganizationToSearchResult(org, 1);
+
+    assert.equal(result.url, 'https://www.consitio.com.co');
+    assert.equal(isApolloSyntheticProfileUrl(result.url), false);
+    assert.equal(readApolloCandidateDomain(result), 'consitio.com.co');
+    assert.equal(readApolloCandidateWebsite(result), 'https://www.consitio.com.co');
+  });
+
+  it('Apollo devolviendo apollo.io como website REAL lo conserva como dominio', () => {
+    const org: ApolloOrganizationInput = {
+      id: 'org-apollo-itself',
+      name: 'Apollo',
+      website_url: 'https://apollo.io',
+      primary_domain: 'apollo.io',
+    };
+
+    const result = mapApolloOrganizationToSearchResult(org, 1);
+
+    // La corrección NO es una lista negra de la cadena: cuando Apollo DECLARA
+    // el dominio, se respeta.
+    assert.equal(readApolloCandidateDomain(result), 'apollo.io');
+    assert.equal(readApolloCandidateWebsite(result), 'https://apollo.io');
+    assert.equal(
+      isApolloSyntheticProfileUrl(result.url),
+      false,
+      'un website real no es la URL de perfil, aunque el host coincida',
+    );
   });
 
   it('resultado Apollo tiene title, snippet y provider — campos mínimos del pipeline', () => {

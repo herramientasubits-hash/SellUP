@@ -34,6 +34,11 @@ import {
 } from './web-search-providers/apollo-organizations-search-provider';
 import type { RunCorrelationMetadata } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-correlation';
 import { filterNoiseResults } from './noise-filter';
+// NULL-DOMAIN-IDENTITY § 2/§ 3 — lectores canónicos de identidad Apollo.
+import {
+  isApolloOrganizationsResult,
+  readApolloDedupeIdentity,
+} from './apollo-candidate-identity-readers';
 import { buildCleanMultiQueryDiscoveryQueries } from './query-builder';
 import {
   buildTavilyUsageKey,
@@ -166,6 +171,83 @@ function extractDomainForDedup(url: string): string | null {
   }
 }
 
+/**
+ * NULL-DOMAIN-IDENTITY § 4 (F5) — deduplicación de una ronda multi-query.
+ *
+ * ── El defecto ───────────────────────────────────────────────────────────────
+ *
+ * La clave ERA `hostname(result.url)`. Para Apollo Organization Search, una
+ * organización sin dominio trae `url = https://apollo.io/companies/{id}`, de modo
+ * que TODAS las organizaciones sin dominio de la ronda producían la misma clave
+ * —`apollo.io`— y el Map conservaba UNA. Las demás desaparecían aquí: sin
+ * rechazo, sin motivo, sin aparecer en ninguna métrica y sin dejar una fila de
+ * disposición que permitiera notarlo después.
+ *
+ * ── El criterio ──────────────────────────────────────────────────────────────
+ *
+ * DOS ejes independientes, el mismo criterio que el seen-registry: basta que UNO
+ * coincida para reconocer la organización.
+ *
+ *   1. id de organización del proveedor (Apollo)
+ *   2. dominio real
+ *
+ * Sin ninguno de los dos NO se colapsa. Un resultado que no puede identificarse
+ * tampoco puede demostrar que es el mismo que otro, y ante la duda conservar dos
+ * organizaciones distintas es reversible; fusionarlas no.
+ *
+ * Tavily y Google CSE no cambian: su `url` ES el sitio de la empresa, siguen
+ * deduplicándose por hostname y un resultado sin hostname utilizable se sigue
+ * descartando.
+ *
+ * Pura y exportada para poder probarse sin proveedor, sin red y sin créditos.
+ */
+export function dedupeMultiQueryResultsByIdentity(
+  results: readonly MultiQuerySearchResultEntry[],
+): MultiQuerySearchResultEntry[] {
+  const slots: MultiQuerySearchResultEntry[] = [];
+  const slotIndexByDomain = new Map<string, number>();
+  const slotIndexByProviderId = new Map<string, number>();
+
+  for (const result of results) {
+    const isApolloResult = isApolloOrganizationsResult(result);
+    const apolloIdentity = isApolloResult ? readApolloDedupeIdentity(result) : null;
+    const domainKey = isApolloResult
+      ? apolloIdentity!.domain
+      : extractDomainForDedup(result.url);
+    const providerIdKey = apolloIdentity?.providerOrganizationId ?? null;
+
+    if (!isApolloResult && domainKey === null) continue;
+
+    const existingIndex =
+      (providerIdKey !== null ? slotIndexByProviderId.get(providerIdKey) : undefined) ??
+      (domainKey !== null ? slotIndexByDomain.get(domainKey) : undefined);
+
+    if (existingIndex === undefined) {
+      const index = slots.length;
+      slots.push(result);
+      if (providerIdKey !== null) slotIndexByProviderId.set(providerIdKey, index);
+      if (domainKey !== null) slotIndexByDomain.set(domainKey, index);
+      continue;
+    }
+
+    // Ya conocida: se conserva la variante con mejor ruta, como antes.
+    const existing = slots[existingIndex]!;
+    if (pathPriorityScore(result.url) > pathPriorityScore(existing.url)) {
+      slots[existingIndex] = result;
+    }
+    // Un segundo avistamiento puede traer una señal que al primero le faltaba.
+    // Registrarla COMPLETA la identidad; nunca crea una entrada nueva.
+    if (providerIdKey !== null && !slotIndexByProviderId.has(providerIdKey)) {
+      slotIndexByProviderId.set(providerIdKey, existingIndex);
+    }
+    if (domainKey !== null && !slotIndexByDomain.has(domainKey)) {
+      slotIndexByDomain.set(domainKey, existingIndex);
+    }
+  }
+
+  return slots;
+}
+
 function pathPriorityScore(url: string): number {
   try {
     const path = new URL(url).pathname.toLowerCase();
@@ -194,7 +276,14 @@ const ARTICLE_TITLE_SCORE_PENALTIES = [
 ];
 
 function prospectableScore(result: MultiQuerySearchResultEntry): number {
-  const domain = extractDomainForDedup(result.url) ?? '';
+  // NULL-DOMAIN-IDENTITY § 4 — el bonus por TLD se calcula sobre el dominio
+  // DECLARADO. El desenlace no se mueve: la URL de perfil de Apollo tampoco
+  // terminaba en `.co`/`.com`, así que sumaba 0 antes y suma 0 ahora. Lo que
+  // cambia es que este archivo deja de tener una lectura de dominio que
+  // dependa de una URL sintética.
+  const domain = isApolloOrganizationsResult(result)
+    ? (readApolloDedupeIdentity(result).domain ?? '')
+    : (extractDomainForDedup(result.url) ?? '');
   let score = 0;
 
   const resultType = result.metadata?.result_type as string | undefined;
@@ -412,20 +501,8 @@ export async function runMultiQueryWebSearch(
   const roundDurationMs = Date.now() - roundStartMs;
   const rawResultsCount = allRaw.length;
 
-  // ── Paso 2: Deduplicar por dominio normalizado ────────────────────────────
-  const domainMap = new Map<string, MultiQuerySearchResultEntry>();
-
-  for (const result of allRaw) {
-    const domain = extractDomainForDedup(result.url);
-    if (!domain) continue;
-
-    const existing = domainMap.get(domain);
-    if (!existing || pathPriorityScore(result.url) > pathPriorityScore(existing.url)) {
-      domainMap.set(domain, result);
-    }
-  }
-
-  const dedupedResults = Array.from(domainMap.values());
+  // ── Paso 2: Deduplicar por identidad ──────────────────────────────────────
+  const dedupedResults = dedupeMultiQueryResultsByIdentity(allRaw);
   const dedupedResultsCount = dedupedResults.length;
 
   // ── Paso 3: Aplicar noise filter ──────────────────────────────────────────

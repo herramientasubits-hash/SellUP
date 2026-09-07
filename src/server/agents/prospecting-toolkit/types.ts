@@ -544,6 +544,18 @@ export type ProspectingPipelineCandidate = {
   /** LinkedIn empresarial canónico, plano, para los consumidores que sólo leen la URL. */
   companyLinkedInUrl?: string | null;
   /**
+   * AGENT1-APOLLO-NULL-DOMAIN-IDENTITY-1 § 7 — id de organización que Apollo
+   * emitió para este candidato.
+   *
+   * Viaja CON el candidato porque es la identidad estable de una organización
+   * que Apollo devolvió SIN dominio. Antes moría en `result.metadata` y el
+   * writer, que sólo veía `domain`, componía `identity_key='domain:apollo.io'`
+   * —el dominio fabricado desde la URL de perfil— para todas ellas por igual.
+   * `null`/ausente en candidatos que no vienen de Apollo: su comportamiento no
+   * cambia.
+   */
+  apolloOrganizationId?: string | null;
+  /**
    * Estado de la evidencia sectorial cuando la modalidad la calcula (Apollo dos
    * rondas). `undefined` cuando el camino no la evalúa: la regla de completitud
    * es fail-closed, así que la ausencia nunca cuenta como confirmada.

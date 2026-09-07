@@ -27,6 +27,14 @@ import { verifyWebsite } from './website-verifier';
 import { checkCompanyDuplicate } from './duplicate-checker';
 import { scoreCandidate } from './candidate-scorer';
 import { normalizeDomain } from './normalization';
+// NULL-DOMAIN-IDENTITY § 2/§ 3 — lectores canónicos de identidad Apollo.
+import {
+  buildApolloProviderIdentityKey,
+  isApolloOrganizationsResult,
+  readApolloCandidateDomain,
+  readApolloCandidateWebsite,
+  readApolloProviderOrganizationId,
+} from './apollo-candidate-identity-readers';
 import {
   normalizeProspectCompanyName,
   SEO_GENERIC_KEYWORDS,
@@ -437,13 +445,31 @@ export async function runProspectingPipeline(
         snippet: r.snippet ?? null,
       });
 
+      // NULL-DOMAIN-IDENTITY § 4 (F7) — el dominio que viaja al evaluador LLM y a
+      // la muestra de diagnóstico. Para un resultado Apollo sin dominio era
+      // `apollo.io`, y el LLM veía a todas las organizaciones sin sitio como si
+      // compartieran empresa.
+      const isApolloRawResult = isApolloOrganizationsResult(r);
+      const resultDomain = isApolloRawResult
+        ? readApolloCandidateDomain(r)
+        : normalizeDomain(r.url);
+      // La muestra es DIAGNÓSTICO y su campo es obligatorio. Sin dominio se
+      // nombra la identidad de proveedor —que sí distingue una organización de
+      // otra— en vez de una URL de perfil que las igualaba a todas.
+      const sampleDomainLabel =
+        resultDomain ??
+        (isApolloRawResult
+          ? (buildApolloProviderIdentityKey(readApolloProviderOrganizationId(r)) ??
+             '(sin dominio declarado)')
+          : r.url);
+
       if (!classification.shouldPassToLLM) {
         const st = classification.sourceType;
         preLLMBySourceType[st] = (preLLMBySourceType[st] ?? 0) + 1;
         if (preLLMSampleFiltered.length < 10) {
           preLLMSampleFiltered.push({
             title: r.title,
-            domain: normalizeDomain(r.url) ?? r.url,
+            domain: sampleDomainLabel,
             source_type: st,
             reasons: classification.reasons,
           });
@@ -455,7 +481,7 @@ export async function runProspectingPipeline(
         idx,
         title: r.title,
         url: r.url,
-        domain: normalizeDomain(r.url),
+        domain: resultDomain,
         snippet: r.snippet ?? null,
         query: ('originQuery' in r && typeof r.originQuery === 'string')
           ? r.originQuery
@@ -751,7 +777,24 @@ export async function buildProspectingPipelineCandidate(
   result: WebSearchResult,
   context: ProspectingCandidateBuildContext,
 ): Promise<ProspectingCandidateBuildResult> {
-  const inferred = inferCompanyNameFromSearchResult(result.title, result.url);
+  // NULL-DOMAIN-IDENTITY § 4 (F4) — un resultado de Apollo Organization Search
+  // sin dominio trae `url = https://apollo.io/companies/{id}`: una URL de PERFIL,
+  // no el sitio de la empresa. Derivar de ella el website y el dominio escribía
+  // `domain='apollo.io'` / `website='https://apollo.io/companies/{id}'` en
+  // `prospect_candidates`, e `identity_key='domain:apollo.io'` — la identidad
+  // COMPARTIDA por todas las organizaciones sin dominio. De ahí salían el
+  // `duplicate_in_sellup` falso y el cooldown que borraba organizaciones válidas
+  // de corridas posteriores. Para Apollo se lee lo DECLARADO; para Tavily y
+  // Google CSE la URL sigue siendo el sitio real y nada cambia.
+  const isApolloResult = isApolloOrganizationsResult(result);
+  const declaredWebsite = isApolloResult ? readApolloCandidateWebsite(result) : result.url;
+  const website = declaredWebsite;
+  const domain = declaredWebsite === null ? null : normalizeDomain(declaredWebsite);
+  // Sin sitio declarado no hay URL de la que inferir un nombre: inferirlo del
+  // perfil de Apollo produciría «Apollo» para cualquier organización sin dominio.
+  const nameInferenceUrl = declaredWebsite ?? '';
+
+  const inferred = inferCompanyNameFromSearchResult(result.title, nameInferenceUrl);
   let name = inferred.name;
   const inferredNameSource = inferred.source;
   let nameQualityFiltered = false;
@@ -760,7 +803,7 @@ export async function buildProspectingPipelineCandidate(
   // extractable company name. Use domain inference as last resort, or if that
   // also fails, force the candidate to discard so it is never persisted.
   if (inferredNameSource === 'title_fallback' && isSentenceOrPhraseName(name)) {
-    const fromDomain = inferNameFromDomain(result.url);
+    const fromDomain = inferNameFromDomain(nameInferenceUrl);
     if (fromDomain && !isSentenceOrPhraseName(fromDomain)) {
       name = fromDomain;
     } else {
@@ -769,8 +812,6 @@ export async function buildProspectingPipelineCandidate(
       name = 'Unknown';
     }
   }
-  const website = result.url;
-  const domain = normalizeDomain(result.url);
 
   // Trazabilidad query→candidato (Hito 16Z.2)
   const originQueryText = ('originQuery' in result && typeof result.originQuery === 'string')
@@ -838,7 +879,10 @@ export async function buildProspectingPipelineCandidate(
     sourceTitle: result.title,
     sourceSnippet: result.snippet ?? null,
     countryEvidenceLevel: evaluateCountryEvidence({
-      website: result.url,
+      // NULL-DOMAIN-IDENTITY § 4 (F4) — el sitio DECLARADO. El perfil de Apollo
+      // no dice nada del país de la empresa; leerlo como su web era evidencia
+      // fabricada.
+      website: declaredWebsite ?? '',
       domain: domain ?? '',
       sourceSnippet: result.snippet ?? null,
       sourceTitle: result.title,
@@ -856,9 +900,15 @@ export async function buildProspectingPipelineCandidate(
       country: context.country,
       countryCode: context.countryCode,
       industry: context.industry,
+      // `sourceUrl` conserva la URL tal cual llegó — incluida la de perfil de
+      // Apollo. Es TRAZABILIDAD: sirve para volver al origen del candidato y
+      // NUNCA para fundar identidad. La guarda estática de
+      // `agent1-apollo-null-domain-identity.test.ts` vigila esa frontera.
       sourceUrl: result.url,
       sourceTitle: result.title,
       sourceSnippet: result.snippet ?? null,
+      // § 7 — la identidad estable de una organización Apollo sin dominio.
+      apolloOrganizationId: isApolloResult ? readApolloProviderOrganizationId(result) : null,
       inferredNameSource,
       websiteVerification,
       duplicateCheck,

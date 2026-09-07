@@ -22,6 +22,7 @@
  */
 
 import { buildIdentityKey } from './canonical-company-identity';
+import { buildApolloProviderIdentityKey } from './apollo-candidate-identity-readers';
 import {
   normalizeDomain,
   extractDomainFromWebsite,
@@ -34,6 +35,17 @@ export interface ProspectCandidateIdentityInput {
   website?: string | null;
   taxIdentifier?: string | null;
   countryCode?: string | null;
+  /**
+   * AGENT1-APOLLO-NULL-DOMAIN-IDENTITY-1 § 7 — id de organización que Apollo
+   * emitió, cuando el candidato viene de Apollo Organization Search.
+   *
+   * Opcional a propósito: un candidato sin él se comporta exactamente como
+   * antes. Existe porque una organización SIN dominio sigue teniendo identidad
+   * estable —la misma regla que `provider-seen-identity.ts` ya fijó— y sin este
+   * eje caía al nombre canónico, o peor: al dominio fabricado `apollo.io`, que
+   * TODAS las organizaciones sin dominio compartían.
+   */
+  apolloOrganizationId?: string | null;
 }
 
 /** Longitud mínima del identificador fiscal normalizado para considerarlo señal fuerte. */
@@ -64,12 +76,21 @@ export function buildProspectCandidateIdentityKey(
     return `domain:${normalizedDomain}`;
   }
 
-  // 3. Nombre canónico (helper de identidad existente). Vacío para frases no-empresa.
+  // 3. Identidad de PROVEEDOR — § 7. Un candidato CON dominio real nunca llega
+  //    aquí, así que el comportamiento de esas empresas no se mueve un ápice.
+  //    Sin dominio, el id de Apollo es la única señal estable que distingue una
+  //    organización de otra: antes las igualaba a todas bajo `domain:apollo.io`.
+  const providerKey = buildApolloProviderIdentityKey(input.apolloOrganizationId);
+  if (providerKey) {
+    return providerKey;
+  }
+
+  // 4. Nombre canónico (helper de identidad existente). Vacío para frases no-empresa.
   const nameKey = buildIdentityKey(input.name ?? '');
   if (nameKey && nameKey.trim().length > 0) {
     return `name:${nameKey.trim()}`;
   }
 
-  // 4. Sin identidad suficiente → NULL (no bloquea el insert).
+  // 5. Sin identidad suficiente → NULL (no bloquea el insert).
   return null;
 }

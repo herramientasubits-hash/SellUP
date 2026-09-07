@@ -109,7 +109,14 @@ export function mapApolloWebSearchResultToRawOrganization(
     id: str(profile?.organization_id),
     organization_id: str(profile?.organization_id),
     name: str(result.title),
-    website_url: str(profile?.website_url) ?? (str(result.url) ? result.url : null),
+    // NULL-DOMAIN-IDENTITY § 4 (F6) — sólo el sitio que Apollo DECLARÓ. La
+    // `url` del resultado era el respaldo, y para una organización sin dominio
+    // es `https://apollo.io/companies/{id}`. `buildNormalizedDomains` cae al
+    // website cuando no hay `primary_domain` ni `all_domains`, así que ese
+    // respaldo producía `normalizedDomains: ['apollo.io']`: la identidad
+    // compartida por todas las organizaciones sin dominio, justo en la capa que
+    // resuelve la identidad fiscal.
+    website_url: str(profile?.website_url),
     domain: str(profile?.primary_domain),
     primary_domain: str(profile?.primary_domain),
     linkedin_url: str(profile?.linkedin_url),
