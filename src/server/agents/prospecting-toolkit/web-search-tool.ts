@@ -417,6 +417,14 @@ export async function runMultiQueryWebSearch(
       ...(input.selectionCatalogVersion != null
         ? { selectionCatalogVersion: input.selectionCatalogVersion }
         : {}),
+      // A1-APOLLO-EMPLOYEE-FILTER-200-1 § 3 — último tramo de la ruta legacy.
+      //
+      // Se propaga con el mismo patrón condicional que sus vecinos: ausente o
+      // `null` no aparece en el input, y el mapper omite el filtro igual que
+      // antes de este hito. Presente, el mapper lo traduce a rangos de Apollo.
+      ...(input.targetEmployeeThreshold != null
+        ? { targetEmployeeThreshold: input.targetEmployeeThreshold }
+        : {}),
     };
 
     const dispatchContext: ApolloDispatchUsageContext | undefined = usageContext

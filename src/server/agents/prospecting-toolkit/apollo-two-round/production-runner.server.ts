@@ -46,6 +46,10 @@ import type {
   WebSearchResult,
 } from '../types';
 import type { IncrementalSearchOutput } from '../incremental-search-types';
+// A1-APOLLO-EMPLOYEE-FILTER-200-1 § 4 — el ÚNICO traductor de umbral a rangos de
+// Apollo. Se importa en vez de reimplementarse para que la metadata de la
+// hipótesis y el body que sale no puedan salir de dos traducciones distintas.
+import { mapEmployeeThresholdToApolloRanges } from '../apollo-organizations-query-mapping';
 import { getCatalogContext } from '../catalog-context-retriever';
 import {
   buildProspectingPipelineCandidate,
@@ -350,6 +354,19 @@ export type ApolloTwoRoundWizardRunInput = {
    */
   selectionCatalogVersion?: string | null;
   additionalCriteria: string | null;
+  /**
+   * A1-APOLLO-EMPLOYEE-FILTER-200-1 § 2 — umbral MÍNIMO de empleados del ICP
+   * (`resolved.systemControls.minimumEmployees`, hoy 200).
+   *
+   * Antes de este hito el tipo no tenía este campo: no es que el runner se
+   * olvidara de pasarlo, es que no existía el hueco. Por eso las dos rondas
+   * salían siempre sin `organization_num_employees_ranges`.
+   *
+   * Viaja el número; la traducción a rangos la hace
+   * `mapEmployeeThresholdToApolloRanges`, el único traductor de la cadena.
+   * Ausente ⇒ ningún filtro de tamaño, que es el comportamiento previo.
+   */
+  targetEmployeeThreshold?: number | null;
   /** Lote ya reservado. La modalidad NUNCA crea un segundo lote. */
   reservedBatchId: string;
   triggeredByUserId: string;
@@ -1602,6 +1619,12 @@ export async function runApolloTwoRoundWizardDiscovery(
       subindustryCatalogTerms: input.subindustryCatalogTerms ?? null,
       selectionCatalogVersion: input.selectionCatalogVersion ?? null,
       additionalCriteriaTokens: hypothesis.queryParameters.keywordTags,
+      // A1-APOLLO-EMPLOYEE-FILTER-200-1 § 2 — el umbral entra en el input con el
+      // que se construye el request EFECTIVO, así que la huella que la ronda 2
+      // compara y el body que sale llevan los rangos por la misma construcción
+      // única. Ponerlo sólo en `searchInput` y no aquí habría dejado la huella
+      // hablando de una consulta distinta de la que se emite.
+      targetEmployeeThreshold: input.targetEmployeeThreshold ?? null,
       // A1-APOLLO-QUERY-QUALITY-V3-A § 2 — la familia semántica de ESTA ronda.
       // Es lo único que separa el plan de búsqueda de la ronda 2 del de la ronda
       // 1 en una corrida macro; el resto del body se construye igual que siempre.
@@ -2589,6 +2612,18 @@ export async function runApolloTwoRoundWizardDiscovery(
         // § 1 — TODAS las subindustrias pedidas llegan a la redacción de la
         // consulta, en el orden de la solicitud.
         subindustries: input.subindustries,
+        // A1-APOLLO-EMPLOYEE-FILTER-200-1 § 4 — los rangos que de verdad viajan.
+        //
+        // `toQueryHypothesisMetadata` publica este array como
+        // `query_parameters_sanitized.organization_num_employees_ranges`. Estaba
+        // reportando `[]` porque el contexto nunca lo recibía, así que el
+        // diagnóstico afirmaba «sin filtro de tamaño» tanto cuando no había
+        // filtro como cuando había uno y se perdía. Se deriva del MISMO traductor
+        // que construye el body: la metadata no puede decir `[]` mientras el
+        // request lleva rangos.
+        employeeRanges: mapEmployeeThresholdToApolloRanges(
+          input.targetEmployeeThreshold ?? null,
+        ),
         // V3-A § 2 — las familias de la macro industria pedida, ya resueltas.
         //
         // Sólo en modo macro: en modo legacy no hay macro industria que partir y

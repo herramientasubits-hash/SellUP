@@ -43,6 +43,7 @@ import { executeProspectWizardGeneration } from '../wizard-execution-actions';
 import type { WizardExecutionDeps } from '../wizard-execution-actions';
 import type { CatalogResolutionOutput } from '../wizard-catalog-resolver';
 import { createCanonicalWizardBatchResolver } from '../wizard-canonical-batch';
+import { WIZARD_SYSTEM_CONTROLS } from '../wizard-pipeline-adapter';
 import type {
   WizardExecutionReservationInput,
   WizardExecutionReservationResult,
@@ -883,6 +884,17 @@ describe('CUT-6 § 4 · la amplitud de búsqueda NO se mezcla con el objetivo', 
       additionalCriteria: null,
       userId: USER_ID,
       catalog: { version: 'v2024-01' },
+      // A1-APOLLO-EMPLOYEE-FILTER-200-1 § 1 — `systemControls` es OBLIGATORIO en
+      // `ResolvedWizardExecution`; este fixture lo omitía y sobrevivía sólo porque
+      // el cast `as unknown as` lo escondía y porque nadie lo leía todavía. Ahora
+      // el ejecutor lee de ahí el umbral de tamaño, así que el fixture tiene que
+      // parecerse al `resolved` real. Se toma de la constante viva del producto,
+      // no de un 200 escrito a mano.
+      systemControls: {
+        targetCount: WIZARD_SYSTEM_CONTROLS.targetCount,
+        minimumEmployees: WIZARD_SYSTEM_CONTROLS.minimumEmployees,
+        employeeThresholdMode: WIZARD_SYSTEM_CONTROLS.employeeThresholdMode,
+      },
     } as unknown as WizardApolloInput['resolved'];
 
     await runWizardApolloSearch(

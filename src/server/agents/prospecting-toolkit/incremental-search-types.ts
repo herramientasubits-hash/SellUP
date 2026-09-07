@@ -44,6 +44,20 @@ export type IncrementalSearchInput = {
   subindustryCatalogTerms?: import('./apollo-subindustry-catalog-terms-resolution').ApolloSubindustryCatalogTermsResolution | null;
   selectionCatalogVersion?: string | null;
 
+  /**
+   * A1-APOLLO-EMPLOYEE-FILTER-200-1 § 3 — umbral MÍNIMO de empleados del ICP,
+   * tal como lo fija `resolved.systemControls.minimumEmployees` en el wizard.
+   *
+   * Viaja como número, no como rangos: la traducción al vocabulario de Apollo la
+   * hace `mapEmployeeThresholdToApolloRanges` en un solo sitio. Transportar los
+   * rangos ya traducidos crearía un segundo traductor capaz de divergir del
+   * primero.
+   *
+   * Sólo Apollo lo consume; Tavily y mock lo ignoran. Ausente ⇒ ningún filtro de
+   * tamaño viaja al proveedor, que es el comportamiento previo a este hito.
+   */
+  targetEmployeeThreshold?: number | null;
+
   /** Web search provider. Limitado a tavily y mock en flujo incremental.
    * Default: 'mock' */
   webSearchProvider?: IncrementalSearchWebProvider;

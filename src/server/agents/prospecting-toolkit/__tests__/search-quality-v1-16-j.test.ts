@@ -4,22 +4,27 @@
  * Sin Tavily real. Sin APIs externas. Sin LLM. Sin Supabase.
  *
  * F1  — rich_profile.size.estimated_range="10001+"              → selectedSource=rich_profile_size, gate pass
- * F2  — rich_profile.size.estimated_range="51-200"             → selectedSource=rich_profile_size, gate block
+ * F2  — rich_profile.size.estimated_range="51-199"             → selectedSource=rich_profile_size, gate block
  * F3  — rich_profile unknown + company_size="10001+"           → selectedSource=candidate_company_size, gate pass
- * F4  — rich_profile unknown + company_size="51-200"           → selectedSource=candidate_company_size, gate block
+ * F4  — rich_profile unknown + company_size="51-199"           → selectedSource=candidate_company_size, gate block
  * F5  — rich_profile unknown + company_size=null + HS=500      → selectedSource=hubspot_number_of_employees, gate pass
- * F6  — HubSpot employees=200                                  → gate block
- * F7  — rich_profile="201-500" + company_size="51-200"         → rich_profile wins, gate pass
+ * F6  — HubSpot employees=200 → gate pass (§ 8)                                  → gate block
+ * F7  — rich_profile="201-500" + company_size="51-199"         → rich_profile wins, gate pass
  * F8  — company_size invalid string                            → falls through to next source or unknown
  * F9  — all sources unknown                                    → selectedSource=unknown, gate needs_validation
  * F10 — attemptedSources includes all three checked sources
  * F11 — resolveEmployeeSizeForIcpGate returns selected_source populated
  * F12 — company_size="10001+" + no rich_profile size           → gate pass
- * F13 — company_size="51-200"                                  → gate block
+ * F13 — company_size="51-199"                                  → gate block
  * F14 — HubSpot employees=500 + no other size                  → gate pass
  * F15 — no size anywhere                                       → needs_validation
  * F16 — company_size="10001+" with null rich_profile range     → estimated_range NOT invented
  * F17 — DEFAULT_RICH_PROFILE_ENRICHMENT_CONFIG.enabled=false + DEFAULT_LINKEDIN_SEARCH_CONFIG.enabled=false
+ *
+ * A1-APOLLO-EMPLOYEE-FILTER-200-1 § 8 — la fixture de «por debajo del umbral» pasa de "51-200" a "51-199".
+ * Con el umbral inclusivo, un rango cuyo máximo ES 200 puede contener a la empresa
+ * de 200 justos, así que ya no es un bloqueo limpio: va a revisión. La intención de
+ * estos casos —un candidato claramente pequeño se bloquea— se conserva intacta.
  */
 
 import { describe, it } from 'node:test';
@@ -67,19 +72,19 @@ describe('F1 — rich_profile.size.estimated_range="10001+" → selectedSource=r
   });
 });
 
-// ─── F2 — rich_profile.size.estimated_range="51-200" ─────────────────────────
+// ─── F2 — rich_profile.size.estimated_range="51-199" ─────────────────────────
 
-describe('F2 — rich_profile.size.estimated_range="51-200" → selectedSource=rich_profile_size, gate block', () => {
+describe('F2 — rich_profile.size.estimated_range="51-199" → selectedSource=rich_profile_size, gate block', () => {
   it('selectedSource = rich_profile_size', () => {
     const { resolved } = resolveAndEvaluate({
-      richProfileSize: { estimated_range: '51-200', status: 'estimated' },
+      richProfileSize: { estimated_range: '51-199', status: 'estimated' },
     });
     assert.equal(resolved.selectedSource, 'rich_profile_size');
   });
 
   it('gate decision = block', () => {
     const { gateResult } = resolveAndEvaluate({
-      richProfileSize: { estimated_range: '51-200', status: 'estimated' },
+      richProfileSize: { estimated_range: '51-199', status: 'estimated' },
     });
     assert.equal(gateResult.decision, 'block');
   });
@@ -105,13 +110,13 @@ describe('F3 — rich_profile unknown + company_size="10001+" → selectedSource
   });
 });
 
-// ─── F4 — rich_profile unknown + company_size="51-200" ───────────────────────
+// ─── F4 — rich_profile unknown + company_size="51-199" ───────────────────────
 
-describe('F4 — rich_profile unknown + company_size="51-200" → selectedSource=candidate_company_size, gate block', () => {
+describe('F4 — rich_profile unknown + company_size="51-199" → selectedSource=candidate_company_size, gate block', () => {
   it('selectedSource = candidate_company_size', () => {
     const { resolved } = resolveAndEvaluate({
       richProfileSize: { estimated_range: null, status: 'unknown' },
-      candidateCompanySize: '51-200',
+      candidateCompanySize: '51-199',
     });
     assert.equal(resolved.selectedSource, 'candidate_company_size');
   });
@@ -119,7 +124,7 @@ describe('F4 — rich_profile unknown + company_size="51-200" → selectedSource
   it('gate decision = block', () => {
     const { gateResult } = resolveAndEvaluate({
       richProfileSize: { estimated_range: null, status: 'unknown' },
-      candidateCompanySize: '51-200',
+      candidateCompanySize: '51-199',
     });
     assert.equal(gateResult.decision, 'block');
   });
@@ -167,14 +172,17 @@ describe('F5 — rich_profile unknown + company_size=null + HubSpot=500 → sele
 
 // ─── F6 — HubSpot employees=200 ──────────────────────────────────────────────
 
-describe('F6 — HubSpot employees=200 → gate block', () => {
-  it('gate decision = block (200 does not exceed threshold)', () => {
+// § 8 — éste es EL caso que el hito alinea: 200 exactos vía HubSpot. Antes se
+// bloqueaba, mientras el request a Apollo ya pedía el bucket "200,500" que lo
+// incluye. Ahora las dos puntas dicen lo mismo: 200+ incluye 200.
+describe('F6 — HubSpot employees=200 → gate pass (umbral inclusivo)', () => {
+  it('gate decision = pass (200 alcanza el umbral)', () => {
     const { gateResult } = resolveAndEvaluate({
       richProfileSize: null,
       candidateCompanySize: null,
       matchedHubspotEmployees: 200,
     });
-    assert.equal(gateResult.decision, 'block');
+    assert.equal(gateResult.decision, 'pass');
   });
 
   it('selectedSource = hubspot_number_of_employees', () => {
@@ -187,13 +195,13 @@ describe('F6 — HubSpot employees=200 → gate block', () => {
   });
 });
 
-// ─── F7 — rich_profile="201-500" + company_size="51-200" → rich_profile wins ─
+// ─── F7 — rich_profile="201-500" + company_size="51-199" → rich_profile wins ─
 
-describe('F7 — rich_profile="201-500" + company_size="51-200" → rich_profile wins, gate pass', () => {
+describe('F7 — rich_profile="201-500" + company_size="51-199" → rich_profile wins, gate pass', () => {
   it('selectedSource = rich_profile_size', () => {
     const { resolved } = resolveAndEvaluate({
       richProfileSize: { estimated_range: '201-500', status: 'estimated' },
-      candidateCompanySize: '51-200',
+      candidateCompanySize: '51-199',
     });
     assert.equal(resolved.selectedSource, 'rich_profile_size');
   });
@@ -201,7 +209,7 @@ describe('F7 — rich_profile="201-500" + company_size="51-200" → rich_profile
   it('selectedValue = "201-500"', () => {
     const { resolved } = resolveAndEvaluate({
       richProfileSize: { estimated_range: '201-500', status: 'estimated' },
-      candidateCompanySize: '51-200',
+      candidateCompanySize: '51-199',
     });
     assert.equal(resolved.selectedValue, '201-500');
   });
@@ -209,7 +217,7 @@ describe('F7 — rich_profile="201-500" + company_size="51-200" → rich_profile
   it('gate decision = pass (min=201 > 200)', () => {
     const { gateResult } = resolveAndEvaluate({
       richProfileSize: { estimated_range: '201-500', status: 'estimated' },
-      candidateCompanySize: '51-200',
+      candidateCompanySize: '51-199',
     });
     assert.equal(gateResult.decision, 'pass');
   });
@@ -321,7 +329,7 @@ describe('F10 — attemptedSources includes all three checked sources', () => {
   it('stops at first usable source — later sources not recorded when early source wins', () => {
     const { resolved } = resolveAndEvaluate({
       richProfileSize: { estimated_range: '10001+', status: 'estimated' },
-      candidateCompanySize: '51-200',
+      candidateCompanySize: '51-199',
       matchedHubspotEmployees: 100,
     });
     // Only rich_profile_size is attempted (first wins, others skipped)
@@ -381,13 +389,13 @@ describe('F12 — company_size="10001+" and no rich_profile size → gate pass',
   });
 });
 
-// ─── F13 — company_size="51-200" → gate block ────────────────────────────────
+// ─── F13 — company_size="51-199" → gate block ────────────────────────────────
 
-describe('F13 — company_size="51-200" → gate block', () => {
+describe('F13 — company_size="51-199" → gate block', () => {
   it('gate decision = block', () => {
     const { gateResult } = resolveAndEvaluate({
       richProfileSize: null,
-      candidateCompanySize: '51-200',
+      candidateCompanySize: '51-199',
     });
     assert.equal(gateResult.decision, 'block');
   });
@@ -537,16 +545,16 @@ describe('F18 — candidate.company_size="10001+" → selected_source=candidate_
   });
 });
 
-// ─── F19 — candidate.company_size="51-200" ────────────────────────────────────
+// ─── F19 — candidate.company_size="51-199" ────────────────────────────────────
 
-describe('F19 — candidate.company_size="51-200" → selected_source=candidate_company_size, gate block', () => {
+describe('F19 — candidate.company_size="51-199" → selected_source=candidate_company_size, gate block', () => {
   it('selectedSource = candidate_company_size', () => {
-    const { resolved } = resolveViaExtractor({ company_size: '51-200' });
+    const { resolved } = resolveViaExtractor({ company_size: '51-199' });
     assert.equal(resolved.selectedSource, 'candidate_company_size');
   });
 
   it('gate decision = block', () => {
-    const { gateResult } = resolveViaExtractor({ company_size: '51-200' });
+    const { gateResult } = resolveViaExtractor({ company_size: '51-199' });
     assert.equal(gateResult.decision, 'block');
   });
 });
@@ -588,26 +596,26 @@ describe('F21 — candidate.employee_count=500 → selected_source=candidate_com
   });
 });
 
-// ─── F22 — candidate.scoring.metadata.company_size="51-200" ──────────────────
+// ─── F22 — candidate.scoring.metadata.company_size="51-199" ──────────────────
 
-describe('F22 — candidate.scoring.metadata.company_size="51-200" → selected_source=candidate_company_size, gate block', () => {
+describe('F22 — candidate.scoring.metadata.company_size="51-199" → selected_source=candidate_company_size, gate block', () => {
   it('extractCandidateCompanySize reads nested scoring.metadata.company_size', () => {
     const val = extractCandidateCompanySize({
-      scoring: { metadata: { company_size: '51-200' } },
+      scoring: { metadata: { company_size: '51-199' } },
     });
-    assert.equal(val, '51-200');
+    assert.equal(val, '51-199');
   });
 
   it('selectedSource = candidate_company_size', () => {
     const { resolved } = resolveViaExtractor({
-      scoring: { metadata: { company_size: '51-200' } },
+      scoring: { metadata: { company_size: '51-199' } },
     });
     assert.equal(resolved.selectedSource, 'candidate_company_size');
   });
 
   it('gate decision = block', () => {
     const { gateResult } = resolveViaExtractor({
-      scoring: { metadata: { company_size: '51-200' } },
+      scoring: { metadata: { company_size: '51-199' } },
     });
     assert.equal(gateResult.decision, 'block');
   });
@@ -637,18 +645,18 @@ describe('F23 — no company size fields → falls back to HubSpot or unknown', 
 
 // ─── F24 — rich_profile gana sobre candidate.company_size ────────────────────
 
-describe('F24 — rich_profile.size.estimated_range="201-500" + candidate.company_size="51-200" → rich_profile wins, pass', () => {
+describe('F24 — rich_profile.size.estimated_range="201-500" + candidate.company_size="51-199" → rich_profile wins, pass', () => {
   it('selectedSource = rich_profile_size', () => {
     const { resolved } = resolveViaExtractor(
-      { company_size: '51-200' },
+      { company_size: '51-199' },
       { estimated_range: '201-500', status: 'estimated' },
     );
     assert.equal(resolved.selectedSource, 'rich_profile_size');
   });
 
-  it('selectedValue = "201-500" (not "51-200")', () => {
+  it('selectedValue = "201-500" (not "51-199")', () => {
     const { resolved } = resolveViaExtractor(
-      { company_size: '51-200' },
+      { company_size: '51-199' },
       { estimated_range: '201-500', status: 'estimated' },
     );
     assert.equal(resolved.selectedValue, '201-500');
@@ -656,7 +664,7 @@ describe('F24 — rich_profile.size.estimated_range="201-500" + candidate.compan
 
   it('gate decision = pass', () => {
     const { gateResult } = resolveViaExtractor(
-      { company_size: '51-200' },
+      { company_size: '51-199' },
       { estimated_range: '201-500', status: 'estimated' },
     );
     assert.equal(gateResult.decision, 'pass');

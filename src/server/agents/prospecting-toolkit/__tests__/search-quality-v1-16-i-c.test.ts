@@ -32,7 +32,7 @@ describe('F1 — metadata.icp_size_gate.decision=pass → badge "ICP >200 valida
       threshold: 200,
       normalized_min_employees: 10001,
       normalized_max_employees: null,
-      reason: 'Size range minimum (10001) exceeds ICP threshold of 200',
+      reason: 'Size range minimum (10001) meets ICP threshold of 200',
       requires_human_review: false,
     },
   };
@@ -116,8 +116,11 @@ describe('F3 — metadata.icp_size_gate.decision=block → "Fuera de ICP por tam
       size_status: 'estimated_below_threshold',
       threshold: 200,
       normalized_min_employees: 51,
-      normalized_max_employees: 200,
-      reason: 'Size range maximum (200) does not exceed ICP threshold of 200',
+      // A1-APOLLO-EMPLOYEE-FILTER-200-1 § 8 — con el umbral inclusivo, un máximo
+      // de 200 ya NO produce `block`. La fixture pasa a 199 para seguir
+      // describiendo una salida que el gate puede emitir de verdad.
+      normalized_max_employees: 199,
+      reason: 'Size range maximum (199) does not meet ICP threshold of 200',
       requires_human_review: false,
     },
   };

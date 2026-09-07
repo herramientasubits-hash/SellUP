@@ -258,6 +258,18 @@ export async function runWizardApolloSearch(
       subindustryCatalogTerms,
       selectionCatalogVersion,
       additionalCriteria: input.resolved.additionalCriteria,
+      // A1-APOLLO-EMPLOYEE-FILTER-200-1 § 1 — el umbral de tamaño VIAJA.
+      //
+      // Ésta es la frontera donde se perdía: el ejecutor leía país, industria,
+      // subindustrias y criterio libre, y `systemControls` se quedaba en el
+      // `resolved` sin que nadie lo mirara. El mapper sabía traducirlo, el
+      // contrato lo tenía en el allowlist, y las 87 búsquedas de Apollo en
+      // Producción salieron igual sin `organization_num_employees_ranges`.
+      //
+      // Se lee de `resolved.systemControls.minimumEmployees` —la fuente viva,
+      // server-side— y no del texto de la UI ni de una constante nueva: una
+      // segunda constante sería un segundo 200 capaz de divergir del primero.
+      targetEmployeeThreshold: input.resolved.systemControls.minimumEmployees,
       reservedBatchId: input.reservedBatchId,
       triggeredByUserId: input.resolved.userId,
       ownerId: input.resolved.userId,
@@ -287,6 +299,11 @@ export async function runWizardApolloSearch(
     subindustryCatalogTerms,
     selectionCatalogVersion,
     additionalCriteria: input.resolved.additionalCriteria,
+    // A1-APOLLO-EMPLOYEE-FILTER-200-1 § 1 — la ruta legacy paga en el MISMO
+    // provider, así que necesita el MISMO filtro. Arreglar sólo la modalidad de
+    // dos rondas dejaría a la mitad de las corridas históricas comprando
+    // empresas de cualquier tamaño.
+    targetEmployeeThreshold: input.resolved.systemControls.minimumEmployees,
     webSearchProvider: 'apollo_organizations',
     targetInternal: WIZARD_APOLLO_TARGET_INTERNAL,
     maxRounds: WIZARD_APOLLO_MAX_ROUNDS,

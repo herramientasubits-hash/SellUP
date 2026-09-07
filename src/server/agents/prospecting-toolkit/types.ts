@@ -489,6 +489,11 @@ export type ProspectingPipelineInput = {
   /** Tokens del criterio adicional del usuario (L2.7). Solo para Apollo; Tavily los ignora. */
   additionalCriteriaTokens?: string[];
   /**
+   * A1-APOLLO-EMPLOYEE-FILTER-200-1 § 3 — umbral mínimo de empleados del ICP.
+   * Se transporta sin interpretarlo hasta `WebSearchInput`; sólo Apollo lo consume.
+   */
+  targetEmployeeThreshold?: number | null;
+  /**
    * AGENT1-APOLLO-DEFAULT-PATH-NET-NEW-PAGINATION — opciones opacas del
    * provider Apollo (netNewTarget, evaluateCandidateAcceptance, valla durable
    * de página, resume). Se transportan sin interpretarlas hasta
@@ -790,6 +795,11 @@ export type MultiQuerySearchInput = {
   selectionCatalogVersion?: string | null;
   /** Tokens del criterio adicional del usuario (L2.7). Solo para Apollo; Tavily los ignora. */
   additionalCriteriaTokens?: string[];
+  /**
+   * A1-APOLLO-EMPLOYEE-FILTER-200-1 § 3 — umbral mínimo de empleados del ICP.
+   * Último tramo antes de `WebSearchInput`. Sólo Apollo lo consume.
+   */
+  targetEmployeeThreshold?: number | null;
   /**
    * AGENT1-APOLLO-DEFAULT-PATH-NET-NEW-PAGINATION — ver `ProspectingPipelineInput`.
    * Se reenvía tal cual a `dispatchToProvider` por cada query Apollo de esta
