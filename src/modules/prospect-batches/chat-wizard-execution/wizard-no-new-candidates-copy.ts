@@ -73,6 +73,39 @@ export type NoNewCandidatesBreakdown = {
    * se muestra 0 en vez de inventar un total.
    */
   uniqueResultsCount?: number;
+  /**
+   * AGENT1-WIZARD-BREAKDOWN-FINAL-DISPOSITIONS-1 — las disposiciones finales que
+   * NINGÚN tally por ronda puede aportar, tomadas tal cual de
+   * `candidate_final_dispositions.breakdown` (la taxonomía pura de
+   * `candidate-final-disposition.ts`, ya publicada en el mismo metadata).
+   *
+   * El defecto que cierran, medido en la corrida `362a1e98`: el desglose sumaba
+   * SÓLO los tallies por ronda (9 de 18) y las 9 empresas restantes —8 que
+   * perdieron su cupo de enrichment por el tope de la corrida y 1 que llegó al
+   * writer sin dejar fila— caían en «Sin clasificar». Las nueve tenían nombre
+   * desde el principio; nadie lo leía.
+   *
+   * Opcionales a propósito: un metadata sin `candidate_final_dispositions`
+   * (corrida legacy) las deja ausentes, y ausente se lee como 0 — el
+   * comportamiento anterior, intacto.
+   */
+  enrichmentBudgetExhaustedCount?: number;
+  /** `not_selected_for_enrichment_final`. */
+  notSelectedForEnrichmentCount?: number;
+  /** `target_cap_final`. */
+  targetCapCount?: number;
+  /** `insufficient_evidence_not_enriched_final`. */
+  insufficientEvidenceNotEnrichedCount?: number;
+  /**
+   * `provisionally_persisted_pending_writer_final` + `persisted_review_only_final`
+   * — las DOS disposiciones que la taxonomía marca como PRE-writer.
+   *
+   * No es una causa de descarte: es el universo entregado al writer. Se reparte
+   * entre las filas que el writer creó (`candidatesCreatedCount`) y las que no
+   * dejaron fila, que es lo que `prospect_discards/writer-gap.ts` persiste como
+   * `final_validation_rejected`. Nunca se pinta como tal.
+   */
+  pendingWriterCount?: number;
   /** El universo con estos criterios ya se exploró: no queda nada nuevo que traer. */
   noveltyExhausted: boolean;
   /** Motivo por el que la ronda 2 no corrió. Alimenta la nota de auditoría. */
@@ -215,6 +248,11 @@ export function buildNoNewCandidatesBreakdown(
     countryRejectedCount: 0,
     sectorRejectedCount: 0,
     ownershipRejectedCount: 0,
+    enrichmentBudgetExhaustedCount: 0,
+    notSelectedForEnrichmentCount: 0,
+    targetCapCount: 0,
+    insufficientEvidenceNotEnrichedCount: 0,
+    pendingWriterCount: 0,
     noveltyExhausted: false,
     secondRoundSkippedReason: null,
   };
@@ -243,6 +281,33 @@ export function buildNoNewCandidatesBreakdown(
       ? (block['run_metrics'] as Record<string, unknown>)
       : null;
   const uniqueResultsCount = readNumber(runMetrics?.['total_unique_organizations']);
+
+  // AGENT1-WIZARD-BREAKDOWN-FINAL-DISPOSITIONS-1 — la taxonomía final, que YA
+  // viaja en este mismo bloque y cierra el universo por construcción
+  // (`total_unique_results`, `unclassified_count`). Ausente ⇒ todo a 0: una
+  // corrida anterior a `candidate_final_dispositions` conserva exactamente el
+  // desglose que mostraba antes.
+  const finalDispositions =
+    block['candidate_final_dispositions'] &&
+    typeof block['candidate_final_dispositions'] === 'object'
+      ? (block['candidate_final_dispositions'] as Record<string, unknown>)
+      : null;
+  const dispositionBreakdown =
+    finalDispositions?.['breakdown'] && typeof finalDispositions['breakdown'] === 'object'
+      ? (finalDispositions['breakdown'] as Record<string, unknown>)
+      : null;
+  const disposition = (key: string): number => readNumber(dispositionBreakdown?.[key]);
+  // `unclassified_final` NO se nombra aquí a propósito: es la única disposición
+  // que de verdad significa «nadie sabe», y su sitio es el residual de § B.6.
+  const enrichmentBudgetExhausted = disposition('enrichment_budget_exhausted_final');
+  const notSelectedForEnrichment = disposition('not_selected_for_enrichment_final');
+  const targetCap = disposition('target_cap_final');
+  const insufficientEvidenceNotEnriched = disposition(
+    'insufficient_evidence_not_enriched_final',
+  );
+  const pendingWriter =
+    disposition('provisionally_persisted_pending_writer_final') +
+    disposition('persisted_review_only_final');
 
   let hubspot = 0;
   let sellup = 0;
@@ -278,6 +343,11 @@ export function buildNoNewCandidatesBreakdown(
     countryRejectedCount: countryRejected,
     sectorRejectedCount: sectorRejected,
     ownershipRejectedCount: ownershipRejected,
+    enrichmentBudgetExhaustedCount: enrichmentBudgetExhausted,
+    notSelectedForEnrichmentCount: notSelectedForEnrichment,
+    targetCapCount: targetCap,
+    insufficientEvidenceNotEnrichedCount: insufficientEvidenceNotEnriched,
+    pendingWriterCount: pendingWriter,
     uniqueResultsCount,
     noveltyExhausted,
     secondRoundSkippedReason: typeof skippedReason === 'string' ? skippedReason : null,
@@ -301,6 +371,25 @@ export type NoNewCandidatesCompactBreakdown = {
   countryRejectedCount: number;
   sectorRejectedCount: number;
   ownershipRejectedCount: number;
+  /**
+   * FINAL-DISPOSITIONS-1 — disposiciones finales que el desglose por ronda no
+   * puede ver. Vienen de `candidate_final_dispositions.breakdown`, sin
+   * reinterpretarse.
+   */
+  enrichmentBudgetExhaustedCount: number;
+  notSelectedForEnrichmentCount: number;
+  targetCapCount: number;
+  insufficientEvidenceNotEnrichedCount: number;
+  /**
+   * FINAL-DISPOSITIONS-1 — empresas que el orquestador entregó al writer y que
+   * NO acabaron en fila de candidato: `pendingWriter − candidatosCreados`.
+   *
+   * Es la misma resta que `prospect_discards/writer-gap.ts` hace para emitir el
+   * código durable `final_validation_rejected`, así que la fila dice lo que la
+   * tabla de descartes ya guardó. Nunca es negativa: con más filas creadas que
+   * candidatas pre-writer declaradas (metadata legacy) vale 0.
+   */
+  finalValidationRejectedCount: number;
   candidatesCreatedCount: number;
   /**
    * MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § B.6 — empresas únicas que NINGUNA
@@ -362,6 +451,11 @@ export function computeUniqueResultReconciliation(input: {
   countryRejectedCount: number;
   sectorRejectedCount: number;
   ownershipRejectedCount: number;
+  enrichmentBudgetExhaustedCount?: number;
+  notSelectedForEnrichmentCount?: number;
+  targetCapCount?: number;
+  insufficientEvidenceNotEnrichedCount?: number;
+  finalValidationRejectedCount?: number;
   candidatesCreatedCount: number;
 }): UniqueResultReconciliation {
   const uniqueProviderResults = nonNegativeInt(input.uniqueResultsCount);
@@ -372,6 +466,16 @@ export function computeUniqueResultReconciliation(input: {
     nonNegativeInt(input.countryRejectedCount) +
     nonNegativeInt(input.sectorRejectedCount) +
     nonNegativeInt(input.ownershipRejectedCount) +
+    // FINAL-DISPOSITIONS-1 — las disposiciones finales nombradas. Ausentes ⇒ 0,
+    // que es el desglose de antes de este hito.
+    nonNegativeInt(input.enrichmentBudgetExhaustedCount) +
+    nonNegativeInt(input.notSelectedForEnrichmentCount) +
+    nonNegativeInt(input.targetCapCount) +
+    nonNegativeInt(input.insufficientEvidenceNotEnrichedCount) +
+    // `finalValidationRejected` y `candidatesCreated` reparten el universo
+    // pre-writer: nunca se suman dos veces porque el primero se calcula
+    // RESTANDO el segundo.
+    nonNegativeInt(input.finalValidationRejectedCount) +
     nonNegativeInt(input.candidatesCreatedCount);
 
   const delta = uniqueProviderResults - classifiedUniqueResults;
@@ -406,6 +510,19 @@ export function buildNoNewCandidatesCompactBreakdown(
     countryRejectedCount: nonNegativeInt(breakdown.countryRejectedCount),
     sectorRejectedCount: nonNegativeInt(breakdown.sectorRejectedCount),
     ownershipRejectedCount: nonNegativeInt(breakdown.ownershipRejectedCount),
+    enrichmentBudgetExhaustedCount: nonNegativeInt(breakdown.enrichmentBudgetExhaustedCount),
+    notSelectedForEnrichmentCount: nonNegativeInt(breakdown.notSelectedForEnrichmentCount),
+    targetCapCount: nonNegativeInt(breakdown.targetCapCount),
+    insufficientEvidenceNotEnrichedCount: nonNegativeInt(
+      breakdown.insufficientEvidenceNotEnrichedCount,
+    ),
+    // FINAL-DISPOSITIONS-1 — el hueco del writer, medido como la taxonomía lo
+    // define: entregadas al writer menos filas creadas.
+    finalValidationRejectedCount: Math.max(
+      0,
+      nonNegativeInt(breakdown.pendingWriterCount) -
+        nonNegativeInt(totals.candidatesCreatedCount),
+    ),
     candidatesCreatedCount: nonNegativeInt(totals.candidatesCreatedCount),
   };
   const reconciliation = computeUniqueResultReconciliation(base);
@@ -441,8 +558,16 @@ export const NO_NEW_CANDIDATES_BREAKDOWN_LABELS: Readonly<
   countryRejectedCount: 'Descartadas por país',
   sectorRejectedCount: 'Descartadas por sector o subindustria',
   ownershipRejectedCount: 'Descartadas porque el dominio no acredita a la empresa',
+  // FINAL-DISPOSITIONS-1 § 1 — las disposiciones finales, con el mismo
+  // vocabulario que `DISCARD_DISPOSITION_LABELS` usa en «Descartadas»: la misma
+  // empresa no puede llamarse de dos maneras según la pantalla.
+  enrichmentBudgetExhaustedCount: 'Límite de enriquecimiento alcanzado',
+  notSelectedForEnrichmentCount: 'No compitieron por enriquecimiento (objetivo ya cubierto)',
+  targetCapCount: 'Fuera por tope de objetivo alcanzado',
+  insufficientEvidenceNotEnrichedCount: 'Sin evidencia suficiente y sin enriquecimiento',
+  finalValidationRejectedCount: 'Rechazadas durante validación final',
   candidatesCreatedCount: 'Candidatos creados',
-  // § B.6 — guardrail. Sólo se pinta cuando la cifra NO es cero.
+  // § B.6 — guardrail. FINAL-DISPOSITIONS-1: se pinta siempre, cero incluido.
   unclassifiedUniqueResultsCount: 'Sin clasificar en el desglose',
   overCountedUniqueResultsCount: 'Contabilizadas más de una vez en el desglose',
 };
@@ -451,8 +576,13 @@ export const NO_NEW_CANDIDATES_BREAKDOWN_LABELS: Readonly<
  * § B.6 — aclaración de la fila de «sin clasificar».
  *
  * No es una causa de descarte: es la constancia de que el desglose no cierra
- * contra el total de empresas únicas. Que aparezca significa que falta
+ * contra el total de empresas únicas. Que aparezca con cifra significa que falta
  * contabilidad, no que existan empresas de una categoría desconocida.
+ *
+ * FINAL-DISPOSITIONS-1 — la fila se pinta SIEMPRE, también en cero, porque un
+ * cero explícito es la prueba visible de que el desglose cerró el universo
+ * completo. La aclaración, en cambio, sólo acompaña a un residual real: con 0 no
+ * hay nada que avisar.
  */
 export const UNCLASSIFIED_UNIQUE_RESULTS_HINT =
   'El desglose no cuadra con el total de empresas únicas. Es un aviso de contabilidad, no una causa de descarte.';
@@ -508,16 +638,28 @@ export function toNoNewCandidatesBreakdownRows(
     'countryRejectedCount',
     'sectorRejectedCount',
     'ownershipRejectedCount',
+    // FINAL-DISPOSITIONS-1 — después de los gates baratos, en el orden en que el
+    // pipeline las produce. Como el resto de causas, sólo se pintan cuando
+    // REALMENTE ocurrieron: una fila en cero afirmaría una etapa que nadie vivió.
+    'enrichmentBudgetExhaustedCount',
+    'notSelectedForEnrichmentCount',
+    'targetCapCount',
+    'insufficientEvidenceNotEnrichedCount',
+    'finalValidationRejectedCount',
   ];
 
   // § B.6 — el guardrail va DESPUÉS de «Candidatos creados»: es lo último que se
-  // lee, y sólo aparece cuando de verdad hay algo que no cuadra. Con el desglose
-  // cerrado (el caso normal) la fila no existe, para no enseñar un cero que
-  // parecería una categoría más.
+  // lee.
+  //
+  // FINAL-DISPOSITIONS-1 — «sin clasificar» se pinta SIEMPRE, cero incluido: es
+  // la única fila que demuestra que las causas explican el universo completo, y
+  // ocultarla en cero obligaba a deducir el cierre en vez de verlo. El
+  // sobreconteo sigue apareciendo sólo cuando existe: es una avería, no un cierre.
   const reconciliationRows: NoNewCandidatesBreakdownRow[] = [
-    ...(compact.unclassifiedUniqueResultsCount > 0
-      ? [row('unclassifiedUniqueResultsCount', UNCLASSIFIED_UNIQUE_RESULTS_HINT)]
-      : []),
+    row(
+      'unclassifiedUniqueResultsCount',
+      compact.unclassifiedUniqueResultsCount > 0 ? UNCLASSIFIED_UNIQUE_RESULTS_HINT : null,
+    ),
     ...(compact.overCountedUniqueResultsCount > 0
       ? [row('overCountedUniqueResultsCount', OVER_COUNTED_UNIQUE_RESULTS_HINT)]
       : []),

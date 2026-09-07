@@ -255,3 +255,75 @@ describe('§ 3 · el copy específico por causa se conserva junto al desglose', 
     assert.ok(document.querySelector('[data-testid="wizard-no-new-candidates-breakdown"]'));
   });
 });
+
+// ─── FINAL-DISPOSITIONS-1 · el desglose cierra el universo EN PANTALLA ────────
+
+/**
+ * AGENT1-WIZARD-BREAKDOWN-FINAL-DISPOSITIONS-1 — la corrida real `362a1e98`
+ * (Gobierno / CO), tal como el agregador la proyecta desde su metadata.
+ *
+ * En pantalla mostraba «Sin clasificar 9» sobre 18 empresas: 8 que perdieron su
+ * cupo de enrichment por el tope de la corrida y 1 que llegó al writer sin dejar
+ * fila. Las nueve tenían disposición persistida en
+ * `prospect_discarded_dispositions`; ninguna se veía.
+ */
+function run362a1e98Breakdown(): NoNewCandidatesBreakdown {
+  return {
+    hubspotDuplicateCount: 2,
+    sellupDuplicateCount: 0,
+    cooldownCount: 1,
+    repeatedAcrossRoundsCount: 2,
+    qualityRejectedCount: 6,
+    countryRejectedCount: 1,
+    sectorRejectedCount: 4,
+    ownershipRejectedCount: 1,
+    enrichmentBudgetExhaustedCount: 8,
+    notSelectedForEnrichmentCount: 0,
+    targetCapCount: 0,
+    insufficientEvidenceNotEnrichedCount: 0,
+    pendingWriterCount: 1,
+    uniqueResultsCount: 18,
+    noveltyExhausted: false,
+    secondRoundSkippedReason: null,
+  };
+}
+
+describe('FINAL-DISPOSITIONS-1 · las 18 empresas de `362a1e98` se explican en pantalla', () => {
+  it('el tope de enrichment y la validación final tienen su propia fila', () => {
+    renderNoNewCandidates(run362a1e98Breakdown());
+
+    assert.equal(rowCount('enrichmentBudgetExhaustedCount'), '8');
+    assert.equal(rowCount('finalValidationRejectedCount'), '1');
+
+    const rendered = document.body.textContent ?? '';
+    assert.ok(
+      rendered.includes(NO_NEW_CANDIDATES_BREAKDOWN_LABELS.enrichmentBudgetExhaustedCount),
+    );
+    assert.ok(rendered.includes(NO_NEW_CANDIDATES_BREAKDOWN_LABELS.finalValidationRejectedCount));
+  });
+
+  it('«sin clasificar» se ve en CERO: el cierre se demuestra, no se deduce', () => {
+    renderNoNewCandidates(run362a1e98Breakdown());
+
+    assert.ok(hasRow('unclassifiedUniqueResultsCount'));
+    assert.equal(rowCount('unclassifiedUniqueResultsCount'), '0');
+    // Con el desglose cerrado no hay avería que avisar.
+    assert.ok(!(document.body.textContent ?? '').includes('El desglose no cuadra'));
+    assert.equal(hasRow('overCountedUniqueResultsCount'), false);
+  });
+
+  it('las disposiciones que no ocurrieron no añaden filas', () => {
+    renderNoNewCandidates(run362a1e98Breakdown());
+
+    assert.equal(hasRow('notSelectedForEnrichmentCount'), false);
+    assert.equal(hasRow('targetCapCount'), false);
+    assert.equal(hasRow('insufficientEvidenceNotEnrichedCount'), false);
+  });
+
+  it('las repeticiones siguen siendo 2 y el total sigue siendo 18', () => {
+    renderNoNewCandidates(run362a1e98Breakdown());
+
+    assert.equal(rowCount('uniqueResultsCount'), '18');
+    assert.equal(rowCount('repeatedAcrossRoundsCount'), '2');
+  });
+});

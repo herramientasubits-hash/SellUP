@@ -365,6 +365,14 @@ describe('§ 5 · desglose compacto para la UI', () => {
       countryRejectedCount: 1,
       sectorRejectedCount: 1,
       ownershipRejectedCount: 1,
+      // AGENT1-WIZARD-BREAKDOWN-FINAL-DISPOSITIONS-1 — las disposiciones finales
+      // viajan siempre en el compacto; este desglose no declara ninguna, así que
+      // valen 0 y no se pintan.
+      enrichmentBudgetExhaustedCount: 0,
+      notSelectedForEnrichmentCount: 0,
+      targetCapCount: 0,
+      insufficientEvidenceNotEnrichedCount: 0,
+      finalValidationRejectedCount: 0,
       candidatesCreatedCount: 5,
       unclassifiedUniqueResultsCount: 0,
       overCountedUniqueResultsCount: 0,
@@ -471,9 +479,12 @@ describe('§ 3 · empresas ÚNICAS, no resultados crudos', () => {
 describe('§ 3 · filas del desglose para la UI', () => {
   test('sólo se listan las causas que ocurrieron, con el marco siempre presente', () => {
     // MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § B.6 — el desglose CIERRA
-    // (4 duplicados de HubSpot sobre 4 empresas únicas), así que el guardrail de
-    // reconciliación no añade fila y esta prueba sigue midiendo sólo qué causas
-    // se listan. Las 5 repeticiones no participan: son eventos, no empresas.
+    // (4 duplicados de HubSpot sobre 4 empresas únicas). Las 5 repeticiones no
+    // participan: son eventos, no empresas.
+    //
+    // AGENT1-WIZARD-BREAKDOWN-FINAL-DISPOSITIONS-1 — la fila de cierre se pinta
+    // también en cero, y por eso cierra la lista: el cero es la prueba de que
+    // las causas explican el universo completo.
     const rows = toNoNewCandidatesBreakdownRows(
       buildNoNewCandidatesCompactBreakdown(
         { ...ZERO, uniqueResultsCount: 4, hubspotDuplicateCount: 4, repeatedAcrossRoundsCount: 5 },
@@ -488,6 +499,7 @@ describe('§ 3 · filas del desglose para la UI', () => {
         'hubspotDuplicateCount',
         'repeatedAcrossRoundsCount',
         'candidatesCreatedCount',
+        'unclassifiedUniqueResultsCount',
       ],
     );
     assert.equal(rows.find((row) => row.key === 'uniqueResultsCount')?.count, 4);
@@ -496,9 +508,9 @@ describe('§ 3 · filas del desglose para la UI', () => {
   test('la fila de repeticiones lleva su aclaración; ninguna otra la lleva', () => {
     const rows = toNoNewCandidatesBreakdownRows(
       buildNoNewCandidatesCompactBreakdown(
-        // § B.6 — el desglose cierra (1 cooldown sobre 1 empresa única): sin
-        // fila de guardrail, la aclaración sigue siendo exclusiva de las
-        // repeticiones.
+        // § B.6 — el desglose cierra (1 cooldown sobre 1 empresa única): la fila
+        // de cierre se pinta en 0 SIN aclaración, así que la aclaración sigue
+        // siendo exclusiva de las repeticiones.
         { ...ZERO, uniqueResultsCount: 1, cooldownCount: 1, repeatedAcrossRoundsCount: 5 },
         { candidatesCreatedCount: 0 },
       ),

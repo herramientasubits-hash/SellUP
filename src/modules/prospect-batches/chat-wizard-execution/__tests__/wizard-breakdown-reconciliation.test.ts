@@ -144,15 +144,19 @@ describe('§ B.7 — el desglose que pinta la UI', () => {
     assert.equal(dispositions, 20);
   });
 
-  test('con el desglose cerrado, la fila «sin clasificar» NO existe', () => {
+  // AGENT1-WIZARD-BREAKDOWN-FINAL-DISPOSITIONS-1 — contrato actualizado: la fila
+  // se pinta también en cero. Antes se ocultaba, y eso obligaba a DEDUCIR que el
+  // desglose había cerrado; ahora el cierre se ve. El sobreconteo sigue oculto
+  // cuando no existe: es una avería, no la constancia de un cierre.
+  test('con el desglose cerrado, «sin clasificar» se pinta en 0 y sin aclaración', () => {
     const rows = toNoNewCandidatesBreakdownRows(
       buildNoNewCandidatesCompactBreakdown(REFERENCE_RUN, { candidatesCreatedCount: 0 }),
     );
 
-    assert.equal(
-      rows.some((row) => row.key === 'unclassifiedUniqueResultsCount'),
-      false,
-    );
+    const unclassified = rows.find((row) => row.key === 'unclassifiedUniqueResultsCount');
+    assert.ok(unclassified, 'la fila de cierre debe existir siempre');
+    assert.equal(unclassified.count, 0);
+    assert.equal(unclassified.hint, null);
     assert.equal(
       rows.some((row) => row.key === 'overCountedUniqueResultsCount'),
       false,
