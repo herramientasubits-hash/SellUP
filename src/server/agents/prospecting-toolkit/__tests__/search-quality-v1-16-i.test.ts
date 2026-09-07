@@ -4,24 +4,24 @@
  * Sin Tavily real. Sin APIs externas. Sin LLM. Sin Supabase.
  *
  * F1  — employeeCount 201  → pass
- * F2  — employeeCount 200  → block
+ * F2  — employeeCount 200  → pass (A1-APOLLO-EMPLOYEE-FILTER-200-1 § 8: umbral inclusivo)
  * F3  — employeeCount 199  → block
  * F4  — employeeCount null → needs_validation
  * F5  — sizeRange "10001+" → pass
  * F6  — sizeRange "201-500" → pass
- * F7  — sizeRange "51-200" → block
- * F8  — sizeRange "<=200"  → block
- * F9  — sizeRange "200"    → block
+ * F7  — sizeRange "51-200" → needs_validation (§ 8: max == umbral ya no bloquea)
+ * F8  — sizeRange "<=200"  → needs_validation (§ 8)
+ * F9  — sizeRange "200"    → pass (§ 8)
  * F10 — sizeRange "unknown" → needs_validation
  * F11 — rich_profile size.estimated_range=10001+ → icp_size_gate.decision=pass
- * F12 — rich_profile size.estimated_range=51-200 → icp_size_gate.decision=block
+ * F12 — rich_profile size.estimated_range=51-200 → decision=needs_validation (§ 8)
  * F13 — rich_profile size unknown → decision=needs_validation, requires_human_review=true
  * F14 — writer action para block → skip con icp_size_below_threshold
  * F15 — writer action para needs_validation → needs_review
  * F16 — writer action para pass → pass
  * F17 — batch summary tiene conteos correctos
  * F18 — sin campos de tamaño → no inventa, decision=needs_validation
- * F19 — threshold configurable (500): rango 201-500 → block
+ * F19 — threshold configurable (500): rango 201-500 → needs_validation (§ 8)
  * F20 — DEFAULT_RICH_PROFILE_ENRICHMENT_CONFIG.enabled=false y DEFAULT_LINKEDIN_SEARCH_CONFIG.enabled=false no alterados
  */
 
@@ -68,15 +68,21 @@ describe('F1 — employeeCount 201 → pass', () => {
 
 // ─── F2 — employeeCount 200 ───────────────────────────────────────────────────
 
-describe('F2 — employeeCount 200 → block', () => {
-  it('decision = block (exactamente en umbral no pasa)', () => {
+// A1-APOLLO-EMPLOYEE-FILTER-200-1 § 8 — el umbral pasa a ser INCLUSIVO.
+//
+// Este bloque fijaba el borde exclusivo (`count > threshold`), y con el filtro de
+// tamaño ya viajando a Apollo —cuyo primer bucket "200,500" incluye el 200— ese
+// trinquete defendía el defecto: se pedía y se pagaba una empresa de 200 que el
+// gate iba a descartar. «200+ empleados» incluye 200.
+describe('F2 — employeeCount 200 → pass (umbral inclusivo)', () => {
+  it('decision = pass (exactamente en umbral SÍ pasa)', () => {
     const result = evaluateIcpSizeGate({ employeeCount: 200 });
-    assert.equal(result.decision, 'block');
+    assert.equal(result.decision, 'pass');
   });
 
-  it('size_status = confirmed_below_threshold', () => {
+  it('size_status = confirmed_above_threshold', () => {
     const result = evaluateIcpSizeGate({ employeeCount: 200 });
-    assert.equal(result.size_status, 'confirmed_below_threshold');
+    assert.equal(result.size_status, 'confirmed_above_threshold');
   });
 });
 
@@ -153,15 +159,20 @@ describe('F6 — sizeRange "201-500" → pass', () => {
 
 // ─── F7 — sizeRange "51-200" ──────────────────────────────────────────────────
 
-describe('F7 — sizeRange "51-200" → block', () => {
-  it('decision = block', () => {
+// § 8 — con umbral inclusivo, un rango cuyo MÁXIMO es exactamente el umbral
+// puede contener una empresa admisible (la de 200 justos). Bloquearlo afirmaría
+// que no hay ninguna, y es falso. Va a revisión humana, nunca a pass.
+describe('F7 — sizeRange "51-200" → needs_validation (max == umbral)', () => {
+  it('decision = needs_validation', () => {
     const result = evaluateIcpSizeGate({ sizeRange: '51-200' });
-    assert.equal(result.decision, 'block');
+    assert.equal(result.decision, 'needs_validation');
+    assert.notEqual(result.decision, 'pass');
   });
 
-  it('size_status = estimated_below_threshold', () => {
+  it('size_status = unknown y exige revisión humana', () => {
     const result = evaluateIcpSizeGate({ sizeRange: '51-200' });
-    assert.equal(result.size_status, 'estimated_below_threshold');
+    assert.equal(result.size_status, 'unknown');
+    assert.equal(result.requires_human_review, true);
   });
 
   it('normalized_max_employees = 200', () => {
@@ -172,10 +183,12 @@ describe('F7 — sizeRange "51-200" → block', () => {
 
 // ─── F8 — sizeRange "<=200" ───────────────────────────────────────────────────
 
-describe('F8 — sizeRange "<=200" → block', () => {
-  it('decision = block', () => {
+// § 8 — "<=200" admite el 200, así que tampoco es un bloqueo limpio.
+describe('F8 — sizeRange "<=200" → needs_validation', () => {
+  it('decision = needs_validation', () => {
     const result = evaluateIcpSizeGate({ sizeRange: '<=200' });
-    assert.equal(result.decision, 'block');
+    assert.equal(result.decision, 'needs_validation');
+    assert.notEqual(result.decision, 'pass');
   });
 
   it('normalized_max_employees = 200', () => {
@@ -186,10 +199,11 @@ describe('F8 — sizeRange "<=200" → block', () => {
 
 // ─── F9 — sizeRange "200" ────────────────────────────────────────────────────
 
-describe('F9 — sizeRange "200" → block (exactamente en umbral no pasa)', () => {
-  it('decision = block', () => {
+// § 8 — un rango que es exactamente "200" describe una empresa de 200: califica.
+describe('F9 — sizeRange "200" → pass (exactamente en umbral SÍ pasa)', () => {
+  it('decision = pass', () => {
     const result = evaluateIcpSizeGate({ sizeRange: '200' });
-    assert.equal(result.decision, 'block');
+    assert.equal(result.decision, 'pass');
   });
 
   it('normalized_min_employees = 200', () => {
@@ -230,17 +244,20 @@ describe('F11 — rich_profile con size.estimated_range=10001+ → decision=pass
 
 // ─── F12 — rich_profile size.estimated_range=51-200 ──────────────────────────
 
-describe('F12 — rich_profile con size.estimated_range=51-200 → decision=block', () => {
-  it('evaluateIcpSizeGateFromRichProfile retorna block', () => {
+// § 8 — mismo borde que F7, por la vía del rich profile: el rango llega al mismo
+// evaluador y por tanto al mismo umbral inclusivo.
+describe('F12 — rich_profile con size.estimated_range=51-200 → needs_validation', () => {
+  it('evaluateIcpSizeGateFromRichProfile retorna needs_validation', () => {
     const size = { estimated_range: '51-200', status: 'estimated' as const };
     const result = evaluateIcpSizeGateFromRichProfile(size);
-    assert.equal(result.decision, 'block');
+    assert.equal(result.decision, 'needs_validation');
+    assert.notEqual(result.decision, 'pass');
   });
 
-  it('size_status = estimated_below_threshold', () => {
+  it('size_status = unknown', () => {
     const size = { estimated_range: '51-200', status: 'estimated' as const };
     const result = evaluateIcpSizeGateFromRichProfile(size);
-    assert.equal(result.size_status, 'estimated_below_threshold');
+    assert.equal(result.size_status, 'unknown');
   });
 });
 
@@ -287,8 +304,8 @@ describe('F14 — writer action para block → skip con icp_size_below_threshold
       size_status: 'estimated_below_threshold',
       threshold: 200,
       normalized_min_employees: 51,
-      normalized_max_employees: 200,
-      reason: 'Size range maximum (200) does not exceed ICP threshold of 200',
+      normalized_max_employees: 199,
+      reason: 'Size range maximum (199) does not meet ICP threshold of 200',
       requires_human_review: false,
     };
     const action = resolveIcpSizeGateWriterAction(gateResult);
@@ -301,17 +318,22 @@ describe('F14 — writer action para block → skip con icp_size_below_threshold
       size_status: 'estimated_below_threshold',
       threshold: 200,
       normalized_min_employees: 51,
-      normalized_max_employees: 200,
-      reason: 'Size range maximum (200) does not exceed ICP threshold of 200',
+      normalized_max_employees: 199,
+      reason: 'Size range maximum (199) does not meet ICP threshold of 200',
       requires_human_review: false,
     };
     const action = resolveIcpSizeGateWriterAction(gateResult);
     assert.equal(action.skipReason, 'icp_size_below_threshold');
   });
 
-  it('evaluateIcpSizeGate("51-200") → block (confirma fixture)', () => {
-    const gate = evaluateIcpSizeGate({ sizeRange: '51-200' });
+  it('evaluateIcpSizeGate("51-199") → block (confirma fixture)', () => {
+    // § 8 — la fixture pasa a "51-199": con el umbral inclusivo, "51-200" ya no
+    // es un bloqueo (puede contener a la empresa de 200 justos). Un rango
+    // enteramente por debajo del umbral sigue siendo el caso que este bloque
+    // quiere ejercitar, y lo sigue ejercitando.
+    const gate = evaluateIcpSizeGate({ sizeRange: '51-199' });
     const action = resolveIcpSizeGateWriterAction(gate);
+    assert.equal(gate.decision, 'block');
     assert.equal(action.action, 'skip');
     assert.equal(action.skipReason, 'icp_size_below_threshold');
   });
@@ -366,7 +388,7 @@ describe('F16 — writer action para pass → pass normal', () => {
       threshold: 200,
       normalized_min_employees: 10001,
       normalized_max_employees: null,
-      reason: 'Size range minimum (10001) exceeds ICP threshold of 200',
+      reason: 'Size range minimum (10001) meets ICP threshold of 200',
       requires_human_review: false,
     };
     const action = resolveIcpSizeGateWriterAction(gateResult);
@@ -380,7 +402,7 @@ describe('F16 — writer action para pass → pass normal', () => {
       threshold: 200,
       normalized_min_employees: 10001,
       normalized_max_employees: null,
-      reason: 'Size range minimum (10001) exceeds ICP threshold of 200',
+      reason: 'Size range minimum (10001) meets ICP threshold of 200',
       requires_human_review: false,
     };
     const action = resolveIcpSizeGateWriterAction(gateResult);
@@ -402,7 +424,10 @@ describe('F17 — batch summary tiene conteos correctos', () => {
     const inputs = [
       { sizeRange: '10001+' },    // pass
       { sizeRange: '201-500' },   // pass
-      { sizeRange: '51-200' },    // block
+      // § 8 — "51-199" en vez de "51-200": con umbral inclusivo, un rango cuyo
+      // máximo ES el umbral va a revisión, no a bloqueo. La intención de esta
+      // fila es contar un BLOQUEO, así que se usa un rango que sí lo es.
+      { sizeRange: '51-199' },    // block
       { sizeRange: 'unknown' },   // needs_validation
       { employeeCount: 250 },     // pass
       { employeeCount: 100 },     // block
@@ -479,10 +504,17 @@ describe('F18 — sin campos de tamaño, no inventa, decision=needs_validation',
 // ─── F19 — threshold configurable ────────────────────────────────────────────
 
 describe('F19 — threshold configurable', () => {
-  it('threshold=500, sizeRange="201-500" → block (max=500 <= 500)', () => {
+  it('threshold=500, sizeRange="201-500" → needs_validation (max == 500)', () => {
+    // § 8 — el umbral inclusivo es del EVALUADOR, no del 200: con threshold=500,
+    // un rango que termina en 500 puede contener una empresa de 500, que califica.
     const result = evaluateIcpSizeGate({ sizeRange: '201-500', threshold: 500 });
-    assert.equal(result.decision, 'block');
+    assert.equal(result.decision, 'needs_validation');
     assert.equal(result.threshold, 500);
+  });
+
+  it('threshold=500, sizeRange="201-499" → block (todo el rango por debajo)', () => {
+    const result = evaluateIcpSizeGate({ sizeRange: '201-499', threshold: 500 });
+    assert.equal(result.decision, 'block');
   });
 
   it('threshold=500, sizeRange="501-1000" → pass (min=501 > 500)', () => {
@@ -490,8 +522,14 @@ describe('F19 — threshold configurable', () => {
     assert.equal(result.decision, 'pass');
   });
 
-  it('threshold=500, employeeCount=500 → block (no supera 500)', () => {
+  it('threshold=500, employeeCount=500 → pass (alcanza 500)', () => {
+    // § 8 — el borde inclusivo aplica a cualquier threshold, no sólo al 200.
     const result = evaluateIcpSizeGate({ employeeCount: 500, threshold: 500 });
+    assert.equal(result.decision, 'pass');
+  });
+
+  it('threshold=500, employeeCount=499 → block', () => {
+    const result = evaluateIcpSizeGate({ employeeCount: 499, threshold: 500 });
     assert.equal(result.decision, 'block');
   });
 

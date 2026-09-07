@@ -331,6 +331,9 @@ export async function runProspectingPipeline(
           // versión publicada. Se transportan; este módulo no los interpreta.
           subindustryCatalogTerms: input.subindustryCatalogTerms ?? null,
           selectionCatalogVersion: input.selectionCatalogVersion ?? null,
+          // A1-APOLLO-EMPLOYEE-FILTER-200-1 § 3 — umbral de tamaño en tránsito.
+          // Este módulo tampoco lo interpreta: lo transporta.
+          targetEmployeeThreshold: input.targetEmployeeThreshold ?? null,
           // AGENT1-APOLLO-DEFAULT-PATH-NET-NEW-PAGINATION — transporte puro
           // hasta `dispatchToProvider`; este módulo no la interpreta.
           apolloSearchOptions: input.apolloSearchOptions ?? null,

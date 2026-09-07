@@ -13,6 +13,11 @@
  * F8  — no LinkedIn override configured
  * F9  — cleanup SQL usa discarded/rejected, no duplicate
  * F10 — default configs remain false
+ *
+ * A1-APOLLO-EMPLOYEE-FILTER-200-1 § 8 — la fixture de «por debajo del umbral» pasa de "51-200" a "51-199".
+ * Con el umbral inclusivo, un rango cuyo máximo ES 200 puede contener a la empresa
+ * de 200 justos, así que ya no es un bloqueo limpio: va a revisión. La intención de
+ * estos casos —un candidato claramente pequeño se bloquea— se conserva intacta.
  */
 
 import { describe, it } from 'node:test';
@@ -64,7 +69,7 @@ const SMOKE_CANDIDATES = [
     name: 'SellUp ICP Block Smoke Co',
     domain: DOMAIN_BLOCK,
     scenario: 'icp_block',
-    size_range: '51-200',
+    size_range: '51-199',
     expected_gate: 'block' as const,
   },
 ];
@@ -196,15 +201,15 @@ describe('F4 — UNKNOWN candidate size_range null → gate decision=needs_valid
 
 // ─── F5 — block candidate expected icp_size_below_threshold ──────────────────
 
-describe('F5 — BLOCK candidate size_range "51-200" → gate decision=block', () => {
+describe('F5 — BLOCK candidate size_range "51-199" → gate decision=block', () => {
   const blockCandidate = SMOKE_CANDIDATES.find((c) => c.scenario === 'icp_block')!;
 
   it('candidato encontrado', () => {
     assert.ok(blockCandidate, 'block candidate debe existir');
   });
 
-  it('size_range es "51-200"', () => {
-    assert.equal(blockCandidate.size_range, '51-200');
+  it('size_range es "51-199"', () => {
+    assert.equal(blockCandidate.size_range, '51-199');
   });
 
   it('gate decision = block', () => {

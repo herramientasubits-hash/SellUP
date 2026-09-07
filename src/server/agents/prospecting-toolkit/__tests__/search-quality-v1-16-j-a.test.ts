@@ -29,6 +29,11 @@
  * F11 — cleanup SQL usa discarded/rejected, not duplicate
  *
  * F12 — default configs remain false
+ *
+ * A1-APOLLO-EMPLOYEE-FILTER-200-1 § 8 — la fixture de «por debajo del umbral» pasa de "51-200" a "51-199".
+ * Con el umbral inclusivo, un rango cuyo máximo ES 200 puede contener a la empresa
+ * de 200 justos, así que ya no es un bloqueo limpio: va a revisión. La intención de
+ * estos casos —un candidato claramente pequeño se bloquea— se conserva intacta.
  */
 
 import { describe, it } from 'node:test';
@@ -105,9 +110,9 @@ const SMOKE_CANDIDATES = [
     name: 'SellUp Size Company Block',
     domain: DOMAIN_COMPANY_BLOCK,
     scenario: 'company_size_block',
-    // company_size="51-200" → below threshold → gate=block → NOT inserted
+    // company_size="51-199" → below threshold → gate=block → NOT inserted
     mock_rich_profile_size:    null      as string | null,
-    candidate_company_size:    '51-200'  as string | null,
+    candidate_company_size:    '51-199'  as string | null,
     hubspot_employees:         null      as number | null,
     expected_employee_source:  'candidate_company_size' as const,
     expected_gate:             'block'                  as const,
@@ -350,8 +355,8 @@ describe('F6 — COMPANY_BLOCK candidate → gate=block, skipReason=icp_size_bel
     assert.ok(c, 'company_size_block candidate debe existir');
   });
 
-  it('candidate_company_size = "51-200"', () => {
-    assert.equal(c.candidate_company_size, '51-200');
+  it('candidate_company_size = "51-199"', () => {
+    assert.equal(c.candidate_company_size, '51-199');
   });
 
   it('selectedSource = candidate_company_size', () => {

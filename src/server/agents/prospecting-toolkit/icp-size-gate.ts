@@ -127,10 +127,22 @@ function parseSizeRange(raw: string | null | undefined): ParsedRange | null {
  *   2. sizeRange (rango estimado o conocido)
  *   3. Sin datos → needs_validation
  *
- * Regla de negocio: threshold default = 200.
- *   - employeeCount > threshold  → pass
- *   - employeeCount <= threshold → block
+ * Regla de negocio: threshold default = 200, INCLUSIVO.
+ *   - employeeCount >= threshold → pass
+ *   - employeeCount <  threshold → block
  *   - UNKNOWN ≠ menor de threshold → needs_validation (nunca block por omisión)
+ *
+ * A1-APOLLO-EMPLOYEE-FILTER-200-1 § 8 — el umbral es `>=`, no `>`.
+ *
+ * Antes de este hito el gate exigía `count > threshold`, así que una empresa de
+ * EXACTAMENTE 200 empleados quedaba bloqueada. Con el filtro de tamaño ya
+ * viajando a Apollo —cuyo primer bucket es `"200,500"` e incluye el 200— eso
+ * producía la peor combinación posible: se pedía y se pagaba una empresa que
+ * nuestro propio gate iba a descartar después.
+ *
+ * El requisito del producto es «200+ empleados», y 200+ incluye 200. Las dos
+ * puntas de la cadena comparten ahora esa semántica: lo que se le pide a Apollo
+ * y lo que se admite al llegar son la misma pregunta.
  */
 export function evaluateIcpSizeGate(input: IcpSizeGateInput): IcpSizeGateResult {
   const threshold = input.threshold ?? DEFAULT_THRESHOLD;
@@ -138,14 +150,14 @@ export function evaluateIcpSizeGate(input: IcpSizeGateInput): IcpSizeGateResult 
   // ── 1. Conteo exacto de empleados (máxima confianza) ──────────────────────
   if (input.employeeCount != null) {
     const count = input.employeeCount;
-    if (count > threshold) {
+    if (count >= threshold) {
       return {
         decision: 'pass',
         size_status: 'confirmed_above_threshold',
         threshold,
         normalized_min_employees: count,
         normalized_max_employees: count,
-        reason: `Employee count ${count} exceeds ICP threshold of ${threshold}`,
+        reason: `Employee count ${count} meets ICP threshold of ${threshold}`,
         requires_human_review: false,
       };
     }
@@ -155,7 +167,7 @@ export function evaluateIcpSizeGate(input: IcpSizeGateInput): IcpSizeGateResult 
       threshold,
       normalized_min_employees: count,
       normalized_max_employees: count,
-      reason: `Employee count ${count} does not exceed ICP threshold of ${threshold}`,
+      reason: `Employee count ${count} does not meet ICP threshold of ${threshold}`,
       requires_human_review: false,
     };
   }
@@ -167,33 +179,43 @@ export function evaluateIcpSizeGate(input: IcpSizeGateInput): IcpSizeGateResult 
     const aboveSuffix = isConfirmed ? 'confirmed_above_threshold' : 'estimated_above_threshold';
     const belowSuffix = isConfirmed ? 'confirmed_below_threshold' : 'estimated_below_threshold';
 
-    // min del rango supera el umbral → pass (aunque max no esté)
-    if (parsed.min !== null && parsed.min > threshold) {
+    // A1-APOLLO-EMPLOYEE-FILTER-200-1 § 8 — el umbral inclusivo gobierna TAMBIÉN
+    // la vía de rangos. Dejar aquí el `>` y sólo cambiar el conteo exacto habría
+    // dejado el gate con dos semánticas para el mismo umbral: `200` aprobado como
+    // conteo y `"200-500"` sin resolver como rango.
+
+    // min del rango alcanza el umbral → pass (aunque max no esté)
+    if (parsed.min !== null && parsed.min >= threshold) {
       return {
         decision: 'pass',
         size_status: aboveSuffix,
         threshold,
         normalized_min_employees: parsed.min,
         normalized_max_employees: parsed.max,
-        reason: `Size range minimum (${parsed.min}) exceeds ICP threshold of ${threshold}`,
+        reason: `Size range minimum (${parsed.min}) meets ICP threshold of ${threshold}`,
         requires_human_review: false,
       };
     }
 
-    // max del rango no supera el umbral → block
-    if (parsed.max !== null && parsed.max <= threshold) {
+    // max del rango queda por DEBAJO del umbral → block.
+    //
+    // `max === threshold` ya NO bloquea: un rango como "51-200" puede contener a
+    // una empresa de 200 empleados, que ahora califica. Un bloqueo ahí afirmaría
+    // que no hay ninguna empresa admisible en el rango, y eso es falso. Cae al
+    // caso ambiguo de abajo, es decir a revisión humana — nunca a `pass`.
+    if (parsed.max !== null && parsed.max < threshold) {
       return {
         decision: 'block',
         size_status: belowSuffix,
         threshold,
         normalized_min_employees: parsed.min,
         normalized_max_employees: parsed.max,
-        reason: `Size range maximum (${parsed.max}) does not exceed ICP threshold of ${threshold}`,
+        reason: `Size range maximum (${parsed.max}) does not meet ICP threshold of ${threshold}`,
         requires_human_review: false,
       };
     }
 
-    // Ambiguo: min <= threshold y max > threshold (o max null con min <= threshold)
+    // Ambiguo: min < threshold y max >= threshold (o max null con min < threshold)
     return {
       decision: 'needs_validation',
       size_status: 'unknown',

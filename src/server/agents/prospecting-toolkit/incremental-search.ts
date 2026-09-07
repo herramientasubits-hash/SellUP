@@ -1011,6 +1011,10 @@ export async function runIncrementalProspectingSearch(
       // versión publicada, la MISMA en todas las rondas de la corrida.
       subindustryCatalogTerms: input.subindustryCatalogTerms ?? null,
       selectionCatalogVersion: input.selectionCatalogVersion ?? null,
+      // A1-APOLLO-EMPLOYEE-FILTER-200-1 § 3 — el umbral de tamaño acompaña a las
+      // subindustrias por la misma vía y con la misma disciplina: viaja el número,
+      // la traducción a rangos de Apollo la hace el mapper.
+      targetEmployeeThreshold: input.targetEmployeeThreshold ?? null,
       apolloSearchOptions,
     });
 
