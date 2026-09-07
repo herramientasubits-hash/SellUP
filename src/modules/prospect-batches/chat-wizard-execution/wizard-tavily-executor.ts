@@ -13,10 +13,25 @@
 import { runIncrementalProspectingSearch } from '@/server/agents/prospecting-toolkit/incremental-search';
 import type { IncrementalSearchOutput } from '@/server/agents/prospecting-toolkit/incremental-search-types';
 import type { ResolvedWizardExecution } from './wizard-execution-types';
+// AGENT1-APOLLO-LUSHA-WATERFALL § CORTE 1 — autoridad única del objetivo.
+import { WIZARD_TARGET_USEFUL_COMPANIES } from '@/modules/prospect-batches/wizard-target-authority';
 
 export const WIZARD_TAVILY_TARGET_INTERNAL = 25;
 export const WIZARD_ADAPTIVE_MAX_ROUNDS = 4;
-export const WIZARD_TARGET_PERSISTIBLE_CANDIDATES = 10;
+/**
+ * AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 1 — DERIVADO, antes el literal `10`.
+ *
+ * Este era el TERCER literal del mismo objetivo (junto al de Apollo y al de
+ * `apollo-two-round/config.ts`), y no es un detalle de Tavily: el slot del lote
+ * se reserva ANTES de saber qué proveedor ejecuta, y `targetCount` se escribe
+ * siempre desde la constante de Apollo. Dejar este en 10 mientras el objetivo
+ * baja a 5 publicaría un lote que promete 10 y una corrida que busca 5 — la
+ * metadata "5/10" que este corte existe para eliminar.
+ *
+ * `mixed-global-target-authority.test.ts` ya exigía que ambos coincidieran; lo
+ * que faltaba era que coincidieran por CONSTRUCCIÓN y no por acuerdo.
+ */
+export const WIZARD_TARGET_PERSISTIBLE_CANDIDATES = WIZARD_TARGET_USEFUL_COMPANIES;
 
 export type WizardTavilyInput = {
   resolved: ResolvedWizardExecution;

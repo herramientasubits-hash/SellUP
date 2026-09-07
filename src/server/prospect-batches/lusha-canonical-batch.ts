@@ -316,3 +316,155 @@ export async function reserveOrReturnLushaCanonicalBatch(
         : LUSHA_CANONICAL_BATCH_FRESH_EPOCH,
   };
 }
+
+// ── Adopción EXPLÍCITA de un lote ya existente (waterfall Apollo → Lusha) ────
+//
+// AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 5A.
+//
+// ── 🔴 Por qué no basta con el resolutor de arriba ───────────────────────────
+//
+// El resolutor canónico adopta por `(created_by, client_request_id)`, y la
+// pierna Lusha del waterfall tiene —a propósito— un `clientRequestId` PROPIO:
+// es la clave de idempotencia de SU reserva de créditos, y reutilizar la de
+// Apollo haría que Lusha corriese a cuenta de una reserva ajena ya liquidada.
+//
+// Consecuencia: por esa clave, el reserve-or-return de arriba no puede
+// encontrar el lote de Apollo. INSERTARÍA uno nuevo. Una sola búsqueda de la
+// persona terminaría en DOS lotes, que es exactamente lo que el requisito M
+// prohíbe.
+//
+// La salida NO es relajar la identidad de reserva ni inventar una tabla de
+// correlación: es que quien YA conoce el lote canónico de la corrida —el
+// wizard, que lo reservó— se lo PASE a la pierna. Este resolutor es esa vía, y
+// sólo esa: no crea nada, no busca nada por heurística y no acepta un id que no
+// pertenezca a quien está ejecutando.
+//
+// ── 🔴 Qué se verifica antes de devolverlo ──────────────────────────────────
+//
+// El id llega por la frontera de una Server Action, así que se trata como dato
+// del cliente aunque el wizard sea quien lo emite. Antes de que una sola fila se
+// escriba dentro de él se comprueba que `created_by` sea el actor autenticado.
+// Sin fila, o con otro dueño, se LANZA: fail-closed. Degradar a «pues creo uno
+// nuevo» reintroduciría el segundo lote justo en el caso que este código existe
+// para cerrar.
+
+/** Lo mínimo que hay que leer del lote que se adopta para poder escribir en él. */
+export type LushaAdoptedBatchIdentity = {
+  createdByUserId: string;
+  identityEpoch: number;
+};
+
+/** Lectura del lote a adoptar. Inyectable — en pruebas no hay base. */
+export type ReadLushaAdoptedBatchIdentity = (
+  batchId: string,
+) => Promise<LushaAdoptedBatchIdentity | null>;
+
+export const LUSHA_ADOPTED_BATCH_NOT_FOUND = 'lusha_adopted_batch_not_found';
+export const LUSHA_ADOPTED_BATCH_NOT_OWNED = 'lusha_adopted_batch_not_owned';
+
+/**
+ * Resolutor que devuelve SIEMPRE el lote indicado y NUNCA crea uno.
+ *
+ * Cumple el mismo contrato que `createCanonicalLushaBatchResolver`, así que las
+ * dos mitades de la corrida —gratuita y de pago— siguen preguntando a una sola
+ * autoridad y ninguna de las dos sabe cuál de los dos resolutores le tocó.
+ *
+ * 🔴 `contribution` se IGNORA a propósito. El lote ya existe y ya lo describió
+ * quien lo creó; dejar que esta pierna reescribiera nombre, país o metadata
+ * convertiría la adopción en una sobrescritura silenciosa del lote de Apollo.
+ */
+export function createAdoptedLushaBatchResolver(args: {
+  batchId: string;
+  expectedOwnerUserId: string;
+  readIdentity: ReadLushaAdoptedBatchIdentity;
+}): CanonicalLushaBatchResolver {
+  let settled: LushaCanonicalBatchReservation | null = null;
+  let inFlight: Promise<LushaCanonicalBatchReservation> | null = null;
+
+  const resolve = async (): Promise<LushaCanonicalBatchReservation> => {
+    if (settled !== null) return settled;
+    if (inFlight !== null) return inFlight;
+
+    const attempt = (async () => {
+      const identity = await args.readIdentity(args.batchId);
+      if (identity === null) {
+        throw new Error(LUSHA_ADOPTED_BATCH_NOT_FOUND);
+      }
+      if (identity.createdByUserId !== args.expectedOwnerUserId) {
+        throw new Error(LUSHA_ADOPTED_BATCH_NOT_OWNED);
+      }
+      const result: LushaCanonicalBatchReservation = {
+        id: args.batchId,
+        // Nunca `false`: esta llamada no creó la fila, y `adopted` es justo la
+        // pregunta «¿existía ya?».
+        adopted: true,
+        identityEpoch: identity.identityEpoch,
+      };
+      settled = result;
+      return result;
+    })();
+
+    inFlight = attempt;
+    try {
+      return await attempt;
+    } catch (error) {
+      inFlight = null;
+      throw error;
+    }
+  };
+
+  return { resolve, isMaterialized: () => settled !== null };
+}
+
+/** Cliente mínimo para releer el lote adoptado. Una sola fila, por id. */
+export interface LushaAdoptedBatchDbClient {
+  from(table: string): {
+    select(columns: string): {
+      eq(
+        column: string,
+        value: string,
+      ): {
+        maybeSingle(): Promise<{
+          data: { created_by?: string | null; identity_epoch?: number | null } | null;
+          error: LushaCanonicalBatchDbError | null;
+        }>;
+      };
+    };
+  };
+}
+
+/**
+ * Lee dueño y época del lote a adoptar.
+ *
+ * 🔴 `error` ⇒ LANZA. Un fallo de lectura no es «el lote no existe»: tratarlo
+ * como ausencia dejaría que un tropiezo de red se convirtiera en un segundo
+ * lote o en una escritura sin dueño comprobado.
+ */
+export async function readLushaAdoptedBatchIdentity(
+  batchId: string,
+  db: LushaAdoptedBatchDbClient,
+): Promise<LushaAdoptedBatchIdentity | null> {
+  const { data, error } = await db
+    .from('prospect_batches')
+    .select('created_by, identity_epoch')
+    .eq('id', batchId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`No se pudo releer el lote a adoptar: ${error.message ?? 'sin datos'}`);
+  }
+  if (!data || typeof data.created_by !== 'string' || data.created_by === '') {
+    return null;
+  }
+
+  const epoch = data.identity_epoch;
+  return {
+    createdByUserId: data.created_by,
+    // Ausente ⇒ M126 no aplicada; la ruta vallada responderá `capability_absent`
+    // y la escritura tomará el camino previo a B4, igual que en el reserve-or-return.
+    identityEpoch:
+      typeof epoch === 'number' && Number.isFinite(epoch)
+        ? epoch
+        : LUSHA_CANONICAL_BATCH_FRESH_EPOCH,
+  };
+}

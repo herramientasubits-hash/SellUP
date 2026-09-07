@@ -11,6 +11,12 @@
  *   de esas 6 filas, 2 son de SÓLO REVISIÓN
  *   → el wizard anunciaba `success_target_reached` sobre 8 empresas
  *
+ * 🔴 Esas cifras son el RELATO HISTÓRICO del defecto, con el objetivo que regía
+ * entonces. Los casos de este archivo se re-anclaron a `TARGET`
+ * (AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 1) porque un objetivo distinto vuelve
+ * imposibles esos literales; la forma del defecto —filas de sólo revisión contadas
+ * como objetivo cumplido— se conserva idéntica.
+ *
  * El writer ya publicaba la cifra correcta —`completeValidCandidates`, que
  * `candidate-completeness-contract.ts` llama `target_count` y describe como «lo
  * único que puede compararse con el target»—. Este archivo congela que el
@@ -65,10 +71,29 @@ import { PROVIDER_SEEN_LOAD_EMPTY } from '@/modules/prospect-batches/provider-se
 import type { CountrySourceCompany } from '@/server/prospect-batches/country-source-discovery/country-source-types';
 import type { PrePaidNoveltyGateResult } from '@/server/prospect-batches/country-source-discovery/run-prepaid-novelty-gate';
 import type { IncrementalSearchOutput } from '@/server/agents/prospecting-toolkit/incremental-search-types';
+import { WIZARD_TARGET_USEFUL_COMPANIES } from '@/modules/prospect-batches/wizard-target-authority';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
 const TARGET = WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES;
+
+/**
+ * 🔴 AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 1 — re-anclaje de fixtures.
+ *
+ * Los CASOS B, C, D y el «veredicto del pipeline» fijaban a mano cifras que sólo
+ * describían una corrida posible con el objetivo en 10 («persiste 10 y acepta 7»,
+ * «free 4 + 6 filas de pago», «10 filas con 6 completas»). Con la autoridad única
+ * del objetivo esas cifras se vuelven imposibles: 7 aceptadas ya cierran el
+ * objetivo (no habría ruta de pago que observar) y 6 aceptadas sobre `TARGET`
+ * filas no cabe en la corrida.
+ *
+ * Las propiedades defendidas son las mismas y se conservan intactas: persistir NO
+ * acredita aceptación, las filas de sólo revisión NO cuentan hacia el objetivo, el
+ * aporte pagado se recorta al hueco, y el veredicto del pipeline no gobierna. Sólo
+ * cambia el ANCLA: todo se expresa contra `TARGET`.
+ */
+const ACCEPTED_LEAVING_GAP_3 = TARGET - 3;
+const ACCEPTED_LEAVING_GAP_2 = TARGET - 2;
 
 const USER_ID = '123e4567-e89b-12d3-a456-426614174071';
 const INDUSTRY_ID = '223e4567-e89b-12d3-a456-426614174072';
@@ -129,7 +154,8 @@ type FreeLayer = {
  *
  * La puerta previa al pago acepta `acceptedNovel` empresas por precisión, dedupe
  * y HubSpot; el writer deja `persistedCount` filas. Que se puedan separar es lo
- * que hace representable el CASO B de § 4 —10 filas, 7 aceptadas—, que antes de
+ * que hace representable el CASO B de § 4 —`TARGET` filas, `TARGET − 3`
+ * aceptadas—, que antes de
  * este corte era literalmente inexpresable porque la aceptación se sobrescribía
  * con el recuento de filas.
  */
@@ -376,39 +402,53 @@ describe('CUT-7 § 9 · el wizard cierra el objetivo con lo ACEPTADO', () => {
     });
   });
 
-  it('CASO B — free PERSISTE 10 y ACEPTA 7 ⇒ la ruta de pago CORRE con hueco 3', async () => {
+  it('CASO B — free PERSISTE TARGET filas y ACEPTA TARGET−3 ⇒ la ruta de pago CORRE con hueco 3', async () => {
     await withEnv(async () => {
-      const free = freeLayer({ acceptedNovel: 7, persistedCount: 10 });
+      const free = freeLayer({ acceptedNovel: ACCEPTED_LEAVING_GAP_3, persistedCount: TARGET });
       const wired = wiring({ free: free.deps, paid: { kind: 'returns', rows: 3 } });
       const result = await executeProspectWizardGeneration(REQUEST, wired.deps);
 
-      assert.equal(wired.observed.apolloCalls.length, 1, '🔴 NEGATIVO F — 10 filas NO cierran el objetivo');
+      assert.equal(
+        wired.observed.apolloCalls.length,
+        1,
+        '🔴 NEGATIVO F — TARGET filas persistidas NO cierran el objetivo',
+      );
       assert.equal(wired.observed.apolloCalls[0]!.resultDemand?.remainingTarget, 3);
-      assert.equal(result.ok && result.acceptedForTarget?.acceptedFreeForTarget, 7);
+      assert.equal(
+        result.ok && result.acceptedForTarget?.acceptedFreeForTarget,
+        ACCEPTED_LEAVING_GAP_3,
+      );
       assert.equal(
         result.ok && result.acceptedForTarget?.persistedFreeCandidates,
-        10,
-        '🔴 § 10 — las 10 filas siguen ahí: no se borra nada para cuadrar',
+        TARGET,
+        '🔴 § 10 — las TARGET filas siguen ahí: no se borra nada para cuadrar',
       );
       assert.equal(result.ok && result.acceptedForTarget?.acceptedForTargetTotal, TARGET);
       assert.equal(result.ok && result.status, 'success_target_reached');
     });
   });
 
-  it('CASO C — free 4 + 6 filas de pago con 2 de SÓLO REVISIÓN ⇒ 8 aceptadas, NUNCA 10', async () => {
+  it('CASO C — free TARGET−3 + 3 filas de pago con 2 de SÓLO REVISIÓN ⇒ TARGET−2 aceptadas, NUNCA TARGET', async () => {
     await withEnv(async () => {
-      const free = freeLayer({ acceptedNovel: 4, persistedCount: 4 });
+      // Re-anclado (CORTE 1): el defecto original —«free 4 + 6 filas de pago, 2 de
+      // sólo revisión»— se conserva pieza por pieza. Las filas durables suman
+      // `TARGET` (TARGET−3 gratuitas + 3 pagadas), de las pagadas 2 son de SÓLO
+      // REVISIÓN, y por eso la aceptación se queda en `TARGET − 2`.
+      const free = freeLayer({
+        acceptedNovel: ACCEPTED_LEAVING_GAP_3,
+        persistedCount: ACCEPTED_LEAVING_GAP_3,
+      });
       const wired = wiring({
         free: free.deps,
-        paid: { kind: 'returns', rows: 6, accepted: 4 },
+        paid: { kind: 'returns', rows: 3, accepted: 1 },
       });
       const result = await executeProspectWizardGeneration(REQUEST, wired.deps);
 
-      assert.equal(result.ok && result.candidateCount, TARGET, '§ 10 — 10 filas durables, sí');
+      assert.equal(result.ok && result.candidateCount, TARGET, '§ 10 — TARGET filas durables, sí');
       assert.equal(
         result.ok && result.acceptedForTarget?.acceptedForTargetTotal,
-        8,
-        '🔴 pero sólo 8 cuentan hacia el objetivo',
+        ACCEPTED_LEAVING_GAP_2,
+        '🔴 pero sólo TARGET−2 cuentan hacia el objetivo',
       );
       assert.equal(result.ok && result.targetReached, false);
       assert.equal(
@@ -422,12 +462,23 @@ describe('CUT-7 § 9 · el wizard cierra el objetivo con lo ACEPTADO', () => {
 
   it('CASO D — el proveedor acepta MÁS que el hueco ⇒ se recorta, total exacto', async () => {
     await withEnv(async () => {
-      const free = freeLayer({ acceptedNovel: 4, persistedCount: 4 });
-      // El cupo del writer ya lo acota a 6; aun así el aporte no puede pasar de 6.
-      const wired = wiring({ free: free.deps, paid: { kind: 'returns', rows: 9, accepted: 9 } });
+      const free = freeLayer({
+        acceptedNovel: ACCEPTED_LEAVING_GAP_3,
+        persistedCount: ACCEPTED_LEAVING_GAP_3,
+      });
+      // Re-anclado (CORTE 1): el cupo del writer ya lo acota AL HUECO —antes 6, con
+      // objetivo 10 y 4 gratuitas—; aun así el aporte no puede pasar de él.
+      const wired = wiring({
+        free: free.deps,
+        paid: { kind: 'returns', rows: TARGET + 4, accepted: TARGET + 4 },
+      });
       const result = await executeProspectWizardGeneration(REQUEST, wired.deps);
 
-      assert.ok(result.ok && (result.acceptedForTarget?.acceptedPaidForTarget ?? 0) <= 6);
+      assert.ok(
+        result.ok &&
+          (result.acceptedForTarget?.acceptedPaidForTarget ?? 0) <=
+            TARGET - ACCEPTED_LEAVING_GAP_3,
+      );
       assert.equal(result.ok && result.acceptedForTarget?.acceptedForTargetTotal, TARGET);
       assert.equal(result.ok && result.targetReached, true);
     });
@@ -437,15 +488,20 @@ describe('CUT-7 § 9 · el wizard cierra el objetivo con lo ACEPTADO', () => {
 // ── El pipeline dice «alcanzado» y el wizard NO le cree ──────────────────────
 
 describe('CUT-7 §§ 1, 17 · el veredicto del pipeline ya no gobierna', () => {
-  it('sin capa gratuita, 10 filas con 6 completas ⇒ success_partial', async () => {
+  it('sin capa gratuita, TARGET filas con TARGET−2 completas ⇒ success_partial', async () => {
     await withEnv(async () => {
-      const wired = wiring({ paid: { kind: 'returns', rows: TARGET, accepted: 6 } });
+      // Re-anclado (CORTE 1): «10 filas con 6 completas» ya no cabe en una corrida
+      // —6 completas superarían el objetivo entero—. La propiedad es la misma:
+      // filas = objetivo, completas < objetivo ⇒ parcial.
+      const wired = wiring({
+        paid: { kind: 'returns', rows: TARGET, accepted: ACCEPTED_LEAVING_GAP_2 },
+      });
       const result = await executeProspectWizardGeneration(REQUEST, wired.deps);
 
       assert.equal(result.ok && result.candidateCount, TARGET);
       assert.equal(
         result.ok && result.acceptedForTarget?.acceptedPaidForTarget,
-        6,
+        ACCEPTED_LEAVING_GAP_2,
         '🔴 NEGATIVO H — el consumidor no puede leer las filas como objetivo logrado',
       );
       assert.equal(result.ok && result.targetReached, false);
@@ -453,7 +509,7 @@ describe('CUT-7 §§ 1, 17 · el veredicto del pipeline ya no gobierna', () => {
     });
   });
 
-  it('sin capa gratuita, 10 filas y 10 completas ⇒ success_target_reached', async () => {
+  it('sin capa gratuita, TARGET filas y TARGET completas ⇒ success_target_reached', async () => {
     await withEnv(async () => {
       const wired = wiring({ paid: { kind: 'returns', rows: TARGET, accepted: TARGET } });
       const result = await executeProspectWizardGeneration(REQUEST, wired.deps);
@@ -587,7 +643,7 @@ describe('CUT-7 § 15 · el conteo aceptado no se duplica', () => {
 describe('CUT-7 §§ 0, 12, 13 · invariantes de entrada preservadas', () => {
   it('16.11/16.12 — amplitud 25 y objetivo persistible 10 intactos', () => {
     assert.equal(WIZARD_APOLLO_TARGET_INTERNAL, 25);
-    assert.equal(WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES, 10);
+    assert.equal(WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES, WIZARD_TARGET_USEFUL_COMPANIES);
     assert.equal(WIZARD_APOLLO_MAX_ROUNDS, 4);
   });
 

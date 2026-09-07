@@ -67,9 +67,12 @@ import { LUSHA_PREVIEW_TIMEOUT_MS } from '@/server/prospect-batches/lusha-previe
 // idéntica para Apollo y para Lusha, que corre ANTES de que exista una reserva.
 import { runPrePaidNoveltyDiscovery } from '@/server/prospect-batches/country-source-discovery/run-prepaid-novelty-discovery.server';
 import {
+  createAdoptedLushaBatchResolver,
   createCanonicalLushaBatchResolver,
+  readLushaAdoptedBatchIdentity,
   reserveOrReturnLushaCanonicalBatch,
   type CanonicalLushaBatchResolver,
+  type LushaAdoptedBatchDbClient,
   type LushaCanonicalBatchDbClient,
 } from '@/server/prospect-batches/lusha-canonical-batch';
 import { resolveProviderSeenStore } from '@/server/prospect-batches/provider-seen/provider-seen-store';
@@ -156,8 +159,13 @@ import { buildLushaRunRequestSignature } from '@/server/prospect-batches/lusha-p
 // no puede identificar lo que se gastó.
 import {
   buildWizardRunCorrelation,
+  buildWizardRunId,
   withResolvedIds,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-correlation';
+// CORTE 5A — la MISMA derivación que la pierna usa para acuñar su
+// `clientRequestId`. Importarla aquí es lo que permite VERIFICAR el par
+// (corrida del wizard, identidad de reserva de la pierna) en vez de creérselo.
+import { deriveLushaWaterfallClientRequestId } from '@/modules/prospect-batches/chat-wizard-execution/waterfall-leg-identity';
 // AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 §§ 2/12 — el plan sale de la MISMA
 // puerta que decidió la elegibilidad, así que no puede haber ruta anunciada sin
 // plan ni plan ejecutable sin reserva calculable.
@@ -236,9 +244,63 @@ const GenerateInputSchema = z.object({
   subIndustryId: z.number().int().positive().nullable().optional(),
   sizeBandKey: z.string().trim().max(20).nullable().optional(),
   searchText: z.string().trim().max(120).nullable().optional(),
+  /**
+   * AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 5A — CORRELACIÓN EXPLÍCITA.
+   *
+   * ── 🔴 Qué resuelve ────────────────────────────────────────────────────────
+   *
+   * Ausente ⇒ Lusha STANDALONE: el clic de la persona sobre la superficie Lusha,
+   * con su lote propio y su correlación propia. Todo lo que hay debajo se
+   * comporta EXACTAMENTE como antes de este corte.
+   *
+   * Presente ⇒ Lusha como PIERNA del waterfall de Agente 1. La corrida ya tiene
+   * un lote —el que Apollo reservó— y una identidad de corrida —`wizard_run_id`—,
+   * y las dos se le PASAN en vez de dejar que esta acción acuñe unas nuevas. Sin
+   * esto, un `wizard_run_id` no puede reconstruir las tres piernas: cada una
+   * derivaría la suya de su propio `clientRequestId`.
+   *
+   * ── 🔴 Qué NO viaja aquí, y por qué ────────────────────────────────────────
+   *
+   * NO viaja el `wizard_run_id`. Es un valor DERIVABLE —`buildWizardRunId(actor,
+   * wizardClientRequestId)`— y aceptarlo del cliente permitiría a cualquiera
+   * colgar su gasto de la corrida de otra persona. Se recalcula aquí, servidor
+   * adentro, con el actor YA autenticado.
+   *
+   * NO viaja el `clientRequestId` de la pierna: es el de primer nivel, y se
+   * VERIFICA que sea el derivado del `wizardClientRequestId` que llega aquí. Un
+   * par arbitrario (corrida ajena + identidad de reserva propia) se rechaza.
+   */
+  waterfall: z
+    .object({
+      /** El `clientRequestId` de la corrida del wizard (la pierna Apollo). */
+      wizardClientRequestId: z.string().trim().uuid(),
+      /** `prospect_batches.id` que Apollo ya reservó para esta búsqueda. */
+      canonicalBatchId: z.string().trim().uuid(),
+      /**
+       * Lo que FALTA tras Apollo, no el objetivo entero. Acotado por arriba al
+       * objetivo de esta superficie: una pierna nunca puede pedir más de lo que
+       * el producto promete.
+       */
+      targetGap: z
+        .number()
+        .int()
+        .min(1)
+        .max(LUSHA_PENDING_REVIEW_MIN_USEFUL_CANDIDATES),
+    })
+    .optional(),
 });
 
 export type GenerateLushaPendingReviewBatchInput = z.infer<typeof GenerateInputSchema>;
+
+/**
+ * CORTE 5A — el bloque de correlación del waterfall, ya validado.
+ *
+ * Se nombra aparte porque baja por la ejecución entera: no es un criterio de
+ * búsqueda y no debe poder confundirse con uno.
+ */
+export type WaterfallCorrelationInput = NonNullable<
+  GenerateLushaPendingReviewBatchInput['waterfall']
+>;
 
 /** Client-facing result — never exposes raw provider payloads or secrets. */
 export type GenerateLushaPendingReviewBatchActionResult = PersistLushaPendingReviewResult;
@@ -250,6 +312,16 @@ export type GenerateLushaPendingReviewBatchActionResult = PersistLushaPendingRev
  * resolver puede exigir reconciliación HUMANA (CUT-L4), y prometer un reintento
  * inmediato sería empujar a la usuaria a hacer clic contra una puerta cerrada.
  */
+/**
+ * CORTE 5A — el lote de la corrida no se pudo adoptar (ausente, o de otra
+ * persona). Es un fallo de CORRELACIÓN, no de proveedor: nada se pidió y nada se
+ * reservó. Tiene código propio para que no se confunda con un fallo de Lusha.
+ */
+// 🔴 NO se exporta: este módulo es `'use server'` y ahí todo export en tiempo de
+// ejecución tiene que ser una función asíncrona. Exportar una constante rompe el
+// build (ver el incidente P0 de `invalid use server export`).
+const WATERFALL_BATCH_UNRESOLVED_CODE = 'waterfall_canonical_batch_unresolved';
+
 const LUSHA_OPERATION_BLOCKED_MESSAGE =
   'Esta búsqueda ya tiene una ejecución sin cerrar. No se repitió para no volver a cobrarla.';
 
@@ -335,7 +407,25 @@ async function runGenerateLushaPendingReviewBatch(
   // § 12 — plan y responsabilidad económica salen de la MISMA fuente canónica.
   // Una macro admitida SIEMPRE tiene plan (la capacidad es la que lo garantiza),
   // así que aquí no puede aparecer un `null` que degradase la reserva a 2.
-  const { clientRequestId, ...searchInput } = parsed.data;
+  // 🔴 `waterfall` se extrae FUERA de `searchInput`: es contexto de correlación,
+  // no un criterio de búsqueda, y colarlo en el payload del núcleo lo convertiría
+  // en una entrada del proveedor.
+  const { clientRequestId, waterfall, ...searchInput } = parsed.data;
+
+  // ── 🔴 CORTE 5A — la pierna tiene que PROBAR que es la pierna ──────────────
+  //
+  // El `clientRequestId` de la pierna Lusha se DERIVA del de la corrida del
+  // wizard (`deriveLushaWaterfallClientRequestId`), así que la relación entre los
+  // dos es comprobable sin consultar nada. Exigirla cierra el emparejamiento
+  // arbitrario: nadie puede pedir «corre contra la corrida X con mi identidad de
+  // reserva Y». Fail-closed: un par que no cuadra se rechaza como entrada
+  // inválida, ANTES de la operación, ANTES de la reserva y ANTES del proveedor.
+  if (
+    waterfall !== undefined &&
+    deriveLushaWaterfallClientRequestId(waterfall.wizardClientRequestId) !== clientRequestId
+  ) {
+    return invalidInputResult();
+  }
 
   // ══ AGENT1-LUSHA-CUT-L3 · IDENTIDAD DURABLE — LA PUERTA ECONÓMICA ══════════
   //
@@ -415,6 +505,9 @@ async function runGenerateLushaPendingReviewBatch(
     routingMetadata,
     routingPlan,
     operationId: operation.operationId,
+    // CORTE 5A — `undefined` en standalone. Todo lo que depende de él tiene su
+    // rama «como antes» escrita explícitamente.
+    waterfall: waterfall ?? null,
   });
 
   // ── EL CIERRE, y por qué está AQUÍ y no antes ──────────────────────────────
@@ -488,6 +581,12 @@ async function runLushaPendingReviewUnderOperation(ctx: {
   routingPlan: ReturnType<typeof resolveProviderRoutingPlan>;
   /** Identidad DURABLE de la operación. La valla de petición cuelga de ella. */
   operationId: string;
+  /**
+   * CORTE 5A — contexto de correlación del waterfall, o `null` en standalone.
+   * Ya VERIFICADO arriba: el `clientRequestId` de esta pierna es el derivado del
+   * `wizardClientRequestId` que trae.
+   */
+  waterfall: WaterfallCorrelationInput | null;
 }): Promise<GenerateLushaPendingReviewBatchActionResult> {
   const {
     parsed,
@@ -497,6 +596,7 @@ async function runLushaPendingReviewUnderOperation(ctx: {
     routingMetadata,
     routingPlan,
     operationId,
+    waterfall,
   } = ctx;
 
 
@@ -511,7 +611,16 @@ async function runLushaPendingReviewUnderOperation(ctx: {
   // Fail-open (§ 12): país sin fuente, fuente sin cablear, macro sin cobertura o
   // lectura caída terminan en `residualGap = requestedTarget`, y desde ahí la ruta
   // de pago se comporta EXACTAMENTE como antes de este hito.
-  const requestedTarget = LUSHA_PENDING_REVIEW_MIN_USEFUL_CANDIDATES;
+  // ── 🔴 CORTE 5A — el objetivo de ESTA pierna ──────────────────────────────
+  //
+  // Standalone: el objetivo de la superficie, como siempre. Waterfall: el HUECO
+  // que Apollo dejó, que es lo que la pierna existe para cerrar. Pedir el
+  // objetivo entero cuando Apollo ya consiguió 3 de 5 haría que Lusha aceptase
+  // hasta 5 más y la búsqueda terminase en 8 empresas sobre una promesa de 5.
+  //
+  // El techo lo pone el esquema (`max(LUSHA_PENDING_REVIEW_MIN_USEFUL_CANDIDATES)`),
+  // así que este valor NUNCA puede subir por encima del objetivo del producto.
+  const requestedTarget = waterfall !== null ? waterfall.targetGap : LUSHA_PENDING_REVIEW_MIN_USEFUL_CANDIDATES;
   const countryName =
     LATAM_COUNTRIES.find((c) => c.code === parsed.data.countryCode)?.name ??
     parsed.data.countryCode;
@@ -551,28 +660,68 @@ async function runLushaPendingReviewUnderOperation(ctx: {
   //
   // 🔴 La identidad es la que YA existe, `(created_by, client_request_id)`. No se
   // inventa ninguna: ni `batchExecutionId`, ni `retryGroupId`, ni equivalente.
+  //
+  // ── 🔴 CORTE 5A — y la excepción: el lote YA existe ────────────────────────
+  //
+  // En el waterfall la corrida no empieza aquí. Apollo ya reservó el lote de la
+  // búsqueda, y esta pierna tiene que aterrizar DENTRO de él, no al lado. El
+  // reserve-or-return no puede encontrarlo —adopta por `(created_by,
+  // client_request_id)` y esta pierna tiene identidad de reserva propia a
+  // propósito—, así que se adopta por id, con el dueño comprobado y sin crear
+  // nada. Ver `createAdoptedLushaBatchResolver`.
   const canonicalBatchClient = (await createClient()) as unknown as LushaCanonicalBatchDbClient;
-  const canonicalBatch = createCanonicalLushaBatchResolver(
-    (row) => reserveOrReturnLushaCanonicalBatch(row, canonicalBatchClient),
-    {
-      createdByUserId: internalUserId,
-      clientRequestId,
-      // § 8 — AUTORIDAD DE PETICIÓN. Es el objetivo que el producto le promete a la
-      // persona, y lo establece el PROPIETARIO del lote, no el primer contribuyente
-      // que llegue con un residual.
-      requestedTarget,
-      defaults: {
-        name: `Búsqueda con IA · ${parsed.data.macroIndustryKey ?? '—'} · ${countryName}`,
-        country: countryName,
-        country_code: parsed.data.countryCode,
-        industry: parsed.data.macroIndustryKey,
-        search_depth: 'standard',
-        status: LUSHA_PENDING_REVIEW_BATCH_STATUS,
-        source: LUSHA_PENDING_REVIEW_BATCH_SOURCE,
-        metadata: {},
-      },
-    },
-  );
+  const canonicalBatch: CanonicalLushaBatchResolver = waterfall !== null
+    ? createAdoptedLushaBatchResolver({
+        batchId: waterfall.canonicalBatchId,
+        expectedOwnerUserId: internalUserId,
+        readIdentity: (batchId) =>
+          readLushaAdoptedBatchIdentity(
+            batchId,
+            canonicalBatchClient as unknown as LushaAdoptedBatchDbClient,
+          ),
+      })
+    : createCanonicalLushaBatchResolver(
+        (row) => reserveOrReturnLushaCanonicalBatch(row, canonicalBatchClient),
+        {
+          createdByUserId: internalUserId,
+          clientRequestId,
+          // § 8 — AUTORIDAD DE PETICIÓN. Es el objetivo que el producto le promete
+          // a la persona, y lo establece el PROPIETARIO del lote, no el primer
+          // contribuyente que llegue con un residual.
+          requestedTarget,
+          defaults: {
+            name: `Búsqueda con IA · ${parsed.data.macroIndustryKey ?? '—'} · ${countryName}`,
+            country: countryName,
+            country_code: parsed.data.countryCode,
+            industry: parsed.data.macroIndustryKey,
+            search_depth: 'standard',
+            status: LUSHA_PENDING_REVIEW_BATCH_STATUS,
+            source: LUSHA_PENDING_REVIEW_BATCH_SOURCE,
+            metadata: {},
+          },
+        },
+      );
+
+  // ── 🔴 CORTE 5A — el lote adoptado se comprueba ANTES de gastar ───────────
+  //
+  // El resolutor es perezoso a propósito, y en standalone eso es correcto: un
+  // lote que nadie necesita no debe nacer. Pero cuando el lote YA existe, la
+  // pereza pondría la comprobación de dueño DESPUÉS de la reserva y —peor— después
+  // de que el proveedor pudiera haber cobrado. Un id ajeno o inexistente se
+  // descubriría con el dinero ya gastado y sin sitio donde escribir.
+  //
+  // Así que aquí se fuerza. Cuesta UNA lectura y sitúa el fallo donde todavía no
+  // hay nada que deshacer: cero peticiones al proveedor, cero reservas.
+  if (waterfall !== null) {
+    try {
+      await canonicalBatch.resolve();
+    } catch {
+      return buildLushaPendingReviewFailure(
+        'No se pudo continuar la búsqueda sobre el lote de esta ejecución.',
+        WATERFALL_BATCH_UNRESOLVED_CODE,
+      );
+    }
+  }
 
   const prePaid = await runPrePaidNoveltyDiscovery(await createClient(), {
     countryCode: parsed.data.countryCode,
@@ -699,9 +848,26 @@ async function runLushaPendingReviewUnderOperation(ctx: {
   // describe lo pedido sin PII y sin nombres de empresa; el `idempotencyKey` que
   // gobierna la única fila de uso sale de (user, clientRequestId, reservationId),
   // que es la MISMA identidad sobre la que la RPC reserva.
+  //
+  // 🔴 CORTE 5A — LA CORRELACIÓN DE LA CORRIDA, no la de la pierna.
+  //
+  // En standalone `wizard_run_id` se deriva de `(actor, clientRequestId)` y ésa
+  // es la corrida entera. En el waterfall la corrida la abrió Apollo, así que se
+  // deriva del `clientRequestId` DEL WIZARD —con el MISMO `buildWizardRunId` que
+  // usó `wizard-execution-actions`— y las tres piernas quedan bajo un solo id.
+  //
+  // 🔴 `clientRequestId` NO se toca: sigue siendo el de esta pierna, que es lo
+  // que ata la fila de uso a SU reserva. Un reconciliador de Apollo que se tope
+  // con una fila de Lusha ve `client_request_id` distinto y la RECHAZA por
+  // contradicción, que es exactamente lo que debe hacer: el gasto de Lusha no es
+  // el de Apollo aunque la corrida sea la misma.
   const baseCorrelation = buildWizardRunCorrelation({
     userId: internalUserId,
     clientRequestId,
+    overrideWizardRunId:
+      waterfall !== null
+        ? buildWizardRunId(internalUserId, waterfall.wizardClientRequestId)
+        : null,
     providerKey: 'lusha',
     requestSignature: buildLushaRunRequestSignature({
       countryCode: parsed.data.countryCode,
@@ -733,6 +899,8 @@ async function runLushaPendingReviewUnderOperation(ctx: {
         searchPlan,
         baseCorrelation,
         prePaid,
+        // CORTE 5A — `null` en standalone; sólo la siembra de identidad lo mira.
+        waterfall,
         // 🔴 CUT-9 §§ 3, 4 — el MISMO helper, no una segunda llamada. La ejecución
         // reservada sólo cambia el aporte de PAGO; el objetivo, la demanda y el
         // aporte gratuito ya están capturados dentro.
@@ -863,6 +1031,8 @@ async function runLushaSearchWithReservation(args: {
    * cerrar y los dominios que no hace falta volver a pagar.
    */
   prePaid: Awaited<ReturnType<typeof runPrePaidNoveltyDiscovery>>;
+  /** CORTE 5A — contexto de correlación del waterfall, o `null` en standalone. */
+  waterfall: WaterfallCorrelationInput | null;
   /**
    * AGENT1-LOCAL-CUT9 §§ 3, 4 — el helper ÚNICO de aceptación de la corrida, ya
    * cerrado sobre la demanda y el aporte gratuito.
@@ -899,6 +1069,7 @@ async function runLushaSearchWithReservation(args: {
     searchPlan,
     baseCorrelation,
     prePaid,
+    waterfall,
     resolveRunAcceptance,
     resolveAcceptedForTargetBatchMetadata,
   } = args;
@@ -1176,9 +1347,16 @@ async function runLushaSearchWithReservation(args: {
   // siembra vacía y la admisión ADMITE. Convertir una consulta caída en «esta
   // empresa ya existía» suprimiría candidatos legítimos, que es la dirección
   // equivocada de la degradación.
+  //
+  // 🔴 CORTE 5A — y en el waterfall el lote NO está vacío aunque la capa gratuita
+  // de ESTA pierna no escribiera nada: dentro ya están las empresas de Apollo R1
+  // y R2. Sembrar sólo desde `prePaid.batchId` dejaría a Lusha admitiendo una
+  // empresa que Apollo ya había escrito en el mismo lote. El id canónico es la
+  // semilla correcta, y en standalone sigue siendo exactamente `prePaid.batchId`.
+  const identitySeedBatchId = prePaid.batchId ?? waterfall?.canonicalBatchId ?? null;
   const batchIdentitySeed =
-    prePaid.batchId !== null
-      ? await loadBatchIdentityRegistry(supabase, prePaid.batchId).catch(() => null)
+    identitySeedBatchId !== null
+      ? await loadBatchIdentityRegistry(supabase, identitySeedBatchId).catch(() => null)
       : null;
 
   try {

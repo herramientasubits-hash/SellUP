@@ -459,7 +459,17 @@ test('NEGATIVE_J — el clientRequestId del lote sale de la ejecución, no de un
     'utf-8',
   );
   // Se destructura de la ENTRADA validada de ESTA llamada y se pasa tal cual.
-  assert.match(action, /const \{ clientRequestId, \.\.\.searchInput \} = parsed\.data;/);
+  //
+  // 🔴 REANCLADO en AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 5A, no relajado. El
+  // bloque `waterfall` sale de la MISMA `parsed.data` y se extrae aquí a
+  // propósito, para que NO viaje dentro de `searchInput` hasta el núcleo: es
+  // contexto de correlación, no un criterio de búsqueda. Lo que la afirmación
+  // defiende —que la identidad de ejecución sale de la entrada validada de ESTA
+  // llamada y no de un clic anterior— sigue medido literalmente.
+  assert.match(
+    action,
+    /const \{ clientRequestId, waterfall, \.\.\.searchInput \} = parsed\.data;/,
+  );
   assert.match(action, /clientRequestId,\n\s+\/\/ § 8/);
   // Y no hay ninguna relectura de un clic previo con la que reusar su identidad.
   assert.equal(

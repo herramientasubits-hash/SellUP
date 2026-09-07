@@ -17,6 +17,12 @@ import {
 } from './wizard-apollo-executor';
 // AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 § 25 — el MISMO runner previo al
 // pago que ejecuta la ruta Lusha. Un solo cableado para las dos rutas.
+// AGENT1-APOLLO-LUSHA-WATERFALL § CORTE 4 — la pierna Lusha y su decisión.
+import {
+  runLushaWaterfallLeg,
+  type LushaWaterfallLegInput,
+  type LushaWaterfallLegOutcome,
+} from './wizard-lusha-waterfall.server';
 import {
   runPrePaidNoveltyDiscovery,
   type PrePaidNoveltyDiscoveryOutcome,
@@ -405,6 +411,17 @@ export type WizardExecutionDeps = {
     clientRequestId: string;
   }) => Promise<string | null>;
   markBatchFailed: (batchId: string, reason: 'batchid_mismatch' | 'pipeline_error') => Promise<void>;
+  /**
+   * AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 4 — la pierna Lusha, detrás de su
+   * bandera y APAGADA por defecto.
+   *
+   * Opcional a propósito: sin ella —y con la bandera apagada, que es el estado
+   * de todos los entornos en este hito— la ejecución es la de hoy, byte por
+   * byte, y de este módulo no sale ni una llamada a Lusha.
+   */
+  runLushaWaterfallLeg?: (
+    input: LushaWaterfallLegInput,
+  ) => Promise<LushaWaterfallLegOutcome>;
 };
 
 
@@ -756,6 +773,12 @@ export async function executeProspectWizardGenerationAction(
         },
       );
     },
+    // AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 4 — la pierna Lusha real.
+    //
+    // 🔴 Se cablea SIEMPRE; quien decide es la bandera, dentro. Cablearla sólo
+    // cuando la bandera está encendida habría metido una segunda puerta —el
+    // cableado— en un sitio donde la política ya vive en un único lugar.
+    runLushaWaterfallLeg: (legInput) => runLushaWaterfallLeg(legInput),
   };
 
   return executeProspectWizardGeneration(request, deps);
@@ -1955,7 +1978,37 @@ export async function executeProspectWizardGeneration(
   const targetPersistibleCandidates =
     freeContribution !== null
       ? apolloResultDemand.requestedTarget
-      : (pipelineResult.targetPersistibleCandidates ?? 10);
+      : (pipelineResult.targetPersistibleCandidates ?? WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES);
+
+  /**
+   * AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 4 — Apollo terminó: ¿falta algo?
+   *
+   * Éste es el punto natural de la costura: Apollo ya liquidó sus créditos y su
+   * aceptación ya está resuelta (`acceptedForTarget`, arriba), pero la ejecución
+   * todavía no se ha cerrado. La pierna se pregunta por la MISMA cuenta que
+   * decide si la corrida terminó —`acceptedForTargetTotal` contra
+   * `requestedTarget`—, no por un contador paralelo.
+   *
+   * 🔴 Con la bandera apagada (todos los entornos en este hito) `decide…`
+   * devuelve `waterfall_flag_disabled` ANTES de mirar nada más, así que no se
+   * deriva identidad, no se reserva un crédito y no sale una sola llamada.
+   */
+  const lushaWaterfall: LushaWaterfallLegOutcome = deps.runLushaWaterfallLeg
+    ? await deps.runLushaWaterfallLeg({
+        wizardClientRequestId: req.clientRequestId,
+        // 🔴 CORTE 5A — EL lote de la corrida, el mismo que Apollo R1 y R2 ya
+        // usaron como ancla. La pierna Lusha escribe DENTRO de él en vez de
+        // crearse uno propio, que es lo que cierra el requisito M.
+        canonicalBatchId: reservedBatchId,
+        countryCode: req.countryCode,
+        macroIndustryKey: getMacroIndustryBySlug(catalogResolution.industry.slug)?.key ?? null,
+        subIndustryId: null,
+        target: acceptedForTarget.requestedTarget,
+        usefulAccumulated: acceptedForTarget.acceptedForTargetTotal,
+        // Se llegó hasta aquí: el pipeline devolvió un veredicto.
+        apolloTerminal: true,
+      })
+    : { executed: false, reason: 'waterfall_flag_disabled' };
 
   // 🔴 CUT-7 §§ 1, 9 — el objetivo se decide con la autoridad de ACEPTACIÓN, y
   // con ninguna otra.
@@ -2018,6 +2071,14 @@ export async function executeProspectWizardGeneration(
   return {
     ok: true,
     status: executionStatus,
+    // AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 4 — traza de la pierna, siempre
+    // presente aunque no haya corrido: "no corrió y por qué" es un dato.
+    lushaWaterfallLeg: {
+      executed: lushaWaterfall.executed,
+      skipReason: lushaWaterfall.executed ? null : lushaWaterfall.reason,
+      gap: lushaWaterfall.executed ? lushaWaterfall.gap : null,
+      clientRequestId: lushaWaterfall.executed ? lushaWaterfall.clientRequestId : null,
+    },
     batchId: reservedBatchId,
     // El lote quedó `failed` por el writer (§ 9): el estado que se reporta es el
     // que la base tiene, no una etiqueta optimista.

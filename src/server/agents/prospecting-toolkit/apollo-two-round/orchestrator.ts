@@ -158,8 +158,11 @@ export type CheapRejectionReason =
   | 'duplicate_in_hubspot'
   | 'cooldown_or_prior_suggestion'
   | 'sector_not_mapped'
-  | 'sector_evidence_contradictory'
-  | 'raw_result_cap_reached';
+  | 'sector_evidence_contradictory';
+// AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 2 — RETIRADO 'raw_result_cap_reached'.
+// Era el único motivo de rechazo que no hablaba del candidato sino de su
+// POSICIÓN en la lista devuelta. Se elimina del vocabulario para que volver a
+// descartar por volumen no compile en silencio.
 
 /**
  * Veredicto de los gates baratos sobre un candidato. Lo produce una dependencia
@@ -533,7 +536,11 @@ export type ApolloTwoRoundIndeterminateOperation = {
 export type SecondRoundSkippedReason =
   | 'target_reached'
   | 'max_rounds_is_one'
-  | 'raw_result_cap_reached'
+  // AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 2 — RETIRADO 'raw_result_cap_reached'.
+  // Cancelaba la ronda 2 por el VOLUMEN devuelto por la ronda 1, no por
+  // suficiencia: con `per_page = 100` contra un tope de 20 se disparaba siempre,
+  // incluso con 0 empresas útiles. Fuera del vocabulario, reintroducir esa
+  // parada no compila.
   /**
    * MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § C — la corrida ya escribió sus
    * candidatos. Un reintento posterior no abre una ronda nueva: recupera lo
@@ -1043,11 +1050,6 @@ function tallyRejection(
     case 'external_platform_domain':
     case 'ownership_mismatch':
       metrics.ownershipRejected++;
-      break;
-    case 'raw_result_cap_reached':
-      // Un tope alcanzado no es un rechazo de calidad del candidato: no se
-      // contabiliza como duplicado ni como falso positivo, porque inflaría
-      // ambas tasas con un límite nuestro.
       break;
   }
 }
@@ -1627,10 +1629,21 @@ export async function runApolloTwoRoundDiscovery(
       secondRoundSkippedReason = 'target_reached';
       break;
     }
-    if (roundNumber > 1 && totalRawResults >= config.maxRawResultsPerRun) {
-      secondRoundSkippedReason = 'raw_result_cap_reached';
-      break;
-    }
+    // AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 2 — ELIMINADA la parada por
+    // resultados crudos acumulados.
+    //
+    // Decía: «si la ronda 1 ya trajo `maxRawResultsPerRun` resultados, no hagas
+    // la ronda 2». Con `per_page = 100` y un tope de 20, UNA sola página de la
+    // ronda 1 lo superaba SIEMPRE, así que la ronda 2 quedaba cancelada por el
+    // VOLUMEN de lo que Apollo devolvió y no por la SUFICIENCIA de lo útil: con
+    // 3 empresas útiles de 5, la corrida se paraba igual.
+    //
+    // La única parada legítima de la ronda 2 es la de arriba —el objetivo ya
+    // está cubierto por la cuenta ESTABLE— más las garantías que ya existían
+    // (net-new agotado, fingerprint indisponible, petición idéntica, cobertura
+    // de subindustrias, presupuesto). Ninguna de ellas depende de cuántos
+    // resultados crudos llegaron.
+
 
     /**
      * CUT-2 §§ 6, 7 — cuántos resultados pide ESTA ronda.
@@ -1657,20 +1670,45 @@ export async function runApolloTwoRoundDiscovery(
      * decidieron que esta ronda debe ejecutarse (hueco > 0), y un `per_page: 0`
      * sería una petición pagada que no puede devolver nada.
      */
-    const requestedResultLimit =
-      remainingTargetApplied === null
-        ? // 🔴 Sin capa previa NADA cambia, byte por byte. La cota es de la demanda
-          // residual: donde no hay demanda que descontar, no hay cota que aplicar, y
-          // esta rama tiene que seguir siendo indistinguible de la de antes del
-          // corte. Es la misma disciplina que el resto de la cadena.
-          config.maxResultsPerRound
-        : Math.max(
-            1,
-            boundByRemainingTarget(
-              config.maxResultsPerRound,
-              roundNumber === 1 ? targetEligibleCompanies : await projectedTargetGap(),
-            ),
-          );
+    /**
+     * AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 3 — la demanda es SIEMPRE el hueco.
+     *
+     * Antes había dos ramas y sólo UNA descontaba lo ya conseguido:
+     *
+     *   · con capa gratuita (`remainingTargetApplied !== null`) → hueco real;
+     *   · SIN capa gratuita (`null`) → `config.maxResultsPerRound` fijo, en las
+     *     DOS rondas.
+     *
+     * Esa segunda rama es la que hacía que la ronda 2 se comportara como si
+     * empezara de cero: con objetivo 5 y 3 útiles en la ronda 1, la ronda 2
+     * volvía a apuntar al volumen entero de ronda en vez de a las 2 que
+     * faltaban. La rama "sin capa previa" no es un caso distinto del producto —
+     * es el caso en que la capa gratuita aportó CERO, y cero también se
+     * descuenta.
+     *
+     * El hueco es el de AHORA: `projectedTargetGap()` descuenta lo que la ronda
+     * 1 aportó, medido sobre la MISMA población que puede terminar como
+     * candidato (la cuenta ESTABLE, fail-closed), no sobre un contador
+     * histórico de net-new.
+     *
+     * 🔴 Esto NO es `per_page`. El body que sale lleva siempre
+     * `APOLLO_CONTRACT_MAX_PER_PAGE` (100) — ver
+     * `apollo-organizations-effective-request.ts`. Este número gobierna el
+     * objetivo de aceptación net-new de la paginación y la redacción de la
+     * consulta; jamás el tamaño de página ni cuántas páginas se autorizan.
+     *
+     * 🔴 El suelo es 1 y no 0: llegar aquí significa que las paradas de arriba ya
+     * decidieron que esta ronda debe ejecutarse (hueco > 0), y un `per_page: 0`
+     * sería una petición pagada que no puede devolver nada. El techo sigue
+     * siendo `config.maxResultsPerRound`: `boundByRemainingTarget` sólo recorta,
+     * nunca amplía.
+     */
+    const roundDemand =
+      roundNumber === 1 ? targetEligibleCompanies : await projectedTargetGap();
+    const requestedResultLimit = Math.max(
+      1,
+      boundByRemainingTarget(config.maxResultsPerRound, roundDemand),
+    );
 
     let hypothesis: ApolloTwoRoundQueryHypothesis;
     let effectiveBuild: RoundEffectiveRequestBuild;
@@ -2122,12 +2160,21 @@ export async function runApolloTwoRoundDiscovery(
     let localIdentities = identitiesInThisResponse;
 
     for (const organization of organizations) {
-      // Tope de resultados crudos de la corrida. Se cuenta lo que efectivamente
-      // se procesa, no lo que el proveedor devolvió de más.
-      if (totalRawResults >= config.maxRawResultsPerRun) {
-        tallyRejection(metrics, 'raw_result_cap_reached');
-        continue;
-      }
+      // AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 2 — ELIMINADO el tope de
+      // evaluación.
+      //
+      // Aquí vivía `if (totalRawResults >= config.maxRawResultsPerRun) continue;`
+      // — con `per_page = 100` y un tope de 20, las organizaciones 21 a 100 de
+      // una página YA PAGADA no se deduplicaban, no se filtraban y no llegaban a
+      // competir por el objetivo. Se descartaban por su POSICIÓN en la lista.
+      //
+      // El gasto no lo gobierna este contador: lo gobiernan las páginas que se
+      // compran (`WIZARD_APOLLO_MAX_PAGES_HARD_CAP`, la paginación net-new) y el
+      // presupuesto de enrichment. Evaluar localmente lo que ya se pagó no compra
+      // nada; NO evaluarlo sí tira dinero ya gastado.
+      //
+      // `totalRawResults` sobrevive como CONTADOR observacional —cuántos crudos
+      // procesó la corrida— y deja de ser una autoridad de admisión.
       totalRawResults++;
 
       // 1. Dedup dentro de la respuesta.

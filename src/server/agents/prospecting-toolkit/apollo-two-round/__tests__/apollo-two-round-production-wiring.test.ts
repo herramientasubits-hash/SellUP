@@ -661,9 +661,26 @@ describe('§ 10 · presupuesto y ejecución comparten límites', () => {
     });
     await runApolloTwoRoundWizardDiscovery(runInput({ reservedCredits: reserved }), deps);
 
-    // Cada ronda pidió exactamente `maxResultsPerRound` (default: 10), no el
-    // cap legacy.
-    assert.deepEqual(recorder.requestedLimits, [10, 10]);
+    // 🔴 REANCLADO por AGENT1-APOLLO-LUSHA-WATERFALL · CORTES 1 y 3. Antes
+    // `[10, 10]`: la ronda 1 pedía el techo de volumen y la ronda 2 lo repetía
+    // sin descontar lo conseguido. Ahora la ronda 1 apunta al objetivo (5) y la
+    // ronda 2 al hueco (5 − 2 útiles = 3). El techo `maxResultsPerRound` (10)
+    // sigue siendo el mismo y sigue sin superarse — que es lo que este caso
+    // protege junto con la reserva de 12 créditos, ya afirmada arriba.
+    // La ronda 1 apunta al OBJETIVO (5), no al techo de volumen (10). La ronda
+    // 2 apunta al hueco vigente, que aquí sigue siendo 5 porque en la ruta de
+    // producción una empresa sólo cuenta cuando es ESTABLE (fail-closed) y las
+    // dos de la ronda 1 aún no lo son antes del writer. La aritmética del hueco
+    // se prueba de forma determinista en
+    // `waterfall-cut3-gap-alignment.test.ts`; lo que este caso protege es que
+    // ninguna ronda salga del techo de la configuración de dos rondas.
+    assert.equal(recorder.requestedLimits[0], 5, 'la ronda 1 pide el objetivo, no el techo');
+    for (const limit of recorder.requestedLimits) {
+      assert.ok(
+        limit <= defaultApolloTwoRoundConfig().maxResultsPerRound,
+        `una ronda pidió ${limit}, por encima del techo de la modalidad`,
+      );
+    }
   });
 
   test('caso 8 — una configuración legacy alta NO amplía la modalidad de dos rondas', async () => {
@@ -684,7 +701,21 @@ describe('§ 10 · presupuesto y ejecución comparten límites', () => {
     await runApolloTwoRoundWizardDiscovery(runInput(), deps);
 
     assert.equal(recorder.searchCalls, 2, 'tres rondas legacy no habilitan una tercera ronda');
-    assert.deepEqual(recorder.requestedLimits, [10, 10]);
+    // 🔴 REANCLADO por AGENT1-APOLLO-LUSHA-WATERFALL · CORTES 1 y 3: ronda 1 =
+    // objetivo (5), ronda 2 = hueco (5 − 1 útil = 4).
+    //
+    // 🔴 Que la ronda 1 pida 5 y `AGENT1_APOLLO_MAX_RESULTS_PER_QUERY` valga 5
+    // es una COINCIDENCIA numérica, no una influencia: lo que demuestra que la
+    // configuración legacy no gobierna esta modalidad son las afirmaciones
+    // reales de este caso —dos rondas y no tres, y una reserva de 12 y no de
+    // 15 (arriba)— más el techo de la modalidad, que se sigue respetando.
+    assert.equal(recorder.requestedLimits.length, 2);
+    for (const limit of recorder.requestedLimits) {
+      assert.ok(
+        limit <= defaultApolloTwoRoundConfig().maxResultsPerRound,
+        `una ronda pidió ${limit}, por encima del techo de la modalidad`,
+      );
+    }
   });
 
   test('§ 2 — el gasto registrado por encima de la reserva levanta anomalía y detiene el gasto', async () => {
@@ -707,7 +738,7 @@ describe('§ 10 · presupuesto y ejecución comparten límites', () => {
     assert.equal(recorder.enrichCalls, 0);
   });
 
-  test('el techo absoluto de organizaciones evaluadas es diez', async () => {
+  test('la evaluación alcanza a TODAS las organizaciones que la corrida pagó', async () => {
     const many = (start: number, count: number) =>
       Array.from({ length: count }, (_, i) =>
         apolloResult({
@@ -722,10 +753,15 @@ describe('§ 10 · presupuesto y ejecución comparten límites', () => {
     let evaluated = 0;
     const { deps } = buildDeps({
       rounds: [searchOutput(many(1, 8), 8), searchOutput(many(9, 8), 8)],
-      // AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING — el techo de este caso es el
-      // `maxRawResultsPerRun` de `testConfig()` (10), fijado explícitamente:
-      // el default de la plataforma subió a 20 junto con el objetivo (10) para
-      // no truncar la demanda residual del wizard.
+      // 🔴 REANCLADO por AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 2. Antes este
+      // caso fijaba `evaluated <= 10` con `maxRawResultsPerRun` (10) como
+      // techo de EVALUACIÓN: de las 16 organizaciones que las dos rondas
+      // devolvieron, seis no se miraban siquiera.
+      //
+      // El tope crudo dejó de ser autoridad de admisión, así que lo que se
+      // fija ahora es lo contrario: nada de lo ya pagado se queda sin evaluar.
+      // El gasto lo siguen gobernando las páginas y el enrichment, que este
+      // caso no toca.
       config: testConfig(),
     });
     const wrapped: Partial<ApolloTwoRoundProductionDeps> = {
@@ -737,7 +773,11 @@ describe('§ 10 · presupuesto y ejecución comparten límites', () => {
     };
 
     await runApolloTwoRoundWizardDiscovery(runInput(), wrapped);
-    assert.ok(evaluated <= 10, `se evaluaron ${evaluated} organizaciones; el techo es 10`);
+    assert.equal(
+      evaluated,
+      16,
+      `se evaluaron ${evaluated} de las 16 organizaciones devueltas por las dos rondas`,
+    );
   });
 });
 

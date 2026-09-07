@@ -304,6 +304,24 @@ export type WizardExecutionActionResult =
        */
       acceptedForTarget?: AcceptedForTargetResult;
       /**
+       * AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 4 — qué pasó con la pierna Lusha.
+       *
+       * OBSERVACIONAL y opcional. Ausente en toda corrida previa al hito y en
+       * toda corrida con la bandera apagada, que es su estado por defecto. La UI
+       * no lo consume: existe para que una corrida pueda contar, después, por
+       * qué NO continuó con Lusha —o con qué identidad lo hizo— sin tener que
+       * inferirlo de los efectos.
+       */
+      lushaWaterfallLeg?: {
+        executed: boolean;
+        /** Vocabulario cerrado de `LushaWaterfallSkipReason`, o `leg_failed`. */
+        skipReason: string | null;
+        /** Hueco con el que corrió la pierna. `null` cuando no corrió. */
+        gap: number | null;
+        /** Identidad DERIVADA de la pierna. `null` cuando no corrió. */
+        clientRequestId: string | null;
+      };
+      /**
        * A1-APOLLO-QA-CONTROL-SURFACE-1 § 10 — proveedor REAL de esta corrida.
        *
        * Presente en cuanto la selección por corrida se resolvió. La UI debe

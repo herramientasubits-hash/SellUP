@@ -23,6 +23,7 @@ import {
 import type { WizardApolloInput } from '../wizard-apollo-executor';
 import type { ResolvedWizardExecution } from '../wizard-execution-types';
 import type { IncrementalSearchInput, IncrementalSearchOutput } from '@/server/agents/prospecting-toolkit/incremental-search-types';
+import { WIZARD_TARGET_USEFUL_COMPANIES } from '@/modules/prospect-batches/wizard-target-authority';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -188,7 +189,7 @@ describe('A7: maxRounds and targetPersistibleCandidates are fixed', () => {
     const { runner, getCapture } = makeFakeRunner();
     await runWizardApolloSearch(makeInput(), runner);
     assert.equal(getCapture()!.targetPersistibleCandidates, WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES);
-    assert.equal(WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES, 10);
+    assert.equal(WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES, WIZARD_TARGET_USEFUL_COMPANIES);
   });
 });
 

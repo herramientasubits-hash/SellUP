@@ -61,6 +61,24 @@ export type WizardRunCorrelationInput = {
   providerKey: string;
   /** Stable description of what was requested (country, industry, caps…). */
   requestSignature: string;
+  /**
+   * AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 5A — la corrida a la que esta pierna
+   * PERTENECE, cuando no es la suya propia.
+   *
+   * Normalmente el id se DERIVA de `(userId, clientRequestId)` y no hay nada que
+   * elegir: una pulsación de "Generar" es una corrida. El waterfall rompe esa
+   * equivalencia a propósito — la pierna Lusha tiene un `clientRequestId` propio
+   * porque es la clave de idempotencia de SU reserva de créditos — y sin esta
+   * puerta cada pierna acuñaría un `wizard_run_id` distinto: tres piernas de una
+   * sola búsqueda quedarían como tres corridas inconexas, que es justo lo que el
+   * requisito M prohíbe.
+   *
+   * 🔴 NO se acepta del cliente. Quien lo pasa lo DERIVA con `buildWizardRunId`
+   * a partir del actor autenticado y del `clientRequestId` del wizard, así que
+   * sigue siendo el mismo valor que Apollo escribió y nadie puede reclamar la
+   * corrida de otro. Ausente ⇒ comportamiento anterior, byte por byte.
+   */
+  overrideWizardRunId?: string | null;
 };
 
 export type WizardRunCorrelation = {
@@ -126,7 +144,12 @@ export function buildWizardReconciliationIdempotencyKey(
 export function buildWizardRunCorrelation(
   input: WizardRunCorrelationInput,
 ): WizardRunCorrelation {
-  const wizardRunId = buildWizardRunId(input.userId, input.clientRequestId);
+  const wizardRunId =
+    input.overrideWizardRunId !== undefined &&
+    input.overrideWizardRunId !== null &&
+    input.overrideWizardRunId !== ''
+      ? input.overrideWizardRunId
+      : buildWizardRunId(input.userId, input.clientRequestId);
   const reservationId = input.reservationId ?? null;
 
   return {

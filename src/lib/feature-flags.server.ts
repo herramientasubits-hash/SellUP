@@ -822,3 +822,50 @@ export const HUBSPOT_CONTACT_AUTO_PHONE_UPDATE_FLAG =
 export function isHubSpotContactAutoPhoneUpdateEnabled(): boolean {
   return isEnvFlagEnabled(process.env[HUBSPOT_CONTACT_AUTO_PHONE_UPDATE_FLAG]);
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// Agente 1 · WATERFALL Apollo → Lusha (AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 4)
+// ════════════════════════════════════════════════════════════════════════════
+
+export const AGENT1_APOLLO_LUSHA_WATERFALL_FLAG = 'ENABLE_AGENT1_APOLLO_LUSHA_WATERFALL';
+
+/**
+ * ¿Puede una ejecución del wizard continuar AUTOMÁTICAMENTE con Lusha cuando
+ * Apollo terminó por debajo del objetivo de empresas útiles?
+ *
+ * ── 🔴 Qué automatiza y qué NO autoriza ──────────────────────────────────────
+ *
+ * Automatiza el MOMENTO: hoy la pierna Lusha existe pero sólo la dispara una
+ * persona haciendo clic; con esta bandera encendida la dispara el hueco. No
+ * autoriza a Lusha ni relaja ninguna otra puerta:
+ *
+ *   · `ENABLE_LUSHA_PREVIEW` sigue siendo el interruptor de Lusha. Con esa
+ *     bandera apagada la pierna no corre aunque ésta esté encendida;
+ *   · el presupuesto sigue siendo el de Lusha, con su propia reserva sobre
+ *     `wizard_monthly_budget_periods`. Esta bandera no crea presupuesto, no
+ *     crea reglas por agente y no toca la reserva de Apollo;
+ *   · si Apollo ya cubrió el objetivo, la pierna no corre y no consume nada.
+ *
+ * ── 🔴 Fail-closed y por defecto APAGADA ─────────────────────────────────────
+ *
+ * Sólo el token exacto `true` la enciende (parser canónico). Ausente, vacía o
+ * con cualquier otro token (`1`, `yes`, `on`) el waterfall NO existe: Apollo se
+ * comporta exactamente como hoy y CERO llamadas a Lusha salen del wizard.
+ *
+ * En este hito la variable no está definida en ningún entorno, así que el valor
+ * efectivo es `false` en todas partes, Producción incluida.
+ */
+export function isAgent1ApolloLushaWaterfallEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[AGENT1_APOLLO_LUSHA_WATERFALL_FLAG]);
+}
+
+/**
+ * ¿Existe la variable en este runtime? PRESENCIA, nunca el valor.
+ *
+ * "Configurada" y "resuelta como activa" son preguntas distintas: en Vercel los
+ * flags son `type: sensitive`, así que desde fuera sólo se puede probar que la
+ * variable existe, no qué dice.
+ */
+export function isAgent1ApolloLushaWaterfallFlagConfigured(): boolean {
+  return isEnvFlagConfigured(process.env[AGENT1_APOLLO_LUSHA_WATERFALL_FLAG]);
+}

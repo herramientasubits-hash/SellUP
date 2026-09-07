@@ -29,19 +29,23 @@ import {
   APOLLO_PRICING_VERSION,
   APOLLO_PRICING_VERSION_V1_PER_RESULT,
 } from '../../apollo-operation-pricing';
+import { WIZARD_TARGET_USEFUL_COMPANIES } from '@/modules/prospect-batches/wizard-target-authority';
 
 // ─── § 2: configuración ───────────────────────────────────────────────────────
 
 describe('§ 2 · configuración central', () => {
-  test('los defaults son los del contrato AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING: 10 / 2 / 10 / 20 / 2', () => {
-    // targetEligibleCompanies y maxResultsPerRound suben a su propio tope
-    // absoluto (10) para que la demanda residual del wizard (hasta
-    // WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES=10) no se trunque por un
-    // default de QA. maxRawResultsPerRun sube en consecuencia (2 rondas × 10 =
-    // 20), vía la MISMA invariante `Math.max(default, alcanzable)` de siempre.
-    // maxEnrichmentsPerRun NO cambia: sigue siendo la autoridad de presupuesto.
+  test('los defaults derivan del objetivo único: 5 / 2 / 10 / 20 / 2', () => {
+    // AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 1 — `targetEligibleCompanies` baja
+    // de 10 a la autoridad única (5) y deja de ser un literal local.
+    //
+    // Los otros cuatro NO se mueven, y la distinción importa:
+    // · maxResultsPerRound (10) y maxRawResultsPerRun (20) son AMPLITUD, no
+    //   objetivo — cuántos resultados ya pagados se pueden traer y evaluar.
+    //   Bajarlos con el objetivo sería convertir el umbral de suficiencia en un
+    //   límite de resultados, que es exactamente lo prohibido.
+    // · maxEnrichmentsPerRun (2) sigue siendo la autoridad de presupuesto real.
     assert.deepEqual(defaultApolloTwoRoundConfig(), {
-      targetEligibleCompanies: 10,
+      targetEligibleCompanies: WIZARD_TARGET_USEFUL_COMPANIES,
       maxRounds: 2,
       maxResultsPerRound: 10,
       maxRawResultsPerRun: 20,
@@ -127,7 +131,10 @@ describe('§ 2 · configuración central', () => {
       resolveApolloTwoRoundConfig({ maxRounds: '9' }),
     );
 
-    assert.equal(diagnostics.apollo_target_eligible_companies_resolved, 10);
+    assert.equal(
+      diagnostics.apollo_target_eligible_companies_resolved,
+      WIZARD_TARGET_USEFUL_COMPANIES,
+    );
     assert.equal(diagnostics.apollo_max_search_rounds_resolved, 2);
     assert.equal(diagnostics.apollo_max_results_per_round_resolved, 10);
     assert.equal(diagnostics.apollo_max_raw_results_per_run_resolved, 20);

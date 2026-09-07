@@ -103,7 +103,17 @@ function config10(maxEnrichmentsPerRun: number) {
 
 describe('AGENT1-APOLLO-FINAL-SAFETY-CLOSURE § B1 · objetivo 10 fulfillable cuando el presupuesto alcanza', () => {
   test('D4 — target=10, free=0, 10 candidatos net-new TODOS necesitan enrichment, presupuesto de enrichment = 10 ⇒ acceptedForTarget = 10', async () => {
-    const { deps, enrichCalls } = harnessAllAmbiguous([orgs('a', 6), orgs('b', 6)]);
+    // 🔴 FIXTURE REANCLADA por AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 2: 6+6
+    // ⇒ 5+5. El caso dice "10 candidatos y presupuesto 10, luego nadie se salta
+    // por tope", pero entregaba DOCE organizaciones. La afirmación se cumplía
+    // sólo porque `maxRawResultsPerRun` (10) tiraba las dos últimas antes de
+    // evaluarlas: el enunciado decía 10 y el escenario real eran 12 con dos
+    // invisibles.
+    //
+    // Sin ese truncamiento las doce compiten, y con presupuesto 10 dos se
+    // saltan legítimamente por tope. Entregar exactamente 10 hace que el caso
+    // pruebe lo que su nombre promete en vez de heredar el recorte.
+    const { deps, enrichCalls } = harnessAllAmbiguous([orgs('a', 5), orgs('b', 5)]);
 
     // 🔴 maxEnrichmentsPerRun=10 se inyecta DIRECTO al orquestador — nunca pasa
     // por `resolveApolloTwoRoundConfig`/`parseApolloTwoRoundInt`, así que el

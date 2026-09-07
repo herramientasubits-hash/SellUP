@@ -19,6 +19,7 @@ import {
 import type { WizardTavilyInput } from '../wizard-tavily-executor';
 import type { ResolvedWizardExecution } from '../wizard-execution-types';
 import type { IncrementalSearchInput, IncrementalSearchOutput } from '@/server/agents/prospecting-toolkit/incremental-search-types';
+import { WIZARD_TARGET_USEFUL_COMPANIES } from '@/modules/prospect-batches/wizard-target-authority';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -297,7 +298,7 @@ describe('E11: targetPersistibleCandidates is fixed to WIZARD_TARGET_PERSISTIBLE
     const captured = getCapture();
     assert.ok(captured, 'runner must have been called');
     assert.equal(captured!.targetPersistibleCandidates, WIZARD_TARGET_PERSISTIBLE_CANDIDATES);
-    assert.equal(WIZARD_TARGET_PERSISTIBLE_CANDIDATES, 10);
+    assert.equal(WIZARD_TARGET_PERSISTIBLE_CANDIDATES, WIZARD_TARGET_USEFUL_COMPANIES);
   });
 });
 
