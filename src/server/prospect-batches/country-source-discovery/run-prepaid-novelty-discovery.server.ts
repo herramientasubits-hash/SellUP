@@ -142,6 +142,18 @@ export type PrePaidNoveltyDiscoveryInput = {
    * su propia superficie y NO forma parte de este corte (§ 9).
    */
   resolveBatchId?: () => Promise<string>;
+  /**
+   * AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 5C — la capa gratuita ya corrió BIEN en
+   * una pierna anterior de ESTA corrida.
+   *
+   * Se REENVÍA al núcleo tal cual; este runner no lo interpreta, no lo deriva y
+   * no lo combina con nada. El único efecto observable aquí es indirecto: el
+   * núcleo devuelve `acceptedCompanies` vacío, así que `deps.persist` no llega a
+   * llamarse.
+   *
+   * Ausente/`false` ⇒ comportamiento de hoy, byte por byte, en las DOS rutas.
+   */
+  freeSourceAlreadyRun?: boolean;
 };
 
 export type PrePaidNoveltyDiscoveryOutcome = {
@@ -286,6 +298,8 @@ export async function runPrePaidNoveltyDiscovery(
     countryCode: input.countryCode,
     macroIndustryKey: input.macroIndustryKey,
     requestedTarget: input.requestedTarget,
+    // CORTE 5C — se reenvía tal cual. El núcleo decide; este runner no.
+    freeSourceAlreadyRun: input.freeSourceAlreadyRun,
   });
 
   // Todo-o-nada: la ruta no puede reducir su objetivo y la fuente no lo cerró

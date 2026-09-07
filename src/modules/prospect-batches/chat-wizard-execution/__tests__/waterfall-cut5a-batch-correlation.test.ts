@@ -451,6 +451,10 @@ describe('CORTE 5A — fail-closed sin lote canónico', () => {
         target: TARGET,
         usefulAccumulated: 0,
         apolloTerminal: true,
+        // CORTE 5C — el par que NO salta la capa gratuita: este caso es de lote
+        // ausente y no debe depender del veredicto de la capa previa.
+        freeSourceAttempted: false,
+        freeSourceFailed: true,
       },
       {
         waterfallEnabled: () => true,
@@ -481,6 +485,9 @@ describe('CORTE 5A — la correlación viaja EXPLÍCITA hasta la acción', () =>
         target: TARGET,
         usefulAccumulated: 2,
         apolloTerminal: true,
+        // CORTE 5C — la capa gratuita de Apollo corrió y corrió BIEN.
+        freeSourceAttempted: true,
+        freeSourceFailed: false,
       },
       {
         waterfallEnabled: () => true,
@@ -493,12 +500,15 @@ describe('CORTE 5A — la correlación viaja EXPLÍCITA hasta la acción', () =>
     );
 
     assert.equal(calls.length, 1);
-    // 🔴 Igualdad ESTRICTA: es lo que impide que un campo del bloque de
-    // correlación se caiga por el camino sin que nadie lo note.
+    // 🔴 REANCLADO por CORTE 5C, no relajado: el bloque de correlación creció con
+    // el veredicto de la capa gratuita anterior, y esta igualdad ESTRICTA es lo
+    // que impide que un campo se caiga por el camino sin que nadie lo note.
     assert.deepEqual(calls[0]?.waterfall, {
       wizardClientRequestId: WIZARD_CLIENT_REQUEST_ID,
       canonicalBatchId: CANONICAL_BATCH_ID,
       targetGap: 3,
+      freeSourceAttempted: true,
+      freeSourceFailed: false,
     });
     // 🔴 Y la identidad de reserva sigue siendo la DERIVADA, no la del wizard.
     assert.equal(
@@ -528,6 +538,10 @@ describe('CORTE 5A — la correlación viaja EXPLÍCITA hasta la acción', () =>
       target: TARGET,
       usefulAccumulated: 2,
       apolloTerminal: true,
+      // CORTE 5C — el veredicto de la capa gratuita también tiene que ser estable
+      // entre reintentos del MISMO waterfall.
+      freeSourceAttempted: true,
+      freeSourceFailed: false,
     };
 
     await runLushaWaterfallLeg(input, deps);

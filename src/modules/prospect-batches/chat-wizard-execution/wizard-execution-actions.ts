@@ -2007,6 +2007,19 @@ export async function executeProspectWizardGeneration(
         usefulAccumulated: acceptedForTarget.acceptedForTargetTotal,
         // Se llegó hasta aquí: el pipeline devolvió un veredicto.
         apolloTerminal: true,
+        // ── 🔴 CORTE 5C — qué le pasó a la capa gratuita de ESTA corrida ──────
+        //
+        // Se leen los DOS campos que `PrePaidFreeSourceOutcome` ya publica, sin
+        // combinarlos y sin tocar `persistedCount`: una capa que corrió entera y
+        // aceptó cero empresas es `attempted:true, failed:false`, y repetirla en
+        // la pierna Lusha no puede devolver nada distinto.
+        //
+        // 🔴 `prePaidNovelty === null` significa que la capa no estaba cableada o
+        // que lanzó y su `.catch` la degradó. En los dos casos la pierna tiene que
+        // conservar su propia capa gratuita, así que se declara el par que NO
+        // salta nada: `attempted:false, failed:true`.
+        freeSourceAttempted: prePaidNovelty?.freeSource.attempted ?? false,
+        freeSourceFailed: prePaidNovelty?.freeSource.failed ?? true,
       })
     : { executed: false, reason: 'waterfall_flag_disabled' };
 

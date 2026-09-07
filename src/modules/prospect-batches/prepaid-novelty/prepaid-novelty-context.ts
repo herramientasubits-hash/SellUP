@@ -50,7 +50,25 @@ export type PrePaidFreeSourceFailureCode =
   /** La lectura de la fuente lanzó, expiró o devolvió un error controlado. */
   | 'source_unavailable'
   /** La macro industria pedida no resuelve contra el catálogo canónico. */
-  | 'macro_industry_unresolved';
+  | 'macro_industry_unresolved'
+  /**
+   * AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 5C — la capa gratuita YA corrió, y
+   * corrió BIEN, en una pierna anterior de ESTA MISMA corrida.
+   *
+   * 🔴 No es un fallo, igual que `country_without_source` no lo es: este union
+   * nombra POR QUÉ la fuente no aportó, no si algo se rompió. La pierna Lusha del
+   * waterfall llega detrás de Apollo, que ya leyó el snapshot del país con el
+   * MISMO país y la MISMA macro; repetirlo no puede devolver una empresa que
+   * Apollo no viera —el orden de lectura es estable y el objetivo de la pierna es
+   * MENOR—, y el dedupe previo al pago no ve las filas que esta misma corrida
+   * acaba de escribir, así que la segunda pasada re-ofrece la cabeza de la lista
+   * y el writer la descarta entera.
+   *
+   * Lo que sí se conserva con este código es la mitad que NO es redundante: la
+   * memoria `provider_seen` y el plan de exclusión son POR PROVEEDOR, y los de
+   * Apollo no sirven para Lusha. Ver `runPrePaidNoveltyGate`.
+   */
+  | 'free_source_already_run_in_run';
 
 /**
  * Lo que la fuente gratuita rindió, ya pasada por precisión canónica, dedupe de

@@ -120,6 +120,25 @@ export type PrePaidNoveltyGateInput = {
    * Que el compilador lo exija es una guarda más fuerte que una prueba estática.
    */
   provider: ProviderSeenProvider;
+  /**
+   * AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 5C — ¿la capa gratuita YA corrió, y
+   * corrió BIEN, en una pierna anterior de ESTA corrida?
+   *
+   * `true` ⇒ se salta el DESCUBRIMIENTO gratuito (adapter, precisión macro,
+   * dedupe SellUp+HubSpot y persistencia) y se resuelve SÓLO el plan del
+   * proveedor. `false`/ausente ⇒ la cadena de capacidad de siempre, byte por
+   * byte.
+   *
+   * 🔴 El valor NO se decide aquí ni se adivina: lo transporta el llamador desde
+   * `PrePaidFreeSourceOutcome.attempted && !failed` de la pierna anterior. Un
+   * `persistedCount = 0` es un ÉXITO de la capa gratuita, no un fallo, así que
+   * derivarlo del conteo de filas sería exactamente el error que este corte
+   * existe para no cometer.
+   *
+   * 🔴 Opcional y con defecto `false`: la ruta Apollo y la ruta Lusha standalone
+   * no lo pasan, y para ellas nada cambia.
+   */
+  freeSourceAlreadyRun?: boolean;
 };
 
 export type PrePaidNoveltyGateResult = {
@@ -353,6 +372,29 @@ export async function runPrePaidNoveltyGate(
       },
     };
   };
+
+  // ── 🔴 CORTE 5C — la capa gratuita YA corrió BIEN en esta corrida ───────────
+  //
+  // Va la PRIMERA de la cadena, por encima incluso de la capacidad de país, y el
+  // orden es deliberado: el hecho que decide aquí no es del país ni de la macro,
+  // es de la CORRIDA. Preguntar antes por la capacidad no cambiaría el resultado
+  // y sí dejaría dos sitios desde los que se llega al mismo camino.
+  //
+  // 🔴 Se sale por `finish(providerOnly…)`, que es EXACTAMENTE el mismo camino que
+  // usa `country_without_source`. Eso importa: `finish` sigue cargando la memoria
+  // `provider_seen` del proveedor, leyendo los dominios conocidos y planificando
+  // las exclusiones. Lo único que se salta es el DESCUBRIMIENTO —adapter,
+  // precisión macro, dedupe SellUp+HubSpot— y, con `acceptedCompanies` vacío, la
+  // persistencia, que el runner ni intenta.
+  //
+  // 🔴 Lo que NO se hace: decidir el skip aquí dentro. Este núcleo no sabe qué
+  // pierna corrió antes ni cómo le fue; recibe el hecho ya resuelto.
+  if (input.freeSourceAlreadyRun === true) {
+    return finish(
+      providerOnlyPrePaidNoveltyContext({ ...base, failureCode: 'free_source_already_run_in_run' }),
+      [],
+    );
+  }
 
   const capability = resolveCountrySourceCapability(input.countryCode);
   if (capability === null) {

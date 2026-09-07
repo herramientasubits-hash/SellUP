@@ -86,6 +86,23 @@ export type LushaWaterfallLegInput = {
   readonly target: number;
   readonly usefulAccumulated: number;
   readonly apolloTerminal: boolean;
+  /**
+   * CORTE 5C — el veredicto de la capa gratuita de la pierna ANTERIOR, copiado
+   * de `PrePaidFreeSourceOutcome.attempted` / `.failed`.
+   *
+   * 🔴 Llegan como DOS booleanos y no como un estado ya combinado: quien decide
+   * qué significa la combinación es la acción de Lusha, que es donde vive la
+   * capa gratuita que se puede saltar. Combinarlo aquí pondría la política en el
+   * cableado y dejaría de poder auditarse desde el consumidor.
+   *
+   * 🔴 Y no son `persistedCount`: `attempted && !failed` con 0 empresas
+   * persistidas es un ÉXITO de la capa gratuita.
+   *
+   * Sin capa gratuita cableada, o con una que lanzó, el llamador manda
+   * `attempted:false, failed:true`, que NO salta nada.
+   */
+  readonly freeSourceAttempted: boolean;
+  readonly freeSourceFailed: boolean;
 };
 
 export type LushaWaterfallLegOutcome =
@@ -154,6 +171,11 @@ export async function runLushaWaterfallLeg(
         wizardClientRequestId: input.wizardClientRequestId,
         canonicalBatchId: decision.canonicalBatchId,
         targetGap: decision.gap,
+        // 🔴 CORTE 5C — se COPIAN, no se derivan. Vienen del `freeSource` de la
+        // pierna anterior y salen de aquí tal cual: esta función no los combina,
+        // no los invierte y no los reconstruye desde ningún conteo de filas.
+        freeSourceAttempted: input.freeSourceAttempted,
+        freeSourceFailed: input.freeSourceFailed,
       },
     });
     return { executed: true, gap: decision.gap, clientRequestId, result };
