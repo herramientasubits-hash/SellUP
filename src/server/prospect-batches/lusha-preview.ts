@@ -51,6 +51,10 @@ import {
 // de un sector legacy (`12/71` es farmacéuticas bajo Manufacturing, y ningún
 // sector legacy la contiene). Módulo puro: sin env, sin red, sin DB.
 import { isLushaSubIndustryOfMain } from '@/server/prospect-batches/lusha-industry-metadata';
+import {
+  ICP_SIZE_GATE_DEFAULT_THRESHOLD,
+  classifyKnownEmployeeCount,
+} from '@/server/agents/prospecting-toolkit/icp-size-gate';
 // AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 §§ 2/7 — la autoridad de industria de la
 // ruta MODERNA. `resolveLushaSectorOption` (arriba) queda sólo para el panel de
 // preview legacy, que ningún sitio del producto monta. Módulo puro.
@@ -438,10 +442,61 @@ function industryMatches(industry: string | null | undefined, keywords: string[]
   });
 }
 
+/**
+ * ¿El tamaño de esta empresa queda FUERA de lo aceptable?
+ *
+ * 🔴 A1-LUSHA-WATERFALL-SIZE-GATE § CUT-5B — hasta este corte la pregunta era
+ * sólo «¿cae fuera de la banda que se le pidió al proveedor?», y en la pierna
+ * del waterfall eso no preguntaba nada: `runLushaWaterfallLeg` no manda
+ * `sizeBandKey`, así que `criteria.sizeBand` llega `null` y la primera línea
+ * devolvía `false` para TODAS las empresas. Una de 50 empleados salía con 100/100
+ * y sin un solo `employees_out_of_range`, y acto seguido la admisión la
+ * rechazaba por debajo del ICP. La etiqueta y el veredicto decían cosas
+ * distintas sobre la misma empresa.
+ *
+ * Ahora hay DOS motivos para estar fuera, y el orden importa:
+ *
+ *   1. El suelo ICP —`ICP_SIZE_GATE_DEFAULT_THRESHOLD`, el mismo 200 inclusivo
+ *      que aplica la admisión— rige SIEMPRE, haya banda o no. Es el que faltaba.
+ *   2. La banda pedida, si la hay, sigue rigiendo tal cual: pedir `1001-5000` y
+ *      no marcar una de 300 sería relajar lo que se pidió.
+ *
+ * 🔴 Esto NO es una segunda autoridad de admisión: `passesGate` no filtra nada
+ * —ningún llamador lo lee para descartar— y el −15 no cambia ningún desenlace
+ * (100−15 = 85, y el mínimo es 70). Lo único que cambia es que la etiqueta deja
+ * de callar cuando la autoridad va a rechazar. Es un ENDURECIMIENTO estricto del
+ * conjunto marcado: todo lo que se marcaba antes se sigue marcando.
+ */
 function employeesOutOfBand(
   company: LushaCompanyProspectingV3Company,
   band: { min?: number; max?: number } | null,
 ): boolean {
+  // ── 1. Suelo ICP — AÑADIDO por CUT-5B. Incondicional: no depende de que se
+  //       pidiera banda, porque la definición de negocio tampoco depende de eso.
+  //
+  // Lee el conteo por `classifyKnownEmployeeCount`, la MISMA clasificación que
+  // usa la admisión. Sólo marca con conteo CONOCIDO: desconocido nunca es «menor
+  // que el umbral», y marcarlo aquí sería afirmar un tamaño que nadie reportó.
+  const knownExact = classifyKnownEmployeeCount(company.employeeCountExact);
+  if (knownExact !== null && knownExact < ICP_SIZE_GATE_DEFAULT_THRESHOLD) return true;
+  // Con sólo rango: un techo declarado por debajo del suelo no deja sitio a
+  // ninguna empresa admisible. `max === 200` NO entra aquí — el umbral es
+  // inclusivo y ese rango todavía puede contener una empresa que califica.
+  const knownMax = classifyKnownEmployeeCount(company.employeeCountMax);
+  if (knownExact === null && knownMax !== null && knownMax < ICP_SIZE_GATE_DEFAULT_THRESHOLD) {
+    return true;
+  }
+
+  // ── 2. Banda pedida al proveedor — VERBATIM de antes de CUT-5B ──────────────
+  //
+  // 🔴 Deliberadamente sin tocar, y no por pereza: este bloque se probó
+  // exhaustivamente contra su versión previa (8.640 combinaciones de
+  // exacto × min × max × banda) y reescribirlo con el clasificador canónico
+  // RELAJABA 240 de ellas. El caso concreto: un `employeeCountMax` NEGATIVO.
+  // Como dato es basura, pero la lectura antigua lo comparaba como número y
+  // acababa marcando la empresa; la canónica lo declara desconocido y dejaba de
+  // marcarla. Perder una marca es relajar un filtro, y CUT-5B no relaja nada.
+  // El suelo ICP de arriba es puro añadido: el conjunto marcado sólo crece.
   if (!band || (typeof band.min !== 'number' && typeof band.max !== 'number')) return false;
   const exact = typeof company.employeeCountExact === 'number' ? company.employeeCountExact : null;
   if (exact !== null) {

@@ -4627,3 +4627,27 @@ jobs:
       # Producción, 0 migraciones, 0 flags.
       - name: Run Agent1 Lusha waterfall local size gate (CUT-5A)
         run: npm run test:a1-lusha-waterfall-size-gate-5a
+
+      # A1-LUSHA-WATERFALL-SIZE-GATE § CUT-5B — UNA sola autoridad decide el
+      # tamaño, y la ficha no puede contradecirla.
+      #
+      # CUT-5A ya rechazaba 199 y 50. Lo que quedaba partido era la frontera
+      # entre «hay cifra» y «no hay cifra»: el normalizador compartido colapsaba
+      # el `0` a `null` (la ADMISIÓN lo mandaba a revisión humana) mientras la
+      # ficha lo leía en crudo y decía `block` — y decía `block` también para
+      # `NaN` y para los negativos, inventando un tamaño que nadie reportó.
+      #
+      # Ahora la clasificación conocido/desconocido vive en UN sitio,
+      # `classifyKnownEmployeeCount`, junto al umbral de CUT-5A:
+      #   0 / enteros positivos  → CONOCIDO  (0 < 200 ⇒ rechazo duro)
+      #   null / NaN / negativos → DESCONOCIDO (reviewable, jamás rechazo)
+      #
+      # Apollo NO cambia: el normalizador conserva su lectura histórica del `0`
+      # por defecto y sólo la pierna Lusha pide la canónica. El § F de la suite
+      # lo comprueba explícitamente.
+      #
+      # NO toca Apollo, NO toca el waterfall Apollo→Lusha, NO toca presupuesto,
+      # NO toca UI, NO toca flags. 0 llamadas a Lusha/Apollo/Tavily/HubSpot,
+      # 0 créditos, 0 escrituras en Producción, 0 migraciones.
+      - name: Run Agent1 Lusha ICP size authority (CUT-5B)
+        run: npm run test:a1-lusha-icp-size-authority-5b
