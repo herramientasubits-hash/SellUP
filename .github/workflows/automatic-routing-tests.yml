@@ -4593,8 +4593,19 @@ jobs:
       # MISMA empresa y el MISMO lote sobrevive intacto; y —en negativo— que la
       # semántica del dedupe no se movió ni un contador.
       #
-      # Arrastra las tres suites de trazabilidad de descartes de Lusha (#398),
-      # que hasta ahora ningún step ejecutaba.
+      # 🔴 El cliente de la escritura se INYECTA en vez de mockear el módulo.
+      # `mock.module('@supabase/supabase-js', { namedExports })` funciona en
+      # Node 20 pero NO en Node 24 —`namedExports` está deprecado y el mock no se
+      # aplica—, así que el cliente real salía a la red y la prueba caía con
+      # `fetch failed`. Un invariante de escritura no puede depender de una API
+      # experimental que cambia entre versiones del runner.
+      #
+      # Por esa MISMA causa quedan fuera de este step dos suites de #398
+      # —`lusha-pipeline-writer.test.ts` y
+      # `lusha-e2e-run-traceability-reconciliation.test.ts`—: ningún script las
+      # nombraba, y en Node 24 fallan enteras por el mock deprecado. Se reportan
+      # como hallazgo aparte; arreglarlas no es de este corte, y este corte no
+      # mete en el check requerido una suite que sabe roja.
       #
       # 0 llamadas a proveedor, 0 créditos, 0 escrituras reales, 0 migraciones.
       - name: Run Agent 1 HARDENING CUT-4 known-domain-seed disposition tests

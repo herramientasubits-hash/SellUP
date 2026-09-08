@@ -14,19 +14,24 @@
  *   · una fila que Apollo ya escribió para esa empresa en el MISMO lote
  *     SOBREVIVE con su disposición y su motivo originales.
  *
- * Sin red, sin base real, sin proveedor, 0 créditos.
+ * 🔴 El cliente se INYECTA. La vía anterior —`mock.module('@supabase/supabase-js')`—
+ * dejó de funcionar en Node 24: `options.namedExports` está deprecado, el mock
+ * no se aplica y el cliente REAL sale a la red (`fetch failed`, DNS). Un
+ * invariante de escritura no puede depender de una API experimental que cambia
+ * entre versiones del runner.
  *
- * Run: node --import tsx --experimental-test-module-mocks --test <this file>
+ * Sin red, sin base real, sin proveedor, 0 créditos.
  */
 
-import { describe, it, mock, before, beforeEach } from 'node:test';
+import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { computeDiscardDispositionSourceKey } from '../mapping';
-import type { LushaDiscardRecordLike } from '../lusha-pipeline-writer.server';
-
-process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://fake.supabase.local';
-process.env.SUPABASE_SERVICE_ROLE_KEY = 'fake-service-role-key';
+import {
+  persistLushaRejectedDispositions,
+  type LushaDiscardRecordLike,
+  type LushaDiscardWriterClientFactory,
+} from '../lusha-pipeline-writer.server';
 
 /**
  * 🔴 FIDELIDAD DEL ARNÉS — el doble se comporta como Postgres, no como un
@@ -41,39 +46,36 @@ function keyOf(row: StoredRow): string {
   return `${String(row.batch_id)}::${String(row.source_key)}`;
 }
 
-mock.module('@supabase/supabase-js', {
-  namedExports: {
-    createClient: () => ({
-      from: () => ({
-        upsert: (payload: StoredRow[], options?: { ignoreDuplicates?: boolean }) => {
-          const inserted: StoredRow[] = [];
-          for (const row of payload) {
-            const key = keyOf(row);
-            if (table.has(key)) {
-              // ON CONFLICT DO NOTHING: la fila existente NO se toca y no vuelve
-              // en `.select()`.
-              if (options?.ignoreDuplicates !== true) table.set(key, row);
-              continue;
-            }
-            table.set(key, row);
-            inserted.push(row);
-          }
-          return {
-            select: () =>
-              Promise.resolve({
-                data: inserted.map((_row, i) => ({ id: `row-${i}` })),
-                error: null,
-              }),
-          };
-        },
-      }),
-    }),
-  },
-});
-
-let persistLushaRejectedDispositions: typeof import('../lusha-pipeline-writer.server').persistLushaRejectedDispositions;
-before(async () => {
-  ({ persistLushaRejectedDispositions } = await import('../lusha-pipeline-writer.server'));
+/**
+ * 🔴 FIDELIDAD DEL ARNÉS — el doble se comporta como Postgres, no como un
+ * buzón. Un doble que aceptara todo dejaría pasar exactamente el defecto que
+ * este archivo vigila: una segunda escritura sobrescribiendo el veredicto de
+ * la pierna anterior.
+ */
+const clientFactory: LushaDiscardWriterClientFactory = () => ({
+  from: () => ({
+    upsert: (payload: StoredRow[], options: { ignoreDuplicates: boolean }) => {
+      const inserted: StoredRow[] = [];
+      for (const row of payload) {
+        const key = keyOf(row);
+        if (table.has(key)) {
+          // ON CONFLICT DO NOTHING: la fila existente NO se toca y no vuelve
+          // en `.select()`.
+          if (options.ignoreDuplicates !== true) table.set(key, row);
+          continue;
+        }
+        table.set(key, row);
+        inserted.push(row);
+      }
+      return {
+        select: () =>
+          Promise.resolve({
+            data: inserted.map((_row, i) => ({ id: `row-${i}` })),
+            error: null,
+          }),
+      };
+    },
+  }),
 });
 
 beforeEach(() => {
@@ -108,6 +110,7 @@ function persist(records: readonly LushaDiscardRecordLike[]) {
     requestedCountryCode: 'CO',
     requestedIndustry: 'Salud',
     records,
+    clientFactory,
   });
 }
 
