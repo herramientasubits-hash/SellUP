@@ -166,6 +166,7 @@ import {
 // `clientRequestId`. Importarla aquí es lo que permite VERIFICAR el par
 // (corrida del wizard, identidad de reserva de la pierna) en vez de creérselo.
 import { deriveLushaWaterfallClientRequestId } from '@/modules/prospect-batches/chat-wizard-execution/waterfall-leg-identity';
+import { persistLushaRejectedDispositions } from '@/modules/prospect-discards/lusha-pipeline-writer.server';
 // AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 §§ 2/12 — el plan sale de la MISMA
 // puerta que decidió la elegibilidad, así que no puede haber ruta anunciada sin
 // plan ni plan ejecutable sin reserva calculable.
@@ -1649,6 +1650,60 @@ async function runLushaSearchWithReservation(args: {
     // § 12 — la observabilidad va DESPUÉS de una liquidación ya terminal, para
     // poder registrar el importe REALMENTE liquidado y no una estimación.
     await recordRunUsageObservably(result, settlement);
+
+    // ── 🔴 AGENT1-LUSHA-DISCARD-TRACEABILITY-1 — trazabilidad DURABLE ────────
+    //
+    // Una fila por empresa que esta pierna evaluó y descartó, para poder
+    // reconstruir qué pasó con cada resultado de Lusha SIN volver a
+    // preguntarle — es decir, sin volver a pagar.
+    //
+    // 🔴 BEST-EFFORT, y esa palabra es el contrato entero: el escritor no
+    // lanza nunca, y aun así va dentro de un `try`. Un fallo de trazabilidad
+    // NO puede convertir una corrida de Lusha que ya cobró y ya dejó
+    // candidatos durables en una corrida fallida. `candidatesCreated`, el
+    // estado de ejecución, los créditos y `targetReached` valen exactamente lo
+    // mismo con el escritor en verde que con el escritor caído.
+    //
+    // 🔴 El lote NUNCA se crea aquí. En el waterfall lo abrió Apollo y en
+    // standalone lo materializó la propia corrida; sin ninguno de los dos no
+    // hay dónde colgar la fila y no se escribe nada.
+    const discardBatchId = result.batchId ?? waterfall?.canonicalBatchId ?? null;
+    const discardRecords = result.discardedCompanies ?? [];
+    if (discardBatchId !== null && discardRecords.length > 0) {
+      try {
+        const discardWrite = await persistLushaRejectedDispositions({
+          batchId: discardBatchId,
+          requestedCountryCode: searchInput.countryCode,
+          requestedIndustry: searchInput.macroIndustryKey,
+          records: discardRecords,
+        });
+        if (
+          discardWrite.failed > 0 ||
+          discardWrite.conflicts > 0 ||
+          discardWrite.persistedIndeterminate
+        ) {
+          // Sólo conteos e ids internos: sin PII, sin payload, sin clave. Las
+          // colisiones se REPORTAN en vez de resolverse: una fila que ya
+          // existía la escribió antes la pierna Apollo del MISMO lote, y su
+          // veredicto no se toca.
+          console.warn('[lusha-discard-dispositions]', {
+            batch_id: discardBatchId,
+            wizard_run_id: reservedCorrelation.wizardRunId,
+            attempted: discardWrite.attempted,
+            persisted: discardWrite.persisted,
+            conflicts: discardWrite.conflicts,
+            failed: discardWrite.failed,
+            persisted_indeterminate: discardWrite.persistedIndeterminate,
+          });
+        }
+      } catch (discardErr: unknown) {
+        console.warn('[lusha-discard-dispositions] write threw (non-critical)', {
+          batch_id: discardBatchId,
+          message:
+            discardErr instanceof Error ? discardErr.message.slice(0, 200) : 'unknown',
+        });
+      }
+    }
 
     // Safe server-side log — no secrets, no raw payload, no PII.
     console.warn('[lusha-pending-review]', {

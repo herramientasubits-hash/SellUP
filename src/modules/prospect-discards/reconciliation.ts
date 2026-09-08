@@ -55,3 +55,115 @@ export function reconcileDiscardedDispositionsAgainstBreakdown(
     gap: Math.max(gap, 0),
   };
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AGENT1-LUSHA-DISCARD-TRACEABILITY-1 — reconciliación de la pierna LUSHA
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Pregunta distinta a la de arriba. Apollo publica un `breakdown` agregado y la
+// reconciliación compara «lo que el desglose contó» contra «lo que se
+// persistió». Lusha no tiene ese desglose: publica CONTADORES por familia. Lo
+// que hay que poder afirmar es que esos contadores CIERRAN contra las filas
+// crudas del proveedor, sin residuo:
+//
+//   raw = unusable + intraRunDuplicates + hardExcluded + activeGuard
+//       + exactDuplicates + knownSuppressed + precisionRejected
+//       + targetOverflow + batchIdentityRejected + accepted
+//
+// 🔴 Y que de esos diez sumandos, sólo SEIS son disposiciones durables. Los
+// otros cuatro son estados transitorios y convertirlos en fila sería inventar
+// un descarte:
+//
+//   · `unusable`             — fila sin nombre: nada que mostrar ni auditar.
+//   · `intraRunDuplicates`   — el proveedor repitió una fila suya.
+//   · `batchIdentityRejected`— la empresa ya ocupa el lote por otra vía.
+//   · `accepted`             — existe en `prospect_candidates`.
+//
+// `possible_duplicate` no aparece como sumando porque NO es una familia
+// aparte: es un subconjunto de `accepted` —ya es un candidato `needs_review`—
+// y por eso tampoco es disposición.
+//
+// Pura: sin IO, sin reloj. El llamador trae los conteos ya leídos.
+
+/** Los diez desenlaces de una corrida de Lusha, tal como la corrida los cuenta. */
+export interface LushaRunDiscardCounters {
+  /** Filas crudas que el proveedor devolvió en TODA la corrida. */
+  raw: number;
+  unusable: number;
+  intraRunDuplicates: number;
+  hardExcluded: number;
+  activeGuard: number;
+  exactDuplicates: number;
+  knownSuppressed: number;
+  precisionRejected: number;
+  targetOverflow: number;
+  batchIdentityRejected: number;
+  accepted: number;
+}
+
+export interface LushaRunDispositionReconciliationResult {
+  /** Suma de los diez desenlaces. Debe igualar `raw`. */
+  accountedFor: number;
+  /** `raw - accountedFor`. 0 = la corrida cierra sin residuo. */
+  residual: number;
+  balanced: boolean;
+  /** Los seis sumandos que SÍ generan fila durable. */
+  expectedDurableDispositions: number;
+  /** Los cuatro que NO la generan, más `accepted`. */
+  transientOutcomes: number;
+  /** Filas durables que el escritor realmente dejó (persistidas + colisiones). */
+  observedDurableDispositions: number | null;
+  /**
+   * `expectedDurableDispositions - observedDurableDispositions`, acotado a 0.
+   * `null` cuando no se observó nada (nadie midió), que NO es «cero hueco».
+   */
+  durableGap: number | null;
+  durableReconciled: boolean | null;
+}
+
+/**
+ * Cuadra una corrida de Lusha contra sus disposiciones durables.
+ *
+ * `observedDurableDispositions` ausente ⇒ la parte durable queda SIN MEDIR
+ * (`null`), nunca reconciliada por defecto.
+ */
+export function reconcileLushaRunAgainstDispositions(
+  counters: LushaRunDiscardCounters,
+  observedDurableDispositions?: number | null,
+): LushaRunDispositionReconciliationResult {
+  const expectedDurableDispositions =
+    counters.hardExcluded +
+    counters.activeGuard +
+    counters.exactDuplicates +
+    counters.knownSuppressed +
+    counters.precisionRejected +
+    counters.targetOverflow;
+
+  const transientOutcomes =
+    counters.unusable +
+    counters.intraRunDuplicates +
+    counters.batchIdentityRejected +
+    counters.accepted;
+
+  const accountedFor = expectedDurableDispositions + transientOutcomes;
+  const residual = counters.raw - accountedFor;
+
+  const observed =
+    typeof observedDurableDispositions === 'number' &&
+    Number.isFinite(observedDurableDispositions)
+      ? observedDurableDispositions
+      : null;
+
+  return {
+    accountedFor,
+    residual,
+    balanced: residual === 0,
+    expectedDurableDispositions,
+    transientOutcomes,
+    observedDurableDispositions: observed,
+    // La persistencia sólo puede quedarse CORTA (fallo transitorio de la base);
+    // la clave de idempotencia impide que se pase.
+    durableGap: observed === null ? null : Math.max(0, expectedDurableDispositions - observed),
+    durableReconciled: observed === null ? null : observed >= expectedDurableDispositions,
+  };
+}
