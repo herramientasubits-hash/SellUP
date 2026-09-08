@@ -218,6 +218,7 @@ import {
 import {
   evaluateIcpSizeGate,
   ICP_SIZE_GATE_DEFAULT_THRESHOLD,
+  classifyKnownEmployeeCount,
   type IcpSizeGateResult,
 } from '@/server/agents/prospecting-toolkit/icp-size-gate';
 
@@ -1137,11 +1138,17 @@ function buildLushaDiscardRecord(input: {
 export { normalizeLushaCompanyName };
 
 function employeesLabel(company: LushaPreviewCompany): string | null {
-  if (typeof company.employeesExact === 'number') return String(company.employeesExact);
-  if (company.employeesMin !== null || company.employeesMax !== null) {
-    return `${company.employeesMin ?? '?'}-${company.employeesMax ?? '?'}`;
-  }
-  return null;
+  const known = classifyKnownEmployeeCount(company.employeesExact);
+  if (known !== null) return String(known);
+  return employeesRangeLabel(company);
+}
+
+/** Sólo el rango declarado. Nunca el conteo exacto — ver `buildLushaIcpSizeGate`. */
+function employeesRangeLabel(company: LushaPreviewCompany): string | null {
+  const min = classifyKnownEmployeeCount(company.employeesMin);
+  const max = classifyKnownEmployeeCount(company.employeesMax);
+  if (min === null && max === null) return null;
+  return `${min ?? '?'}-${max ?? '?'}`;
 }
 
 /**
@@ -1167,9 +1174,27 @@ function employeesLabel(company: LushaPreviewCompany): string | null {
  * este repo evita en todas partes.
  */
 export function buildLushaIcpSizeGate(company: LushaPreviewCompany): IcpSizeGateResult {
+  // 🔴 § CUT-5B — el conteo entra por `classifyKnownEmployeeCount`, la MISMA
+  // clasificación que usa el normalizador del que bebe la admisión. Antes de
+  // este corte la ficha leía `employeesExact` en crudo y las dos discrepaban en
+  // las tres puntas donde el valor no es un conteo limpio:
+  //
+  //   · `NaN`      — `NaN >= 200` es `false`, así que la ficha decía `block`.
+  //                  Eso es inventar un veredicto de tamaño a partir de un valor
+  //                  que no es un tamaño.
+  //   · negativos  — mismo camino, mismo invento.
+  //   · `0`        — la ficha decía `block` y la admisión, que lo recibía ya
+  //                  colapsado a `null`, decía «desconocido». Ahora las dos leen
+  //                  cero-conocido y las dos bloquean.
+  //
+  // La ficha no decide: describe la MISMA decisión. Que no puedan discrepar es
+  // el punto, y una prueba de mutación lo vigila.
+  const knownCount = classifyKnownEmployeeCount(company.employeesExact);
   return evaluateIcpSizeGate({
-    employeeCount: typeof company.employeesExact === 'number' ? company.employeesExact : null,
-    sizeRange: employeesLabel(company),
+    employeeCount: knownCount,
+    // Sin conteo utilizable la etiqueta de rango tampoco puede afirmar nada: un
+    // `NaN` rendido como texto sería un rango inventado.
+    sizeRange: knownCount === null ? employeesRangeLabel(company) : employeesLabel(company),
     source: LUSHA_PENDING_REVIEW_PROVIDER,
   });
 }
@@ -2133,7 +2158,14 @@ export async function resolveLushaCandidatesDuplicateState(
 
   for (const company of companies) {
     const discovered = lushaPreviewCompanyToProviderDiscoveredCompany(company, criteria);
-    const normalized = normalizeProviderDiscoveredCompany(discovered, criteria);
+    // 🔴 A1-LUSHA-WATERFALL-SIZE-GATE § CUT-5B — la pierna Lusha lee el `0` como
+    // el conteo que es. Sin esta opción el normalizador compartido lo colapsa a
+    // `null`, el gate lo trata como tamaño DESCONOCIDO y una empresa que el
+    // proveedor declaró de cero empleados sale a revisión humana en vez de caer
+    // por debajo del suelo ICP. Apollo y Tavily no la pasan y no cambian.
+    const normalized = normalizeProviderDiscoveredCompany(discovered, criteria, {
+      treatZeroEmployeeCountAsKnown: true,
+    });
     const gateResult = evaluateProspectIntakeGate(normalized, criteria);
 
     for (const reason of [...gateResult.hardReasons, ...gateResult.warnings]) {

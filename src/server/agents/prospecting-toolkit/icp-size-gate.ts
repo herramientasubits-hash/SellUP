@@ -58,6 +58,38 @@ export const ICP_SIZE_GATE_DEFAULT_THRESHOLD = 200;
 
 const DEFAULT_THRESHOLD = ICP_SIZE_GATE_DEFAULT_THRESHOLD;
 
+/**
+ * ¿El proveedor entregó un CONTEO, o no entregó nada?
+ *
+ * 🔴 A1-LUSHA-WATERFALL-SIZE-GATE § CUT-5B — vive aquí, junto al umbral, porque
+ * «cuánto mide esta empresa» es UNA pregunta y no puede tener dos lectores que
+ * la contesten distinto. CUT-5A trajo el umbral a este módulo por la misma razón;
+ * la clasificación conocido/desconocido es la otra mitad de esa misma semántica.
+ *
+ * ── Las tres familias, y por qué la frontera está donde está ─────────────────
+ *
+ * · `0` es CONOCIDO. Es la única cifra que la intuición quiere leer como «no hay
+ *   dato», y es justamente donde eso sale caro: 0 < 200, así que leerlo como
+ *   desconocido convierte un rechazo por tamaño en una revisión humana. Si el
+ *   proveedor afirma cero, afirma un tamaño, y ese tamaño no cumple el ICP.
+ *
+ * · Los enteros positivos son CONOCIDOS. Los fraccionarios se truncan: `200.7`
+ *   empleados no es una medida más fina, es ruido de serialización.
+ *
+ * · `null`, `undefined`, `NaN`, `±Infinity`, los NEGATIVOS y cualquier no-número
+ *   son DESCONOCIDOS. Un negativo no es «una empresa más pequeña que cero»: es un
+ *   valor inválido, y tratarlo como conteo sería inventar un tamaño que nadie
+ *   reportó. Desconocido nunca es «menor que el umbral» — esa regla ya la fija
+ *   `evaluateIcpSizeGate` y ésta no la contradice, la alimenta.
+ *
+ * Pura. No compara contra ningún umbral: sólo dice si hay cifra que comparar.
+ */
+export function classifyKnownEmployeeCount(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  const truncated = Math.trunc(value);
+  return truncated >= 0 ? truncated : null;
+}
+
 // ─── Parser de rangos ────────────────────────────────────────────────────────
 
 type ParsedRange = {
