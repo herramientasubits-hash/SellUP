@@ -33,6 +33,12 @@
  *   - Never persists raw provider payloads or secrets.
  */
 
+import {
+  resolveLushaDiscardDisposition,
+  classifyLushaExactDuplicateSource,
+  type LushaDiscardEvent,
+} from '@/modules/prospect-discards/lusha-mapping';
+import type { DiscardDispositionCode } from '@/modules/prospect-discards/types';
 import { PROSPECTOS_TAB_ROUTE } from '@/config/navigation';
 // AGENT1-CUT3B23 §§ 5/6/8 — el MISMO constructor de evidencia de identidad y el
 // MISMO registro de lote que usan las otras dos rutas de escritura de Agente 1.
@@ -922,6 +928,21 @@ export interface PersistLushaPendingReviewResult {
    * prueba). Nunca se sustituye por filas.
    */
   acceptedForTarget?: AcceptedForTargetResult;
+  /**
+   * AGENT1-LUSHA-DISCARD-TRACEABILITY-1 — las empresas que esta corrida evaluó
+   * y que NO acabaron como candidato visible del lote, con su disposición
+   * durable ya resuelta.
+   *
+   * 🔴 Existe TAMBIÉN cuando `status === 'empty'`, y eso es el punto: una
+   * corrida puede evaluar cincuenta empresas, rechazarlas todas y crear cero
+   * candidatos. Hoy esa corrida no dejaba rastro por empresa, y reconstruirla
+   * exigía volver a preguntar a Lusha — es decir, volver a pagar.
+   *
+   * 🔴 Es OBSERVACIÓN, no decisión: ningún contador de la corrida depende de
+   * este arreglo. Ausente ⇒ llamador legado o doble de prueba; nunca se
+   * sustituye por filas.
+   */
+  discardedCompanies?: readonly LushaDiscardedCompanyRecord[];
 }
 
 /** Baseline metrics used by non-success (error/empty) results. */
@@ -1041,6 +1062,77 @@ export function buildLushaPendingReviewFailure(
  * Se re-exporta con el mismo nombre, así que ningún llamador ni ninguna suite
  * cambia de import.
  */
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AGENT1-LUSHA-DISCARD-TRACEABILITY-1 — acumulador OBSERVADOR de descartes
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// 🔴 Este bloque no decide NADA. Cada registro se captura en el punto exacto en
+// el que la lógica que ya existía acababa de descartar la empresa, y ninguna
+// condición de aceptación/rechazo, ningún contador y ningún desenlace de la
+// corrida cambia por su presencia. Si se borrara, la corrida produciría
+// exactamente los mismos números.
+//
+// Lo que resuelve: la pierna Lusha evaluaba decenas de empresas y sólo dejaba
+// rastro por empresa de las que llegaban a candidato. Una corrida que evaluara
+// 50 y aceptara 5 perdía la identidad de las otras 45, y reconstruir qué pasó
+// con cada una exigía volver a consultar a Lusha —es decir, volver a pagar.
+
+/** Un descarte de Lusha, con su identidad y su veredicto durable ya resuelto. */
+export interface LushaDiscardedCompanyRecord {
+  name: string;
+  domain: string | null;
+  providerCompanyId: string | null;
+  linkedinUrl: string | null;
+  industry: string | null;
+  countryCode: string | null;
+  disposition: DiscardDispositionCode;
+  reasonCode: string | null;
+  reasonDetail: string | null;
+  roundOrigin: string | null;
+  evidence: Record<string, unknown>;
+}
+
+/**
+ * Construye el registro durable de UN descarte, o `null` si el desenlace es
+ * transitorio (la taxonomía pura es la única autoridad sobre eso).
+ *
+ * 🔴 No rellena ausencias: un campo que el proveedor no trajo viaja como
+ * `null`, nunca como un valor plausible.
+ */
+function buildLushaDiscardRecord(input: {
+  company: LushaPreviewCompany;
+  event: LushaDiscardEvent;
+  branchIndex: number;
+  page: number;
+  reasonDetail?: string | null;
+  evidence?: Record<string, unknown>;
+}): LushaDiscardedCompanyRecord | null {
+  const resolution = resolveLushaDiscardDisposition(input.event);
+  if (resolution === null) return null;
+  const name = input.company.name?.trim();
+  if (!name) return null; // `name` es NOT NULL y sin él no hay nada que auditar.
+  return {
+    name,
+    domain: normalizeDomain(input.company.domain),
+    providerCompanyId: input.company.providerCompanyId ?? null,
+    linkedinUrl: input.company.linkedinUrl ?? null,
+    industry: input.company.industry ?? null,
+    countryCode: input.company.countryIso2 ?? null,
+    disposition: resolution.disposition,
+    reasonCode: resolution.reasonCode,
+    reasonDetail: input.reasonDetail ?? null,
+    roundOrigin: `lusha_branch_${input.branchIndex}_page_${input.page}`,
+    evidence: {
+      provider: LUSHA_PENDING_REVIEW_PROVIDER,
+      discard_kind: input.event.kind,
+      branch_index: input.branchIndex,
+      page: input.page,
+      ...(input.evidence ?? {}),
+    },
+  };
+}
+
 export { normalizeLushaCompanyName };
 
 function employeesLabel(company: LushaPreviewCompany): string | null {
@@ -1906,6 +1998,38 @@ function tallyEnrichmentStatus(
 }
 
 /**
+ * AGENT1-LUSHA-DISCARD-TRACEABILITY-1 — la empresa que el gate obligatorio
+ * RECHAZÓ, con su identidad completa.
+ *
+ * 🔴 ADITIVO y aparte de `hardExcluded`. Aquél publica
+ * `LushaGateAuditEntry`, que es telemetría de gate y NO lleva
+ * `providerCompanyId`, `linkedinUrl` ni la industria declarada. La
+ * disposición durable sí los necesita, y descartar identidad que la corrida
+ * TIENE en la mano para luego escribir `null` sería perder el dato a
+ * propósito. Ningún contador cambia: `gate.hardExcludedCount` y
+ * `hardExcluded` siguen siendo exactamente lo que eran.
+ */
+export interface LushaGateHardExcludedCompany {
+  company: LushaPreviewCompany;
+  normalized: NormalizedProspectCandidate;
+  gateResult: ProspectIntakeGateResult;
+}
+
+/**
+ * AGENT1-LUSHA-DISCARD-TRACEABILITY-1 — la empresa que el guard de candidato
+ * ACTIVO saltó, con la coincidencia que lo justificó.
+ *
+ * 🔴 ADITIVO: `guardSkippedCount` se conserva TAL CUAL para no tocar la
+ * aritmética existente. Esto no decide nada — sólo conserva la identidad de
+ * una decisión que ya se tomó.
+ */
+export interface LushaGuardSkippedCompany {
+  company: LushaPreviewCompany;
+  normalized: NormalizedProspectCandidate;
+  guardMatch: DuplicateGuardMatch;
+}
+
+/**
  * Run the shared, provider-agnostic intake pipeline for every deduped company:
  *
  *   map (shared Lusha adapter) → normalize → mandatory gate
@@ -1933,6 +2057,10 @@ export async function resolveLushaCandidatesDuplicateState(
   hardExcluded: LushaGateAuditEntry[];
   gate: LushaGateSummary;
   enrichment: LushaOfficialSourceEnrichmentSummary;
+  /** ADITIVO — identidad de las rechazadas por el gate. No altera conteos. */
+  hardExcludedCompanies: LushaGateHardExcludedCompany[];
+  /** ADITIVO — identidad de las saltadas por el guard de activos. */
+  guardSkipped: LushaGuardSkippedCompany[];
 }> {
   const resolvers = deps.officialSourceResolvers ?? [];
 
@@ -1943,6 +2071,7 @@ export async function resolveLushaCandidatesDuplicateState(
     gate: ProspectIntakeGateResult;
   }> = [];
   const hardExcluded: LushaGateAuditEntry[] = [];
+  const hardExcludedCompanies: LushaGateHardExcludedCompany[] = [];
   const gate = emptyGateSummary();
 
   for (const company of companies) {
@@ -1957,6 +2086,8 @@ export async function resolveLushaCandidatesDuplicateState(
     if (gateResult.decision === 'hard_excluded') {
       gate.hardExcludedCount++;
       hardExcluded.push(buildProspectIntakeGateAuditEntry(normalized, gateResult));
+      // ADITIVO: la MISMA decisión, con la identidad que la fila durable pide.
+      hardExcludedCompanies.push({ company, normalized, gateResult });
       continue; // NEVER sent to the duplicate check.
     }
     if (gateResult.decision === 'reviewable_with_warnings') gate.warningCount++;
@@ -1981,6 +2112,7 @@ export async function resolveLushaCandidatesDuplicateState(
   //       duplicate check (with the strong official identity threaded in). ──
   const resolved: ResolvedLushaCandidate[] = [];
   let guardSkippedCount = 0;
+  const guardSkipped: LushaGuardSkippedCompany[] = [];
   const enrichment = emptyEnrichmentSummary();
 
   for (const { company, normalized, gate: gateResult } of reviewable) {
@@ -2001,6 +2133,8 @@ export async function resolveLushaCandidatesDuplicateState(
     // Strong active match → skip, exactly like the canonical writer.
     if (isStrongActiveGuardMatch(guardMatch)) {
       guardSkippedCount++;
+      // ADITIVO: el criterio de arriba NO cambia; sólo se conserva la identidad.
+      guardSkipped.push({ company, normalized, guardMatch });
       continue;
     }
 
@@ -2011,7 +2145,15 @@ export async function resolveLushaCandidatesDuplicateState(
     resolved.push({ company, resolution, enriched, gateWarnings: gateResult.warnings });
   }
 
-  return { resolved, guardSkippedCount, hardExcluded, gate, enrichment };
+  return {
+    resolved,
+    guardSkippedCount,
+    hardExcluded,
+    gate,
+    enrichment,
+    hardExcludedCompanies,
+    guardSkipped,
+  };
 }
 
 // ─── Core orchestrator ────────────────────────────────────────────────────────
@@ -2258,6 +2400,10 @@ export async function persistLushaPendingReviewBatch(
   const excludedExactDuplicates: LushaExcludedExactDuplicate[] = [];
   // Q3F-5BB.10C2 — shared intake pipeline accumulators (across branches/pages).
   const excludedByMandatoryGate: LushaGateAuditEntry[] = [];
+  // AGENT1-LUSHA-DISCARD-TRACEABILITY-1 — OBSERVADOR. Ver
+  // `buildLushaDiscardRecord`: no decide, no cuenta y no altera ningún
+  // desenlace. Se llena en el punto donde la lógica ya descartó la empresa.
+  const discardRecords: LushaDiscardedCompanyRecord[] = [];
   const gateSummary = emptyGateSummary();
   const enrichmentSummary = emptyEnrichmentSummary();
   let skippedActiveDuplicatesCount = 0;
@@ -2575,9 +2721,53 @@ export async function persistLushaPendingReviewBatch(
       // (server-authoritative) request summary; stable across pages.
       const criteria = buildLushaProspectSearchCriteria(input, search);
 
-      const { resolved, guardSkippedCount, hardExcluded, gate, enrichment } =
-        await resolveLushaCandidatesDuplicateState(deps, input, dedupe.unique, criteria);
+      const {
+        resolved,
+        guardSkippedCount,
+        hardExcluded,
+        gate,
+        enrichment,
+        hardExcludedCompanies,
+        guardSkipped,
+      } = await resolveLushaCandidatesDuplicateState(deps, input, dedupe.unique, criteria);
       skippedActiveDuplicatesCount += guardSkippedCount;
+
+      // ── OBSERVADOR §§ 1, 2 — las dos decisiones que el resolutor acaba de
+      //    tomar, con su identidad. No es una segunda pasada por las empresas:
+      //    son las salidas de la decisión, no el conjunto de entrada.
+      for (const excluded of hardExcludedCompanies) {
+        const record = buildLushaDiscardRecord({
+          company: excluded.company,
+          event: {
+            kind: 'gate_hard_excluded',
+            gateReason: excluded.gateResult.hardReasons[0] ?? null,
+          },
+          branchIndex,
+          page,
+          reasonDetail: excluded.gateResult.hardReasons.join(', ') || null,
+          evidence: {
+            gate_decision: excluded.gateResult.decision,
+            gate_hard_reasons: [...excluded.gateResult.hardReasons],
+            gate_warnings: [...excluded.gateResult.warnings],
+          },
+        });
+        if (record !== null) discardRecords.push(record);
+      }
+      for (const skipped of guardSkipped) {
+        const record = buildLushaDiscardRecord({
+          company: skipped.company,
+          event: { kind: 'active_candidate_guard' },
+          branchIndex,
+          page,
+          reasonDetail: skipped.guardMatch.reason ?? null,
+          evidence: {
+            active_guard_reason: skipped.guardMatch.reason ?? null,
+            active_guard_matched_candidate_id: skipped.guardMatch.matchedCandidateId,
+            active_guard_matched_domain: skipped.guardMatch.matchedDomain,
+          },
+        });
+        if (record !== null) discardRecords.push(record);
+      }
 
       // Merge the page's gate + enrichment summaries into the batch accumulators.
       excludedByMandatoryGate.push(...hardExcluded);
@@ -2615,6 +2805,30 @@ export async function persistLushaPendingReviewBatch(
           // Exact duplicates are excluded from persistence — never reviewable.
           // We keep a safe, auditable detail record (Q3F-5BB.7D).
           excludedExactDuplicates.push(buildLushaExcludedExactDuplicate(candidate));
+          // ── OBSERVADOR § 3 — SellUp y HubSpot son disposiciones DISTINTAS, y
+          //    la fuente la dicta la evidencia que la resolución ya produjo.
+          const duplicateSource = classifyLushaExactDuplicateSource({
+            sources: candidate.resolution.duplicateDetails?.sources ?? null,
+            matchedAccountId: candidate.resolution.matchedAccountId,
+            matchedHubspotCompanyId: candidate.resolution.matchedHubspotCompanyId,
+          });
+          const duplicateRecord = buildLushaDiscardRecord({
+            company: candidate.company,
+            event: { kind: 'exact_duplicate', duplicateSource },
+            branchIndex,
+            page,
+            reasonDetail: candidate.resolution.duplicateDetails?.reviewerMessage ?? null,
+            evidence: {
+              duplicate_source: duplicateSource,
+              db_duplicate_status: candidate.resolution.dbDuplicateStatus,
+              account_duplicate_check: candidate.resolution.accountDuplicateCheck,
+              hubspot_duplicate_check: candidate.resolution.hubSpotDuplicateCheck,
+              matched_account_id: candidate.resolution.matchedAccountId,
+              matched_hubspot_company_id: candidate.resolution.matchedHubspotCompanyId,
+              duplicate_sources: candidate.resolution.duplicateDetails?.sources ?? null,
+            },
+          });
+          if (duplicateRecord !== null) discardRecords.push(duplicateRecord);
           continue;
         }
 
@@ -2635,6 +2849,23 @@ export async function persistLushaPendingReviewBatch(
             // NO cierra hueco, NO se persiste, y NO cuenta como duplicado.
             precisionRejectedTotal++;
             branchPrecisionRejected++;
+            // ── OBSERVADOR § 4 ──
+            const precisionRecord = buildLushaDiscardRecord({
+              company: candidate.company,
+              event: {
+                kind: 'macro_precision_rejected',
+                precisionReason: precision.reason,
+              },
+              branchIndex,
+              page,
+              reasonDetail: precision.reason,
+              evidence: {
+                macro_industry_key: macroKeyForPrecision,
+                precision_reason: precision.reason,
+                declared_industry: candidate.company.industry ?? null,
+              },
+            });
+            if (precisionRecord !== null) discardRecords.push(precisionRecord);
             continue;
           }
           reviewableFoundTotal++;
@@ -2643,6 +2874,21 @@ export async function persistLushaPendingReviewBatch(
           if (!canAcceptLushaUsefulCandidate(targetGap, useful.length)) {
             targetOverflowDiscarded++;
             branchTargetOverflow++;
+            // ── OBSERVADOR § 5 — nueva Y precisa: la página ya se pagó y el
+            //    objetivo ya estaba cerrado. No es duplicado ni imprecisión.
+            const overflowRecord = buildLushaDiscardRecord({
+              company: candidate.company,
+              event: { kind: 'target_overflow' },
+              branchIndex,
+              page,
+              reasonDetail: null,
+              evidence: {
+                target_gap: targetGap,
+                useful_at_decision: useful.length,
+                macro_industry_key: macroKeyForPrecision,
+              },
+            });
+            if (overflowRecord !== null) discardRecords.push(overflowRecord);
             continue;
           }
           // § 12 — AQUÍ, y sólo aquí, una empresa cierra hueco.
@@ -2654,6 +2900,20 @@ export async function persistLushaPendingReviewBatch(
         if (!canAcceptLushaUsefulCandidate(targetGap, useful.length)) {
           targetOverflowDiscarded++;
           branchTargetOverflow++;
+          // ── OBSERVADOR § 5 — misma decisión en la ruta LEGACY (sin macro). ──
+          const legacyOverflowRecord = buildLushaDiscardRecord({
+            company: candidate.company,
+            event: { kind: 'target_overflow' },
+            branchIndex,
+            page,
+            reasonDetail: null,
+            evidence: {
+              target_gap: targetGap,
+              useful_at_decision: useful.length,
+              macro_industry_key: null,
+            },
+          });
+          if (legacyOverflowRecord !== null) discardRecords.push(legacyOverflowRecord);
           continue;
         }
         useful.push(candidate);
@@ -3000,6 +3260,10 @@ export async function persistLushaPendingReviewBatch(
     multiBranch: runTelemetry,
     batchIdentityDuplicateSkippedCount,
     batchIdentityMetrics,
+    // AGENT1-LUSHA-DISCARD-TRACEABILITY-1 — viaja en `baseMetrics` a propósito:
+    // es el ÚNICO sitio que se difunde tanto al resultado `empty` como al
+    // `success`, así que la trazabilidad no puede existir sólo en uno de los dos.
+    discardedCompanies: discardRecords,
   };
 
   if (useful.length === 0) {
