@@ -18,20 +18,28 @@
  * significa hacia ABAJO: un valor ilegible nunca amplía el gasto autorizado.
  */
 
+// AGENT1-APOLLO-LUSHA-WATERFALL § CORTE 1 — el objetivo NO se declara aquí.
+import { WIZARD_TARGET_USEFUL_COMPANIES } from '@/modules/prospect-batches/wizard-target-authority';
+
 // ─── Defaults del contrato ────────────────────────────────────────────────────
 
 /**
  * Empresas únicas y elegibles que una ejecución intenta reunir.
  *
- * AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING — antes `5`. El wizard promete
- * `WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES` (10) al usuario; un default
- * local por debajo de eso truncaba la demanda residual ANTES de que el
- * presupuesto o el proveedor tuvieran oportunidad de decidir nada. Este número
- * es el objetivo (demanda), no el gasto: el techo de dinero real sigue siendo
- * `MAX_ENRICHMENTS_PER_RUN_*` y la reserva atómica del wizard, ninguno de los
- * dos se toca aquí.
+ * AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 1 — DERIVADO de
+ * `WIZARD_TARGET_USEFUL_COMPANIES`, ya no un literal local.
+ *
+ * Antes `10`, escrito aquí para igualar el `10` que el wizard declaraba por su
+ * cuenta en `WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES`. Dos literales que se
+ * mantienen iguales a mano son dos autoridades: bastaba tocar uno para que la
+ * aceptación se calculara contra un objetivo y la metadata publicara otro. La
+ * decisión de producto fija UNO (5) y ambas rutas lo derivan.
+ *
+ * Sigue siendo el objetivo (demanda), no el gasto: el techo de dinero real
+ * sigue siendo `MAX_ENRICHMENTS_PER_RUN_*`, las páginas de Search y la reserva
+ * atómica del wizard, ninguno de los tres se toca aquí.
  */
-export const TARGET_ELIGIBLE_COMPANIES_DEFAULT = 10;
+export const TARGET_ELIGIBLE_COMPANIES_DEFAULT = WIZARD_TARGET_USEFUL_COMPANIES;
 /** Rondas de búsqueda como máximo. El contrato del hito fija dos. */
 export const MAX_SEARCH_ROUNDS_DEFAULT = 2;
 /**
@@ -59,26 +67,24 @@ export const MAX_ENRICHMENTS_PER_RUN_DEFAULT = 2;
 // subirlos por encima del tope: el techo del gasto autorizado vive en el código,
 // no en una variable que se puede editar desde un panel.
 
-// AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING — antes `6` ("+1 deliberado,
-// LOCAL-ONLY" sobre un default de 5). Ese `6` era un tope de QA sin relación
-// con ningún número de negocio: el wizard promete
-// `WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES` (10) al usuario y la demanda
-// residual real puede llegar hasta ahí. Subirlo a 10 iguala el tope de la
-// modalidad de dos rondas con el de la modalidad legacy (que nunca tuvo un
-// tope local por debajo de 10) — dos rutas del MISMO producto no pueden
-// prometerle al usuario dos objetivos distintos según qué modalidad ejecute.
+// AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 1 — antes `10`, un tope propio POR
+// ENCIMA del objetivo. Ese margen era exactamente el agujero de la duplicidad:
+// con el tope en 10 y el objetivo en 5, `AGENT1_APOLLO_TARGET_ELIGIBLE_
+// COMPANIES=10` movía el objetivo de la ruta de dos rondas sin mover el del
+// wizard, y volvíamos a tener dos números.
 //
-// Esto NO sube el tope global de créditos por ejecución: la reserva atómica
-// del wizard (`reserveWizardPilotCredits`) y `estimateApolloTwoRoundBudget`
-// (`budget.ts`) derivan su peor caso de `maxRounds × WIZARD_APOLLO_MAX_PAGES_
-// HARD_CAP` (Search) y de `maxEnrichmentsPerRun` (enrichment) — NINGUNO de los
-// dos lee `targetEligibleCompanies`. Subir el objetivo de aceptación no reserva
-// ni gasta un crédito más; sólo deja de recortar la demanda antes de que el
-// presupuesto real (ver `MAX_ENRICHMENTS_PER_RUN_*`, sin tocar) tenga
-// oportunidad de decidir. Con `maxEnrichmentsPerRun` agotado antes de llegar a
-// 10, el resultado correcto es `accepted < 10` con motivo de parada
-// `budget_exhausted` — no una demanda que nunca se representó.
-export const TARGET_ELIGIBLE_COMPANIES_ABSOLUTE_MAX = 10;
+// Igualarlo a la autoridad conserva la única dirección que un entorno debe
+// poder mover: HACIA ABAJO. `AGENT1_APOLLO_TARGET_ELIGIBLE_COMPANIES=3` sigue
+// valiendo (corrida más corta); `=10` ya no sube el objetivo, se recorta a 5
+// con `source: 'env_clamped_to_absolute_max'`, que es justamente lo que hace
+// auditable el intento.
+//
+// Esto NO cambia el presupuesto: la reserva atómica del wizard
+// (`reserveWizardPilotCredits`) y `estimateApolloTwoRoundBudget` (`budget.ts`)
+// derivan su peor caso de `maxRounds × WIZARD_APOLLO_MAX_PAGES_HARD_CAP`
+// (Search) y de `maxEnrichmentsPerRun` (enrichment) — NINGUNO de los dos lee
+// `targetEligibleCompanies`.
+export const TARGET_ELIGIBLE_COMPANIES_ABSOLUTE_MAX = WIZARD_TARGET_USEFUL_COMPANIES;
 export const MAX_SEARCH_ROUNDS_ABSOLUTE_MAX = 2;
 export const MAX_RESULTS_PER_ROUND_ABSOLUTE_MAX = 10;
 export const MAX_RAW_RESULTS_PER_RUN_ABSOLUTE_MAX = 20;

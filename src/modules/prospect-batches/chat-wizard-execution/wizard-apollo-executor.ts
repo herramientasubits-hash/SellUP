@@ -35,12 +35,28 @@ import {
   boundByRemainingTarget,
   type ProviderResultDemand,
 } from '@/modules/prospect-batches/prepaid-novelty/provider-result-demand';
+// AGENT1-APOLLO-LUSHA-WATERFALL § CORTE 1 — autoridad única del objetivo.
+import { WIZARD_TARGET_USEFUL_COMPANIES } from '@/modules/prospect-batches/wizard-target-authority';
 import type { ApolloPriorProviderSeen } from '@/server/agents/prospecting-toolkit/apollo-organizations-provider-seen';
 import type { ResolveExtraBatchMetadata } from '@/server/agents/prospecting-toolkit/writer-metadata-resolution';
 
 export const WIZARD_APOLLO_TARGET_INTERNAL = 25;
 export const WIZARD_APOLLO_MAX_ROUNDS = 4;
-export const WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES = 10;
+/**
+ * AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 1 — DERIVADO, ya no declarado aquí.
+ *
+ * Antes `10`, un literal propio que convivía con el `10` de
+ * `TARGET_ELIGIBLE_COMPANIES_DEFAULT` (`apollo-two-round/config.ts`). Dos
+ * literales iguales "por acuerdo" son dos autoridades: la decisión de producto
+ * fija UNA (5 empresas útiles) y ambas rutas la derivan de
+ * `WIZARD_TARGET_USEFUL_COMPANIES`.
+ *
+ * El nombre sobrevive porque describe la MISMA población que la autoridad
+ * ("persistible" = útil = lo que puede terminar como candidato revisable) y es
+ * el símbolo que ya leen la ruta legacy, el `targetCount` del lote y la demanda
+ * del wizard. Cambiar el nombre habría movido 40 referencias sin mover nada.
+ */
+export const WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES = WIZARD_TARGET_USEFUL_COMPANIES;
 
 /**
  * AGENT1-LOCAL-CUT6-PARTIAL-ACTIVATION §§ 3, 15 — ¿la ruta Apollo de PRODUCCIÓN

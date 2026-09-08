@@ -16,10 +16,15 @@
  * Recorrido real, sin mocks de la política:
  *
  *   1. `reserveWizardExecutionSlot` (la reserva de verdad, con un cliente falso)
- *      ⇒ el INSERT del slot lleva `target_count = 10`.
+ *      ⇒ el INSERT del slot lleva `target_count` = el objetivo único.
  *   2. Esa MISMA fila se le entrega al escritor REAL como lote existente.
- *   3. El contribuyente de pago llega con residual 3.
- *   4. El PATCH adoptado NO lleva `target_count`, y la verdad final sigue 10.
+ *   3. El contribuyente de pago llega con el residual.
+ *   4. El PATCH adoptado NO lleva `target_count`, y la verdad final no se mueve.
+ *
+ * 🔴 AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 1 — el objetivo bajó de 10 a 5 y
+ * dejó de ser un literal. Lo que esta suite fija NO es el número: es que el
+ * lote nazca con el objetivo del producto y que ningún contribuyente lo
+ * reescriba. Anclar el `10` aquí habría bloqueado su propia corrección.
  *
  * El aporte gratuito de 7 se contabiliza CONCEPTUALMENTE: CUT-5 (partición
  * gratis/pago y movimiento del slot) está explícitamente fuera de alcance.
@@ -42,6 +47,7 @@ import { WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES } from '@/modules/prospect-
 import { WIZARD_TARGET_PERSISTIBLE_CANDIDATES } from '@/modules/prospect-batches/chat-wizard-execution/wizard-tavily-executor';
 import { WIZARD_SYSTEM_CONTROLS } from '@/modules/prospect-batches/chat-wizard-execution/wizard-pipeline-adapter';
 import { resolveAdoptedBatchPatch } from '../adopted-batch-truth';
+import { WIZARD_TARGET_USEFUL_COMPANIES } from '@/modules/prospect-batches/wizard-target-authority';
 
 const repoRoot = path.resolve(import.meta.dirname, '../../../..');
 const read = (rel: string) => readFileSync(path.join(repoRoot, rel), 'utf8');
@@ -113,8 +119,8 @@ describe('CUT-2 REVIEW-1 § 3 — la reserva establece el objetivo ANTES de cont
 
     assert.equal(result.status, 'reserved');
     assert.equal(captured.length, 1);
-    assert.equal(captured[0]!['target_count'], 10);
-    assert.equal(GLOBAL_PERSISTIBLE_TARGET, 10);
+    assert.equal(captured[0]!['target_count'], GLOBAL_PERSISTIBLE_TARGET);
+    assert.equal(GLOBAL_PERSISTIBLE_TARGET, WIZARD_TARGET_USEFUL_COMPANIES);
   });
 
   it('§ 4 — el slot nace también con país, ISO, industria y profundidad', async () => {
@@ -145,8 +151,11 @@ describe('CUT-2 REVIEW-1 § 3 — la reserva establece el objetivo ANTES de cont
 
 describe('CUT-2 REVIEW-1 § 3 — objetivo persistible (10) ≠ amplitud de búsqueda (25)', () => {
   it('las dos rutas del wizard prometen el MISMO objetivo persistible', () => {
-    assert.equal(WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES, 10);
-    assert.equal(WIZARD_TARGET_PERSISTIBLE_CANDIDATES, 10);
+    // AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 1 — antes `10` literal en ambas.
+    // El objetivo lo fija UNA autoridad y las dos rutas lo DERIVAN; fijar el
+    // literal aquí volvía a crear la duplicidad que el corte elimina.
+    assert.equal(WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES, WIZARD_TARGET_USEFUL_COMPANIES);
+    assert.equal(WIZARD_TARGET_PERSISTIBLE_CANDIDATES, WIZARD_TARGET_USEFUL_COMPANIES);
     assert.equal(
       WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
       WIZARD_TARGET_PERSISTIBLE_CANDIDATES,
@@ -164,7 +173,7 @@ describe('CUT-2 REVIEW-1 § 3 — objetivo persistible (10) ≠ amplitud de bús
     // AGENT1-LOCAL-CUT5-SINGLE-BATCH-PLUMBING § 4 — ANCLA REUBICADA, invariante
     // INTACTA. La petición del lote dejó de construirse dentro del paso 9 y pasó
     // al resolutor canónico, que es ahora el dueño ÚNICO de la reserva. Lo que
-    // esta guarda mide —que el slot reciba el objetivo PERSISTIBLE (10) y no la
+    // esta guarda mide —que el slot reciba el objetivo PERSISTIBLE y no la
     // amplitud de búsqueda (25)— no cambió ni un ápice; sólo cambió dónde vive.
     const call = src.indexOf('createCanonicalWizardBatchResolver(deps.reserveSlot, {');
     assert.ok(call > 0, 'la construcción de la reserva canónica tiene que existir');
@@ -196,18 +205,22 @@ describe('CUT-2 REVIEW-1 § 3 — objetivo persistible (10) ≠ amplitud de bús
 
 // ─── § 5 — el contrato mixto de punta a punta ────────────────────────────────
 
-describe('CUT-2 REVIEW-1 § 5 — 10 pedidos, 7 gratis, 3 de pago: el lote sigue pidiendo 10', () => {
-  it('la reserva fija 10; el residual de pago 3 NO lo reescribe', async () => {
+describe('CUT-2 REVIEW-1 § 5 — el objetivo pedido, parte gratis y parte de pago: el lote sigue pidiendo el objetivo', () => {
+  it('la reserva fija el objetivo; el residual de pago NO lo reescribe', async () => {
     // 1. Reserva REAL: el slot nace con el objetivo global.
     const captured: Record<string, unknown>[] = [];
     await reserveWizardExecutionSlot(reservationInput(), makeCapturingDb(captured));
     const slotRow = captured[0]!;
-    assert.equal(slotRow['target_count'], 10);
+    assert.equal(slotRow['target_count'], GLOBAL_PERSISTIBLE_TARGET);
 
-    // 2. El aporte gratuito cierra 7 conceptualmente (CUT-5 fuera de alcance).
-    const freeContribution = 7;
+    // 2. El aporte gratuito cierra una PARTE conceptualmente (CUT-5 fuera de
+    //    alcance). CORTE 1: la fracción se deriva del objetivo vigente en vez
+    //    de las 7 fijas de cuando el objetivo era 10 — con objetivo 5, "7
+    //    gratis" describiría una corrida imposible y el residual saldría
+    //    negativo.
+    const freeContribution = GLOBAL_PERSISTIBLE_TARGET - 2;
     const paidResidual = GLOBAL_PERSISTIBLE_TARGET - freeContribution;
-    assert.equal(paidResidual, 3);
+    assert.equal(paidResidual, 2);
 
     // 3. El contribuyente de PAGO adopta esa misma fila con su residual.
     const adopted = resolveAdoptedBatchPatch({
@@ -236,9 +249,10 @@ describe('CUT-2 REVIEW-1 § 5 — 10 pedidos, 7 gratis, 3 de pago: el lote sigue
     assert.equal('target_count' in adopted.patch, false);
     assert.ok(adopted.preservedColumns.includes('target_count'));
 
-    // 5. La verdad final del lote: sigue siendo 10.
+    // 5. La verdad final del lote: sigue siendo el objetivo, no el residual.
     const finalRow = { ...slotRow, ...adopted.patch };
-    assert.equal(finalRow['target_count'], 10);
+    assert.equal(finalRow['target_count'], GLOBAL_PERSISTIBLE_TARGET);
+    assert.notEqual(finalRow['target_count'], paidResidual);
     assert.equal(finalRow['country'], 'Colombia');
     assert.equal(finalRow['industry'], 'Salud y Farma');
     // Y la etiqueta humana sí se canonicaliza (§ 6).

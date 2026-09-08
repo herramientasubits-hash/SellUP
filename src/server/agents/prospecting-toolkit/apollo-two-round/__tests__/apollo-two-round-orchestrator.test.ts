@@ -189,18 +189,37 @@ describe('§ 13 · límites', () => {
     assert.equal(result.roundsExecuted, 2);
   });
 
-  test('caso 13 — cada ronda pide como máximo cinco resultados', async () => {
+  test('caso 13 — ninguna ronda pide más de cinco, y la ronda 2 pide el HUECO', async () => {
+    // 🔴 REANCLADO por AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 3. Antes exigía
+    // `=== 5` en TODAS las rondas, que es la conducta que el corte corrige: la
+    // ronda 2 volvía a pedir el volumen entero de ronda como si empezara de
+    // cero. El techo por ronda —lo que el caso 13 protege— sigue intacto; lo
+    // que cambia es que por debajo del techo se pide lo que FALTA.
     const { deps, recorder } = harness({ roundResults: [orgs('a', 1), orgs('b', 1)] });
 
     await run(deps);
 
     for (const call of recorder.searchCalls) {
-      assert.equal(call.requestedResultLimit, 5);
+      assert.ok(
+        call.requestedResultLimit <= 5,
+        `la ronda ${call.roundNumber} pidió ${call.requestedResultLimit}, por encima del techo`,
+      );
     }
+    assert.equal(recorder.searchCalls[0]!.requestedResultLimit, 5, 'la ronda 1 apunta al objetivo entero');
+    // La ronda 1 dejó 1 útil de 5: faltan 4.
+    assert.equal(recorder.searchCalls[1]!.requestedResultLimit, 4, 'la ronda 2 pide el hueco, no el techo');
   });
 
-  test('caso 14 — como máximo diez resultados crudos en total', async () => {
-    // Ocho por ronda: el proveedor puede devolver de más; el tope es nuestro.
+  test('caso 14 — todo lo que el proveedor devolvió se procesa, sin tope crudo', async () => {
+    // 🔴 REANCLADO por AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 2. Antes afirmaba
+    // «como máximo diez resultados crudos en total» y fijaba `processed === 10`
+    // sobre 16 organizaciones devueltas: seis se caían sin evaluarse, por su
+    // POSICIÓN en la lista.
+    //
+    // Eso era exactamente el defecto —descartar sin mirar lo que ya se pagó—,
+    // así que el ratchet defendía el defecto. Lo que se fija ahora es la regla
+    // que lo sustituye: se procesa TODO lo devuelto; lo que gobierna el gasto
+    // son las páginas compradas y el enrichment, no este contador.
     const { deps } = harness({
       roundResults: [orgs('a', 8), orgs('b', 8)],
       assess: () => rejectedAssessment('sector_evidence_contradictory'),
@@ -209,8 +228,7 @@ describe('§ 13 · límites', () => {
     const result = await run(deps);
 
     const processed = result.runMetrics.totalUniqueOrganizations;
-    assert.ok(processed <= 10, `procesadas ${processed}, esperado ≤ 10`);
-    assert.equal(processed, 10);
+    assert.equal(processed, 16, 'las 16 organizaciones devueltas tienen que evaluarse');
   });
 
   test('caso 15 — como máximo dos enrichments, y el cap es GLOBAL para ambas rondas', async () => {

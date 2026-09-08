@@ -59,6 +59,19 @@ import type { IncrementalSearchOutput } from '@/server/agents/prospecting-toolki
 
 const TARGET = WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES;
 
+/**
+ * 🔴 AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 1 — re-anclaje de fixtures.
+ *
+ * Los casos que necesitan que las DOS ramas (gratuita y de pago) escriban en la
+ * misma corrida fijaban el aporte gratuito a mano (7, 6). Con la autoridad única
+ * del objetivo, esos literales ya NO describen una corrida posible: cierran el
+ * objetivo entero, la rama de pago no se ejecuta y el caso se volvería vacío.
+ * Se expresan como `TARGET − hueco` para que el hueco siga abierto sea cual sea
+ * el objetivo vigente.
+ */
+const FREE_LEAVING_GAP_3 = TARGET - 3;
+const FREE_LEAVING_GAP_2 = TARGET - 2;
+
 const USER_ID = '123e4567-e89b-12d3-a456-426614174019';
 const INDUSTRY_ID = '223e4567-e89b-12d3-a456-426614174011';
 const SUBINDUSTRY_ID = '323e4567-e89b-12d3-a456-426614174012';
@@ -343,11 +356,18 @@ describe('CUT-5 §§ 1, 4 · una ejecución del wizard = un lote canónico', () 
     await withEnv(async () => {
       // Hueco parcial invocado a propósito (capacidad, no activación): es la única
       // forma de que las DOS ramas escriban en la misma corrida.
-      const free = freeLayer({ acceptedNovel: 7, persistedCount: 7 });
+      const free = freeLayer({
+        acceptedNovel: FREE_LEAVING_GAP_3,
+        persistedCount: FREE_LEAVING_GAP_3,
+      });
       const wired = wiring({ free: free.deps, partialGapSupported: true });
       const result = await executeProspectWizardGeneration(REQUEST, wired.deps);
 
       assert.equal(result.ok, true);
+      assert.ok(
+        wired.observed.apolloCalls.length > 0,
+        'la rama de pago corrió: sin ella el caso no probaría nada',
+      );
       const touched = distinctBatches([
         ...free.persistedInto,
         ...wired.observed.apolloCalls.map((c) => c.reservedBatchId),
@@ -359,7 +379,10 @@ describe('CUT-5 §§ 1, 4 · una ejecución del wizard = un lote canónico', () 
 
   it('CASO 3 — lo gratuito y lo de pago aterrizan en el MISMO batch_id', async () => {
     await withEnv(async () => {
-      const free = freeLayer({ acceptedNovel: 6, persistedCount: 6 });
+      const free = freeLayer({
+        acceptedNovel: FREE_LEAVING_GAP_2,
+        persistedCount: FREE_LEAVING_GAP_2,
+      });
       const wired = wiring({ free: free.deps, partialGapSupported: true });
       await executeProspectWizardGeneration(REQUEST, wired.deps);
 
@@ -425,7 +448,12 @@ describe('CUT-5 §§ 1, 4 · una ejecución del wizard = un lote canónico', () 
 
   it('CASO 8 — proveedor Tavily: el mismo hilo, sin regla nueva de enrutado', async () => {
     await withEnv(async () => {
-      const free = freeLayer({ acceptedNovel: 4, persistedCount: 4 });
+      // Re-anclado (CORTE 1): el aporte gratuito sólo tiene que dejar hueco para
+      // que la rama de pago corra; se expresa contra el objetivo vigente.
+      const free = freeLayer({
+        acceptedNovel: FREE_LEAVING_GAP_2,
+        persistedCount: FREE_LEAVING_GAP_2,
+      });
       const wired = wiring({
         free: free.deps,
         partialGapSupported: true,

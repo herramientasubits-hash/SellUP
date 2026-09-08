@@ -41,6 +41,7 @@ import {
   evaluateApolloSubindustrySearchCoverageSpendGate,
   resolveApolloSubindustrySearchCoverage,
 } from '@/server/agents/prospecting-toolkit/apollo-subindustry-search-coverage';
+import { WIZARD_TARGET_USEFUL_COMPANIES } from '@/modules/prospect-batches/wizard-target-authority';
 
 const ROOT = process.cwd();
 
@@ -288,7 +289,7 @@ describe('§ 5 — los topes de la corrida no se movieron', () => {
     // AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING — el tope de target subió de 6 a
     // 10 (WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES, ver config.ts); el de
     // enrichment NO se toca — sigue siendo la autoridad de presupuesto real.
-    assert.equal(TARGET_ELIGIBLE_COMPANIES_ABSOLUTE_MAX, 10);
+    assert.equal(TARGET_ELIGIBLE_COMPANIES_ABSOLUTE_MAX, WIZARD_TARGET_USEFUL_COMPANIES);
     assert.equal(MAX_SEARCH_ROUNDS_ABSOLUTE_MAX, 2);
     assert.equal(MAX_RESULTS_PER_ROUND_ABSOLUTE_MAX, 10);
     assert.equal(MAX_RAW_RESULTS_PER_RUN_ABSOLUTE_MAX, 20);

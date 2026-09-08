@@ -65,6 +65,16 @@ import type { IncrementalSearchOutput } from '@/server/agents/prospecting-toolki
 
 const TARGET = WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES;
 
+/**
+ * 🔴 AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 1 — aceptación que deja hueco 3.
+ *
+ * El CASO 2 necesita una corrida donde el objetivo NO se cierre (si se cerrara,
+ * la ruta de pago ni se intentaría y no habría bloqueo de presupuesto que
+ * observar). Se expresa contra el objetivo vigente en vez del literal 7, que
+ * sólo dejaba hueco cuando el objetivo era 10.
+ */
+const ACCEPTED_LEAVING_GAP_3 = TARGET - 3;
+
 const USER_ID = '123e4567-e89b-12d3-a456-4266141740b1';
 const INDUSTRY_ID = '223e4567-e89b-12d3-a456-4266141740b2';
 const SUBINDUSTRY_ID = '323e4567-e89b-12d3-a456-4266141740b3';
@@ -110,7 +120,14 @@ function company(index: number): CountrySourceCompany {
 
 /**
  * 🔴 `acceptedNovel` y `persistedCount` son INDEPENDIENTES: es lo que hace
- * representable el CASO 2 —10 filas, 7 aceptadas— que antes era inexpresable.
+ * representable el CASO 2 —`TARGET` filas, `TARGET − 3` aceptadas— que antes era
+ * inexpresable.
+ *
+ * 🔴 AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 1 — re-anclaje: el enunciado se
+ * escribía «10 filas, 7 aceptadas». Con la autoridad única del objetivo, 7
+ * aceptadas ya CIERRAN el objetivo: no quedaría hueco, la ruta de pago no se
+ * bloquearía por presupuesto y el caso —cuya razón de ser es que persistir ≠
+ * aceptar dejando 3 pendientes— dejaría de ser una corrida posible.
  */
 function freeLayer(input: {
   acceptedNovel: number;
@@ -351,38 +368,47 @@ describe('CUT-8B § 4 CASO 1 — free satisface el objetivo y la metadata lo dic
 
 // ── § 4 CASO 2 · persistido NO equivale a aceptado ───────────────────────────
 
-describe('CUT-8B § 4 CASO 2 — 10 filas, 7 aceptadas, 3 restantes', () => {
+describe('CUT-8B § 4 CASO 2 — TARGET filas, TARGET−3 aceptadas, 3 restantes', () => {
   /**
    * La causa terminal es el PRESUPUESTO: la parte de pago no llega a correr, así
    * que ningún writer de proveedor publica. Es la clase «acaba con sólo la
    * contribución gratuita» del enunciado.
+   *
+   * Re-anclado (CORTE 1): las filas persistidas son `TARGET` y las aceptadas
+   * `TARGET − 3`; la divergencia «filas ≠ aceptadas» y el resto de 3 son los
+   * mismos que describía la pareja 10/7.
    */
-  it('la metadata durable conserva 7 aceptadas y 3 pendientes', async () => {
+  it('la metadata durable conserva TARGET−3 aceptadas y 3 pendientes', async () => {
     const { deps, sealed } = wiring({
-      free: freeLayer({ acceptedNovel: 7, persistedCount: 10 }),
+      free: freeLayer({ acceptedNovel: ACCEPTED_LEAVING_GAP_3, persistedCount: TARGET }),
       paid: { kind: 'budget_blocked' },
     });
     const result = await withEnv(() => executeProspectWizardGeneration(REQUEST, deps));
     assert.equal(result.ok, false);
 
     const block = publishedBlock(sealed);
-    assert.equal(block.requested_target, 10);
-    assert.equal(block.accepted_for_target_total, 7, '🔴 aceptadas, NO filas');
+    assert.equal(block.requested_target, TARGET);
+    assert.equal(block.accepted_for_target_total, ACCEPTED_LEAVING_GAP_3, '🔴 aceptadas, NO filas');
     assert.equal(block.remaining_target, 3);
     assert.equal(block.target_reached, false);
-    assert.equal(block.persisted_free_candidates, 10, '§ 10 — el universo durable no se recorta');
-    assert.equal(block.persisted_total_candidates, 10);
+    assert.equal(
+      block.persisted_free_candidates,
+      TARGET,
+      '§ 10 — el universo durable no se recorta',
+    );
+    assert.equal(block.persisted_total_candidates, TARGET);
   });
 
   /**
    * 🔴 MUTACIÓN N — `accepted := persisted`.
    *
    * Se aplica sobre la AUTORIDAD, con las mismas cifras de la corrida: si el
-   * proyector leyera las filas en vez de la aceptación, publicaría 10/0/true.
+   * proyector leyera las filas en vez de la aceptación, publicaría
+   * TARGET/0/true.
    */
-  it('🔴 NEGATIVO N — aceptar := persistidas publicaría 10/0/true', async () => {
+  it('🔴 NEGATIVO N — aceptar := persistidas publicaría TARGET/0/true', async () => {
     const { deps, sealed } = wiring({
-      free: freeLayer({ acceptedNovel: 7, persistedCount: 10 }),
+      free: freeLayer({ acceptedNovel: ACCEPTED_LEAVING_GAP_3, persistedCount: TARGET }),
       paid: { kind: 'budget_blocked' },
     });
     await withEnv(() => executeProspectWizardGeneration(REQUEST, deps));
@@ -394,8 +420,8 @@ describe('CUT-8B § 4 CASO 2 — 10 filas, 7 aceptadas, 3 restantes', () => {
       block.accepted_for_target_total,
       '🔴 si estas dos coincidieran, «persistido = aceptado» pasaría inadvertido',
     );
-    assert.equal(mutatedTotal, 10);
-    assert.equal(block.accepted_for_target_total, 7);
+    assert.equal(mutatedTotal, TARGET);
+    assert.equal(block.accepted_for_target_total, ACCEPTED_LEAVING_GAP_3);
   });
 });
 

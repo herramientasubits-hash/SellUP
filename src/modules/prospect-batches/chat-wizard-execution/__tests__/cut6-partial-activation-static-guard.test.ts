@@ -82,6 +82,24 @@ const code = (rel: string): string => stripTsComments(read(rel));
 // ── Fixtures de comportamiento ───────────────────────────────────────────────
 
 const TARGET = WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES;
+
+/**
+ * 🔴 AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 1 — re-anclaje de fixtures.
+ *
+ * Las pruebas EN NEGATIVO de las guardas A y E comparaban «4 gratuitas + 6 crudos
+ * de pago» contra un total de 10. Ese aporte pagado sólo era admisible con el
+ * objetivo en 10: el doble recorta al hueco (`min(crudos − duplicados, hueco)`),
+ * de modo que con la autoridad única el total nunca podría llegar a 10 y la
+ * comparación dejaría de describir una corrida posible.
+ *
+ * Las dos siguen siendo pruebas EN NEGATIVO y prueban lo mismo: reponer el
+ * todo-o-nada PIERDE el aporte gratuito, y un duplicado pagado NO cierra hueco.
+ * Sólo cambia el ancla — aporte gratuito `TARGET − 3` y aporte pagado igual al
+ * hueco (3) — para que el total limpio sea exactamente `TARGET`.
+ */
+const FREE_LEAVING_GAP_3 = TARGET - 3;
+const PAID_RAW_MATCHING_GAP_3 = 3;
+
 const USER_ID = '123e4567-e89b-12d3-a456-426614174019';
 const INDUSTRY_ID = '223e4567-e89b-12d3-a456-426614174011';
 const SUBINDUSTRY_ID = '323e4567-e89b-12d3-a456-426614174012';
@@ -307,8 +325,12 @@ describe('CUT-6 §§ 20, 21 · A — descartar el parcial sólo porque F < T', (
   it('🔴 EN NEGATIVO — reponer el todo-o-nada rompe el comportamiento de CUT-6', async () => {
     await withEnv(async () => {
       // MUTACIÓN ejecutada de verdad: la misma corrida con el parámetro apagado.
-      const free = freeLayer(4);
-      const wired = wiring({ free: free.deps, partialGapSupported: false });
+      const free = freeLayer(FREE_LEAVING_GAP_3);
+      const wired = wiring({
+        free: free.deps,
+        partialGapSupported: false,
+        paidRaw: PAID_RAW_MATCHING_GAP_3,
+      });
       const result = await executeProspectWizardGeneration(REQUEST, wired.deps);
 
       assert.deepEqual(free.persistedInto, [], '🔴 el aporte parcial vuelve a descartarse…');
@@ -317,11 +339,22 @@ describe('CUT-6 §§ 20, 21 · A — descartar el parcial sólo porque F < T', (
         TARGET,
         '…y el hueco vuelve a ser el objetivo entero',
       );
-      assert.equal(result.ok && result.candidateCount, 6, '🔴 y el conteo pierde las 4 gratuitas');
+      assert.equal(
+        result.ok && result.candidateCount,
+        PAID_RAW_MATCHING_GAP_3,
+        '🔴 y el conteo pierde las TARGET−3 gratuitas: sólo queda lo pagado',
+      );
       // La expectativa VIVA de CUT-6 sobre la misma entrada.
-      const live = wiring({ free: freeLayer(4).deps });
+      const live = wiring({
+        free: freeLayer(FREE_LEAVING_GAP_3).deps,
+        paidRaw: PAID_RAW_MATCHING_GAP_3,
+      });
       const liveResult = await executeProspectWizardGeneration(REQUEST, live.deps);
-      assert.equal(liveResult.ok && liveResult.candidateCount, 10, 'con la activación viva son 10');
+      assert.equal(
+        liveResult.ok && liveResult.candidateCount,
+        TARGET,
+        'con la activación viva son TARGET',
+      );
     });
   });
 });
@@ -455,15 +488,26 @@ describe('CUT-6 §§ 20, 21 · E — duplicado pagado contado como hueco cerrado
     );
   });
 
-  it('🔴 EN NEGATIVO — 6 crudos con 2 duplicados suman 8, jamás 10', async () => {
+  it('🔴 EN NEGATIVO — 3 crudos con 2 duplicados suman TARGET−2, jamás TARGET', async () => {
     await withEnv(async () => {
-      const clean = wiring({ free: freeLayer(4).deps, paidRaw: 6 });
+      const clean = wiring({
+        free: freeLayer(FREE_LEAVING_GAP_3).deps,
+        paidRaw: PAID_RAW_MATCHING_GAP_3,
+      });
       const cleanResult = await executeProspectWizardGeneration(REQUEST, clean.deps);
-      assert.equal(cleanResult.ok && cleanResult.candidateCount, 10);
+      assert.equal(cleanResult.ok && cleanResult.candidateCount, TARGET);
 
-      const dupes = wiring({ free: freeLayer(4).deps, paidRaw: 6, duplicatesOfFree: 2 });
+      const dupes = wiring({
+        free: freeLayer(FREE_LEAVING_GAP_3).deps,
+        paidRaw: PAID_RAW_MATCHING_GAP_3,
+        duplicatesOfFree: 2,
+      });
       const dupeResult = await executeProspectWizardGeneration(REQUEST, dupes.deps);
-      assert.equal(dupeResult.ok && dupeResult.candidateCount, 8, '🔴 los duplicados no cuentan');
+      assert.equal(
+        dupeResult.ok && dupeResult.candidateCount,
+        TARGET - 2,
+        '🔴 los duplicados no cuentan',
+      );
       assert.equal(dupeResult.ok && dupeResult.targetReached, false);
     });
   });

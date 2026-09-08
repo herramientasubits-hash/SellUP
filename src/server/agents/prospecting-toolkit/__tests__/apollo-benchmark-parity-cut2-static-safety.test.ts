@@ -111,25 +111,132 @@ describe('MUTACIÓN 1 · `residualGap` ignorado y objetivo original en su lugar'
 
 // ─── MUTACIÓN 2 · la ronda 2 se reinicia al hueco original ────────────────────
 
+/**
+ * 🔴 El anclaje es el ENUNCIADO que alimenta la demanda de ronda, no una ventana
+ * de caracteres a partir de otra declaración. AGENT1-APOLLO-LUSHA-WATERFALL ·
+ * CORTE 3 extrajo el ternario a `roundDemand` y lo colocó ANTES de
+ * `const requestedResultLimit =`; una guarda que sólo mirase hacia adelante desde
+ * esa declaración se quedaba sin anclaje aunque el comportamiento fuera correcto.
+ * Lo que se defiende aquí es la invariante funcional, no la forma del texto:
+ *
+ *   · la demanda de ronda 2 se deriva de `projectedTargetGap()`;
+ *   · nunca vuelve al objetivo/hueco ORIGINAL;
+ *   · y el límite pedido se alimenta de esa demanda, acotado y con suelo 1.
+ */
+function readRoundDemandWiring(
+  code: string,
+): { round1: string; round2: string; limit: string } | null {
+  const demandStart = code.indexOf('const roundDemand =');
+  if (demandStart < 0) return null;
+  const demandEnd = code.indexOf(';', demandStart);
+  if (demandEnd < 0) return null;
+  const demand = code.slice(demandStart, demandEnd + 1);
+
+  const ternary = /^const roundDemand =\s*roundNumber === 1\s*\?([^:]*):([\s\S]*);$/.exec(demand);
+  if (!ternary) return null;
+
+  // El límite pedido se resuelve DESPUÉS de la demanda, nunca antes.
+  const limitStart = code.indexOf('const requestedResultLimit =', demandEnd);
+  if (limitStart < 0) return null;
+  const limitEnd = code.indexOf(';', limitStart);
+  if (limitEnd < 0) return null;
+
+  return {
+    round1: ternary[1].trim(),
+    round2: ternary[2].trim(),
+    limit: code.slice(limitStart, limitEnd + 1),
+  };
+}
+
+/** La invariante de MUTACIÓN 2, como predicado, para poder probarla EN NEGATIVO. */
+function round2DemandDerivesFromProjectedGap(code: string): boolean {
+  const wiring = readRoundDemandWiring(code);
+  if (wiring === null) return false;
+
+  // Ronda 1: el objetivo EFECTIVO (no el config a secas).
+  if (wiring.round1 !== 'targetEligibleCompanies') return false;
+  // Ronda 2: el hueco PROYECTADO, y nada del objetivo/hueco original.
+  if (!/projectedTargetGap\(\)/.test(wiring.round2)) return false;
+  if (/targetEligibleCompanies|remainingTargetApplied|config\.maxResultsPerRound/.test(wiring.round2))
+    return false;
+  // El límite se alimenta de esa demanda: suelo 1 y cota que sólo recorta.
+  if (!/Math\.max\(\s*1\s*,/.test(wiring.limit)) return false;
+  return /boundByRemainingTarget\(\s*config\.maxResultsPerRound\s*,\s*roundDemand\s*\)/.test(
+    wiring.limit,
+  );
+}
+
 describe('MUTACIÓN 2 · la ronda 2 vuelve a pedir el hueco original', () => {
   it('el límite de la ronda 2 sale del hueco PROYECTADO, no del inicial', () => {
     const code = stripTsComments(read(ORCHESTRATOR));
-    const decl = code.indexOf('const requestedResultLimit =');
-    assert.ok(decl > 0, 'la declaración del límite por ronda existe');
-    const block = code.slice(decl, decl + 600);
 
     assert.ok(
-      block.includes('await projectedTargetGap()'),
-      '🔴 la ronda 2 tiene que descontar lo que la ronda 1 ya aportó',
+      code.includes('const roundDemand ='),
+      'la demanda por ronda se resuelve en un enunciado propio',
     );
     assert.ok(
-      block.includes("roundNumber === 1 ? targetEligibleCompanies"),
-      'la ronda 1 usa el objetivo efectivo y la 2 el hueco vigente',
+      round2DemandDerivesFromProjectedGap(code),
+      '🔴 la ronda 2 tiene que descontar lo que la ronda 1 ya aportó',
     );
     // Con demanda presente el límite NO puede volver a ser el config a secas.
     assert.ok(
       !/const requestedResultLimit = config\.maxResultsPerRound;/.test(code),
       'el literal antiguo no puede haber vuelto',
+    );
+  });
+
+  /**
+   * 🔴 EN NEGATIVO — sobre el MISMO texto mutado. Si alguien devuelve la ronda 2
+   * al objetivo/hueco original, o desconecta el límite de la demanda, el
+   * predicado de arriba TIENE que ponerse rojo.
+   */
+  it('mutación: devolver la ronda 2 al hueco original deja la guarda sin verde', () => {
+    const code = stripTsComments(read(ORCHESTRATOR));
+    const REAL = 'roundNumber === 1 ? targetEligibleCompanies : await projectedTargetGap()';
+    assert.ok(code.includes(REAL), 'el ternario real sigue donde la mutación lo busca');
+
+    // (a) la ronda 2 se reinicia al objetivo ORIGINAL.
+    const backToTarget = code.replace(
+      REAL,
+      'roundNumber === 1 ? targetEligibleCompanies : targetEligibleCompanies',
+    );
+    assert.notStrictEqual(backToTarget, code, 'la mutación (a) se aplicó de verdad');
+    assert.ok(
+      !round2DemandDerivesFromProjectedGap(backToTarget),
+      'ronda 2 → objetivo original tiene que quedar en rojo',
+    );
+
+    // (b) la ronda 2 se reinicia al hueco INICIAL de la capa gratuita.
+    const backToInitialGap = code.replace(
+      REAL,
+      'roundNumber === 1 ? targetEligibleCompanies : (remainingTargetApplied ?? 0)',
+    );
+    assert.notStrictEqual(backToInitialGap, code, 'la mutación (b) se aplicó de verdad');
+    assert.ok(
+      !round2DemandDerivesFromProjectedGap(backToInitialGap),
+      'ronda 2 → hueco inicial tiene que quedar en rojo',
+    );
+
+    // (c) el límite deja de alimentarse de la demanda por ronda.
+    const unwired = code.replace(
+      /boundByRemainingTarget\(\s*config\.maxResultsPerRound\s*,\s*roundDemand\s*\)/,
+      'config.maxResultsPerRound',
+    );
+    assert.notStrictEqual(unwired, code, 'la mutación (c) se aplicó de verdad');
+    assert.ok(
+      !round2DemandDerivesFromProjectedGap(unwired),
+      'un límite desconectado de la demanda tiene que quedar en rojo',
+    );
+
+    // 🔴 Y en POSITIVO sobre una forma distinta pero equivalente: el predicado no
+    // está congelando el formato, está exigiendo el origen del número.
+    const reshaped = code.replace(
+      REAL,
+      'roundNumber === 1 ? targetEligibleCompanies : Math.max(0, await projectedTargetGap())',
+    );
+    assert.ok(
+      round2DemandDerivesFromProjectedGap(reshaped),
+      'cualquier forma que derive del hueco proyectado sigue siendo válida',
     );
   });
 

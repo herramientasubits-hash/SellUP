@@ -32,6 +32,7 @@ import type {
 
 import { runIncrementalProspectingSearch } from '../incremental-search';
 import type { ProspectingPipelineOutput, CatalogContextResult } from '../types';
+import { WIZARD_TARGET_USEFUL_COMPANIES } from '@/modules/prospect-batches/wizard-target-authority';
 
 // ── Shared fixture: minimal valid CatalogContextResult ────────────────────────
 
@@ -137,7 +138,7 @@ describe('Fixture B — Adaptive constants from wizard-tavily-executor', () => {
   });
 
   it('WIZARD_TARGET_PERSISTIBLE_CANDIDATES equals 10', () => {
-    assert.equal(WIZARD_TARGET_PERSISTIBLE_CANDIDATES, 10);
+    assert.equal(WIZARD_TARGET_PERSISTIBLE_CANDIDATES, WIZARD_TARGET_USEFUL_COMPANIES);
   });
 });
 

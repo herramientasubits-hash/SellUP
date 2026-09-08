@@ -39,6 +39,7 @@ import {
 import { estimateApolloTwoRoundBudget } from '../budget';
 import { buildRunMetrics, type EnrichmentOutcome } from '../observability';
 import { testConfig, testCorrelation, testQueryContext, org, rejectedAssessment } from './fixtures';
+import { WIZARD_TARGET_USEFUL_COMPANIES } from '@/modules/prospect-batches/wizard-target-authority';
 
 // ─── § 1 · colapso de truncamiento: la única variante que queda es la página ──
 
@@ -321,14 +322,17 @@ describe('§ 2 · topes absolutos 10/20/6, sin cambiar el comportamiento por def
     // rondas no puede tener un tope de aceptación menor que el que la legacy
     // ya honraba. maxEnrichmentsPerRun NO sube: sigue siendo la autoridad de
     // presupuesto real (alimenta la reserva atómica del wizard).
-    assert.equal(TARGET_ELIGIBLE_COMPANIES_ABSOLUTE_MAX, 10);
+    assert.equal(TARGET_ELIGIBLE_COMPANIES_ABSOLUTE_MAX, WIZARD_TARGET_USEFUL_COMPANIES);
     assert.equal(MAX_SEARCH_ROUNDS_ABSOLUTE_MAX, 2);
   });
 
-  test('sin overrides de entorno la config resuelta sigue siendo 10/2/10/20/2', () => {
+  test('sin overrides de entorno la config resuelta es 5/2/10/20/2', () => {
+    // AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 1 — el objetivo baja a la autoridad
+    // única. Los otros cuatro no se mueven, y el presupuesto máximo tampoco
+    // (12 créditos): el objetivo nunca alimentó la estimación.
     const resolved = defaultApolloTwoRoundConfig();
     assert.deepEqual(resolved, {
-      targetEligibleCompanies: 10,
+      targetEligibleCompanies: WIZARD_TARGET_USEFUL_COMPANIES,
       maxRounds: 2,
       maxResultsPerRound: 10,
       maxRawResultsPerRun: 20,

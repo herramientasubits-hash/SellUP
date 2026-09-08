@@ -125,9 +125,20 @@ describe('CUT-2 § 13 · demanda residual', () => {
 
     assert.equal(result.targetEligibleCompanies, 5, 'gobierna el objetivo de la config');
     assert.equal(result.remainingTargetApplied, null);
-    // El techo por ronda vuelve a ser `maxResultsPerRound`, byte por byte.
+    // 🔴 REANCLADO por AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 3. Antes exigía
+    // que TODAS las rondas pidieran `maxResultsPerRound` "byte por byte":
+    // justamente la rama que hacía que la ronda 2 empezara de cero cuando no
+    // hubo capa gratuita. "Sin capa previa" no es un caso distinto del
+    // producto — es el caso en que lo gratuito aportó CERO, y cero también se
+    // descuenta.
+    assert.equal(searchCalls[0]!.requestedResultLimit, 5, 'la ronda 1 apunta al objetivo entero');
+    assert.equal(
+      searchCalls[1]!.requestedResultLimit,
+      3,
+      'la ronda 2 descuenta las 2 que aportó la ronda 1',
+    );
     for (const call of searchCalls) {
-      assert.equal(call.requestedResultLimit, 5);
+      assert.ok(call.requestedResultLimit <= 5, 'el techo por ronda sigue intacto');
     }
   });
 

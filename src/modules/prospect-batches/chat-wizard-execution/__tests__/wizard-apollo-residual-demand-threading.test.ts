@@ -65,6 +65,24 @@ import type { IncrementalSearchOutput } from '@/server/agents/prospecting-toolki
 
 const TARGET = WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES;
 
+/**
+ * 🔴 AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 1 — re-anclaje de fixtures.
+ *
+ * Los casos de este archivo estaban escritos con el aporte gratuito FIJADO A MANO
+ * ("7 gratis ⇒ hueco 3", "9 gratis ⇒ hueco 1"). Esos literales sólo describían una
+ * corrida posible mientras el objetivo era 10. Con la autoridad única
+ * (`WIZARD_TARGET_USEFUL_COMPANIES`), 7 o 9 empresas gratuitas YA CIERRAN el
+ * objetivo entero: Apollo no se ejecutaría y el caso dejaría de describir un hueco
+ * parcial — que es justo lo que viene a probar.
+ *
+ * La propiedad defendida NO cambia: lo que llega al ejecutor de Apollo es el hueco
+ * RESIDUAL, no el objetivo entero. Se conserva expresando el aporte gratuito como
+ * `TARGET − hueco`, de modo que el hueco observado siga siendo el mismo número y
+ * el fixture sobreviva al PRÓXIMO cambio de objetivo.
+ */
+const FREE_FOR_GAP_3 = TARGET - 3;
+const FREE_FOR_GAP_1 = TARGET - 1;
+
 const USER_ID = '123e4567-e89b-12d3-a456-426614174009';
 const INDUSTRY_ID = '223e4567-e89b-12d3-a456-426614174001';
 const SUBINDUSTRY_ID = '323e4567-e89b-12d3-a456-426614174002';
@@ -262,9 +280,11 @@ async function withEnv<T>(fn: () => Promise<T>): Promise<T> {
 // ── §§ 3, 4 · el hueco llega recortado ───────────────────────────────────────
 
 describe('CUT-2 §§ 3, 4 · la demanda residual llega al ejecutor de Apollo', () => {
-  it('objetivo 10 con 7 persistidas gratis ⇒ Apollo recibe `remainingTarget: 3`', async () => {
+  it('objetivo TARGET con TARGET−3 persistidas gratis ⇒ Apollo recibe `remainingTarget: 3`', async () => {
     await withEnv(async () => {
-      const wired = deps(freeLayerDeps({ acceptedNovel: 7, persistedCount: 7 }));
+      const wired = deps(
+        freeLayerDeps({ acceptedNovel: FREE_FOR_GAP_3, persistedCount: FREE_FOR_GAP_3 }),
+      );
 
       const result = await executeProspectWizardGeneration(REQUEST, wired.deps);
 
@@ -273,16 +293,18 @@ describe('CUT-2 §§ 3, 4 · la demanda residual llega al ejecutor de Apollo', (
       const demand = wired.observed.apolloCalls[0]!.resultDemand;
       assert.ok(demand, 'la demanda viaja');
       assert.equal(demand.requestedTarget, TARGET);
-      assert.equal(demand.acceptedBeforeProvider, 7);
+      assert.equal(demand.acceptedBeforeProvider, FREE_FOR_GAP_3);
       assert.equal(demand.remainingTarget, 3);
       assert.equal(demand.providerRequired, true);
       assert.equal(demand.source, 'prepaid_novelty_residual_gap');
     });
   });
 
-  it('objetivo 10 con 9 persistidas gratis ⇒ `remainingTarget: 1`', async () => {
+  it('objetivo TARGET con TARGET−1 persistidas gratis ⇒ `remainingTarget: 1`', async () => {
     await withEnv(async () => {
-      const wired = deps(freeLayerDeps({ acceptedNovel: 9, persistedCount: 9 }));
+      const wired = deps(
+        freeLayerDeps({ acceptedNovel: FREE_FOR_GAP_1, persistedCount: FREE_FOR_GAP_1 }),
+      );
 
       await executeProspectWizardGeneration(REQUEST, wired.deps);
 
@@ -290,7 +312,7 @@ describe('CUT-2 §§ 3, 4 · la demanda residual llega al ejecutor de Apollo', (
     });
   });
 
-  it('objetivo 10 cerrado entero gratis ⇒ Apollo NO se ejecuta y no se reserva nada', async () => {
+  it('objetivo TARGET cerrado entero gratis ⇒ Apollo NO se ejecuta y no se reserva nada', async () => {
     await withEnv(async () => {
       const wired = deps(freeLayerDeps({ acceptedNovel: TARGET, persistedCount: TARGET }));
 
@@ -334,9 +356,11 @@ describe('CUT-2 §§ 3, 4 · la demanda residual llega al ejecutor de Apollo', (
 // ── §§ 5, 16 · el RATCHET de presupuesto ─────────────────────────────────────
 
 describe('CUT-2 §§ 5, 16 · un hueco menor NO reduce la reserva', () => {
-  it('🔴 la reserva es IDÉNTICA con hueco 3 y con hueco 10', async () => {
+  it('🔴 la reserva es IDÉNTICA con hueco 3 y con hueco TARGET (entero)', async () => {
     await withEnv(async () => {
-      const conAporte = deps(freeLayerDeps({ acceptedNovel: 7, persistedCount: 7 }));
+      const conAporte = deps(
+        freeLayerDeps({ acceptedNovel: FREE_FOR_GAP_3, persistedCount: FREE_FOR_GAP_3 }),
+      );
       await executeProspectWizardGeneration(REQUEST, conAporte.deps);
 
       const sinAporte = deps(freeLayerDeps({ acceptedNovel: 0, persistedCount: 0 }));
@@ -360,7 +384,9 @@ describe('CUT-2 §§ 5, 16 · un hueco menor NO reduce la reserva', () => {
 
   it('la reserva tampoco cambia con hueco 1', async () => {
     await withEnv(async () => {
-      const wired = deps(freeLayerDeps({ acceptedNovel: 9, persistedCount: 9 }));
+      const wired = deps(
+        freeLayerDeps({ acceptedNovel: FREE_FOR_GAP_1, persistedCount: FREE_FOR_GAP_1 }),
+      );
 
       await executeProspectWizardGeneration(REQUEST, wired.deps);
 
@@ -377,10 +403,13 @@ describe('CUT-2 §§ 5, 16 · un hueco menor NO reduce la reserva', () => {
 describe('CUT-2 § 12 · el desenlace de la carga de memoria viaja con la memoria', () => {
   it('lectura con ÉXITO y memoria poblada ⇒ snapshot disponible', async () => {
     await withEnv(async () => {
+      // Re-anclado (CORTE 1): el aporte gratuito sólo tiene que dejar hueco para
+      // que Apollo corra y se pueda observar `priorProviderSeen`; se expresa como
+      // `TARGET − 3` porque un literal 7 cerraría hoy el objetivo entero.
       const wired = deps(
         freeLayerDeps({
-          acceptedNovel: 7,
-          persistedCount: 7,
+          acceptedNovel: FREE_FOR_GAP_3,
+          persistedCount: FREE_FOR_GAP_3,
           providerSeen: {
             loaded: true,
             unavailableReason: null,
@@ -406,7 +435,11 @@ describe('CUT-2 § 12 · el desenlace de la carga de memoria viaja con la memori
   it('lectura con ÉXITO y memoria VACÍA ⇒ snapshot disponible y vacío (⇒ 0 aciertos, no null)', async () => {
     await withEnv(async () => {
       const wired = deps(
-        freeLayerDeps({ acceptedNovel: 7, persistedCount: 7, providerSeen: PROVIDER_SEEN_LOAD_EMPTY }),
+        freeLayerDeps({
+          acceptedNovel: FREE_FOR_GAP_3,
+          persistedCount: FREE_FOR_GAP_3,
+          providerSeen: PROVIDER_SEEN_LOAD_EMPTY,
+        }),
       );
 
       await executeProspectWizardGeneration(REQUEST, wired.deps);
@@ -421,8 +454,8 @@ describe('CUT-2 § 12 · el desenlace de la carga de memoria viaja con la memori
     await withEnv(async () => {
       const wired = deps(
         freeLayerDeps({
-          acceptedNovel: 7,
-          persistedCount: 7,
+          acceptedNovel: FREE_FOR_GAP_3,
+          persistedCount: FREE_FOR_GAP_3,
           providerSeen: PROVIDER_SEEN_LOAD_FAILED,
         }),
       );

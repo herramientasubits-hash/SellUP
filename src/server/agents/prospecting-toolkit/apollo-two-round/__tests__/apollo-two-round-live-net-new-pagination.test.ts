@@ -796,10 +796,17 @@ describe('Liquidación — 2 páginas no vacías + 1 vacía + 6 enrichments exit
     const { deps, recorder, pageFetchLog } = buildDeps({
       pagesByRound: [[pagePayload(1, page1), pagePayload(2, page2), emptyPagePayload(3)]],
       historicalDomains,
-      // netNewTarget = maxResultsPerRound = 10: con sólo 6 aceptados tras las
-      // páginas 1 y 2, la paginación sigue pidiendo — hasta que la página 3
-      // vuelve vacía y cierra la búsqueda sin más costo.
-      config: liveConfig({ targetEligibleCompanies: 6, maxResultsPerRound: 10, maxEnrichmentsPerRun: 6 }),
+      // 🔴 REANCLADO por AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 3: el objetivo
+      // sube de 6 a 10 para que el ESCENARIO siga siendo posible.
+      //
+      // `netNewTarget` ya no es `maxResultsPerRound` fijo: es el hueco de la
+      // ronda, `min(maxResultsPerRound, objetivo pendiente)`. Con objetivo 6 y
+      // 6 aceptados en las páginas 1 y 2 el hueco se cierra y la página 3 no
+      // se pide siquiera — que es la mejora del corte (la suficiencia detiene
+      // la SIGUIENTE compra), pero deja sin sujeto a este caso, que mide cómo
+      // se LIQUIDA una tercera página vacía. Con objetivo 10 el hueco sigue
+      // abierto tras 6 aceptados y la tercera página vuelve a pedirse.
+      config: liveConfig({ targetEligibleCompanies: 10, maxResultsPerRound: 10, maxEnrichmentsPerRun: 6 }),
     });
 
     const output = await runApolloTwoRoundWizardDiscovery(runInput(), deps);

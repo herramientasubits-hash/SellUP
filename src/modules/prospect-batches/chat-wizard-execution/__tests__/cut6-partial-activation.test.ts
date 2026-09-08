@@ -74,6 +74,23 @@ import type { IncrementalSearchOutput } from '@/server/agents/prospecting-toolki
 
 const TARGET = WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES;
 
+/**
+ * 🔴 AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 1 — re-anclaje de fixtures.
+ *
+ * Los CASOS 4, 5, 6 y 19 describían el resultado combinado con cifras fijas
+ * («free 4 + paid 6 ⇒ 10 durables», «hueco 6»). Esas cifras sólo eran una corrida
+ * posible con el objetivo en 10: con la autoridad única, un hueco de 6 excede el
+ * objetivo entero y un aporte pagado de 6 nunca podría admitirse. El doble de pago
+ * recorta al hueco (`admitted = min(raw − duplicados, remaining)`), así que los
+ * literales producían totales imposibles.
+ *
+ * Las propiedades defendidas se conservan intactas: gratuito + pagado suman en UN
+ * lote, un aporte pagado corto NO finge completitud, un duplicado NO cierra hueco,
+ * y la AMPLITUD de búsqueda no se recorta con el hueco. Sólo cambia el ancla:
+ * el aporte gratuito se expresa como `TARGET − hueco`.
+ */
+const FREE_LEAVING_GAP_3 = TARGET - 3;
+
 const USER_ID = '123e4567-e89b-12d3-a456-426614174019';
 const INDUSTRY_ID = '223e4567-e89b-12d3-a456-426614174011';
 const SUBINDUSTRY_ID = '323e4567-e89b-12d3-a456-426614174012';
@@ -488,7 +505,11 @@ describe('CUT-6 § 3 · F = 0, 0 < F < T, F >= T', () => {
 
       const demand = wired.observed.apolloCalls[0]!.resultDemand;
       assert.equal(demand?.acceptedBeforeProvider, 4);
-      assert.equal(demand?.remainingTarget, TARGET - 4, '🔴 el hueco es 6, no 10');
+      assert.equal(
+        demand?.remainingTarget,
+        TARGET - 4,
+        '🔴 el hueco es T − F, no el objetivo entero',
+      );
       assert.equal(demand?.requestedTarget, TARGET, 'el objetivo del usuario NO se reescribe');
       assert.equal(demand?.source, 'prepaid_novelty_residual_gap');
     });
@@ -498,20 +519,27 @@ describe('CUT-6 § 3 · F = 0, 0 < F < T, F >= T', () => {
 // ── CASOS 4, 5, 6 · el resultado combinado ───────────────────────────────────
 
 describe('CUT-6 §§ 10, 11, 14 · el resultado combinado', () => {
-  it('CASO 4 — free 4 + paid 6 ⇒ 10 durables en UN lote', async () => {
+  it('CASO 4 — free TARGET−3 + paid 3 ⇒ TARGET durables en UN lote', async () => {
     await withEnv(async () => {
-      const free = freeLayer({ acceptedNovel: 4, persistedCount: 4 });
-      const wired = wiring({ free: free.deps, paid: { kind: 'returns', raw: 6 } });
+      const free = freeLayer({
+        acceptedNovel: FREE_LEAVING_GAP_3,
+        persistedCount: FREE_LEAVING_GAP_3,
+      });
+      const wired = wiring({ free: free.deps, paid: { kind: 'returns', raw: 3 } });
       const result = await executeProspectWizardGeneration(REQUEST, wired.deps);
 
       assert.equal(result.ok, true);
-      assert.equal(result.ok && result.candidateCount, 10, '🔴 4 + 6, no 6');
+      assert.equal(
+        result.ok && result.candidateCount,
+        TARGET,
+        '🔴 (TARGET−3) + 3, no sólo lo pagado',
+      );
       assert.equal(result.ok && result.targetReached, true);
       assert.equal(result.ok && result.status, 'success_target_reached');
       assert.equal(
         result.ok && result.targetPersistibleCandidates,
         TARGET,
-        '🔴 se reporta el objetivo del USUARIO (10), no el hueco (6)',
+        '🔴 se reporta el objetivo del USUARIO (TARGET), no el hueco (3)',
       );
       assert.deepEqual(
         distinctBatches([
@@ -527,27 +555,48 @@ describe('CUT-6 §§ 10, 11, 14 · el resultado combinado', () => {
 
   it('CASO 5 — paid devuelve MENOS que el hueco ⇒ sin completitud fingida', async () => {
     await withEnv(async () => {
-      const free = freeLayer({ acceptedNovel: 4, persistedCount: 4 });
-      const wired = wiring({ free: free.deps, paid: { kind: 'returns', raw: 3 } });
+      // Re-anclado (CORTE 1): con hueco 3 el proveedor devuelve 2 ⇒ falta 1.
+      const free = freeLayer({
+        acceptedNovel: FREE_LEAVING_GAP_3,
+        persistedCount: FREE_LEAVING_GAP_3,
+      });
+      const wired = wiring({ free: free.deps, paid: { kind: 'returns', raw: 2 } });
       const result = await executeProspectWizardGeneration(REQUEST, wired.deps);
 
-      assert.equal(result.ok && result.candidateCount, 7, '4 gratis + 3 de pago');
-      assert.equal(result.ok && result.targetReached, false, '🔴 7 de 10 no es alcanzado');
+      assert.equal(
+        result.ok && result.candidateCount,
+        FREE_LEAVING_GAP_3 + 2,
+        '(TARGET−3) gratis + 2 de pago',
+      );
+      assert.equal(
+        result.ok && result.targetReached,
+        false,
+        '🔴 TARGET−1 de TARGET no es alcanzado',
+      );
       assert.equal(result.ok && result.status, 'success_partial');
     });
   });
 
   it('CASO 6 — paid devuelve DUPLICADOS de lo gratuito ⇒ CUT-3 los rechaza y el hueco NO se da por cerrado', async () => {
     await withEnv(async () => {
-      const free = freeLayer({ acceptedNovel: 4, persistedCount: 4 });
-      // 6 crudos, 2 son identidades que la capa gratuita ya dejó en el lote.
+      const free = freeLayer({
+        acceptedNovel: FREE_LEAVING_GAP_3,
+        persistedCount: FREE_LEAVING_GAP_3,
+      });
+      // Re-anclado (CORTE 1): 3 crudos —tantos como el hueco—, de los cuales 2 son
+      // identidades que la capa gratuita ya dejó en el lote. Sólo 1 es nueva, así
+      // que el hueco NO se cierra pese a que el proveedor devolvió el hueco entero.
       const wired = wiring({
         free: free.deps,
-        paid: { kind: 'returns', raw: 6, duplicatesOfFree: 2 },
+        paid: { kind: 'returns', raw: 3, duplicatesOfFree: 2 },
       });
       const result = await executeProspectWizardGeneration(REQUEST, wired.deps);
 
-      assert.equal(result.ok && result.candidateCount, 8, '🔴 4 + 4 admitidas, NUNCA 10');
+      assert.equal(
+        result.ok && result.candidateCount,
+        FREE_LEAVING_GAP_3 + 1,
+        '🔴 (TARGET−3) + 1 admitida, NUNCA TARGET',
+      );
       assert.equal(result.ok && result.targetReached, false, '🔴 un duplicado no cierra hueco');
       assert.equal(result.ok && result.status, 'success_partial');
     });
@@ -875,7 +924,11 @@ describe('CUT-6 §§ 11, 14 · trazas distinguibles y verdad durable', () => {
 // ── CASO 19 · amplitud de búsqueda ≠ objetivo persistible ────────────────────
 
 describe('CUT-6 § 4 · la amplitud de búsqueda NO se mezcla con el objetivo', () => {
-  it('CASO 19 — con hueco 6, `targetInternal` sigue en 25 y sólo baja la ACEPTACIÓN', async () => {
+  // Re-anclado (CORTE 1): el hueco de 6 era inexpresable —excede el objetivo
+  // entero, y el ejecutor lo recorta—. Se usa un hueco de 3 sobre `TARGET − 3`
+  // aceptadas; la propiedad («la amplitud NO se recorta con el hueco, la
+  // aceptación sí») es la misma.
+  it('CASO 19 — con hueco 3, `targetInternal` sigue en 25 y sólo baja la ACEPTACIÓN', async () => {
     const seen: { targetInternal: number; targetPersistibleCandidates: number }[] = [];
     const resolved = {
       country: { name: 'Colombia', code: 'CO' },
@@ -905,8 +958,8 @@ describe('CUT-6 § 4 · la amplitud de búsqueda NO se mezcla con el objetivo', 
           ({ resolution: { terms: [] } }) as never,
         resultDemand: {
           requestedTarget: TARGET,
-          acceptedBeforeProvider: 4,
-          remainingTarget: 6,
+          acceptedBeforeProvider: FREE_LEAVING_GAP_3,
+          remainingTarget: 3,
           providerRequired: true,
           source: 'prepaid_novelty_residual_gap',
         },
@@ -929,7 +982,7 @@ describe('CUT-6 § 4 · la amplitud de búsqueda NO se mezcla con el objetivo', 
       WIZARD_APOLLO_TARGET_INTERNAL,
       '🔴 la AMPLITUD (25) no se recorta con el hueco',
     );
-    assert.equal(seen[0]!.targetPersistibleCandidates, 6, 'la ACEPTACIÓN sí');
+    assert.equal(seen[0]!.targetPersistibleCandidates, 3, 'la ACEPTACIÓN sí');
     assert.notEqual(WIZARD_APOLLO_TARGET_INTERNAL, WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES);
     assert.equal(WIZARD_APOLLO_MAX_ROUNDS, 4, 'las rondas tampoco dependen del hueco');
   });
