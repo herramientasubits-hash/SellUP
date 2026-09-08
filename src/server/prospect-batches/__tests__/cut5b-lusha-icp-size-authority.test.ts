@@ -700,6 +700,63 @@ describe('CUT-5B § F — Apollo no cambia', () => {
     );
   });
 
+  /**
+   * TABLA DORADA de la vía por DEFECTO — la que recorren Apollo y Tavily.
+   *
+   * 🔴 Se fijó comparando el normalizador actual contra el de `origin/main`
+   * (pre-CUT-5B) sobre 12.960 combinaciones de proveedor × employeeCount ×
+   * minEmployees × país × dominio × LinkedIn, con `deepStrictEqual` sobre el
+   * objeto COMPLETO y sobre el desenlace del gate: 0 diferencias observables.
+   *
+   * Esta tabla es lo que queda de aquella comparación cuando el código viejo ya
+   * no está a mano. Si alguien mueve el default —el único camino por el que
+   * Apollo podría empezar a leer el `0` como conocido—, esta prueba cae.
+   */
+  const APOLLO_DEFAULT_GOLDEN: Array<[string, unknown, number | null, string]> = [
+    ['0',          0,                          null, 'reviewable_with_warnings'],
+    ['-0',         -0,                         null, 'reviewable_with_warnings'],
+    ['0.4',        0.4,                        null, 'reviewable_with_warnings'],
+    ['0.9',        0.9,                        null, 'reviewable_with_warnings'],
+    ['null',       null,                       null, 'reviewable_with_warnings'],
+    ['undefined',  undefined,                  null, 'reviewable_with_warnings'],
+    ['NaN',        Number.NaN,                 null, 'reviewable_with_warnings'],
+    ['+Infinity',  Number.POSITIVE_INFINITY,   null, 'reviewable_with_warnings'],
+    ['-Infinity',  Number.NEGATIVE_INFINITY,   null, 'reviewable_with_warnings'],
+    ['-1',         -1,                         null, 'reviewable_with_warnings'],
+    ['-200',       -200,                       null, 'reviewable_with_warnings'],
+    ['1',          1,                             1, 'hard_excluded'],
+    ['199',        199,                         199, 'hard_excluded'],
+    ['199.9',      199.9,                       199, 'hard_excluded'],
+    ['200',        200,                         200, 'reviewable_clean'],
+    ['200.7',      200.7,                       200, 'reviewable_clean'],
+    ['201',        201,                         201, 'reviewable_clean'],
+    ['1000000',    1_000_000,               1000000, 'reviewable_clean'],
+  ];
+
+  for (const [label, value, expectedCount, expectedDecision] of APOLLO_DEFAULT_GOLDEN) {
+    it(`vía Apollo (sin opciones) — ${label} ⇒ count=${String(expectedCount)}, ${expectedDecision}`, () => {
+      const { normalized, gate } = admissionWithDefaults(value);
+      assert.equal(normalized.employeeCount, expectedCount);
+      assert.equal(gate.decision, expectedDecision);
+    });
+  }
+
+  it('la opción de Lusha SÓLO mueve los valores que truncan a cero', () => {
+    // El delta entre las dos vías es exactamente {0, -0, 0.4, 0.9}. Ni uno más:
+    // si la opción empezara a mover 199 o null, sería una autoridad distinta.
+    const PROBE: unknown[] = [
+      null, undefined, 0, -0, 0.4, 0.9, 1, 49, 199, 199.9, 200, 200.7, 201, 1000,
+      Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -1, -5, -200,
+    ];
+    const moved: string[] = [];
+    for (const value of PROBE) {
+      const withDefaults = admissionWithDefaults(value).normalized.employeeCount;
+      const withOptIn = admissionFor(value).audit.employeeCount;
+      if (withDefaults !== withOptIn) moved.push(String(value));
+    }
+    assert.deepEqual(moved.sort(), ['0', '0', '0.4', '0.9'], 'sólo el cero (y lo que trunca a cero) cambia');
+  });
+
   test('la opción es un parámetro de contrato, NO un feature flag', () => {
     const source = readSource('src/server/agents/prospect-intake/normalize.ts');
     assert.equal(/process\.env/.test(source), false, 'sin env');
