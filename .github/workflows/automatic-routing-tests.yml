@@ -4578,3 +4578,22 @@ jobs:
       # 0 llamadas a Apollo, 0 créditos, 0 escrituras, 0 migraciones, 0 flags.
       - name: Run Agent1 Apollo macro query family variants (V3-A) and net-new pagination
         run: npm run test:a1-apollo-macro-query-family-variants-v3
+
+      # ══ HARDENING CUT-1 — el ownership de Apollo juzga como el writer ════════
+      #
+      # `candidate-writer.ts` nunca evalúa la propiedad con el nombre crudo: la
+      # Recall Recovery v1.10 sustituye un TÍTULO SEO por el nombre inferido del
+      # dominio antes de juzgar. El orquestador de Apollo sí lo hacía, y su
+      # rechazo es DEFINITIVO (`applyFinalGates` → `definitivelyRejected`), así
+      # que una empresa real con dominio propio se descartaba antes de que la
+      # recuperación del writer pudiera ejecutarse.
+      #
+      # El step fija las dos mitades del corte: el POSITIVO (la empresa con
+      # título SEO llega al writer), el NEGATIVO (la ajena al dominio se sigue
+      # rechazando, y se rechaza antes de gastar) y la guarda estática que impide
+      # volver a llamar al gate con el nombre crudo. Arrastra además las dos
+      # suites de ownership y de normalización de nombre que ningún step corría.
+      #
+      # 0 llamadas a proveedor, 0 créditos, 0 escrituras, 0 migraciones, 0 flags.
+      - name: Run Agent 1 HARDENING CUT-1 ownership recall parity tests
+        run: npm run test:a1-hardening-cut1-ownership-recall
