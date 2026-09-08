@@ -89,6 +89,11 @@ function legInput(usefulAccumulated: number, overrides: Record<string, unknown> 
     target: TARGET,
     usefulAccumulated,
     apolloTerminal: true,
+    // CORTE 5C — por defecto, el par que NO salta la capa gratuita de Lusha, que
+    // es el comportamiento que este fichero (corte 4) describe. El corte 5C tiene
+    // su propio fichero para el par que sí la salta.
+    freeSourceAttempted: false,
+    freeSourceFailed: true,
     ...overrides,
   } as Parameters<typeof runLushaWaterfallLeg>[0];
 }

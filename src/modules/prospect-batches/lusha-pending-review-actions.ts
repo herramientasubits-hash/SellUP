@@ -286,6 +286,25 @@ const GenerateInputSchema = z.object({
         .int()
         .min(1)
         .max(LUSHA_PENDING_REVIEW_MIN_USEFUL_CANDIDATES),
+      /**
+       * CORTE 5C — el veredicto de la capa gratuita de la pierna ANTERIOR, tal
+       * como `PrePaidFreeSourceOutcome` ya lo representa. Dos booleanos PLANOS,
+       * no un sub-objeto: son los mismos dos campos del tipo existente y no se
+       * acuña una segunda forma de decir lo mismo.
+       *
+       * 🔴 REQUERIDOS dentro del bloque. El bloque entero sigue siendo opcional
+       * —sin él es Lusha standalone—, pero quien lo manda tiene que declarar
+       * también qué pasó antes: un bloque a medias es un par sin sentido, y
+       * dejarlo pasar convertiría un olvido de cableado en un salto silencioso
+       * de la capa gratuita.
+       *
+       * 🔴 Lo que estos campos NO son: `persistedCount`. Una capa gratuita que
+       * corrió entera y aceptó CERO empresas es `attempted:true, failed:false`, y
+       * en ese caso repetirla tampoco aporta nada. Derivar el estado del conteo
+       * de filas es exactamente el defecto que este corte cierra.
+       */
+      freeSourceAttempted: z.boolean(),
+      freeSourceFailed: z.boolean(),
     })
     .optional(),
 });
@@ -723,6 +742,25 @@ async function runLushaPendingReviewUnderOperation(ctx: {
     }
   }
 
+  // ── 🔴 CORTE 5C — ¿hay que volver a correr la capa GRATUITA? ───────────────
+  //
+  // Standalone (`waterfall === null`): SIEMPRE sí. Es la única capa gratuita de
+  // esta superficie y no hay ninguna pierna delante. `false` aquí conserva el
+  // comportamiento de hoy byte por byte.
+  //
+  // Waterfall: sólo si la pierna anterior NO la completó. La condición es la
+  // conjunción exacta del veredicto que viaja, y nada más:
+  //
+  //   attempted && !failed  ⇒ corrió BIEN     ⇒ SKIP (aunque persistiera 0)
+  //   attempted &&  failed  ⇒ source_unavailable ⇒ NO skip: recuperación
+  //  !attempted &&  failed  ⇒ ausencia estructural ⇒ NO skip: comportamiento de
+  //                           hoy, que además ya corta gratis en la capacidad
+  //
+  // 🔴 `persistedCount` no aparece en esta expresión, y no puede aparecer: una
+  // capa gratuita que corrió entera y no encontró nada NO es un fallo.
+  const freeSourceAlreadyRun =
+    waterfall !== null && waterfall.freeSourceAttempted && !waterfall.freeSourceFailed;
+
   const prePaid = await runPrePaidNoveltyDiscovery(await createClient(), {
     countryCode: parsed.data.countryCode,
     countryName,
@@ -730,6 +768,8 @@ async function runLushaPendingReviewUnderOperation(ctx: {
     requestedTarget,
     requestedByUserId: internalUserId,
     partialGapSupported: LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED,
+    // CORTE 5C — ver arriba. En standalone es SIEMPRE `false`.
+    freeSourceAlreadyRun,
     // ADDENDUM PROVIDER-SEEN §§ 5, 6 — el proveedor decide la CAPACIDAD de
     // exclusión y de qué memoria se lee.
     //
