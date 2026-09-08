@@ -45,7 +45,18 @@ export type IcpSizeGateBatchSummary = {
   blocked_reasons: string[];
 };
 
-const DEFAULT_THRESHOLD = 200;
+/**
+ * Umbral de empleados del ICP, INCLUSIVO: la definición de negocio es «200+
+ * empleados», y 200+ incluye 200.
+ *
+ * 🔴 A1-LUSHA-WATERFALL-SIZE-GATE § CUT-5A — se EXPORTA porque la pierna Lusha
+ * necesita nombrar el mismo suelo local sin volver a declarar el literal. Dos
+ * declaraciones de `200` en dos módulos son dos definiciones de negocio que
+ * pueden divergir en el siguiente cambio; una sola no puede.
+ */
+export const ICP_SIZE_GATE_DEFAULT_THRESHOLD = 200;
+
+const DEFAULT_THRESHOLD = ICP_SIZE_GATE_DEFAULT_THRESHOLD;
 
 // ─── Parser de rangos ────────────────────────────────────────────────────────
 
