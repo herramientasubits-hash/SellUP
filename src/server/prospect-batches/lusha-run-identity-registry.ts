@@ -354,6 +354,21 @@ export type LushaIdentityDedupeResult = {
    * el proveedor repitió resultados que nunca repitió.
    */
   knownSeedRejectedCount: number;
+  /**
+   * 🔴 AGENT1-HARDENING-CUT-4 — LAS empresas que cayeron por la siembra, no sólo
+   * cuántas.
+   *
+   * Existe porque un contador no es una traza: hasta este corte, la única huella
+   * de una empresa retirada por dominio conocido era `knownSeedRejectedCount`, y
+   * el motivo de su descarte moría con la corrida. La taxonomía durable ya sabía
+   * traducirlo (`known_domain_seed` → `sellup_duplicate`), pero el runtime no le
+   * entregaba nunca la empresa.
+   *
+   * 🔴 OBSERVACIONAL. No cambia `unique`, ni los contadores, ni el registro, ni
+   * el orden de las señales: es una salida más de la MISMA decisión. La semántica
+   * del dedupe no se toca.
+   */
+  knownSeedRejected: readonly LushaKnownSeedRejection[];
   /** Cuántos duplicados por cada señal. Telemetría, no decisión. */
   duplicateReasonCounts: Record<LushaIdentityDuplicateReason, number>;
   /** Registro resultante: el llamador lo encadena a la siguiente página/rama. */
@@ -377,11 +392,22 @@ function emptyReasonCounts(): Record<LushaIdentityDuplicateReason, number> {
  * página o rama, porque cada empresa se registra en cuanto se acepta: no hay un
  * segundo mecanismo para el caso intra-página.
  */
+/**
+ * 🔴 AGENT1-HARDENING-CUT-4 — una empresa retirada por la SIEMBRA de conocidos,
+ * con la señal que la retiró. Sin PII más allá de lo que la empresa ya traía.
+ */
+export type LushaKnownSeedRejection = {
+  readonly company: LushaPreviewCompany;
+  /** El dominio normalizado que coincidió con la siembra. La evidencia. */
+  readonly matchedNormalizedDomain: string | null;
+};
+
 export function dedupeLushaCompaniesByIdentity(
   companies: readonly LushaPreviewCompany[],
   registry: LushaRunIdentityRegistry,
 ): LushaIdentityDedupeResult {
   const unique: LushaPreviewCompany[] = [];
+  const knownSeedRejected: LushaKnownSeedRejection[] = [];
   const duplicateReasonCounts = emptyReasonCounts();
   let unusableCount = 0;
   let duplicateCount = 0;
@@ -397,7 +423,15 @@ export function dedupeLushaCompaniesByIdentity(
     if (verdict.outcome === 'duplicate') {
       duplicateCount++;
       duplicateReasonCounts[verdict.reason]++;
-      if (verdict.reason === 'known_domain_seed') knownSeedRejectedCount++;
+      if (verdict.reason === 'known_domain_seed') {
+        knownSeedRejectedCount++;
+        // 🔴 CUT-4 — la empresa, no sólo su cuenta. El llamador la traduce a fila
+        // durable; aquí no se decide nada nuevo.
+        knownSeedRejected.push({
+          company,
+          matchedNormalizedDomain: verdict.identity.normalizedDomain,
+        });
+      }
       continue;
     }
     current = registerLushaCompanyIdentity(current, verdict.identity);
@@ -409,6 +443,7 @@ export function dedupeLushaCompaniesByIdentity(
     unusableCount,
     duplicateCount,
     knownSeedRejectedCount,
+    knownSeedRejected,
     duplicateReasonCounts,
     registry: current,
   };

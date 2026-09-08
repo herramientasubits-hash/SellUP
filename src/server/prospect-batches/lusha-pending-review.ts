@@ -2732,6 +2732,36 @@ export async function persistLushaPendingReviewBatch(
       } = await resolveLushaCandidatesDuplicateState(deps, input, dedupe.unique, criteria);
       skippedActiveDuplicatesCount += guardSkippedCount;
 
+      // ── 🔴 AGENT1-HARDENING-CUT-4 — la SIEMBRA de conocidos deja fila ──────
+      //
+      // Una empresa retirada por `known_domain_seed` cae en el dedupe, que corre
+      // ANTES de los dos puntos que generan disposiciones (gate duro y guard de
+      // candidato activo). Hasta este corte su única huella era un contador:
+      // `localKnownSuppressedTotal`. El motivo del descarte moría con la corrida,
+      // aunque la taxonomía durable ya supiera traducirlo.
+      //
+      // 🔴 La decisión NO se toca: la empresa ya estaba retirada y sigue estándolo,
+      // con el mismo contador y el mismo `unique`. Lo único que cambia es que ahora
+      // queda escrito POR QUÉ.
+      //
+      // 🔴 La escritura es `ON CONFLICT DO NOTHING` sobre `(batch_id, source_key)`:
+      // una segunda corrida no duplica, y un veredicto que Apollo ya escribió para
+      // esa empresa en el MISMO lote sobrevive intacto — Lusha no lo pisa.
+      for (const rejected of dedupe.knownSeedRejected) {
+        const record = buildLushaDiscardRecord({
+          company: rejected.company,
+          event: { kind: 'known_domain_seed' },
+          branchIndex,
+          page,
+          reasonDetail: rejected.matchedNormalizedDomain,
+          evidence: {
+            known_seed_matched_domain: rejected.matchedNormalizedDomain,
+            suppression_stage: 'run_identity_dedupe',
+          },
+        });
+        if (record !== null) discardRecords.push(record);
+      }
+
       // ── OBSERVADOR §§ 1, 2 — las dos decisiones que el resolutor acaba de
       //    tomar, con su identidad. No es una segunda pasada por las empresas:
       //    son las salidas de la decisión, no el conjunto de entrada.
