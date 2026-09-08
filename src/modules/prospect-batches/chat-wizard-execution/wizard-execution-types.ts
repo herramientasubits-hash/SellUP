@@ -320,6 +320,19 @@ export type WizardExecutionActionResult =
         gap: number | null;
         /** Identidad DERIVADA de la pierna. `null` cuando no corrió. */
         clientRequestId: string | null;
+        /**
+         * AGENT1-HARDENING-CUT-2 — lo que la pierna dejó DURABLE en el lote.
+         * `null` cuando no corrió.
+         */
+        persistedCandidates?: number | null;
+        /**
+         * AGENT1-HARDENING-CUT-2 — cuántas de esas filas CUENTAN hacia el
+         * objetivo, según el writer de la pierna
+         * (`multiBranch.acceptedForTargetTotal`, ya reconciliado contra las
+         * filas). `null` = la pierna no corrió, o corrió y no lo midió — y sin
+         * medición aporta cero, nunca sus filas.
+         */
+        acceptedForTarget?: number | null;
       };
       /**
        * A1-APOLLO-QA-CONTROL-SURFACE-1 § 10 — proveedor REAL de esta corrida.
