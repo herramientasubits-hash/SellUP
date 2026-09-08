@@ -4578,3 +4578,22 @@ jobs:
       # 0 llamadas a Apollo, 0 créditos, 0 escrituras, 0 migraciones, 0 flags.
       - name: Run Agent1 Apollo macro query family variants (V3-A) and net-new pagination
         run: npm run test:a1-apollo-macro-query-family-variants-v3
+
+      # ══ HARDENING CUT-3 — la comprobación 6 usa la autoridad correcta ═══════
+      #
+      # `run-final-state-consistency.ts` derivaba `target_reached` de
+      # `run_metrics.total_eligible_companies`. El orquestador no lo emite así:
+      # lo emite como `stableFinalizableCandidateCount >= target`. La cifra laxa
+      # cuenta elegibles que se persisten como `needs_review` y no cuentan hacia
+      # el objetivo, así que TODA corrida parcial con `eligible >= target` y
+      # `stable < target` fabricaba un conflicto inexistente — ruido que tapa a
+      # los conflictos reales.
+      #
+      # El step fija que el conflicto falso desaparece, que la divergencia real
+      # se sigue nombrando en los dos sentidos, que las otras cinco
+      # comprobaciones conservan su fuente, y —con guarda estática— que la
+      # comparación no puede volver a la cifra laxa.
+      #
+      # 0 llamadas a proveedor, 0 créditos, 0 escrituras, 0 migraciones, 0 flags.
+      - name: Run Agent 1 HARDENING CUT-3 final state authority tests
+        run: npm run test:a1-hardening-cut3-final-state-authority

@@ -64,8 +64,17 @@ export type ApolloTwoRoundFinalStateConflictCode =
   | 'round_breakdown_over_counts_unique_results'
   /** Se persistieron más candidatos que elegibles hubo. */
   | 'persisted_exceeds_eligible'
-  /** `target_reached` no se deriva de las cifras que la propia corrida declara. */
-  | 'target_reached_disagrees_with_eligible_count';
+  /**
+   * `target_reached` no se deriva de la cifra que de verdad lo decide.
+   *
+   * 🔴 AGENT1-HARDENING-CUT-3 — el código se llamaba
+   * `target_reached_disagrees_with_eligible_count` y comparaba contra
+   * `total_eligible_companies`. Ésa NO es la autoridad: el orquestador emite
+   * `targetReached` como `stableFinalizableCandidateCount >= target`. El nombre
+   * cambia con la comparación porque un código que nombra la autoridad
+   * equivocada es la misma confusión escrita en la metadata.
+   */
+  | 'target_reached_disagrees_with_finalizable_count';
 
 export type ApolloTwoRoundFinalStateConflict = {
   code: ApolloTwoRoundFinalStateConflictCode;
@@ -107,6 +116,25 @@ export function evaluateApolloTwoRoundFinalStateConsistency(input: {
   runMetrics: FinalStateRunMetricsView;
   targetEligibleCompanies: number;
   targetReached: boolean;
+  /**
+   * 🔴 AGENT1-HARDENING-CUT-3 — LA autoridad de `target_reached`.
+   *
+   * `stableFinalizableCandidateCount` del orquestador: candidatos que cumplen
+   * TODAS las condiciones del contrato canónico salvo la persistencia. Es la
+   * única cifra comparable con el objetivo antes del writer, y es exactamente
+   * de la que el orquestador deriva `targetReached`.
+   *
+   * `total_eligible_companies` NO sirve como sustituto y por eso no se le deja
+   * el hueco: es más laxa por construcción —un elegible sin `employee_count`,
+   * sin LinkedIn o con subindustria ambigua se persiste como `needs_review` y
+   * no cuenta hacia el objetivo—, así que compararla contra el objetivo
+   * fabricaba un conflicto en toda corrida donde `eligible >= target` y
+   * `stable < target`, que es el caso NORMAL de una corrida parcial.
+   *
+   * Requerido, no opcional: un valor por defecto volvería a inventar una
+   * autoridad, esta vez en silencio.
+   */
+  stableFinalizableCandidateCount: number;
 }): ApolloTwoRoundFinalStateConsistency {
   const conflicts: ApolloTwoRoundFinalStateConflict[] = [];
 
@@ -194,11 +222,19 @@ export function evaluateApolloTwoRoundFinalStateConsistency(input: {
   }
 
   // 6 · `target_reached` se DERIVA; no se declara por separado.
-  const derivedTargetReached = declaredEligible >= safeCount(input.targetEligibleCompanies);
+  //
+  // 🔴 AGENT1-HARDENING-CUT-3 — se deriva de `stableFinalizableCandidateCount`,
+  // que es de donde el orquestador lo emite, y NO de `total_eligible_companies`.
+  // Con la cifra laxa, toda corrida parcial con `eligible >= target` y
+  // `stable < target` producía un conflicto FALSO: las dos cifras no son la
+  // misma pregunta, y la comprobación existe para detectar que dos fuentes se
+  // contradigan, no para contradecir a la fuente correcta.
+  const finalizable = safeCount(input.stableFinalizableCandidateCount);
+  const derivedTargetReached = finalizable >= safeCount(input.targetEligibleCompanies);
   if (derivedTargetReached !== input.targetReached) {
     conflicts.push({
-      code: 'target_reached_disagrees_with_eligible_count',
-      detail: `declarado=${input.targetReached} derivado=${derivedTargetReached}`,
+      code: 'target_reached_disagrees_with_finalizable_count',
+      detail: `declarado=${input.targetReached} derivado=${derivedTargetReached} finalizables=${finalizable} elegibles=${declaredEligible}`,
     });
   }
 
