@@ -4783,3 +4783,35 @@ jobs:
       # 0 llamadas a proveedor, 0 créditos, 0 escrituras, 0 migraciones, 0 flags.
       - name: Run Agent 1 HARDENING CUT-3 final state authority tests
         run: npm run test:a1-hardening-cut3-final-state-authority
+
+      # ══ HARDENING CUT-4 — la siembra de conocidos deja fila durable ═════════
+      #
+      # Una empresa retirada por `known_domain_seed` cae en el dedupe de
+      # identidad, que corre ANTES de los dos puntos que generan disposiciones
+      # (gate obligatorio y guard de candidato activo). Su única huella era el
+      # contador `localKnownSuppressedTotal`: el motivo del descarte moría con la
+      # corrida, aunque la taxonomía durable ya supiera traducirlo.
+      #
+      # El step fija que la fila existe con `batch_id`, `source_key`, proveedor,
+      # disposición y evidencia; que una segunda corrida colisiona en vez de
+      # duplicar (`ON CONFLICT DO NOTHING`); que un veredicto de Apollo sobre la
+      # MISMA empresa y el MISMO lote sobrevive intacto; y —en negativo— que la
+      # semántica del dedupe no se movió ni un contador.
+      #
+      # 🔴 El cliente de la escritura se INYECTA en vez de mockear el módulo.
+      # `mock.module('@supabase/supabase-js', { namedExports })` funciona en
+      # Node 20 pero NO en Node 24 —`namedExports` está deprecado y el mock no se
+      # aplica—, así que el cliente real salía a la red y la prueba caía con
+      # `fetch failed`. Un invariante de escritura no puede depender de una API
+      # experimental que cambia entre versiones del runner.
+      #
+      # Por esa MISMA causa quedan fuera de este step dos suites de #398
+      # —`lusha-pipeline-writer.test.ts` y
+      # `lusha-e2e-run-traceability-reconciliation.test.ts`—: ningún script las
+      # nombraba, y en Node 24 fallan enteras por el mock deprecado. Se reportan
+      # como hallazgo aparte; arreglarlas no es de este corte, y este corte no
+      # mete en el check requerido una suite que sabe roja.
+      #
+      # 0 llamadas a proveedor, 0 créditos, 0 escrituras reales, 0 migraciones.
+      - name: Run Agent 1 HARDENING CUT-4 known-domain-seed disposition tests
+        run: npm run test:a1-hardening-cut4-known-seed-disposition

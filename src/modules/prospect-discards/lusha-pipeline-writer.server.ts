@@ -55,6 +55,29 @@ export interface LushaDiscardRecordLike {
   evidence: Record<string, unknown>;
 }
 
+/**
+ * 🔴 AGENT1-HARDENING-CUT-4 — la costura mínima que hace este módulo probable.
+ *
+ * `getAdminClient()` construye el cliente desde `process.env`, así que la única
+ * forma de probar la escritura era `mock.module('@supabase/supabase-js')`. En
+ * Node 24 esa vía DEJÓ de funcionar: `options.namedExports` está deprecado y el
+ * mock no se aplica, de modo que el cliente REAL sale a la red y toda aserción
+ * de idempotencia se cae con `fetch failed`. Una prueba que depende de una API
+ * experimental que cambia entre versiones de Node no puede ser el guardián de
+ * un invariante de escritura.
+ *
+ * Por eso el cliente se puede INYECTAR. Ausente ⇒ exactamente el de antes.
+ * No cambia el comportamiento en producción: ningún llamador la pasa.
+ */
+export type LushaDiscardWriterClientFactory = () => {
+  from: (table: string) => {
+    upsert: (
+      payload: Record<string, unknown>[],
+      options: { onConflict: string; ignoreDuplicates: boolean },
+    ) => { select: (columns: string) => Promise<{ data: unknown; error: { message: string } | null }> };
+  };
+};
+
 export interface PersistLushaRejectedDispositionsInput {
   batchId: string;
   /**
@@ -65,6 +88,8 @@ export interface PersistLushaRejectedDispositionsInput {
   requestedCountryCode: string | null;
   requestedIndustry: string | null;
   records: readonly LushaDiscardRecordLike[];
+  /** Sólo pruebas. Ausente ⇒ el cliente administrador real. */
+  clientFactory?: LushaDiscardWriterClientFactory;
 }
 
 export interface PersistLushaRejectedDispositionsResult {
@@ -179,7 +204,7 @@ export async function persistLushaRejectedDispositions(
       },
     }));
 
-    const supabase = getAdminClient();
+    const supabase = (input.clientFactory ?? getAdminClient)();
     const { data, error } = await supabase
       .from('prospect_discarded_dispositions')
       .upsert(payload, {
