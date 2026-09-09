@@ -478,13 +478,27 @@ describe('CUT-6 §§ 20, 21 · E — duplicado pagado contado como hueco cerrado
   it('🔴 el total se suma con la autoridad de CUT-1, no con una aritmética nueva', () => {
     const src = code(ORCHESTRATOR);
     assert.ok(src.includes('resolveBatchDurableTotals({'), '🔴 la suma es la compartida');
+    // 🔴 AGENT1-HARDENING-CUT-2 — la INVARIANTE de esta guarda es que el conteo
+    // reportado sale de `resolveBatchDurableTotals` y nunca del contador de un
+    // solo contribuyente. Hasta CUT-2 se comprobaba fijando el NOMBRE de la
+    // variable pre-Lusha (`combinedDurableTotals`), y ese nombre era justo el
+    // defecto: reportaba el total de ANTES de la pierna Lusha. La invariante se
+    // conserva —y se refuerza— midiéndola sobre el total FINAL.
     assert.ok(
-      src.includes('candidateCount: combinedDurableTotals.totalDurableCandidates,'),
-      'y es la que se reporta',
+      src.includes('candidateCount: finalDurableTotals.totalDurableCandidates,'),
+      'y es la que se reporta, con las piernas ya liquidadas',
+    );
+    assert.ok(
+      /const finalDurableTotals = resolveBatchDurableTotals\(\{/.test(src),
+      '🔴 el total final sigue saliendo de la autoridad compartida de CUT-1',
     );
     assert.ok(
       !src.includes('candidateCount: pipelineResult.candidatesCreated'),
       '🔴 el conteo de un solo contribuyente ya no es el resultado',
+    );
+    assert.ok(
+      !src.includes('candidateCount: combinedDurableTotals.totalDurableCandidates,'),
+      '🔴 el total PRE-Lusha no puede volver a reportarse como final',
     );
   });
 

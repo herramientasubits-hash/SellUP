@@ -388,8 +388,28 @@ describe('CUT-9 §§ 2, 3 · el hueco y la aceptación se LEEN, no se recalculan
       assert.equal(forbidden.test(canonical), false, `target_count redefinido: ${forbidden}`);
     }
     const action = body(ACTION_PATH);
-    assert.match(action, /requestedTarget = LUSHA_PENDING_REVIEW_MIN_USEFUL_CANDIDATES/);
-    assert.equal(/requestedTarget:\s*prePaid\./.test(action), false);
+    // 🔴 AGENT1-HARDENING-CUT-2 — trinquete OBSOLETO corregido, invariante intacta.
+    // La guarda fijaba el literal `requestedTarget = LUSHA_PENDING_REVIEW_MIN_…`,
+    // que el CORTE 5A del waterfall generalizó: en standalone sigue saliendo de la
+    // constante y en waterfall del hueco que el wizard DECLARÓ. Lo que esta guarda
+    // defiende —que la autoridad de PETICIÓN nunca se derive de lo persistido— no
+    // cambia, y se sigue comprobando en los `forbidden` de abajo.
+    assert.match(
+      action,
+      /const requestedTarget =\s*\n?\s*waterfall !== null \? waterfall\.targetGap : LUSHA_PENDING_REVIEW_MIN_USEFUL_CANDIDATES;/,
+    );
+    for (const forbidden of [
+      /requestedTarget:\s*prePaid\./,
+      /const requestedTarget =\s*prePaid\./,
+      /const requestedTarget =\s*\w*[Pp]ersisted/,
+      /const requestedTarget =\s*residualGap/,
+    ]) {
+      assert.equal(
+        forbidden.test(action),
+        false,
+        `la autoridad de petición no puede salir de lo persistido: ${forbidden}`,
+      );
+    }
   });
 
   it('🔴 NEGATIVE_M · el enrutado y la activación de proveedor NO cambian', () => {
@@ -768,14 +788,23 @@ describe('CUT-9 §§ 6, 7 · una empresa cuenta hacia el objetivo UNA sola vez',
       assert.ok(!action.includes(forbidden), `matching débil en la acción: ${forbidden}`);
     }
     // Y la siembra sale de la autoridad EXISTENTE, no de una consulta ad-hoc.
-    assert.match(action, /loadBatchIdentityRegistry\(supabase, prePaid\.batchId\)/);
+    // 🔴 AGENT1-HARDENING-CUT-2 — mismo trinquete obsoleto: el CORTE 5A sustituyó
+    // `prePaid.batchId` por el id CANÓNICO (que en standalone ES `prePaid.batchId`)
+    // porque en el waterfall el lote ya contiene las empresas de Apollo. La
+    // invariante —la siembra sale de la autoridad EXISTENTE y no de una consulta
+    // ad-hoc— se conserva.
+    assert.match(action, /loadBatchIdentityRegistry\(supabase, identitySeedBatchId\)/);
+    assert.match(
+      action,
+      /const identitySeedBatchId = prePaid\.batchId \?\? waterfall\?\.canonicalBatchId \?\? null;/,
+    );
     // 🔴 NEGATIVE_D (cableado) — la siembra CARGADA es la que viaja al núcleo.
     // Sin esta guarda, sustituirla por `null` en el sitio de la llamada devolvía el
     // doble conteo sin que ninguna prueba de comportamiento lo notara: las suites
     // inyectan la siembra directamente en el núcleo.
     assert.match(
       action,
-      /const batchIdentitySeed =\s*\n\s*prePaid\.batchId !== null\s*\n\s*\? await loadBatchIdentityRegistry\(supabase, prePaid\.batchId\)\.catch\(\(\) => null\)\s*\n\s*: null;/,
+      /const batchIdentitySeed =\s*\n\s*identitySeedBatchId !== null\s*\n\s*\? await loadBatchIdentityRegistry\(supabase, identitySeedBatchId\)\.catch\(\(\) => null\)\s*\n\s*: null;/,
       '🔴 la siembra dejó de resolverse desde el lote de la capa gratuita',
     );
     assert.match(
