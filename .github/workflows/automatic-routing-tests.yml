@@ -4743,3 +4743,24 @@ jobs:
       # 0 llamadas a proveedor, 0 créditos, 0 escrituras, 0 migraciones, 0 flags.
       - name: Run Agent 1 HARDENING CUT-1 ownership recall parity tests
         run: npm run test:a1-hardening-cut1-ownership-recall
+
+      # ══ HARDENING CUT-2 — UNA autoridad final, tras las piernas ejecutadas ═══
+      #
+      # `candidateCount`, `targetReached`, `executionStatus` y `batchStatus` se
+      # resolvían ANTES de correr la pierna Lusha. La pierna sí persiste —en EL
+      # MISMO lote, por el corte 5A—, así que una corrida con Apollo 0 y Lusha 5
+      # devolvía `candidateCount: 0` y `no_new_candidates` sobre un lote con
+      # cinco empresas dentro, invitando a repetir —y pagar— una búsqueda que ya
+      # había dado resultados.
+      #
+      # El step fija los cuatro casos del corte (A 0+5, B 5+no corre, C 3+2,
+      # D 3+1), el fail-closed de una pierna que no midió su aceptación, y que
+      # sigue habiendo UNA sola entrada a `resolveAcceptedForTarget`.
+      #
+      # Arrastra `cut9-lusha-partial-gap-activation`, que hasta CUT-0 ningún
+      # script nombraba y cuyas dos guardas estáticas obsoletas se corrigen aquí
+      # —el CORTE 5A generalizó las expresiones que fijaban, no las borró—.
+      #
+      # 0 llamadas a proveedor, 0 créditos, 0 escrituras, 0 migraciones, 0 flags.
+      - name: Run Agent 1 HARDENING CUT-2 final run authority tests
+        run: npm run test:a1-hardening-cut2-final-authority

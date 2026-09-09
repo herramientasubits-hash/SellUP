@@ -1297,14 +1297,29 @@ export async function executeProspectWizardGeneration(
    * gratuito son los mismos objetos capturados aquí — no se releen ni se
    * recalculan.
    */
-  const resolveRunAcceptance = (paidWriterTruth: {
-    completeValidCandidates: number | null | undefined;
-    persistedCandidates: number;
-  }) =>
+  const resolveRunAcceptance = (
+    paidWriterTruth: {
+      completeValidCandidates: number | null | undefined;
+      persistedCandidates: number;
+    },
+    /**
+     * 🔴 AGENT1-HARDENING-CUT-2 — la pierna Lusha del waterfall.
+     *
+     * Por omisión declara «no corrió» —cero CONOCIDO—, así que las tres
+     * llamadas que existían antes de este corte producen exactamente el mismo
+     * resultado. Sólo la resolución FINAL, ya con la pierna liquidada, pasa un
+     * aporte distinto.
+     */
+    waterfallWriterTruth: {
+      completeValidCandidates: number | null | undefined;
+      persistedCandidates: number;
+    } = PAID_ROUTE_NOT_RUN_WRITER_TRUTH,
+  ) =>
     resolveAcceptedForTarget({
       demand: apolloResultDemand,
       freePersistedCandidates: freeContribution?.persistedCandidates ?? 0,
       paid: paidAcceptedContributionFromWriterTruth(paidWriterTruth),
+      paidWaterfall: paidAcceptedContributionFromWriterTruth(waterfallWriterTruth),
     });
 
   /**
@@ -1931,7 +1946,11 @@ export async function executeProspectWizardGeneration(
     insertedNow: pipelineResult.candidatesCreated ?? 0,
   });
 
-  const hasNewCandidates = combinedDurableTotals.totalDurableCandidates > 0;
+  // 🔴 AGENT1-HARDENING-CUT-2 — aquí ya NO se decide si la corrida produjo algo.
+  // `combinedDurableTotals` es la verdad TRAS APOLLO y su único consumidor es la
+  // suma final de más abajo, que le añade la pierna Lusha. El booleano que
+  // gobierna `executionStatus`, `batchStatus` y el desglose es
+  // `hasNewCandidatesAfterAllLegs`, y se resuelve con las piernas liquidadas.
 
   // ── AGENT1-LOCAL-CUT7-ACCEPTED-FOR-TARGET §§ 1, 5, 6, 9 ────────────────────
   //
@@ -1963,7 +1982,13 @@ export async function executeProspectWizardGeneration(
   // 🔴 CUT-8 § 2 — la MISMA función que resolvió la metadata durable. Antes de
   // este corte esta expresión vivía suelta aquí; que exista una sola impide que
   // lo que la base guarda y lo que el mago enseña puedan discrepar.
-  const acceptedForTarget = resolveRunAcceptance({
+  //
+  // 🔴 AGENT1-HARDENING-CUT-2 — esto es la aceptación TRAS APOLLO, no la de la
+  // corrida. Su único consumidor legítimo es la pierna Lusha, que necesita saber
+  // qué hueco queda ANTES de correr. El veredicto que se reporta se resuelve
+  // abajo, con las piernas ya liquidadas; el nombre lo dice para que nadie
+  // vuelva a usar esta cifra como final.
+  const acceptedAfterApollo = resolveRunAcceptance({
     completeValidCandidates: pipelineResult.persistenceOutcome?.completeValidCandidates ?? null,
     persistedCandidates: pipelineResult.candidatesCreated ?? 0,
   });
@@ -2003,12 +2028,72 @@ export async function executeProspectWizardGeneration(
         countryCode: req.countryCode,
         macroIndustryKey: getMacroIndustryBySlug(catalogResolution.industry.slug)?.key ?? null,
         subIndustryId: null,
-        target: acceptedForTarget.requestedTarget,
-        usefulAccumulated: acceptedForTarget.acceptedForTargetTotal,
+        target: acceptedAfterApollo.requestedTarget,
+        usefulAccumulated: acceptedAfterApollo.acceptedForTargetTotal,
         // Se llegó hasta aquí: el pipeline devolvió un veredicto.
         apolloTerminal: true,
       })
     : { executed: false, reason: 'waterfall_flag_disabled' };
+
+  /**
+   * ══ AGENT1-HARDENING-CUT-2 — LA AUTORIDAD FINAL DE LA CORRIDA ══════════════
+   *
+   * ── El defecto que cierra ──────────────────────────────────────────────────
+   *
+   * `candidateCount`, `targetReached`, `executionStatus` y `batchStatus` se
+   * resolvían ARRIBA, antes de que la pierna Lusha corriera. La pierna sí
+   * persiste candidatos —en EL MISMO lote, por el corte 5A—, pero el resultado
+   * conservaba los números pre-Lusha: una corrida con Apollo 0 y Lusha 5
+   * devolvía `candidateCount: 0` y `no_new_candidates` sobre un lote con cinco
+   * empresas dentro, invitando a la persona a repetir —y pagar— una búsqueda
+   * que ya le había dejado resultados.
+   *
+   * ── La corrección ─────────────────────────────────────────────────────────
+   *
+   * Existe UNA autoridad final, y se resuelve DESPUÉS de las piernas
+   * efectivamente ejecutadas. No hay un contador paralelo ni una aritmética
+   * nueva: es la misma `resolveRunAcceptance` de CUT-8 con el aporte de la
+   * segunda pierna declarado, y la misma `resolveBatchDurableTotals` de CUT-1
+   * aplicada una segunda vez —lo de Apollo y lo gratuito ya existía cuando la
+   * pierna Lusha insertó, que es literalmente lo que `preExisting` significa—.
+   *
+   * 🔴 La verdad de la pierna sale de su WRITER, no de sus resultados crudos:
+   * `multiBranch.acceptedForTargetTotal` es el conteo ya reconciliado contra las
+   * filas (`persistedForTarget`), la misma cifra que la acción de Lusha usa para
+   * su propia aceptación y para la metadata durable de CUT-9B. Sustituirla por
+   * `insertedCandidatesCount` sería la mentira exacta que CUT-7 cerró.
+   *
+   * 🔴 Una pierna que corrió y NO publicó su telemetría entra SIN MEDIR y aporta
+   * cero, nunca sus filas — la misma postura fail-closed que la mitad Apollo. Sus
+   * filas sí se cuentan en el universo durable: `stableFinalizableCandidateCount`
+   * y el conteo de filas no cambian de significado por este corte.
+   */
+  const waterfallWriterTruth: {
+    completeValidCandidates: number | null | undefined;
+    persistedCandidates: number;
+  } = lushaWaterfall.executed
+    ? {
+        completeValidCandidates: lushaWaterfall.result.multiBranch?.acceptedForTargetTotal ?? null,
+        persistedCandidates: lushaWaterfall.result.insertedCandidatesCount,
+      }
+    : PAID_ROUTE_NOT_RUN_WRITER_TRUTH;
+
+  const acceptedForTarget = resolveRunAcceptance(
+    {
+      completeValidCandidates: pipelineResult.persistenceOutcome?.completeValidCandidates ?? null,
+      persistedCandidates: pipelineResult.candidatesCreated ?? 0,
+    },
+    waterfallWriterTruth,
+  );
+
+  // 🔴 Las FILAS de la corrida entera. Sin pierna Lusha ejecutada el total es
+  // idéntico a `combinedDurableTotals`, entero por entero.
+  const finalDurableTotals = resolveBatchDurableTotals({
+    preExisting: durableCandidatesFromCount(combinedDurableTotals.totalDurableCandidates),
+    insertedNow: waterfallWriterTruth.persistedCandidates,
+  });
+
+  const hasNewCandidatesAfterAllLegs = finalDurableTotals.totalDurableCandidates > 0;
 
   // 🔴 CUT-7 §§ 1, 9 — el objetivo se decide con la autoridad de ACEPTACIÓN, y
   // con ninguna otra.
@@ -2065,7 +2150,7 @@ export async function executeProspectWizardGeneration(
 
   const executionStatus = persistenceBlocked
     ? 'completed_with_errors'
-    : hasNewCandidates
+    : hasNewCandidatesAfterAllLegs
       ? (targetReached ? 'success_target_reached' : 'success_partial')
       : 'no_new_candidates';
   return {
@@ -2078,6 +2163,15 @@ export async function executeProspectWizardGeneration(
       skipReason: lushaWaterfall.executed ? null : lushaWaterfall.reason,
       gap: lushaWaterfall.executed ? lushaWaterfall.gap : null,
       clientRequestId: lushaWaterfall.executed ? lushaWaterfall.clientRequestId : null,
+      // 🔴 CUT-2 — lo que la pierna APORTÓ, no sólo que corrió. Sin estas dos
+      // cifras, «la pierna corrió» y «la pierna sumó» eran indistinguibles desde
+      // fuera, y la autoridad final no se podía auditar sin abrir la base.
+      persistedCandidates: lushaWaterfall.executed
+        ? waterfallWriterTruth.persistedCandidates
+        : null,
+      acceptedForTarget: lushaWaterfall.executed
+        ? (waterfallWriterTruth.completeValidCandidates ?? null)
+        : null,
     },
     batchId: reservedBatchId,
     // El lote quedó `failed` por el writer (§ 9): el estado que se reporta es el
@@ -2090,14 +2184,16 @@ export async function executeProspectWizardGeneration(
     // que la base no tiene. `completed_with_errors` sigue siendo el estado de la
     // EJECUCIÓN, porque la escritura de pago sí falló de verdad.
     batchStatus:
-      persistenceBlocked && freeContribution === null
+      persistenceBlocked &&
+      freeContribution === null &&
+      waterfallWriterTruth.persistedCandidates === 0
         ? 'failed'
-        : hasNewCandidates
+        : hasNewCandidatesAfterAllLegs
           ? 'ready_for_review'
           : 'nothing_to_write',
     // 🔴 CUT-6 § 14 — el conteo COMBINADO. Sin aporte gratuito es idéntico a
     // `pipelineResult.candidatesCreated`.
-    candidateCount: combinedDurableTotals.totalDurableCandidates,
+    candidateCount: finalDurableTotals.totalDurableCandidates,
     redirectPath: `/prospect-batches/${reservedBatchId}`,
     targetPersistibleCandidates,
     targetReached,
@@ -2116,7 +2212,7 @@ export async function executeProspectWizardGeneration(
     ...(noveltyExhausted ? { noveltyExhausted: true as const } : {}),
     // A1-APOLLO-TWO-ROUND-QUERY-QUALITY-2 § 8 — la distribución real de
     // descartes viaja sólo cuando hace falta explicarla: sin empresas nuevas.
-    ...(hasNewCandidates
+    ...(hasNewCandidatesAfterAllLegs
       ? {}
       : {
           noNewCandidatesBreakdown: buildNoNewCandidatesBreakdown(
