@@ -4651,3 +4651,76 @@ jobs:
       # 0 créditos, 0 escrituras en Producción, 0 migraciones.
       - name: Run Agent1 Lusha ICP size authority (CUT-5B)
         run: npm run test:a1-lusha-icp-size-authority-5b
+
+      # ══ HARDENING CUT-0 — el waterfall y el lote mixto entran a CI ═══════════
+      #
+      # Auditoría contra `origin/main`@2d4eb4ec: TODA la cadena del waterfall
+      # Apollo→Lusha (#396) y del lote mixto libre+pago (CUT-5…CUT-8B) tenía
+      # suites verdes en el repo y CERO pasos que las corrieran. 236 de los 413
+      # scripts `test:*` de package.json no aparecían en este workflow; entre los
+      # ausentes estaban los que defienden exactamente los invariantes que la
+      # cadena acaba de fijar en producción.
+      #
+      # Consecuencia concreta: una regresión de CUT1–CUT9A o de CUT5–CUT8B podía
+      # mergear VERDE, no porque su suite pasara, sino porque nadie la ejecutaba.
+      # Los pasos de abajo cierran ese hueco. No cambian lógica de producto: sólo
+      # añaden ejecución.
+      #
+      # Dos ficheros de test estaban PEOR que sin cablear: ningún script de
+      # package.json los nombraba, así que no existía forma de correrlos ni en
+      # local. `cut9b-lusha-acceptance-durable-publication.test.ts` (verde, 27
+      # aserciones) entra aquí con script propio. El segundo,
+      # `cut9-lusha-partial-gap-activation.test.ts`, NO entra: 2 de sus 37
+      # aserciones son guardas estáticas que buscan literales
+      # (`requestedTarget = LUSHA_PENDING_REVIEW_MIN_USEFUL_CANDIDATES`,
+      # `loadBatchIdentityRegistry(supabase, prePaid.batchId)`) que los refactors
+      # posteriores borraron del fichero vigilado. Es un trinquete OBSOLETO, no un
+      # defecto de producto, y se corrige en el corte que toca esa autoridad
+      # (CUT-2), no aquí: este corte no debilita ni reescribe tests.
+      #
+      # 0 llamadas a proveedor, 0 créditos, 0 escrituras, 0 migraciones, 0 flags.
+
+      - name: Run Agent 1 Apollo→Lusha waterfall tests (CUT-1…CUT-5A, CUT-9A)
+        run: npm run test:a1-apollo-lusha-waterfall
+
+      - name: Run Agent 1 CUT-9B Lusha acceptance durable publication tests
+        run: npm run test:a1-cut9b-lusha-acceptance-durable-publication
+
+      - name: Run Agent 1 mixed batch CUT-5 single-batch plumbing tests
+        run: npm run test:a1-cut5-single-batch-plumbing
+
+      - name: Run Agent 1 mixed batch CUT-6 partial activation tests
+        run: npm run test:a1-cut6-partial-activation
+
+      - name: Run Agent 1 mixed batch CUT-6B partial UI propagation tests
+        run: npm run test:a1-cut6b-partial-ui-propagation
+
+      - name: Run Agent 1 mixed batch CUT-7 accepted-for-target tests
+        run: npm run test:a1-cut7-accepted-for-target
+
+      - name: Run Agent 1 mixed batch CUT-8 acceptance reporting propagation tests
+        run: npm run test:a1-cut8-acceptance-reporting-propagation
+
+      - name: Run Agent 1 mixed batch CUT-8B free-only durable publication tests
+        run: npm run test:a1-cut8b-free-only-acceptance-durable-publication
+
+      - name: Run Agent 1 CUT-4 B2 action writer provenance tests
+        run: npm run test:a1-cut4-b2-action-writer-provenance
+
+      - name: Run Agent 1 CUT-4 C batch visibility safe-action tests
+        run: npm run test:a1-cut4-c-batch-visibility-safe-actions
+
+      - name: Run Agent 1 Lusha provider-seen dedupe fix tests
+        run: npm run test:a1-lusha-provider-seen-dedupe-fix
+
+      - name: Run Agent 1 Apollo null-domain identity tests
+        run: npm run test:a1-apollo-null-domain-identity
+
+      # El filtro fijo de 200+ empleados (#395) y el resumen de ejecución por
+      # proveedor del wizard son la evidencia que CUT-5 y CUT-2 van a mover:
+      # entran a CI ANTES de tocarlos, para que su estado actual quede fijado.
+      - name: Run Agent 1 Apollo 200+ employee filter wiring tests
+        run: npm run test:a1-apollo-employee-filter-200-wiring
+
+      - name: Run Agent 1 wizard provider execution summary tests
+        run: npm run test:a1-wizard-provider-execution-summary
