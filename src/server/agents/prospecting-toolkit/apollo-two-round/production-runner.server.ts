@@ -275,10 +275,7 @@ import {
   toApolloSubindustryCatalogTermsMetadata,
   type ApolloSubindustryCatalogTermsResolution,
 } from '../apollo-subindustry-catalog-terms-resolution';
-import {
-  evaluateCompanyOwnership,
-  isBlockedByCompanyOwnership,
-} from '../company-ownership-gate';
+import { isBlockedByCompanyOwnership } from '../company-ownership-gate';
 import { mapDuplicateStatus, fetchActiveCandidatesForGuard } from '../candidate-writer';
 import {
   buildNoveltyIndex,
@@ -296,6 +293,7 @@ import {
 import {
   APOLLO_PENDING_PRE_WRITER_ADMISSION_CHECKS,
   buildApolloPreWriterBatchAdmissionContext,
+  evaluateApolloPreWriterCompanyOwnership,
   evaluateApolloPreWriterQualityGateForCandidate,
   evaluateCandidatePreWriterAdmission,
   resolveApolloPreWriterEffectiveDomain,
@@ -1311,11 +1309,10 @@ export async function runApolloTwoRoundWizardDiscovery(
       requestedSubindustries: input.subindustries,
       subindustryPrecision: subindustryPrecisionByKey.get(candidateKey) ?? null,
     });
-    const ownership = evaluateCompanyOwnership(
-      candidate.name,
-      candidate.website ?? null,
-      candidate.domain ?? null,
-    );
+    // 🔴 AGENT1-HARDENING-CUT-1 — el MISMO nombre que juzgará el writer. Con
+    // `candidate.name` crudo, una razón social escondida tras un título SEO
+    // fallaba aquí y la recuperación del writer no llegaba a ejecutarse nunca.
+    const ownership = evaluateApolloPreWriterCompanyOwnership(candidate);
     const quality = evaluateApolloPreWriterQualityGateForCandidate(candidate, {
       targetCountryCode: input.countryCode,
       subindustries: input.subindustries,
@@ -2489,11 +2486,11 @@ export async function runApolloTwoRoundWizardDiscovery(
     applyFinalGates: ({ candidateKey }) => {
       const cached = assessmentByKey.get(candidateKey) ?? null;
       if (cached === null) return { rejection: null };
-      const ownership = evaluateCompanyOwnership(
-        cached.candidate.name,
-        cached.candidate.website ?? null,
-        cached.candidate.domain ?? null,
-      );
+      // 🔴 AGENT1-HARDENING-CUT-1 — este rechazo es DEFINITIVO
+      // (`definitivelyRejected`), así que juzgar con el nombre crudo descartaba
+      // antes del writer a empresas que el writer habría recuperado. Se evalúa
+      // con la evidencia del writer; lo ajeno se sigue rechazando aquí.
+      const ownership = evaluateApolloPreWriterCompanyOwnership(cached.candidate);
       return {
         rejection: isBlockedByCompanyOwnership(ownership) ? 'ownership_mismatch' : null,
       };

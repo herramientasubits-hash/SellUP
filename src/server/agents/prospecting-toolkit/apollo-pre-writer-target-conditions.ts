@@ -61,6 +61,11 @@ import {
 } from './candidate-writer-pure-gates';
 import { buildCanonicalCompanyIdentity } from './canonical-company-identity';
 import {
+  evaluateCompanyOwnership,
+  resolveOwnershipEvaluationName,
+  type CompanyOwnershipResult,
+} from './company-ownership-gate';
+import {
   evaluateCountryCompatibility,
   countryCompatibilityRankWeight,
 } from './country-compatibility';
@@ -441,6 +446,34 @@ export function resolveApolloPreWriterEffectiveDomain(
   candidate: ProspectingPipelineCandidate,
 ): string | null {
   return candidate.domain ?? extractDomain(candidate.website ?? null);
+}
+
+/**
+ * AGENT1-HARDENING-CUT-1 — ownership PRE-writer, con la evidencia del writer.
+ *
+ * Es la única entrada de ownership que el orquestador de Apollo debe usar. Las
+ * dos capas quedan así atadas al mismo cuerpo:
+ *
+ *   nombre  ← `resolveOwnershipEvaluationName`, la Recall Recovery v1.10 que el
+ *             writer aplica antes de juzgar (frase SEO ⇒ nombre desde dominio)
+ *   dominio ← `resolveApolloPreWriterEffectiveDomain`, el Pass 1 del writer
+ *
+ * 🔴 No relaja el gate: lo alimenta con lo mismo. Una empresa ajena a su
+ * dominio se sigue rechazando, y se rechaza AQUÍ, antes de gastar en ella.
+ *
+ * Puro y gratis: sin proveedor, sin créditos, sin base.
+ */
+export function evaluateApolloPreWriterCompanyOwnership(
+  candidate: ProspectingPipelineCandidate,
+): CompanyOwnershipResult {
+  const website = candidate.website ?? null;
+  const domain = candidate.domain ?? null;
+  const evaluationName = resolveOwnershipEvaluationName(candidate.name, website, domain);
+  return evaluateCompanyOwnership(
+    evaluationName.name,
+    website,
+    resolveApolloPreWriterEffectiveDomain(candidate),
+  );
 }
 
 function passed(check: string): ApolloPreWriterAdmissionCheckResult {

@@ -199,6 +199,20 @@ export function resolveAcceptedForTarget(input: {
   /** Filas que la capa gratuita dejó en el lote. Universo durable, no aceptación. */
   freePersistedCandidates: number;
   paid: AcceptedContribution;
+  /**
+   * AGENT1-HARDENING-CUT-2 — la SEGUNDA pierna de pago (Lusha, waterfall).
+   *
+   * 🔴 Entra aquí y no en una aritmética aparte porque la ecuación canónica del
+   * § 1 vive en esta función y sólo en ella. Sumar la pierna Lusha fuera —en el
+   * wizard, después de resolver— habría creado la segunda autoridad que este
+   * módulo existe para impedir, y con ella la posibilidad de aceptar por encima
+   * del objetivo: el tope `remainingTarget` sólo se puede sostener donde se
+   * conocen todos los aportes a la vez.
+   *
+   * Ausente ⇒ `CONTRIBUTOR_NOT_RUN` ⇒ resultado IDÉNTICO al anterior al corte,
+   * campo por campo. Es el caso de toda corrida sin waterfall.
+   */
+  paidWaterfall?: AcceptedContribution;
 }): AcceptedForTargetResult {
   const requestedTarget = sanitizeCount(input.demand.requestedTarget);
   const persistedFree = sanitizeCount(input.freePersistedCandidates);
@@ -214,21 +228,43 @@ export function resolveAcceptedForTarget(input: {
     requestedTarget,
   );
 
-  const persistedPaid = sanitizeCount(input.paid.persistedCandidates);
+  const waterfall = input.paidWaterfall ?? CONTRIBUTOR_NOT_RUN;
+
+  const persistedPaidPrimary = sanitizeCount(input.paid.persistedCandidates);
+  const persistedPaidWaterfall = sanitizeCount(waterfall.persistedCandidates);
+  const persistedPaid = persistedPaidPrimary + persistedPaidWaterfall;
+
   const remainingAfterFree = Math.max(0, requestedTarget - acceptedFree);
-  const acceptedPaid = input.paid.measured
+  const acceptedPaidPrimary = input.paid.measured
     ? Math.min(
         sanitizeCount(input.paid.acceptedForTarget),
-        persistedPaid,
+        persistedPaidPrimary,
         // § 9 CASO D — la autoridad nunca acepta lógicamente más del hueco que
         // queda, por mucho que el proveedor haya producido de más.
         remainingAfterFree,
       )
     : 0;
 
+  // 🔴 CUT-2 — la segunda pierna se acota por el hueco que queda DESPUÉS de la
+  // primera, no por el de después de lo gratuito. Es lo que impide que una
+  // empresa se cuente dos veces cuando las dos piernas producen de más: el
+  // objetivo se cierra una sola vez.
+  const remainingAfterPrimaryPaid = Math.max(0, remainingAfterFree - acceptedPaidPrimary);
+  const acceptedPaidWaterfall = waterfall.measured
+    ? Math.min(
+        sanitizeCount(waterfall.acceptedForTarget),
+        persistedPaidWaterfall,
+        remainingAfterPrimaryPaid,
+      )
+    : 0;
+
+  const acceptedPaid = acceptedPaidPrimary + acceptedPaidWaterfall;
   const acceptedTotal = acceptedFree + acceptedPaid;
   const unknownReasons: AcceptanceUnknownReason[] = [];
   if (!input.paid.measured) unknownReasons.push(input.paid.reason);
+  // 🔴 Una pierna que corrió y no midió deja el resultado SIN MEDIR, igual que
+  // la primera. No medir no es cumplir, y con dos piernas tampoco.
+  if (!waterfall.measured) unknownReasons.push(waterfall.reason);
 
   return {
     requestedTarget,
@@ -246,7 +282,7 @@ export function resolveAcceptedForTarget(input: {
     // La mitad gratuita entra por la demanda, que es una cifra ya resuelta: no
     // hay un caso «sin medir» que declarar por este lado.
     freeAcceptanceMeasured: true,
-    paidAcceptanceMeasured: input.paid.measured,
+    paidAcceptanceMeasured: input.paid.measured && waterfall.measured,
     acceptanceUnknownReasons: unknownReasons,
   };
 }

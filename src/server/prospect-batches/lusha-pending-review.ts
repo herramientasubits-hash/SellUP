@@ -217,6 +217,8 @@ import {
 // Puro y determinista; no se inventa un segundo gate de tamaño.
 import {
   evaluateIcpSizeGate,
+  ICP_SIZE_GATE_DEFAULT_THRESHOLD,
+  classifyKnownEmployeeCount,
   type IcpSizeGateResult,
 } from '@/server/agents/prospecting-toolkit/icp-size-gate';
 
@@ -1136,11 +1138,17 @@ function buildLushaDiscardRecord(input: {
 export { normalizeLushaCompanyName };
 
 function employeesLabel(company: LushaPreviewCompany): string | null {
-  if (typeof company.employeesExact === 'number') return String(company.employeesExact);
-  if (company.employeesMin !== null || company.employeesMax !== null) {
-    return `${company.employeesMin ?? '?'}-${company.employeesMax ?? '?'}`;
-  }
-  return null;
+  const known = classifyKnownEmployeeCount(company.employeesExact);
+  if (known !== null) return String(known);
+  return employeesRangeLabel(company);
+}
+
+/** Sólo el rango declarado. Nunca el conteo exacto — ver `buildLushaIcpSizeGate`. */
+function employeesRangeLabel(company: LushaPreviewCompany): string | null {
+  const min = classifyKnownEmployeeCount(company.employeesMin);
+  const max = classifyKnownEmployeeCount(company.employeesMax);
+  if (min === null && max === null) return null;
+  return `${min ?? '?'}-${max ?? '?'}`;
 }
 
 /**
@@ -1155,13 +1163,38 @@ function employeesLabel(company: LushaPreviewCompany): string | null {
  * 🔴 Lo que este bloque NO hace: cambiar la admisión. `resolveIcpSizeGateWriterAction`
  * —el lado del contrato que bloquea candidatos y fuerza revisión— NO se cablea
  * aquí. Escribir el veredicto es honestidad de ficha; convertirlo en un filtro de
- * persistencia sería un segundo gate de admisión sin QA, y queda como seguimiento
- * explícito.
+ * persistencia sería un segundo gate de admisión sin QA.
+ *
+ * 🔴 A1-LUSHA-WATERFALL-SIZE-GATE § CUT-5A — y sigue sin cablearse a propósito,
+ * porque el suelo de tamaño YA lo aplica el gate compartido de intake: la
+ * admisión toma `minEmployees` de `resolveLushaLocalMinEmployees`, que usa
+ * `ICP_SIZE_GATE_DEFAULT_THRESHOLD`, el MISMO umbral que evalúa esta función. Los
+ * dos coinciden por construcción, y hay una sola autoridad de admisión. Añadir
+ * aquí una segunda decisión sobre la misma pregunta sería la doble autoridad que
+ * este repo evita en todas partes.
  */
 export function buildLushaIcpSizeGate(company: LushaPreviewCompany): IcpSizeGateResult {
+  // 🔴 § CUT-5B — el conteo entra por `classifyKnownEmployeeCount`, la MISMA
+  // clasificación que usa el normalizador del que bebe la admisión. Antes de
+  // este corte la ficha leía `employeesExact` en crudo y las dos discrepaban en
+  // las tres puntas donde el valor no es un conteo limpio:
+  //
+  //   · `NaN`      — `NaN >= 200` es `false`, así que la ficha decía `block`.
+  //                  Eso es inventar un veredicto de tamaño a partir de un valor
+  //                  que no es un tamaño.
+  //   · negativos  — mismo camino, mismo invento.
+  //   · `0`        — la ficha decía `block` y la admisión, que lo recibía ya
+  //                  colapsado a `null`, decía «desconocido». Ahora las dos leen
+  //                  cero-conocido y las dos bloquean.
+  //
+  // La ficha no decide: describe la MISMA decisión. Que no puedan discrepar es
+  // el punto, y una prueba de mutación lo vigila.
+  const knownCount = classifyKnownEmployeeCount(company.employeesExact);
   return evaluateIcpSizeGate({
-    employeeCount: typeof company.employeesExact === 'number' ? company.employeesExact : null,
-    sizeRange: employeesLabel(company),
+    employeeCount: knownCount,
+    // Sin conteo utilizable la etiqueta de rango tampoco puede afirmar nada: un
+    // `NaN` rendido como texto sería un rango inventado.
+    sizeRange: knownCount === null ? employeesRangeLabel(company) : employeesLabel(company),
     source: LUSHA_PENDING_REVIEW_PROVIDER,
   });
 }
@@ -1250,10 +1283,59 @@ export function lushaPreviewCompanyToProviderDiscoveredCompany(
 }
 
 /**
+ * 🔴 A1-LUSHA-WATERFALL-SIZE-GATE § CUT-5A — el suelo de tamaño LOCAL de una
+ * corrida de Lusha, que ya no puede quedarse en `null`.
+ *
+ * ── El defecto que cierra ────────────────────────────────────────────────────
+ *
+ * `minEmployees` era «el mínimo de la banda pedida al proveedor», y la pierna
+ * Lusha del waterfall NO pide banda: `runLushaWaterfallLeg` no manda
+ * `sizeBandKey`, así que `resolveLushaPreviewSizeBand` devolvía `null`, el
+ * `requestSummary.sizeBand` viajaba `null` y este campo salía `null`. Con
+ * `minEmployees === null` el gate compartido de intake SALTA por completo su
+ * comprobación de tamaño (ver `evaluateProspectIntakeGate`, § 4: exige
+ * `minEmployees !== null`). Resultado: en el waterfall, Lusha admitía empresas
+ * de cualquier tamaño — ni filtro de proveedor ni filtro local.
+ *
+ * ── Por qué el suelo es incondicional ────────────────────────────────────────
+ *
+ * Porque la definición de negocio no depende de lo que se le pidió al
+ * proveedor. `ICP_SIZE_GATE_DEFAULT_THRESHOLD` (200, inclusivo) es el mismo
+ * umbral que evalúa `buildLushaIcpSizeGate` en la ficha y el mismo que aplica el
+ * writer de Apollo, así que la admisión y lo que la ficha declara no pueden
+ * discrepar. Una banda MÁS estricta que el suelo se respeta tal cual —pedir
+ * `1001-5000` y admitir desde 200 sería relajar lo pedido—; una banda más laxa,
+ * o su ausencia, cae al suelo.
+ *
+ * ── Lo que esto NO es ────────────────────────────────────────────────────────
+ *
+ * NO es un filtro de proveedor. Este valor no entra en el cuerpo de la petición
+ * —`buildLushaPreviewRequest` sólo mira `sizeBand`— y se calcula DESPUÉS de la
+ * respuesta, a partir de `requestSummary`. El crédito de la página ya está
+ * gastado cuando el suelo se aplica: este corte no ahorra créditos y no pretende
+ * ahorrarlos. Lo que impide es que una empresa por debajo del ICP llegue a ser
+ * candidato.
+ *
+ * NO hay techo. `>= 200` no tiene extremo superior: 5.000 y 1.000.000 pasan
+ * igual, y `maxEmployees` sigue siendo sólo la banda pedida (el gate compartido
+ * no la usa para bloquear).
+ *
+ * Pura.
+ */
+export function resolveLushaLocalMinEmployees(requestedBandMin: number | null | undefined): number {
+  return typeof requestedBandMin === 'number' &&
+    Number.isFinite(requestedBandMin) &&
+    requestedBandMin > ICP_SIZE_GATE_DEFAULT_THRESHOLD
+    ? requestedBandMin
+    : ICP_SIZE_GATE_DEFAULT_THRESHOLD;
+}
+
+/**
  * Build the provider-neutral search criteria for the gate + enrichment from the
  * wizard input and the server-authoritative request summary. `minEmployees` is the
- * requested size-band minimum (the same band the preview already filtered by), so
- * the gate's `known_employee_count_below_min` check enforces the requested floor.
+ * LOCAL ICP floor (never null — see `resolveLushaLocalMinEmployees`), raised to the
+ * requested size-band minimum when that band is stricter, so the gate's
+ * `known_employee_count_below_min` check always enforces at least the ICP floor.
  * Pure.
  */
 export function buildLushaProspectSearchCriteria(
@@ -1265,7 +1347,7 @@ export function buildLushaProspectSearchCriteria(
     countryCode: input.countryCode ?? null,
     country: rs.country ?? null,
     sector: rs.sector ?? input.macroIndustryKey ?? null,
-    minEmployees: rs.sizeBand?.min ?? null,
+    minEmployees: resolveLushaLocalMinEmployees(rs.sizeBand?.min ?? null),
     maxEmployees: rs.sizeBand?.max ?? null,
     sourceProvider: LUSHA_PENDING_REVIEW_PROVIDER,
   };
@@ -2076,7 +2158,14 @@ export async function resolveLushaCandidatesDuplicateState(
 
   for (const company of companies) {
     const discovered = lushaPreviewCompanyToProviderDiscoveredCompany(company, criteria);
-    const normalized = normalizeProviderDiscoveredCompany(discovered, criteria);
+    // 🔴 A1-LUSHA-WATERFALL-SIZE-GATE § CUT-5B — la pierna Lusha lee el `0` como
+    // el conteo que es. Sin esta opción el normalizador compartido lo colapsa a
+    // `null`, el gate lo trata como tamaño DESCONOCIDO y una empresa que el
+    // proveedor declaró de cero empleados sale a revisión humana en vez de caer
+    // por debajo del suelo ICP. Apollo y Tavily no la pasan y no cambian.
+    const normalized = normalizeProviderDiscoveredCompany(discovered, criteria, {
+      treatZeroEmployeeCountAsKnown: true,
+    });
     const gateResult = evaluateProspectIntakeGate(normalized, criteria);
 
     for (const reason of [...gateResult.hardReasons, ...gateResult.warnings]) {
