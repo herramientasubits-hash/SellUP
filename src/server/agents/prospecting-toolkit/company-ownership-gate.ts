@@ -25,6 +25,7 @@
  */
 
 import { evaluateInstitutionalNameDomainCorrespondence } from './institutional-domain-ownership';
+import { normalizeProspectCompanyName } from './company-name-normalizer';
 
 export type CompanyOwnershipConfidence = 'high' | 'medium' | 'low' | 'reject' | 'domain_inferred';
 
@@ -137,6 +138,64 @@ const GENERIC_DOMAIN_WORDS = new Set([
   'knowledge', 'learning', 'campus', 'academy', 'instituto',
   'compania', 'compañía',
 ]);
+
+// ─── Nombre con el que se EVALÚA la propiedad ────────────────────────────────
+
+/**
+ * AGENT1-HARDENING-CUT-1 · el nombre que el gate debe juzgar.
+ *
+ * ── El defecto que cierra ────────────────────────────────────────────────────
+ *
+ * El writer (`candidate-writer.ts`, Pass 1) NUNCA le da a este gate el nombre
+ * crudo. Desde la Recall Recovery v1.10, cuando la fuente devuelve un TÍTULO
+ * genérico en vez de una razón social —«Consultoría ERP, CRM, HCM y software
+ * empresarial» en lugar de «Dinámica CD»— el writer infiere el nombre real
+ * desde el dominio y evalúa la propiedad con ÉSE.
+ *
+ * Aguas arriba, en cambio, el orquestador de Apollo evaluaba `candidate.name`
+ * tal cual. Como su veredicto de ownership es un rechazo DEFINITIVO
+ * (`applyFinalGates` → `definitivelyRejected`), la empresa no llegaba al writer
+ * y su recuperación jamás se ejecutaba: una empresa válida con dominio propio
+ * quedaba descartada por el aspecto de su título.
+ *
+ * Este resolutor es esa recuperación, extraída para que las dos capas juzguen
+ * el MISMO nombre. No es una segunda política: es la del writer, con un solo
+ * cuerpo.
+ *
+ * ── 🔴 Lo que NO hace ────────────────────────────────────────────────────────
+ *
+ * No relaja el gate. La recuperación sólo se activa cuando
+ * `normalizeProspectCompanyName` clasifica el nombre crudo como FRASE SEO Y el
+ * nombre inferido desde el dominio no lo es a su vez. Una empresa realmente
+ * ajena a su dominio («Acme Manufacturing» sobre `microsoft.com`) tiene un
+ * nombre que no es una frase SEO, así que no se recupera nada y el gate la
+ * sigue rechazando exactamente igual.
+ *
+ * Puro: sin red, sin base, sin reloj.
+ */
+export type OwnershipEvaluationName = {
+  /** El nombre con el que hay que llamar a `evaluateCompanyOwnership`. */
+  readonly name: string;
+  /** El nombre crudo, preservado para trazabilidad. */
+  readonly originalName: string;
+  /** `true` sólo cuando el crudo era frase SEO y el dominio aportó uno limpio. */
+  readonly recoveredFromDomain: boolean;
+};
+
+export function resolveOwnershipEvaluationName(
+  rawName: string,
+  website: string | null,
+  domain: string | null,
+): OwnershipEvaluationName {
+  const normalization = normalizeProspectCompanyName(rawName, website ?? domain ?? undefined);
+  const recoveredFromDomain =
+    normalization.normalizationReason === 'seo_phrase_replaced_by_domain';
+  return {
+    name: recoveredFromDomain ? normalization.name : rawName,
+    originalName: normalization.originalName,
+    recoveredFromDomain,
+  };
+}
 
 // ─── Main evaluation function ─────────────────────────────────────────────────
 
