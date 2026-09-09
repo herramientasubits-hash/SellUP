@@ -71,6 +71,7 @@ describe('§ D.10 — la corrida de referencia queda consistente', () => {
       },
       targetEligibleCompanies: 10,
       targetReached: false,
+      stableFinalizableCandidateCount: 0,
     });
 
     assert.equal(consistency.ok, true);
@@ -93,6 +94,7 @@ describe('§ D.10 — la corrida de referencia queda consistente', () => {
       },
       targetEligibleCompanies: 10,
       targetReached: false,
+      stableFinalizableCandidateCount: 0,
     });
 
     assert.equal(consistency.ok, false);
@@ -123,6 +125,7 @@ describe('§ D.10 — contradicciones entre fuentes', () => {
       },
       targetEligibleCompanies: 10,
       targetReached: false,
+      stableFinalizableCandidateCount: 0,
     });
 
     assert.equal(consistency.ok, false);
@@ -148,6 +151,7 @@ describe('§ D.10 — contradicciones entre fuentes', () => {
       },
       targetEligibleCompanies: 1,
       targetReached: false,
+      stableFinalizableCandidateCount: 0,
     });
 
     assert.equal(
@@ -169,6 +173,7 @@ describe('§ D.10 — contradicciones entre fuentes', () => {
       },
       targetEligibleCompanies: 1,
       targetReached: true,
+      stableFinalizableCandidateCount: 1,
     });
 
     assert.equal(
@@ -177,7 +182,21 @@ describe('§ D.10 — contradicciones entre fuentes', () => {
     );
   });
 
-  test('`target_reached` tiene que derivarse de los elegibles declarados', () => {
+  /**
+   * 🔴 AGENT1-HARDENING-CUT-3 — este trinquete protegía la AUTORIDAD EQUIVOCADA.
+   *
+   * Se llamaba «derivarse de los elegibles declarados» y comprobaba
+   * `total_eligible_companies >= target`. El orquestador no emite `targetReached`
+   * así: lo emite como `stableFinalizableCandidateCount >= target`. Con la cifra
+   * laxa, toda corrida parcial con `eligible >= target` y `stable < target`
+   * producía un conflicto falso.
+   *
+   * La INVARIANTE que este caso defiende —`target_reached` se DERIVA, no se
+   * declara, y una declaración que no cuadra con su fuente se nombra— se
+   * conserva entera: sigue siendo una mentira detectada, sólo que ahora medida
+   * contra la fuente que de verdad la produce.
+   */
+  test('`target_reached` tiene que derivarse de los FINALIZABLES, no de los elegibles', () => {
     const consistency = evaluateApolloTwoRoundFinalStateConsistency({
       rounds: [round({ knownCompanyDuplicates: 1 })],
       candidates: [candidate('apollo:uno')],
@@ -188,11 +207,12 @@ describe('§ D.10 — contradicciones entre fuentes', () => {
       },
       targetEligibleCompanies: 5,
       targetReached: true, // ← mentira
+      stableFinalizableCandidateCount: 0,
     });
 
     assert.equal(
       consistency.conflicts.some(
-        (conflict) => conflict.code === 'target_reached_disagrees_with_eligible_count',
+        (conflict) => conflict.code === 'target_reached_disagrees_with_finalizable_count',
       ),
       true,
     );
@@ -209,6 +229,7 @@ describe('§ D.10 — contradicciones entre fuentes', () => {
       },
       targetEligibleCompanies: 5,
       targetReached: false,
+      stableFinalizableCandidateCount: 0,
     });
 
     assert.equal(
@@ -234,6 +255,7 @@ describe('§ D.10 — proyección a metadata', () => {
         },
         targetEligibleCompanies: 1,
         targetReached: false,
+        stableFinalizableCandidateCount: 0,
       }),
     );
 

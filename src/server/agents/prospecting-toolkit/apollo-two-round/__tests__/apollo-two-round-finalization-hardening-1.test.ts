@@ -515,6 +515,8 @@ describe('§ I · fixture de 17 resultados de la corrida bdc51c49', () => {
       },
       targetEligibleCompanies: result.targetEligibleCompanies,
       targetReached: result.targetReached,
+      // 🔴 AGENT1-HARDENING-CUT-3 — la cifra REAL de la corrida, no una copia.
+      stableFinalizableCandidateCount: result.stableFinalizableCandidateCount,
     });
 
     assert.equal(

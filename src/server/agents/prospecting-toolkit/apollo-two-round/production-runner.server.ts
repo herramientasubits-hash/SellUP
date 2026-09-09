@@ -3233,6 +3233,10 @@ function buildObservabilityMetadata(input: {
     },
     targetEligibleCompanies: runResult.targetEligibleCompanies,
     targetReached: runResult.targetReached,
+    // 🔴 AGENT1-HARDENING-CUT-3 — la cifra de la que el orquestador DERIVA
+    // `targetReached`. Pasarla es lo que hace que la comprobación compare la
+    // misma pregunta contra sí misma en vez de contra una cifra más laxa.
+    stableFinalizableCandidateCount: runResult.stableFinalizableCandidateCount,
   });
 
   // § E — disposición final de cada resultado único. Se calcula sobre el
