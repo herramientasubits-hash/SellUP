@@ -4579,6 +4579,79 @@ jobs:
       - name: Run Agent1 Apollo macro query family variants (V3-A) and net-new pagination
         run: npm run test:a1-apollo-macro-query-family-variants-v3
 
+      # ── A1-LUSHA-WATERFALL-SIZE-GATE § CUT-5A ─────────────────────────────────
+      #
+      # La pierna Lusha del waterfall corría SIN restricción de tamaño alguna: ni
+      # de proveedor ni local. `runLushaWaterfallLeg` no manda `sizeBandKey`, así
+      # que `requestSummary.sizeBand` viajaba `null`,
+      # `buildLushaProspectSearchCriteria` devolvía `minEmployees: null` y el gate
+      # compartido de intake SALTA por completo su comprobación de tamaño cuando el
+      # mínimo es `null`. Ninguna suite de Lusha podía verlo: todas montan
+      # `sizeBand: {min: 201}` en el `requestSummary` de su doble.
+      #
+      # Lo que fija esta suite:
+      #
+      #   A  El suelo (`resolveLushaLocalMinEmployees`) es la definición de NEGOCIO,
+      #      no la banda pedida: sin banda ⇒ 200 y jamás `null`; una banda más laxa
+      #      (51) no puede bajarlo; una más estricta (1001) se respeta tal cual; un
+      #      valor no finito cae al suelo.
+      #   B  El criterio lleva ese suelo y NO inventa techo (`maxEmployees` sigue
+      #      siendo sólo la banda pedida).
+      #   C  La admisión real con la forma del waterfall: 199 ⇒ rechazo definitivo
+      #      con el motivo DURO que ya existía (`known_employee_count_below_min`,
+      #      que es literalmente `LUSHA_DISCARD_REASON_CODE.icpSizeBelowMin`) y sin
+      #      llegar al comprobador de duplicados; 200 / 201 / 5.000 / 1.000.001 ⇒
+      #      elegibles (el umbral es INCLUSIVO y no hay techo artificial); tamaño
+      #      DESCONOCIDO ⇒ la semántica explícita del gate —nunca bloqueo, siempre
+      #      marca `employee_count_unknown`—, que no es un pase limpio.
+      #   D  Que la PIERNA ejecuta el gate: la pierna corre contra el núcleo REAL de
+      #      persistencia y una empresa de 199 no sobrevive, una de 200 sí. Con un
+      #      trinquete de FIDELIDAD del arnés: si la pierna aprende a mandar banda,
+      #      el step cae en vez de seguir midiendo un arnés que dejó de ser fiel.
+      #   E  Trinquetes de mutación: restaurar `minEmployees: rs.sizeBand?.min ?? null`
+      #      —la línea del defecto, que no rompe ninguna otra suite— pone el step
+      #      rojo; declarar un `200` propio en vez de importar
+      #      `ICP_SIZE_GATE_DEFAULT_THRESHOLD` también; y el suelo LOCAL no puede
+      #      haberse convertido en filtro de proveedor (CUT-5 original cerró como
+      #      `LUSHA_SIZE_PARITY = UNSUPPORTED_BY_PROVIDER_CONTRACT`: no hay
+      #      `sizes: [{min: 200}]` server-side).
+      #
+      # Honestidad económica: el filtro es POSTERIOR a la respuesta. El crédito de
+      # la página ya está gastado cuando el suelo se aplica; este corte no ahorra
+      # créditos y no pretende ahorrarlos. Lo que impide es que una empresa por
+      # debajo del ICP llegue a ser candidato.
+      #
+      # NO toca Apollo, NO toca el techo de Apollo [200, 1.000.000], NO toca
+      # `filters.companies.include.sizes`, NO toca presupuesto, NO toca UI.
+      # 0 llamadas a Lusha/Apollo/Tavily/HubSpot, 0 créditos, 0 escrituras en
+      # Producción, 0 migraciones, 0 flags.
+      - name: Run Agent1 Lusha waterfall local size gate (CUT-5A)
+        run: npm run test:a1-lusha-waterfall-size-gate-5a
+
+      # A1-LUSHA-WATERFALL-SIZE-GATE § CUT-5B — UNA sola autoridad decide el
+      # tamaño, y la ficha no puede contradecirla.
+      #
+      # CUT-5A ya rechazaba 199 y 50. Lo que quedaba partido era la frontera
+      # entre «hay cifra» y «no hay cifra»: el normalizador compartido colapsaba
+      # el `0` a `null` (la ADMISIÓN lo mandaba a revisión humana) mientras la
+      # ficha lo leía en crudo y decía `block` — y decía `block` también para
+      # `NaN` y para los negativos, inventando un tamaño que nadie reportó.
+      #
+      # Ahora la clasificación conocido/desconocido vive en UN sitio,
+      # `classifyKnownEmployeeCount`, junto al umbral de CUT-5A:
+      #   0 / enteros positivos  → CONOCIDO  (0 < 200 ⇒ rechazo duro)
+      #   null / NaN / negativos → DESCONOCIDO (reviewable, jamás rechazo)
+      #
+      # Apollo NO cambia: el normalizador conserva su lectura histórica del `0`
+      # por defecto y sólo la pierna Lusha pide la canónica. El § F de la suite
+      # lo comprueba explícitamente.
+      #
+      # NO toca Apollo, NO toca el waterfall Apollo→Lusha, NO toca presupuesto,
+      # NO toca UI, NO toca flags. 0 llamadas a Lusha/Apollo/Tavily/HubSpot,
+      # 0 créditos, 0 escrituras en Producción, 0 migraciones.
+      - name: Run Agent1 Lusha ICP size authority (CUT-5B)
+        run: npm run test:a1-lusha-icp-size-authority-5b
+
       # ══ HARDENING CUT-1 — el ownership de Apollo juzga como el writer ════════
       #
       # `candidate-writer.ts` nunca evalúa la propiedad con el nombre crudo: la
