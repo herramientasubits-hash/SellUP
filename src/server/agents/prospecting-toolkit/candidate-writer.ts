@@ -39,8 +39,11 @@ import { evaluateBusinessFit, isBlockedByBusinessFit } from "./business-fit-gate
 import type { BusinessFitResult } from "./business-fit-gate";
 import { evaluateExternalPlatformGate } from "./external-platform-blocklist";
 import { evaluateContentIntermediaryGate } from "./content-intermediary-gate";
-import { evaluateCompanyOwnership, isBlockedByCompanyOwnership } from "./company-ownership-gate";
-import { normalizeProspectCompanyName } from "./company-name-normalizer";
+import {
+  evaluateCompanyOwnership,
+  isBlockedByCompanyOwnership,
+  resolveOwnershipEvaluationName,
+} from "./company-ownership-gate";
 import { evaluateCountryEvidence } from "./country-evidence-gate";
 import type { CountryEvidenceResult } from "./country-evidence-gate";
 import { computeEvidencePersistencePolicy } from "./evidence-persistence-policy";
@@ -1729,15 +1732,19 @@ export async function writeProspectingCandidates(
     // Evalúa si el dominio de la URL pertenece oficialmente a la empresa candidata.
     // v1.10: Si Tavily devolvió un título genérico como nombre, se infiere el nombre
     // real desde el dominio antes de evaluar la propiedad.
-    const nameNormResult = normalizeProspectCompanyName(
+    //
+    // 🔴 AGENT1-HARDENING-CUT-1 — la recuperación vive ahora en
+    // `resolveOwnershipEvaluationName`, junto al gate, para que el orquestador
+    // de Apollo juzgue con ella ANTES de descartar definitivamente. Esta capa
+    // no cambia de comportamiento: llama al mismo cuerpo que antes tenía en
+    // línea.
+    const nameNormResult = resolveOwnershipEvaluationName(
       candidate.name,
-      candidate.website ?? candidate.domain ?? undefined,
+      candidate.website ?? null,
+      candidate.domain ?? null,
     );
-    const domainInferredForOwnership =
-      nameNormResult.normalizationReason === 'seo_phrase_replaced_by_domain';
-    const nameForOwnership = domainInferredForOwnership
-      ? nameNormResult.name
-      : candidate.name;
+    const domainInferredForOwnership = nameNormResult.recoveredFromDomain;
+    const nameForOwnership = nameNormResult.name;
 
     // v1.16K-K: Use the domain-inferred corporate name for business fit evaluation
     // when the source returned a generic SEO title (e.g. "Consultoría ERP, CRM, HCM"

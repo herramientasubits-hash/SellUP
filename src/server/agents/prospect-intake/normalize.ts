@@ -19,6 +19,7 @@ import {
   extractDomainFromWebsite,
 } from '@/server/agents/prospecting-toolkit/normalization';
 import { isLinkedInCompanyUrl } from '@/modules/prospect-batches/candidate-linkedin-url';
+import { classifyKnownEmployeeCount } from '@/server/agents/prospecting-toolkit/icp-size-gate';
 
 import type {
   IntakeIndustryCodes,
@@ -47,10 +48,41 @@ function normalizeCountryCode(value: string | null | undefined): string | null {
   return /^[A-Z]{2}$/.test(upper) ? upper : upper;
 }
 
-function normalizeEmployeeCount(value: number | null | undefined): number | null {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
-  const rounded = Math.trunc(value);
-  return rounded > 0 ? rounded : null;
+/**
+ * Opciones de normalización. Cada campo tiene un default que REPRODUCE el
+ * comportamiento previo, para que un llamador que no las pasa no cambie.
+ */
+export interface NormalizeProspectOptions {
+  /**
+   * ¿Un `0` reportado por el proveedor es un conteo CONOCIDO de cero empleados,
+   * o es su forma de decir «no tengo el dato»?
+   *
+   * 🔴 A1-LUSHA-WATERFALL-SIZE-GATE § CUT-5B — el default es `false`, y el
+   * default es lo importante: Apollo y Tavily llaman a este normalizador SIN
+   * opciones, así que siguen leyendo `0` como ausencia de dato exactamente como
+   * antes de este corte. Este parámetro no es un feature flag —no hay env, ni
+   * registro, ni conmutador en runtime—: es el único punto del contrato donde
+   * las dos lecturas del `0` conviven sin que una decida por la otra.
+   *
+   * Lusha lo activa porque su pierna ya demostró que entrega `employeeCountExact`
+   * como cifra afirmada. Ahí un `0` es un tamaño declarado, y `0 < 200` es un
+   * rechazo por ICP, no una revisión humana.
+   */
+  treatZeroEmployeeCountAsKnown?: boolean;
+}
+
+function normalizeEmployeeCount(
+  value: number | null | undefined,
+  treatZeroAsKnown: boolean,
+): number | null {
+  // La clasificación conocido/desconocido es la CANÓNICA (§ CUT-5B): trunca,
+  // admite el cero y descarta NaN/±Infinity/negativos sin inventar una cifra.
+  const known = classifyKnownEmployeeCount(value);
+  if (known === null) return null;
+  // Única divergencia, y explícita: sin la opción, el cero vuelve a leerse como
+  // «sin dato». Es la lectura histórica y la que conservan Apollo y Tavily.
+  if (known === 0 && !treatZeroAsKnown) return null;
+  return known;
 }
 
 /** Copy the provider industry codes without ever mutating the input arrays. */
@@ -72,6 +104,7 @@ function copyIndustryCodes(codes: IntakeIndustryCodes | undefined): IntakeIndust
 export function normalizeProviderDiscoveredCompany(
   discovered: ProviderDiscoveredCompany,
   criteria: ProspectSearchCriteria,
+  options: NormalizeProspectOptions = {},
 ): NormalizedProspectCandidate {
   const warnings: IntakeNormalizationWarning[] = [];
   const issues: IntakeNormalizationIssue[] = [];
@@ -106,7 +139,10 @@ export function normalizeProviderDiscoveredCompany(
   }
 
   // ── Employees ──────────────────────────────────────────────────────────────
-  const employeeCount = normalizeEmployeeCount(discovered.employeeCount);
+  const employeeCount = normalizeEmployeeCount(
+    discovered.employeeCount,
+    options.treatZeroEmployeeCountAsKnown === true,
+  );
   if (employeeCount === null) {
     warnings.push('employee_count_unknown');
   } else if (
