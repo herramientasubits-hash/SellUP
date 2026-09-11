@@ -492,10 +492,37 @@ describe('CUT-C.1 § F — trinquetes', () => {
     );
   });
 
-  it('MUTACIÓN 3 — bajar el suelo por debajo del umbral ICP no es alcanzable por banda', () => {
+  it('MUTACIÓN 5 — bajar el suelo por debajo del umbral ICP no es alcanzable por banda', () => {
     // Una banda MÁS LAXA no puede rebajar el suelo: el ICP manda.
     assert.equal(resolveLushaLocalMinEmployees(51), ICP_SIZE_GATE_DEFAULT_THRESHOLD);
     assert.equal(resolveLushaLocalMinEmployees(0), ICP_SIZE_GATE_DEFAULT_THRESHOLD);
+  });
+
+  it('MUTACIÓN 4 — el suelo local no puede declarar su propio `200`', () => {
+    // 🔴 Esta mutación SOBREVIVE a toda prueba de comportamiento, y por eso hace
+    // falta una guarda estática: inlinar `200` es hoy indistinguible de importar
+    // el umbral compartido. Se verificó que también sobrevive a la suite de
+    // CUT-5A, cuyo comentario de CI afirmaba que la mataba.
+    //
+    // Importa porque el día que el umbral ICP se mueva, un literal propio deja a
+    // Lusha admitiendo por un umbral que ya nadie más usa — que es exactamente
+    // la doble autoridad que CUT-5A y CUT-5B vinieron a cerrar.
+    const src = fs.readFileSync(
+      path.join(process.cwd(), 'src/server/prospect-batches/lusha-pending-review.ts'),
+      'utf8',
+    );
+    const marker = 'export function resolveLushaLocalMinEmployees';
+    const start = src.indexOf(marker);
+    assert.notEqual(start, -1, 'la autoridad del suelo local cambió de nombre');
+    const body = src.slice(start, src.indexOf('\n}', start));
+    assert.ok(
+      body.includes('ICP_SIZE_GATE_DEFAULT_THRESHOLD'),
+      'el suelo local dejó de leer el umbral ICP compartido',
+    );
+    assert.ok(
+      !/\b200\b/.test(body),
+      'el suelo local declara un umbral propio en vez de importar el compartido',
+    );
   });
 
   it('FIDELIDAD DEL ARNÉS — si la pierna del waterfall aprende a mandar banda, esta suite deja de medir lo que dice', () => {
