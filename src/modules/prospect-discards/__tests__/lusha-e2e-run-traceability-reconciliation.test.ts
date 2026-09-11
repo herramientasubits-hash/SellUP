@@ -21,7 +21,7 @@
  * Run: node --import tsx --experimental-test-module-mocks --test <this file>
  */
 
-import { describe, it, mock, before } from 'node:test';
+import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -46,35 +46,41 @@ import type { ActiveCandidateRecord } from '@/server/agents/prospecting-toolkit/
 import { preM126FencedInsert } from '@/server/prospect-batches/__tests__/support/lusha-pre-m126-fenced-insert';
 import { preM126BatchEpochSnapshot } from '@/server/prospect-batches/__tests__/support/lusha-batch-epoch-snapshot';
 import { reconcileLushaRunAgainstDispositions } from '../reconciliation';
-import type { LushaDiscardRecordLike } from '../lusha-pipeline-writer.server';
+import {
+  persistLushaRejectedDispositions,
+  type LushaDiscardRecordLike,
+  type LushaDiscardWriterClientFactory,
+} from '../lusha-pipeline-writer.server';
 
 /** § CUT-C.2 — identidad de corrida exigida por el escritor. */
 const WIZARD_RUN_ID = 'wizard-run-fixture-1';
 const CLIENT_REQUEST_ID = 'client-request-fixture-1';
 
-process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://fake.supabase.local';
-process.env.SUPABASE_SERVICE_ROLE_KEY = 'fake-service-role-key';
-
+/**
+ * 🔴 CUT-C.2 — el doble de base de datos entra por INYECCIÓN, no por
+ * `mock.module`.
+ *
+ * `mock.module({ namedExports })` NO se aplica en Node 24 —la versión del runner
+ * de CI—, así que el cliente REAL de Supabase se construía y salía a la red
+ * contra `fake.supabase.local`. Mientras este fichero no estuvo en CI el
+ * problema fue invisible; al entrar, dejó de serlo.
+ *
+ * `clientFactory` es la costura que el escritor YA exponía para esto, y funciona
+ * igual en Node 20 y en 24.
+ */
 let upsertPayloads: Record<string, unknown>[][] = [];
-mock.module('@supabase/supabase-js', {
-  namedExports: {
-    createClient: () => ({
-      from: () => ({
-        upsert: (payload: Record<string, unknown>[]) => {
-          upsertPayloads.push(payload);
-          return {
-            select: () => Promise.resolve({ data: payload.map((_, i) => ({ id: `r-${i}` })), error: null }),
-          };
-        },
-      }),
+const testClientFactory: LushaDiscardWriterClientFactory = () =>
+  ({
+    from: () => ({
+      upsert: (payload: Record<string, unknown>[]) => {
+        upsertPayloads.push(payload);
+        return {
+          select: () =>
+            Promise.resolve({ data: payload.map((_, i) => ({ id: `r-${i}` })), error: null }),
+        };
+      },
     }),
-  },
-});
-
-let persistLushaRejectedDispositions: typeof import('../lusha-pipeline-writer.server').persistLushaRejectedDispositions;
-before(async () => {
-  ({ persistLushaRejectedDispositions } = await import('../lusha-pipeline-writer.server'));
-});
+  }) as unknown as ReturnType<LushaDiscardWriterClientFactory>;
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -581,6 +587,7 @@ describe('C. status="empty": 0 candidatos, batchId null, disposiciones SÍ', () 
     assert.equal(batchId, CANONICAL_BATCH_ID);
 
     const write = await persistLushaRejectedDispositions({
+      clientFactory: testClientFactory,
       batchId: batchId as string,
       wizardRunId: WIZARD_RUN_ID,
       clientRequestId: CLIENT_REQUEST_ID,

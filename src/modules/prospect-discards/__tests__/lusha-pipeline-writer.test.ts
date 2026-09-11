@@ -22,17 +22,15 @@
  * Run: node --import tsx --experimental-test-module-mocks --test <this file>
  */
 
-import { describe, it, mock, beforeEach, before } from 'node:test';
+import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import type {
-  persistLushaRejectedDispositions as PersistFn,
-  LushaDiscardRecordLike,
+import {
+  persistLushaRejectedDispositions,
+  type LushaDiscardRecordLike,
+  type LushaDiscardWriterClientFactory,
 } from '../lusha-pipeline-writer.server';
-
-process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://fake.supabase.local';
-process.env.SUPABASE_SERVICE_ROLE_KEY = 'fake-service-role-key';
 
 interface UpsertCall {
   table: string;
@@ -57,43 +55,50 @@ function resetSpy(): void {
   storedRows = {};
 }
 
-mock.module('@supabase/supabase-js', {
-  namedExports: {
-    createClient: () => ({
-      from: (table: string) => ({
-        upsert: (payload: Record<string, unknown>[], options: Record<string, unknown>) => {
-          upsertCalls.push({ table, payload, options });
-          // El doble modela ON CONFLICT DO NOTHING: una fila cuya `source_key`
-          // ya existe NO se inserta y NO se altera.
-          const inserted: Record<string, unknown>[] = [];
-          for (const row of payload) {
-            const key = String(row.source_key);
-            if (options.ignoreDuplicates === true && existingSourceKeys.has(key)) continue;
-            if (!existingSourceKeys.has(key)) {
-              existingSourceKeys.add(key);
-              storedRows[key] = row;
-            } else {
-              // Sólo alcanzable con DO UPDATE — el defecto que este archivo veta.
-              storedRows[key] = row;
-            }
-            inserted.push({ id: `row-${key}` });
+/**
+ * 🔴 CUT-C.2 — el doble de base de datos entra por INYECCIÓN, no por
+ * `mock.module`.
+ *
+ * Este fichero mockeaba `@supabase/supabase-js` con `{ namedExports }`. Esa API
+ * NO se aplica en Node 24 —la versión del runner de CI—, así que el cliente REAL
+ * se construía y salía a la red contra `fake.supabase.local`: 15 pruebas en rojo
+ * con `getaddrinfo EAI_AGAIN`, ninguna por un defecto del código. Mientras el
+ * fichero no estuvo en CI el problema fue invisible; al entrar, dejó de serlo.
+ *
+ * `LushaDiscardWriterClientFactory` es la costura que el escritor YA exponía
+ * exactamente para esto. Con ella el mismo doble funciona en Node 20 y en 24, y
+ * las variables de entorno de Supabase dejan de hacer falta.
+ */
+function makeClientFactory(): LushaDiscardWriterClientFactory {
+  return () => ({
+    from: (table: string) => ({
+      upsert: (payload: Record<string, unknown>[], options: Record<string, unknown>) => {
+        upsertCalls.push({ table, payload, options });
+        // El doble modela ON CONFLICT DO NOTHING: una fila cuya `source_key`
+        // ya existe NO se inserta y NO se altera.
+        const inserted: Record<string, unknown>[] = [];
+        for (const row of payload) {
+          const key = String(row.source_key);
+          if (options.ignoreDuplicates === true && existingSourceKeys.has(key)) continue;
+          if (!existingSourceKeys.has(key)) {
+            existingSourceKeys.add(key);
+            storedRows[key] = row;
+          } else {
+            // Sólo alcanzable con DO UPDATE — el defecto que este archivo veta.
+            storedRows[key] = row;
           }
-          return {
-            select: () =>
-              upsertShouldFail
-                ? Promise.resolve({ data: null, error: { message: 'simulated DB failure' } })
-                : Promise.resolve({ data: selectReturnsNull ? null : inserted, error: null }),
-          };
-        },
-      }),
+          inserted.push({ id: `row-${key}` });
+        }
+        return {
+          select: () =>
+            upsertShouldFail
+              ? Promise.resolve({ data: null, error: { message: 'simulated DB failure' } })
+              : Promise.resolve({ data: selectReturnsNull ? null : inserted, error: null }),
+        };
+      },
     }),
-  },
-});
-
-let persistLushaRejectedDispositions: typeof PersistFn;
-before(async () => {
-  ({ persistLushaRejectedDispositions } = await import('../lusha-pipeline-writer.server'));
-});
+  }) as unknown as ReturnType<LushaDiscardWriterClientFactory>;
+}
 
 const BATCH_ID = '99999999-9999-4999-8999-999999999999';
 
@@ -125,6 +130,7 @@ const baseInput = (records: LushaDiscardRecordLike[]) => ({
   requestedCountryCode: 'CO',
   requestedIndustry: 'health_pharma',
   records,
+  clientFactory: makeClientFactory(),
 });
 
 describe('persistLushaRejectedDispositions', () => {
@@ -160,15 +166,24 @@ describe('persistLushaRejectedDispositions', () => {
   });
 
   it('NO lanza cuando faltan las credenciales de servicio', async () => {
+    // 🔴 Esta prueba —y SÓLO ésta— corre SIN `clientFactory`: es el único camino
+    // que ejercita `getAdminClient()`, que es justo lo que aquí se prueba. Con el
+    // doble inyectado el cliente real nunca se construye y no habría credenciales
+    // que faltar.
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
     delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
     try {
-      const res = await persistLushaRejectedDispositions(baseInput([record()]));
+      const { clientFactory: _omitted, ...withoutFactory } = baseInput([record()]);
+      void _omitted;
+      const res = await persistLushaRejectedDispositions(withoutFactory);
       assert.equal(res.persisted, 0);
       assert.equal(res.errors.length, 1);
       assert.equal(upsertCalls.length, 0);
     } finally {
-      process.env.NEXT_PUBLIC_SUPABASE_URL = url;
+      if (url !== undefined) process.env.NEXT_PUBLIC_SUPABASE_URL = url;
+      if (key !== undefined) process.env.SUPABASE_SERVICE_ROLE_KEY = key;
     }
   });
 
