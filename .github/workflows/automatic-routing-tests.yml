@@ -4749,6 +4749,46 @@ jobs:
       # 0 migraciones.
       - name: Run Agent1 Lusha discard certification (CUT-C.2)
         run: npm run test:a1-lusha-discard-certification-c2
+      # ── A1-CERTIFICATION-BASELINE § CUT-C.3 ───────────────────────────────────
+      #
+      # Conservar una corrida de Apollo y una de Lusha de forma que un proveedor
+      # NUEVO pueda compararse contra ellas sin volver a pagarles.
+      #
+      # Auditoría (Producción, 11-09-2026, sólo lectura): los datos YA se
+      # persisten y la correlación entre piernas YA funciona —una corrida real
+      # del waterfall tiene 2 filas de Apollo y 1 de Lusha bajo el mismo
+      # `wizard_run_id` y el mismo lote—. Lo que NO existe es un vocabulario
+      # comparable: Apollo publica `apollo_benchmark_funnel`/`apollo_pagination`
+      # y Lusha `lusha_run_observability`, con nombres y anidamiento propios.
+      #
+      # 🔴 EL HALLAZGO CENTRAL, medido y no supuesto:
+      # `apollo_benchmark_funnel.accepted_for_target` sale `null` en 16 de 16
+      # filas de Producción; Lusha SÍ publica `accepted_for_target_total`. Sin
+      # ese numerador, el RENDIMIENTO ÚTIL y el COSTE POR EMPRESA ÚTIL de Apollo
+      # NO son calculables. El propio bloque de Apollo ya declara la costura. No
+      # se arregla con una migración: hay que correlacionar la admisión del
+      # writer con la fila de búsqueda.
+      #
+      # Este corte NO crea tabla: la línea base es una PROYECCIÓN pura de lo que
+      # ya existe, con un adaptador por proveedor. Añadir un proveedor nuevo es
+      # escribir su adaptador, no volver a correr los dos anteriores — y el § F
+      # lo ejercita con un proveedor inventado.
+      #
+      # La regla que gobierna el módulo es la MISMA de `apollo-benchmark-funnel`:
+      # un campo que no se puede producir con verdad sale `null` y se NOMBRA en
+      # `fields_missing` + `missing_correlation_seams`. Jamás como 0. Un 0 dice
+      # «lo medimos y salió cero»; un null, «no lo medimos». El § E fija que un
+      # 0 legítimo y un null no se confunden, y 8 mutaciones vigilan el resto.
+      #
+      # 🔴 MIGRACIONES = 0. El diseño mínimo —y su impacto, incluido que soltar
+      # el `NOT NULL` de `batch_id` OBLIGA a cambiar la clave de idempotencia en
+      # la misma migración— vive en `docs/CERTIFICATION_BASELINE.md`, y una
+      # prueba comprueba que el repo no trae ninguna migración de certificación.
+      #
+      # NO toca Apollo, NO toca Lusha, NO toca presupuesto, NO toca UI, NO toca
+      # flags. 0 llamadas a proveedor, 0 créditos, 0 escrituras en Producción.
+      - name: Run Agent1 certification baseline (CUT-C.3)
+        run: npm run test:a1-certification-baseline-c3
 
       # ══ HARDENING CUT-0 — el waterfall y el lote mixto entran a CI ═══════════
       #
