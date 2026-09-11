@@ -207,6 +207,71 @@ describe('§1 — novedad sin utilidad no consume el objetivo de paginación', (
       `la paginación debía seguir comprando páginas; compró ${result.pagesProcessed}`,
     );
   });
+
+  it('el gate de PAÍS bloquea por sí solo: TLD extranjero con ownership impecable no consume objetivo', () => {
+    // Las tres pasan identidad canónica, dominio de directorio, página de
+    // contenido Y ownership (el nombre coincide con su dominio). Lo ÚNICO que
+    // las bloquea es el país: sin ese gate volverían a consumir el objetivo.
+    for (const [name, domain] of [
+      ['Nortena Digital', 'nortenadigital.com.mx'],
+      ['Austral Sistemas', 'australsistemas.com.cl'],
+      ['Pampa Software', 'pampasoftware.com.ar'],
+    ] as const) {
+      const verdict = evaluateApolloPaginationUsefulness({
+        organization: organization({
+          name,
+          primaryDomain: domain,
+          normalizedDomains: [domain],
+          websiteUrl: `https://${domain}`,
+        }),
+        targetCountryCode: 'CO',
+      });
+      assert.equal(
+        verdict.consumesPaginationTarget,
+        false,
+        `${domain} es incompatible con CO y no puede consumir el objetivo`,
+      );
+      assert.equal(verdict.reason, 'country_incompatible');
+    }
+  });
+
+  it('cinco TLD extranjeros novedosos NO cierran la paginación', async () => {
+    const page1 = pagePayload(1, [
+      { id: 'x1', name: 'Nortena Digital', primary_domain: 'nortenadigital.com.mx' },
+      { id: 'x2', name: 'Austral Sistemas', primary_domain: 'australsistemas.com.cl' },
+      { id: 'x3', name: 'Pampa Software', primary_domain: 'pampasoftware.com.ar' },
+      { id: 'x4', name: 'Andina Peru Data', primary_domain: 'andinaperudata.com.pe' },
+      { id: 'x5', name: 'Oriental Brasil Tech', primary_domain: 'orientalbrasiltech.com.br' },
+    ]);
+    const h = harness([page1, pagePayload(2, [])]);
+
+    const result = await runApolloOrganizationsPaginatedSearch(
+      { ...baseInput, budget: createApolloPaginationBudget(), netNewTarget: 5 },
+      {
+        ...h,
+        evaluateAcceptance: createApolloPaginationAcceptanceEvaluator({
+          targetCountryCode: 'CO',
+          loadHistoricalRowsForDomain: neverKnown,
+        }),
+      },
+    );
+
+    assert.equal(
+      result.acceptedForTargetCount,
+      0,
+      'ninguna empresa de otro país puede consumir el objetivo de una corrida CO',
+    );
+    assert.notEqual(result.stopReason, 'candidate_target_reached');
+  });
+
+  it('sin código de país declarado nadie consume el objetivo (lectura conservadora del writer)', () => {
+    const verdict = evaluateApolloPaginationUsefulness({
+      organization: organization({}),
+      targetCountryCode: null,
+    });
+    assert.equal(verdict.consumesPaginationTarget, false);
+    assert.equal(verdict.reason, 'country_code_absent');
+  });
 });
 
 // ═══ 2 — cinco ÚTILES sí cierran la paginación ═══════════════════════════════
