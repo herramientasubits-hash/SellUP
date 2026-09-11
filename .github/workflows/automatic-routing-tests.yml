@@ -4692,6 +4692,63 @@ jobs:
       # proveedor, 0 créditos, 0 escrituras en Producción, 0 migraciones.
       - name: Run Agent1 Lusha size parity (CUT-C.1)
         run: npm run test:a1-lusha-size-parity-c1
+      # ── A1-LUSHA-DISCARD-CERTIFICATION § CUT-C.2 ──────────────────────────────
+      #
+      # Cada descarte de Lusha se puede persistir POR EMPRESA, y la fila basta
+      # para reconstruir qué pasó SIN volver a preguntarle al proveedor — es
+      # decir, sin volver a pagar.
+      #
+      # El hueco que cierra: la fila no llevaba la identidad de la CORRIDA.
+      # `batch_id` no la identifica — en el waterfall Apollo y Lusha COMPARTEN
+      # lote por construcción, y una segunda corrida sobre el mismo lote lo
+      # comparte otra vez — así que dos corridas producían filas
+      # indistinguibles. El valor ya se calculaba (`reservedCorrelation
+      # .wizardRunId`): se escribía en la línea de consola y se perdía con ella.
+      # Ahora viaja en `evidence.run_correlation`, bajo la MISMA clave que
+      # `provider_usage_logs.metadata`, para que descarte y gasto se puedan unir.
+      #
+      # 🔴 SIN migración: la 138 no tiene columna para esto y `evidence` es JSONB.
+      #
+      # Las cinco familias del alcance, y lo que el step fija de cada una:
+      #   hard_excluded       persistida, con el motivo DURO verbatim
+      #   duplicate           persistida, SellUp y HubSpot como códigos distintos
+      #   precision_rejected  persistida como `sector_rejected`
+      #   provider_error      🔴 NO es un evento por empresa — se DEMUESTRA
+      #   budget              🔴 NO es un evento por empresa — se DEMUESTRA
+      #
+      # 🔴 A `provider_error` y `budget` no se les inventa código, y no por
+      # pereza: una búsqueda fallida devuelve CERO empresas y el guard de
+      # presupuesto corta ANTES de llamar al proveedor. No hay empresa a la que
+      # atribuir nada, y dársela sería el dato inventado que la taxonomía
+      # prohíbe. El step lo prueba ejecutando esos dos caminos contra el núcleo
+      # real y exigiendo 0 registros; el desenlace de corrida vive donde le
+      # corresponde, en `provider_usage_logs.status`/`error_code`.
+      #
+      # 🔴 HUECO ABIERTO que el step DECLARA en vez de esconder: en standalone,
+      # una corrida que rechaza TODO no crea lote (`status: 'empty'` ⇒
+      # `batchId: null`) y sin lote no se escribe NADA, porque `batch_id` es
+      # `NOT NULL REFERENCES prospect_batches(id)`. Es el peor caso —página
+      # pagada, nada admitido, cero rastro— y cerrarlo EXIGE migración, que este
+      # corte tiene prohibida. La prueba fija el comportamiento actual y el
+      # `NOT NULL` del esquema: el día que se migre, cae.
+      #
+      # 9 mutaciones deliberadas, 9 muertas.
+      #
+      # 🔴 DEPENDENCIAS INYECTADAS, nunca `mock.module`. Este step entró en rojo
+      # la primera vez y el defecto no estaba en el código: tres de las suites de
+      # `prospect-discards` no habían corrido NUNCA en CI y mockeaban
+      # `@supabase/supabase-js` con `{ namedExports }`, que Node 24 IGNORA. El
+      # cliente REAL se construía y salía a la red contra `fake.supabase.local`:
+      # 15 pruebas caídas con `getaddrinfo EAI_AGAIN`, ninguna por un defecto.
+      # Se pasaron a `clientFactory` —la costura que el escritor YA exponía para
+      # esto— y el step corre SIN `--experimental-test-module-mocks`, de modo que
+      # ninguna suite pueda volver a depender en silencio de esa API.
+      #
+      # NO toca Apollo, NO toca presupuesto, NO toca UI, NO toca flags.
+      # 0 llamadas a proveedor, 0 créditos, 0 escrituras en Producción,
+      # 0 migraciones.
+      - name: Run Agent1 Lusha discard certification (CUT-C.2)
+        run: npm run test:a1-lusha-discard-certification-c2
       # ── A1-APOLLO-ACCEPTED-FOR-TARGET-TRACEABILITY § D.1 ──────────────────────
       #
       # `apollo_benchmark_funnel.accepted_for_target` salía `null` en 16 de 16
