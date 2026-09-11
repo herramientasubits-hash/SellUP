@@ -80,6 +80,15 @@ const ALLOWED_CRITERIA_IMPORTS: ReadonlySet<string> = new Set([
   // § 1 — el catálogo macro canónico: es lo que traduce el `slug` publicado a
   // `MacroIndustryKey`, en lugar del mapeo difuso de alias que había antes.
   '@/modules/macro-industry-catalog/macro-industries',
+  // AGENT1-MACRO-RESOLUTION-SINGLE-AUTHORITY-1 — la autoridad única de
+  // resolución macro. Entra en la lista por la MISMA razón que su hermano de
+  // arriba y sin aflojar nada: es un módulo PURO cuya única dependencia es
+  // `macro-industries` (sin `process.env`, sin `fetch`, sin I/O), y las dos
+  // comprobaciones de pureza de este mismo bloque se siguen aplicando al
+  // puente. Lo que el puente dejó de hacer es implementar por su cuenta la
+  // cadena `slug → nombre visible → null`, que es justo lo que otras puntas
+  // copiaban a medias.
+  '@/modules/macro-industry-catalog/macro-industry-resolution',
   '@/server/prospect-batches/lusha-preview',
 ]);
 
