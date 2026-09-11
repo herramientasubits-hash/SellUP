@@ -4884,3 +4884,40 @@ jobs:
       # 0 llamadas a proveedor, 0 créditos, 0 escrituras, 0 migraciones, 0 flags.
       - name: Run Agent 1 macro resolution single authority tests
         run: npm run test:a1-macro-resolution-single-authority
+      # ══ AGENT1-APOLLO-PAGINATION-USEFULNESS-AUTHORITY-1 ════════════════════
+      #
+      # La paginación real de Apollo dentro de UNA invocación se activa con
+      # `netNewTarget` + `evaluateCandidateAcceptance` (los DOS), y el motor deja
+      # de comprar páginas cuando `acceptedForTargetCount` alcanza el objetivo.
+      #
+      # EL DEFECTO: los dos cableados vivos —`apollo-two-round/
+      # production-runner.server.ts` e `incremental-search.ts`— alimentaban ese
+      # contador con NOVEDAD HISTÓRICA a secas, cada uno con su propia copia del
+      # cuerpo, y los dos abrían con `if (normalizedDomain === null) return true`.
+      # Una organización SIN dominio —y una con dominio que después moriría por
+      # ownership, país o identidad— consumía el objetivo igual, así que Apollo
+      # cerraba la paginación con `candidate_target_reached` y CERO empresas
+      # útiles. Es la explicación directa del «Apollo = 0 útiles» observado.
+      #
+      # El step fija que cinco novedades inservibles NO cierran la paginación,
+      # que cinco útiles SÍ la cierran, que una organización sin dominio no
+      # consume el objetivo (y —en negativo— que eso NO la descarta: las filas de
+      # una página YA PAGADA siguen llegando completas al llamador), que la
+      # ronda 2 conserva `projectedTargetGap`, que `raw_result_cap_reached` no
+      # vuelve al vocabulario vivo, y —con guarda estática— que existe UNA sola
+      # autoridad y que «contar novedad en vez de utilidad» deja de ser
+      # expresable en los dos cableados.
+      #
+      # Arrastra las suites vecinas que este cambio podría romper: el motor de
+      # paginación, la ruta legacy por defecto, los escenarios de net-new, la
+      # seguridad de página única, la valla durable, el cableado de producción de
+      # dos rondas, el hueco residual y el CORTE 2 del waterfall.
+      #
+      # 🔴 Dependencias INYECTADAS (transporte, reloj, jitter y lector
+      # histórico), nunca `mock.module`: `{ namedExports }` funciona en Node 20 y
+      # NO en Node 24, donde el módulo real sale a la red.
+      #
+      # 0 llamadas a proveedor, 0 créditos, 0 Supabase, 0 escrituras,
+      # 0 migraciones, 0 flags.
+      - name: Run Agent 1 Apollo pagination usefulness authority tests
+        run: npm run test:a1-apollo-pagination-usefulness-authority

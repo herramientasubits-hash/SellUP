@@ -86,8 +86,11 @@ import { enrichBatchCandidatesWithTaxResolution } from '@/server/source-catalog/
 // histórica fuerte previa al pago, el provider Apollo (que ya sabe paginar
 // cuando recibe netNewTarget + evaluateCandidateAcceptance) y la valla durable
 // de página. Ningún motor nuevo — sólo este llamador nunca los invocaba.
-import { evaluatePrepaidHistoricalDuplicate, type HistoricalCandidateRow } from './apollo-prepaid-historical-parity';
-import type { NormalizedApolloOrganization } from './apollo-organizations-response-normalizer';
+import { type HistoricalCandidateRow } from './apollo-prepaid-historical-parity';
+// AGENT1-APOLLO-PAGINATION-USEFULNESS-AUTHORITY-1 — la ÚNICA autoridad que
+// decide qué organización consume el objetivo de PAGINACIÓN. Antes este archivo
+// escribía su propio cuerpo y contaba NOVEDAD en vez de UTILIDAD.
+import { createApolloPaginationAcceptanceEvaluator } from './apollo-pagination-usefulness-authority';
 import { normalizeDomain } from './normalization';
 import type { ApolloOrgsSearchOptions } from './web-search-providers/apollo-organizations-search-provider';
 import {
@@ -811,11 +814,27 @@ export async function runIncrementalProspectingSearch(
     // piso defensivo: si el objetivo ya estuviera cumplido, el criterio de
     // parada de la línea ~910 ya habría cortado el loop antes de llegar aquí.
     //
-    // evaluateCandidateAcceptance: LA MISMA autoridad histórica fuerte
-    // (`evaluatePrepaidHistoricalDuplicate` sobre `buildNoveltyIndex`) que usa
-    // el camino de dos rondas, con caché por dominio para ESTA ronda. Fail-open
-    // — sin `adminSupabase` (dry run) o con una lectura degradada, el candidato
-    // cuenta como net-new; nunca se afirma una duplicidad sin evidencia.
+    // evaluateCandidateAcceptance: LA MISMA autoridad que usa el camino de dos
+    // rondas — `apollo-pagination-usefulness-authority.ts`.
+    //
+    // ── AGENT1-APOLLO-PAGINATION-USEFULNESS-AUTHORITY-1 ─────────────────────
+    //
+    // EL DEFECTO QUE CIERRA: este cuerpo comprobaba SÓLO novedad histórica y
+    // abría con `if (normalizedDomain === null || !adminSupabase) return true`.
+    // Una organización sin dominio —y una con dominio que después moriría por
+    // ownership, país o identidad— consumía el objetivo de paginación igual, así
+    // que Apollo dejaba de comprar páginas con el objetivo declarado
+    // «alcanzado» y 0 empresas útiles.
+    //
+    // Ahora los gates A (puros, gratis y evaluables con lo que Apollo devuelve
+    // en ese instante) corren ANTES de la lectura histórica, desde la autoridad
+    // compartida. La clasificación completa A/B/C/D vive en ese módulo.
+    //
+    // 🔴 Esto NO descarta filas: la página YA PAGADA entra completa al pipeline.
+    // Lo único que se decide es si se COMPRA la página siguiente.
+    //
+    // Fail-open — sin `adminSupabase` (dry run) o con una lectura degradada, el
+    // eje histórico no afirma nada; nunca se declara duplicidad sin evidencia.
     //
     // 🔴 Esto es aceptación DE PAGINACIÓN, no aceptación FINAL. El writer sigue
     // siendo la única autoridad de `accepted_for_target` (agrega TODAS las
@@ -828,44 +847,24 @@ export async function runIncrementalProspectingSearch(
       const usefulAccumulatedBeforeRound = allCandidates.filter(isUsefulCandidate).length;
       const netNewTarget = Math.max(1, targetPersistibleCandidates - usefulAccumulatedBeforeRound);
 
-      const roundHistoricalRowsCache = new Map<string, HistoricalCandidateRow[]>();
-      const roundHistoricalDegradedDomains = new Set<string>();
-      const evaluateCandidateAcceptance = async (
-        organization: NormalizedApolloOrganization,
-      ): Promise<boolean> => {
-        const normalizedDomain = organization.primaryDomain;
-        // Sin dominio no hay eje fuerte que consultar (domain/fiscal): no se
-        // afirma nada, se trata como net-new. Igual que `evaluatePrepaidHistory`.
-        if (normalizedDomain === null || !adminSupabase) return true;
-
-        let rows = roundHistoricalRowsCache.get(normalizedDomain);
-        let degraded = roundHistoricalDegradedDomains.has(normalizedDomain);
-        if (rows === undefined && !degraded) {
+      const evaluateCandidateAcceptance = createApolloPaginationAcceptanceEvaluator({
+        targetCountryCode: input.countryCode,
+        loadHistoricalRowsForDomain: async (domain) => {
+          // Sin cliente admin (dry run) no hay eje histórico que consultar: se
+          // declara degradado, que es fail-open — no se afirma duplicidad.
+          if (!adminSupabase) return { rows: [], degraded: true };
           try {
-            const canonicalDomain = normalizeDomain(normalizedDomain) ?? normalizedDomain;
+            const canonicalDomain = normalizeDomain(domain) ?? domain;
             const index = await buildNoveltyIndex(adminSupabase, [canonicalDomain]);
-            rows = (index.get(canonicalDomain) ?? []) as HistoricalCandidateRow[];
-            roundHistoricalRowsCache.set(normalizedDomain, rows);
+            return {
+              rows: (index.get(canonicalDomain) ?? []) as HistoricalCandidateRow[],
+              degraded: false,
+            };
           } catch {
-            degraded = true;
-            roundHistoricalDegradedDomains.add(normalizedDomain);
+            return { rows: [], degraded: true };
           }
-        }
-
-        const verdict = evaluatePrepaidHistoricalDuplicate({
-          needle: {
-            normalizedDomain,
-            name: organization.name,
-            // Apollo no trae identificador fiscal en la búsqueda — el eje
-            // existe y se evalúa, pero no se inventa ningún valor.
-            taxIdentifier: null,
-            countryCode: input.countryCode,
-          },
-          rows: rows ?? [],
-          evidenceUnavailable: degraded,
-        });
-        return !verdict.alreadyKnown;
-      };
+        },
+      });
 
       apolloSearchOptions = { netNewTarget, evaluateCandidateAcceptance };
 

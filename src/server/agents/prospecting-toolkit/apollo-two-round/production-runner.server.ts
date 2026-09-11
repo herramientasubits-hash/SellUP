@@ -59,7 +59,6 @@ import {
   runApolloOrganizationsSearch,
   type ApolloOrgsSearchOptions,
 } from '../web-search-providers/apollo-organizations-search-provider';
-import type { NormalizedApolloOrganization } from '../apollo-organizations-response-normalizer';
 // QUERY-QUALITY-2-FIX § 1/§ 2 — constructor ÚNICO del request efectivo. El mismo
 // que gobierna la llamada real decide si la ronda 2 vale un crédito.
 import {
@@ -290,6 +289,10 @@ import {
   type HistoricalCandidateRow,
   type PrepaidHistoricalVerdict,
 } from '../apollo-prepaid-historical-parity';
+// AGENT1-APOLLO-PAGINATION-USEFULNESS-AUTHORITY-1 — la ÚNICA autoridad que
+// decide qué organización consume el objetivo de PAGINACIÓN. Antes este archivo
+// escribía su propio cuerpo y contaba NOVEDAD en vez de UTILIDAD.
+import { createApolloPaginationAcceptanceEvaluator } from '../apollo-pagination-usefulness-authority';
 import {
   APOLLO_PENDING_PRE_WRITER_ADMISSION_CHECKS,
   buildApolloPreWriterBatchAdmissionContext,
@@ -1643,69 +1646,50 @@ export async function runApolloTwoRoundWizardDiscovery(
     // aquí con una segunda cuenta paralela.
     //
     // `evaluateCandidateAcceptance` decide, EN VIVO y por candidato mientras la
-    // página todavía se está pidiendo, si cuenta como net-new. Usa la misma
-    // verdad histórica fuerte que `evaluatePrepaidHistory` más abajo
-    // (`evaluatePrepaidHistoricalDuplicate` sobre `loadPrepaidHistoricalIndex`),
-    // pero con caché POR DOMINIO y ámbito de ESTA ronda: `buildNoveltyIndex` es
-    // por diseño una consulta por CONJUNTO de dominios (no puede "traer todo"
-    // sin dominios), así que no hay forma de precargar los dominios de páginas
-    // que Apollo todavía no devolvió. Lo que sí se evita es leer el MISMO
-    // dominio dos veces dentro de la misma ronda — cachear es lo máximo que se
-    // puede adelantar sin tocar `apollo-organizations-paginated-search.ts`
-    // (que llama al evaluador UNA vez por candidato, secuencialmente, y no
-    // puede lotearse por página sin cambiar ese motor, fuera de alcance de este
-    // corte). Esta lectura es DISTINTA de la que hace `evaluatePrepaidHistory`
-    // más abajo en `assessCandidate` — ésa sigue corriendo sin cambios DESPUÉS
-    // de que la búsqueda ya volvió, como parte de la cadena canónica completa.
-    // La doble lectura por dominio (aquí y en `assessCandidate`) es un costo
-    // aceptado y explícito: sin ella, la paginación no tendría con qué
-    // distinguir un candidato genuinamente nuevo de un duplicado histórico
-    // mientras todavía está en curso.
+    // página todavía se está pidiendo, si esa organización consume el objetivo
+    // de paginación.
     //
-    // Fail-open, igual que el resto de los gates baratos: un dominio ausente o
-    // una lectura degradada nunca detiene la paginación por sí sola, sólo deja
-    // de poder afirmar que ESE candidato es duplicado.
-    const roundHistoricalRowsCache = new Map<string, HistoricalCandidateRow[]>();
-    const roundHistoricalDegradedDomains = new Set<string>();
-    const evaluateCandidateAcceptance = async (
-      organization: NormalizedApolloOrganization,
-    ): Promise<boolean> => {
-      const normalizedDomain = organization.primaryDomain;
-      // § 7 de `apollo-prepaid-historical-parity.ts` — sin dominio no hay eje
-      // fuerte que consultar: no se lee nada y no se afirma nada. Se trata
-      // como net-new (fail-open), igual que `evaluatePrepaidHistory`.
-      if (normalizedDomain === null) return true;
-
-      let rows = roundHistoricalRowsCache.get(normalizedDomain);
-      let degraded = roundHistoricalDegradedDomains.has(normalizedDomain);
-      if (rows === undefined && !degraded) {
+    // ── AGENT1-APOLLO-PAGINATION-USEFULNESS-AUTHORITY-1 ─────────────────────
+    //
+    // EL DEFECTO QUE CIERRA: este cuerpo comprobaba SÓLO novedad histórica y
+    // abría con `if (normalizedDomain === null) return true`. Una organización
+    // sin dominio —y una con dominio que después moriría por ownership, país o
+    // identidad— consumía el objetivo igual. Apollo dejaba de comprar páginas
+    // con `candidate_target_reached` aunque el rendimiento ÚTIL fuera 0: es la
+    // explicación directa del «Apollo = 0 útiles».
+    //
+    // Ahora el cuerpo NO vive aquí. `apollo-pagination-usefulness-authority.ts`
+    // es la ÚNICA autoridad —la misma que usa `incremental-search.ts`— y aplica,
+    // ANTES de la lectura histórica, los gates A (puros, gratis y evaluables con
+    // lo que Apollo devuelve en ese instante: identidad canónica, dominio de
+    // directorio, país, página de contenido y ownership). La clasificación
+    // completa A/B/C/D vive documentada en ese módulo.
+    //
+    // 🔴 Esto NO descarta filas: la página YA PAGADA entra completa al pipeline
+    // (el motor recoge la organización ANTES de preguntar). Lo único que se
+    // decide aquí es si se COMPRA la página siguiente.
+    //
+    // La lectura histórica sigue siendo la que ya se hacía
+    // (`loadPrepaidHistoricalIndex`), con caché por dominio y ámbito de ESTA
+    // ronda, y ahora estrictamente MENOS veces: los gates puros corren delante.
+    // Sigue siendo DISTINTA de la de `evaluatePrepaidHistory` en
+    // `assessCandidate`, que corre después sin cambios.
+    //
+    // Fail-open: una lectura degradada nunca detiene la paginación por sí sola,
+    // sólo deja de poder afirmar que ESE candidato es duplicado.
+    const evaluateCandidateAcceptance = createApolloPaginationAcceptanceEvaluator({
+      targetCountryCode: input.countryCode,
+      loadHistoricalRowsForDomain: async (domain) => {
         const loaded = await deps
-          .loadPrepaidHistoricalIndex({ domains: [normalizedDomain] })
+          .loadPrepaidHistoricalIndex({ domains: [domain] })
           .catch(() => ({ index: new Map() as NoveltyIndex, degraded: true }));
-        if (loaded.degraded) {
-          degraded = true;
-          roundHistoricalDegradedDomains.add(normalizedDomain);
-        } else {
-          rows = (loaded.index.get(normalizedDomain) ?? []) as HistoricalCandidateRow[];
-          roundHistoricalRowsCache.set(normalizedDomain, rows);
-        }
-      }
-
-      const verdict = evaluatePrepaidHistoricalDuplicate({
-        needle: {
-          normalizedDomain,
-          name: organization.name,
-          // Apollo no trae identificador fiscal en la búsqueda — igual que en
-          // `evaluatePrepaidHistory`, el eje existe y se evalúa, pero no se
-          // inventa ningún valor para rellenarlo.
-          taxIdentifier: null,
-          countryCode: input.countryCode,
-        },
-        rows: rows ?? [],
-        evidenceUnavailable: degraded,
-      });
-      return !verdict.alreadyKnown;
-    };
+        if (loaded.degraded) return { rows: [], degraded: true };
+        return {
+          rows: (loaded.index.get(domain) ?? []) as HistoricalCandidateRow[],
+          degraded: false,
+        };
+      },
+    });
 
     const searchOptions: ApolloOrgsSearchOptions = {
       // § 5 — la modalidad necesita ver a los candidatos con evidencia sectorial
