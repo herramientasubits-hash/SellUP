@@ -114,8 +114,14 @@ function record(overrides: Partial<LushaDiscardRecordLike> = {}): LushaDiscardRe
   };
 }
 
+/** § CUT-C.2 — identidad de corrida exigida por el escritor. */
+const WIZARD_RUN_ID = 'wizard-run-fixture-1';
+const CLIENT_REQUEST_ID = 'client-request-fixture-1';
+
 const baseInput = (records: LushaDiscardRecordLike[]) => ({
   batchId: BATCH_ID,
+  wizardRunId: WIZARD_RUN_ID,
+  clientRequestId: CLIENT_REQUEST_ID,
   requestedCountryCode: 'CO',
   requestedIndustry: 'health_pharma',
   records,
@@ -263,6 +269,15 @@ describe('persistLushaRejectedDispositions', () => {
       matched_hubspot_company_id: 'hs-77',
       requested_country_code: 'CO',
       requested_industry: 'health_pharma',
+      // § CUT-C.2 — la identidad de la corrida. `deepEqual` es deliberado: si
+      // el escritor empieza a añadir cualquier otra cosa a `evidence`, esta
+      // prueba cae en vez de dejarla pasar.
+      run_correlation: {
+        wizard_run_id: WIZARD_RUN_ID,
+        client_request_id: CLIENT_REQUEST_ID,
+        batch_id: BATCH_ID,
+        provider_key: 'lusha',
+      },
     });
   });
 

@@ -1673,6 +1673,12 @@ async function runLushaSearchWithReservation(args: {
       try {
         const discardWrite = await persistLushaRejectedDispositions({
           batchId: discardBatchId,
+          // 🔴 § CUT-C.2 — la identidad de la corrida deja de vivir sólo en la
+          // línea de consola de abajo. `batch_id` no basta: en el waterfall
+          // Apollo y Lusha COMPARTEN lote, así que sin esto dos corridas
+          // producen filas indistinguibles.
+          wizardRunId: reservedCorrelation.wizardRunId,
+          clientRequestId,
           requestedCountryCode: searchInput.countryCode,
           requestedIndustry: searchInput.macroIndustryKey,
           records: discardRecords,

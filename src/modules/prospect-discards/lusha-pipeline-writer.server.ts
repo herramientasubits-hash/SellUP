@@ -81,6 +81,30 @@ export type LushaDiscardWriterClientFactory = () => {
 export interface PersistLushaRejectedDispositionsInput {
   batchId: string;
   /**
+   * 🔴 A1-LUSHA-DISCARD-CERTIFICATION § CUT-C.2 — la identidad de la CORRIDA.
+   *
+   * El hueco que cierra: `batch_id` NO identifica una corrida. En el waterfall,
+   * Apollo y Lusha comparten lote por construcción (la pierna Lusha adopta el
+   * lote canónico de Apollo), y una segunda corrida sobre el mismo lote lo
+   * comparte otra vez. Con sólo `batch_id`, dos corridas distintas producen
+   * filas indistinguibles y «reconstruir qué pasó con cada resultado» —el
+   * propósito declarado de esta tabla— deja de ser posible sin volver a
+   * preguntarle al proveedor, es decir sin volver a pagar.
+   *
+   * El valor YA existía y YA se calculaba: `reservedCorrelation.wizardRunId`. Se
+   * escribía en la línea de consola de la acción y se perdía con ella.
+   *
+   * 🔴 Viaja en `evidence`, NO en una columna: la migración 138 no tiene columna
+   * para esto y este corte no migra. `evidence` es JSONB y ya es el sitio
+   * declarado para «metadata disponible ANTES de la decisión».
+   *
+   * `null` es legítimo y se escribe como `null`: una corrida sin correlación
+   * resuelta no se rellena con un valor plausible.
+   */
+  wizardRunId: string | null;
+  /** Traza del clic que originó la corrida. Correlaciona con la reserva. */
+  clientRequestId: string | null;
+  /**
    * Contexto de la BÚSQUEDA — el único país/industria disponible sin hilar
    * campos crudos del proveedor por el núcleo. Se usa como respaldo cuando el
    * registro no trae país/industria propios; nunca los sobrescribe.
@@ -120,6 +144,17 @@ export interface PersistLushaRejectedDispositionsResult {
 
 /** El nombre del proveedor tal como lo acepta el CHECK de la migración 138. */
 export const LUSHA_DISCARD_SOURCE_PRIMARY = 'lusha' as const;
+
+/**
+ * Clave de la identidad de corrida dentro de `evidence`.
+ *
+ * 🔴 Es LITERALMENTE la misma que `RUN_CORRELATION_METADATA_KEY` de
+ * `wizard-run-correlation`, y se declara aquí en vez de importarse porque este
+ * módulo no puede importar del pipeline del proveedor (guarda estática de
+ * «cero imports de proveedor»). Una prueba comprueba que las dos coinciden, de
+ * modo que la copia no puede derivar en silencio.
+ */
+export const LUSHA_DISCARD_RUN_CORRELATION_KEY = 'run_correlation' as const;
 
 function getAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -201,6 +236,16 @@ export async function persistLushaRejectedDispositions(
         ...row.evidence,
         requested_country_code: input.requestedCountryCode,
         requested_industry: input.requestedIndustry,
+        // § CUT-C.2 — la identidad de la corrida, bajo la MISMA clave que usa
+        // `provider_usage_logs.metadata` (`run_correlation`), para que una fila
+        // de descarte y la fila de gasto de su corrida se puedan unir sin
+        // traducir nombres entre tablas.
+        [LUSHA_DISCARD_RUN_CORRELATION_KEY]: {
+          wizard_run_id: input.wizardRunId,
+          client_request_id: input.clientRequestId,
+          batch_id: input.batchId,
+          provider_key: LUSHA_DISCARD_SOURCE_PRIMARY,
+        },
       },
     }));
 

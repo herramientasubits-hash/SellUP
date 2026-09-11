@@ -48,6 +48,10 @@ import { preM126BatchEpochSnapshot } from '@/server/prospect-batches/__tests__/s
 import { reconcileLushaRunAgainstDispositions } from '../reconciliation';
 import type { LushaDiscardRecordLike } from '../lusha-pipeline-writer.server';
 
+/** § CUT-C.2 — identidad de corrida exigida por el escritor. */
+const WIZARD_RUN_ID = 'wizard-run-fixture-1';
+const CLIENT_REQUEST_ID = 'client-request-fixture-1';
+
 process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://fake.supabase.local';
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'fake-service-role-key';
 
@@ -578,6 +582,8 @@ describe('C. status="empty": 0 candidatos, batchId null, disposiciones SÍ', () 
 
     const write = await persistLushaRejectedDispositions({
       batchId: batchId as string,
+      wizardRunId: WIZARD_RUN_ID,
+      clientRequestId: CLIENT_REQUEST_ID,
       requestedCountryCode: 'CO',
       requestedIndustry: 'health_pharma',
       records: res.discardedCompanies ?? [],
