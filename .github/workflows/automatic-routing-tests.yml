@@ -4789,6 +4789,46 @@ jobs:
       # flags. 0 llamadas a proveedor, 0 créditos, 0 escrituras en Producción.
       - name: Run Agent1 certification baseline (CUT-C.3)
         run: npm run test:a1-certification-baseline-c3
+      # ── A1-APOLLO-ACCEPTED-FOR-TARGET-TRACEABILITY § D.1 ──────────────────────
+      #
+      # `apollo_benchmark_funnel.accepted_for_target` salía `null` en 16 de 16
+      # filas de Producción, así que el rendimiento útil y el coste por empresa
+      # aceptada de Apollo NO eran calculables.
+      #
+      # 🔴 La causa NO era que faltara la decisión: era que se TIRABA. El writer
+      # ya resolvía `targetEligibility.countsTowardTarget` por candidato, y ese
+      # veredicto y el `createdCandidateId` coexistían durante UNA sentencia —el
+      # `push` a `persistedTargetEligibilities`, justo después de que la fila
+      # existiera— y ahí se separaban para siempre. Su único consumidor los
+      # colapsaba a `complete_valid_candidates`.
+      #
+      # 🔴 Y una segunda causa, de GRANULARIDAD: la aceptación es un hecho de la
+      # CORRIDA y la fila del embudo es POR CONSULTA. Las 8 corridas con embudo
+      # tienen DOS filas de `organizations_search` cada una, así que estampar el
+      # total en cada fila DUPLICA: el lote `483f3584` reportaría 10 en vez de 5.
+      # El replay trabaja sobre la corrida y el § G lo fija con esa forma real.
+      #
+      # El fix conserva la pareja `(candidateId, veredicto)` y la sella en el
+      # `source_trace` que la rama de Apollo YA escribía en el mismo insert
+      # ⇒ 0 migraciones y 0 escrituras adicionales. La puerta es
+      # `isApolloCompanyDiscoveryRun`: Tavily, mock y Lusha quedan byte por byte
+      # iguales.
+      #
+      # 🔴 OBSERVACIÓN, no admisión: no cambia qué filas se escriben, ni
+      # `complete_valid_candidates`, ni `target_count`, ni el gate, ni umbrales,
+      # ni `per_page`/`maxPages`, ni presupuesto. `resolveAcceptedForTarget`
+      # (CUT-7) sigue siendo la ÚNICA autoridad de aceptación; el replay sólo
+      # CONTRASTA contra su contador y declara `correlationBroken` si discrepan,
+      # en vez de promediar.
+      #
+      # 10 casos del alcance (A-J) y 8 mutaciones deliberadas, 8 muertas — entre
+      # ellas inferir el veredicto de «no tiene motivos de bloqueo», inventarlo
+      # desde el contador agregado, y el doble conteo por fila de búsqueda.
+      #
+      # 0 llamadas a proveedor, 0 créditos, 0 escrituras en Producción,
+      # 0 migraciones, 0 flags, 0 UI.
+      - name: Run Agent1 Apollo accepted-for-target traceability (CUT-D.1)
+        run: npm run test:a1-apollo-accepted-for-target-traceability-d1
 
       # ══ HARDENING CUT-0 — el waterfall y el lote mixto entran a CI ═══════════
       #

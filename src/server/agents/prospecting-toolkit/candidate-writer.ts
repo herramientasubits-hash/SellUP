@@ -237,6 +237,11 @@ import {
   toCandidatePersistenceFailureAuditDetails,
   type DatabaseErrorDiagnostics,
 } from './candidate-persistence-failure-audit';
+import {
+  buildCandidateAcceptedForTargetTrace,
+  CANDIDATE_ACCEPTED_FOR_TARGET_TRACE_KEY,
+  type PersistedCandidateAcceptance,
+} from './candidate-accepted-for-target-trace';
 
 // ─── Resultado de la persistencia ─────────────────────────────────────────────
 
@@ -972,6 +977,16 @@ export async function writeProspectingCandidates(
    * por definición, una fila incompleta, y omitirla inflaría `target_count`.
    */
   const persistedTargetEligibilities: CandidateTargetEligibility[] = [];
+  /**
+   * 🔴 D.1 — el veredicto de aceptación EMPAREJADO con la fila que lo llevó.
+   *
+   * `persistedTargetEligibilities` (arriba) guarda las elegibilidades sin
+   * identidad, y su consumidor las colapsa a un contador. Este array conserva la
+   * pareja `(candidateId, veredicto)`, que es lo que convierte un contador en
+   * trazabilidad. Los dos se llenan en el MISMO sitio y con el MISMO veredicto:
+   * no hay dos decisiones, hay una decisión guardada de dos formas.
+   */
+  const persistedCandidateAcceptances: PersistedCandidateAcceptance[] = [];
   /** Inserts que tuvieron que reintentarse porque la columna `linkedin_url` no existe. */
   let linkedInColumnFallbackCount = 0;
 
@@ -3167,6 +3182,27 @@ export async function writeProspectingCandidates(
         ).source_trace
       : null;
 
+    /**
+     * 🔴 A1-APOLLO-ACCEPTED-FOR-TARGET-TRACEABILITY § D.1 — el veredicto de
+     * aceptación viaja EN LA FILA, dentro del `source_trace` que esta rama ya
+     * escribía.
+     *
+     * Por qué aquí y no en otro sitio:
+     *
+     *   · `targetEligibility` ya está resuelto ~300 líneas más arriba, así que
+     *     no hay nada que recalcular ni que esperar;
+     *   · `source_trace` es JSONB que YA existe y YA se escribe en este mismo
+     *     insert ⇒ 0 migraciones y 0 escrituras adicionales. Un UPDATE posterior
+     *     habría sido una segunda escritura sobre la fila, sin la valla del
+     *     writer;
+     *   · la puerta es `apolloProviderTrace`, es decir
+     *     `isApolloCompanyDiscoveryRun`: Tavily, mock y la ruta Lusha quedan
+     *     BYTE POR BYTE iguales, sin clave nueva.
+     *
+     * 🔴 Es OBSERVACIÓN: no cambia la admisión, no cambia qué filas se escriben,
+     * no cambia `complete_valid_candidates` ni `target_count`. Lo único que
+     * cambia es que la decisión que ya se tomaba deja de ser irrecuperable.
+     */
     const candidateInsertWithTrace = apolloProviderTrace
       ? {
           ...candidateInsertBase,
@@ -3175,7 +3211,11 @@ export async function writeProspectingCandidates(
             source_provider: apolloProviderTrace.source_provider,
             provider_trace: apolloProviderTrace,
           },
-          source_trace: apolloCandidateSourceTrace,
+          source_trace: {
+            ...(apolloCandidateSourceTrace as Record<string, unknown> | null),
+            [CANDIDATE_ACCEPTED_FOR_TARGET_TRACE_KEY]:
+              buildCandidateAcceptedForTargetTrace(targetEligibility),
+          },
         }
       : candidateInsertBase;
 
@@ -3468,6 +3508,13 @@ export async function writeProspectingCandidates(
       // § E — el recuento canónico incluye TODA fila escrita, con campos de
       // proveedor o sin ellos.
       persistedTargetEligibilities.push(targetEligibility);
+      // 🔴 D.1 — aquí, y sólo aquí, el veredicto del writer y el id de la fila
+      // están a la vez a mano. Antes de este corte se separaban en esta misma
+      // línea y la aceptación por empresa dejaba de existir.
+      persistedCandidateAcceptances.push({
+        candidateId: createdCandidateId,
+        trace: buildCandidateAcceptedForTargetTrace(targetEligibility),
+      });
 
       // Auditoría: candidate_created
       await admin.from("prospect_candidate_audit").insert({
@@ -4295,6 +4342,10 @@ export async function writeProspectingCandidates(
     status,
     errors,
     persistence: persistenceOutcome,
+    // 🔴 D.1 — la decisión del writer, por candidato y con su id. Aditivo: ningún
+    // consumidor existente lo lee. `persistence.completeValidCandidates` sigue
+    // siendo la autoridad que gobierna el objetivo.
+    acceptedForTargetByCandidate: persistedCandidateAcceptances,
   };
 }
 

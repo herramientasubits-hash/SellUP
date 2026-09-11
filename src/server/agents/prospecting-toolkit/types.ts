@@ -10,6 +10,7 @@
 import type { CandidatePersistenceOutcome } from './prospect-candidate-persistence-readiness';
 import type { ApolloSubindustryCatalogTermsResolution } from './apollo-subindustry-catalog-terms-resolution';
 import type { ResolveExtraBatchMetadata } from './writer-metadata-resolution';
+import type { PersistedCandidateAcceptance } from './candidate-accepted-for-target-trace';
 
 export type DuplicateStatus =
   | "new_candidate"
@@ -704,6 +705,25 @@ export type CandidateWriterOutput = {
    * Estas cifras hacen la diferencia explícita y viajan hasta la UI.
    */
   persistence: CandidatePersistenceOutcome;
+  /**
+   * 🔴 A1-APOLLO-ACCEPTED-FOR-TARGET-TRACEABILITY § D.1 — el veredicto de
+   * aceptación de CADA fila escrita, emparejado con su `candidateId`.
+   *
+   * Existía ya como decisión (`targetEligibility.countsTowardTarget`) y como
+   * CONTADOR (`persistence.completeValidCandidates`), pero no como par. Sin el
+   * par, «¿fue aceptada ESTA empresa?» sólo se podía responder dividiendo un
+   * agregado, que es exactamente la inferencia que D.1 prohíbe.
+   *
+   * Aditivo y OBSERVACIONAL: ningún consumidor existente lo lee, y el contador
+   * sigue siendo la autoridad que gobierna el objetivo.
+   *
+   * 🔴 OPCIONAL a propósito, y con una guarda estática que lo compensa. Hacerlo
+   * obligatorio forzaba a declararlo en ~10 dobles de prueba de hitos ajenos a
+   * D.1 —un diff grande en ficheros que este corte no toca— sin ganar nada
+   * funcional. Que el writer REAL lo rellene siempre lo fija una guarda estática
+   * sobre su código, no el compilador: ver la suite de D.1 § I.
+   */
+  acceptedForTargetByCandidate?: readonly PersistedCandidateAcceptance[];
 };
 
 // Combined output for runAndWriteProspectingPipeline
