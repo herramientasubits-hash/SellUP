@@ -44,10 +44,14 @@ import {
   resolveDiscoveryTaxonomyCapability,
   type DiscoveryTaxonomyCapability,
 } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
+import { type MacroIndustryDefinition } from '@/modules/macro-industry-catalog/macro-industries';
+// AGENT1-MACRO-RESOLUTION-SINGLE-AUTHORITY-1 — Apollo resolvía por su cuenta y
+// SÓLO por nombre visible, mientras la pierna Lusha resolvía sólo por slug. Las
+// dos puntas de la misma corrida podían discrepar sobre qué macro se pidió.
 import {
-  resolveMacroIndustryByDisplayName,
-  type MacroIndustryDefinition,
-} from '@/modules/macro-industry-catalog/macro-industries';
+  resolveMacroIndustryIdentity,
+  MACRO_INDUSTRY_IDENTITY_UNRESOLVED_REASON,
+} from '@/modules/macro-industry-catalog/macro-industry-resolution';
 
 // ─── Contrato ─────────────────────────────────────────────────────────────────
 
@@ -114,14 +118,17 @@ export function resolveApolloMacroIndustryRequest(
     return { mode: 'industry_subindustry', capability };
   }
 
-  const definition = resolveMacroIndustryByDisplayName(input.industry);
+  // Apollo sólo dispone del nombre canónico de la industria: no recibe slug. Se
+  // resuelve por la MISMA autoridad que la pierna Lusha y la metadata, así que
+  // la cadena de precedencia es una y el resultado no puede divergir.
+  const definition = resolveMacroIndustryIdentity({ displayName: input.industry })?.definition;
   if (!definition) {
     return {
       mode: 'macro_industry',
       capability,
       definition: null,
       plan: null,
-      blockReason: 'macro_industry_not_in_catalog',
+      blockReason: MACRO_INDUSTRY_IDENTITY_UNRESOLVED_REASON,
     };
   }
 

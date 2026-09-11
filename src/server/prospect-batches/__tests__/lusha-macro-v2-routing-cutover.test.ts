@@ -849,6 +849,10 @@ const LIVE_ROUTE = {
   finalSearch: 'components/prospect-batches/chat-wizard/wizard-lusha-final-search.tsx',
   action: 'modules/prospect-batches/lusha-pending-review-actions.ts',
   dryRoute: 'modules/prospect-batches/prospect-wizard-route.ts',
+  // AGENT1-MACRO-RESOLUTION-SINGLE-AUTHORITY-1 — la autoridad única por la que
+  // el puente resuelve ahora. Entra en la ruta viva porque el ancla «desde el
+  // CATÁLOGO» se comprueba AQUÍ desde este corte, no en el puente.
+  macroAuthority: 'modules/macro-industry-catalog/macro-industry-resolution.ts',
 } as const;
 
 function liveSource(key: keyof typeof LIVE_ROUTE): string {
@@ -869,8 +873,18 @@ describe('§ 18 — la ruta VIVA del wizard usa la autoridad Macro-v2', () => {
 
   it('el puente del wizard resuelve la macro desde el CATÁLOGO, sin alias', () => {
     const criteria = liveSource('criteria');
-    assert.match(criteria, /getMacroIndustryBySlug/);
+    // AGENT1-MACRO-RESOLUTION-SINGLE-AUTHORITY-1 — el puente ya no llama a la
+    // puerta del catálogo por su cuenta: llama a LA autoridad, que es la única
+    // que sostiene la cadena `slug → nombre visible canónico → null`.
+    //
+    // 🔴 El ancla «desde el CATÁLOGO» NO se pierde al reapuntar este trinquete:
+    // se comprueba una línea más abajo, sobre la autoridad. Aflojar la
+    // afirmación en vez de moverla habría dejado al puente libre de inventarse
+    // otra vez su propio mapeo, que es justo lo que este trinquete impide.
+    assert.match(criteria, /resolveMacroIndustryKey/);
     assert.match(criteria, /macroIndustryKey/);
+    assert.match(liveSource('macroAuthority'), /getMacroIndustryBySlug/);
+    assert.match(liveSource('macroAuthority'), /resolveMacroIndustryByDisplayName/);
     // 🔴 El mapeo difuso por nombre visible era la vía por la que `education`
     // seguía siendo alcanzable y por la que nueve macro degradaban.
     assert.doesNotMatch(criteria, /resolveLushaMainIndustryMapping/);

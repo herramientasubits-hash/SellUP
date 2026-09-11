@@ -88,10 +88,10 @@ import {
   toDiscoveryTaxonomyMetadata,
 } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
 // A1-APOLLO-QUERY-QUALITY-V3-A § 2 — familias semánticas de la macro industria.
-import {
-  macroIndustryQueryFamilyKeys,
-  resolveMacroIndustryByDisplayName,
-} from '@/modules/macro-industry-catalog/macro-industries';
+import { macroIndustryQueryFamilyKeys } from '@/modules/macro-industry-catalog/macro-industries';
+// AGENT1-MACRO-RESOLUTION-SINGLE-AUTHORITY-1 — misma autoridad que el redactor
+// de la consulta, para que las dos no puedan discrepar sobre qué macro es.
+import { resolveMacroIndustryIdentity } from '@/modules/macro-industry-catalog/macro-industry-resolution';
 import {
   assessMacroIndustryEvidence,
   toMacroIndustryEvidenceMetadata,
@@ -2630,7 +2630,9 @@ export async function runApolloTwoRoundWizardDiscovery(
         // existen.
         macroQueryFamilies:
           discoveryTaxonomy.mode === 'macro_industry'
-            ? macroIndustryQueryFamilyKeys(resolveMacroIndustryByDisplayName(input.industry))
+            ? macroIndustryQueryFamilyKeys(
+                resolveMacroIndustryIdentity({ displayName: input.industry })?.definition ?? null,
+              )
             : [],
       },
       correlation: input.correlation,

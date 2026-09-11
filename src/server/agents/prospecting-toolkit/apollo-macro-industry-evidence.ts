@@ -47,9 +47,12 @@
 import type { WebSearchResult } from './types';
 import {
   getMacroIndustryByKey,
-  resolveMacroIndustryByDisplayName,
   type MacroIndustryDefinition,
 } from '@/modules/macro-industry-catalog/macro-industries';
+// AGENT1-MACRO-RESOLUTION-SINGLE-AUTHORITY-1 — el respaldo por identificador
+// PUBLICADO pasa por la autoridad única. `getMacroIndustryByKey` se queda: ahí
+// arriba lo que llega ya es una CLAVE canónica, no un identificador publicado.
+import { resolveMacroIndustryIdentity } from '@/modules/macro-industry-catalog/macro-industry-resolution';
 // AGENT1-LUSHA-FIRST-LIVE-QA-P0-FIX-1 § 5 — la DECISIÓN (exclusión → confirmación
 // → padre solo → rechazo medido) vive ahora en el núcleo proveedor-neutral del
 // catálogo, y la ruta Lusha la reutiliza sin copiar una segunda taxonomía. Aquí
@@ -197,7 +200,8 @@ export function assessMacroIndustryEvidence(
   const definition =
     input.definitionOverride ??
     getMacroIndustryByKey(input.macroIndustryKey) ??
-    resolveMacroIndustryByDisplayName(input.macroIndustryDisplayName);
+    resolveMacroIndustryIdentity({ displayName: input.macroIndustryDisplayName })?.definition ??
+    null;
 
   if (!definition) return unresolvedMacroIndustryEvidence();
 

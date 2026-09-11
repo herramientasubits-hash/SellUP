@@ -171,10 +171,13 @@ import {
   resolveDiscoveryTaxonomyCapability,
   toDiscoveryTaxonomyMetadata,
 } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
-import {
-  getMacroIndustryBySlug,
-  resolveMacroIndustryByDisplayName,
-} from '@/modules/macro-industry-catalog/macro-industries';
+// AGENT1-MACRO-RESOLUTION-SINGLE-AUTHORITY-1 — LA autoridad única de resolución
+// macro. Antes este fichero combinaba a mano las dos puertas del catálogo, y lo
+// hacía de DOS formas distintas: la metadata aplicaba `slug ?? nombre`, mientras
+// la capa gratuita y la pierna Lusha se quedaban en `slug` a secas. Con un slug
+// publicado que no casaba, Apollo resolvía la macro y la pierna Lusha se saltaba
+// con `macro_industry_unmapped`.
+import { resolveMacroIndustryKey } from '@/modules/macro-industry-catalog/macro-industry-resolution';
 // A1-APOLLO-BUDGET-RECONCILIATION-1 — correlación del run y reconciliación por proveedor.
 import {
   buildWizardRunCorrelation,
@@ -1185,10 +1188,10 @@ export async function executeProspectWizardGeneration(
         ...toDiscoveryTaxonomyMetadata(
           resolveDiscoveryTaxonomyCapability(catalogResolution.catalog.version),
         ),
-        macro_industry_key:
-          getMacroIndustryBySlug(catalogResolution.industry.slug)?.key ??
-          resolveMacroIndustryByDisplayName(catalogResolution.industry.name)?.key ??
-          null,
+        macro_industry_key: resolveMacroIndustryKey({
+          slug: catalogResolution.industry.slug,
+          displayName: catalogResolution.industry.name,
+        }),
         macro_industry_display_name: catalogResolution.industry.name,
         requested_subindustries: catalogResolution.subindustries.map((s) => s.name),
       },
@@ -1206,8 +1209,12 @@ export async function executeProspectWizardGeneration(
           // CUT-5 §§ 4, 5 — la capa gratuita ya no crea lote: recibe EL de esta
           // ejecución. Es el hilo entero del corte.
           resolveBatchId: resolveCanonicalBatchId,
-          macroIndustryKey:
-            getMacroIndustryBySlug(catalogResolution.industry.slug)?.key ?? null,
+          // 🔴 Antes aquí la cadena estaba TRUNCADA a `slug`: la capa gratuita
+          // no veía la macro que la metadata de la MISMA corrida sí publicaba.
+          macroIndustryKey: resolveMacroIndustryKey({
+            slug: catalogResolution.industry.slug,
+            displayName: catalogResolution.industry.name,
+          }),
           // 🔴 El objetivo del USUARIO son los candidatos persistibles (10), no
           // `systemControls.targetCount` (25), que es la AMPLITUD de búsqueda del
           // pipeline. Confundirlos habría pedido a la fuente gratuita cerrar un
@@ -2026,7 +2033,14 @@ export async function executeProspectWizardGeneration(
         // crearse uno propio, que es lo que cierra el requisito M.
         canonicalBatchId: reservedBatchId,
         countryCode: req.countryCode,
-        macroIndustryKey: getMacroIndustryBySlug(catalogResolution.industry.slug)?.key ?? null,
+        // 🔴 ÉSTE era el síntoma del defecto: con la cadena truncada a `slug`,
+        // un slug publicado que no casaba dejaba `null` aquí y la pierna se
+        // saltaba con `macro_industry_unmapped`, aunque Apollo —que resuelve por
+        // nombre visible— hubiera encontrado la macro en la MISMA corrida.
+        macroIndustryKey: resolveMacroIndustryKey({
+          slug: catalogResolution.industry.slug,
+          displayName: catalogResolution.industry.name,
+        }),
         subIndustryId: null,
         target: acceptedAfterApollo.requestedTarget,
         usefulAccumulated: acceptedAfterApollo.acceptedForTargetTotal,

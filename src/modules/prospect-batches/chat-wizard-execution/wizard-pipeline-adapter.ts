@@ -1,10 +1,10 @@
 import type { GenerateAIBatchInput } from '@/modules/prospect-batches/actions';
 import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
 import { resolveDiscoveryTaxonomyCapability } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
-import {
-  getMacroIndustryBySlug,
-  resolveMacroIndustryByDisplayName,
-} from '@/modules/macro-industry-catalog/macro-industries';
+// AGENT1-MACRO-RESOLUTION-SINGLE-AUTHORITY-1 — la cadena de precedencia vive en
+// UN solo sitio. Aquí estaba copiada a mano, y una copia puede divergir de las
+// otras puntas sin que nada lo note (es justo lo que pasó con la pierna Lusha).
+import { resolveMacroIndustryKey } from '@/modules/macro-industry-catalog/macro-industry-resolution';
 import type { ResolvedWizardExecution, WizardGenerationCommand } from './wizard-execution-types';
 
 // ── System controls ───────────────────────────────────────────────────────────
@@ -83,10 +83,10 @@ export function adaptResolvedWizardToGenerationInput(
       // persona no quiso acotar». Se declara, no se deduce.
       taxonomy: {
         ...resolveDiscoveryTaxonomyCapability(catalog.version),
-        macroIndustryKey:
-          getMacroIndustryBySlug(industry.slug)?.key ??
-          resolveMacroIndustryByDisplayName(industry.name)?.key ??
-          null,
+        macroIndustryKey: resolveMacroIndustryKey({
+          slug: industry.slug,
+          displayName: industry.name,
+        }),
         macroIndustryDisplayName: industry.name,
       },
       employeeSizeCriteria: {
