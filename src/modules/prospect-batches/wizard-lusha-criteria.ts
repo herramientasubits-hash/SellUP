@@ -43,11 +43,11 @@
  */
 
 import type { ActiveIndustryCatalog } from '@/modules/industry-catalog/types';
-import {
-  getMacroIndustryBySlug,
-  resolveMacroIndustryByDisplayName,
-  type MacroIndustryKey,
-} from '@/modules/macro-industry-catalog/macro-industries';
+import { type MacroIndustryKey } from '@/modules/macro-industry-catalog/macro-industries';
+// AGENT1-MACRO-RESOLUTION-SINGLE-AUTHORITY-1 — la precedencia que este fichero
+// documentaba es AHORA la autoridad compartida, en vez de una implementación
+// local que las demás puntas copiaban (unas completa, otras truncada).
+import { resolveMacroIndustryKey } from '@/modules/macro-industry-catalog/macro-industry-resolution';
 import { LUSHA_PREVIEW_DEFAULT_SIZE_BAND_KEY } from '@/server/prospect-batches/lusha-preview';
 import {
   resolveProspectDiscoveryProvider,
@@ -91,13 +91,12 @@ export interface WizardLushaCriteriaDecision {
 /**
  * La macro industria que la usuaria eligió, resuelta desde el CATÁLOGO.
  *
- * Precedencia deliberada:
- *
- *   1. `slug` — es lo que la migración 118/119 sembró en base de datos a partir
- *      de `MACRO_INDUSTRIES[].slug`, así que es la identidad publicada y estable.
- *   2. `name` contra el nombre visible canónico — respaldo EXACTO (normalizado por
- *      `resolveMacroIndustryByDisplayName`), no por subcadena. Cubre una fila cuyo
- *      slug se hubiera reescrito sin tocar el nombre.
+ * La precedencia —`slug` → nombre visible canónico → `null`— la define
+ * `resolveMacroIndustryKey`, la autoridad única. Este fichero la documentaba y la
+ * implementaba a la vez, y esa implementación local fue la que otras puntas
+ * copiaron a medias: la pierna Lusha y la capa gratuita se quedaron en el paso
+ * del slug, así que una industria cuyo slug publicado no casaba salía `null`
+ * aquí abajo mientras Apollo sí la resolvía por nombre.
  *
  * `null` cuando la industria seleccionada no es una macro del catálogo canónico:
  * bajo la taxonomía v1 (8 industrias legacy) eso es lo normal y significa
@@ -110,13 +109,7 @@ export function resolveWizardMacroIndustryKey(
   const industry = catalog.industries.find((entry) => entry.id === state.industryId) ?? null;
   if (!industry) return null;
 
-  const bySlug = getMacroIndustryBySlug(industry.slug);
-  if (bySlug) return bySlug.key;
-
-  const byDisplayName = resolveMacroIndustryByDisplayName(industry.name);
-  if (byDisplayName) return byDisplayName.key;
-
-  return null;
+  return resolveMacroIndustryKey({ slug: industry.slug, displayName: industry.name });
 }
 
 /**

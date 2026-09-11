@@ -4850,3 +4850,37 @@ jobs:
       # 0 llamadas a proveedor, 0 créditos, 0 escrituras, 0 migraciones, 0 flags.
       - name: Run Agent 1 waterfall leg failure reason tests
         run: npm run test:a1-waterfall-leg-failure-reason
+      # ══ MACRO-RESOLUTION-SINGLE-AUTHORITY-1 — UNA sola cadena de precedencia ═
+      #
+      # El catálogo expone DOS puertas para resolver un identificador PUBLICADO
+      # de macro industria (`getMacroIndustryBySlug` y
+      # `resolveMacroIndustryByDisplayName`) y cada punta del wizard las
+      # combinaba a su manera: la metadata y el adaptador aplicaban
+      # `slug ?? nombre`, la capa gratuita y la pierna Lusha se quedaban en
+      # `slug` a secas, y Apollo resolvía SÓLO por nombre visible.
+      #
+      # Con un slug publicado que no casaba pero un nombre visible que sí,
+      # Apollo encontraba la macro y la pierna Lusha se saltaba con
+      # `macro_industry_unmapped`: dos puntas de la MISMA corrida discrepando
+      # sobre qué se había pedido, y el síntoma apareciendo en la pierna que no
+      # tenía la culpa.
+      #
+      # El step fija que la autoridad única aplica slug → nombre visible canónico
+      # → null; que las 12 macros resuelven por los dos caminos (recorriendo
+      # `MACRO_INDUSTRIES`, no una lista a mano); que un identificador
+      # inexistente sale `null` con motivo estático y NUNCA una macro adivinada
+      # —ni por `includes`, ni por coincidencia parcial, ni cayendo a la primera
+      # macro del catálogo—; que Apollo, la metadata y la punta Lusha reciben la
+      # MISMA clave sobre sus funciones REALES; y —con guarda estática— que no
+      # puede reaparecer un segundo resolver en los call-sites unificados.
+      #
+      # Arrastra las suites vecinas del catálogo y del waterfall que este cambio
+      # podría romper, porque tocan los mismos call-sites.
+      #
+      # 🔴 Sin mock de módulos: la resolución es pura y las puntas se ejercitan
+      # por inyección. `mock.module({ namedExports })` funciona en Node 20 pero
+      # NO en Node 24, que es el runner de este job.
+      #
+      # 0 llamadas a proveedor, 0 créditos, 0 escrituras, 0 migraciones, 0 flags.
+      - name: Run Agent 1 macro resolution single authority tests
+        run: npm run test:a1-macro-resolution-single-authority
