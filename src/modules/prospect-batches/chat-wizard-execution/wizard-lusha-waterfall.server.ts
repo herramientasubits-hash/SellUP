@@ -57,8 +57,10 @@
 // ningún otro módulo del repo lo usa.)
 
 import {
+  classifyLushaWaterfallLegFailure,
   decideLushaWaterfallLeg,
   type LushaWaterfallDecision,
+  type LushaWaterfallLegFailure,
   type LushaWaterfallSkipReason,
 } from './wizard-lusha-waterfall';
 import { deriveLushaWaterfallClientRequestId } from './waterfall-leg-identity';
@@ -95,6 +97,24 @@ export type LushaWaterfallLegOutcome =
       readonly gap: number;
       readonly clientRequestId: string;
       readonly result: PersistLushaPendingReviewResult;
+      /**
+       * 🔴 AGENT1-WATERFALL-LEG-FAILURE-REASON-1 — POR QUÉ falló una pierna que
+       * SÍ corrió. `null` ⇒ no falló.
+       *
+       * La acción de Lusha NO lanza: devuelve `{ ok: false }`. Hasta este corte
+       * esta rama se devolvía tal cual, así que presupuesto agotado, lote
+       * canónico irresoluble y proveedor caído salían los tres como
+       * `executed: true, skipReason: null, persistedCandidates: 0` — la misma
+       * forma que una corrida sana sin hallazgos.
+       *
+       * 🔴 Es OBSERVACIÓN: no cambia el desenlace, ni la aceptación, ni la
+       * liquidación. `result` se conserva byte por byte.
+       *
+       * 🔴 Vive SÓLO en esta rama, y ésa es la línea que no se cruza: un SKIP
+       * legítimo se sigue nombrando en `reason`. Un solo campo para las dos
+       * cosas volvería a hacer indistinguible «no corrió» de «corrió y falló».
+       */
+      readonly failure: LushaWaterfallLegFailure | null;
     };
 
 /**
@@ -156,12 +176,27 @@ export async function runLushaWaterfallLeg(
         targetGap: decision.gap,
       },
     });
-    return { executed: true, gap: decision.gap, clientRequestId, result };
+    return {
+      executed: true,
+      gap: decision.gap,
+      clientRequestId,
+      result,
+      // 🔴 Se clasifica AQUÍ y con el resultado entero delante. Devolverlo sin
+      // mirar `ok` es exactamente el defecto que este corte cierra.
+      failure: classifyLushaWaterfallLegFailure(result),
+    };
   } catch {
     // 🔴 Fail-open hacia el wizard, NUNCA hacia el gasto. La corrida de Apollo
     // ya terminó y ya se liquidó: una pierna Lusha caída no puede convertir un
     // resultado parcial legítimo en un error de la ejecución entera. La acción
     // liquida su propia reserva en su propio `catch` antes de propagar.
+    //
+    // 🔴 AGENT1-WATERFALL-LEG-FAILURE-REASON-1 — esta rama NO recibe `failure`,
+    // y es una decisión, no un olvido: `leg_failed` YA es observable por sí
+    // mismo. Darle además un `failureCode` obligaría a rellenar el campo en una
+    // rama `executed: false`, que es justo donde skip y fallo se volverían a
+    // mezclar. Una excepción se lee en `reason`; un `{ ok: false }`, en
+    // `failure`.
     return { executed: false, reason: 'leg_failed' };
   }
 }

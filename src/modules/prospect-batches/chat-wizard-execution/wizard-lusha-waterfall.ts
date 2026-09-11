@@ -73,6 +73,131 @@ export type LushaWaterfallDecisionInput = {
   readonly canonicalBatchId: string | null;
 };
 
+// ═══════════════════════════════════════════════════════════════════════════
+// AGENT1-WATERFALL-LEG-FAILURE-REASON-1 — por qué FALLÓ una pierna que SÍ corrió
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// ── 🔴 El defecto que cierra ─────────────────────────────────────────────────
+//
+// `LushaWaterfallSkipReason` (arriba) explica por qué la pierna NO corrió. No
+// existía nada que explicara por qué una pierna que SÍ corrió no dejó nada: la
+// acción de Lusha no lanza —devuelve `{ ok: false }`—, así que un bloqueo de
+// presupuesto, un lote canónico irresoluble y una caída del proveedor salían
+// los tres publicados como `executed: true, skipReason: null,
+// persistedCandidates: 0`. Indistinguibles entre sí, e indistinguibles de una
+// corrida sana que no encontró nada. Reconstruir la causa exigía volver a
+// preguntarle a Lusha, es decir, volver a pagar.
+//
+// ── 🔴 Qué NO hace ──────────────────────────────────────────────────────────
+//
+// Es OBSERVACIÓN y nada más. No decide, no cuenta, no acepta, no liquida y no
+// cambia si la corrida es terminal. No convierte un error en éxito ni un éxito
+// en error: se limita a leer lo que el resultado YA traía.
+
+/**
+ * Vocabulario CERRADO. Cuatro códigos, derivados de datos que el resultado ya
+ * publica — no de una taxonomía nueva que habría que mantener al día.
+ *
+ * 🔴 `unclassified_leg_failure` es deliberado y NO es un hueco: un fallo sin
+ * causa reconocible tiene que decir «no se pudo clasificar», nunca `null`. Un
+ * `null` significaría «no hubo fallo», que es una afirmación distinta y falsa.
+ */
+export type LushaWaterfallLegFailureCode =
+  | 'budget'
+  | 'canonical_batch_unresolved'
+  | 'provider_error'
+  | 'unclassified_leg_failure';
+
+export type LushaWaterfallLegFailure = {
+  readonly code: LushaWaterfallLegFailureCode;
+  /**
+   * La cadena que el propio resultado traía en `error`, acotada. Se transcribe,
+   * no se reinterpreta: es lo único que puede decir algo que el código no dice
+   * —sobre todo dentro del cajón—. `null` cuando el resultado no traía ninguna.
+   */
+  readonly reason: string | null;
+};
+
+/** Tope de la transcripción: se registra, no se narra. */
+export const LUSHA_WATERFALL_LEG_FAILURE_REASON_MAX_LENGTH = 200;
+
+/** `lusha-budget-gate.ts` — los dos códigos de la puerta de presupuesto. */
+const BUDGET_FAILURE_ERROR_CODES: ReadonlySet<string> = new Set([
+  'lusha_budget_blocked',
+  'lusha_budget_unavailable',
+]);
+
+/** `lusha-pending-review-actions.ts` — `WATERFALL_BATCH_UNRESOLVED_CODE`. */
+const CANONICAL_BATCH_FAILURE_ERROR_CODE = 'waterfall_canonical_batch_unresolved';
+
+/** `lusha-multibranch-execution.ts` — los dos `LushaRunStopReason` de proveedor. */
+const PROVIDER_FAILURE_STOP_REASONS: ReadonlySet<string> = new Set([
+  'provider_failure',
+  'provider_billing_anomaly',
+]);
+
+/**
+ * Los HECHOS que el clasificador mira, y sólo ésos.
+ *
+ * 🔴 Estructural a propósito: `PersistLushaPendingReviewResult` encaja sin
+ * conversión, y este módulo sigue siendo PURO —sin importar el servidor, sin
+ * Supabase y sin proveedor—, que es la condición para poder probarlo sin
+ * arrancar nada.
+ */
+export type LushaWaterfallLegFailureFacts = {
+  readonly ok: boolean;
+  readonly error?: string | null;
+  readonly budgetExceeded?: { readonly reason: string } | null;
+  readonly pagesRequested?: number | null;
+  readonly stopReason?: string | null;
+};
+
+function transcribeFailureReason(error: string | null | undefined): string | null {
+  if (typeof error !== 'string') return null;
+  const trimmed = error.trim();
+  if (trimmed === '') return null;
+  return trimmed.slice(0, LUSHA_WATERFALL_LEG_FAILURE_REASON_MAX_LENGTH);
+}
+
+/**
+ * ¿Por qué falló? `null` ⇒ no falló.
+ *
+ * 🔴 Manda `ok`, NUNCA `status`. El núcleo devuelve `{ ok: true, status:
+ * 'empty' }` cuando la corrida funcionó y no halló nada reutilizable: guiarse
+ * por `status` marcaría esa corrida como fallida y le inventaría una causa.
+ *
+ * 🔴 El orden es el de la CAUSA, no el del síntoma. Presupuesto y lote canónico
+ * bloquean ANTES de que salga una sola petición, así que se reconocen primero;
+ * `provider_error` exige evidencia de que la corrida llegó a pedir —páginas
+ * despachadas o un `stopReason` de proveedor—, porque casi todo fallo lleva
+ * `status: 'error'` y colgar el proveedor de ese campo convertiría el cajón en
+ * código muerto y le echaría al proveedor culpas que no son suyas.
+ */
+export function classifyLushaWaterfallLegFailure(
+  facts: LushaWaterfallLegFailureFacts,
+): LushaWaterfallLegFailure | null {
+  if (facts.ok) return null;
+
+  const reason = transcribeFailureReason(facts.error);
+
+  if (
+    (facts.budgetExceeded !== null && facts.budgetExceeded !== undefined) ||
+    (reason !== null && BUDGET_FAILURE_ERROR_CODES.has(reason))
+  ) {
+    return { code: 'budget', reason };
+  }
+  if (reason === CANONICAL_BATCH_FAILURE_ERROR_CODE) {
+    return { code: 'canonical_batch_unresolved', reason };
+  }
+  if (
+    (facts.pagesRequested ?? 0) > 0 ||
+    (typeof facts.stopReason === 'string' && PROVIDER_FAILURE_STOP_REASONS.has(facts.stopReason))
+  ) {
+    return { code: 'provider_error', reason };
+  }
+  return { code: 'unclassified_leg_failure', reason };
+}
+
 export function decideLushaWaterfallLeg(
   input: LushaWaterfallDecisionInput,
 ): LushaWaterfallDecision {

@@ -4815,3 +4815,38 @@ jobs:
       # 0 llamadas a proveedor, 0 créditos, 0 escrituras reales, 0 migraciones.
       - name: Run Agent 1 HARDENING CUT-4 known-domain-seed disposition tests
         run: npm run test:a1-hardening-cut4-known-seed-disposition
+
+      # ══ WATERFALL LEG FAILURE REASON — una pierna que falló dice POR QUÉ ════
+      #
+      # `runLushaWaterfallLeg` devolvía `{ executed: true, result }` tal cual,
+      # incluso con `result.ok === false`. La acción de Lusha NO lanza: un
+      # bloqueo de presupuesto, un lote canónico irresoluble y una caída del
+      # proveedor vuelven como resultado, no como excepción. El punto de
+      # publicación sólo miraba `executed`, así que los tres salían publicados
+      # como `executed: true, skipReason: null, persistedCandidates: 0,
+      # acceptedForTarget: null` — indistinguibles entre sí e indistinguibles de
+      # una corrida sana que no encontró nada. Reconstruir la causa exigía
+      # volver a preguntarle a Lusha, es decir, volver a pagar.
+      #
+      # El step fija el vocabulario CERRADO de cuatro códigos (`budget`,
+      # `canonical_batch_unresolved`, `provider_error` y el cajón explícito
+      # `unclassified_leg_failure`), que se decide por `ok` y NUNCA por `status`
+      # —`{ ok: true, status: 'empty' }` es una corrida que funcionó y no
+      # halló—, que un `ok: false` jamás sale con `failureCode` null, que un
+      # SKIP legítimo conserva `skipReason` y NO recibe `failureCode`, y —con
+      # guarda estática— que el orquestador PROPAGA el campo en vez de dejarlo
+      # declarado en el tipo y muerto en el camino.
+      #
+      # 🔴 Es OBSERVACIÓN: el arnés compara campo por campo una corrida con
+      # causa clasificada contra la misma sin ella, y exige resultados idénticos
+      # fuera de la traza. Nada de esto mueve aceptación, conteos, liquidación
+      # ni el veredicto de la corrida.
+      #
+      # 🔴 Todo INYECTADO (acción de Lusha, Apollo, capa gratuita, presupuesto):
+      # sin `mock.module({ namedExports })`, que funciona en Node 20 y NO en
+      # Node 24. Arrastra las suites vecinas del waterfall y de la autoridad
+      # final, que son las que este cambio podría romper.
+      #
+      # 0 llamadas a proveedor, 0 créditos, 0 escrituras, 0 migraciones, 0 flags.
+      - name: Run Agent 1 waterfall leg failure reason tests
+        run: npm run test:a1-waterfall-leg-failure-reason
