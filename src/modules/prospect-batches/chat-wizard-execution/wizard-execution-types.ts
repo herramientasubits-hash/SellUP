@@ -333,6 +333,28 @@ export type WizardExecutionActionResult =
          * medición aporta cero, nunca sus filas.
          */
         acceptedForTarget?: number | null;
+        /**
+         * AGENT1-WATERFALL-LEG-FAILURE-REASON-1 — POR QUÉ falló una pierna que
+         * SÍ corrió. Vocabulario CERRADO de `LushaWaterfallLegFailureCode`:
+         * `budget`, `canonical_batch_unresolved`, `provider_error` y
+         * `unclassified_leg_failure`.
+         *
+         * 🔴 `null` significa «no hubo fallo» —la pierna no corrió, o corrió
+         * bien—, NUNCA «falló y no se sabe»: eso último se dice con
+         * `unclassified_leg_failure`.
+         *
+         * 🔴 Es OBSERVACIÓN pura y NO sustituye a `skipReason`: los dos campos
+         * conviven porque «no corrió» y «corrió y falló» son hechos distintos.
+         * No mueve conteos, ni aceptación, ni liquidación, ni `targetReached`.
+         */
+        failureCode?: string | null;
+        /**
+         * La cadena `error` que el resultado de Lusha ya traía, acotada a 200
+         * caracteres. Se transcribe tal cual —no se reinterpreta— y es lo único
+         * que puede decir algo que el código no dice, sobre todo dentro de
+         * `unclassified_leg_failure`. `null` cuando no había ninguna.
+         */
+        failureReason?: string | null;
       };
       /**
        * A1-APOLLO-QA-CONTROL-SURFACE-1 § 10 — proveedor REAL de esta corrida.

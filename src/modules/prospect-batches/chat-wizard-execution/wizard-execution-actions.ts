@@ -2172,6 +2172,17 @@ export async function executeProspectWizardGeneration(
       acceptedForTarget: lushaWaterfall.executed
         ? (waterfallWriterTruth.completeValidCandidates ?? null)
         : null,
+      // 🔴 AGENT1-WATERFALL-LEG-FAILURE-REASON-1 — POR QUÉ falló la pierna que
+      // corrió. La acción de Lusha no lanza: un presupuesto agotado, un lote
+      // canónico irresoluble y un proveedor caído volvían los tres como
+      // `executed: true, skipReason: null, persistedCandidates: 0`, idénticos
+      // entre sí e idénticos a una corrida sana sin hallazgos.
+      //
+      // 🔴 Campo APARTE de `skipReason` a propósito: «no corrió» y «corrió y
+      // falló» son dos hechos, y un solo campo los volvería a confundir. En un
+      // skip esto queda `null`; en una pierna con éxito, también.
+      failureCode: lushaWaterfall.executed ? (lushaWaterfall.failure?.code ?? null) : null,
+      failureReason: lushaWaterfall.executed ? (lushaWaterfall.failure?.reason ?? null) : null,
     },
     batchId: reservedBatchId,
     // El lote quedó `failed` por el writer (§ 9): el estado que se reporta es el
