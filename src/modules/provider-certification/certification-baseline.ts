@@ -50,6 +50,29 @@ export type CertifiableProvider = (typeof CERTIFIABLE_PROVIDERS)[number];
  */
 export type CertificationFieldSource = 'observed' | 'derived' | 'missing';
 
+/**
+ * 🔴 CUT-E.1 — las autoridades que pueden responder «¿cuántas fueron aceptadas?».
+ *
+ * Son DOS porque los dos proveedores resuelven la aceptación en sitios
+ * distintos, y fusionarlas en una etiqueta única sería esconder justo lo que la
+ * certificación necesita ver:
+ *
+ * · `per_candidate_writer_trace` — la suma de los veredictos POR CANDIDATO que
+ *   el writer ya tomó (`countsTowardTarget`), conservados en
+ *   `source_trace.acceptedForTarget` desde CUT-D.1. Es el caso de Apollo.
+ * · `provider_run_total`         — el total que el propio proveedor publica en
+ *   su fila de gasto (`accepted_for_target_total`). Es el caso de Lusha.
+ *
+ * 🔴 No hay un tercer valor para «lo deduje»: una aceptación que no venga de una
+ * de estas dos autoridades no se publica, se declara ausente.
+ */
+export const CERTIFICATION_ACCEPTANCE_SOURCES = [
+  'per_candidate_writer_trace',
+  'provider_run_total',
+] as const;
+
+export type CertificationAcceptanceSource = (typeof CERTIFICATION_ACCEPTANCE_SOURCES)[number];
+
 /** Los campos que la certificación necesita de CADA corrida y proveedor. */
 export const CERTIFICATION_BASELINE_FIELDS = [
   // ── Identidad de la corrida ──
@@ -64,10 +87,26 @@ export const CERTIFICATION_BASELINE_FIELDS = [
   // ── Economía y esfuerzo ──
   'pages',
   'credits',
+  /**
+   * 🔴 CUT-E.3 — el desglose del gasto POR OPERACIÓN cobrada.
+   *
+   * Va junto al total y no en su lugar: un total desnudo no se puede auditar, y
+   * el defecto que este corte cierra fue precisamente un total que parecía
+   * completo mientras sumaba una sola operación de las dos que la corrida paga.
+   */
+  'credits_by_operation',
   'latency_ms',
   // ── Embudo de empresas ──
   'companies_seen',
   'companies_accepted',
+  /**
+   * 🔴 CUT-E.1 — DE DÓNDE salió `companies_accepted`.
+   *
+   * Apollo y Lusha no responden esta pregunta con la misma autoridad, y ésa es
+   * una asimetría que la certificación tiene que LEER en la fila en vez de
+   * descubrirla comparando. Ver `CertificationAcceptanceSource`.
+   */
+  'companies_accepted_source',
   'companies_rejected',
   // ── Calidad de la empresa ──
   'employee_count_known',
@@ -95,6 +134,37 @@ export type CertificationBaselineField = (typeof CERTIFICATION_BASELINE_FIELDS)[
  */
 export const CERT_SEAM_ACCEPTED_NOT_CORRELATED =
   'target_satisfaction_decided_by_candidate_writer_across_all_queries_not_correlated_back_to_search_usage_row' as const;
+
+/**
+ * 🔴 CUT-E.3 — la costura que hacía a Apollo parecer más barato de lo que es.
+ *
+ * Una corrida de Apollo paga DOS operaciones —`organizations_search` y
+ * `organization_enrichment`— bajo el mismo `wizard_run_id`. Medido en
+ * Producción el 11-09-2026: 420 créditos de búsqueda y 82 de enriquecimiento, y
+ * en la corrida `294298cd…` fueron 6 y 5. Sumar sólo la búsqueda subestima el
+ * coste de Apollo un ~45% y por tanto INVIERTE la comparación de coste por
+ * empresa útil contra Lusha, que trae su gasto entero en su única fila.
+ *
+ * Se nombra cuando el desglose por operación no está disponible: sin él, el
+ * total no es auditable y no se puede afirmar que esté completo.
+ */
+export const CERT_SEAM_CREDITS_NOT_BROKEN_DOWN_BY_OPERATION =
+  'credits_total_not_broken_down_by_charged_operation_so_completeness_is_not_auditable' as const;
+
+/**
+ * 🔴 CUT-E.1 — el lote NO es el proveedor.
+ *
+ * `prospect_batches.metadata.accepted_for_target.accepted_paid_for_target` es la
+ * aceptación de PAGO del LOTE, y en el waterfall Apollo y Lusha comparten lote.
+ * Medido en Producción: el lote `483f3584` publica `accepted_paid_for_target: 5`
+ * y sus 5 candidatos son de Lusha, con 0 de Apollo. Usar esa cifra como contraste
+ * de Apollo declararía rota una correlación que está intacta.
+ *
+ * Por eso, con dos proveedores en el mismo lote, el contraste no se hace: se
+ * declara no comparable.
+ */
+export const CERT_SEAM_BATCH_ACCEPTANCE_SHARED_BY_TWO_PROVIDERS =
+  'batch_paid_acceptance_is_shared_by_every_provider_leg_so_it_cannot_contrast_one_of_them' as const;
 
 /**
  * No existe ninguna columna ni clave `certification_run_id` en el esquema
@@ -154,12 +224,20 @@ export interface CertificationBaselineInput {
   readonly macroIndustry: string | null;
   readonly requestFingerprint: string | null;
   readonly pages: number | null;
+  /** Total de créditos de la corrida, sumando TODAS las operaciones cobradas. */
   readonly credits: number | null;
+  /** Desglose `operation_key → créditos`. `null` ⇒ el total no es auditable. */
+  readonly creditsByOperation: Readonly<Record<string, number>> | null;
   readonly latencyMs: number | null;
   /** Filas que el proveedor devolvió y se pagaron, antes de filtros locales. */
   readonly companiesSeen: number | null;
   /** Empresas que REALMENTE satisficieron el objetivo. */
   readonly companiesAccepted: number | null;
+  /**
+   * Qué autoridad produjo la cifra de arriba. `null` SÓLO cuando no hay cifra:
+   * una aceptación sin procedencia sería un número sin dueño.
+   */
+  readonly companiesAcceptedSource: CertificationAcceptanceSource | null;
   /** Empresas descartadas con motivo. */
   readonly companiesRejected: number | null;
   /** Empresas con conteo de empleados CONOCIDO (0 es conocido; null no). */
@@ -201,9 +279,11 @@ export function buildCertificationBaselineRow(
     request_fingerprint: input.requestFingerprint,
     pages: input.pages,
     credits: input.credits,
+    credits_by_operation: input.creditsByOperation,
     latency_ms: input.latencyMs,
     companies_seen: input.companiesSeen,
     companies_accepted: input.companiesAccepted,
+    companies_accepted_source: input.companiesAcceptedSource,
     companies_rejected: input.companiesRejected,
     employee_count_known: input.employeeCountKnown,
     identity_resolved: input.identityResolved,
@@ -229,6 +309,12 @@ export function buildCertificationBaselineRow(
   }
   if (values.companies_accepted === null) {
     seams.companies_accepted = CERT_SEAM_ACCEPTED_NOT_CORRELATED;
+    // La procedencia falta por la MISMA razón, y nombrarla con otra costura
+    // inventaría una segunda causa para un solo hecho.
+    seams.companies_accepted_source = CERT_SEAM_ACCEPTED_NOT_CORRELATED;
+  }
+  if (values.credits_by_operation === null) {
+    seams.credits_by_operation = CERT_SEAM_CREDITS_NOT_BROKEN_DOWN_BY_OPERATION;
   }
   if (values.latency_ms === null) {
     seams.latency_ms = CERT_SEAM_LATENCY_ABSENT_FOR_OPERATION;

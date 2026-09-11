@@ -84,7 +84,16 @@ const APOLLO_LOG: ProviderUsageLogLike = {
   },
 };
 
-/** `lusha/company_prospecting_v3`. */
+/**
+ * `lusha/company_prospecting_v3`.
+ *
+ * 🔴 CUT-E.4 — las claves de `run` son snake_case porque ASÍ las persiste
+ * Producción. Antes de este corte este fixture las traía en camelCase, igual que
+ * el adaptador, así que la suite pasaba en verde mientras el adaptador devolvía
+ * `null` sobre cualquier fila real: `pages` y `dedupe_removed` se publicaban
+ * como ausentes teniendo valor. Los tres números —2, 50 y 2— son los de la
+ * corrida `294298cd…`; lo único que estaba mal era cómo se escribían las claves.
+ */
 const LUSHA_LOG: ProviderUsageLogLike = {
   provider_key: 'lusha',
   operation_key: 'company_prospecting_v3',
@@ -106,15 +115,24 @@ const LUSHA_LOG: ProviderUsageLogLike = {
       precision_rejected: 0,
       exact_duplicates: 0,
       run: {
-        rawResultsTotal: 50,
-        providerRequestsUsed: 2,
-        crossBranchDuplicatesRemoved: 2,
+        raw_results_total: 50,
+        provider_requests_used: 2,
+        cross_branch_duplicates_removed: 2,
       },
     },
   },
 };
 
 function baseInput(o: Partial<CertificationBaselineInput> = {}): CertificationBaselineInput {
+  const merged = rawBaseInput(o);
+  // CUT-E.1 — la procedencia no puede sobrevivir a una aceptación que se anula:
+  // un dueño sin número es una afirmación sobre algo que no se midió.
+  return merged.companiesAccepted === null
+    ? { ...merged, companiesAcceptedSource: null }
+    : merged;
+}
+
+function rawBaseInput(o: Partial<CertificationBaselineInput>): CertificationBaselineInput {
   return {
     provider: 'apollo',
     providerOrder: 1,
@@ -126,9 +144,13 @@ function baseInput(o: Partial<CertificationBaselineInput> = {}): CertificationBa
     requestFingerprint: 'fp',
     pages: 1,
     credits: 1,
+    // CUT-E.3 — el desglose acompaña siempre al total.
+    creditsByOperation: { organizations_search: 1 },
     latencyMs: 100,
     companiesSeen: 10,
     companiesAccepted: 4,
+    // CUT-E.1 — una cifra de aceptación viaja con la autoridad que la produjo.
+    companiesAcceptedSource: 'provider_run_total',
     companiesRejected: 6,
     employeeCountKnown: 7,
     identityResolved: 9,
