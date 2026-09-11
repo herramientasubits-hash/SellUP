@@ -4694,6 +4694,16 @@ jobs:
       #
       # 9 mutaciones deliberadas, 9 muertas.
       #
+      # 🔴 DEPENDENCIAS INYECTADAS, nunca `mock.module`. Este step entró en rojo
+      # la primera vez y el defecto no estaba en el código: tres de las suites de
+      # `prospect-discards` no habían corrido NUNCA en CI y mockeaban
+      # `@supabase/supabase-js` con `{ namedExports }`, que Node 24 IGNORA. El
+      # cliente REAL se construía y salía a la red contra `fake.supabase.local`:
+      # 15 pruebas caídas con `getaddrinfo EAI_AGAIN`, ninguna por un defecto.
+      # Se pasaron a `clientFactory` —la costura que el escritor YA exponía para
+      # esto— y el step corre SIN `--experimental-test-module-mocks`, de modo que
+      # ninguna suite pueda volver a depender en silencio de esa API.
+      #
       # NO toca Apollo, NO toca presupuesto, NO toca UI, NO toca flags.
       # 0 llamadas a proveedor, 0 créditos, 0 escrituras en Producción,
       # 0 migraciones.
