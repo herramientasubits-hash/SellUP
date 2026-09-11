@@ -48,7 +48,6 @@ import { type MacroIndustryKey } from '@/modules/macro-industry-catalog/macro-in
 // documentaba es AHORA la autoridad compartida, en vez de una implementación
 // local que las demás puntas copiaban (unas completa, otras truncada).
 import { resolveMacroIndustryKey } from '@/modules/macro-industry-catalog/macro-industry-resolution';
-import { LUSHA_PREVIEW_DEFAULT_SIZE_BAND_KEY } from '@/server/prospect-batches/lusha-preview';
 import {
   resolveProspectDiscoveryProvider,
   type ProspectDiscoveryProvider,
@@ -56,6 +55,53 @@ import {
 
 /** Canonical "companies by criteria" search type (chat wizard `exploratory`). */
 const CRITERIA_SEARCH_TYPE = 'exploratory';
+
+/**
+ * La banda de tamaño que el wizard le pide al PROVEEDOR: NINGUNA.
+ *
+ * ── A1-LUSHA-SIZE-PARITY § CUT-C.1 ──────────────────────────────────────────
+ *
+ * Hasta este corte aquí viajaba `LUSHA_PREVIEW_DEFAULT_SIZE_BAND_KEY`
+ * (`'201-5000'`), y ésa era la ÚNICA razón por la que Lusha standalone y Lusha
+ * waterfall respondían distinto a la misma pregunta —«¿esta empresa tiene el
+ * tamaño que buscamos?»— sobre la misma empresa:
+ *
+ *   · `201-5000` ⇒ `sizes: [{min: 201, max: 5000}]` en el cuerpo de la petición,
+ *     así que una empresa de 6.000 empleados NUNCA volvía en standalone;
+ *   · `resolveLushaLocalMinEmployees(201)` ⇒ suelo 201, así que una empresa de
+ *     EXACTAMENTE 200 se rechazaba en standalone
+ *     (`known_employee_count_below_min`) y se admitía en el waterfall;
+ *   · `maxEmployees: 5000` ⇒ `employeesOutOfBand` marcaba 5.001 sólo en
+ *     standalone.
+ *
+ * La pierna del waterfall (`runLushaWaterfallLeg`) nunca mandó banda, así que su
+ * definición ya era la canónica: `ICP_SIZE_GATE_DEFAULT_THRESHOLD` (200,
+ * INCLUSIVO) sin techo, el mismo umbral que evalúa la ficha ICP. El 201 y el
+ * 5.000 no salían de ninguna regla de negocio: salían de la etiqueta de una
+ * banda de UI.
+ *
+ * Con `null`, las dos piernas emiten la MISMA petición (sin `sizes`) y la
+ * definición de tamaño queda en UNA sola autoridad LOCAL,
+ * `resolveLushaLocalMinEmployees`, que nunca devuelve null y nunca inventa techo.
+ *
+ * ── Lo que esto NO es ────────────────────────────────────────────────────────
+ *
+ * NO es `sizes: [{min: 200}]`. Esa forma sigue SIN contrato verificado con el
+ * proveedor (CUT-5 la cerró como `LUSHA_SIZE_PARITY =
+ * UNSUPPORTED_BY_PROVIDER_CONTRACT`) y este corte no la introduce: quitar la
+ * banda es lo que iguala las dos piernas sin adivinar un campo.
+ *
+ * NO ahorra créditos, y es honesto decirlo al revés: sin prefiltro de proveedor
+ * la página trae MÁS empresas por debajo del ICP, que el suelo local rechaza
+ * después de haberla pagado. El rendimiento por crédito en standalone puede
+ * BAJAR. Lo que se gana es que standalone y waterfall sean comparables — que es
+ * la precondición de la certificación.
+ *
+ * NO toca la UI: `LUSHA_PREVIEW_DEFAULT_SIZE_BAND_KEY` sigue existiendo y sigue
+ * siendo el valor inicial del selector del panel de preview, que no persiste
+ * candidatos.
+ */
+export const WIZARD_LUSHA_REQUESTED_SIZE_BAND_KEY: string | null = null;
 
 /** Collected wizard criteria needed to resolve the hidden provider. */
 export interface WizardLushaCriteriaState {
@@ -77,7 +123,12 @@ export interface WizardLushaInput {
    */
   macroIndustryKey: MacroIndustryKey;
   subIndustryId: number | null;
-  sizeBandKey: string;
+  /**
+   * 🔴 CUT-C.1 — la banda de tamaño que se le pide al PROVEEDOR. `null` significa
+   * «ninguna», y es el único valor que este puente produce hoy: ver
+   * `WIZARD_LUSHA_REQUESTED_SIZE_BAND_KEY`.
+   */
+  sizeBandKey: string | null;
   searchText: string | null;
 }
 
@@ -152,7 +203,7 @@ export function resolveWizardLushaCriteria(
       // Las sub-industrias de Lusha viajan DENTRO de las ramas del plan, que el
       // servidor resuelve desde el catálogo. El navegador nunca elige una.
       subIndustryId: null,
-      sizeBandKey: LUSHA_PREVIEW_DEFAULT_SIZE_BAND_KEY,
+      sizeBandKey: WIZARD_LUSHA_REQUESTED_SIZE_BAND_KEY,
       searchText: searchText && searchText.length > 0 ? searchText : null,
     },
   };

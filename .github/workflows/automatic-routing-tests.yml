@@ -4652,6 +4652,46 @@ jobs:
       - name: Run Agent1 Lusha ICP size authority (CUT-5B)
         run: npm run test:a1-lusha-icp-size-authority-5b
 
+      # ── A1-LUSHA-SIZE-PARITY § CUT-C.1 ────────────────────────────────────────
+      #
+      # Standalone y waterfall respondían DISTINTO a la misma pregunta sobre la
+      # misma empresa, y la causa no era una regla de negocio: era la ETIQUETA de
+      # una banda de UI. El puente del wizard mandaba `sizeBandKey: '201-5000'`;
+      # la pierna del waterfall no manda banda ninguna. Consecuencias medidas:
+      #
+      #   · 200 empleados EXACTOS ⇒ waterfall ADMITE, standalone RECHAZA DURO
+      #     (`known_employee_count_below_min`), porque el suelo subía a 201.
+      #   · 5.001 y 1.000.001 ⇒ standalone ni siquiera los pedía
+      #     (`sizes: [{min: 201, max: 5000}]` en el cuerpo) y, si llegaban, los
+      #     marcaba `employees_out_of_range`.
+      #
+      # La definición canónica ya existía y la aplicaba SÓLO el waterfall:
+      # `ICP_SIZE_GATE_DEFAULT_THRESHOLD` (200, INCLUSIVO) sin techo, vía
+      # `resolveLushaLocalMinEmployees`. El puente deja de pedir banda y las dos
+      # piernas convergen en ella.
+      #
+      # El step fija 199/200/201/5.000/5.001/1.000.001/DESCONOCIDO con el mismo
+      # desenlace en las dos piernas —admisión real contra el núcleo de
+      # persistencia, no sólo el criterio— y la misma etiqueta; que las dos
+      # emiten el MISMO cuerpo de petición; y 7 trinquetes de mutación, entre
+      # ellos una guarda estática contra inlinar el `200`.
+      #
+      # 🔴 NO introduce `sizes: [{min: 200}]`. Esa forma sigue sin contrato
+      # verificado (CUT-5 la cerró como
+      # `LUSHA_SIZE_PARITY = UNSUPPORTED_BY_PROVIDER_CONTRACT`); la paridad se
+      # consigue QUITANDO la banda, no adivinando un campo.
+      #
+      # 🔴 Honestidad económica, al revés de lo habitual: sin prefiltro de
+      # proveedor la página trae MÁS empresas por debajo del ICP, que el suelo
+      # local rechaza DESPUÉS de haberla pagado. El rendimiento por crédito en
+      # standalone puede BAJAR. Lo que se gana es comparabilidad, que es la
+      # precondición de la certificación.
+      #
+      # NO toca Apollo, NO toca presupuesto, NO toca UI (el selector del panel de
+      # preview conserva su valor inicial), NO toca flags. 0 llamadas a
+      # proveedor, 0 créditos, 0 escrituras en Producción, 0 migraciones.
+      - name: Run Agent1 Lusha size parity (CUT-C.1)
+        run: npm run test:a1-lusha-size-parity-c1
       # ── A1-CERTIFICATION-BASELINE § CUT-C.3 ───────────────────────────────────
       #
       # Conservar una corrida de Apollo y una de Lusha de forma que un proveedor

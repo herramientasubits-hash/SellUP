@@ -18,7 +18,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ActiveIndustryCatalog } from '@/modules/industry-catalog/types';
-import { resolveWizardLushaCriteria } from '../wizard-lusha-criteria';
+import {
+  resolveWizardLushaCriteria,
+  WIZARD_LUSHA_REQUESTED_SIZE_BAND_KEY,
+} from '../wizard-lusha-criteria';
 
 /**
  * Catálogo Macro-v2, con los `slug` que las migraciones 118/119 sembraron.
@@ -102,7 +105,12 @@ describe('resolveWizardLushaCriteria', () => {
     assert.equal(decision.input?.macroIndustryKey, 'health_pharma');
     // No reliable catalog→Lusha sub-industry mapping — never invented.
     assert.equal(decision.input?.subIndustryId, null);
-    assert.equal(decision.input?.sizeBandKey, '201-5000');
+    // 🔴 CUT-C.1 — este trinquete fijaba el DEFECTO: `'201-5000'` es la banda que
+    // hacía que standalone rechazara una empresa de 200 empleados que el
+    // waterfall admitía, y que nunca viera una de 6.000. Ahora el puente no pide
+    // banda y la definición de tamaño vive en una sola autoridad local.
+    assert.equal(decision.input?.sizeBandKey, WIZARD_LUSHA_REQUESTED_SIZE_BAND_KEY);
+    assert.equal(decision.input?.sizeBandKey, null);
     assert.equal(decision.input?.searchText, null);
   });
 
