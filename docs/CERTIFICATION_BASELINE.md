@@ -167,3 +167,148 @@ mayor que esta migración.
    haya **varias** campañas que distinguir.
 3. El hueco de § 1.4 sí conviene cerrarlo antes de la corrida de certificación: si
    no, la corrida que más enseña —la que no admite nada— no dejará rastro.
+
+---
+
+# 5. CUT-E — de proyección a capacidad
+
+**A1-CERTIFICATION-READINESS § CUT-E** · 2026-09-11
+**PROVIDER_CALLS = 0 · PROD_WRITES = 0 · MIGRACIONES = 0 · BUDGET_CHANGES = 0 · FLAGS = 0**
+
+El pre-flight de certificación sobre `3d5b0666` salió **BLOCKED**. Cuatro de sus
+seis P0 eran defectos de código, y los cuatro compartían **una sola causa de
+forma**: `usage-log-adapters.ts` proyectaba **una fila**, y la unidad real de una
+certificación es **la corrida**.
+
+## 5.1 Qué cambió
+
+| corte | defecto | dónde va el fix |
+|---|---|---|
+| **E.1** | la aceptación de Apollo no llegaba a la línea base | **lado lector**: sale del replay por candidato de CUT-D.1 y la fila declara su procedencia |
+| **E.2** | el módulo y el replay no tenían consumidor | `scripts/agent1/certification-baseline-replay.ts` |
+| **E.3** | el coste omitía `organization_enrichment` | suma por corrida sobre las operaciones cobradas |
+| **E.4** | el adaptador de Lusha leía camelCase | las claves reales de Producción |
+
+## 5.2 🔴 Lo que deliberadamente NO cambió
+
+`apollo_benchmark_funnel.accepted_for_target` **sigue siendo `null`**, y no es
+una deuda: es el contrato correcto. La aceptación es un hecho de la **corrida**;
+esa fila es de **una consulta**, y Producción tiene dos filas de búsqueda por
+corrida. Estampar allí el total duplicaría la cifra — el lote `483f3584`
+reportaría 10 en vez de 5. Una guarda estática exige que las dos construcciones
+del embudo sigan publicando `null`.
+
+`resolveAcceptedForTarget` (CUT-7) sigue siendo la única autoridad de aceptación.
+
+## 5.3 🔴 El lote NO es el proveedor
+
+`prospect_batches.metadata.accepted_for_target.accepted_paid_for_target` es la
+aceptación de pago **del lote**, y en el waterfall Apollo y Lusha **comparten
+lote**. Medido en Producción: el lote `483f3584` publica `accepted_paid_for_target: 5`
+y sus 5 candidatos son de **Lusha**, con **0** de Apollo.
+
+Usar esa cifra para contrastar la traza de Apollo declararía rota una correlación
+intacta. Con dos proveedores en el lote el contraste **no se hace**: se declara
+no comparable. No medir no es discrepar.
+
+## 5.4 Coste completo de Apollo
+
+Una corrida de Apollo paga **dos** operaciones bajo el mismo `wizard_run_id`.
+Corrida `294298cd…`:
+
+| operación | filas | créditos |
+|---|---|---|
+| `organizations_search` | 2 | 5 + 1 = **6** |
+| `organization_enrichment` | 5 | 1 × 5 = **5** |
+| **total** | 7 | **11** |
+
+Sumar sólo la búsqueda subestima ~45% e **invierte** la comparación de coste por
+empresa útil contra Lusha, que trae su gasto entero en su única fila.
+
+El conjunto de operaciones cobradas se deriva de `ApolloUsageOperationKey`; la
+exhaustividad la comprueba el **compilador** en las dos direcciones. Una fila
+cobrada sin `credits_used` deja el **total en `null`**, nunca en un parcial que
+parezca completo.
+
+La **latencia de la corrida** sale `null` a propósito: `organization_enrichment`
+no registra `duration_ms` en ninguna de sus 82 filas de Producción, y sumar sólo
+las búsquedas publicaría como latencia de la corrida una cifra que deja fuera la
+mitad de sus llamadas.
+
+## 5.5 🔴 Asimetría declarada, nunca oculta
+
+### Filtro PROVIDER-SIDE vs filtro LOCAL
+
+| | Apollo | Lusha |
+|---|---|---|
+| país | provider-side (`organization_locations`) | provider-side |
+| industria | provider-side (keyword packs) | provider-side (`mainIndustryId` [+ `subIndustryId`] por rama) |
+| **tamaño ≥200** | **provider-side** (`organization_num_employees_ranges`, 7 buckets, techo implícito en 1.000.000) **+ local** | **sólo local** — CUT-C.1 retiró la banda para igualar standalone y waterfall |
+| aceptación ICP | local (writer) | local (intake gate) |
+
+### Procedencia de `companies_accepted`
+
+| proveedor | autoridad | valor de `companies_accepted_source` |
+|---|---|---|
+| Apollo | veredictos **por candidato** del writer (CUT-D.1) | `per_candidate_writer_trace` |
+| Lusha | total de corrida que el proveedor publica | `provider_run_total` |
+
+Las dos responden la misma pregunta desde sitios distintos. La fila lo **dice**,
+para que nadie lo descubra comparando.
+
+## 5.6 P0-5 — aislamiento Apollo/Lusha: mecanismo OPERATIVO
+
+**Este corte no lo implementa y no toca el waterfall.**
+
+Con `ENABLE_AGENT1_APOLLO_LUSHA_WATERFALL` encendida, una corrida destinada a
+medir Apollo puede terminar llamando a Lusha: la pierna dispara cuando
+`waterfallEnabled && lushaAvailable && apolloTerminal && usefulAccumulated < target`.
+Ninguno de los seis `LushaWaterfallSkipReason` es controlable sin tocar una
+bandera, y `target_reached` no es garantía — si Apollo acepta 0, la pierna corre.
+
+Mecanismo acordado, a aplicar **sólo dentro de la ventana de certificación y con
+autorización explícita**:
+
+```
+ENABLE_AGENT1_APOLLO_LUSHA_WATERFALL=false
+```
+
+Una variable de entorno, cero código, el camino de Producción **exacto**, y el
+skip pasa a rotularse `waterfall_flag_disabled` diciendo **la verdad**. Se
+descartó inyectar dependencias en `executeProspectWizardGeneration` porque
+mediría un camino distinto del que corre Producción, y se descartó una bandera
+nueva por ser una segunda puerta sobre la misma política.
+
+## 5.7 P0-6 — presupuesto: qué cabe realmente
+
+**No se toca. Sigue siendo la restricción que manda.**
+
+- **Apollo** — ~11 créditos por corrida, sobre su **cuota propia** (desacoplada
+  de `wizard_monthly_budget_periods` desde #386). Las 12 macro ≈ 132 créditos.
+  **No está bloqueado.**
+- **Lusha** — septiembre 2026: `53 − 51 − 0` = **2 créditos**. Medido:
+  1 rama = 1-2 créditos; 3 ramas (`health_pharma`) = 6.
+
+| grupo | macro | ramas | coste estimado | ¿cabe en 2? |
+|---|---|---|---|---|
+| 1 rama | `technology`, `government`, `transport_logistics`, `insurance_financial_services`, `retail`, `industry_manufacturing_chemicals_automotive` | 1 | 1-2 | ✅ **una sola** |
+| 2 ramas | `property_construction`, `consumer_goods`, `agroindustry` | 2 | 2-4 | ❌ |
+| 3 ramas | `health_pharma`, `energy_mining_environment`, `services_company` | 3 | ~6 | ❌ |
+
+Las 21 ramas completas piden **21-42 créditos**. **11 de las 12 macro son
+imposibles** para Lusha hoy.
+
+**Unidad certificable acordada: `Colombia × technology × {Apollo, Lusha}`** —
+1 rama, precedente medido de 1 crédito, y con corridas previas que publican
+`accepted_for_target_total` para contrastar.
+
+## 5.8 Uso
+
+```bash
+npm run cert:baseline -- --wizard-run-id=<id>
+```
+
+Lee `provider_usage_logs`, `prospect_candidates`, `prospect_batches` y
+`prospect_discarded_dispositions`; escribe en la salida estándar. **No llama a
+ningún proveedor, no consume créditos y no escribe nada** — las tres cosas las
+vigila una guarda estática sobre el propio fichero, no un comentario.

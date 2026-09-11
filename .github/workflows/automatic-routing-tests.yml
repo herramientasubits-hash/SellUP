@@ -4830,6 +4830,53 @@ jobs:
       - name: Run Agent1 Apollo accepted-for-target traceability (CUT-D.1)
         run: npm run test:a1-apollo-accepted-for-target-traceability-d1
 
+      # ═══════════════════════════════════════════════════════════════════════
+      # A1-CERTIFICATION-READINESS § CUT-E — la línea base deja de ser una promesa
+      # ═══════════════════════════════════════════════════════════════════════
+      #
+      # El pre-flight de certificación salió BLOCKED con cuatro defectos de
+      # código que compartían UNA causa de forma: `usage-log-adapters.ts`
+      # proyectaba UNA fila, y la unidad real de la certificación es la CORRIDA.
+      #
+      #   E.1 · la aceptación de Apollo no llegaba. El provider publica
+      #         `accepted_for_target: null` POR CONTRATO —la decide el writer
+      #         agregando todas las consultas, y la fila es una consulta—, así
+      #         que el lector la buscaba donde no vive. El fix va del lado
+      #         LECTOR: la cifra sale del replay POR CANDIDATO de CUT-D.1 y la
+      #         fila DECLARA su procedencia en `companies_accepted_source`.
+      #         El provider queda byte por byte igual: una guarda estática exige
+      #         que sus DOS construcciones del embudo sigan publicando `null`.
+      #   E.2 · el módulo y el replay no tenían consumidor fuera de sus tests.
+      #         `scripts/agent1/certification-baseline-replay.ts` lo cierra:
+      #         lee cuatro tablas y escribe en la salida estándar. Nada más.
+      #   E.3 · el coste de Apollo omitía `organization_enrichment`. Medido en
+      #         Producción: la corrida `294298cd…` pagó 6 de búsqueda y 5 de
+      #         enriquecimiento ⇒ 11, no 6. El conjunto de operaciones cobradas
+      #         se deriva de `ApolloUsageOperationKey`, con exhaustividad
+      #         comprobada por el COMPILADOR en las dos direcciones.
+      #   E.4 · el adaptador de Lusha leía `run` en camelCase contra datos
+      #         snake_case. Los valores existían (2 / 50 / 2) y salían `null`.
+      #         La suite no lo veía porque su fixture copiaba el mismo error:
+      #         este corte reescribe el fixture a la forma REAL y añade una
+      #         guarda estática sobre el código del adaptador.
+      #
+      # 🔴 Y la trampa que la auditoría encontró de paso: el lote NO es el
+      # proveedor. `accepted_paid_for_target` es del LOTE, y en el waterfall
+      # Apollo y Lusha lo comparten — el lote `483f3584` publica 5 con 5
+      # candidatos de Lusha y 0 de Apollo. Contrastar la traza de Apollo contra
+      # esa cifra declararía rota una correlación intacta, así que con dos
+      # proveedores en el lote el contraste NO se hace: se declara.
+      #
+      # CUT-7 (`resolveAcceptedForTarget`) sigue siendo la única autoridad de
+      # aceptación y no se toca. Tampoco el provider, el two-round, el writer,
+      # el waterfall, la ejecución del wizard, el pipeline de Lusha, la UI,
+      # HubSpot, migraciones, presupuesto ni flags.
+      #
+      # 0 llamadas a proveedor, 0 créditos, 0 escrituras en Producción,
+      # 0 migraciones, 0 cambios de presupuesto, 0 flags.
+      - name: Run Agent1 certification readiness (CUT-E)
+        run: npm run test:a1-certification-readiness-e
+
       # ══ HARDENING CUT-0 — el waterfall y el lote mixto entran a CI ═══════════
       #
       # Auditoría contra `origin/main`@2d4eb4ec: TODA la cadena del waterfall
