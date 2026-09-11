@@ -33,6 +33,10 @@ import {
   type LushaDiscardWriterClientFactory,
 } from '../lusha-pipeline-writer.server';
 
+/** § CUT-C.2 — identidad de corrida exigida por el escritor. */
+const WIZARD_RUN_ID = 'wizard-run-fixture-1';
+const CLIENT_REQUEST_ID = 'client-request-fixture-1';
+
 /**
  * 🔴 FIDELIDAD DEL ARNÉS — el doble se comporta como Postgres, no como un
  * buzón. Un doble que aceptara todo dejaría pasar exactamente el defecto que
@@ -107,6 +111,8 @@ const SEED_RECORD: LushaDiscardRecordLike = {
 function persist(records: readonly LushaDiscardRecordLike[]) {
   return persistLushaRejectedDispositions({
     batchId: BATCH_ID,
+    wizardRunId: WIZARD_RUN_ID,
+    clientRequestId: CLIENT_REQUEST_ID,
     requestedCountryCode: 'CO',
     requestedIndustry: 'Salud',
     records,
