@@ -337,7 +337,11 @@ describe('CUT-C.2 § A — identidad de corrida', () => {
       path.join(process.cwd(), 'supabase/migrations/138_prospect_discarded_dispositions.sql'),
       'utf8',
     );
-    assert.ok(/CHECK \(source_primary IN \([^)]*'lusha'/s.test(sql));
+    // Sin flag `/s`: se acota el bloque a mano y se busca el literal dentro.
+    const checkStart = sql.indexOf('CHECK (source_primary IN (');
+    assert.ok(checkStart > 0, 'la 138 no declara el CHECK de source_primary');
+    const checkBlock = sql.slice(checkStart, sql.indexOf('))', checkStart));
+    assert.ok(checkBlock.includes("'lusha'"), 'el CHECK de la 138 no acepta lusha');
   });
 
   it('la ACCIÓN pasa la correlación — no queda sólo en la línea de consola', () => {
