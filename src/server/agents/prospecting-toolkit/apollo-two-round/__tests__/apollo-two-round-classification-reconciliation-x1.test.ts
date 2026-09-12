@@ -474,6 +474,53 @@ describe('T3 · fixture de la certificación c7c28980 — 34 resultados', () => 
     assert.equal(contradictory.finalDisposition, 'sector_subindustry_rejected_final');
   });
 
+  /**
+   * 🔴 El detector tiene que seguir detectando.
+   *
+   * `ok: true` sobre la corrida arreglada no demuestra nada por sí solo: un
+   * evaluador que aceptara cualquier desglose también lo diría. Este test le
+   * presenta el estado EXACTO de Producción antes del corte —el mismo universo
+   * de 34, los mismos 18 pendientes, y `ownership_rejected` en 13— y exige que
+   * lo siga llamando conflicto, con las mismas dos empresas sin clasificar.
+   *
+   * Es el par negativo del test de arriba: uno fija que la corrida sana cierra,
+   * éste fija que la enferma no pasa desapercibida.
+   */
+  test('🔴 el evaluador SIGUE detectando el estado pre-X1: 13 ⇒ unclassified = 2', async () => {
+    const { result } = await runFixture();
+
+    const preX1Rounds = result.rounds.map((round) =>
+      round.roundNumber === 1
+        ? { ...round, ownershipRejected: round.ownershipRejected - 2 }
+        : round,
+    );
+    const consistency = evaluateApolloTwoRoundFinalStateConsistency({
+      rounds: preX1Rounds,
+      candidates: toApolloTwoRoundResumeState(result).candidates.map((candidate) => ({
+        candidate_key: candidate.candidateKey,
+        eligible: candidate.eligible,
+        finally_rejected_or_duplicated: candidate.finallyRejectedOrDuplicated,
+      })),
+      runMetrics: {
+        totalUniqueOrganizations: result.runMetrics.totalUniqueOrganizations,
+        totalEligibleCompanies: result.runMetrics.totalEligibleCompanies,
+        persistedCandidates: result.runMetrics.persistedCandidates,
+      },
+      targetEligibleCompanies: result.targetEligibleCompanies,
+      targetReached: result.targetReached,
+      stableFinalizableCandidateCount: result.stableFinalizableCandidateCount,
+    });
+
+    assert.equal(consistency.ok, false);
+    assert.equal(consistency.unclassifiedUniqueResults, 2);
+    const conflict = consistency.conflicts.find(
+      (entry) => entry.code === 'round_breakdown_leaves_unique_results_unclassified',
+    );
+    assert.ok(conflict, 'el conflicto tiene que nombrarse');
+    // El texto que publicó el lote real, carácter por carácter.
+    assert.equal(conflict.detail, 'unique=34 clasificadas=32 sin_clasificar=2');
+  });
+
   test('el gasto no se mueve: 5 créditos de búsqueda y 5 de enrichment', async () => {
     const { result } = await runFixture();
     assert.equal(result.runMetrics.totalSearchCredits, 5);
