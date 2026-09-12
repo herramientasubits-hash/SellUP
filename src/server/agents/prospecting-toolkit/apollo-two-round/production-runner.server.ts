@@ -3381,7 +3381,13 @@ export function buildRoundComparisonMetadata(
 
 // ─── Checkpoint ───────────────────────────────────────────────────────────────
 
-function toCandidateSnapshot(
+/**
+ * Proyección de un candidato al snapshot del checkpoint.
+ *
+ * 🔴 AGENT1-CLASSIFICATION-RECONCILIATION-X1 — exportada para que su contrato se
+ * pueda ejercitar directamente. Es pura: sin red, sin base, sin reloj.
+ */
+export function toCandidateSnapshot(
   candidate: ResumedCandidate,
   evidence: ApolloTwoRoundCandidateEvidenceSnapshot | null,
   enrichmentStatus: ApolloTwoRoundEnrichmentStatus,
@@ -3395,7 +3401,20 @@ function toCandidateSnapshot(
     normalized_domain: candidate.identity.normalizedDomain,
     normalized_linkedin_url: candidate.identity.normalizedLinkedInUrl,
     sector_evidence_state: candidate.sectorEvidenceState,
-    rejection_reason: candidate.assessment.rejection,
+    // 🔴 AGENT1-CLASSIFICATION-RECONCILIATION-X1 — el veredicto DEFINITIVO manda
+    // sobre el barato.
+    //
+    // Este campo se llenaba sólo con `assessment.rejection`, el veredicto de los
+    // gates GRATUITOS. Un candidato que muere en el gate FINAL de ownership
+    // tiene ahí `null`, así que su snapshot decía «sin motivo de rechazo»
+    // mientras `finally_rejected_or_duplicated` decía `true`. En la
+    // certificación `5bfb5ff8…` los siete `ownership_mismatch` del lote
+    // `c7c28980…` viajaron así: rechazados y sin causa legible.
+    //
+    // `definitiveRejectionReason` incluye al barato por construcción (se siembra
+    // con `assessment.rejection`), de modo que para un rechazo barato la cifra
+    // no cambia: el `??` sólo añade causa donde antes había un hueco.
+    rejection_reason: candidate.definitiveRejectionReason ?? candidate.assessment.rejection,
     eligible: candidate.eligible,
     became_eligible_after_enrichment: candidate.becameEligibleAfterEnrichment,
     finally_rejected_or_duplicated: candidate.finallyRejectedOrDuplicated,

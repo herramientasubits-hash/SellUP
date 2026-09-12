@@ -5173,3 +5173,33 @@ jobs:
       # 0 migraciones · 0 cambios de bandera.
       - name: Run Agent 1 waterfall flag observability tests
         run: npm run test:a1-waterfall-flag-observability-b1
+
+      # ══ X1 — reconciliación de clasificación del desglose por ronda ═════════
+      #
+      # La certificación real (wizard_run `5bfb5ff8…`, lote `c7c28980…`, CO ×
+      # retail × target 5) cerró con `pre_writer_state_consistency.ok = false` y
+      # `unclassified = 2` sobre 34 empresas únicas: el desglose publicaba 13
+      # rechazos de ownership donde `prospect_discarded_dispositions` guardaba 15.
+      #
+      # `ensureFinalGateEvaluated` marcaba el rechazo definitivo y salía por
+      # `!candidate.eligible` ANTES de contarlo, así que los dos candidatos de la
+      # cohorte de revisión —enriquecidos y con el sector aún ambiguo— quedaban
+      # rechazados y sin fila en el desglose. Tampoco caben en el cubo de «ni
+      # elegible ni rechazado», porque rechazados sí están: ningún cubo los
+      # reclamaba.
+      #
+      # El step fija que un rechazo del gate final se cuenta AUNQUE el candidato
+      # no fuera elegible (mata «guardar el conteo detrás de la elegibilidad»),
+      # que la cohorte de revisión suma ADEMÁS del elegible y no en su lugar, que
+      # un reintento sobre el estado ya evaluado no vuelve a sumar (mata «contar
+      # siempre, sin idempotencia»), que el fixture de las 34 cierra en 15+1+18
+      # con `unclassified = 0`, y que las 34 disposiciones finales son las mismas
+      # una por una — el corte es de conteo, no de admisión.
+      #
+      # Arrastra las suites vecinas de consistencia final, que este corte NO
+      # cambia: CUT-3, finalización HARDENING-1 y reconciliación sectorial.
+      #
+      # 0 llamadas a proveedor · 0 créditos · 0 Supabase real · 0 escrituras ·
+      # 0 migraciones · 0 cambios de bandera.
+      - name: Run Agent 1 X1 classification reconciliation tests
+        run: npm run test:a1-classification-reconciliation-x1
