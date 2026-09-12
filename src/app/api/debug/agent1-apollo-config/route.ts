@@ -11,6 +11,8 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import {
+  isAgent1ApolloLushaWaterfallEnabled,
+  isAgent1ApolloLushaWaterfallFlagConfigured,
   isApolloCompanySearchEnabled,
   isApolloOrganizationEnrichmentCascadeEnabled,
   isApolloTwoRoundDiscoveryEnabled,
@@ -106,6 +108,30 @@ export async function GET() {
     // retiraba el control de generación. Ya no lo hace, y verlo aquí junto a los
     // modos aplicables es lo que permite comprobarlo desde fuera.
     lusha_preview_enabled_resolved: isLushaPreviewEnabled(),
+    // AGENT1-WATERFALL-FLAG-OBSERVABILITY-B1 — las dos preguntas que hoy NO se
+    // pueden responder desde fuera.
+    //
+    // En Vercel `ENABLE_AGENT1_APOLLO_LUSHA_WATERFALL` es `type: sensitive`: su
+    // valor no se puede leer ni desde el panel, así que «¿el waterfall está
+    // encendido en Producción?» sólo se podía contestar gastando créditos y
+    // mirando si aparecía una pierna Lusha. Eso es exactamente lo que este corte
+    // evita ANTES de la certificación.
+    //
+    // Se publican DOS booleanos resueltos, nunca el valor crudo:
+    //   · `…_flag_configured` = PRESENCIA de la variable en este runtime. Una
+    //     variable presente con `false` responde `true` aquí: dice que alguien la
+    //     definió, no qué dice;
+    //   · `…_enabled_resolved` = lo que el parser canónico fail-closed decidió.
+    //     Sólo el token exacto `true` (tras trim + lowercase) lo pone en `true`;
+    //     ausente, vacío, `false`, `1`, `yes` o cualquier otra cosa ⇒ `false`.
+    //
+    // Autoridad ÚNICA: se invocan los mismos helpers que consume la pierna del
+    // waterfall en `wizard-lusha-waterfall.server.ts`. Este endpoint no reimplementa
+    // el parser, no lee `process.env` de la bandera y no altera su semántica: si
+    // los dos campos discrepan de la ejecución real, el defecto está en el helper,
+    // no en una segunda copia.
+    agent1_apollo_lusha_waterfall_flag_configured: isAgent1ApolloLushaWaterfallFlagConfigured(),
+    agent1_apollo_lusha_waterfall_enabled_resolved: isAgent1ApolloLushaWaterfallEnabled(),
     // Modos de búsqueda a los que aplica un proveedor externo de discovery. La
     // disponibilidad se decide SÓLO con esto y con el país/industria elegidos:
     // nunca con la industria concreta, las subindustrias, el criterio adicional ni
