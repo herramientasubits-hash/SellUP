@@ -260,11 +260,24 @@ describe('CUT-1 § 5 · guarda estática — una sola entrada de ownership aguas
 
   it('las dos evaluaciones aguas arriba pasan por la entrada PRE-writer', () => {
     const source = readSource(PRODUCTION_RUNNER);
-    const calls = source.match(/evaluateApolloPreWriterCompanyOwnership\s*\(/g) ?? [];
+    // AGENT1-OWNERSHIP-OBSERVABILITY-X3 — la entrada PRE-writer tiene ahora dos
+    // formas: la de siempre y `…WithInputs`, que devuelve EL MISMO veredicto más
+    // las entradas con las que se produjo. Siguen siendo dos llamadas, y siguen
+    // siendo las mismas dos; lo que este guard defiende —que ninguna evaluación
+    // aguas arriba se salte la entrada compartida— no se mueve, y el guard de
+    // arriba sigue prohibiendo `evaluateCompanyOwnership` directo.
+    const calls = source.match(/evaluateApolloPreWriterCompanyOwnership(WithInputs)?\s*\(/g) ?? [];
     assert.equal(
       calls.length,
       2,
       'son dos: readContractConditions (proyección) y applyFinalGates (rechazo definitivo)',
+    );
+    // Y la que decide el rechazo definitivo es la que conserva la evidencia: si
+    // volviera a la forma sin entradas, X3 dejaría de tener qué persistir.
+    assert.equal(
+      /evaluateApolloPreWriterCompanyOwnershipWithInputs\s*\(/.test(source),
+      true,
+      'applyFinalGates tiene que conservar el veredicto, no sólo el booleano',
     );
   });
 

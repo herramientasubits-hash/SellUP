@@ -204,7 +204,10 @@ import {
   toApolloEnrichmentPersistenceMetadata,
 } from './apollo-enrichment-persistence-capture';
 import { decideBatchCompletionSeal } from './batch-completion-seal';
-import { APOLLO_TWO_ROUND_OBSERVABILITY_KEY } from './apollo-two-round/observability';
+import {
+  APOLLO_TWO_ROUND_OBSERVABILITY_KEY,
+  readApolloPreWriterOwnershipGateSummary,
+} from './apollo-two-round/observability';
 // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — clasificación sanitizada del fallo de
 // escritura y estado de lote coherente con el resultado real de la persistencia.
 import {
@@ -3975,11 +3978,46 @@ export async function writeProspectingCandidates(
     };
 
     // Company ownership gate metadata (Hito 16AB.43.30)
+    //
+    // 🔴 AGENT1-OWNERSHIP-OBSERVABILITY-X3 — `blocked_count` NO cambia de
+    // significado, y ahí está el punto.
+    //
+    // El lote `c7c28980…` publicó `blocked_count: 0` con quince
+    // `ownership_rejected_final` persistidos, y la lectura natural fue «el
+    // contador miente». No mentía: cuenta lo que ESTE writer bloqueó, y a este
+    // writer no llegó ni una empresa — el gate final del orquestador ya las
+    // había matado. Reescribir `blocked_count` con la cifra del orquestador
+    // habría hecho que un mismo nombre significara dos cosas según quién corra,
+    // que es el defecto que este hilo lleva tres cortes quitando.
+    //
+    // Se publica la otra cifra, con su propio nombre. `null` cuando la corrida
+    // no la declaró (toda modalidad que no sea Apollo dos rondas): ausencia no
+    // es cero, y `total_blocked_count` queda entonces igual al del writer.
+    const preWriterOwnershipSummary = readApolloPreWriterOwnershipGateSummary(
+      (preMergedMetadata as Record<string, unknown>)[APOLLO_TWO_ROUND_OBSERVABILITY_KEY],
+    );
     const companyOwnershipGateMetadata = {
       enabled: true,
+      /** Bloqueadas POR ESTE WRITER. Nunca incluye las del orquestador. */
       blocked_count: companyOwnershipGateData.blockedCount,
       low_confidence_count: companyOwnershipGateData.lowConfidenceCount,
       samples: companyOwnershipGateData.samples.slice(0, 5),
+      /** Bloqueadas por el gate final del orquestador. `null` ⇒ no declarado. */
+      pre_writer_blocked_count: preWriterOwnershipSummary
+        ? preWriterOwnershipSummary.blocked_count
+        : null,
+      /** Candidatas que el gate del orquestador llegó a evaluar. */
+      pre_writer_evaluated_count: preWriterOwnershipSummary
+        ? preWriterOwnershipSummary.evaluated_count
+        : null,
+      /**
+       * Las dos sumadas. Es la respuesta a «¿cuántas mató el ownership en esta
+       * corrida?» — y sigue SIN incluir a las que murieron sin dominio en el
+       * gate barato, sobre las que el ownership nunca se pronunció.
+       */
+      total_blocked_count:
+        companyOwnershipGateData.blockedCount +
+        (preWriterOwnershipSummary ? preWriterOwnershipSummary.blocked_count : 0),
     };
 
     // Tavily usage reconciliation metadata (Hito 16AB.43.30 / 16AB.43.31)

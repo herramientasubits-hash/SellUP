@@ -785,3 +785,97 @@ export function toRunMetricsMetadata(
     pre_writer_admission_pending_count: metrics.preWriterAdmissionPendingCount,
   };
 }
+
+// ─── X3 · ownership bloqueado ANTES del writer ────────────────────────────────
+
+/**
+ * 🔴 AGENT1-OWNERSHIP-OBSERVABILITY-X3 — cuántas empresas mató el gate de
+ * ownership del ORQUESTADOR, que es un sitio distinto del writer.
+ *
+ * ── El defecto que cierra ────────────────────────────────────────────────────
+ *
+ * El lote `c7c28980…` publicó `company_ownership_gate.blocked_count: 0` con
+ * quince `ownership_rejected_final` en la tabla de disposiciones. Ese contador
+ * no mentía: es del WRITER, y al writer no llegó ni una empresa porque el gate
+ * final del orquestador ya las había matado a todas. Lo que faltaba era el otro
+ * contador, el de ese gate, que no existía.
+ *
+ * ── Lo que esta cifra NO es ──────────────────────────────────────────────────
+ *
+ * NO son los quince. Son SIETE: los `ownership_mismatch`. Los otros ocho son
+ * `invalid_domain` y murieron antes, en el gate barato de elegibilidad, porque
+ * Apollo no devolvió dominio — `evaluateCompanyOwnership` nunca corrió sobre
+ * ellos. Sumarlos aquí atribuiría a este gate ocho rechazos que no tomó, que es
+ * exactamente el tipo de cifra cómoda que este hilo lleva tres cortes quitando.
+ *
+ * La reconciliación honesta es: 7 (este gate) + 8 (sin dominio, gate barato) =
+ * 15 disposiciones `ownership_rejected_final`. Cada fila declara a cuál de los
+ * dos pertenece en `evidence.ownership_gate_source`.
+ *
+ * Puro: cuenta lo que se le da y no evalúa ownership.
+ */
+export const APOLLO_PRE_WRITER_OWNERSHIP_GATE_KEY = 'pre_writer_company_ownership_gate' as const;
+
+export type ApolloPreWriterOwnershipGateSummary = {
+  /** Candidatas sobre las que el gate final SÍ corrió. */
+  evaluated_count: number;
+  /** De ellas, las que bloqueó. Nunca incluye a quien no evaluó. */
+  blocked_count: number;
+  allowed_count: number;
+  /** Desglose del bloqueo por confianza declarada. Sólo entradas con valor. */
+  blocked_by_confidence: Record<string, number>;
+};
+
+export function summarizeApolloPreWriterOwnershipGate(
+  evaluations: readonly { blocked: boolean; confidence: string }[],
+): ApolloPreWriterOwnershipGateSummary {
+  const blockedByConfidence: Record<string, number> = {};
+  let blocked = 0;
+  for (const evaluation of evaluations) {
+    if (!evaluation.blocked) continue;
+    blocked += 1;
+    blockedByConfidence[evaluation.confidence] =
+      (blockedByConfidence[evaluation.confidence] ?? 0) + 1;
+  }
+  return {
+    evaluated_count: evaluations.length,
+    blocked_count: blocked,
+    allowed_count: evaluations.length - blocked,
+    blocked_by_confidence: blockedByConfidence,
+  };
+}
+
+/**
+ * Lee el resumen desde la metadata de dos rondas ya construida.
+ *
+ * Existe para que el writer pueda publicar la cifra del orquestador junto a la
+ * suya sin que haya que abrir un parámetro nuevo por toda la cadena. Fail-closed:
+ * cualquier forma que no sea la esperada devuelve `null` — «no se sabe», que es
+ * distinto de cero y se publica distinto.
+ */
+export function readApolloPreWriterOwnershipGateSummary(
+  observability: unknown,
+): ApolloPreWriterOwnershipGateSummary | null {
+  if (typeof observability !== 'object' || observability === null) return null;
+  const raw = (observability as Record<string, unknown>)[APOLLO_PRE_WRITER_OWNERSHIP_GATE_KEY];
+  if (typeof raw !== 'object' || raw === null) return null;
+  const record = raw as Record<string, unknown>;
+  const read = (key: string): number | null =>
+    typeof record[key] === 'number' && Number.isFinite(record[key] as number)
+      ? (record[key] as number)
+      : null;
+  const evaluated = read('evaluated_count');
+  const blocked = read('blocked_count');
+  const allowed = read('allowed_count');
+  if (evaluated === null || blocked === null || allowed === null) return null;
+  const byConfidence = record['blocked_by_confidence'];
+  return {
+    evaluated_count: evaluated,
+    blocked_count: blocked,
+    allowed_count: allowed,
+    blocked_by_confidence:
+      typeof byConfidence === 'object' && byConfidence !== null
+        ? (byConfidence as Record<string, number>)
+        : {},
+  };
+}
