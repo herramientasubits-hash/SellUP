@@ -466,14 +466,63 @@ export function resolveApolloPreWriterEffectiveDomain(
 export function evaluateApolloPreWriterCompanyOwnership(
   candidate: ProspectingPipelineCandidate,
 ): CompanyOwnershipResult {
+  return evaluateApolloPreWriterCompanyOwnershipWithInputs(candidate).verdict;
+}
+
+/**
+ * 🔴 AGENT1-OWNERSHIP-OBSERVABILITY-X3 — el MISMO veredicto, más las ENTRADAS
+ * con las que se produjo.
+ *
+ * ── Por qué existe ───────────────────────────────────────────────────────────
+ *
+ * La certificación `5bfb5ff8…` / lote `c7c28980…` dejó siete `ownership_mismatch`
+ * imposibles de auditar. No por falta de datos del gate, sino porque nadie los
+ * guardaba: `evaluateApolloPreWriterCompanyOwnership` calculaba el nombre de
+ * evaluación y el dominio efectivo, se los pasaba a `evaluateCompanyOwnership`,
+ * y los TIRABA. Lo único que sobrevivía era un booleano.
+ *
+ * Y el nombre no se puede reconstruir después: lo que se persiste es
+ * `identity.canonicalName`, que ordena los tokens alfabéticamente —«Hotel
+ * InterContinental Cartagena de Indias» acaba como «cartagena hotel indias
+ * intercontinental»—. Es una clave de deduplicación, y es irreversible.
+ *
+ * ── Lo que NO hace ───────────────────────────────────────────────────────────
+ *
+ * No evalúa nada nuevo: es UNA sola llamada a `evaluateCompanyOwnership`, la
+ * misma de antes, con los mismos argumentos. `evaluateApolloPreWriterCompanyOwnership`
+ * delega aquí y devuelve `verdict` tal cual, así que su contrato no se mueve ni
+ * un bit. Quien quiera decidir sigue usando `isBlockedByCompanyOwnership`; esto
+ * sólo añade qué se le preguntó al gate.
+ *
+ * Puro y gratis: sin proveedor, sin créditos, sin base.
+ */
+export type ApolloPreWriterOwnershipEvaluation = {
+  /** El resultado EXACTO de `evaluateCompanyOwnership`. Nunca se reinterpreta. */
+  readonly verdict: CompanyOwnershipResult;
+  /** El nombre con el que se juzgó, tras la recuperación de frase SEO. */
+  readonly evaluationName: string;
+  /** El nombre crudo del proveedor, antes de esa recuperación. */
+  readonly originalName: string;
+  /** `true` sólo cuando el crudo era frase SEO y el dominio aportó uno limpio. */
+  readonly recoveredFromDomain: boolean;
+  /** El dominio que el gate comparó, resuelto como lo resuelve el writer. */
+  readonly effectiveDomain: string | null;
+};
+
+export function evaluateApolloPreWriterCompanyOwnershipWithInputs(
+  candidate: ProspectingPipelineCandidate,
+): ApolloPreWriterOwnershipEvaluation {
   const website = candidate.website ?? null;
   const domain = candidate.domain ?? null;
   const evaluationName = resolveOwnershipEvaluationName(candidate.name, website, domain);
-  return evaluateCompanyOwnership(
-    evaluationName.name,
-    website,
-    resolveApolloPreWriterEffectiveDomain(candidate),
-  );
+  const effectiveDomain = resolveApolloPreWriterEffectiveDomain(candidate);
+  return {
+    verdict: evaluateCompanyOwnership(evaluationName.name, website, effectiveDomain),
+    evaluationName: evaluationName.name,
+    originalName: evaluationName.originalName,
+    recoveredFromDomain: evaluationName.recoveredFromDomain,
+    effectiveDomain,
+  };
 }
 
 function passed(check: string): ApolloPreWriterAdmissionCheckResult {

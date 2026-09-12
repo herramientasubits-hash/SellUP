@@ -5203,3 +5203,32 @@ jobs:
       # 0 migraciones · 0 cambios de bandera.
       - name: Run Agent 1 X1 classification reconciliation tests
         run: npm run test:a1-classification-reconciliation-x1
+
+      # ══ X3 — la evidencia con la que el ownership decidió, persistida ═══════
+      #
+      # La certificación (wizard_run `5bfb5ff8…`, lote `c7c28980…`) dejó siete
+      # `ownership_mismatch` imposibles de auditar. No por falta de datos del
+      # gate: porque nadie los guardaba. `evaluateApolloPreWriterCompanyOwnership`
+      # calculaba el nombre de evaluación y el dominio efectivo, se los pasaba a
+      # `evaluateCompanyOwnership`, y los tiraba; sobrevivía un booleano. Y el
+      # nombre no se reconstruye después: lo persistido es `canonicalName`, que
+      # ordena los tokens alfabéticamente y es irreversible.
+      #
+      # X3 es OBSERVABILIDAD: el veredicto se PROPAGA, nunca se recalcula, y el
+      # gate no cambia ni una decisión. Los tres defectos ya identificados —D1
+      # regla 4 muerta, D2 sin regla por tokens para privadas, D3 el LinkedIn
+      # fuera del gate— quedan FUERA y el corpus los deja congelados.
+      #
+      # El step fija el corpus de paridad (allowed, ownership_mismatch, sin
+      # dominio, con LinkedIn, institucional, y los siete de la certificación),
+      # que `…WithInputs` devuelve el MISMO veredicto que la entrada de siempre
+      # (mata «recalcular en vez de propagar»), que `evidence` persiste
+      # `provider_raw_name`, `linkedin_url` y `ownership_gate` campo a campo, que
+      # la ausencia de veredicto se NOMBRA (`not_evaluated`) en vez de inventarse,
+      # y que el contador del gate del orquestador existe y NO se confunde con el
+      # del writer.
+      #
+      # 0 llamadas a proveedor · 0 créditos · 0 Supabase real · 0 escrituras ·
+      # 0 migraciones · 0 cambios de bandera.
+      - name: Run Agent 1 X3 ownership observability tests
+        run: npm run test:a1-ownership-observability-x3

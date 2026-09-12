@@ -92,3 +92,80 @@ export function computeDiscardDispositionSourceKey(input: {
 
   return `name:${normalizeForKey(input.name)}`;
 }
+
+// ─── X3 · evidencia del gate de ownership ─────────────────────────────────────
+
+/**
+ * 🔴 AGENT1-OWNERSHIP-OBSERVABILITY-X3 — el veredicto del gate, tal como lo
+ * produjo `evaluateCompanyOwnership`, reducido a lo que hace falta persistir.
+ *
+ * Estructural a propósito, igual que el resto de este módulo: acepta la forma de
+ * `ApolloPreWriterOwnershipEvaluation` sin importar nada del pipeline de Apollo.
+ * Aquí no se evalúa ownership, no se deriva `allowed` de la confianza y no se
+ * normaliza ningún nombre: sólo se cambia de caja para que quepa en `evidence`.
+ */
+export interface OwnershipGateVerdictLike {
+  allowed: boolean;
+  confidence: string;
+  reason: string;
+  matchedSignals: readonly string[];
+  missingSignals: readonly string[];
+  evaluationName: string;
+  recoveredFromDomain: boolean;
+  effectiveDomain: string | null;
+}
+
+/**
+ * Cómo se obtuvo —o por qué no existe— el veredicto de ownership de una fila.
+ *
+ * `not_evaluated` NO es un rechazo implícito ni un pase: es el hecho de que el
+ * gate nunca corrió sobre esa empresa. Le pasa a toda candidata que murió antes,
+ * en el gate BARATO de elegibilidad — los ocho `invalid_domain` de la
+ * certificación son exactamente eso: Apollo no devolvió dominio, así que no
+ * había nada que comparar y `evaluateCompanyOwnership` jamás se invocó.
+ *
+ * Distinguirlo de `null` importa: sin este campo, una fila sin `ownership_gate`
+ * no deja saber si el gate absolvió, si rechazó, o si ni siquiera miró.
+ */
+export type OwnershipGateEvidenceSource = 'pre_writer_final_gate' | 'not_evaluated';
+
+export interface OwnershipGateEvidence {
+  allowed: boolean;
+  confidence: string;
+  reason: string;
+  matched_signals: string[];
+  missing_signals: string[];
+  evaluation_name: string;
+  recovered_from_domain: boolean;
+  effective_domain: string | null;
+}
+
+/**
+ * Proyecta el veredicto a `evidence.ownership_gate`. `null` ⇒ el gate no corrió.
+ *
+ * Copia, nunca recalcula: cada campo sale del veredicto que ya existía. Si el
+ * llamador no tiene veredicto, la respuesta es `null` — jamás un veredicto
+ * fabricado a partir del motivo del descarte.
+ */
+export function toOwnershipGateEvidence(
+  verdict: OwnershipGateVerdictLike | null | undefined,
+): OwnershipGateEvidence | null {
+  if (!verdict) return null;
+  return {
+    allowed: verdict.allowed,
+    confidence: verdict.confidence,
+    reason: verdict.reason,
+    matched_signals: [...verdict.matchedSignals],
+    missing_signals: [...verdict.missingSignals],
+    evaluation_name: verdict.evaluationName,
+    recovered_from_domain: verdict.recoveredFromDomain,
+    effective_domain: verdict.effectiveDomain,
+  };
+}
+
+/** La etiqueta que acompaña a `ownership_gate`, presente o ausente. */
+export function resolveOwnershipGateEvidenceSource(
+  verdict: OwnershipGateVerdictLike | null | undefined,
+): OwnershipGateEvidenceSource {
+  return verdict ? 'pre_writer_final_gate' : 'not_evaluated';
+}

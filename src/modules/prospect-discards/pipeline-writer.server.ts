@@ -17,27 +17,10 @@
 // ran — so it cannot affect candidate creation, budget, or existing counts.
 
 import { createClient as createAdminClient } from "@supabase/supabase-js";
-import {
-  computeDiscardDispositionSourceKey,
-  mapApolloFinalDispositionToCode,
-} from "./mapping";
-import {
-  classifyPreWriterCandidatesAgainstWriter,
-  summarizeWriterGapCauses,
-  type PreWriterCandidateLike,
-  type WriterGapVerdict,
-  type WriterOutcomeLike,
-} from "./writer-gap";
+import type { OwnershipGateVerdictLike } from "./mapping";
+import type { PreWriterCandidateLike, WriterOutcomeLike } from "./writer-gap";
+import { buildDiscardedDispositionRows } from "./dispositions-row-builder";
 import type { CreateDiscardedDispositionInput } from "./types";
-
-/**
- * AGENT1-DISCARDED-TRACEABILITY-1 — las dos disposiciones que la taxonomía pura
- * marca como PRE-writer. Su desenlace REAL sólo lo sabe el writer.
- */
-const PRE_WRITER_FINAL_DISPOSITIONS: ReadonlySet<string> = new Set([
-  "provisionally_persisted_pending_writer_final",
-  "persisted_review_only_final",
-]);
 
 /** Minimal shape this module needs from a final-disposition entry. Kept as a
  *  structural type (not imported from the orchestrator) to avoid coupling
@@ -80,7 +63,32 @@ export interface EvaluatedCandidateIdentityLike {
     providerOrganizationId: string | null;
     normalizedDomain: string | null;
     canonicalName: string | null;
+    /**
+     * 🔴 AGENT1-OWNERSHIP-OBSERVABILITY-X3 — el LinkedIn normalizado, que la
+     * corrida ya tenía en `NormalizedOrganizationIdentity` y que hasta ahora no
+     * viajaba hasta aquí.
+     *
+     * Es evidencia de propiedad que el auditor necesita y que el gate NO mira:
+     * `linkedin.com/company/caribe-supermercados` frente a
+     * `caribesupermercados.co` se lee solo. Persistirlo no lo mete en ninguna
+     * decisión — eso sería D3, y queda fuera de este corte.
+     */
+    normalizedLinkedInUrl?: string | null;
   };
+  /**
+   * 🔴 X3 — el nombre CRUDO del proveedor, el que el gate juzgó de verdad.
+   *
+   * `identity.canonicalName` no sirve para auditar: ordena los tokens
+   * alfabéticamente y es irreversible. Ausente ⇒ `null`, nunca el canónico.
+   */
+  providerRawName?: string | null;
+  /**
+   * 🔴 X3 — el veredicto EXACTO de `evaluateCompanyOwnership`, propagado tal
+   * cual desde donde se produjo. Ausente o `null` ⇒ el gate no corrió sobre esta
+   * empresa, y así se persiste: `ownership_gate: null` con
+   * `ownership_gate_source: 'not_evaluated'`. Aquí no se evalúa ownership.
+   */
+  ownership?: OwnershipGateVerdictLike | null;
   /**
    * Ausente ⇒ «nadie informó», que se persiste como `null`. NUNCA se sustituye
    * por `false`: afirmar "no se intentó" sin saberlo es exactamente el dato
@@ -156,130 +164,24 @@ export async function persistApolloRejectedDispositions(
   };
 
   try {
-    const identityByKey = new Map(
-      input.evaluatedCandidates.map((c) => [c.candidateKey, c.identity]),
-    );
-    const enrichmentByKey = new Map(
-      input.evaluatedCandidates.map((c) => [
-        c.candidateKey,
-        c.enrichment ?? null,
-      ]),
-    );
+    // AGENT1-OWNERSHIP-OBSERVABILITY-X3 — la construcción de filas vive ahora en
+    // `dispositions-row-builder.ts`, pura y sin Supabase. Aquí sólo queda el IO.
+    // Ni una regla cambió al mudarse: la evidencia, el hueco del writer y el
+    // orden de recorrido son los mismos.
+    const built = buildDiscardedDispositionRows({
+      batchId: input.batchId,
+      requestedCountryCode: input.requestedCountryCode,
+      requestedIndustry: input.requestedIndustry,
+      sourcePrimary: input.sourcePrimary,
+      evaluatedCandidates: input.evaluatedCandidates,
+      finalDispositions: input.finalDispositions,
+      writerOutcome: input.writerOutcome ?? null,
+    });
+    const rows = built.rows;
+    result.writerGapRows = built.writerGapRows;
+    result.writerGapIndeterminate = built.writerGapIndeterminate;
 
-    // AGENT1-DISCARDED-TRACEABILITY-1 — el veredicto del writer por candidata
-    // pre-writer. Sin `writerOutcome` el mapa queda vacío y esas candidatas se
-    // saltan igual que antes de este hito.
-    const writerVerdicts = input.writerOutcome
-      ? classifyPreWriterCandidatesAgainstWriter(
-          input.writerOutcome.preWriterCandidates,
-          {
-            candidatesCreated: input.writerOutcome.candidatesCreated,
-            skipped: input.writerOutcome.skipped,
-          },
-        )
-      : new Map<string, WriterGapVerdict>();
-    const writerGapCauses = input.writerOutcome
-      ? summarizeWriterGapCauses(input.writerOutcome.skipped)
-      : null;
 
-    const rows: CreateDiscardedDispositionInput[] = [];
-    for (const entry of input.finalDispositions) {
-      let code = mapApolloFinalDispositionToCode(entry.finalDisposition);
-
-      // AGENT1-DISCARDED-TRACEABILITY-1 — una disposición PRE-writer no es un
-      // rechazo… mientras el writer haya creado la fila. Cuando no la creó, la
-      // empresa se queda sin fila de candidato Y sin fila de disposición: es la
-      // #17 del E2E del 2026-09-04. Aquí recupera un destino terminal.
-      let writerGap: Extract<WriterGapVerdict, { kind: "not_created" }> | null =
-        null;
-      if (
-        code === null &&
-        PRE_WRITER_FINAL_DISPOSITIONS.has(entry.finalDisposition)
-      ) {
-        const verdict = writerVerdicts.get(entry.candidateKey);
-        if (verdict?.kind === "not_created") {
-          writerGap = verdict;
-          // Vocabulario YA existente en el CHECK de la migración 138 y en
-          // `DiscardDispositionCode`: no hace falta esquema nuevo.
-          code = "final_validation_rejected";
-        } else if (verdict?.kind === "indeterminate") {
-          // Ni creada ni descartada demostrablemente. No se persiste: afirmar un
-          // descarte sin evidencia sería exactamente el dato inventado que este
-          // hito evita. Se cuenta para que el hueco sea visible.
-          result.writerGapIndeterminate += 1;
-        }
-      }
-      // `verdict.kind === 'created'` cae aquí con `code === null`: una candidata
-      // que SÍ se creó nunca aparece en «Descartadas».
-      if (code === null) continue;
-
-      const identity = identityByKey.get(entry.candidateKey);
-      const name = identity?.canonicalName?.trim();
-      if (!name) continue; // No usable name to show — nothing to persist.
-
-      const enrichment = enrichmentByKey.get(entry.candidateKey) ?? null;
-
-      rows.push({
-        batchId: input.batchId,
-        providerIdentifier: identity?.providerOrganizationId ?? null,
-        sourceKey: computeDiscardDispositionSourceKey({
-          domain: identity?.normalizedDomain ?? null,
-          providerIdentifier: identity?.providerOrganizationId ?? null,
-          name,
-        }),
-        name,
-        domain: identity?.normalizedDomain ?? null,
-        countryCode: input.requestedCountryCode,
-        industry: input.requestedIndustry,
-        sourcePrimary: input.sourcePrimary,
-        roundOrigin: `round_${entry.roundNumber}`,
-        disposition: code,
-        // Para un hueco del writer, `reason_code` conserva la disposición
-        // ORIGINAL del orquestador — la trazabilidad hacia el vocabulario de
-        // origen, sin reinterpretarlo.
-        reasonCode: entry.finalDisposition,
-        reasonDetail: writerGap ? writerGap.reason : entry.finalReason,
-        evidence: {
-          candidate_key: entry.candidateKey,
-          round_number: entry.roundNumber,
-          final_disposition: entry.finalDisposition,
-          final_reason: entry.finalReason,
-          requested_country_code: input.requestedCountryCode,
-          requested_industry: input.requestedIndustry,
-          // AGENT1-DISCARDED-TRACEABILITY-1 — A vs B. `null` significa «no se
-          // informó», no «no se intentó»: la ausencia nunca se rellena.
-          enrichment_attempted: enrichment ? enrichment.attempted : null,
-          enrichment_status: enrichment ? enrichment.status : null,
-          enrichment_recorded_credits: enrichment
-            ? enrichment.recordedCredits
-            : null,
-          enrichment_operation_ids: enrichment
-            ? [...enrichment.operationIds]
-            : null,
-          // AGENT1-DISCARDED-TRACEABILITY-1 — cómo se SABE que el writer no
-          // creó esta fila, y el desglose de motivos con el que saltó filas en
-          // esta corrida. `null` en una fila que no viene de un hueco del writer.
-          writer_gap: writerGap
-            ? {
-                evidence: writerGap.evidence,
-                reason: writerGap.reason,
-                original_final_disposition: entry.finalDisposition,
-              }
-            : null,
-          writer_gap_causes: writerGap ? writerGapCauses : null,
-        },
-      });
-      if (writerGap) result.writerGapRows += 1;
-    }
-
-    // AGENT1-DISCARDED-TRACEABILITY-1 — deduplicación DENTRO del payload.
-    //
-    // `UNIQUE (batch_id, source_key)` sólo protege entre llamadas: un mismo
-    // `.upsert()` con dos filas de la misma `source_key` hace fallar el comando
-    // entero en Postgres («ON CONFLICT DO UPDATE command cannot affect row a
-    // second time»), y con él las 16 filas legítimas. Gana la PRIMERA: el bucle
-    // recorre `finalDispositions` en el orden del orquestador, así que la
-    // primera es la de la ronda más temprana.
     const rowsBySourceKey = new Map<string, CreateDiscardedDispositionInput>();
     for (const row of rows) {
       if (!rowsBySourceKey.has(row.sourceKey))

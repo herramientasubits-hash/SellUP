@@ -189,6 +189,8 @@ import {
 import {
   APOLLO_TWO_ROUND_OBSERVABILITY_KEY,
   toRoundMetricsMetadata,
+  APOLLO_PRE_WRITER_OWNERSHIP_GATE_KEY,
+  summarizeApolloPreWriterOwnershipGate,
   toRound2PageDecisionMetadata,
   toRunMetricsMetadata,
 } from './observability';
@@ -297,6 +299,8 @@ import {
   APOLLO_PENDING_PRE_WRITER_ADMISSION_CHECKS,
   buildApolloPreWriterBatchAdmissionContext,
   evaluateApolloPreWriterCompanyOwnership,
+  evaluateApolloPreWriterCompanyOwnershipWithInputs,
+  type ApolloPreWriterOwnershipEvaluation,
   evaluateApolloPreWriterQualityGateForCandidate,
   evaluateCandidatePreWriterAdmission,
   resolveApolloPreWriterEffectiveDomain,
@@ -1035,6 +1039,18 @@ export async function runApolloTwoRoundWizardDiscovery(
     checkedDomain: string | null;
   };
   const assessmentByKey = new Map<string, CandidateAssessmentCache>();
+  /**
+   * 🔴 AGENT1-OWNERSHIP-OBSERVABILITY-X3 — el veredicto de ownership de cada
+   * candidata sobre la que el gate FINAL sí corrió, guardado tal cual.
+   *
+   * No hay una segunda evaluación: se anota la que `applyFinalGates` ya hace
+   * para decidir. Una candidata ausente de este mapa es una sobre la que el gate
+   * nunca corrió, y se persiste como tal.
+   */
+  const ownershipEvaluationByKey = new Map<
+    string,
+    { evaluation: ApolloPreWriterOwnershipEvaluation; blocked: boolean }
+  >();
   const enrichmentSnapshots: ApolloTwoRoundEnrichmentSnapshot[] = [
     ...(restored?.enrichment_snapshots ?? []),
   ];
@@ -2474,9 +2490,19 @@ export async function runApolloTwoRoundWizardDiscovery(
       // (`definitivelyRejected`), así que juzgar con el nombre crudo descartaba
       // antes del writer a empresas que el writer habría recuperado. Se evalúa
       // con la evidencia del writer; lo ajeno se sigue rechazando aquí.
-      const ownership = evaluateApolloPreWriterCompanyOwnership(cached.candidate);
+      // 🔴 X3 — misma llamada, mismo veredicto; ahora también se conservan las
+      // ENTRADAS con las que se produjo. La decisión de abajo es idéntica: sigue
+      // saliendo de `isBlockedByCompanyOwnership` sobre el mismo resultado.
+      const evaluation = evaluateApolloPreWriterCompanyOwnershipWithInputs(cached.candidate);
+      const ownership = evaluation.verdict;
+      const blocked = isBlockedByCompanyOwnership(ownership);
+      // Se anota LA decisión, no una copia derivada después: `blocked` es el
+      // mismo booleano con el que esta candidata muere o sigue, dos líneas más
+      // abajo. Recalcularlo luego sería abrir la puerta a que observabilidad y
+      // decisión divergieran.
+      ownershipEvaluationByKey.set(candidateKey, { evaluation, blocked });
       return {
-        rejection: isBlockedByCompanyOwnership(ownership) ? 'ownership_mismatch' : null,
+        rejection: blocked ? 'ownership_mismatch' : null,
       };
     },
 
@@ -2897,6 +2923,10 @@ export async function runApolloTwoRoundWizardDiscovery(
   };
 
   const runObservability = buildObservabilityMetadata({
+    preWriterOwnershipEvaluations: [...ownershipEvaluationByKey.values()].map((entry) => ({
+      blocked: entry.blocked,
+      confidence: entry.evaluation.verdict.confidence,
+    })),
     runResult,
     budget,
     reservedCredits: input.reservedCredits,
@@ -3005,13 +3035,30 @@ export async function runApolloTwoRoundWizardDiscovery(
         // presupuesto agotado ANTES del intento de un enrichment que Apollo
         // cobró y que aun así perdió su cupo en un reintento posterior.
         const snapshots = enrichmentSnapshots.filter((s) => s.candidate_key === c.candidateKey);
+        // 🔴 X3 — el veredicto del gate y el nombre CRUDO que juzgó, ambos ya
+        // en memoria. Ausentes ⇒ `null`: el gate no corrió sobre esta empresa.
+        const ownershipEvaluation = ownershipEvaluationByKey.get(c.candidateKey)?.evaluation ?? null;
         return {
           candidateKey: c.candidateKey,
           identity: {
             providerOrganizationId: c.identity.providerOrganizationId,
             normalizedDomain: c.identity.normalizedDomain,
             canonicalName: c.identity.canonicalName,
+            normalizedLinkedInUrl: c.identity.normalizedLinkedInUrl,
           },
+          providerRawName: assessmentByKey.get(c.candidateKey)?.candidate.name ?? null,
+          ownership: ownershipEvaluation
+            ? {
+                allowed: ownershipEvaluation.verdict.allowed,
+                confidence: ownershipEvaluation.verdict.confidence,
+                reason: ownershipEvaluation.verdict.reason,
+                matchedSignals: ownershipEvaluation.verdict.matchedSignals,
+                missingSignals: ownershipEvaluation.verdict.missingSignals,
+                evaluationName: ownershipEvaluation.evaluationName,
+                recoveredFromDomain: ownershipEvaluation.recoveredFromDomain,
+                effectiveDomain: ownershipEvaluation.effectiveDomain,
+              }
+            : null,
           enrichment: {
             attempted: c.enrichmentExecuted === true || snapshots.length > 0,
             status: enrichmentStatusByKey.get(c.candidateKey) ?? null,
@@ -3189,6 +3236,12 @@ function buildObservabilityMetadata(input: {
   catalogTerms?: ApolloSubindustryCatalogTermsResolution | null;
   /** § 3 — versión con la que se resolvió la selección del usuario. */
   selectionCatalogVersion?: string | null;
+  /**
+   * 🔴 X3 — el desenlace del gate final de ownership, candidata a candidata, tal
+   * como se decidió. Ausente ⇒ el bloque no se publica: cero evaluaciones y «no
+   * se midió» no son lo mismo.
+   */
+  preWriterOwnershipEvaluations?: readonly { blocked: boolean; confidence: string }[];
 }): Record<string, unknown> {
   const { runResult } = input;
   const requestedSubindustries = [...(input.requestedSubindustries ?? [])];
@@ -3313,6 +3366,16 @@ function buildObservabilityMetadata(input: {
         ...toFinalStateConsistencyMetadata(finalStateConsistency),
         computed_at: 'pre_writer' as const,
       },
+      // 🔴 X3 — cuántas mató el gate de ownership del ORQUESTADOR. Es la cifra
+      // que faltaba junto a `company_ownership_gate.blocked_count`, que es la
+      // del WRITER y por eso salía 0 en una corrida donde nadie llegó al writer.
+      ...(input.preWriterOwnershipEvaluations
+        ? {
+            [APOLLO_PRE_WRITER_OWNERSHIP_GATE_KEY]: summarizeApolloPreWriterOwnershipGate(
+              input.preWriterOwnershipEvaluations,
+            ),
+          }
+        : {}),
       // § E — universo completo de resultados únicos, cada uno con una
       // disposición nombrada. `unclassified_count` debe ser 0 en toda corrida.
       candidate_final_dispositions: toCandidateFinalDispositionsMetadata(
