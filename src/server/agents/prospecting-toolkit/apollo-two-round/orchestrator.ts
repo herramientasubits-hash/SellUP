@@ -863,6 +863,15 @@ export type ResumedCandidate = {
   definitivelyRejected?: boolean;
   definitiveRejectionReason?: CheapRejectionReason | 'sector_evidence_contradictory' | null;
   /**
+   * 🔴 AGENT1-CLASSIFICATION-RECONCILIATION-X1 — opcional por la misma razón: un
+   * checkpoint anterior a este corte no lo trae. Su ausencia NO significa «no se
+   * contó»: significa «este checkpoint no lo sabe», y ahí la lectura
+   * conservadora es la del rehidratador (ver `runApolloTwoRoundDiscovery`), que
+   * asume contado todo rechazo definitivo porque las métricas de ronda se
+   * rehidratan CON él ya sumado.
+   */
+  rejectionTallied?: boolean;
+  /**
    * STABLE-TARGET-WRITER-PARITY § 5 — opcional por la misma razón que los dos de
    * arriba: un checkpoint escrito antes de este hito no lo tiene, y su ausencia
    * significa «nadie informó», no «el enrichment no resolvió nada».
@@ -933,6 +942,21 @@ type TrackedCandidate = {
    * resolver.
    */
   finalGateEvaluated: boolean;
+  /**
+   * 🔴 AGENT1-CLASSIFICATION-RECONCILIATION-X1 — el rechazo de este candidato ya
+   * se sumó al desglose por ronda.
+   *
+   * Es la idempotencia del CONTEO, y es distinta de `finalGateEvaluated`, que es
+   * la idempotencia de la INVOCACIÓN del gate final. Antes de este corte el
+   * doble conteo lo evitaba `!candidate.eligible`, que es un proxy: cierto para
+   * todo candidato ya contado, pero cierto TAMBIÉN para candidatos a los que
+   * nadie había contado —la cohorte de revisión— y a los que por eso se les
+   * perdía el rechazo. Un proxy que acierta por accidente no es una guarda.
+   *
+   * Se pone en `true` en el mismo sitio donde se llama a `tallyRejection` sobre
+   * un candidato concreto, nunca antes ni después.
+   */
+  rejectionTallied: boolean;
   /**
    * STABLE-TARGET-WRITER-PARITY § 5 — estado de los campos OBLIGATORIOS después
    * del último enrichment ejecutado sobre este candidato.
@@ -1124,6 +1148,21 @@ export async function runApolloTwoRoundDiscovery(
       // evaluado: en el peor caso, `applyFinalGates` se vuelve a invocar sobre un
       // candidato ya resuelto, y el contrato lo garantiza gratis y puro.
       finalGateEvaluated: false,
+      // 🔴 AGENT1-CLASSIFICATION-RECONCILIATION-X1 — y ÉSTE es el motivo por el
+      // que el conteo necesita su propia guarda.
+      //
+      // `finalGateEvaluated: false` de la línea de arriba hace que el gate final
+      // se vuelva a invocar sobre un candidato que el intento anterior ya
+      // rechazó. Las métricas de ronda, en cambio, se rehidratan desde
+      // `resume.rounds` CON ese rechazo ya sumado. Sin este flag, el reintento
+      // sumaría el mismo rechazo por segunda vez.
+      //
+      // Cuando el checkpoint no trae el campo se asume CONTADO todo rechazo
+      // definitivo, que es la dirección conservadora: nunca duplica. Un
+      // checkpoint anterior a este corte puede así conservar el subconteo que el
+      // corte arregla, pero jamás convertirlo en sobreconteo.
+      rejectionTallied:
+        c.rejectionTallied ?? (c.definitivelyRejected ?? derivedReason !== null),
       resolvedCompanyFields: c.resolvedCompanyFields ?? null,
     };
   });
@@ -1236,9 +1275,36 @@ export async function runApolloTwoRoundDiscovery(
     candidate.definitivelyRejected = true;
     candidate.definitiveRejectionReason = verdict.rejection;
     candidate.finallyRejectedOrDuplicated = true;
+    // 🔴 AGENT1-CLASSIFICATION-RECONCILIATION-X1 — el desglose por ronda cuenta
+    // AQUÍ, y la condición para contar es «nadie contó todavía a este
+    // candidato», no «este candidato era elegible».
+    //
+    // El defecto que cierra, medido en la certificación `5bfb5ff8…` / lote
+    // `c7c28980…`: un `return` por `!candidate.eligible` se interponía entre el
+    // marcado y el conteo. Los dos candidatos de la cohorte de revisión que el
+    // gate final rechazó por ownership —enriquecidos, sector aún ambiguo, por
+    // tanto NO elegibles— quedaban marcados como rechazados definitivos,
+    // viajaban a `prospect_discarded_dispositions`, y no entraban en
+    // `ownershipRejected`. El desglose publicaba 13 donde la verdad eran 15, y
+    // `pre_writer_state_consistency` cerraba con `unclassified = 2` porque
+    // tampoco caben en el cubo «ni elegible ni rechazado» de los snapshots:
+    // están rechazados. Ningún cubo los reclamaba.
+    //
+    // `rejectionTallied` es la idempotencia del CONTEO y es distinta de
+    // `finalGateEvaluated`, que es la idempotencia de la INVOCACIÓN del gate.
+    // Hacen falta las dos, y la que protege del doble conteo es ésta: un
+    // reintento rehidrata las métricas de ronda CON el rechazo ya sumado y
+    // vuelve a poner `finalGateEvaluated` en false a propósito, así que sin este
+    // flag el mismo rechazo se sumaría dos veces.
+    if (!candidate.rejectionTallied) {
+      const metricsForRound =
+        roundMetrics.find((m) => m.roundNumber === candidate.roundNumber) ?? null;
+      if (metricsForRound) {
+        tallyRejection(metricsForRound, verdict.rejection);
+        candidate.rejectionTallied = true;
+      }
+    }
     if (!candidate.eligible) return;
-    const metricsForRound = roundMetrics.find((m) => m.roundNumber === candidate.roundNumber) ?? null;
-    if (metricsForRound) tallyRejection(metricsForRound, verdict.rejection);
     candidate.eligible = false;
     candidate.becameEligibleAfterEnrichment = false;
   };
@@ -2239,6 +2305,9 @@ export async function runApolloTwoRoundDiscovery(
             ? 'sector_evidence_contradictory'
             : null),
         finalGateEvaluated: false,
+        // 🔴 X1 — el `tallyRejection` de justo arriba ya sumó este rechazo
+        // barato. Queda anotado para que el gate final no lo vuelva a sumar.
+        rejectionTallied: assessment.rejection !== null,
         // STABLE-TARGET-WRITER-PARITY § 5 — todavía nadie compró nada para este
         // candidato: mandan las señales gratuitas de la búsqueda.
         resolvedCompanyFields: null,
@@ -2429,7 +2498,10 @@ export async function runApolloTwoRoundDiscovery(
     candidate.sectorEvidenceState = result.sectorEvidenceState;
     const postRejection = result.postEnrichmentRejection ?? null;
     if (postRejection !== null) {
-      if (metricsForRound) tallyRejection(metricsForRound, postRejection);
+      if (metricsForRound) {
+        tallyRejection(metricsForRound, postRejection);
+        candidate.rejectionTallied = true;
+      }
       observedRejectionReasons.add(postRejection);
       candidate.finallyRejectedOrDuplicated = true;
       candidate.definitivelyRejected = true;
@@ -2456,7 +2528,10 @@ export async function runApolloTwoRoundDiscovery(
     if (result.sectorEvidenceState === 'sector_evidence_contradictory') {
       candidate.definitivelyRejected = true;
       candidate.definitiveRejectionReason = 'sector_evidence_contradictory';
-      if (metricsForRound) tallyRejection(metricsForRound, 'sector_evidence_contradictory');
+      if (metricsForRound) {
+        tallyRejection(metricsForRound, 'sector_evidence_contradictory');
+        candidate.rejectionTallied = true;
+      }
       observedRejectionReasons.add('sector_evidence_contradictory');
     }
     // SECTOR-EVIDENCE-BOOTSTRAP-1 — el desenlace del bootstrap, con nombre.
@@ -2473,7 +2548,10 @@ export async function runApolloTwoRoundDiscovery(
     if (result.sectorEvidenceState === 'sector_not_mapped') {
       candidate.definitivelyRejected = true;
       candidate.definitiveRejectionReason = 'sector_not_mapped';
-      if (metricsForRound) tallyRejection(metricsForRound, 'sector_not_mapped');
+      if (metricsForRound) {
+        tallyRejection(metricsForRound, 'sector_not_mapped');
+        candidate.rejectionTallied = true;
+      }
       observedRejectionReasons.add('sector_not_mapped');
     }
     const nowEligible = isEligible(candidate.assessment.rejection, result.sectorEvidenceState);
@@ -2529,25 +2607,21 @@ export async function runApolloTwoRoundDiscovery(
   // por una parada.
   if (deps.applyFinalGates) {
     for (const candidate of tracked) {
-      if (candidate.eligible) {
+      // 🔴 AGENT1-CLASSIFICATION-RECONCILIATION-X1 — una sola implementación.
+      //
+      // Aquí vivía una SEGUNDA copia del cuerpo de `ensureFinalGateEvaluated`,
+      // idéntica salvo por lo único que importaba: no contaba. Su comentario lo
+      // declaraba como intencionado —«el desglose por ronda sólo cuenta rechazos
+      // de candidatos que SÍ eran elegibles»— y ése era exactamente el defecto,
+      // escrito como si fuera una regla. El desglose tiene que cubrir TODAS las
+      // empresas únicas: si una muere aquí, aquí se cuenta.
+      //
+      // Quién recibe el gate no cambia: elegibles y cohorte de revisión, los
+      // mismos de antes. `ensureFinalGateEvaluated` se autoprotege con
+      // `finalGateEvaluated`, así que la comprobación explícita sobra.
+      if (candidate.eligible || isReviewOnlyCohort(candidate)) {
         await ensureFinalGateEvaluated(candidate);
-        continue;
       }
-      if (!isReviewOnlyCohort(candidate) || candidate.finalGateEvaluated) continue;
-      candidate.finalGateEvaluated = true;
-      const verdict = await deps.applyFinalGates({
-        candidateKey: candidate.candidateKey,
-        roundNumber: candidate.roundNumber,
-        identity: candidate.identity,
-      });
-      if (verdict.rejection === null) continue;
-      observedRejectionReasons.add(verdict.rejection);
-      candidate.definitivelyRejected = true;
-      candidate.definitiveRejectionReason = verdict.rejection;
-      candidate.finallyRejectedOrDuplicated = true;
-      // La cohorte de revisión ya es `!eligible`: no hay nada más que voltear,
-      // y el desglose por ronda sólo cuenta rechazos de candidatos que SÍ eran
-      // elegibles (ver `ensureFinalGateEvaluated`).
     }
   }
 
@@ -2732,6 +2806,9 @@ export async function runApolloTwoRoundDiscovery(
       finallyRejectedOrDuplicated: c.finallyRejectedOrDuplicated,
       definitivelyRejected: c.definitivelyRejected,
       definitiveRejectionReason: c.definitiveRejectionReason,
+      // 🔴 X1 — viaja al estado de reintento para que un resume EN MEMORIA sepa
+      // exactamente a quién se contó, en vez de deducirlo.
+      rejectionTallied: c.rejectionTallied,
     })),
     observedRejectionReasons: [...observedRejectionReasons],
   };
