@@ -375,6 +375,53 @@ describe('§ 2 · propagación — se conserva el veredicto, no se recalcula', (
     assert.equal(withInputs.effectiveDomain, null);
     assert.deepEqual(withInputs.verdict.missingSignals, ['domain']);
   });
+
+  /**
+   * 🔴 El invariante que de verdad ata las entradas al veredicto.
+   *
+   * Comparar `…WithInputs(x).verdict` contra `evaluateApolloPreWriterCompanyOwnership(x)`
+   * NO basta: la segunda delega en la primera, así que un cambio en el cuerpo
+   * mueve las dos a la vez y la comparación sigue pasando. Es el mismo error de
+   * fondo que un trinquete que fija el valor defectuoso.
+   *
+   * Lo que sí ata: que los inputs PUBLICADOS reproduzcan, por sí solos, el
+   * veredicto publicado. Si la función evaluara con un nombre y publicara otro
+   * —que es exactamente lo que haría «recalcular en vez de propagar»— aquí se
+   * rompe.
+   */
+  const SEO_PHRASE_CASES: readonly { name: string; domain: string }[] = [
+    { name: 'Consultoría ERP, CRM, HCM y software empresarial', domain: 'dinamicacd.com' },
+    { name: 'Supermercados Caribe', domain: 'caribesupermercados.co' },
+    { name: 'Copadpharma S.A.S.', domain: 'copadeg.com' },
+  ];
+
+  for (const entry of SEO_PHRASE_CASES) {
+    test(`los inputs publicados reproducen el veredicto — «${entry.name.slice(0, 34)}…»`, () => {
+      const candidate = candidateOf(entry.name, entry.domain);
+      const withInputs = evaluateApolloPreWriterCompanyOwnershipWithInputs(candidate);
+
+      const reproduced = evaluateCompanyOwnership(
+        withInputs.evaluationName,
+        `https://${entry.domain}`,
+        withInputs.effectiveDomain,
+      );
+      assert.deepEqual(
+        withInputs.verdict,
+        reproduced,
+        'el veredicto publicado tiene que salir de los inputs publicados',
+      );
+    });
+  }
+
+  test('la recuperación de frase SEO se declara, no se esconde', () => {
+    const seo = evaluateApolloPreWriterCompanyOwnershipWithInputs(
+      candidateOf('Consultoría ERP, CRM, HCM y software empresarial', 'dinamicacd.com'),
+    );
+    // El nombre crudo era una frase SEO; el evaluado NO puede ser el crudo.
+    assert.equal(seo.recoveredFromDomain, true);
+    assert.notEqual(seo.evaluationName, seo.originalName);
+    assert.equal(seo.originalName, 'Consultoría ERP, CRM, HCM y software empresarial');
+  });
 });
 
 // ─── Evidencia persistible ───────────────────────────────────────────────────
