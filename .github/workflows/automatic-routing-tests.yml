@@ -5146,3 +5146,30 @@ jobs:
       # 0 migraciones, 0 flags.
       - name: Run Agent 1 Apollo pagination usefulness authority tests
         run: npm run test:a1-apollo-pagination-usefulness-authority
+      # ══ AGENT1-WATERFALL-FLAG-OBSERVABILITY-B1 ═════════════════════════════
+      #
+      # `ENABLE_AGENT1_APOLLO_LUSHA_WATERFALL` es `type: sensitive` en Vercel: su
+      # valor no se puede leer desde fuera. Antes de este corte, «¿el waterfall
+      # está encendido en Producción?» sólo se contestaba EJECUTANDO una corrida
+      # y mirando si nacía una pierna Lusha — o sea, gastando créditos para
+      # responder una pregunta de configuración, justo antes de la certificación.
+      #
+      # El diagnóstico admin-only publica ahora dos booleanos RESUELTOS y nunca el
+      # valor crudo: presencia de la variable y decisión del parser fail-closed.
+      # Autoridad única: el endpoint invoca los mismos helpers que consume la
+      # pierna del waterfall; no reimplementa el parser ni lee `process.env`.
+      #
+      # El step fija que ` TrUe ` resuelve a true (mata «comparar process.env a
+      # pelo»), que `false`/`1`/`yes`/vacío/ausente NO encienden nada (mata
+      # «hardcodear enabled=true» y «quitar el fail-closed», que haría
+      # enabled = configured), que el valor crudo no sale ni normalizado, y que
+      # 401/403 siguen sin ver ninguno de los dos campos.
+      #
+      # Arrastra las suites vecinas: el endpoint completo, la bandera del
+      # waterfall, el parser canónico de banderas y la pierna Lusha del CORTE 4
+      # —cuyo comportamiento este corte NO toca—.
+      #
+      # 0 llamadas a proveedor · 0 créditos · 0 Supabase real · 0 escrituras ·
+      # 0 migraciones · 0 cambios de bandera.
+      - name: Run Agent 1 waterfall flag observability tests
+        run: npm run test:a1-waterfall-flag-observability-b1
