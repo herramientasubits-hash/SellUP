@@ -605,6 +605,30 @@ export function toCheapRejectionReason(
   }
 }
 
+/**
+ * 🔴 AGENT1-SECTOR-NOT-MAPPED-X5.2 — el motivo por el que NO se paga un
+ * enrichment, traducido a un rechazo de SUPERVIVENCIA. `null` ⇒ no rechaza.
+ *
+ * `apollo-enrichment-eligibility-gate` es, por su propia documentación, un gate
+ * de GASTO: «every value here means 0 Apollo calls, 0 credits». Sus once
+ * motivos no son once rechazos — nueve hablan de la empresa (país, dominio,
+ * ownership, duplicidad, cooldown) y dos hablan de NOSOTROS.
+ *
+ * `sector_not_mapped` es uno de los dos que hablan de nosotros: no hay entrada
+ * en `SECTOR_SIGNAL_TERMS` para el sector pedido. Negarle la compra es correcto
+ * —comprar más descripción no crea la política que falta— pero negarle la
+ * EXISTENCIA no lo es. Aquí se separan las dos cosas.
+ *
+ * `sector_relevance_contradicted` sigue rechazando: ahí el proveedor SÍ describió
+ * el sector y no coincide. Eso es evidencia sobre la empresa.
+ */
+export function toSurvivalRejectionReason(
+  reason: ApolloEnrichmentIneligibilityReason,
+): CheapRejectionReason | null {
+  if (reason === 'sector_not_mapped') return null;
+  return toCheapRejectionReason(reason);
+}
+
 /** Traduce el veredicto sectorial pagado al estado del § 5. */
 export function toSectorEvidenceState(
   decision: ApolloPaidSectorRelevanceDecision,
@@ -2105,8 +2129,18 @@ export async function runApolloTwoRoundWizardDiscovery(
       // conocidos, y sólo al final el veredicto sectorial. Un duplicado nunca
       // llega a competir por un enrichment.
       let rejection: CheapRejectionReason | null = null;
-      if (!eligibility.eligible) {
-        rejection = toCheapRejectionReason(eligibility.skipReason);
+      // 🔴 X5.2 — el gate de GASTO ya no decide la SUPERVIVENCIA.
+      //
+      // Antes esta línea era `toCheapRejectionReason(...)`, y con ella un
+      // `skipReason: 'sector_not_mapped'` —que sólo significa «no tenemos
+      // política, no pagues»— se convertía en un rechazo de la empresa. Los
+      // otros diez motivos del gate sí hablan de la empresa y siguen rechazando
+      // exactamente igual.
+      const gateRejection = eligibility.eligible
+        ? null
+        : toSurvivalRejectionReason(eligibility.skipReason);
+      if (gateRejection !== null) {
+        rejection = gateRejection;
       } else if (duplicate.sellUpDuplicate) {
         rejection = 'duplicate_in_sellup';
       } else if (duplicate.hubSpotDuplicate) {
@@ -2115,8 +2149,17 @@ export async function runApolloTwoRoundWizardDiscovery(
         // Mismo motivo canónico: «sugerida antes». No se introduce un código
         // nuevo en la taxonomía por una autoridad nueva sobre el mismo hecho.
         rejection = 'cooldown_or_prior_suggestion';
-      } else if (sectorEvidenceState === 'sector_not_mapped') {
-        rejection = 'sector_not_mapped';
+        // 🔴 AGENT1-SECTOR-NOT-MAPPED-X5.2 — aquí había una rama
+        // `sectorEvidenceState === 'sector_not_mapped' ⇒ rejection`.
+        //
+        // Era el gate BARATO convirtiendo la ausencia de una política NUESTRA en
+        // un rechazo de la empresa. La evidencia en contra la lleva el caso de
+        // abajo, y sólo ése. Sin política no hay nada que contradecir, así que
+        // los dos nunca fueron el mismo hecho aunque compartieran destino.
+        //
+        // El candidato sigue SIN poder gastar un enrichment —eso lo decide
+        // `apollo-enrichment-eligibility-gate`, que no se toca— y ahora
+        // sobrevive a revisión en vez de desaparecer.
       } else if (sectorEvidenceState === 'sector_evidence_contradictory') {
         rejection = 'sector_evidence_contradictory';
       }

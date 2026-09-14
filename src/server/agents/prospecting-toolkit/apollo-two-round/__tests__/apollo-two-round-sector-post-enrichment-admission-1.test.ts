@@ -395,18 +395,28 @@ describe('§ 17 · la cadena entera, sin el falso `sector_not_mapped`', () => {
     }
   });
 
-  it('sólo-padre: la misma cadena, sin admisión y con rechazo sectorial', async () => {
+  it('sólo-padre: la misma cadena, sin admisión, y SIN rechazo sectorial', async () => {
     const recorder = await runHealth(PARENT_ONLY_PROFILES);
     const block = readBootstrapBlock(recorder);
 
     assert.equal(block.bootstrap_enrichment_executed_count, HEALTH_ORGS.length);
     assert.equal(block.sector_admitted_by_requested_subindustry_precision_count, 0);
-    assert.deepEqual(recorder.persistedCandidateNames, []);
+    // 🔴 AGENT1-SECTOR-NOT-MAPPED-X5.2 — NO ser admitido por la hija pedida no
+    // es lo mismo que ser rechazado. Aquí se afirmaban las dos cosas a la vez:
+    // cero admisiones Y cero filas persistidas.
+    //
+    // La admisión no ocurre porque no hay política para la hija pedida — un
+    // hueco NUESTRO. Las tres siguen sin gate obligatorio en contra, así que
+    // sobreviven a revisión con su bloqueo de admisión registrado.
+    assert.equal(recorder.persistedCandidateNames?.length, HEALTH_ORGS.length);
     for (const entry of block.candidates) {
       const admission = admissionOf(entry);
       assert.equal(admission['admitted_by_requested_subindustry_precision'], false);
       assert.equal(admission['block_reason'], 'no_confirmed_requested_subindustry');
-      assert.equal(entry['terminal_reason'], 'sector_not_mapped');
+      // El ESTADO sectorial se conserva; el MOTIVO TERMINAL desaparece porque ya
+      // no hay rechazo que motivar.
+      assert.equal(admission['post_enrichment_sector_state'], 'sector_not_mapped');
+      assert.equal(entry['terminal_reason'], null);
     }
   });
 
@@ -514,7 +524,14 @@ describe('§ 21 · exactamente una disposición, y ninguna sin motivo', () => {
         // Un candidato que LLEGA al writer no lleva motivo de rechazo, y ése es el
         // punto del § 21: si murió, el motivo es el gate REAL; si no murió, no hay
         // motivo que dar. Lo prohibido es `sector_not_mapped` sobre un admitido.
-        if (entry['terminal_disposition'] === 'provisionally_persisted_pending_writer_final') {
+        // 🔴 X5.2 — la cohorte de revisión se une a los persistidos: los dos
+        // LLEGAN al writer, y ninguno de los dos puede llevar motivo de rechazo.
+        // Un superviviente con `terminal_reason` poblado sería un rechazo
+        // disfrazado, que es justo lo que este § existe para impedir.
+        const survives =
+          entry['terminal_disposition'] === 'provisionally_persisted_pending_writer_final' ||
+          entry['terminal_disposition'] === 'persisted_review_only_final';
+        if (survives) {
           assert.equal(entry['terminal_reason'], null);
         } else {
           assert.ok(entry['terminal_reason'], 'todo rechazo tiene motivo');
@@ -599,22 +616,34 @@ describe('§ 22 · RUN 1 `f4c8a60f` con enrichment SIMULADO', () => {
 
     assert.equal(recorder.enrichCalls.length, 5);
     assert.equal(block.sector_admitted_by_requested_subindustry_precision_count, 0);
-    // 🔴 X5 — el desenlace del ENRICHMENT se reproduce igual: los cinco que
-    // pagaron terminaron en `sector_not_mapped`, que es evidencia adquirida sin
-    // política con que juzgarla, y siguen siendo rechazo.
+    // 🔴 AGENT1-SECTOR-NOT-MAPPED-X5.2 — este bloque afirmaba, en un comentario
+    // que X5 escribió, que los cinco que pagaron «siguen siendo rechazo» porque
+    // su `sector_not_mapped` era «evidencia adquirida sin política con que
+    // juzgarla». La auditoría de X5.2 demostró que esa lectura era errónea: lo
+    // que falta es la POLÍTICA, no la evidencia, y la ausencia de una política
+    // nuestra no es un juicio sobre la empresa.
     //
-    // Lo que ya no se reproduce es el `candidatesPersisted: 0` de RUN 1. Ese
-    // cero incluía a quienes NUNCA compitieron por un enrichment: sin evidencia
-    // ni a favor ni en contra, y sin un gate obligatorio que los rechazara,
-    // desaparecían por no haber podido gastar. Ahora sobreviven a revisión.
+    // De RUN 1 se reproduce lo que era un hecho del proveedor —cinco enrichments
+    // ejecutados, cero admisiones por hija confirmada— y deja de reproducirse su
+    // `candidatesPersisted: 0`, que era la consecuencia del defecto: ni quienes
+    // nunca compitieron ni quienes pagaron tenían un gate obligatorio en contra.
+    //
+    // La asimetría muere aquí: pagar ya no es lo que mata a una candidata.
     const persistedNames = recorder.persistedCandidateNames ?? [];
     assert.ok(persistedNames.length > 0);
     for (const entry of block.candidates.filter((item) => item['enrichment_executed'] === true)) {
+      // El estado sectorial —un hecho sobre NUESTRO catálogo— no se mueve.
       assert.equal(entry['post_enrichment_sector_state'], 'sector_not_mapped');
-      assert.equal(entry['terminal_reason'], 'sector_not_mapped');
-      assert.ok(
-        !persistedNames.includes(String(entry['name'] ?? '')),
-        'un rechazo sectorial real no se persiste ni siquiera a revisión',
+      // El motivo terminal sí cambia: `sector_not_mapped` ya no puede serlo.
+      //
+      // Algunas de las cinco SÍ acaban con motivo, y es un hallazgo del corte:
+      // al dejar de morir en el gate sectorial llegan al gate FINAL de
+      // ownership, que es obligatorio de verdad y las rechaza con su causa.
+      // Morir por ownership es correcto; morir antes por falta de catálogo no.
+      assert.notEqual(
+        entry['terminal_reason'],
+        'sector_not_mapped',
+        'la ausencia de política nuestra ya no puede ser un motivo terminal',
       );
     }
   });

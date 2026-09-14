@@ -400,8 +400,16 @@ describe('§ 2 · el candidato bootstrap-enriched no persiste, y su evidencia s�
     // candidato ya no muere; el caso que este § defiende es el de sólo-padre.
     const recorder = await runHealthScenario(PARENT_ONLY_PROFILES);
 
-    // La premisa que hay que sostener: NO hay fila de `prospect_candidates`.
-    assert.deepEqual(recorder.persistedCandidateNames, []);
+    // 🔴 AGENT1-SECTOR-NOT-MAPPED-X5.2 — la premisa de este § era «no hay fila
+    // de `prospect_candidates`», y esa ausencia era el defecto, no el contrato.
+    //
+    // Sólo-padre significa que la corrida no tiene política para la hija pedida:
+    // un hueco NUESTRO. Las tres empresas no tienen ni un gate obligatorio en
+    // contra, así que ahora sobreviven a revisión. Lo que este § defiende —que
+    // la evidencia COMPRADA se reconstruye entera desde el lote, sin depender de
+    // `prospect_candidates`— no cambia, y es lo que siguen fijando los asserts
+    // de abajo.
+    assert.equal(recorder.persistedCandidateNames?.length, HEALTH_ORGS.length);
 
     const block = readBootstrapBlock(recorder);
     assert.equal(block.bootstrap_authorized, true);
@@ -474,9 +482,13 @@ describe('§ 2 · el candidato bootstrap-enriched no persiste, y su evidencia s�
 
 describe('§ 3 · ruta de recuperación sin una sola fila de candidato', () => {
   it('con 0 candidatos persistidos, el pack de revisión manual se arma igual', async () => {
-    // Sólo-padre: el escenario donde de verdad no se persiste nadie.
+    // Sólo-padre: sin política para la hija pedida.
     const recorder = await runHealthScenario(PARENT_ONLY_PROFILES);
-    assert.deepEqual(recorder.persistedCandidateNames, []);
+    // 🔴 X5.2 — sobreviven a revisión (ausencia de catálogo no rechaza). Lo que
+    // este § defiende es que el pack de revisión manual se arma desde el LOTE y
+    // el checkpoint, sin leer `prospect_candidates` — y eso es independiente de
+    // cuántas filas haya.
+    assert.equal(recorder.persistedCandidateNames?.length, HEALTH_ORGS.length);
 
     const block = readBootstrapBlock(recorder);
     // La ruta exacta: `prospect_batches.metadata.apollo_sector_evidence_bootstrap`
@@ -501,7 +513,7 @@ describe('§ 3 · ruta de recuperación sin una sola fila de candidato', () => {
           // Este rehidratado no reconstruye el gate de compra: su consumidor es el
           // pack de revisión manual, que no lo lee.
           purchase: null,
-          terminalDisposition: 'sector_subindustry_rejected_final',
+          terminalDisposition: 'persisted_review_only_final',
           terminalReason: 'sector_not_mapped',
         }) satisfies ApolloSectorEvidenceBootstrapCandidateAudit,
     );
@@ -514,7 +526,11 @@ describe('§ 3 · ruta de recuperación sin una sola fila de candidato', () => {
     for (const row of rows) {
       assert.ok(row.company, 'el nombre sale del checkpoint, no del candidato persistido');
       assert.ok(row.domain, 'el dominio sale del checkpoint');
-      assert.equal(row.persisted, false);
+      // 🔴 X5.2 — `persisted` deriva de la disposición terminal del audit, que
+      // ahora es `persisted_review_only_final`. Lo que este § defiende —nombre y
+      // dominio salen del CHECKPOINT, no de `prospect_candidates`— lo fijan los
+      // dos asserts de arriba y no depende de este valor.
+      assert.equal(row.persisted, true);
       assert.equal(row.manualDecision, null);
     }
   });
@@ -560,15 +576,24 @@ describe('§ 6 · red hospitalaria, laboratorio y EPS', () => {
     }
   });
 
-  it('sin hija confirmada los tres mueren pre-writer y siguen siendo auditables', async () => {
+  it('sin hija confirmada los tres SOBREVIVEN a revisión y siguen siendo auditables', async () => {
     const recorder = await runHealthScenario(PARENT_ONLY_PROFILES);
-    assert.deepEqual(recorder.persistedCandidateNames, []);
+    // 🔴 AGENT1-SECTOR-NOT-MAPPED-X5.2 — «mueren pre-writer» era el defecto.
+    // Sin hija confirmada el hueco es NUESTRO —no hay política para la
+    // subindustria pedida— y ninguna de las tres tiene un gate obligatorio en
+    // contra. La auditabilidad, que es lo que este caso existe para fijar, se
+    // conserva intacta en los asserts de abajo.
+    assert.equal(recorder.persistedCandidateNames?.length, 3);
     const block = readBootstrapBlock(recorder);
     assert.equal(block.candidates.length, 3);
     for (const entry of block.candidates) {
       assert.equal(entry['enrichment_executed'], true);
       assert.ok(entry['post_enrichment_precision'], 'sin precisión no hay calibración');
-      assert.equal(entry['terminal_reason'], 'sector_not_mapped');
+      // 🔴 X5.2 — el estado sectorial sigue siendo `sector_not_mapped`, que es un
+      // hecho sobre NUESTRO catálogo; lo que desaparece es el motivo terminal,
+      // porque ya no hay rechazo que motivar.
+      assert.equal(entry['post_enrichment_sector_state'], 'sector_not_mapped');
+      assert.equal(entry['terminal_reason'], null);
     }
   });
 
@@ -639,12 +664,19 @@ describe('§ 7 · el perfil comprado trae la industria padre y nada más', () =>
 // ─── § 8 · reconciliación terminal ────────────────────────────────────────────
 
 describe('§ 8 · un candidato termina exactamente una vez', () => {
-  it('bootstrap no es una disposición terminal: la terminal es el rechazo', async () => {
+  it('bootstrap no es una disposición terminal: la terminal es la supervivencia a revisión', async () => {
     const recorder = await runHealthScenario(PARENT_ONLY_PROFILES);
     const block = readBootstrapBlock(recorder);
     for (const entry of block.candidates) {
-      assert.equal(entry['terminal_disposition'], 'sector_subindustry_rejected_final');
-      assert.ok(entry['terminal_reason'], 'la disposición terminal lleva motivo');
+      // 🔴 X5.2 — la propiedad de § 8 es que `bootstrap` NO es un desenlace:
+      // cada candidato termina exactamente una vez y con nombre propio. Eso se
+      // mantiene; lo que cambia es CUÁL es ese desenlace cuando el hueco es de
+      // nuestro catálogo — ya no un rechazo sectorial.
+      assert.equal(entry['terminal_disposition'], 'persisted_review_only_final');
+      // 🔴 X5.2 — sin rechazo no hay motivo de rechazo, y eso es exactamente lo
+      // que hay que exigir: un superviviente con `terminal_reason` poblado sería
+      // un rechazo disfrazado.
+      assert.equal(entry['terminal_reason'], null);
     }
   });
 
@@ -685,7 +717,11 @@ describe('§ 8 · un candidato termina exactamente una vez', () => {
 
     const parentOnly = readDispositions(await runHealthScenario(PARENT_ONLY_PROFILES));
     assert.equal(parentOnly.unclassified_count, 0);
-    assert.equal(parentOnly.breakdown['sector_subindustry_rejected_final'], 3);
+    // 🔴 X5.2 — los tres migran del rechazo sectorial a la supervivencia. Lo
+    // que este caso fija —exactamente UNA disposición por candidato, cero sin
+    // clasificar— no se mueve.
+    assert.equal(parentOnly.breakdown['sector_subindustry_rejected_final'], undefined);
+    assert.equal(parentOnly.breakdown['persisted_review_only_final'], 3);
     assert.equal(parentOnly.total_unique_results, 3);
 
     const confirmed = readDispositions(await runHealthScenario());
@@ -764,7 +800,19 @@ describe('§ 12 · los 20 snapshots reales de `f4c8a60f`, sin llamar a Apollo', 
       assert.ok(entry['enriched_classification'], 'la clasificación comprada viaja');
       assert.ok(entry['post_enrichment_precision'], 'el veredicto de precisión viaja');
       assert.equal(entry['post_enrichment_sector_state'], 'sector_not_mapped');
-      assert.equal(entry['terminal_reason'], 'sector_not_mapped');
+      // 🔴 X5.2 — el ESTADO sectorial sigue siendo `sector_not_mapped`: es un
+      // hecho sobre NUESTRO catálogo y no cambia. Lo que ya no puede aparecer
+      // como motivo terminal es ese mismo `sector_not_mapped`.
+      //
+      // Algunas de las cinco SÍ llevan motivo, y es un hallazgo del corte: al
+      // dejar de morir en el gate sectorial, llegan al gate FINAL de ownership,
+      // que es un gate obligatorio de verdad y las rechaza con su causa. Eso es
+      // correcto — lo que no era correcto es morir antes por falta de catálogo.
+      assert.notEqual(
+        entry['terminal_reason'],
+        'sector_not_mapped',
+        'la ausencia de catálogo ya no puede ser un motivo terminal',
+      );
     }
   });
 
