@@ -458,15 +458,34 @@ describe('§ I · fixture de 17 resultados de la corrida bdc51c49', () => {
     assert.equal(byKey.get('apollo:ctry1')?.finalDisposition, 'country_rejected_final');
 
     // § E — los 8 pendientes: exactamente los que costaban 8 sin_clasificar en
-    // la corrida real ahora tienen nombre — enrichment_budget_exhausted_final,
-    // porque el cap (3) se lo llevaron Megatiendas/La Canasta/Surtifamiliar.
+    // la corrida real. HARDENING-1 les dio nombre —
+    // `enrichment_budget_exhausted_final`, porque el cap (3) se lo llevaron
+    // Megatiendas/La Canasta/Surtifamiliar— y con ello dejaron de ser invisibles.
+    //
+    // 🔴 AGENT1-CANDIDATE-SURVIVAL-X5 — darles nombre era la mitad del trabajo;
+    // la otra mitad es que ese nombre no los mate. Ninguna de las ocho tiene un
+    // gate obligatorio en contra: su único defecto es que el cupo de enrichments
+    // se agotó antes de que les tocara. No haber podido GASTAR no es causa de
+    // descarte, así que ahora las ocho sobreviven a revisión.
+    //
+    // La disposición sigue siendo exhaustiva y sigue cerrando en 0 sin
+    // clasificar; lo que cambia es el cubo, de descarte a supervivencia.
     const pendingDispositions = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8'].map(
       (id) => byKey.get(`apollo:${id}`)?.finalDisposition,
     );
     assert.ok(
-      pendingDispositions.every((d) => d === 'enrichment_budget_exhausted_final'),
-      `todos los 8 pendientes deben ser enrichment_budget_exhausted_final, fueron: ${pendingDispositions.join(',')}`,
+      pendingDispositions.every((d) => d === 'persisted_review_only_final'),
+      `todos los 8 pendientes deben SOBREVIVIR a revisión, fueron: ${pendingDispositions.join(',')}`,
     );
+
+    // El trinquete que importa: ninguna de las ocho lleva un motivo de descarte.
+    for (const id of ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8']) {
+      assert.equal(
+        byKey.get(`apollo:${id}`)?.finalReason,
+        null,
+        `${id} no puede llevar causa de rechazo: ningún gate obligatorio la rechazó`,
+      );
+    }
   });
 
   test('§ F — La Vaquita / Euro: rechazadas con una CAUSA REAL, nunca null', async () => {

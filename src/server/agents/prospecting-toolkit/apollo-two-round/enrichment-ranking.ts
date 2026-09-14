@@ -560,9 +560,20 @@ export type FinalRankingResult = {
  */
 export function rankFinalEligibleCompanies(
   candidates: readonly FinalRankingSignals[],
-  targetCap: number,
+  /**
+   * 🔴 AGENT1-CANDIDATE-SURVIVAL-X5 — `null` ⇒ SIN TOPE: todas las elegibles se
+   * persisten y `notPersisted` sale vacío.
+   *
+   * El parámetro se llamaba `targetCap` y recibía el objetivo del usuario. Ese
+   * nombre era el defecto escrito: el objetivo dice cuántas empresas hacen
+   * falta, no cuántas pueden existir. El orden que esta función calcula sigue
+   * importando —es el que decide qué se escribe primero— pero ya no decide quién
+   * desaparece.
+   */
+  finalCandidateCap: number | null,
 ): FinalRankingResult {
-  const cap = Math.max(0, Math.floor(targetCap));
+  const cap =
+    finalCandidateCap === null ? null : Math.max(0, Math.floor(finalCandidateCap));
   const scored = candidates.map((candidate) => ({
     candidate,
     score: scoreCandidateForFinalRanking(candidate),
@@ -580,8 +591,8 @@ export function rankFinalEligibleCompanies(
   });
 
   return {
-    persisted: scored.slice(0, cap).map((entry) => entry.score),
-    notPersisted: scored.slice(cap).map((entry) => ({
+    persisted: (cap === null ? scored : scored.slice(0, cap)).map((entry) => entry.score),
+    notPersisted: (cap === null ? [] : scored.slice(cap)).map((entry) => ({
       ...entry.score,
       reason: 'eligible_not_persisted_due_to_target_cap' as const,
     })),

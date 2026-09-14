@@ -427,14 +427,30 @@ describe('T3 · fixture de la certificación c7c28980 — 34 resultados', () => 
   });
 
   /**
-   * 🔴 La prueba de que X1 no cambió NADA de lo que la corrida decidió.
+   * 🔴 AGENT1-CANDIDATE-SURVIVAL-X5 — el mismo fixture, el veredicto corregido.
    *
-   * `evaluateApolloCandidateFinalDispositions` lee `definitivelyRejected` y
-   * `definitiveRejectionReason` — campos que este corte no toca — así que las 34
-   * disposiciones son, una por una, las mismas 34 filas que
-   * `prospect_discarded_dispositions` guardó en Producción.
+   * X1 usaba este replay para demostrar que su corte NO cambiaba ninguna de las
+   * 34 disposiciones: eran, una por una, las 34 filas que
+   * `prospect_discarded_dispositions` guardó en Producción. Ese era su contrato
+   * y se cumplió.
+   *
+   * X5 cambia el veredicto a propósito, y este test pasa a ser la regresión que
+   * lo fija. La partición de la corrida real se conserva EXACTAMENTE donde hubo
+   * una causa real:
+   *
+   *   15 ownership_rejected_final ......... siguen rechazadas (gate obligatorio)
+   *    1 sector_subindustry_rejected_final  sigue rechazada (evidencia CONTRARIA)
+   *   18 enrichment_budget_exhausted_final  YA NO son descarte: sobreviven
+   *
+   * Las 18 no tenían ni un gate obligatorio en contra. Su única falta era haber
+   * llegado después de que el cupo de 5 enrichments se agotara, y eso es un
+   * límite técnico de nuestra corrida, no un juicio sobre la empresa. El lote
+   * real cerró con 0 candidatas creadas habiendo encontrado 19 empresas limpias.
+   *
+   * NO se backfillea `c7c28980`: su histórico queda como está. Lo que cambia es
+   * lo que el orquestador decidiría HOY con esas mismas 34 entradas.
    */
-  test('las 34 disposiciones finales son IDÉNTICAS a las de Producción', async () => {
+  test('las 34 disposiciones: 16 rechazos reales intactos, 18 rescatadas de la papelera', async () => {
     const { result } = await runFixture();
     const dispositions = evaluateApolloCandidateFinalDispositions(result);
 
@@ -446,12 +462,27 @@ describe('T3 · fixture de la certificación c7c28980 — 34 resultados', () => 
       return acc;
     }, {});
 
-    // Exactamente el `candidate_final_dispositions.breakdown` del lote real.
+    // El `candidate_final_dispositions.breakdown` del lote real era
+    // `{ ownership: 15, sector: 1, enrichment_budget_exhausted: 18 }`. Los dos
+    // primeros no se mueven ni un candidato; el tercero deja de existir.
     assert.deepEqual(breakdown, {
       ownership_rejected_final: 15,
       sector_subindustry_rejected_final: 1,
-      enrichment_budget_exhausted_final: 18,
+      persisted_review_only_final: 18,
     });
+
+    // 🔴 El trinquete de X5, escrito como propiedad y no como número: NINGUNA
+    // de las 34 puede quedar descartada por un motivo de enrichment.
+    const ENRICHMENT_DISPOSITIONS = new Set([
+      'enrichment_budget_exhausted_final',
+      'not_selected_for_enrichment_final',
+      'insufficient_evidence_not_enriched_final',
+    ]);
+    assert.equal(
+      dispositions.filter((entry) => ENRICHMENT_DISPOSITIONS.has(entry.finalDisposition)).length,
+      0,
+      'no haber podido pagar un enrichment no puede ser la causa de un descarte',
+    );
 
     // Y por candidato, no sólo en agregado: los dos del corte siguen siendo
     // rechazos de ownership con su causa, ni más ni menos.
@@ -463,11 +494,24 @@ describe('T3 · fixture de la certificación c7c28980 — 34 resultados', () => 
       assert.equal(entry.finalReason, 'ownership_mismatch');
       assert.equal(entry.terminalStage, 'orchestrator_final');
     }
+    // 🔴 X5 — las 18 del cap, una por una: sobreviven y sin causa de rechazo.
+    // La corrida real las escribió en `prospect_discarded_dispositions`; hoy
+    // ninguna llega ahí, porque ningún gate obligatorio las rechazó.
     for (const id of CAP_REACHED_IDS) {
       const entry = byKey.get(`apollo:${id}`);
       assert.ok(entry);
-      assert.equal(entry.finalDisposition, 'enrichment_budget_exhausted_final');
-      assert.equal(entry.finalReason, 'enrichment_cap_reached');
+      assert.equal(entry.finalDisposition, 'persisted_review_only_final');
+      assert.equal(entry.finalReason, null);
+    }
+    // Y llegan al writer: sobrevivir significa existir, no sólo no ser contada.
+    const reviewOnlyKeys = new Set(result.reviewOnly.map((entry) => entry.candidateKey));
+    for (const id of CAP_REACHED_IDS) {
+      assert.ok(reviewOnlyKeys.has(`apollo:${id}`), `${id} tiene que llegar a revisión`);
+    }
+    // El motivo de revisión distingue «no le preguntamos» de «el proveedor no supo».
+    for (const entry of result.reviewOnly) {
+      if (!CAP_REACHED_IDS.some((id) => `apollo:${id}` === entry.candidateKey)) continue;
+      assert.equal(entry.reviewReason, 'sector_evidence_absent_without_enrichment');
     }
     const contradictory = byKey.get(`apollo:${ENRICHED_CONTRADICTORY_ID}`);
     assert.ok(contradictory);

@@ -31,6 +31,10 @@
  */
 
 import type { ApolloTwoRoundDiscoveryConfig } from './config';
+import {
+  decideCandidateSurvival,
+  resolveFinalCandidateCap,
+} from '../candidate-survival';
 // CUT-2 §§ 4, 6 — la cota de demanda residual, en su único sitio.
 import { boundByRemainingTarget } from '@/modules/prospect-batches/prepaid-novelty/provider-result-demand';
 import {
@@ -611,12 +615,25 @@ export type AccumulatedCompany = {
  * AGENT1-APOLLO-LINKEDIN-QUALITY-INTEGRATION-1 § D — por qué una empresa se
  * persiste SÓLO para revisión.
  *
- * Hoy hay una sola causa, y tiene nombre propio en vez de un booleano: cuando
- * aparezca la segunda, el consumidor no tendrá que adivinar cuál de las dos leyó.
+ * Cada causa tiene nombre propio en vez de un booleano: el consumidor no tiene
+ * que adivinar cuál de ellas leyó.
  */
 export type ReviewOnlyCompanyReason =
   /** Se pagó su enrichment y la subindustria siguió sin poder demostrarse. */
-  'subindustry_ambiguous_after_enrichment';
+  | 'subindustry_ambiguous_after_enrichment'
+  /**
+   * 🔴 AGENT1-CANDIDATE-SURVIVAL-X5 — la segunda causa, y la que la corrida
+   * `c7c28980…` demostró que faltaba: la subindustria sigue sin demostrarse y
+   * NADIE llegó a intentarlo, porque el cap de enrichments de la corrida se
+   * agotó antes (o el objetivo ya estaba cubierto cuando le tocaba competir).
+   *
+   * Se distingue de la anterior a propósito. Las dos sobreviven igual —la
+   * ausencia de evidencia no rechaza a nadie— pero no cuestan lo mismo ni dicen
+   * lo mismo del proveedor: una gastó un crédito y no resolvió; la otra nunca
+   * tuvo la oportunidad. Confundirlas es perder la única señal que distingue
+   * «el proveedor no sabe» de «no le preguntamos».
+   */
+  | 'sector_evidence_absent_without_enrichment';
 
 export type ReviewOnlyCompany = AccumulatedCompany & {
   reviewReason: ReviewOnlyCompanyReason;
@@ -759,6 +776,21 @@ export type ApolloTwoRoundRunResult = {
 
 export type ApolloTwoRoundRunInput = {
   config: ApolloTwoRoundDiscoveryConfig;
+  /**
+   * 🔴 AGENT1-CANDIDATE-SURVIVAL-X5 — cuántas candidatas se persisten como
+   * máximo. `null`/ausente ⇒ SIN TOPE, y ése es el valor por defecto.
+   *
+   * Vive aquí, y no en `ApolloTwoRoundDiscoveryConfig`, por dos razones:
+   * ninguna variable de entorno lo gobierna (este corte no abre superficie de
+   * banderas) y, sobre todo, porque NO es un límite de descubrimiento sino de
+   * escritura. Mezclarlo con los cuatro que sí acotan el gasto sería repetir la
+   * confusión que este corte deshace.
+   *
+   * Que por defecto no exista es la corrección: antes este tope era el objetivo
+   * del usuario, y una empresa limpia encontrada en la posición 6 de una corrida
+   * con `target = 5` se descartaba por ocupar esa posición.
+   */
+  finalCandidateCap?: number | null;
   queryContext: ApolloTwoRoundQueryContext;
   correlation: ApolloTwoRoundRunCorrelation;
   /**
@@ -2593,11 +2625,36 @@ export async function runApolloTwoRoundDiscovery(
   // duplicidad o calidad no se persiste ni siquiera como `needs_review`. Sin
   // esto, una empresa rechazada por ownership entraría en la base disfrazada de
   // duda pendiente.
-  const isReviewOnlyCohort = (candidate: TrackedCandidate): boolean =>
-    !candidate.eligible &&
-    !candidate.definitivelyRejected &&
-    candidate.enrichmentExecuted &&
-    candidate.sectorEvidenceState === 'sector_evidence_missing_needs_enrichment';
+  // 🔴 AGENT1-CANDIDATE-SURVIVAL-X5 — la cohorte de revisión ya no exige haber
+  // podido GASTAR.
+  //
+  // El defecto que cierra, medido en la certificación `c7c28980…`: esta
+  // condición llevaba `candidate.enrichmentExecuted &&`. Con `target = 5` y
+  // `maxEnrichmentsPerRun = 5`, sólo cinco de las veintitrés candidatas que
+  // competían pudieron pagar su enrichment; las dieciocho restantes —sin un
+  // solo gate obligatorio en contra— no eran elegibles (su sector no estaba
+  // confirmado) y tampoco eran cohorte de revisión (no habían gastado). No
+  // cabían en ningún cubo, así que desaparecían: `enrichment_budget_exhausted`
+  // en `prospect_discarded_dispositions`, y cero candidatas creadas en un lote
+  // que había encontrado diecinueve empresas limpias.
+  //
+  // Haber podido pagar no puede ser requisito para sobrevivir. La supervivencia
+  // la deciden los gates OBLIGATORIOS y nada más; el enrichment sólo completa.
+  // La regla vive en `decideCandidateSurvival`, provider-agnóstica y pura, para
+  // que Apollo no tenga una semántica propia.
+  //
+  // `sector_evidence_missing_bootstrap_eligible` entra ahora donde antes sólo
+  // entraba `sector_evidence_missing_needs_enrichment`: los dos son ausencia de
+  // evidencia, y excluir uno era la misma confusión a menor escala.
+  const isReviewOnlyCohort = (candidate: TrackedCandidate): boolean => {
+    if (candidate.eligible || candidate.definitivelyRejected) return false;
+    return (
+      decideCandidateSurvival({
+        mandatoryRejection: null,
+        sectorEvidenceState: candidate.sectorEvidenceState,
+      }).cohort === 'survives_incomplete'
+    );
+  };
 
   // § A — a estas alturas, todo candidato que en algún momento fue elegible ya
   // pasó por `ensureFinalGateEvaluated` (vía `stableFinalizableCandidateCount()`, invocada
@@ -2644,7 +2701,24 @@ export async function runApolloTwoRoundDiscovery(
     noPriorSuggestion: c.assessment.noPriorSuggestion,
   }));
 
-  const ranked = rankFinalEligibleCompanies(finalSignals, targetEligibleCompanies);
+  // 🔴 AGENT1-CANDIDATE-SURVIVAL-X5 — el objetivo deja de ser el tope del
+  // ranking final.
+  //
+  // `targetEligibleCompanies` gobierna la PARADA del gasto, y eso sigue igual:
+  // en cuanto se acumulan tantas candidatas ESTABLES como pidió el usuario, la
+  // corrida deja de comprar. Ese es su trabajo y es legítimo.
+  //
+  // Lo que no era legítimo es lo que hacía AQUÍ: recortar la lista de elegibles
+  // ya encontradas y ya pagadas. Una empresa limpia en la posición 6 de una
+  // corrida con `target = 5` salía con `target_cap_reached` sin que ningún gate
+  // la hubiera rechazado — el objetivo actuando como techo de EXISTENCIA en vez
+  // de como necesidad.
+  //
+  // El tope de escritura es ahora un límite con nombre propio y por defecto
+  // inexistente. `resolveFinalCandidateCap` no acepta el objetivo como
+  // parámetro: derivarlo de él es precisamente lo que no puede volver a pasar.
+  const finalCandidateCap = resolveFinalCandidateCap(input.finalCandidateCap);
+  const ranked = rankFinalEligibleCompanies(finalSignals, finalCandidateCap);
   const byKey = new Map(eligibleCompanies.map((c) => [c.candidateKey, c]));
 
   // `explicit` permite acumular a un candidato que NO está en `byKey`: ese mapa
@@ -2692,7 +2766,11 @@ export async function runApolloTwoRoundDiscovery(
         ? null
         : {
             ...accumulated,
-            reviewReason: 'subindustry_ambiguous_after_enrichment' as const,
+            // 🔴 X5 — la causa se lee del HECHO, no se asume. Antes había una
+            // sola causa posible porque sólo sobrevivían las que habían pagado.
+            reviewReason: candidate.enrichmentExecuted
+              ? ('subindustry_ambiguous_after_enrichment' as const)
+              : ('sector_evidence_absent_without_enrichment' as const),
           };
     })
     .filter((entry): entry is ReviewOnlyCompany => entry !== null);
