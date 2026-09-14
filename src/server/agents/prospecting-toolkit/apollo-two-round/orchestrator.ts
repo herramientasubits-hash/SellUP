@@ -2575,17 +2575,34 @@ export async function runApolloTwoRoundDiscovery(
     // enriched_final`, cuyo nombre afirma que nunca llegó a competir — y sí compitió,
     // y se pagó por él.
     //
-    // Inalcanzable para las corridas con política de sector: ahí `sector_not_mapped`
-    // es un rechazo BARATO, así que el candidato jamás llega a la fase de enrichment.
-    if (result.sectorEvidenceState === 'sector_not_mapped') {
-      candidate.definitivelyRejected = true;
-      candidate.definitiveRejectionReason = 'sector_not_mapped';
-      if (metricsForRound) {
-        tallyRejection(metricsForRound, 'sector_not_mapped');
-        candidate.rejectionTallied = true;
-      }
-      observedRejectionReasons.add('sector_not_mapped');
-    }
+    // 🔴 AGENT1-SECTOR-NOT-MAPPED-X5.2 — esta rama RECHAZABA, y ya no.
+    //
+    // Aquí vivían cinco líneas que marcaban `definitivelyRejected` cuando, tras
+    // pagar la adquisición, el sector seguía sin política que aplicar. El
+    // comentario que las acompañaba lo llamaba «un rechazo sectorial con causa»,
+    // y esa era la confusión: la causa no es de la empresa, es NUESTRA — no
+    // tenemos entrada en `SECTOR_SIGNAL_TERMS` para juzgarla.
+    //
+    // Su propio comentario delataba el alcance: «inalcanzable para las corridas
+    // CON política de sector». Es decir, todo rechazo que producía ocurría por
+    // definición en una corrida sin catálogo. Ausencia de política nuestra
+    // convertida en veredicto sobre una empresa.
+    //
+    // Y era enrichment-contingente, que es la firma de un artefacto y no de una
+    // regla: en la misma corrida, la candidata que PAGABA moría aquí y la que no
+    // llegó a pagar —idéntica evidencia: ninguna— sobrevivía a revisión con
+    // `sector_evidence_missing_bootstrap_eligible`. Gastar un crédito era lo que
+    // la mataba.
+    //
+    // Ahora `sector_not_mapped` es ausencia de evidencia
+    // (`classifySectorEvidence`), así que el candidato cae en la cohorte de
+    // revisión como cualquier otro hueco sin resolver. `definitivelyRejected` se
+    // reserva para lo que de verdad rechaza: `sector_evidence_contradictory`,
+    // que esta misma función sigue tratando exactamente igual que antes.
+    //
+    // NO cambia el GASTO: `disqualifyCategorically` en `enrichment-ranking.ts`
+    // sigue sacando a `sector_not_mapped` de la selección de enrichment, y el
+    // gate de elegibilidad sigue negándole la compra. Sobrevivir no es cobrar.
     const nowEligible = isEligible(candidate.assessment.rejection, result.sectorEvidenceState);
     if (nowEligible && !candidate.eligible) {
       candidate.eligible = true;
