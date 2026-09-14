@@ -300,6 +300,7 @@ import {
   buildApolloPreWriterBatchAdmissionContext,
   evaluateApolloPreWriterCompanyOwnership,
   evaluateApolloPreWriterCompanyOwnershipWithInputs,
+  toOwnershipGateVerdictLike,
   type ApolloPreWriterOwnershipEvaluation,
   evaluateApolloPreWriterQualityGateForCandidate,
   evaluateCandidatePreWriterAdmission,
@@ -3047,18 +3048,10 @@ export async function runApolloTwoRoundWizardDiscovery(
             normalizedLinkedInUrl: c.identity.normalizedLinkedInUrl,
           },
           providerRawName: assessmentByKey.get(c.candidateKey)?.candidate.name ?? null,
-          ownership: ownershipEvaluation
-            ? {
-                allowed: ownershipEvaluation.verdict.allowed,
-                confidence: ownershipEvaluation.verdict.confidence,
-                reason: ownershipEvaluation.verdict.reason,
-                matchedSignals: ownershipEvaluation.verdict.matchedSignals,
-                missingSignals: ownershipEvaluation.verdict.missingSignals,
-                evaluationName: ownershipEvaluation.evaluationName,
-                recoveredFromDomain: ownershipEvaluation.recoveredFromDomain,
-                effectiveDomain: ownershipEvaluation.effectiveDomain,
-              }
-            : null,
+          // 🔴 X3.1 — la copia del veredicto ya no se escribe aquí a mano.
+          // Ocho campos en un literal dentro de un módulo sin suite pura eran el
+          // tramo donde invertir `allowed` no rompía nada.
+          ownership: ownershipEvaluation ? toOwnershipGateVerdictLike(ownershipEvaluation) : null,
           enrichment: {
             attempted: c.enrichmentExecuted === true || snapshots.length > 0,
             status: enrichmentStatusByKey.get(c.candidateKey) ?? null,

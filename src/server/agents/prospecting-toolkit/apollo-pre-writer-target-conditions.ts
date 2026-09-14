@@ -509,6 +509,61 @@ export type ApolloPreWriterOwnershipEvaluation = {
   readonly effectiveDomain: string | null;
 };
 
+/**
+ * 🔴 AGENT1-OWNERSHIP-VERDICT-SEAM-X3.1 — la costura entre el evaluador y el
+ * escritor de disposiciones, con nombre propio y testeable.
+ *
+ * ── El hueco que cierra ──────────────────────────────────────────────────────
+ *
+ * X3 puso trinquete en los DOS extremos —el evaluador, que produce el veredicto,
+ * y el constructor de filas, que lo persiste— y dejó el tramo del medio sin
+ * cubrir: un literal dentro de `production-runner.server.ts`, un módulo que
+ * necesita Supabase y que por eso no tiene suite pura.
+ *
+ * La auditoría de X3 lo midió: invertir `allowed` en ese literal —«el veredicto
+ * dice permitido, la fila persiste rechazado»— pasaba 821 tests de seis suites y
+ * `typecheck` sin que nada se inmutara. El veredicto viajaba por un tramo donde
+ * nadie miraba.
+ *
+ * ── Qué hace ────────────────────────────────────────────────────────────────
+ *
+ * Copiar. Nada más. Ocho campos, uno a uno, sin derivar ninguno de otro: en
+ * particular `allowed` NO se deduce de `confidence`, aunque hoy sean coherentes,
+ * porque deducirlo convertiría una copia en una regla y las reglas del gate
+ * están fuera de este corte.
+ *
+ * El tipo de retorno es ESTRUCTURAL a propósito: reproduce la forma que espera
+ * `prospect-discards` sin importarla, para que ese módulo siga sin depender del
+ * pipeline de Apollo — la separación que su propia cabecera declara.
+ *
+ * Puro: sin proveedor, sin créditos, sin base, sin reloj.
+ */
+export type ApolloOwnershipGateVerdictSnapshot = {
+  allowed: boolean;
+  confidence: CompanyOwnershipResult['confidence'];
+  reason: string;
+  matchedSignals: readonly string[];
+  missingSignals: readonly string[];
+  evaluationName: string;
+  recoveredFromDomain: boolean;
+  effectiveDomain: string | null;
+};
+
+export function toOwnershipGateVerdictLike(
+  evaluation: ApolloPreWriterOwnershipEvaluation,
+): ApolloOwnershipGateVerdictSnapshot {
+  return {
+    allowed: evaluation.verdict.allowed,
+    confidence: evaluation.verdict.confidence,
+    reason: evaluation.verdict.reason,
+    matchedSignals: evaluation.verdict.matchedSignals,
+    missingSignals: evaluation.verdict.missingSignals,
+    evaluationName: evaluation.evaluationName,
+    recoveredFromDomain: evaluation.recoveredFromDomain,
+    effectiveDomain: evaluation.effectiveDomain,
+  };
+}
+
 export function evaluateApolloPreWriterCompanyOwnershipWithInputs(
   candidate: ProspectingPipelineCandidate,
 ): ApolloPreWriterOwnershipEvaluation {
