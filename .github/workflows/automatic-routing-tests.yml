@@ -5316,3 +5316,46 @@ jobs:
       # 0 migraciones · 0 cambios de bandera · 0 backfill del histórico.
       - name: Run Agent 1 X5.2 sector-not-mapped tests
         run: npm run test:a1-sector-not-mapped-x5-2
+
+      # ══ X5.1 — el objetivo deja de limitar el universo, y la aceptación deja
+      #    de fingirse cuando no se puede medir ═══════════════════════════════
+      #
+      # Dos defectos, una raíz: confundir «cuántas queremos» con «cuántas pueden
+      # existir», y rellenar un veredicto de completitud con el conteo de filas
+      # que había a mano.
+      #
+      #   1. `canAcceptLushaUsefulCandidate` descartaba supervivientes de una
+      #      página YA PAGADA por llegar después del objetivo. Cuarenta empresas
+      #      limpias con `target = 5` entregaban cinco y tiraban treinta y cinco.
+      #
+      #   2. `completeValidCandidates` valía `min(insertedCount, useful.length)`
+      #      y se publicaba como si fuera completitud. La pierna Lusha no medía
+      #      completitud: no puede, porque declara `subindustry_match`,
+      #      `linkedin_status` y `ownership_gate` como NO DISPONIBLES.
+      #
+      # Los cuatro conceptos quedan separados y con nombre propio:
+      #
+      #   survivors          pasan los gates obligatorios · el objetivo NO limita
+      #   purchaseCredit     rendimiento de lo pagado · decide si seguir comprando
+      #   completeness       complete | incomplete | unknown (contrato canónico)
+      #   acceptedForTarget  sólo las complete — y `null` si no es medible
+      #
+      # `null` NO es `0`: un cero afirma que se midió. El vocabulario
+      # (`measured: false`, `acceptance_not_measured`) ya existía y estaba
+      # probado; lo que faltaba era usarlo.
+      #
+      # El step mata 22 mutaciones verificadas una a una, incluidas: UNKNOWN →
+      # INCOMPLETE/COMPLETE (6 tests), ignorar la capacidad declarada (4),
+      # UNMEASURED → 0 medido (3), `purchaseCredit := acceptedForTarget` (4),
+      # que la aceptación decida la compra (1), que el objetivo vuelva a
+      # recortar (1), una rama por proveedor (1) y dos evaluaciones de la misma
+      # verdad (1).
+      #
+      # El gasto NO sube: `purchaseCredit = survivors` cierra el hueco ANTES que
+      # el cap anterior, nunca después, y el request cap sigue siendo el techo
+      # físico. Lo prueban las suites de facturación (L5) sin mover un crédito.
+      #
+      # 0 llamadas a proveedor · 0 créditos · 0 Supabase real · 0 escrituras ·
+      # 0 migraciones · 0 cambios de bandera · 0 backfill del histórico.
+      - name: Run Agent 1 X5.1 Lusha target/acceptance tests
+        run: npm run test:a1-lusha-target-acceptance-x5-1

@@ -294,9 +294,14 @@ describe('L1-C · una empresa ya conocida NO cuenta como net-new', () => {
       executionKnowing(['conocida.com'], 'sellup_known'),
     );
 
-    // 🔴 No contó como net-new.
+    // 🔴 PRESERVED — «no contó como net-new» se demuestra donde de verdad
+    // ocurre: la conocida no entra en los ÚTILES ni se persiste. Las dos
+    // aserciones que lo fijan (arriba y abajo) no se mueven.
     assert.equal(res.usefulCandidatesCount, 1, 'sólo la nueva es útil');
-    assert.equal(res.multiBranch?.acceptedForTargetTotal, 1);
+    // 🔴 SUPERSEDED — X5.1: la aceptación de Lusha es NO MEDIDA, no un conteo
+    // de útiles. Lo que este caso vigila —la supresión por registro local— vive
+    // en `usefulCandidatesCount` y en las filas, no en la aceptación.
+    assert.equal(res.multiBranch?.acceptedForTargetTotal, null);
     assert.deepEqual(
       candidateRows.map((r) => r.name),
       ['Nueva'],
@@ -557,7 +562,9 @@ describe('L1-E · la misma empresa por las dos mitades cuenta una sola vez', () 
       execution,
     );
 
-    assert.equal(res.multiBranch?.acceptedForTargetTotal, 1, '🔴 sólo la de pago cuenta');
+    // 🔴 SUPERSEDED — la aceptación de Lusha no se mide (X5.1). «Sólo la de
+    // pago cuenta» se fija en la fila escrita, que es la prueba directa.
+    assert.equal(res.multiBranch?.acceptedForTargetTotal, null);
     assert.deepEqual(candidateRows.map((r) => r.name), ['De pago']);
     assert.equal(res.multiBranch?.localKnownSuppressedTotal, 1);
 

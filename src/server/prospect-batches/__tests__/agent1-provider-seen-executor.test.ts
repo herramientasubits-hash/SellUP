@@ -289,8 +289,8 @@ describe('§ 4 — se recuerda lo que se pagó, sea cual sea su desenlace', () =
     assert.deepEqual(recordedIds(harness), ['hist-0', 'hist-1', 'hist-2']);
   });
 
-  it('§ 11.11 — el SOBRANTE de objetivo se recuerda igual', async () => {
-    // Objetivo 2, la página trae 5. Tres son sobrante: ya se pagaron.
+  it('§ 11.11 — lo pagado se recuerda entero, y ahora además SOBREVIVE entero', async () => {
+    // Objetivo 2, la página trae 5. Las cinco ya se pagaron.
     const harness = makeHarness([successResult(distinct(5, 'over'))]);
     const res = await persistLushaPendingReviewBatch(harness.deps, INPUT, ACTOR, undefined, {
       plan: plan(1),
@@ -298,8 +298,14 @@ describe('§ 4 — se recuerda lo que se pagó, sea cual sea su desenlace', () =
       providerSeen: providerSeenOption(harness),
     });
 
-    assert.equal(res.usefulCandidatesCount, 2, '§ 11.24 — el objetivo EXACTO sigue intacto');
-    assert.equal(res.targetOverflowDiscarded, 3);
+    // 🔴 SUPERSEDED — X5.1. `usefulCandidatesCount === 2` era el objetivo
+    // recortando el universo: tres empresas de una página ya pagada se tiraban
+    // por haber llegado cuartas y quintas. Las cinco sobreviven.
+    assert.equal(res.usefulCandidatesCount, 5, 'el objetivo no recorta supervivientes');
+    assert.equal(res.targetOverflowDiscarded, 0, 'ya no hay sobrante que descartar');
+    // 🔴 PRESERVED — y la propiedad que este § 11.11 existe para fijar no se
+    // mueve: la memoria de lo PAGADO recuerda las cinco, no las dos que
+    // entonces cabían. Ésa era la trampa que el caso vigilaba, y sigue vigilada.
     assert.deepEqual(recordedIds(harness), ['over-0', 'over-1', 'over-2', 'over-3', 'over-4']);
   });
 

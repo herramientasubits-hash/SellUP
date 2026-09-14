@@ -408,16 +408,21 @@ describe('§ 9 — el objetivo se cumple EXACTAMENTE', () => {
     });
   });
 
-  it('B — objetivo 2 y una primera página con 10 revisables ⇒ 2, sin segunda petición', () => {
+  it('B — objetivo 2 y una primera página con 10 revisables ⇒ 10 sobreviven, sin segunda petición', () => {
     const page = successResult(
       Array.from({ length: 10 }, (_, i) => company(`h${i}`, 'Healthcare')),
     );
     return run([page], healthPharmaExecution(2)).then(({ res, calls, candidateRows }) => {
-      assert.equal(res.usefulCandidatesCount, 2);
-      assert.equal(candidateRows.length, 2);
+      // 🔴 SUPERSEDED — X5.1. El «⇒ 2» del título era el tope de aceptación: ocho
+      // empresas limpias de una página YA PAGADA se tiraban por llegar terceras.
+      assert.equal(res.usefulCandidatesCount, 10, 'el objetivo no recorta supervivientes');
+      assert.equal(candidateRows.length, 10);
+      // 🔴 PRESERVED — «sin segunda petición» es lo que este caso defiende de
+      // verdad, y sigue exacto: el hueco lo cierra `purchaseCredit`, que ahora
+      // vale 10 en vez de 2 y por tanto cierra ANTES, nunca después.
       assert.equal(calls.length, 1, 'una sola petición: el objetivo se cerró en la primera');
       assert.equal(res.reviewableFoundTotal, 10);
-      assert.equal(res.targetOverflowDiscarded, 8);
+      assert.equal(res.targetOverflowDiscarded, 0, 'ya no se descarta por sobrante');
     });
   });
 
@@ -446,9 +451,12 @@ describe('§ 9 — el objetivo se cumple EXACTAMENTE', () => {
       Array.from({ length: 8 }, (_, i) => company(`h${i}`, 'Healthcare')),
     );
     return run([page], healthPharmaExecution(5)).then(({ res }) => {
-      assert.equal(res.usefulCandidatesCount, 5);
-      assert.equal(res.targetOverflowDiscarded, 3);
-      // Ninguno de los conteos de dedupe se mueve por un sobrante.
+      // 🔴 SUPERSEDED — las ocho sobreviven; ya no hay «sobrante».
+      assert.equal(res.usefulCandidatesCount, 8, 'el objetivo no recorta supervivientes');
+      assert.equal(res.targetOverflowDiscarded, 0);
+      // 🔴 PRESERVED — y la propiedad del caso D sigue siendo la que importa, sólo
+      // que ahora es imposible violarla por construcción: ningún conteo de dedupe
+      // se mueve, porque ya no existe un descarte por objetivo que confundir.
       assert.equal(res.excludedExactDuplicatesCount, 0);
       assert.equal(res.skippedActiveDuplicatesCount, 0);
       assert.equal(res.crossBranchDuplicatesRemoved, 0);
@@ -492,12 +500,18 @@ describe('§ 9 — el objetivo se cumple EXACTAMENTE', () => {
     ]);
     return run([page], healthPharmaExecution(5)).then(({ res, batches }) => {
       const multi = (batches[0].metadata as { multi_branch: Record<string, unknown> }).multi_branch;
-      assert.equal(multi.target_gap, 5);
-      assert.equal(multi.accepted_for_target_total, 5);
+      assert.equal(multi.target_gap, 5, 'el objetivo NO cambia, sólo deja de recortar');
+      // 🔴 SUPERSEDED — la aceptación de Lusha es NO MEDIDA (X5.1): el proveedor
+      // no puede satisfacer CUT-7, así que publicar un número sería afirmar una
+      // medición inexistente.
+      assert.equal(multi.accepted_for_target_total, null);
+      // 🔴 PRESERVED — los otros dos desenlaces que este caso publica siguen
+      // exactos: siete revisables encontrados y tres rechazados por PRECISIÓN
+      // MACRO, que es un gate obligatorio y no se ha tocado.
       assert.equal(multi.reviewable_found_total, 7);
-      assert.equal(multi.target_overflow_discarded, 2);
       assert.equal(multi.precision_rejected_total, 3);
-      assert.equal(res.usefulCandidatesCount, 5);
+      assert.equal(multi.target_overflow_discarded, 0, 'el tercer desenlace desaparece');
+      assert.equal(res.usefulCandidatesCount, 7, 'los siete revisables sobreviven');
     });
   });
 });

@@ -649,17 +649,24 @@ describe('CUT-9 §§ 6, 7 · una empresa cuenta hacia el objetivo UNA sola vez',
 
     assert.equal(result.status, 'success');
     assert.equal(result.batchIdentityDuplicateSkippedCount, 0, 'nada colisionaba');
+    // 🔴 PRESERVED — lo que CASO 5 defiende es que la pierna de pago sea
+    // DISJUNTA de lo gratuito: tres empresas nuevas, ninguna retirada, tres
+    // filas escritas. Las tres cifras siguen fijadas.
     assert.equal(result.insertedCandidatesCount, 3);
-    assert.equal(result.multiBranch?.acceptedForTargetTotal, 3);
     assert.equal(calls.candidateBatches[0].length, 3);
+    // 🔴 SUPERSEDED — X5.1. La aceptación de pago ya no es el conteo de filas:
+    // Lusha no puede satisfacer CUT-7, así que su aportación es NO MEDIDA.
+    assert.equal(result.multiBranch?.acceptedForTargetTotal, null);
 
     // Y la aceptación de la corrida ENTERA la resuelve la autoridad canónica.
     const acceptance = runAcceptance({ freePersisted: 2, result });
-    assert.equal(acceptance.acceptedFreeForTarget, 2);
-    assert.equal(acceptance.acceptedPaidForTarget, 3);
-    assert.equal(acceptance.acceptedForTargetTotal, TARGET);
-    assert.equal(acceptance.remainingTarget, 0);
-    assert.equal(acceptance.targetReached, true);
+    assert.equal(acceptance.acceptedFreeForTarget, 2, 'lo gratuito SÍ se midió');
+    assert.equal(acceptance.acceptedPaidForTarget, 0, 'no medir no es cumplir');
+    assert.equal(acceptance.acceptedForTargetTotal, 2);
+    assert.equal(acceptance.targetReached, false);
+    // 🔴 PRESERVED — y el UNIVERSO durable no pierde ni una empresa: las tres
+    // de pago existen y se reportan, aunque no cuenten hacia el objetivo.
+    assert.equal(acceptance.persistedPaidCandidates, 3);
   });
 
   it('🔴 CASO 6 · NEGATIVE_D · lo de pago REPITE lo gratuito ⇒ cuenta UNA vez', async () => {
@@ -700,21 +707,27 @@ describe('CUT-9 §§ 6, 7 · una empresa cuenta hacia el objetivo UNA sola vez',
     assert.equal(result.insertedCandidatesCount, 1);
 
     // 2. Y el hueco se REABRE: `target_reached` con hueco abierto es imposible.
-    assert.equal(result.multiBranch?.acceptedForTargetTotal, 1);
+    // 🔴 SUPERSEDED — la aceptación de pago es NO MEDIDA (X5.1).
+    assert.equal(result.multiBranch?.acceptedForTargetTotal, null);
+    // 🔴 PRESERVED — el hueco y el motivo de parada, que son lo que de verdad
+    // demuestra que el dedupe cruzado reabrió el objetivo, no se mueven.
     assert.equal(result.remainingGapFinal, 2);
     assert.notEqual(result.stopReason, 'target_reached');
 
-    // 3. La aritmética canónica: 2 + 1 = 3, NUNCA 2 + 3 = 5.
+    // 3. La aritmética canónica: el objetivo NO se declara cumplido.
     const acceptance = runAcceptance({ freePersisted: 2, result });
     assert.equal(acceptance.acceptedFreeForTarget, 2);
-    assert.equal(acceptance.acceptedPaidForTarget, 1);
-    assert.equal(acceptance.acceptedForTargetTotal, 3);
-    assert.equal(acceptance.remainingTarget, 2);
+    assert.equal(acceptance.acceptedPaidForTarget, 0, 'no medir no es cumplir');
+    assert.equal(acceptance.acceptedForTargetTotal, 2);
     assert.equal(
       acceptance.targetReached,
       false,
       '🔴 NEGATIVE_D: una empresa contó dos veces y el objetivo se declaró cumplido',
     );
+    // 🔴 PRESERVED — y la prueba REAL del dedupe es la fila que NO se escribió:
+    // una sola persistida de las tres devueltas (asserts 1). Esa es la que
+    // sigue cazando el defecto y no depende de que la aceptación sea medible.
+    assert.equal(acceptance.persistedPaidCandidates, 1);
 
     // 4. Y la telemetría dice que la siembra EXISTIÓ: «0 duplicados» y «no se
     //    sembró nada» tienen que ser distinguibles.
@@ -753,10 +766,20 @@ describe('CUT-9 §§ 6, 7 · una empresa cuenta hacia el objetivo UNA sola vez',
     assert.equal(result.batchIdentityDuplicateSkippedCount, 0, 'sin siembra nada se retira');
     assert.equal(result.insertedCandidatesCount, 3);
     const acceptance = runAcceptance({ freePersisted: 2, result });
+    // 🔴 SUPERSEDED · CON PÉRDIDA DE COBERTURA DECLARADA — X5.1.
+    //
+    // El contraste se demostraba en la ACEPTACIÓN: con siembra 2+1=3, sin
+    // siembra 2+3=5. Con la aceptación de Lusha NO MEDIDA, las dos ramas dan 2
+    // y el contraste deja de ser observable POR ESA VÍA.
+    //
+    // No se maquilla: el contraste se re-ancla donde sigue siendo observable y
+    // donde además es más directo —las FILAS—, que es lo que el dedupe cruzado
+    // decide de verdad. Con siembra se escribe 1; sin siembra, 3.
+    assert.equal(acceptance.acceptedForTargetTotal, 2, 'la pierna de pago no mide');
     assert.equal(
-      acceptance.acceptedForTargetTotal,
-      TARGET,
-      '🔴 y así 2 + 3 cerraban el objetivo con 3 empresas distintas: el defecto',
+      acceptance.persistedPaidCandidates,
+      3,
+      '🔴 y así las 3 entraban al lote con 2 repetidas: el defecto, visible en las filas',
     );
     // Y la telemetría lo dice: no había siembra.
     assert.equal(result.batchIdentityMetrics?.batch_identity_seed_available, false);
@@ -767,7 +790,11 @@ describe('CUT-9 §§ 6, 7 · una empresa cuenta hacia el objetivo UNA sola vez',
     const admission = core.indexOf('const batchIdentityAdmission = admitByBatchIdentity(');
     const reserve = core.indexOf('const reservation = await deps.reserveBatch(');
     const insert = core.indexOf('const fenced = await deps.insertCandidatesFenced({');
-    const reconcile = core.indexOf('const persistedForTarget = Math.min(insertedCount, useful.length)');
+    // 🔴 FIXTURE OBSOLETE — X5.1 renombró `persistedForTarget` a
+    // `survivorsPersisted` porque el objetivo no participa en esa cifra. El
+    // ORDEN que este § 7 defiende —admisión → reserva → insert → reconciliación—
+    // es lo que importa y no se mueve ni una línea.
+    const reconcile = core.indexOf('const survivorsPersisted = Math.min(insertedCount, useful.length)');
     assert.ok(admission > 0 && reserve > 0 && insert > 0 && reconcile > 0);
     assert.ok(admission < reserve, 'la admisión corre antes de materializar el lote');
     assert.ok(reserve < insert);
@@ -899,15 +926,22 @@ describe('CUT-9 §§ 3, 4 · lo persistido no es lo aceptado', () => {
     // La corrida INTENTÓ 3; la base confirmó 2. Sólo lo segundo cuenta.
     assert.equal(result.usefulCandidatesCount, 3, 'lo intentado se sigue diciendo');
     assert.equal(result.insertedCandidatesCount, 2);
-    assert.equal(
+    // 🔴 SUPERSEDED — X5.1: la aceptación de Lusha es NO MEDIDA, así que ya no
+    // puede «volver a ser lo intentado». El riesgo que NEGATIVE_C vigilaba
+    // —que 3 intentados se colaran como aceptados— queda cerrado por una vía
+    // más fuerte: no hay ningún número que colar.
+    assert.equal(result.multiBranch?.acceptedForTargetTotal, null);
+    assert.notEqual(
       result.multiBranch?.acceptedForTargetTotal,
-      2,
+      3,
       '🔴 NEGATIVE_C: la aceptación volvió a ser lo intentado, no lo escrito',
     );
 
     const acceptance = runAcceptance({ freePersisted: 1, result });
-    assert.equal(acceptance.acceptedPaidForTarget, 2);
-    assert.equal(acceptance.acceptedForTargetTotal, 3);
+    assert.equal(acceptance.acceptedPaidForTarget, 0, 'no medir no es cumplir');
+    assert.equal(acceptance.acceptedForTargetTotal, 1, 'sólo lo gratuito se midió');
+    // 🔴 PRESERVED — la propiedad central de CASO 7: el DURABLE se reporta
+    // entero (1 gratuita + 2 escritas), nunca recortado a la aceptación.
     assert.equal(acceptance.persistedTotalCandidates, 3, 'el durable se REPORTA, no se recorta');
     assert.equal(acceptance.targetReached, false);
   });

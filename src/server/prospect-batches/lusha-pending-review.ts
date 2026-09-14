@@ -143,9 +143,9 @@ import {
   LUSHA_PENDING_REVIEW_MAX_PAGES,
   LUSHA_PENDING_REVIEW_EXPECTED_MAX_CREDITS,
 } from './lusha-pending-review-limits';
+import { resolveLushaRunAcceptanceTruth } from './lusha-run-acceptance-truth';
 import {
   LUSHA_RUN_MAX_RAW_RESULTS,
-  canAcceptLushaUsefulCandidate,
   decideLushaProviderRequest,
   resolveLushaExecutionBranches,
   resolveLushaProviderRequestsAllowed,
@@ -2428,6 +2428,21 @@ export async function persistLushaPendingReviewBatch(
   const plan = execution?.plan ?? null;
   const branches = resolveLushaExecutionBranches(plan);
   const targetGap = resolveLushaTargetGap(execution?.targetGap);
+  /**
+   * 🔴 AGENT1-LUSHA-TARGET-ACCEPTANCE-X5.1 — el crédito de COMPRA acumulado.
+   *
+   * Es el RENDIMIENTO de lo que ya se pagó: cuántas empresas útiles trajo. Es lo
+   * único que cierra el hueco de compra, y es deliberadamente igual a la cuenta
+   * de supervivientes: una página que trajo cuarenta empresas rindió, sepamos o
+   * no si están completas.
+   *
+   * Existe como función con nombre, y no como `useful.length` suelto en cuatro
+   * sitios, para que la auditoría de «¿quién decide comprar otra página?» tenga
+   * UNA respuesta legible. `acceptedForTarget` y `completeValidCandidates` NO
+   * pueden aparecer en ninguna de esas cuatro llamadas, y eso es exactamente lo
+   * que los trinquetes M9/M10 comprueban.
+   */
+  const purchaseCreditSoFar = (): number => useful.length;
   // § 5 — la macro contra la que se juzga la precisión. `null` = ruta legacy de un
   // sector, donde no hay macro industria y el comportamiento es el de hoy.
   const macroKeyForPrecision = plan?.macroKey ?? null;
@@ -2501,7 +2516,27 @@ export async function persistLushaPendingReviewBatch(
   // §§ 2/3 — los tres desenlaces NUEVOS de una empresa revisable, contados aparte
   // de todo lo de dedupe: precisión, sobrante de objetivo y aceptación.
   let precisionRejectedTotal = 0;
-  let targetOverflowDiscarded = 0;
+  /**
+   * 🔴 AGENT1-LUSHA-TARGET-ACCEPTANCE-X5.1 — estructuralmente CERO desde este
+   * corte, y se conserva a propósito.
+   *
+   * Ya no existe ningún sitio que lo incremente: el tope de aceptación que lo
+   * alimentaba descartaba supervivientes de una página ya pagada por haber
+   * llegado después del objetivo, y eso es justo lo que se elimina.
+   *
+   * No se retira el campo porque sus consumidores ya escritos —telemetría de
+   * rama, fila de uso, certificación— lo leen, y un cero aquí es un cero REAL:
+   * cero empresas descartadas por sobrante de objetivo. Retirarlo obligaría a
+   * tocar superficies que este corte tiene prohibidas.
+   *
+   * Sigue sumándose en `novelUsefulFromPage` (abajo) sin cambiar nada: ahí era
+   * el término que devolvía a la cuenta de rendimiento lo que el tope había
+   * quitado, y con el tope fuera ese término vale cero por construcción.
+   */
+  // 🔴 `const`, no `let`: al retirarse el tope de aceptación ya no queda un solo
+  // sitio que lo incremente, y declararlo constante hace que reintroducir un
+  // incremento NO COMPILE. Es el trinquete más barato posible contra M8.
+  const targetOverflowDiscarded = 0;
   let reviewableFoundTotal = 0;
   const precisionReasonCounts: Record<string, number> = {};
   const duplicateReasonCounts: Record<LushaIdentityDuplicateReason, number> = {
@@ -2576,7 +2611,7 @@ export async function persistLushaPendingReviewBatch(
 
   for (let branchIndex = 0; branchIndex < branches.length; branchIndex++) {
     const branch = branches[branchIndex] as LushaExecutionBranch;
-    const remainingGapBefore = resolveLushaRemainingGap(targetGap, useful.length);
+    const remainingGapBefore = resolveLushaRemainingGap(targetGap, purchaseCreditSoFar());
 
     // § 4 — objetivo cerrado ⇒ las ramas restantes NO se piden. Quedan en la
     // telemetría como `not_attempted` para que se vea que existían y se omitieron.
@@ -2608,14 +2643,15 @@ export async function persistLushaPendingReviewBatch(
     let branchCredits: number | null = null;
     let branchOutcome: LushaBranchOutcome = 'completed';
     let branchPrecisionRejected = 0;
-    let branchTargetOverflow = 0;
+    // 🔴 Igual que el acumulador de corrida: constante por construcción.
+    const branchTargetOverflow = 0;
 
     for (let page = 0; page < LUSHA_PENDING_REVIEW_MAX_PAGES; page++) {
       // § 6/§ 16/§ 17 — la decisión de pedir es explícita y de ámbito de corrida.
       // No se delega a la cota de los bucles: ver la cabecera del módulo de
       // política.
       const decision = decideLushaProviderRequest({
-        remainingGap: resolveLushaRemainingGap(targetGap, useful.length),
+        remainingGap: resolveLushaRemainingGap(targetGap, purchaseCreditSoFar()),
         providerRequestsUsed,
         providerRequestsAllowed,
         rawResultsTotal,
@@ -2988,53 +3024,21 @@ export async function persistLushaPendingReviewBatch(
             continue;
           }
           reviewableFoundTotal++;
-          // § 2 — el tope de ACEPTACIÓN. El de peticiones ya paró de pedir; éste
-          // impide rebasar el objetivo dentro de una página ya pagada.
-          if (!canAcceptLushaUsefulCandidate(targetGap, useful.length)) {
-            targetOverflowDiscarded++;
-            branchTargetOverflow++;
-            // ── OBSERVADOR § 5 — nueva Y precisa: la página ya se pagó y el
-            //    objetivo ya estaba cerrado. No es duplicado ni imprecisión.
-            const overflowRecord = buildLushaDiscardRecord({
-              company: candidate.company,
-              event: { kind: 'target_overflow' },
-              branchIndex,
-              page,
-              reasonDetail: null,
-              evidence: {
-                target_gap: targetGap,
-                useful_at_decision: useful.length,
-                macro_industry_key: macroKeyForPrecision,
-              },
-            });
-            if (overflowRecord !== null) discardRecords.push(overflowRecord);
-            continue;
-          }
-          // § 12 — AQUÍ, y sólo aquí, una empresa cierra hueco.
+          // 🔴 AGENT1-LUSHA-TARGET-ACCEPTANCE-X5.1 — aquí vivía el tope de
+          // ACEPTACIÓN, y con él el defecto: sobre una página YA PAGADA, una
+          // empresa que había superado todos los gates obligatorios se
+          // descartaba como `target_overflow` por haber llegado la sexta.
+          //
+          // El objetivo del usuario no es un techo del universo. Ahora TODA
+          // superviviente entra; cuántas CUENTAN lo decide el contrato canónico
+          // después, y cuántas páginas se compran lo decide `purchaseCredit`
+          // —abajo—, que es una pregunta distinta y tiene su propio nombre.
           useful.push({ ...candidate, branchProvenance, macroPrecision: precision });
           continue;
         }
 
         reviewableFoundTotal++;
-        if (!canAcceptLushaUsefulCandidate(targetGap, useful.length)) {
-          targetOverflowDiscarded++;
-          branchTargetOverflow++;
-          // ── OBSERVADOR § 5 — misma decisión en la ruta LEGACY (sin macro). ──
-          const legacyOverflowRecord = buildLushaDiscardRecord({
-            company: candidate.company,
-            event: { kind: 'target_overflow' },
-            branchIndex,
-            page,
-            reasonDetail: null,
-            evidence: {
-              target_gap: targetGap,
-              useful_at_decision: useful.length,
-              macro_industry_key: null,
-            },
-          });
-          if (legacyOverflowRecord !== null) discardRecords.push(legacyOverflowRecord);
-          continue;
-        }
+        // 🔴 X5.1 — misma eliminación en la ruta LEGACY (sin macro).
         useful.push(candidate);
       }
 
@@ -3103,7 +3107,7 @@ export async function persistLushaPendingReviewBatch(
       }
     }
 
-    const remainingGapAfter = resolveLushaRemainingGap(targetGap, useful.length);
+    const remainingGapAfter = resolveLushaRemainingGap(targetGap, purchaseCreditSoFar());
     pushBranchTelemetry(branchIndex, branch, branchOutcome, {
       pagesAttempted: branchPagesAttempted,
       providerRequests: branchProviderRequests,
@@ -3207,7 +3211,23 @@ export async function persistLushaPendingReviewBatch(
     batch_identity_seed_degraded: execution?.batchIdentitySeed?.degraded === true,
   };
 
-  const remainingGapFinal = resolveLushaRemainingGap(targetGap, useful.length);
+  // 🔴 X5.1 — la costura única, evaluada sobre los supervivientes ya admitidos.
+  // La metadata del lote (pre-inserción) y la fila de uso (post-inserción) leen
+  // de AQUÍ; ninguna vuelve a escribir su propia expresión.
+  const acceptanceTruthPreWrite = resolveLushaRunAcceptanceTruth(
+    useful.map((entry) => ({
+      employeeCount:
+        typeof entry.company.employeesExact === 'number' ? entry.company.employeesExact : null,
+      duplicateStatus: entry.resolution.dbDuplicateStatus,
+    })),
+  );
+  // 🔴 X5.1 — el hueco de COMPRA se cierra con `purchaseCredit`, que es el
+  // RENDIMIENTO de lo pagado: cuántas empresas útiles trajo. No depende de la
+  // completitud ni del objetivo, y `acceptedForTarget` no entra aquí jamás.
+  const remainingGapFinal = resolveLushaRemainingGap(
+    targetGap,
+    acceptanceTruthPreWrite.purchaseCredit,
+  );
   if (remainingGapFinal <= 0 && !runStopped) stopReason = 'target_reached';
   // El techo y el agotamiento de ramas COINCIDEN cuando cada rama gastó todas sus
   // páginas: los bucles terminan solos y nadie llega a rechazar una petición. Con
@@ -3294,7 +3314,10 @@ export async function persistLushaPendingReviewBatch(
     uniqueResultsTotal: normalizedCount,
     usefulResultsTotal: useful.length,
     reviewableFoundTotal,
-    acceptedForTargetTotal: useful.length,
+    // 🔴 X5.1 — `useful.length` es el UNIVERSO de supervivientes, no la
+    // aceptación. Publicarlo aquí bajo este nombre era la mitad de la
+    // divergencia D1; la otra mitad la publicaba la fila de uso.
+    acceptedForTargetTotal: acceptanceTruthPreWrite.acceptedForTarget,
     targetOverflowDiscarded,
     precisionRejectedTotal,
     precisionReasonCounts,
@@ -3615,8 +3638,26 @@ export async function persistLushaPendingReviewBatch(
   // su `batch_id`—, así que en ese instante `insertedCount` todavía no existe. Lo
   // que el llamador recibe, que es lo que gobierna el hueco residual y la UI, sí
   // lleva la verdad persistida.
-  const persistedForTarget = Math.min(insertedCount, useful.length);
-  const remainingGapPersisted = resolveLushaRemainingGap(targetGap, persistedForTarget);
+  // 🔴 AGENT1-LUSHA-TARGET-ACCEPTANCE-X5.1 — aquí vivía
+  // `persistedForTarget = Math.min(insertedCount, useful.length)`, y ese número
+  // se publicaba como `completeValidCandidates`. Era un conteo de FILAS ya
+  // recortado por el objetivo disfrazado de veredicto de completitud: la pierna
+  // Lusha no medía completitud, y el hueco se rellenó con la cifra a mano.
+  //
+  // Ahora las dos preguntas se responden por separado y en su sitio:
+  //
+  //   filas escritas      → `insertedCount`, sin recortar contra el objetivo
+  //   cuántas COMPLETAN   → `acceptanceTruth`, por el contrato CANÓNICO
+  //
+  // `survivorsPersisted` conserva la reconciliación honesta —no se puede
+  // afirmar haber persistido más filas de las que el insert confirmó— pero ya
+  // NO se llama «for target», porque el objetivo no participa.
+  // 🔴 X5.1 — UNA sola evaluación por corrida: `acceptanceTruthPreWrite`, ya
+  // calculada arriba sobre la MISMA lista de supervivientes. Volver a evaluarla
+  // aquí sería reabrir la puerta a dos expresiones para un mismo nombre, que es
+  // exactamente el defecto que este corte cierra.
+  const survivorsPersisted = Math.min(insertedCount, useful.length);
+  const remainingGapPersisted = resolveLushaRemainingGap(targetGap, survivorsPersisted);
   // Mismo principio que arriba: `target_reached` con hueco abierto es imposible.
   // Aquí la causa no es la deduplicación sino la escritura, y se nombra distinto.
   const stopReasonPersisted: LushaRunStopReason =
@@ -3625,7 +3666,20 @@ export async function persistLushaPendingReviewBatch(
       : stopReason;
   const runTelemetryPersisted: LushaRunTelemetry = {
     ...runTelemetry,
-    acceptedForTargetTotal: persistedForTarget,
+    // 🔴 X5.1 — la MISMA cifra que la metadata (§ costura única). Antes esta
+    // línea publicaba las filas y la metadata publicaba `useful.length`: dos
+    // números bajo un solo nombre.
+    //
+    // 🔴 El tope contra `survivorsPersisted` NO es el objetivo, es la REALIDAD:
+    // no se puede aceptar más de lo que la base confirmó que se escribió. Es la
+    // invariante que CUT-9B § G fijó —«si la base confirmara MÁS filas que
+    // útiles, la aceptación NO las sigue»— y sigue viva; lo que cambia es el
+    // otro operando, que ya no es un conteo de filas sino el veredicto de
+    // completitud del contrato canónico.
+    acceptedForTargetTotal:
+      acceptanceTruthPreWrite.acceptedForTarget === null
+        ? null
+        : Math.min(acceptanceTruthPreWrite.acceptedForTarget, survivorsPersisted),
     remainingGapFinal: remainingGapPersisted,
     stopReason: stopReasonPersisted,
   };
@@ -3665,11 +3719,19 @@ export async function persistLushaPendingReviewBatch(
         evidence: epochEvidence,
         published: seam.resolve({
           persistedCandidates: insertedCount,
-          completeValidCandidates: persistedForTarget,
-          // Esta ruta no distingue «sólo para revisión»: todo lo que persiste es
-          // revisable. `null` = no medido, que es la verdad, y NUNCA un cero que
-          // afirmaría haberlo medido.
-          reviewOnlyCandidates: null,
+          // 🔴 X5.1 — el veredicto del contrato CANÓNICO, no un conteo de filas.
+          // 🔴 X5.1 — `null` ⇒ no medible con lo que este proveedor entrega.
+          // `paidAcceptedContributionFromWriterTruth` ya sabe leerlo y produce
+          // `{ measured: false, reason: 'acceptance_not_measured' }`. Un `0`
+          // aquí afirmaría haber medido, y no medimos.
+          completeValidCandidates: acceptanceTruthPreWrite.acceptanceMeasurable
+            ? Math.min(acceptanceTruthPreWrite.complete, insertedCount)
+            : null,
+          // Ahora SÍ se distingue, y por eso deja de ser `null`: la suma
+          // `incomplete + unknown` es exactamente la cohorte de revisión, y las
+          // dos poblaciones viajan separadas en la telemetría de la corrida.
+          reviewOnlyCandidates:
+            acceptanceTruthPreWrite.incomplete + acceptanceTruthPreWrite.unknown,
         }),
       });
     } catch {
@@ -3701,7 +3763,7 @@ export async function persistLushaPendingReviewBatch(
     multiBranch: runTelemetryPersisted,
     batchIdentityMetrics: {
       ...toBatchIdentityCountersMetadata(
-        tallyBatchIdentityPersisted(batchIdentityAdmission.counters, persistedForTarget),
+        tallyBatchIdentityPersisted(batchIdentityAdmission.counters, survivorsPersisted),
       ),
       // AGENT1-CUT3B4 § 24 — telemetría de CONCURRENCIA. Sólo conteos y estados:
       // ni dominio, ni identificador fiscal, ni LinkedIn, ni id de proveedor, ni
