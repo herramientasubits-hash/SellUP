@@ -457,9 +457,19 @@ describe('CUT-3B23 § 4 — los DOS motivos de parada siguen separados', () => {
 
   it('el hueco por persistencia se decide con `insertedCount`, no con `useful.length`', () => {
     const source = read(CORE);
+    // 🔴 FIXTURE OBSOLETE — AGENT1-LUSHA-TARGET-ACCEPTANCE-X5.1.
+    //
+    // La guarda fijaba el NOMBRE `persistedForTarget`, no la propiedad. El
+    // nombre mentía —no era «for target», era «lo que la base confirmó»— y X5.1
+    // lo renombra a `survivorsPersisted` precisamente porque el objetivo no
+    // participa en esa cifra.
+    //
+    // La PROPIEDAD que esta guarda existe para defender no se mueve ni un
+    // milímetro y sigue fijada aquí: la reconciliación se acota contra las FILAS
+    // REALES (`insertedCount`), nunca contra los admitidos.
     assert.match(
       source,
-      /const persistedForTarget = Math\.min\(insertedCount, useful\.length\)/,
+      /const survivorsPersisted = Math\.min\(insertedCount, useful\.length\)/,
       'la reconciliación dejó de acotarse contra las filas reales',
     );
     assert.match(
