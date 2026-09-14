@@ -462,8 +462,12 @@ describe('§ 4 — con el store persistente, se recuerda todo lo pagado', () => 
       providerSeen: persistentProviderSeen(store),
     });
 
-    assert.equal(res.usefulCandidatesCount, 2, 'el objetivo exacto se respeta');
-    // Las 5 se pagaron; las 5 se recuerdan. Recordar sólo las aceptadas repetiría el
+    // 🔴 SUPERSEDED — X5.1: el objetivo ya no recorta el universo. Las cinco de
+    // una página pagada sobreviven; «el objetivo exacto» describía el cap que
+    // este corte elimina.
+    assert.equal(res.usefulCandidatesCount, 5, 'el objetivo no recorta supervivientes');
+    // 🔴 PRESERVED — y la propiedad del caso (6) es la MEMORIA, no el cap: las 5
+    // se pagaron, las 5 se recuerdan. Recordar sólo las aceptadas repetiría el
     // defecto en otra capa.
     assert.equal(recordedIds(rpcs).length, 5);
   });
@@ -843,9 +847,13 @@ describe('§§ 7, 8 — encender la memoria no degrada lo ya mergeado', () => {
       providerSeen: persistentProviderSeen(store),
     });
 
-    assert.equal(res.usefulCandidatesCount, 3, 'ni una más que el objetivo');
-    assert.equal(harness.persistedNames.length, 3);
-    // Y las 6 pagadas se recordaron: aceptar 3 no es haber visto 3.
+    // 🔴 SUPERSEDED — el caso se llamaba «#306 intacto: el objetivo EXACTO se
+    // sigue respetando», y #306 es precisamente el tope de aceptación que X5.1
+    // retira. Las seis pagadas sobreviven y se persisten.
+    assert.equal(res.usefulCandidatesCount, 6, 'el objetivo no recorta supervivientes');
+    assert.equal(harness.persistedNames.length, 6);
+    // 🔴 PRESERVED — «aceptar N no es haber visto N» sigue siendo el punto: las
+    // 6 pagadas se recordaron. Lo que cambia es que ahora las 6 también viven.
     assert.equal(recordedIds(rpcs).length, 6);
   });
 
