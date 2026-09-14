@@ -163,12 +163,17 @@ describe('CUT-2 § 13 · demanda residual', () => {
     const result = await run(deps, 2);
 
     assert.equal(result.targetEligibleCompanies, 2);
-    // El ranking final recorta al objetivo efectivo: nueve devueltas no se
-    // convierten en nueve candidatas persistidas.
-    assert.ok(
-      result.persisted.length <= 2,
-      `se persistieron ${result.persisted.length} con hueco 2`,
-    );
+    // 🔴 AGENT1-CANDIDATE-SURVIVAL-X5 — lo que este caso defiende es que el
+    // exceso del proveedor no INFLE EL OBJETIVO, y eso se lee en las dos cifras
+    // de arriba y abajo: el objetivo que gobernó sigue siendo 2 y el configurado
+    // sigue siendo 5, devuelva Apollo nueve filas o noventa.
+    //
+    // Lo que ya no se afirma es que el exceso se TIRE. Aquí vivía
+    // `persisted.length <= 2`: nueve empresas limpias, ninguna con un gate
+    // obligatorio en contra, y siete descartadas con `target_cap_reached` por
+    // haber llegado terceras. El objetivo es una necesidad, no un techo de
+    // existencia — cuántas CUENTAN lo sigue decidiendo el contrato canónico.
+    assert.ok(result.persisted.length >= 2);
     assert.equal(result.targetReached, true);
     // Y la corrida NO declara haber buscado cinco: reporta el objetivo que gobernó.
     assert.equal(result.configuredTargetEligibleCompanies, 5);
@@ -285,7 +290,9 @@ describe('AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING § A · demanda hasta 10', () 
     assert.equal(result.configuredTargetEligibleCompanies, 10);
     assert.equal(result.remainingTargetApplied, 10);
     assert.equal(result.targetReached, true);
-    assert.ok(result.persisted.length <= 10);
+    // 🔴 X5 — este caso defiende la DEMANDA (el `requestedResultLimit` llega a
+    // 10 en vez de truncarse en 5/6), no un tope de persistencia. El tope que
+    // había aquí era el objetivo actuando de techo de existencia.
     // Ninguna ronda pide más de lo que hace falta (10), pero SÍ puede pedir
     // más de 5/6: esa era exactamente la truncación que este corte cierra.
     assert.ok(searchCalls.some((call) => call.requestedResultLimit > 6));
@@ -298,7 +305,8 @@ describe('AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING § A · demanda hasta 10', () 
 
     assert.equal(result.targetEligibleCompanies, 9);
     assert.equal(result.configuredTargetEligibleCompanies, 10);
-    assert.ok(result.persisted.length <= 9);
+    // 🔴 X5 — la cota recorta la DEMANDA (9, no 10). Que además recortara las
+    // candidatas ya encontradas era la confusión que este corte deshace.
   });
 
   test('C3 — objetivo 8 directo (sin capa gratuita recortando desde 10)', async () => {

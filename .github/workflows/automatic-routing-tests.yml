@@ -5259,3 +5259,34 @@ jobs:
       # 0 migraciones · 0 cambios de bandera.
       - name: Run Agent 1 X3.1 ownership verdict seam tests
         run: npm run test:a1-ownership-verdict-seam-x3-1
+
+      # ══ X5 — el enrichment no es un gate de aceptación ══════════════════════
+      #
+      # El defecto que cierra, medido en la certificación `c7c28980…` (CO ×
+      # retail × target 5, Apollo): 34 empresas únicas, 15 rechazadas por
+      # ownership, 1 por evidencia sectorial CONTRARIA, y 18 sin ningún gate
+      # obligatorio en contra que terminaron igualmente en
+      # `prospect_discarded_dispositions` como `enrichment_budget_exhausted`.
+      # El lote entregó 0 candidatas habiendo encontrado 19 empresas limpias.
+      #
+      # La causa raíz eran dos condiciones que confundían tres preguntas:
+      # `isEligible` exigía `sector_evidence_confirmed` para EXISTIR e
+      # `isReviewOnlyCohort` exigía `enrichmentExecuted` para ir a revisión. Es
+      # decir: haber podido GASTAR era requisito para SOBREVIVIR.
+      #
+      # El step fija las tres preguntas ya separadas —sobrevivir, estar completa
+      # y contar hacia el objetivo— y mata cinco mutaciones verificadas una por
+      # una: reintroducir el sector confirmado como requisito de supervivencia
+      # (M1), volver a exigir `enrichmentExecuted` (M2/M3/M4), devolver el
+      # objetivo al tope del ranking final (M5), ramificar por proveedor —guarda
+      # estática sobre el fuente sin comentarios— (M6) y hacer que sobrevivir
+      # implique contar hacia el objetivo (M7).
+      #
+      # Los gates obligatorios NO se relajan: los 15 rechazos de ownership y el
+      # sectorial contradictorio de la corrida real siguen siendo rechazos, uno
+      # por uno. El cupo de enrichments tampoco se sube.
+      #
+      # 0 llamadas a proveedor · 0 créditos · 0 Supabase real · 0 escrituras ·
+      # 0 migraciones · 0 cambios de bandera · 0 backfill del histórico.
+      - name: Run Agent 1 X5 candidate survival tests
+        run: npm run test:a1-candidate-survival-x5

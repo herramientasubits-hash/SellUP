@@ -3144,9 +3144,26 @@ export async function runApolloTwoRoundWizardDiscovery(
     // y el tamaño de `persisted_candidate_ids` cuando los candidatos ya estaban
     // escritos por un intento anterior del mismo run. En los dos casos son filas,
     // nunca la proyección del ranking.
+    //
+    // 🔴 AGENT1-CANDIDATE-SURVIVAL-X5 — «filas» no es «filas que CUENTAN».
+    //
+    // `candidatesCreated` incluye las `needs_review`. Antes de este corte casi
+    // no había —sólo llegaba a revisión quien había pagado su enrichment y
+    // seguía ambigua— y la cuenta pasaba por buena. Al dejar de descartar a
+    // quien nunca pudo competir por un enrichment, la cohorte de revisión crece
+    // y esta comparación empieza a mentir: una corrida con objetivo 6, cuatro
+    // enrichments y seis filas escritas —CERO de ellas completas— se declaraba
+    // cumplida. Es exactamente la confusión que este corte existe para deshacer,
+    // sólo que aquí vivía en la ruta de producción y no en el orquestador.
+    //
+    // La autoridad es `completeValidCandidates`, que el writer calcula con el
+    // contrato canónico de completitud. Ausente ⇒ este intento no recorrió el
+    // bucle de escritura (los candidatos ya estaban escritos por un intento
+    // anterior) y se conserva el comportamiento previo sobre las filas del lote.
     targetReached:
       config.targetEligibleCompanies > 0 &&
-      candidatesCreated >= config.targetEligibleCompanies,
+      (persistenceOutcome?.completeValidCandidates ?? candidatesCreated) >=
+        config.targetEligibleCompanies,
     projectedTargetReached: runResult.targetReached,
     targetPersistibleCandidates: config.targetEligibleCompanies,
     ...(budgetAnomalies.length > 0 ? { budgetAnomalies } : {}),

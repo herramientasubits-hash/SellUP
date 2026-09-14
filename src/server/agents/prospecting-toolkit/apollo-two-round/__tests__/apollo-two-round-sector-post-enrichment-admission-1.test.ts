@@ -599,10 +599,23 @@ describe('§ 22 · RUN 1 `f4c8a60f` con enrichment SIMULADO', () => {
 
     assert.equal(recorder.enrichCalls.length, 5);
     assert.equal(block.sector_admitted_by_requested_subindustry_precision_count, 0);
-    assert.deepEqual(recorder.persistedCandidateNames, []);
+    // 🔴 X5 — el desenlace del ENRICHMENT se reproduce igual: los cinco que
+    // pagaron terminaron en `sector_not_mapped`, que es evidencia adquirida sin
+    // política con que juzgarla, y siguen siendo rechazo.
+    //
+    // Lo que ya no se reproduce es el `candidatesPersisted: 0` de RUN 1. Ese
+    // cero incluía a quienes NUNCA compitieron por un enrichment: sin evidencia
+    // ni a favor ni en contra, y sin un gate obligatorio que los rechazara,
+    // desaparecían por no haber podido gastar. Ahora sobreviven a revisión.
+    const persistedNames = recorder.persistedCandidateNames ?? [];
+    assert.ok(persistedNames.length > 0);
     for (const entry of block.candidates.filter((item) => item['enrichment_executed'] === true)) {
       assert.equal(entry['post_enrichment_sector_state'], 'sector_not_mapped');
       assert.equal(entry['terminal_reason'], 'sector_not_mapped');
+      assert.ok(
+        !persistedNames.includes(String(entry['name'] ?? '')),
+        'un rechazo sectorial real no se persiste ni siquiera a revisión',
+      );
     }
   });
 

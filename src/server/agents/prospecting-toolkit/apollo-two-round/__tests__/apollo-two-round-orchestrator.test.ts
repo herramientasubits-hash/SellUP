@@ -17,6 +17,7 @@ import {
   type RawDiscoveredOrganization,
   type RoundSearchOutcome,
 } from '../orchestrator';
+import type { ApolloTwoRoundDiscoveryConfig } from '../config';
 import {
   testConfig,
   testCorrelation,
@@ -80,9 +81,23 @@ function harness(options: {
   return { deps, recorder };
 }
 
-function run(deps: ApolloTwoRoundDeps, config = testConfig()) {
+function run(
+  deps: ApolloTwoRoundDeps,
+  /**
+   * 🔴 X5 — segundo parámetro polimórfico a propósito: las ~60 llamadas que ya
+   * existían le pasan una CONFIG, y las nuevas necesitan poder fijar el tope
+   * final de candidatas, que no vive en la config (ver `ApolloTwoRoundRunInput`).
+   */
+  configOrOptions: ApolloTwoRoundDiscoveryConfig | { finalCandidateCap: number | null } = testConfig(),
+) {
+  const isOptions = !('targetEligibleCompanies' in configOrOptions);
   return runApolloTwoRoundDiscovery(
-    { config, queryContext: testQueryContext(), correlation: testCorrelation() },
+    {
+      config: isOptions ? testConfig() : configOrOptions,
+      queryContext: testQueryContext(),
+      correlation: testCorrelation(),
+      ...(isOptions ? { finalCandidateCap: configOrOptions.finalCandidateCap } : {}),
+    },
     deps,
   );
 }
@@ -256,7 +271,17 @@ describe('§ 13 · límites', () => {
     assert.equal(result.roundsExecuted, 1);
     assert.equal(recorder.enrichCalls.length, 0);
     assert.equal(result.eligibleCompaniesFound, 6);
-    assert.equal(result.persistedCandidates, 5);
+    // 🔴 X5 — lo que este caso defiende es la PARADA DEL GASTO: cero enrichments
+    // y una sola ronda en cuanto el objetivo se cubre. Eso sigue intacto.
+    //
+    // Lo que ya no se afirma es que la sexta empresa DESAPAREZCA. Era elegible,
+    // ningún gate la rechazó, y la búsqueda que la trajo ya estaba pagada:
+    // descartarla por ocupar la posición 6 era el objetivo actuando como techo
+    // de existencia. Se persiste; cuántas CUENTAN hacia el objetivo lo sigue
+    // decidiendo el contrato canónico, no esta lista.
+    assert.equal(result.persistedCandidates, 6);
+    assert.equal(result.notPersisted.length, 0);
+    assert.equal(result.targetReached, true);
   });
 
   test('caso 17 — nunca hay una tercera ronda, ni siquiera sin alcanzar el objetivo', async () => {
@@ -276,10 +301,34 @@ describe('§ 13 · límites', () => {
 // ─── § 9: acumulación y ranking final ─────────────────────────────────────────
 
 describe('§ 9 · acumulación y tope de persistencia', () => {
-  test('con más de cinco elegibles se conservan cinco y el resto queda registrado', async () => {
+  /**
+   * 🔴 AGENT1-CANDIDATE-SURVIVAL-X5 — este caso afirmaba lo contrario.
+   *
+   * Se llamaba «con más de cinco elegibles se conservan cinco y el resto queda
+   * registrado» y fijaba `persistedCandidates = 5` con `notPersisted = 2`. Era
+   * un trinquete sobre el defecto: dos empresas que habían pasado TODOS los
+   * gates obligatorios se descartaban con `target_cap_reached` por haber
+   * llegado sextas y séptimas a una búsqueda que ya estaba pagada.
+   *
+   * El objetivo del usuario es una necesidad, no un techo de existencia. Sin
+   * tope final configurado, las siete se persisten.
+   */
+  test('con más de cinco elegibles se persisten las siete: el objetivo no es un tope', async () => {
     const { deps } = harness({ roundResults: [orgs('a', 7)] });
 
     const result = await run(deps);
+
+    assert.equal(result.eligibleCompaniesFound, 7);
+    assert.equal(result.persistedCandidates, 7);
+    assert.equal(result.notPersisted.length, 0, 'ninguna cae por el tope del objetivo');
+    // Las métricas de los elegibles adicionales NO se pierden.
+    assert.equal(result.runMetrics.totalEligibleCompanies, 7);
+  });
+
+  test('un tope final EXPLÍCITO sí recorta, y lo hace con su propio nombre', async () => {
+    const { deps } = harness({ roundResults: [orgs('a', 7)] });
+
+    const result = await run(deps, { finalCandidateCap: 5 });
 
     assert.equal(result.eligibleCompaniesFound, 7);
     assert.equal(result.persistedCandidates, 5);
@@ -287,8 +336,6 @@ describe('§ 9 · acumulación y tope de persistencia', () => {
     for (const entry of result.notPersisted) {
       assert.equal(entry.reason, 'eligible_not_persisted_due_to_target_cap');
     }
-    // Las métricas de los elegibles adicionales NO se pierden.
-    assert.equal(result.runMetrics.totalEligibleCompanies, 7);
   });
 
   test('el ranking final prefiere sector confirmado sobre evidencia ausente', async () => {

@@ -738,9 +738,24 @@ describe('§ 12 · los 20 snapshots reales de `f4c8a60f`, sin llamar a Apollo', 
     assert.ok(block.bootstrap_eligible_count > 5, 'compiten más de los que caben');
   });
 
-  it('los 5 quedan auditables aunque `prospect_candidates` sea 0', async () => {
+  /**
+   * 🔴 AGENT1-CANDIDATE-SURVIVAL-X5 — el título decía «aunque
+   * `prospect_candidates` sea 0», y ese 0 era el defecto, no el contrato.
+   *
+   * Lo que este caso existe para fijar es que los CINCO que pagaron su
+   * enrichment quedan auditables con su clasificación comprada y su veredicto
+   * de precisión. Eso no se mueve.
+   *
+   * Lo que sí cambia es el cero: los que nunca compitieron por un enrichment no
+   * tienen ningún gate obligatorio en contra —su evidencia sectorial
+   * simplemente no existe— y ya no desaparecen. Se persisten a revisión.
+   */
+  it('los 5 quedan auditables, y los que no compitieron ya no se pierden', async () => {
     const recorder = await replay();
-    assert.deepEqual(recorder.persistedCandidateNames, []);
+    assert.ok(
+      (recorder.persistedCandidateNames ?? []).length > 0,
+      'sin un gate obligatorio en contra, nadie se pierde por no haber podido pagar',
+    );
 
     const block = readBootstrapBlock(recorder);
     const enriched = block.candidates.filter((entry) => entry['enrichment_executed'] === true);

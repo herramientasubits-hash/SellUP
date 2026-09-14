@@ -211,11 +211,13 @@ describe('CORTE 3 — casos obligatorios de suficiencia (T = 5)', () => {
     assert.equal(searchCalls.length, 1);
     assert.equal(result.secondRoundSkippedReason, 'target_reached');
     assert.equal(result.targetReached, true);
-    // Sobrarle empresas no le hace persistir más que el objetivo.
-    assert.ok(
-      result.persistedCandidates <= TARGET,
-      `persistió ${result.persistedCandidates} con objetivo ${TARGET}`,
-    );
+    // 🔴 X5 — lo que este caso defiende es la PARADA: una sola ronda, una sola
+    // búsqueda, `target_reached`. Eso no se mueve.
+    //
+    // Sobrarle empresas ya no le hace TIRARLAS. Las ocho pasaron los gates
+    // obligatorios y la búsqueda que las trajo ya estaba pagada; descartar tres
+    // por haber llegado sextas era el objetivo actuando de techo de existencia.
+    assert.equal(result.persistedCandidates, 8);
   });
 
   test('F — R1 y R2 devuelven lo MISMO ⇒ lo repetido no vuelve a contar', async () => {
