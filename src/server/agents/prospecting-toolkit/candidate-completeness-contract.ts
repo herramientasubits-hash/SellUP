@@ -73,7 +73,43 @@ export const CANDIDATE_PRE_PERSISTENCE_TARGET_CONDITIONS: readonly CandidateTarg
  * `duplicateStatus` nulo siguen siendo `failed`, exactamente como antes de este
  * hito, porque son respuestas —«no lo demostró»— y no ausencias de respuesta.
  */
-export type CandidateTargetConditionStatus = 'satisfied' | 'failed' | 'pending';
+/**
+ * 🔴 AGENT1-COMPLETENESS-UNAVAILABLE-X5.1 — el cuarto estado.
+ *
+ *   `satisfied`    hay evidencia y cumple
+ *   `failed`       hay evidencia y NO cumple
+ *   `pending`      todavía no se sabe, pero es AVERIGUABLE — el llamador aún no
+ *                  llegó al punto donde se resuelve (p. ej. el orquestador antes
+ *                  del writer)
+ *   `unavailable`  NO es averiguable por esta vía: el proveedor no produce esa
+ *                  evidencia, y ninguna corrida futura la va a producir
+ *
+ * La distinción que falta entre los dos últimos es la que este corte añade, y
+ * no es cosmética: `pending` invita a esperar, `unavailable` dice que esperar no
+ * sirve. Confundirlos es cómo una corrida se queda comprando páginas a la caza
+ * de una evidencia que su proveedor no puede emitir.
+ *
+ * Los dos comparten el efecto sobre el objetivo —no contar— y se separan en la
+ * observabilidad y en la decisión de seguir gastando.
+ */
+export type CandidateTargetConditionStatus =
+  | 'satisfied'
+  | 'failed'
+  | 'pending'
+  | 'unavailable';
+
+/**
+ * 🔴 X5.1 — el veredicto de completitud, provider-neutral.
+ *
+ *   `complete`    hay evidencia suficiente para afirmar que CUMPLE
+ *   `incomplete`  hay evidencia suficiente para afirmar que NO cumple
+ *   `unknown`     no hay evidencia suficiente para decidir
+ *
+ * `unknown` NO es `incomplete`, NO es un rechazo y NO es un pase. Una candidata
+ * `unknown` sobrevive, se persiste, y no cuenta hacia el objetivo — las tres
+ * cosas a la vez, que es justo lo que un booleano no puede decir.
+ */
+export type CandidateCompletenessVerdict = 'complete' | 'incomplete' | 'unknown';
 
 export type CandidateTargetEligibilityInput = {
   persistenceSuccess: boolean;
@@ -96,6 +132,22 @@ export type CandidateTargetEligibilityInput = {
    * resuelve todas, y el comportamiento histórico de esta función.
    */
   pendingConditions?: readonly CandidateTargetCondition[];
+  /**
+   * 🔴 X5.1 — condiciones que este proveedor NO PUEDE producir.
+   *
+   * Distinto de `pendingConditions`: allí la evidencia llegará más tarde; aquí
+   * no va a llegar nunca por esta vía. Lusha, por ejemplo, confirma la MACRO y
+   * no la subindustria pedida, y el contrato prohíbe sustituir una por otra
+   * (invariante E). Declararla `unavailable` dice la verdad sin inventar una
+   * confirmación y sin fingir que otra página la resolvería.
+   *
+   * Efecto sobre el objetivo: idéntico al de `pending` — no cuenta. Efecto
+   * sobre el gasto: opuesto — ver `purchaseCredit` en la ruta del proveedor.
+   *
+   * Una condición declarada a la vez pendiente y no disponible se resuelve como
+   * `unavailable`: la imposibilidad es la afirmación más fuerte de las dos.
+   */
+  unavailableConditions?: readonly CandidateTargetCondition[];
   /**
    * WRITER-ONLY-ADMISSION-PENDING § 2 — comprobaciones de ADMISIÓN que sólo el
    * writer resuelve y que este llamador declara SIN resolver.
@@ -148,6 +200,13 @@ export type CandidateTargetEligibility = {
   eligibleForTarget: boolean;
   /** Estado de cada condición, por nombre. Nada se deduce; todo se declara. */
   conditionStates: Record<CandidateTargetCondition, CandidateTargetConditionStatus>;
+  /**
+   * 🔴 X5.1 — condiciones que este proveedor no puede producir, en el orden del
+   * contrato. Es la respuesta a «si es UNKNOWN, ¿qué evidencia falta?».
+   */
+  unavailableConditions: string[];
+  /** 🔴 X5.1 — `complete` / `incomplete` / `unknown`. Derivado, nunca declarado. */
+  completenessVerdict: CandidateCompletenessVerdict;
   /** Condiciones evaluadas y NO cumplidas, sin las pendientes. */
   strictlyFailedConditions: string[];
   /**
@@ -215,6 +274,7 @@ export function evaluateCandidateTargetEligibility(
   input: CandidateTargetEligibilityInput,
 ): CandidateTargetEligibility {
   const declaredPending = new Set<CandidateTargetCondition>(input.pendingConditions ?? []);
+  const declaredUnavailable = new Set<CandidateTargetCondition>(input.unavailableConditions ?? []);
 
   /** Veredicto crudo de cada condición, antes de aplicar lo declarado pendiente. */
   const satisfied: Record<CandidateTargetCondition, boolean> = {
@@ -231,17 +291,24 @@ export function evaluateCandidateTargetEligibility(
   const failedConditions: string[] = [];
   const strictlyFailedConditions: string[] = [];
   const pendingConditions: string[] = [];
+  const unavailableConditions: string[] = [];
 
   for (const condition of CANDIDATE_TARGET_CONDITIONS) {
-    const state: CandidateTargetConditionStatus = declaredPending.has(condition)
-      ? 'pending'
-      : satisfied[condition]
-        ? 'satisfied'
-        : 'failed';
+    // 🔴 X5.1 — `unavailable` gana a `pending`: la imposibilidad es la
+    // afirmación más fuerte, y degradarla a «todavía no» reabriría la caza de
+    // una evidencia que no existe.
+    const state: CandidateTargetConditionStatus = declaredUnavailable.has(condition)
+      ? 'unavailable'
+      : declaredPending.has(condition)
+        ? 'pending'
+        : satisfied[condition]
+          ? 'satisfied'
+          : 'failed';
     conditionStates[condition] = state;
     if (state === 'satisfied') continue;
     failedConditions.push(condition);
     if (state === 'pending') pendingConditions.push(condition);
+    else if (state === 'unavailable') unavailableConditions.push(condition);
     else strictlyFailedConditions.push(condition);
   }
 
@@ -293,6 +360,33 @@ export function evaluateCandidateTargetEligibility(
   const eligibleForTarget =
     countsTowardTargetIfPersisted && conditionStates.persistence_success === 'satisfied';
 
+  /**
+   * 🔴 X5.1 — el veredicto ternario, derivado y nunca declarado.
+   *
+   *   `complete`    cuenta hacia el objetivo
+   *   `incomplete`  hay AL MENOS una condición resuelta en contra
+   *   `unknown`     ninguna en contra, y al menos una sin resolver
+   *
+   * El orden importa: `incomplete` gana a `unknown` porque saber que algo falla
+   * es una respuesta, y no tenerla no la borra. Una candidata con
+   * `employee_count` ausente Y la subindustria no disponible es INCOMPLETE — el
+   * dato que falta ya la descalifica, y llamarla `unknown` escondería un
+   * incumplimiento detrás de un hueco.
+   */
+  const hasStrictFailure =
+    strictlyFailedConditions.length > 0 || writerOnlyFailedChecks.length > 0;
+  const hasUnresolved =
+    pendingConditions.length > 0 ||
+    unavailableConditions.length > 0 ||
+    writerOnlyPendingChecks.length > 0;
+  const completenessVerdict: CandidateCompletenessVerdict = countsTowardTargetIfPersisted
+    ? 'complete'
+    : hasStrictFailure
+      ? 'incomplete'
+      : hasUnresolved
+        ? 'unknown'
+        : 'incomplete';
+
   return {
     countsTowardTarget: eligibleForTarget,
     failedConditions,
@@ -300,6 +394,8 @@ export function evaluateCandidateTargetEligibility(
     conditionStates,
     strictlyFailedConditions,
     pendingConditions,
+    unavailableConditions,
+    completenessVerdict,
     writerOnlyPendingChecks,
     writerOnlyFailedChecks,
     countsTowardTargetIfPersisted,
@@ -689,6 +785,28 @@ export type CandidateCompletenessCounters = {
    * por definición y no por acumulación: las dos cifras salen de la misma lista.
    */
   review_only_candidates: number;
+  /**
+   * 🔴 AGENT1-COMPLETENESS-UNAVAILABLE-X5.1 — el desglose que `review_only`
+   * colapsaba.
+   *
+   *   `incomplete_candidates`  hay evidencia de que NO cumplen
+   *   `unknown_candidates`     no hay evidencia para decidir
+   *
+   * Existían las dos poblaciones y se publicaba una sola cifra. La diferencia
+   * decide cosas distintas: una incompleta puede completarse buscando el dato
+   * que le falta; una `unknown` no, porque su proveedor no emite esa evidencia.
+   *
+   * INVARIANTES, verificadas por la suite:
+   *
+   *   persisted  = complete + incomplete + unknown
+   *   review_only = incomplete + unknown          (compatibilidad, se conserva)
+   *   target_count = complete
+   *
+   * `review_only_candidates` NO se retira: sus consumidores ya escritos siguen
+   * leyendo la misma cifra con el mismo significado.
+   */
+  incomplete_candidates: number;
+  unknown_candidates: number;
   /** Lo único que puede compararse con el target de la modalidad. */
   target_count: number;
   /** Cuántas veces falló cada condición, para diagnóstico agregado. */
@@ -707,28 +825,45 @@ export type CandidateCompletenessCounters = {
 export type CandidateTargetEligibilitySummary = Pick<
   CandidateTargetEligibility,
   'countsTowardTarget' | 'failedConditions'
->;
+> & {
+  /**
+   * 🔴 X5.1 — opcional a propósito: los llamadores ya escritos no lo pasan, y
+   * para ellos «no completa» se lee como `incomplete`, que es exactamente lo que
+   * significaba antes de este corte. Sólo quien PUEDA distinguir `unknown` lo
+   * declara, y sólo entonces aparece en el contador.
+   */
+  completenessVerdict?: CandidateCompletenessVerdict;
+};
 
 export function buildCandidateCompletenessCounters(
   eligibilities: readonly CandidateTargetEligibilitySummary[],
 ): CandidateCompletenessCounters {
   const failedConditionCounts: Record<string, number> = {};
   let complete = 0;
+  let unknown = 0;
 
   for (const eligibility of eligibilities) {
     if (eligibility.countsTowardTarget) {
       complete++;
       continue;
     }
+    // 🔴 X5.1 — `unknown` sólo cuando el llamador SABE distinguirlo. Sin
+    // veredicto declarado la candidata cuenta como incompleta, que es el
+    // significado que `review_only` tenía antes de este corte: no se inventa
+    // un «no lo sé» donde nadie lo afirmó.
+    if (eligibility.completenessVerdict === 'unknown') unknown++;
     for (const condition of eligibility.failedConditions) {
       failedConditionCounts[condition] = (failedConditionCounts[condition] ?? 0) + 1;
     }
   }
 
+  const reviewOnly = eligibilities.length - complete;
   return {
     persisted_candidates: eligibilities.length,
     complete_valid_candidates: complete,
-    review_only_candidates: eligibilities.length - complete,
+    review_only_candidates: reviewOnly,
+    incomplete_candidates: reviewOnly - unknown,
+    unknown_candidates: unknown,
     target_count: complete,
     failed_condition_counts: failedConditionCounts,
   };

@@ -542,15 +542,30 @@ describe('CUT-C.2 § F — budget', () => {
     });
   });
 
-  it('una empresa sobrante del objetivo deja fila real', async () => {
+  /**
+   * 🔴 SUPERSEDED POR X5.1 — AGENT1-LUSHA-TARGET-ACCEPTANCE-X5.1.
+   *
+   * C.2 certificó que un sobrante del objetivo dejara fila durable: antes
+   * desaparecía sin rastro, y darle rastro fue un avance real.
+   *
+   * X5.1 va un paso más allá y elimina la causa: una empresa que superó todos
+   * los gates obligatorios ya no se descarta por haber llegado después del
+   * objetivo, así que no hay sobrante que rastrear. El cubo `target_cap_reached`
+   * queda vacío por construcción en esta ruta.
+   *
+   * 🔴 PRESERVED — lo que C.2 defiende de verdad —que NINGÚN descarte se pierda
+   * sin fila— sigue cubierto por el resto de esta suite sobre las cinco familias
+   * que sí son descartes reales (guard de activos, duplicado exacto, precisión
+   * macro, identidad de lote, impersistibles).
+   */
+  it('el sobrante del objetivo ya no existe: nadie se descarta por llegar tarde', async () => {
     const { records } = await run(
       Array.from({ length: 8 }, (_, i) =>
         company({ name: `Emp ${i}`, domain: `emp${i}.com` }),
       ),
     );
     const overflow = records.filter((r) => r.disposition === 'target_cap_reached');
-    assert.ok(overflow.length > 0, 'el sobrante del objetivo no dejó rastro');
-    assert.equal(overflow[0].reasonCode, 'target_overflow_discarded');
+    assert.equal(overflow.length, 0, 'el objetivo volvió a descartar supervivientes');
   });
 
   it('el escritor no lee ni escribe presupuesto — la trazabilidad no cuesta créditos', () => {

@@ -450,18 +450,33 @@ test('§ I-A — el núcleo REAL deja el bloque DURABLE en el lote canónico (ob
 
   const block = acceptedBlock(db.metadataOf(BATCH_ID));
   assert.ok(block, 'metadata.accepted_for_target AUSENTE: el defecto de CUT9B sigue vivo');
+  // 🔴 SUPERSEDED POR X5.1 — AGENT1-LUSHA-TARGET-ACCEPTANCE-X5.1.
+  //
+  // CUT-9B estableció que la aceptación de la pierna de pago era el conteo de
+  // FILAS reconciliadas (`min(insertedCount, useful.length)`). X5.1 cambia esa
+  // semántica a propósito: aceptar es satisfacer CUT-7, y Lusha no puede
+  // demostrarlo porque declara `subindustry_match`, `linkedin_status` y
+  // `ownership_gate` como NO DISPONIBLES.
+  //
+  // Lo que CUT-9B defendía y SIGUE INTACTO —y por eso no se toca ni una línea
+  // de lo demás—: que el bloque se publique, que se publique VALLADO, que el
+  // proyector se invoque UNA sola vez por corrida, y que las FILAS durables
+  // (`persisted_*`) no se recorten jamás.
   assert.deepEqual(block, {
     requested_target: 5,
     accepted_free_for_target: 2,
-    accepted_paid_for_target: 3,
-    accepted_for_target_total: 5,
-    remaining_target: 0,
-    target_reached: true,
+    // La pierna de pago ya no afirma una aceptación que no midió.
+    accepted_paid_for_target: 0,
+    accepted_for_target_total: 2,
+    remaining_target: 3,
+    target_reached: false,
+    // 🔴 PRESERVED — el universo DURABLE no se mueve ni un candidato. Las tres
+    // filas de pago existen, se escribieron y se reportan.
     persisted_free_candidates: 2,
     persisted_paid_candidates: 3,
     persisted_total_candidates: 5,
-    paid_acceptance_measured: true,
-    acceptance_unknown_reasons: [],
+    paid_acceptance_measured: false,
+    acceptance_unknown_reasons: ['acceptance_not_measured'],
   });
 
   // El lote durable es el CANÓNICO, y es el ÚNICO que se toca.
@@ -755,7 +770,10 @@ test('§ F — con la 126 sin aplicar, el bloque se publica igual (ruta anterior
   assert.deepEqual(db.writes().map((w) => w.expectedEpoch), [null]);
   const after = db.metadataOf(BATCH_ID) as Record<string, unknown>;
   assert.equal(after.A, 1, 'la ruta anterior a B4 borró la metadata previa');
-  assert.equal(acceptedBlock(after)?.accepted_for_target_total, 5);
+  // 🔴 SUPERSEDED — sólo lo gratuito cuenta: la pierna Lusha no mide aceptación.
+  // PRESERVED: lo que este § F defiende es que la ruta anterior a B4 publique
+  // igual y NO borre la metadata previa, y eso lo fija el assert de arriba.
+  assert.equal(acceptedBlock(after)?.accepted_for_target_total, 2);
 });
 
 test('§ F — un lote invisible para la RLS NO se compone sobre `{}`', async () => {
@@ -787,18 +805,30 @@ test('§ G — el núcleo proyecta `persistedForTarget` RECONCILIADO, no `useful
     db,
   });
 
+  // 🔴 PRESERVED — la propiedad central de § G es que el proyector se invoque
+  // UNA sola vez y que las FILAS sean las reconciliadas contra la base. Las dos
+  // siguen fijadas aquí, y `persistedCandidates: 2` lo demuestra: la base
+  // confirmó 2 de las 6 intentadas.
   assert.equal(seen.projected.length, 1, 'el proyector se invocó más de una vez por corrida');
+  // 🔴 SUPERSEDED — `completeValidCandidates` era ese mismo conteo de filas. Ya
+  // no: es el veredicto del contrato canónico, y Lusha no puede emitirlo.
+  // `reviewOnlyCandidates` deja de ser `null` porque AHORA sí se distingue
+  // —`incomplete + unknown`— que era justo lo que faltaba medir.
   assert.deepEqual(seen.projected[0], {
     persistedCandidates: 2,
-    completeValidCandidates: 2,
-    reviewOnlyCandidates: null,
+    completeValidCandidates: null,
+    reviewOnlyCandidates: 3,
   });
   // La misma cifra que la telemetría publica, y la misma que la acción consume.
-  assert.equal(result.multiBranch?.acceptedForTargetTotal, 2);
+  assert.equal(result.multiBranch?.acceptedForTargetTotal, null);
   assert.equal(result.insertedCandidatesCount, 2);
 
   const block = acceptedBlock(db.metadataOf(BATCH_ID));
-  assert.equal(block?.accepted_paid_for_target, 2);
+  // 🔴 SUPERSEDED — la aceptación de pago ya no es el conteo de filas.
+  assert.equal(block?.accepted_paid_for_target, 0);
+  assert.equal(block?.paid_acceptance_measured, false);
+  // 🔴 PRESERVED — y las FILAS durables siguen siendo exactamente las que la
+  // base confirmó. Ése es el universo que CUT-9B protege, y no se toca.
   assert.equal(block?.persisted_paid_candidates, 2);
   // 🔴 PARIDAD: lo durable y lo que la acción devuelve son el MISMO objeto de
   // aceptación. Si alguna vez divergieran, habría dos autoridades.
@@ -806,9 +836,14 @@ test('§ G — el núcleo proyecta `persistedForTarget` RECONCILIADO, no `useful
 });
 
 test('§ G — si la base confirmara MÁS filas que útiles, la aceptación NO las sigue', async () => {
-  // 🔴 `persistedForTarget = min(insertedCount, useful.length)` existe justo para
-  // esto. Con 2 empresas útiles y una base que reporta 4 filas, lo que cuenta
-  // hacia el objetivo son 2: una fila de más no fabrica una empresa aceptada.
+  // 🔴 PRESERVED — `survivorsPersisted = min(insertedCount, useful.length)`
+  // existe justo para esto, y X5.1 lo conserva (sólo cambia el NOMBRE, que
+  // antes decía «for target» sin que el objetivo participara). Con 2 empresas
+  // útiles y una base que reporta 4 filas, una fila de más no fabrica una
+  // empresa aceptada.
+  //
+  // El clamp sigue siendo contra la REALIDAD persistida, nunca contra el
+  // objetivo: es el único `Math.min` que X5.1 autoriza en esta capa.
   const db = makeDb([{ id: BATCH_ID, metadata: {}, identity_epoch: 0 }]);
   const { result, seen } = await runCore({
     requestedTarget: 5,
@@ -821,17 +856,24 @@ test('§ G — si la base confirmara MÁS filas que útiles, la aceptación NO l
   });
 
   assert.equal(result.insertedCandidatesCount, 4, 'la corrida no reprodujo el desajuste');
+  // 🔴 SUPERSEDED — `completeValidCandidates` era el conteo de filas acotado; hoy
+  // es el veredicto del contrato canónico, que Lusha no puede emitir.
   assert.deepEqual(seen.projected[0], {
     persistedCandidates: 4,
-    // 🔴 2, no 4. Sustituirlo por `insertedCount` publicaría empresas aceptadas
-    // que nunca existieron.
-    completeValidCandidates: 2,
-    reviewOnlyCandidates: null,
+    completeValidCandidates: null,
+    reviewOnlyCandidates: 2,
   });
 
   const block = acceptedBlock(db.metadataOf(BATCH_ID));
-  assert.equal(block?.accepted_paid_for_target, 2, 'la aceptación siguió a las filas');
-  assert.equal(block?.accepted_for_target_total, 2);
+  // 🔴 PRESERVED — el desajuste que este § G existe para cazar SIGUE cazado, y
+  // ahora por dos vías en vez de una: la aceptación NO sigue a las cuatro filas
+  // (no hay forma de que `insertedCount` se cuele como aceptación), y además se
+  // declara explícitamente NO MEDIDA en vez de fingir un número.
+  assert.equal(block?.accepted_paid_for_target, 0, 'la aceptación siguió a las filas');
+  assert.equal(block?.paid_acceptance_measured, false);
+  assert.notEqual(block?.accepted_paid_for_target, 4, 'una fila de más no fabrica una aceptada');
+  assert.equal(block?.accepted_for_target_total, 0);
+  // 🔴 PRESERVED — y las filas durables se reportan enteras, sin recortarse.
   assert.equal(block?.persisted_paid_candidates, 4, 'las filas se recortaron a la aceptación');
   assert.equal(block?.target_reached, false);
 });

@@ -381,8 +381,20 @@ export type LushaRunTelemetry = {
    * macro. Es `accepted + overflow`, y por tanto puede superar `targetGap`.
    */
   reviewableFoundTotal: number;
-  /** Cuántas de esas se aceptaron. Invariante: `<= targetGap`, SIEMPRE. */
-  acceptedForTargetTotal: number;
+  /**
+   * Cuántas de esas se aceptaron hacia el objetivo.
+   *
+   * 🔴 AGENT1-LUSHA-TARGET-ACCEPTANCE-X5.1 — `null` ⇒ NO MEDIDO, distinto de
+   * `0` («medimos y ninguna cumplió»). El tipo se ensancha en vez de forzar un
+   * cero: una superficie que sólo sabe contar no puede representar «no es
+   * posible medirlo», y convertirlo en 0 sería afirmar una medición inexistente.
+   *
+   * La invariante anterior —`<= targetGap`— se RETIRA a propósito: era el
+   * objetivo actuando como tope de la aceptación dentro del ejecutor. El
+   * recorte contra el objetivo vive ahora en `resolveAcceptedForTarget`, que es
+   * su sitio, y aquí sólo se reconcilia contra las filas realmente persistidas.
+   */
+  acceptedForTargetTotal: number | null;
   /** Cuántas se descartaron por sobrepasar el objetivo. */
   targetOverflowDiscarded: number;
   /** Cuántas empresas revisables no probaron pertenecer a la macro pedida. */

@@ -593,7 +593,15 @@ describe('CUT-L5 · §§ 15, 17 — un bloque a la vez', () => {
     assert.deepEqual(calls.pages, [0]);
     assert.equal(res.pagesRequested, 1);
     assert.equal(res.creditsChargedTotal, 1);
-    assert.equal(res.usefulCandidatesCount, LUSHA_PENDING_REVIEW_MIN_USEFUL_CANDIDATES);
+    // 🔴 SUPERSEDED — X5.1. Antes esto valía el objetivo (5) porque el tope de
+    // aceptación tiraba las otras veinte de una página ya pagada. Las 25
+    // sobreviven.
+    //
+    // 🔴 PRESERVED — y lo que L5-B existe para demostrar, que es el GASTO, no se
+    // mueve ni un crédito: una sola petición, una sola página, un solo crédito
+    // (los tres asserts de arriba). El hueco lo cierra `purchaseCredit`, que
+    // ahora son 25 en vez de 5 — es decir, se cierra ANTES, nunca después.
+    assert.equal(res.usefulCandidatesCount, 25, 'el objetivo no recorta supervivientes');
     assert.equal(res.billingContract?.matchesContract, true);
   });
 
