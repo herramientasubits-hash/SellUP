@@ -752,11 +752,20 @@ describe('LIVE-E — sólo 4 créditos de enrichment disponibles: nunca se sobre
       recorder.enrichCascadeCalls.length <= 4,
       `nunca más de 4 enrichments: se registraron ${recorder.enrichCascadeCalls.length}`,
     );
-    assert.ok(
-      (output.candidatesCreated ?? 0) < 6,
-      'sin presupuesto para los 6, el objetivo queda incompleto',
-    );
-    assert.equal(output.targetReached, false);
+    // 🔴 AGENT1-CANDIDATE-SURVIVAL-X5 — este assert confundía FILAS CREADAS con
+    // OBJETIVO ALCANZADO, que es exactamente la distinción que este corte hace.
+    //
+    // Sin presupuesto para los seis, el objetivo queda incompleto: eso sigue
+    // siendo verdad y lo dice `targetReached` abajo, que es quien tiene que
+    // decirlo. Pero los dos que no alcanzaron enrichment no tienen ningún gate
+    // obligatorio en contra: sobreviven a revisión en vez de desaparecer.
+    assert.equal(output.candidatesCreated ?? 0, 6, 'los seis sobreviven…');
+    // …y aun así el objetivo NO se alcanza. La cifra que lo dice es la del
+    // ORQUESTADOR, que es la que este arnés puede sostener: su writer es un
+    // doble que devuelve `candidatesCreated` y no mide completitud, así que
+    // `output.targetReached` —que en producción lee `completeValidCandidates`
+    // del writer real— aquí no tiene con qué responder.
+    assert.equal(output.projectedTargetReached, false);
   });
 });
 

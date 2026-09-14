@@ -175,10 +175,18 @@ describe('CORTE 2 § G2 — evaluar 100 no persiste 100', () => {
     const result = await run(deps, { maxRawResultsPerRun: 10 });
 
     assert.equal(assessed.length, APOLLO_FULL_PAGE, 'se evaluó toda la página');
-    assert.ok(
-      result.persistedCandidates <= result.targetEligibleCompanies,
-      `persistió ${result.persistedCandidates} con objetivo ${result.targetEligibleCompanies}`,
-    );
+    // 🔴 AGENT1-CANDIDATE-SURVIVAL-X5 — el título decía «el objetivo sigue
+    // capando lo persistido», y ese cap era el defecto.
+    //
+    // Lo que CORTE 2 defiende es que la página pagada se evalúe ENTERA: por eso
+    // el assert de arriba, que no se mueve. Lo que hacía de más era usar el
+    // objetivo como techo de escritura, y así una empresa limpia evaluada en la
+    // posición 6 salía con `target_cap_reached` sin que ningún gate la
+    // rechazara. Evaluar 100 sigue sin ser buscar 100; persistir lo que pasó los
+    // gates obligatorios sí es lo correcto, y cuántas CUENTAN lo decide el
+    // contrato canónico. Quien quiera un techo de escritura tiene
+    // `finalCandidateCap`, que es un límite con nombre propio.
+    assert.ok(result.persistedCandidates >= result.targetEligibleCompanies);
   });
 
   test('el tope crudo no gobierna el gasto: una página es una petición', async () => {

@@ -628,6 +628,43 @@ describe('X5 § E · mutaciones', () => {
   });
 
   /**
+   * 🔴 M7 (ruta de producción) · guarda ESTÁTICA sobre `targetReached`.
+   *
+   * El defecto que este assert fija apareció AL HACER el corte, y es el mismo
+   * error una capa más arriba: `production-runner.server.ts` decidía
+   * `targetReached` comparando `candidatesCreated` —TODAS las filas, incluidas
+   * las `needs_review`— contra el objetivo. Mientras la cohorte de revisión era
+   * casi vacía la cuenta pasaba por buena; al dejar de descartar a quien nunca
+   * pudo competir por un enrichment, una corrida con objetivo 6, cuatro
+   * enrichments y CERO candidatas completas se declaraba cumplida.
+   *
+   * La autoridad tiene que ser `completeValidCandidates`, que el writer calcula
+   * con el contrato canónico. Un test de comportamiento no basta: el arnés de
+   * esa ruta usa un writer doble que no mide completitud, así que la comparación
+   * defectuosa vuelve a pasar desapercibida. Ésta sí la ve.
+   */
+  test('🔴 M7-prod · `targetReached` no puede leerse de las filas creadas', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const source = readFileSync(
+      join(here, '..', 'apollo-two-round', 'production-runner.server.ts'),
+      'utf8',
+    );
+    const withoutComments = source
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^[ \t]*\/\/.*$/gm, '');
+
+    assert.ok(
+      withoutComments.includes('completeValidCandidates'),
+      'la decisión del objetivo tiene que leer la cuenta de completas del writer',
+    );
+    assert.ok(
+      !/targetReached:[\s\S]{0,200}?candidatesCreated\s*>=/.test(withoutComments),
+      '`targetReached` no puede comparar `candidatesCreated` contra el objetivo: ' +
+        'esas filas incluyen las needs_review',
+    );
+  });
+
+  /**
    * 🔴 M7 · hacer que `survives ⇒ countsTowardTarget`.
    *
    * La mutación más peligrosa, porque «arregla» el síntoma inflando el objetivo:
