@@ -5232,3 +5232,30 @@ jobs:
       # 0 migraciones · 0 cambios de bandera.
       - name: Run Agent 1 X3 ownership observability tests
         run: npm run test:a1-ownership-observability-x3
+
+      # ══ X3.1 — la costura del veredicto de ownership ════════════════════════
+      #
+      # X3 puso trinquete en los dos EXTREMOS de la cadena —el evaluador y el
+      # constructor de filas— y dejó el tramo del medio al aire: ocho campos
+      # copiados a mano en un literal dentro de `production-runner.server.ts`,
+      # módulo que necesita Supabase y que por eso no tiene suite pura.
+      #
+      # La auditoría de X3 lo midió: invertir `allowed` en ese literal —el gate
+      # dice permitido, la fila persiste rechazado— pasaba 821 tests de seis
+      # suites y `typecheck` sin que nada se inmutara.
+      #
+      # El step fija que `toOwnershipGateVerdictLike` copia los OCHO campos uno a
+      # uno sobre veredictos REALES (permitidos por cuatro reglas distintas,
+      # rechazados, sin dominio, con recuperación de frase SEO), que `allowed` se
+      # copia aunque contradiga a `confidence` —mata «deducirlo en vez de
+      # copiarlo»—, que el veredicto llega intacto hasta `evidence.ownership_gate`,
+      # y —guarda estática complementaria, sobre el fuente sin comentarios— que el
+      # runner delega en la costura en vez de reintroducir el literal.
+      #
+      # Ni una regla del gate cambia: `company-ownership-gate.ts` e
+      # `institutional-domain-ownership.ts` no se tocan.
+      #
+      # 0 llamadas a proveedor · 0 créditos · 0 Supabase real · 0 escrituras ·
+      # 0 migraciones · 0 cambios de bandera.
+      - name: Run Agent 1 X3.1 ownership verdict seam tests
+        run: npm run test:a1-ownership-verdict-seam-x3-1
