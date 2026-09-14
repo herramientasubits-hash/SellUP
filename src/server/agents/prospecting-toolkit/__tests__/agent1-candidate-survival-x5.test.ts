@@ -427,32 +427,78 @@ describe('X5 § D · CUT-7 intacto: sobrevivir no es contar', () => {
 // ══ E · REGRESIÓN c7c28980 Y MUTACIONES ══════════════════════════════════════
 
 /**
- * Reconstrucción de la FORMA de la corrida `c7c28980…`, no de sus datos.
- *
- *   34 únicas · 15 ownership · 1 sector contradictorio · 18 sin enrichment
- *
+ * Reconstrucción de la FORMA REAL de la corrida `c7c28980…`, leída de
+ * `prospect_discarded_dispositions` en Producción (read-only, 0 escrituras).
  * No se backfillea ni se altera el histórico: lo que se fija es lo que el
  * orquestador decidiría HOY con esas mismas 34 entradas.
+ *
+ * El desglose exacto, con `enrichment_attempted` incluido — importa, porque
+ * distingue quién murió ANTES de competir de quién murió DESPUÉS de pagar:
+ *
+ *    8  invalid_domain          · sin enrichment  ← gate BARATO
+ *    3  ownership_mismatch      · sin enrichment  ← gate BARATO
+ *    4  ownership_mismatch      · ENRIQUECIDAS    ← gate FINAL, tras pagar
+ *    1  sector_evidence_contradictory · ENRIQUECIDA ← evidencia EN CONTRA
+ *   18  enrichment_cap_reached  · sin enrichment
+ *   ──
+ *   34  únicas · 5 enrichments ejecutados · 0 candidatas creadas
+ *
+ * De ahí sale la cifra que este corte tiene que cambiar y las que no:
+ *
+ *   · 16 rechazos con causa REAL (11 baratos + 4 ownership final + 1 sector)
+ *   · 18 supervivientes, y las dieciocho SIN haber sido enriquecidas nunca
+ *   · de las 5 que SÍ pagaron, ninguna sobrevive — las cinco tenían un gate
+ *     obligatorio en contra, y eso no lo toca este corte
+ *
+ * Nótese que el desglose por DISPOSICIÓN agrupa los 8 + 3 + 4 en un solo cubo
+ * `ownership_rejected_final` = 15, que es como la corrida real lo publicó.
  */
-const RETAIL_OWNERSHIP_REJECTED = 15;
-const RETAIL_SECTOR_CONTRADICTORY = 1;
+/** Gate BARATO: Apollo no devolvió dominio. Nunca compitieron. */
+const RETAIL_CHEAP_INVALID_DOMAIN = 8;
+/** Gate BARATO: el dominio no acredita a la empresa. Nunca compitieron. */
+const RETAIL_CHEAP_OWNERSHIP = 3;
+/** Compitieron, PAGARON, y el gate FINAL de ownership las rechazó. */
+const RETAIL_ENRICHED_THEN_OWNERSHIP_REJECTED = 4;
+/** Compitió, PAGÓ, y volvió con evidencia sectorial EN CONTRA. */
+const RETAIL_ENRICHED_THEN_CONTRADICTORY = 1;
+/** Pasaron los gates obligatorios y el cupo se agotó antes de que les tocara. */
 const RETAIL_ENRICHMENT_COMPETITORS = 18;
+
+const RETAIL_OWNERSHIP_REJECTED =
+  RETAIL_CHEAP_INVALID_DOMAIN + RETAIL_CHEAP_OWNERSHIP + RETAIL_ENRICHED_THEN_OWNERSHIP_REJECTED;
+const RETAIL_SECTOR_CONTRADICTORY = RETAIL_ENRICHED_THEN_CONTRADICTORY;
+const RETAIL_ENRICHMENTS_EXECUTED =
+  RETAIL_ENRICHED_THEN_OWNERSHIP_REJECTED + RETAIL_ENRICHED_THEN_CONTRADICTORY;
 const RETAIL_TOTAL = RETAIL_OWNERSHIP_REJECTED + RETAIL_SECTOR_CONTRADICTORY + RETAIL_ENRICHMENT_COMPETITORS;
 
-async function runRetailShape(maxEnrichmentsPerRun: number) {
-  const organizations = [
-    ...Array.from({ length: RETAIL_OWNERSHIP_REJECTED }, (_u, i) =>
-      org(`own${i + 1}`, { providerRank: i + 1 }),
-    ),
-    ...Array.from({ length: RETAIL_SECTOR_CONTRADICTORY }, (_u, i) =>
-      org(`contra${i + 1}`, { providerRank: RETAIL_OWNERSHIP_REJECTED + i + 1 }),
-    ),
-    ...Array.from({ length: RETAIL_ENRICHMENT_COMPETITORS }, (_u, i) =>
-      org(`amb${i + 1}`, {
-        providerRank: RETAIL_OWNERSHIP_REJECTED + RETAIL_SECTOR_CONTRADICTORY + i + 1,
-      }),
-    ),
+/**
+ * Los cinco papeles de la corrida real. El id lleva el papel para que el arnés
+ * no tenga que mantener una tabla aparte.
+ */
+function retailOrganizations() {
+  const roles: string[] = [
+    ...Array.from({ length: RETAIL_CHEAP_INVALID_DOMAIN }, () => 'cheap_invalid_domain'),
+    ...Array.from({ length: RETAIL_CHEAP_OWNERSHIP }, () => 'cheap_ownership'),
+    ...Array.from({ length: RETAIL_ENRICHED_THEN_OWNERSHIP_REJECTED }, () => 'paid_ownership'),
+    ...Array.from({ length: RETAIL_ENRICHED_THEN_CONTRADICTORY }, () => 'paid_contradictory'),
+    ...Array.from({ length: RETAIL_ENRICHMENT_COMPETITORS }, () => 'capped'),
   ];
+  return roles.map((role, index) => org(`${role}_${index + 1}`, { providerRank: index + 1 }));
+}
+
+const roleOf = (candidateKeyOrId: string): string =>
+  candidateKeyOrId.replace('apollo:', '').replace(/_\d+$/, '');
+
+/**
+ * Reproduce la corrida con `maxEnrichmentsPerRun` configurable.
+ *
+ * Las cinco que en la realidad pagaron llevan señal sectorial libre (`3`) para
+ * ganar el ranking de enrichment; las dieciocho del cap llevan `0`, igual que
+ * `ambiguousAssessment` por defecto. Así el cupo se lo llevan exactamente las
+ * mismas cinco que se lo llevaron en Producción, y no un sorteo del fixture.
+ */
+async function runRetailShape(maxEnrichmentsPerRun: number) {
+  const organizations = retailOrganizations();
 
   return runApolloTwoRoundDiscovery(
     {
@@ -471,27 +517,39 @@ async function runRetailShape(maxEnrichmentsPerRun: number) {
       searchRound: async () => ({
         organizations,
         providerRequestCount: 1,
-        internalRecordedCredits: 34,
+        internalRecordedCredits: RETAIL_TOTAL,
         providerTotalPages: 1,
       }),
       assessCandidate: ({ organization }) => {
-        const id = organization.providerOrganizationId ?? '';
-        if (id.startsWith('own')) return rejectedAssessment('ownership_mismatch');
-        if (id.startsWith('contra')) {
-          return rejectedAssessment('sector_evidence_contradictory', {
-            sectorEvidenceState: 'sector_evidence_contradictory',
-          });
+        switch (roleOf(organization.providerOrganizationId ?? '')) {
+          case 'cheap_invalid_domain':
+            return rejectedAssessment('invalid_domain');
+          case 'cheap_ownership':
+            return rejectedAssessment('ownership_mismatch');
+          // Las que compitieron llegan LIMPIAS al gate barato: su ownership se
+          // resolvió después, en el gate final, y su sector estaba sin demostrar.
+          case 'paid_ownership':
+          case 'paid_contradictory': {
+            const base = ambiguousAssessment();
+            return { ...base, signals: { ...base.signals, sectorKeywordMatchCount: 3 } };
+          }
+          default:
+            return ambiguousAssessment();
         }
-        return ambiguousAssessment();
       },
-      // Ninguno de los cinco que alcanzan a pagar resuelve su sector: el mismo
-      // desenlace que midió la corrida real.
-      enrichCandidate: async () => ({
+      enrichCandidate: async ({ candidateKey }) => ({
         executed: true,
         internalRecordedCredits: 1,
-        sectorEvidenceState: 'sector_evidence_missing_needs_enrichment',
+        sectorEvidenceState:
+          roleOf(candidateKey) === 'paid_contradictory'
+            ? 'sector_evidence_contradictory'
+            : 'sector_evidence_missing_needs_enrichment',
       }),
-      applyFinalGates: () => ({ rejection: null }),
+      // El gate FINAL de ownership, que en la corrida real rechazó a cuatro
+      // DESPUÉS de que Apollo ya les hubiera cobrado el enrichment.
+      applyFinalGates: ({ candidateKey }) => ({
+        rejection: roleOf(candidateKey) === 'paid_ownership' ? ('ownership_mismatch' as const) : null,
+      }),
     },
   );
 }
@@ -500,8 +558,12 @@ describe('X5 § E · regresión de la certificación retail', () => {
   test('34 únicas: 16 rechazos reales intactos, 18 sobreviven a revisión', async () => {
     const result = await runRetailShape(5);
 
-    assert.equal(result.runMetrics.totalUniqueOrganizations, RETAIL_TOTAL);
-    assert.equal(result.runMetrics.enrichmentsExecuted, 5, 'el cupo NO se relaja');
+    assert.equal(result.runMetrics.totalUniqueOrganizations, RETAIL_TOTAL, '34 únicas');
+    assert.equal(
+      result.runMetrics.enrichmentsExecuted,
+      RETAIL_ENRICHMENTS_EXECUTED,
+      'cinco enrichments, los mismos cinco que pagó la corrida real',
+    );
 
     const dispositions = evaluateApolloCandidateFinalDispositions(result);
     assert.equal(countUnclassifiedFinalDispositions(dispositions), 0);
@@ -517,16 +579,45 @@ describe('X5 § E · regresión de la certificación retail', () => {
       persisted_review_only_final: RETAIL_ENRICHMENT_COMPETITORS,
     });
 
-    // 18 sobreviven: 5 pagaron y no resolvieron, 13 nunca llegaron a competir.
+    // Las 18 supervivientes son EXACTAMENTE las del cap, y las dieciocho
+    // llegan sin haber sido enriquecidas nunca: en la corrida real, de las cinco
+    // que sí pagaron no sobrevivió ninguna —cuatro cayeron en el gate final de
+    // ownership y una volvió con evidencia sectorial en contra— y este corte no
+    // toca ni una de esas cinco.
     assert.equal(result.reviewOnly.length, RETAIL_ENRICHMENT_COMPETITORS);
-    const enriched = result.reviewOnly.filter(
-      (entry) => entry.reviewReason === 'subindustry_ambiguous_after_enrichment',
+    for (const entry of result.reviewOnly) {
+      assert.equal(entry.reviewReason, 'sector_evidence_absent_without_enrichment');
+    }
+
+    // 🔴 Y el conteo hacia el objetivo NO se mueve: 18 sobreviven, 0 cuentan.
+    assert.equal(result.runMetrics.stableFinalizableCandidateCount, 0);
+    assert.equal(result.targetReached, false);
+  });
+
+  test('los 5 que PAGARON siguen rechazados: 4 por ownership final, 1 por sector', async () => {
+    const result = await runRetailShape(5);
+    const dispositions = evaluateApolloCandidateFinalDispositions(result);
+    const byKey = new Map(dispositions.map((entry) => [entry.candidateKey, entry]));
+
+    const paidOwnership = dispositions.filter(
+      (entry) => roleOf(entry.candidateKey) === 'paid_ownership',
     );
-    const neverEnriched = result.reviewOnly.filter(
-      (entry) => entry.reviewReason === 'sector_evidence_absent_without_enrichment',
+    assert.equal(paidOwnership.length, RETAIL_ENRICHED_THEN_OWNERSHIP_REJECTED);
+    for (const entry of paidOwnership) {
+      assert.equal(entry.finalDisposition, 'ownership_rejected_final');
+      assert.equal(entry.finalReason, 'ownership_mismatch');
+    }
+
+    const contradictory = dispositions.filter(
+      (entry) => roleOf(entry.candidateKey) === 'paid_contradictory',
     );
-    assert.equal(enriched.length, 5);
-    assert.equal(neverEnriched.length, 13);
+    assert.equal(contradictory.length, RETAIL_ENRICHED_THEN_CONTRADICTORY);
+    assert.equal(contradictory[0]?.finalDisposition, 'sector_subindustry_rejected_final');
+
+    // Haber pagado no salva a nadie, igual que no haber pagado no condena.
+    for (const entry of [...paidOwnership, ...contradictory]) {
+      assert.ok(!byKey.get(entry.candidateKey) || entry.finalReason !== null);
+    }
   });
 
   test('🔴 M3/M4 · `enrichment_cap_reached` jamás produce un descarte', async () => {
@@ -545,18 +636,44 @@ describe('X5 § E · regresión de la certificación retail', () => {
         0,
         `con cap ${cap} no puede haber descartes por motivos de enrichment`,
       );
-      assert.equal(result.reviewOnly.length, RETAIL_ENRICHMENT_COMPETITORS);
+      // Con cap 5 sobreviven las 18 del cap. Con cap 0 o 1 sobreviven ADEMÁS
+      // las que en la realidad pagaron y fueron rechazadas por lo que el
+      // enrichment reveló: sin comprar esa evidencia, la contradicción no
+      // existe todavía. Nunca MENOS de 18: el cupo no puede quitar
+      // supervivientes.
+      assert.ok(
+        result.reviewOnly.length >= RETAIL_ENRICHMENT_COMPETITORS,
+        `con cap ${cap} sobrevivieron ${result.reviewOnly.length}`,
+      );
     }
   });
 
   test('14/15 · con cap 0 —ni un crédito— las 18 siguen sobreviviendo', async () => {
     const result = await runRetailShape(0);
 
-    assert.equal(result.runMetrics.enrichmentsExecuted, 0);
-    assert.equal(result.reviewOnly.length, RETAIL_ENRICHMENT_COMPETITORS);
+    assert.equal(result.runMetrics.enrichmentsExecuted, 0, 'ni un crédito');
+    // Las 18 del cap sobreviven sin que se gaste NADA: el arreglo es semántico,
+    // no presupuestario.
+    assert.ok(result.reviewOnly.length >= RETAIL_ENRICHMENT_COMPETITORS);
     for (const entry of result.reviewOnly) {
       assert.equal(entry.reviewReason, 'sector_evidence_absent_without_enrichment');
     }
+
+    // Y los gates OBLIGATORIOS siguen rechazando sin necesidad de comprar nada:
+    // los once baratos y los cuatro del gate final de ownership.
+    const dispositions = evaluateApolloCandidateFinalDispositions(result);
+    const ownershipRejected = dispositions.filter(
+      (entry) => entry.finalDisposition === 'ownership_rejected_final',
+    );
+    assert.equal(ownershipRejected.length, RETAIL_OWNERSHIP_REJECTED);
+
+    // 🔴 La única que cambia de desenlace sin enrichment es la contradictoria:
+    // sin comprar la evidencia, la contradicción no se conoce. No se inventa un
+    // rechazo por lo que el proveedor PODRÍA haber dicho.
+    const contradictory = dispositions.filter(
+      (entry) => roleOf(entry.candidateKey) === 'paid_contradictory',
+    );
+    assert.equal(contradictory[0]?.finalDisposition, 'persisted_review_only_final');
   });
 });
 

@@ -251,6 +251,22 @@ export type RunCapacityLimits = {
 };
 
 /**
+ * 🔴 X5 — que HOY no haya tope es INTENCIONAL, y queda escrito aquí para que
+ * nadie lo lea como un olvido.
+ *
+ * `null` no significa «pendiente de decidir un número»: significa que este
+ * corte no conoce ningún límite técnico que justifique descartar una empresa
+ * que pasó los gates obligatorios. Persistir una fila no cuesta un crédito, y
+ * el objetivo del usuario ya tiene su propio trabajo —parar el gasto— que
+ * sigue haciendo.
+ *
+ * Si algún día aparece un límite técnico real (un tope de escritura por lote,
+ * una cota de la UI), se configura AQUÍ, con este nombre, y con la razón
+ * escrita. Lo que no puede volver a pasar es que lo herede de `target`.
+ */
+export const FINAL_CANDIDATE_CAP_UNBOUNDED = null;
+
+/**
  * Resuelve el tope de candidatas finales.
  *
  * Deliberadamente NO acepta el objetivo como parámetro: si no hay un tope
