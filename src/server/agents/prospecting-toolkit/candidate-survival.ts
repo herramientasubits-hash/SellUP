@@ -48,18 +48,43 @@
  *                                   objetivo.
  *   `sector_evidence_absent`      — NO hay evidencia. Ni a favor ni en contra.
  *                                   El candidato sobrevive incompleto.
- *   `sector_mandatory_rejection`  — hay evidencia EN CONTRA, o falta la política
- *                                   con la que juzgarla. Rechazo real.
+ *   `sector_mandatory_rejection`  — hay evidencia EN CONTRA. Rechazo real.
  *
- * `sector_not_mapped` queda deliberadamente en el tercer grupo, donde ya
- * estaba: significa «el proveedor declaró un sector y SellUp no tiene política
- * para juzgarlo», y convertirlo en supervivencia equivale a aceptar cualquier
- * empresa en toda corrida sin política sectorial. Esa es una decisión de
- * producto distinta de la de este corte, y se reporta en vez de tomarse. Lo
- * que sí se corrige es lo que este corte sí puede afirmar: la corrida
- * `c7c28980` no tuvo ni un solo `sector_not_mapped` —su única baja sectorial
- * fue `sector_evidence_contradictory`— así que ninguna de las 18 empresas que
- * este módulo rescata depende de reclasificarlo.
+ * 🔴 AGENT1-SECTOR-NOT-MAPPED-X5.2 — `sector_not_mapped` CAMBIA de grupo.
+ *
+ * X5 lo dejó en el tercero con esta justificación: «significa que el proveedor
+ * declaró un sector y SellUp no tiene política para juzgarlo». La auditoría
+ * posterior demostró que esa frase describe sólo UN sub-caso. El productor real
+ * es `if (!entry)` en `apollo-sector-relevance-gate.ts` —no hay entrada en
+ * `SECTOR_SIGNAL_TERMS`— y de ahí salen dos situaciones distintas que comparten
+ * el mismo valor:
+ *
+ *   · el proveedor declaró algo y no hay política con que juzgarlo;
+ *   · la corrida no está autorizada a adquirir evidencia y el proveedor no
+ *     declaró NADA — doble ausencia.
+ *
+ * Ninguna de las dos afirma nada sobre la empresa. La evidencia EN CONTRA la
+ * lleva en exclusiva `sector_evidence_contradictory`, producida sólo donde
+ * `sectorPolicyPresent: true` y estructuralmente inalcanzable desde esta rama:
+ * sin política no hay nada que contradecir.
+ *
+ * El propio código ya lo decía. `apollo-sector-post-enrichment-admission.ts`
+ * existe para RESCATAR candidatas de este estado, y lo describe como «un rechazo
+ * terminal por una política AUSENTE, no por evidencia en contra».
+ *
+ * Y producía una asimetría insostenible: en una corrida sin política, la
+ * candidata que PAGABA su enrichment volvía `sector_not_mapped` y se rechazaba,
+ * mientras la que no llegó a pagar sobrevivía a revisión. Gastar un crédito era
+ * lo que la mataba — la misma enfermedad que X5 curó para el cap, un nivel más
+ * abajo.
+ *
+ * ── Lo que este corte NO toca ────────────────────────────────────────────────
+ *
+ * Sobrevivir no es autorización de compra. `sector_not_mapped` sigue siendo un
+ * descalificador de GASTO en `apollo-enrichment-eligibility-gate.ts` y en
+ * `disqualifyCategorically` (`enrichment-ranking.ts`): sin política no se paga
+ * un enrichment, y eso está bien. Son dos ejes distintos y este corte existe
+ * precisamente para no volver a confundirlos.
  */
 export type SectorEvidenceDisposition =
   | 'sector_confirmed'
@@ -69,13 +94,21 @@ export type SectorEvidenceDisposition =
 /**
  * Los estados en los que la evidencia sectorial simplemente NO EXISTE.
  *
- * Los dos comparten desenlace y se distinguen por su causa: en el primero hay
- * política de sector y el proveedor no dijo lo suficiente; en el segundo no hay
- * política y el proveedor no declaró nada. Ninguno afirma nada sobre la empresa.
+ * Los tres comparten desenlace y se distinguen por DÓNDE está el hueco:
+ *
+ *   `…missing_needs_enrichment`   hay política; el proveedor no dijo lo bastante
+ *   `…missing_bootstrap_eligible` no hay política y el proveedor calló; la
+ *                                 corrida está autorizada a adquirir evidencia
+ *   `sector_not_mapped`           no hay política, y adquirir más descripción no
+ *                                 crearía la política que falta
+ *
+ * Ninguno afirma nada sobre la empresa. En los tres, el hueco es NUESTRO.
  */
 const SECTOR_EVIDENCE_ABSENT_STATES: ReadonlySet<string> = new Set([
   'sector_evidence_missing_needs_enrichment',
   'sector_evidence_missing_bootstrap_eligible',
+  // 🔴 X5.2 — ausencia de POLÍTICA nuestra, no evidencia contra la empresa.
+  'sector_not_mapped',
 ]);
 
 /**

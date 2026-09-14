@@ -5290,3 +5290,29 @@ jobs:
       # 0 migraciones · 0 cambios de bandera · 0 backfill del histórico.
       - name: Run Agent 1 X5 candidate survival tests
         run: npm run test:a1-candidate-survival-x5
+
+      # ══ X5.2 — la ausencia de catálogo NUESTRO deja de rechazar empresas ════
+      #
+      # `sector_not_mapped` nace SIEMPRE de la falta de un artefacto nuestro:
+      # `if (!entry)` sobre `SECTOR_SIGNAL_TERMS`. La evidencia EN CONTRA la
+      # lleva en exclusiva `sector_evidence_contradictory`, producida sólo donde
+      # `sectorPolicyPresent: true` y estructuralmente inalcanzable desde esa
+      # rama — sin política no hay nada que contradecir.
+      #
+      # El defecto medible era una asimetría: en una corrida sin política, la
+      # candidata que PAGABA su enrichment volvía `sector_not_mapped` y moría,
+      # mientras la que no llegó a pagar —idéntica evidencia: ninguna—
+      # sobrevivía. Gastar un crédito era lo que la mataba.
+      #
+      # El step fija los DOS ejes por separado: la empresa sobrevive a revisión,
+      # y sigue SIN autorización para gastar un enrichment (sin política no se
+      # paga, y eso no se toca). Mata cuatro mutaciones verificadas una a una:
+      # devolver `sector_not_mapped` al grupo de rechazos (M1, 9 tests), hacer
+      # que sobrevivir implique contar hacia el objetivo (M2, 7), convertir la
+      # supervivencia en autorización de compra (M3, 2) y dejar sobrevivir a la
+      # contradicha (M4, 2).
+      #
+      # 0 llamadas a proveedor · 0 créditos · 0 Supabase real · 0 escrituras ·
+      # 0 migraciones · 0 cambios de bandera · 0 backfill del histórico.
+      - name: Run Agent 1 X5.2 sector-not-mapped tests
+        run: npm run test:a1-sector-not-mapped-x5-2
