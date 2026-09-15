@@ -302,14 +302,30 @@ describe('§ 23 — matriz de novedad cero sobre el ejecutor', () => {
 });
 
 describe('§ 14 — el hueco residual gobierna la ACEPTACIÓN', () => {
-  it('un hueco de 2 acepta exactamente 2, aunque la página pagada rinda 10', async () => {
+  /**
+   * 🔴 SUPERSEDED POR X5.1 — AGENT1-LUSHA-TARGET-ACCEPTANCE-X5.1.
+   *
+   * Este caso se llamaba «un hueco de 2 acepta exactamente 2, aunque la página
+   * pagada rinda 10», y ese «exactamente 2» era el defecto: ocho empresas que
+   * habían superado todos los gates obligatorios se tiraban de una página YA
+   * PAGADA por haber llegado después del objetivo.
+   *
+   * El objetivo del usuario no es un techo del universo. Las diez sobreviven.
+   *
+   * 🔴 PRESERVED — y lo que este caso vigilaba de verdad sigue vigilado, sólo
+   * que ahora sin excepción posible: el sobrante NO es un duplicado. Antes se
+   * comprobaba que los ocho descartados no inflaran `crossBranchDuplicatesRemoved`;
+   * hoy no hay descartados que confundir, y el contador sigue en cero.
+   */
+  it('un hueco de 2 con una página de 10: las diez sobreviven, ninguna se tira', async () => {
     const { res } = await run(
       [successResult(distinct(10, 'g'))],
       { plan: planWithBranches(1), targetGap: 2 },
     );
-    assert.equal(res.usefulCandidatesCount, 2);
+    assert.equal(res.usefulCandidatesCount, 10, 'el objetivo no recorta supervivientes');
+    // El hueco sigue siendo 2: el objetivo NO cambia, sólo deja de recortar.
     assert.equal(res.targetGap, 2);
-    assert.equal(res.targetOverflowDiscarded, 8);
+    assert.equal(res.targetOverflowDiscarded, 0, 'ya no se descarta por sobrante');
     // 🔴 El sobrante NO es un duplicado: la página ya se pagó y su rendimiento
     // real tiene que seguir siendo legible.
     assert.equal(res.crossBranchDuplicatesRemoved, 0);

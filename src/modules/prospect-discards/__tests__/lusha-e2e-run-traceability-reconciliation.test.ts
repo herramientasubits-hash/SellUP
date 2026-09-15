@@ -4,15 +4,23 @@
  * Reproduce la forma de la corrida de producción del waterfall Apollo → Lusha:
  *
  *     50 crudas → 48 únicas → 17 guard de activos → 23 duplicado exacto
- *              → 8 revisables → 3 sobrantes → 5 aceptadas
+ *              → 8 revisables → 8 supervivientes
  *
- * y comprueba que la corrida CIERRA sin residuo:  50 = 2 + 17 + 23 + 3 + 5.
+ * y comprueba que la corrida CIERRA sin residuo:  50 = 2 + 17 + 23 + 8.
  *
- * 🔴 Lo que se protege es la INVARIANTE, no los números de esa corrida. El 43
- * no es un objetivo funcional: es lo que la aritmética produce con ESTE
- * reparto. Por eso hay un segundo escenario con otro tamaño (20 crudas) que
- * ejercita exactamente la misma invariante con otras cifras — si el 43
- * estuviera clavado en el código, ese escenario fallaría.
+ * 🔴 SUPERSEDED POR X5.1 — AGENT1-LUSHA-TARGET-ACCEPTANCE-X5.1.
+ *
+ * El reparto decía «8 revisables → 3 sobrantes → 5 aceptadas»: tres empresas
+ * que habían superado TODOS los gates obligatorios se descartaban de una página
+ * ya pagada por haber llegado sextas. Hoy las ocho sobreviven, así que las tres
+ * filas de `target_cap_reached` desaparecen y los durables bajan de 43 a 40.
+ *
+ * 🔴 PRESERVED — lo que este fichero protege es la INVARIANTE, no los números:
+ * cada empresa cruda cae en EXACTAMENTE un cubo y la suma cierra sin residuo.
+ * Esa propiedad no se mueve; lo que cambia es el reparto entre dos cubos. El
+ * 40 tampoco es un objetivo funcional: es lo que la aritmética produce con ESTE
+ * reparto, y por eso sigue habiendo un segundo escenario con otro tamaño (20
+ * crudas) que ejercita la misma invariante con otras cifras.
  *
  * Cero proveedor, cero base de datos, cero presupuesto: cada dependencia es un
  * doble en la prueba. El escritor NO se invoca aquí salvo en el escenario de
@@ -301,7 +309,7 @@ const range = (n: number, prefix: string) => Array.from({ length: n }, (_, i) =>
  *   página 1 →  5 guard + 12 exactos SellUp + 3 exactos HubSpot + 4 nuevas
  *               + 1 repetida = 25
  * Totales: 50 crudas · 1 impersistible · 1 repetida · 17 guard · 23 exactos
- *          · 8 revisables (5 aceptadas + 3 sobrantes).
+ *          · 8 revisables (las 8 sobreviven — X5.1 retiró el tope de aceptación).
  */
 const PROD_RUN: PageSpec[] = [
   {
@@ -358,10 +366,11 @@ describe('A. la corrida de producción se reconstruye entera', () => {
     assert.equal(res.excludedExactDuplicatesCount, 23);
   });
 
-  it('8 revisables: 5 aceptadas y 3 sobrantes por tope de objetivo', () => {
+  it('8 revisables: las 8 sobreviven — el objetivo ya no recorta', () => {
     assert.equal(res.reviewableFoundTotal, 8);
-    assert.equal(res.usefulCandidatesCount, 5);
-    assert.equal(res.targetOverflowDiscarded, 3);
+    // 🔴 SUPERSEDED — X5.1: el objetivo no recorta supervivientes.
+    assert.equal(res.usefulCandidatesCount, 8);
+    assert.equal(res.targetOverflowDiscarded, 0);
   });
 
   it('🔴 50 = 2 + 17 + 23 + 3 + 5 — la corrida cierra sin residuo', () => {
@@ -383,13 +392,15 @@ describe('A. la corrida de producción se reconstruye entera', () => {
     assert.equal(reconciliation.balanced, true);
   });
 
-  it('43 disposiciones durables, 5 candidatos, 2 transitorios intra-corrida', () => {
+  it('40 disposiciones durables, 8 candidatos, 2 transitorios intra-corrida', () => {
     const records = res.discardedCompanies ?? [];
-    // 17 + 23 + 3 = 43. Es la ARITMÉTICA de este reparto, no una constante.
-    assert.equal(records.length, 17 + 23 + 3);
-    assert.equal(res.usefulCandidatesCount, 5);
+    // 🔴 17 + 23 = 40. Es la ARITMÉTICA de este reparto, no una constante: las
+    // tres del antiguo `target_cap_reached` ya no son descartes, son candidatas.
+    assert.equal(records.length, 17 + 23);
+    assert.equal(res.usefulCandidatesCount, 8);
     assert.equal(1 + (res.crossBranchDuplicatesRemoved ?? 0), 2);
-    // 43 + 5 + 2 = 50: nada se pierde y nada se cuenta dos veces.
+    // 🔴 PRESERVED — 40 + 8 + 2 = 50: nada se pierde y nada se cuenta dos veces.
+    // La invariante es ésta, y es la que este fichero existe para defender.
     assert.equal(records.length + res.usefulCandidatesCount + 2, 50);
   });
 
@@ -405,14 +416,14 @@ describe('A. la corrida de producción se reconstruye entera', () => {
         exactDuplicates: 23,
         knownSuppressed: 0,
         precisionRejected: 0,
-        targetOverflow: 3,
+        targetOverflow: 0,
         batchIdentityRejected: 0,
         accepted: 5,
       },
       records.length,
     );
-    assert.equal(reconciliation.expectedDurableDispositions, 43);
-    assert.equal(reconciliation.observedDurableDispositions, 43);
+    assert.equal(reconciliation.expectedDurableDispositions, 40);
+    assert.equal(reconciliation.observedDurableDispositions, 40);
     assert.equal(reconciliation.durableGap, 0);
     assert.equal(reconciliation.durableReconciled, true);
   });
@@ -422,7 +433,7 @@ describe('A. la corrida de producción se reconstruye entera', () => {
       // 17 del guard de activos + 20 exactos de SellUp
       sellup_duplicate: 37,
       hubspot_duplicate: 3,
-      target_cap_reached: 3,
+      // 🔴 X5.1 — el cubo desaparece: nadie se descarta por tope de objetivo.
     });
   });
 
@@ -434,7 +445,7 @@ describe('A. la corrida de producción se reconstruye entera', () => {
       assert.ok(r.linkedinUrl, 'sin LinkedIn');
       assert.equal(r.industry, 'Hospitals & Clinics');
       assert.equal(r.countryCode, 'CO');
-      // 🔴 Identifica la PÁGINA que la trajo, no un valor fijo: las 43 filas
+      // 🔴 Identifica la PÁGINA que la trajo, no un valor fijo: las 40 filas
       // vienen de dos páginas distintas y la fila lo dice.
       assert.match(r.roundOrigin ?? '', /^lusha_branch_0_page_[01]$/);
       assert.equal(r.roundOrigin, `lusha_branch_0_page_${r.evidence.page}`);
@@ -448,10 +459,11 @@ describe('A. la corrida de producción se reconstruye entera', () => {
     for (const r of res.discardedCompanies ?? []) {
       byOrigin[r.roundOrigin ?? 'null'] = (byOrigin[r.roundOrigin ?? 'null'] ?? 0) + 1;
     }
-    // página 0: 12 guard + 8 exactos = 20 · página 1: 5 + 15 + 3 sobrantes = 23
+    // 🔴 X5.1 — página 0: 12 guard + 8 exactos = 20 · página 1: 5 + 15 = 20.
+    // Las 3 que antes caían por sobrante ya no dejan fila de descarte.
     assert.deepEqual(byOrigin, {
       lusha_branch_0_page_0: 20,
-      lusha_branch_0_page_1: 23,
+      lusha_branch_0_page_1: 20,
     });
   });
 
@@ -465,21 +477,19 @@ describe('A. la corrida de producción se reconstruye entera', () => {
     assert.equal(kinds.has('unusable_record'), false);
   });
 
-  it('ninguna empresa ACEPTADA aparece entre las descartadas', () => {
+  it('ninguna empresa SUPERVIVIENTE aparece entre las descartadas', () => {
     const discarded = new Set((res.discardedCompanies ?? []).map((r) => r.domain));
-    // Las 5 primeras nuevas cerraron hueco: n0..n4.
-    for (const d of ['n0.com', 'n1.com', 'n2.com', 'n3.com', 'n4.com']) {
-      assert.equal(discarded.has(d), false, `${d} está aceptada Y descartada`);
-    }
-    // Las 3 sobrantes SÍ: n5..n7.
-    for (const d of ['n5.com', 'n6.com', 'n7.com']) {
-      assert.equal(discarded.has(d), true, `falta la sobrante ${d}`);
+    // 🔴 PRESERVED, y REFORZADO: la propiedad es que nadie esté a la vez dentro
+    // y fuera. Antes se comprobaba sobre las 5 que cabían en el objetivo;
+    // ahora sobre las OCHO que sobreviven, que es el universo entero.
+    for (const d of ['n0.com', 'n1.com', 'n2.com', 'n3.com', 'n4.com', 'n5.com', 'n6.com', 'n7.com']) {
+      assert.equal(discarded.has(d), false, `${d} está superviviente Y descartada`);
     }
   });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// B. La invariante NO es el 43 — otra corrida, otras cifras
+// B. La invariante NO es el 40 — otra corrida, otras cifras
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('B. la lógica funciona con cualquier tamaño de corrida', () => {
@@ -493,19 +503,20 @@ describe('B. la lógica funciona con cualquier tamaño de corrida', () => {
     },
   ];
 
-  it('20 crudas: 11 durables, 5 candidatos, 2 transitorios — misma invariante', async () => {
+  it('20 crudas: 11 durables, 7 candidatos, 2 transitorios — misma invariante', async () => {
     const { res, rawCount } = await runScenario(OTHER_RUN);
     assert.equal(rawCount, 20);
     assert.equal(res.rawResultsTotal, 20);
     assert.equal(res.skippedActiveDuplicatesCount, 4);
     assert.equal(res.excludedExactDuplicatesCount, 7);
-    assert.equal(res.usefulCandidatesCount, 5);
-    assert.equal(res.targetOverflowDiscarded, 2);
+    // 🔴 SUPERSEDED — las 7 nuevas sobreviven; ya no hay sobrante.
+    assert.equal(res.usefulCandidatesCount, 7);
+    assert.equal(res.targetOverflowDiscarded, 0);
 
     const records = res.discardedCompanies ?? [];
-    // 4 + 7 + 2 = 13. Si el 43 estuviera clavado, esto fallaría.
-    assert.equal(records.length, 13);
-    assert.notEqual(records.length, 43);
+    // 4 + 7 = 11. Si el 40 estuviera clavado, esto fallaría.
+    assert.equal(records.length, 11);
+    assert.notEqual(records.length, 40);
     assert.equal(records.length + res.usefulCandidatesCount + 2, 20);
 
     const reconciliation = reconcileLushaRunAgainstDispositions(
@@ -518,9 +529,9 @@ describe('B. la lógica funciona con cualquier tamaño de corrida', () => {
         exactDuplicates: 7,
         knownSuppressed: 0,
         precisionRejected: 0,
-        targetOverflow: 2,
+        targetOverflow: 0,
         batchIdentityRejected: 0,
-        accepted: 5,
+        accepted: 7,
       },
       records.length,
     );
@@ -659,8 +670,13 @@ describe('D. el acumulador no altera ningún desenlace de la corrida', () => {
     //   skippedCount = impersistibles(1) + repetidas(1) + conocidos(0)
     //                + guard de activos(17) + identidad de lote(0) = 19
     assert.equal(res.skippedCount, 19);
-    assert.equal(res.usefulCandidatesCount, 5);
-    assert.equal(res.multiBranch?.acceptedForTargetTotal, 5);
+    // 🔴 SUPERSEDED — X5.1: las ocho revisables sobreviven, y la aceptación de
+    // Lusha es NO MEDIDA porque el proveedor no puede satisfacer CUT-7.
+    assert.equal(res.usefulCandidatesCount, 8);
+    assert.equal(res.multiBranch?.acceptedForTargetTotal, null);
+    // 🔴 PRESERVED — el hueco se cierra igual y el GASTO no se mueve: dos
+    // créditos, dos cobrados, parada por objetivo. Ésas son las cifras que este
+    // caso existe para fijar.
     assert.equal(res.remainingGapFinal, 0);
     assert.equal(res.creditsCharged, 2);
     assert.equal(res.creditsChargedTotal, 2);
