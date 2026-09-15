@@ -262,6 +262,9 @@ describe('CAS-CLOSE § 2 · la fusión no pierde nada y no suma dos veces', () =
         origin_query: null,
         provider_organization_id: 'org-1',
         domain: 'uno.com.co',
+        // X6.1 — este caso mide la FUSIÓN de checkpoints, no el website; `null`
+        // mantiene la evidencia tan mínima como la tenía.
+        website: null,
         linkedin_url: null,
         industry: 'retail',
         industries: [],

@@ -63,6 +63,10 @@ function evidenceOf(row: Row): ApolloTwoRoundCandidateEvidenceSnapshot {
     origin_query: null,
     provider_organization_id: row.key.replace(/^apollo:/, ''),
     domain: row.domain,
+    // 🔴 X6.1 — `null` no es una comodidad: el checkpoint de esta corrida
+    // histórica NO tenía el campo, porque la lista blanca no lo guardaba. Poner
+    // aquí `row.url` inventaría una evidencia que aquel documento nunca llevó.
+    website: null,
     linkedin_url: row.linkedin,
     industry: null,
     industries: [],
