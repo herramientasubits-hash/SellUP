@@ -425,10 +425,22 @@ describe('F10 — AR strong + fit medium → evidence policy no bloquea', () => 
   });
 });
 
-// ─── F11 — AR weak + fit medium → evidence policy blocked ────────────────────
+// ─── F11 — AR weak + fit medium → sobrevive incompleto (X6.2-A) ──────────────
+//
+// 🔴 SUPERSEDED por AGENT1-COUNTRY-EVIDENCE-CONTRACT-X6.2-A.
+//
+// F11 fijaba R2 —«sin evidencia de país ⇒ blocked»— sobre el eje AR. Era la
+// misma regla que en CO mató a nueve empresas del lote `f6cad05f…` sin una sola
+// señal en contra: ausencia de evidencia leída como evidencia en contra, que es
+// justo lo que `candidate-survival.ts` prohíbe desde X5.
+//
+// La contención que F11 quería —que una empresa sin país demostrado no pase por
+// buena— se conserva ENTERA y se afirma donde ahora vive: `paidCompletionAuthorized`
+// y `targetAcceptanceAuthorized`, ambas en `false`. Lo único que cambia es que
+// la empresa deja de desaparecer de la base.
 
-describe('F11 — AR weak + fit medium → evidence policy bloqueado', () => {
-  it('AR sin evidencia + fit medium → blocked', () => {
+describe('F11 — AR weak + fit medium → sobrevive incompleto, sin gasto ni aceptación', () => {
+  it('AR sin evidencia + fit medium → needs_review incompleto', () => {
     const countryEvidence = evaluateCountryEvidence({
       website: 'https://www.company.com',
       domain: 'company.com',
@@ -444,15 +456,18 @@ describe('F11 — AR weak + fit medium → evidence policy bloqueado', () => {
       businessFit: makeBusinessFit('medium'),
     });
 
-    assert.equal(
+    assert.notEqual(
       policy.decision,
       'blocked',
-      `AR weak + fit medium debe bloquearse. Decision: ${policy.decision}`,
+      `AR weak + fit medium ya no se bloquea. Decision: ${policy.decision}`,
     );
-    assert.equal(policy.primaryReason, 'no_country_evidence_with_weak_fit');
+    assert.equal(policy.primaryReason, 'country_evidence_absent_survives_incomplete');
+    assert.equal(policy.incompletenessReason, 'country_evidence_absent');
+    assert.equal(policy.paidCompletionAuthorized, false);
+    assert.equal(policy.targetAcceptanceAuthorized, false);
   });
 
-  it('AR weak + fit low → blocked', () => {
+  it('AR weak + fit low → needs_review incompleto', () => {
     const countryEvidence = evaluateCountryEvidence({
       website: 'https://www.company.com',
       domain: 'company.com',
@@ -467,8 +482,10 @@ describe('F11 — AR weak + fit medium → evidence policy bloqueado', () => {
       businessFit: makeBusinessFit('low'),
     });
 
-    assert.equal(policy.decision, 'blocked');
-    assert.equal(policy.primaryReason, 'no_country_evidence_with_weak_fit');
+    assert.notEqual(policy.decision, 'blocked');
+    assert.equal(policy.primaryReason, 'country_evidence_absent_survives_incomplete');
+    assert.equal(policy.paidCompletionAuthorized, false);
+    assert.equal(policy.targetAcceptanceAuthorized, false);
   });
 });
 

@@ -875,6 +875,20 @@ export function buildCandidateCompletenessCounters(
 export const INCOMPLETE_CANDIDATE_REVIEW_FLAG = 'incomplete_provider_company_fields';
 
 /**
+ * 🔴 AGENT1-COUNTRY-EVIDENCE-CONTRACT-X6.2-A — marca de revisión del candidato
+ * que sobrevive sin evidencia de PAÍS.
+ *
+ * Hermana de la anterior y NO sustituta: la de arriba nombra un hueco de los
+ * campos empresariales del proveedor (`employee_count`, LinkedIn) y mentiría
+ * sobre una fila cuyo hueco es geográfico. Las dos pueden convivir en la misma
+ * fila, porque son dos huecos distintos.
+ *
+ * Nace de que X6.2-A deja de borrar a estas empresas: si la fila existe, la
+ * causa por la que está en revisión tiene que estar escrita en ella.
+ */
+export const INCOMPLETE_COUNTRY_EVIDENCE_REVIEW_FLAG = 'incomplete_country_evidence';
+
+/**
  * Clave del bloque canónico de métricas de objetivo en la metadata del lote.
  *
  * Es la única fuente que responde «cuántas cuentan hacia el objetivo». Vive en

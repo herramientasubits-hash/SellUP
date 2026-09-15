@@ -299,8 +299,19 @@ export function evaluateApolloPreWriterQualityGate(input: {
     queryText: input.queryText,
     targetCountryCode: input.targetCountryCode,
   });
+  // 🔴 AGENT1-COUNTRY-EVIDENCE-CONTRACT-X6.2-A — paridad con el writer, que
+  // ahora lee `targetAcceptanceAuthorized` en vez de `decision === 'blocked'`.
+  //
+  // Este evaluador proyecta el veredicto de CALIDAD del writer, y su `fail` NO
+  // es un rechazo: alimenta `quality_gate` del contrato canónico, es decir la
+  // pregunta «¿cuenta hacia el objetivo?». El conjunto que sale `fail` es
+  // exactamente el que antes salía `blocked`, así que la parada del gasto y la
+  // cuenta de aceptaciones no se mueven ni un candidato.
+  //
+  // Lo que SÍ cambia es que este `fail` ya no implica que el writer vaya a
+  // borrar la fila: desde X6.2-A la persiste como revisión incompleta.
   const evidencePolicy = computeEvidencePersistencePolicy({ countryEvidence, businessFit });
-  if (evidencePolicy.decision === 'blocked') {
+  if (!evidencePolicy.targetAcceptanceAuthorized) {
     return {
       verdict: 'fail',
       blockingReason: `evidence_policy:${evidencePolicy.primaryReason}`,

@@ -5400,3 +5400,54 @@ jobs:
       # 0 migraciones · 0 cambios de bandera · 0 backfill del histórico.
       - name: Run Agent 1 X6.1 ownership domain snapshot tests
         run: npm run test:a1-ownership-domain-snapshot-x6-1
+
+      # ══ X6.2-A — el eje PAÍS adopta la doctrina de supervivencia de X5 ══════
+      #
+      # La política de evidencia era un gate de SUPERVIVENCIA disfrazado de
+      # política de completitud.
+      #
+      # Medido en el lote `f6cad05f-570f-4791-8879-4c803932349b` (CO × Retail ×
+      # target 5, Apollo forzado): 14 empresas pasaron ownership —`allowed: true`
+      # en las 14— y NUEVE murieron en
+      # `evidence_policy:no_country_evidence_with_weak_fit` sin una sola señal de
+      # país en contra: `country_rejected = 0`, `confidence_capped_count = 0`,
+      # `gap_causes = {"evidence_policy": 9}`. Sus propias filas de descarte
+      # guardaban la decisión que el writer revirtió:
+      # `original_final_disposition` = `persisted_review_only_final` (7) y
+      # `provisionally_persisted_pending_writer_final` (2). Dos habían pagado su
+      # enrichment (1 crédito cada una) y murieron igual.
+      #
+      # Dos causas, una por familia:
+      #
+      #   · cuatro llevaban el ccTLD `.co`, que este gate no reconocía aunque
+      #     `country-compatibility.ts` y `company-ownership-gate.ts` sí. No se
+      #     podía añadir a la lista porque se comprobaba con `includes()` sobre
+      #     la URL cruda, y `includes('.co')` casa con `.com`. Ahora el TLD se
+      #     decide por SUFIJO DE HOSTNAME, lo que además cierra un falso positivo
+      #     que ya existía con `.com.co` dentro de un path o un parámetro;
+      #   · cinco llevaban `.com` y sólo las recupera separar SUPERVIVENCIA de
+      #     COMPLETITUD, que es lo que X5 hizo para el eje SECTOR y el eje PAÍS
+      #     nunca adoptó.
+      #
+      # Las seis preguntas del contrato quedan en seis campos distintos. Las dos
+      # que deciden dinero y objetivo —`paidCompletionAuthorized` y
+      # `targetAcceptanceAuthorized`— reproducen rama por rama el comportamiento
+      # ANTERIOR al corte, y la suite lo prueba con un oráculo independiente
+      # sobre las doce combinaciones de nivel × fit. Por eso este corte no puede
+      # abrir gasto ni fabricar aceptaciones: de las seis preguntas sólo cambia
+      # la primera, la única que estaba mal.
+      #
+      # Lo que NO toca: `company-ownership-gate.ts`, `country-compatibility.ts`
+      # —que sigue siendo el único gate que rechaza por país, y lo prueba T5—,
+      # Apollo, Lusha, waterfall, presupuesto, target y X5/X5.1/X5.2/X6.1.
+      #
+      # El step mata siete mutaciones verificadas una a una: devolver `blocked`
+      # en R2, quitar `.co` de los sufijos, cambiar `endsWith` por `includes`,
+      # forzar `targetAcceptanceAuthorized`, forzar `paidCompletionAuthorized`,
+      # promover el filtro server-side a evidencia y reintroducir el objetivo
+      # como tope de supervivientes.
+      #
+      # 0 llamadas a proveedor · 0 créditos · 0 Supabase real · 0 escrituras ·
+      # 0 migraciones · 0 cambios de bandera · 0 backfill del histórico.
+      - name: Run Agent 1 X6.2-A country evidence contract tests
+        run: npm run test:a1-country-evidence-contract-x6-2-a
