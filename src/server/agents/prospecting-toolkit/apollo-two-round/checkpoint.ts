@@ -80,7 +80,14 @@ const MAX_LABEL_CHARS = 60;
  * Elegidos por necesidad, no por conveniencia: son los que consume
  * `evaluateApolloSectorRelevanceForPaidOperation` (evidencia sectorial),
  * `evaluateApolloEnrichmentEligibility` (país, dominio, plataforma) y
- * `buildProspectingPipelineCandidate` (título, url, snippet, rank).
+ * `buildProspectingPipelineCandidate` (título, url, snippet, rank y el website
+ * declarado, vía `readApolloCandidateWebsite`).
+ *
+ * 🔴 X6.1 — «por necesidad» sólo se sostiene si la necesidad se comprueba. El
+ * trinquete de `agent1-ownership-domain-snapshot-x6-1.test.ts` fija la lista de
+ * campos de `metadata` que los lectores canónicos de identidad consultan y exige
+ * que cada uno sobreviva al viaje: sin él, un lector nuevo vuelve a leer un campo
+ * que este documento no guarda, y el síntoma aparece tres capas más abajo.
  */
 export type ApolloTwoRoundCandidateEvidenceSnapshot = {
   title: string;
@@ -91,6 +98,39 @@ export type ApolloTwoRoundCandidateEvidenceSnapshot = {
   origin_query: string | null;
   provider_organization_id: string | null;
   domain: string | null;
+  /**
+   * 🔴 AGENT1-OWNERSHIP-DOMAIN-SNAPSHOT-X6.1 — el sitio web DECLARADO por Apollo.
+   *
+   * Faltaba, y su ausencia era la causa de que el gate obligatorio de ownership
+   * rechazara a toda empresa que Apollo sí dotó de dominio. La cadena completa:
+   *
+   *   · el mapper del proveedor estampa el sitio en DOS sitios —`metadata.website`
+   *     y `metadata.apollo_profile.website_url`—;
+   *   · esta lista blanca conservaba `domain` pero NINGUNO de esos dos campos;
+   *   · el runner reconstruye el resultado desde este snapshot también en la
+   *     PRIMERA pasada, no sólo en un reintento;
+   *   · desde #394 `buildProspectingPipelineCandidate` deriva el website de Apollo
+   *     con `readApolloCandidateWebsite`, que lee EXACTAMENTE esos dos campos, y
+   *     deriva el dominio del website;
+   *   · resultado: `candidate.website = null` y `candidate.domain = null`, y
+   *     `evaluateCompanyOwnership` recibiendo `null` responde lo único que puede
+   *     responder: «No domain available to evaluate ownership».
+   *
+   * Medido en la certificación `cfb2acd4…`: 25 de 25 empresas evaluadas por el
+   * gate, 25 bloqueadas, 0 aprobadas — y las 25 llevaban dominio válido en su
+   * propia fila de `prospect_discarded_dispositions`, porque la rama de IDENTIDAD
+   * (`identity.normalizedDomain`) lee el resultado original y nunca pasó por aquí.
+   * Dos representaciones de la misma empresa divergiendo en un solo campo.
+   *
+   * 🔴 Un solo campo para las dos representaciones, a propósito: lo que el
+   * contrato promete es el valor OBSERVABLE por `readApolloCandidateWebsite`, no
+   * la colocación interna. La reconstrucción lo restituye en los dos sitios con
+   * ese mismo valor, así que el lector responde idéntico antes y después. El
+   * efecto colateral queda escrito: si el original traía `metadata.website` y un
+   * `apollo_profile.website_url` DISTINTO, tras el viaje los dos valen el primero
+   * —el que el lector habría devuelto—, y el segundo pierde su valor original.
+   */
+  website: string | null;
   linkedin_url: string | null;
   industry: string | null;
   industries: string[];
@@ -170,6 +210,14 @@ export function toCandidateEvidenceSnapshot(
     provider_organization_id:
       truncateText(meta['apollo_organization_id']) ?? truncateText(meta['organization_id']),
     domain: truncateText(pick('domain')) ?? truncateText(profile['primary_domain']),
+    // 🔴 X6.1 — la MISMA precedencia que `readApolloCandidateWebsite`, ni una más:
+    // `metadata.website` y, si falta, `metadata.apollo_profile.website_url`.
+    //
+    // Deliberadamente NO usa `pick('website')`: eso añadiría un `profile.website`
+    // que el lector no consulta, y una precedencia que el lector no tiene es una
+    // segunda semántica esperando divergir. El campo del perfil se llama
+    // `website_url`, y se lee por su nombre.
+    website: truncateText(meta['website']) ?? truncateText(profile['website_url']),
     linkedin_url: truncateText(pick('linkedin_url')),
     industry: truncateLabel(pick('industry')),
     industries: truncateStringArray(pick('industries')),
@@ -202,7 +250,13 @@ export function toCandidateEvidenceSnapshot(
  *      seo_description, description, employee_count, domain, y los mismos dentro
  *      de metadata.apollo_profile
  *   `buildProspectingPipelineCandidate` → title, url, snippet, source, rank,
- *      originQuery
+ *      originQuery y —🔴 X6.1— el website DECLARADO, que para un resultado de
+ *      Apollo obtiene con `readApolloCandidateWebsite`: `metadata.website` y, si
+ *      falta, `metadata.apollo_profile.website_url`. Esta línea decía «title, url,
+ *      snippet, source, rank, originQuery» y punto, y era verdad hasta el #394;
+ *      después el constructor empezó a leer dos campos más y esta lista no se
+ *      movió. El dominio del candidato se deriva de ese website, así que la
+ *      omisión llegaba hasta el gate de ownership.
  *
  * El adaptador usa esta reconstrucción TAMBIÉN en la primera pasada, no sólo en
  * un reintento. Es deliberado: así el veredicto de un reintento se calcula sobre
@@ -223,6 +277,16 @@ export function fromCandidateEvidenceSnapshot(
     metadata: {
       apollo_organization_id: snapshot.provider_organization_id,
       domain: snapshot.domain,
+      // 🔴 X6.1 — `readApolloCandidateWebsite` lee este campo PRIMERO, así que
+      // restituirlo aquí es lo que devuelve al constructor el website que el
+      // proveedor declaró. Su gemelo va abajo, en `apollo_profile.website_url`:
+      // los dos, porque el lector consulta los dos y restituir sólo uno dejaría
+      // el contrato dependiendo de cuál se leyó.
+      // `?? null` por los checkpoints LEGACY: los documentos escritos antes de
+      // X6.1 no traen la clave, y leerlos debe seguir funcionando —exactamente
+      // el mismo trato que `enrichment_fields_added`. Un checkpoint antiguo
+      // reconstruye sin website, como hasta ahora; uno nuevo, con él.
+      website: snapshot.website ?? null,
       linkedin_url: snapshot.linkedin_url,
       industry: snapshot.industry,
       industries: snapshot.industries,
@@ -248,6 +312,10 @@ export function fromCandidateEvidenceSnapshot(
         seo_description: snapshot.seo_description,
         description: snapshot.description,
         primary_domain: snapshot.domain,
+        // 🔴 X6.1 — el respaldo que `readApolloCandidateWebsite` consulta cuando
+        // `metadata.website` falta. Mismo valor que arriba: el contrato es el que
+        // el lector observa, no en cuál de los dos sitios estaba.
+        website_url: snapshot.website ?? null,
         linkedin_url: snapshot.linkedin_url,
         // Las dos formas del tamaño: el gate sectorial lee `employee_count` y el
         // resto del pipeline `estimated_num_employees`. Reconstruir sólo una

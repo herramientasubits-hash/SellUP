@@ -5359,3 +5359,44 @@ jobs:
       # 0 migraciones · 0 cambios de bandera · 0 backfill del histórico.
       - name: Run Agent 1 X5.1 Lusha target/acceptance tests
         run: npm run test:a1-lusha-target-acceptance-x5-1
+
+      # ══ X6.1 — el website declarado sobrevive al snapshot de dos rondas ════
+      #
+      # El gate de ownership no estaba juzgando mal: estaba juzgando VACÍO.
+      #
+      # Medido en la certificación `cfb2acd4…` (CO × retail × 5, Apollo forzado):
+      # 34 empresas únicas, 33 rechazadas por ownership, 0 supervivientes. De las
+      # 25 que el gate llegó a evaluar, 25 bloqueadas y 0 aprobadas, todas con
+      # `effective_domain: null` y `missing_signals: ["domain"]` — y las 25
+      # llevaban dominio VÁLIDO en su propia fila de descartes, porque la rama de
+      # identidad lee el resultado ORIGINAL y nunca pasó por el snapshot.
+      #
+      # La costura, en cuatro pasos:
+      #
+      #   1. el mapper estampa el sitio en `metadata.website` Y en
+      #      `metadata.apollo_profile.website_url`;
+      #   2. `toCandidateEvidenceSnapshot` conservaba `domain` y ninguno de los dos;
+      #   3. el runner reconstruye desde ese snapshot también en la PRIMERA pasada;
+      #   4. desde #394 el constructor lee el website con
+      #      `readApolloCandidateWebsite` —esos dos campos exactos— y deriva el
+      #      dominio de él.
+      #
+      # El histórico lo confirma: el último candidato Apollo persistido por esta
+      # ruta es del 03-09; #394 se mergeó el 07-09; desde entonces, cinco lotes y
+      # cero candidatos.
+      #
+      # X6.1 añade UN campo a la lista blanca, con la misma precedencia del
+      # lector, y lo restituye en las dos representaciones. No toca las reglas de
+      # ownership, no añade LinkedIn como respaldo y no hace que el constructor
+      # derive el dominio de `metadata.domain` (defecto latente, fuera de alcance
+      # y documentado sin fijar su valor).
+      #
+      # El step mata cinco mutaciones verificadas una a una: quitar `website` de
+      # la proyección, no restituirlo en la reconstrucción, restituir sólo el
+      # gemelo del perfil, invertir la precedencia, y usar `primary_domain` para
+      # inventar un website.
+      #
+      # 0 llamadas a proveedor · 0 créditos · 0 Supabase real · 0 escrituras ·
+      # 0 migraciones · 0 cambios de bandera · 0 backfill del histórico.
+      - name: Run Agent 1 X6.1 ownership domain snapshot tests
+        run: npm run test:a1-ownership-domain-snapshot-x6-1
