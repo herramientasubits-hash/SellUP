@@ -121,6 +121,17 @@ export type LushaWaterfallLegFailure = {
 /** Tope de la transcripción: se registra, no se narra. */
 export const LUSHA_WATERFALL_LEG_FAILURE_REASON_MAX_LENGTH = 200;
 
+/**
+ * AGENT1-WATERFALL-LEG-DURABLE-TRACE — la clave bajo la que la traza de la
+ * pierna queda en `prospect_batches.metadata`.
+ *
+ * Vive en el módulo PURO —no en la acción— por la misma razón que
+ * `ACCEPTED_FOR_TARGET_METADATA_KEY` vive en `accepted-for-target.ts`: quien
+ * escribe y quien audita tienen que nombrar el mismo sitio, y un literal suelto
+ * en cada lado es como los dos empiezan a nombrar sitios distintos.
+ */
+export const LUSHA_WATERFALL_LEG_METADATA_KEY = 'lusha_waterfall_leg' as const;
+
 /** `lusha-budget-gate.ts` — los dos códigos de la puerta de presupuesto. */
 const BUDGET_FAILURE_ERROR_CODES: ReadonlySet<string> = new Set([
   'lusha_budget_blocked',

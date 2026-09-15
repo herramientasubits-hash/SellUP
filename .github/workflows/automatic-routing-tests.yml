@@ -5490,3 +5490,31 @@ jobs:
       # 0 migraciones · 0 cambios de bandera.
       - name: Run Agent 1 X6.3 ownership pre-enrichment tests
         run: npm run test:a1-ownership-pre-enrichment-x6-3
+
+      # AGENT1-WATERFALL-LEG-DURABLE-TRACE — la traza de la pierna Lusha deja de
+      # morir con la sesión.
+      #
+      # El bloque `lushaWaterfallLeg` se calculaba, se devolvía y llegaba al
+      # navegador; `prospect_batches.metadata->'lusha_waterfall_leg'` quedaba
+      # NULL incluso en corridas históricas donde Lusha SÍ corrió y SÍ consumió
+      # créditos. Cerrada la sesión, no se podía auditar si la pierna corrió, por
+      # qué se saltó, por qué falló, con qué hueco, qué persistió ni qué
+      # aceptación reportó — y reconstruirlo significaba volver a pagar.
+      #
+      # El corte publica ese MISMO bloque, tal cual, por el MISMO par vallado que
+      # CUT-9B usa para `accepted_for_target` (`decideBatchMetadataFencePlan` +
+      # `publishFencedBatchMetadata`), con la MISMA autoridad de época
+      # (`read_batch_identity_snapshot`) y por el MISMO cliente de sesión.
+      #
+      # Lo que la suite PROHÍBE: que la llamada desaparezca; que el bloque se
+      # reconstruya en vez de publicarse; que nazca un segundo mecanismo de
+      # escritura sobre `metadata`; que un `null` se convierta en `0` o en
+      # `false`; que un skip se lea como fallo; que la publicación pise las demás
+      # claves del lote; y que su desenlace mueva algo del resultado.
+      #
+      # 12 de sus 19 tests están rojos contra `main` sin el corte.
+      #
+      # 0 llamadas a proveedor · 0 créditos · 0 Supabase real · 0 escrituras en
+      # Producción · 0 migraciones · 0 cambios de bandera · 0 backfill.
+      - name: Run Agent 1 waterfall leg durable trace tests
+        run: npm run test:a1-waterfall-leg-durable-trace

@@ -23,6 +23,16 @@ import {
   type LushaWaterfallLegInput,
   type LushaWaterfallLegOutcome,
 } from './wizard-lusha-waterfall.server';
+// AGENT1-WATERFALL-LEG-DURABLE-TRACE — la clave de la traza (módulo PURO) y el
+// MISMO mecanismo vallado con el que CUT-9B publica `accepted_for_target`.
+import { LUSHA_WATERFALL_LEG_METADATA_KEY } from './wizard-lusha-waterfall';
+import { loadBatchIdentityRegistry } from '@/server/prospect-batches/batch-identity-registry-store';
+import {
+  decideBatchMetadataFencePlan,
+  publishFencedBatchMetadata,
+  type BatchMetadataPublicationDbClient,
+  type BatchMetadataPublicationResult,
+} from '@/server/prospect-batches/batch-metadata-fenced-publication';
 import {
   runPrePaidNoveltyDiscovery,
   type PrePaidNoveltyDiscoveryOutcome,
@@ -425,6 +435,18 @@ export type WizardExecutionDeps = {
   runLushaWaterfallLeg?: (
     input: LushaWaterfallLegInput,
   ) => Promise<LushaWaterfallLegOutcome>;
+  /**
+   * AGENT1-WATERFALL-LEG-DURABLE-TRACE — publica la traza de la pierna en la
+   * metadata del lote.
+   *
+   * OBSERVACIONAL y opcional: sin ella la ejecución es la de hoy, campo por
+   * campo. No decide nada y su desenlace no viaja al resultado — un fallo de
+   * esta escritura no puede convertir una corrida pagada en un error.
+   */
+  publishWaterfallLegTrace?: (input: {
+    batchId: string;
+    published: Record<string, unknown>;
+  }) => Promise<BatchMetadataPublicationResult>;
 };
 
 
@@ -782,6 +804,37 @@ export async function executeProspectWizardGenerationAction(
     // cuando la bandera está encendida habría metido una segunda puerta —el
     // cableado— en un sitio donde la política ya vive en un único lugar.
     runLushaWaterfallLeg: (legInput) => runLushaWaterfallLeg(legInput),
+    // ── AGENT1-WATERFALL-LEG-DURABLE-TRACE — la traza, durable ───────────────
+    //
+    // 🔴 NO se acuña un segundo mecanismo: es el MISMO par que CUT-9B usa para
+    // `accepted_for_target` —`decideBatchMetadataFencePlan` +
+    // `publishFencedBatchMetadata`—, con la MISMA autoridad de época
+    // (`loadBatchIdentityRegistry` → `read_batch_identity_snapshot`) y por el
+    // MISMO cliente de SESIÓN. Ninguna capacidad nueva sobre ninguna fila.
+    //
+    // 🔴 La época se lee AQUÍ y no antes: la pierna Lusha acaba de escribir sus
+    // candidatos dentro de este mismo lote, así que la única época que sirve de
+    // token de CAS es la POSTERIOR a esa escritura. Si otro escritor la avanza
+    // entre la lectura y el UPDATE, el CAS devuelve `stale` y NO se sobrescribe
+    // nada: fallo CERRADO en la escritura, que es donde importa.
+    //
+    // 🔴 El régimen lo decide el ESQUEMA: sin época REAL y sin prueba de que la
+    // 126 no esté aplicada, `decideBatchMetadataFencePlan` devuelve
+    // `unavailable` y no se escribe.
+    publishWaterfallLegTrace: async ({ batchId, published }) => {
+      const snapshot = await loadBatchIdentityRegistry(supabase, batchId);
+      return publishFencedBatchMetadata(
+        supabase as unknown as BatchMetadataPublicationDbClient,
+        {
+          batchId,
+          plan: decideBatchMetadataFencePlan({
+            epochAfterWrite: snapshot.epoch,
+            evidence: snapshot,
+          }),
+          published,
+        },
+      );
+    },
   };
 
   return executeProspectWizardGeneration(request, deps);
@@ -2167,11 +2220,15 @@ export async function executeProspectWizardGeneration(
     : hasNewCandidatesAfterAllLegs
       ? (targetReached ? 'success_target_reached' : 'success_partial')
       : 'no_new_candidates';
-  return {
-    ok: true,
-    status: executionStatus,
-    // AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 4 — traza de la pierna, siempre
-    // presente aunque no haya corrido: "no corrió y por qué" es un dato.
+
+  // AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 4 — traza de la pierna, siempre
+  // presente aunque no haya corrido: "no corrió y por qué" es un dato.
+  //
+  // 🔴 AGENT1-WATERFALL-LEG-DURABLE-TRACE — el bloque se nombra AQUÍ, una sola
+  // vez, y de ahí salen las dos copias: la que viaja al navegador y la que queda
+  // en la base. Construir la durable aparte sería un segundo lugar donde este
+  // hecho puede decir otra cosa.
+  const waterfallLegTrace = {
     lushaWaterfallLeg: {
       executed: lushaWaterfall.executed,
       skipReason: lushaWaterfall.executed ? null : lushaWaterfall.reason,
@@ -2198,6 +2255,38 @@ export async function executeProspectWizardGeneration(
       failureCode: lushaWaterfall.executed ? (lushaWaterfall.failure?.code ?? null) : null,
       failureReason: lushaWaterfall.executed ? (lushaWaterfall.failure?.reason ?? null) : null,
     },
+  };
+
+  // ── 🔴 AGENT1-WATERFALL-LEG-DURABLE-TRACE — la traza sobrevive a la sesión ──
+  //
+  // El bloque llegaba al navegador y moría ahí: `prospect_batches.metadata` no
+  // guardaba nada, así que después de cerrar la sesión no se podía auditar si
+  // Lusha corrió, por qué se saltó, con qué hueco o qué aportó — ni siquiera en
+  // corridas que SÍ consumieron créditos.
+  //
+  // 🔴 ADITIVO y sin voz: se publica lo que la ruta YA decidió, tal cual, y su
+  // desenlace no viaja al resultado ni cambia estado, aceptación, objetivo,
+  // liquidación ni proveedor. Ocurre DESPUÉS de que la corrida quedó resuelta,
+  // así que no hay nada aguas abajo que pueda leerla.
+  //
+  // 🔴 `.catch` a propósito: la publicación no lanza por contrato, pero la
+  // lectura de la época sí puede. Una escritura de OBSERVACIÓN no puede tumbar
+  // una corrida cuyos candidatos ya son durables y cuyo proveedor ya cobró.
+  if (deps.publishWaterfallLegTrace) {
+    await deps
+      .publishWaterfallLegTrace({
+        batchId: reservedBatchId,
+        published: {
+          [LUSHA_WATERFALL_LEG_METADATA_KEY]: waterfallLegTrace.lushaWaterfallLeg,
+        },
+      })
+      .catch(() => undefined);
+  }
+
+  return {
+    ok: true,
+    status: executionStatus,
+    ...waterfallLegTrace,
     batchId: reservedBatchId,
     // El lote quedó `failed` por el writer (§ 9): el estado que se reporta es el
     // que la base tiene, no una etiqueta optimista.
