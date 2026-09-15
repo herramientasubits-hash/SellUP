@@ -185,6 +185,32 @@ describe('§ B · ownership', () => {
     );
   });
 
+  it('D5 — una URL ENTERA en `domain` se normaliza antes de juzgar', () => {
+    // 🔴 Lusha puede devolver `https://www.mismo.com/` en `domain`, y
+    // `evaluateCompanyOwnership` no normaliza lo que recibe como dominio:
+    // compararía el nombre contra una URL y rechazaría por la FORMA del dato.
+    // El gate usa el `normalizeDomain` del writer, no uno propio.
+    assert.equal(
+      evaluateLushaCountryOwnershipGate({
+        name: 'Haceb',
+        domain: 'https://www.haceb.com/productos?utm=x',
+        website: null,
+        targetCountryCode: 'CO',
+      }),
+      null,
+    );
+    // Y la normalización no ciega el eje país: el ccTLD sigue viéndose.
+    assert.equal(
+      evaluateLushaCountryOwnershipGate({
+        name: 'Maestro',
+        domain: 'https://www.maestro.com.pe/',
+        website: null,
+        targetCountryCode: 'CO',
+      })?.kind,
+      'country_incompatible',
+    );
+  });
+
   it('D4 — LinkedIn NO participa: el gate compara nombre contra dominio', () => {
     const source = readFileSync(
       path.join(process.cwd(), 'src/server/prospect-batches/lusha-country-ownership-gate.ts'),

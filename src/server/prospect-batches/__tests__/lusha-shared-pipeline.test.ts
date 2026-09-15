@@ -84,10 +84,32 @@ function identitySlug(domain: string | null, name: string | null): string {
   return base.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'sin-identidad';
 }
 
+/**
+ * 🔴 X6.4-A — cuando el caso sólo cambia el NOMBRE, el dominio se deriva de él.
+ *
+ * Desde este corte la pierna Lusha aplica el mismo gate de ownership que la
+ * ruta Apollo. Un doble con `name: 'Clean'` heredando `clinicaandes.com` sería
+ * una empresa a la que su dominio no acredita: el gate la rechazaría y estos
+ * casos —que miden el gate de intake, el enriquecimiento y la metadata— dejarían
+ * de medir lo suyo. Un `domain` explícito (incluido `null`) se respeta tal cual.
+ */
+function deriveDomainFromName(name: string | null | undefined): string | null {
+  const slug = (name ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+  return slug === '' ? null : `${slug}.com`;
+}
+
 function company(overrides: Partial<LushaPreviewCompany> = {}): LushaPreviewCompany {
+  const derivedDomain =
+    overrides.name !== undefined && !('domain' in overrides)
+      ? deriveDomainFromName(overrides.name)
+      : undefined;
   const merged = {
     name: 'Clínica Andes',
-    domain: 'clinicaandes.com',
+    domain: derivedDomain ?? 'clinicaandes.com',
     country: 'Colombia',
     countryIso2: 'CO',
     industry: 'Hospitals & Clinics',

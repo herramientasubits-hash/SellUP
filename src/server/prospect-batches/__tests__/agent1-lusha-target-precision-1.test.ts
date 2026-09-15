@@ -89,7 +89,10 @@ function company(
 ): LushaPreviewCompany {
   return {
     providerCompanyId: id,
-    name: `Empresa ${id}`,
+    // 🔴 X6.4-A — nombre correspondiente a su dominio: el gate de ownership
+    // que este corte trae a la pierna Lusha rechazaría `Empresa a0` sobre
+    // `a0.com`, y esta suite mide precisión de macro, no ownership.
+    name: id,
     domain: `${id}.com`,
     country: 'Colombia',
     countryIso2: 'CO',
@@ -563,8 +566,8 @@ describe('§ 11 — la memoria histórica de duplicados sigue intacta', () => {
       fetchActiveCandidates: async () => [
         {
           id: 'existing-1',
-          name: 'Empresa a0',
-          normalized_name: 'empresa a0',
+          name: 'a0',
+          normalized_name: 'a0',
           domain: 'a0.com',
           country_code: 'CO',
           status: 'needs_review',

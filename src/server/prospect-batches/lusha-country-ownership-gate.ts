@@ -44,6 +44,12 @@
  */
 
 import { evaluateCountryCompatibility } from '@/server/agents/prospecting-toolkit/country-compatibility';
+// 🔴 El MISMO normalizador que el writer usa para el dominio. Lusha puede
+// devolver una URL entera en `domain` (`https://www.mismo.com/`), y
+// `evaluateCompanyOwnership` no la normaliza cuando se la pasan como dominio:
+// compararía el nombre contra una URL y rechazaría a la empresa por la forma
+// del dato, no por su contenido.
+import { normalizeDomain } from '@/server/agents/prospecting-toolkit/normalization';
 import {
   evaluateCompanyOwnership,
   isBlockedByCompanyOwnership,
@@ -98,8 +104,9 @@ export type LushaCountryOwnershipGateInput = {
 export function evaluateLushaCountryOwnershipGate(
   input: LushaCountryOwnershipGateInput,
 ): LushaCountryOwnershipRejection | null {
+  const normalizedDomain = input.domain === null ? null : normalizeDomain(input.domain);
   const evaluatedUrl =
-    input.website ?? (input.domain !== null && input.domain !== '' ? `https://${input.domain}` : null);
+    input.website ?? (normalizedDomain !== null ? `https://${normalizedDomain}` : null);
 
   // ── 1. País ───────────────────────────────────────────────────────────────
   // Sin país pedido no hay contradicción posible: el writer de Apollo descarta
@@ -124,8 +131,8 @@ export function evaluateLushaCountryOwnershipGate(
   // ni `confidence` leída aquí.
   const rawName = input.name?.trim() ?? '';
   if (rawName === '') return null;
-  const evaluationName = resolveOwnershipEvaluationName(rawName, input.website, input.domain);
-  const ownership = evaluateCompanyOwnership(evaluationName.name, input.website, input.domain);
+  const evaluationName = resolveOwnershipEvaluationName(rawName, input.website, normalizedDomain);
+  const ownership = evaluateCompanyOwnership(evaluationName.name, input.website, normalizedDomain);
   if (isBlockedByCompanyOwnership(ownership)) {
     return {
       kind: 'ownership_mismatch',

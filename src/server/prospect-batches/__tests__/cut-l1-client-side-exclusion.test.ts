@@ -393,7 +393,10 @@ describe('L1-C · una empresa ya conocida NO cuenta como net-new', () => {
     const { res, candidateRows, duplicateChecks } = await run(
       [
         successResult([
-          company({ providerCompanyId: 'p-vista', name: 'Vista antes', domain: 'conocida.com' }),
+          // 🔴 X6.4-A — el nombre CORRESPONDE a su dominio: desde este corte la
+          // pierna Lusha aplica el gate de ownership, y `Vista antes` sobre
+          // `conocida.com` moriría ahí. Lo que este caso mide es `provider_seen`.
+          company({ providerCompanyId: 'p-vista', name: 'Conocida', domain: 'conocida.com' }),
         ]),
       ],
       executionKnowing(['conocida.com'], 'provider_seen'),
@@ -402,7 +405,7 @@ describe('L1-C · una empresa ya conocida NO cuenta como net-new', () => {
     assert.equal(res.usefulCandidatesCount, 1, '🔴 una empresa ya vista sigue siendo candidata');
     assert.equal(res.multiBranch?.localKnownSuppressedTotal, 0);
     assert.equal(res.multiBranch?.duplicateReasonCounts.known_domain_seed, 0);
-    assert.deepEqual(candidateRows.map((r) => r.name), ['Vista antes']);
+    assert.deepEqual(candidateRows.map((r) => r.name), ['Conocida']);
     // 🔴 Y la autoridad canónica SÍ la mira: no se la salta, se la somete.
     assert.equal(duplicateChecks.length, 1);
     assert.equal(duplicateChecks[0]?.domain, 'conocida.com');
