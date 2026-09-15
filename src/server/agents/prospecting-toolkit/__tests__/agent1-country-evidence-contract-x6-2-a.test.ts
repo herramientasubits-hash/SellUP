@@ -751,7 +751,10 @@ type InsertedRow = Record<string, unknown>;
  *
  * 0 red, 0 Supabase real, 0 escrituras.
  */
-function makeCapturingAdminClient(captured: InsertedRow[]): SupabaseClient {
+function makeCapturingAdminClient(
+  captured: InsertedRow[],
+  batchUpdates: InsertedRow[] = [],
+): SupabaseClient {
   let insertedCandidateCount = 0;
   const chainable = (data: unknown, error: unknown = null) => {
     const obj: Record<string, unknown> = {
@@ -819,7 +822,10 @@ function makeCapturingAdminClient(captured: InsertedRow[]): SupabaseClient {
         return Promise.resolve({ data: null, error: null });
       };
 
-      obj.update = () => ({ eq: () => Promise.resolve({ data: null, error: null }) });
+      obj.update = (row: unknown) => {
+        if (table === 'prospect_batches') batchUpdates.push(row as InsertedRow);
+        return { eq: () => Promise.resolve({ data: null, error: null }) };
+      };
       return obj;
     },
   } as unknown as SupabaseClient;
@@ -827,6 +833,7 @@ function makeCapturingAdminClient(captured: InsertedRow[]): SupabaseClient {
 
 async function writeOne(candidates: ProspectingPipelineCandidate[]) {
   const captured: InsertedRow[] = [];
+  const batchUpdates: InsertedRow[] = [];
   const result = await writeProspectingCandidates(
     {
       pipelineOutput: makePipelineOutput(candidates),
@@ -837,9 +844,19 @@ async function writeOne(candidates: ProspectingPipelineCandidate[]) {
       dryRun: false,
       extraBatchMetadata: null,
     },
-    makeCapturingAdminClient(captured),
+    makeCapturingAdminClient(captured, batchUpdates),
   );
-  return { result, captured };
+  return { result, captured, batchUpdates };
+}
+
+/** El `evidence_policy_gate` del ÚLTIMO update de lote que el writer emitió. */
+function readEvidencePolicyGate(batchUpdates: InsertedRow[]): Record<string, unknown> | null {
+  for (let i = batchUpdates.length - 1; i >= 0; i--) {
+    const metadata = batchUpdates[i].metadata as Record<string, unknown> | undefined;
+    const gate = metadata?.['evidence_policy_gate'] as Record<string, unknown> | undefined;
+    if (gate) return gate;
+  }
+  return null;
 }
 
 describe('T9 / T15 — el writer persiste las NUEVE como revisión incompleta', () => {
@@ -910,7 +927,7 @@ describe('T9 / T15 — el writer persiste las NUEVE como revisión incompleta', 
     );
   });
 
-  it('T10 (writer) — `country_evidence_absent_count` cuenta la nueva cohorte', async () => {
+  it('T10 (writer) — `blocked_count` cae a 0 y la nueva cohorte tiene contador propio', async () => {
     const candidates = NINE_BLOCKED_BY_EVIDENCE_POLICY.map((fixture) =>
       makeCandidate({
         name: fixture.name,
@@ -921,14 +938,12 @@ describe('T9 / T15 — el writer persiste las NUEVE como revisión incompleta', 
         sourceSnippet: apolloSnippet(fixture.name),
       }),
     );
-    const { result } = await writeOne(candidates);
-    const gate = (result.batchMetadata as Record<string, unknown> | undefined)?.[
-      'evidence_policy_gate'
-    ] as Record<string, unknown> | undefined;
-    if (gate) {
-      assert.equal(gate.blocked_count, 0);
-      assert.equal(gate.country_evidence_absent_count, 5);
-    }
+    const { batchUpdates } = await writeOne(candidates);
+    const gate = readEvidencePolicyGate(batchUpdates);
+    assert.ok(gate, 'el writer publica `evidence_policy_gate` en la metadata del lote');
+    assert.equal(gate!.blocked_count, 0);
+    // Las cinco `.com`. Las cuatro `.co` tienen evidencia y no son esta cohorte.
+    assert.equal(gate!.country_evidence_absent_count, 5);
   });
 });
 
