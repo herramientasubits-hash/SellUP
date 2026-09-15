@@ -338,23 +338,22 @@ describe('Fixture C — empresas válidas', () => {
     /**
      * AGENT1-APOLLO-PREPAID-HISTORICAL-PARITY § 26 — la TERCERA causa del rojo.
      *
-     * `Contarerp` (`.com.co`) sigue escribiéndose. `Softland` (`softland.com`) NO,
-     * y no por ningún gate de identidad: lo detiene `evidence_policy:
-     * no_country_evidence_with_weak_fit`, una política de evidencia de país
-     * añadida después de que se escribiera esta suite. Un TLD genérico sin
-     * evidencia de país y con encaje débil no se persiste — decisión ajena a este
-     * corte, que este corte no toca.
+     * 🔴 SUPERSEDED por AGENT1-COUNTRY-EVIDENCE-CONTRACT-X6.2-A.
      *
-     * La aserción se AJUSTA a lo que la suite audita —que el gate canónico de
-     * identidad no bloquee a una marca real— y NOMBRA el motivo real, de modo que
-     * si algún día lo bloqueara el gate de identidad, o el motivo cambiara, la
-     * prueba vuelve a fallar. No se relaja: se hace exacta.
+     * § 26 dejó escrito que `Softland` (`softland.com`) NO se escribía, y que no
+     * era por ningún gate de identidad: lo detenía `evidence_policy:
+     * no_country_evidence_with_weak_fit`. Lo llamó «decisión ajena a este corte».
+     * X6.2-A es el corte al que sí le pertenecía: un TLD genérico sin evidencia
+     * de país es AUSENCIA de evidencia, no evidencia en contra, y ya no borra la
+     * fila. `Softland` se persiste ahora, como `Contarerp`.
+     *
+     * Lo que esta suite AUDITA —que el gate canónico de identidad no bloquee a
+     * una marca real— se conserva intacto y sigue siendo exacto: ni
+     * `non_company_phrase` ni `seen_identity_key_recently`, y ahora además la
+     * ausencia de cualquier descarte por política de evidencia.
      */
-    assert.equal(result.candidatesCreated, 0);
-    assert.deepEqual(
-      result.skipped.map((s) => s.reason),
-      ['evidence_policy:no_country_evidence_with_weak_fit'],
-    );
+    assert.equal(result.candidatesCreated, 1);
+    assert.deepEqual(result.skipped.map((s) => s.reason), []);
     assert.equal(result.skipped.filter((s) => s.reason === 'non_company_phrase').length, 0);
     assert.equal(
       result.skipped.filter((s) => s.reason === 'seen_identity_key_recently').length,

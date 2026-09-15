@@ -46,7 +46,10 @@ import {
 } from "./company-ownership-gate";
 import { evaluateCountryEvidence } from "./country-evidence-gate";
 import type { CountryEvidenceResult } from "./country-evidence-gate";
-import { computeEvidencePersistencePolicy } from "./evidence-persistence-policy";
+import {
+  computeEvidencePersistencePolicy,
+  isPaidCompletionBlockedByEvidencePolicy,
+} from "./evidence-persistence-policy";
 import {
   checkActiveCandidateDuplicate,
   ACTIVE_CANDIDATE_STATUSES,
@@ -165,6 +168,7 @@ import {
   buildCandidateCompletenessCounters,
   resolveCandidateStatusForCompleteness,
   INCOMPLETE_CANDIDATE_REVIEW_FLAG,
+  INCOMPLETE_COUNTRY_EVIDENCE_REVIEW_FLAG,
   CANDIDATE_TARGET_METRICS_METADATA_KEY,
 } from './candidate-completeness-contract';
 import type { CandidateCanonicalTargetEligibility as CandidateTargetEligibility } from './candidate-completeness-contract';
@@ -1485,6 +1489,11 @@ export async function writeProspectingCandidates(
   const evidencePolicyGateData = {
     blockedCount: 0,
     confidenceCapCount: 0,
+    // 🔴 X6.2-A — las que ANTES caían en `blockedCount` y ahora sobreviven
+    // incompletas. Contador propio y aditivo: `blocked_count` se queda donde
+    // estaba —y pasa a valer 0 en la ruta país— para que la serie histórica de
+    // los lotes ya escritos siga siendo legible.
+    countryEvidenceAbsentCount: 0,
     samples: [] as EvidencePolicySample[],
   };
 
@@ -2070,7 +2079,17 @@ export async function writeProspectingCandidates(
       linkedinStatus: entry.candidate.providerCompanyFields?.linkedin.status ?? 'mapping_failed',
       duplicateStatus: mapDuplicateStatus(entry.candidate.duplicateCheck?.status ?? 'unchecked'),
       ownershipGate: 'pass',
-      qualityGate: 'pass',
+      // 🔴 X6.2-A — antes bastaba `'pass'` porque quien no pasaba la política de
+      // evidencia ya no llegaba aquí: moría en Pass 4. Ahora llega, así que la
+      // proyección tiene que leer el MISMO veredicto que Pass 4 escribirá, o el
+      // orden COMPLETE-FIRST promovería a una incompleta por encima de una
+      // completa — justo lo que ADAPTIVE-EARLY-STOP § 5 existe para impedir.
+      qualityGate: computeEvidencePersistencePolicy({
+        countryEvidence: entry.countryEvidenceResult,
+        businessFit: entry.businessFitResult,
+      }).targetAcceptanceAuthorized
+        ? 'pass'
+        : 'fail',
     }).countsTowardTarget,
   );
   const toPersist =
@@ -2209,9 +2228,13 @@ export async function writeProspectingCandidates(
         const isBlockedByDuplicateGuard =
           preGuardMatch.matched && isStrongActiveGuardReason(preGuardMatch.reason);
 
-        // Pre-check evidence persistence policy: blocked candidates won't be inserted.
+        // 🔴 X6.2-A — pregunta 5, y SÓLO la 5: ¿autoriza esta candidata gasto de
+        // completado pagado? Antes se derivaba de `decision === 'blocked'`, que
+        // era a la vez la respuesta a «¿sobrevive?». Separadas las preguntas, el
+        // gasto se lee de su propio campo y el conjunto de candidatas saltadas
+        // aquí es EXACTAMENTE el de antes del corte: 0 llamadas nuevas.
         const prePolicy = computeEvidencePersistencePolicy({ countryEvidence: cer, businessFit: bfr });
-        const isBlockedByEvidencePolicy = prePolicy.decision === 'blocked';
+        const isBlockedByEvidencePolicy = isPaidCompletionBlockedByEvidencePolicy(prePolicy);
 
         return {
           name: candidate.name,
@@ -2288,9 +2311,10 @@ export async function writeProspectingCandidates(
         const isBlockedByDuplicateGuard =
           preGuardMatch.matched && isStrongActiveGuardReason(preGuardMatch.reason);
 
-        // Pre-check evidence policy
+        // 🔴 X6.2-A — pregunta 5. Ver el pre-paso de LinkedIn: mismo predicado,
+        // mismo conjunto saltado, 0 llamadas nuevas al proveedor.
         const prePolicy = computeEvidencePersistencePolicy({ countryEvidence: cer, businessFit: bfr });
-        const isBlockedByEvidencePolicy = prePolicy.decision === 'blocked';
+        const isBlockedByEvidencePolicy = isPaidCompletionBlockedByEvidencePolicy(prePolicy);
 
         // Build base rich profile using LinkedIn enrichment from pre-pass
         const baseRichProfile = buildCandidateRichProfileV1({
@@ -2453,6 +2477,14 @@ export async function writeProspectingCandidates(
       businessFit: businessFitResult,
     });
 
+    // 🔴 X6.2-A — este bloque ya no es alcanzable desde el eje PAÍS.
+    //
+    // `decision: 'blocked'` queda RESERVADO para evidencia CONTRARIA, que esta
+    // política no emite: la contradicción de país la decidió
+    // `evaluateCountryCompatibility` mucho antes, con `country_incompatible:*`.
+    // El punto de aplicación se conserva —borrarlo obligaría a reinventarlo el
+    // día que exista una regla de contradicción propia— y T10 fija que ninguna
+    // entrada del eje país vuelve a producirlo.
     if (evidencePolicy.decision === 'blocked') {
       skipped.push({
         name: candidate.name,
@@ -2523,6 +2555,13 @@ export async function writeProspectingCandidates(
 
     if (evidencePolicy.confidenceCap !== null) {
       evidencePolicyGateData.confidenceCapCount++;
+    }
+
+    // 🔴 X6.2-A — la cohorte que antes moría en el bloque de arriba. Se cuenta
+    // aquí, después del cap, porque a estas alturas la fila ya está decidida:
+    // sobrevive, se persiste y va a revisión con su causa escrita.
+    if (evidencePolicy.incompletenessReason !== null) {
+      evidencePolicyGateData.countryEvidenceAbsentCount++;
     }
 
     // Guard override: same_canonical_identity → mark as possible_duplicate
@@ -2877,7 +2916,12 @@ export async function writeProspectingCandidates(
       linkedinStatus: providerCompanyFields?.linkedin.status ?? 'mapping_failed',
       duplicateStatus: dbDuplicateStatus,
       ownershipGate: 'pass',
-      qualityGate: 'pass',
+      // 🔴 X6.2-A — pregunta 6, y SÓLO la 6. `'pass'` era correcto mientras la
+      // política de evidencia mataba: llegar aquí ERA el pase. Ahora llega
+      // también quien sobrevive incompleto, y el veredicto de calidad tiene que
+      // decir la verdad. El conjunto que sale `fail` es EXACTAMENTE el que antes
+      // salía `blocked`, así que no hay ni una aceptación nueva.
+      qualityGate: evidencePolicy.targetAcceptanceAuthorized ? 'pass' : 'fail',
     });
 
     // Un candidato incompleto se persiste, pero nunca como `high_quality_new`.
@@ -2885,9 +2929,15 @@ export async function writeProspectingCandidates(
       candidateStatus,
       targetEligibility,
     );
-    const completenessReviewFlags = targetEligibility.countsTowardTarget
-      ? []
-      : [INCOMPLETE_CANDIDATE_REVIEW_FLAG];
+    // 🔴 X6.2-A — la causa de la revisión, escrita en la fila. La bandera de
+    // completitud del proveedor nombraría un hueco que no es el de esta
+    // candidata; las dos conviven cuando faltan las dos cosas.
+    const completenessReviewFlags = [
+      ...(targetEligibility.countsTowardTarget ? [] : [INCOMPLETE_CANDIDATE_REVIEW_FLAG]),
+      ...(evidencePolicy.incompletenessReason !== null
+        ? [INCOMPLETE_COUNTRY_EVIDENCE_REVIEW_FLAG]
+        : []),
+    ];
 
     // FORENSICS-1 § 10 — la procedencia que se persiste es la REAL. Un candidato
     // producido íntegramente por Apollo Organizations no puede etiquetarse
@@ -3005,7 +3055,17 @@ export async function writeProspectingCandidates(
           fit_score: effectiveFitScore,
           data_completeness: reconciledScoring.dataCompletenessScore,
           quality_label: reconciledScoring.qualityLabel,
-          recommended_action: reconciledScoring.recommendedAction,
+          // 🔴 X6.2-A (D3) — `forceReviewManually` deja de ser decorativo.
+          //
+          // El campo se serializaba desde v1.5 y NADIE lo leía: la acción salía
+          // siempre del scorer reconciliado, así que una política que declaraba
+          // «fuerza revisión manual» no forzaba nada. Es la mitad «completitud»
+          // de esta política, la que existía sólo en la metadata. Sólo puede
+          // llevar la acción HACIA la revisión, nunca sacarla de ella, y no toca
+          // ninguna de las otras cinco preguntas del contrato.
+          recommended_action: evidencePolicy.forceReviewManually
+            ? 'review_manually'
+            : reconciledScoring.recommendedAction,
           reasons: reconciledScoring.reasons,
           warnings: reconciledScoring.warnings,
           blockers: reconciledScoring.blockers,
@@ -3123,6 +3183,11 @@ export async function writeProspectingCandidates(
                 decision: evidencePolicy.decision,
                 primary_reason: evidencePolicy.primaryReason,
                 force_review_manually: evidencePolicy.forceReviewManually,
+                // 🔴 X6.2-A — las tres respuestas que antes iban implícitas en
+                // `decision`. Aditivas: ninguna clave existente cambia.
+                paid_completion_authorized: evidencePolicy.paidCompletionAuthorized,
+                target_acceptance_authorized: evidencePolicy.targetAcceptanceAuthorized,
+                incompleteness_reason: evidencePolicy.incompletenessReason,
                 confidence_cap: evidencePolicy.confidenceCap,
                 original_confidence: candidate.scoring.confidenceScore,
                 effective_confidence: effectiveConfidenceScore,
@@ -3966,6 +4031,8 @@ export async function writeProspectingCandidates(
       enabled: true,
       blocked_count: evidencePolicyGateData.blockedCount,
       confidence_capped_count: evidencePolicyGateData.confidenceCapCount,
+      // 🔴 X6.2-A — la cohorte que antes engordaba `blocked_count`.
+      country_evidence_absent_count: evidencePolicyGateData.countryEvidenceAbsentCount,
       samples: evidencePolicyGateData.samples.slice(0, 5),
     };
 

@@ -426,7 +426,19 @@ describe('F8 — Portal ERP bloqueado por portal/media/aggregator gate', () => {
 // ─── Invariantes de política (reglas adicionales) ─────────────────────────────
 
 describe('Invariantes de computeEvidencePersistencePolicy', () => {
-  it('weak + medium → blocked (R2)', () => {
+  /**
+   * 🔴 SUPERSEDED por AGENT1-COUNTRY-EVIDENCE-CONTRACT-X6.2-A.
+   *
+   * Esta prueba fijaba R2 —«weak + medium ⇒ blocked»— que era el gate de
+   * SUPERVIVENCIA disfrazado de política de completitud. En el lote
+   * `f6cad05f…` mató a nueve empresas con `ownership allowed: true` y sin una
+   * sola señal de país EN CONTRA.
+   *
+   * Lo que la prueba quería proteger —que una empresa sin país demostrado no se
+   * entregue como buena— NO se relaja: se afirma donde de verdad vive, en las
+   * dos autorizaciones. Lo que cambia es que ya no desaparece de la base.
+   */
+  it('weak + medium → sobrevive incompleto, sin gasto y sin aceptación (R2, X6.2-A)', () => {
     const policy = computeEvidencePersistencePolicy({
       countryEvidence: {
         evidenceLevel: 'weak',
@@ -441,11 +453,17 @@ describe('Invariantes de computeEvidencePersistencePolicy', () => {
         rankingBonus: 30,
       },
     });
-    assert.equal(policy.decision, 'blocked');
-    assert.equal(policy.primaryReason, 'no_country_evidence_with_weak_fit');
+    assert.notEqual(policy.decision, 'blocked');
+    assert.equal(policy.decision, 'needs_review');
+    assert.equal(policy.primaryReason, 'country_evidence_absent_survives_incomplete');
+    assert.equal(policy.incompletenessReason, 'country_evidence_absent');
+    // La contención, intacta: ni crédito ni aceptación.
+    assert.equal(policy.paidCompletionAuthorized, false);
+    assert.equal(policy.targetAcceptanceAuthorized, false);
   });
 
-  it('weak + low → blocked (R2)', () => {
+  /** 🔴 SUPERSEDED por X6.2-A — ver la prueba anterior. */
+  it('weak + low → sobrevive incompleto, sin gasto y sin aceptación (R2, X6.2-A)', () => {
     const policy = computeEvidencePersistencePolicy({
       countryEvidence: {
         evidenceLevel: 'weak',
@@ -460,7 +478,9 @@ describe('Invariantes de computeEvidencePersistencePolicy', () => {
         rankingBonus: -40,
       },
     });
-    assert.equal(policy.decision, 'blocked');
+    assert.notEqual(policy.decision, 'blocked');
+    assert.equal(policy.paidCompletionAuthorized, false);
+    assert.equal(policy.targetAcceptanceAuthorized, false);
   });
 
   it('weak + high → needs_review cap 40 (R3)', () => {
