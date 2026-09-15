@@ -2382,21 +2382,78 @@ export async function runApolloTwoRoundDiscovery(
   // por confirmar antes de saber si hacía falta buscar más.
   const roundMetricsByNumber = new Map(roundMetrics.map((m) => [m.roundNumber, m]));
 
+  /**
+   * § A — quién llega a competir por un enrichment PAGADO.
+   *
+   * Un candidato puede llegar aquí con el gate barato limpio y, a la vez, ya
+   * RECHAZADO por `applyFinalGates` — posible desde que § A lo invoca temprano,
+   * vía `stableFinalizableCandidateCount()`, en vez de sólo al final. Antes de
+   * aquel hito era imposible llegar aquí con `definitivelyRejected === true`:
+   * los gates finales corrían DESPUÉS de esta selección. Gastar un enrichment
+   * en una empresa ya descartada por ownership o duplicidad final no resuelve
+   * nada — el rechazo no depende de la evidencia que el enrichment podría traer.
+   *
+   * 🔴 AGENT1-OWNERSHIP-PRE-ENRICHMENT-X6.3 — este predicado tenía UN solo
+   * consumidor y ahora tiene dos: la selección de abajo y el barrido de gates
+   * finales de justo encima. Se extrae por eso, y no por estilo: si la lista de
+   * candidatos a los que se les resuelve el ownership y la lista de candidatos
+   * que pueden gastar dejaran de ser LA MISMA lista, volvería a existir un hueco
+   * por el que una empresa paga sin que nadie le haya mirado el dominio.
+   */
+  const competesForPaidEnrichment = (candidate: TrackedCandidate): boolean =>
+    candidate.assessment.rejection === null &&
+    !candidate.enrichmentExecuted &&
+    !candidate.definitivelyRejected;
+
+  /**
+   * 🔴 AGENT1-OWNERSHIP-PRE-ENRICHMENT-X6.3 — el gate OBLIGATORIO de ownership,
+   * resuelto ANTES de la caja para todo el que va a pasar por ella.
+   *
+   * ── El defecto que cierra ─────────────────────────────────────────
+   *
+   * El filtro `!definitivelyRejected` de la selección ya declaraba la intención
+   * correcta, pero su único alimentador era `scanFinalizability()`, que sólo
+   * invoca el gate final `if (candidate.eligible)`. Y `isEligible` exige
+   * `sector_evidence_confirmed`. Es decir: el gate obligatorio corregía antes de
+   * pagar exactamente a los candidatos que NO compiten por resolver su sector, y
+   * llegaba tarde para los que sí — que son la mayoría de los contendientes.
+   *
+   * Medido en la certificación `f6cad05f…` (CO × Retail): de 5 enrichments
+   * pagados, 2 fueron a empresas que este mismo gate rechazó a continuación
+   * —`intercartagena.com` y `copadeg.com`—, y las dos llegaron a la caja con
+   * `sector_evidence_missing_needs_enrichment`, por tanto con `eligible: false`,
+   * por tanto sin que nadie les hubiera mirado el ownership.
+   *
+   * ── Lo que NO hace ──────────────────────────────────────────────
+   *
+   * No cambia la REGLA de ownership: es la misma llamada, el mismo
+   * `deps.applyFinalGates`, los mismos inputs —`candidate.name` y el dominio que
+   * la BÚSQUEDA ya trajo—. Sólo cambia CUÁNDO se pregunta. Y puede preguntarse
+   * antes porque el enrichment no puede mover ninguna de esas dos entradas:
+   * `mergeEnrichmentIntoResult` escribe exclusivamente dentro de
+   * `metadata.apollo_profile` y sólo en campos vacíos, nunca `result.title` ni
+   * `metadata.domain`. No hay ciclo de evidencia que romper.
+   *
+   * Tampoco bloquea por falta de sector: un ownership APROBADO con el sector
+   * todavía sin resolver sigue compitiendo y sigue pudiendo pagar — que es
+   * justamente para lo que existe el enrichment.
+   *
+   * `ensureFinalGateEvaluated` se autoprotege con `finalGateEvaluated` (no
+   * reinvoca) y con `rejectionTallied` (no vuelve a contar), así que el barrido
+   * final de más abajo sigue siendo el mismo y ningún rechazo se suma dos veces:
+   * lo único que se adelanta es el momento.
+   *
+   * Gratis por contrato: `applyFinalGates` no llama al proveedor ni gasta
+   * créditos.
+   */
+  if (deps.applyFinalGates) {
+    for (const candidate of tracked) {
+      if (competesForPaidEnrichment(candidate)) await ensureFinalGateEvaluated(candidate);
+    }
+  }
+
   const globalFreeSignals: FreeCandidateSignals[] = tracked
-    .filter(
-      (c) =>
-        c.assessment.rejection === null &&
-        !c.enrichmentExecuted &&
-        // § A — un candidato puede llegar aquí con el gate barato limpio y, a la
-        // vez, ya RECHAZADO por `applyFinalGates` — posible desde que § A lo
-        // invoca temprano, vía `stableFinalizableCandidateCount()`, en vez de sólo al final.
-        // Antes de este hito era imposible llegar aquí con `definitivelyRejected
-        // === true`: los gates finales corrían DESPUÉS de esta selección. Gastar
-        // un enrichment en una empresa ya descartada por ownership o duplicidad
-        // final no resuelve nada — el rechazo no depende de la evidencia que el
-        // enrichment podría traer.
-        !c.definitivelyRejected,
-    )
+    .filter(competesForPaidEnrichment)
     .map((c) => ({
       ...c.assessment.signals,
       candidateKey: c.candidateKey,

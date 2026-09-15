@@ -5451,3 +5451,42 @@ jobs:
       # 0 migraciones · 0 cambios de bandera · 0 backfill del histórico.
       - name: Run Agent 1 X6.2-A country evidence contract tests
         run: npm run test:a1-country-evidence-contract-x6-2-a
+
+      # 🔴 AGENT1-OWNERSHIP-PRE-ENRICHMENT-X6.3 — el gate obligatorio de
+      # ownership, antes de la caja.
+      #
+      # El defecto: `applyFinalGates` (el gate de ownership, gratis y puro) sólo
+      # se resolvía antes de pagar `if (candidate.eligible)`, y `isEligible`
+      # exige `sector_evidence_confirmed`. Los contendientes de un enrichment
+      # son, por definición, los que NO lo tienen — así que el gate llegaba
+      # tarde justo para quien iba a gastar. Medido en la certificación
+      # `f6cad05f…` (CO × Retail): de 5 enrichments pagados, 2 fueron a empresas
+      # que el mismo gate rechazó a continuación (`intercartagena.com` y
+      # `copadeg.com`).
+      #
+      # El corte no toca la REGLA: mismo `deps.applyFinalGates`, mismos inputs
+      # (`candidate.name` + el dominio que la BÚSQUEDA ya trajo). Sólo cambia
+      # CUÁNDO se pregunta, y puede preguntarse antes porque el enrichment no
+      # mueve ninguna de las dos entradas: `mergeEnrichmentIntoResult` escribe
+      # exclusivamente dentro de `metadata.apollo_profile`, nunca `result.title`
+      # ni `metadata.domain`. No hay ciclo de evidencia.
+      #
+      # Lo que la suite PROHÍBE además: que esto se convierta en «falta sector ⇒
+      # no enrichment». Un ownership aprobado con el sector sin resolver sigue
+      # pagando — el caso PQP de la corrida real, cuyo crédito compró la
+      # contradicción sectorial que lo descartó.
+      #
+      # 11 de sus 27 tests están rojos contra `main` sin el corte. Mata siete
+      # mutaciones: volver a alimentar el gate sólo desde `scanFinalizability`,
+      # dejar entrar al rechazado a la caja, sustituir el veredicto por
+      # `ownershipConfident`, eliminar el pre-check, contar el rechazo dos veces,
+      # bloquear a un ownership aprobado y bloquear por sector ausente.
+      #
+      # Lo que NO toca: `company-ownership-gate.ts`, la heurística de matching,
+      # la Recall Recovery, el ranking, el presupuesto, el cap de enrichments,
+      # la paginación, el target, Lusha, el waterfall y X5/X5.1/X5.2/X6.1/X6.2-A.
+      #
+      # 0 llamadas a proveedor · 0 créditos · 0 Supabase real · 0 escrituras ·
+      # 0 migraciones · 0 cambios de bandera.
+      - name: Run Agent 1 X6.3 ownership pre-enrichment tests
+        run: npm run test:a1-ownership-pre-enrichment-x6-3

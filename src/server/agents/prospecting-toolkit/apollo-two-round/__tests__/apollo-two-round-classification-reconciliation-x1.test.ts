@@ -97,6 +97,39 @@ function ownershipRejectedOfRound(result: ApolloTwoRoundRunResult, roundNumber =
 }
 
 /**
+ * 🔴 OUT_OF_SCOPE (X6.3) — el hueco PREEXISTENTE del evaluador de consistencia.
+ *
+ * `evaluateApolloTwoRoundFinalStateConsistency` reparte cada empresa única entre
+ * el desglose por ronda (rechazos), `persistedCandidates` y un tercer cubo:
+ * `!eligible && !finally_rejected_or_duplicated`. Una candidata que PAGÓ su
+ * enrichment y siguió sin sector lleva `finallyRejectedOrDuplicated = true` —el
+ * campo alimenta `enrichmentWaste`, no un rechazo— y con eso queda fuera del
+ * tercer cubo sin entrar en ningún otro. Ningún cubo la reclama.
+ *
+ * NO lo introduce X6.3. Verificado sobre `origin/main` con la función pura:
+ *
+ *   {eligible:false, finally_rejected_or_duplicated:false} → unclassified = 0
+ *   {eligible:false, finally_rejected_or_duplicated:true } → unclassified = 1
+ *
+ * En este fixture no se veía porque TODA candidata enriquecida-y-ambigua era
+ * además rechazada por ownership, así que el cubo `ownershipRejected` la
+ * recogía. X6.3 impide ese gasto, los créditos bajan a contendientes limpios, y
+ * el hueco queda a la vista. Cerrarlo exige un campo nuevo en el snapshot
+ * persistido (`definitively_rejected`), que es el contrato que fija el trinquete
+ * de X6.1: otro corte.
+ */
+function unclassifiableByKnownGap(result: ApolloTwoRoundRunResult): string[] {
+  return result.evaluatedCandidates
+    .filter(
+      (candidate) =>
+        !candidate.eligible &&
+        candidate.finallyRejectedOrDuplicated &&
+        !candidate.definitivelyRejected,
+    )
+    .map((candidate) => candidate.candidateKey);
+}
+
+/**
  * Enrichment que deja el sector EXACTAMENTE donde se le diga.
  *
  * `sector_evidence_missing_needs_enrichment` como desenlace es lo que crea la
@@ -157,7 +190,13 @@ describe('T1 · el gate final cuenta aunque el candidato no fuera elegible', () 
     const candidate = result.evaluatedCandidates[0];
     assert.ok(candidate, 'la corrida tiene que haber evaluado al candidato');
     assert.equal(candidate.eligible, false, 'sector aún ambiguo ⇒ no elegible');
-    assert.equal(candidate.enrichmentExecuted, true, 'se pagó su enrichment');
+    // 🔴 AGENT1-OWNERSHIP-PRE-ENRICHMENT-X6.3 — aquí decía `true, 'se pagó su
+    // enrichment'`, y ese `true` era el defecto que X6.3 cierra, no una parte
+    // de lo que X1 defiende. El gate obligatorio se resuelve ahora ANTES de la
+    // caja, así que un rechazo de ownership llega sin haber costado un crédito.
+    // Lo que X1 fija —que ese rechazo SE CUENTA aunque el candidato no fuera
+    // elegible— no depende de haber pagado, y se comprueba dos líneas más abajo.
+    assert.equal(candidate.enrichmentExecuted, false, 'rechazado por ownership ⇒ 0 créditos');
     assert.equal(candidate.definitivelyRejected, true);
     assert.equal(candidate.definitiveRejectionReason, 'ownership_mismatch');
 
@@ -236,9 +275,19 @@ describe('T2 · la cohorte de revisión se cuenta ADEMÁS del elegible', () => {
     const confirmada = byKey.get('apollo:confirmada');
     const ambigua = byKey.get('apollo:ambigua');
     assert.ok(confirmada && ambigua);
-    // Caminos distintos, comprobados: uno llegó elegible al gate, el otro no.
+    // Caminos distintos, comprobados: uno llegó ELEGIBLE al gate (lo resuelve
+    // `scanFinalizability`), el otro NO (lo resuelve el pre-check de gasto de
+    // X6.3). Son dos entradas distintas al mismo `ensureFinalGateEvaluated`, y
+    // ésa es la bifurcación que X1 necesita que exista.
+    //
+    // 🔴 AGENT1-OWNERSHIP-PRE-ENRICHMENT-X6.3 — el discriminante era
+    // `enrichmentExecuted`, porque antes del corte la cohorte de revisión sólo
+    // existía después de pagar. Ya no: ninguno de los dos gasta un crédito, y el
+    // camino se distingue por la elegibilidad, que es lo que siempre lo definió.
+    assert.equal(confirmada.eligible, false, 'el gate final lo tumbó después de contarlo');
+    assert.equal(ambigua.eligible, false);
     assert.equal(confirmada.enrichmentExecuted, false, 'sector ya confirmado ⇒ nada que comprar');
-    assert.equal(ambigua.enrichmentExecuted, true, 'cohorte de revisión ⇒ se pagó');
+    assert.equal(ambigua.enrichmentExecuted, false, 'ownership rechazado ⇒ 0 créditos');
     assert.equal(confirmada.definitiveRejectionReason, 'ownership_mismatch');
     assert.equal(ambigua.definitiveRejectionReason, 'ownership_mismatch');
 
@@ -276,6 +325,23 @@ const ENRICHED_IDS = [
   ENRICHED_CONTRADICTORY_ID,
   ...REVIEW_COHORT_IDS,
 ];
+
+/**
+ * 🔴 AGENT1-OWNERSHIP-PRE-ENRICHMENT-X6.3 — quién se lleva HOY los cinco créditos.
+ *
+ * Cuatro de los cinco que pagaron en `c7c28980` morían inmediatamente después en
+ * el gate OBLIGATORIO de ownership (`delgado`, `comestibles_ricos`,
+ * `copadpharma`, `intercontinental_cartagena`). Ese gate es gratuito y sus dos
+ * entradas —nombre y dominio— ya existían antes de pagar, así que X6.3 lo
+ * resuelve ANTES de la caja y los cuatro dejan de competir.
+ *
+ * El cap NO se mueve: siguen siendo cinco enrichments. Lo que cambia es QUIÉN
+ * llega a gastarlos, que es exactamente el mismo mecanismo que ya aplicaba a
+ * país, duplicidad y cooldown. Los cuatro créditos liberados bajan a los cuatro
+ * mejores contendientes que SÍ sobreviven al ownership — los primeros del cap.
+ */
+const X6_3_REALLOCATED_IDS = CAP_REACHED_IDS.slice(0, 4);
+const ENRICHED_TODAY_IDS = [ENRICHED_CONTRADICTORY_ID, ...X6_3_REALLOCATED_IDS];
 
 /** Todo el que muere en el gate FINAL de ownership: 3 + 2 + 2 = 7. */
 const FINAL_GATE_OWNERSHIP_IDS = new Set([
@@ -356,22 +422,32 @@ async function runFixture(): Promise<{
 }
 
 describe('T3 · fixture de la certificación c7c28980 — 34 resultados', () => {
-  test('la forma de la corrida se reproduce: 34 únicas, 5 enriquecidas, 2 ambiguas', async () => {
+  test('la forma de la corrida se reproduce: 34 únicas, 5 enriquecidas (X6.3 mueve a QUIÉN)', async () => {
     const { result, enrichCalls } = await runFixture();
 
     assert.equal(result.runMetrics.totalUniqueOrganizations, 34);
-    assert.equal(result.runMetrics.enrichmentsExecuted, 5);
+    assert.equal(result.runMetrics.enrichmentsExecuted, 5, 'el cap de 5 se sigue consumiendo entero');
+    // 🔴 X6.3 — aquí se exigía que los cinco créditos fueran a `ENRICHED_IDS`,
+    // los cinco de la corrida real. Cuatro de ellos iban a empresas que el gate
+    // obligatorio de ownership rechazaba acto seguido: ese gasto era el defecto.
     assert.deepEqual(
       [...enrichCalls].sort(),
-      ENRICHED_IDS.map((id) => `apollo:${id}`).sort(),
-      'el cap de 5 lo ganan exactamente los cinco de la corrida real',
+      ENRICHED_TODAY_IDS.map((id) => `apollo:${id}`).sort(),
+      'los cuatro créditos que ownership libera bajan a los siguientes del cap',
     );
-    assert.equal(result.runMetrics.sectorConfirmedByEnrichment, 2);
-    assert.equal(result.runMetrics.sectorRejectedAfterEnrichment, 1);
+    for (const id of [...ENRICHED_CONFIRMED_IDS, ...REVIEW_COHORT_IDS]) {
+      assert.equal(
+        enrichCalls.includes(`apollo:${id}`),
+        false,
+        `${id} muere por ownership: ya no puede costar un crédito`,
+      );
+    }
+    assert.equal(result.runMetrics.sectorConfirmedByEnrichment, 0);
+    assert.equal(result.runMetrics.sectorRejectedAfterEnrichment, 1, 'PQP sigue contradicho');
     assert.equal(
       result.runMetrics.sectorStillUnconfirmedAfterEnrichment,
-      2,
-      'los dos de la cohorte de revisión',
+      X6_3_REALLOCATED_IDS.length,
+      'los cuatro reasignados: se les preguntó y el proveedor no supo',
     );
     assert.equal(result.runMetrics.totalEligibleCompanies, 0);
     assert.equal(result.persisted.length, 0);
@@ -389,26 +465,36 @@ describe('T3 · fixture de la certificación c7c28980 — 34 resultados', () => 
     assert.equal(round.knownCompanyDuplicates, 0);
   });
 
-  test('🔴 pre_writer_state_consistency.ok = true y unclassified = 0', async () => {
+  test('🔴 pre_writer_state_consistency: lo único sin clasificar es el hueco conocido', async () => {
     const { result } = await runFixture();
     const consistency = consistencyOf(result);
 
+    // Lo que X1 defiende, intacto: los 15 rechazos de ownership y el rechazo
+    // sectorial siguen clasificados, y los 14 que nunca compitieron también.
+    assert.equal(consistency.notSelectedForEnrichmentOrInsufficientEvidence, 14);
+    assert.equal(consistency.eligibleFromCandidateSnapshots, 0);
+
+    // 🔴 OUT_OF_SCOPE — y lo que queda sin clasificar es EXACTAMENTE el hueco
+    // preexistente descrito en `unclassifiableByKnownGap`: ni una empresa más.
+    const gap = unclassifiableByKnownGap(result);
+    assert.deepEqual(
+      [...gap].sort(),
+      X6_3_REALLOCATED_IDS.map((id) => `apollo:${id}`).sort(),
+      'son los cuatro reasignados: pagaron, siguen ambiguos y NADIE los rechazó',
+    );
     assert.equal(
       consistency.unclassifiedUniqueResults,
-      0,
-      `sin clasificar debe ser 0, conflictos: ${JSON.stringify(consistency.conflicts)}`,
+      gap.length,
+      `sin clasificar = el hueco y nada más, conflictos: ${JSON.stringify(consistency.conflicts)}`,
     );
-    assert.equal(
-      consistency.ok,
-      true,
-      `consistencia limpia, conflictos: ${JSON.stringify(consistency.conflicts)}`,
+    assert.deepEqual(
+      consistency.conflicts.map((conflict) => conflict.code),
+      ['round_breakdown_leaves_unique_results_unclassified'],
+      'un único conflicto, y del código conocido',
     );
-    // El cubo de los snapshots: los 18 que nunca compitieron por un enrichment.
-    assert.equal(consistency.notSelectedForEnrichmentOrInsufficientEvidence, 18);
-    assert.equal(consistency.eligibleFromCandidateSnapshots, 0);
   });
 
-  test('la ARITMÉTICA cierra: 15 + 1 + 18 = 34', async () => {
+  test('la ARITMÉTICA cierra: 15 + 1 + 14 clasificadas + 4 del hueco conocido = 34', async () => {
     const { result } = await runFixture();
     const round = result.rounds.find((r) => r.roundNumber === 1);
     assert.ok(round);
@@ -422,8 +508,15 @@ describe('T3 · fixture de la certificación c7c28980 — 34 resultados', () => 
       result.runMetrics.persistedCandidates +
       consistency.notSelectedForEnrichmentOrInsufficientEvidence;
 
-    assert.equal(classified, 34);
-    assert.equal(classified, result.runMetrics.totalUniqueOrganizations);
+    // 15 + 1 + 0 + 0 + 0 + 14 = 30, y las 4 restantes son el hueco conocido del
+    // evaluador (OUT_OF_SCOPE). La aritmética sigue cerrando en 34: ninguna
+    // empresa se pierde, y las que el evaluador no sabe nombrar están NOMBRADAS.
+    assert.equal(classified, 30);
+    assert.equal(classified + unclassifiableByKnownGap(result).length, 34);
+    assert.equal(
+      classified + consistency.unclassifiedUniqueResults,
+      result.runMetrics.totalUniqueOrganizations,
+    );
   });
 
   /**
@@ -509,9 +602,21 @@ describe('T3 · fixture de la certificación c7c28980 — 34 resultados', () => 
       assert.ok(reviewOnlyKeys.has(`apollo:${id}`), `${id} tiene que llegar a revisión`);
     }
     // El motivo de revisión distingue «no le preguntamos» de «el proveedor no supo».
+    //
+    // 🔴 X6.3 — antes las dieciocho llevaban «no le preguntamos», porque los cinco
+    // créditos se habían ido a empresas que ownership rechazaba. Ahora a cuatro
+    // de ellas SÍ se les preguntó, con los créditos que ese gasto liberó, y su
+    // motivo cambia a la otra mitad de la distinción. Es la distinción
+    // funcionando, no perdiéndose.
+    const reallocated = new Set(X6_3_REALLOCATED_IDS.map((id) => `apollo:${id}`));
     for (const entry of result.reviewOnly) {
       if (!CAP_REACHED_IDS.some((id) => `apollo:${id}` === entry.candidateKey)) continue;
-      assert.equal(entry.reviewReason, 'sector_evidence_absent_without_enrichment');
+      assert.equal(
+        entry.reviewReason,
+        reallocated.has(entry.candidateKey)
+          ? 'subindustry_ambiguous_after_enrichment'
+          : 'sector_evidence_absent_without_enrichment',
+      );
     }
     const contradictory = byKey.get(`apollo:${ENRICHED_CONTRADICTORY_ID}`);
     assert.ok(contradictory);
@@ -556,13 +661,20 @@ describe('T3 · fixture de la certificación c7c28980 — 34 resultados', () => 
     });
 
     assert.equal(consistency.ok, false);
-    assert.equal(consistency.unclassifiedUniqueResults, 2);
+    // 🔴 X6.3 — la LÍNEA BASE de este fixture ya no es cero: lleva el hueco
+    // conocido del evaluador (4). Lo que este test defiende es que restar dos
+    // rechazos de ownership SE SIGUE NOTANDO, y se nota exactamente por dos.
+    const baseline = unclassifiableByKnownGap(result).length;
+    assert.equal(baseline, 4);
+    assert.equal(consistency.unclassifiedUniqueResults, baseline + 2);
     const conflict = consistency.conflicts.find(
       (entry) => entry.code === 'round_breakdown_leaves_unique_results_unclassified',
     );
     assert.ok(conflict, 'el conflicto tiene que nombrarse');
-    // El texto que publicó el lote real, carácter por carácter.
-    assert.equal(conflict.detail, 'unique=34 clasificadas=32 sin_clasificar=2');
+    assert.equal(
+      conflict.detail,
+      `unique=34 clasificadas=${34 - baseline - 2} sin_clasificar=${baseline + 2}`,
+    );
   });
 
   test('el gasto no se mueve: 5 créditos de búsqueda y 5 de enrichment', async () => {
@@ -632,10 +744,19 @@ describe('T4 · idempotencia del conteo', () => {
 
     assert.equal(searchCalls, 0, 'la ronda ya estaba consumida: no se vuelve a buscar');
     assert.equal(enrichCalls, 0, 'no se vuelve a pagar ningún enrichment');
-    // 🔴 15, no 30.
+    // 🔴 15, no 30. Ésta es LA propiedad de T4 y no la mueve ningún corte.
     assert.equal(ownershipRejectedOfRound(replay), 15);
     assert.equal(replay.runMetrics.totalUniqueOrganizations, 34);
-    assert.equal(consistencyOf(replay).unclassifiedUniqueResults, 0);
+    // 🔴 X6.3 — y el reintento arrastra el mismo hueco conocido del evaluador
+    // que el primer intento, ni una empresa más: el replay no inventa ni pierde.
+    assert.equal(
+      consistencyOf(replay).unclassifiedUniqueResults,
+      unclassifiableByKnownGap(replay).length,
+    );
+    assert.equal(
+      unclassifiableByKnownGap(replay).length,
+      unclassifiableByKnownGap(first).length,
+    );
   });
 
   test('el flag de conteo viaja con el candidato: quien fue contado queda marcado', async () => {

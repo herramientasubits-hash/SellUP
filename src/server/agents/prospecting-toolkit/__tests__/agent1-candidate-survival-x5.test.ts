@@ -579,15 +579,39 @@ describe('X5 § E · regresión de la certificación retail', () => {
       persisted_review_only_final: RETAIL_ENRICHMENT_COMPETITORS,
     });
 
-    // Las 18 supervivientes son EXACTAMENTE las del cap, y las dieciocho
-    // llegan sin haber sido enriquecidas nunca: en la corrida real, de las cinco
-    // que sí pagaron no sobrevivió ninguna —cuatro cayeron en el gate final de
-    // ownership y una volvió con evidencia sectorial en contra— y este corte no
-    // toca ni una de esas cinco.
+    // Las 18 supervivientes son EXACTAMENTE las del cap. Ninguna de las cinco
+    // que pagaron en la corrida real sobrevivió —cuatro cayeron en el gate final
+    // de ownership y una volvió con evidencia sectorial en contra— y este corte
+    // no toca ni una de esas cinco.
     assert.equal(result.reviewOnly.length, RETAIL_ENRICHMENT_COMPETITORS);
-    for (const entry of result.reviewOnly) {
-      assert.equal(entry.reviewReason, 'sector_evidence_absent_without_enrichment');
-    }
+
+    // 🔴 AGENT1-OWNERSHIP-PRE-ENRICHMENT-X6.3 — aquí este bucle exigía que las
+    // DIECIOCHO llegaran sin haber sido enriquecidas nunca, y esa parte del
+    // fixture describía el defecto, no la regla.
+    //
+    // Los cuatro créditos que la corrida real quemó en empresas que el gate
+    // OBLIGATORIO de ownership rechazaba a continuación ya no se queman: ese
+    // gate se resuelve ahora ANTES de la caja. El cap de la corrida no se mueve
+    // —siguen siendo cinco enrichments— así que los cuatro créditos liberados
+    // pasan a los cuatro mejores contendientes que SÍ sobreviven al ownership.
+    //
+    // Para esos cuatro el motivo de revisión cambia, y cambia a mejor: deja de
+    // ser «no le preguntamos» y pasa a ser «le preguntamos y el proveedor no
+    // supo». Es exactamente la distinción que este § declaró querer conservar.
+    //
+    // Lo que X5 defiende NO se mueve ni un candidato: las dieciocho siguen
+    // SOBREVIVIENDO, y ninguna queda descartada por un motivo de enrichment —lo
+    // fija el test de mutación M3/M4 de más abajo.
+    const REALLOCATED_BY_X6_3 = RETAIL_ENRICHED_THEN_OWNERSHIP_REJECTED;
+    const reviewReasons = result.reviewOnly.reduce<Record<string, number>>((acc, entry) => {
+      acc[entry.reviewReason] = (acc[entry.reviewReason] ?? 0) + 1;
+      return acc;
+    }, {});
+    assert.deepEqual(reviewReasons, {
+      subindustry_ambiguous_after_enrichment: REALLOCATED_BY_X6_3,
+      sector_evidence_absent_without_enrichment:
+        RETAIL_ENRICHMENT_COMPETITORS - REALLOCATED_BY_X6_3,
+    });
 
     // 🔴 Y el conteo hacia el objetivo NO se mueve: 18 sobreviven, 0 cuentan.
     assert.equal(result.runMetrics.stableFinalizableCandidateCount, 0);
