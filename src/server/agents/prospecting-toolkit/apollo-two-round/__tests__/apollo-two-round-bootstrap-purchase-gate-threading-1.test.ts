@@ -38,6 +38,7 @@ import {
   RETEST_SALUD_RECONSTRUCTED_HUBSPOT_DUPLICATE_DOMAINS,
   RETEST_SALUD_REQUEST,
   RETEST_SALUD_SELECTED_DOMAINS,
+  RETEST_SALUD_SELECTED_DOMAINS_AFTER_OWNERSHIP,
   RETEST_SALUD_SELLUP_DUPLICATE_DOMAINS,
   RETEST_SALUD_SNAPSHOTS,
 } from '../../__tests__/fixtures/apollo-retest-salud-74a49b01';
@@ -50,6 +51,23 @@ import type {
   WebSearchOutput,
   WebSearchResult,
 } from '../../types';
+
+/**
+ * 🔴 AGENT1-OWNERSHIP-PRE-ENRICHMENT-X6.3 — cuántos de los cinco que la
+ * SELECCIÓN live eligió llegan hoy al gate de compra.
+ *
+ * Dos de ellos (`pmi.com`, `kuehne-nagel.com`) no sobreviven al gate OBLIGATORIO
+ * de ownership, que desde X6.3 se resuelve ANTES de la caja porque es gratuito y
+ * sus entradas ya vienen de la búsqueda. El fixture documenta el veredicto exacto
+ * de `evaluateCompanyOwnership` sobre cada uno.
+ *
+ * Lo que esta suite defiende no se mueve: que la autorización de bootstrap se
+ * enhebre hasta el gate de compra. BEFORE sigue siendo «los seleccionados se
+ * quedan a cero compras» y AFTER «los seleccionados compran todos». Lo único que
+ * cambia es cuántos son los seleccionados, y no lo cambia el ranking —que este
+ * corte no toca— sino un gate que ahora llega a tiempo.
+ */
+const SELECTED_AFTER_OWNERSHIP = RETEST_SALUD_SELECTED_DOMAINS_AFTER_OWNERSHIP.length;
 
 // ─── Arnés ────────────────────────────────────────────────────────────────────
 
@@ -392,14 +410,12 @@ describe('§ 13 · REGRESIÓN `74a49b01` — 5 seleccionados, 0 ejecutados', () 
     const block = readBootstrapBlock(recorder);
 
     assert.equal(block.bootstrap_eligible_count, RETEST_SALUD_LIVE_OUTCOME.bootstrapEligible);
-    assert.equal(
-      block.bootstrap_selected_for_enrichment_count,
-      RETEST_SALUD_LIVE_OUTCOME.selectedForEnrichment,
-    );
+    // 🔴 X6.3 — los seleccionados son los live MENOS los que ownership rechaza.
+    assert.equal(block.bootstrap_selected_for_enrichment_count, SELECTED_AFTER_OWNERSHIP);
     assert.equal(
       block.bootstrap_enrichment_executed_count,
       RETEST_SALUD_LIVE_OUTCOME.enrichmentsExecuted,
-      'el desenlace live: 5 cupos gastados en decidir, 0 compras',
+      'el desenlace live: los cupos se gastan en decidir, 0 compras',
     );
     assert.deepEqual(recorder.enrichOrganizationCalls, [], 'ni una llamada a Apollo');
     assert.deepEqual(recorder.usageLogDomains, [], 'ni una fila económica');
@@ -426,20 +442,21 @@ describe('§ 13 · REGRESIÓN `74a49b01` — 5 seleccionados, 0 ejecutados', () 
     assert.equal(block.bootstrap_eligible_count, RETEST_SALUD_LIVE_OUTCOME.bootstrapEligible);
     assert.equal(
       block.bootstrap_selected_for_enrichment_count,
-      RETEST_SALUD_LIVE_OUTCOME.selectedForEnrichment,
-      'la lógica de ranking NO se tocó: la misma selección',
+      SELECTED_AFTER_OWNERSHIP,
+      'la lógica de ranking NO se tocó: los que caen, caen por el gate de ownership',
     );
-    assert.equal(
-      block.bootstrap_purchase_authorized_count,
-      RETEST_SALUD_LIVE_OUTCOME.selectedForEnrichment,
-    );
+    assert.equal(block.bootstrap_purchase_authorized_count, SELECTED_AFTER_OWNERSHIP);
     assert.equal(
       block.bootstrap_enrichment_executed_count,
-      RETEST_SALUD_LIVE_OUTCOME.selectedForEnrichment,
-      '5 de 5 ejecutan donde la corrida live ejecutó 0',
+      SELECTED_AFTER_OWNERSHIP,
+      'TODOS los seleccionados ejecutan donde la corrida live ejecutó 0',
     );
-    assert.equal(recorder.enrichOrganizationCalls.length, 5);
-    assert.equal(recorder.usageLogDomains.length, 5, 'una fila económica por compra');
+    assert.equal(recorder.enrichOrganizationCalls.length, SELECTED_AFTER_OWNERSHIP);
+    assert.equal(
+      recorder.usageLogDomains.length,
+      SELECTED_AFTER_OWNERSHIP,
+      'una fila económica por compra',
+    );
 
     for (const entry of selectedEntries(block)) {
       assert.equal(entry.purchase?.authorized, true);
@@ -448,12 +465,20 @@ describe('§ 13 · REGRESIÓN `74a49b01` — 5 seleccionados, 0 ejecutados', () 
     }
   });
 
-  it('la cohorte seleccionada es la MISMA que la live — cero deriva de ranking', async () => {
+  it('cero deriva de RANKING: la cohorte live menos lo que ownership rechaza', async () => {
     const { recorder } = await runRetest();
+    // 🔴 X6.3 — la cohorte que compra es la live SIN los dos que el gate
+    // obligatorio de ownership rechaza. Ninguna empresa entra que no estuviera
+    // en la live: eso es lo que significa «cero deriva de ranking», y sigue
+    // siendo cierto.
     assert.deepEqual(
       [...recorder.enrichOrganizationCalls].sort(),
-      [...RETEST_SALUD_SELECTED_DOMAINS].sort(),
+      [...RETEST_SALUD_SELECTED_DOMAINS_AFTER_OWNERSHIP].sort(),
     );
+    const live = new Set(RETEST_SALUD_SELECTED_DOMAINS);
+    for (const domain of recorder.enrichOrganizationCalls) {
+      assert.ok(live.has(domain), `${domain} no estaba en la cohorte live`);
+    }
   });
 });
 
@@ -464,7 +489,7 @@ describe('§ 4 · bootstrap-eligible NO es permiso para comprar', () => {
     const { recorder, block } = await runRetest();
 
     assert.equal(block.bootstrap_eligible_count, 20);
-    assert.equal(recorder.enrichOrganizationCalls.length, 5);
+    assert.equal(recorder.enrichOrganizationCalls.length, SELECTED_AFTER_OWNERSHIP);
     assert.ok(
       block.bootstrap_purchase_authorized_count <= RETEST_SALUD_REQUEST.maxEnrichmentsPerRun,
       'jamás más autorizaciones de compra que enrichments permite el cap',
@@ -705,7 +730,7 @@ describe('§ 9 · bootstrap → compra → precisión → admisión #276', () =>
 
     assert.equal(
       block.bootstrap_enrichment_executed_count,
-      RETEST_SALUD_LIVE_OUTCOME.selectedForEnrichment,
+      SELECTED_AFTER_OWNERSHIP,
       'la compra sí ocurre',
     );
     assert.equal(
