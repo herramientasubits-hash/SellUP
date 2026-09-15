@@ -420,23 +420,53 @@ describe('§ 17 · la cadena entera, sin el falso `sector_not_mapped`', () => {
     }
   });
 
-  it('admitir NO es persistir: un gate POSTERIOR sigue pudiendo rechazar', async () => {
-    // Ownership corre DESPUÉS del veredicto sectorial. Un candidato admitido por su
-    // hija confirmada y bloqueado por ownership no llega al writer, y su motivo
-    // terminal es el gate REAL, no `sector_not_mapped` (§ 21).
+  it('un gate obligatorio rechaza, y lo hace ANTES de comprar la admisión', async () => {
+    // § 21 — lo que este test defiende: un candidato bloqueado por ownership no
+    // llega al writer, y su motivo terminal es el gate REAL, no `sector_not_mapped`.
+    //
+    // 🔴 AGENT1-OWNERSHIP-PRE-ENRICHMENT-X6.3 — antes este caso se escribía como
+    // «admitido por su hija confirmada Y DESPUÉS bloqueado», porque el gate de
+    // ownership llegaba después del gasto. Esa combinación ya no existe, y no
+    // por casualidad: es exactamente la invariante del corte. El gate de
+    // ownership es gratuito y sus dos entradas —nombre y dominio— ya están
+    // disponibles antes de comprar nada, así que se resuelve ANTES de la caja.
+    // Un candidato que muere por ownership no compra su admisión.
     const recorder = await runHealth(CONFIRMING_PROFILES, {
       ownershipBlockedDomains: new Set(['gruposaludco.com.co']),
     });
     const block = readBootstrapBlock(recorder);
     const entry = entryFor(block, 'gruposaludco.com.co');
 
-    assert.equal(admissionOf(entry)['admitted_by_requested_subindustry_precision'], true);
+    // El motivo terminal sigue siendo el gate REAL. Ésta es la propiedad de § 21
+    // y no se mueve.
     assert.equal(entry['terminal_reason'], 'ownership_mismatch');
     assert.notEqual(entry['terminal_reason'], 'sector_not_mapped');
     assert.ok(
       !(recorder.persistedCandidateNames ?? []).includes('Grupo Salud CO'),
       'el rechazado por ownership no persiste',
     );
+
+    // 🔴 Y lo nuevo: no llegó a gastar. Sin enrichment no hay admisión que
+    // registrar, y eso es un ahorro, no una pérdida de trazabilidad — el motivo
+    // terminal sigue nombrando la causa real.
+    assert.equal(entry['enrichment_executed'], false, 'ownership rechazado ⇒ 0 créditos');
+    assert.equal(
+      entry['sector_admission'],
+      null,
+      'no se compra una admisión para quien un gate gratuito ya rechazó',
+    );
+
+    // Y los OTROS dos, que sí sobreviven al ownership, siguen comprando y siendo
+    // admitidos: el corte no bloquea de más.
+    for (const domain of ['laboratorioco.com.co', 'epsco.com.co']) {
+      const survivor = entryFor(block, domain);
+      assert.equal(survivor['enrichment_executed'], true, domain);
+      assert.equal(
+        admissionOf(survivor)['admitted_by_requested_subindustry_precision'],
+        true,
+        domain,
+      );
+    }
   });
 });
 

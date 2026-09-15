@@ -81,6 +81,37 @@ export const RETEST_SALUD_SELECTED_DOMAINS: readonly string[] = [
 ];
 
 /**
+ * 🔴 AGENT1-OWNERSHIP-PRE-ENRICHMENT-X6.3 — de esos cinco, DOS no sobreviven al
+ * gate OBLIGATORIO de ownership.
+ *
+ * El gate es gratuito y sus dos entradas —nombre y dominio— ya venían de la
+ * BÚSQUEDA, así que desde X6.3 se resuelve ANTES de la caja y esos dos dejan de
+ * competir. El veredicto es el de `evaluateCompanyOwnership` sobre el título
+ * REAL del snapshot, no una suposición:
+ *
+ *   'Philip Morris International' ↔ pmi.com
+ *     → reject · "pmi" no aparece en "philipmorrisinternational" (sigla)
+ *   'KUEHNE + NAGEL COLOMB'       ↔ kuehne-nagel.com
+ *     → reject · "kuehnenagelcolomb" vs "kuehnenagel" (el «COLOMB» truncado
+ *       no es un sufijo que `COMPANY_SUFFIXES` sepa quitar)
+ *
+ * El segundo es un FALSO NEGATIVO del gate, de la familia que audita X6.2-B. No
+ * lo introduce X6.3 ni cambia el desenlace de esa empresa —moría por ownership
+ * en los dos mundos—: lo único que cambia es que ya no se paga por ella antes de
+ * descartarla. El recall no se mueve; el gasto sí.
+ */
+export const RETEST_SALUD_OWNERSHIP_REJECTED_DOMAINS: ReadonlySet<string> = new Set([
+  'pmi.com',
+  'kuehne-nagel.com',
+]);
+
+/** Los que HOY llegan a la caja: los live menos los que ownership rechaza. */
+export const RETEST_SALUD_SELECTED_DOMAINS_AFTER_OWNERSHIP: readonly string[] =
+  RETEST_SALUD_SELECTED_DOMAINS.filter(
+    (domain) => !RETEST_SALUD_OWNERSHIP_REJECTED_DOMAINS.has(domain),
+  );
+
+/**
  * Causas propias EXPORTADAS de candidatos que no compitieron. No son
  * reconstrucción: cada una tiene su disposición terminal en la corrida live.
  */
