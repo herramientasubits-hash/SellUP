@@ -412,6 +412,7 @@ describe('CORTE 5A — fail-closed sin lote canónico', () => {
       apolloTerminal: true,
       target: TARGET,
       usefulAccumulated: 2,
+      persistedAccumulated: 2,
       macroIndustryKey: 'technology',
       canonicalBatchId: CANONICAL_BATCH_ID,
       ...overrides,
@@ -450,6 +451,7 @@ describe('CORTE 5A — fail-closed sin lote canónico', () => {
         subIndustryId: null,
         target: TARGET,
         usefulAccumulated: 0,
+        persistedAccumulated: 0,
         apolloTerminal: true,
       },
       {
@@ -480,6 +482,7 @@ describe('CORTE 5A — la correlación viaja EXPLÍCITA hasta la acción', () =>
         subIndustryId: null,
         target: TARGET,
         usefulAccumulated: 2,
+        persistedAccumulated: 2,
         apolloTerminal: true,
       },
       {
@@ -527,6 +530,7 @@ describe('CORTE 5A — la correlación viaja EXPLÍCITA hasta la acción', () =>
       subIndustryId: null,
       target: TARGET,
       usefulAccumulated: 2,
+      persistedAccumulated: 2,
       apolloTerminal: true,
     };
 

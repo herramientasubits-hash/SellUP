@@ -88,6 +88,9 @@ function legInput(usefulAccumulated: number, overrides: Record<string, unknown> 
     subIndustryId: null,
     target: TARGET,
     usefulAccumulated,
+    // X6.4-B: la intención de este doble no cambia — el hueco sigue saliendo
+    // de la misma cuenta, ahora declarada también como filas del lote.
+    persistedAccumulated: usefulAccumulated,
     apolloTerminal: true,
     ...overrides,
   } as Parameters<typeof runLushaWaterfallLeg>[0];
@@ -130,6 +133,7 @@ describe('CORTE 4 § L — con la bandera apagada Lusha no existe', () => {
       apolloTerminal: false,
       target: TARGET,
       usefulAccumulated: TARGET,
+      persistedAccumulated: TARGET,
       macroIndustryKey: null,
       canonicalBatchId: null,
     });
@@ -222,6 +226,7 @@ describe('CORTE 4 § I — Lusha corre únicamente con el objetivo abierto', () 
         apolloTerminal: true,
         target: TARGET,
         usefulAccumulated: useful,
+        persistedAccumulated: useful,
         macroIndustryKey: 'technology',
         canonicalBatchId: CANONICAL_BATCH_ID,
       });

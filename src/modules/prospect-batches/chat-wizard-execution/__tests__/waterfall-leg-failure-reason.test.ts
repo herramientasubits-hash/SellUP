@@ -248,6 +248,7 @@ function legInput(overrides: Record<string, unknown> = {}) {
     subIndustryId: null,
     target: 5,
     usefulAccumulated: 0,
+    persistedAccumulated: 0,
     apolloTerminal: true,
     ...overrides,
   };

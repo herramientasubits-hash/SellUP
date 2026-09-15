@@ -60,6 +60,27 @@ export type LushaWaterfallDecisionInput = {
    * si la corrida terminó. No es un conteo de filas ni de resultados crudos.
    */
   readonly usefulAccumulated: number;
+  /**
+   * 🔴 X6.4-B — FILAS que las piernas anteriores ya dejaron EN ESTE LOTE (capa
+   * gratuita + Apollo), medidas con `resolveBatchDurableTotals`, la misma
+   * autoridad de CUT-1 que usan los escritores.
+   *
+   * ── Por qué hacía falta ────────────────────────────────────────────────────
+   *
+   * `usefulAccumulated` es la ACEPTACIÓN, y es fail-closed: una mitad que
+   * escribió filas pero no pudo medir su completitud aporta CERO. En la corrida
+   * `bedebe9b…` Apollo persistió una empresa sin medición de completitud, así
+   * que la aceptación quedó en 0 y la pierna Lusha pidió el objetivo ENTERO —
+   * `gap: 5` sobre un lote que ya tenía una empresa dentro.
+   *
+   * ── 🔴 Lo que esto NO es ───────────────────────────────────────────────────
+   *
+   * NO es un tope de persistencia. El hueco gobierna la CONTINUACIÓN —si vale
+   * la pena seguir pidiendo y gastando— y nada más. X5.1 eliminó el tope de
+   * aceptación de la pierna Lusha y este corte no lo reintroduce: con `gap: 4`
+   * una pierna que encuentre ocho supervivientes persiste las ocho.
+   */
+  readonly persistedAccumulated: number;
   /** Una de las 12 macro industrias, o `null` si la publicada no mapea. */
   readonly macroIndustryKey: string | null;
   /**
@@ -219,9 +240,22 @@ export function decideLushaWaterfallLeg(
     return { run: false, reason: 'apollo_run_not_terminal' };
   }
 
-  // El hueco se calcula sobre la cuenta de útiles, nunca negativo. Un excedente
-  // (8 útiles contra un objetivo de 5) cierra igual que un empate.
-  const gap = Math.max(0, input.target - Math.max(0, input.usefulAccumulated));
+  // 🔴 X6.4-B — el estado del LOTE, no el de una sola autoridad.
+  //
+  // Se toma el MÁXIMO de las dos: la aceptación nunca puede superar a las filas
+  // (`resolveAcceptedForTarget` acota cada mitad por lo persistido), así que en
+  // la práctica manda la cuenta durable; el máximo existe para que una
+  // aceptación declarada no pueda perderse si alguna vez las dos cuentas se
+  // separaran. En los dos sentidos el hueco resultante es MENOR o igual al de
+  // antes de este corte: este corte nunca hace pedir —ni gastar— más.
+  //
+  // Nunca negativo. Un excedente (8 filas contra un objetivo de 5) cierra igual
+  // que un empate.
+  const batchAccumulated = Math.max(
+    0,
+    Math.max(input.usefulAccumulated, input.persistedAccumulated),
+  );
+  const gap = Math.max(0, input.target - batchAccumulated);
   if (gap === 0) {
     return { run: false, reason: 'target_reached' };
   }

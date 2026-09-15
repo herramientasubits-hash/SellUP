@@ -221,6 +221,13 @@ import {
   classifyKnownEmployeeCount,
   type IcpSizeGateResult,
 } from '@/server/agents/prospecting-toolkit/icp-size-gate';
+// 🔴 X6.4-A — los dos gates obligatorios que la ruta Apollo ya aplica, traídos a
+// la pierna Lusha SIN reimplementarlos. El módulo sólo compone
+// `evaluateCountryCompatibility` y `evaluateCompanyOwnership`.
+import {
+  evaluateLushaCountryOwnershipGate,
+  type LushaCountryOwnershipRejection,
+} from './lusha-country-ownership-gate';
 
 // ─── Contract constants (see data-contract in migrations 040/045/093) ─────────
 
@@ -2112,6 +2119,21 @@ export interface LushaGuardSkippedCompany {
 }
 
 /**
+ * 🔴 X6.4-A — la empresa que los gates de PAÍS u OWNERSHIP rechazaron, con el
+ * veredicto que lo justificó.
+ *
+ * ADITIVO y con contador propio: `gate.hardExcludedCount`, `hardExcluded` y
+ * `guardSkippedCount` siguen contando exactamente lo que contaban. Estas
+ * empresas no son «excluidas por el gate compartido de intake» —ése ya las
+ * dejó pasar— y mezclarlas con él falsearía una métrica existente.
+ */
+export interface LushaCountryOwnershipExcludedCompany {
+  company: LushaPreviewCompany;
+  normalized: NormalizedProspectCandidate;
+  rejection: LushaCountryOwnershipRejection;
+}
+
+/**
  * Run the shared, provider-agnostic intake pipeline for every deduped company:
  *
  *   map (shared Lusha adapter) → normalize → mandatory gate
@@ -2143,6 +2165,11 @@ export async function resolveLushaCandidatesDuplicateState(
   hardExcludedCompanies: LushaGateHardExcludedCompany[];
   /** ADITIVO — identidad de las saltadas por el guard de activos. */
   guardSkipped: LushaGuardSkippedCompany[];
+  /**
+   * 🔴 X6.4-A — las rechazadas por país u ownership. NUNCA llegan al chequeo de
+   * duplicados ni a `resolved`, así que no pueden persistirse.
+   */
+  countryOwnershipExcluded: LushaCountryOwnershipExcludedCompany[];
 }> {
   const resolvers = deps.officialSourceResolvers ?? [];
 
@@ -2154,6 +2181,7 @@ export async function resolveLushaCandidatesDuplicateState(
   }> = [];
   const hardExcluded: LushaGateAuditEntry[] = [];
   const hardExcludedCompanies: LushaGateHardExcludedCompany[] = [];
+  const countryOwnershipExcluded: LushaCountryOwnershipExcludedCompany[] = [];
   const gate = emptyGateSummary();
 
   for (const company of companies) {
@@ -2179,6 +2207,31 @@ export async function resolveLushaCandidatesDuplicateState(
       hardExcludedCompanies.push({ company, normalized, gateResult });
       continue; // NEVER sent to the duplicate check.
     }
+    // ── 🔴 X6.4-A — PAÍS y OWNERSHIP, antes de persistir ────────────────────
+    //
+    // El gate compartido de intake compara el `countryCode` que el PROVEEDOR
+    // declaró; `evaluateCountryCompatibility` juzga el DOMINIO. Son preguntas
+    // distintas, y sólo la segunda podía ver que `www.maestro.com.pe` no es una
+    // empresa colombiana por mucho que Lusha la etiquetara `CO`.
+    //
+    // 🔴 Aquí, y no después: estas empresas no llegan al chequeo de duplicados,
+    // no entran en `resolved` y por tanto no pueden acabar en `useful` ni en una
+    // fila de `prospect_candidates`.
+    const countryOwnershipRejection = evaluateLushaCountryOwnershipGate({
+      name: company.name,
+      domain: company.domain,
+      website: company.domain ? `https://${company.domain}` : null,
+      targetCountryCode: input.countryCode ?? criteria.countryCode ?? null,
+    });
+    if (countryOwnershipRejection !== null) {
+      countryOwnershipExcluded.push({
+        company,
+        normalized,
+        rejection: countryOwnershipRejection,
+      });
+      continue; // NEVER sent to the duplicate check.
+    }
+
     if (gateResult.decision === 'reviewable_with_warnings') gate.warningCount++;
     else gate.cleanCount++;
     reviewable.push({ company, normalized, gate: gateResult });
@@ -2242,6 +2295,7 @@ export async function resolveLushaCandidatesDuplicateState(
     enrichment,
     hardExcludedCompanies,
     guardSkipped,
+    countryOwnershipExcluded,
   };
 }
 
@@ -2854,6 +2908,7 @@ export async function persistLushaPendingReviewBatch(
         enrichment,
         hardExcludedCompanies,
         guardSkipped,
+        countryOwnershipExcluded,
       } = await resolveLushaCandidatesDuplicateState(deps, input, dedupe.unique, criteria);
       skippedActiveDuplicatesCount += guardSkippedCount;
 
@@ -2908,6 +2963,33 @@ export async function persistLushaPendingReviewBatch(
         });
         if (record !== null) discardRecords.push(record);
       }
+      // ── 🔴 X6.4-A — los rechazos de PAÍS y OWNERSHIP dejan fila ────────────
+      //
+      // Con su disposición durable propia (`country_rejected` /
+      // `ownership_domain_rejected`, las dos ya existentes) y el motivo VERBATIM
+      // de la autoridad que decidió. Sin esto el descarte sería invisible y
+      // reconstruirlo exigiría volver a pagarle a Lusha.
+      for (const excluded of countryOwnershipExcluded) {
+        const { rejection } = excluded;
+        const record = buildLushaDiscardRecord({
+          company: excluded.company,
+          event:
+            rejection.kind === 'country_incompatible'
+              ? { kind: 'country_incompatible', reason: rejection.reason }
+              : { kind: 'ownership_mismatch', reason: rejection.reason },
+          branchIndex,
+          page,
+          reasonDetail: rejection.reason,
+          evidence: {
+            x64_gate: rejection.kind,
+            evaluated_url: rejection.evaluatedUrl,
+            evaluation_name: rejection.evaluationName,
+            requested_country_code: input.countryCode ?? null,
+          },
+        });
+        if (record !== null) discardRecords.push(record);
+      }
+
       for (const skipped of guardSkipped) {
         const record = buildLushaDiscardRecord({
           company: skipped.company,

@@ -407,6 +407,7 @@ describe('CUT-5B § D — la pierna del waterfall', () => {
         subIndustryId: null,
         target: 5,
         usefulAccumulated: 0,
+        persistedAccumulated: 0,
         apolloTerminal: true,
       },
       {

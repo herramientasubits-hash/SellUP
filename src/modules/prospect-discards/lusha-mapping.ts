@@ -30,6 +30,10 @@ export const LUSHA_DISCARD_REASON_CODE = {
   icpSizeBelowMin: 'known_employee_count_below_min',
   targetOverflow: 'target_overflow_discarded',
   knownDomainSeed: 'known_domain_seed',
+  /** X6.4-A — respaldo cuando la autoridad de país no dejó motivo legible. */
+  countryIncompatible: 'country_incompatible',
+  /** X6.4-A — respaldo cuando el gate de ownership no dejó motivo legible. */
+  ownershipMismatch: 'ownership_mismatch',
 } as const;
 
 /**
@@ -61,6 +65,18 @@ export type LushaDiscardEvent =
   | { kind: 'target_overflow' }
   /** Dominio que SellUp ya conocía antes de empezar (siembra CLIENTE). */
   | { kind: 'known_domain_seed' }
+  /**
+   * X6.4-A — el dominio sitúa a la empresa en OTRO país que el pedido.
+   * Lo decide `evaluateCountryCompatibility`, la misma autoridad del writer de
+   * Apollo; `reason` es su motivo VERBATIM.
+   */
+  | { kind: 'country_incompatible'; reason?: string | null }
+  /**
+   * X6.4-A — el dominio no acredita a la empresa. Lo decide
+   * `evaluateCompanyOwnership` + `isBlockedByCompanyOwnership`, las mismas del
+   * writer de Apollo.
+   */
+  | { kind: 'ownership_mismatch'; reason?: string | null }
   // ── Estados TRANSITORIOS: nunca son disposición ──
   | { kind: 'provider_seen' }
   | { kind: 'intra_run_provider_duplicate' }
@@ -121,6 +137,21 @@ export function resolveLushaDiscardDisposition(
       return {
         disposition: 'sellup_duplicate',
         reasonCode: LUSHA_DISCARD_REASON_CODE.knownDomainSeed,
+      };
+    case 'country_incompatible':
+      // 🔴 `country_rejected` YA existe en el vocabulario durable y ya es el
+      // código del eje país (`GATE_REASON_TO_CODE.country_mismatch`). No se
+      // acuña uno nuevo: el motivo fino viaja en `reason_code`.
+      return {
+        disposition: 'country_rejected',
+        reasonCode: event.reason?.trim() || LUSHA_DISCARD_REASON_CODE.countryIncompatible,
+      };
+    case 'ownership_mismatch':
+      // 🔴 `ownership_domain_rejected` es el código que la ruta Apollo ya
+      // escribe para este mismo veredicto. Misma decisión, mismo código.
+      return {
+        disposition: 'ownership_domain_rejected',
+        reasonCode: event.reason?.trim() || LUSHA_DISCARD_REASON_CODE.ownershipMismatch,
       };
     case 'provider_seen':
     case 'intra_run_provider_duplicate':

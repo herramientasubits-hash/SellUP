@@ -87,6 +87,8 @@ export type LushaWaterfallLegInput = {
   readonly subIndustryId?: number | null;
   readonly target: number;
   readonly usefulAccumulated: number;
+  /** 🔴 X6.4-B — filas que las piernas anteriores ya dejaron en ESTE lote. */
+  readonly persistedAccumulated: number;
   readonly apolloTerminal: boolean;
 };
 
@@ -144,6 +146,7 @@ export async function runLushaWaterfallLeg(
     apolloTerminal: input.apolloTerminal,
     target: input.target,
     usefulAccumulated: input.usefulAccumulated,
+    persistedAccumulated: input.persistedAccumulated,
     macroIndustryKey: input.macroIndustryKey,
     canonicalBatchId: input.canonicalBatchId,
   });
