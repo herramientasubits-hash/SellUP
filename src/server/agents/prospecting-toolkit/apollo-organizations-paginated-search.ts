@@ -46,6 +46,12 @@ import {
   type HeaderReader,
 } from '@/server/integrations/apollo-rate-limit-headers';
 import {
+  buildApolloPageNormalizationDiagnostics,
+  classifyApolloEmptyPage,
+  type ApolloEmptyPageReason,
+  type ApolloPageNormalizationDiagnostics,
+} from './apollo-page-observability';
+import {
   createApolloProviderSeenLedger,
   recordApolloProviderSeenPage,
   type ApolloPriorProviderSeen,
@@ -88,6 +94,31 @@ export type ApolloPageLogEntry = {
   billingState: 'not_charged' | 'charged' | 'unknown';
   wizardRunId: string;
   agentRunId: string | null;
+  /**
+   * APOLLO-PAGE-OBSERVABILITY-X6.5 § 2 — ronda de la modalidad de dos rondas a
+   * la que pertenece ESTA página. `null` en la ruta legacy, que no tiene rondas
+   * que distinguir: ausencia, no cero — la ronda 0 no existe.
+   */
+  roundNumber: number | null;
+  /**
+   * § 2 — RAW → NORMALIZACIÓN → DESCARTES → UTILIZABLES de ESTA página, con los
+   * nombres que ya usa `ApolloOrganizationsNormalizationMeta`.
+   *
+   * Existía ya, pero sólo sobrevivía la de la ÚLTIMA página: el orquestador
+   * reasigna `normalizationMeta` en cada vuelta y el resultado publica una sola.
+   * Aquí queda una por página, que es la unidad que se cobra.
+   *
+   * `null` cuando la página no llegó a normalizarse (error, rate limit, timeout):
+   * sin respuesta que normalizar no hay contadores, y escribir ceros afirmaría
+   * que Apollo devolvió una página vacía, que es otra cosa.
+   */
+  normalization: ApolloPageNormalizationDiagnostics | null;
+  /**
+   * § 3 — por qué esta página no aportó ninguna organización utilizable nueva.
+   * `null` cuando sí aportó, y `'unknown'` cuando los contadores no permiten
+   * separar la causa.
+   */
+  emptyPageReason: ApolloEmptyPageReason | null;
 };
 
 export type ApolloPaginatedSearchDeps = {
@@ -246,6 +277,12 @@ export type ApolloPaginatedSearchInput = {
    * comportamiento previo al corte, byte a byte.
    */
   durableResume?: ApolloDurableResumeState;
+  /**
+   * APOLLO-PAGE-OBSERVABILITY-X6.5 § 2 — ronda de la búsqueda, EXCLUSIVAMENTE
+   * para el registro por página. No participa en ninguna decisión: ni en la
+   * paginación, ni en los topes, ni en el cobro. Ausente ⇒ `null`.
+   */
+  roundNumber?: number | null;
 };
 
 // ─── Resultado ────────────────────────────────────────────────────────────────
@@ -258,6 +295,10 @@ export type ApolloPageOutcome = {
   attempt: number;
   errorCode: string | null;
   billingState: 'not_charged' | 'charged' | 'unknown';
+  /** § 2 — los mismos contadores que lleva el log de la página. `null` si no hubo respuesta que normalizar. */
+  normalization: ApolloPageNormalizationDiagnostics | null;
+  /** § 3 — causa del vacío. `null` cuando la página sí aportó organizaciones nuevas. */
+  emptyPageReason: ApolloEmptyPageReason | null;
 };
 
 export type ApolloPaginatedSearchResult = {
@@ -350,6 +391,9 @@ export async function runApolloOrganizationsPaginatedSearch(
   const sleep = deps.sleep ?? defaultSleep;
   const startedAt = deps.now();
   const ledger = new ApolloPageLedger();
+
+  // § 2 — sólo se transporta al registro por página. Ninguna decisión la lee.
+  const roundNumber = input.roundNumber ?? null;
 
   const collected: NormalizedApolloOrganization[] = [];
   const seenOrganizationIds = new Set<string>();
@@ -611,6 +655,10 @@ export async function runApolloOrganizationsPaginatedSearch(
             attempt,
             errorCode: 'durable_fence_write_failed',
             billingState: 'not_charged',
+            // La petición NUNCA salió: no hay respuesta que normalizar ni vacío
+            // que explicar. Ausencia, no ceros.
+            normalization: null,
+            emptyPageReason: null,
           };
           pageOutcomes.push(fenceOutcome);
           await safeLog(deps.logPage, {
@@ -633,6 +681,9 @@ export async function runApolloOrganizationsPaginatedSearch(
             billingState: 'not_charged',
             wizardRunId: input.wizardRunId,
             agentRunId: input.agentRunId ?? null,
+            roundNumber,
+            normalization: null,
+            emptyPageReason: null,
           });
           void fenceErr;
           stopReason = 'durable_fence_write_failed';
@@ -698,6 +749,23 @@ export async function runApolloOrganizationsPaginatedSearch(
         // duplicado ya vive en el registro de la página que lo trajo primero.
         const newOrganizationsThisPage: NormalizedApolloOrganization[] = [];
         let acceptedInThisPage = 0;
+        // APOLLO-PAGE-OBSERVABILITY-X6.5 § 3 — cuántas de esta página no se
+        // habían visto ANTES de recorrerla.
+        //
+        // 🔴 Se mide aquí y no dentro del bucle a propósito: el bucle de abajo
+        // es el ejecutor sobre el que P0-2 tiene trinquetes de ORDEN por texto
+        // (`okGuard < record < dedupe < tope`), y tocar sus líneas ancladas
+        // habría desactivado esas guardas para instrumentar. El dato se deriva
+        // sin reescribirlas: si al final se adoptaron MENOS de las que estaban
+        // sin ver, el único camino posible es la salida por `maxCandidates`.
+        // El normalizador ya deduplicó por id dentro de la página, así que este
+        // conteo no puede inflarse con repetidas.
+        let unseenAtPageStart = 0;
+        for (const organization of normalized.organizations) {
+          const candidateId = organization.providerReference.providerOrganizationId;
+          if (!seenOrganizationIds.has(candidateId)) unseenAtPageStart++;
+        }
+
         for (const organization of normalized.organizations) {
           const id = organization.providerReference.providerOrganizationId;
           if (seenOrganizationIds.has(id)) continue;
@@ -740,6 +808,18 @@ export async function runApolloOrganizationsPaginatedSearch(
           normalized.meta.organizations_raw_count > 0 ||
           normalized.meta.accounts_raw_count > 0;
         const pageCredits = rawPageHadResults ? 1 : 0;
+
+        // ── APOLLO-PAGE-OBSERVABILITY-X6.5 §§ 2-3 ─────────────────────────────
+        // Estrictamente derivado: lee los contadores que la normalización ya
+        // produjo y el recuento del dedup entre páginas. No toca `pageCredits`,
+        // no toca `resultsReturned`, no toca la paginación.
+        const pageNormalization = buildApolloPageNormalizationDiagnostics({
+          meta: normalized.meta,
+          organizationsNormalizedCount: resultsReturned,
+          newInPageCount: newInThisPage,
+          candidateCapTruncated: newInThisPage < unseenAtPageStart,
+        });
+        const emptyPageReason = classifyApolloEmptyPage(pageNormalization);
 
         estimatedCredits += pageCredits;
         pagesFetched++;
@@ -787,6 +867,8 @@ export async function runApolloOrganizationsPaginatedSearch(
           attempt,
           errorCode: terminalFenceWriteFailed ? 'durable_fence_terminal_write_failed' : null,
           billingState: pageCredits > 0 ? 'charged' : 'not_charged',
+          normalization: pageNormalization,
+          emptyPageReason,
         });
 
         await safeLog(deps.logPage, {
@@ -809,6 +891,9 @@ export async function runApolloOrganizationsPaginatedSearch(
           billingState: pageCredits > 0 ? 'charged' : 'not_charged',
           wizardRunId: input.wizardRunId,
           agentRunId: input.agentRunId ?? null,
+          roundNumber,
+          normalization: pageNormalization,
+          emptyPageReason,
         });
 
         if (terminalFenceWriteFailed) {
@@ -875,6 +960,10 @@ export async function runApolloOrganizationsPaginatedSearch(
         attempt,
         errorCode: classification.code,
         billingState: classification.billingState,
+        // Un error NO es "cero organizaciones": no hubo respuesta que normalizar,
+        // así que no hay contadores ni causa de vacío que declarar.
+        normalization: null,
+        emptyPageReason: null,
       });
 
       await safeLog(deps.logPage, {
@@ -897,6 +986,9 @@ export async function runApolloOrganizationsPaginatedSearch(
         billingState: classification.billingState,
         wizardRunId: input.wizardRunId,
         agentRunId: input.agentRunId ?? null,
+        roundNumber,
+        normalization: null,
+        emptyPageReason: null,
       });
 
       const canRetry =

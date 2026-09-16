@@ -1035,6 +1035,11 @@ export async function runApolloOrganizationsSearch(
       // AGENT1-APOLLO-RESIDUAL-AND-PAGE-FENCING PARTE B — transportado tal
       // cual; la búsqueda paginada es quien decide si su huella coincide.
       durableResume: options?.durableResume,
+      // APOLLO-PAGE-OBSERVABILITY-X6.5 § 2 — la ronda baja al registro POR
+      // PÁGINA. Ya vivía en `provider_usage_logs.metadata.round_number`, pero a
+      // nivel de fila de uso: una página no podía decir a qué ronda pertenecía.
+      // Ruta legacy (sin contexto de operación) ⇒ null, no 1.
+      roundNumber: operationContext?.round_number ?? null,
     },
     {
       fetchPage,

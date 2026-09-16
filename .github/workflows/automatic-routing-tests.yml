@@ -2471,6 +2471,39 @@ jobs:
       # Supabase de marcador. Sin credenciales, sin Supabase real, 0 créditos.
       - name: Run Agent 2A provider-native novelty gate tests
         run: npm run test:agent2a:provider-novelty-gate
+      # APOLLO-PAGE-OBSERVABILITY-X6.5 — la instrumentación POR PÁGINA de Apollo
+      # Organization Search entra al check obligatorio.
+      #
+      # El defecto que cierra: una página que cobró y no produjo nada era
+      # indistinguible de otra. `normalizationMeta` se reasigna en cada vuelta
+      # del bucle y el resultado sólo publicaba la de la ÚLTIMA página, así que
+      # sólo-`accounts[]`, organizaciones sin id, todo duplicado y página vacía
+      # de verdad daban la MISMA fila durable.
+      #
+      # Lo que esta suite defiende, dicho como defecto:
+      #   * que las cuatro causas vuelvan a colapsar en una: cada escenario
+      #     tiene que dar su propio `emptyPageReason`, y `unknown` sólo cuando
+      #     los contadores de verdad no permiten separarla;
+      #   * que `dropped_without_id_count` siga mezclando orígenes — una cuenta
+      #     sin `organization_id` y una organización sin `id` son causas
+      #     distintas, y el total tiene que seguir siendo su suma exacta;
+      #   * que el COBRO se mueva con la excusa del diagnóstico: `pageCredits`
+      #     sigue siendo `rawPageHadResults ? 1 : 0` sobre la respuesta CRUDA.
+      #     Hay trinquete explícito: una página descartada entera por
+      #     normalización NO se vuelve gratis, y sólo la que no trajo NADA
+      #     cuesta 0;
+      #   * que un error se lea como "cero organizaciones": sin respuesta que
+      #     normalizar no hay contadores ni causa, y eso se escribe `null`;
+      #   * que la ronda se invente en la ruta legacy, que no tiene rondas;
+      #   * que el orden P0-2 del bucle de adopción (ok → recordar → dedupe →
+      #     tope) se pierda al instrumentarlo: la parity static-safety corre en
+      #     el mismo paso.
+      #
+      # Offline y determinista: `fetchPage`, `now`, `random` y `sleep` se
+      # inyectan y un espía sobre `fetch` falla la suite si algo saliera a la
+      # red. 0 llamadas a Apollo, 0 a Lusha, 0 créditos.
+      - name: Run Agent 1 Apollo per-page observability tests
+        run: npm run test:a1-apollo-page-observability
       # AGENT2A-LOCAL-REVIEWABLE-CANDIDATE-REUSE-1.1 — el gate de REUSO LOCAL
       # pre-proveedor, AGNÓSTICO DE PROVEEDOR, entra al check obligatorio.
       #
