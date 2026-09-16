@@ -60,7 +60,6 @@ export type LushaWaterfallDecisionInput = {
    * si la corrida terminó. No es un conteo de filas ni de resultados crudos.
    */
   readonly usefulAccumulated: number;
-  /** Una de las 12 macro industrias, o `null` si la publicada no mapea. */
   readonly macroIndustryKey: string | null;
   /**
    * CORTE 5A — `prospect_batches.id` que la corrida del wizard YA reservó.
@@ -221,6 +220,25 @@ export function decideLushaWaterfallLeg(
 
   // El hueco se calcula sobre la cuenta de útiles, nunca negativo. Un excedente
   // (8 útiles contra un objetivo de 5) cierra igual que un empate.
+  //
+  // ── 🔴 Por qué NO entran aquí las filas persistidas ─────────────────────────
+  //
+  // Esta decisión pertenece a la capa de AUTORIZACIÓN de una ruta de pago: la
+  // misma que el gate gratuita→Apollo resuelve con
+  // `acceptedBeforePaidRoute.targetReached`. Su autoridad es CUT-7, y CUT-7 dice
+  // que el hueco lo fija lo ACEPTADO, no lo persistido
+  // (`cut7-accepted-for-target.test.ts` CASO B: persiste 10, acepta 7 ⇒ hueco 3).
+  //
+  // Una fila `needs_review` existe y se revisará, pero no cubre el objetivo.
+  // Descontarla aquí dejaría de comprar sobre una meta que nadie alcanzó, y
+  // haría que este `target_reached` contradijera al de `resolveRunAcceptance`:
+  // en la corrida `bedebe9b…`, cinco filas de revisión habrían apagado el
+  // waterfall mientras la corrida se reportaba `success_partial`.
+  //
+  // 🔴 NO confundir con `resolveLushaRemainingGap`, que es OTRA capa —comprar la
+  // página SIGUIENTE dentro de una corrida ya pagada—, se cierra con
+  // SUPERVIVIENTES, y X5.1 prohíbe expresamente que la aceptación entre ahí
+  // (trinquetes M9/M10). Dos huecos, dos autoridades, y ninguna invade a la otra.
   const gap = Math.max(0, input.target - Math.max(0, input.usefulAccumulated));
   if (gap === 0) {
     return { run: false, reason: 'target_reached' };

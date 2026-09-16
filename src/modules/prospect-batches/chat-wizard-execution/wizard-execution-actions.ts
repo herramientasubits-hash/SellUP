@@ -2240,6 +2240,22 @@ export async function executeProspectWizardGeneration(
       persistedCandidates: lushaWaterfall.executed
         ? waterfallWriterTruth.persistedCandidates
         : null,
+      // 🔴 X6.4-C — este campo queda en `null` en las corridas reales, y es
+      // CORRECTO: no es un hueco de instrumentación.
+      //
+      // Sale de `multiBranch.acceptedForTargetTotal`, que el writer de Lusha
+      // publica como `null` cuando `resolveLushaRunAcceptanceTruth` declara la
+      // aceptación NO MEDIBLE — y lo es por contrato, porque
+      // `LUSHA_PROSPECTING_EVIDENCE_CAPABILITY` tiene condiciones no
+      // disponibles: el payload de Prospecting V3 no entrega la evidencia que
+      // `candidate-completeness-contract.ts` exige para declarar una empresa
+      // completa. `null` significa «no se midió»; un `0` afirmaría haber medido
+      // y haber encontrado cero, que es otra corrida.
+      //
+      // 🔴 Por eso NO se sustituye por `persistedCandidates`: derivar la
+      // aceptación de las filas es exactamente la mentira que CUT-7 cerró.
+      // Mientras la capacidad del proveedor no cambie, este campo debe seguir
+      // saliendo `null`, y `paid_acceptance_measured: false` lo acompaña.
       acceptedForTarget: lushaWaterfall.executed
         ? (waterfallWriterTruth.completeValidCandidates ?? null)
         : null,
@@ -2272,12 +2288,40 @@ export async function executeProspectWizardGeneration(
   // 🔴 `.catch` a propósito: la publicación no lanza por contrato, pero la
   // lectura de la época sí puede. Una escritura de OBSERVACIÓN no puede tumbar
   // una corrida cuyos candidatos ya son durables y cuyo proveedor ya cobró.
+  //
+  // ── 🔴 X6.4-C — el bloque `accepted_for_target` COMBINADO del lote ─────────
+  //
+  // El defecto: las dos piernas escriben ese bloque en el MISMO lote, y la
+  // última en hacerlo gana. La acción de Lusha sólo conoce su propia mitad, así
+  // que su publicación pisaba la de Apollo y el lote acababa afirmando
+  // `persisted_total_candidates: 8` sobre 1 de Apollo + 8 de Lusha = 9
+  // (corrida `bedebe9b…`). No era una aceptación inventada: era una
+  // CONTABILIDAD parcial presentada como la del lote.
+  //
+  // 🔴 No hay aritmética nueva ni una segunda autoridad: es `acceptedForTarget`
+  // —la MISMA `resolveRunAcceptance` de CUT-7 ya resuelta arriba con las dos
+  // piernas liquidadas— serializada con el MISMO `toAcceptedForTargetMetadata`,
+  // y viaja DENTRO de la escritura que esta ruta ya hacía.
+  //
+  // 🔴 Nada se finge: con la aceptación de Lusha sin medir el bloque sigue
+  // publicando `accepted_paid_for_target: 0`, `paid_acceptance_measured: false`
+  // y su motivo. Lo que se corrige son las FILAS, no la aceptación.
+  //
+  // 🔴 Sólo cuando la pierna CORRIÓ. Sin pierna no hay nada que pisar, y
+  // reescribir el bloque que el writer de Apollo acaba de publicar sería
+  // arriesgar una diferencia donde hoy no la hay.
   if (deps.publishWaterfallLegTrace) {
     await deps
       .publishWaterfallLegTrace({
         batchId: reservedBatchId,
         published: {
           [LUSHA_WATERFALL_LEG_METADATA_KEY]: waterfallLegTrace.lushaWaterfallLeg,
+          ...(lushaWaterfall.executed
+            ? {
+                [ACCEPTED_FOR_TARGET_METADATA_KEY]:
+                  toAcceptedForTargetMetadata(acceptedForTarget),
+              }
+            : {}),
         },
       })
       .catch(() => undefined);
