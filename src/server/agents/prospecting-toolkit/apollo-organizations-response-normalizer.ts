@@ -123,6 +123,17 @@ export type ApolloOrganizationsNormalizationMeta = {
   accounts_merged_count: number;
   duplicates_removed_count: number;
   dropped_without_id_count: number;
+  /**
+   * APOLLO-PAGE-OBSERVABILITY-X6.5 — desglose de `dropped_without_id_count` por
+   * ORIGEN. El total no cambia: es la suma exacta de estos dos.
+   *
+   * Por qué hace falta: una entrada de `accounts[]` sin `organization_id` y una
+   * de `organizations[]` sin `id` caían en el MISMO contador, así que una página
+   * que sólo trajo cuentas inservibles era indistinguible de una que trajo
+   * organizaciones sin identidad. Son causas distintas y se investigan distinto.
+   */
+  dropped_without_id_from_organizations_count: number;
+  dropped_without_id_from_accounts_count: number;
   source_priority: 'organizations_first';
 };
 
@@ -355,7 +366,8 @@ export function normalizeApolloOrganizationsResponse(
   const rawOrganizations = Array.isArray(payload?.organizations) ? payload!.organizations! : null;
   const rawAccounts = Array.isArray(payload?.accounts) ? payload!.accounts! : null;
 
-  let droppedWithoutId = 0;
+  let droppedWithoutIdFromOrganizations = 0;
+  let droppedWithoutIdFromAccounts = 0;
   let duplicatesRemoved = 0;
 
   // ── 1. organizations[] — fuente principal ─────────────────────────────────
@@ -364,7 +376,7 @@ export function normalizeApolloOrganizationsResponse(
 
   for (const entry of rawOrganizations ?? []) {
     const organizationId = resolveOrganizationId(entry, 'organizations');
-    if (!organizationId) { droppedWithoutId++; continue; }
+    if (!organizationId) { droppedWithoutIdFromOrganizations++; continue; }
     if (byOrganizationId.has(organizationId)) { duplicatesRemoved++; continue; }
     byOrganizationId.set(organizationId, toNormalized(entry, organizationId, null));
     order.push(organizationId);
@@ -382,7 +394,7 @@ export function normalizeApolloOrganizationsResponse(
     if (!organizationId) {
       // Sin organization_id no hay forma legítima de emparejar. Usar
       // `accounts[*].id` como org id es precisamente el bug que evitamos.
-      droppedWithoutId++;
+      droppedWithoutIdFromAccounts++;
       continue;
     }
 
@@ -425,7 +437,10 @@ export function normalizeApolloOrganizationsResponse(
       accounts_only_count: accountsOnly,
       accounts_merged_count: accountsMerged,
       duplicates_removed_count: duplicatesRemoved,
-      dropped_without_id_count: droppedWithoutId,
+      dropped_without_id_count:
+        droppedWithoutIdFromOrganizations + droppedWithoutIdFromAccounts,
+      dropped_without_id_from_organizations_count: droppedWithoutIdFromOrganizations,
+      dropped_without_id_from_accounts_count: droppedWithoutIdFromAccounts,
       source_priority: 'organizations_first',
     },
   };
