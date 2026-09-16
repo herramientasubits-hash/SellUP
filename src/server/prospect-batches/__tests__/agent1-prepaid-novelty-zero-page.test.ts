@@ -71,22 +71,13 @@ function company(overrides: Partial<LushaPreviewCompany> = {}): LushaPreviewComp
   };
 }
 
-/**
- * N empresas sintéticas con identidad totalmente distinta entre sí.
- *
- * 🔴 X6.4-A — el dominio CORRESPONDE al nombre a propósito. Desde ese corte la
- * pierna Lusha aplica el mismo gate de ownership que la ruta Apollo, y
- * `Sintetica a 0` sobre `a-0.example` sería una empresa a la que su dominio no
- * acredita: el gate la rechazaría antes del chequeo de duplicados y esta suite
- * —que mide NOVEDAD por página y parada de rama— dejaría de medir lo suyo.
- * La identidad sigue siendo distinta empresa a empresa, que es lo que importa.
- */
+/** N empresas sintéticas con identidad totalmente distinta entre sí. */
 function distinct(count: number, prefix: string): LushaPreviewCompany[] {
   return Array.from({ length: count }, (_, i) =>
     company({
       providerCompanyId: `${prefix}-${i}`,
       name: `Sintetica ${prefix} ${i}`,
-      domain: `sintetica-${prefix}-${i}.example`,
+      domain: `${prefix}-${i}.example`,
     }),
   );
 }
@@ -279,10 +270,7 @@ describe('§ 23 — matriz de novedad cero sobre el ejecutor', () => {
         successResult([]),
       ],
       { plan: planWithBranches(2), targetGap: 5 },
-      // 🔴 X6.4-A — el prefijo ya no abre el dominio (`sintetica-seca-0.example`),
-      // así que la rama estéril se reconoce por contención. El criterio no cambia:
-      // sigue siendo «las de la rama `seca` son duplicados exactos».
-      (input) => (input.domain?.includes('seca') ? exactDuplicate(input) : noDuplicate(input)),
+      (input) => (input.domain?.startsWith('seca') ? exactDuplicate(input) : noDuplicate(input)),
     );
 
     assert.equal(calls[0]?.mainIndustryId, 11);

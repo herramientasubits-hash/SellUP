@@ -451,14 +451,10 @@ describe('§ 23 — dedupe de identidad en toda la corrida', () => {
   it('I. duplicado entre ramas por DOMINIO se cuenta una vez', async () => {
     const { res } = await run(
       [
-        // 🔴 X6.4-A — los nombres CORRESPONDEN a su dominio y siguen siendo
-        // distintos entre sí: lo que este caso prueba es que el dedupe reconoce
-        // el MISMO dominio, no el mismo nombre. Desde este corte la pierna Lusha
-        // aplica el gate de ownership, y `Uno` sobre `mismo.com` moriría antes.
-        successResult([company({ providerCompanyId: 'i1', name: 'Mismo Uno', domain: 'mismo.com' })]),
+        successResult([company({ providerCompanyId: 'i1', name: 'Uno', domain: 'mismo.com' })]),
         successResult([]),
         successResult([
-          company({ providerCompanyId: 'i2', name: 'Mismo Otro', domain: 'https://www.mismo.com/' }),
+          company({ providerCompanyId: 'i2', name: 'Otro', domain: 'https://www.mismo.com/' }),
         ]),
       ],
       { plan: planWithBranches(2) },
@@ -473,8 +469,7 @@ describe('§ 23 — dedupe de identidad en toda la corrida', () => {
         successResult([
           company({
             providerCompanyId: 'j1',
-            // 🔴 X6.4-A — nombre correspondiente a su dominio (ver caso I).
-            name: 'J1',
+            name: 'Uno',
             domain: 'j1.com',
             linkedinUrl: 'https://www.linkedin.com/company/mismo/about/?trk=x',
           }),
@@ -483,7 +478,7 @@ describe('§ 23 — dedupe de identidad en toda la corrida', () => {
         successResult([
           company({
             providerCompanyId: 'j2',
-            name: 'J2',
+            name: 'Otro',
             domain: 'j2.com',
             linkedinUrl: 'linkedin.com/company/mismo',
           }),

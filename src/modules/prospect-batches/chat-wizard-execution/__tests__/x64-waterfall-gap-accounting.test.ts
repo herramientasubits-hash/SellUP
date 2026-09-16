@@ -568,15 +568,15 @@ describe('§ 4 · mutaciones muertas', () => {
     assert.equal(/Math\.min\([^)]*gap/.test(code), false);
   });
 
-  it('L3 — la pierna Lusha declara su gate de país/ownership', () => {
+  it('L3 — la pierna Lusha declara su gate de PAÍS', () => {
     const writer = strip(
       readFileSync(
         path.join(process.cwd(), 'src/server/prospect-batches/lusha-pending-review.ts'),
         'utf8',
       ),
     );
-    assert.match(writer, /evaluateLushaCountryOwnershipGate\(/, '🔴 el gate no puede desaparecer');
-    assert.match(writer, /countryOwnershipExcluded/);
+    assert.match(writer, /evaluateLushaCountryGate\(/, '🔴 el gate no puede desaparecer');
+    assert.match(writer, /countryExcluded/);
   });
 
   it('L4 — `acceptedForTarget` no se sustituye por `persistedCandidates`', () => {

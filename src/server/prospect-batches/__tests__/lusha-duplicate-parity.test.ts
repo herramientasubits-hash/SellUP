@@ -476,17 +476,7 @@ describe('ScotiaTech regression — scotiabank.com must not persist as clean no_
   const scotia = () =>
     company({ name: 'ScotiaTech', domain: 'scotiabank.com', providerCompanyId: 'pc-scotia' });
 
-  // 🔴 X6.4-A — la invariante de esta regresión sigue en pie y AHORA SE CUMPLE
-  // ANTES. «ScotiaTech» sobre `scotiabank.com` es literalmente el caso que el
-  // gate de ownership describe: un dominio que no acredita a la empresa. Desde
-  // este corte la pierna Lusha aplica ese gate —el MISMO de la ruta Apollo—, y
-  // la empresa muere antes del chequeo de duplicados en vez de después.
-  //
-  // Los dos casos por tanto YA NO recorren la ruta de duplicados: lo que se
-  // comprueba es lo que siempre importó —que no aparezca como candidato
-  // limpio— y, además, que el veredicto sea trazable.
-
-  it('29 (Q3F-5BB.7B). el dominio ajeno muere en el gate de ownership, antes del duplicado', async () => {
+  it('29 (Q3F-5BB.7B). checker returns SellUp exact match → EXCLUDED, never persisted', async () => {
     const { res, calls } = await run({
       results: [scotia()],
       checker: (input) =>
@@ -494,33 +484,23 @@ describe('ScotiaTech regression — scotiabank.com must not persist as clean no_
           ? dupResult({ sellup: [sellupExact(ACCOUNT_UUID)] })
           : dupResult({}),
     });
-    assert.equal(calls.candidateRows.length, 0, 'nunca persistida: la invariante original');
+    assert.equal(calls.candidateRows.length, 0);
+    assert.equal(res.excludedExactDuplicatesCount, 1);
     assert.equal(res.status, 'empty');
-    // 🔴 Ya no llega al chequeo de duplicados, así que no puede contarse como
-    // duplicado exacto. El descarte tiene su propia disposición durable.
-    assert.equal(res.excludedExactDuplicatesCount, 0);
-    const discards = (res.discardedCompanies ?? []).filter(
-      (d) => d.disposition === 'ownership_domain_rejected',
-    );
-    assert.equal(discards.length, 1);
-    assert.equal(discards[0].domain, 'scotiabank.com');
   });
 
-  it('30. tampoco persiste como no_match limpio cuando HubSpot ve riesgo', async () => {
-    const { res, calls } = await run({
+  it('30. checker returns HubSpot possible risk → NOT persisted as clean no_match', async () => {
+    const { calls } = await run({
       results: [scotia()],
       checker: (input) =>
         input.domain === 'scotiabank.com'
           ? dupResult({ hubspot: [hubspotPossible('hs-scotia')] })
           : dupResult({}),
     });
-    // La afirmación que esta regresión defiende —jamás `no_match` limpio— se
-    // cumple del modo más fuerte posible: no hay fila ninguna.
-    assert.equal(calls.candidateRows.length, 0);
-    assert.equal(
-      (res.discardedCompanies ?? []).some((d) => d.disposition === 'ownership_domain_rejected'),
-      true,
-    );
+    const row = calls.candidateRows[0];
+    assert.notEqual(row.duplicate_status, 'no_match');
+    assert.equal(row.duplicate_status, 'possible_duplicate');
+    assert.equal(row.matched_hubspot_company_id, 'hs-scotia');
   });
 });
 

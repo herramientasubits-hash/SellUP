@@ -626,13 +626,9 @@ describe('CUT-9 §§ 6, 7 · una empresa cuenta hacia el objetivo UNA sola vez',
 
     const { deps, calls } = makePaidDeps({
       search: lushaSuccess([
-        // 🔴 X6.4-A — el dominio CORRESPONDE al nombre a propósito: desde este
-        // corte la pierna Lusha aplica el mismo gate de ownership que la ruta
-        // Apollo, y `Clinica C` sobre `c.com` sería una empresa a la que su
-        // dominio no acredita. Esta suite mide el hueco parcial, no el ownership.
-        lushaCompany({ providerCompanyId: 'pc-c', name: 'Clinica C', domain: 'clinica-c.com' }),
-        lushaCompany({ providerCompanyId: 'pc-d', name: 'Clinica D', domain: 'clinica-d.com' }),
-        lushaCompany({ providerCompanyId: 'pc-e', name: 'Clinica E', domain: 'clinica-e.com' }),
+        lushaCompany({ providerCompanyId: 'pc-c', name: 'Clinica C', domain: 'c.com' }),
+        lushaCompany({ providerCompanyId: 'pc-d', name: 'Clinica D', domain: 'd.com' }),
+        lushaCompany({ providerCompanyId: 'pc-e', name: 'Clinica E', domain: 'e.com' }),
       ]),
       resolvers: [
         taxByName({
@@ -683,9 +679,9 @@ describe('CUT-9 §§ 6, 7 · una empresa cuenta hacia el objetivo UNA sola vez',
       search: lushaSuccess([
         // Las dos primeras son las MISMAS empresas que lo gratuito ya cerró: otro
         // id de proveedor, otro dominio, MISMA identidad fiscal.
-        lushaCompany({ providerCompanyId: 'pc-a2', name: 'Clinica A', domain: 'clinica-a2.com' }),
-        lushaCompany({ providerCompanyId: 'pc-b2', name: 'Clinica B', domain: 'clinica-b2.com' }),
-        lushaCompany({ providerCompanyId: 'pc-c', name: 'Clinica C', domain: 'clinica-c.com' }),
+        lushaCompany({ providerCompanyId: 'pc-a2', name: 'Clinica A', domain: 'a2.com' }),
+        lushaCompany({ providerCompanyId: 'pc-b2', name: 'Clinica B', domain: 'b2.com' }),
+        lushaCompany({ providerCompanyId: 'pc-c', name: 'Clinica C', domain: 'c.com' }),
       ]),
       resolvers: [
         taxByName({
@@ -746,9 +742,9 @@ describe('CUT-9 §§ 6, 7 · una empresa cuenta hacia el objetivo UNA sola vez',
     // pasan. Es la mutación de § 21-D aplicada al parámetro.
     const { deps } = makePaidDeps({
       search: lushaSuccess([
-        lushaCompany({ providerCompanyId: 'pc-a2', name: 'Clinica A', domain: 'clinica-a2.com' }),
-        lushaCompany({ providerCompanyId: 'pc-b2', name: 'Clinica B', domain: 'clinica-b2.com' }),
-        lushaCompany({ providerCompanyId: 'pc-c', name: 'Clinica C', domain: 'clinica-c.com' }),
+        lushaCompany({ providerCompanyId: 'pc-a2', name: 'Clinica A', domain: 'a2.com' }),
+        lushaCompany({ providerCompanyId: 'pc-b2', name: 'Clinica B', domain: 'b2.com' }),
+        lushaCompany({ providerCompanyId: 'pc-c', name: 'Clinica C', domain: 'c.com' }),
       ]),
       resolvers: [
         taxByName({
@@ -905,9 +901,9 @@ describe('CUT-9 §§ 3, 4 · lo persistido no es lo aceptado', () => {
     const seed = await seedFromFreeRows([{ id: 'free-a', taxIdentifier: '900000001' }]);
     const { deps } = makePaidDeps({
       search: lushaSuccess([
-        lushaCompany({ providerCompanyId: 'pc-c', name: 'Clinica C', domain: 'clinica-c.com' }),
-        lushaCompany({ providerCompanyId: 'pc-d', name: 'Clinica D', domain: 'clinica-d.com' }),
-        lushaCompany({ providerCompanyId: 'pc-e', name: 'Clinica E', domain: 'clinica-e.com' }),
+        lushaCompany({ providerCompanyId: 'pc-c', name: 'Clinica C', domain: 'c.com' }),
+        lushaCompany({ providerCompanyId: 'pc-d', name: 'Clinica D', domain: 'd.com' }),
+        lushaCompany({ providerCompanyId: 'pc-e', name: 'Clinica E', domain: 'e.com' }),
       ]),
       resolvers: [
         taxByName({
@@ -1258,7 +1254,7 @@ describe('CUT-9 §§ 8, 9, 18, 19 · lo que CUT9A cerró sigue cerrado', () => {
     const seed = await seedFromFreeRows([{ id: 'free-a', taxIdentifier: '900000001' }]);
     const { deps, calls } = makePaidDeps({
       search: lushaSuccess([
-        lushaCompany({ providerCompanyId: 'pc-c', name: 'Clinica C', domain: 'clinica-c.com' }),
+        lushaCompany({ providerCompanyId: 'pc-c', name: 'Clinica C', domain: 'c.com' }),
       ]),
       resolvers: [taxByName({ 'Clinica C': '900000003' })],
     });
@@ -1295,7 +1291,7 @@ describe('CUT-9 §§ 8, 9, 18, 19 · lo que CUT9A cerró sigue cerrado', () => {
     const seed = await seedFromFreeRows([{ id: 'free-a', taxIdentifier: '900000001' }]);
     const { deps } = makePaidDeps({
       search: lushaSuccess([
-        lushaCompany({ providerCompanyId: 'pc-c', name: 'Clinica C', domain: 'clinica-c.com' }),
+        lushaCompany({ providerCompanyId: 'pc-c', name: 'Clinica C', domain: 'c.com' }),
       ]),
       resolvers: [taxByName({ 'Clinica C': '900000003' })],
     });
@@ -1325,7 +1321,7 @@ describe('CUT-9 §§ 8, 9, 18, 19 · lo que CUT9A cerró sigue cerrado', () => {
   it('🔴 una lectura AVERIADA de la época sigue fallando CERRADO, no a época 0', async () => {
     const { deps } = makePaidDeps({
       search: lushaSuccess([
-        lushaCompany({ providerCompanyId: 'pc-c', name: 'Clinica C', domain: 'clinica-c.com' }),
+        lushaCompany({ providerCompanyId: 'pc-c', name: 'Clinica C', domain: 'c.com' }),
       ]),
     });
     const broken: PersistLushaPendingReviewDeps = {
@@ -1379,7 +1375,7 @@ describe('CUT-9 §§ 8, 9, 18, 19 · lo que CUT9A cerró sigue cerrado', () => {
 
     const { deps } = makePaidDeps({
       search: lushaSuccess([
-        lushaCompany({ providerCompanyId: 'pc-a2', name: 'Clinica A', domain: 'clinica-a2.com' }),
+        lushaCompany({ providerCompanyId: 'pc-a2', name: 'Clinica A', domain: 'a2.com' }),
       ]),
       resolvers: [taxByName({ 'Clinica A': '900000001' })],
     });

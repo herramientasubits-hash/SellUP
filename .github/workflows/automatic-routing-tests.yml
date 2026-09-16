@@ -5491,46 +5491,54 @@ jobs:
       - name: Run Agent 1 X6.3 ownership pre-enrichment tests
         run: npm run test:a1-ownership-pre-enrichment-x6-3
 
-      # 🔴 AGENT1-LUSHA-COUNTRY-OWNERSHIP-GAP-X6.4 — los gates que la pierna
-      # Lusha no aplicaba, y la contabilidad del lote compartido.
+      # 🔴 AGENT1-LUSHA-COUNTRY-GATE-X6.4 — el gate de PAÍS que la pierna Lusha
+      # no aplicaba, y la contabilidad durable del lote compartido.
       #
       # A) La corrida `bedebe9b…` (CO × retail) persistió «Maestro Perú»
-      #    (`www.maestro.com.pe`) como prospecto colombiano. La pierna Lusha
-      #    pasa por `evaluateProspectIntakeGate`, cuyo eje de país compara el
+      #    (`www.maestro.com.pe`) como prospecto colombiano. La pierna pasa por
+      #    `evaluateProspectIntakeGate`, cuyo eje de país compara el
       #    `countryCode` que el PROVEEDOR declaró — y Lusha declaró `CO`. La
       #    evidencia estaba en el dominio, y el gate que lee dominios
-      #    (`evaluateCountryCompatibility`) sólo lo invocaba la ruta Apollo; lo
-      #    mismo con `evaluateCompanyOwnership`. El corte los IMPORTA, no los
-      #    reimplementa, y los aplica antes del chequeo de duplicados: una
-      #    empresa rechazada no llega a `prospect_candidates` y deja fila en
-      #    `prospect_discarded_dispositions` con códigos que YA existen
-      #    (`country_rejected` / `ownership_domain_rejected`).
-      #
-      # B) La misma corrida mandó `gap: 5` a Lusha con una empresa de Apollo ya
-      #    dentro del lote. El hueco salía sólo de la ACEPTACIÓN, que es
-      #    fail-closed: Apollo escribió la fila sin poder medir su completitud
-      #    (`acceptance_not_measured`). Ahora descuenta también las FILAS del
-      #    lote, y el hueco resultante nunca es MAYOR que el de antes.
+      #    (`evaluateCountryCompatibility`) sólo lo invocaba la ruta Apollo. El
+      #    corte lo IMPORTA, no lo reimplementa, y lo aplica antes del chequeo de
+      #    duplicados: la rechazada no llega a `prospect_candidates` y deja fila
+      #    en `prospect_discarded_dispositions` con `country_rejected`, un código
+      #    que ya existe. La ausencia de evidencia NO rechaza.
       #
       # C) `metadata.accepted_for_target` afirmaba `persisted_total_candidates:
       #    8` sobre 1 de Apollo + 8 de Lusha = 9: las dos piernas escriben ese
-      #    bloque en el MISMO lote y la última gana. Ahora la publicación que ya
-      #    existía añade el bloque COMBINADO, con la misma
-      #    `resolveRunAcceptance` y el mismo serializador.
+      #    bloque en el MISMO lote y la última gana. La publicación fenced que ya
+      #    existía añade el bloque COMBINADO, con la misma `resolveRunAcceptance`
+      #    y el mismo serializador. Sin inventar aceptación: con Lusha sin poder
+      #    medir, sigue publicando 0 aceptadas y `acceptedForTarget: null`.
       #
-      # 🔴 La línea que NO se cruza: el hueco gobierna la CONTINUACIÓN, jamás la
-      # persistencia (X5.1). Con `gap: 4` una pierna que halla 8 supervivientes
-      # persiste las 8 y el lote termina con 9. Y la aceptación no se finge:
-      # `acceptedForTarget` sigue saliendo `null` cuando Lusha no puede medir.
+      # 🔴 EL HUECO NO SE TOCA. `decideLushaWaterfallLeg` pertenece a la capa de
+      # AUTORIZACIÓN de una ruta de pago y su autoridad sigue siendo CUT-7:
+      # `gap = max(0, target − acceptedForTarget)`. Una versión anterior lo
+      # calculaba con las filas persistidas; se revirtió porque con 5 filas
+      # `needs_review` la pierna se saltaba con `target_reached` mientras la
+      # corrida se reportaba `success_partial`. La suite lo fija en las dos
+      # direcciones, y fija además que el hueco NO es tope de persistencia
+      # (Apollo 1 + Lusha 8 = 9, sin `target_cap`).
+      #
+      # 🔴 DEUDA DECLARADA — el OWNERSHIP queda FUERA de X6.4. Una versión
+      # anterior lo extendía a la pierna Lusha; se retiró al medir su heurístico
+      # nombre↔dominio contra datos REALES: 4 de las 25 empresas del lote vivo
+      # `26f49596` eran rechazos FALSOS (EPM/`une.com.co`,
+      # RCN TV/`canalrcn.com`, Caracol Televisión/`caracoltv.com`,
+      # Universidad de Nariño/`udenar.edu.co`), más `D1 S.A.S`/`tiendasd1.com`
+      # en `bedebe9b…`. El defecto vive en el heurístico, no en el gate, y es un
+      # corte independiente.
       #
       # Lo que NO toca: `company-ownership-gate.ts`, `candidate-survival.ts`,
-      # `resolveFinalCandidateCap`, `target_cap`, Apollo discovery y enrichment,
-      # el presupuesto, los créditos, las banderas, la UI y las migraciones.
+      # `resolveFinalCandidateCap`, `target_cap`, `purchaseCreditSoFar()`,
+      # `resolveLushaRemainingGap`, Apollo discovery y enrichment, el
+      # presupuesto, los créditos, las banderas, la UI y las migraciones.
       #
       # 0 llamadas a proveedor · 0 créditos · 0 Supabase real · 0 escrituras ·
       # 0 migraciones · 0 cambios de bandera.
-      - name: Run Agent 1 X6.4 Lusha country/ownership + gap accounting tests
-        run: npm run test:a1-lusha-country-ownership-gap-x6-4
+      - name: Run Agent 1 X6.4 Lusha country gate + durable metadata tests
+        run: npm run test:a1-lusha-country-gate-metadata-x6-4
 
       # AGENT1-WATERFALL-LEG-DURABLE-TRACE — la traza de la pierna Lusha deja de
       # morir con la sesión.

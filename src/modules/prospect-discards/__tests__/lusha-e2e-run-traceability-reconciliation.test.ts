@@ -106,19 +106,11 @@ const ACTOR = {
   requestedTarget: 5,
 };
 
-/**
- * Empresa limpia: pasa el gate obligatorio (dominio, país CO, 300 empleados).
- *
- * 🔴 X6.4-A — el nombre CORRESPONDE a su dominio a propósito. Desde este corte
- * la pierna Lusha aplica el mismo gate de ownership que la ruta Apollo, y un
- * doble con `name: 'Empresa a01'` sobre `a01.com` sería una empresa cuyo
- * dominio no la acredita: el gate la rechazaría y estas suites dejarían de
- * medir lo suyo —dedupe, disposiciones y objetivo— para medir el ownership.
- */
+/** Empresa limpia: pasa el gate obligatorio (dominio, país CO, 300 empleados). */
 function company(slug: string, overrides: Partial<LushaPreviewCompany> = {}): LushaPreviewCompany {
   return {
     providerCompanyId: `pc-${slug}`,
-    name: slug,
+    name: `Empresa ${slug}`,
     domain: `${slug}.com`,
     country: 'Colombia',
     countryIso2: 'CO',
@@ -238,7 +230,7 @@ function buildRun(pages: PageSpec[]) {
   const guardDomains = pages.flatMap((p) => p.guard ?? []);
   const active: ActiveCandidateRecord[] = guardDomains.map((d, i) => ({
     id: `cand-${i}`,
-    name: d,
+    name: `Empresa ${d}`,
     domain: `${d}.com`,
     status: 'needs_review',
   }));

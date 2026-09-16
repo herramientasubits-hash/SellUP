@@ -161,14 +161,9 @@ function company(overrides: Partial<LushaPreviewCompany> = {}): LushaPreviewComp
 function distinct(count: number, prefix: string, overrides: Partial<LushaPreviewCompany> = {}) {
   return Array.from({ length: count }, (_, i) =>
     company({
-      // 🔴 X6.4-A — el dominio CORRESPONDE al nombre a propósito: la pierna Lusha
-      // aplica el mismo gate de ownership que la ruta Apollo, y `Sintetica a 0`
-      // sobre `a-0.example` sería una empresa a la que su dominio no acredita.
-      // La identidad sigue siendo distinta empresa a empresa, que es lo que
-      // estas suites miden.
       providerCompanyId: `${prefix}-${i}`,
       name: `Sintetica ${prefix} ${i}`,
-      domain: `sintetica-${prefix}-${i}.example`,
+      domain: `${prefix}-${i}.example`,
       ...overrides,
     }),
   );
