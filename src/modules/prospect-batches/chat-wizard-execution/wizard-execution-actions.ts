@@ -2097,15 +2097,6 @@ export async function executeProspectWizardGeneration(
         subIndustryId: null,
         target: acceptedAfterApollo.requestedTarget,
         usefulAccumulated: acceptedAfterApollo.acceptedForTargetTotal,
-        // 🔴 X6.4-B — las FILAS que el lote YA tiene tras la capa gratuita y
-        // Apollo, por `resolveBatchDurableTotals` (la misma de CUT-1 que usan
-        // los escritores). Sin esto el hueco ignoraba a una empresa persistida
-        // cuya completitud no se pudo medir —`acceptance_not_measured` es lo
-        // que le pasó a Apollo en la corrida `bedebe9b…`— y la pierna Lusha
-        // pedía el objetivo entero sobre un lote que ya no estaba vacío.
-        //
-        // 🔴 Sigue SIN ser un tope de persistencia: gobierna la continuación.
-        persistedAccumulated: combinedDurableTotals.totalDurableCandidates,
         // Se llegó hasta aquí: el pipeline devolvió un veredicto.
         apolloTerminal: true,
       })

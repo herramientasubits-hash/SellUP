@@ -5,11 +5,14 @@
  *
  * Corrida real `bedebe9b-0e22-4c8d-99e7-2c8d4a95a4c8` (CO × retail, objetivo 5):
  *
- *   B) Apollo persistió 1 empresa y la pierna Lusha recibió `gap: 5`. El hueco
- *      salía sólo de la ACEPTACIÓN, que es fail-closed: Apollo escribió una fila
- *      sin poder medir su completitud (`acceptance_not_measured`), así que la
- *      aceptación quedó en 0 y el lote —que ya no estaba vacío— se trató como si
- *      lo estuviera.
+ *   B) El `gap: 5` que la pierna recibió NO era un defecto, y esta suite lo fija
+ *      para que nadie vuelva a «corregirlo». Apollo MIDIÓ su única empresa
+ *      (`complete_valid_candidates: 0`, `review_only_candidates: 1`, caída por
+ *      `quality_gate` y `duplicate_status`): la fila existe y se revisará, pero
+ *      no cubre el objetivo. `decideLushaWaterfallLeg` decide si se AUTORIZA una
+ *      ruta de pago —la misma capa que el gate gratuita→Apollo resuelve con
+ *      `acceptedBeforePaidRoute.targetReached`— y su autoridad es CUT-7: el
+ *      hueco lo fija lo ACEPTADO, jamás las filas persistidas.
  *
  *   C) `metadata.accepted_for_target` acabó afirmando
  *      `persisted_total_candidates: 8` sobre 1 de Apollo + 8 de Lusha = 9. Las
@@ -18,9 +21,15 @@
  *
  * ── La línea que NO se cruza ────────────────────────────────────────────────
  *
- * El hueco gobierna la CONTINUACIÓN, jamás la persistencia (X5.1). Con `gap: 4`
- * una pierna que encuentra 8 supervivientes persiste las 8, y el lote termina
- * con 9. Y la aceptación no se finge: sigue saliendo de la autoridad del writer.
+ * El hueco gobierna la AUTORIZACIÓN del gasto, jamás la persistencia (X5.1). Con
+ * `gap: 5` una pierna que encuentra 8 supervivientes persiste las 8, y el lote
+ * termina con 9: el hueco no recorta. Y la aceptación no se finge — 9 filas
+ * pueden convivir con 0 aceptadas.
+ *
+ * 🔴 NO confundir con `resolveLushaRemainingGap`, que es OTRA capa —comprar la
+ * página siguiente dentro de una corrida ya pagada—, se cierra con
+ * SUPERVIVIENTES y tiene prohibida la aceptación por los trinquetes M9/M10 de
+ * X5.1. Dos huecos, dos autoridades, y ninguna invade a la otra.
  *
  * 🔴 0 proveedores · 0 créditos · 0 red · 0 Supabase real · 0 Producción ·
  * 0 migraciones · 0 banderas. Todo inyectado.
@@ -115,11 +124,18 @@ function emptyFreeLayer(): PrePaidNoveltyDiscoveryDeps {
 }
 
 /**
- * La mitad Apollo de la corrida REAL: `apolloPersisted` filas escritas, y la
- * completitud SIN MEDIR (`completeValidCandidates: null`) — que es exactamente
- * lo que dejó la aceptación en 0 y el hueco en 5.
+ * La mitad Apollo de la corrida REAL.
+ *
+ * 🔴 `completeValidCandidates` es lo que el writer MIDIÓ, y en `bedebe9b…` fue
+ * **0 con 1 fila persistida**: la empresa cayó por `quality_gate` y
+ * `duplicate_status` y quedó como `review_only`. No es una ausencia de medición
+ * —es una medición que dio cero—, que es exactamente lo que significa que
+ * `needs_review` no cuenta hacia el objetivo.
  */
-function apolloOutput(apolloPersisted: number): IncrementalSearchOutput {
+function apolloOutput(
+  apolloPersisted: number,
+  completeValidCandidates: number | null = 0,
+): IncrementalSearchOutput {
   return {
     batchId: CANONICAL_BATCH_ID,
     candidatesCreated: apolloPersisted,
@@ -137,9 +153,8 @@ function apolloOutput(apolloPersisted: number): IncrementalSearchOutput {
       persistenceSucceededCount: apolloPersisted,
       persistenceFailedCount: 0,
       persistenceGap: 0,
-      // 🔴 `null` = «no se midió». Es el estado real de la corrida bedebe9b.
-      completeValidCandidates: null,
-      reviewOnlyCandidates: null,
+      completeValidCandidates,
+      reviewOnlyCandidates: apolloPersisted - (completeValidCandidates ?? 0),
     },
   } as unknown as IncrementalSearchOutput;
 }
@@ -162,7 +177,7 @@ type Publication = { batchId: string; published: Record<string, unknown> };
 
 type Harness = {
   deps: WizardExecutionDeps;
-  legInputs: Array<{ target: number; usefulAccumulated: number; persistedAccumulated: number }>;
+  legInputs: Array<{ target: number; usefulAccumulated: number }>;
   lushaCalls: Array<{ targetGap: number | null }>;
   publications: Publication[];
 };
@@ -170,6 +185,8 @@ type Harness = {
 function wiring(opts: {
   apolloPersisted: number;
   lushaInserted: number;
+  /** Lo que el writer de Apollo MIDIÓ como completo-válido. Por defecto 0. */
+  apolloAccepted?: number | null;
   waterfallEnabled?: boolean;
 }): Harness {
   const free = emptyFreeLayer();
@@ -215,16 +232,12 @@ function wiring(opts: {
     sealFreeOnlyBatchStatus: async () => undefined,
     runTavilyPipeline: async ({ reservedBatchId }) =>
       ({ batchId: reservedBatchId, candidatesCreated: 0 } as unknown as IncrementalSearchOutput),
-    runApolloPipeline: async () => apolloOutput(opts.apolloPersisted),
+    runApolloPipeline: async () => apolloOutput(opts.apolloPersisted, opts.apolloAccepted ?? 0),
     markBatchFailed: async () => undefined,
     // 🔴 La pierna REAL, con sus banderas inyectadas: así el hueco lo calcula
     // `decideLushaWaterfallLeg` de verdad y no un doble que lo finja.
     runLushaWaterfallLeg: async (input) => {
-      legInputs.push({
-        target: input.target,
-        usefulAccumulated: input.usefulAccumulated,
-        persistedAccumulated: input.persistedAccumulated,
-      });
+      legInputs.push({ target: input.target, usefulAccumulated: input.usefulAccumulated });
       return runLushaWaterfallLeg(input, {
         waterfallEnabled: () => opts.waterfallEnabled ?? true,
         lushaAvailable: () => true,
@@ -276,75 +289,92 @@ async function run(opts: Parameters<typeof wiring>[0]) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// § 1 · el HUECO descuenta lo que el lote YA tiene (X6.4-B)
+// § 1 · el HUECO lo fija la ACEPTACIÓN — `needs_review` no cuenta (CUT-7)
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe('§ 1 · contabilidad del hueco', () => {
-  it('E — Apollo persistió 1, objetivo 5 ⇒ la pierna Lusha recibe gap 4', async () => {
-    const { result, lushaCalls } = await run({ apolloPersisted: 1, lushaInserted: 0 });
-    assert.equal(result.lushaWaterfallLeg?.gap, 4, '🔴 con 5 se repite la corrida bedebe9b');
-    assert.equal(lushaCalls.length, 1);
-    assert.equal(lushaCalls[0].targetGap, 4, 'el hueco que viaja al proveedor es el mismo');
+describe('§ 1 · autoridad del hueco', () => {
+  it('B/6 — Apollo persistió 1 `needs_review`, aceptó 0 ⇒ el hueco sigue siendo 5', async () => {
+    // 🔴 La corrida real. `gap: 5` NO era un defecto: la fila existe y se
+    // revisará, pero no cubre el objetivo, así que la ruta de pago sigue
+    // autorizada a buscar las 5 que faltan.
+    const { result, lushaCalls, legInputs } = await run({
+      apolloPersisted: 1,
+      apolloAccepted: 0,
+      lushaInserted: 0,
+    });
+    assert.equal(legInputs[0].usefulAccumulated, 0, 'una fila de revisión acepta 0');
+    assert.equal(result.lushaWaterfallLeg?.gap, 5, '🔴 descontarla sería descontar lo no aceptado');
+    assert.equal(lushaCalls[0].targetGap, 5, 'y es el hueco que viaja al proveedor');
   });
 
-  it('E2 — el hueco descuenta las FILAS aunque la aceptación esté SIN MEDIR', async () => {
-    // Éste es el corazón del defecto: la aceptación de Apollo fue 0 porque no se
-    // midió, no porque no hubiera empresa.
-    const { legInputs, result } = await run({ apolloPersisted: 1, lushaInserted: 0 });
-    assert.equal(legInputs[0].usefulAccumulated, 0, 'la aceptación sigue siendo 0: fail-closed');
-    assert.equal(legInputs[0].persistedAccumulated, 1, 'y la fila de Apollo sí se cuenta');
+  it('D/7 — Apollo persistió 1 y ACEPTÓ 1 ⇒ el hueco baja a 4', async () => {
+    // Una aceptación SÍ descuenta. La diferencia con el caso anterior es el
+    // único hecho capaz de mover el hueco: que la empresa cuente.
+    const { result, legInputs } = await run({
+      apolloPersisted: 1,
+      apolloAccepted: 1,
+      lushaInserted: 0,
+    });
+    assert.equal(legInputs[0].usefulAccumulated, 1);
     assert.equal(result.lushaWaterfallLeg?.gap, 4);
   });
 
-  it('F — Apollo persistió 5, objetivo 5 ⇒ gap 0 y la pierna NO corre', async () => {
-    const { result, lushaCalls } = await run({ apolloPersisted: 5, lushaInserted: 0 });
+  it('C/8 — Apollo persistió 5 `needs_review` ⇒ hueco 5 y la pierna SÍ corre', async () => {
+    // 🔴 El caso que destapó la incompatibilidad: leyendo el hueco de las filas,
+    // la pierna se saltaba con `target_reached` mientras la corrida se reportaba
+    // `success_partial`. Dos cosas llamadas `target_reached` diciendo lo
+    // contrario sobre la misma corrida.
+    const { result, lushaCalls } = await run({
+      apolloPersisted: 5,
+      apolloAccepted: 0,
+      lushaInserted: 0,
+    });
+    assert.equal(result.lushaWaterfallLeg?.executed, true);
+    assert.notEqual(result.lushaWaterfallLeg?.skipReason, 'target_reached');
+    assert.equal(result.lushaWaterfallLeg?.gap, 5, '🔴 5 filas de revisión no cierran nada');
+    assert.equal(lushaCalls.length, 1);
+    // Y las dos autoridades coinciden, que es la propiedad que se defiende.
+    assert.equal(result.targetReached, false);
+  });
+
+  it('A — lote vacío ⇒ hueco entero, como siempre', async () => {
+    const { result } = await run({ apolloPersisted: 0, apolloAccepted: 0, lushaInserted: 0 });
+    assert.equal(result.lushaWaterfallLeg?.gap, 5);
+  });
+
+  it('el objetivo cubierto por ACEPTACIÓN sí cierra el hueco y no gasta', async () => {
+    const { result, lushaCalls } = await run({
+      apolloPersisted: 5,
+      apolloAccepted: 5,
+      lushaInserted: 0,
+    });
     assert.equal(result.lushaWaterfallLeg?.executed, false);
     assert.equal(result.lushaWaterfallLeg?.skipReason, 'target_reached');
-    assert.equal(result.lushaWaterfallLeg?.gap, null);
-    assert.equal(lushaCalls.length, 0, '🔴 hueco cerrado ⇒ ni una llamada, ni un crédito');
+    assert.equal(lushaCalls.length, 0, '🔴 objetivo cumplido ⇒ ni una llamada, ni un crédito');
+    assert.equal(result.targetReached, true, 'y las dos autoridades vuelven a coincidir');
   });
 
-  it('K — la decisión PURA cuenta la fila de Apollo aunque no esté aceptada', () => {
-    const decision = decideLushaWaterfallLeg({
+  it('la decisión PURA: sólo la aceptación entra en la aritmética del hueco', () => {
+    const base = {
       waterfallEnabled: true,
       lushaAvailable: true,
       apolloTerminal: true,
       target: 5,
-      usefulAccumulated: 0,
-      persistedAccumulated: 1,
       macroIndustryKey: 'retail',
       canonicalBatchId: CANONICAL_BATCH_ID,
-    });
-    assert.equal(decision.run, true);
-    assert.equal(decision.run && decision.gap, 4);
-  });
+    } as const;
 
-  it('K2 — una aceptación declarada NUNCA se pierde, aunque las filas digan menos', () => {
-    const decision = decideLushaWaterfallLeg({
-      waterfallEnabled: true,
-      lushaAvailable: true,
-      apolloTerminal: true,
-      target: 5,
-      usefulAccumulated: 3,
-      persistedAccumulated: 0,
-      macroIndustryKey: 'retail',
-      canonicalBatchId: CANONICAL_BATCH_ID,
-    });
-    assert.equal(decision.run && decision.gap, 2);
-  });
+    const sinAceptar = decideLushaWaterfallLeg({ ...base, usefulAccumulated: 0 });
+    assert.equal(sinAceptar.run && sinAceptar.gap, 5);
 
-  it('K3 — el excedente cierra igual que el empate: el hueco nunca es negativo', () => {
-    const decision = decideLushaWaterfallLeg({
-      waterfallEnabled: true,
-      lushaAvailable: true,
-      apolloTerminal: true,
-      target: 5,
-      usefulAccumulated: 0,
-      persistedAccumulated: 8,
-      macroIndustryKey: 'retail',
-      canonicalBatchId: CANONICAL_BATCH_ID,
+    const conUna = decideLushaWaterfallLeg({ ...base, usefulAccumulated: 1 });
+    assert.equal(conUna.run && conUna.gap, 4);
+
+    // Excedente: cierra igual que el empate, y nunca negativo.
+    assert.deepEqual(decideLushaWaterfallLeg({ ...base, usefulAccumulated: 8 }), {
+      run: false,
+      reason: 'target_reached',
     });
-    assert.deepEqual(decision, { run: false, reason: 'target_reached' });
   });
 });
 
@@ -353,21 +383,38 @@ describe('§ 1 · contabilidad del hueco', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('§ 2 · el hueco no recorta', () => {
-  it('G — Apollo 1 + gap 4 + Lusha encuentra 8 ⇒ el lote termina con 9', async () => {
-    const { result, lushaCalls } = await run({ apolloPersisted: 1, lushaInserted: 8 });
+  it('E/9 — Apollo 1 + hueco 5 + Lusha encuentra 8 ⇒ el lote termina con 9', async () => {
+    const { result, lushaCalls } = await run({
+      apolloPersisted: 1,
+      apolloAccepted: 0,
+      lushaInserted: 8,
+    });
 
-    assert.equal(lushaCalls[0].targetGap, 4, 'se pidió con el hueco…');
+    assert.equal(lushaCalls[0].targetGap, 5, 'se pidió con el hueco de AUTORIZACIÓN…');
     assert.equal(result.lushaWaterfallLeg?.persistedCandidates, 8, '…y se persistieron las 8');
-    assert.equal(result.candidateCount, 9, '🔴 1 de Apollo + 8 de Lusha = 9, sin recorte');
+    // 🔴 Ni 5 (el objetivo) ni 5 (el hueco): 9. El hueco autoriza gasto, no
+    // recorta existencia — X5.1 eliminó ese tope y este corte no lo reintroduce.
+    assert.equal(result.candidateCount, 9);
     assert.equal(result.batchStatus, 'ready_for_review');
   });
 
-  it('G2 — ni `target_cap` ni truncamiento aparecen por ninguna parte', async () => {
-    const { result } = await run({ apolloPersisted: 1, lushaInserted: 8 });
+  it('F/9b — ni `target_cap` ni truncamiento aparecen por ninguna parte', async () => {
+    const { result } = await run({ apolloPersisted: 1, apolloAccepted: 0, lushaInserted: 8 });
     const serialized = JSON.stringify(result);
     assert.equal(/target_cap/.test(serialized), false);
     assert.equal(/target_overflow/.test(serialized), false);
     assert.equal(/truncat/i.test(serialized), false);
+  });
+
+  it('F2 — persistir MÁS que el hueco no reescribe el hueco con el que se pidió', async () => {
+    const { result, lushaCalls } = await run({
+      apolloPersisted: 1,
+      apolloAccepted: 0,
+      lushaInserted: 8,
+    });
+    assert.equal(lushaCalls[0].targetGap, 5);
+    assert.equal(result.lushaWaterfallLeg?.gap, 5, 'la traza conserva lo que se AUTORIZÓ');
+    assert.equal(result.candidateCount, 9, 'y el universo durable es otra cifra');
   });
 });
 
@@ -384,7 +431,11 @@ function acceptedBlock(publications: Publication[]): Record<string, unknown> {
 
 describe('§ 3 · contabilidad durable del lote', () => {
   it('C — el bloque durable cuenta las 9 filas del lote, no las 8 de Lusha', async () => {
-    const { publications } = await run({ apolloPersisted: 1, lushaInserted: 8 });
+    const { publications } = await run({
+      apolloPersisted: 1,
+      apolloAccepted: 0,
+      lushaInserted: 8,
+    });
     const block = acceptedBlock(publications);
     assert.equal(block.persisted_total_candidates, 9, '🔴 8 era la mitad que la última pierna vio');
     assert.equal(block.persisted_paid_candidates, 9);
@@ -392,23 +443,34 @@ describe('§ 3 · contabilidad durable del lote', () => {
   });
 
   it('I — la aceptación NO se deriva de las filas persistidas', async () => {
-    const { publications, result } = await run({ apolloPersisted: 1, lushaInserted: 8 });
+    const { publications, result } = await run({
+      apolloPersisted: 1,
+      apolloAccepted: 0,
+      lushaInserted: 8,
+    });
     const block = acceptedBlock(publications);
-    // 🔴 9 filas y CERO aceptadas: ninguna de las dos piernas pudo medir
-    // completitud. Un 9 aquí sería la mentira exacta que CUT-7 cerró.
+    // 🔴 9 filas y CERO aceptadas. Apollo MIDIÓ cero (su fila es `review_only`) y
+    // Lusha no puede medir. Un 9 aquí sería la mentira exacta que CUT-7 cerró.
     assert.equal(block.accepted_for_target_total, 0);
     assert.equal(block.accepted_paid_for_target, 0);
+    assert.notEqual(
+      block.accepted_for_target_total,
+      block.persisted_total_candidates,
+      '🔴 10 · aceptación y filas son cantidades DISTINTAS',
+    );
+    // Apollo midió (0); Lusha no. Un solo motivo, el suyo.
     assert.equal(block.paid_acceptance_measured, false);
-    assert.deepEqual(block.acceptance_unknown_reasons, [
-      'acceptance_not_measured',
-      'acceptance_not_measured',
-    ]);
+    assert.deepEqual(block.acceptance_unknown_reasons, ['acceptance_not_measured']);
     assert.equal(block.target_reached, false);
     assert.equal(result.targetReached, false);
   });
 
   it('J — la traza de la pierna publica `acceptedForTarget: null`, nunca 0', async () => {
-    const { publications, result } = await run({ apolloPersisted: 1, lushaInserted: 8 });
+    const { publications, result } = await run({
+      apolloPersisted: 1,
+      apolloAccepted: 0,
+      lushaInserted: 8,
+    });
     const leg = publications[0].published[LUSHA_WATERFALL_LEG_METADATA_KEY] as Record<
       string,
       unknown
@@ -417,14 +479,23 @@ describe('§ 3 · contabilidad durable del lote', () => {
     // capacidad del proveedor; un 0 afirmaría haber medido y haber hallado cero.
     assert.equal(leg.acceptedForTarget, null);
     assert.equal(leg.persistedCandidates, 8);
-    assert.equal(leg.gap, 4);
+    assert.notEqual(
+      leg.acceptedForTarget,
+      leg.persistedCandidates,
+      '🔴 10 · la aceptación jamás se deriva de las filas',
+    );
+    assert.equal(leg.gap, 5);
     assert.equal(leg.executed, true);
     assert.equal(leg.skipReason, null);
     assert.deepEqual(leg, result.lushaWaterfallLeg);
   });
 
   it('sin pierna ejecutada el bloque combinado NO se reescribe', async () => {
-    const { publications } = await run({ apolloPersisted: 5, lushaInserted: 0 });
+    const { publications } = await run({
+      apolloPersisted: 5,
+      apolloAccepted: 5,
+      lushaInserted: 0,
+    });
     assert.equal(publications.length, 1);
     assert.equal(
       publications[0].published[ACCEPTED_FOR_TARGET_METADATA_KEY],
@@ -455,13 +526,39 @@ describe('§ 4 · mutaciones muertas', () => {
   );
   const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 
-  it('L1 — `gap = target` (ignorando a Apollo) no compila como código vivo', () => {
+  it('L1 — las FILAS persistidas no pueden entrar en la aritmética del hueco', () => {
     const code = strip(pure);
-    assert.match(code, /persistedAccumulated/, 'el sumando tiene que estar en la decisión');
+    // 🔴 El contrato de CUT-7, defendido en el código: la decisión de autorizar
+    // gasto sólo conoce la aceptación. Un `persistedAccumulated` aquí volvería a
+    // hacer que `needs_review` detuviera el waterfall.
+    assert.equal(/persisted/i.test(code), false, '🔴 ninguna cuenta de filas en la decisión');
+    assert.match(code, /input\.target - Math\.max\(0, input\.usefulAccumulated\)/);
+  });
+
+  it('L1b — el hueco tampoco puede ignorar la aceptación', () => {
+    const code = strip(pure);
     assert.equal(
       /const gap = Math\.max\(0, input\.target\)/.test(code),
       false,
       '🔴 el hueco no puede volver a ser el objetivo entero',
+    );
+  });
+
+  it('L1c — la decisión NO importa la autoridad de COMPRA de X5.1', () => {
+    const code = strip(pure);
+    // `resolveLushaRemainingGap`/`purchaseCredit` viven en la capa de comprar la
+    // página siguiente y se cierran con SUPERVIVIENTES. Mezclar las dos capas es
+    // exactamente lo que este corte revirtió.
+    assert.equal(/resolveLushaRemainingGap|purchaseCredit/.test(code), false);
+  });
+
+  it('L1d — el call site del wizard alimenta el hueco con la ACEPTACIÓN', () => {
+    const code = strip(wizard);
+    assert.match(code, /usefulAccumulated: acceptedAfterApollo\.acceptedForTargetTotal/);
+    assert.equal(
+      /usefulAccumulated: combinedDurableTotals/.test(code),
+      false,
+      '🔴 alimentarlo con filas es la incompatibilidad que esta suite fija',
     );
   });
 

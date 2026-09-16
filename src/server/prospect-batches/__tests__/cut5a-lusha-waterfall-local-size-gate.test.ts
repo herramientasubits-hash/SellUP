@@ -378,7 +378,6 @@ describe('CUT-5A § D — la pierna del waterfall ejecuta el gate', () => {
         subIndustryId: null,
         target: 5,
         usefulAccumulated: 0,
-        persistedAccumulated: 0,
         apolloTerminal: true,
       },
       {
