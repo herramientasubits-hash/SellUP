@@ -81,13 +81,13 @@ export const RETEST_SALUD_SELECTED_DOMAINS: readonly string[] = [
 ];
 
 /**
- * 🔴 AGENT1-OWNERSHIP-PRE-ENRICHMENT-X6.3 — de esos cinco, DOS no sobreviven al
+ * 🔴 AGENT1-OWNERSHIP-PRE-ENRICHMENT-X6.3 — de esos cinco, DOS no sobrevivían al
  * gate OBLIGATORIO de ownership.
  *
  * El gate es gratuito y sus dos entradas —nombre y dominio— ya venían de la
- * BÚSQUEDA, así que desde X6.3 se resuelve ANTES de la caja y esos dos dejan de
- * competir. El veredicto es el de `evaluateCompanyOwnership` sobre el título
- * REAL del snapshot, no una suposición:
+ * BÚSQUEDA, así que desde X6.3 se resuelve ANTES de la caja. El veredicto es el
+ * de `evaluateCompanyOwnership` sobre el título REAL del snapshot, no una
+ * suposición, y hasta X6.9 decía:
  *
  *   'Philip Morris International' ↔ pmi.com
  *     → reject · "pmi" no aparece en "philipmorrisinternational" (sigla)
@@ -95,15 +95,33 @@ export const RETEST_SALUD_SELECTED_DOMAINS: readonly string[] = [
  *     → reject · "kuehnenagelcolomb" vs "kuehnenagel" (el «COLOMB» truncado
  *       no es un sufijo que `COMPANY_SUFFIXES` sepa quitar)
  *
- * El segundo es un FALSO NEGATIVO del gate, de la familia que audita X6.2-B. No
- * lo introduce X6.3 ni cambia el desenlace de esa empresa —moría por ownership
- * en los dos mundos—: lo único que cambia es que ya no se paga por ella antes de
- * descartarla. El recall no se mueve; el gasto sí.
+ * X6.3 ya declaró el segundo como FALSO NEGATIVO del gate, «de la familia que
+ * audita X6.2-B».
+ *
+ * ── 🔴 AGENT1-OWNERSHIP-DOMAIN-TO-NAME-X6.9 — el conjunto queda VACÍO ────────
+ *
+ * Los dos eran falsos negativos, y X6.9 los corrige por dos reglas distintas.
+ * No es una relajación: en ambos casos el dominio no dice NADA que el nombre no
+ * diga, que es justo lo que la propiedad exige.
+ *
+ *   'Philip Morris International' ↔ pmi.com
+ *     → allow · `institutional_acronym_domain_match`
+ *       La etiqueta es EXACTAMENTE las iniciales p-m-i. La regla de sigla ya
+ *       lo habría visto; no llegaba a ejecutarse porque estaba encerrada tras
+ *       `looksLikeInstitutionalName`, y «Philip Morris» no es una institución.
+ *
+ *   'KUEHNE + NAGEL COLOMB'       ↔ kuehne-nagel.com
+ *     → allow · `domain_explained_by_company_name`
+ *       `kuehnenagel` = `kuehne` + `nagel`, dos tokens del nombre y en su
+ *       orden. Que el nombre traiga además «COLOMB» no contradice nada: el
+ *       nombre puede decir MÁS que el dominio; lo que no puede es decir menos.
+ *
+ * Consecuencia que este fixture existe para hacer visible: los dos vuelven a
+ * competir por enrichment, así que en este escenario la caja pasa de 3 compras
+ * a 5. Es la dirección buscada —recuperar recall perdido por falsos negativos—
+ * pero es gasto, y por eso se declara aquí en vez de esconderse en un número.
  */
-export const RETEST_SALUD_OWNERSHIP_REJECTED_DOMAINS: ReadonlySet<string> = new Set([
-  'pmi.com',
-  'kuehne-nagel.com',
-]);
+export const RETEST_SALUD_OWNERSHIP_REJECTED_DOMAINS: ReadonlySet<string> = new Set([]);
 
 /** Los que HOY llegan a la caja: los live menos los que ownership rechaza. */
 export const RETEST_SALUD_SELECTED_DOMAINS_AFTER_OWNERSHIP: readonly string[] =

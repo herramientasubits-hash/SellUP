@@ -396,7 +396,13 @@ describe('X5.2 § C · la corrida sin política ya no entrega cero', () => {
     const dispositions = evaluateApolloCandidateFinalDispositions(result);
     const byKey = new Map(dispositions.map((entry) => [entry.candidateKey, entry]));
     assert.equal(byKey.get('apollo:pais')?.finalDisposition, 'country_rejected_final');
-    assert.equal(byKey.get('apollo:dominio')?.finalDisposition, 'ownership_rejected_final');
+    // 🔴 X6.9 — `invalid_domain` deja de archivarse como ownership: el gate de
+    // ownership nunca corrió sobre una candidata SIN dominio. El rechazo es el
+    // mismo —sigue siendo un gate obligatorio y sigue siendo terminal—, sólo
+    // cambia a qué se atribuye. Es exactamente lo que este § dice defender:
+    // los gates REALES no se tocan.
+    assert.equal(byKey.get('apollo:dominio')?.finalDisposition, 'missing_domain_final');
+    assert.equal(byKey.get('apollo:dominio')?.finalReason, 'invalid_domain');
     assert.equal(byKey.get('apollo:owner')?.finalDisposition, 'ownership_rejected_final');
     assert.equal(byKey.get('apollo:dup')?.finalDisposition, 'hubspot_duplicate_final');
     // La única sin causa real sobrevive.

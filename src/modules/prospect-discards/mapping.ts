@@ -22,6 +22,19 @@ export function mapApolloFinalDispositionToCode(
       return 'sector_rejected';
     case 'ownership_rejected_final':
       return 'ownership_domain_rejected';
+    // 🔴 X6.9 — el proveedor no devolvió dominio. NO es una decisión de
+    // ownership (el gate nunca corrió), así que no puede seguir cayendo en
+    // `ownership_domain_rejected` e inflando esa métrica.
+    //
+    // Va a `'other'` porque es vocabulario YA existente en el CHECK de la
+    // migración 138 y en `DiscardDispositionCode`: el mismo patrón que la ruta
+    // de Lusha —código existente, motivo REAL en `reason_code`— y no hace falta
+    // esquema nuevo. `reason_code` recibe `'missing_domain_final'` y
+    // `reason_detail` conserva `'invalid_domain'`, así que la fila sigue
+    // diciendo exactamente por qué murió. Un código propio con su etiqueta
+    // ("Sin dominio") exigiría migración y queda fuera del alcance de X6.9.
+    case 'missing_domain_final':
+      return 'other';
     case 'hubspot_duplicate_final':
       return 'hubspot_duplicate';
     case 'sellup_duplicate_final':

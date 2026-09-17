@@ -556,13 +556,28 @@ describe('T3 · fixture de la certificación c7c28980 — 34 resultados', () => 
     }, {});
 
     // El `candidate_final_dispositions.breakdown` del lote real era
-    // `{ ownership: 15, sector: 1, enrichment_budget_exhausted: 18 }`. Los dos
-    // primeros no se mueven ni un candidato; el tercero deja de existir.
+    // `{ ownership: 15, sector: 1, enrichment_budget_exhausted: 18 }`. El de
+    // sector no se mueve ni un candidato; el de enrichment deja de existir.
+    //
+    // 🔴 AGENT1-OWNERSHIP-DOMAIN-TO-NAME-X6.9 — el cubo de 15 se PARTE, y no
+    // porque se relaje nada: 8 de esas 15 eran `invalid_domain`, es decir
+    // empresas que Apollo devolvió sin dominio y sobre las que
+    // `evaluateCompanyOwnership` jamás corrió. Llamarlas ownership atribuía al
+    // heurístico ocho decisiones que nadie tomó. Las 8 siguen descartadas, en el
+    // mismo sitio y por el mismo motivo; sólo dejan de contarse como ownership.
     assert.deepEqual(breakdown, {
-      ownership_rejected_final: 15,
+      missing_domain_final: 8,
+      ownership_rejected_final: 7,
       sector_subindustry_rejected_final: 1,
       persisted_review_only_final: 18,
     });
+
+    // El trinquete que impide que esta partición se convierta en una relajación:
+    // las descartadas por una u otra causa siguen siendo las MISMAS 15.
+    assert.equal(
+      (breakdown.missing_domain_final ?? 0) + (breakdown.ownership_rejected_final ?? 0),
+      15,
+    );
 
     // 🔴 El trinquete de X5, escrito como propiedad y no como número: NINGUNA
     // de las 34 puede quedar descartada por un motivo de enrichment.
