@@ -41,6 +41,13 @@ export const APOLLO_ORGANIZATIONS_ALLOWED_PARAMS = [
   'q_organization_domains_list',
   'revenue_range',
   'currently_using_any_of_technology_uids',
+  // APOLLO-PROSPECTED-BY-CURRENT-TEAM-X6.6 — Apollo Support confirmó que
+  // `mixed_companies/search` acepta este filtro y que con `"no"` deja fuera las
+  // Accounts ya guardadas por el equipo. Entra al allowlist por la MISMA regla
+  // que gobierna al resto (documentación vigente del proveedor + caso real +
+  // tipado + tests), no por conveniencia: sin él es literalmente inexpresable
+  // la petición que Support recomendó.
+  'prospected_by_current_team',
   'page',
   'per_page',
 ] as const;
@@ -61,6 +68,36 @@ export const APOLLO_ORGANIZATIONS_FORBIDDEN_PARAMS = [
 
 export type ApolloOrganizationsForbiddenParam =
   (typeof APOLLO_ORGANIZATIONS_FORBIDDEN_PARAMS)[number];
+
+// ─── prospected_by_current_team ───────────────────────────────────────────────
+
+/**
+ * Valores que Apollo acepta para `prospected_by_current_team`.
+ *
+ * Es un filtro TERNARIO en el proveedor: ausente = sin filtrar, `"yes"` = sólo
+ * lo ya prospectado por el equipo, `"no"` = excluye lo ya prospectado. La
+ * ausencia NO es un tercer literal — se expresa omitiendo el campo, que es
+ * exactamente el comportamiento anterior a este hito.
+ *
+ * 🔴 Es una CADENA, no un booleano. Apollo documenta `"no"` y el contrato no
+ * traduce: un `false` de JavaScript no significa `"no"` aquí, significa que
+ * quien llamó se equivocó de vocabulario, y adivinarle la intención fabricaría
+ * una petición que nadie escribió. Ver `normalizeProspectedByCurrentTeam`.
+ */
+export const APOLLO_PROSPECTED_BY_CURRENT_TEAM_VALUES = ['yes', 'no'] as const;
+
+export type ApolloProspectedByCurrentTeam =
+  (typeof APOLLO_PROSPECTED_BY_CURRENT_TEAM_VALUES)[number];
+
+/** ¿Es este valor uno de los dos literales que Apollo acepta? */
+export function isApolloProspectedByCurrentTeam(
+  value: unknown,
+): value is ApolloProspectedByCurrentTeam {
+  return (
+    typeof value === 'string' &&
+    (APOLLO_PROSPECTED_BY_CURRENT_TEAM_VALUES as readonly string[]).includes(value)
+  );
+}
 
 // ─── Límites del contrato ─────────────────────────────────────────────────────
 
@@ -92,6 +129,13 @@ export type ApolloOrganizationsRequestInput = {
   domainsList?: readonly (string | null | undefined)[] | null;
   revenueRange?: ApolloRevenueRange | null;
   technologyUids?: readonly (string | null | undefined)[] | null;
+  /**
+   * X6.6 — filtro de prospección previa del equipo. Campo TIPADO a propósito:
+   * pasarlo por `extraParams` lo dejaría a merced del allowlist genérico y
+   * perdería la validación de literal que exige el contrato del proveedor.
+   * Ausente o `null` ⇒ el campo no viaja (comportamiento previo, intacto).
+   */
+  prospectedByCurrentTeam?: ApolloProspectedByCurrentTeam | null;
   page: number;
   perPage: number;
   /**
@@ -127,6 +171,7 @@ export type ApolloOrganizationsRequestBody = {
   q_organization_domains_list?: string[];
   revenue_range?: { min?: number; max?: number };
   currently_using_any_of_technology_uids?: string[];
+  prospected_by_current_team?: ApolloProspectedByCurrentTeam;
   page: number;
   per_page: number;
 };
@@ -196,6 +241,33 @@ function clampPerPage(perPage: number): number {
 function normalizeRevenueBound(value: number | null | undefined): number | null {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
   return value;
+}
+
+/**
+ * X6.6 — el valor de `prospected_by_current_team` que de verdad puede viajar.
+ *
+ * Fail-closed y SIN traducción, que es todo el contrato de esta función:
+ *
+ *   · ausente / `null`  ⇒ `{ emit: false, reason: 'not_provided' }` — el campo
+ *     no viaja y el body queda byte por byte como antes de este hito.
+ *   · `'yes'` / `'no'`  ⇒ viaja EXACTAMENTE ese literal. `'yes'` no se
+ *     convierte en `'no'`: son dos preguntas opuestas al proveedor y elegir por
+ *     el llamador sería decidir su hipótesis por él.
+ *   · cualquier otra cosa ⇒ `{ emit: false, reason: 'invalid_value' }`, y eso
+ *     incluye el `false` booleano. La tentación de mapear `false → 'no'` es
+ *     precisamente lo que este contrato prohíbe: Apollo documenta cadenas, y
+ *     un booleano aquí es un error de vocabulario del llamador, no una
+ *     abreviatura que haya que expandir en silencio.
+ *
+ * Nunca lanza: un valor inválido se REPORTA en `omittedFilters`, igual que
+ * cualquier otro filtro que no viajó.
+ */
+function normalizeProspectedByCurrentTeam(
+  value: unknown,
+): { emit: true; value: ApolloProspectedByCurrentTeam } | { emit: false; reason: ApolloOmittedFilterReason } {
+  if (value === undefined || value === null) return { emit: false, reason: 'not_provided' };
+  if (isApolloProspectedByCurrentTeam(value)) return { emit: true, value };
+  return { emit: false, reason: 'invalid_value' };
 }
 
 function isForbiddenParam(name: string): boolean {
@@ -330,6 +402,19 @@ export function buildApolloOrganizationsRequestContract(
     }
   } else {
     omittedFilters.push({ param: 'revenue_range', reason: 'not_provided' });
+  }
+
+  // ── X6.6 · prospected_by_current_team ───────────────────────────────────────
+  //
+  // Se resuelve ANTES de `extraParams` a propósito: es un campo tipado del
+  // criterio, y el bloque de extras tiene prohibido pisar lo que el criterio
+  // estructurado ya resolvió (`if (key in body) continue`). Ese orden es lo que
+  // impide que un paso-a-través reabra el campo con otro valor.
+  const prospected = normalizeProspectedByCurrentTeam(input.prospectedByCurrentTeam);
+  if (prospected.emit) {
+    body.prospected_by_current_team = prospected.value;
+  } else {
+    omittedFilters.push({ param: 'prospected_by_current_team', reason: prospected.reason });
   }
 
   // ── Parámetros extra propuestos por el caller ───────────────────────────────
