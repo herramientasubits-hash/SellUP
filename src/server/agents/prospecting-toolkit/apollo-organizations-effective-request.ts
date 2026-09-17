@@ -57,6 +57,7 @@ import {
   buildApolloOrganizationsRequestContract,
   type ApolloOrganizationsRequestBody,
   type ApolloOrganizationsRequestInput,
+  type ApolloProspectedByCurrentTeam,
 } from './apollo-organizations-request-contract';
 import {
   evaluateApolloCatalogVersionCoherence,
@@ -234,6 +235,25 @@ export type ApolloEffectiveRequest = {
 };
 
 /**
+ * X6.6 — el valor que Agente 1 envía en `prospected_by_current_team`.
+ *
+ * `'no'` = «no me devuelvas lo que este equipo ya prospectó», que es la
+ * recomendación que Apollo Support confirmó y la hipótesis que la corrida E2E
+ * de Gobierno tiene que poder comprobar.
+ *
+ * Es una CONSTANTE y no una variable de entorno a propósito: no es un ajuste
+ * operativo sino la pregunta que esta ruta le hace al proveedor, y dejarla
+ * configurable permitiría que dos corridas "iguales" preguntaran cosas
+ * distintas sin que la evidencia lo dijera. Cambiarla es un cambio de código,
+ * revisable y con huella (`apollo_effective_request_fingerprint` se mueve).
+ *
+ * 🔴 NO cambia paginación, per_page, rondas, presupuesto ni ningún otro
+ * parámetro: es un filtro más dentro del body que el contrato ya construía.
+ */
+export const AGENT1_APOLLO_PROSPECTED_BY_CURRENT_TEAM: ApolloProspectedByCurrentTeam =
+  'no';
+
+/**
  * § 2 — filtros del contrato derivados de los params del mapper.
  *
  * Único traductor entre los dos vocabularios. El provider lo consumía con una
@@ -249,6 +269,12 @@ export function toApolloContractFilters(
     keywordTags: params.q_organization_keyword_tags ?? null,
     organizationName: params.q_organization_name ?? null,
     domainsList: params.q_organization_domains ?? null,
+    // X6.6 — aquí, y sólo aquí, porque éste es el ÚNICO traductor entre el
+    // vocabulario del mapper y el del contrato. El request efectivo y la
+    // búsqueda paginada consumen los dos esta misma salida, así que el valor
+    // viaja igual en la huella que se predice y en cada página que se envía. Si
+    // se cableara en uno de los dos, las dos dejarían de describir el mismo body.
+    prospectedByCurrentTeam: AGENT1_APOLLO_PROSPECTED_BY_CURRENT_TEAM,
   };
 }
 
@@ -414,6 +440,11 @@ export function toApolloEffectiveRequestMetadata(
     apollo_effective_employee_ranges_sent: effective.effectiveEmployeeRanges,
     apollo_page_sent: effective.page,
     apollo_per_page_sent: effective.perPage,
+    // X6.6 — se lee del BODY, no de la constante: lo que hay que poder auditar
+    // después es lo que Apollo recibió, no lo que esta ruta quiso enviar. Si el
+    // contrato llegara a omitirlo, esta superficie diría `null` en vez de mentir.
+    apollo_prospected_by_current_team_sent:
+      effective.body.prospected_by_current_team ?? null,
     apollo_result_limit_mode: effective.limit.limitMode,
     apollo_max_results_per_query_resolved: effective.limit.legacyMaxResultsPerQuery,
     apollo_max_results_per_round_resolved: effective.limit.twoRoundMaxResultsPerRound,

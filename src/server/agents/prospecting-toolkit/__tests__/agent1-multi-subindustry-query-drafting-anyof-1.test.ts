@@ -964,7 +964,23 @@ describe('§ 11 · contratos preservados', () => {
 // ─── § 8: sin soporte inventado del proveedor ─────────────────────────────────
 
 describe('§ 8 · el contrato del proveedor no se amplía', () => {
-  test('el allowlist del contrato no cambia', () => {
+  /**
+   * APOLLO-PROSPECTED-BY-CURRENT-TEAM-X6.6 — este trinquete se actualiza, y el
+   * motivo importa más que la lista.
+   *
+   * Lo que defiende NO es «diez entradas»: es que el allowlist sólo crezca por
+   * la regla declarada en el contrato —documentación vigente del proveedor +
+   * caso real + tipado + tests— y nunca por conveniencia de un llamador. X6.6
+   * añade `prospected_by_current_team` cumpliendo las cuatro condiciones
+   * (Apollo Support lo confirmó por escrito, la corrida E2E de Gobierno es el
+   * caso, el literal está tipado y su suite es
+   * `apollo-prospected-by-current-team-x66.test.ts`).
+   *
+   * Congelarlo en la lista antigua habría convertido esta prueba en un trinquete
+   * que defiende un número en vez de una regla — y habría bloqueado la
+   * corrección que el propio proveedor recomendó.
+   */
+  test('el allowlist del contrato sólo crece por la regla del contrato', () => {
     assert.deepEqual([...APOLLO_ORGANIZATIONS_ALLOWED_PARAMS], [
       'organization_locations',
       'organization_not_locations',
@@ -974,6 +990,8 @@ describe('§ 8 · el contrato del proveedor no se amplía', () => {
       'q_organization_domains_list',
       'revenue_range',
       'currently_using_any_of_technology_uids',
+      // X6.6 — única entrada añadida desde que este trinquete existe.
+      'prospected_by_current_team',
       'page',
       'per_page',
     ]);

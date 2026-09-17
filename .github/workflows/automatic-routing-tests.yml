@@ -5600,3 +5600,28 @@ jobs:
       # Producción · 0 migraciones · 0 cambios de bandera · 0 backfill.
       - name: Run Agent 1 waterfall leg durable trace tests
         run: npm run test:a1-waterfall-leg-durable-trace
+
+      # APOLLO-PROSPECTED-BY-CURRENT-TEAM-X6.6 — el filtro que Apollo Support
+      # confirmó deja de ser inexpresable.
+      #
+      # `prospected_by_current_team` no estaba «apagado»: el allowlist cerrado de
+      # `apollo-organizations-request-contract.ts` lo rechazaba como
+      # `unknown_parameter`, y `assertApolloOrganizationsBodySafe` habría lanzado
+      # ante un body armado a mano. Sin este corte, ninguna corrida —por mucho
+      # que se pagara— podía observar si Apollo deja de devolver Accounts
+      # guardadas: la pregunta nunca salía del proceso.
+      #
+      # Lo que la suite PROHÍBE: que el allowlist se vuelva un paso-a-través
+      # genérico; que `extraParams` cuele un parámetro arbitrario o pise el campo
+      # tipado; que un `false` booleano se traduzca en silencio a `"no"`; que un
+      # `"yes"` se reescriba como `"no"`; que el parámetro deje de llegar al
+      # transporte o de publicarse en la superficie sanitizada; y que el cobro
+      # por página no vacía cambie por su causa.
+      #
+      # 🔴 Este corte NO prueba la afirmación de Support: para eso hace falta una
+      # corrida real y comparar `accounts[]` con `organizations[]`.
+      #
+      # 0 llamadas a Apollo · 0 a Lusha · 0 créditos · 0 Supabase real ·
+      # 0 escrituras en Producción · 0 migraciones · 0 cambios de bandera.
+      - name: Run Agent 1 X6.6 Apollo prospected_by_current_team tests
+        run: npm run test:a1-apollo-prospected-by-current-team-x66
