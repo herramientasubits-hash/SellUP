@@ -35,7 +35,14 @@
  */
 
 import type { WebSearchResult } from '../types';
-import type { ApolloTwoRoundDiscoveryConfig } from './config';
+import {
+  MAX_SEARCH_ROUNDS_ABSOLUTE_MAX,
+  type ApolloTwoRoundDiscoveryConfig,
+} from './config';
+import {
+  APOLLO_CONTRACT_MAX_PER_PAGE,
+  WIZARD_APOLLO_MAX_PAGES_HARD_CAP,
+} from '../apollo-organizations-pagination-budget';
 import type { ApolloTwoRoundRoundMetrics } from './observability';
 import type { CandidateSectorEvidenceState, FreeCandidateSignals } from './enrichment-ranking';
 import type {
@@ -53,12 +60,43 @@ export const APOLLO_TWO_ROUND_CHECKPOINT_CONTRACT_VERSION = 1 as const;
 /**
  * Techo del documento serializado.
  *
- * 64 KiB con un tope de diez resultados crudos por corrida deja ~6 KiB por
- * candidato, muy por encima de lo que la lista blanca puede ocupar con sus
- * truncados. Existe para que "cabe" sea una aserción y no una esperanza: pasado
- * el techo, el checkpoint se compacta (§ 6) en vez de crecer.
+ * ─── X6.7 · por qué el techo dejó de ser 64 KiB ──────────────────────────────
+ *
+ * El número anterior tenía UNA premisa escrita: «64 KiB con un tope de diez
+ * resultados crudos por corrida deja ~6 KiB por candidato». Esa premisa era el
+ * `maxRawResultsPerRun` como AUTORIDAD DE ADMISIÓN, y
+ * AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 2 la ELIMINÓ: hoy se evalúan todas las
+ * organizaciones que la página pagada devuelve, y `totalRawResults` sobrevive
+ * sólo como contador observacional. El techo se quedó atrás, sin premisa, y se
+ * convirtió en una trampa fail-closed sobre exactamente la forma de corrida que
+ * el CORTE 2 habilitó: la E2E X6.6 devolvió 98 organizations, el checkpoint no
+ * cupo y una búsqueda YA PAGADA quedó indeterminada.
+ *
+ * Medición que lo prueba (suite X6.7): con la evidencia de los rechazados ya
+ * soltada por la etapa 1 de § 6, el estado MÍNIMO de 98 candidatos —identidad,
+ * veredicto y señales, sin una sola descripción— ocupa ~103 KiB. Bajo 64 KiB el
+ * sistema no podía guardar ni lo imprescindible.
+ *
+ * El techo se re-deriva en vez de inventarse: una corrida puede procesar como
+ * máximo `rondas × páginas por ronda × organizaciones por página` = 2 × 5 × 100
+ * = 1.000 organizaciones, y el estado mínimo recuperable de cada una está
+ * medido en ~1 KiB. «Cabe» vuelve a ser una aserción con premisa, y la premisa
+ * vuelve a estar atada a constantes reales del contrato de paginación en vez de
+ * a un tope borrado.
+ *
+ * El techo NO sustituye a la compactación: pasado el techo, el documento se
+ * compacta (§ 6) en vez de crecer, y la etapa 3 sigue acotando el payload de las
+ * organizaciones pendientes, que es el único que viaja con evidencia completa.
  */
-export const APOLLO_TWO_ROUND_CHECKPOINT_MAX_SERIALIZED_BYTES = 64 * 1024;
+export const APOLLO_TWO_ROUND_MAX_RECOVERABLE_ORGANIZATIONS_PER_RUN =
+  MAX_SEARCH_ROUNDS_ABSOLUTE_MAX * WIZARD_APOLLO_MAX_PAGES_HARD_CAP * APOLLO_CONTRACT_MAX_PER_PAGE;
+
+/** Estado mínimo recuperable por organización, MEDIDO sin evidencia. */
+export const APOLLO_TWO_ROUND_CHECKPOINT_BYTES_PER_ORGANIZATION = 1024;
+
+export const APOLLO_TWO_ROUND_CHECKPOINT_MAX_SERIALIZED_BYTES =
+  APOLLO_TWO_ROUND_MAX_RECOVERABLE_ORGANIZATIONS_PER_RUN *
+  APOLLO_TWO_ROUND_CHECKPOINT_BYTES_PER_ORGANIZATION;
 
 /** Mismos truncados que la sanitización del cascade, para no divergir. */
 const MAX_TEXT_CHARS = 300;
@@ -388,6 +426,47 @@ export type ApolloTwoRoundPendingOrganizationSnapshot = {
   evidence: ApolloTwoRoundCandidateEvidenceSnapshot;
 };
 
+/**
+ * X6.7 — recuento por ronda de lo que la búsqueda PAGADA devolvió frente a lo
+ * que el checkpoint conserva.
+ *
+ * Existe para que la compactación de § 6 sobre las organizaciones pendientes
+ * NUNCA sea un truncado silencioso: leyendo el documento se ve que la página
+ * trajo 98 organizaciones y cuántas quedaron recuperables.
+ *
+ * El registro completo de lo que la página devolvió sigue viviendo en
+ * `provider_usage_logs.metadata.apollo_page_logs` (X6.5), que este hito no toca.
+ */
+export type ApolloTwoRoundPendingOrganizationTally = {
+  round_number: number;
+  /** Organizaciones que la búsqueda devolvió para esa ronda. */
+  returned: number;
+  /** Organizaciones cuyo snapshot viaja en `pending_organizations`. */
+  retained: number;
+};
+
+/** Recuento por ronda de una lista de pendientes, sin nada perdido todavía. */
+export function buildPendingOrganizationTallies(
+  pending: readonly ApolloTwoRoundPendingOrganizationSnapshot[],
+  returnedByRound: ReadonlyMap<number, number>,
+): ApolloTwoRoundPendingOrganizationTally[] {
+  const retainedByRound = new Map<number, number>();
+  for (const entry of pending) {
+    retainedByRound.set(entry.round_number, (retainedByRound.get(entry.round_number) ?? 0) + 1);
+  }
+  const rounds = new Set<number>([...returnedByRound.keys(), ...retainedByRound.keys()]);
+  return [...rounds]
+    .sort((a, b) => a - b)
+    .map((roundNumber) => ({
+      round_number: roundNumber,
+      returned: Math.max(
+        returnedByRound.get(roundNumber) ?? 0,
+        retainedByRound.get(roundNumber) ?? 0,
+      ),
+      retained: retainedByRound.get(roundNumber) ?? 0,
+    }));
+}
+
 export type ApolloTwoRoundEnrichmentSnapshot = {
   candidate_key: string;
   round_number: number;
@@ -464,6 +543,11 @@ export type ApolloTwoRoundCheckpointV1 = {
   candidate_snapshots: ApolloTwoRoundCandidateSnapshot[];
   /** § 5 — organizaciones pagadas y aún sin evaluar. Vacío en una corrida sana. */
   pending_organizations: ApolloTwoRoundPendingOrganizationSnapshot[];
+  /**
+   * X6.7 — lo que cada ronda pendiente devolvió frente a lo que se conservó.
+   * Vacío cuando no hay ninguna ronda pendiente.
+   */
+  pending_organization_tallies: ApolloTwoRoundPendingOrganizationTally[];
   enrichment_snapshots: ApolloTwoRoundEnrichmentSnapshot[];
   /** § 2 CAS-CLOSE — gasto desglosado por operación. Fuente de la deduplicación. */
   recorded_operation_credits: ApolloTwoRoundRecordedOperationCredit[];
@@ -560,14 +644,48 @@ export type CheckpointCompactionResult = {
  * Orden de sacrificio, del dato más inútil al más útil:
  *   1. evidencia de candidatos ya rechazados definitivamente;
  *   2. evidencia de candidatos que ya no pueden competir por un enrichment
- *      (enrichment ejecutado y veredicto cerrado).
+ *      (enrichment ejecutado y veredicto cerrado);
+ *   3. X6.7 — organizaciones PENDIENTES por la cola del orden del proveedor.
  *
- * Nunca suelta la evidencia de un candidato elegible pendiente de persistir, ni la
- * de una organización pagada y aún sin evaluar: sin ellas el reintento no podría
- * recuperarlas y la corrida terminaría vacía después de haber pagado, que es
- * exactamente el defecto que el checkpoint existe para evitar. Si aun así no cabe,
- * se devuelve `withinLimit: false` y el escritor lo reporta en vez de escribir un
- * documento desmedido.
+ * Nunca suelta la evidencia de un candidato elegible pendiente de persistir: sin
+ * ella el reintento no podría recuperarlo y la corrida terminaría vacía después
+ * de haber pagado.
+ *
+ * ─── Por qué la etapa 3, y por qué NO es "eliminar información necesaria" ────
+ *
+ * El defecto que cierra (E2E X6.6, Production): una página de 98 organizations
+ * hacía que el checkpoint de `search_round_completed` llevara 98 snapshots con
+ * su evidencia. El documento pasaba del techo, la escritura devolvía
+ * `too_large`, y el orquestador degradaba a INDETERMINADA una búsqueda YA
+ * PAGADA. Antes de X6.7 las pendientes eran intocables, así que la única salida
+ * era perder la corrida entera.
+ *
+ * Qué NO cuesta la etapa 3: nada de la corrida en curso. Las organizaciones
+ * viven en memoria mientras la corrida sigue; se evalúan TODAS, compiten TODAS y
+ * se persisten igual. Lo que la cota acota es únicamente lo que un reintento
+ * podría recuperar de esa ventana — y hoy ese reintento recupera CERO, porque la
+ * escritura falla entera y la operación queda indeterminada. Conservar las que
+ * caben es estrictamente mejor que no conservar ninguna, en todos los casos.
+ *
+ * Qué se conserva íntegro, y por eso la reanudación sigue siendo correcta: que la
+ * operación quedó COMPLETADA, la identidad de la corrida, el gasto por operación,
+ * el ledger y las métricas. Un reintento nunca vuelve a pagar la búsqueda.
+ *
+ * Qué payload NO pertenece al checkpoint: el de las organizaciones que no caben.
+ * Se sueltan ENTERAS (identidad y evidencia juntas), nunca a medias: una
+ * identidad sin evidencia haría que el reintento la evaluara como
+ * `invalid_domain`, que es un veredicto que la corrida nunca alcanzó. Preferimos
+ * no saber de ella a mentir sobre ella.
+ *
+ * Y no es silencioso: `pending_organization_tallies` publica por ronda cuántas
+ * devolvió la búsqueda y cuántas quedaron, y `compacted` se levanta.
+ *
+ * Se sueltan por la COLA del orden del proveedor: el rango del proveedor es el
+ * desempate que el propio ranking usa, así que lo primero que sobra es lo último
+ * que el proveedor consideró relevante.
+ *
+ * Si ni siquiera el estado operativo cabe, se devuelve `withinLimit: false` y el
+ * escritor lo reporta en vez de escribir un documento desmedido.
  */
 export function compactCheckpointForSize(
   checkpoint: ApolloTwoRoundCheckpointV1,
@@ -598,12 +716,82 @@ export function compactCheckpointForSize(
   }
 
   dropEvidenceWhere((snapshot) => snapshot.enrichment_status !== 'not_attempted');
+  if (bytes <= maxBytes) {
+    return { checkpoint: current, serializedBytes: bytes, withinLimit: true, droppedEvidenceFor: dropped };
+  }
+
+  // Etapa 3 (X6.7) — recortar las organizaciones pendientes por la cola.
+  current = dropPendingOrganizationsToFit(current, maxBytes);
+  bytes = measureCheckpointSerializedBytes(current);
   return {
     checkpoint: current,
     serializedBytes: bytes,
     withinLimit: bytes <= maxBytes,
     droppedEvidenceFor: dropped,
   };
+}
+
+/**
+ * Conserva el prefijo MÁS LARGO de organizaciones pendientes que cabe.
+ *
+ * Búsqueda binaria sobre el número conservado: el tamaño crece de forma monótona
+ * con él, así que bastan ~log2(n) mediciones. Recortar de una en una midiendo
+ * cada vez sería cuadrático sobre un documento de cientos de KiB.
+ *
+ * Devuelve el checkpoint intacto cuando no hay ninguna pendiente que soltar: en
+ * ese caso el exceso no lo causa esta lista y fingir una compactación sólo
+ * levantaría `compacted` sin haber soltado nada.
+ */
+function dropPendingOrganizationsToFit(
+  checkpoint: ApolloTwoRoundCheckpointV1,
+  maxBytes: number,
+): ApolloTwoRoundCheckpointV1 {
+  const pending = checkpoint.pending_organizations;
+  if (pending.length === 0) return checkpoint;
+
+  const returnedByRound = new Map<number, number>();
+  for (const tally of checkpoint.pending_organization_tallies ?? []) {
+    returnedByRound.set(tally.round_number, tally.returned);
+  }
+  for (const entry of pending) {
+    const seen = returnedByRound.get(entry.round_number) ?? 0;
+    if (seen === 0) returnedByRound.set(entry.round_number, 0);
+  }
+  // Sin recuento previo, lo devuelto es lo que hay: la compactación no puede
+  // inventar un total mayor del que se le entregó.
+  const fallbackReturned = new Map<number, number>();
+  for (const entry of pending) {
+    fallbackReturned.set(entry.round_number, (fallbackReturned.get(entry.round_number) ?? 0) + 1);
+  }
+  for (const [roundNumber, count] of fallbackReturned) {
+    if (!returnedByRound.has(roundNumber) || (returnedByRound.get(roundNumber) ?? 0) < count) {
+      returnedByRound.set(roundNumber, count);
+    }
+  }
+
+  const withFirst = (keep: number): ApolloTwoRoundCheckpointV1 => {
+    const kept = pending.slice(0, keep);
+    return {
+      ...checkpoint,
+      pending_organizations: kept,
+      pending_organization_tallies: buildPendingOrganizationTallies(kept, returnedByRound),
+      compacted: checkpoint.compacted || keep < pending.length,
+    };
+  };
+
+  // Invariante de la búsqueda: `low` siempre cabe, `high` siempre se prueba.
+  let low = 0;
+  let high = pending.length;
+  if (measureCheckpointSerializedBytes(withFirst(0)) > maxBytes) return withFirst(0);
+  while (low < high) {
+    const middle = Math.floor((low + high + 1) / 2);
+    if (measureCheckpointSerializedBytes(withFirst(middle)) <= maxBytes) {
+      low = middle;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return withFirst(low);
 }
 
 // ─── Validación de lectura ────────────────────────────────────────────────────
@@ -640,6 +828,12 @@ export function readCheckpoint(
       : [],
     pending_organizations: Array.isArray(candidate.pending_organizations)
       ? candidate.pending_organizations
+      : [],
+    // Ausente en documentos escritos antes de X6.7. Vacío es la lectura honesta:
+    // no hay recuento que leer, y `pending_organizations` sigue siendo la fuente
+    // de lo recuperable.
+    pending_organization_tallies: Array.isArray(candidate.pending_organization_tallies)
+      ? candidate.pending_organization_tallies
       : [],
     enrichment_snapshots: Array.isArray(candidate.enrichment_snapshots)
       ? candidate.enrichment_snapshots

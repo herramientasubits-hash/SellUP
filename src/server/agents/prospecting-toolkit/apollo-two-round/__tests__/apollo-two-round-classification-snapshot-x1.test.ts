@@ -123,6 +123,7 @@ describe('§ snapshot · rejection_reason refleja el veredicto definitivo', () =
       indeterminate_operation_keys: [],
       indeterminate_operations: [],
       pending_organizations: [],
+      pending_organization_tallies: [],
       persisted_candidate_ids: [],
       checkpoint_write_failures: [],
       observed_rejection_reasons: [],

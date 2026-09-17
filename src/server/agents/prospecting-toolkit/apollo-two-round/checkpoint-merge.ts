@@ -44,9 +44,13 @@ import type {
   ApolloTwoRoundEnrichmentSnapshot,
   ApolloTwoRoundEnrichmentStatus,
   ApolloTwoRoundPendingOrganizationSnapshot,
+  ApolloTwoRoundPendingOrganizationTally,
   ApolloTwoRoundRecordedOperationCredit,
 } from './checkpoint';
-import { APOLLO_TWO_ROUND_CHECKPOINT_CONTRACT_VERSION } from './checkpoint';
+import {
+  APOLLO_TWO_ROUND_CHECKPOINT_CONTRACT_VERSION,
+  buildPendingOrganizationTallies,
+} from './checkpoint';
 import type { ApolloTwoRoundRoundMetrics } from './observability';
 import type { ApolloTwoRoundOperation } from './idempotency';
 
@@ -159,6 +163,17 @@ function searchRecoverableProgress(
 ): 0 | 1 | 2 {
   if (checkpoint.round_summaries.some((round) => round.roundNumber === roundNumber)) return 2;
   if (checkpoint.pending_organizations.some((org) => org.round_number === roundNumber)) return 1;
+  // X6.7 — una ronda cuyas organizaciones quedaban TODAS por encima del tope de
+  // resultados crudos no deja snapshots, y aun así es recuperable: no hay nada
+  // que evaluar de ella. Su recuento lo prueba; sin esto, el análisis de
+  // durabilidad la leería como "resultado recuperable ausente".
+  if (
+    (checkpoint.pending_organization_tallies ?? []).some(
+      (tally) => tally.round_number === roundNumber,
+    )
+  ) {
+    return 1;
+  }
   return 0;
 }
 
@@ -276,6 +291,10 @@ export function mergeApolloTwoRoundCheckpoints(
 
   const roundSummaries = mergeRoundSummaries(base.round_summaries, incoming.round_summaries);
   const assessedRounds = new Set(roundSummaries.map((round) => round.roundNumber));
+  const pendingOrganizations = mergePendingOrganizations(
+    base.pending_organizations,
+    incoming.pending_organizations,
+  ).filter((pending) => !assessedRounds.has(pending.round_number));
   const candidateSnapshots = mergeCandidateSnapshots(
     base.candidate_snapshots,
     incoming.candidate_snapshots,
@@ -308,10 +327,20 @@ export function mergeApolloTwoRoundCheckpoints(
       // Una ronda ya registrada no tiene nada pendiente: el orquestador borra sus
       // pendientes al registrarla. Conservarlas aquí las resucitaría y haría que
       // un reintento reevaluara organizaciones que ya son candidatos.
-      pending_organizations: mergePendingOrganizations(
-        base.pending_organizations,
-        incoming.pending_organizations,
-      ).filter((pending) => !assessedRounds.has(pending.round_number)),
+      pending_organizations: pendingOrganizations,
+      // X6.7 — mismo criterio que los pendientes: una ronda ya registrada no
+      // tiene nada pendiente que contar. `returned` se queda con la lectura
+      // mayor —ninguno de los dos documentos pudo ver MENOS de lo que la
+      // búsqueda devolvió— y `retained` se RECUENTA sobre la unión ya fusionada,
+      // que es la única cifra que no puede contradecir al documento.
+      pending_organization_tallies: buildPendingOrganizationTallies(
+        pendingOrganizations,
+        mergeReturnedByRound(
+          base.pending_organization_tallies,
+          incoming.pending_organization_tallies,
+          assessedRounds,
+        ),
+      ),
       enrichment_snapshots: enrichmentSnapshots,
       recorded_operation_credits: recordedOperationCredits,
       persisted_candidate_ids: unionSorted(
@@ -637,6 +666,20 @@ function mergePendingOrganizations(
   return [...byKey.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([, pending]) => pending);
+}
+
+/** X6.7 — lo DEVUELTO por ronda según el más informado de los dos documentos. */
+function mergeReturnedByRound(
+  base: readonly ApolloTwoRoundPendingOrganizationTally[] | undefined,
+  incoming: readonly ApolloTwoRoundPendingOrganizationTally[] | undefined,
+  assessedRounds: ReadonlySet<number>,
+): Map<number, number> {
+  const byRound = new Map<number, number>();
+  for (const tally of [...(base ?? []), ...(incoming ?? [])]) {
+    if (assessedRounds.has(tally.round_number)) continue;
+    byRound.set(tally.round_number, Math.max(byRound.get(tally.round_number) ?? 0, tally.returned));
+  }
+  return byRound;
 }
 
 /**
