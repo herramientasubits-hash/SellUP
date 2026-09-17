@@ -1137,6 +1137,7 @@ describe('§ 7 · el checkpoint no pisa metadata ajena ni se sobrescribe con una
     round_summaries: [],
     candidate_snapshots: [],
     pending_organizations: [],
+    pending_organization_tallies: [],
     enrichment_snapshots: [],
     recorded_operation_credits: [],
     persisted_candidate_ids: [],
@@ -1341,6 +1342,7 @@ describe('§ 6 · el snapshot es mínimo, sanitizado y acotado', () => {
       seen_organization_keys: Array.from({ length: 40 }, (_, i) => `dom:empresa-${i}.com.co`),
       round_summaries: [],
       pending_organizations: [],
+      pending_organization_tallies: [],
       candidate_snapshots: Array.from({ length: 10 }, (_, index) => ({
         candidate_key: `apollo:org-${index}`,
         round_number: (index % 2) + 1,
@@ -1448,6 +1450,7 @@ describe('§ 6 · el snapshot es mínimo, sanitizado y acotado', () => {
       seen_organization_keys: [],
       round_summaries: [],
       pending_organizations: [],
+      pending_organization_tallies: [],
       candidate_snapshots: [snapshot('vivo', true), snapshot('rechazado', false)],
       enrichment_snapshots: [],
       recorded_operation_credits: [],

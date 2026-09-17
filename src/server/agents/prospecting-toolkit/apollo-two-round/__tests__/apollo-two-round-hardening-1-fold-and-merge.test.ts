@@ -158,6 +158,7 @@ function checkpoint(
     round_summaries: [],
     candidate_snapshots: candidates,
     pending_organizations: [],
+    pending_organization_tallies: [],
     enrichment_snapshots: [],
     recorded_operation_credits: [],
     persisted_candidate_ids: [],

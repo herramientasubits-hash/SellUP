@@ -46,6 +46,7 @@ function checkpoint(
     round_summaries: [],
     candidate_snapshots: [],
     pending_organizations: [],
+    pending_organization_tallies: [],
     enrichment_snapshots: [],
     recorded_operation_credits: [],
     persisted_candidate_ids: [],
@@ -478,6 +479,7 @@ describe('CAS-CLOSE § 1 · `stale_rejected` sólo es durable si el ganador cont
       checkpoint_version: 1,
       completed_operation_keys: ['op-search'],
       pending_organizations: [],
+      pending_organization_tallies: [],
       recorded_operation_credits: [
         {
           operation_id: 'op-search',

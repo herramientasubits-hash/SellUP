@@ -477,6 +477,7 @@ describe('CAS-CLOSE § 1 · dos procesos del mismo run, una sola operación exte
       round_summaries: [],
       candidate_snapshots: [],
       pending_organizations: [],
+      pending_organization_tallies: [],
       enrichment_snapshots: [],
       recorded_operation_credits: [],
       persisted_candidate_ids: [],
@@ -581,6 +582,7 @@ describe('CAS-CLOSE § 4 · lo que no se puede probar se degrada, no se reintent
       round_summaries: [],
       candidate_snapshots: [],
       pending_organizations: [],
+      pending_organization_tallies: [],
       enrichment_snapshots: [],
       recorded_operation_credits: [],
       persisted_candidate_ids: [],
@@ -640,6 +642,7 @@ describe('CAS-CLOSE § 2 · dos operaciones concurrentes distintas se conservan 
       round_summaries: [],
       candidate_snapshots: [],
       pending_organizations: [],
+      pending_organization_tallies: [],
       enrichment_snapshots: [],
       recorded_operation_credits: [
         {

@@ -5625,3 +5625,20 @@ jobs:
       # 0 escrituras en Producción · 0 migraciones · 0 cambios de bandera.
       - name: Run Agent 1 X6.6 Apollo prospected_by_current_team tests
         run: npm run test:a1-apollo-prospected-by-current-team-x66
+
+      # AGENT1-APOLLO-CHECKPOINT-DURABILITY-X6.7 — una página grande dejaba el
+      # checkpoint de `search_round_completed` por encima del techo, la escritura
+      # devolvía `too_large` y una búsqueda YA PAGADA quedaba indeterminada
+      # (E2E X6.6: 98 organizations ⇒ result_status = apollo_operation_indeterminate).
+      #
+      # Cubre: que el techo vuelva a tener premisa (se deriva del contrato de
+      # paginación, no de un tope de resultados crudos que el CORTE 2 borró); que
+      # la etapa 3 de compactación acote el payload de las organizaciones
+      # pendientes declarándolo por ronda; que la reanudación siga sin repetir la
+      # operación pagada; y que un documento que de verdad no cabe siga FALLANDO
+      # CERRADO en vez de hacerse pasar por durable.
+      #
+      # 0 llamadas a Apollo · 0 a Lusha · 0 créditos · 0 Supabase real ·
+      # 0 escrituras en Producción · 0 migraciones · 0 cambios de bandera.
+      - name: Run Agent 1 X6.7 Apollo checkpoint durability tests
+        run: npm run test:a1-apollo-checkpoint-durability-x67

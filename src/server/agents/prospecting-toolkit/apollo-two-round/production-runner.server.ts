@@ -238,6 +238,7 @@ import type { CandidateSectorEvidenceState } from './enrichment-ranking';
 import {
   APOLLO_TWO_ROUND_CHECKPOINT_CONTRACT_VERSION,
   APOLLO_TWO_ROUND_CHECKPOINT_KEY,
+  buildPendingOrganizationTallies,
   fromCandidateEvidenceSnapshot,
   toCandidateEvidenceSnapshot,
   toSeenOrganizationKeys,
@@ -3565,6 +3566,41 @@ function buildCheckpoint(input: {
     statusByKey.set(snapshot.candidate_key, snapshot.status);
   }
 
+  /**
+   * X6.7 — lo que cada ronda pendiente DEVOLVIÓ, por ronda.
+   *
+   * Se calcula aquí, sobre la lista completa, porque es el único punto que la
+   * ve entera: la compactación de § 6 puede recortar `pending_organizations`
+   * después, y sin este recuento el recorte sería invisible.
+   */
+  const pendingReturnedByRound = new Map<number, number>();
+  for (const entry of input.resume.pendingRoundOrganizations ?? []) {
+    pendingReturnedByRound.set(
+      entry.roundNumber,
+      (pendingReturnedByRound.get(entry.roundNumber) ?? 0) + entry.organizations.length,
+    );
+  }
+  const pendingOrganizations: ApolloTwoRoundPendingOrganizationSnapshot[] = (
+    input.resume.pendingRoundOrganizations ?? []
+  ).flatMap((entry) =>
+    entry.organizations.flatMap((organization) => {
+      const evidence = input.evidenceByKey.get(candidateKeyFor(organization));
+      if (evidence === undefined) return [];
+      return [
+        {
+          round_number: entry.roundNumber,
+          provider_rank: organization.providerRank,
+          provider_organization_id: organization.providerOrganizationId ?? null,
+          name: organization.name ?? null,
+          domain: organization.domain ?? null,
+          linkedin_url: organization.linkedinUrl ?? null,
+          declared_industry: organization.declaredIndustry ?? null,
+          evidence,
+        } satisfies ApolloTwoRoundPendingOrganizationSnapshot,
+      ];
+    }),
+  );
+
   return {
     version: APOLLO_TWO_ROUND_CHECKPOINT_CONTRACT_VERSION,
     checkpoint_version: input.checkpointVersion,
@@ -3588,23 +3624,14 @@ function buildCheckpoint(input: {
     ),
     // § 5 — organizaciones ya pagadas cuya evaluación no se ha registrado. Sin su
     // evidencia, un reintento en esa ventana daría la ronda por vacía.
-    pending_organizations: (input.resume.pendingRoundOrganizations ?? []).flatMap((entry) =>
-      entry.organizations.flatMap((organization) => {
-        const evidence = input.evidenceByKey.get(candidateKeyFor(organization));
-        if (evidence === undefined) return [];
-        return [
-          {
-            round_number: entry.roundNumber,
-            provider_rank: organization.providerRank,
-            provider_organization_id: organization.providerOrganizationId ?? null,
-            name: organization.name ?? null,
-            domain: organization.domain ?? null,
-            linkedin_url: organization.linkedinUrl ?? null,
-            declared_industry: organization.declaredIndustry ?? null,
-            evidence,
-          } satisfies ApolloTwoRoundPendingOrganizationSnapshot,
-        ];
-      }),
+    //
+    // X6.7 — el constructor las entrega TODAS; es la compactación de § 6 la que,
+    // sólo si el documento no cabe, recorta por la cola y lo declara en el
+    // recuento. Recortar aquí escondería el recorte del lector.
+    pending_organizations: pendingOrganizations,
+    pending_organization_tallies: buildPendingOrganizationTallies(
+      pendingOrganizations,
+      pendingReturnedByRound,
     ),
     enrichment_snapshots: input.enrichmentSnapshots.map((snapshot) => ({ ...snapshot })),
     // § 2 CAS-CLOSE — gasto por operación, ordenado para que dos procesos del
