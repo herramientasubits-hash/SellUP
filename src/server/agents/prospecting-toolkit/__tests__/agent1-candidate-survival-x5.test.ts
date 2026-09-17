@@ -450,8 +450,21 @@ describe('X5 § D · CUT-7 intacto: sobrevivir no es contar', () => {
  *   · de las 5 que SÍ pagaron, ninguna sobrevive — las cinco tenían un gate
  *     obligatorio en contra, y eso no lo toca este corte
  *
- * Nótese que el desglose por DISPOSICIÓN agrupa los 8 + 3 + 4 en un solo cubo
- * `ownership_rejected_final` = 15, que es como la corrida real lo publicó.
+ * 🔴 AGENT1-OWNERSHIP-DOMAIN-TO-NAME-X6.9 — el desglose por DISPOSICIÓN
+ * agrupaba los 8 + 3 + 4 en un solo cubo `ownership_rejected_final` = 15, que
+ * es como la corrida real lo publicó… y ÉSE era el defecto. Los 8 primeros son
+ * `invalid_domain`: Apollo no devolvió dominio, así que el gate de ownership
+ * nunca corrió sobre ellos y ninguna de las 8 fue una decisión de ownership.
+ *
+ * Este fixture, congelado mucho antes de la auditoría X6.8 y sobre una corrida
+ * DISTINTA a la que aquélla midió, reproduce el mismo reparto de forma
+ * independiente. El cubo se parte donde el propio fixture ya lo tenía nombrado:
+ *
+ *   ownership_rejected_final = 3 + 4 = 7      ← decisiones reales del gate
+ *   missing_domain_final     = 8              ← el proveedor no dio dominio
+ *
+ * El total NO se mueve: 7 + 8 sigue siendo 15, y `RETAIL_TOTAL` sigue siendo
+ * 34. No se relaja ni un rechazo — se dejan de atribuir ocho.
  */
 /** Gate BARATO: Apollo no devolvió dominio. Nunca compitieron. */
 const RETAIL_CHEAP_INVALID_DOMAIN = 8;
@@ -464,12 +477,18 @@ const RETAIL_ENRICHED_THEN_CONTRADICTORY = 1;
 /** Pasaron los gates obligatorios y el cupo se agotó antes de que les tocara. */
 const RETAIL_ENRICHMENT_COMPETITORS = 18;
 
+/** X6.9 — sin dominio no hubo decisión de ownership. Cubo propio. */
+const RETAIL_MISSING_DOMAIN = RETAIL_CHEAP_INVALID_DOMAIN;
 const RETAIL_OWNERSHIP_REJECTED =
-  RETAIL_CHEAP_INVALID_DOMAIN + RETAIL_CHEAP_OWNERSHIP + RETAIL_ENRICHED_THEN_OWNERSHIP_REJECTED;
+  RETAIL_CHEAP_OWNERSHIP + RETAIL_ENRICHED_THEN_OWNERSHIP_REJECTED;
 const RETAIL_SECTOR_CONTRADICTORY = RETAIL_ENRICHED_THEN_CONTRADICTORY;
 const RETAIL_ENRICHMENTS_EXECUTED =
   RETAIL_ENRICHED_THEN_OWNERSHIP_REJECTED + RETAIL_ENRICHED_THEN_CONTRADICTORY;
-const RETAIL_TOTAL = RETAIL_OWNERSHIP_REJECTED + RETAIL_SECTOR_CONTRADICTORY + RETAIL_ENRICHMENT_COMPETITORS;
+const RETAIL_TOTAL =
+  RETAIL_MISSING_DOMAIN +
+  RETAIL_OWNERSHIP_REJECTED +
+  RETAIL_SECTOR_CONTRADICTORY +
+  RETAIL_ENRICHMENT_COMPETITORS;
 
 /**
  * Los cinco papeles de la corrida real. El id lleva el papel para que el arnés
@@ -574,10 +593,20 @@ describe('X5 § E · regresión de la certificación retail', () => {
     }, {});
 
     assert.deepEqual(breakdown, {
+      missing_domain_final: RETAIL_MISSING_DOMAIN,
       ownership_rejected_final: RETAIL_OWNERSHIP_REJECTED,
       sector_subindustry_rejected_final: RETAIL_SECTOR_CONTRADICTORY,
       persisted_review_only_final: RETAIL_ENRICHMENT_COMPETITORS,
     });
+
+    // 🔴 X6.9 — la suma de los DOS cubos es la que la corrida real publicó como
+    // uno solo. Lo que cambia es la atribución, no el número de rechazadas: si
+    // alguien relajara un rechazo, esta igualdad se rompería.
+    assert.equal(
+      (breakdown.missing_domain_final ?? 0) + (breakdown.ownership_rejected_final ?? 0),
+      15,
+      'los 15 descartes de la corrida real siguen siendo 15, repartidos en dos causas',
+    );
 
     // Las 18 supervivientes son EXACTAMENTE las del cap. Ninguna de las cinco
     // que pagaron en la corrida real sobrevivió —cuatro cayeron en el gate final
@@ -685,11 +714,19 @@ describe('X5 § E · regresión de la certificación retail', () => {
 
     // Y los gates OBLIGATORIOS siguen rechazando sin necesidad de comprar nada:
     // los once baratos y los cuatro del gate final de ownership.
+    //
+    // 🔴 X6.9 — «los once baratos» eran 8 sin dominio + 3 de ownership. Los 8
+    // siguen rechazados exactamente igual; sólo dejan de llamarse ownership.
     const dispositions = evaluateApolloCandidateFinalDispositions(result);
     const ownershipRejected = dispositions.filter(
       (entry) => entry.finalDisposition === 'ownership_rejected_final',
     );
     assert.equal(ownershipRejected.length, RETAIL_OWNERSHIP_REJECTED);
+    const missingDomain = dispositions.filter(
+      (entry) => entry.finalDisposition === 'missing_domain_final',
+    );
+    assert.equal(missingDomain.length, RETAIL_MISSING_DOMAIN);
+    assert.equal(ownershipRejected.length + missingDomain.length, 15);
 
     // 🔴 La única que cambia de desenlace sin enrichment es la contradictoria:
     // sin comprar la evidencia, la contradicción no se conoce. No se inventa un

@@ -21,10 +21,20 @@
  * sólo puede AÑADIR pases: exige correspondencia demostrable, nunca acepta por
  * TLD, y no mira el sector. Sector ≠ ownership.
  *
+ * AGENT1-OWNERSHIP-DOMAIN-TO-NAME-X6.9 — las reglas 1-4 siguen preguntando «¿el
+ * NOMBRE está dentro del DOMINIO?» sobre cadenas concatenadas, y con los
+ * conectores pegados («cajaDELAviviendapopular» vs `cajaviviendapopular`) eso no
+ * puede coincidir. Se añade una sexta regla que hace la pregunta INVERSA, que es
+ * la de propiedad: «¿dice el dominio algo que el nombre no diga?»
+ * —`domain-name-coverage.ts`—. Como la quinta, sólo puede AÑADIR pases, no mira
+ * el TLD y exige contenido distintivo: un dominio que sólo repite vocabulario
+ * genérico o territorial NO acredita a nadie.
+ *
  * Sin IA. Sin llamadas externas. Determinístico.
  */
 
 import { evaluateInstitutionalNameDomainCorrespondence } from './institutional-domain-ownership';
+import { evaluateDomainExplainedByCompanyName } from './domain-name-coverage';
 import { normalizeProspectCompanyName } from './company-name-normalizer';
 
 export type CompanyOwnershipConfidence = 'high' | 'medium' | 'low' | 'reject' | 'domain_inferred';
@@ -321,7 +331,39 @@ export function evaluateCompanyOwnership(
     };
   }
 
-  // ── 6. Check if domain is a generic word that doesn't represent a company ──
+  // ── 6. Cobertura dominio→nombre (X6.9) ────────────────────────────────────
+  //
+  // Última regla POSITIVA. Va después de las cinco anteriores porque sólo tiene
+  // que atender lo que ellas no pueden ver, y antes del descarte por palabra
+  // genérica porque una descomposición COMPLETA del dominio en el vocabulario
+  // del propio nombre es evidencia más fuerte que esa heurística.
+  //
+  // Invierte la pregunta: no «¿está el nombre en el dominio?» —que las reglas
+  // 1-4 responden sobre cadenas concatenadas, con los conectores pegados— sino
+  // «¿dice el dominio algo que el nombre no diga?». Si no, el dominio no puede
+  // ser de otra organización.
+  //
+  // No mira el TLD y no acepta por vocabulario: exige al menos una pieza que
+  // sea contenido distintivo del nombre. Ver `domain-name-coverage.ts`.
+  const coverage = evaluateDomainExplainedByCompanyName(
+    companyName,
+    domainIdentityKey,
+    GENERIC_DOMAIN_WORDS,
+  );
+  if (coverage.matched) {
+    matchedSignals.push('domain_explained_by_company_name');
+    return {
+      allowed: true,
+      confidence: 'medium',
+      reason: `Domain content is fully accounted for by the company name: ${coverage.detail}`,
+      candidateIdentityKey,
+      domainIdentityKey,
+      matchedSignals,
+      missingSignals,
+    };
+  }
+
+  // ── 7. Check if domain is a generic word that doesn't represent a company ──
   if (domainNamePart.length >= 3 && GENERIC_DOMAIN_WORDS.has(domainNamePart)) {
     matchedSignals.push('generic_domain_word');
     return {
@@ -335,7 +377,7 @@ export function evaluateCompanyOwnership(
     };
   }
 
-  // ── 7. No match found ──────────────────────────────────────────────────────
+  // ── 8. No match found ──────────────────────────────────────────────────────
   missingSignals.push('domain_name_match');
   return {
     allowed: false,

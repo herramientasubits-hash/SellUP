@@ -257,19 +257,92 @@ function evaluateAbbreviationRule(
 
 // ─── Regla C — sigla oficial ──────────────────────────────────────────────────
 
+/**
+ * 🔴 X6.9 — la regla de sigla EXIGE igualdad exacta de la etiqueta con las
+ * iniciales, así que no necesitaba la puerta léxica institucional para ser
+ * segura: la necesitaba para ser ALCANZABLE, y esa puerta la estaba matando.
+ *
+ * La auditoría X6.8 lo midió sobre el lote `71a6f75b`: «Hospital Universitario
+ * de Santander» ↔ `hus.gov.co` tiene iniciales `hus` IDÉNTICAS a la etiqueta
+ * del dominio, y la regla nunca corrió porque `hospital` no está en
+ * `INSTITUTIONAL_HEAD_NOUNS`. Un catálogo de sustantivos no puede ser la
+ * condición de una regla que ya se defiende sola.
+ *
+ * ── La ÚNICA variante añadida ────────────────────────────────────────────────
+ *
+ *   token final de país descartado  `iss` (no `issc`) ↔ «Instituto de Seguros
+ *                                                        Sociales, Colombia»
+ *
+ * No relaja la igualdad: sólo dice qué se iguala. Y va en la dirección segura —
+ * descarta información del NOMBRE, no la inventa desde el dominio.
+ *
+ * ── 🔴 La variante «sigla + sufijo territorial», DESCARTADA ──────────────────
+ *
+ * X6.9 la implementó y la retiró. Habría recuperado «Secretaría de Educación
+ * Departamental» ↔ `sedguaviare.gov.co`, pero la prueba de sobre-aceptación la
+ * condenó: ese nombre no contiene ningún topónimo, así que la sigla `sed`
+ * igualaba **49 dominios distintos** —`sedamazonas`, `sedantioquia`,
+ * `sedatlantico`…—, uno por cada departamento y calificativo del léxico. Son 49
+ * organizaciones DIFERENTES, y la regla no podía decir cuál.
+ *
+ * Funcionaba sintácticamente y no acreditaba nada. Además contradecía a su
+ * módulo hermano: `domain-name-coverage.ts` rechaza
+ * `secretariadeeducacion-yopal` para «Secretaría de Educación y Cultura` por
+ * exactamente el mismo motivo —el dominio aporta un topónimo que el nombre no
+ * sostiene—, y las dos reglas no pueden juzgar lo mismo de forma opuesta.
+ *
+ * Si algún día hay que recuperar esos casos, la evidencia tendrá que venir del
+ * NOMBRE (que traiga su topónimo), nunca de admitir cualquier sufijo del léxico.
+ */
+function isTerritorialOrAdministrativeSuffix(token: string): boolean {
+  return COLOMBIAN_DEPARTMENT_WORDS.has(token) || ADMINISTRATIVE_QUALIFIER_WORDS.has(token);
+}
+
+/**
+ * Las formas del nombre con las que se puede construir una sigla: el nombre
+ * completo y, si el último token es un calificativo territorial/administrativo
+ * («…, Colombia»), el nombre sin él.
+ */
+function acronymCandidates(nameTokens: readonly string[]): Array<{
+  tokens: readonly string[];
+  detail: string;
+}> {
+  const forms: Array<{ tokens: readonly string[]; detail: string }> = [
+    { tokens: nameTokens, detail: `las iniciales de "${nameTokens.join(' ')}"` },
+  ];
+  const last = nameTokens[nameTokens.length - 1];
+  if (last !== undefined && isTerritorialOrAdministrativeSuffix(last)) {
+    const trimmed = nameTokens.slice(0, -1);
+    if (trimmed.length >= 2) {
+      forms.push({
+        tokens: trimmed,
+        detail: `las iniciales de "${trimmed.join(' ')}" (sin el calificativo final "${last}")`,
+      });
+    }
+  }
+  return forms;
+}
+
 function evaluateAcronymRule(
   nameTokens: readonly string[],
   domainLabel: string,
 ): InstitutionalCorrespondenceResult {
   if (nameTokens.length < 2) return NO_MATCH;
-  const acronym = initialsOf(nameTokens);
-  if (acronym.length < MIN_ACRONYM_LENGTH) return NO_MATCH;
-  if (acronym !== domainLabel) return NO_MATCH;
-  return {
-    matched: true,
-    signal: 'institutional_acronym_domain_match',
-    detail: `dominio "${domainLabel}" son las iniciales de "${nameTokens.join(' ')}"`,
-  };
+
+  for (const form of acronymCandidates(nameTokens)) {
+    const acronym = initialsOf(form.tokens);
+    if (acronym.length < MIN_ACRONYM_LENGTH) continue;
+    // Igualdad EXACTA con la etiqueta entera. Un prefijo no basta: lo que
+    // sobrara del dominio nombraría algo que el nombre no dice.
+    if (acronym !== domainLabel) continue;
+    return {
+      matched: true,
+      signal: 'institutional_acronym_domain_match',
+      detail: `dominio "${domainLabel}" son ${form.detail}`,
+    };
+  }
+
+  return NO_MATCH;
 }
 
 // ─── Entrada pública ──────────────────────────────────────────────────────────
@@ -289,20 +362,29 @@ export function evaluateInstitutionalNameDomainCorrespondence(
 ): InstitutionalCorrespondenceResult {
   const nameTokens = tokenize(companyName);
   if (nameTokens.length === 0) return NO_MATCH;
-  if (!nameTokens.some(isInstitutionalTerm)) return NO_MATCH;
 
   const { label, tokens: domainTokens } = readDomainTokens(domainIdentityKey);
   if (label.length === 0 || domainTokens.length === 0) return NO_MATCH;
 
-  const headNounIndex = nameTokens.findIndex((token) => INSTITUTIONAL_HEAD_NOUNS.has(token));
+  // Reglas A y B — SIGUEN tras la puerta léxica. Ambas razonan sobre el
+  // sustantivo institucional que encabeza el nombre: sin él no tienen sujeto,
+  // y sin la puerta aceptarían correspondencias parciales de razones sociales
+  // privadas. Su contrato no se mueve en X6.9.
+  if (nameTokens.some(isInstitutionalTerm)) {
+    const headNounIndex = nameTokens.findIndex((token) => INSTITUTIONAL_HEAD_NOUNS.has(token));
+    if (headNounIndex >= 0) {
+      const territorial = evaluateTerritorialRule(nameTokens, headNounIndex, domainTokens);
+      if (territorial.matched) return territorial;
 
-  if (headNounIndex >= 0) {
-    const territorial = evaluateTerritorialRule(nameTokens, headNounIndex, domainTokens);
-    if (territorial.matched) return territorial;
-
-    const abbreviation = evaluateAbbreviationRule(nameTokens, headNounIndex, domainTokens);
-    if (abbreviation.matched) return abbreviation;
+      const abbreviation = evaluateAbbreviationRule(nameTokens, headNounIndex, domainTokens);
+      if (abbreviation.matched) return abbreviation;
+    }
   }
 
+  // 🔴 X6.9 — regla C FUERA de la puerta léxica. Exige igualdad exacta de la
+  // etiqueta con las iniciales (o con las iniciales más un calificativo
+  // territorial cerrado), así que se defiende sola: el léxico sólo le impedía
+  // llegar a nombres que no empiezan por un sustantivo institucional
+  // catalogado, como «Hospital Universitario de Santander».
   return evaluateAcronymRule(nameTokens, label);
 }

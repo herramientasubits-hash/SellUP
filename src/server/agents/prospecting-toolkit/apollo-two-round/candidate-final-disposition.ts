@@ -51,6 +51,12 @@ export type ApolloCandidateFinalDisposition =
   | 'cooldown_final'
   | 'country_rejected_final'
   | 'ownership_rejected_final'
+  /**
+   * 🔴 X6.9 — el proveedor no devolvió dominio, así que NO HUBO decisión de
+   * ownership: `evaluateCompanyOwnership` jamás se invocó sobre esta candidata.
+   * Ver `MISSING_DOMAIN_REASONS`.
+   */
+  | 'missing_domain_final'
   | 'sector_subindustry_rejected_final'
   /** Perdió su cupo de enrichment por el cap global de enrichments/corrida. */
   | 'enrichment_budget_exhausted_final'
@@ -81,8 +87,33 @@ export type ApolloCandidateFinalDispositionEntry = {
   terminalStage: 'pre_writer' | 'orchestrator_final';
 };
 
+/**
+ * 🔴 X6.9 — `invalid_domain` SALE de aquí.
+ *
+ * ── El defecto que cierra ────────────────────────────────────────────────────
+ *
+ * `invalid_domain` no lo produce el gate de ownership: lo produce la
+ * comprobación 2 del gate BARATO de elegibilidad
+ * (`evaluateApolloEnrichmentEligibility`), que no compara nombre con dominio —
+ * comprueba que EXISTA uno. Una candidata que muere ahí nunca llega a
+ * `evaluateCompanyOwnership`, y su fila lo declara: `ownership_gate: null`,
+ * `ownership_gate_source: 'not_evaluated'`.
+ *
+ * Archivarlas como ownership infla el número con decisiones que nadie tomó. La
+ * auditoría X6.8 lo midió sobre el lote `71a6f75b`: de 31 filas
+ * `ownership_domain_rejected`, **10 eran `invalid_domain`**. El «31,6 % del
+ * embudo» atribuido al heurístico eran en realidad 21 decisiones (21,4 %) más
+ * 10 empresas que Apollo devolvió sin dominio.
+ *
+ * ── 🔴 Lo que NO cambia ──────────────────────────────────────────────────────
+ *
+ * El rechazo. Una candidata sin dominio se sigue rechazando, en el mismo sitio,
+ * por el mismo motivo y con la misma evidencia. Lo único que cambia es CÓMO SE
+ * LLAMA el desenlace, para que las métricas de ownership midan ownership.
+ */
+const MISSING_DOMAIN_REASONS: ReadonlySet<CheapRejectionReason> = new Set(['invalid_domain']);
+
 const OWNERSHIP_REASONS: ReadonlySet<CheapRejectionReason> = new Set([
-  'invalid_domain',
   'external_platform_domain',
   'ownership_mismatch',
 ]);
@@ -99,6 +130,8 @@ function classifyDefinitiveRejection(
   if (reason === 'duplicate_in_sellup') return 'sellup_duplicate_final';
   if (reason === 'cooldown_or_prior_suggestion') return 'cooldown_final';
   if (reason === 'country_incompatible') return 'country_rejected_final';
+  // X6.9 — antes que ownership: sin dominio no hubo nada que juzgar.
+  if (MISSING_DOMAIN_REASONS.has(reason as CheapRejectionReason)) return 'missing_domain_final';
   if (OWNERSHIP_REASONS.has(reason as CheapRejectionReason)) return 'ownership_rejected_final';
   if (SECTOR_REASONS.has(reason)) return 'sector_subindustry_rejected_final';
   // `duplicate_within_response` / `seen_in_previous_round` / `raw_result_cap_reached`
