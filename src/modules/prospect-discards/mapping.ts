@@ -129,6 +129,59 @@ export interface OwnershipGateVerdictLike {
 }
 
 /**
+ * 🔴 AGENT1-STRUCTURAL-OWNERSHIP-TRANSPORT-X6.10-B — la evidencia ESTRUCTURAL
+ * de la misma fila, tal como la produjo `evaluateStructuralDomainOwnership`.
+ *
+ * Estructural a propósito, como `OwnershipGateVerdictLike`: este módulo sigue
+ * sin depender del pipeline de Apollo.
+ */
+export interface StructuralOwnershipVerdictLike {
+  outcome: 'confirmed' | 'rejected' | 'insufficient_evidence';
+  decidingSource: string | null;
+  signal: string | null;
+  detail: string;
+  linkedInCorroboration: 'supports' | 'inconclusive' | 'absent';
+  evaluatedSources: readonly string[];
+  absentSources: readonly string[];
+}
+
+export interface StructuralOwnershipEvidenceRow {
+  outcome: string;
+  deciding_source: string | null;
+  signal: string | null;
+  detail: string;
+  linkedin_corroboration: string;
+  evaluated_sources: string[];
+  absent_sources: string[];
+}
+
+/**
+ * Proyecta la evidencia estructural a `evidence.structural_ownership`.
+ *
+ * `null` ⇒ la capa no corrió sobre esta fila. Copia, nunca recalcula — el mismo
+ * contrato que `toOwnershipGateEvidence`, y por la misma razón: un veredicto
+ * deducido del motivo del descarte no es un veredicto.
+ *
+ * 🔴 Que esta columna exista NO significa que la capa decida. En X6.10-B
+ * `outcome` se persiste y NADIE lo lee para admitir o rechazar: la mitad que da
+ * poder a la evidencia es un corte aparte.
+ */
+export function toStructuralOwnershipEvidence(
+  verdict: StructuralOwnershipVerdictLike | null | undefined,
+): StructuralOwnershipEvidenceRow | null {
+  if (!verdict) return null;
+  return {
+    outcome: verdict.outcome,
+    deciding_source: verdict.decidingSource,
+    signal: verdict.signal,
+    detail: verdict.detail,
+    linkedin_corroboration: verdict.linkedInCorroboration,
+    evaluated_sources: [...verdict.evaluatedSources],
+    absent_sources: [...verdict.absentSources],
+  };
+}
+
+/**
  * Cómo se obtuvo —o por qué no existe— el veredicto de ownership de una fila.
  *
  * `not_evaluated` NO es un rechazo implícito ni un pase: es el hecho de que el

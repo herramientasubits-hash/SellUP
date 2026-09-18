@@ -15,6 +15,7 @@ import {
   mapApolloFinalDispositionToCode,
   resolveOwnershipGateEvidenceSource,
   toOwnershipGateEvidence,
+  toStructuralOwnershipEvidence,
 } from "./mapping";
 import {
   classifyPreWriterCandidatesAgainstWriter,
@@ -73,6 +74,11 @@ export function buildDiscardedDispositionRows(
   // 🔴 X3 — nombre crudo y veredicto de ownership, indexados por candidata.
   const rawNameByKey = new Map(
     input.evaluatedCandidates.map((c) => [c.candidateKey, c.providerRawName ?? null]),
+  );
+  // 🔴 X6.10-B — la evidencia estructural, indexada igual que el veredicto del
+  // gate. Se persiste y no decide: quien admite o rechaza sigue siendo el gate.
+  const structuralByKey = new Map(
+    input.evaluatedCandidates.map((c) => [c.candidateKey, c.structuralOwnership ?? null]),
   );
   const ownershipByKey = new Map(
     input.evaluatedCandidates.map((c) => [c.candidateKey, c.ownership ?? null]),
@@ -198,6 +204,10 @@ export function buildDiscardedDispositionRows(
         ),
         ownership_gate_source: resolveOwnershipGateEvidenceSource(
           ownershipByKey.get(entry.candidateKey) ?? null,
+        ),
+        // 🔴 X6.10-B — observable, no decisoria. `null` ⇒ la capa no corrió.
+        structural_ownership: toStructuralOwnershipEvidence(
+          structuralByKey.get(entry.candidateKey) ?? null,
         ),
       },
     });

@@ -161,6 +161,8 @@ export type ApolloOrganizationInput = {
   name: string | null;
   website_url?: string | null;
   primary_domain?: string | null;
+  /** X6.10-B: alias de dominio declarados por Apollo para esta organización. */
+  all_domains?: string[] | null;
   linkedin_url?: string | null;
   industry?: string | null;
   /** L2.14: Array alternativo de industrias que Apollo puede devolver en lugar de o junto a `industry`. */
@@ -183,6 +185,15 @@ export type ApolloProfileMetadata = {
   organization_id: string;
   website_url: string | null;
   primary_domain: string | null;
+  /**
+   * X6.10-B — alias de dominio que Apollo declara para esta organización.
+   *
+   * Acotado a `MAX_TRANSPORTED_DOMAIN_ALIASES`: por encima de ese tope el
+   * conjunto deja de ser una agrupación y pasa a ser acumulación, y la capa
+   * estructural no lo acepta como evidencia. Transportar lo que nadie puede
+   * usar sólo engorda el checkpoint.
+   */
+  all_domains: string[];
   linkedin_url: string | null;
   industry: string | null;
   /** L2.14: Array alternativo de industrias (max 10 elementos). */
@@ -372,6 +383,7 @@ export function mapApolloOrganizationToSearchResult(
   const rawFieldsPresent: string[] = [];
   if (org.website_url) rawFieldsPresent.push('website_url');
   if (org.primary_domain) rawFieldsPresent.push('primary_domain');
+  if (org.all_domains?.length) rawFieldsPresent.push('all_domains');
   if (org.linkedin_url) rawFieldsPresent.push('linkedin_url');
   if (org.industry) rawFieldsPresent.push('industry');
   if (org.industries?.length) rawFieldsPresent.push('industries');
@@ -388,6 +400,7 @@ export function mapApolloOrganizationToSearchResult(
     organization_id: org.id,
     website_url: org.website_url ?? null,
     primary_domain: domain,
+    all_domains: transportableDomainAliases(org.all_domains, domain),
     linkedin_url: org.linkedin_url ?? null,
     industry: org.industry ?? null,
     industries: (org.industries ?? []).slice(0, 10),
@@ -436,6 +449,40 @@ export function mapApolloOrganizationToSearchResult(
 
 // ─── Helper interno ───────────────────────────────────────────────────────────
 
+/**
+ * X6.10-B — tope de alias de dominio TRANSPORTADOS por organización.
+ *
+ * Es el mismo número que `MAX_TRUSTED_DOMAIN_ALIASES` del contrato estructural,
+ * replicado aquí como constante propia y NO importado a propósito: este módulo
+ * es el provider y no debe depender de la capa que consume su salida. El test
+ * de paridad comprueba que los dos números coinciden, que es la forma de que no
+ * diverjan sin que nadie se entere.
+ */
+export const MAX_TRANSPORTED_DOMAIN_ALIASES = 8;
+
+/**
+ * Los alias que viajan, normalizados, deduplicados y acotados.
+ *
+ * El dominio primario va PRIMERO cuando existe: un recorte por el tope no puede
+ * dejar fuera precisamente al dominio que el candidato lleva en `domain`, o el
+ * conjunto dejaría de contenerlo y la regla E1 nunca podría acreditarlo.
+ */
+function transportableDomainAliases(
+  aliases: readonly (string | null | undefined)[] | null | undefined,
+  primaryDomain: string | null,
+): string[] {
+  const out: string[] = [];
+  const push = (value: string | null | undefined): void => {
+    if (typeof value !== 'string') return;
+    const normalized = value.trim().toLowerCase().replace(/^www\./, '');
+    if (normalized.length === 0 || !normalized.includes('.')) return;
+    if (!out.includes(normalized)) out.push(normalized);
+  };
+  push(primaryDomain);
+  for (const alias of aliases ?? []) push(alias);
+  return out.slice(0, MAX_TRANSPORTED_DOMAIN_ALIASES);
+}
+
 function extractDomain(websiteUrl: string | null | undefined): string | null {
   if (!websiteUrl) return null;
   try {
@@ -450,13 +497,24 @@ function extractDomain(websiteUrl: string | null | undefined): string | null {
  * Descarta orgs sin name: retorna null y el caller las filtra.
  * Usa primary_domain de Apollo directamente (más fiable que derivarlo de website_url).
  */
-function normalizeApolloOrg(org: ApolloOrganization): ApolloOrganizationInput | null {
+/**
+ * 🔴 X6.10-B — EXPORTADA. Es el sitio exacto donde `all_domains` moría, y una
+ * suite que sólo ejercite el mapper no puede verlo: el mutation testing lo
+ * demostró —volver a tirar el campo aquí dejaba los treinta tests en verde—.
+ * Es pura y sin efectos, así que exponerla no abre nada que no estuviera ya
+ * abierto en `mapApolloOrganizationToSearchResult`.
+ */
+export function normalizeApolloOrg(org: ApolloOrganization): ApolloOrganizationInput | null {
   if (!org.name?.trim()) return null;
   return {
     id: org.id,
     name: org.name,
     website_url: org.website_url,
     primary_domain: org.primary_domain ?? extractDomain(org.website_url),
+    // 🔴 X6.10-B — ESTA es la línea que faltaba. `toApolloOrganizationShape` ya
+    // entregaba `all_domains` desde `NormalizedApolloOrganization`, y aquí se
+    // perdía: cuarenta líneas antes del mapper, sin que nadie lo notara.
+    all_domains: org.all_domains ?? null,
     linkedin_url: org.linkedin_url,
     industry: org.industry,
     industries: org.industries ?? [],

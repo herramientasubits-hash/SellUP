@@ -302,6 +302,7 @@ import {
   evaluateApolloPreWriterCompanyOwnership,
   evaluateApolloPreWriterCompanyOwnershipWithInputs,
   toOwnershipGateVerdictLike,
+  toStructuralOwnershipSnapshot,
   type ApolloPreWriterOwnershipEvaluation,
   evaluateApolloPreWriterQualityGateForCandidate,
   evaluateCandidatePreWriterAdmission,
@@ -3096,6 +3097,13 @@ export async function runApolloTwoRoundWizardDiscovery(
           // Ocho campos en un literal dentro de un módulo sin suite pura eran el
           // tramo donde invertir `allowed` no rompía nada.
           ownership: ownershipEvaluation ? toOwnershipGateVerdictLike(ownershipEvaluation) : null,
+          // 🔴 X6.10-B — la evidencia estructural de la MISMA evaluación, por la
+          // MISMA costura y con la misma regla: se copia, no se recalcula, y si
+          // no hay evaluación se persiste `null` en vez de deducir un veredicto.
+          // Persistirla no la mete en ninguna decisión.
+          structuralOwnership: ownershipEvaluation
+            ? toStructuralOwnershipSnapshot(ownershipEvaluation)
+            : null,
           enrichment: {
             attempted: c.enrichmentExecuted === true || snapshots.length > 0,
             status: enrichmentStatusByKey.get(c.candidateKey) ?? null,

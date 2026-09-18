@@ -46,6 +46,18 @@ export interface ApolloOrganization {
   website_url: string | null;
   /** Apollo canonical domain — more reliable than extracting from website_url. May be absent on older plan responses. */
   primary_domain?: string | null;
+  /**
+   * AGENT1-STRUCTURAL-OWNERSHIP-TRANSPORT-X6.10-B — alias de dominio que Apollo
+   * declara para ESTA organización (`primary_domain` + `all_domains`, ya
+   * normalizados y deduplicados por el normalizador de respuesta).
+   *
+   * El campo existía de hecho —`toApolloOrganizationShape` lo rellenaba desde
+   * `NormalizedApolloOrganization.normalizedDomains`— pero no en el tipo, así
+   * que `normalizeApolloOrg` no podía leerlo y el dato moría ahí. Declararlo es
+   * lo que convierte una afirmación implícita del proveedor en evidencia
+   * utilizable. Ausente ⇒ el proveedor no los aportó; nunca se fabrican.
+   */
+  all_domains?: string[] | null;
   linkedin_url: string | null;
   industry: string | null;
   industry_tag_ids: string[];
