@@ -381,10 +381,9 @@ export function evaluateInstitutionalNameDomainCorrespondence(
     }
   }
 
-  // 🔴 X6.9 — regla C FUERA de la puerta léxica. Exige igualdad exacta de la
-  // etiqueta con las iniciales (o con las iniciales más un calificativo
-  // territorial cerrado), así que se defiende sola: el léxico sólo le impedía
-  // llegar a nombres que no empiezan por un sustantivo institucional
+  // 🔴 X6.9 — regla C FUERA de la puerta léxica. Exige igualdad EXACTA de la
+  // etiqueta con las iniciales, así que se defiende sola: el léxico sólo le
+  // impedía llegar a nombres que no empiezan por un sustantivo institucional
   // catalogado, como «Hospital Universitario de Santander».
   return evaluateAcronymRule(nameTokens, label);
 }
