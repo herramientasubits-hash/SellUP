@@ -543,6 +543,15 @@ export function buildApolloRawResultSample(org: ApolloOrganization): ApolloRawRe
   if (org.name) rawKeysPresent.push('name');
   if (org.website_url) rawKeysPresent.push('website_url');
   if (org.primary_domain) rawKeysPresent.push('primary_domain');
+  // 🔴 X6.10-B — el observador estaba CIEGO a este campo.
+  //
+  // `apollo_raw_result_samples_sanitized` lleva 228 muestras en Producción y
+  // `all_domains` aparece en CERO. Eso NO significa que Apollo no lo devuelva:
+  // significa que esta lista nunca lo comprobó. Sin esta línea, la pregunta
+  // «¿el proveedor entrega de verdad los alias?» sólo se puede responder
+  // pagando una corrida. Con ella, la responde la primera corrida que ocurra,
+  // sin un crédito extra.
+  if (org.all_domains?.length) rawKeysPresent.push('all_domains');
   if (org.industry) rawKeysPresent.push('industry');
   if (org.industries?.length) rawKeysPresent.push('industries');
   if (org.employee_count != null) rawKeysPresent.push('employee_count');

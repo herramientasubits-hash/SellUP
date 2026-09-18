@@ -32,6 +32,7 @@ import path from 'node:path';
 
 import {
   MAX_TRANSPORTED_DOMAIN_ALIASES,
+  buildApolloRawResultSample,
   mapApolloOrganizationToSearchResult,
   normalizeApolloOrg,
 } from '../web-search-providers/apollo-organizations-search-provider';
@@ -253,6 +254,32 @@ describe('X6.10-B § 1 — de la respuesta de Apollo al candidato', () => {
       metadata: { apollo_profile: { all_domains: 'rtvc.gov.co' } },
     } as unknown as WebSearchResult;
     assert.deepEqual(readApolloCandidateDomainAliases(notArray), []);
+  });
+
+  it('1.6b · 🔴 el diagnóstico deja de estar CIEGO a `all_domains`', () => {
+    // `apollo_raw_result_samples_sanitized` lleva 228 muestras en Producción y
+    // `all_domains` aparece en CERO — porque `buildApolloRawResultSample` nunca
+    // lo comprobó, no porque Apollo no lo devuelva. Sin esta línea, la cobertura
+    // real del campo sólo se puede medir pagando una corrida.
+    const withAliases = buildApolloRawResultSample({
+      id: 'x',
+      name: 'rtvc',
+      website_url: 'https://www.senalcolombia.tv',
+      primary_domain: 'senalcolombia.tv',
+      all_domains: ['senalcolombia.tv', 'rtvc.gov.co'],
+    } as unknown as ApolloOrganization);
+    assert.ok(withAliases.raw_keys_present.includes('all_domains'));
+
+    // Y un conjunto vacío NO se declara presente: la ausencia sigue siendo
+    // legible como ausencia.
+    const without = buildApolloRawResultSample({
+      id: 'x',
+      name: 'rtvc',
+      website_url: 'https://www.senalcolombia.tv',
+      primary_domain: 'senalcolombia.tv',
+      all_domains: [],
+    } as unknown as ApolloOrganization);
+    assert.equal(without.raw_keys_present.includes('all_domains'), false);
   });
 
   it('1.7 · RTVC, extremo a extremo: el par que X6.9 no podía resolver', () => {
