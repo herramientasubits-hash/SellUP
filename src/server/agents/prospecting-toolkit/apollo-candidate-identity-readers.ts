@@ -148,6 +148,29 @@ export function readApolloCandidateWebsite(result: WebSearchResult): string | nu
 }
 
 /**
+ * Los alias de dominio que Apollo DECLARÓ para esta organización, o `[]`.
+ *
+ * AGENT1-STRUCTURAL-OWNERSHIP-TRANSPORT-X6.10-B. Es la afirmación del proveedor
+ * —«estos dominios son de la misma organización»— y la única fuente que la capa
+ * estructural admite para CONFIRMAR propiedad.
+ *
+ * 🔴 `[]` significa SIEMPRE «el proveedor no los aportó», nunca «no coincide», y
+ * nunca se rellena con `primary_domain` por cuenta propia: un conjunto de un
+ * solo elemento no acredita nada y fabricarlo aquí daría la falsa impresión de
+ * que el proveedor agrupó algo.
+ */
+export function readApolloCandidateDomainAliases(result: WebSearchResult): string[] {
+  const raw = readApolloProfile(result)['all_domains'];
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const entry of raw) {
+    const value = readNonEmptyString(entry);
+    if (value !== null && !out.includes(value)) out.push(value);
+  }
+  return out;
+}
+
+/**
  * El id de organización que Apollo emitió. Es la identidad ESTABLE de una
  * organización sin dominio, y la única que sobrevive a que cambie de web.
  */

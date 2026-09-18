@@ -44,6 +44,11 @@ import {
   isBlockedByCompanyOwnership,
   resolveOwnershipEvaluationName,
 } from "./company-ownership-gate";
+// X6.10-B — la capa estructural y el helper COMPARTIDO que construye su
+// evidencia. El writer no deriva nada por su cuenta: llama al mismo cuerpo que
+// el orquestador, igual que ya hace con `resolveOwnershipEvaluationName`.
+import { evaluateStructuralDomainOwnership } from "./structural-domain-ownership";
+import { buildApolloStructuralOwnershipEvidence } from "./apollo-pre-writer-target-conditions";
 import { evaluateCountryEvidence } from "./country-evidence-gate";
 import type { CountryEvidenceResult } from "./country-evidence-gate";
 import {
@@ -1442,6 +1447,34 @@ export async function writeProspectingCandidates(
     samples: [] as CompanyOwnershipSample[],
   };
 
+  /**
+   * 🔴 AGENT1-STRUCTURAL-OWNERSHIP-TRANSPORT-X6.10-B — la evidencia estructural,
+   * CONTADA, no aplicada.
+   *
+   * `would_recover_count` es la cifra que decide si la mitad B de X6.10 merece
+   * la pena: cuántas candidatas que este writer bloquea por ownership llevaban
+   * un `all_domains` capaz de acreditarlas. Hoy vale para MEDIR y para nada más
+   * — ninguna candidata cambia de desenlace por este bloque.
+   */
+  const structuralOwnershipObservability = {
+    evaluated_count: 0,
+    confirmed_count: 0,
+    rejected_count: 0,
+    insufficient_evidence_count: 0,
+    linkedin_supports_count: 0,
+    aliases_present_count: 0,
+    /** Bloqueadas por el gate textual que la capa estructural SÍ acreditaba. */
+    would_recover_count: 0,
+    samples: [] as Array<{
+      name: string;
+      domain: string | null;
+      outcome: string;
+      deciding_source: string | null;
+      linkedin_corroboration: string;
+      ownership_confidence: string;
+    }>,
+  };
+
   // Recall recovery gate tracking (v1.10)
   type RecallRecoverySample = { name: string; inferred_name: string; url: string | null };
   const recallRecoveryGate = {
@@ -1784,6 +1817,47 @@ export async function writeProspectingCandidates(
       candidate.website ?? null,
       effectiveDomain,
     );
+
+    // 🔴 X6.10-B — evidencia estructural, con el MISMO nombre de evaluación y el
+    // MISMO dominio efectivo que acaba de recibir el gate, y construida por el
+    // helper COMPARTIDO con el pre-writer. Una segunda derivación local de esos
+    // dos valores es exactamente cómo las dos capas se separaron antes de CUT-1.
+    //
+    // No decide nada: se cuenta y se muestrea. `would_recover_count` es la cifra
+    // que la mitad B de X6.10 necesitará para justificarse.
+    const structuralOwnership = evaluateStructuralDomainOwnership(
+      buildApolloStructuralOwnershipEvidence(candidate, nameForOwnership, effectiveDomain),
+    );
+    structuralOwnershipObservability.evaluated_count++;
+    if (structuralOwnership.outcome === 'confirmed') {
+      structuralOwnershipObservability.confirmed_count++;
+    } else if (structuralOwnership.outcome === 'rejected') {
+      structuralOwnershipObservability.rejected_count++;
+    } else {
+      structuralOwnershipObservability.insufficient_evidence_count++;
+    }
+    if (structuralOwnership.linkedInCorroboration === 'supports') {
+      structuralOwnershipObservability.linkedin_supports_count++;
+    }
+    if (structuralOwnership.evaluatedSources.includes('provider_domain_alias_set')) {
+      structuralOwnershipObservability.aliases_present_count++;
+    }
+    if (
+      structuralOwnership.outcome === 'confirmed' &&
+      isBlockedByCompanyOwnership(companyOwnershipResult)
+    ) {
+      structuralOwnershipObservability.would_recover_count++;
+    }
+    if (structuralOwnershipObservability.samples.length < 10) {
+      structuralOwnershipObservability.samples.push({
+        name: nameForOwnership,
+        domain: effectiveDomain,
+        outcome: structuralOwnership.outcome,
+        deciding_source: structuralOwnership.decidingSource,
+        linkedin_corroboration: structuralOwnership.linkedInCorroboration,
+        ownership_confidence: companyOwnershipResult.confidence,
+      });
+    }
 
     // Build identity resolution metadata when domain inference was applied
     const identityResolutionForEntry: IdentityResolutionMeta | null =
@@ -4069,6 +4143,17 @@ export async function writeProspectingCandidates(
       blocked_count: companyOwnershipGateData.blockedCount,
       low_confidence_count: companyOwnershipGateData.lowConfidenceCount,
       samples: companyOwnershipGateData.samples.slice(0, 5),
+      /**
+       * 🔴 X6.10-B — la evidencia estructural de esta corrida, OBSERVADA.
+       *
+       * Vive dentro del bloque del gate y no a su lado porque describe a las
+       * mismas candidatas; y no toca ninguno de los contadores de arriba, que
+       * siguen significando exactamente lo mismo que antes de este corte.
+       */
+      structural_ownership: {
+        ...structuralOwnershipObservability,
+        samples: structuralOwnershipObservability.samples.slice(0, 5),
+      },
       /** Bloqueadas por el gate final del orquestador. `null` ⇒ no declarado. */
       pre_writer_blocked_count: preWriterOwnershipSummary
         ? preWriterOwnershipSummary.blocked_count

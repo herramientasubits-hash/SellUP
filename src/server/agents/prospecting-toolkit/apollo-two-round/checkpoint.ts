@@ -169,6 +169,21 @@ export type ApolloTwoRoundCandidateEvidenceSnapshot = {
    * —el que el lector habría devuelto—, y el segundo pierde su valor original.
    */
   website: string | null;
+  /**
+   * 🔴 AGENT1-STRUCTURAL-OWNERSHIP-TRANSPORT-X6.10-B — los alias de dominio que
+   * Apollo declara para esta organización.
+   *
+   * Sin él, la lección de X6.1 se repetiría exacta: el runner reconstruye el
+   * resultado desde este snapshot TAMBIÉN en la primera pasada, así que un
+   * campo que no esté en la lista blanca llega al constructor como ausente y el
+   * candidato queda con `providerDomainAliases: []`. La evidencia existiría en
+   * la respuesta del proveedor y no existiría en el candidato — dos
+   * representaciones de la misma empresa divergiendo en un solo campo.
+   *
+   * Opcional a propósito: los checkpoints escritos antes de este cambio no la
+   * traen, y leerlos debe seguir funcionando.
+   */
+  domain_aliases?: string[];
   linkedin_url: string | null;
   industry: string | null;
   industries: string[];
@@ -219,6 +234,31 @@ function truncateStringArray(value: unknown): string[] {
     .slice(0, MAX_ARRAY_ELEMENTS);
 }
 
+/**
+ * X6.10-B — alias de dominio, acotados por NÚMERO y por LONGITUD.
+ *
+ * El tope de elementos es más bajo que `MAX_ARRAY_ELEMENTS` porque la capa que
+ * los consume no acepta conjuntos mayores: transportar lo que nadie puede usar
+ * sólo engorda el documento. El techo por elemento es el de DNS (63 caracteres
+ * por etiqueta), no el genérico de etiqueta: un "dominio" más largo que eso no
+ * es un dominio.
+ */
+const MAX_DOMAIN_ALIAS_ELEMENTS = 8;
+const MAX_DOMAIN_ALIAS_CHARS = 63;
+
+function truncateDomainAliases(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string') continue;
+    const trimmed = entry.trim().toLowerCase().slice(0, MAX_DOMAIN_ALIAS_CHARS);
+    if (trimmed === '' || out.includes(trimmed)) continue;
+    out.push(trimmed);
+    if (out.length === MAX_DOMAIN_ALIAS_ELEMENTS) break;
+  }
+  return out;
+}
+
 function readNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
@@ -256,6 +296,10 @@ export function toCandidateEvidenceSnapshot(
     // segunda semántica esperando divergir. El campo del perfil se llama
     // `website_url`, y se lee por su nombre.
     website: truncateText(meta['website']) ?? truncateText(profile['website_url']),
+    // X6.10-B — acotado por `truncateDomainAliases`: como mucho
+    // `MAX_TRANSPORTED_DOMAIN_ALIASES` etiquetas de dominio, que es también el
+    // techo por encima del cual la capa estructural deja de usarlas.
+    domain_aliases: truncateDomainAliases(profile['all_domains']),
     linkedin_url: truncateText(pick('linkedin_url')),
     industry: truncateLabel(pick('industry')),
     industries: truncateStringArray(pick('industries')),
@@ -350,6 +394,9 @@ export function fromCandidateEvidenceSnapshot(
         seo_description: snapshot.seo_description,
         description: snapshot.description,
         primary_domain: snapshot.domain,
+        // 🔴 X6.10-B — `readApolloCandidateDomainAliases` lee EXACTAMENTE aquí.
+        // `?? []` por los checkpoints LEGACY, igual que `enrichment_fields_added`.
+        all_domains: snapshot.domain_aliases ?? [],
         // 🔴 X6.1 — el respaldo que `readApolloCandidateWebsite` consulta cuando
         // `metadata.website` falta. Mismo valor que arriba: el contrato es el que
         // el lector observa, no en cuál de los dos sitios estaba.

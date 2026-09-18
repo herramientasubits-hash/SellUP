@@ -32,6 +32,7 @@ import {
   buildApolloProviderIdentityKey,
   isApolloOrganizationsResult,
   readApolloCandidateDomain,
+  readApolloCandidateDomainAliases,
   readApolloCandidateWebsite,
   readApolloProviderOrganizationId,
 } from './apollo-candidate-identity-readers';
@@ -919,6 +920,9 @@ export async function buildProspectingPipelineCandidate(
       searchTrace,
       providerCompanyFields,
       companyLinkedInUrl: providerCompanyFields.linkedin.companyLinkedInUrl,
+      // X6.10-B — los alias que el proveedor declaró, tal cual, sin completar ni
+      // recortar: el tope ya lo aplicó el provider al estamparlos.
+      providerDomainAliases: readApolloCandidateDomainAliases(result),
       // El resolver del ICP size gate ya leía `employeeCount`; lo que faltaba era
       // que alguien lo poblara. Sólo se expone un valor confirmado: un `invalid`
       // o un `not_returned` no puede convertirse en dato de tamaño.

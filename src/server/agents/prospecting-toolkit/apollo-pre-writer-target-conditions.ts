@@ -40,6 +40,11 @@ import {
   isBlockedByBusinessFit,
 } from './business-fit-gate';
 import { evaluateCountryEvidence } from './country-evidence-gate';
+import {
+  evaluateStructuralDomainOwnership,
+  type StructuralOwnershipEvidence,
+  type StructuralOwnershipResult,
+} from './structural-domain-ownership';
 import { computeEvidencePersistencePolicy } from './evidence-persistence-policy';
 import { evaluateIcpSizeGate, resolveIcpSizeGateWriterAction } from './icp-size-gate';
 import {
@@ -518,6 +523,18 @@ export type ApolloPreWriterOwnershipEvaluation = {
   readonly recoveredFromDomain: boolean;
   /** El dominio que el gate comparó, resuelto como lo resuelve el writer. */
   readonly effectiveDomain: string | null;
+  /**
+   * 🔴 AGENT1-STRUCTURAL-OWNERSHIP-TRANSPORT-X6.10-B — la evidencia ESTRUCTURAL
+   * de la misma candidata, calculada y observable.
+   *
+   * NO participa en `verdict` ni en ninguna decisión. Es exactamente la mitad A
+   * de X6.10 —transportar y observar— y la mitad B —darle poder para recuperar
+   * candidatas— es otro corte con su propia autorización. Que viaje aquí, en el
+   * MISMO objeto que el veredicto, es lo que permite que el día que se cablee no
+   * haya que volver a resolver el nombre ni el dominio por segunda vez, que es
+   * cómo el pre-writer y el writer se separaron la última vez.
+   */
+  readonly structural: StructuralOwnershipResult;
 };
 
 /**
@@ -560,6 +577,41 @@ export type ApolloOwnershipGateVerdictSnapshot = {
   effectiveDomain: string | null;
 };
 
+/**
+ * X6.10-B — la evidencia estructural, proyectada para `prospect-discards`.
+ *
+ * Copia, igual que `toOwnershipGateVerdictLike`: seis campos, uno a uno, sin
+ * derivar ninguno de otro. En particular `outcome` NO se deduce de
+ * `decidingSource` aunque hoy sean coherentes — deducirlo convertiría una copia
+ * en una regla, y las reglas viven en el contrato, no aquí.
+ *
+ * Tipo ESTRUCTURAL a propósito, por la misma razón que el de arriba:
+ * `prospect-discards` no debe depender del pipeline de Apollo.
+ */
+export type ApolloStructuralOwnershipSnapshot = {
+  outcome: StructuralOwnershipResult['outcome'];
+  decidingSource: StructuralOwnershipResult['decidingSource'];
+  signal: string | null;
+  detail: string;
+  linkedInCorroboration: StructuralOwnershipResult['linkedInCorroboration'];
+  evaluatedSources: readonly string[];
+  absentSources: readonly string[];
+};
+
+export function toStructuralOwnershipSnapshot(
+  evaluation: ApolloPreWriterOwnershipEvaluation,
+): ApolloStructuralOwnershipSnapshot {
+  return {
+    outcome: evaluation.structural.outcome,
+    decidingSource: evaluation.structural.decidingSource,
+    signal: evaluation.structural.signal,
+    detail: evaluation.structural.detail,
+    linkedInCorroboration: evaluation.structural.linkedInCorroboration,
+    evaluatedSources: evaluation.structural.evaluatedSources,
+    absentSources: evaluation.structural.absentSources,
+  };
+}
+
 export function toOwnershipGateVerdictLike(
   evaluation: ApolloPreWriterOwnershipEvaluation,
 ): ApolloOwnershipGateVerdictSnapshot {
@@ -572,6 +624,39 @@ export function toOwnershipGateVerdictLike(
     evaluationName: evaluation.evaluationName,
     recoveredFromDomain: evaluation.recoveredFromDomain,
     effectiveDomain: evaluation.effectiveDomain,
+  };
+}
+
+/**
+ * 🔴 X6.10-B — la evidencia estructural de UN candidato, en UN solo sitio.
+ *
+ * El pre-writer y el writer la construyen llamando aquí, nunca cada uno por su
+ * cuenta: el nombre de evaluación y el dominio efectivo son los MISMOS que
+ * recibe `evaluateCompanyOwnership`, y dos derivaciones paralelas de esos dos
+ * valores es exactamente cómo las dos capas divergieron antes de CUT-1.
+ *
+ * Puro: sin proveedor, sin créditos, sin base, sin reloj.
+ */
+export function buildApolloStructuralOwnershipEvidence(
+  candidate: ProspectingPipelineCandidate,
+  evaluationName: string,
+  effectiveDomain: string | null,
+): StructuralOwnershipEvidence {
+  return {
+    companyName: evaluationName,
+    domain: effectiveDomain,
+    providerDomainAliases: candidate.providerDomainAliases ?? [],
+    // 🔴 Una sola fuente. Tuvo un respaldo a
+    // `providerCompanyFields.linkedin.companyLinkedInUrl` y el mutation testing
+    // lo mató: `buildProspectingPipelineCandidate` asigna `companyLinkedInUrl`
+    // EXACTAMENTE ese valor, así que el respaldo no podía dispararse nunca. Un
+    // camino que ninguna entrada recorre no protege nada; sólo hace creer que sí.
+    providerLinkedInCompanyUrl: candidate.companyLinkedInUrl ?? null,
+    provenance: {
+      provider: candidate.providerCompanyFields?.linkedin.sourceProvider ?? null,
+      operation: candidate.providerCompanyFields?.linkedin.sourceOperation ?? null,
+      observedAt: candidate.providerCompanyFields?.linkedin.observedAt ?? null,
+    },
   };
 }
 
@@ -588,6 +673,12 @@ export function evaluateApolloPreWriterCompanyOwnershipWithInputs(
     originalName: evaluationName.originalName,
     recoveredFromDomain: evaluationName.recoveredFromDomain,
     effectiveDomain,
+    // 🔴 Calculada SIEMPRE y consultada por NADIE que decida. El veredicto de
+    // arriba es literalmente la misma llamada de antes, con los mismos dos
+    // argumentos, y no se toca ni un bit.
+    structural: evaluateStructuralDomainOwnership(
+      buildApolloStructuralOwnershipEvidence(candidate, evaluationName.name, effectiveDomain),
+    ),
   };
 }
 

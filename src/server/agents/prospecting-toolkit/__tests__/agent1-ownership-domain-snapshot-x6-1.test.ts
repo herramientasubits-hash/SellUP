@@ -78,6 +78,7 @@ import { mapApolloOrganizationToSearchResult } from '../web-search-providers/apo
 import {
   isApolloOrganizationsResult,
   readApolloCandidateDomain,
+  readApolloCandidateDomainAliases,
   readApolloCandidateWebsite,
   readApolloProviderOrganizationId,
 } from '../apollo-candidate-identity-readers';
@@ -181,6 +182,9 @@ function readersOf(result: WebSearchResult) {
     domain: readApolloCandidateDomain(result),
     organizationId: readApolloProviderOrganizationId(result),
     isApollo: isApolloOrganizationsResult(result),
+    // X6.10-B — el lector nuevo entra en el contrato de ida y vuelta: si el
+    // snapshot dejara de conservar los alias, el sentinel lo delataría aquí.
+    domainAliases: readApolloCandidateDomainAliases(result),
   };
 }
 
@@ -495,7 +499,16 @@ const READER_METADATA_FIELDS = [
   'source_provider',
 ] as const;
 
-const READER_PROFILE_FIELDS = ['primary_domain', 'website_url', 'organization_id'] as const;
+// X6.10-B añade `all_domains`: un lector canónico nuevo (`readApolloCandidate-
+// DomainAliases`) y, por tanto, un campo que el contrato del snapshot tiene que
+// declarar y su lista blanca conservar. El trinquete de COMPLETITUD lo exigió en
+// el primer intento, que es exactamente para lo que existe.
+const READER_PROFILE_FIELDS = [
+  'primary_domain',
+  'website_url',
+  'organization_id',
+  'all_domains',
+] as const;
 
 /**
  * Lecturas declaradas que el snapshot NO cubre, con su razón.

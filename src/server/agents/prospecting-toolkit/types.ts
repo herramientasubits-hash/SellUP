@@ -550,6 +550,19 @@ export type ProspectingPipelineCandidate = {
   /** LinkedIn empresarial canónico, plano, para los consumidores que sólo leen la URL. */
   companyLinkedInUrl?: string | null;
   /**
+   * AGENT1-STRUCTURAL-OWNERSHIP-TRANSPORT-X6.10-B — alias de dominio que el
+   * PROVEEDOR declara para esta organización (`all_domains` de Apollo).
+   *
+   * Es la evidencia que consume `evaluateStructuralDomainOwnership`, y viaja con
+   * el candidato porque el gate de ownership corre sobre el CANDIDATO, no sobre
+   * el resultado de búsqueda. Antes moría en `normalizeApolloOrg`.
+   *
+   * `undefined` cuando la modalidad no lo produce; `[]` cuando el proveedor no
+   * lo aportó. Ninguno de los dos se rellena con suposiciones, y ninguno de los
+   * dos cambia hoy el desenlace de una candidata: X6.10-B transporta y observa.
+   */
+  providerDomainAliases?: readonly string[] | null;
+  /**
    * AGENT1-APOLLO-NULL-DOMAIN-IDENTITY-1 § 7 — id de organización que Apollo
    * emitió para este candidato.
    *

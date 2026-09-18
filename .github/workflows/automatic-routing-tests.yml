@@ -5692,3 +5692,17 @@ jobs:
       # 0 escrituras en Produccion · 0 migraciones · 0 cambios de bandera.
       - name: Run Agent 1 X6.10-A structural domain ownership contract tests
         run: npm run test:a1-structural-domain-ownership-x6-10
+
+      # ── AGENT1-STRUCTURAL-OWNERSHIP-TRANSPORT-X6.10-B ─────────────────────
+      #
+      # El transporte de `all_domains` desde la respuesta de Apollo hasta el
+      # punto donde la capa estructural puede evaluarlo. Su asercion central no
+      # es que el dato llegue, sino que su llegada NO cambia el veredicto del
+      # gate para ninguna candidata: la mitad que da poder a la evidencia es un
+      # corte aparte. Incluye la medicion del checkpoint de X6.7 a 98, 100, 150
+      # y 1000 organizaciones.
+      #
+      # 0 llamadas a Apollo · 0 a Lusha · 0 creditos · 0 Supabase real ·
+      # 0 escrituras en Produccion · 0 migraciones · 0 cambios de bandera.
+      - name: Run Agent 1 X6.10-B structural ownership transport tests
+        run: npm run test:a1-structural-ownership-transport-x6-10b

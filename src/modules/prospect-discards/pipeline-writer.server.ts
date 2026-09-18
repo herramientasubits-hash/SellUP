@@ -17,7 +17,10 @@
 // ran — so it cannot affect candidate creation, budget, or existing counts.
 
 import { createClient as createAdminClient } from "@supabase/supabase-js";
-import type { OwnershipGateVerdictLike } from "./mapping";
+import type {
+  OwnershipGateVerdictLike,
+  StructuralOwnershipVerdictLike,
+} from "./mapping";
 import type { PreWriterCandidateLike, WriterOutcomeLike } from "./writer-gap";
 import { buildDiscardedDispositionRows } from "./dispositions-row-builder";
 import type { CreateDiscardedDispositionInput } from "./types";
@@ -89,6 +92,12 @@ export interface EvaluatedCandidateIdentityLike {
    * `ownership_gate_source: 'not_evaluated'`. Aquí no se evalúa ownership.
    */
   ownership?: OwnershipGateVerdictLike | null;
+  /**
+   * 🔴 X6.10-B — la evidencia ESTRUCTURAL, propagada tal cual desde donde se
+   * produjo. Ausente o `null` ⇒ la capa no corrió sobre esta empresa, y así se
+   * persiste. Aquí no se evalúa nada, igual que con `ownership`.
+   */
+  structuralOwnership?: StructuralOwnershipVerdictLike | null;
   /**
    * Ausente ⇒ «nadie informó», que se persiste como `null`. NUNCA se sustituye
    * por `false`: afirmar "no se intentó" sin saberlo es exactamente el dato
