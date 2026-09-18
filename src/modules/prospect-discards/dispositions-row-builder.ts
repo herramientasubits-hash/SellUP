@@ -16,6 +16,7 @@ import {
   resolveOwnershipGateEvidenceSource,
   toOwnershipGateEvidence,
   toStructuralOwnershipEvidence,
+  toOwnershipAdmissionEvidence,
 } from "./mapping";
 import {
   classifyPreWriterCandidatesAgainstWriter,
@@ -77,6 +78,10 @@ export function buildDiscardedDispositionRows(
   );
   // 🔴 X6.10-B — la evidencia estructural, indexada igual que el veredicto del
   // gate. Se persiste y no decide: quien admite o rechaza sigue siendo el gate.
+  // 🔴 X6.10-C — quién admitió, indexado igual que los otros dos veredictos.
+  const admissionByKey = new Map(
+    input.evaluatedCandidates.map((c) => [c.candidateKey, c.ownershipAdmission ?? null]),
+  );
   const structuralByKey = new Map(
     input.evaluatedCandidates.map((c) => [c.candidateKey, c.structuralOwnership ?? null]),
   );
@@ -208,6 +213,10 @@ export function buildDiscardedDispositionRows(
         // 🔴 X6.10-B — observable, no decisoria. `null` ⇒ la capa no corrió.
         structural_ownership: toStructuralOwnershipEvidence(
           structuralByKey.get(entry.candidateKey) ?? null,
+        ),
+        // 🔴 X6.10-C — `null` ⇒ la decisión no corrió sobre esta empresa.
+        ownership_admission: toOwnershipAdmissionEvidence(
+          admissionByKey.get(entry.candidateKey) ?? null,
         ),
       },
     });

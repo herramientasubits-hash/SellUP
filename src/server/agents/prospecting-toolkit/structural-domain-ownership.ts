@@ -173,6 +173,17 @@ export type StructuralOwnershipResult = {
 const MIN_ANCHOR_TOKEN_LENGTH = 4;
 
 /**
+ * 🔴 X6.10-C — longitud mínima de un token para que el NOMBRE identifique a
+ * alguien, que es un umbral distinto del ancla del slug y por eso tiene su
+ * propia constante.
+ *
+ * Tres, no cuatro: una razón social puede ser una sigla corta y legítima, y
+ * subirlo a cuatro excluiría a empresas reales sin ganar nada. Lo que este
+ * umbral filtra no es la brevedad sino el VOCABULARIO, abajo.
+ */
+const MIN_IDENTIFYING_TOKEN_LENGTH = 3;
+
+/**
  * Tope de cardinalidad del conjunto de alias.
  *
  * Un registro con decenas de dominios no está describiendo una organización:
@@ -234,6 +245,35 @@ function distinctiveNameTokens(companyName: string): string[] {
     );
 }
 
+/**
+ * 🔴 X6.10-C — ¿este nombre identifica a ALGUIEN?
+ *
+ * ── El hueco que cierra ──────────────────────────────────────────────────────
+ *
+ * E1 exige que OTRO alias del conjunto lo acredite el gate. Pero las reglas 1-4
+ * del gate son de subcadena y NO tienen la guarda de contenido distintivo que
+ * X6.9 sí puso en su regla 6: «Alcaldía» contra `alcaldia.gov.co` es
+ * coincidencia EXACTA, `confidence: high`.
+ *
+ * El efecto era que un nombre genérico se acreditaba a sí mismo con su dominio
+ * homónimo y, por E1, arrastraba a CUALQUIER otro dominio que el proveedor
+ * agrupara con él: «Alcaldía» + `[gachancipa-cundinamarca.gov.co,
+ * alcaldia.gov.co]` quedaba admitida sin que nadie supiera de qué alcaldía se
+ * hablaba. Es exactamente lo que X6.9 § 3b rechaza, entrando por otra puerta.
+ *
+ * No es una heurística nueva de nombre↔dominio: no mira el dominio. Comprueba
+ * una propiedad del NOMBRE con el léxico compartido que ya existía.
+ */
+function nameIdentifiesSomeone(companyName: string): boolean {
+  return stripDiacritics(companyName.toLowerCase())
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .some(
+      (token) => token.length >= MIN_IDENTIFYING_TOKEN_LENGTH && !isVocabularyToken(token),
+    );
+}
+
 // ─── La autoridad textual, invocada — nunca reimplementada ────────────────────
 
 /**
@@ -291,6 +331,11 @@ function evaluateDomainAliasSet(
   domain: string,
   aliases: readonly string[],
 ): AliasVerdict {
+  // 🔴 X6.10-C — puerta de entrada: un nombre que no identifica a nadie no puede
+  // acreditar nada, por muchos alias que el proveedor agrupe. Va ANTES que todo
+  // lo demás porque ninguna de las condiciones siguientes puede compensarlo.
+  if (!nameIdentifiesSomeone(companyName)) return ALIAS_NO_EVIDENCE;
+
   const normalizedAliases: string[] = [];
   for (const alias of aliases) {
     const hostname = normalizeHostname(alias);

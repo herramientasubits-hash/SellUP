@@ -525,15 +525,31 @@ describe('X6.10-B § 5 — la mitad A: observar, no decidir', () => {
     assert.equal(without.verdict.allowed, false);
   });
 
-  it('5.3 · el writer cuenta la evidencia, no la aplica', () => {
+  it('5.3 · el writer sigue CONTANDO la evidencia — y desde X6.10-C también la aplica', () => {
+    // 🔴 DEROGADO EN PARTE POR X6.10-C, a propósito y a la vista.
+    //
+    // Este test afirmaba que el writer contaba la evidencia y NO la aplicaba,
+    // que era la invariante de X6.10-B. X6.10-C es el corte que le da poder, y
+    // mantener la aserción original habría obligado a elegir entre romperla en
+    // silencio o no activar nada. Lo que se conserva es lo que sigue siendo
+    // cierto: el writer sigue midiendo, y sigue sin inventarse reglas propias.
+    //
+    // Lo que X6.10-C añade —que la decisión salga de la costura COMPARTIDA y de
+    // ninguna otra parte— lo prueban sus § 7.1 y § 7.2.
     const writer = readSource(
       'src/server/agents/prospecting-toolkit/candidate-writer.ts',
     )
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/^\s*\/\/.*$/gm, '');
-    // El único uso del veredicto estructural en el writer es contar y muestrear.
-    assert.match(writer, /structuralOwnershipObservability\.would_recover_count\+\+/);
-    // 🔴 Y en ninguna parte decide una continuación o una persistencia.
+    // El contador dejó de proyectar («would_») y pasó a contar hechos.
+    assert.match(writer, /structuralOwnershipObservability\.recovered_count\+\+/);
+    assert.equal(
+      /would_recover_count/.test(writer),
+      false,
+      'un contador que ya no proyecta no puede seguir llamándose `would_`',
+    );
+    // 🔴 Y el writer sigue sin reinterpretar el veredicto estructural por su
+    // cuenta: lo único que consulta para decidir es la admisión compartida.
     for (const forbidden of [
       'structuralOwnership.outcome === \'confirmed\' && !isBlocked',
       'if (structuralOwnership.outcome === \'confirmed\') continue',
@@ -541,6 +557,7 @@ describe('X6.10-B § 5 — la mitad A: observar, no decidir', () => {
     ]) {
       assert.equal(writer.includes(forbidden), false, `el writer no puede hacer "${forbidden}"`);
     }
+    assert.match(writer, /resolveCompanyOwnershipAdmission\(/);
   });
 
   it('5.4 · la proyección a `prospect-discards` es una COPIA, no una regla', () => {

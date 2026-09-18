@@ -182,6 +182,55 @@ export function toStructuralOwnershipEvidence(
 }
 
 /**
+ * 🔴 AGENT1-STRUCTURAL-OWNERSHIP-ACTIVATION-X6.10-C — QUIÉN admitió la fila.
+ *
+ * Estructural a propósito, como sus dos hermanas: este módulo sigue sin
+ * depender del pipeline de Apollo.
+ */
+export interface OwnershipAdmissionVerdictLike {
+  blocked: boolean;
+  admittedBy: 'textual_gate' | 'structural_alias_evidence' | null;
+  recoveredByStructuralEvidence: boolean;
+  textualConfidence: string;
+  structuralOutcome: string;
+  reason: string;
+}
+
+export interface OwnershipAdmissionEvidenceRow {
+  blocked: boolean;
+  admitted_by: string | null;
+  recovered_by_structural_evidence: boolean;
+  textual_confidence: string;
+  structural_outcome: string;
+  reason: string;
+}
+
+/**
+ * Proyecta la decisión de admisión a `evidence.ownership_admission`.
+ *
+ * Copia, nunca recalcula — el mismo contrato que `toOwnershipGateEvidence`.
+ * `null` ⇒ la decisión no se produjo sobre esta fila.
+ *
+ * 🔴 Por qué importa que exista: desde X6.10-C una fila puede llevar
+ * `ownership_gate.allowed: false` y haber sobrevivido igualmente, porque la
+ * evidencia estructural la recuperó. Sin declarar quién la admitió, esa
+ * combinación parece una incoherencia del writer en vez de lo que es.
+ */
+export function toOwnershipAdmissionEvidence(
+  decision: OwnershipAdmissionVerdictLike | null | undefined,
+): OwnershipAdmissionEvidenceRow | null {
+  if (!decision) return null;
+  return {
+    blocked: decision.blocked,
+    admitted_by: decision.admittedBy,
+    recovered_by_structural_evidence: decision.recoveredByStructuralEvidence,
+    textual_confidence: decision.textualConfidence,
+    structural_outcome: decision.structuralOutcome,
+    reason: decision.reason,
+  };
+}
+
+/**
  * Cómo se obtuvo —o por qué no existe— el veredicto de ownership de una fila.
  *
  * `not_evaluated` NO es un rechazo implícito ni un pase: es el hecho de que el

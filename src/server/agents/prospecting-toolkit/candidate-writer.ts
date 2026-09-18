@@ -41,13 +41,13 @@ import { evaluateExternalPlatformGate } from "./external-platform-blocklist";
 import { evaluateContentIntermediaryGate } from "./content-intermediary-gate";
 import {
   evaluateCompanyOwnership,
-  isBlockedByCompanyOwnership,
   resolveOwnershipEvaluationName,
 } from "./company-ownership-gate";
 // X6.10-B — la capa estructural y el helper COMPARTIDO que construye su
 // evidencia. El writer no deriva nada por su cuenta: llama al mismo cuerpo que
 // el orquestador, igual que ya hace con `resolveOwnershipEvaluationName`.
 import { evaluateStructuralDomainOwnership } from "./structural-domain-ownership";
+import { resolveCompanyOwnershipAdmission } from "./company-ownership-admission";
 import { buildApolloStructuralOwnershipEvidence } from "./apollo-pre-writer-target-conditions";
 import { evaluateCountryEvidence } from "./country-evidence-gate";
 import type { CountryEvidenceResult } from "./country-evidence-gate";
@@ -1463,8 +1463,12 @@ export async function writeProspectingCandidates(
     insufficient_evidence_count: 0,
     linkedin_supports_count: 0,
     aliases_present_count: 0,
-    /** Bloqueadas por el gate textual que la capa estructural SÍ acreditaba. */
-    would_recover_count: 0,
+    /**
+     * 🔴 X6.10-C — candidatas que el gate TEXTUAL rechazaba y que la evidencia
+     * estructural RECUPERÓ de verdad. En X6.10-B era `would_recover_count`, una
+     * proyección sin efecto; ahora cuenta admisiones reales.
+     */
+    recovered_count: 0,
     samples: [] as Array<{
       name: string;
       domain: string | null;
@@ -1472,6 +1476,8 @@ export async function writeProspectingCandidates(
       deciding_source: string | null;
       linkedin_corroboration: string;
       ownership_confidence: string;
+      admitted_by: string | null;
+      recovered: boolean;
     }>,
   };
 
@@ -1828,6 +1834,13 @@ export async function writeProspectingCandidates(
     const structuralOwnership = evaluateStructuralDomainOwnership(
       buildApolloStructuralOwnershipEvidence(candidate, nameForOwnership, effectiveDomain),
     );
+    // 🔴 X6.10-C — LA decisión de admisión, por la costura COMPARTIDA. El
+    // writer no vuelve a preguntar `isBlockedByCompanyOwnership` por su cuenta:
+    // eso reintroduciría la tercera semántica que este corte elimina.
+    const ownershipAdmission = resolveCompanyOwnershipAdmission(
+      companyOwnershipResult,
+      structuralOwnership,
+    );
     structuralOwnershipObservability.evaluated_count++;
     if (structuralOwnership.outcome === 'confirmed') {
       structuralOwnershipObservability.confirmed_count++;
@@ -1842,11 +1855,11 @@ export async function writeProspectingCandidates(
     if (structuralOwnership.evaluatedSources.includes('provider_domain_alias_set')) {
       structuralOwnershipObservability.aliases_present_count++;
     }
-    if (
-      structuralOwnership.outcome === 'confirmed' &&
-      isBlockedByCompanyOwnership(companyOwnershipResult)
-    ) {
-      structuralOwnershipObservability.would_recover_count++;
+    // 🔴 X6.10-C — deja de ser una proyección («cuántas SE recuperarían») y pasa
+    // a ser un hecho («cuántas se recuperaron»). El nombre cambia con ella: un
+    // contador que ya no proyecta y sigue llamándose `would_` miente.
+    if (ownershipAdmission.recoveredByStructuralEvidence) {
+      structuralOwnershipObservability.recovered_count++;
     }
     if (structuralOwnershipObservability.samples.length < 10) {
       structuralOwnershipObservability.samples.push({
@@ -1856,12 +1869,14 @@ export async function writeProspectingCandidates(
         deciding_source: structuralOwnership.decidingSource,
         linkedin_corroboration: structuralOwnership.linkedInCorroboration,
         ownership_confidence: companyOwnershipResult.confidence,
+        admitted_by: ownershipAdmission.admittedBy,
+        recovered: ownershipAdmission.recoveredByStructuralEvidence,
       });
     }
 
     // Build identity resolution metadata when domain inference was applied
     const identityResolutionForEntry: IdentityResolutionMeta | null =
-      domainInferredForOwnership && !isBlockedByCompanyOwnership(companyOwnershipResult)
+      domainInferredForOwnership && !ownershipAdmission.blocked
         ? {
             original_detected_name: nameNormResult.originalName,
             inferred_company_name: nameNormResult.name,
@@ -1873,7 +1888,7 @@ export async function writeProspectingCandidates(
           }
         : null;
 
-    if (domainInferredForOwnership && !isBlockedByCompanyOwnership(companyOwnershipResult)) {
+    if (domainInferredForOwnership && !ownershipAdmission.blocked) {
       recallRecoveryGate.domain_inferred_identity_count++;
       recallRecoveryGate.ownership_recovered_count++;
       if (recallRecoveryGate.samples.length < 10) {
@@ -1885,7 +1900,10 @@ export async function writeProspectingCandidates(
       }
     }
 
-    if (isBlockedByCompanyOwnership(companyOwnershipResult)) {
+    // 🔴 X6.10-C — el descarte por ownership consulta la ADMISIÓN, no el
+    // veredicto textual. Una candidata acreditada por el conjunto de alias del
+    // proveedor ya no muere aquí.
+    if (ownershipAdmission.blocked) {
       const owReason = `company_ownership:${companyOwnershipResult.confidence}`;
       skipped.push({
         name: candidate.name,
