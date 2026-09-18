@@ -5679,3 +5679,16 @@ jobs:
       # 0 escrituras en Producción · 0 migraciones · 0 cambios de bandera.
       - name: Run Agent 1 X6.9 ownership domain-to-name tests
         run: npm run test:a1-ownership-domain-to-name-x6-9
+
+      # ── AGENT1-STRUCTURAL-DOMAIN-OWNERSHIP-X6.10-A ────────────────────────
+      #
+      # El CONTRATO de evidencia estructural (alias de dominio del proveedor y
+      # slug de LinkedIn). Todavía SIN cablear: ningun llamador de produccion lo
+      # invoca. El step existe desde el primer dia porque la invariante central
+      # —LinkedIn no puede confirmar por si solo— sólo vale si se comprueba en
+      # cada PR, no cuando se cablee.
+      #
+      # 0 llamadas a Apollo · 0 a Lusha · 0 creditos · 0 Supabase real ·
+      # 0 escrituras en Produccion · 0 migraciones · 0 cambios de bandera.
+      - name: Run Agent 1 X6.10-A structural domain ownership contract tests
+        run: npm run test:a1-structural-domain-ownership-x6-10
