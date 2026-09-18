@@ -5720,3 +5720,20 @@ jobs:
       # 0 escrituras en Produccion - 0 migraciones - 0 cambios de bandera.
       - name: Run Agent 1 X6.10-C structural ownership activation tests
         run: npm run test:a1-structural-ownership-activation-x6-10c
+
+      # -- AGENT1-APOLLO-STRUCTURED-NAME-X6.11-B -----------------------------
+      #
+      # El nombre que Apollo manda es una fila de base de datos, no un titulo de
+      # pagina web. Aplicarle las heuristicas de titulo lo truncaba por
+      # separadores («rtvc - senalcolombia» -> «rtvc») o lo sustituia por un
+      # nombre derivado del DOMINIO («BoP Consultoria» -> «Cardonaprada»), lo que
+      # ademas volvia circular al gate de ownership.
+      #
+      # El step arrastra la suite de X6.9 y el contrato de lectores de X6.1: si
+      # el arreglo moviera una regla de ownership o rompiera la procedencia del
+      # nombre en el checkpoint, el PR queda rojo aqui.
+      #
+      # 0 llamadas a Apollo - 0 a Lusha - 0 creditos - 0 Supabase real -
+      # 0 escrituras en Produccion - 0 migraciones - 0 cambios de bandera.
+      - name: Run Agent 1 X6.11-B Apollo structured name tests
+        run: npm run test:a1-apollo-structured-name-x6-11b
