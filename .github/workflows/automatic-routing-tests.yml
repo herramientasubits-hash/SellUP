@@ -5642,3 +5642,40 @@ jobs:
       # 0 escrituras en Producción · 0 migraciones · 0 cambios de bandera.
       - name: Run Agent 1 X6.7 Apollo checkpoint durability tests
         run: npm run test:a1-apollo-checkpoint-durability-x67
+
+      # AGENT1-OWNERSHIP-DOMAIN-TO-NAME-X6.9 — los trinquetes del gate corrigido
+      # dejan de estar fuera de CI.
+      #
+      # X6.9 se mergeó (#434) con su fichero de tests SIN cablear: ningún step lo
+      # ejecutaba. El workflow pasaba porque el COMPORTAMIENTO estaba cubierto de
+      # rebote por las suites vecinas —X5 survival, X1 reconciliation, X5.2 y el
+      # bootstrap purchase gate, todas actualizadas en aquel PR—, pero los
+      # trinquetes PROPIOS del corte no corrían en ningún sitio. Es el mismo
+      # patrón que ya dejó fuera a `test:a1-apollo-qa-control-surface`.
+      #
+      # Lo que la suite PROHÍBE, y que hasta ahora nadie vigilaba:
+      #   · que `invalid_domain` vuelva al cubo de ownership (el gate nunca corre
+      #     sobre una candidata sin dominio, así que no puede haberla rechazado);
+      #   · que la regla dominio→nombre acepte sin explicar el dominio ENTERO, o
+      #     permitiendo que el dominio reordene los tokens del nombre;
+      #   · que un dominio de puro vocabulario territorial acredite a alguien;
+      #   · que vuelva la variante «sigla + sufijo territorial», que igualaba 49
+      #     organizaciones distintas para un nombre genérico como «Secretaría de
+      #     Educación Departamental»;
+      #   · que se acepte cualquiera de los cinco falsos positivos de marca
+      #     comercial (EPM→une, RCN→canalrcn, Caracol→caracoltv, U. Nariño→udenar,
+      #     D1→tiendasd1) ni un nombre sin contenido distintivo («Alcaldía»);
+      #   · que `rtvc`→senalcolombia.tv deje de estar rechazado sin que sea una
+      #     decisión deliberada: su evidencia no es textual y queda para X6.10.
+      #
+      # Las once mutaciones del corte mueren contra este fichero.
+      #
+      # 🔴 El step corre SÓLO este fichero. El script agrupaba además cinco
+      # suites vecinas —cuatro ya tienen su propio step, y `external-platform-
+      # ownership-gate` no está cableada— y arrastrarlas aquí habría metido en el
+      # check obligatorio una suite que hoy nadie ejecuta. Eso es otro corte.
+      #
+      # 0 llamadas a Apollo · 0 a Lusha · 0 créditos · 0 Supabase real ·
+      # 0 escrituras en Producción · 0 migraciones · 0 cambios de bandera.
+      - name: Run Agent 1 X6.9 ownership domain-to-name tests
+        run: npm run test:a1-ownership-domain-to-name-x6-9
