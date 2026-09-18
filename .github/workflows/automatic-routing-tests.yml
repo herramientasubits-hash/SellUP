@@ -5706,3 +5706,17 @@ jobs:
       # 0 escrituras en Produccion · 0 migraciones · 0 cambios de bandera.
       - name: Run Agent 1 X6.10-B structural ownership transport tests
         run: npm run test:a1-structural-ownership-transport-x6-10b
+
+      # -- AGENT1-STRUCTURAL-OWNERSHIP-ACTIVATION-X6.10-C --------------------
+      #
+      # El corte que le DA PODER a la evidencia estructural: una candidata que el
+      # gate textual rechaza puede sobrevivir si el conjunto de alias del
+      # proveedor acredita su dominio. Es el unico cambio de comportamiento de la
+      # cadena X6.10, asi que su step arrastra tambien la suite de X6.9 y el
+      # trinquete de paridad de CUT-1: si la activacion moviera un veredicto
+      # textual o duplicara la costura, el PR queda rojo aqui.
+      #
+      # 0 llamadas a Apollo - 0 a Lusha - 0 creditos - 0 Supabase real -
+      # 0 escrituras en Produccion - 0 migraciones - 0 cambios de bandera.
+      - name: Run Agent 1 X6.10-C structural ownership activation tests
+        run: npm run test:a1-structural-ownership-activation-x6-10c

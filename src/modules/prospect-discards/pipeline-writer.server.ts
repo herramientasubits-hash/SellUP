@@ -19,6 +19,7 @@
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import type {
   OwnershipGateVerdictLike,
+  OwnershipAdmissionVerdictLike,
   StructuralOwnershipVerdictLike,
 } from "./mapping";
 import type { PreWriterCandidateLike, WriterOutcomeLike } from "./writer-gap";
@@ -98,6 +99,11 @@ export interface EvaluatedCandidateIdentityLike {
    * persiste. Aquí no se evalúa nada, igual que con `ownership`.
    */
   structuralOwnership?: StructuralOwnershipVerdictLike | null;
+  /**
+   * 🔴 X6.10-C — QUIÉN admitió (o por qué no). Propagado tal cual desde donde
+   * se produjo. Ausente o `null` ⇒ la decisión no corrió sobre esta empresa.
+   */
+  ownershipAdmission?: OwnershipAdmissionVerdictLike | null;
   /**
    * Ausente ⇒ «nadie informó», que se persiste como `null`. NUNCA se sustituye
    * por `false`: afirmar "no se intentó" sin saberlo es exactamente el dato

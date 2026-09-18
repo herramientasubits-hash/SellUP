@@ -277,7 +277,6 @@ import {
   toApolloSubindustryCatalogTermsMetadata,
   type ApolloSubindustryCatalogTermsResolution,
 } from '../apollo-subindustry-catalog-terms-resolution';
-import { isBlockedByCompanyOwnership } from '../company-ownership-gate';
 import { mapDuplicateStatus, fetchActiveCandidatesForGuard } from '../candidate-writer';
 import {
   buildNoveltyIndex,
@@ -303,6 +302,7 @@ import {
   evaluateApolloPreWriterCompanyOwnershipWithInputs,
   toOwnershipGateVerdictLike,
   toStructuralOwnershipSnapshot,
+  toOwnershipAdmissionSnapshot,
   type ApolloPreWriterOwnershipEvaluation,
   evaluateApolloPreWriterQualityGateForCandidate,
   evaluateCandidatePreWriterAdmission,
@@ -1358,7 +1358,12 @@ export async function runApolloTwoRoundWizardDiscovery(
     // 🔴 AGENT1-HARDENING-CUT-1 — el MISMO nombre que juzgará el writer. Con
     // `candidate.name` crudo, una razón social escondida tras un título SEO
     // fallaba aquí y la recuperación del writer no llegaba a ejecutarse nunca.
-    const ownership = evaluateApolloPreWriterCompanyOwnership(candidate);
+    // 🔴 X6.10-C — la MISMA entrada compartida de siempre, en su forma con
+    // entradas: lo que se lee ya no es el veredicto textual a secas sino la
+    // ADMISIÓN, que es lo que decidirá `applyFinalGates` y lo que decidirá el
+    // writer. Proyectar aquí una condición distinta de la que mata después es
+    // cómo la métrica de objetivo y la realidad se separan.
+    const ownership = evaluateApolloPreWriterCompanyOwnershipWithInputs(candidate);
     const quality = evaluateApolloPreWriterQualityGateForCandidate(candidate, {
       targetCountryCode: input.countryCode,
       subindustries: input.subindustries,
@@ -1369,7 +1374,7 @@ export async function runApolloTwoRoundWizardDiscovery(
         candidate.providerCompanyFields?.employeeCount.status ?? 'mapping_failed',
       linkedinStatus: candidate.providerCompanyFields?.linkedin.status ?? 'mapping_failed',
       duplicateStatus: mapDuplicateStatus(candidate.duplicateCheck?.status ?? 'unchecked'),
-      ownershipGate: isBlockedByCompanyOwnership(ownership) ? 'fail' : 'pass',
+      ownershipGate: ownership.admission.blocked ? 'fail' : 'pass',
       qualityGate: quality.verdict,
     };
   };
@@ -2536,12 +2541,14 @@ export async function runApolloTwoRoundWizardDiscovery(
       // (`definitivelyRejected`), así que juzgar con el nombre crudo descartaba
       // antes del writer a empresas que el writer habría recuperado. Se evalúa
       // con la evidencia del writer; lo ajeno se sigue rechazando aquí.
-      // 🔴 X3 — misma llamada, mismo veredicto; ahora también se conservan las
-      // ENTRADAS con las que se produjo. La decisión de abajo es idéntica: sigue
-      // saliendo de `isBlockedByCompanyOwnership` sobre el mismo resultado.
+      // 🔴 X3 — misma llamada, mismo veredicto; también se conservan las
+      // ENTRADAS con las que se produjo.
       const evaluation = evaluateApolloPreWriterCompanyOwnershipWithInputs(cached.candidate);
-      const ownership = evaluation.verdict;
-      const blocked = isBlockedByCompanyOwnership(ownership);
+      // 🔴 X6.10-C — la decisión sale de `admission`, no de
+      // `isBlockedByCompanyOwnership` sobre el veredicto textual. Es el único
+      // cambio de comportamiento del corte: una candidata cuyo dominio esté
+      // acreditado por el conjunto de alias del proveedor deja de morir aquí.
+      const blocked = evaluation.admission.blocked;
       // Se anota LA decisión, no una copia derivada después: `blocked` es el
       // mismo booleano con el que esta candidata muere o sigue, dos líneas más
       // abajo. Recalcularlo luego sería abrir la puerta a que observabilidad y
@@ -3103,6 +3110,12 @@ export async function runApolloTwoRoundWizardDiscovery(
           // Persistirla no la mete en ninguna decisión.
           structuralOwnership: ownershipEvaluation
             ? toStructuralOwnershipSnapshot(ownershipEvaluation)
+            : null,
+          // 🔴 X6.10-C — quién admitió, o por qué no. Sin este campo una fila
+          // con `ownership_gate.allowed: false` que aun así sobrevivió sería
+          // ilegible.
+          ownershipAdmission: ownershipEvaluation
+            ? toOwnershipAdmissionSnapshot(ownershipEvaluation)
             : null,
           enrichment: {
             attempted: c.enrichmentExecuted === true || snapshots.length > 0,

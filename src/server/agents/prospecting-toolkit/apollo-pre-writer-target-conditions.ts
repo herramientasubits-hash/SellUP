@@ -45,6 +45,10 @@ import {
   type StructuralOwnershipEvidence,
   type StructuralOwnershipResult,
 } from './structural-domain-ownership';
+import {
+  resolveCompanyOwnershipAdmission,
+  type OwnershipAdmissionDecision,
+} from './company-ownership-admission';
 import { computeEvidencePersistencePolicy } from './evidence-persistence-policy';
 import { evaluateIcpSizeGate, resolveIcpSizeGateWriterAction } from './icp-size-gate';
 import {
@@ -535,6 +539,15 @@ export type ApolloPreWriterOwnershipEvaluation = {
    * cómo el pre-writer y el writer se separaron la última vez.
    */
   readonly structural: StructuralOwnershipResult;
+  /**
+   * 🔴 AGENT1-STRUCTURAL-OWNERSHIP-ACTIVATION-X6.10-C — LA decisión.
+   *
+   * Hasta X6.10-B, quien decidía era `isBlockedByCompanyOwnership(verdict)` en
+   * tres sitios distintos. Ahora la combinación de los dos veredictos se hace
+   * una sola vez, aquí, y las tres capas leen ESTE campo. `verdict` sigue
+   * significando lo mismo que siempre —el veredicto textual— y no se toca.
+   */
+  readonly admission: OwnershipAdmissionDecision;
 };
 
 /**
@@ -597,6 +610,40 @@ export type ApolloStructuralOwnershipSnapshot = {
   evaluatedSources: readonly string[];
   absentSources: readonly string[];
 };
+
+/**
+ * 🔴 X6.10-C — la DECISIÓN de admisión, proyectada para `prospect-discards`.
+ *
+ * Copia, igual que sus dos hermanas: seis campos, uno a uno. `blocked` NO se
+ * deriva de `admittedBy` aunque hoy sean coherentes, porque deducirlo
+ * convertiría una copia en una regla.
+ *
+ * Existe porque sin ella una fila persistida sería ilegible: `ownership_gate`
+ * puede decir `allowed: false` y la candidata haber sobrevivido igualmente. Sin
+ * declarar QUIÉN la admitió, esa combinación parece una incoherencia en vez de
+ * lo que es —una recuperación por evidencia estructural—.
+ */
+export type ApolloOwnershipAdmissionSnapshot = {
+  blocked: boolean;
+  admittedBy: OwnershipAdmissionDecision['admittedBy'];
+  recoveredByStructuralEvidence: boolean;
+  textualConfidence: string;
+  structuralOutcome: string;
+  reason: string;
+};
+
+export function toOwnershipAdmissionSnapshot(
+  evaluation: ApolloPreWriterOwnershipEvaluation,
+): ApolloOwnershipAdmissionSnapshot {
+  return {
+    blocked: evaluation.admission.blocked,
+    admittedBy: evaluation.admission.admittedBy,
+    recoveredByStructuralEvidence: evaluation.admission.recoveredByStructuralEvidence,
+    textualConfidence: evaluation.admission.textualConfidence,
+    structuralOutcome: evaluation.admission.structuralOutcome,
+    reason: evaluation.admission.reason,
+  };
+}
 
 export function toStructuralOwnershipSnapshot(
   evaluation: ApolloPreWriterOwnershipEvaluation,
@@ -667,18 +714,24 @@ export function evaluateApolloPreWriterCompanyOwnershipWithInputs(
   const domain = candidate.domain ?? null;
   const evaluationName = resolveOwnershipEvaluationName(candidate.name, website, domain);
   const effectiveDomain = resolveApolloPreWriterEffectiveDomain(candidate);
+  const verdict = evaluateCompanyOwnership(evaluationName.name, website, effectiveDomain);
+  const structural = evaluateStructuralDomainOwnership(
+    buildApolloStructuralOwnershipEvidence(candidate, evaluationName.name, effectiveDomain),
+  );
   return {
-    verdict: evaluateCompanyOwnership(evaluationName.name, website, effectiveDomain),
+    verdict,
     evaluationName: evaluationName.name,
     originalName: evaluationName.originalName,
     recoveredFromDomain: evaluationName.recoveredFromDomain,
     effectiveDomain,
-    // 🔴 Calculada SIEMPRE y consultada por NADIE que decida. El veredicto de
-    // arriba es literalmente la misma llamada de antes, con los mismos dos
-    // argumentos, y no se toca ni un bit.
-    structural: evaluateStructuralDomainOwnership(
-      buildApolloStructuralOwnershipEvidence(candidate, evaluationName.name, effectiveDomain),
-    ),
+    // 🔴 X6.10-B la calculaba y NADIE que decidiera la consultaba. X6.10-C la
+    // conecta a `admission`, abajo. El `verdict` de arriba sigue siendo la
+    // misma llamada, con los mismos dos argumentos, sin tocar un bit.
+    structural,
+    // 🔴 X6.10-C — la ÚNICA combinación de los dos veredictos que existe en el
+    // repositorio. El orquestador y el writer leen de aquí; ninguno vuelve a
+    // preguntarle a `isBlockedByCompanyOwnership` por su cuenta.
+    admission: resolveCompanyOwnershipAdmission(verdict, structural),
   };
 }
 
