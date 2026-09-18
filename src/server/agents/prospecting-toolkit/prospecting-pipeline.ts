@@ -33,6 +33,7 @@ import {
   isApolloOrganizationsResult,
   readApolloCandidateDomain,
   readApolloCandidateDomainAliases,
+  readApolloCandidateName,
   readApolloCandidateWebsite,
   readApolloProviderOrganizationId,
 } from './apollo-candidate-identity-readers';
@@ -798,22 +799,71 @@ export async function buildProspectingPipelineCandidate(
   // perfil de Apollo produciría «Apollo» para cualquier organización sin dominio.
   const nameInferenceUrl = declaredWebsite ?? '';
 
-  const inferred = inferCompanyNameFromSearchResult(result.title, nameInferenceUrl);
-  let name = inferred.name;
-  const inferredNameSource = inferred.source;
+  // 🔴 AGENT1-APOLLO-STRUCTURED-NAME-X6.11-B — un nombre ESTRUCTURADO no se
+  // infiere: se transcribe.
+  //
+  // `inferCompanyNameFromSearchResult` está escrito para títulos de página web
+  // de Tavily. Apollo no manda títulos: manda `org.name` de su base de datos.
+  // Aplicarle las heurísticas de título rompía el nombre de dos maneras, las dos
+  // medidas en Producción sobre 252 filas de 6 lotes (X6.11-A):
+  //
+  //   · TRUNCAMIENTO por separador — 12 casos.
+  //     «rtvc - señalcolombia» → «rtvc», y el gate de ownership, que con el
+  //     nombre entero acepta por la regla 3, rechazaba media entrada.
+  //   · SUSTITUCIÓN POR EL DOMINIO — 12 casos.
+  //     «BoP Consultoría» → «Cardonaprada». Además de cambiar una empresa por
+  //     otra, vuelve CIRCULAR al ownership: el nombre sale del dominio que
+  //     después se pretende acreditar, y la regla 1 lo confirma por
+  //     construcción. Se observaron 8 nombres derivados así en un solo lote.
+  //
+  // El arreglo no toca ninguna regla de ownership ni de X6.9: devuelve al gate
+  // la entrada que el proveedor había mandado.
+  const structuredName = isApolloResult ? readApolloCandidateName(result) : null;
+
+  let name: string;
+  let inferredNameSource: NameInferenceSource;
   let nameQualityFiltered = false;
 
-  // Hito 16AB.43.20: if title_fallback returned a sentence, the title has no
-  // extractable company name. Use domain inference as last resort, or if that
-  // also fails, force the candidate to discard so it is never persisted.
-  if (inferredNameSource === 'title_fallback' && isSentenceOrPhraseName(name)) {
-    const fromDomain = inferNameFromDomain(nameInferenceUrl);
-    if (fromDomain && !isSentenceOrPhraseName(fromDomain)) {
-      name = fromDomain;
-    } else {
+  if (isApolloResult) {
+    if (structuredName === null) {
+      // 🔴 Entrada inválida, y se declara como tal. NO se cae a derivar el
+      // nombre del dominio: eso es exactamente la validación circular que este
+      // corte elimina, y reintroducirla por la puerta del fallback la dejaría
+      // viva justo donde menos se ve.
+      //
+      // Se usa el MISMO mecanismo que ya existía para un título sin nombre
+      // extraíble (`nameQualityFiltered` + 'Unknown'): la candidata se descarta
+      // sola y el lote sigue. Una fila mala no tumba una corrida pagada.
+      //
+      // El mapper del proveedor LANZA si `org.name` viene vacío, así que esta
+      // rama sólo la alcanzan entradas históricas o malformadas —un checkpoint
+      // antiguo con `title: ''`, o un resultado fabricado—. Defensiva, no
+      // decorativa.
       nameQualityFiltered = true;
-      // Build a minimal discard candidate — no I/O, scoring will mark as discard
       name = 'Unknown';
+      inferredNameSource = 'title_fallback';
+    } else {
+      name = structuredName;
+      inferredNameSource = 'provider_structured';
+    }
+  } else {
+    // Rutas NO Apollo (Tavily y demás): comportamiento intacto.
+    const inferred = inferCompanyNameFromSearchResult(result.title, nameInferenceUrl);
+    name = inferred.name;
+    inferredNameSource = inferred.source;
+
+    // Hito 16AB.43.20: if title_fallback returned a sentence, the title has no
+    // extractable company name. Use domain inference as last resort, or if that
+    // also fails, force the candidate to discard so it is never persisted.
+    if (inferredNameSource === 'title_fallback' && isSentenceOrPhraseName(name)) {
+      const fromDomain = inferNameFromDomain(nameInferenceUrl);
+      if (fromDomain && !isSentenceOrPhraseName(fromDomain)) {
+        name = fromDomain;
+      } else {
+        nameQualityFiltered = true;
+        // Build a minimal discard candidate — no I/O, scoring will mark as discard
+        name = 'Unknown';
+      }
     }
   }
 

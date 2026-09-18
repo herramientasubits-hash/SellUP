@@ -507,7 +507,19 @@ export type ProspectingPipelineInput = {
     | null;
 };
 
-export type NameInferenceSource = 'title_prefix' | 'domain' | 'title_fallback';
+/**
+ * De dónde salió el nombre de la candidata.
+ *
+ * X6.11-B añade `provider_structured`: el proveedor entregó un nombre de base
+ * de datos y se transcribió tal cual. No es una inferencia — por eso se
+ * distingue de las tres heurísticas de título web, y por eso permite auditar
+ * qué candidatas dejaron de pasar por ellas.
+ */
+export type NameInferenceSource =
+  | 'title_prefix'
+  | 'domain'
+  | 'title_fallback'
+  | 'provider_structured';
 
 export type ProspectingPipelineCandidate = {
   name: string;

@@ -148,6 +148,35 @@ export function readApolloCandidateWebsite(result: WebSearchResult): string | nu
 }
 
 /**
+ * El NOMBRE ESTRUCTURADO que Apollo declaró para esta organización, o `null`.
+ *
+ * ── AGENT1-APOLLO-STRUCTURED-NAME-X6.11-B ────────────────────────────────────
+ *
+ * Procedencia, verificada de extremo a extremo:
+ *   · el mapper del proveedor estampa `title: org.name.trim()`
+ *     (`mapApolloOrganizationToSearchResult`), y LANZA si el nombre está vacío;
+ *   · el checkpoint lo conserva en `evidence.title` y lo restituye igual
+ *     (`toCandidateEvidenceSnapshot` / `fromCandidateEvidenceSnapshot`).
+ *
+ * Es decir: para un resultado de Apollo, `title` NO es un título de página web
+ * —es el nombre de una fila de base de datos—. Esa diferencia es todo el corte:
+ * `inferCompanyNameFromSearchResult` está escrito para títulos de Tavily
+ * («Empresa | Eslogan») y, aplicado aquí, trunca por separadores
+ * («rtvc - señalcolombia» → «rtvc») o cae a derivar el nombre DEL DOMINIO
+ * («BoP Consultoría» → «Cardonaprada»), que además vuelve circular al gate de
+ * ownership: el nombre sale del dominio que después se pretende acreditar.
+ *
+ * 🔴 Sólo recorta espacio exterior. No parte por separadores, no descarta
+ * segmentos y no consulta el dominio: un nombre estructurado se transcribe.
+ *
+ * `null` cuando no hay nombre utilizable. NUNCA se rellena desde el dominio:
+ * el llamador debe tratarlo como entrada inválida.
+ */
+export function readApolloCandidateName(result: WebSearchResult): string | null {
+  return readNonEmptyString(result.title);
+}
+
+/**
  * Los alias de dominio que Apollo DECLARÓ para esta organización, o `[]`.
  *
  * AGENT1-STRUCTURAL-OWNERSHIP-TRANSPORT-X6.10-B. Es la afirmación del proveedor
