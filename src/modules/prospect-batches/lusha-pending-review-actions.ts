@@ -271,6 +271,29 @@ const GenerateInputSchema = z.object({
    * VERIFICA que sea el derivado del `wizardClientRequestId` que llega aquí. Un
    * par arbitrario (corrida ajena + identidad de reserva propia) se rechaza.
    */
+  /**
+   * 🔴 X6.12 — las subindustrias que la búsqueda PIDIÓ, tal como la persona las
+   * eligió en el wizard.
+   *
+   * ── Por qué existe este campo ─────────────────────────────────────────────
+   *
+   * `subIndustryId` NO sirve para esto: el puente del wizard lo fija a `null` de
+   * forma constante (`WizardLushaInput.subIndustryId`) porque las subindustrias
+   * de Lusha viajan DENTRO de las ramas del plan, que el servidor resuelve desde
+   * el catálogo. El resultado era que el contrato de completitud resolvía
+   * `subindustry_match` contra una ausencia fabricada en el transporte en vez de
+   * contra el criterio original.
+   *
+   * ── 🔴 Qué NO hace ────────────────────────────────────────────────────────
+   *
+   * No entra en ninguna petición al proveedor, no altera el plan de ramas, no
+   * cambia la reserva y no mueve una sola página de gasto. Es un dato de
+   * ACEPTACIÓN. Acotado en número y longitud porque llega del cliente.
+   */
+  requestedSubindustries: z
+    .array(z.string().trim().min(1).max(160))
+    .max(24)
+    .optional(),
   waterfall: z
     .object({
       /** El `clientRequestId` de la corrida del wizard (la pierna Apollo). */
@@ -411,7 +434,10 @@ async function runGenerateLushaPendingReviewBatch(
   // 🔴 `waterfall` se extrae FUERA de `searchInput`: es contexto de correlación,
   // no un criterio de búsqueda, y colarlo en el payload del núcleo lo convertiría
   // en una entrada del proveedor.
-  const { clientRequestId, waterfall, ...searchInput } = parsed.data;
+  // 🔴 X6.12 — `requestedSubindustries` se EXTRAE aquí y no viaja en
+  // `searchInput`: ése es el objeto que alimenta la petición al proveedor, y un
+  // dato de aceptación que se colara ahí podría cambiar lo que se compra.
+  const { clientRequestId, waterfall, requestedSubindustries = [], ...searchInput } = parsed.data;
 
   // ── 🔴 CORTE 5A — la pierna tiene que PROBAR que es la pierna ──────────────
   //
@@ -503,6 +529,9 @@ async function runGenerateLushaPendingReviewBatch(
     internalUserId,
     clientRequestId,
     searchInput,
+    // 🔴 X6.12 — viaja APARTE de `searchInput`: es un dato de aceptación y no
+    // puede entrar en la petición al proveedor.
+    requestedSubindustries,
     routingMetadata,
     routingPlan,
     operationId: operation.operationId,
@@ -578,6 +607,8 @@ async function runLushaPendingReviewUnderOperation(ctx: {
   internalUserId: string;
   clientRequestId: string;
   searchInput: Omit<GenerateLushaPendingReviewBatchInput, 'clientRequestId'>;
+  /** 🔴 X6.12 — subindustrias PEDIDAS, sólo para la aceptación. */
+  requestedSubindustries: readonly string[];
   routingMetadata: ReturnType<typeof buildProviderRoutingMetadata>;
   routingPlan: ReturnType<typeof resolveProviderRoutingPlan>;
   /** Identidad DURABLE de la operación. La valla de petición cuelga de ella. */
@@ -889,6 +920,7 @@ async function runLushaPendingReviewUnderOperation(ctx: {
     (reservation) =>
       runLushaSearchWithReservation({
         searchInput,
+        requestedSubindustries: ctx.requestedSubindustries,
         internalUserId,
         clientRequestId,
         operationId,
@@ -1006,6 +1038,11 @@ async function runLushaSearchWithReservation(args: {
   operationId: string;
   /** § 8 — el objetivo PEDIDO, la autoridad que `target_count` publica. */
   requestedTarget: number;
+  /**
+   * 🔴 X6.12 — las subindustrias PEDIDAS, sólo para la aceptación. No entra en
+   * `searchInput` y por tanto no puede alterar ninguna petición al proveedor.
+   */
+  requestedSubindustries: readonly string[];
   /**
    * § 5 — el MISMO resolutor que la mitad gratuita ya consultó.
    *
@@ -1628,6 +1665,10 @@ async function runLushaSearchWithReservation(args: {
         plan: searchPlan,
         creditsReserved: reservation.creditsReserved,
         targetGap: prePaid.residualGap,
+        // 🔴 X6.12 — los criterios ORIGINALES llegan hasta la aceptación. Ausente
+        // ⇒ no se pidió subindustria, que es el caso del wizard de hoy y el que
+        // permite que la condición `subindustry_match` NO aplique.
+        requestedSubindustries: args.requestedSubindustries,
         providerSeen: {
           memory: prePaid.providerSeenMemory,
           record: (writeInput) => providerSeenStore.record(writeInput),

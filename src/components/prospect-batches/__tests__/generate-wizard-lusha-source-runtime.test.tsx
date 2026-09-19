@@ -124,6 +124,7 @@ const SEEDED_INPUT: WizardLushaInput = {
   countryCode: 'CO',
   macroIndustryKey: 'health_pharma',
   subIndustryId: null,
+  requestedSubindustries: [],
   sizeBandKey: '201-5000',
   searchText: null,
 };

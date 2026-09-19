@@ -466,9 +466,14 @@ test('NEGATIVE_J — el clientRequestId del lote sale de la ejecución, no de un
   // contexto de correlación, no un criterio de búsqueda. Lo que la afirmación
   // defiende —que la identidad de ejecución sale de la entrada validada de ESTA
   // llamada y no de un clic anterior— sigue medido literalmente.
+  //
+  // 🔴 REANCLADO en X6.12, no relajado: `requestedSubindustries` se extrae por la
+  // MISMA razón que `waterfall` —es un dato de aceptación y no debe viajar dentro
+  // de `searchInput` hasta la petición al proveedor—. Lo que la afirmación mide
+  // sigue siendo literal: `clientRequestId` sale de `parsed.data` de ESTA llamada.
   assert.match(
     action,
-    /const \{ clientRequestId, waterfall, \.\.\.searchInput \} = parsed\.data;/,
+    /const \{ clientRequestId, waterfall, requestedSubindustries = \[\], \.\.\.searchInput \} =\s*parsed\.data;/,
   );
   assert.match(action, /clientRequestId,\n\s+\/\/ § 8/);
   // Y no hay ninguna relectura de un clic previo con la que reusar su identidad.

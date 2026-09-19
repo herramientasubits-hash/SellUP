@@ -654,14 +654,16 @@ describe('CUT-9 §§ 6, 7 · una empresa cuenta hacia el objetivo UNA sola vez',
     // filas escritas. Las tres cifras siguen fijadas.
     assert.equal(result.insertedCandidatesCount, 3);
     assert.equal(calls.candidateBatches[0].length, 3);
-    // 🔴 SUPERSEDED — X5.1. La aceptación de pago ya no es el conteo de filas:
-    // Lusha no puede satisfacer CUT-7, así que su aportación es NO MEDIDA.
-    assert.equal(result.multiBranch?.acceptedForTargetTotal, null);
+    // 🔴 X6.12 — la aceptación de pago YA se mide y sigue sin ser el conteo de
+    // filas: cero de tres, porque estas empresas llegan sin la evidencia que
+    // completa. Lo que CASO 5 defiende —que las tres sean DISJUNTAS y se
+    // escriban— está fijado arriba y no depende de esta cifra.
+    assert.equal(result.multiBranch?.acceptedForTargetTotal, 0);
 
     // Y la aceptación de la corrida ENTERA la resuelve la autoridad canónica.
     const acceptance = runAcceptance({ freePersisted: 2, result });
     assert.equal(acceptance.acceptedFreeForTarget, 2, 'lo gratuito SÍ se midió');
-    assert.equal(acceptance.acceptedPaidForTarget, 0, 'no medir no es cumplir');
+    assert.equal(acceptance.acceptedPaidForTarget, 0, 'ninguna de las tres completa');
     assert.equal(acceptance.acceptedForTargetTotal, 2);
     assert.equal(acceptance.targetReached, false);
     // 🔴 PRESERVED — y el UNIVERSO durable no pierde ni una empresa: las tres
@@ -707,8 +709,9 @@ describe('CUT-9 §§ 6, 7 · una empresa cuenta hacia el objetivo UNA sola vez',
     assert.equal(result.insertedCandidatesCount, 1);
 
     // 2. Y el hueco se REABRE: `target_reached` con hueco abierto es imposible.
-    // 🔴 SUPERSEDED — la aceptación de pago es NO MEDIDA (X5.1).
-    assert.equal(result.multiBranch?.acceptedForTargetTotal, null);
+    // 🔴 X6.12 — medida, y cero: la única fila nueva tampoco trae la evidencia
+    // que completa. El dedupe cruzado sigue siendo lo que este caso demuestra.
+    assert.equal(result.multiBranch?.acceptedForTargetTotal, 0);
     // 🔴 PRESERVED — el hueco y el motivo de parada, que son lo que de verdad
     // demuestra que el dedupe cruzado reabrió el objetivo, no se mueven.
     assert.equal(result.remainingGapFinal, 2);
@@ -926,11 +929,11 @@ describe('CUT-9 §§ 3, 4 · lo persistido no es lo aceptado', () => {
     // La corrida INTENTÓ 3; la base confirmó 2. Sólo lo segundo cuenta.
     assert.equal(result.usefulCandidatesCount, 3, 'lo intentado se sigue diciendo');
     assert.equal(result.insertedCandidatesCount, 2);
-    // 🔴 SUPERSEDED — X5.1: la aceptación de Lusha es NO MEDIDA, así que ya no
-    // puede «volver a ser lo intentado». El riesgo que NEGATIVE_C vigilaba
-    // —que 3 intentados se colaran como aceptados— queda cerrado por una vía
-    // más fuerte: no hay ningún número que colar.
-    assert.equal(result.multiBranch?.acceptedForTargetTotal, null);
+    // 🔴 X6.12 — la aceptación YA se mide, y NEGATIVE_C recupera su forma
+    // original: lo que vigila es que lo INTENTADO (3) no se cuele como aceptado.
+    // Vale cero porque estas empresas llegan sin la evidencia que completa; lo
+    // que importa aquí es que jamás puede valer 3.
+    assert.equal(result.multiBranch?.acceptedForTargetTotal, 0);
     assert.notEqual(
       result.multiBranch?.acceptedForTargetTotal,
       3,
@@ -938,8 +941,8 @@ describe('CUT-9 §§ 3, 4 · lo persistido no es lo aceptado', () => {
     );
 
     const acceptance = runAcceptance({ freePersisted: 1, result });
-    assert.equal(acceptance.acceptedPaidForTarget, 0, 'no medir no es cumplir');
-    assert.equal(acceptance.acceptedForTargetTotal, 1, 'sólo lo gratuito se midió');
+    assert.equal(acceptance.acceptedPaidForTarget, 0, 'ninguna de las dos completa');
+    assert.equal(acceptance.acceptedForTargetTotal, 1, 'sólo lo gratuito aporta');
     // 🔴 PRESERVED — la propiedad central de CASO 7: el DURABLE se reporta
     // entero (1 gratuita + 2 escritas), nunca recortado a la aceptación.
     assert.equal(acceptance.persistedTotalCandidates, 3, 'el durable se REPORTA, no se recorta');

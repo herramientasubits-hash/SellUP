@@ -130,6 +130,17 @@ export interface WizardLushaInput {
    */
   sizeBandKey: string | null;
   searchText: string | null;
+  /**
+   * 🔴 X6.12 — las subindustrias que la persona eligió, por NOMBRE.
+   *
+   * `subIndustryId` de arriba sigue siendo `null` por contrato —las subindustrias
+   * de Lusha viajan dentro de las ramas del plan, que resuelve el servidor—, y
+   * esa constante era justo lo que hacía que la aceptación resolviera
+   * `subindustry_match` contra una ausencia fabricada en el transporte.
+   *
+   * NO entra en la petición al proveedor: es un dato de ACEPTACIÓN.
+   */
+  requestedSubindustries: string[];
 }
 
 export interface WizardLushaCriteriaDecision {
@@ -161,6 +172,24 @@ export function resolveWizardMacroIndustryKey(
   if (!industry) return null;
 
   return resolveMacroIndustryKey({ slug: industry.slug, displayName: industry.name });
+}
+
+/**
+ * 🔴 X6.12 — los NOMBRES de las subindustrias que la búsqueda pidió.
+ *
+ * Se resuelven contra el catálogo activo, que es la misma autoridad que ya usa
+ * esta superficie; los ids que no estén en él se descartan en vez de viajar como
+ * cadenas opacas. Orden estable: el del catálogo, no el de selección.
+ */
+export function resolveWizardRequestedSubindustryNames(
+  state: Pick<WizardLushaCriteriaState, 'subindustryIds'>,
+  catalog: ActiveIndustryCatalog,
+): string[] {
+  const requested = new Set(state.subindustryIds ?? []);
+  if (requested.size === 0) return [];
+  return catalog.subindustries
+    .filter((subindustry) => requested.has(subindustry.id))
+    .map((subindustry) => subindustry.name);
 }
 
 /**
@@ -205,6 +234,10 @@ export function resolveWizardLushaCriteria(
       subIndustryId: null,
       sizeBandKey: WIZARD_LUSHA_REQUESTED_SIZE_BAND_KEY,
       searchText: searchText && searchText.length > 0 ? searchText : null,
+      // 🔴 X6.12 — los criterios ORIGINALES, resueltos contra el MISMO catálogo
+      // que ya gobierna esta pantalla. Sin selección la lista queda vacía, que es
+      // exactamente «no se pidió ninguna».
+      requestedSubindustries: resolveWizardRequestedSubindustryNames(state, catalog),
     },
   };
 }

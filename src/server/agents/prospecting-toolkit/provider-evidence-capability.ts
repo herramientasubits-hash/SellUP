@@ -41,30 +41,66 @@ export const PROVIDER_PRODUCES_ALL_EVIDENCE: ProviderEvidenceCapability = {
 /**
  * Lusha · V3 Prospecting.
  *
- * Los tres huecos, cada uno con su razón medida:
+ * ── 🔴 X6.12 — dos de los tres huecos se CERRARON, y el tercero es condicional ─
  *
- *   `subindustry_match`  Lusha confirma la MACRO (`assessLushaMacroPrecision`),
- *                        no la subindustria PEDIDA. El contrato canónico
- *                        prohíbe explícitamente sustituir una por otra
- *                        (invariante E): el veredicto de industria «NUNCA»
- *                        convierte un `subindustryMatch` ambiguo en confirmado.
- *                        Declararlo no disponible es la única lectura honesta.
+ * Hasta X6.12 esta capacidad declaraba tres condiciones no disponibles y era
+ * una CONSTANTE, así que ninguna candidata de Lusha podía cumplir las siete y
+ * `acceptedForTarget` valía `null` por construcción. Lo que cambia no es la
+ * regla de completitud —sigue siendo una sola— sino qué preguntas sabe
+ * contestar esta ruta:
  *
- *   `linkedin_status`    la fila de candidato de esta ruta no escribe
- *                        `linkedin_url`; el proveedor no lo entrega en el
- *                        payload de prospecting.
+ *   `ownership_gate`     ya NO es un hueco: `lusha-ownership-evidence.ts` corre
+ *                        la MISMA costura de admisión de X6.10-C sobre el
+ *                        nombre, el dominio normalizado y el LinkedIn del
+ *                        proveedor. El veredicto existe, se persiste y no
+ *                        bloquea (ver la nota de medición de ese módulo).
  *
- *   `ownership_gate`     la ruta no ejecuta `evaluateCompanyOwnership`. NO es un
- *                        pase encubierto: un gate que no corrió no absuelve, y
- *                        por eso la candidata queda `unknown` y no `complete`.
+ *   `linkedin_status`    ya NO es un hueco: la fila escribe `linkedin_url`
+ *                        cuando `isLinkedInCompanyUrl` acredita la URL que el
+ *                        proveedor entregó, y `not_returned` cuando no la hay.
+ *                        Las dos son respuestas.
  *
- * `quality_gate` NO está aquí a propósito: la precisión macro y el dedupe exacto
- * SÍ corren en esta ruta, así que esa pregunta tiene respuesta.
+ *   `subindustry_match`  sigue siendo un hueco **sólo cuando la búsqueda pidió
+ *                        una subindustria**. Lusha confirma la MACRO
+ *                        (`assessLushaMacroPrecision`), no la subindustria
+ *                        pedida, y la invariante E del contrato canónico
+ *                        prohíbe sustituir una por otra. Sin subindustria
+ *                        pedida la pregunta NO aplica y el contrato ya la
+ *                        resuelve como `not_requested` — el mismo camino que
+ *                        recorre hoy la ruta Apollo.
  *
- * `employee_count_status` tampoco: Lusha entrega `employeesExact` cuando lo
- * tiene, así que la condición es evaluable — y cuando el dato falta, la
- * candidata es INCOMPLETE de verdad, no `unknown`.
+ * `quality_gate` nunca estuvo aquí: la precisión macro y el dedupe exacto SÍ
+ * corren. `employee_count_status` tampoco: Lusha entrega `employeesExact`
+ * cuando lo tiene, y cuando falta la candidata es INCOMPLETE de verdad.
  */
-export const LUSHA_PROSPECTING_EVIDENCE_CAPABILITY: ProviderEvidenceCapability = {
-  unavailableConditions: ['subindustry_match', 'linkedin_status', 'ownership_gate'],
+export type LushaEvidenceCapabilityFacts = {
+  /**
+   * ¿La búsqueda declaró al menos una subindustria? Es un HECHO de la corrida,
+   * no del proveedor: por eso la capacidad se resuelve con una función y no se
+   * escribe a mano en una constante.
+   */
+  readonly subindustryRequested: boolean;
 };
+
+/**
+ * La capacidad de esta ruta, derivada de los hechos de la corrida.
+ *
+ * 🔴 Sigue sin existir una sola rama que compare el NOMBRE del proveedor: lo que
+ * decide es qué evidencia hay. Un adaptador futuro que sepa confirmar la
+ * subindustria pedida pasa a tener la lista vacía sin tocar esta función.
+ */
+export function resolveLushaProspectingEvidenceCapability(
+  facts: LushaEvidenceCapabilityFacts,
+): ProviderEvidenceCapability {
+  return {
+    unavailableConditions: facts.subindustryRequested ? ['subindustry_match'] : [],
+  };
+}
+
+/**
+ * La capacidad de una corrida de Lusha que SÍ pidió subindustria. Se conserva
+ * como constante con nombre —y no como literal dentro de un `if`— para que las
+ * pruebas de mutación puedan apuntarla.
+ */
+export const LUSHA_PROSPECTING_EVIDENCE_CAPABILITY: ProviderEvidenceCapability =
+  resolveLushaProspectingEvidenceCapability({ subindustryRequested: true });

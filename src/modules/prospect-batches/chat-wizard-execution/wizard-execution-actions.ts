@@ -2095,6 +2095,15 @@ export async function executeProspectWizardGeneration(
           displayName: catalogResolution.industry.name,
         }),
         subIndustryId: null,
+        // 🔴 X6.12 — los criterios ORIGINALES de la corrida llegan a la
+        // aceptación de la pierna. `subIndustryId` sigue en `null` a propósito:
+        // las subindustrias de Lusha viajan dentro de las ramas del plan y este
+        // campo NO cambia lo que se le pide al proveedor. Lo que cambia es que
+        // la condición `subindustry_match` deja de resolverse contra una
+        // ausencia que el transporte fabricaba.
+        requestedSubindustries: catalogResolution.subindustries.map(
+          (subindustry) => subindustry.name,
+        ),
         target: acceptedAfterApollo.requestedTarget,
         usefulAccumulated: acceptedAfterApollo.acceptedForTargetTotal,
         // Se llegó hasta aquí: el pipeline devolvió un veredicto.

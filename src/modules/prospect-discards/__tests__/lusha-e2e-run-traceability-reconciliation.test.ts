@@ -670,10 +670,12 @@ describe('D. el acumulador no altera ningún desenlace de la corrida', () => {
     //   skippedCount = impersistibles(1) + repetidas(1) + conocidos(0)
     //                + guard de activos(17) + identidad de lote(0) = 19
     assert.equal(res.skippedCount, 19);
-    // 🔴 SUPERSEDED — X5.1: las ocho revisables sobreviven, y la aceptación de
-    // Lusha es NO MEDIDA porque el proveedor no puede satisfacer CUT-7.
+    // 🔴 X6.12 — las ocho revisables sobreviven y la aceptación YA se mide: esta
+    // corrida no pidió subindustria. Vale CERO porque las empresas del escenario
+    // —reconstruido de la corrida de Producción— llegan sin LinkedIn de empresa
+    // ni ownership acreditado; un cero MEDIDO, no un `null`.
     assert.equal(res.usefulCandidatesCount, 8);
-    assert.equal(res.multiBranch?.acceptedForTargetTotal, null);
+    assert.equal(res.multiBranch?.acceptedForTargetTotal, 0);
     // 🔴 PRESERVED — el hueco se cierra igual y el GASTO no se mueve: dos
     // créditos, dos cobrados, parada por objetivo. Ésas son las cifras que este
     // caso existe para fijar.
