@@ -864,15 +864,17 @@ describe('§ 5 · target cap complete-first', () => {
   });
 
   test('el comparador de ranking es el MISMO que aplica el writer', () => {
+    // 🔴 BUSINESS-FIT-OBSERVATION-ONLY — el diferenciador era
+    // `businessFitRankingBonus`, que ya no existe en el compuesto. Lo que esta
+    // prueba protege —que el score compuesto mande sobre la confianza, igual
+    // que en Pass 2— no cambia: se expresa con el término que SÍ queda.
     const better = {
-      businessFitRankingBonus: 10,
-      sourceUrlRankingBonus: 0,
+      sourceUrlRankingBonus: 10,
       countryCompatWeight: 0,
       confidenceScore: 0.1,
       website: 'https://x.com/a/b/c',
     };
     const worse = {
-      businessFitRankingBonus: 0,
       sourceUrlRankingBonus: 0,
       countryCompatWeight: 0,
       confidenceScore: 0.9,

@@ -107,15 +107,6 @@ function makeBusinessFit(fit: 'high' | 'medium' | 'low' | 'reject'): BusinessFit
 function policyFor(fixture: NineFixture): EvidencePersistencePolicyResult {
   return computeEvidencePersistencePolicy({
     countryEvidence: countryEvidenceFor(fixture),
-    businessFit: evaluateBusinessFit({
-      name: fixture.name,
-      website: `http://www.${fixture.domain}`,
-      domain: fixture.domain,
-      sourceSnippet: apolloSnippet(fixture.name),
-      sourceTitle: fixture.name,
-      subindustries: [],
-      additionalCriteria: null,
-    }),
   });
 }
 
@@ -294,7 +285,6 @@ describe('T4 — la ausencia de evidencia de país no rechaza', () => {
         queryText: REAL_QUERY_TEXT,
         targetCountryCode: 'CO',
       }),
-      businessFit: makeBusinessFit('medium'),
     });
     assert.notEqual(policy.decision, 'blocked');
     assert.equal(policy.decision, 'needs_review');
@@ -305,7 +295,6 @@ describe('T4 — la ausencia de evidencia de país no rechaza', () => {
   it('weak + low tampoco bloquea (aunque `isBlockedByBusinessFit` ya lo habría parado antes)', () => {
     const policy = computeEvidencePersistencePolicy({
       countryEvidence: { evidenceLevel: 'weak', evidenceSources: [], warning: null },
-      businessFit: makeBusinessFit('low'),
     });
     assert.notEqual(policy.decision, 'blocked');
     assert.equal(policy.incompletenessReason, 'country_evidence_absent');
@@ -314,7 +303,6 @@ describe('T4 — la ausencia de evidencia de país no rechaza', () => {
   it('el warning describe un hueco NUESTRO, no un veredicto sobre la empresa', () => {
     const policy = computeEvidencePersistencePolicy({
       countryEvidence: { evidenceLevel: 'weak', evidenceSources: [], warning: null },
-      businessFit: makeBusinessFit('medium'),
     });
     const joined = policy.warnings.join(' ');
     assert.ok(joined.includes('Ausencia de evidencia, no evidencia en contra'));
@@ -461,7 +449,6 @@ describe('T10 — ninguna entrada del eje país produce `blocked`', () => {
       for (const fit of fits) {
         const policy = computeEvidencePersistencePolicy({
           countryEvidence: { evidenceLevel, evidenceSources: [], warning: null },
-          businessFit: makeBusinessFit(fit),
         });
         assert.notEqual(policy.decision, 'blocked', `${evidenceLevel}/${fit}`);
       }
@@ -471,7 +458,6 @@ describe('T10 — ninguna entrada del eje país produce `blocked`', () => {
   it('ningún primaryReason del eje país afirma un veredicto sobre la empresa', () => {
     const policy = computeEvidencePersistencePolicy({
       countryEvidence: { evidenceLevel: 'weak', evidenceSources: [], warning: null },
-      businessFit: makeBusinessFit('medium'),
     });
     assert.notEqual(policy.primaryReason, 'no_country_evidence_with_weak_fit');
   });
@@ -483,7 +469,6 @@ describe('T12 — la supervivencia no abre ni un crédito', () => {
   it('país ausente ⇒ completado pagado sigue bloqueado', () => {
     const policy = computeEvidencePersistencePolicy({
       countryEvidence: { evidenceLevel: 'weak', evidenceSources: [], warning: null },
-      businessFit: makeBusinessFit('medium'),
     });
     assert.equal(isPaidCompletionBlockedByEvidencePolicy(policy), true);
   });
@@ -545,7 +530,6 @@ describe('T13 — un superviviente sin evidencia de país NO cuenta hacia el obj
   it('con TODO lo demás confirmado, sólo el país lo deja fuera', () => {
     const policy = computeEvidencePersistencePolicy({
       countryEvidence: { evidenceLevel: 'weak', evidenceSources: [], warning: null },
-      businessFit: makeBusinessFit('medium'),
     });
     const eligibility = evaluateCandidateTargetEligibility({
       persistenceSuccess: true,
@@ -559,27 +543,38 @@ describe('T13 — un superviviente sin evidencia de país NO cuenta hacia el obj
     assert.equal(eligibility.countsTowardTarget, false);
   });
 
-  it('el conjunto que NO acepta target es exactamente el que antes salía blocked', () => {
+  /**
+   * 🔴 BUSINESS-FIT-OBSERVATION-ONLY — esta invariante CAMBIÓ de oráculo, y hay
+   * que decir por qué.
+   *
+   * X6.2-A la escribió para probar que su corte no movía ni una aceptación: el
+   * conjunto no autorizado tenía que ser EXACTAMENTE el que antes salía
+   * `blocked`, y ése se definía con el nivel de `business_fit`.
+   *
+   * La decisión de producto retira `business_fit` de la aceptación, así que el
+   * oráculo ya no puede leerlo: el conjunto no autorizado pasa a ser el de
+   * evidencia de país DÉBIL, sea cual sea el encaje. Lo que la invariante
+   * protege es lo mismo de siempre —que las dos autorizaciones se muevan juntas
+   * y sólo por evidencia de país—, y ahora además prueba que el fit no las toca.
+   */
+  it('🔴 sólo la evidencia de PAÍS decide las dos autorizaciones', () => {
     const levels = ['strong', 'query_only', 'weak'] as const;
-    const fits = ['high', 'medium', 'low', 'reject'] as const;
+    const sources = [[], ['snippet']] as const;
     for (const evidenceLevel of levels) {
-      for (const fit of fits) {
+      for (const evidenceSources of sources) {
         const policy = computeEvidencePersistencePolicy({
-          countryEvidence: { evidenceLevel, evidenceSources: [], warning: null },
-          businessFit: makeBusinessFit(fit),
+          countryEvidence: { evidenceLevel, evidenceSources: [...evidenceSources], warning: null },
         });
-        // La regla PREVIA al corte, escrita aquí como oráculo independiente.
-        const wasBlockedBeforeX62A =
-          evidenceLevel === 'weak' && (fit === 'medium' || fit === 'low');
+        const debeEstarBloqueada = evidenceLevel === 'weak';
         assert.equal(
           policy.targetAcceptanceAuthorized,
-          !wasBlockedBeforeX62A,
-          `target/${evidenceLevel}/${fit}`,
+          !debeEstarBloqueada,
+          `target/${evidenceLevel}/${evidenceSources.length}`,
         );
         assert.equal(
           policy.paidCompletionAuthorized,
-          !wasBlockedBeforeX62A,
-          `paid/${evidenceLevel}/${fit}`,
+          !debeEstarBloqueada,
+          `paid/${evidenceLevel}/${evidenceSources.length}`,
         );
       }
     }
@@ -661,7 +656,6 @@ describe('T16 — el ccTLD desnudo `.ar` sigue SIN ser evidencia (límite declar
         queryText: null,
         targetCountryCode: 'AR',
       }),
-      businessFit: makeBusinessFit('medium'),
     });
     assert.notEqual(policy.decision, 'blocked');
   });
@@ -676,7 +670,6 @@ describe('T16 — el ccTLD desnudo `.ar` sigue SIN ser evidencia (límite declar
         queryText: null,
         targetCountryCode: 'EC',
       }),
-      businessFit: makeBusinessFit('medium'),
     });
     assert.notEqual(policy.decision, 'blocked');
   });

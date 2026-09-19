@@ -235,7 +235,6 @@ export function extractDomain(website: string | null): string | null {
  * habría obligado a construir uno falso para poder compartir el comparador.
  */
 export type WriterEligibleRankSignals = {
-  businessFitRankingBonus: number;
   sourceUrlRankingBonus: number;
   countryCompatWeight: number;
   confidenceScore: number | null;
@@ -243,19 +242,30 @@ export type WriterEligibleRankSignals = {
 };
 
 /**
- * Prioridad del writer (Hito 16AB.43.27 / 16AB.43.28 / 16AB.43.29):
- *   1) score compuesto de encaje desc (business fit + calidad de URL + país),
+ * Prioridad del writer (Hito 16AB.43.27 / 16AB.43.28):
+ *   1) score compuesto desc (calidad de URL + compatibilidad de país),
  *   2) confianza desc,
  *   3) profundidad de path asc (más cerca de la raíz, mejor).
  *
- * Idéntica, literal, a la que aplicaba el `sort` de Pass 2.
+ * 🔴 BUSINESS-FIT-OBSERVATION-ONLY — el término `businessFitRankingBonus`
+ * (high +50 / medium +30 / low −40 / reject −100) se retira del compuesto, y el
+ * campo desaparece del tipo para que el compilador impida reintroducirlo.
+ *
+ * Ordenar por encaje NO era decorativo: este orden decide qué candidata gana el
+ * dedupe intra-lote y qué candidata entra antes en el cupo COMPLETE-FIRST, es
+ * decir quién compite por el enrichment. Con el ICP de B2B tech fuera de la
+ * política de admisión, dejarlo aquí lo habría mantenido decidiendo por la
+ * puerta de atrás.
+ *
+ * Lo que queda ordena por lo que los criterios SÍ justifican: la calidad de la
+ * URL de origen y la compatibilidad de país.
  */
 export function compareWriterEligibleRank(
   a: WriterEligibleRankSignals,
   b: WriterEligibleRankSignals,
 ): number {
-  const aComposite = a.businessFitRankingBonus + a.sourceUrlRankingBonus + a.countryCompatWeight * 10;
-  const bComposite = b.businessFitRankingBonus + b.sourceUrlRankingBonus + b.countryCompatWeight * 10;
+  const aComposite = a.sourceUrlRankingBonus + a.countryCompatWeight * 10;
+  const bComposite = b.sourceUrlRankingBonus + b.countryCompatWeight * 10;
   const compositeDiff = bComposite - aComposite;
   if (compositeDiff !== 0) return compositeDiff;
   const scoreDiff = (b.confidenceScore ?? 0) - (a.confidenceScore ?? 0);
