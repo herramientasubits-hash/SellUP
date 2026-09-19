@@ -449,7 +449,7 @@ describe('§§ 7, 8 — lo que este PR NO puede degradar', () => {
     assert.equal(harness.writes.length, 2, 'las dos páginas pagadas se recordaron');
   });
 
-  it('§ 11.19 — objetivo alcanzado ⇒ no se pide la rama siguiente', async () => {
+  it('🔴 X6.13 · § 11.19 — el mínimo alcanzado ya NO cancela la rama siguiente', async () => {
     const harness = makeHarness([
       successResult(distinct(5, 'a')),
       successResult(distinct(5, 'b')),
@@ -460,9 +460,17 @@ describe('§§ 7, 8 — lo que este PR NO puede degradar', () => {
       providerSeen: providerSeenOption(harness),
     });
 
-    assert.equal(res.usefulCandidatesCount, 5);
-    assert.equal(harness.calls.length, 1, 'una sola petición');
-    assert.equal(res.stopReason, 'target_reached');
+    // 🔴 X6.13 — antes: «una sola petición» y `target_reached`. El objetivo es el
+    // MÍNIMO: una rama con página y reserva disponibles se pide igual, y sus
+    // empresas son tan válidas como las de la primera. Lo que § 11.19 vigila de
+    // verdad —que la memoria de proveedor no decida la compra— sigue exacto: el
+    // gasto lo acota el techo de peticiones, que aquí son 2 ramas × 2 páginas.
+    assert.equal(res.usefulCandidatesCount, 10, 'las diez válidas se conservan');
+    assert.ok(harness.calls.length > 1, 'la segunda rama se pide');
+    assert.ok(
+      (res.providerRequestsUsed ?? 0) <= (res.providerRequestsAllowed ?? 0),
+      'y nunca por encima de lo reservado',
+    );
   });
 });
 
@@ -481,7 +489,10 @@ describe('§ 10 — telemetría de la memoria', () => {
     assert.equal(seen!.rawResults, 5);
     assert.equal(seen!.providerSeenHits, 2);
     assert.equal(seen!.novelAfterProviderSeen, 3);
-    assert.equal(seen!.pageYields.length, 1);
+    // 🔴 X6.13 — la corrida ya no se detiene al cubrir el mínimo, así que puede
+    // pedir su segunda página. Lo que este caso mide —aciertos, novedad y
+    // rendimiento de la PRIMERA página, sin inventar economía— no se mueve.
+    assert.ok(seen!.pageYields.length >= 1);
     assert.equal(seen!.pageYields[0]!.novelUsefulAfterLocalDedupe, 5);
 
     // 🔴 Un acierto NO descarta: las cinco siguen siendo candidatas útiles. La
