@@ -36,6 +36,7 @@ import {
   type ResolvedLushaCandidate,
 } from '@/server/prospect-batches/lusha-pending-review';
 import { evaluateLushaOwnershipEvidence } from '@/server/prospect-batches/lusha-ownership-evidence';
+import { evaluateLushaQualityGate } from '@/server/prospect-batches/lusha-quality-gate';
 import {
   evaluateLushaSurvivorCompleteness,
   resolveLushaRunAcceptanceTruth,
@@ -86,6 +87,9 @@ function resolved(
   return {
     company: target,
     resolution: RESOLUTION,
+    // 🔴 X6.14 — la calidad se evalúa con el MISMO gate que la tubería, no con
+    // un `'pass'` a mano: estas empresas pasan por él igual que en producción.
+    quality: evaluateLushaQualityGate({ name: target.name, domain: target.domain }),
     ...(options.evaluateOwnership
       ? {
           ownership: evaluateLushaOwnershipEvidence({

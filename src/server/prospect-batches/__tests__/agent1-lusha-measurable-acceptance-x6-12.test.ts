@@ -362,6 +362,9 @@ describe('X6.12 § C · subindustria según los criterios originales', () => {
     ownershipGate: 'pass' as const,
     linkedinUrl: LINKEDIN,
     macroIndustryConfirmed: true,
+    // 🔴 X6.14 — el gate de calidad ya no responde `'pass'` fijo; el veredicto
+    // viaja en el superviviente. Esta empresa lo pasó.
+    qualityGate: 'pass' as const,
   };
 
   it('sin subindustria pedida la pregunta NO aplica y la candidata completa', () => {

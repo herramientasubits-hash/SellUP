@@ -88,6 +88,21 @@ export type SurvivorCompletenessInput = {
    * `false` ⇒ `not_confirmed`, que es la postura fail-closed de siempre.
    */
   macroIndustryConfirmed?: boolean;
+  /**
+   * 🔴 X6.14 — el veredicto de `evaluateLushaQualityGate`, con sus TRES valores
+   * y tres significados distintos:
+   *
+   *   · `pass`    — se evaluó y la identidad del registro quedó acreditada.
+   *   · `fail`    — se evaluó y un check con respaldo la rechazó.
+   *   · `unknown` — la pregunta aplica y no se pudo responder. NO es un rechazo
+   *                 y NO es un pase: la condición se declara NO DISPONIBLE, así
+   *                 que la candidata no cuenta pero tampoco se la acusa.
+   *
+   * 🔴 AUSENTE es una cuarta cosa, y la más severa: el gate obligatorio no se
+   * ejecutó. Eso ⇒ `fail`, fail-closed, porque una evaluación que falta no
+   * puede leerse como aprobada.
+   */
+  qualityGate?: 'pass' | 'fail' | 'unknown';
 };
 
 /**
@@ -120,9 +135,22 @@ export const LUSHA_RUN_ACCEPTANCE_FACTS_UNKNOWN: LushaRunAcceptanceFacts = {
  * la aplica `evaluateCandidateTargetEligibility` — la misma función que usa el
  * writer de Apollo.
  *
- * `qualityGate: 'pass'` no es un pase inventado: llegar a esta lista ya exige
- * haber superado la precisión macro y el dedupe exacto, que son los dos gates de
- * calidad que esta ruta ejecuta de verdad.
+ * 🔴 X6.14 — `qualityGate` DEJA DE SER FIJO.
+ *
+ * Hasta este corte valía `'pass'` con esta justificación: «llegar aquí ya exige
+ * precisión macro y dedupe exacto». Eso describe dos gates reales, pero
+ * `quality_gate` en el contrato canónico agrega lo que el writer de Apollo
+ * evalúa —intermediario de contenido, plataforma externa, página de contenido,
+ * encaje de negocio—, y ninguno de ésos se estaba mirando. Declarar `pass` sin
+ * evaluarlos era exactamente lo prohibido: una condición no evaluada no puede
+ * declararse aprobada.
+ *
+ * Ahora lo decide `evaluateLushaQualityGate`, cuyo veredicto viaja en el
+ * superviviente. Ausente ⇒ `fail`, fail-closed, igual que `ownershipGate`.
+ *
+ * 🔴 NO hay paridad completa con Apollo, y la salida del gate lo declara
+ * (`parityComplete: false`): `source_url_quality` no aplica en esta ruta y el
+ * nivel `low` de `business_fit` está pendiente de decisión de producto.
  *
  * 🔴 X6.12 — la subindustria se resuelve con `resolveCandidateSubindustryRequirement`,
  * la MISMA función que usa el writer de Apollo. No se reimplementa la regla: se
@@ -153,10 +181,21 @@ export function evaluateLushaSurvivorCompleteness(
     ownershipGate: survivor.ownershipGate ?? 'fail',
     employeeCountStatus: typeof survivor.employeeCount === 'number' ? 'confirmed' : 'not_returned',
     duplicateStatus: survivor.duplicateStatus,
-    qualityGate: 'pass',
-    unavailableConditions: resolveLushaProspectingEvidenceCapability({
-      subindustryRequested: subindustry.subindustryRequirementApplied,
-    }).unavailableConditions,
+    // 🔴 `unknown` no viaja como veredicto: viaja como condición NO DISPONIBLE
+    // (abajo). Aquí se manda `fail` para que jamás pueda satisfacerse por
+    // accidente; la lista de `unavailableConditions` es la que gana y la que
+    // distingue «no se pudo responder» de «se respondió que no».
+    qualityGate: survivor.qualityGate === 'pass' ? 'pass' : 'fail',
+    unavailableConditions: [
+      ...resolveLushaProspectingEvidenceCapability({
+        subindustryRequested: subindustry.subindustryRequirementApplied,
+      }).unavailableConditions,
+      // 🔴 X6.14 — la única condición NO DISPONIBLE por CANDIDATA, no por
+      // corrida: su identidad no se pudo juzgar. `unavailable` gana a todo en
+      // el contrato, así que esto no aprueba nada; lo que evita es afirmar un
+      // rechazo que nadie midió.
+      ...(survivor.qualityGate === 'unknown' ? (['quality_gate'] as const) : []),
+    ],
   }).completenessVerdict;
 }
 
