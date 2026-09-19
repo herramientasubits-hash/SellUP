@@ -1143,6 +1143,34 @@ export async function runApolloTwoRoundDiscovery(
     typeof input.remainingTarget === 'number' && Number.isFinite(input.remainingTarget)
       ? input.remainingTarget
       : null;
+  /**
+   * 🔴 X6.13 — por qué este recorte SOBREVIVE, y qué dejó de significar.
+   *
+   * El hueco de entrada sigue recortando el objetivo EFECTIVO: con dos empresas
+   * ya aportadas por la capa gratuita, la corrida de Apollo persigue tres. La
+   * tentación de quitarlo con el resto de los topes existe —parece uno más— y
+   * sería un error, porque este número YA NO LIMITA NADA que se pueda cosechar:
+   *
+   *   · ninguna parada lo lee (las de este orquestador, las de la paginación y
+   *     el tope del writer se retiraron en este mismo hito);
+   *   · no gobierna el tamaño de página —el contrato envía siempre 100— ni
+   *     cuántas páginas se autorizan;
+   *   · lo que gobierna es la DEMANDA redactada por ronda y, sobre todo, la
+   *     respuesta a «¿se alcanzó el mínimo de la CORRIDA?».
+   *
+   * Y ahí el recorte es justamente lo veraz. El mínimo es de la corrida entera,
+   * no de Apollo: con 2 gratuitas y objetivo 5, Apollo aporta 3 y el mínimo está
+   * cumplido. Perseguir 5 propias haría que `targetReached`, el estado final y
+   * `apollo-persisted-candidate-truth` reportaran `partial_target_not_reached`
+   * sobre una corrida que SÍ alcanzó el objetivo del usuario.
+   *
+   * 🔴 Y no es un techo de existencia: que la cuenta llegue a 3 no detiene ya la
+   * búsqueda, no descarta lo que sobra y no impide persistir lo que la página
+   * pagada trajo. Eso es exactamente lo que X6.13 cambió.
+   *
+   * 🔴 `config` se deja INTACTO (ver arriba): mutarlo acoplaría la demanda de
+   * resultados con el techo financiero.
+   */
   const targetEligibleCompanies =
     remainingTargetApplied === null
       ? config.targetEligibleCompanies
