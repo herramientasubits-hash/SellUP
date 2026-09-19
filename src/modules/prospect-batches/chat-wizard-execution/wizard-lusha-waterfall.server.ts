@@ -85,6 +85,16 @@ export type LushaWaterfallLegInput = {
   readonly countryCode: string;
   readonly macroIndustryKey: string | null;
   readonly subIndustryId?: number | null;
+  /**
+   * 🔴 X6.12 — las subindustrias que la corrida PIDIÓ, transportadas hasta la
+   * aceptación de la pierna.
+   *
+   * La pierna manda `subIndustryId: null` —las subindustrias de Lusha viajan
+   * dentro de las ramas del plan— y hasta este corte no había ningún otro campo
+   * que dijera qué pidió la persona, así que la condición `subindustry_match` se
+   * resolvía contra una ausencia fabricada. NO cambia la petición al proveedor.
+   */
+  readonly requestedSubindustries?: readonly string[];
   readonly target: number;
   readonly usefulAccumulated: number;
   readonly apolloTerminal: boolean;
@@ -167,6 +177,8 @@ export async function runLushaWaterfallLeg(
       // El enum lo valida la acción; aquí ya se sabe que no es null.
       macroIndustryKey: decision.macroIndustryKey as GenerateLushaPendingReviewBatchInput['macroIndustryKey'],
       subIndustryId: input.subIndustryId ?? null,
+      // 🔴 X6.12 — dato de ACEPTACIÓN, no de búsqueda. Ver la nota del campo.
+      requestedSubindustries: [...(input.requestedSubindustries ?? [])],
       // 🔴 CORTE 5A — la correlación de la corrida, explícita. Sin este bloque la
       // acción vuelve a comportarse como Lusha standalone (lote propio,
       // `wizard_run_id` propio), que es justo lo que el requisito M prohíbe.

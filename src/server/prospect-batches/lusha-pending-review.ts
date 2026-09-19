@@ -143,7 +143,11 @@ import {
   LUSHA_PENDING_REVIEW_MAX_PAGES,
   LUSHA_PENDING_REVIEW_EXPECTED_MAX_CREDITS,
 } from './lusha-pending-review-limits';
-import { resolveLushaRunAcceptanceTruth } from './lusha-run-acceptance-truth';
+import {
+  resolveLushaRunAcceptanceTruth,
+  type LushaRunAcceptanceFacts,
+  type SurvivorCompletenessInput,
+} from './lusha-run-acceptance-truth';
 import {
   LUSHA_RUN_MAX_RAW_RESULTS,
   decideLushaProviderRequest,
@@ -229,6 +233,15 @@ import {
   evaluateLushaCountryGate,
   type LushaCountryRejection,
 } from './lusha-country-gate';
+// 🔴 X6.12 — el veredicto de OWNERSHIP de esta ruta, por la costura de admisión
+// única de X6.10-C. NO bloquea: responde la condición del contrato. Ver la nota
+// de medición en el módulo (X6.4 midió ~15 % de falso positivo del heurístico
+// textual sobre empresas reales, y por eso un rechazo no puede descartar).
+import {
+  evaluateLushaOwnershipEvidence,
+  toLushaOwnershipGateMetadata,
+  type LushaOwnershipEvidence,
+} from './lusha-ownership-evidence';
 
 // ─── Contract constants (see data-contract in migrations 040/045/093) ─────────
 
@@ -370,6 +383,14 @@ export interface ResolvedLushaCandidate {
    * de la ruta legacy, nunca uno que la precisión dejó pasar sin mirar.
    */
   macroPrecision?: LushaMacroPrecisionAssessment;
+  /**
+   * 🔴 X6.12 — el veredicto de ownership con el que esta candidata se juzga.
+   *
+   * Opcional para que las pruebas del constructor de filas sigan compilando;
+   * ausente equivale a «no se evaluó», y el contrato de completitud lo lee como
+   * `fail` — fail-closed, nunca un pase.
+   */
+  ownership?: LushaOwnershipEvidence;
 }
 
 // ─── Excluded exact-duplicate audit detail (Q3F-5BB.7D) ────────────────────────
@@ -468,6 +489,12 @@ export interface LushaPendingReviewCandidateRow {
    */
   employee_count: number | null;
   employee_count_source: string | null;
+  /**
+   * 🔴 X6.12 — columna EXISTENTE (`prospect_candidates.linkedin_url`), nada de
+   * migración. Sólo se escribe cuando `isLinkedInCompanyUrl` acredita la URL que
+   * el proveedor entregó; `null` en cualquier otro caso.
+   */
+  linkedin_url: string | null;
   // Q3F-5BB.10C2 — typed identity columns, populated ONLY on a STRONG official-source
   // match (else null). Columns already exist on prospect_candidates (migrations
   // 040/045); no migration is added here. `identity_key` is deliberately NOT touched.
@@ -1900,12 +1927,42 @@ export function buildLushaValidationMetadata(
   return validation;
 }
 
+/**
+ * 🔴 X6.12 — la ÚNICA proyección de un superviviente a la entrada del contrato
+ * de completitud.
+ *
+ * Existe como función con nombre —y no como un objeto literal en cada punto de
+ * uso— porque la aceptación se resuelve dos veces por corrida: antes de escribir
+ * (metadata del lote, que se escribe cuando las filas todavía no existen) y
+ * DESPUÉS de escribir (la verdad final del writer). Dos literales serían dos
+ * definiciones de «completa» capaces de separarse, que es el defecto que CUT-7 y
+ * X5.1 llevan dos cortes cerrando.
+ *
+ * 🔴 `linkedinUrl` se ACREDITA aquí con el mismo predicado con el que la fila la
+ * persiste (`isLinkedInCompanyUrl`). Una URL que la fila no guardaría no puede
+ * satisfacer la condición.
+ */
+export function toLushaSurvivorCompletenessInput(
+  entry: ResolvedLushaCandidate,
+): SurvivorCompletenessInput {
+  return {
+    employeeCount:
+      typeof entry.company.employeesExact === 'number' ? entry.company.employeesExact : null,
+    duplicateStatus: entry.resolution.dbDuplicateStatus,
+    ownershipGate: entry.ownership?.gateVerdict ?? 'fail',
+    linkedinUrl: isLinkedInCompanyUrl(entry.company.linkedinUrl)
+      ? entry.company.linkedinUrl
+      : null,
+    macroIndustryConfirmed: entry.macroPrecision?.verdict === 'confirmed',
+  };
+}
+
 /** Build candidate insert rows from resolved companies (post duplicate parity). */
 export function buildLushaPendingReviewCandidateRows(
   batchId: string,
   resolved: ResolvedLushaCandidate[],
 ): LushaPendingReviewCandidateRow[] {
-  return resolved.map(({ company, resolution, enriched, gateWarnings, branchProvenance, macroPrecision }) => {
+  return resolved.map(({ company, resolution, enriched, gateWarnings, branchProvenance, macroPrecision, ownership }) => {
     // Typed identity columns — filled ONLY on a STRONG official-source match.
     const typedColumns = enriched
       ? buildOfficialSourceTypedColumns(enriched)
@@ -1923,6 +1980,16 @@ export function buildLushaPendingReviewCandidateRows(
     company_size: employeesLabel(company),
     // § 12 — la columna tipada, no sólo la etiqueta de texto.
     employee_count: typeof company.employeesExact === 'number' ? company.employeesExact : null,
+    // 🔴 X6.12 — la COLUMNA, no sólo la metadata. La ficha de revisión y el
+    // contrato de completitud leen sitios distintos, y hasta este corte esta
+    // ruta llenaba únicamente el segundo: la evidencia existía
+    // (`metadata.linkedin_enrichment.status = 'found'` en 8 de 8 filas del lote
+    // `bedebe9b`) y la columna quedaba vacía, así que `linkedin_status` se
+    // declaraba NO DISPONIBLE por un defecto de transporte.
+    //
+    // Se acredita con el MISMO predicado que decide el bloque de metadata: una
+    // URL que no sea página de empresa no se escribe, jamás se fabrica.
+    linkedin_url: isLinkedInCompanyUrl(company.linkedinUrl) ? company.linkedinUrl : null,
     employee_count_source:
       typeof company.employeesExact === 'number' ? LUSHA_PENDING_REVIEW_PROVIDER : null,
     // Strong official-source identity (or nulls) — Q3F-5BB.10C2.
@@ -1987,6 +2054,11 @@ export function buildLushaPendingReviewCandidateRows(
       // (`getIcpSizeGateUiState`). Sin él el candidato salía como «Sin evaluación
       // de tamaño» aunque el proveedor hubiera entregado el conteo exacto.
       icp_size_gate: buildLushaIcpSizeGate(company),
+      // 🔴 X6.12 — el veredicto de ownership con el que esta candidata se juzgó,
+      // acotado y sin PII. `blocks_persistence: false` va en la fila a propósito:
+      // el rechazo NO descarta en esta ruta, y quien audite la fila tiene que
+      // poder leerlo sin abrir el código.
+      ...(ownership ? { ownership_gate: toLushaOwnershipGateMetadata(ownership) } : {}),
       // §§ 5/7 — por qué este candidato cuenta como de la macro pedida, y qué
       // rama lo trajo. Ids y códigos: sin payload del proveedor y sin PII.
       ...(macroPrecision ? { macro_precision: toLushaMacroPrecisionMetadata(macroPrecision) } : {}),
@@ -2285,7 +2357,21 @@ export async function resolveLushaCandidatesDuplicateState(
       buildLushaDuplicateCheckInput(company, input, enriched),
     );
     const resolution = resolveLushaCandidateDuplicateState(dupResult, guardMatch);
-    resolved.push({ company, resolution, enriched, gateWarnings: gateResult.warnings });
+    // 🔴 X6.12 — el ownership se evalúa AQUÍ, sobre la misma empresa que acaba
+    // de pasar los gates obligatorios, y NO decide si se persiste: alimenta la
+    // condición `ownership_gate` del contrato canónico y queda en la fila.
+    const ownership = evaluateLushaOwnershipEvidence({
+      name: company.name,
+      domain: company.domain,
+      linkedinUrl: company.linkedinUrl,
+    });
+    resolved.push({
+      company,
+      resolution,
+      enriched,
+      gateWarnings: gateResult.warnings,
+      ownership,
+    });
   }
 
   return {
@@ -2327,6 +2413,20 @@ export interface LushaMultiBranchExecution {
    * `resolveLushaTargetGap`.
    */
   targetGap?: number | null;
+  /**
+   * 🔴 X6.12 — las subindustrias que la búsqueda PIDIÓ, transportadas desde los
+   * criterios originales.
+   *
+   * Es un dato de ACEPTACIÓN, no de petición: NO entra en ninguna llamada al
+   * proveedor, no altera el plan de ramas y no cambia ni una página de gasto.
+   * Existe porque hasta este corte se perdía en el transporte —el puente del
+   * wizard manda `subIndustryId: null` de forma fija— y sin él la condición
+   * `subindustry_match` se resolvía contra una ausencia fabricada en vez de
+   * contra lo que la persona pidió.
+   *
+   * Vacío/ausente ⇒ no se pidió ninguna, y la condición NO aplica.
+   */
+  requestedSubindustries?: readonly (string | null | undefined)[] | null;
   /** Sólo telemetría: cuánto reservó el llamador, para que el lote lo registre. */
   creditsReserved?: number | null;
   /**
@@ -3292,12 +3392,12 @@ export async function persistLushaPendingReviewBatch(
   // 🔴 X5.1 — la costura única, evaluada sobre los supervivientes ya admitidos.
   // La metadata del lote (pre-inserción) y la fila de uso (post-inserción) leen
   // de AQUÍ; ninguna vuelve a escribir su propia expresión.
+  const acceptanceFacts: LushaRunAcceptanceFacts = {
+    requestedSubindustries: execution?.requestedSubindustries ?? [],
+  };
   const acceptanceTruthPreWrite = resolveLushaRunAcceptanceTruth(
-    useful.map((entry) => ({
-      employeeCount:
-        typeof entry.company.employeesExact === 'number' ? entry.company.employeesExact : null,
-      duplicateStatus: entry.resolution.dbDuplicateStatus,
-    })),
+    useful.map(toLushaSurvivorCompletenessInput),
+    acceptanceFacts,
   );
   // 🔴 X5.1 — el hueco de COMPRA se cierra con `purchaseCredit`, que es el
   // RENDIMIENTO de lo pagado: cuántas empresas útiles trajo. No depende de la
@@ -3735,6 +3835,29 @@ export async function persistLushaPendingReviewBatch(
   // aquí sería reabrir la puerta a dos expresiones para un mismo nombre, que es
   // exactamente el defecto que este corte cierra.
   const survivorsPersisted = Math.min(insertedCount, useful.length);
+  /**
+   * 🔴 X6.12 — LA VERDAD FINAL DEL WRITER.
+   *
+   * Hasta este corte la aceptación publicada era la evaluación PRE-escritura
+   * recortada con `Math.min(…, survivorsPersisted)`. Ese `min` es una cota, no
+   * una medición: no sabe CUÁLES filas existen, sólo cuántas, y con una
+   * escritura parcial podía acreditar como completas a candidatas que no se
+   * escribieron.
+   *
+   * Ahora la aceptación final se RE-EVALÚA sobre la lista que el writer escribió
+   * —las mismas filas, el mismo proyector, la misma regla— y sólo cuando la base
+   * confirmó TODAS. La escritura de esta ruta es todo-o-nada dentro de una
+   * transacción vallada, así que ése es el caso normal.
+   *
+   * 🔴 Si la base confirmara MENOS filas de las que se le entregaron, no se
+   * adivina cuáles sobrevivieron: se conserva la cota de X5.1 (fail-closed) y la
+   * discrepancia queda declarada en la telemetría. Inventar un subconjunto sería
+   * exactamente la clase de afirmación que este corte existe para no hacer.
+   */
+  const writerRowsFullyPersisted = insertedCount >= useful.length;
+  const acceptanceTruthFinal = writerRowsFullyPersisted
+    ? resolveLushaRunAcceptanceTruth(useful.map(toLushaSurvivorCompletenessInput), acceptanceFacts)
+    : acceptanceTruthPreWrite;
   const remainingGapPersisted = resolveLushaRemainingGap(targetGap, survivorsPersisted);
   // Mismo principio que arriba: `target_reached` con hueco abierto es imposible.
   // Aquí la causa no es la deduplicación sino la escritura, y se nombra distinto.
@@ -3755,9 +3878,9 @@ export async function persistLushaPendingReviewBatch(
     // otro operando, que ya no es un conteo de filas sino el veredicto de
     // completitud del contrato canónico.
     acceptedForTargetTotal:
-      acceptanceTruthPreWrite.acceptedForTarget === null
+      acceptanceTruthFinal.acceptedForTarget === null
         ? null
-        : Math.min(acceptanceTruthPreWrite.acceptedForTarget, survivorsPersisted),
+        : Math.min(acceptanceTruthFinal.acceptedForTarget, survivorsPersisted),
     remainingGapFinal: remainingGapPersisted,
     stopReason: stopReasonPersisted,
   };
@@ -3802,14 +3925,17 @@ export async function persistLushaPendingReviewBatch(
           // `paidAcceptedContributionFromWriterTruth` ya sabe leerlo y produce
           // `{ measured: false, reason: 'acceptance_not_measured' }`. Un `0`
           // aquí afirmaría haber medido, y no medimos.
-          completeValidCandidates: acceptanceTruthPreWrite.acceptanceMeasurable
-            ? Math.min(acceptanceTruthPreWrite.complete, insertedCount)
+          // 🔴 X6.12 — la publicación durable lee la verdad FINAL del writer, la
+          // misma que el llamador recibe. Dos cifras bajo el mismo nombre —una
+          // en la base y otra en la respuesta— es el defecto que CUT-9B cerró.
+          completeValidCandidates: acceptanceTruthFinal.acceptanceMeasurable
+            ? Math.min(acceptanceTruthFinal.complete, insertedCount)
             : null,
           // Ahora SÍ se distingue, y por eso deja de ser `null`: la suma
           // `incomplete + unknown` es exactamente la cohorte de revisión, y las
           // dos poblaciones viajan separadas en la telemetría de la corrida.
           reviewOnlyCandidates:
-            acceptanceTruthPreWrite.incomplete + acceptanceTruthPreWrite.unknown,
+            acceptanceTruthFinal.incomplete + acceptanceTruthFinal.unknown,
         }),
       });
     } catch {

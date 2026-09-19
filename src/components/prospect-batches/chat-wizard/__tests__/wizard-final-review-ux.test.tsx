@@ -178,6 +178,7 @@ const LUSHA_DECISION: WizardLushaCriteriaDecision = {
     countryCode: 'CO',
     macroIndustryKey: 'technology',
     subIndustryId: null,
+    requestedSubindustries: [],
     sizeBandKey: '201-5000',
     searchText: CRITERIA_TEXT,
   },

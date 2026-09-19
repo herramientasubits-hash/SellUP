@@ -538,17 +538,12 @@ describe('CUT-3B23 REVIEW-FIX § 1 — residual y motivo de parada POST-admisió
     );
 
     assert.equal(result.ok, true);
-    // 🔴 SUPERSEDED — AGENT1-LUSHA-TARGET-ACCEPTANCE-X5.1.
-    //
-    // Este assert decía `acceptedForTargetTotal === 1`, es decir: la aceptación
-    // era el CONTEO DE FILAS que sobrevivió a la admisión. X5.1 cambia esa
-    // semántica a propósito — aceptar es satisfacer CUT-7, y Lusha no puede
-    // demostrarlo porque declara `subindustry_match`, `linkedin_status` y
-    // `ownership_gate` como NO DISPONIBLES.
-    //
-    // La aceptación pasa a ser NO MEDIDA. Y `null` no es `0`: no decimos «ninguna
-    // cumplió», decimos «no es posible medirlo con esta evidencia».
-    assert.equal(result.multiBranch?.acceptedForTargetTotal, null);
+    // 🔴 X5.1 + X6.12 — aceptar sigue siendo satisfacer CUT-7, NUNCA el conteo
+    // de filas que sobrevivió a la admisión (este assert decía `1`). Lo que X6.12
+    // cambia es que la pregunta YA tiene respuesta: vale `0` —medido— porque
+    // estas empresas de fixture no traen la evidencia que completa, y no `null`,
+    // que significaba «no se puede medir».
+    assert.equal(result.multiBranch?.acceptedForTargetTotal, 0);
     // …y el hueco residual FINAL lo dice, en vez de heredar el pre-admisión.
     assert.equal(result.remainingGapFinal, 1);
     assert.equal(result.multiBranch?.remainingGapFinal, 1);
@@ -574,8 +569,8 @@ describe('CUT-3B23 REVIEW-FIX § 1 — residual y motivo de parada POST-admisió
       { targetGap: 2 },
     );
 
-    // 🔴 SUPERSEDED — la aceptación de Lusha es NO MEDIDA (ver arriba).
-    assert.equal(result.multiBranch?.acceptedForTargetTotal, null);
+    // 🔴 X6.12 — medida, y cero por falta de evidencia en la fixture (ver arriba).
+    assert.equal(result.multiBranch?.acceptedForTargetTotal, 0);
     // 🔴 PRESERVED — y lo que este control existe para fijar sigue exacto: el
     // hueco se cierra, la corrida para por objetivo, y el GASTO es idéntico al
     // del caso con duplicado. Esa es la propiedad, y no se mueve.
@@ -602,8 +597,9 @@ describe('CUT-3B23 REVIEW-FIX § 1 — residual y motivo de parada POST-admisió
     assert.equal(result.insertedCandidatesCount, 1);
     // 🔴 SUPERSEDED — X5.1. «Lo escrito, no lo admitido» era la regla de la
     // ACEPTACIÓN, y la aceptación ya no es un conteo de filas. La aceptación de
-    // Lusha es NO MEDIDA porque el proveedor no puede satisfacer CUT-7.
-    assert.equal(result.multiBranch?.acceptedForTargetTotal, null);
+    // 🔴 X6.12 — medida y cero: la fixture no trae la evidencia que completa, y
+    // la aceptación nunca puede seguir a las filas admitidas de más.
+    assert.equal(result.multiBranch?.acceptedForTargetTotal, 0);
     // 🔴 PRESERVED — y la propiedad que este § 3 existe para fijar sigue exacta,
     // sólo que sobre la cifra que de verdad la expresa: el hueco y las métricas
     // de identidad se deciden con lo ESCRITO (1), no con lo admitido (2).

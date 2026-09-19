@@ -53,10 +53,37 @@ import {
 
 // ─── Arnés ────────────────────────────────────────────────────────────────────
 
-/** Superviviente en el MEJOR caso que Lusha puede entregar. */
+/**
+ * Superviviente en el MEJOR caso que Lusha puede entregar.
+ *
+ * 🔴 X6.12 — ese «mejor caso» CAMBIÓ: la ruta ya evalúa ownership y ya persiste
+ * la URL de LinkedIn acreditada, así que una candidata con las dos evidencias y
+ * la macro confirmada cumple las siete condiciones. El superviviente de antes de
+ * X6.12 —sin ninguna de las tres— sigue disponible como `survivorWithoutEvidence`.
+ */
 function survivor(overrides: Partial<SurvivorCompletenessInput> = {}): SurvivorCompletenessInput {
+  return {
+    employeeCount: 250,
+    duplicateStatus: 'no_match',
+    ownershipGate: 'pass',
+    linkedinUrl: 'https://www.linkedin.com/company/acme-co',
+    macroIndustryConfirmed: true,
+    ...overrides,
+  };
+}
+
+/** El superviviente tal como esta ruta lo producía ANTES de X6.12. */
+function survivorWithoutEvidence(
+  overrides: Partial<SurvivorCompletenessInput> = {},
+): SurvivorCompletenessInput {
   return { employeeCount: 250, duplicateStatus: 'no_match', ...overrides };
 }
+
+/**
+ * 🔴 X6.12 — los hechos de una corrida que SÍ pidió subindustria, que es el
+ * único caso en el que a esta ruta le sigue faltando una condición.
+ */
+const SUBINDUSTRY_REQUESTED = { requestedSubindustries: ['Retail Pharmacy'] } as const;
 
 function survivors(count: number, overrides: Partial<SurvivorCompletenessInput> = {}) {
   return Array.from({ length: count }, () => survivor(overrides));
@@ -81,14 +108,25 @@ describe('X5.1 § A · el objetivo no limita supervivientes', () => {
   });
 
   test('9 · `purchaseCredit` ES `survivors`, sea cual sea la completitud', () => {
-    // Mezcla deliberada: unos con empleados (unknown) y otros sin (incomplete).
+    // Mezcla deliberada: unos con subindustria pedida y sin respuesta (unknown)
+    // y otros sin empleados (incomplete). 🔴 X6.12 — el hueco que produce
+    // `unknown` ya no es constante del proveedor: es la subindustria PEDIDA.
     const mixed = [...survivors(25), ...survivors(15, { employeeCount: null })];
-    const truth = resolveLushaRunAcceptanceTruth(mixed);
+    const truth = resolveLushaRunAcceptanceTruth(mixed, SUBINDUSTRY_REQUESTED);
 
     assert.equal(truth.purchaseCredit, truth.survivors);
     assert.equal(truth.purchaseCredit, 40);
     assert.equal(truth.unknown, 25);
     assert.equal(truth.incomplete, 15);
+  });
+
+  test('🔴 X6.12 · sin subindustria pedida, el mejor caso de Lusha SÍ completa', () => {
+    const truth = resolveLushaRunAcceptanceTruth(survivors(40));
+
+    assert.equal(truth.survivors, 40, 'el universo no se recorta, como siempre');
+    assert.equal(truth.complete, 40);
+    assert.equal(truth.acceptanceMeasurable, true);
+    assert.equal(truth.acceptedForTarget, 40, '🔴 el objetivo NO acota aquí: eso es aguas abajo');
   });
 
   test('invariante · survivors = complete + incomplete + unknown', () => {
@@ -131,7 +169,9 @@ describe('X5.1 § A · el objetivo no limita supervivientes', () => {
 
 describe('X5.1 § B · el veredicto ternario', () => {
   test('4/5/18 · UNKNOWN no es INCOMPLETE, no es COMPLETE y no es rechazo', () => {
-    const verdict = evaluateLushaSurvivorCompleteness(survivor());
+    // 🔴 X6.12 — el `unknown` de esta ruta lo produce ahora la subindustria
+    // PEDIDA y sin respuesta, no una constante del proveedor.
+    const verdict = evaluateLushaSurvivorCompleteness(survivor(), SUBINDUSTRY_REQUESTED);
 
     assert.equal(verdict, 'unknown');
     assert.notEqual(verdict, 'incomplete');
@@ -205,7 +245,23 @@ describe('X5.1 § B · el veredicto ternario', () => {
     // Sin empleados (condición evaluable que falla) Y con la subindustria no
     // disponible. El dato que falta ya la descalifica: es INCOMPLETE.
     assert.equal(
-      evaluateLushaSurvivorCompleteness(survivor({ employeeCount: null })),
+      evaluateLushaSurvivorCompleteness(survivor({ employeeCount: null }), SUBINDUSTRY_REQUESTED),
+      'incomplete',
+    );
+  });
+
+  test('🔴 X6.12 · las tres evidencias nuevas fallan CERRADO, nunca abierto', () => {
+    // Ausentes las tres —el superviviente de antes de X6.12— el ownership se
+    // lee `fail` y el LinkedIn `not_returned`: condiciones EVALUADAS que fallan.
+    assert.equal(evaluateLushaSurvivorCompleteness(survivorWithoutEvidence()), 'incomplete');
+    // Y cada una por su cuenta descalifica.
+    assert.equal(
+      evaluateLushaSurvivorCompleteness(survivor({ ownershipGate: 'fail' })),
+      'incomplete',
+    );
+    assert.equal(evaluateLushaSurvivorCompleteness(survivor({ linkedinUrl: null })), 'incomplete');
+    assert.equal(
+      evaluateLushaSurvivorCompleteness(survivor({ macroIndustryConfirmed: false })),
       'incomplete',
     );
   });
@@ -243,8 +299,8 @@ describe('X5.1 § B · el veredicto ternario', () => {
 // ══ C · ACEPTACIÓN NO MEDIDA ════════════════════════════════════════════════
 
 describe('X5.1 § C · UNMEASURED no es cero', () => {
-  test('1/2 · Lusha no puede medir aceptación ⇒ `null`, nunca un 0 medido', () => {
-    const truth = resolveLushaRunAcceptanceTruth(survivors(40));
+  test('1/2 · con subindustria PEDIDA la aceptación no se puede medir ⇒ `null`', () => {
+    const truth = resolveLushaRunAcceptanceTruth(survivors(40), SUBINDUSTRY_REQUESTED);
 
     assert.equal(truth.acceptanceMeasurable, false);
     assert.equal(truth.acceptedForTarget, null);
@@ -252,7 +308,7 @@ describe('X5.1 § C · UNMEASURED no es cero', () => {
   });
 
   test('3/7 · el vocabulario `acceptance_not_measured` se conserva hasta el aporte', () => {
-    const truth = resolveLushaRunAcceptanceTruth(survivors(40));
+    const truth = resolveLushaRunAcceptanceTruth(survivors(40), SUBINDUSTRY_REQUESTED);
     const contribution = paidAcceptedContributionFromWriterTruth({
       completeValidCandidates: truth.acceptedForTarget,
       persistedCandidates: 40,
@@ -350,8 +406,13 @@ describe('X5.1 § C · UNMEASURED no es cero', () => {
     });
     assert.equal(ignoringCapability.completenessVerdict, 'incomplete');
 
-    // Declarándola, las mismas tres son huecos y el veredicto es UNKNOWN.
-    assert.equal(evaluateLushaSurvivorCompleteness(survivor()), 'unknown');
+    // Declarándola, la condición sin respuesta es un hueco y el veredicto es
+    // UNKNOWN. 🔴 X6.12 — la capacidad ya no es una constante: se RESUELVE con
+    // los hechos de la corrida, y por eso el caso vive donde el hueco existe.
+    assert.equal(
+      evaluateLushaSurvivorCompleteness(survivor(), SUBINDUSTRY_REQUESTED),
+      'unknown',
+    );
   });
 });
 
@@ -377,7 +438,7 @@ describe('X5.1 § D · la compra no mira la aceptación', () => {
   });
 
   test('8/15 · UNMEASURED no abre compra: el hueco se cierra con supervivientes', () => {
-    const truth = resolveLushaRunAcceptanceTruth(survivors(40));
+    const truth = resolveLushaRunAcceptanceTruth(survivors(40), SUBINDUSTRY_REQUESTED);
     assert.equal(truth.acceptedForTarget, null, 'no medida…');
 
     // …y aun así el hueco está cerrado, porque lo cierra `purchaseCredit`.
@@ -395,10 +456,26 @@ describe('X5.1 § D · la compra no mira la aceptación', () => {
   });
 
   test('🔴 M15 · UNKNOWN tampoco abre compra: 40 unknown cierran un hueco de 5', () => {
-    const truth = resolveLushaRunAcceptanceTruth(survivors(40));
+    const truth = resolveLushaRunAcceptanceTruth(survivors(40), SUBINDUSTRY_REQUESTED);
     assert.equal(truth.unknown, 40);
     assert.equal(truth.complete, 0);
     assert.equal(resolveLushaRemainingGap(5, truth.purchaseCredit), 0);
+  });
+
+  test('🔴 X6.12 · tampoco al revés: 40 COMPLETAS no compran más que 40 unknown', () => {
+    // La compra se cierra con supervivientes, y eso no cambia porque ahora las
+    // candidatas SÍ puedan completar. Si la aceptación entrara aquí, este par
+    // de corridas pediría un número distinto de páginas.
+    const measured = resolveLushaRunAcceptanceTruth(survivors(40));
+    const unmeasured = resolveLushaRunAcceptanceTruth(survivors(40), SUBINDUSTRY_REQUESTED);
+
+    assert.equal(measured.complete, 40);
+    assert.equal(unmeasured.complete, 0);
+    assert.equal(measured.purchaseCredit, unmeasured.purchaseCredit);
+    assert.equal(
+      resolveLushaRemainingGap(5, measured.purchaseCredit),
+      resolveLushaRemainingGap(5, unmeasured.purchaseCredit),
+    );
   });
 
   test('17 · quitar el cap NO aumenta páginas: cierra el hueco ANTES, no después', () => {
@@ -427,13 +504,33 @@ describe('X5.1 § D · la compra no mira la aceptación', () => {
 // ══ E · CONTABILIDAD: UNA FUENTE, UNA EXPRESIÓN ═════════════════════════════
 
 describe('X5.1 § E · metadata y usage log leen lo mismo', () => {
-  test('15 · el ejecutor evalúa la aceptación UNA sola vez', () => {
+  test('15 · el ejecutor evalúa la aceptación con UNA sola definición', () => {
     const source = executorSourceWithoutComments();
     const evaluations = source.match(/resolveLushaRunAcceptanceTruth\(/g) ?? [];
+
+    // 🔴 X6.12 — el ejecutor evalúa DOS veces a propósito: antes de escribir
+    // (la metadata del lote se escribe cuando las filas todavía no existen) y
+    // después, sobre lo que el writer confirmó. Lo que M14-contabilidad prohíbe
+    // no es evaluar dos veces: es que existan dos DEFINICIONES de «completa».
+    assert.ok(
+      evaluations.length >= 1 && evaluations.length <= 2,
+      `🔴 a lo sumo dos evaluaciones —pre y post escritura—; hubo ${evaluations.length}`,
+    );
+
+    // La invariante de verdad: las dos leen el MISMO proyector y los MISMOS
+    // hechos. Con una sola proyección no puede haber dos veredictos distintos
+    // para la misma candidata.
+    const projections = source.match(/toLushaSurvivorCompletenessInput/g) ?? [];
     assert.equal(
-      evaluations.length,
-      1,
-      `🔴 M14-contabilidad · dos evaluaciones son dos verdades; hubo ${evaluations.length}`,
+      projections.length,
+      evaluations.length + 1,
+      '🔴 cada evaluación proyecta con el ÚNICO proyector (+1 por su declaración)',
+    );
+    const facts = source.match(/acceptanceFacts/g) ?? [];
+    assert.equal(
+      facts.length,
+      evaluations.length + 1,
+      '🔴 y con los MISMOS hechos de corrida (+1 por su declaración)',
     );
   });
 

@@ -475,8 +475,12 @@ test('§ I-A — el núcleo REAL deja el bloque DURABLE en el lote canónico (ob
     persisted_free_candidates: 2,
     persisted_paid_candidates: 3,
     persisted_total_candidates: 5,
-    paid_acceptance_measured: false,
-    acceptance_unknown_reasons: ['acceptance_not_measured'],
+    // 🔴 X6.12 — la mitad de pago YA se mide: sin subindustria pedida las siete
+    // condiciones son contestables. Las tres filas de pago no completan porque
+    // el escenario las trae sin LinkedIn ni ownership acreditado, así que el
+    // aporte pagado es CERO medido y el total lo pone la capa gratuita.
+    paid_acceptance_measured: true,
+    acceptance_unknown_reasons: [],
   });
 
   // El lote durable es el CANÓNICO, y es el ÚNICO que se toca.
@@ -810,23 +814,25 @@ test('§ G — el núcleo proyecta `persistedForTarget` RECONCILIADO, no `useful
   // siguen fijadas aquí, y `persistedCandidates: 2` lo demuestra: la base
   // confirmó 2 de las 6 intentadas.
   assert.equal(seen.projected.length, 1, 'el proyector se invocó más de una vez por corrida');
-  // 🔴 SUPERSEDED — `completeValidCandidates` era ese mismo conteo de filas. Ya
-  // no: es el veredicto del contrato canónico, y Lusha no puede emitirlo.
-  // `reviewOnlyCandidates` deja de ser `null` porque AHORA sí se distingue
-  // —`incomplete + unknown`— que era justo lo que faltaba medir.
+  // 🔴 X6.12 — `completeValidCandidates` sigue sin ser un conteo de filas: es el
+  // veredicto del contrato canónico, que esta ruta YA puede emitir. Vale cero
+  // —medido— porque ninguna de las dos filas trae la evidencia que completa.
+  // `reviewOnlyCandidates` distingue `incomplete + unknown`, como desde X5.1.
   assert.deepEqual(seen.projected[0], {
     persistedCandidates: 2,
-    completeValidCandidates: null,
+    completeValidCandidates: 0,
     reviewOnlyCandidates: 3,
   });
   // La misma cifra que la telemetría publica, y la misma que la acción consume.
-  assert.equal(result.multiBranch?.acceptedForTargetTotal, null);
+  assert.equal(result.multiBranch?.acceptedForTargetTotal, 0);
   assert.equal(result.insertedCandidatesCount, 2);
 
   const block = acceptedBlock(db.metadataOf(BATCH_ID));
-  // 🔴 SUPERSEDED — la aceptación de pago ya no es el conteo de filas.
+  // 🔴 X6.12 — la aceptación de pago sigue sin ser el conteo de filas, y ahora
+  // además está MEDIDA: cero de dos, porque ninguna trae la evidencia que
+  // completa. `false` afirmaría que no se pudo medir, y sí se pudo.
   assert.equal(block?.accepted_paid_for_target, 0);
-  assert.equal(block?.paid_acceptance_measured, false);
+  assert.equal(block?.paid_acceptance_measured, true);
   // 🔴 PRESERVED — y las FILAS durables siguen siendo exactamente las que la
   // base confirmó. Ése es el universo que CUT-9B protege, y no se toca.
   assert.equal(block?.persisted_paid_candidates, 2);
@@ -856,11 +862,12 @@ test('§ G — si la base confirmara MÁS filas que útiles, la aceptación NO l
   });
 
   assert.equal(result.insertedCandidatesCount, 4, 'la corrida no reprodujo el desajuste');
-  // 🔴 SUPERSEDED — `completeValidCandidates` era el conteo de filas acotado; hoy
-  // es el veredicto del contrato canónico, que Lusha no puede emitir.
+  // 🔴 X6.12 — el veredicto del contrato canónico, ya emitible por esta ruta y
+  // cero por falta de evidencia en el escenario. Lo que NO cambia es que la
+  // aceptación jamás sigue a unas filas que la base dice haber escrito de más.
   assert.deepEqual(seen.projected[0], {
     persistedCandidates: 4,
-    completeValidCandidates: null,
+    completeValidCandidates: 0,
     reviewOnlyCandidates: 2,
   });
 
@@ -870,7 +877,9 @@ test('§ G — si la base confirmara MÁS filas que útiles, la aceptación NO l
   // (no hay forma de que `insertedCount` se cuele como aceptación), y además se
   // declara explícitamente NO MEDIDA en vez de fingir un número.
   assert.equal(block?.accepted_paid_for_target, 0, 'la aceptación siguió a las filas');
-  assert.equal(block?.paid_acceptance_measured, false);
+  // 🔴 X6.12 — medida y cero, no «no medida». El desajuste se sigue cazando por
+  // la vía que importa: la aceptación no puede seguir a las filas de más.
+  assert.equal(block?.paid_acceptance_measured, true);
   assert.notEqual(block?.accepted_paid_for_target, 4, 'una fila de más no fabrica una aceptada');
   assert.equal(block?.accepted_for_target_total, 0);
   // 🔴 PRESERVED — y las filas durables se reportan enteras, sin recortarse.

@@ -501,10 +501,11 @@ describe('§ 9 — el objetivo se cumple EXACTAMENTE', () => {
     return run([page], healthPharmaExecution(5)).then(({ res, batches }) => {
       const multi = (batches[0].metadata as { multi_branch: Record<string, unknown> }).multi_branch;
       assert.equal(multi.target_gap, 5, 'el objetivo NO cambia, sólo deja de recortar');
-      // 🔴 SUPERSEDED — la aceptación de Lusha es NO MEDIDA (X5.1): el proveedor
-      // no puede satisfacer CUT-7, así que publicar un número sería afirmar una
-      // medición inexistente.
-      assert.equal(multi.accepted_for_target_total, null);
+      // 🔴 X6.12 — la aceptación de esta corrida SÍ se mide: no se pidió
+      // subindustria, así que las siete condiciones son contestables. Vale CERO
+      // porque estas empresas de fixture llegan sin LinkedIn ni ownership
+      // acreditado — un cero MEDIDO, que es un estado distinto de `null`.
+      assert.equal(multi.accepted_for_target_total, 0);
       // 🔴 PRESERVED — los otros dos desenlaces que este caso publica siguen
       // exactos: siete revisables encontrados y tres rechazados por PRECISIÓN
       // MACRO, que es un gate obligatorio y no se ha tocado.
