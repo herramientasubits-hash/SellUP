@@ -1,9 +1,14 @@
 'use client';
 
 import * as React from 'react';
-import { Building2, Globe, ShieldCheck, ExternalLink, Link2 } from 'lucide-react';
+import { Building2, Globe, ShieldCheck, ExternalLink, Link2, AlertTriangle } from 'lucide-react';
 import { getCandidateLinkedInDisplay } from '@/modules/prospect-batches/candidate-linkedin-url';
 import { Badge } from '@/components/ui/badge';
+import {
+  hasOwnershipUnverifiedFlag,
+  OWNERSHIP_UNVERIFIED_DETAIL,
+  OWNERSHIP_UNVERIFIED_LABEL,
+} from '@/modules/prospect-batches/ownership-review-flag';
 import {
   Dialog,
   DialogContent,
@@ -482,6 +487,21 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                             {VENDOR_STRUCTURED_SOURCE_LABELS[c.source_primary ?? ''] ?? 'Fuente oficial'}
                           </Badge>
                         ) : null}
+                        {/*
+                          🔴 VISIBILIDAD DE OWNERSHIP (opción C) — la cola dice lo
+                          que la ficha explica. Ámbar: no se pudo verificar, que
+                          NO es lo mismo que «dominio incorrecto».
+                        */}
+                        {hasOwnershipUnverifiedFlag(c.review_flags) && (
+                          <Badge
+                            data-testid="ownership-unverified-badge"
+                            title={OWNERSHIP_UNVERIFIED_DETAIL}
+                            className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[9px] font-semibold flex items-center gap-0.5 px-1.5 py-0.5 shrink-0 cursor-help"
+                          >
+                            <AlertTriangle className="h-2.5 w-2.5" />
+                            {OWNERSHIP_UNVERIFIED_LABEL}
+                          </Badge>
+                        )}
                       </div>
 
                       {location && (

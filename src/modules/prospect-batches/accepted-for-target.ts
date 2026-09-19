@@ -100,7 +100,26 @@ export type AcceptanceUnknownReason =
  * `aceptadas <= persistidas` en el único sitio donde se combina todo.
  */
 export type AcceptedContribution =
-  | { measured: true; acceptedForTarget: number; persistedCandidates: number }
+  | {
+      measured: true;
+      acceptedForTarget: number;
+      persistedCandidates: number;
+      /**
+       * 🔴 X6.13 — la IDENTIDAD DURABLE de cada candidata que este aporte
+       * declara aceptada.
+       *
+       * Existe porque el techo de filas NO basta: con ocho filas de las que
+       * sólo cinco cumplen el contrato, un aporte que vuelva a incluir tres de
+       * esas cinco suma ocho, y ocho ≤ ocho. El techo no puede verlo; la
+       * identidad sí.
+       *
+       * Cadenas OPACAS y con ESPACIO DE NOMBRES (`candidate:<uuid>`,
+       * `lusha:<identity_key>`): dos escritores distintos no comparten formato
+       * de id, y conflatarlos inventaría coincidencias. Ausente ⇒ el aporte se
+       * suma por su cuenta, que es el comportamiento anterior a este corte.
+       */
+      acceptedIdentities?: readonly string[];
+    }
   | {
       measured: false;
       reason: AcceptanceUnknownReason;
@@ -126,6 +145,8 @@ export const CONTRIBUTOR_NOT_RUN: AcceptedContribution = {
 export function paidAcceptedContributionFromWriterTruth(input: {
   completeValidCandidates: number | null | undefined;
   persistedCandidates: number;
+  /** 🔴 X6.13 — identidades durables de las aceptadas. Ver `AcceptedContribution`. */
+  acceptedIdentities?: readonly string[] | null;
 }): AcceptedContribution {
   const persisted = sanitizeCount(input.persistedCandidates);
   if (input.completeValidCandidates === null || input.completeValidCandidates === undefined) {
@@ -135,11 +156,30 @@ export function paidAcceptedContributionFromWriterTruth(input: {
     if (persisted === 0) return CONTRIBUTOR_NOT_RUN;
     return { measured: false, reason: 'acceptance_not_measured', persistedCandidates: persisted };
   }
+  const identities = sanitizeIdentities(input.acceptedIdentities);
   return {
     measured: true,
     acceptedForTarget: sanitizeCount(input.completeValidCandidates),
     persistedCandidates: persisted,
+    ...(identities === null ? {} : { acceptedIdentities: identities }),
   };
+}
+
+/**
+ * Identidades utilizables: cadenas no vacías, sin repetir y en orden estable.
+ * `null` ⇒ el aporte NO declara identidades (distinto de declararlas vacías).
+ */
+function sanitizeIdentities(
+  value: readonly string[] | null | undefined,
+): readonly string[] | null {
+  if (!Array.isArray(value)) return null;
+  const seen = new Set<string>();
+  for (const raw of value) {
+    if (typeof raw !== 'string') continue;
+    const trimmed = raw.trim();
+    if (trimmed !== '') seen.add(trimmed);
+  }
+  return [...seen];
 }
 
 // ─── El resultado canónico ────────────────────────────────────────────────────
@@ -263,7 +303,57 @@ export function resolveAcceptedForTarget(input: {
     ? Math.min(sanitizeCount(waterfall.acceptedForTarget), persistedPaidWaterfall)
     : 0;
 
-  const acceptedPaidRaw = acceptedPaidPrimary + acceptedPaidWaterfall;
+  /**
+   * 🔴 X6.13 — EL AGREGADO CUENTA IDENTIDADES, NO SUMAS.
+   *
+   * El techo de filas (`persistedUniqueCeiling`, abajo) impide exceder el
+   * número de filas, pero NO impide contar dos veces a una candidata válida
+   * cuando el lote tiene además filas incompletas que absorben la inflación:
+   * con ocho filas de las que cinco cumplen el contrato, un aporte que vuelva a
+   * incluir tres de esas cinco suma ocho — y ocho ≤ ocho.
+   *
+   * Cuando los aportes declaran la IDENTIDAD DURABLE de lo que aceptaron, el
+   * agregado es el tamaño de la UNIÓN. Un replay que reporta las mismas filas
+   * no añade nada, que es exactamente la idempotencia que hacía falta.
+   *
+   * 🔴 La unión NO puede superar lo que cada aporte podía aceptar por sus
+   * propias filas: se acota por la suma de esos topes. Una lista de identidades
+   * más larga que las filas del aporte es un error de conteo, no una licencia.
+   *
+   * 🔴 LIMITACIÓN DECLARADA: dos escritores con espacios de nombres distintos no
+   * pueden reconocerse entre sí. Lo que impide ahí el doble conteo es otra cosa
+   * —el dedupe físico, que impide una segunda FILA, y la cota por filas de cada
+   * aporte—, no esta unión.
+   */
+  const identifiedContributions = [input.paid, waterfall].filter(
+    (contribution): contribution is Extract<AcceptedContribution, { measured: true }> =>
+      contribution.measured && Array.isArray(contribution.acceptedIdentities),
+  );
+  const identifiedCap = identifiedContributions.reduce(
+    (total, contribution) =>
+      total +
+      Math.min(
+        sanitizeCount(contribution.acceptedForTarget),
+        sanitizeCount(contribution.persistedCandidates),
+      ),
+    0,
+  );
+  const identityUnion = new Set<string>();
+  for (const contribution of identifiedContributions) {
+    for (const identity of contribution.acceptedIdentities ?? []) identityUnion.add(identity);
+  }
+  const acceptedFromIdentities = Math.min(identityUnion.size, identifiedCap);
+
+  /** Lo que aportan los que NO declararon identidad, cada uno por su cuenta. */
+  const acceptedFromCounts =
+    (Array.isArray(input.paid.measured ? input.paid.acceptedIdentities : undefined)
+      ? 0
+      : acceptedPaidPrimary) +
+    (Array.isArray(waterfall.measured ? waterfall.acceptedIdentities : undefined)
+      ? 0
+      : acceptedPaidWaterfall);
+
+  const acceptedPaidRaw = acceptedFromIdentities + acceptedFromCounts;
 
   /**
    * 🔴 X6.13 — LA COTA QUE SUSTITUYE AL OBJETIVO.

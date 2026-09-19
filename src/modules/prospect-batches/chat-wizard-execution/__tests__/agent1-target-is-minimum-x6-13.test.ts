@@ -139,6 +139,8 @@ function wiring(options: {
   apolloPersisted: number;
   /** Cuántas de las persistidas CUENTAN. Por omisión, todas. */
   apolloAccepted?: number;
+  /** 🔴 X6.13 — ids durables que el writer declara aceptados. */
+  apolloAcceptedIds?: readonly string[];
   leg: LegBehaviour;
 }): {
   deps: WizardExecutionDeps;
@@ -236,6 +238,9 @@ function wiring(options: {
           persistenceGap: 0,
           completeValidCandidates: accepted,
           reviewOnlyCandidates: admitted - accepted,
+          ...(options.apolloAcceptedIds
+            ? { acceptedCandidateIds: options.apolloAcceptedIds }
+            : {}),
         },
       } as unknown as IncrementalSearchOutput;
     },
@@ -271,6 +276,7 @@ type SuccessResult = Extract<
 async function run(options: {
   apolloPersisted: number;
   apolloAccepted?: number;
+  apolloAcceptedIds?: readonly string[];
   leg: LegBehaviour;
 }): Promise<{ result: SuccessResult; observed: Observed }> {
   return withEnv(async () => {
@@ -461,6 +467,144 @@ describe('X6.13 § B · reintentar no infla nada', () => {
       inflated.acceptedForTargetTotal,
       'la identidad total = libre + pago se conserva',
     );
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// § B-bis — EL TECHO DE FILAS NO BASTA: HAY QUE CONTAR IDENTIDADES
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe('X6.13 § B-bis · válidas ÚNICAS, no «por debajo del total persistido»', () => {
+  /**
+   * 🔴 LA LIMITACIÓN CONCRETA DE `persistedUniqueCeiling`.
+   *
+   * El techo impide superar el número de FILAS, pero no impide contar dos veces
+   * a una candidata válida cuando el lote tiene además filas INCOMPLETAS que
+   * absorben la inflación: con 8 filas de las que sólo 5 cumplen el contrato,
+   * un aporte que vuelva a incluir 3 de esas 5 suma 8 — y 8 ≤ 8, así que el
+   * techo no lo ve.
+   *
+   * Lo que tiene que gobernar es la IDENTIDAD DURABLE de las aceptadas.
+   */
+  const FIVE_ACCEPTED = ['candidate:a', 'candidate:b', 'candidate:c', 'candidate:d', 'candidate:e'];
+
+  it('🔴 8 filas, 5 válidas, y un replay que repite 3 de esas 5 ⇒ siguen siendo 5', () => {
+    const resolved = resolveAcceptedForTarget({
+      demand: fullTargetResultDemand(TARGET),
+      freePersistedCandidates: 0,
+      paid: paidAcceptedContributionFromWriterTruth({
+        completeValidCandidates: 5,
+        persistedCandidates: 8,
+        acceptedIdentities: FIVE_ACCEPTED,
+      }),
+      // El replay vuelve a reportar tres de las MISMAS cinco.
+      paidWaterfall: paidAcceptedContributionFromWriterTruth({
+        completeValidCandidates: 3,
+        persistedCandidates: 3,
+        acceptedIdentities: FIVE_ACCEPTED.slice(0, 3),
+      }),
+      persistedUniqueCeiling: 8,
+    });
+
+    assert.equal(
+      resolved.acceptedForTargetTotal,
+      5,
+      '🔴 el agregado cuenta identidades, no sumas: nunca puede subir a 8',
+    );
+    assert.equal(
+      resolved.acceptedFreeForTarget + resolved.acceptedPaidForTarget,
+      resolved.acceptedForTargetTotal,
+      'total = libre + pago se conserva',
+    );
+    assert.equal(resolved.persistedTotalCandidates, 11, 'el universo durable se reporta entero');
+  });
+
+  it('🔴 y el mismo aporte repetido dos veces es IDEMPOTENTE', () => {
+    const once = resolveAcceptedForTarget({
+      demand: fullTargetResultDemand(TARGET),
+      freePersistedCandidates: 0,
+      paid: paidAcceptedContributionFromWriterTruth({
+        completeValidCandidates: 5,
+        persistedCandidates: 8,
+        acceptedIdentities: FIVE_ACCEPTED,
+      }),
+      persistedUniqueCeiling: 8,
+    });
+    const replayed = resolveAcceptedForTarget({
+      demand: fullTargetResultDemand(TARGET),
+      freePersistedCandidates: 0,
+      paid: paidAcceptedContributionFromWriterTruth({
+        completeValidCandidates: 5,
+        persistedCandidates: 8,
+        acceptedIdentities: FIVE_ACCEPTED,
+      }),
+      paidWaterfall: paidAcceptedContributionFromWriterTruth({
+        completeValidCandidates: 5,
+        persistedCandidates: 8,
+        acceptedIdentities: FIVE_ACCEPTED,
+      }),
+      persistedUniqueCeiling: 8,
+    });
+
+    assert.equal(once.acceptedForTargetTotal, 5);
+    assert.equal(replayed.acceptedForTargetTotal, 5, '🔴 reanudar no infla el conteo');
+  });
+
+  it('identidades DISTINTAS sí suman: el corte no esconde candidatas nuevas', () => {
+    const resolved = resolveAcceptedForTarget({
+      demand: fullTargetResultDemand(TARGET),
+      freePersistedCandidates: 0,
+      paid: paidAcceptedContributionFromWriterTruth({
+        completeValidCandidates: 3,
+        persistedCandidates: 3,
+        acceptedIdentities: ['candidate:a', 'candidate:b', 'candidate:c'],
+      }),
+      paidWaterfall: paidAcceptedContributionFromWriterTruth({
+        completeValidCandidates: 2,
+        persistedCandidates: 2,
+        acceptedIdentities: ['lusha:x', 'lusha:y'],
+      }),
+      persistedUniqueCeiling: 5,
+    });
+
+    assert.equal(resolved.acceptedForTargetTotal, 5, '3 + 2 identidades distintas');
+    assert.equal(resolved.targetReached, true);
+  });
+
+  it('🔴 las identidades LLEGAN de verdad desde el writer hasta el agregado', async () => {
+    // El writer declara 8 filas, 5 aceptadas… y repite dos ids por error de
+    // conteo. El agregado cuenta IDENTIDADES, así que siguen siendo 5.
+    const { result } = await run({
+      apolloPersisted: 8,
+      apolloAccepted: 5,
+      apolloAcceptedIds: ['a', 'b', 'c', 'a', 'b'],
+      leg: { kind: 'skipped' },
+    });
+
+    assert.equal(result.candidateCount, 8, 'el universo durable se reporta entero');
+    assert.equal(
+      result.acceptedForTarget?.acceptedForTargetTotal,
+      3,
+      '🔴 tres identidades distintas, aunque el contador dijera cinco',
+    );
+  });
+
+  it('sin identidades declaradas se conserva la suma acotada por el techo', () => {
+    // Compatibilidad: todo llamador que no las declare se comporta como antes.
+    const resolved = resolveAcceptedForTarget({
+      demand: fullTargetResultDemand(TARGET),
+      freePersistedCandidates: 0,
+      paid: paidAcceptedContributionFromWriterTruth({
+        completeValidCandidates: 4,
+        persistedCandidates: 4,
+      }),
+      paidWaterfall: paidAcceptedContributionFromWriterTruth({
+        completeValidCandidates: 4,
+        persistedCandidates: 4,
+      }),
+      persistedUniqueCeiling: 8,
+    });
+    assert.equal(resolved.acceptedForTargetTotal, 8);
   });
 });
 

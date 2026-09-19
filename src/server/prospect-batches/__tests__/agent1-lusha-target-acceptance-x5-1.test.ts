@@ -531,20 +531,29 @@ describe('X5.1 § E · metadata y usage log leen lo mismo', () => {
       `🔴 a lo sumo dos evaluaciones —pre y post escritura—; hubo ${evaluations.length}`,
     );
 
-    // La invariante de verdad: las dos leen el MISMO proyector y los MISMOS
-    // hechos. Con una sola proyección no puede haber dos veredictos distintos
-    // para la misma candidata.
+    // La invariante de verdad: TODA lectura de la completitud pasa por el ÚNICO
+    // proyector y por los MISMOS hechos de corrida. Con una sola proyección no
+    // puede haber dos veredictos distintos para la misma candidata.
+    //
+    // 🔴 Se mide como INVARIANTE y no como un número exacto a propósito: X6.13
+    // añadió un tercer uso —la lista de identidades aceptadas, que alimenta la
+    // deduplicación del agregado— y contar llamadas habría marcado en rojo un
+    // uso que respeta la regla al pie de la letra.
     const projections = source.match(/toLushaSurvivorCompletenessInput/g) ?? [];
-    assert.equal(
-      projections.length,
-      evaluations.length + 1,
-      '🔴 cada evaluación proyecta con el ÚNICO proyector (+1 por su declaración)',
+    assert.ok(
+      projections.length >= evaluations.length,
+      '🔴 cada evaluación proyecta con el ÚNICO proyector',
     );
     const facts = source.match(/acceptanceFacts/g) ?? [];
-    assert.equal(
-      facts.length,
-      evaluations.length + 1,
-      '🔴 y con los MISMOS hechos de corrida (+1 por su declaración)',
+    assert.ok(
+      facts.length >= evaluations.length,
+      '🔴 y con los MISMOS hechos de corrida',
+    );
+    // 🔴 Y no existe una segunda forma de construir esa entrada: ningún literal
+    // suelto con las condiciones del contrato.
+    assert.ok(
+      !/ownershipGate:\s*'(pass|fail)'/.test(source),
+      '🔴 la entrada del contrato no se fabrica a mano en el ejecutor',
     );
   });
 

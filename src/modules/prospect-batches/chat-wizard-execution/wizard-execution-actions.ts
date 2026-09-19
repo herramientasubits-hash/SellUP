@@ -1361,6 +1361,8 @@ export async function executeProspectWizardGeneration(
     paidWriterTruth: {
       completeValidCandidates: number | null | undefined;
       persistedCandidates: number;
+      /** 🔴 X6.13 — identidad durable de lo aceptado; deduplica el agregado. */
+      acceptedIdentities?: readonly string[];
     },
     /**
      * 🔴 AGENT1-HARDENING-CUT-2 — la pierna Lusha del waterfall.
@@ -1373,6 +1375,7 @@ export async function executeProspectWizardGeneration(
     waterfallWriterTruth: {
       completeValidCandidates: number | null | undefined;
       persistedCandidates: number;
+      acceptedIdentities?: readonly string[];
     } = PAID_ROUTE_NOT_RUN_WRITER_TRUTH,
     /**
      * 🔴 X6.13 — el techo de FILAS ÚNICAS del lote.
@@ -2160,10 +2163,16 @@ export async function executeProspectWizardGeneration(
   const waterfallWriterTruth: {
     completeValidCandidates: number | null | undefined;
     persistedCandidates: number;
+    acceptedIdentities?: readonly string[];
   } = lushaWaterfall.executed
     ? {
         completeValidCandidates: lushaWaterfall.result.multiBranch?.acceptedForTargetTotal ?? null,
         persistedCandidates: lushaWaterfall.result.insertedCandidatesCount,
+        // 🔴 X6.13 — la pierna declara QUÉ aceptó, no sólo cuántas. Es lo que
+        // impide que un replay de la misma pierna vuelva a sumarlas.
+        ...(lushaWaterfall.result.acceptedCandidateIdentities
+          ? { acceptedIdentities: lushaWaterfall.result.acceptedCandidateIdentities }
+          : {}),
       }
     : PAID_ROUTE_NOT_RUN_WRITER_TRUTH;
 
@@ -2181,6 +2190,16 @@ export async function executeProspectWizardGeneration(
     {
       completeValidCandidates: pipelineResult.persistenceOutcome?.completeValidCandidates ?? null,
       persistedCandidates: pipelineResult.candidatesCreated ?? 0,
+      // 🔴 X6.13 — los ids DURABLES de las filas que el writer aceptó, ya
+      // emparejados por D.1. Con espacio de nombres para no conflatarse con los
+      // de otra ruta.
+      ...(pipelineResult.persistenceOutcome?.acceptedCandidateIds
+        ? {
+            acceptedIdentities: pipelineResult.persistenceOutcome.acceptedCandidateIds.map(
+              (candidateId) => `candidate:${candidateId}`,
+            ),
+          }
+        : {}),
     },
     waterfallWriterTruth,
     // 🔴 X6.13 — el techo real: las filas ÚNICAS que existen en el lote.

@@ -282,6 +282,8 @@ function buildPersistenceOutcome(input: {
   lateDuplicateCount?: number;
   completeValidCandidates?: number;
   reviewOnlyCandidates?: number;
+  /** 🔴 X6.13 — ids durables de las aceptadas, para que el agregado dedupe. */
+  acceptedCandidateIds?: readonly string[];
 }): CandidatePersistenceOutcome {
   const failureCount = input.failures.length;
   // Con varios fallos se reporta el PRIMER código: es el que explica la corrida,
@@ -304,6 +306,9 @@ function buildPersistenceOutcome(input: {
     persistenceAttemptedCount: attempted,
     persistenceSucceededCount: input.persistedCandidates,
     persistenceFailedCount: failureCount,
+    ...(input.acceptedCandidateIds === undefined
+      ? {}
+      : { acceptedCandidateIds: input.acceptedCandidateIds }),
     persistenceGap: Math.max(0, attempted - input.persistedCandidates),
     ...(input.lateDuplicateCount !== undefined
       ? { lateDuplicateCount: input.lateDuplicateCount }
@@ -3772,6 +3777,12 @@ export async function writeProspectingCandidates(
     lateDuplicateCount,
     completeValidCandidates: canonicalCompletenessCounters.complete_valid_candidates,
     reviewOnlyCandidates: canonicalCompletenessCounters.review_only_candidates,
+    // 🔴 X6.13 — las mismas filas que el contador cuenta, con su id. D.1 ya las
+    // emparejaba (`persistedCandidateAcceptances`) y hasta ahora nadie las
+    // consumía: son lo que permite que un replay no sume dos veces.
+    acceptedCandidateIds: persistedCandidateAcceptances
+      .filter((entry) => entry.trace.acceptedForTarget)
+      .map((entry) => entry.candidateId),
   });
   // AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1 · CUT-1 § 7 — el estado terminal se
   // decide con la verdad del LOTE, no sólo con `candidatesCreated`.
