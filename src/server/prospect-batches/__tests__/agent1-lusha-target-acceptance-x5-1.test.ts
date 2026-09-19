@@ -68,6 +68,11 @@ function survivor(overrides: Partial<SurvivorCompletenessInput> = {}): SurvivorC
     ownershipGate: 'pass',
     linkedinUrl: 'https://www.linkedin.com/company/acme-co',
     macroIndustryConfirmed: true,
+    // 🔴 X6.14 — `quality_gate` dejó de ser un `'pass'` fijo del módulo y pasa a
+    // viajar en el superviviente. Este fixture modela una empresa que SÍ pasó el
+    // gate de calidad, que es lo que el resto del fichero supone; el
+    // fail-closed por ausencia lo cubre la suite de X6.14.
+    qualityGate: 'pass',
     ...overrides,
   };
 }

@@ -414,6 +414,13 @@ export type LushaRunTelemetry = {
   targetOverflowDiscarded: number;
   /** Cuántas empresas revisables no probaron pertenecer a la macro pedida. */
   precisionRejectedTotal: number;
+  /**
+   * 🔴 X6.14 — cuántas rechazó el gate de CALIDAD antes del catálogo.
+   *
+   * Opcional para que un llamador o doble de prueba anterior a este corte siga
+   * compilando y produzca la forma de metadata previa.
+   */
+  qualityRejectedTotal?: number;
   /** Desglose por motivo del veredicto de precisión. Sin PII. */
   precisionReasonCounts: Record<string, number>;
   remainingGapFinal: number;
@@ -462,6 +469,9 @@ export function toLushaRunTelemetryMetadata(
     accepted_for_target_total: telemetry.acceptedForTargetTotal,
     target_overflow_discarded: telemetry.targetOverflowDiscarded,
     precision_rejected_total: telemetry.precisionRejectedTotal,
+    ...(typeof telemetry.qualityRejectedTotal === 'number'
+      ? { quality_rejected_total: telemetry.qualityRejectedTotal }
+      : {}),
     precision_reason_counts: { ...telemetry.precisionReasonCounts },
     remaining_gap_final: telemetry.remainingGapFinal,
     credits_reserved: telemetry.creditsReserved,

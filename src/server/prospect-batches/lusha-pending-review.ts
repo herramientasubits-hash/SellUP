@@ -207,7 +207,7 @@ import {
   type LushaIdentityDuplicateReason,
   type LushaRunIdentityRegistry,
 } from './lusha-run-identity-registry';
-import type { LushaMacroSearchPlan } from './lusha-macro-search-plan';
+import type { LushaIndustryBranch, LushaMacroSearchPlan } from './lusha-macro-search-plan';
 // AGENT1-LUSHA-FIRST-LIVE-QA-P0-FIX-1 §§ 3, 5, 7 — la autoridad de PRECISIÓN de
 // macro industria, branch-aware y apoyada en el catálogo canónico. Módulo puro.
 import {
@@ -245,6 +245,13 @@ import {
 } from './lusha-ownership-evidence';
 // 🔴 VISIBILIDAD DE OWNERSHIP (opción C) — la marca que la cola y la ficha leen.
 import { resolveOwnershipReviewFlags } from '@/modules/prospect-batches/ownership-review-flag';
+// 🔴 X6.14 — la evaluación SUSTENTADA de `quality_gate`, en sustitución del
+// `qualityGate: 'pass'` fijo. Corre ANTES del catálogo porque no lo necesita.
+import {
+  evaluateLushaQualityGate,
+  toLushaQualityGateMetadata,
+  type LushaQualityGateResult,
+} from './lusha-quality-gate';
 
 // ─── Contract constants (see data-contract in migrations 040/045/093) ─────────
 
@@ -394,6 +401,14 @@ export interface ResolvedLushaCandidate {
    * `fail` — fail-closed, nunca un pase.
    */
   ownership?: LushaOwnershipEvidence;
+  /**
+   * 🔴 X6.14 — el veredicto de CALIDAD con el que esta candidata se juzga.
+   *
+   * Opcional por la misma razón que `ownership`: las pruebas del constructor de
+   * filas construyen candidatas a mano. Ausente ⇒ el contrato lo lee fail-closed
+   * (`quality_gate` no satisfecho), nunca como un pase.
+   */
+  quality?: LushaQualityGateResult;
 }
 
 // ─── Excluded exact-duplicate audit detail (Q3F-5BB.7D) ────────────────────────
@@ -970,6 +985,12 @@ export interface PersistLushaPendingReviewResult {
   targetOverflowDiscarded?: number;
   /** Empresas nuevas que el catálogo NO confirmó para la macro pedida. */
   precisionRejectedTotal?: number;
+  /**
+   * 🔴 X6.14 — empresas nuevas y precisas que el gate de CALIDAD rechazó
+   * (intermediario, plataforma externa, página de contenido, segmento excluido).
+   * Contador propio: no son duplicados, ni país, ni precisión.
+   */
+  qualityRejectedTotal?: number;
   /** Telemetría completa de corrida + ramas (§§ 18/19). Sin PII. */
   multiBranch?: LushaRunTelemetry;
   /**
@@ -1076,6 +1097,7 @@ export function buildLushaProviderNotRequiredResult(input: {
     reviewableFoundTotal: input.createdCandidatesCount,
     targetOverflowDiscarded: 0,
     precisionRejectedTotal: 0,
+    qualityRejectedTotal: 0,
   };
 }
 
@@ -1978,6 +2000,14 @@ export function toLushaSurvivorCompletenessInput(
       ? entry.company.linkedinUrl
       : null,
     macroIndustryConfirmed: entry.macroPrecision?.verdict === 'confirmed',
+    /**
+     * 🔴 X6.14 — el veredicto de CALIDAD real, en sustitución del `'pass'` fijo.
+     *
+     * Ausente ⇒ `fail`, no `pass`: una candidata construida sin pasar por el
+     * gate no ha sido evaluada, y una condición no evaluada no se declara
+     * aprobada. Es la misma postura fail-closed que `ownershipGate`.
+     */
+    qualityGate: entry.quality?.verdict ?? 'fail',
   };
 }
 
@@ -1986,7 +2016,7 @@ export function buildLushaPendingReviewCandidateRows(
   batchId: string,
   resolved: ResolvedLushaCandidate[],
 ): LushaPendingReviewCandidateRow[] {
-  return resolved.map(({ company, resolution, enriched, gateWarnings, branchProvenance, macroPrecision, ownership }) => {
+  return resolved.map(({ company, resolution, enriched, gateWarnings, branchProvenance, macroPrecision, ownership, quality }) => {
     // Typed identity columns — filled ONLY on a STRONG official-source match.
     const typedColumns = enriched
       ? buildOfficialSourceTypedColumns(enriched)
@@ -2091,6 +2121,10 @@ export function buildLushaPendingReviewCandidateRows(
       // el rechazo NO descarta en esta ruta, y quien audite la fila tiene que
       // poder leerlo sin abrir el código.
       ...(ownership ? { ownership_gate: toLushaOwnershipGateMetadata(ownership) } : {}),
+      // 🔴 X6.14 — el veredicto de CALIDAD, con sus checks y sus estados. Es lo
+      // que permite distinguir «se evaluó y pasó» de «aquí no había nada que
+      // evaluar» sin volver a ejecutar nada.
+      ...(quality ? { quality_gate: toLushaQualityGateMetadata(quality) } : {}),
       // §§ 5/7 — por qué este candidato cuenta como de la macro pedida, y qué
       // rama lo trajo. Ids y códigos: sin payload del proveedor y sin PII.
       ...(macroPrecision ? { macro_precision: toLushaMacroPrecisionMetadata(macroPrecision) } : {}),
@@ -2239,18 +2273,72 @@ export interface LushaCountryExcludedCompany {
 }
 
 /**
- * Run the shared, provider-agnostic intake pipeline for every deduped company:
+ * 🔴 X6.14 — la empresa que la PRECISIÓN MACRO rechazó.
  *
- *   map (shared Lusha adapter) → normalize → mandatory gate
- *     → hard_excluded companies are separated and NEVER reach the duplicate check
- *     → reviewable companies go through official-source enrichment (injected,
- *       read-only resolvers) then the canonical active-candidate guard + duplicate
- *       check, with any STRONG official-source taxIdentifier/legalName threaded in.
+ * Existía antes como decisión, pero se tomaba DESPUÉS del catálogo y del
+ * chequeo de duplicados. Ahora se toma antes, así que la identidad tiene que
+ * viajar hasta el bucle de rama, que es quien escribe la fila durable y lleva
+ * los contadores. La decisión NO cambia: la toma `isLushaMacroPrecisionAdmitted`,
+ * exactamente igual que antes.
+ */
+export interface LushaPrecisionRejectedCompany {
+  company: LushaPreviewCompany;
+  normalized: NormalizedProspectCandidate;
+  precision: LushaMacroPrecisionAssessment;
+}
+
+/**
+ * 🔴 X6.14 — la empresa que el gate de CALIDAD rechazó, antes del catálogo.
  *
- * Strong active matches are skipped (returned via `guardSkippedCount`), matching
- * the canonical writer. Purely orchestrates injected read-only deps — no I/O of
- * its own. Returns the reviewable resolutions plus bounded gate + enrichment
- * summaries for the batch metadata.
+ * Es el desenlace nuevo de este corte: hasta aquí la ruta Lusha declaraba
+ * `quality_gate: 'pass'` sin evaluarlo, así que un intermediario de contenido o
+ * una plataforma externa entraban a revisión y CONTABAN hacia el mínimo.
+ */
+export interface LushaQualityRejectedCompany {
+  company: LushaPreviewCompany;
+  normalized: NormalizedProspectCandidate;
+  quality: LushaQualityGateResult;
+}
+
+/**
+ * 🔴 X6.14 — lo que la precisión macro necesita, transportado hasta la tubería.
+ *
+ * Son los MISMOS tres campos que `assessLushaMacroPrecision` ya pedía; lo único
+ * que cambia es dónde se leen. La industria declarada sale de cada empresa, así
+ * que no viaja aquí.
+ */
+export interface LushaPrecisionEvaluationInput {
+  macroIndustryKey: string;
+  branch: LushaIndustryBranch | null;
+  branchIndex: number;
+}
+
+/**
+ * La tubería compartida de admisión, en el ORDEN que el producto pide.
+ *
+ * ── 🔴 X6.14 — el orden, y por qué éste ─────────────────────────────────────
+ *
+ *   map → normalize → gate obligatorio ──────────► hard_excluded, nunca sigue
+ *     → país (X6.4-A) ───────────────────────────► country_rejected, nunca sigue
+ *     → precisión macro ─────────────────────────► sector_rejected, nunca sigue
+ *     → guarda de candidato ACTIVO ──────────────► sellup_duplicate, nunca sigue
+ *     → calidad (intermediario, plataforma externa, página, encaje) ─► nunca sigue
+ *     → ownership (evidencia, NO bloquea)
+ *     → CONSULTA DE IDENTIDAD al catálogo oficial (NIT / razón social)
+ *     → chequeo de duplicados, con esa identidad fuerte enhebrada
+ *
+ * Antes de este corte el catálogo corría en tercer lugar, así que las empresas
+ * que la precisión y la guarda iban a descartar ya lo habían consultado. Los
+ * cuatro filtros que ahora suben NO dependen de él: son puros o leen sólo el
+ * prefetch de candidatas activas.
+ *
+ * 🔴 LO QUE NO SE MUEVE, Y ES DELIBERADO: la consulta de identidad sigue ANTES
+ * del chequeo de duplicados, porque es quien le da el NIT y la razón social. La
+ * dedupe fiscal depende de ella; bajarla la degradaría a dominio y nombre. Es
+ * UNA sola consulta y su resultado se reutiliza tal cual —no hay segunda etapa
+ * de enriquecimiento en esta ruta, y crear una sería inventar trabajo—.
+ *
+ * Purely orchestrates injected read-only deps — no I/O of its own.
  */
 export async function resolveLushaCandidatesDuplicateState(
   deps: Pick<
@@ -2260,6 +2348,12 @@ export async function resolveLushaCandidatesDuplicateState(
   input: LushaPreviewInput,
   companies: LushaPreviewCompany[],
   criteria: ProspectSearchCriteria,
+  /**
+   * 🔴 X6.14 — lo que la precisión macro necesita para juzgar, o `null` para la
+   * ruta LEGACY sin plan de macro. Ausente ⇒ la precisión no corre, exactamente
+   * como hoy: ausencia = comportamiento actual, nunca una degradación silenciosa.
+   */
+  precisionInput: LushaPrecisionEvaluationInput | null = null,
 ): Promise<{
   resolved: ResolvedLushaCandidate[];
   guardSkippedCount: number;
@@ -2275,6 +2369,15 @@ export async function resolveLushaCandidatesDuplicateState(
    * ni a `resolved`, así que no pueden persistirse.
    */
   countryExcluded: LushaCountryExcludedCompany[];
+  /**
+   * 🔴 X6.14 — las rechazadas por PRECISIÓN MACRO. Antes se decidían después
+   * del catálogo; ahora no llegan a consultarlo.
+   */
+  precisionRejected: LushaPrecisionRejectedCompany[];
+  /** 🔴 X6.14 — motivos de precisión de ESTA página, para el acumulado del lote. */
+  precisionReasonCounts: Record<string, number>;
+  /** 🔴 X6.14 — las rechazadas por CALIDAD. Tampoco llegan al catálogo. */
+  qualityRejected: LushaQualityRejectedCompany[];
 }> {
   const resolvers = deps.officialSourceResolvers ?? [];
 
@@ -2355,54 +2458,117 @@ export async function resolveLushaCandidatesDuplicateState(
     input.countryCode ?? null,
   );
 
-  // ── 3. Per reviewable company: official-source enrichment → active guard →
-  //       duplicate check (with the strong official identity threaded in). ──
-  const resolved: ResolvedLushaCandidate[] = [];
+  // ── 3. 🔴 X6.14 — TODO lo que no depende del catálogo, ANTES del catálogo ──
+  //
+  // Precisión macro, guarda de candidato activo y calidad. Los tres son puros o
+  // leen sólo el prefetch de arriba, así que nada de esto exige haber
+  // consultado la identidad oficial. Lo que caiga aquí no llega al catálogo.
+  const admitted: Array<{
+    company: LushaPreviewCompany;
+    normalized: NormalizedProspectCandidate;
+    gateResult: ProspectIntakeGateResult;
+    guardMatch: DuplicateGuardMatch;
+    precision: LushaMacroPrecisionAssessment | null;
+    quality: LushaQualityGateResult;
+  }> = [];
   let guardSkippedCount = 0;
   const guardSkipped: LushaGuardSkippedCompany[] = [];
-  const enrichment = emptyEnrichmentSummary();
+  const precisionRejected: LushaPrecisionRejectedCompany[] = [];
+  const precisionReasonCounts: Record<string, number> = {};
+  const qualityRejected: LushaQualityRejectedCompany[] = [];
 
   for (const { company, normalized, gate: gateResult } of reviewable) {
-    // Official-source enrichment (fail_soft by default). Resolvers are injected +
-    // read-only; with none, this yields the shared unsupported/unavailable result.
+    // ── 3.a Precisión macro ──────────────────────────────────────────────────
+    //
+    // 🔴 Sin `precisionInput` no hay macro contra la que juzgar y la ruta legacy
+    // se comporta como siempre. La DECISIÓN es la de antes, byte por byte:
+    // `assessLushaMacroPrecision` + `isLushaMacroPrecisionAdmitted`.
+    let precision: LushaMacroPrecisionAssessment | null = null;
+    if (precisionInput !== null) {
+      precision = assessLushaMacroPrecision({
+        macroIndustryKey: precisionInput.macroIndustryKey,
+        branch: precisionInput.branch,
+        branchIndex: precisionInput.branchIndex,
+        declaredIndustry: company.industry,
+      });
+      precisionReasonCounts[precision.reason] =
+        (precisionReasonCounts[precision.reason] ?? 0) + 1;
+      if (!isLushaMacroPrecisionAdmitted(precision)) {
+        precisionRejected.push({ company, normalized, precision });
+        continue; // 🔴 No llega al catálogo.
+      }
+    }
+
+    // ── 3.b Guarda de candidato ACTIVO ───────────────────────────────────────
+    //
+    // 🔴 No consume el enriquecimiento —`buildLushaGuardInput` lee la empresa—,
+    // así que puede decidir antes. El criterio no cambia.
+    const guardMatch = checkActiveCandidateDuplicate(
+      buildLushaGuardInput(company),
+      activeCandidates,
+    );
+    if (isStrongActiveGuardMatch(guardMatch)) {
+      guardSkippedCount++;
+      guardSkipped.push({ company, normalized, guardMatch });
+      continue; // 🔴 No llega al catálogo.
+    }
+
+    // ── 3.c Calidad ──────────────────────────────────────────────────────────
+    const quality = evaluateLushaQualityGate({
+      name: company.name,
+      domain: company.domain,
+    });
+    // 🔴 Sólo `fail` descarta. `unknown` —la identidad no se pudo juzgar— NO
+    // rechaza: la candidata sigue, se persiste y se revisa, y el contrato la
+    // deja fuera del mínimo declarando la condición no disponible. Inventar un
+    // rechazo con evidencia insuficiente es justo lo que este corte prohíbe.
+    if (quality.verdict === 'fail') {
+      qualityRejected.push({ company, normalized, quality });
+      continue; // 🔴 No llega al catálogo.
+    }
+
+    admitted.push({ company, normalized, gateResult, guardMatch, precision, quality });
+  }
+
+  // ── 4. Sólo las admitidas: consulta de IDENTIDAD → chequeo de duplicados ───
+  //
+  // 🔴 La consulta de identidad al catálogo oficial (Colombia: `co_siis`,
+  // nombre → NIT) NO es el enriquecimiento final del candidato: es el insumo del
+  // dedupe fiscal, y por eso tiene que correr antes del chequeo que lo usa. Se
+  // hace UNA vez por empresa y su resultado se reutiliza tal cual —columnas
+  // tipadas y `metadata.source_enrichment`—; no hay segunda consulta ni segunda
+  // etapa, porque el mismo resultado ya trae todo lo que la fila necesita.
+  const resolved: ResolvedLushaCandidate[] = [];
+  const enrichment = emptyEnrichmentSummary();
+
+  for (const entry of admitted) {
     const enriched = await enrichNormalizedProspectWithOfficialSources(
-      normalized,
+      entry.normalized,
       criteria,
       resolvers,
     );
     tallyEnrichmentStatus(enrichment, enriched.officialSource.status);
 
-    const guardMatch = checkActiveCandidateDuplicate(
-      buildLushaGuardInput(company),
-      activeCandidates,
-    );
-
-    // Strong active match → skip, exactly like the canonical writer.
-    if (isStrongActiveGuardMatch(guardMatch)) {
-      guardSkippedCount++;
-      // ADITIVO: el criterio de arriba NO cambia; sólo se conserva la identidad.
-      guardSkipped.push({ company, normalized, guardMatch });
-      continue;
-    }
-
     const dupResult = await deps.checkCompanyDuplicate(
-      buildLushaDuplicateCheckInput(company, input, enriched),
+      buildLushaDuplicateCheckInput(entry.company, input, enriched),
     );
-    const resolution = resolveLushaCandidateDuplicateState(dupResult, guardMatch);
-    // 🔴 X6.12 — el ownership se evalúa AQUÍ, sobre la misma empresa que acaba
-    // de pasar los gates obligatorios, y NO decide si se persiste: alimenta la
+    const resolution = resolveLushaCandidateDuplicateState(dupResult, entry.guardMatch);
+    // 🔴 X6.12 — el ownership se evalúa sobre la misma empresa que acaba de
+    // pasar los gates obligatorios, y NO decide si se persiste: alimenta la
     // condición `ownership_gate` del contrato canónico y queda en la fila.
     const ownership = evaluateLushaOwnershipEvidence({
-      name: company.name,
-      domain: company.domain,
-      linkedinUrl: company.linkedinUrl,
+      name: entry.company.name,
+      domain: entry.company.domain,
+      linkedinUrl: entry.company.linkedinUrl,
     });
     resolved.push({
-      company,
+      company: entry.company,
       resolution,
       enriched,
-      gateWarnings: gateResult.warnings,
+      gateWarnings: entry.gateResult.warnings,
       ownership,
+      quality: entry.quality,
+      ...(entry.precision === null ? {} : { macroPrecision: entry.precision }),
     });
   }
 
@@ -2415,6 +2581,9 @@ export async function resolveLushaCandidatesDuplicateState(
     hardExcludedCompanies,
     guardSkipped,
     countryExcluded,
+    precisionRejected,
+    precisionReasonCounts,
+    qualityRejected,
   };
 }
 
@@ -2703,6 +2872,14 @@ export async function persistLushaPendingReviewBatch(
   // §§ 2/3 — los tres desenlaces NUEVOS de una empresa revisable, contados aparte
   // de todo lo de dedupe: precisión, sobrante de objetivo y aceptación.
   let precisionRejectedTotal = 0;
+  /**
+   * 🔴 X6.14 — cuántas rechazó el gate de CALIDAD, contadas aparte.
+   *
+   * No son duplicados, no son país y no son precisión: mezclarlas con
+   * cualquiera de esas tres falsearía una métrica que ya existe y que la
+   * certificación lee.
+   */
+  let qualityRejectedTotal = 0;
   /**
    * 🔴 AGENT1-LUSHA-TARGET-ACCEPTANCE-X5.1 — estructuralmente CERO desde este
    * corte, y se conserva a propósito.
@@ -3049,7 +3226,20 @@ export async function persistLushaPendingReviewBatch(
         hardExcludedCompanies,
         guardSkipped,
         countryExcluded,
-      } = await resolveLushaCandidatesDuplicateState(deps, input, dedupe.unique, criteria);
+        precisionRejected,
+        precisionReasonCounts: pagePrecisionReasonCounts,
+        qualityRejected,
+      } = await resolveLushaCandidatesDuplicateState(
+        deps,
+        input,
+        dedupe.unique,
+        criteria,
+        // 🔴 X6.14 — la precisión baja a la tubería para poder decidir ANTES del
+        // catálogo. Sin macro no hay plan y `null` reproduce la ruta legacy.
+        macroKeyForPrecision === null
+          ? null
+          : { macroIndustryKey: macroKeyForPrecision, branch, branchIndex },
+      );
       skippedActiveDuplicatesCount += guardSkippedCount;
 
       // ── 🔴 AGENT1-HARDENING-CUT-4 — la SIEMBRA de conocidos deja fila ──────
@@ -3141,6 +3331,69 @@ export async function persistLushaPendingReviewBatch(
         if (record !== null) discardRecords.push(record);
       }
 
+      // ── 🔴 X6.14 — PRECISIÓN MACRO, ahora decidida antes del catálogo ──────
+      //
+      // La fila durable es la MISMA que antes (`macro_precision_rejected` ⇒
+      // `sector_rejected`), con la misma evidencia. Lo único que cambia es que
+      // la decisión se toma antes, así que estas empresas ya no consultan el
+      // catálogo ni el chequeo de duplicados.
+      for (const [reason, count] of Object.entries(pagePrecisionReasonCounts)) {
+        precisionReasonCounts[reason] = (precisionReasonCounts[reason] ?? 0) + count;
+      }
+      for (const rejected of precisionRejected) {
+        // NO cierra hueco, NO se persiste, y NO cuenta como duplicado.
+        precisionRejectedTotal++;
+        branchPrecisionRejected++;
+        const record = buildLushaDiscardRecord({
+          company: rejected.company,
+          event: {
+            kind: 'macro_precision_rejected',
+            precisionReason: rejected.precision.reason,
+          },
+          branchIndex,
+          page,
+          reasonDetail: rejected.precision.reason,
+          evidence: {
+            macro_industry_key: macroKeyForPrecision,
+            precision_reason: rejected.precision.reason,
+            declared_industry: rejected.company.industry ?? null,
+          },
+        });
+        if (record !== null) discardRecords.push(record);
+      }
+
+      // ── 🔴 X6.14 — CALIDAD: el desenlace NUEVO de este corte ───────────────
+      //
+      // Hasta aquí `quality_gate` se declaraba `pass` sin mirarlo, así que un
+      // intermediario de contenido o una plataforma externa entraban a revisión
+      // y contaban hacia el mínimo. Ahora se evalúa y, cuando bloquea, la
+      // empresa no llega al catálogo y deja su motivo VERBATIM.
+      for (const rejected of qualityRejected) {
+        qualityRejectedTotal++;
+        const record = buildLushaDiscardRecord({
+          company: rejected.company,
+          event: {
+            kind: 'quality_gate_rejected',
+            qualityCheck: rejected.quality.blockingCheck,
+            qualityReason: rejected.quality.blockingReason,
+          },
+          branchIndex,
+          page,
+          reasonDetail: rejected.quality.blockingReason,
+          evidence: {
+            quality_blocking_check: rejected.quality.blockingCheck,
+            quality_blocking_reason: rejected.quality.blockingReason,
+            business_fit_level: rejected.quality.businessFitLevel,
+            quality_checks: rejected.quality.checks.map((check) => ({
+              check: check.check,
+              state: check.state,
+              detail: check.detail,
+            })),
+          },
+        });
+        if (record !== null) discardRecords.push(record);
+      }
+
       // Merge the page's gate + enrichment summaries into the batch accumulators.
       excludedByMandatoryGate.push(...hardExcluded);
       gateSummary.hardExcludedCount += gate.hardExcludedCount;
@@ -3204,59 +3457,26 @@ export async function persistLushaPendingReviewBatch(
           continue;
         }
 
-        // § 5 — la precisión sólo gobierna la ruta MODERNA. Sin `plan.macroKey`
-        // no hay macro industria contra la que juzgar, y la corrida legacy de un
-        // sector se comporta exactamente como hoy. Ausencia = comportamiento
-        // actual, no una degradación silenciosa.
-        if (macroKeyForPrecision !== null) {
-          const precision = assessLushaMacroPrecision({
-            macroIndustryKey: macroKeyForPrecision,
-            branch,
-            branchIndex,
-            declaredIndustry: candidate.company.industry,
-          });
-          precisionReasonCounts[precision.reason] =
-            (precisionReasonCounts[precision.reason] ?? 0) + 1;
-          if (!isLushaMacroPrecisionAdmitted(precision)) {
-            // NO cierra hueco, NO se persiste, y NO cuenta como duplicado.
-            precisionRejectedTotal++;
-            branchPrecisionRejected++;
-            // ── OBSERVADOR § 4 ──
-            const precisionRecord = buildLushaDiscardRecord({
-              company: candidate.company,
-              event: {
-                kind: 'macro_precision_rejected',
-                precisionReason: precision.reason,
-              },
-              branchIndex,
-              page,
-              reasonDetail: precision.reason,
-              evidence: {
-                macro_industry_key: macroKeyForPrecision,
-                precision_reason: precision.reason,
-                declared_industry: candidate.company.industry ?? null,
-              },
-            });
-            if (precisionRecord !== null) discardRecords.push(precisionRecord);
-            continue;
-          }
-          reviewableFoundTotal++;
-          // 🔴 AGENT1-LUSHA-TARGET-ACCEPTANCE-X5.1 — aquí vivía el tope de
-          // ACEPTACIÓN, y con él el defecto: sobre una página YA PAGADA, una
-          // empresa que había superado todos los gates obligatorios se
-          // descartaba como `target_overflow` por haber llegado la sexta.
-          //
-          // El objetivo del usuario no es un techo del universo. Ahora TODA
-          // superviviente entra; cuántas CUENTAN lo decide el contrato canónico
-          // después, y cuántas páginas se compran lo decide `purchaseCredit`
-          // —abajo—, que es una pregunta distinta y tiene su propio nombre.
-          useful.push({ ...candidate, branchProvenance, macroPrecision: precision });
-          continue;
-        }
-
+        // 🔴 X6.14 — la PRECISIÓN ya decidió, arriba y antes del catálogo. Lo
+        // que llega aquí es una empresa que la precisión admitió (o una de la
+        // ruta legacy, que no la ejecuta), así que sólo queda aceptarla.
+        //
+        // 🔴 AGENT1-LUSHA-TARGET-ACCEPTANCE-X5.1 — aquí vivía el tope de
+        // ACEPTACIÓN, y con él el defecto: sobre una página YA PAGADA, una
+        // empresa que había superado todos los gates obligatorios se descartaba
+        // como `target_overflow` por haber llegado la sexta.
+        //
+        // El objetivo del usuario no es un techo del universo. Ahora TODA
+        // superviviente entra; cuántas CUENTAN lo decide el contrato canónico
+        // después, y cuántas páginas se compran lo decide `purchaseCredit`
+        // —abajo—, que es una pregunta distinta y tiene su propio nombre.
         reviewableFoundTotal++;
-        // 🔴 X5.1 — misma eliminación en la ruta LEGACY (sin macro).
-        useful.push(candidate);
+        // 🔴 La procedencia de rama se adjunta SÓLO en la ruta con macro, igual
+        // que antes de este corte: en la ruta legacy no hay rama que describir y
+        // añadírsela cambiaría la metadata de una corrida que no la tenía.
+        useful.push(
+          macroKeyForPrecision === null ? candidate : { ...candidate, branchProvenance },
+        );
       }
 
       // ── § 16 + AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 17-19 ─────────
@@ -3537,6 +3757,7 @@ export async function persistLushaPendingReviewBatch(
     acceptedForTargetTotal: acceptanceTruthPreWrite.acceptedForTarget,
     targetOverflowDiscarded,
     precisionRejectedTotal,
+    qualityRejectedTotal,
     precisionReasonCounts,
     remainingGapFinal,
     creditsReserved: execution?.creditsReserved ?? null,
@@ -3616,6 +3837,7 @@ export async function persistLushaPendingReviewBatch(
     reviewableFoundTotal,
     targetOverflowDiscarded,
     precisionRejectedTotal,
+    qualityRejectedTotal,
     multiBranch: runTelemetry,
     batchIdentityDuplicateSkippedCount,
     batchIdentityMetrics,

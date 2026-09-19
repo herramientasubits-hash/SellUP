@@ -57,6 +57,18 @@ export type LushaDiscardEvent =
   | { kind: 'exact_duplicate'; duplicateSource: 'sellup' | 'hubspot' }
   /** El catálogo NO confirmó la macro pedida. No es duplicado. */
   | { kind: 'macro_precision_rejected'; precisionReason?: string | null }
+  /**
+   * 🔴 X6.14 — el gate de CALIDAD la rechazó: intermediario de contenido,
+   * plataforma externa, página de contenido o segmento excluido por encaje.
+   *
+   * `qualityCheck` es el check que bloqueó y `qualityReason` su motivo VERBATIM.
+   * No es duplicado, no es país y no es precisión.
+   */
+  | {
+      kind: 'quality_gate_rejected';
+      qualityCheck?: string | null;
+      qualityReason?: string | null;
+    }
   /** Tamaño por debajo del mínimo del ICP, conocido. */
   | { kind: 'icp_size_rejected' }
   /** Nueva y precisa, pero el objetivo ya estaba cerrado. */
@@ -115,6 +127,18 @@ export function resolveLushaDiscardDisposition(
       return {
         disposition: 'sector_rejected',
         reasonCode: event.precisionReason?.trim() || null,
+      };
+    case 'quality_gate_rejected':
+      /**
+       * 🔴 `final_validation_rejected` es el código EXISTENTE que describe esto:
+       * «rechazada durante validación final». No se crea ninguno nuevo —el CHECK
+       * de la migración 138 no los admitiría— y el `reason_code` lleva el check
+       * que bloqueó, para poder separar un intermediario de una plataforma
+       * externa sin leer la evidencia.
+       */
+      return {
+        disposition: 'final_validation_rejected',
+        reasonCode: event.qualityCheck?.trim() || event.qualityReason?.trim() || null,
       };
     case 'icp_size_rejected':
       return {
