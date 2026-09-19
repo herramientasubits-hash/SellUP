@@ -115,7 +115,7 @@ test('§ 22(G) — país sin fuente ⇒ el hueco es el objetivo entero y nada se
   assert.equal(context.providerRequired, true);
 });
 
-test('§ 14 — la invariante se cumple por CONSTRUCCIÓN: aceptar de más se recorta al objetivo', () => {
+test('🔴 X6.13 · § 14 — aceptar de MÁS se conserva; lo que se deriva es el hueco', () => {
   const context = buildPrePaidNoveltyContext({
     requestedTarget: 5,
     countryCode: 'CO',
@@ -123,8 +123,13 @@ test('§ 14 — la invariante se cumple por CONSTRUCCIÓN: aceptar de más se re
     freeSource: outcome({ acceptedNovel: 9 }),
   });
 
-  assert.equal(context.acceptedBeforeProvider, 5);
+  // Antes: `acceptedBeforeProvider === 5`, recortado al objetivo. Nueve
+  // empresas válidas y gratuitas se reportaban como cinco.
+  assert.equal(context.acceptedBeforeProvider, 9, '🔴 las nueve cuentan');
+  // 🔴 Lo que ese recorte protegía sigue exacto: el hueco es cero, así que la
+  // ruta de pago NO se activa. Es la regla 3, y no depende del recorte.
   assert.equal(context.residualGap, 0);
+  assert.equal(context.providerRequired, false, '🔴 el segundo proveedor no corre');
   // Nunca negativo: un hueco negativo se propagaría como «pide de más».
   assert.ok(context.residualGap >= 0);
 });

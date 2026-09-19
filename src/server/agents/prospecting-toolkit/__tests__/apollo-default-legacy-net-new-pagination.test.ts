@@ -638,8 +638,13 @@ describe('AGENT1-APOLLO-DEFAULT-PATH-NET-NEW-PAGINATION', () => {
       );
 
       const pagination = output.metadata?.apollo_pagination as { pages_processed?: number } | undefined;
-      assert.equal(transport.calls.length, 2, 'debieron pedirse exactamente 2 páginas');
-      assert.equal(pagination?.pages_processed, 2);
+      // 🔴 X6.13 — antes «exactamente 2»: la paginación se detenía al cubrir el
+      // objetivo NET-NEW. Lo que D1 demuestra es que la página 2 SÍ se pide
+      // cuando la 1 no basta, y eso se conserva; cuántas más se piden lo deciden
+      // ahora los topes (páginas, créditos, tiempo, última página).
+      assert.ok(transport.calls.length >= 2, 'la página 2 se pide');
+      assert.ok((pagination?.pages_processed ?? 0) >= 2);
+      assert.ok(transport.calls.length <= 5, '🔴 y nunca por encima del techo de páginas');
       assert.equal(realFetchCalls, 0);
     });
 
@@ -664,9 +669,11 @@ describe('AGENT1-APOLLO-DEFAULT-PATH-NET-NEW-PAGINATION', () => {
         },
       );
 
-      assert.equal(transport.calls.length, 3, 'debieron pedirse exactamente 3 páginas');
+      // 🔴 X6.13 — la tercera página se pide igual; el techo es lo que corta.
+      assert.ok(transport.calls.length >= 3, 'la página 3 se pide');
+      assert.ok(transport.calls.length <= 5, '🔴 dentro del techo de páginas');
       const pagination = output.metadata?.apollo_pagination as { pages_processed?: number } | undefined;
-      assert.equal(pagination?.pages_processed, 3);
+      assert.ok((pagination?.pages_processed ?? 0) >= 3);
     });
 
     it('D3 — página historia-pesada: page1 100% histórico (0 aceptados), page2 trae net-new ⇒ page2 se pide y sí aporta', async () => {
@@ -684,9 +691,11 @@ describe('AGENT1-APOLLO-DEFAULT-PATH-NET-NEW-PAGINATION', () => {
         },
       );
 
-      assert.equal(transport.calls.length, 2, 'page1, íntegramente histórico, no debió satisfacer el objetivo por sí sola');
+      // 🔴 X6.13 — lo que D3 demuestra es que una página 100 % histórica NO
+      // satisface el objetivo por sí sola y que la 2 se pide. Eso no se mueve.
+      assert.ok(transport.calls.length >= 2, 'page1 no pudo satisfacer el objetivo por sí sola');
       const pagination = output.metadata?.apollo_pagination as { pages_processed?: number } | undefined;
-      assert.equal(pagination?.pages_processed, 2);
+      assert.ok((pagination?.pages_processed ?? 0) >= 2);
     });
 
     it('D4 — la misma organización repetida entre páginas se evalúa a lo sumo una vez (dedupe cross-page)', async () => {
@@ -849,8 +858,18 @@ describe('AGENT1-APOLLO-DEFAULT-PATH-NET-NEW-PAGINATION', () => {
       const pagination = output.metadata?.apollo_pagination as
         | { pages_processed?: number; stop_reason?: string }
         | undefined;
-      assert.equal(transport.calls.length, 1, '10 aceptados ya en la página 1 ⇒ no hace falta una segunda página');
-      assert.equal(pagination?.stop_reason, 'candidate_target_reached');
+      // 🔴 X6.13 — antes: «10 aceptados en la página 1 ⇒ no hace falta una
+      // segunda». Hacer falta y estar autorizada son cosas distintas: con el
+      // objetivo como mínimo, la corrida usa las páginas que su techo permite.
+      // Lo que D10 mide —que no hay un recorte OCULTO— se conserva y se refuerza:
+      // la parada es siempre un límite explícito.
+      assert.notEqual(pagination?.stop_reason, 'candidate_target_reached');
+      assert.ok(
+        ['max_pages_reached', 'max_credits_reached', 'last_page_reached', 'contract_page_ceiling', 'time_budget_exhausted'].includes(
+          pagination?.stop_reason ?? '',
+        ),
+        `la parada es un límite explícito: ${pagination?.stop_reason}`,
+      );
     });
   });
 });

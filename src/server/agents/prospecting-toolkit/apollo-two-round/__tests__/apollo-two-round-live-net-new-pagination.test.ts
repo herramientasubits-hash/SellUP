@@ -563,15 +563,16 @@ describe('LIVE-A — página 1 historia-pesada, página 2 completa el objetivo',
 
     const output = await runApolloTwoRoundWizardDiscovery(runInput(), deps);
 
-    assert.deepEqual(
-      pageFetchLog,
-      [
-        { round: 0, page: 1 },
-        { round: 0, page: 2 },
-      ],
-      'exactamente 2 páginas emitidas para la ronda 1',
-    );
-    assert.equal(output.candidatesCreated, 6);
+    // 🔴 X6.13 — LIVE-A demuestra que una página 1 historia-pesada NO cierra el
+    // objetivo y que la 2 se emite. Eso se conserva. Lo que ya no se afirma es
+    // «exactamente 2»: alcanzar el objetivo dejó de cancelar las páginas
+    // siguientes, y cuántas se emiten lo deciden los topes.
+    assert.deepEqual(pageFetchLog.slice(0, 2), [
+      { round: 0, page: 1 },
+      { round: 0, page: 2 },
+    ]);
+    assert.ok(pageFetchLog.length >= 2, 'la página 2 se emite');
+    assert.ok((output.candidatesCreated ?? 0) >= 6);
     assert.equal(output.targetReached, true);
   });
 });
@@ -589,16 +590,15 @@ describe('LIVE-B — tres páginas, 1+2+3 aceptados, hasta llenar el objetivo de
 
     const output = await runApolloTwoRoundWizardDiscovery(runInput(), deps);
 
-    assert.deepEqual(
-      pageFetchLog,
-      [
-        { round: 0, page: 1 },
-        { round: 0, page: 2 },
-        { round: 0, page: 3 },
-      ],
-      'la ruta LIVE llega hasta la página 3 dentro de la MISMA ronda — la prueba central del hito',
-    );
-    assert.equal(output.candidatesCreated, 6);
+    // 🔴 La prueba central del hito se conserva: la ruta LIVE llega hasta la
+    // página 3 dentro de la MISMA ronda. X6.13 sólo añade que no se detenga ahí
+    // por haber alcanzado el objetivo.
+    assert.deepEqual(pageFetchLog.slice(0, 3), [
+      { round: 0, page: 1 },
+      { round: 0, page: 2 },
+      { round: 0, page: 3 },
+    ]);
+    assert.ok((output.candidatesCreated ?? 0) >= 6);
     assert.equal(output.targetReached, true);
   });
 });
@@ -846,8 +846,13 @@ describe('LIVE-I — un reintento tras completar la ronda no repite páginas ni 
       config,
     });
     const firstOutput = await runApolloTwoRoundWizardDiscovery(runInput(), first.deps);
-    assert.equal(firstOutput.candidatesCreated, 2);
-    assert.equal(first.pageFetchLog.length, 2);
+    // 🔴 X6.13 — el primer intento ya no se detiene al cubrir el objetivo: usa
+    // las páginas que su techo autoriza. Lo que LIVE-I mide es el REINTENTO, y
+    // por eso lo del primer intento se captura en vez de fijarse a mano.
+    const firstPages = first.pageFetchLog.length;
+    const firstCandidates = firstOutput.candidatesCreated;
+    assert.ok(firstPages >= 2, 'el primer intento agotó sus páginas');
+    assert.ok((firstCandidates ?? 0) >= 2);
 
     const finalCheckpoint = first.recorder.savedCheckpoints.at(-1);
     assert.ok(finalCheckpoint, 'el primer intento deja al menos un checkpoint');
@@ -864,8 +869,8 @@ describe('LIVE-I — un reintento tras completar la ronda no repite páginas ni 
     assert.equal(retry.pageFetchLog.length, 0, 'el reintento no pide NINGUNA página: ya estaban pagadas');
     assert.equal(
       retryOutput.candidatesCreated,
-      2,
-      'el resultado ya persistido se devuelve sin reconstruirlo',
+      firstCandidates,
+      '🔴 el resultado ya persistido se devuelve sin reconstruirlo ni inflarlo',
     );
   });
 });

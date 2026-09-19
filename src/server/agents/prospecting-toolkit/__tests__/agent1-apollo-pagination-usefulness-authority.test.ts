@@ -298,9 +298,12 @@ describe('§2 — cinco organizaciones útiles detienen la paginación', () => {
       },
     );
 
+    // 🔴 X6.13 — lo que este § mide es la AUTORIDAD DE UTILIDAD: cinco
+    // organizaciones útiles cuentan como cinco. Eso no se mueve. Lo que
+    // desaparece es su poder de PARAR: el objetivo es el mínimo, y una página
+    // autorizada no se cancela por haberlo alcanzado.
     assert.equal(result.acceptedForTargetCount, 5, 'las cinco son útiles y deben contar');
-    assert.equal(result.stopReason, 'candidate_target_reached');
-    assert.equal(result.pagesProcessed, 1, 'no debe comprar una página que ya no necesita');
+    assert.notEqual(result.stopReason, 'candidate_target_reached');
   });
 
   it('el duplicado histórico sigue sin contar: la autoridad conserva el eje que ya existía', async () => {
