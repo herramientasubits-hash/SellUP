@@ -253,7 +253,7 @@ test('§ 4 — una macro SIN cobertura de códigos no consulta la fuente: devuel
   assert.equal(result.context.residualGap, 5);
 });
 
-test('§ 14 — la fuente nunca acepta por encima del objetivo, y deja de preguntar cuando se llena', async () => {
+test('🔴 X6.13 · § 14 — la fuente CONSERVA todas las válidas que encuentra', async () => {
   const rows = Array.from({ length: 12 }, (_, i) => row({ record_identity_key: `n${i}` }));
   let checks = 0;
   const result = await gate(rows, (input) => {
@@ -261,10 +261,14 @@ test('§ 14 — la fuente nunca acepta por encima del objetivo, y deja de pregun
     return noMatch(input);
   }, { requestedTarget: 3 });
 
-  assert.equal(result.context.acceptedBeforeProvider, 3);
-  assert.equal(result.context.residualGap, 0);
-  // 🔴 El objetivo se comprueba ANTES de preguntar por duplicados: HubSpot es red.
-  assert.equal(checks, 3, 'no se consulta HubSpot por empresas que ya no caben');
+  // Antes: `acceptedBeforeProvider === 3` y sólo 3 comprobaciones. La capa
+  // gratuita dejaba de aceptar al llegar al objetivo, y con ello descartaba
+  // nueve empresas que habían pasado todos sus filtros.
+  assert.equal(result.context.acceptedBeforeProvider, 12, '🔴 las doce se conservan');
+  assert.equal(result.context.residualGap, 0, 'y el mínimo queda cubierto');
+  // 🔴 La consecuencia medible: se comprueba el duplicado de todas las leídas.
+  // El límite de ejecución que queda es `readLimit` (objetivo × multiplicador).
+  assert.equal(checks, 12, 'una comprobación por empresa leída');
 });
 
 test('la misma empresa repetida en la fuente cuenta UNA vez', async () => {

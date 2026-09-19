@@ -100,7 +100,26 @@ export type AcceptanceUnknownReason =
  * `aceptadas <= persistidas` en el único sitio donde se combina todo.
  */
 export type AcceptedContribution =
-  | { measured: true; acceptedForTarget: number; persistedCandidates: number }
+  | {
+      measured: true;
+      acceptedForTarget: number;
+      persistedCandidates: number;
+      /**
+       * 🔴 X6.13 — la IDENTIDAD DURABLE de cada candidata que este aporte
+       * declara aceptada.
+       *
+       * Existe porque el techo de filas NO basta: con ocho filas de las que
+       * sólo cinco cumplen el contrato, un aporte que vuelva a incluir tres de
+       * esas cinco suma ocho, y ocho ≤ ocho. El techo no puede verlo; la
+       * identidad sí.
+       *
+       * Cadenas OPACAS y con ESPACIO DE NOMBRES (`candidate:<uuid>`,
+       * `lusha:<identity_key>`): dos escritores distintos no comparten formato
+       * de id, y conflatarlos inventaría coincidencias. Ausente ⇒ el aporte se
+       * suma por su cuenta, que es el comportamiento anterior a este corte.
+       */
+      acceptedIdentities?: readonly string[];
+    }
   | {
       measured: false;
       reason: AcceptanceUnknownReason;
@@ -126,6 +145,8 @@ export const CONTRIBUTOR_NOT_RUN: AcceptedContribution = {
 export function paidAcceptedContributionFromWriterTruth(input: {
   completeValidCandidates: number | null | undefined;
   persistedCandidates: number;
+  /** 🔴 X6.13 — identidades durables de las aceptadas. Ver `AcceptedContribution`. */
+  acceptedIdentities?: readonly string[] | null;
 }): AcceptedContribution {
   const persisted = sanitizeCount(input.persistedCandidates);
   if (input.completeValidCandidates === null || input.completeValidCandidates === undefined) {
@@ -135,11 +156,30 @@ export function paidAcceptedContributionFromWriterTruth(input: {
     if (persisted === 0) return CONTRIBUTOR_NOT_RUN;
     return { measured: false, reason: 'acceptance_not_measured', persistedCandidates: persisted };
   }
+  const identities = sanitizeIdentities(input.acceptedIdentities);
   return {
     measured: true,
     acceptedForTarget: sanitizeCount(input.completeValidCandidates),
     persistedCandidates: persisted,
+    ...(identities === null ? {} : { acceptedIdentities: identities }),
   };
+}
+
+/**
+ * Identidades utilizables: cadenas no vacías, sin repetir y en orden estable.
+ * `null` ⇒ el aporte NO declara identidades (distinto de declararlas vacías).
+ */
+function sanitizeIdentities(
+  value: readonly string[] | null | undefined,
+): readonly string[] | null {
+  if (!Array.isArray(value)) return null;
+  const seen = new Set<string>();
+  for (const raw of value) {
+    if (typeof raw !== 'string') continue;
+    const trimmed = raw.trim();
+    if (trimmed !== '') seen.add(trimmed);
+  }
+  return [...seen];
 }
 
 // ─── El resultado canónico ────────────────────────────────────────────────────
@@ -213,19 +253,37 @@ export function resolveAcceptedForTarget(input: {
    * campo por campo. Es el caso de toda corrida sin waterfall.
    */
   paidWaterfall?: AcceptedContribution;
+  /**
+   * 🔴 X6.13 — el TECHO REAL de la corrida: cuántas filas ÚNICAS existen de
+   * verdad en el lote.
+   *
+   * Sustituye al tope por objetivo que este módulo aplicaba a cada aporte. El
+   * objetivo es el MÍNIMO que la búsqueda persigue, nunca el máximo que puede
+   * contar: una corrida que encuentra ocho válidas vale ocho.
+   *
+   * Lo que el tope por objetivo SÍ hacía y no se puede perder es impedir que la
+   * misma empresa se cuente dos veces cuando dos piernas producen de más. Esa
+   * garantía pasa aquí a apoyarse en el universo DURABLE —filas únicas ya
+   * escritas, con la identidad de lote ya aplicada— en vez de en una resta:
+   * dos aportes no pueden sumar más candidatas de las que la base confirma, y
+   * un reintento que vuelva a reportar lo mismo tampoco puede inflar el total.
+   *
+   * Ausente ⇒ sólo rigen las cotas por contribuyente (cada aporte contra SUS
+   * filas), que es el comportamiento de toda llamada que no conoce el lote.
+   */
+  persistedUniqueCeiling?: number | null;
 }): AcceptedForTargetResult {
   const requestedTarget = sanitizeCount(input.demand.requestedTarget);
   const persistedFree = sanitizeCount(input.freePersistedCandidates);
 
-  // 🔴 Acotado por las FILAS y por el OBJETIVO. La primera cota es la que impide
-  // que una aceptación mayor que lo escrito —un estado imposible que sólo puede
-  // venir de un error de conteo— fabrique cobertura; la segunda es la invariante
-  // de § 14 de la puerta previa al pago, que aquí se vuelve a sostener en vez de
-  // darse por buena.
+  // 🔴 Acotado por las FILAS, y ya NO por el objetivo (X6.13). La cota por filas
+  // es la que impide que una aceptación mayor que lo escrito —un estado
+  // imposible que sólo puede venir de un error de conteo— fabrique cobertura.
+  // La cota por objetivo se retira porque convertía el mínimo en techo: una capa
+  // gratuita que trae ocho válidas con objetivo cinco aportaba cinco.
   const acceptedFree = Math.min(
     sanitizeCount(input.demand.acceptedBeforeProvider),
     persistedFree,
-    requestedTarget,
   );
 
   const waterfall = input.paidWaterfall ?? CONTRIBUTOR_NOT_RUN;
@@ -234,31 +292,95 @@ export function resolveAcceptedForTarget(input: {
   const persistedPaidWaterfall = sanitizeCount(waterfall.persistedCandidates);
   const persistedPaid = persistedPaidPrimary + persistedPaidWaterfall;
 
-  const remainingAfterFree = Math.max(0, requestedTarget - acceptedFree);
+  // 🔴 X6.13 — cada aporte se acota contra SUS PROPIAS filas y nada más. El
+  // `remainingTarget` desapareció de las dos cotas: era lo que hacía que un
+  // proveedor con doce válidas aportara sólo el hueco.
   const acceptedPaidPrimary = input.paid.measured
-    ? Math.min(
-        sanitizeCount(input.paid.acceptedForTarget),
-        persistedPaidPrimary,
-        // § 9 CASO D — la autoridad nunca acepta lógicamente más del hueco que
-        // queda, por mucho que el proveedor haya producido de más.
-        remainingAfterFree,
-      )
+    ? Math.min(sanitizeCount(input.paid.acceptedForTarget), persistedPaidPrimary)
     : 0;
 
-  // 🔴 CUT-2 — la segunda pierna se acota por el hueco que queda DESPUÉS de la
-  // primera, no por el de después de lo gratuito. Es lo que impide que una
-  // empresa se cuente dos veces cuando las dos piernas producen de más: el
-  // objetivo se cierra una sola vez.
-  const remainingAfterPrimaryPaid = Math.max(0, remainingAfterFree - acceptedPaidPrimary);
   const acceptedPaidWaterfall = waterfall.measured
-    ? Math.min(
-        sanitizeCount(waterfall.acceptedForTarget),
-        persistedPaidWaterfall,
-        remainingAfterPrimaryPaid,
-      )
+    ? Math.min(sanitizeCount(waterfall.acceptedForTarget), persistedPaidWaterfall)
     : 0;
 
-  const acceptedPaid = acceptedPaidPrimary + acceptedPaidWaterfall;
+  /**
+   * 🔴 X6.13 — EL AGREGADO CUENTA IDENTIDADES, NO SUMAS.
+   *
+   * El techo de filas (`persistedUniqueCeiling`, abajo) impide exceder el
+   * número de filas, pero NO impide contar dos veces a una candidata válida
+   * cuando el lote tiene además filas incompletas que absorben la inflación:
+   * con ocho filas de las que cinco cumplen el contrato, un aporte que vuelva a
+   * incluir tres de esas cinco suma ocho — y ocho ≤ ocho.
+   *
+   * Cuando los aportes declaran la IDENTIDAD DURABLE de lo que aceptaron, el
+   * agregado es el tamaño de la UNIÓN. Un replay que reporta las mismas filas
+   * no añade nada, que es exactamente la idempotencia que hacía falta.
+   *
+   * 🔴 La unión NO puede superar lo que cada aporte podía aceptar por sus
+   * propias filas: se acota por la suma de esos topes. Una lista de identidades
+   * más larga que las filas del aporte es un error de conteo, no una licencia.
+   *
+   * 🔴 LIMITACIÓN DECLARADA: dos escritores con espacios de nombres distintos no
+   * pueden reconocerse entre sí. Lo que impide ahí el doble conteo es otra cosa
+   * —el dedupe físico, que impide una segunda FILA, y la cota por filas de cada
+   * aporte—, no esta unión.
+   */
+  const identifiedContributions = [input.paid, waterfall].filter(
+    (contribution): contribution is Extract<AcceptedContribution, { measured: true }> =>
+      contribution.measured && Array.isArray(contribution.acceptedIdentities),
+  );
+  const identifiedCap = identifiedContributions.reduce(
+    (total, contribution) =>
+      total +
+      Math.min(
+        sanitizeCount(contribution.acceptedForTarget),
+        sanitizeCount(contribution.persistedCandidates),
+      ),
+    0,
+  );
+  const identityUnion = new Set<string>();
+  for (const contribution of identifiedContributions) {
+    for (const identity of contribution.acceptedIdentities ?? []) identityUnion.add(identity);
+  }
+  const acceptedFromIdentities = Math.min(identityUnion.size, identifiedCap);
+
+  /** Lo que aportan los que NO declararon identidad, cada uno por su cuenta. */
+  const acceptedFromCounts =
+    (Array.isArray(input.paid.measured ? input.paid.acceptedIdentities : undefined)
+      ? 0
+      : acceptedPaidPrimary) +
+    (Array.isArray(waterfall.measured ? waterfall.acceptedIdentities : undefined)
+      ? 0
+      : acceptedPaidWaterfall);
+
+  const acceptedPaidRaw = acceptedFromIdentities + acceptedFromCounts;
+
+  /**
+   * 🔴 X6.13 — LA COTA QUE SUSTITUYE AL OBJETIVO.
+   *
+   * Sumar dos aportes sin ninguna cota común permitiría que la misma empresa
+   * contara dos veces si las dos piernas la reportaran. Con el tope por objetivo
+   * eso era imposible por accidente aritmético; ahora se impide por el hecho que
+   * de verdad lo gobierna: no puede haber más ACEPTADAS que filas ÚNICAS
+   * escritas en el lote.
+   *
+   * 🔴 Es un techo, no una verdad: recorta un total imposible, nunca eleva uno
+   * honesto. Y se aplica al TOTAL —no aporte por aporte— porque el solapamiento
+   * vive entre piernas, no dentro de una.
+   */
+  const uniqueCeiling =
+    typeof input.persistedUniqueCeiling === 'number' &&
+    Number.isFinite(input.persistedUniqueCeiling)
+      ? sanitizeCount(input.persistedUniqueCeiling)
+      : null;
+  // 🔴 El recorte cae sobre la mitad de PAGO, no sobre el total, para que la
+  // identidad `total = libre + pago` se conserve en la metadata. La mitad
+  // gratuita ya está acotada por sus propias filas y es anterior en el tiempo:
+  // recortarla a ella describiría un solapamiento que no ocurrió ahí.
+  const acceptedPaid =
+    uniqueCeiling === null
+      ? acceptedPaidRaw
+      : Math.min(acceptedPaidRaw, Math.max(0, uniqueCeiling - acceptedFree));
   const acceptedTotal = acceptedFree + acceptedPaid;
   const unknownReasons: AcceptanceUnknownReason[] = [];
   if (!input.paid.measured) unknownReasons.push(input.paid.reason);

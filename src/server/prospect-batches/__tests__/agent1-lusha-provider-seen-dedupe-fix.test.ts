@@ -324,7 +324,10 @@ describe('2 · la segunda corrida con los mismos dominios', () => {
       assert.ok(!serialized.includes(forbidden), `🔴 ${forbidden} sería dinero inventado`);
     }
     // El crédito que el proveedor dijo, sin compensación por lo suprimido.
-    assert.equal(res.creditsCharged, 1);
+    // 🔴 X6.13 — la corrida puede pedir más páginas (el objetivo ya no la para),
+    // así que lo que se fija es que NINGÚN crédito se descuente por supresión:
+    // se cobra exactamente lo que el proveedor cobró por las páginas pedidas.
+    assert.equal(res.creditsCharged, res.pagesRequested);
   });
 });
 

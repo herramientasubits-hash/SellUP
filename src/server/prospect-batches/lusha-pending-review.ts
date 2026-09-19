@@ -144,6 +144,7 @@ import {
   LUSHA_PENDING_REVIEW_EXPECTED_MAX_CREDITS,
 } from './lusha-pending-review-limits';
 import {
+  evaluateLushaSurvivorCompleteness,
   resolveLushaRunAcceptanceTruth,
   type LushaRunAcceptanceFacts,
   type SurvivorCompletenessInput,
@@ -242,6 +243,8 @@ import {
   toLushaOwnershipGateMetadata,
   type LushaOwnershipEvidence,
 } from './lusha-ownership-evidence';
+// 🔴 VISIBILIDAD DE OWNERSHIP (opción C) — la marca que la cola y la ficha leen.
+import { resolveOwnershipReviewFlags } from '@/modules/prospect-batches/ownership-review-flag';
 
 // ─── Contract constants (see data-contract in migrations 040/045/093) ─────────
 
@@ -495,6 +498,14 @@ export interface LushaPendingReviewCandidateRow {
    * el proveedor entregó; `null` en cualquier otro caso.
    */
   linkedin_url: string | null;
+  /**
+   * 🔴 VISIBILIDAD DE OWNERSHIP (opción C) — columna EXISTENTE, sin migración.
+   *
+   * `null` ⇒ esta fila no trae veredicto de ownership y NO se le inventa uno.
+   * `[]` ⇒ se evaluó y quedó acreditada. Con la marca ⇒ se evaluó y no se pudo
+   * verificar la relación empresa–dominio.
+   */
+  review_flags: string[] | null;
   // Q3F-5BB.10C2 — typed identity columns, populated ONLY on a STRONG official-source
   // match (else null). Columns already exist on prospect_candidates (migrations
   // 040/045); no migration is added here. `identity_key` is deliberately NOT touched.
@@ -845,6 +856,19 @@ export interface PersistLushaPendingReviewResult {
   possibleDuplicatesCount: number;
   /** Candidates actually inserted (== createdCandidatesCount on success). */
   insertedCandidatesCount: number;
+  /**
+   * 🔴 X6.13 — identidad DURABLE de las supervivientes que esta corrida declara
+   * ACEPTADAS, con espacio de nombres propio (`lusha:<identidad>`).
+   *
+   * Un contador no se puede deduplicar contra otro contador: si un replay
+   * vuelve a reportar las mismas filas, dos cifras suman dos veces. Estas
+   * identidades viajan hasta `resolveAcceptedForTarget`, que agrega por UNIÓN.
+   *
+   * 🔴 El espacio de nombres es obligatorio y NO se comparte con el writer de
+   * Apollo: sus ids son uuid de fila y los de aquí son identidad de empresa.
+   * Conflatarlos inventaría coincidencias.
+   */
+  acceptedCandidateIdentities?: readonly string[];
   /**
    * AGENT1-LOCAL-CUT9B — DESENLACE de la publicación durable de la aceptación.
    *
@@ -1990,6 +2014,14 @@ export function buildLushaPendingReviewCandidateRows(
     // Se acredita con el MISMO predicado que decide el bloque de metadata: una
     // URL que no sea página de empresa no se escribe, jamás se fabrica.
     linkedin_url: isLinkedInCompanyUrl(company.linkedinUrl) ? company.linkedinUrl : null,
+    // 🔴 VISIBILIDAD DE OWNERSHIP (opción C) — el veredicto deja de vivir sólo
+    // en `metadata` y se publica donde la cola y la ficha YA miran.
+    //
+    // 🔴 Sin evaluación no hay fila marcada NI fila absuelta: `null` dice
+    // «nadie lo juzgó», que es distinto de «se juzgó y pasó».
+    review_flags: ownership
+      ? [...resolveOwnershipReviewFlags({ evaluated: true, admitted: !ownership.admission.blocked })]
+      : null,
     employee_count_source:
       typeof company.employeesExact === 'number' ? LUSHA_PENDING_REVIEW_PROVIDER : null,
     // Strong official-source identity (or nulls) — Q3F-5BB.10C2.
@@ -2768,11 +2800,15 @@ export async function persistLushaPendingReviewBatch(
     const branch = branches[branchIndex] as LushaExecutionBranch;
     const remainingGapBefore = resolveLushaRemainingGap(targetGap, purchaseCreditSoFar());
 
-    // § 4 — objetivo cerrado ⇒ las ramas restantes NO se piden. Quedan en la
-    // telemetría como `not_attempted` para que se vea que existían y se omitieron.
-    if (runStopped || remainingGapBefore <= 0) {
-      if (!runStopped) stopReason = 'target_reached';
-      runStopped = true;
+    // 🔴 X6.13 — la rama restante ya NO se salta por objetivo cerrado.
+    //
+    // § 4 decía: «objetivo cerrado ⇒ las ramas restantes NO se piden». Con el
+    // objetivo entendido como MÍNIMO, una rama con páginas y reserva
+    // disponibles debe pedirse: sus empresas son tan válidas como las de la
+    // primera. La condición se queda SÓLO con `runStopped`, que es lo que
+    // recoge las paradas reales —techo de peticiones, filas crudas, fallo del
+    // proveedor, cancelación—.
+    if (runStopped) {
       pushBranchTelemetry(branchIndex, branch, 'not_attempted', {
         pagesAttempted: 0,
         providerRequests: 0,
@@ -2814,9 +2850,12 @@ export async function persistLushaPendingReviewBatch(
       if (!decision.allowed) {
         stopReason = decision.stopReason;
         runStopped = true;
-        if (decision.stopReason === 'target_reached' && page > 0) {
-          branchOutcome = 'target_reached';
-        }
+        // 🔴 X6.13 — aquí se traducía un `target_reached` de la decisión de
+        // compra al desenlace de la rama. `decideLushaProviderRequest` ya no
+        // puede devolverlo: el objetivo dejó de detener la compra, así que la
+        // rama sólo puede pararse por techo de peticiones, filas crudas o
+        // proveedor. `target_reached` sobrevive como desenlace POST-corrida
+        // (más abajo), que es una afirmación sobre el resultado, no una parada.
         break;
       }
 
@@ -3980,5 +4019,43 @@ export async function persistLushaPendingReviewBatch(
     },
     usefulCandidatesCount: useful.length,
     insertedCandidatesCount: insertedCount,
+    // 🔴 X6.13 — la identidad de lo ACEPTADO, para que un replay no vuelva a
+    // sumarlo. Se deriva del MISMO proyector y la MISMA regla que produjeron
+    // `acceptanceTruthFinal`; no hay una segunda definición de «completa».
+    // 🔴 Cuando la base confirmó MENOS filas de las entregadas no se puede decir
+    // CUÁLES sobrevivieron, así que no se declara ninguna identidad — y eso es
+    // distinto de declararlas vacías. Con el campo ausente manda el contador,
+    // que ya viene acotado fail-closed por `acceptanceTruthPreWrite`; con una
+    // lista vacía el aporte valdría cero y perderíamos una aceptación real.
+    ...(writerRowsFullyPersisted
+      ? {
+          acceptedCandidateIdentities: useful
+            .filter(
+              (entry) =>
+                evaluateLushaSurvivorCompleteness(
+                  toLushaSurvivorCompletenessInput(entry),
+                  acceptanceFacts,
+                ) === 'complete',
+            )
+            .map((entry) => lushaAcceptedIdentity(entry)),
+        }
+      : {}),
   };
+}
+
+/**
+ * 🔴 X6.13 — identidad durable de UNA superviviente aceptada, con su espacio de
+ * nombres.
+ *
+ * El orden de preferencia es el de estabilidad: el id del proveedor sobrevive a
+ * un cambio de dominio; el dominio normalizado sobrevive a un cambio de nombre;
+ * el nombre es el último recurso. Nunca se devuelve una cadena vacía: una
+ * identidad vacía colapsaría a varias candidatas en una sola.
+ */
+function lushaAcceptedIdentity(entry: ResolvedLushaCandidate): string {
+  const providerId = entry.company.providerCompanyId?.trim();
+  if (providerId) return `lusha:provider:${providerId}`;
+  const domain = normalizeDomain(entry.company.domain);
+  if (domain) return `lusha:domain:${domain}`;
+  return `lusha:name:${normalizeLushaCompanyName(entry.company.name ?? '')}`;
 }

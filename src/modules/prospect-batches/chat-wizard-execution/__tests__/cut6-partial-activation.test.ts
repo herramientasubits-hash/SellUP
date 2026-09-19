@@ -928,7 +928,7 @@ describe('CUT-6 § 4 · la amplitud de búsqueda NO se mezcla con el objetivo', 
   // entero, y el ejecutor lo recorta—. Se usa un hueco de 3 sobre `TARGET − 3`
   // aceptadas; la propiedad («la amplitud NO se recorta con el hueco, la
   // aceptación sí») es la misma.
-  it('CASO 19 — con hueco 3, `targetInternal` sigue en 25 y sólo baja la ACEPTACIÓN', async () => {
+  it('🔴 X6.13 · CASO 19 — con hueco 3 no baja NADA: ni la amplitud ni la aceptación', async () => {
     const seen: { targetInternal: number; targetPersistibleCandidates: number }[] = [];
     const resolved = {
       country: { name: 'Colombia', code: 'CO' },
@@ -982,7 +982,15 @@ describe('CUT-6 § 4 · la amplitud de búsqueda NO se mezcla con el objetivo', 
       WIZARD_APOLLO_TARGET_INTERNAL,
       '🔴 la AMPLITUD (25) no se recorta con el hueco',
     );
-    assert.equal(seen[0]!.targetPersistibleCandidates, 3, 'la ACEPTACIÓN sí');
+    // 🔴 X6.13 — antes: `targetPersistibleCandidates === 3`, el hueco recortaba
+    // el objetivo del proveedor. Con el objetivo entendido como MÍNIMO, el
+    // aporte previo decide la ACTIVACIÓN (`providerRequired`), nunca cuánto
+    // puede traer Apollo: tres empresas gratuitas no pueden encoger su búsqueda.
+    assert.equal(
+      seen[0]!.targetPersistibleCandidates,
+      WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
+      '🔴 el hueco ya no recorta la aceptación del proveedor',
+    );
     assert.notEqual(WIZARD_APOLLO_TARGET_INTERNAL, WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES);
     assert.equal(WIZARD_APOLLO_MAX_ROUNDS, 4, 'las rondas tampoco dependen del hueco');
   });

@@ -1143,6 +1143,34 @@ export async function runApolloTwoRoundDiscovery(
     typeof input.remainingTarget === 'number' && Number.isFinite(input.remainingTarget)
       ? input.remainingTarget
       : null;
+  /**
+   * 🔴 X6.13 — por qué este recorte SOBREVIVE, y qué dejó de significar.
+   *
+   * El hueco de entrada sigue recortando el objetivo EFECTIVO: con dos empresas
+   * ya aportadas por la capa gratuita, la corrida de Apollo persigue tres. La
+   * tentación de quitarlo con el resto de los topes existe —parece uno más— y
+   * sería un error, porque este número YA NO LIMITA NADA que se pueda cosechar:
+   *
+   *   · ninguna parada lo lee (las de este orquestador, las de la paginación y
+   *     el tope del writer se retiraron en este mismo hito);
+   *   · no gobierna el tamaño de página —el contrato envía siempre 100— ni
+   *     cuántas páginas se autorizan;
+   *   · lo que gobierna es la DEMANDA redactada por ronda y, sobre todo, la
+   *     respuesta a «¿se alcanzó el mínimo de la CORRIDA?».
+   *
+   * Y ahí el recorte es justamente lo veraz. El mínimo es de la corrida entera,
+   * no de Apollo: con 2 gratuitas y objetivo 5, Apollo aporta 3 y el mínimo está
+   * cumplido. Perseguir 5 propias haría que `targetReached`, el estado final y
+   * `apollo-persisted-candidate-truth` reportaran `partial_target_not_reached`
+   * sobre una corrida que SÍ alcanzó el objetivo del usuario.
+   *
+   * 🔴 Y no es un techo de existencia: que la cuenta llegue a 3 no detiene ya la
+   * búsqueda, no descarta lo que sobra y no impide persistir lo que la página
+   * pagada trajo. Eso es exactamente lo que X6.13 cambió.
+   *
+   * 🔴 `config` se deja INTACTO (ver arriba): mutarlo acoplaría la demanda de
+   * resultados con el techo financiero.
+   */
   const targetEligibleCompanies =
     remainingTargetApplied === null
       ? config.targetEligibleCompanies
@@ -1720,13 +1748,12 @@ export async function runApolloTwoRoundDiscovery(
       break;
     }
 
-    // § 7: parada inmediata. La ronda 2 no se ejecuta por estar presupuestada.
-    // § A — con la cuenta ESTABLE: una parada real, no una que un gate final
-    // pueda deshacer después de que la ronda 2 ya se descartó.
-    if (roundNumber > 1 && (await stableFinalizableCandidateCount()) >= targetEligibleCompanies) {
-      secondRoundSkippedReason = 'target_reached';
-      break;
-    }
+    // 🔴 X6.13 — aquí vivía la parada de ENTRADA a la ronda 2 por objetivo
+    // alcanzado. Se retira por la misma razón que la del final del bucle: el
+    // objetivo es el mínimo que la corrida persigue, no el techo de lo que puede
+    // encontrar, y una ronda ya presupuestada no se cancela por haber llegado a
+    // cinco. Las demás paradas de entrada —persistencia previa, indeterminado,
+    // cobertura de subindustrias, `maxRounds`— siguen exactamente donde estaban.
     // AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 2 — ELIMINADA la parada por
     // resultados crudos acumulados.
     //
@@ -2134,11 +2161,8 @@ export async function runApolloTwoRoundDiscovery(
         continue;
       }
       await assessRoundOrganizations(roundNumber, metrics, recovered);
-      // § A — cuenta ESTABLE: ver el comentario de `stableFinalizableCandidateCount()`.
-      if ((await stableFinalizableCandidateCount()) >= targetEligibleCompanies) {
-        if (roundNumber < config.maxRounds) secondRoundSkippedReason = 'target_reached';
-        break;
-      }
+      // 🔴 X6.13 — aquí vivía la parada por objetivo. Ver la nota del final del
+      // bucle: el objetivo es el mínimo, no el techo, y no detiene la ronda.
       continue;
     }
 
@@ -2188,12 +2212,19 @@ export async function runApolloTwoRoundDiscovery(
     // ── Procesamiento barato, en el orden del § 4 ────────────────────────────
     await assessRoundOrganizations(roundNumber, metrics, outcome.organizations);
 
-    // § 7: alcanzado el objetivo con gates baratos, la corrida no busca más.
-    // § A — cuenta ESTABLE.
-    if ((await stableFinalizableCandidateCount()) >= targetEligibleCompanies) {
-      if (roundNumber < config.maxRounds) secondRoundSkippedReason = 'target_reached';
-      break;
-    }
+    // 🔴 X6.13 — LA PARADA POR OBJETIVO SE RETIRA.
+    //
+    // § 7 decía: «alcanzado el objetivo con gates baratos, la corrida no busca
+    // más». Con el objetivo entendido como MÍNIMO eso es lo contrario de lo que
+    // el producto quiere: la ronda 2 estaba autorizada, presupuestada y se
+    // saltaba por haber llegado a cinco, de modo que las empresas que habría
+    // traído no llegaban a existir.
+    //
+    // 🔴 Lo que sigue cerrando el bucle, intacto: `config.maxRounds`, las vallas
+    // de operación, la cobertura de subindustrias, el techo de páginas y
+    // créditos de cada ronda, y el agotamiento del universo. `target_reached`
+    // deja de poder aparecer como motivo de salto de la segunda ronda — y esa
+    // ausencia es el corte, no un olvido.
   }
 
   /**
@@ -2489,16 +2520,16 @@ export async function runApolloTwoRoundDiscovery(
       continue;
     }
 
-    // Parada dentro del propio bucle: si una llamada previa ya completó el
-    // objetivo, las restantes no se ejecutan (§ 6). § A — cuenta ESTABLE.
-    if ((await stableFinalizableCandidateCount()) >= targetEligibleCompanies) {
-      enrichmentSkips.push({
-        candidateKey: chosen.candidateKey,
-        roundNumber: chosen.roundNumber,
-        skippedReason: 'target_already_reached',
-      });
-      continue;
-    }
+    // 🔴 X6.13 — aquí vivía la parada del bucle de ENRIQUECIMIENTO por objetivo
+    // alcanzado (§ 6). Era el mismo defecto una capa más abajo: con cinco
+    // candidatas completas, las siguientes de la cola no llegaban a adquirir la
+    // evidencia que las habría vuelto válidas, y el presupuesto autorizado se
+    // quedaba sin usar mientras el universo tenía empresas.
+    //
+    // 🔴 Lo que gobierna este gasto sigue siendo lo mismo y no se toca:
+    // `MAX_ENRICHMENTS_PER_RUN_*`, la elegibilidad de cada candidata, el
+    // ranking, las vallas de operación y la reserva. El objetivo ya no recorta;
+    // el tope de enriquecimientos sí, y es el único que debe hacerlo.
 
     const candidate = tracked.find((c) => c.candidateKey === chosen.candidateKey);
     if (!candidate) continue;

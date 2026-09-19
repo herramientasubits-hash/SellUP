@@ -208,13 +208,16 @@ describe('CUT-2 § 14 · un solo hueco para las dos rondas', () => {
     );
   });
 
-  test('B — la ronda 1 cierra el hueco ⇒ la ronda 2 no se ejecuta', async () => {
+  test('🔴 X6.13 · B — la ronda 1 cierra el hueco y la ronda 2 SIGUE ejecutándose', async () => {
     const { deps, searchCalls } = harness({ roundResults: [orgs('a', 3), orgs('b', 3)] });
 
     const result = await run(deps, 3);
 
-    assert.equal(searchCalls.filter((c) => c.roundNumber === 2).length, 0);
-    assert.equal(result.secondRoundSkippedReason, 'target_reached');
+    // 🔴 El hueco cerrado ya no cancela una ronda autorizada: el residual decide
+    // si el proveedor se ACTIVA, no cuántas rondas puede gastar dentro del tope.
+    assert.equal(searchCalls.filter((c) => c.roundNumber === 2).length, 1);
+    assert.notEqual(result.secondRoundSkippedReason, 'target_reached');
+    // 🔴 PRESERVADO — el veredicto del objetivo, intacto.
     assert.equal(result.targetReached, true);
   });
 

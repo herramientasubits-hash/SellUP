@@ -843,9 +843,18 @@ describe('§ 5 · target cap complete-first', () => {
       makeFakeAdmin(),
     );
 
-    assert.equal(result.candidatesCreated, 2, 'el cupo TOTAL no cambia');
+    // 🔴 X6.13 — el cupo de escritura DESAPARECE: el objetivo es el mínimo que
+    // la corrida persigue, no el número de filas que puede dejar. Las cinco
+    // elegibles se persisten, y `target_cap` deja de poder emitirse.
+    assert.equal(result.candidatesCreated, 5, '🔴 ninguna elegible se pierde por cupo');
     const cappedOut = result.skipped.filter((skip) => skip.reason === 'target_cap');
-    assert.equal(cappedOut.length, 3, 'las tres de revisión quedan fuera por cupo');
+    assert.equal(cappedOut.length, 0, '🔴 nadie queda fuera por cupo');
+
+    // 🔴 PRESERVADO — lo que § 5 existe para defender sigue medido: el ORDEN es
+    // COMPLETE-FIRST, así que una completa con peor encaje se escribe ANTES que
+    // una de revisión con mejor encaje. Ya no decide quién sobrevive; sigue
+    // decidiendo quién va primero, que es lo que protege a las completas si una
+    // escritura se quedara a medias.
     for (const entry of complete) {
       assert.ok(
         !cappedOut.some((skip) => skip.name === entry.name),
@@ -1045,37 +1054,50 @@ function assertCapsHold(probe: RunProbe): void {
 
 // ─── § 7 · la parada temprana vuelve a existir ───────────────────────────────
 
-describe('§ 7 · cinco finalizables en la ronda 1 detienen la corrida', () => {
-  test('sin ronda 2, sin enrichments y con el objetivo alcanzado', async () => {
+describe('§ 7 · cinco finalizables en la ronda 1 YA NO detienen la corrida (X6.13)', () => {
+  test('🔴 el objetivo alcanzado no cancela la ronda 2 ni los enrichments', async () => {
     const probe = await run({});
 
     assert.equal(probe.result.stableFinalizableCandidateCount, 5, 'las cinco son ESTABLES');
-    assert.equal(probe.result.targetReached, true);
-    assert.equal(probe.result.roundsExecuted, 1, 'la ronda 2 no se ejecuta');
-    assert.equal(probe.result.secondRoundSkippedReason, 'target_reached');
-    assert.equal(probe.searchCalls, 1, 'una sola búsqueda pagada');
-    assert.deepEqual(probe.enrichCalls, [], 'cero enrichments: no había nada que resolver');
-    assert.equal(probe.result.projectedTargetGap, 0);
+    assert.equal(probe.result.targetReached, true, 'el mínimo SÍ se alcanzó, y se reporta');
+
+    // 🔴 X6.13 — lo que cambia: el mínimo alcanzado deja de ser una parada.
+    // Antes: `roundsExecuted: 1`, `secondRoundSkippedReason: 'target_reached'`,
+    // una sola búsqueda y cero enrichments. Esas cifras describían una corrida
+    // que dejaba de aprovechar su propio presupuesto por haber llegado a cinco.
+    assert.notEqual(
+      probe.result.secondRoundSkippedReason,
+      'target_reached',
+      '🔴 `target_reached` no puede volver a saltarse una ronda',
+    );
+    assert.equal(probe.result.roundsExecuted, 2, 'la ronda 2 SÍ se ejecuta');
+    assert.equal(probe.searchCalls, 2, 'y su búsqueda se emite');
+
+    // 🔴 PRESERVADO — el veredicto del objetivo no se mueve.
+    assert.equal(probe.result.projectedTargetGap, 0, 'el hueco sigue cerrado');
     assertCapsHold(probe);
   });
 
-  test('§ 14 — el ahorro es REAL: el trabajo queda por debajo del peor caso permitido', async () => {
+  test('§ 14 — el ahorro deja de ser por objetivo y pasa a ser por TOPE', async () => {
     const probe = await run({});
     const worstCaseSearches = 2;
     const worstCaseEnrichments = 5;
+
+    // 🔴 X6.13 — el trabajo ya NO queda por debajo del peor caso por haber
+    // alcanzado el objetivo; queda acotado POR EL TOPE, que es lo que de verdad
+    // protege el gasto. Nunca por encima: ésa es la promesa que se conserva.
     assert.ok(
-      probe.searchCalls < worstCaseSearches,
-      'con el objetivo cubierto no se emite la segunda búsqueda',
+      probe.searchCalls <= worstCaseSearches,
+      `las búsquedas no pueden exceder el tope: ${probe.searchCalls}`,
     );
     assert.ok(
-      probe.enrichCalls.length < worstCaseEnrichments,
-      'ni se compran los enrichments del peor caso',
+      probe.enrichCalls.length <= worstCaseEnrichments,
+      `los enrichments no pueden exceder el tope: ${probe.enrichCalls.length}`,
     );
-    // Y el gasto registrado es estrictamente menor al techo autorizado.
     const credits =
       probe.result.runMetrics.totalSearchCredits +
       probe.result.runMetrics.totalEnrichmentCredits;
-    assert.ok(credits < 25, `créditos = ${credits}`);
+    assert.ok(credits <= 25, `créditos = ${credits}`);
   });
 });
 

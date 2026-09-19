@@ -399,8 +399,10 @@ describe('§ 9 — el objetivo se cumple EXACTAMENTE', () => {
         candidateRows.map((r) => r.industry).sort(),
         ['Healthcare', 'Healthcare', 'Healthcare', 'Healthcare', 'Pharmaceuticals Manufacturing'],
       );
-      // Rama 2 (12/80) nunca se pide.
-      assert.equal(calls.length, 2);
+      // 🔴 X6.13 — la rama 2 (12/80) SÍ se pide: el objetivo alcanzado dejó de
+      // cancelar una rama que la reserva ya autorizaba. Devuelve vacío en este
+      // guion, así que el resultado no cambia; lo que cambia es que se intenta.
+      assert.equal(calls.length, 4, '🔴 todas las ramas autorizadas se ejecutan');
       assert.equal(res.precisionRejectedTotal, 4);
       assert.equal(res.targetOverflowDiscarded, 0);
       assert.equal(res.remainingGapFinal, 0);
@@ -417,10 +419,12 @@ describe('§ 9 — el objetivo se cumple EXACTAMENTE', () => {
       // empresas limpias de una página YA PAGADA se tiraban por llegar terceras.
       assert.equal(res.usefulCandidatesCount, 10, 'el objetivo no recorta supervivientes');
       assert.equal(candidateRows.length, 10);
-      // 🔴 PRESERVED — «sin segunda petición» es lo que este caso defiende de
-      // verdad, y sigue exacto: el hueco lo cierra `purchaseCredit`, que ahora
-      // vale 10 en vez de 2 y por tanto cierra ANTES, nunca después.
-      assert.equal(calls.length, 1, 'una sola petición: el objetivo se cerró en la primera');
+      // 🔴 X6.13 — «sin segunda petición» era una consecuencia del objetivo como
+      // techo, y deja de serlo: la corrida sigue pidiendo lo que su reserva
+      // autoriza. Lo que este caso defiende —que las diez sobrevivan— está
+      // medido arriba y no se mueve.
+      assert.equal(calls.length, 4, '🔴 las peticiones las gobierna el techo, no el objetivo');
+      assert.ok(calls.length <= 6, 'y nunca por encima del techo de la macro (3 ramas × 2)');
       assert.equal(res.reviewableFoundTotal, 10);
       assert.equal(res.targetOverflowDiscarded, 0, 'ya no se descarta por sobrante');
     });
@@ -471,13 +475,16 @@ describe('§ 9 — el objetivo se cumple EXACTAMENTE', () => {
     );
     return run([page], healthPharmaExecution(2)).then(({ res, batches }) => {
       // 10 filas devueltas y 1 crédito cobrado, aunque sólo 2 se persistan.
+      // 🔴 X6.13 — la corrida ya no se detiene al cerrar el objetivo, así que
+      // pide las páginas que su reserva autoriza. La facturación sigue
+      // describiendo la respuesta ENTERA de lo que se pagó, que es lo que este
+      // caso existe para fijar: las páginas vacías no inventan resultados.
       assert.equal(res.resultsReturned, 10);
-      assert.equal(res.creditsCharged, 1);
       assert.equal(res.rawResultsTotal, 10);
-      assert.equal(res.pagesRequested, 1);
+      assert.equal(res.pagesRequested, 4);
+      assert.equal(res.creditsCharged, 4, 'un crédito por página pedida');
       const billing = (batches[0].metadata as { billing: Record<string, unknown> }).billing;
       assert.equal(billing.results_returned, 10);
-      assert.equal(billing.credits_charged, 1);
     });
   });
 

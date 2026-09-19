@@ -441,8 +441,12 @@ describe('X5.1 § D · la compra no mira la aceptación', () => {
     const truth = resolveLushaRunAcceptanceTruth(survivors(40), SUBINDUSTRY_REQUESTED);
     assert.equal(truth.acceptedForTarget, null, 'no medida…');
 
-    // …y aun así el hueco está cerrado, porque lo cierra `purchaseCredit`.
+    // …y el hueco de TELEMETRÍA sigue cerrándose con `purchaseCredit`.
     assert.equal(resolveLushaRemainingGap(5, truth.purchaseCredit), 0);
+
+    // 🔴 X6.13 — lo que YA NO ocurre: el hueco cerrado no deniega la página
+    // siguiente. El objetivo es el mínimo, y una página que la reserva autoriza
+    // se pide. Lo que deniega es el techo de peticiones, no el objetivo.
     assert.deepEqual(
       decideLushaProviderRequest({
         remainingGap: resolveLushaRemainingGap(5, truth.purchaseCredit),
@@ -450,8 +454,18 @@ describe('X5.1 § D · la compra no mira la aceptación', () => {
         providerRequestsAllowed: 10,
         rawResultsTotal: 40,
       }),
-      { allowed: false, stopReason: 'target_reached' },
-      'ninguna página adicional se autoriza',
+      { allowed: true },
+      '🔴 el objetivo cerrado no puede seguir denegando una página autorizada',
+    );
+    assert.deepEqual(
+      decideLushaProviderRequest({
+        remainingGap: 0,
+        providerRequestsUsed: 10,
+        providerRequestsAllowed: 10,
+        rawResultsTotal: 40,
+      }),
+      { allowed: false, stopReason: 'request_cap_reached' },
+      'el techo de peticiones sigue siendo el que manda',
     );
   });
 
@@ -517,20 +531,29 @@ describe('X5.1 § E · metadata y usage log leen lo mismo', () => {
       `🔴 a lo sumo dos evaluaciones —pre y post escritura—; hubo ${evaluations.length}`,
     );
 
-    // La invariante de verdad: las dos leen el MISMO proyector y los MISMOS
-    // hechos. Con una sola proyección no puede haber dos veredictos distintos
-    // para la misma candidata.
+    // La invariante de verdad: TODA lectura de la completitud pasa por el ÚNICO
+    // proyector y por los MISMOS hechos de corrida. Con una sola proyección no
+    // puede haber dos veredictos distintos para la misma candidata.
+    //
+    // 🔴 Se mide como INVARIANTE y no como un número exacto a propósito: X6.13
+    // añadió un tercer uso —la lista de identidades aceptadas, que alimenta la
+    // deduplicación del agregado— y contar llamadas habría marcado en rojo un
+    // uso que respeta la regla al pie de la letra.
     const projections = source.match(/toLushaSurvivorCompletenessInput/g) ?? [];
-    assert.equal(
-      projections.length,
-      evaluations.length + 1,
-      '🔴 cada evaluación proyecta con el ÚNICO proyector (+1 por su declaración)',
+    assert.ok(
+      projections.length >= evaluations.length,
+      '🔴 cada evaluación proyecta con el ÚNICO proyector',
     );
     const facts = source.match(/acceptanceFacts/g) ?? [];
-    assert.equal(
-      facts.length,
-      evaluations.length + 1,
-      '🔴 y con los MISMOS hechos de corrida (+1 por su declaración)',
+    assert.ok(
+      facts.length >= evaluations.length,
+      '🔴 y con los MISMOS hechos de corrida',
+    );
+    // 🔴 Y no existe una segunda forma de construir esa entrada: ningún literal
+    // suelto con las condiciones del contrato.
+    assert.ok(
+      !/ownershipGate:\s*'(pass|fail)'/.test(source),
+      '🔴 la entrada del contrato no se fabrica a mano en el ejecutor',
     );
   });
 

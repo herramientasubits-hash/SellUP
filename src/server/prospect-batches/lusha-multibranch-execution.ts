@@ -248,7 +248,22 @@ export function decideLushaProviderRequest(state: {
   maxRawResults?: number;
 }): LushaRequestDecision {
   const maxRawResults = state.maxRawResults ?? LUSHA_RUN_MAX_RAW_RESULTS;
-  if (state.remainingGap <= 0) return { allowed: false, stopReason: 'target_reached' };
+  // 🔴 X6.13 — LA PARADA POR OBJETIVO SE RETIRA.
+  //
+  // Aquí vivía `if (state.remainingGap <= 0) return { stopReason:
+  // 'target_reached' }`: con el hueco cerrado, la corrida dejaba de pedir
+  // páginas que su reserva YA autorizaba. Con el objetivo entendido como
+  // MÍNIMO, una rama que todavía tiene página disponible y presupuesto
+  // confirmado debe usarla: las empresas que traiga son válidas igual.
+  //
+  // 🔴 Lo que sigue acotando el gasto, intacto y por este orden: el techo de
+  // PETICIONES (ramas × páginas, el mismo del que sale la reserva) y el techo de
+  // filas crudas. Ninguna corrida puede pedir por encima de lo reservado, y por
+  // eso este corte no puede gastar un crédito que no estuviera ya autorizado.
+  //
+  // `remainingGap` sigue en la entrada porque la telemetría lo publica y porque
+  // los motivos de parada post-corrida lo usan para no afirmar un objetivo
+  // cumplido con hueco abierto. Ya no decide comprar.
   if (state.providerRequestsUsed >= state.providerRequestsAllowed) {
     return { allowed: false, stopReason: 'request_cap_reached' };
   }

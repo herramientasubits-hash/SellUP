@@ -5,9 +5,19 @@
  *
  * ── 🔴 Qué decide este archivo ───────────────────────────────────────────────
  *
- * Cuántas EMPRESAS ÚTILES busca reunir UNA ejecución del wizard, contando todas
- * sus piernas (capa gratuita, Apollo R1, Apollo R2 y —bajo su flag— Lusha R1).
- * Es el número con el que se decide SUFICIENCIA: cuándo dejar de buscar.
+ * Cuántas EMPRESAS ÚTILES busca reunir COMO MÍNIMO una ejecución del wizard,
+ * contando todas sus piernas (capa gratuita, Apollo R1, Apollo R2 y —bajo su
+ * flag— Lusha R1).
+ *
+ * 🔴 X6.13 — es un SUELO, no un techo, y la diferencia gobierna todo el módulo:
+ *
+ *   · decide si se ACTIVA el segundo proveedor (menos de N válidas ⇒ se activa);
+ *   · decide si la corrida se reporta completa o parcial;
+ *   · NO detiene la búsqueda de un proveedor ya activado;
+ *   · NO recorta lo que se persiste ni lo que se cuenta.
+ *
+ * Una corrida que encuentra ocho válidas con un objetivo de cinco vale ocho, y
+ * no activa al segundo proveedor.
  *
  * ── 🔴 Qué NO es ─────────────────────────────────────────────────────────────
  *
@@ -17,8 +27,13 @@
  *   tamaño contractual (`LUSHA_PROSPECTING_PAGE_SIZE`). Este número no aparece
  *   en ningún request.
  * · NO es un límite de EVALUACIÓN. Todo lo que ya se pagó se evalúa localmente
- *   (CORTE 2); alcanzar el objetivo detiene la SIGUIENTE compra, nunca la
- *   lectura de lo comprado.
+ *   (CORTE 2).
+ * · 🔴 X6.13 — y tampoco detiene la SIGUIENTE compra. Hasta este corte,
+ *   alcanzar el objetivo cancelaba la página siguiente, la ronda 2, la rama
+ *   Lusha restante y el enriquecimiento pendiente. Ahora la compra la gobiernan
+ *   sólo los topes económicos y físicos: páginas, créditos reservados,
+ *   `MAX_ENRICHMENTS_PER_RUN_*`, tiempo, cancelación, guardas operativas y el
+ *   agotamiento del universo.
  * · NO es un techo de presupuesto. El gasto lo gobiernan las páginas de Apollo,
  *   `MAX_ENRICHMENTS_PER_RUN_*` y la reserva atómica del wizard. Ninguno de los
  *   tres lee esta constante.
@@ -49,3 +64,12 @@
  * es un contador histórico de net-new ni de resultados crudos.
  */
 export const WIZARD_TARGET_USEFUL_COMPANIES = 5;
+
+/**
+ * 🔴 X6.13 — el nombre del contrato, para que ningún consumidor tenga que
+ * deducirlo del número.
+ *
+ * `'minimum'` significa: se persigue alcanzarlo, se reporta si se alcanzó, y
+ * NADA se recorta por haberlo alcanzado.
+ */
+export const WIZARD_TARGET_SEMANTICS = 'minimum' as const;

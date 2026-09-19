@@ -363,7 +363,12 @@ describe('§ 6 · tres resueltas y dos pendientes', () => {
     assert.equal(probe.result.writerOnlyPendingCount, 0);
     assert.equal(probe.result.projectedTargetGap, 0);
     assert.equal(probe.result.targetReached, true);
-    assert.equal(probe.searchCalls, 1, 'la ronda 2 no se emite: el objetivo ya está');
+    // 🔴 X6.13 — aquí se medía «la ronda 2 no se emite: el objetivo ya está».
+    // El objetivo alcanzado dejó de ser una parada: lo que este § controla es
+    // que SIN admisiones pendientes el veredicto se resuelve antes del writer,
+    // y eso sigue exacto arriba. El número de búsquedas lo gobiernan ahora los
+    // topes, y nunca puede exceder `maxRounds`.
+    assert.ok(probe.searchCalls <= 2, `búsquedas dentro del tope: ${probe.searchCalls}`);
     assertCapsHold(probe);
   });
 });
@@ -516,11 +521,12 @@ describe('§ 9 · el addendum no cambia el perfil de I/O', () => {
     const resolved = await run({ pendingFor: [] });
     const pending = await run({ pendingFor: [...CANDIDATE_IDS] });
 
-    // La corrida con admisiones pendientes hace MÁS búsquedas —la ronda 2 ya no se
-    // salta— pero eso es la § 4, no I/O nueva: el tope de dos sigue intacto y el
-    // orquestador no adquirió ninguna capacidad de leer la base.
-    assert.equal(resolved.searchCalls, 1);
-    assert.equal(pending.searchCalls, 2);
+    // 🔴 X6.13 — las DOS corridas hacen ahora las mismas búsquedas, porque
+    // ninguna se salta la ronda 2: la que antes la saltaba lo hacía por haber
+    // alcanzado el objetivo. Lo que este § mide —que declarar pendiente no
+    // introduce I/O nueva— se conserva y se hace incluso más fuerte: el perfil
+    // es IDÉNTICO entre las dos, y el tope de dos sigue intacto.
+    assert.equal(resolved.searchCalls, pending.searchCalls, 'mismo perfil de búsqueda');
     assert.ok(pending.searchCalls <= 2, 'el tope absoluto de búsquedas no se movió');
 
     // `readCandidateTargetConditions` es el ÚNICO camino por el que el orquestador

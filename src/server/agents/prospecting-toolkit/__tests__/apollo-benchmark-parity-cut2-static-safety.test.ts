@@ -66,37 +66,82 @@ const EXCLUSION_PLANNER =
 
 // ─── MUTACIÓN 1 · ignorar el hueco y usar el objetivo original ────────────────
 
+/**
+ * El detector de PARADAS POR OBJETIVO, como función, para poder ejercitarlo en
+ * los dos sentidos: sobre el código real (donde ya no debe encontrar ninguna) y
+ * sobre una copia mutada que reintroduce una (donde TIENE que encontrarla).
+ */
+function targetStopsIn(code: string): readonly string[] {
+  return code.match(/stableFinalizableCandidateCount\(\)\) >= [A-Za-z.]+/g) ?? [];
+}
+
 describe('MUTACIÓN 1 · `residualGap` ignorado y objetivo original en su lugar', () => {
   /**
-   * La cota tiene que salir de UNA función y aplicarse sobre el objetivo, no de
-   * un `Math.min` suelto que alguien pueda quitar sin que nada lo note.
+   * 🔴 X6.13 — ESTA GUARDA CAMBIÓ DE SIGNO, y conviene decir por qué.
+   *
+   * Nació para impedir que las paradas por objetivo leyeran el config crudo
+   * mientras la ronda siguiente se redactaba con el objetivo ya acotado: dos
+   * números para una sola decisión. Exigía por eso que hubiera VARIAS paradas y
+   * que todas leyeran `targetEligibleCompanies`.
+   *
+   * X6.13 resuelve esa misma incoherencia por el otro extremo: el objetivo es el
+   * MÍNIMO del usuario, no el techo de la corrida, así que ninguna parada puede
+   * derivarse de él. Quedan las paradas que acotan el GASTO —créditos, páginas,
+   * capacidad, tiempo, cancelación, agotamiento del universo—, y ésas no leen el
+   * objetivo. Lo que este hito defiende, entonces, es que no sobreviva NINGUNA.
+   *
+   * Lo que la guarda protege sigue siendo lo de antes: que el objetivo tenga UNA
+   * sola autoridad en el orquestador y que el hueco proyectado salga de ella.
    */
-  it('el orquestador deriva su objetivo EFECTIVO de la cota canónica', () => {
+  it('🔴 ninguna parada del orquestador se deriva del objetivo (X6.13)', () => {
     const code = stripTsComments(read(ORCHESTRATOR));
 
-    assert.ok(code.includes('boundByRemainingTarget('), 'la cota canónica se usa');
     assert.ok(
       code.includes('const targetEligibleCompanies ='),
       'existe UN objetivo efectivo, resuelto una vez',
     );
-    // 🔴 Y ninguna PARADA lee ya el config: si alguna sobreviviera, la corrida se
-    // detendría con un número y redactaría la ronda siguiente con otro.
-    const stops = code.match(/stableFinalizableCandidateCount\(\)\) >= [A-Za-z.]+/g) ?? [];
-    assert.ok(stops.length >= 3, `se esperaban varias paradas por objetivo, hay ${stops.length}`);
-    for (const stop of stops) {
-      assert.ok(
-        stop.endsWith('>= targetEligibleCompanies'),
-        `una parada sigue leyendo el config: ${stop}`,
-      );
-    }
-    // El hueco proyectado, que gobierna la ronda 2, sale del mismo objetivo.
+    assert.equal(
+      (code.match(/const targetEligibleCompanies =/g) ?? []).length,
+      1,
+      'y una sola vez: dos resoluciones son dos números para una decisión',
+    );
+
+    const stops = targetStopsIn(code);
+    assert.deepEqual(
+      stops,
+      [],
+      `🔴 el objetivo es el mínimo: ninguna parada puede leerlo, hay ${stops.length}`,
+    );
+
+    // El hueco proyectado —que gobierna la DEMANDA de la ronda 2, no una parada—
+    // sigue saliendo de ese mismo objetivo efectivo.
     assert.ok(
-      code.includes('Math.max(0, targetEligibleCompanies - (await stableFinalizableCandidateCount()))'),
+      code.includes(
+        'Math.max(0, targetEligibleCompanies - (await stableFinalizableCandidateCount()))',
+      ),
       'el hueco proyectado usa el objetivo EFECTIVO',
     );
+    // Y la cota canónica sigue existiendo donde SÍ corresponde: acotando el
+    // volumen pedido por ronda, que no es una parada ni el tamaño de página.
+    assert.ok(code.includes('boundByRemainingTarget('), 'la cota canónica se usa');
   });
 
-  /** 🔴 EN NEGATIVO — sin la cota, la guarda de arriba TIENE que ponerse roja. */
+  /**
+   * 🔴 EN NEGATIVO — la guarda de arriba no puede quedarse verde por no saber
+   * buscar. Sobre una copia que REINTRODUCE una parada por objetivo, el mismo
+   * detector tiene que encontrarla.
+   */
+  it('mutación: reintroducir una parada por objetivo se detecta', () => {
+    const mutated = stripTsComments(read(ORCHESTRATOR)).replace(
+      'const roundDemand =',
+      'if ((await stableFinalizableCandidateCount()) >= targetEligibleCompanies) break;\n    const roundDemand =',
+    );
+    const stops = targetStopsIn(mutated);
+    assert.equal(stops.length, 1, 'el detector encuentra la parada reintroducida');
+    assert.ok(stops[0]!.endsWith('>= targetEligibleCompanies'));
+  });
+
+  /** 🔴 EN NEGATIVO — sin la cota, el anclaje de la cota canónica cae. */
   it('mutación: quitar la cota deja la guarda sin su anclaje', () => {
     const mutated = stripTsComments(read(ORCHESTRATOR)).replace(
       /boundByRemainingTarget\(/g,

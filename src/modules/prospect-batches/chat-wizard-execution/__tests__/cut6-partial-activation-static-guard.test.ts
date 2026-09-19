@@ -374,9 +374,14 @@ describe('CUT-6 §§ 20, 21 · B — hueco pagado = objetivo completo', () => {
       src.includes('fullTargetResultDemand(WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES)'),
       'y sólo cae al objetivo entero cuando NO hubo aporte durable',
     );
+    // 🔴 X6.13 — el ejecutor YA NO acota el objetivo del proveedor con el hueco
+    // (`boundByRemainingTarget`). El hueco sigue decidiendo la ACTIVACIÓN —eso
+    // es lo que las dos aserciones de arriba miden— pero dejó de recortar lo que
+    // Apollo puede traer: cinco empresas gratuitas no pueden convertir el
+    // objetivo del proveedor en cero.
     assert.ok(
-      code(APOLLO_EXECUTOR).includes('boundByRemainingTarget('),
-      '🔴 la ÚNICA cota sigue siendo la compartida',
+      !code(APOLLO_EXECUTOR).includes('boundByRemainingTarget('),
+      '🔴 el hueco no puede volver a recortar el objetivo del proveedor',
     );
   });
 

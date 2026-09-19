@@ -266,12 +266,13 @@ describe('política del ejecutor (pura)', () => {
     assert.equal(resolveLushaRemainingGap(5, 9), 0);
   });
 
-  it('la decisión de pedir distingue las tres negativas', () => {
+  it('🔴 X6.13 · la decisión de pedir distingue las DOS negativas económicas', () => {
     const base = { providerRequestsUsed: 0, providerRequestsAllowed: 6, rawResultsTotal: 0 };
     assert.deepEqual(decideLushaProviderRequest({ ...base, remainingGap: 3 }), { allowed: true });
+    // 🔴 X6.13 — el hueco cerrado YA NO deniega: el objetivo es el mínimo y una
+    // página autorizada se pide. Quedan DOS negativas, las dos económicas.
     assert.deepEqual(decideLushaProviderRequest({ ...base, remainingGap: 0 }), {
-      allowed: false,
-      stopReason: 'target_reached',
+      allowed: true,
     });
     assert.deepEqual(
       decideLushaProviderRequest({ ...base, remainingGap: 3, providerRequestsUsed: 6 }),
@@ -287,17 +288,19 @@ describe('política del ejecutor (pura)', () => {
 // ── § 23 A–P ──────────────────────────────────────────────────────────────────
 
 describe('§ 23 — ejecución de ramas y parada por objetivo', () => {
-  it('A. 1 rama, la página 0 llena el objetivo → UNA petición y para', async () => {
+  it('🔴 X6.13 · A. 1 rama, la página 0 llena el mínimo → SIGUE con su página 2', async () => {
     const { res, calls } = await run([successResult(distinctCompanies(5, 'a'))], {
       plan: planWithBranches(1),
     });
-    assert.equal(calls.length, 1);
+    // Antes: «UNA petición y para». El mínimo cubierto detenía una página que la
+    // reserva ya autorizaba. Ahora la rama usa sus dos páginas; la segunda viene
+    // vacía en este guion, así que el resultado no cambia.
+    assert.equal(calls.length, 2);
     assert.equal(res.status, 'success');
     assert.equal(res.usefulCandidatesCount, 5);
-    assert.equal(res.stopReason, 'target_reached');
     assert.equal(res.remainingGapFinal, 0);
-    assert.equal(res.providerRequestsUsed, 1);
-    assert.equal(res.providerRequestsAllowed, 2);
+    assert.equal(res.providerRequestsUsed, 2);
+    assert.equal(res.providerRequestsAllowed, 2, '🔴 y nunca por encima de lo reservado');
   });
 
   it('B. 1 rama, página 0 parcial y página 1 completa → DOS peticiones', async () => {
@@ -311,18 +314,21 @@ describe('§ 23 — ejecución de ramas y parada por objetivo', () => {
     assert.equal(res.topUpTriggered, true);
   });
 
-  it('C. 2 ramas, la rama 0 llena el objetivo → la rama 1 NUNCA se llama', async () => {
+  it('🔴 X6.13 · C. 2 ramas, la rama 0 llena el mínimo → la rama 1 SÍ se llama', async () => {
     const { res, calls } = await run([successResult(distinctCompanies(5, 'c'))], {
       plan: planWithBranches(2),
     });
-    assert.equal(calls.length, 1);
+    // Antes: «la rama 1 NUNCA se llama». Sus empresas serían tan válidas como
+    // las de la rama 0, y su página estaba reservada.
+    assert.ok(calls.length > 1, '🔴 la segunda rama se intenta');
     assert.equal(calls[0].mainIndustryId, 11);
     assert.equal(res.branchCountPlanned, 2);
-    assert.equal(res.branchCountAttempted, 1);
-    assert.equal(res.stopReason, 'target_reached');
-    // La rama omitida queda registrada como tal: no desaparece de la telemetría.
-    assert.equal(res.multiBranch?.branches[1].outcome, 'not_attempted');
-    assert.equal(res.multiBranch?.branches[1].providerRequests, 0);
+    assert.equal(res.branchCountAttempted, 2);
+    assert.notEqual(res.multiBranch?.branches[1].outcome, 'not_attempted');
+    assert.ok(
+      (res.providerRequestsUsed ?? 0) <= (res.providerRequestsAllowed ?? 0),
+      '🔴 y el techo de peticiones sigue mandando',
+    );
   });
 
   it('D. 2 ramas, la rama 0 queda corta → la rama 1 busca SÓLO el hueco', async () => {
@@ -342,7 +348,7 @@ describe('§ 23 — ejecución de ramas y parada por objetivo', () => {
     assert.equal(calls[2].subIndustryId, 71);
   });
 
-  it('E. 3 ramas, objetivo alcanzado en la rama 1 → la rama 2 NUNCA se llama', async () => {
+  it('🔴 X6.13 · E. 3 ramas, mínimo alcanzado en la rama 1 → la rama 2 SÍ se intenta', async () => {
     const { res, calls } = await run(
       [
         successResult(distinctCompanies(2, 'e0')),
@@ -351,11 +357,11 @@ describe('§ 23 — ejecución de ramas y parada por objetivo', () => {
       ],
       { plan: planWithBranches(3) },
     );
-    assert.equal(calls.length, 3);
+    assert.ok(calls.length > 3, '🔴 la tercera rama entra');
     assert.equal(res.branchCountPlanned, 3);
-    assert.equal(res.branchCountAttempted, 2);
-    assert.equal(res.multiBranch?.branches[2].outcome, 'not_attempted');
-    assert.equal(res.stopReason, 'target_reached');
+    assert.equal(res.branchCountAttempted, 3);
+    assert.notEqual(res.multiBranch?.branches[2].outcome, 'not_attempted');
+    assert.ok((res.providerRequestsUsed ?? 0) <= (res.providerRequestsAllowed ?? 0));
   });
 
   it('L. una rama con 0 resultados NO es un fallo: se pasa a la siguiente', async () => {
@@ -369,8 +375,9 @@ describe('§ 23 — ejecución de ramas y parada por objetivo', () => {
     assert.equal(res.ok, true);
     assert.equal(res.status, 'success');
     assert.equal(res.usefulCandidatesCount, 5);
-    // Una rama vacía no consume su segunda página: nada que continuar.
-    assert.equal(calls.length, 2);
+    // Una rama vacía no consume su segunda página: nada que continuar. 🔴 X6.13 —
+    // la rama 1 SÍ consume las suyas, porque el mínimo cubierto ya no la detiene.
+    assert.equal(calls.length, 3, 'rama 0 (1 página vacía) + rama 1 (sus 2 páginas)');
     assert.equal(res.multiBranch?.branches[0].outcome, 'completed');
     assert.equal(res.multiBranch?.branches[0].providerRequests, 1);
   });
@@ -392,26 +399,32 @@ describe('§ 23 — ejecución de ramas y parada por objetivo', () => {
     );
   });
 
-  it('O. targetGap=2 → la corrida NUNCA busca 5', async () => {
+  it('🔴 X6.13 · O. targetGap=2 describe el hueco, pero ya no acota la búsqueda', async () => {
     const { res, calls } = await run([successResult(distinctCompanies(2, 'o'))], {
       plan: planWithBranches(3),
       targetGap: 2,
     });
-    assert.equal(calls.length, 1);
-    assert.equal(res.targetGap, 2);
-    assert.equal(res.usefulCandidatesCount, 2);
-    assert.equal(res.stopReason, 'target_reached');
-    assert.equal(res.branchCountAttempted, 1);
+    // Antes: «la corrida NUNCA busca 5» ⇒ una sola petición. El hueco con el que
+    // la pierna arranca sigue viajando y sigue publicándose, pero no puede
+    // impedir que use las páginas que su reserva autoriza (regla 4).
+    assert.equal(res.targetGap, 2, 'el hueco sigue siendo el que llegó');
+    assert.ok(calls.length > 1, '🔴 el hueco no limita la búsqueda del segundo');
+    assert.equal(res.branchCountAttempted, 3);
+    assert.ok((res.providerRequestsUsed ?? 0) <= (res.providerRequestsAllowed ?? 0));
   });
 
-  it('P. el objetivo se cierra EXACTO: ni una petición después', async () => {
+  it('🔴 X6.13 · P. el mínimo se cierra y la corrida sigue dentro de su techo', async () => {
     const { res, calls } = await run(
       [successResult(distinctCompanies(4, 'p0')), successResult(distinctCompanies(1, 'p1'))],
       { plan: planWithBranches(3), targetGap: 5 },
     );
-    assert.equal(calls.length, 2);
+    // Antes: «ni una petición después». Ahora las peticiones las gobierna el
+    // techo; lo que se conserva es que el mínimo quede cerrado y que no se
+    // rebase lo reservado.
     assert.equal(res.usefulCandidatesCount, 5);
     assert.equal(res.remainingGapFinal, 0);
+    assert.ok(calls.length >= 2);
+    assert.ok((res.providerRequestsUsed ?? 0) <= (res.providerRequestsAllowed ?? 0));
   });
 });
 
@@ -637,7 +650,10 @@ describe('§ 2 — la rama es autoritativa en la petición', () => {
 
   it('sin plan NO se manda rama: el preview deriva la industria del sector', async () => {
     const { res, calls } = await run([successResult(distinctCompanies(5, 's'))]);
-    assert.equal(calls.length, 1);
+    // 🔴 X6.13 — la ruta legacy también usa sus dos páginas: el mínimo cubierto
+    // ya no detiene la segunda. Lo que este § mide —que sin plan NO viaja rama—
+    // se comprueba sobre la primera petición y no se mueve.
+    assert.equal(calls.length, 2);
     assert.equal(calls[0].mainIndustryId, null);
     assert.equal(calls[0].subIndustryId, null);
     // Y el techo es el de siempre.
@@ -665,10 +681,14 @@ describe('§§ 18/19 — telemetría', () => {
     assert.equal(multi.branch_count_planned, 2);
     assert.equal(multi.branch_count_attempted, 2);
     assert.equal(multi.provider_requests_allowed, 4);
-    assert.equal(multi.provider_requests_used, 3);
+    // 🔴 X6.13 — la rama 1 usa también su segunda página: cuatro peticiones de
+    // las cuatro reservadas. El gasto sube hasta el techo, nunca por encima.
+    assert.equal(multi.provider_requests_used, 4);
     assert.equal(multi.credits_reserved, 4);
-    assert.equal(multi.credits_reported_actual, 3);
-    assert.equal(multi.stop_reason, 'target_reached');
+    assert.equal(multi.credits_reported_actual, 4);
+    assert.ok(
+      (multi.provider_requests_used as number) <= (multi.provider_requests_allowed as number),
+    );
     assert.equal(multi.max_raw_results, 150);
     assert.equal((multi.branches as unknown[]).length, 2);
 

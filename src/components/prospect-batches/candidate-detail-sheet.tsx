@@ -39,6 +39,11 @@ import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card
 import { MetricCard } from '@/components/shared/metric-card';
 import { Badge } from '@/components/ui/badge';
 import {
+  hasOwnershipUnverifiedFlag,
+  OWNERSHIP_UNVERIFIED_DETAIL,
+  OWNERSHIP_UNVERIFIED_LABEL,
+} from '@/modules/prospect-batches/ownership-review-flag';
+import {
   CANDIDATE_STATUS_LABELS,
   DUPLICATE_STATUS_LABELS,
   REVIEW_STATUS_LABELS,
@@ -961,6 +966,24 @@ export function CandidateDetailSheet({
               <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-xs text-destructive flex items-start gap-2">
                 <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                 <span>Esta empresa presenta una señal crítica de liquidación o cese de operaciones.</span>
+              </div>
+            )}
+            {/*
+              🔴 VISIBILIDAD DE OWNERSHIP (opción C) — ámbar, no destructivo, y a
+              propósito: esto NO afirma que el dominio sea incorrecto. Afirma que
+              no se pudo verificar la relación, que es una pregunta sin responder
+              y no un rechazo.
+            */}
+            {hasOwnershipUnverifiedFlag(flags) && (
+              <div
+                data-testid="ownership-unverified-banner"
+                className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs text-amber-600 dark:text-amber-400 flex items-start gap-2"
+              >
+                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span>
+                  <strong className="font-semibold">{OWNERSHIP_UNVERIFIED_LABEL}.</strong>{' '}
+                  {OWNERSHIP_UNVERIFIED_DETAIL}
+                </span>
               </div>
             )}
 

@@ -61,7 +61,13 @@ export type CheckCountrySourceCompanyDuplicate = (
 export type CountrySourcePrePaidDiscoveryInput = {
   countryCode: string;
   macroIndustryKey: string;
-  /** Objetivo del usuario. Nunca se acepta por encima de él (§ 14). */
+  /**
+   * Objetivo del usuario.
+   *
+   * 🔴 X6.13 — es el MÍNIMO que la corrida persigue. Ya NO acota cuántas
+   * empresas acepta esta capa: decide si la ruta de pago hace falta
+   * (`providerRequired`) y cuánto falta para el suelo, nada más.
+   */
   requestedTarget: number;
   /**
    * Cuántas filas leer de la fuente. Más que el objetivo a propósito: entre lo
@@ -218,10 +224,17 @@ export async function runCountrySourcePrePaidDiscovery(
     if (seenIdentities.has(identity)) continue;
     seenIdentities.add(identity);
 
-    // 🔴 El objetivo se comprueba ANTES de preguntar por duplicados: una empresa
-    // que ya no cabe no necesita comprobarse, y HubSpot es una llamada de red.
-    if (acceptedCompanies.length >= requestedTarget) continue;
-
+    // 🔴 X6.13 — aquí vivía `if (acceptedCompanies.length >= requestedTarget)
+    // continue;`: la capa gratuita dejaba de aceptar al llegar al objetivo y
+    // descartaba empresas que habían pasado todos sus filtros. Con el objetivo
+    // entendido como MÍNIMO eso es el mismo defecto que en las capas de pago,
+    // sólo que sobre filas que no cuestan nada.
+    //
+    // 🔴 El límite de ejecución que SÍ se conserva es `readLimit` (objetivo ×
+    // `COUNTRY_SOURCE_READ_MULTIPLIER`), que acota cuántas filas se leen y, con
+    // ello, cuántas comprobaciones de duplicado se hacen. La consecuencia
+    // medible de este corte es que una corrida puede llegar a hacer hasta
+    // `readLimit` comprobaciones en vez de detenerse en el objetivo.
     let duplicate: DuplicateCheckResult;
     try {
       duplicate = await deps.checkCompanyDuplicate(buildDuplicateCheckInput(company));

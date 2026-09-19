@@ -117,17 +117,40 @@ describe('CUT-7 § 9 · la política de completitud', () => {
     assert.equal(result.targetReached, false);
   });
 
-  it('CASO D — paid acepta MÁS que el hueco ⇒ se recorta al hueco, total exacto', () => {
+  it('🔴 X6.13 · CASO D — paid acepta MÁS que el hueco ⇒ se CONSERVA, no se recorta', () => {
     const result = resolveAcceptedForTarget({
       demand: demandAfterFree(4),
       freePersistedCandidates: 4,
       paid: paidMeasured(9, 9),
     });
 
-    assert.equal(result.acceptedPaidForTarget, 6, '🔴 el hueco era 6: no se acepta un séptimo');
-    assert.equal(result.acceptedForTargetTotal, TARGET);
-    assert.equal(result.remainingTarget, 0);
+    // Antes: `acceptedPaidForTarget === 6` y total `=== TARGET`. El objetivo
+    // recortaba el aporte del proveedor, es decir: convertía el mínimo en techo.
+    assert.equal(result.acceptedPaidForTarget, 9, '🔴 las nueve válidas cuentan');
+    assert.equal(result.acceptedForTargetTotal, 13, '🔴 4 + 9, sin recorte');
+    assert.ok(result.acceptedForTargetTotal > TARGET, 'el mínimo se superó, y se dice');
+    assert.equal(result.remainingTarget, 0, 'el hueco nunca es negativo');
     assert.equal(result.targetReached, true);
+  });
+
+  it('🔴 X6.13 · CASO D-bis — el techo REAL son las filas únicas del lote', () => {
+    const result = resolveAcceptedForTarget({
+      demand: demandAfterFree(4),
+      freePersistedCandidates: 4,
+      paid: paidMeasured(9, 9),
+      // Sólo existen 11 filas únicas: dos de las nueve eran la misma empresa que
+      // la capa previa ya había dejado en el lote.
+      persistedUniqueCeiling: 11,
+    });
+
+    assert.equal(result.acceptedForTargetTotal, 11, '🔴 nadie cuenta dos veces');
+    assert.equal(result.acceptedFreeForTarget, 4);
+    assert.equal(result.acceptedPaidForTarget, 7, 'el recorte cae en la mitad de pago');
+    assert.equal(
+      result.acceptedFreeForTarget + result.acceptedPaidForTarget,
+      result.acceptedForTargetTotal,
+      '🔴 la identidad total = libre + pago se conserva',
+    );
   });
 });
 
@@ -175,7 +198,7 @@ describe('CUT-7 § 16 · invariantes de la ecuación', () => {
     );
   });
 
-  it('16.6/16.7 — el total NUNCA excede el objetivo y el hueco NUNCA es negativo', () => {
+  it('🔴 X6.13 · 16.6/16.7 — el total NUNCA excede las FILAS y el hueco NUNCA es negativo', () => {
     for (const free of [0, 3, 7, 10, 14]) {
       for (const paid of [0, 1, 6, 12, 40]) {
         const result = resolveAcceptedForTarget({
@@ -183,9 +206,12 @@ describe('CUT-7 § 16 · invariantes de la ecuación', () => {
           freePersistedCandidates: free,
           paid: paidMeasured(paid, paid),
         });
+        // 🔴 La invariante CAMBIA de operando: antes el techo era el objetivo
+        // —lo que hacía imposible reportar ocho válidas con objetivo cinco—; ahora
+        // es el universo persistido, que es el hecho que de verdad lo acota.
         assert.ok(
-          result.acceptedForTargetTotal <= result.requestedTarget,
-          `🔴 sobrellenado con free=${free} paid=${paid}`,
+          result.acceptedForTargetTotal <= result.persistedTotalCandidates,
+          `🔴 aceptadas por encima de las filas con free=${free} paid=${paid}`,
         );
         assert.ok(result.remainingTarget >= 0, `🔴 hueco negativo con free=${free} paid=${paid}`);
         assert.equal(
@@ -369,14 +395,26 @@ describe('CUT-7 § 17 · mutaciones deliberadas', () => {
     assert.notEqual(result.remainingTarget, mutated, '🔴 el hueco de las filas cerraría la corrida');
   });
 
-  it('NEGATIVO E — el total no puede exceder el objetivo por mucho que aporten las mitades', () => {
+  it('🔴 X6.13 · NEGATIVO E — el total no puede exceder LAS FILAS, aporten lo que aporten', () => {
     const result = resolveAcceptedForTarget({
       demand: demandAfterFree(9),
       freePersistedCandidates: 9,
       paid: paidMeasured(50, 50),
     });
-    assert.equal(result.acceptedForTargetTotal, TARGET);
-    assert.equal(result.acceptedPaidForTarget, 1);
+    // Antes: total `=== TARGET` y pago recortado a 1. Ahora las 59 válidas se
+    // reportan, porque existen; lo que sigue siendo imposible es contar más de
+    // lo escrito, y con un techo de filas declarado el total se acota a él.
+    assert.equal(result.acceptedForTargetTotal, 59);
+    assert.equal(result.acceptedPaidForTarget, 50);
+
+    const capped = resolveAcceptedForTarget({
+      demand: demandAfterFree(9),
+      freePersistedCandidates: 9,
+      paid: paidMeasured(50, 50),
+      persistedUniqueCeiling: 52,
+    });
+    assert.equal(capped.acceptedForTargetTotal, 52, '🔴 el universo durable manda');
+    assert.equal(capped.acceptedPaidForTarget, 43);
   });
 });
 

@@ -254,6 +254,16 @@ export type CandidatePersistenceOutcome = {
   lateDuplicateCount?: number;
   completeValidCandidates?: number;
   reviewOnlyCandidates?: number;
+  /**
+   * 🔴 X6.13 — los ids DURABLES de las filas que este writer declaró aceptadas.
+   *
+   * `completeValidCandidates` es un contador, y dos contadores no se pueden
+   * deduplicar entre sí: un replay que vuelva a reportar las mismas filas suma
+   * dos veces. Los ids sí, y por eso viajan hasta `resolveAcceptedForTarget`.
+   *
+   * Ausente ⇒ el camino no los midió; nunca se sustituye por el contador.
+   */
+  acceptedCandidateIds?: readonly string[];
 };
 
 /**
