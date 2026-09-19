@@ -229,7 +229,7 @@ describe('CUT-8 § F — la mitad de pago sin medir', () => {
 // ── § I · el universo durable no se recorta ──────────────────────────────────
 
 describe('CUT-8 § I — el universo durable nunca se recorta al subconjunto aceptado', () => {
-  it('12 filas gratuitas con objetivo 10: 12 durables, 10 aceptadas', () => {
+  it('🔴 X6.13 · 12 filas gratuitas con objetivo 10: 12 durables y 12 ACEPTADAS', () => {
     const r = resolveAcceptedForTarget({
       demand: demand(10, 12),
       freePersistedCandidates: 12,
@@ -237,13 +237,16 @@ describe('CUT-8 § I — el universo durable nunca se recorta al subconjunto ace
     });
     const s = toAcceptedForTargetSummary(r);
     assert.equal(s.persistedTotalCandidates, 12, '🔴 las 12 filas siguen ahí para revisar');
-    assert.equal(s.acceptedForTargetTotal, 10, 'nadie acepta más de lo que se pidió');
+    // Antes: `acceptedForTargetTotal === 10` («nadie acepta más de lo que se
+    // pidió»). Ése era el objetivo actuando de techo sobre el CONTEO: doce
+    // empresas válidas se reportaban como diez. El objetivo es el mínimo.
+    assert.equal(s.acceptedForTargetTotal, 12, '🔴 las doce válidas cuentan');
     assert.equal(s.targetReached, true);
     const v = Object.fromEntries(
       buildWizardAcceptedForTargetSummary(s).rows.map((x) => [x.key, x.value]),
     );
     assert.equal(v.persisted_candidates, '12');
-    assert.equal(v.accepted_for_target, '10');
+    assert.equal(v.accepted_for_target, '12');
   });
 });
 

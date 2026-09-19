@@ -224,11 +224,18 @@ function sanitizeRequestedTarget(value: number): number {
 /**
  * Construye el contexto previo al pago.
  *
- * 🔴 La invariante de § 14 se cumple por CONSTRUCCIÓN, no por comprobación
- * posterior: `acceptedBeforeProvider` se recorta al objetivo antes de restar, así
- * que `acceptedFree + acceptedPaid <= requestedTarget` no depende de que el
- * ejecutor del proveedor se porte bien. El tope de aceptación de #306
- * (`canAcceptLushaUsefulCandidate`) sigue siendo el que cierra el lado pagado.
+ * 🔴 X6.13 — `acceptedBeforeProvider` YA NO se recorta al objetivo.
+ *
+ * La § 14 original lo recortaba «por construcción» para garantizar
+ * `acceptedFree + acceptedPaid <= requestedTarget`. Esa garantía era el objetivo
+ * actuando de techo sobre el CONTEO: una fuente gratuita con doce empresas
+ * válidas y un objetivo de tres aportaba tres, y las otras nueve —escritas,
+ * revisables y válidas— no existían para ninguna cifra.
+ *
+ * Lo que se conserva intacto es lo que de verdad protege el gasto:
+ * `residualGap` sigue siendo `max(0, objetivo − aceptadas)` y sigue decidiendo
+ * la ACTIVACIÓN de la ruta de pago (`providerRequired`). Con doce aceptadas y un
+ * objetivo de tres, el hueco es cero y el proveedor no corre: idéntico a antes.
  */
 export function buildPrePaidNoveltyContext(
   input: BuildPrePaidNoveltyContextInput,
@@ -238,7 +245,8 @@ export function buildPrePaidNoveltyContext(
 
   // Una fuente que falló no aporta, aunque traiga conteos: ver `failedFreeSourceOutcome`.
   const rawAccepted = freeSource.failed ? 0 : Math.max(0, Math.trunc(freeSource.acceptedNovel));
-  const acceptedBeforeProvider = Math.min(rawAccepted, requestedTarget);
+  // 🔴 X6.13 — sin recorte contra el objetivo: lo aceptado es lo aceptado.
+  const acceptedBeforeProvider = rawAccepted;
   const residualGap = Math.max(0, requestedTarget - acceptedBeforeProvider);
 
   return {

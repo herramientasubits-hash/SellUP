@@ -255,9 +255,10 @@ describe('§ 23 — matriz de novedad cero sobre el ejecutor', () => {
       ],
       { plan: planWithBranches(2), targetGap: 5 },
     );
-    // Rama 0: página 0 rinde 5 aceptadas + 5 sobrantes ⇒ objetivo cerrado.
-    // La corrida para por `target_reached`, que es una parada MÁS fuerte.
-    assert.ok(calls.length <= 2);
+    // 🔴 X6.13 — el objetivo cerrado ya no para la corrida, así que lo que este
+    // caso mide vuelve a ser lo suyo: la NOVEDAD CERO. La rama que recibe las
+    // mismas diez empresas no compra su página 2, porque no aportó nada nuevo.
+    assert.ok(calls.length <= 3, `peticiones acotadas por la novedad: ${calls.length}`);
   });
 
   it('G — una rama estéril NO impide que la siguiente se ejecute', async () => {
@@ -278,14 +279,15 @@ describe('§ 23 — matriz de novedad cero sobre el ejecutor', () => {
     assert.equal(res.usefulCandidatesCount, 2);
   });
 
-  it('H — objetivo alcanzado ⇒ no se intenta ninguna rama más', async () => {
+  it('🔴 X6.13 · H — el mínimo alcanzado ya no impide intentar las demás ramas', async () => {
     const { calls, res } = await run(
       [successResult(distinct(5, 'llena'))],
       { plan: planWithBranches(3), targetGap: 5 },
     );
-    assert.equal(calls.length, 1);
+    // Antes: «no se intenta ninguna rama más» ⇒ una sola petición. Las ramas
+    // restantes están reservadas y sus empresas serían igual de válidas.
+    assert.ok(calls.length > 1, '🔴 las ramas restantes se intentan');
     assert.equal(res.usefulCandidatesCount, 5);
-    assert.equal(res.stopReason, 'target_reached');
   });
 
   it('🔴 § 19 — la parada por novedad cero NUNCA se reporta como parada de CORRIDA', async () => {

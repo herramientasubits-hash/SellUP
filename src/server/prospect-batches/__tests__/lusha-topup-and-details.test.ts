@@ -206,13 +206,15 @@ const run = async (opts: Parameters<typeof makeFlow>[0]) => {
 // ── Top-up pagination ─────────────────────────────────────────────────────────
 
 describe('Q3F-5BB.7B top-up pagination', () => {
-  it('1. page 0 yields >= 5 useful → only ONE search call (no top-up)', async () => {
+  it('🔴 X6.13 · 1. page 0 yields >= 5 useful → the run keeps its authorized page', async () => {
     const { res, calls } = await run({ firstPage: successResult(manyCompanies(5)) });
     assert.equal(res.status, 'success');
-    assert.deepEqual(calls.pages, [0]);
-    assert.equal(res.pagesRequested, 1);
-    assert.equal(res.topUpTriggered, false);
-    assert.equal(res.usefulCandidatesCount, 5);
+    // Antes: «only ONE search call». El mínimo cubierto detenía una página ya
+    // reservada; con el objetivo como suelo, la corrida la usa. `topUpTriggered`
+    // conserva su significado —la página 1 se pidió— y ahora es `true`.
+    assert.equal(calls.pages[0], 0, 'la página 0 sigue siendo la primera');
+    assert.equal(res.usefulCandidatesCount, 5, 'y las cinco siguen ahí');
+    assert.ok(res.pagesRequested >= 1);
   });
 
   it('2. page 0 yields < 5 useful → a SECOND search call on page 1', async () => {

@@ -92,11 +92,19 @@ describe('Scenario A — historical-heavy page reaches the target on page 1', ()
       },
     );
 
-    assert.equal(result.pagesProcessed, 1, 'una sola página basta');
-    assert.equal(result.estimatedCredits, 1, '1 crédito por página no vacía');
-    assert.equal(result.acceptedForTargetCount, 6);
-    assert.equal(result.stopReason, 'candidate_target_reached');
-    assert.equal(h.bodies.length, 1);
+    // 🔴 X6.13 — antes: «una sola página basta», porque alcanzar el objetivo
+    // NET-NEW detenía la paginación. Con el objetivo entendido como MÍNIMO, la
+    // búsqueda sigue mientras su presupuesto lo permita: el proveedor declara
+    // 500 páginas y la corrida usa las 5 que su techo autoriza.
+    assert.equal((result.acceptedForTargetCount ?? 0) >= 6, true, 'el mínimo se alcanza igual');
+    assert.equal(result.pagesProcessed, 5, 'y se aprovechan las páginas autorizadas');
+    assert.equal(result.estimatedCredits, 5, '1 crédito por página no vacía');
+    assert.notEqual(
+      result.stopReason,
+      'candidate_target_reached',
+      '🔴 el objetivo NET-NEW no puede volver a detener la paginación',
+    );
+    assert.equal(h.bodies.length, 5);
   });
 });
 
@@ -128,10 +136,14 @@ describe('Scenario B — a shortfall on page 1 continues to page 2', () => {
       },
     );
 
-    assert.equal(result.pagesProcessed, 2, 'la página 1 sola no alcanzaba el objetivo');
-    assert.equal(result.estimatedCredits, 2, '1 crédito por página, 2 páginas');
-    assert.equal(result.acceptedForTargetCount, 6);
-    assert.equal(result.stopReason, 'candidate_target_reached');
+    // 🔴 X6.13 — lo que este escenario defiende sigue exacto: con una página
+    // insuficiente la búsqueda CONTINÚA. Lo que cambia es que ya no se detiene
+    // al llegar a seis; sigue hasta su techo de páginas.
+    assert.ok(result.pagesProcessed >= 2, 'la página 1 sola no alcanzaba el objetivo');
+    assert.equal(result.pagesProcessed, 5, 'y agota su techo de páginas');
+    assert.equal(result.estimatedCredits, 5, '1 crédito por página');
+    assert.equal((result.acceptedForTargetCount ?? 0) >= 6, true);
+    assert.notEqual(result.stopReason, 'candidate_target_reached');
   });
 });
 
@@ -162,9 +174,14 @@ describe('Scenario C — the old two-round ceiling is no longer the pagination a
       },
     );
 
-    assert.equal(result.pagesProcessed, 3);
-    assert.equal(result.acceptedForTargetCount, 6);
-    assert.equal(result.stopReason, 'candidate_target_reached');
+    // 🔴 X6.13 — lo que este escenario existe para fijar es que el viejo techo
+    // de dos rondas NO gobierna la paginación, y sigue exacto: se pasa de tres
+    // páginas sin problema. Lo que cambia es el motivo de parada: ya no es el
+    // objetivo, sino el techo de páginas autorizado.
+    assert.ok(result.pagesProcessed >= 3, 'la tercera página se pide');
+    assert.equal(result.pagesProcessed, 5, 'y la búsqueda agota su techo');
+    assert.equal((result.acceptedForTargetCount ?? 0) >= 6, true);
+    assert.notEqual(result.stopReason, 'candidate_target_reached');
   });
 });
 

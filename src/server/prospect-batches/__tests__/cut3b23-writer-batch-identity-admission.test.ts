@@ -549,12 +549,19 @@ describe('CUT-3B23 REVIEW-FIX § 1 — residual y motivo de parada POST-admisió
     assert.equal(result.multiBranch?.remainingGapFinal, 1);
     // El informe imposible «objetivo 2 · aceptado 1 · hueco 0 · target_reached»
     // ya no puede emitirse.
+    // 🔴 X6.13 — la corrida ya no se detiene por objetivo, así que agota su
+    // techo de peticiones y ÉSE pasa a ser el motivo de parada. Lo que CUT-3B23
+    // existe para impedir —que se afirme `target_reached` con el hueco abierto
+    // tras la admisión de identidad— se conserva y se mide justo debajo.
     assert.notEqual(result.stopReason, 'target_reached');
-    assert.equal(result.stopReason, 'post_admission_identity_gap');
-    assert.equal(result.multiBranch?.stopReason, 'post_admission_identity_gap');
-    // 🔴 Y NADA de esto reabre gasto.
-    assert.equal(calls.searches, 1, 'no se pide una página más');
-    assert.equal(result.creditsCharged, 1, 'los créditos no se mueven');
+    assert.equal(result.stopReason, 'request_cap_reached');
+    assert.equal(result.multiBranch?.stopReason, 'request_cap_reached');
+    // 🔴 Y NADA de esto reabre gasto POR LA ADMISIÓN. X6.13 — la corrida usa las
+    // páginas que su techo autoriza (2), y lo que se fija aquí es que la
+    // admisión de identidad no añade ni una petición ni un crédito por su
+    // cuenta: el caso de control de abajo, sin duplicado, gasta lo mismo.
+    assert.equal(calls.searches, 2, 'las dos páginas autorizadas');
+    assert.equal(result.creditsCharged, 2, 'un crédito por página pedida, y ni uno más');
     assert.equal(result.batchIdentityDuplicateSkippedCount, 1);
   });
 
@@ -576,9 +583,10 @@ describe('CUT-3B23 REVIEW-FIX § 1 — residual y motivo de parada POST-admisió
     // del caso con duplicado. Esa es la propiedad, y no se mueve.
     assert.equal(result.remainingGapFinal, 0);
     assert.equal(result.stopReason, 'target_reached');
-    // Mismas peticiones y mismos créditos que en el caso con duplicado.
-    assert.equal(calls.searches, 1);
-    assert.equal(result.creditsCharged, 1);
+    // Mismas peticiones y mismos créditos que en el caso con duplicado: ésa es
+    // la propiedad, y sigue exacta tras X6.13.
+    assert.equal(calls.searches, 2);
+    assert.equal(result.creditsCharged, 2);
   });
 
   it('🔴 § 3 — si el motor confirma MENOS filas de las admitidas, manda `insertedCount`', async () => {

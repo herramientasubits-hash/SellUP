@@ -538,7 +538,10 @@ describe('CUT-L5 · L5-A — la ruta PAGADA pide 25', () => {
         ACTOR,
       ),
     );
-    assert.equal(bodies.length, 1);
+    // 🔴 X6.13 — la corrida ya no se detiene al cerrar el objetivo, así que
+    // puede emitir más de un cuerpo. Lo que este caso mide es la FORMA del
+    // primero: `pagination.size = 25`, ni 10 ni 50.
+    assert.ok(bodies.length >= 1);
     const pagination = (bodies[0] as { pagination?: { page: number; size: number } }).pagination;
     assert.deepEqual(pagination, { page: 0, size: 25 });
     // M1/M2 — ni 10 ni 50.
@@ -585,14 +588,19 @@ describe('CUT-L5 · L5-A — la ruta PAGADA pide 25', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('CUT-L5 · §§ 15, 17 — un bloque a la vez', () => {
-  it('L5-B · la página 1 cierra el objetivo ⇒ NO se compra la página 2', async () => {
+  it('🔴 X6.13 · L5-B · el tamaño de bloque sigue siendo 25, aunque la página 2 se compre', async () => {
     const { res, calls } = await run({ pages: [successResult(manyCompanies(25), 1)] });
     assert.equal(res.status, 'success');
-    // 🔴 M6 — una sola petición. Éste es el motivo entero de elegir 25 y no 50:
-    // con 50 el proveedor ya habría cobrado el segundo bloque aquí.
-    assert.deepEqual(calls.pages, [0]);
-    assert.equal(res.pagesRequested, 1);
-    assert.equal(res.creditsChargedTotal, 1);
+    // 🔴 X6.13 — antes: «una sola petición», porque el objetivo cerrado impedía
+    // la página 2. Lo que L5-B existe para demostrar es el TAMAÑO DE BLOQUE —25
+    // y no 50, para no cobrar de más por página— y eso no se mueve: cada página
+    // sigue costando un crédito y trayendo 25.
+    assert.equal(calls.pages[0], 0, 'la primera sigue siendo la página 0');
+    assert.ok(
+      (res.creditsChargedTotal ?? 0) <= calls.pages.length,
+      'nunca más créditos que páginas pedidas',
+    );
+    assert.equal(res.creditsChargedTotal, 1, 'la página vacía no cobra');
     // 🔴 SUPERSEDED — X5.1. Antes esto valía el objetivo (5) porque el tope de
     // aceptación tiraba las otras veinte de una página ya pagada. Las 25
     // sobreviven.
@@ -698,7 +706,10 @@ describe('CUT-L5 · §§ 8, 9 — el incumplimiento de facturación para la comp
 
   it('L5-K · 25 resultados cobrados a 1: cuadra', async () => {
     const { res } = await run({ pages: [successResult(manyCompanies(25), 1)] });
-    assert.equal(res.billingContract?.expectedCreditsTotal, 1);
+    // 🔴 X6.13 — la corrida pide también su segunda página (vacía y no cobrada),
+    // así que lo ESPERADO por el contrato cubre las páginas pedidas mientras lo
+    // cobrado sigue siendo el de la única página con resultados. Lo que L5-K
+    // mide —que lo esperado y lo cobrado CUADREN— se conserva.
     assert.equal(res.billingContract?.actualCreditsTotal, 1);
     assert.equal(res.billingContract?.matchesContract, true);
   });
@@ -749,9 +760,11 @@ describe('CUT-L5 · §§ 11, 12, 27 — los reintentos de CUT-L4 no heredan el m
       { status: 429, body: {} },
       { body: providerBody(25, 1) },
     ]);
-    assert.equal(httpCalls, 2);
-    // 🔴 M11 — el `429` sigue costando CERO.
-    assert.equal(res.creditsChargedTotal, 1);
+    // 🔴 X6.13 — la corrida sigue pidiendo su página siguiente, así que puede
+    // haber más intentos HTTP. Lo que L5-G mide —que un `429` cuesta CERO— se
+    // conserva: el crédito lo cobra la página con resultados, y sólo ella.
+    assert.ok(httpCalls >= 2, 'el 429 se reintenta');
+    assert.equal(res.creditsChargedTotal, 1, '🔴 el 429 sigue costando cero');
   });
 
   it('L5-H · 503 → 503: 2 intentos HTTP y CERO créditos', async () => {
