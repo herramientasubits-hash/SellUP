@@ -213,19 +213,37 @@ export function resolveAcceptedForTarget(input: {
    * campo por campo. Es el caso de toda corrida sin waterfall.
    */
   paidWaterfall?: AcceptedContribution;
+  /**
+   * 🔴 X6.13 — el TECHO REAL de la corrida: cuántas filas ÚNICAS existen de
+   * verdad en el lote.
+   *
+   * Sustituye al tope por objetivo que este módulo aplicaba a cada aporte. El
+   * objetivo es el MÍNIMO que la búsqueda persigue, nunca el máximo que puede
+   * contar: una corrida que encuentra ocho válidas vale ocho.
+   *
+   * Lo que el tope por objetivo SÍ hacía y no se puede perder es impedir que la
+   * misma empresa se cuente dos veces cuando dos piernas producen de más. Esa
+   * garantía pasa aquí a apoyarse en el universo DURABLE —filas únicas ya
+   * escritas, con la identidad de lote ya aplicada— en vez de en una resta:
+   * dos aportes no pueden sumar más candidatas de las que la base confirma, y
+   * un reintento que vuelva a reportar lo mismo tampoco puede inflar el total.
+   *
+   * Ausente ⇒ sólo rigen las cotas por contribuyente (cada aporte contra SUS
+   * filas), que es el comportamiento de toda llamada que no conoce el lote.
+   */
+  persistedUniqueCeiling?: number | null;
 }): AcceptedForTargetResult {
   const requestedTarget = sanitizeCount(input.demand.requestedTarget);
   const persistedFree = sanitizeCount(input.freePersistedCandidates);
 
-  // 🔴 Acotado por las FILAS y por el OBJETIVO. La primera cota es la que impide
-  // que una aceptación mayor que lo escrito —un estado imposible que sólo puede
-  // venir de un error de conteo— fabrique cobertura; la segunda es la invariante
-  // de § 14 de la puerta previa al pago, que aquí se vuelve a sostener en vez de
-  // darse por buena.
+  // 🔴 Acotado por las FILAS, y ya NO por el objetivo (X6.13). La cota por filas
+  // es la que impide que una aceptación mayor que lo escrito —un estado
+  // imposible que sólo puede venir de un error de conteo— fabrique cobertura.
+  // La cota por objetivo se retira porque convertía el mínimo en techo: una capa
+  // gratuita que trae ocho válidas con objetivo cinco aportaba cinco.
   const acceptedFree = Math.min(
     sanitizeCount(input.demand.acceptedBeforeProvider),
     persistedFree,
-    requestedTarget,
   );
 
   const waterfall = input.paidWaterfall ?? CONTRIBUTOR_NOT_RUN;
@@ -234,31 +252,45 @@ export function resolveAcceptedForTarget(input: {
   const persistedPaidWaterfall = sanitizeCount(waterfall.persistedCandidates);
   const persistedPaid = persistedPaidPrimary + persistedPaidWaterfall;
 
-  const remainingAfterFree = Math.max(0, requestedTarget - acceptedFree);
+  // 🔴 X6.13 — cada aporte se acota contra SUS PROPIAS filas y nada más. El
+  // `remainingTarget` desapareció de las dos cotas: era lo que hacía que un
+  // proveedor con doce válidas aportara sólo el hueco.
   const acceptedPaidPrimary = input.paid.measured
-    ? Math.min(
-        sanitizeCount(input.paid.acceptedForTarget),
-        persistedPaidPrimary,
-        // § 9 CASO D — la autoridad nunca acepta lógicamente más del hueco que
-        // queda, por mucho que el proveedor haya producido de más.
-        remainingAfterFree,
-      )
+    ? Math.min(sanitizeCount(input.paid.acceptedForTarget), persistedPaidPrimary)
     : 0;
 
-  // 🔴 CUT-2 — la segunda pierna se acota por el hueco que queda DESPUÉS de la
-  // primera, no por el de después de lo gratuito. Es lo que impide que una
-  // empresa se cuente dos veces cuando las dos piernas producen de más: el
-  // objetivo se cierra una sola vez.
-  const remainingAfterPrimaryPaid = Math.max(0, remainingAfterFree - acceptedPaidPrimary);
   const acceptedPaidWaterfall = waterfall.measured
-    ? Math.min(
-        sanitizeCount(waterfall.acceptedForTarget),
-        persistedPaidWaterfall,
-        remainingAfterPrimaryPaid,
-      )
+    ? Math.min(sanitizeCount(waterfall.acceptedForTarget), persistedPaidWaterfall)
     : 0;
 
-  const acceptedPaid = acceptedPaidPrimary + acceptedPaidWaterfall;
+  const acceptedPaidRaw = acceptedPaidPrimary + acceptedPaidWaterfall;
+
+  /**
+   * 🔴 X6.13 — LA COTA QUE SUSTITUYE AL OBJETIVO.
+   *
+   * Sumar dos aportes sin ninguna cota común permitiría que la misma empresa
+   * contara dos veces si las dos piernas la reportaran. Con el tope por objetivo
+   * eso era imposible por accidente aritmético; ahora se impide por el hecho que
+   * de verdad lo gobierna: no puede haber más ACEPTADAS que filas ÚNICAS
+   * escritas en el lote.
+   *
+   * 🔴 Es un techo, no una verdad: recorta un total imposible, nunca eleva uno
+   * honesto. Y se aplica al TOTAL —no aporte por aporte— porque el solapamiento
+   * vive entre piernas, no dentro de una.
+   */
+  const uniqueCeiling =
+    typeof input.persistedUniqueCeiling === 'number' &&
+    Number.isFinite(input.persistedUniqueCeiling)
+      ? sanitizeCount(input.persistedUniqueCeiling)
+      : null;
+  // 🔴 El recorte cae sobre la mitad de PAGO, no sobre el total, para que la
+  // identidad `total = libre + pago` se conserve en la metadata. La mitad
+  // gratuita ya está acotada por sus propias filas y es anterior en el tiempo:
+  // recortarla a ella describiría un solapamiento que no ocurrió ahí.
+  const acceptedPaid =
+    uniqueCeiling === null
+      ? acceptedPaidRaw
+      : Math.min(acceptedPaidRaw, Math.max(0, uniqueCeiling - acceptedFree));
   const acceptedTotal = acceptedFree + acceptedPaid;
   const unknownReasons: AcceptanceUnknownReason[] = [];
   if (!input.paid.measured) unknownReasons.push(input.paid.reason);

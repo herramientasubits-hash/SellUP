@@ -149,16 +149,18 @@ function run(deps: ApolloTwoRoundDeps, remainingTarget: number | null = null) {
 // ── Casos obligatorios del producto ──────────────────────────────────────────
 
 describe('CORTE 3 — casos obligatorios de suficiencia (T = 5)', () => {
-  test('A — R1 = 5 útiles ⇒ FIN, sin ronda 2', async () => {
+  test('🔴 X6.13 · A — R1 = 5 útiles: el mínimo se cumple y la ronda 2 SIGUE', async () => {
     const { deps, searchCalls } = harness({ usefulPerRound: [5, 5] });
 
     const result = await run(deps);
 
-    assert.equal(result.stableFinalizableCandidateCount, TARGET);
-    assert.equal(result.roundsExecuted, 1);
-    assert.equal(searchCalls.filter((call) => call.roundNumber === 2).length, 0);
-    assert.equal(result.secondRoundSkippedReason, 'target_reached');
+    // 🔴 El mínimo se alcanzó en R1 y se reporta; lo que ya no hace es cancelar
+    // una ronda autorizada. Las cinco de R2 son tan válidas como las de R1.
     assert.equal(result.targetReached, true);
+    assert.equal(result.roundsExecuted, 2);
+    assert.equal(searchCalls.filter((call) => call.roundNumber === 2).length, 1);
+    assert.notEqual(result.secondRoundSkippedReason, 'target_reached');
+    assert.equal(result.stableFinalizableCandidateCount, 10, '🔴 las diez se conservan');
   });
 
   test('B — R1 = 3, R2 = 2 ⇒ objetivo cubierto en dos rondas', async () => {
@@ -202,14 +204,17 @@ describe('CORTE 3 — casos obligatorios de suficiencia (T = 5)', () => {
     assert.equal(searchCalls[1]!.requestedResultLimit, TARGET);
   });
 
-  test('E — R1 = 8 útiles ⇒ FIN inmediato, sin ronda 2', async () => {
+  test('🔴 X6.13 · E — R1 = 8 útiles: ni se tiran, ni se deja de buscar', async () => {
     const { deps, searchCalls } = harness({ usefulPerRound: [8, 8] });
 
     const result = await run(deps);
 
-    assert.equal(result.roundsExecuted, 1);
-    assert.equal(searchCalls.length, 1);
-    assert.equal(result.secondRoundSkippedReason, 'target_reached');
+    // 🔴 X6.13 — antes: «FIN inmediato», una sola ronda y `target_reached` como
+    // motivo de salto. El objetivo actuaba de techo de BÚSQUEDA igual que antes
+    // actuaba de techo de existencia; las dos caras del mismo defecto.
+    assert.equal(result.roundsExecuted, 2);
+    assert.equal(searchCalls.length, 2);
+    assert.notEqual(result.secondRoundSkippedReason, 'target_reached');
     assert.equal(result.targetReached, true);
     // 🔴 X5 — lo que este caso defiende es la PARADA: una sola ronda, una sola
     // búsqueda, `target_reached`. Eso no se mueve.
@@ -217,7 +222,7 @@ describe('CORTE 3 — casos obligatorios de suficiencia (T = 5)', () => {
     // Sobrarle empresas ya no le hace TIRARLAS. Las ocho pasaron los gates
     // obligatorios y la búsqueda que las trajo ya estaba pagada; descartar tres
     // por haber llegado sextas era el objetivo actuando de techo de existencia.
-    assert.equal(result.persistedCandidates, 8);
+    assert.equal(result.persistedCandidates, 16, '🔴 las ocho de cada ronda');
   });
 
   test('F — R1 y R2 devuelven lo MISMO ⇒ lo repetido no vuelve a contar', async () => {
@@ -296,12 +301,14 @@ describe('CORTE 3 — la misma cuenta decide parar, pedir y terminar', () => {
     assert.ok(result.rounds[0]!.normalizedResults >= 40, 'los 40 se evaluaron (corte 2)');
   });
 
-  test('la parada y el resultado final leen la MISMA cuenta', async () => {
+  test('🔴 X6.13 · el veredicto y la cuenta siguen leyendo lo MISMO', async () => {
     const { deps } = harness({ usefulPerRound: [TARGET, 0] });
 
     const result = await run(deps);
 
-    assert.equal(result.secondRoundSkippedReason, 'target_reached');
+    // La cuenta que decide el veredicto no cambia; lo que desapareció es su
+    // poder de PARAR. `target_reached` ya no puede ser motivo de salto de ronda.
+    assert.notEqual(result.secondRoundSkippedReason, 'target_reached');
     assert.equal(result.targetReached, true);
     assert.equal(result.stableFinalizableCandidateCount >= result.targetEligibleCompanies, true);
   });

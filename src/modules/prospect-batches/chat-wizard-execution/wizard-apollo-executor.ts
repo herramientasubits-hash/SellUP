@@ -32,7 +32,6 @@ import {
 } from '@/server/agents/prospecting-toolkit/apollo-subindustry-catalog-terms-loader.server';
 // AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 §§ 3, 4, 6 — la demanda residual y su cota.
 import {
-  boundByRemainingTarget,
   type ProviderResultDemand,
 } from '@/modules/prospect-batches/prepaid-novelty/provider-result-demand';
 // AGENT1-APOLLO-LUSHA-WATERFALL § CORTE 1 — autoridad única del objetivo.
@@ -323,20 +322,19 @@ export async function runWizardApolloSearch(
     webSearchProvider: 'apollo_organizations',
     targetInternal: WIZARD_APOLLO_TARGET_INTERNAL,
     maxRounds: WIZARD_APOLLO_MAX_ROUNDS,
-    // CUT-2 §§ 4, 6 — la ruta legacy también respeta el hueco. Es el objetivo de
-    // ACEPTACIÓN (candidatos persistibles), que es exactamente el que la capa
-    // gratuita ya cerró en parte. `targetInternal` NO se toca: es la AMPLITUD de
-    // búsqueda del pipeline, no una promesa al usuario, y recortarla mezclaría dos
-    // conceptos que el gate previo separa a propósito.
+    // 🔴 X6.13 — el objetivo del proveedor deja de RECORTARSE con lo que la capa
+    // gratuita ya trajo.
     //
-    // 🔴 Sin demanda residual el valor es la constante de siempre, byte por byte.
-    targetPersistibleCandidates:
-      input.resultDemand === null || input.resultDemand === undefined
-        ? WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES
-        : boundByRemainingTarget(
-            WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
-            input.resultDemand.remainingTarget,
-          ),
+    // CUT-2 hacía `boundByRemainingTarget(5, remainingTarget)`: con tres
+    // empresas gratuitas, Apollo corría con un objetivo de 2. Mientras el
+    // objetivo fue un techo eso era coherente; con el objetivo entendido como
+    // MÍNIMO es justo lo contrario de la regla — el aporte previo decide si el
+    // proveedor se ACTIVA, nunca cuánto puede traer.
+    //
+    // `input.resultDemand` sigue viajando y sigue decidiendo la activación
+    // (`providerRequired`) y la telemetría del lote; lo que ya no hace es
+    // multiplicar su hueco por el objetivo del proveedor.
+    targetPersistibleCandidates: WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
     existingBatchId: input.reservedBatchId,
     triggeredByUserId: input.resolved.userId,
     ownerId: input.resolved.userId,

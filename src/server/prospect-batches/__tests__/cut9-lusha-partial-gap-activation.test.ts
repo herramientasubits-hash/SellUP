@@ -979,9 +979,11 @@ describe('CUT-9 §§ 3, 4 · lo persistido no es lo aceptado', () => {
     assert.equal(acceptance.persistedTotalCandidates, 5);
   });
 
-  it('🔴 NEGATIVE_E · la aceptación de pago NUNCA excede el hueco restante', () => {
-    // El proveedor produjo de más (página ya pagada). La autoridad no puede
-    // sobrellenar el objetivo por mucho que haya rendido.
+  it('🔴 X6.13 · NEGATIVE_E — la aceptación de pago NUNCA excede SUS FILAS', () => {
+    // El proveedor produjo de más (página ya pagada). Antes la autoridad lo
+    // recortaba al hueco; ahora lo conserva, porque el objetivo es el mínimo y
+    // esas empresas existen. Lo que sigue sin poder ocurrir es contar más de lo
+    // escrito.
     const acceptance = resolveAcceptedForTarget({
       demand: resolveProviderResultDemand(
         {
@@ -999,12 +1001,12 @@ describe('CUT-9 §§ 3, 4 · lo persistido no es lo aceptado', () => {
       }),
     });
 
-    assert.equal(acceptance.acceptedPaidForTarget, TARGET - 3);
-    assert.equal(acceptance.acceptedForTargetTotal, TARGET);
-    assert.equal(acceptance.remainingTarget, 0);
+    assert.equal(acceptance.acceptedPaidForTarget, 9, '🔴 las nueve válidas cuentan');
+    assert.equal(acceptance.acceptedForTargetTotal, 12);
+    assert.equal(acceptance.remainingTarget, 0, 'el hueco nunca es negativo');
     assert.ok(
-      acceptance.acceptedForTargetTotal <= acceptance.requestedTarget,
-      '🔴 NEGATIVE_E: se aceptó por encima del objetivo pedido',
+      acceptance.acceptedPaidForTarget <= acceptance.persistedPaidCandidates,
+      '🔴 NEGATIVE_E: se aceptó por encima de las filas escritas',
     );
     // Y el universo durable sigue diciendo la verdad, sin recortarse.
     assert.equal(acceptance.persistedPaidCandidates, 9);

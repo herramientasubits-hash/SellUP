@@ -105,17 +105,25 @@ function run(
 // ─── Casos 1–4: comportamiento de las dos rondas ─────────────────────────────
 
 describe('§ 13 · dos rondas', () => {
-  test('caso 1 — la ronda 1 encuentra cinco elegibles: una sola ronda, cero peticiones en la 2', async () => {
+  test('🔴 X6.13 · caso 1 — cinco en la ronda 1 YA NO cancelan la ronda 2', async () => {
     const { deps, recorder } = harness({ roundResults: [orgs('a', 5), orgs('b', 5)] });
 
     const result = await run(deps);
 
-    assert.equal(result.eligibleCompaniesFound, 5);
-    assert.equal(result.roundsExecuted, 1);
+    // 🔴 El veredicto del objetivo no se mueve: cinco elegibles, mínimo cubierto.
     assert.equal(result.targetReached, true);
     assert.equal(result.resultStatus, 'target_reached');
-    assert.equal(result.secondRoundSkippedReason, 'target_reached');
-    assert.equal(recorder.searchCalls.filter((c) => c.roundNumber === 2).length, 0);
+
+    // 🔴 Lo que cambia: la ronda 2 estaba autorizada y presupuestada, y ya no se
+    // cancela por haber llegado al mínimo. Sus cinco empresas existen y entran.
+    assert.equal(result.roundsExecuted, 2, 'la ronda 2 se ejecuta');
+    assert.notEqual(
+      result.secondRoundSkippedReason,
+      'target_reached',
+      '🔴 el objetivo no puede volver a saltarse una ronda',
+    );
+    assert.equal(recorder.searchCalls.filter((c) => c.roundNumber === 2).length, 1);
+    assert.equal(result.eligibleCompaniesFound, 10, '🔴 las diez válidas se conservan');
   });
 
   test('caso 2 — tres en la ronda 1 y dos nuevas en la ronda 2 completan el objetivo', async () => {
@@ -263,13 +271,17 @@ describe('§ 13 · límites', () => {
     assert.equal(result.roundsExecuted, 2);
   });
 
-  test('caso 16 — parada inmediata al alcanzar cinco, sin gastar los enrichments restantes', async () => {
+  test('🔴 X6.13 · caso 16 — el mínimo alcanzado no detiene el gasto autorizado', async () => {
     const { deps, recorder } = harness({ roundResults: [orgs('a', 6)] });
 
     const result = await run(deps);
 
-    assert.equal(result.roundsExecuted, 1);
-    assert.equal(recorder.enrichCalls.length, 0);
+    // 🔴 X6.13 — antes: `roundsExecuted: 1` y cero enrichments «por parada
+    // inmediata». Ahora la ronda 2 se intenta (su guion no trae resultados) y
+    // los enrichments los gobierna SU tope, no el objetivo. Lo que se conserva
+    // es que nada exceda ese tope.
+    assert.ok(result.roundsExecuted <= 2, `rondas dentro del tope: ${result.roundsExecuted}`);
+    assert.ok(recorder.enrichCalls.length <= 5, 'enrichments dentro de su tope');
     assert.equal(result.eligibleCompaniesFound, 6);
     // 🔴 X5 — lo que este caso defiende es la PARADA DEL GASTO: cero enrichments
     // y una sola ronda en cuanto el objetivo se cubre. Eso sigue intacto.

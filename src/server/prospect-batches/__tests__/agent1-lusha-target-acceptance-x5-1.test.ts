@@ -441,8 +441,12 @@ describe('X5.1 § D · la compra no mira la aceptación', () => {
     const truth = resolveLushaRunAcceptanceTruth(survivors(40), SUBINDUSTRY_REQUESTED);
     assert.equal(truth.acceptedForTarget, null, 'no medida…');
 
-    // …y aun así el hueco está cerrado, porque lo cierra `purchaseCredit`.
+    // …y el hueco de TELEMETRÍA sigue cerrándose con `purchaseCredit`.
     assert.equal(resolveLushaRemainingGap(5, truth.purchaseCredit), 0);
+
+    // 🔴 X6.13 — lo que YA NO ocurre: el hueco cerrado no deniega la página
+    // siguiente. El objetivo es el mínimo, y una página que la reserva autoriza
+    // se pide. Lo que deniega es el techo de peticiones, no el objetivo.
     assert.deepEqual(
       decideLushaProviderRequest({
         remainingGap: resolveLushaRemainingGap(5, truth.purchaseCredit),
@@ -450,8 +454,18 @@ describe('X5.1 § D · la compra no mira la aceptación', () => {
         providerRequestsAllowed: 10,
         rawResultsTotal: 40,
       }),
-      { allowed: false, stopReason: 'target_reached' },
-      'ninguna página adicional se autoriza',
+      { allowed: true },
+      '🔴 el objetivo cerrado no puede seguir denegando una página autorizada',
+    );
+    assert.deepEqual(
+      decideLushaProviderRequest({
+        remainingGap: 0,
+        providerRequestsUsed: 10,
+        providerRequestsAllowed: 10,
+        rawResultsTotal: 40,
+      }),
+      { allowed: false, stopReason: 'request_cap_reached' },
+      'el techo de peticiones sigue siendo el que manda',
     );
   });
 

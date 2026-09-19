@@ -845,6 +845,9 @@ export async function runIncrementalProspectingSearch(
     let apolloSearchOptions: ApolloOrgsSearchOptions | undefined;
     if (isApolloProvider) {
       const usefulAccumulatedBeforeRound = allCandidates.filter(isUsefulCandidate).length;
+      // 🔴 X6.13 — se sigue calculando y publicando para observabilidad, pero ya
+      // NO detiene la paginación: `evaluateApolloPaginationDecision` retiró esa
+      // parada. El gasto lo acotan páginas, créditos, tiempo y universo.
       const netNewTarget = Math.max(1, targetPersistibleCandidates - usefulAccumulatedBeforeRound);
 
       const evaluateCandidateAcceptance = createApolloPaginationAcceptanceEvaluator({
@@ -1144,15 +1147,18 @@ export async function runIncrementalProspectingSearch(
       round1PersistableCount = writerGateAdjustedEstimate;
     }
 
-    if (writerGateAdjustedEstimate >= targetPersistibleCandidates) {
-      stoppedReason = 'target_reached';
-      break;
-    }
-    // Fallback: if target is 0, use raw novelty-only count (legacy behavior)
-    if (targetPersistibleCandidates === 0 && noveltyOnlyPersistibleEstimate >= minUsefulCandidates) {
-      stoppedReason = 'target_reached';
-      break;
-    }
+    // 🔴 X6.13 — LA PARADA DE RONDA POR OBJETIVO SE RETIRA.
+    //
+    // Aquí vivían las dos: `writerGateAdjustedEstimate >= targetPersistible` y
+    // su respaldo para objetivo 0. Las dos cancelaban una ronda ya autorizada
+    // por haber ESTIMADO que el mínimo estaba cubierto — y una estimación no es
+    // una razón para dejar de buscar cuando el objetivo es un suelo.
+    //
+    // 🔴 Lo que sigue cerrando el bucle: `maxRounds`, el agotamiento de
+    // consultas, la parada temprana por ausencia de dominios nuevos (evidencia
+    // de universo agotado, no de objetivo), los topes de páginas y créditos del
+    // proveedor y el presupuesto. `stoppedReason = 'target_reached'` deja de
+    // poder emitirse desde este bucle.
 
     // ── Early stop (Hito 16AB.43.24): sin dominios nuevos Y sin diversificación
     // Condición: R1 produjo 0 dominios nuevos fuera de memoria negativa Y
@@ -1241,10 +1247,12 @@ export async function runIncrementalProspectingSearch(
   // ── Adaptive discovery — helper + placeholder (Hito 16AB.43.27) ─────────────
   // persisted_count starts at 0 and is reconciled post-writer with actual count.
 
+  // 🔴 X6.13 — `'target_reached'` desapareció de `stoppedReason`, así que la
+  // rama que lo traducía ya no puede darse. El vocabulario PUBLICADO conserva el
+  // valor —hay lotes históricos que lo llevan y consumidores que lo leen—, pero
+  // ninguna corrida nueva puede emitirlo desde aquí.
   const adaptiveStopReason: AdaptiveDiscoveryMetadata['stop_reason'] =
-    stoppedReason === 'target_reached'
-      ? 'target_reached'
-      : stoppedReason === 'novelty_exhausted_no_diversification_available'
+    stoppedReason === 'novelty_exhausted_no_diversification_available'
       ? 'novelty_exhausted_no_diversification_available'
       : stoppedReason === 'max_rounds_reached'
       ? 'max_rounds_reached'

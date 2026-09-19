@@ -2768,11 +2768,15 @@ export async function persistLushaPendingReviewBatch(
     const branch = branches[branchIndex] as LushaExecutionBranch;
     const remainingGapBefore = resolveLushaRemainingGap(targetGap, purchaseCreditSoFar());
 
-    // § 4 — objetivo cerrado ⇒ las ramas restantes NO se piden. Quedan en la
-    // telemetría como `not_attempted` para que se vea que existían y se omitieron.
-    if (runStopped || remainingGapBefore <= 0) {
-      if (!runStopped) stopReason = 'target_reached';
-      runStopped = true;
+    // 🔴 X6.13 — la rama restante ya NO se salta por objetivo cerrado.
+    //
+    // § 4 decía: «objetivo cerrado ⇒ las ramas restantes NO se piden». Con el
+    // objetivo entendido como MÍNIMO, una rama con páginas y reserva
+    // disponibles debe pedirse: sus empresas son tan válidas como las de la
+    // primera. La condición se queda SÓLO con `runStopped`, que es lo que
+    // recoge las paradas reales —techo de peticiones, filas crudas, fallo del
+    // proveedor, cancelación—.
+    if (runStopped) {
       pushBranchTelemetry(branchIndex, branch, 'not_attempted', {
         pagesAttempted: 0,
         providerRequests: 0,
@@ -2814,9 +2818,12 @@ export async function persistLushaPendingReviewBatch(
       if (!decision.allowed) {
         stopReason = decision.stopReason;
         runStopped = true;
-        if (decision.stopReason === 'target_reached' && page > 0) {
-          branchOutcome = 'target_reached';
-        }
+        // 🔴 X6.13 — aquí se traducía un `target_reached` de la decisión de
+        // compra al desenlace de la rama. `decideLushaProviderRequest` ya no
+        // puede devolverlo: el objetivo dejó de detener la compra, así que la
+        // rama sólo puede pararse por techo de peticiones, filas crudas o
+        // proveedor. `target_reached` sobrevive como desenlace POST-corrida
+        // (más abajo), que es una afirmación sobre el resultado, no una parada.
         break;
       }
 

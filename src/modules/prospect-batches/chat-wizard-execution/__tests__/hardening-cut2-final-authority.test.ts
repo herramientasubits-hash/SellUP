@@ -391,7 +391,7 @@ describe('CUT-2 § 5 · una pierna que no MIDIÓ aporta cero, nunca sus filas', 
     ]);
   });
 
-  it('una pierna que produce de MÁS no acepta por encima del objetivo', () => {
+  it('🔴 X6.13 · dos piernas que producen de MÁS conservan sus válidas', () => {
     const demand = fullTargetResultDemand(TARGET);
     const resolved = resolveAcceptedForTarget({
       demand,
@@ -405,9 +405,29 @@ describe('CUT-2 § 5 · una pierna que no MIDIÓ aporta cero, nunca sus filas', 
         persistedCandidates: 9,
       }),
     });
-    assert.equal(resolved.acceptedForTargetTotal, TARGET, '🔴 acotado al objetivo');
-    assert.equal(resolved.acceptedPaidForTarget, TARGET);
-    assert.equal(resolved.remainingTarget, 0);
+    // Antes: total y pago acotados a TARGET. El objetivo era el techo, así que
+    // una corrida con 3 + 9 válidas se reportaba como 5.
+    assert.equal(resolved.acceptedForTargetTotal, 12, '🔴 3 + 9, sin recorte');
+    assert.equal(resolved.acceptedPaidForTarget, 12);
+    assert.equal(resolved.remainingTarget, 0, 'el hueco nunca es negativo');
+    assert.equal(resolved.targetReached, true);
+
+    // 🔴 Y el control del doble conteo se mide donde ahora vive: si de las doce
+    // sólo existieran diez filas únicas, el total no puede pasar de diez.
+    const deduped = resolveAcceptedForTarget({
+      demand,
+      freePersistedCandidates: 0,
+      paid: paidAcceptedContributionFromWriterTruth({
+        completeValidCandidates: 3,
+        persistedCandidates: 3,
+      }),
+      paidWaterfall: paidAcceptedContributionFromWriterTruth({
+        completeValidCandidates: 9,
+        persistedCandidates: 9,
+      }),
+      persistedUniqueCeiling: 10,
+    });
+    assert.equal(deduped.acceptedForTargetTotal, 10, '🔴 nadie cuenta dos veces');
     assert.equal(
       resolved.persistedTotalCandidates,
       12,

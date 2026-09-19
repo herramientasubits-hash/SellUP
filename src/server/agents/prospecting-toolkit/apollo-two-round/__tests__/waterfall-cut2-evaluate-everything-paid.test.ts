@@ -226,15 +226,19 @@ describe('CORTE 2 § G3 — el volumen crudo ya no cancela la ronda 2', () => {
     assert.equal(result.secondRoundSkippedReason, null);
   });
 
-  test('R1 cubre el objetivo ⇒ la ronda 2 se salta por SUFICIENCIA, no por volumen', async () => {
+  test('🔴 X6.13 · R1 cubre el objetivo y la ronda 2 ya no se salta por SUFICIENCIA', async () => {
     const { deps, searchRounds } = harness({
       roundResults: [orgs('a', APOLLO_FULL_PAGE), orgs('b', APOLLO_FULL_PAGE)],
     });
 
     const result = await run(deps, { maxRawResultsPerRun: 10 });
 
-    assert.deepEqual(searchRounds, [1], 'con el objetivo cubierto no se compra una segunda ronda');
-    assert.equal(result.secondRoundSkippedReason, 'target_reached');
+    // Lo que CORTE 2 § G3 defiende —que el VOLUMEN crudo no cancele la ronda 2—
+    // sigue intacto, y ahora tampoco la cancela la suficiencia: con el objetivo
+    // entendido como mínimo, ninguna de las dos razones puede dejar sin usar una
+    // ronda ya autorizada.
+    assert.deepEqual(searchRounds, [1, 2], '🔴 la segunda ronda se compra');
+    assert.notEqual(result.secondRoundSkippedReason, 'target_reached');
   });
 });
 

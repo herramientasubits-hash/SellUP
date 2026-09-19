@@ -2184,19 +2184,29 @@ export async function writeProspectingCandidates(
         : 'fail',
     }).countsTowardTarget,
   );
-  const toPersist =
-    targetCap != null && targetCap > 0 && eligibleBeforeCap > targetCap
-      ? capOrdered.slice(0, targetCap)
-      : capOrdered;
-  const cappedEntries = capOrdered.slice(toPersist.length);
-
-  for (const { candidate, domain } of cappedEntries) {
-    skipped.push({ name: candidate.name, reason: "target_cap", searchTrace: candidate.searchTrace ?? undefined });
-    precisionGate.targetCapCount++;
-    // § F — elegible, sin rechazo: se queda fuera por cupo, no por calidad. Debe
-    // seguir siendo trazable como cualquier otro descarte.
-    captureOmittedSample(candidate, domain, 'target_cap', 'target_cap');
-  }
+  /**
+   * 🔴 X6.13 — EL CUPO DE ESCRITURA DESAPARECE.
+   *
+   * Hasta este corte el writer cortaba la lista de elegibles en
+   * `targetPersistibleCandidates` y marcaba el resto `target_cap`: empresas que
+   * habían pasado TODOS los gates y se descartaban por haber llegado las
+   * últimas. Con el objetivo entendido como MÍNIMO eso es exactamente lo
+   * prohibido — ocho válidas con objetivo cinco valen ocho.
+   *
+   * 🔴 Lo que NO desaparece es el orden COMPLETE-FIRST: ya no decide quién
+   * sobrevive, pero sigue decidiendo quién se escribe primero, que es lo que
+   * hace legible el lote y lo que protege a las completas si una escritura
+   * parcial se quedara a medias.
+   *
+   * 🔴 `targetPersistibleCandidates` sigue LLEGANDO y sigue siendo el objetivo
+   * de la corrida: lo consume el veredicto (`targetReached`), no la tijera.
+   *
+   * El contador se conserva en cero por contrato: `target_cap_final` es una
+   * clave que la metadata del lote y el redactor de «sin candidatos nuevos» ya
+   * leen, y retirarla obligaría a tocar consumidores ajenos a este corte. Cero
+   * es además la afirmación correcta: ninguna empresa se queda fuera por cupo.
+   */
+  const toPersist = capOrdered;
 
   // ── Active Duplicate Guard: prefetch active candidates (v1.13.1) ───────────
   // Fetches existing active candidates once before the write loop to avoid
@@ -4035,9 +4045,13 @@ export async function writeProspectingCandidates(
         : {}),
     };
 
+    // 🔴 X6.13 — el bloque SOBREVIVE y dice la verdad nueva: el cupo existe como
+    // OBJETIVO declarado de la corrida y ya no recorta. `enabled: false` es lo
+    // que distingue «no había objetivo» (bloque ausente) de «había objetivo y no
+    // cortó», que son dos cosas distintas para quien audita un lote.
     const targetCapMetadata = targetCap != null
       ? {
-          enabled: true,
+          enabled: false,
           target: targetCap,
           eligible_before_cap: eligibleBeforeCap,
           persisted_after_cap: createdCandidateIds.length,

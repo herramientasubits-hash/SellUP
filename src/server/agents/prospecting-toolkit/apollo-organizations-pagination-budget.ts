@@ -252,17 +252,26 @@ export function evaluateApolloPaginationDecision(
   if (state.elapsedMs >= budget.timeoutBudgetMs) {
     return { shouldContinue: false, stopReason: 'time_budget_exhausted' };
   }
-  // AGENT1-APOLLO-NET-NEW-PAGINATION § 11/§ 17 — cuando la búsqueda conoce su
-  // objetivo NET-NEW, ÉSA es la autoridad de parada: un duplicado histórico no
-  // lo consume, así que una página de puro duplicado no basta para detenerse
-  // aquí. Ausente cualquiera de los dos ⇒ criterio previo, sin cambios.
-  if (
-    typeof state.netNewTarget === 'number' &&
-    typeof state.acceptedForTargetCount === 'number' &&
-    state.acceptedForTargetCount >= state.netNewTarget
-  ) {
-    return { shouldContinue: false, stopReason: 'candidate_target_reached' };
-  }
+  // 🔴 X6.13 — LA PARADA POR OBJETIVO SE RETIRA.
+  //
+  // Hasta este corte, alcanzar el objetivo NET-NEW detenía la paginación:
+  // `acceptedForTargetCount >= netNewTarget ⇒ candidate_target_reached`. Con el
+  // objetivo entendido como MÍNIMO eso es justamente lo prohibido — una página
+  // ya autorizada y presupuestada dejaba de pedirse por haber llegado a cinco,
+  // y las empresas que traía no llegaban a existir.
+  //
+  // 🔴 Lo que sigue deteniendo la paginación, intacto y por este orden:
+  // cancelación, guardas operativas, tiempo, capacidad de resultados, créditos,
+  // páginas y agotamiento del universo (`last_page_reached` /
+  // `contract_page_ceiling`). El gasto sigue acotado exactamente por donde lo
+  // estaba; lo que cambia es que ahora se aprovecha lo que ya se paga.
+  //
+  // `netNewTarget` y `acceptedForTargetCount` siguen en el estado porque la
+  // observabilidad los publica; ninguno decide ya si se pide otra página.
+  // 🔴 Esta cota NO es el objetivo: es la CAPACIDAD de la corrida
+  // (`maxPages × perPage`), es decir, cuántas filas caben en lo que ya está
+  // autorizado a gastar. Conserva su código de parada histórico porque hay
+  // consumidores que lo leen; el objetivo del usuario no participa.
   if (state.candidatesCollected >= budget.maxCandidates) {
     return { shouldContinue: false, stopReason: 'candidate_target_reached' };
   }

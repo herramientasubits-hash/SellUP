@@ -1374,12 +1374,25 @@ export async function executeProspectWizardGeneration(
       completeValidCandidates: number | null | undefined;
       persistedCandidates: number;
     } = PAID_ROUTE_NOT_RUN_WRITER_TRUTH,
+    /**
+     * 🔴 X6.13 — el techo de FILAS ÚNICAS del lote.
+     *
+     * Sustituye al tope por objetivo que `resolveAcceptedForTarget` aplicaba a
+     * cada aporte. No es una cifra nueva: es `resolveBatchDurableTotals`, la
+     * misma autoridad de CUT-1 que ya cuenta las filas del lote con la identidad
+     * ya aplicada. Ausente ⇒ sólo rigen las cotas por contribuyente.
+     *
+     * Es lo que impide que dos piernas cuenten la misma empresa y que un
+     * reintento infle el total: no puede haber más aceptadas que filas.
+     */
+    persistedUniqueCeiling: number | null = null,
   ) =>
     resolveAcceptedForTarget({
       demand: apolloResultDemand,
       freePersistedCandidates: freeContribution?.persistedCandidates ?? 0,
       paid: paidAcceptedContributionFromWriterTruth(paidWriterTruth),
       paidWaterfall: paidAcceptedContributionFromWriterTruth(waterfallWriterTruth),
+      persistedUniqueCeiling,
     });
 
   /**
@@ -2154,20 +2167,25 @@ export async function executeProspectWizardGeneration(
       }
     : PAID_ROUTE_NOT_RUN_WRITER_TRUTH;
 
+  // 🔴 Las FILAS de la corrida entera. Sin pierna Lusha ejecutada el total es
+  // idéntico a `combinedDurableTotals`, entero por entero.
+  //
+  // 🔴 X6.13 — se resuelve ANTES de la aceptación final, porque ahora la acota:
+  // el universo durable es el techo de lo que puede contarse.
+  const finalDurableTotals = resolveBatchDurableTotals({
+    preExisting: durableCandidatesFromCount(combinedDurableTotals.totalDurableCandidates),
+    insertedNow: waterfallWriterTruth.persistedCandidates,
+  });
+
   const acceptedForTarget = resolveRunAcceptance(
     {
       completeValidCandidates: pipelineResult.persistenceOutcome?.completeValidCandidates ?? null,
       persistedCandidates: pipelineResult.candidatesCreated ?? 0,
     },
     waterfallWriterTruth,
+    // 🔴 X6.13 — el techo real: las filas ÚNICAS que existen en el lote.
+    finalDurableTotals.totalDurableCandidates,
   );
-
-  // 🔴 Las FILAS de la corrida entera. Sin pierna Lusha ejecutada el total es
-  // idéntico a `combinedDurableTotals`, entero por entero.
-  const finalDurableTotals = resolveBatchDurableTotals({
-    preExisting: durableCandidatesFromCount(combinedDurableTotals.totalDurableCandidates),
-    insertedNow: waterfallWriterTruth.persistedCandidates,
-  });
 
   const hasNewCandidatesAfterAllLegs = finalDurableTotals.totalDurableCandidates > 0;
 

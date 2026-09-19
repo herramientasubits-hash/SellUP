@@ -5757,3 +5757,20 @@ jobs:
       # 0 escrituras en Produccion - 0 migraciones - 0 cambios de bandera.
       - name: Run Agent 1 X6.12 Lusha measurable acceptance tests
         run: npm run test:a1-lusha-measurable-acceptance-x6-12
+
+      # -- AGENT1-TARGET-IS-MINIMUM-X6.13 ------------------------------------
+      #
+      # El objetivo de 5 era un TECHO en seis sitios: el cupo de escritura del
+      # writer, la parada de ronda, la de paginacion, la del bucle de
+      # enriquecimiento, la de ramas de Lusha y el tope de la capa gratuita.
+      # Ahora es un SUELO: decide si se activa el segundo proveedor y si la
+      # corrida es completa o parcial, y no recorta ni la busqueda ni el conteo.
+      #
+      # El step arrastra las suites que fijan la aritmetica de aceptacion y las
+      # paradas de busqueda: si alguna volviera a recortar por objetivo, o si el
+      # total pudiera contar dos veces la misma empresa, el PR queda rojo aqui.
+      #
+      # 0 llamadas a Apollo - 0 a Lusha - 0 creditos - 0 Supabase real -
+      # 0 escrituras en Produccion - 0 migraciones - 0 cambios de bandera.
+      - name: Run Agent 1 X6.13 target-is-minimum tests
+        run: npm run test:a1-target-is-minimum-x6-13
