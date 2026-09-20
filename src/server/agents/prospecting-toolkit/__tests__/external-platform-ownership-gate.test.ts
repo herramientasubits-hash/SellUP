@@ -85,10 +85,31 @@ function makePipelineOutput(candidates: ProspectingPipelineCandidate[]): Prospec
   } as unknown as ProspectingPipelineOutput;
 }
 
+/**
+ * 🔴 El doble de Supabase, puesto al día con el contrato REAL del writer.
+ *
+ * Siete pruebas de esta suite llevaban rojas desde CUT-3B4 («Nexen must be
+ * persisted» y compañía) con 0 filas escritas. La causa NO era producción: sin
+ * método `rpc` la forma de un objeto no prueba nada sobre el esquema, así que
+ * el writer degrada CERRADO (`identity_fence_snapshot_degraded`). Ese
+ * fail-closed es correcto y no se toca.
+ *
+ * Se responde `PGRST202` —lo que diría una base sin la migración 126, el estado
+ * real de Producción—, igual que `canonical-identity-gate-writer.test.ts` y
+ * `business-fit-gate.test.ts`, y se completan las dos cadenas que producción
+ * encadena: la siembra del registro de identidad y los nombres previos.
+ */
 function makeFakeAdminClient(): SupabaseClient {
   let insertedCandidateCount = 0;
 
   const client = {
+    rpc: async () => ({
+      data: null,
+      error: {
+        code: 'PGRST202',
+        message: 'Could not find the function read_batch_identity_snapshot in the schema cache',
+      },
+    }),
     from: (table: string) => {
       const obj: Record<string, unknown> = {};
 
@@ -102,9 +123,16 @@ function makeFakeAdminClient(): SupabaseClient {
         }
         if (table === 'prospect_candidates') {
           return {
+            // Siembra del registro de identidad del lote: 0 filas, lote nuevo.
+            eq: () => ({
+              in: () => Promise.resolve({ data: [], error: null }),
+            }),
             in: (_col: string) => {
               if (_col === 'domain') return Promise.resolve({ data: [], error: null });
-              return { not: () => Promise.resolve({ data: [], error: null }) };
+              // La cadena real de nombres previos termina en `.neq(...)`.
+              return {
+                not: () => ({ neq: () => Promise.resolve({ data: [], error: null }) }),
+              };
             },
           };
         }
