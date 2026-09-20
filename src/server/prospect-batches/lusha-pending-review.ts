@@ -144,6 +144,7 @@ import {
   LUSHA_PENDING_REVIEW_EXPECTED_MAX_CREDITS,
 } from './lusha-pending-review-limits';
 import {
+  boundAcceptedByUnconfirmedWrites,
   evaluateLushaSurvivorCompleteness,
   resolveLushaRunAcceptanceTruth,
   type LushaRunAcceptanceFacts,
@@ -3979,6 +3980,11 @@ export async function persistLushaPendingReviewBatch(
   // La ÚNICA puerta a la ruta anterior a B4 es `capability_absent`, que es la BASE
   // diciendo que la función no existe.
   let insertedCount: number;
+  /**
+   * Ids que la escritura VALLADA confirmó. `null` ⇒ no se tomó esa ruta, y
+   * entonces lo único que se sabe es CUÁNTAS filas entraron, no cuáles.
+   */
+  let fencedInsertedCandidateIds: ReadonlyArray<string> | null = null;
   let fenceTelemetry: Record<string, number | boolean | null>;
   /**
    * AGENT1-LOCAL-CUT9B — la época que el lote tiene DESPUÉS de esta escritura.
@@ -4026,6 +4032,17 @@ export async function persistLushaPendingReviewBatch(
 
   if (fenced.status === 'inserted') {
     insertedCount = fenced.insertedCount;
+    /**
+     * 🔴 LA RUTA VALLADA SÍ SABE CUÁLES FILAS QUEDARON.
+     *
+     * `insert_fenced_prospect_candidates` inserta el bloque ENTERO dentro de una
+     * transacción y devuelve `candidateIds`: o entran todas o no entra ninguna.
+     * Un `inserted` es, por contrato, una escritura TOTAL, así que la aceptación
+     * se re-evalúa sobre la lista completa y el conteo es EXACTO. La cota
+     * conservadora no aplica aquí y decirlo importa: aplicarla castigaría a la
+     * ruta que sí tiene la evidencia.
+     */
+    fencedInsertedCandidateIds = fenced.candidateIds;
     // 🔴 Sólo un número REAL sirve de token de CAS. Un desenlace sin `nextEpoch`
     // —un doble antiguo, una respuesta ilegible— deja la época en `null`, y desde
     // ahí la publicación NO cae a una escritura sin valla: cae a «no disponible»,
@@ -4115,7 +4132,19 @@ export async function persistLushaPendingReviewBatch(
    * discrepancia queda declarada en la telemetría. Inventar un subconjunto sería
    * exactamente la clase de afirmación que este corte existe para no hacer.
    */
-  const writerRowsFullyPersisted = insertedCount >= useful.length;
+  /**
+   * 🔴 ¿SE SABE CUÁLES filas quedaron, o sólo cuántas?
+   *
+   *   · Ruta VALLADA con `inserted` ⇒ transacción todo-o-nada con ids
+   *     devueltos: escritura TOTAL y conteo EXACTO.
+   *   · Ruta sin valla (`capability_absent`) ⇒ sólo `insertedCount`. Si coincide
+   *     con lo entregado, la escritura fue total igualmente; si es menor, no hay
+   *     forma de saber cuáles entraron y lo que se publica es una COTA INFERIOR.
+   */
+  const writerRowsFullyPersisted =
+    fencedInsertedCandidateIds !== null || insertedCount >= useful.length;
+  /** `false` ⇒ `acceptedForTarget` de esta pierna es una cota, no un conteo. */
+  const acceptedCountExact = writerRowsFullyPersisted;
   const acceptanceTruthFinal = writerRowsFullyPersisted
     ? resolveLushaRunAcceptanceTruth(useful.map(toLushaSurvivorCompletenessInput), acceptanceFacts)
     : acceptanceTruthPreWrite;
@@ -4138,10 +4167,19 @@ export async function persistLushaPendingReviewBatch(
     // útiles, la aceptación NO las sigue»— y sigue viva; lo que cambia es el
     // otro operando, que ya no es un conteo de filas sino el veredicto de
     // completitud del contrato canónico.
+    // 🔴 La cota deja de ser `Math.min(aceptadas, filas)`: un `insertedCount`
+    // acotado dice CUÁNTAS filas entraron, jamás CUÁLES, y recortar con él
+    // acredita una completitud que nadie probó. Ver
+    // `boundAcceptedByUnconfirmedWrites`.
+    acceptedCountExact,
     acceptedForTargetTotal:
       acceptanceTruthFinal.acceptedForTarget === null
         ? null
-        : Math.min(acceptanceTruthFinal.acceptedForTarget, survivorsPersisted),
+        : boundAcceptedByUnconfirmedWrites({
+            complete: acceptanceTruthFinal.acceptedForTarget,
+            attempted: useful.length,
+            inserted: insertedCount,
+          }),
     remainingGapFinal: remainingGapPersisted,
     stopReason: stopReasonPersisted,
   };
@@ -4189,8 +4227,15 @@ export async function persistLushaPendingReviewBatch(
           // 🔴 X6.12 — la publicación durable lee la verdad FINAL del writer, la
           // misma que el llamador recibe. Dos cifras bajo el mismo nombre —una
           // en la base y otra en la respuesta— es el defecto que CUT-9B cerró.
+          // 🔴 La MISMA cota conservadora que publica la corrida: dos
+          // expresiones para «cuántas completas sobrevivieron» era justamente el
+          // defecto que CUT-9B cerró.
           completeValidCandidates: acceptanceTruthFinal.acceptanceMeasurable
-            ? Math.min(acceptanceTruthFinal.complete, insertedCount)
+            ? boundAcceptedByUnconfirmedWrites({
+                complete: acceptanceTruthFinal.complete,
+                attempted: useful.length,
+                inserted: insertedCount,
+              })
             : null,
           // Ahora SÍ se distingue, y por eso deja de ser `null`: la suma
           // `incomplete + unknown` es exactamente la cohorte de revisión, y las

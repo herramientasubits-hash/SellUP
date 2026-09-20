@@ -385,13 +385,19 @@ describe('CORTE 5A — lo que este corte NO cambia', () => {
 
 describe('CORTE 5A § G — Apollo y Lusha en el mismo lote no duplican empresa', () => {
   test('la siembra de identidad usa el lote canónico cuando la capa gratuita no aportó', () => {
+    // 🔴 La resolución se extrajo a `resolveLushaBatchIdentitySeed` para poder
+    // ejercitarla —y ejercitar su camino degradado— con el código del llamador.
+    // Lo que esta guarda protege es lo mismo: el lote CANÓNICO alimenta la
+    // siembra cuando la capa gratuita no aportó, y la autoridad de lectura sigue
+    // siendo `loadBatchIdentityRegistry`.
     const code = stripComments(read(ACTION_REL));
     assert.match(
       code,
-      /const identitySeedBatchId = prePaid\.batchId \?\? waterfall\?\.canonicalBatchId \?\? null;/,
+      /waterfallCanonicalBatchId: waterfall\?\.canonicalBatchId \?\? null,/,
       'sin esto Lusha admitiría una empresa que Apollo ya escribió en el MISMO lote',
     );
-    assert.match(code, /loadBatchIdentityRegistry\(supabase, identitySeedBatchId\)/);
+    assert.match(code, /prePaidBatchId: prePaid\.batchId \?\? null,/);
+    assert.match(code, /loadBatchIdentityRegistry\(supabase, batchId\)/);
   });
 
   test('el dedupe compartido sigue cableado y no se sustituye por `provider_seen`', () => {

@@ -199,6 +199,45 @@ export function evaluateLushaSurvivorCompleteness(
   }).completenessVerdict;
 }
 
+/**
+ * 🔴 LA COTA CONSERVADORA CUANDO LA BASE CONFIRMÓ MENOS FILAS DE LAS ENTREGADAS.
+ *
+ * ── El defecto que cierra ───────────────────────────────────────────────────
+ *
+ * `insertCandidates` devuelve `{ insertedCount }` y nada más: dice CUÁNTAS filas
+ * entraron, nunca CUÁLES. Con una escritura parcial, recortar la aceptación con
+ * `Math.min(completas, insertadas)` acredita una completitud que nadie probó.
+ *
+ * Caso reproducido: se entregan una candidata COMPLETA y una INCOMPLETA, y la
+ * base confirma UNA fila. `min(1, 1) = 1` ⇒ se publicaba una aceptación. Si la
+ * fila que entró fue la incompleta, la verdad es CERO.
+ *
+ * ── La cota ─────────────────────────────────────────────────────────────────
+ *
+ *   aceptadas ≥ completas − fallidas,   con fallidas = entregadas − insertadas
+ *
+ * Es el peor caso honesto: suponer que las filas que NO entraron eran
+ * precisamente las completas. Nunca supera `insertadas`, porque
+ * `completas − fallidas ≤ entregadas − fallidas = insertadas`.
+ *
+ * 🔴 Con escritura TOTAL (`fallidas = 0`) devuelve las completas tal cual, así
+ * que el caso normal —una transacción vallada todo-o-nada— no se toca.
+ */
+export function boundAcceptedByUnconfirmedWrites(input: {
+  /** Candidatas que la evaluación declaró completas. */
+  readonly complete: number;
+  /** Filas que se ENTREGARON a la base. */
+  readonly attempted: number;
+  /** Filas que la base CONFIRMÓ. */
+  readonly inserted: number;
+}): number {
+  const complete = Math.max(0, Math.trunc(input.complete));
+  const attempted = Math.max(0, Math.trunc(input.attempted));
+  const inserted = Math.max(0, Math.trunc(input.inserted));
+  const failed = Math.max(0, attempted - inserted);
+  return Math.max(0, complete - failed);
+}
+
 /** Las cifras de la corrida. Una sola fuente para todas las superficies. */
 export type LushaRunAcceptanceTruth = {
   survivors: number;

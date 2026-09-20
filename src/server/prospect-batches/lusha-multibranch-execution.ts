@@ -415,6 +415,14 @@ export type LushaRunTelemetry = {
   /** Cuántas empresas revisables no probaron pertenecer a la macro pedida. */
   precisionRejectedTotal: number;
   /**
+   * 🔴 ¿`acceptedForTargetTotal` es un CONTEO o una COTA INFERIOR?
+   *
+   * Opcional para que un llamador anterior a este corte siga compilando y
+   * produzca la forma de metadata previa. Ausente ⇒ se asume exacto, que era el
+   * único caso que la forma anterior sabía describir.
+   */
+  acceptedCountExact?: boolean;
+  /**
    * 🔴 X6.14 — cuántas rechazó el gate de CALIDAD antes del catálogo.
    *
    * Opcional para que un llamador o doble de prueba anterior a este corte siga
@@ -469,6 +477,9 @@ export function toLushaRunTelemetryMetadata(
     accepted_for_target_total: telemetry.acceptedForTargetTotal,
     target_overflow_discarded: telemetry.targetOverflowDiscarded,
     precision_rejected_total: telemetry.precisionRejectedTotal,
+    ...(typeof telemetry.acceptedCountExact === 'boolean'
+      ? { accepted_count_kind: telemetry.acceptedCountExact ? 'exact' : 'lower_bound' }
+      : {}),
     ...(typeof telemetry.qualityRejectedTotal === 'number'
       ? { quality_rejected_total: telemetry.qualityRejectedTotal }
       : {}),

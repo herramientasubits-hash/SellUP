@@ -5817,3 +5817,23 @@ jobs:
       # 0 escrituras en Produccion - 0 migraciones - 0 cambios de bandera.
       - name: Run Agent 1 business-fit observation-only tests
         run: npm run test:a1-business-fit-observation-only
+
+      # Filtros INDEPENDIENTES del perfil comercial: plataforma externa,
+      # identidad canonica y compatibilidad de pais, sobre el writer real.
+      # La suite existia y NO estaba cableada; sus 7 rojas eran un doble de
+      # Supabase anterior a CUT-3B4, no un defecto de produccion.
+      #
+      # 0 llamadas a Apollo - 0 a Lusha - 0 creditos - 0 Supabase real -
+      # 0 escrituras en Produccion - 0 migraciones - 0 cambios de bandera.
+      - name: Run Agent 1 external platform + ownership gate tests
+        run: npm run test:external-platform-ownership-gate
+
+      # Cierre de conteo previo a las E2E individuales:
+      #   1. escritura parcial - un insertedCount no acredita completitud;
+      #   2. identidades entre proveedores - la guarda de identidad de lote es
+      #      quien impide el doble conteo, no la aritmetica.
+      #
+      # 0 llamadas a Apollo - 0 a Lusha - 0 creditos - 0 Supabase real -
+      # 0 escrituras en Produccion - 0 migraciones - 0 cambios de bandera.
+      - name: Run Agent 1 pre-E2E counting closure tests
+        run: npm run test:a1-pre-e2e-counting-closure
