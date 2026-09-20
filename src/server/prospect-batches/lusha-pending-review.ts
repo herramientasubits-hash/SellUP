@@ -144,6 +144,7 @@ import {
   LUSHA_PENDING_REVIEW_EXPECTED_MAX_CREDITS,
 } from './lusha-pending-review-limits';
 import {
+  boundAcceptedByUnconfirmedWrites,
   evaluateLushaSurvivorCompleteness,
   resolveLushaRunAcceptanceTruth,
   type LushaRunAcceptanceFacts,
@@ -4138,10 +4139,18 @@ export async function persistLushaPendingReviewBatch(
     // útiles, la aceptación NO las sigue»— y sigue viva; lo que cambia es el
     // otro operando, que ya no es un conteo de filas sino el veredicto de
     // completitud del contrato canónico.
+    // 🔴 La cota deja de ser `Math.min(aceptadas, filas)`: un `insertedCount`
+    // acotado dice CUÁNTAS filas entraron, jamás CUÁLES, y recortar con él
+    // acredita una completitud que nadie probó. Ver
+    // `boundAcceptedByUnconfirmedWrites`.
     acceptedForTargetTotal:
       acceptanceTruthFinal.acceptedForTarget === null
         ? null
-        : Math.min(acceptanceTruthFinal.acceptedForTarget, survivorsPersisted),
+        : boundAcceptedByUnconfirmedWrites({
+            complete: acceptanceTruthFinal.acceptedForTarget,
+            attempted: useful.length,
+            inserted: insertedCount,
+          }),
     remainingGapFinal: remainingGapPersisted,
     stopReason: stopReasonPersisted,
   };
@@ -4189,8 +4198,15 @@ export async function persistLushaPendingReviewBatch(
           // 🔴 X6.12 — la publicación durable lee la verdad FINAL del writer, la
           // misma que el llamador recibe. Dos cifras bajo el mismo nombre —una
           // en la base y otra en la respuesta— es el defecto que CUT-9B cerró.
+          // 🔴 La MISMA cota conservadora que publica la corrida: dos
+          // expresiones para «cuántas completas sobrevivieron» era justamente el
+          // defecto que CUT-9B cerró.
           completeValidCandidates: acceptanceTruthFinal.acceptanceMeasurable
-            ? Math.min(acceptanceTruthFinal.complete, insertedCount)
+            ? boundAcceptedByUnconfirmedWrites({
+                complete: acceptanceTruthFinal.complete,
+                attempted: useful.length,
+                inserted: insertedCount,
+              })
             : null,
           // Ahora SÍ se distingue, y por eso deja de ser `null`: la suma
           // `incomplete + unknown` es exactamente la cohorte de revisión, y las
