@@ -384,6 +384,36 @@ export type ApolloTwoRoundDeps = {
     roundNumber: number;
   }) => Promise<CheapAssessment> | CheapAssessment;
 
+  /**
+   * AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET § 2 — cuántas evaluaciones baratas
+   * pueden estar en vuelo a la vez.
+   *
+   * Existe porque `assessCandidate` NO es gratis en tiempo aunque lo sea en
+   * créditos: en producción hace una verificación HTTP del sitio de la empresa
+   * (8 s de tope por organización) y una comprobación de duplicados. Con el bucle
+   * estrictamente secuencial, el coste de la ronda es la SUMA de 166 latencias
+   * independientes, y esa suma es lo que agotó el límite de ejecución.
+   *
+   * Ausente o `<= 1` ⇒ comportamiento secuencial previo, byte a byte.
+   *
+   * 🔴 NO relaja ningún gate ni cambia el ORDEN de nada: la deduplicación y el
+   * registro de identidades siguen siendo secuenciales y deterministas (fase A y
+   * fase C). Sólo se solapa la ESPERA de I/O de la fase B.
+   */
+  assessmentConcurrency?: number;
+
+  /**
+   * § 3 — ¿queda tiempo de ejecución para seguir evaluando?
+   *
+   * Se consulta ENTRE tandas, nunca a mitad de una. `false` detiene la evaluación
+   * y deja las organizaciones no evaluadas en el estado recuperable, en vez de
+   * dejar que la plataforma mate la corrida y pierda TODO el trabajo de una
+   * búsqueda ya pagada.
+   *
+   * Ausente ⇒ sin límite de tiempo, byte a byte como antes.
+   */
+  assessmentTimeGuard?: () => boolean;
+
   /** Ejecuta UN Organization Enrichment. Sólo se llama bajo el cap global. */
   enrichCandidate: (input: {
     candidateKey: string;
@@ -508,6 +538,7 @@ export type ApolloTwoRoundCheckpointSnapshot = {
 
 export type ApolloTwoRoundCheckpointTrigger =
   | 'search_round_completed'
+  | 'round_assessment_partial'
   | 'search_round_indeterminate'
   | 'round_assessment_completed'
   | 'enrichment_completed'
@@ -705,6 +736,17 @@ export type ApolloTwoRoundRunResult = {
   targetReached: boolean;
   /** Código estático cuando el objetivo no se alcanzó. Null cuando sí. */
   partialResultReason: 'partial_target_not_reached' | null;
+  /**
+   * AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET § 4 — la corrida se quedó sin
+   * tiempo de ejecución con organizaciones YA PAGADAS todavía sin evaluar.
+   *
+   * Es el tercer estado que faltaba. `partialResultReason` dice que no se llegó
+   * al objetivo; esto dice algo distinto y accionable: que queda trabajo
+   * recuperable y GRATIS, y que una continuación puede retomarlo sin volver a
+   * buscar ni a pagar. Un lector que confunda los dos diagnostica agotamiento
+   * del universo donde hubo agotamiento del reloj.
+   */
+  assessmentDeadlineReached: boolean;
   secondRoundSkippedReason: SecondRoundSkippedReason | null;
   /**
    * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 7 — código estático cuando la
@@ -1256,6 +1298,14 @@ export async function runApolloTwoRoundDiscovery(
     ...(resume?.indeterminateOperations ?? []),
   ];
   const checkpointWriteFailures: ApolloTwoRoundCheckpointTrigger[] = [];
+  /**
+   * § 4 — ¿alguna ronda dejó organizaciones sin evaluar por falta de tiempo?
+   *
+   * Distingue PARCIAL de TERMINADO: una corrida que se quedó sin tiempo tiene
+   * trabajo recuperable pendiente y NO puede declararse completa, aunque todo lo
+   * que llegó a evaluarse sea válido y esté durablemente escrito.
+   */
+  let assessmentDeadlineReached = false;
   /**
    * Organizaciones de una búsqueda ya pagada cuya evaluación aún no se registró.
    *
@@ -2288,6 +2338,16 @@ export async function runApolloTwoRoundDiscovery(
     const identitiesInThisResponse = createSeenOrganizationRegistry();
     let localIdentities = identitiesInThisResponse;
 
+    // ── AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET · FASE A ────────────────
+    // Admisión determinista y SIN I/O: deduplicación dentro de la respuesta y
+    // contra rondas anteriores. Se mantiene estrictamente secuencial porque el
+    // veredicto de cada organización depende de las anteriores; es puro, así que
+    // no cuesta tiempo de reloj. El registro de identidades NO se toca aquí: eso
+    // sigue en la fase C, en el orden original.
+    const admitted: {
+      organization: RawDiscoveredOrganization;
+      identity: NormalizedOrganizationIdentity;
+    }[] = [];
     for (const organization of organizations) {
       // AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 2 — ELIMINADO el tope de
       // evaluación.
@@ -2332,8 +2392,47 @@ export async function runApolloTwoRoundDiscovery(
       // no puede contarse a la vez como nuevo y como repetido.
       metrics.newUniqueResults++;
 
-      // 3-11. Resto de gates baratos, inyectados.
-      const assessment = await deps.assessCandidate({ organization, identity, roundNumber });
+      admitted.push({ organization, identity });
+    }
+
+    // ── FASE B · los gates inyectados, con la ESPERA solapada ──────────────
+    //
+    // Aquí vivía el defecto: `assessCandidate` se esperaba UNA A UNA. No cuesta
+    // créditos, pero en producción hace una verificación HTTP del sitio de la
+    // empresa y una comprobación de duplicados, así que el coste de la ronda era
+    // la SUMA de tantas latencias independientes como organizaciones trajo la
+    // búsqueda. Con 166 organizaciones esa suma agotó el límite de ejecución.
+    //
+    // Solaparlas no relaja nada: el orden de registro lo impone la fase C.
+    const concurrency = Math.max(1, Math.trunc(deps.assessmentConcurrency ?? 1));
+    const assessments: CheapAssessment[] = [];
+    let assessmentDeadlineReachedInRound = false;
+    for (let offset = 0; offset < admitted.length; offset += concurrency) {
+      // La guarda se consulta ENTRE tandas, nunca a mitad de una: una tanda ya
+      // lanzada se termina siempre, así que ningún resultado en vuelo se pierde.
+      if (offset > 0 && deps.assessmentTimeGuard && !deps.assessmentTimeGuard()) {
+        assessmentDeadlineReachedInRound = true;
+        break;
+      }
+      const slice = admitted.slice(offset, offset + concurrency);
+      const settled = await Promise.all(
+        slice.map((entry) =>
+          Promise.resolve(
+            deps.assessCandidate({
+              organization: entry.organization,
+              identity: entry.identity,
+              roundNumber,
+            }),
+          ),
+        ),
+      );
+      for (const assessment of settled) assessments.push(assessment);
+    }
+
+    // ── FASE C · registro secuencial, en el ORDEN original ─────────────────
+    for (let index = 0; index < assessments.length; index++) {
+      const { organization, identity } = admitted[index]!;
+      const assessment = assessments[index]!;
 
       seenRegistry = registerSeenOrganization(seenRegistry, identity);
 
@@ -2377,6 +2476,25 @@ export async function runApolloTwoRoundDiscovery(
       };
       roundCandidates.push(candidate);
       tracked.push(candidate);
+    }
+
+    // § 4 — la evaluación se quedó sin tiempo de ejecución.
+    //
+    // Lo que NO se hace: tirar la ronda. Las organizaciones que todavía no se
+    // evaluaron vuelven al estado recuperable —el MISMO campo que ya existía
+    // para el hueco entre «búsqueda pagada» y «ronda evaluada»—, así que una
+    // continuación las retoma sin volver a buscar y sin volver a pagar.
+    //
+    // Las métricas de la ronda NO se publican: la ronda no terminó, y publicarlas
+    // afirmaría un recuento que todavía no es el suyo.
+    if (assessmentDeadlineReachedInRound) {
+      pendingRoundOrganizations.set(
+        roundNumber,
+        admitted.slice(assessments.length).map((entry) => entry.organization),
+      );
+      assessmentDeadlineReached = true;
+      await persistCheckpoint('round_assessment_partial', null);
+      return;
     }
 
     metrics.eligibleBeforeEnrichment = roundCandidates.filter((c) => c.eligible).length;
@@ -2931,6 +3049,7 @@ export async function runApolloTwoRoundDiscovery(
     roundsExecuted: roundMetrics.length,
     targetReached,
     partialResultReason: targetReached ? null : 'partial_target_not_reached',
+    assessmentDeadlineReached,
     secondRoundSkippedReason,
     queryCoverageBlockReason,
     effectiveFingerprintsAreDistinct,

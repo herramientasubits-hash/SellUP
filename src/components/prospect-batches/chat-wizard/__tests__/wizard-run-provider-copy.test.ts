@@ -86,18 +86,36 @@ describe('§ 5 · copy del modo Apollo con los topes del contrato', () => {
     assert.equal(copy.limitsTitle, 'Máximos de esta ejecución:');
   });
 
-  it('caso 23 — el tope de resultados por ronda y el raw total son los reales', () => {
+  it('caso 23 — el tope de resultados por ronda es el real', () => {
     assert.ok(copy.limits.includes('10 resultados por ronda'));
-    assert.ok(copy.limits.includes('20 resultados raw en total'));
+  });
+
+  /**
+   * AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET § 6 — el tope raw NO se anuncia.
+   *
+   * Dejó de acotar nada con el CORTE 2 del waterfall: `maxRawResultsPerRun` es
+   * un contador observacional, no una autoridad de admisión. La corrida
+   * `7d8a9b85` prometía 20 y evaluó 166. Anunciar un límite que no limita hacía
+   * ilegible la única línea que sí acota el gasto, la de enrichments.
+   */
+  it('caso 23b — el tope raw ya NO se anuncia como límite', () => {
+    const everything = copy.limits.join(' ');
+    assert.ok(!everything.includes('raw'), `el copy sigue prometiendo un tope raw: ${everything}`);
   });
 
   it('caso 24 — el tope de enrichments es el real', () => {
-    assert.ok(copy.limits.includes('2 enrichments'));
+    assert.ok(copy.limits.includes('2 enrichments como máximo'));
   });
 
-  it('caso 25 — los créditos internos se anuncian como TECHO («hasta 12»)', () => {
-    const creditsLine = copy.limits.find((line) => line.includes('créditos internos'));
-    assert.equal(creditsLine, 'Hasta 12 créditos internos');
+  it('caso 25 — los créditos se anuncian como TECHO y contra la cuota de Apollo', () => {
+    const creditsLine = copy.limits.find((line) => line.includes('crédito'));
+    assert.equal(
+      creditsLine,
+      'Hasta 12 créditos de la cuota de Apollo reservados (el consumo real suele ser menor)',
+    );
+    // § 6 — el pool interno de Lusha y la cuota de Apollo son bolsillos distintos
+    // desde el desacoplamiento: el copy no puede llamar «internos» a los de Apollo.
+    assert.ok(!creditsLine!.includes('interno'));
     // La cifra sale del presupuesto real, no de un literal en el copy.
     assert.equal(limits.maxInternalCredits, 12);
   });
@@ -146,8 +164,12 @@ describe('§ 5 · el copy sigue a la configuración, no a un literal', () => {
     assert.match(copy.headline, /hasta 3 empresas nuevas y válidas/);
     assert.match(copy.headline, /máximo de 1 ronda\.$/);
     assert.ok(copy.limits.includes('2 resultados por ronda'));
-    assert.ok(copy.limits.includes('0 enrichments'));
-    assert.ok(copy.limits.includes('Hasta 2 créditos internos'));
+    assert.ok(copy.limits.includes('0 enrichments como máximo'));
+    assert.ok(
+      copy.limits.includes(
+        'Hasta 2 créditos de la cuota de Apollo reservados (el consumo real suele ser menor)',
+      ),
+    );
     assert.ok(copy.caveats.includes('No se garantiza encontrar tres empresas.'));
   });
 
@@ -162,7 +184,11 @@ describe('§ 5 · el copy sigue a la configuración, no a un literal', () => {
     });
     assert.match(copy.headline, /hasta 1 empresa nueva y válida/);
     assert.ok(copy.caveats.includes('No se garantiza encontrar una empresa.'));
-    assert.ok(copy.limits.includes('Hasta 1 crédito interno'));
+    assert.ok(
+      copy.limits.includes(
+        'Hasta 1 crédito de la cuota de Apollo reservados (el consumo real suele ser menor)',
+      ),
+    );
   });
 });
 

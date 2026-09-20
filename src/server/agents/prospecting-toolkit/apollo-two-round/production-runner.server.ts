@@ -454,9 +454,35 @@ export const TWO_ROUND_CONCURRENT_DURABILITY_SOURCE =
  */
 const MAX_STALE_RESOLUTION_ATTEMPTS = 3;
 
+/**
+ * AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET § 2 — evaluaciones baratas en vuelo.
+ *
+ * 8 y no más: `assessCandidate` hace una verificación HTTP contra el sitio de
+ * CADA empresa (tope de 8 s por organización) más una comprobación de duplicados.
+ * Son dominios de terceros distintos entre sí, así que el paralelismo no
+ * concentra carga en ningún servicio nuestro; el único consumidor compartido es
+ * la comprobación de duplicados, que ya está acotada por esta misma cifra.
+ */
+const APOLLO_ASSESSMENT_CONCURRENCY = 8;
+
+/**
+ * § 3 — cuánto tiempo de reloj puede gastar la EVALUACIÓN de una corrida.
+ *
+ * El límite de la plataforma es de 300 s para toda la petición. Este presupuesto
+ * deja margen deliberado para lo que viene después —enrichment, gates finales,
+ * escritura de candidatos y checkpoints—, que es trabajo que ya costó créditos y
+ * no puede quedarse sin tiempo por culpa de la fase gratuita.
+ */
+const APOLLO_ASSESSMENT_TIME_BUDGET_MS = 150_000;
+
 // ─── Dependencias (inyectables sólo para tests) ───────────────────────────────
 
 export type ApolloTwoRoundProductionDeps = {
+  /**
+   * Reloj monótono de la corrida. Inyectable SÓLO para que la suite pueda
+   * demostrar el presupuesto de tiempo sin esperar de verdad.
+   */
+  now: () => number;
   searchApollo: typeof runApolloOrganizationsSearch;
   buildCandidate: typeof buildProspectingPipelineCandidate;
   enrichCascade: typeof runApolloOrganizationEnrichmentCascade;
@@ -849,6 +875,7 @@ export async function runApolloTwoRoundWizardDiscovery(
   const deps: ApolloTwoRoundProductionDeps = {
     searchApollo: runApolloOrganizationsSearch,
     buildCandidate: buildProspectingPipelineCandidate,
+    now: () => Date.now(),
     enrichCascade: runApolloOrganizationEnrichmentCascade,
     enrichOrganization: enrichApolloOrganization,
     persistCandidates: writeProspectingCandidates,
@@ -929,6 +956,14 @@ export async function runApolloTwoRoundWizardDiscovery(
       upsertApolloPageFenceEntry(batchId, identity, entry),
     ...depsOverride,
   };
+
+  /**
+   * AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET § 3 — instante de arranque de la
+   * corrida, leído del MISMO reloj que la guarda. Se toma aquí, después de
+   * resolver las dependencias, para que el presupuesto cubra exactamente el
+   * trabajo de esta invocación.
+   */
+  const runStartedAtMs = deps.now();
 
   const config = deps.resolveConfig();
   const budget = estimateApolloTwoRoundBudget(config);
@@ -1220,6 +1255,8 @@ export async function runApolloTwoRoundWizardDiscovery(
   const historicalCoveredDomains = new Set<string>();
   let historicalEvidenceDegraded = false;
   let historicalLoads = 0;
+  /** Lectura histórica EN VUELO, compartida por todo candidato que llegue mientras dura. */
+  let historicalLoadPromise: Promise<void> | null = null;
 
   const collectRunDomains = (): string[] => {
     const domains = new Set<string>();
@@ -1245,21 +1282,37 @@ export async function runApolloTwoRoundWizardDiscovery(
       return { rows: [], degraded: historicalEvidenceDegraded };
     }
     if (!historicalCoveredDomains.has(normalizedDomain)) {
-      const pending = [...new Set([...collectRunDomains(), normalizedDomain])].filter(
-        (domain) => !historicalCoveredDomains.has(domain),
-      );
-      historicalLoads++;
-      const loaded = await deps
-        .loadPrepaidHistoricalIndex({ domains: pending })
-        .catch(() => ({ index: new Map() as NoveltyIndex, degraded: true }));
-      if (loaded.degraded) {
-        historicalEvidenceDegraded = true;
-      } else {
-        for (const domain of pending) {
-          historicalCoveredDomains.add(domain);
-          historicalRowsByDomain.set(domain, (loaded.index.get(domain) ?? []) as HistoricalCandidateRow[]);
-        }
+      // AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET § 5 — la memoización ES por
+      // PROMESA, no por resultado.
+      //
+      // Antes se comprobaba `historicalCoveredDomains` y se esperaba la lectura;
+      // con las evaluaciones en vuelo a la vez, N candidatos entraban aquí ANTES
+      // de que la primera lectura resolviera y disparaban N lecturas idénticas.
+      // Guardar la promesa antes de resolverla hace que todas compartan UNA.
+      if (historicalLoadPromise === null) {
+        const pending = [...new Set([...collectRunDomains(), normalizedDomain])].filter(
+          (domain) => !historicalCoveredDomains.has(domain),
+        );
+        historicalLoads++;
+        historicalLoadPromise = deps
+          .loadPrepaidHistoricalIndex({ domains: pending })
+          .catch(() => ({ index: new Map() as NoveltyIndex, degraded: true }))
+          .then((loaded) => {
+            if (loaded.degraded) {
+              historicalEvidenceDegraded = true;
+            } else {
+              for (const domain of pending) {
+                historicalCoveredDomains.add(domain);
+                historicalRowsByDomain.set(
+                  domain,
+                  (loaded.index.get(domain) ?? []) as HistoricalCandidateRow[],
+                );
+              }
+            }
+            historicalLoadPromise = null;
+          });
       }
+      await historicalLoadPromise;
     }
     return {
       rows: historicalRowsByDomain.get(normalizedDomain) ?? [],
@@ -2001,6 +2054,19 @@ export async function runApolloTwoRoundWizardDiscovery(
         consumedPages: readApolloSearchPlanPageConsumption(output),
       };
     },
+
+    /**
+     * AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET § 2 y § 3 — los dos parámetros
+     * que hacen que una ronda grande quepa en el límite de ejecución.
+     *
+     * `assessmentConcurrency` solapa la ESPERA de la verificación de sitio y de
+     * la comprobación de duplicados; `assessmentTimeGuard` corta con estado
+     * durable si aun así no da tiempo. Ninguno de los dos relaja un gate, mueve
+     * el objetivo ni compra nada.
+     */
+    assessmentConcurrency: APOLLO_ASSESSMENT_CONCURRENCY,
+    assessmentTimeGuard: () =>
+      deps.now() - runStartedAtMs < APOLLO_ASSESSMENT_TIME_BUDGET_MS,
 
     assessCandidate: async ({ organization, identity }) => {
       const key = candidateKeyFor(organization);
