@@ -468,6 +468,8 @@ test('§ I-A — el núcleo REAL deja el bloque DURABLE en el lote canónico (ob
     // La pierna de pago ya no afirma una aceptación que no midió.
     accepted_paid_for_target: 0,
     accepted_for_target_total: 2,
+    // 🔴 Escritura TOTAL ⇒ el total es un CONTEO, no una cota.
+    accepted_count_kind: 'exact',
     remaining_target: 3,
     target_reached: false,
     // 🔴 PRESERVED — el universo DURABLE no se mueve ni un candidato. Las tres
@@ -511,6 +513,8 @@ test('§ I-B — los números del encargo (10 = 4 gratis + 6 de pago) se publica
     accepted_free_for_target: 4,
     accepted_paid_for_target: 6,
     accepted_for_target_total: 10,
+    // 🔴 Escritura TOTAL ⇒ el total es un CONTEO, no una cota.
+    accepted_count_kind: 'exact',
     remaining_target: 0,
     target_reached: true,
     persisted_free_candidates: 4,
@@ -913,6 +917,10 @@ test('§ S — LUSHA_ACCEPTED_METADATA_SHAPE == CANONICAL_ACCEPTED_METADATA_SHAP
     'persisted_paid_candidates',
     'persisted_total_candidates',
     'paid_acceptance_measured',
+    // 🔴 `exact` vs `lower_bound`: `accepted_for_target_total` no siempre es un
+    // conteo. Con una escritura parcial por la ruta sin valla es una COTA
+    // INFERIOR, y quien lea la fila tiene que poder distinguirlo.
+    'accepted_count_kind',
     'acceptance_unknown_reasons',
   ].sort();
 

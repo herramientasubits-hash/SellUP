@@ -119,6 +119,19 @@ export type AcceptedContribution =
        * suma por su cuenta, que es el comportamiento anterior a este corte.
        */
       acceptedIdentities?: readonly string[];
+      /**
+       * 🔴 ¿`acceptedForTarget` es un CONTEO EXACTO o una COTA INFERIOR?
+       *
+       * Ausente ⇒ exacto, que es el caso normal y el comportamiento anterior.
+       * `false` ⇒ el escritor no pudo saber CUÁLES filas quedaron persistidas
+       * —una escritura parcial por la ruta sin valla— y lo que publica es el
+       * peor caso honesto: nunca más de lo real, posiblemente menos.
+       *
+       * No se colapsa con `measured: false`: una cota es una medición útil
+       * —`targetReached` con una cota ≥ objetivo sigue siendo cierto— y borrarla
+       * perdería información que sí se tiene.
+       */
+      exact?: boolean;
     }
   | {
       measured: false;
@@ -147,6 +160,8 @@ export function paidAcceptedContributionFromWriterTruth(input: {
   persistedCandidates: number;
   /** 🔴 X6.13 — identidades durables de las aceptadas. Ver `AcceptedContribution`. */
   acceptedIdentities?: readonly string[] | null;
+  /** `false` ⇒ `completeValidCandidates` es una COTA INFERIOR, no un conteo. */
+  exact?: boolean;
 }): AcceptedContribution {
   const persisted = sanitizeCount(input.persistedCandidates);
   if (input.completeValidCandidates === null || input.completeValidCandidates === undefined) {
@@ -162,6 +177,7 @@ export function paidAcceptedContributionFromWriterTruth(input: {
     acceptedForTarget: sanitizeCount(input.completeValidCandidates),
     persistedCandidates: persisted,
     ...(identities === null ? {} : { acceptedIdentities: identities }),
+    ...(input.exact === false ? { exact: false } : {}),
   };
 }
 
@@ -208,7 +224,17 @@ export type AcceptedForTargetResult = {
   persistedTotalCandidates: number;
   // ── Trazabilidad de la medición ───────────────────────────────────────────
   freeAcceptanceMeasured: boolean;
+  /**
+   * 🔴 `true` sólo si el total de pago es un CONTEO EXACTO.
+   *
+   * Una cota inferior —escritura parcial por la ruta sin valla— no puede
+   * publicarse como si se conociera el total, así que esta bandera baja aunque
+   * los dos aportes estén medidos. Lo que la cota SÍ sigue sosteniendo es
+   * `targetReached`: si la cota alcanza el objetivo, el objetivo se alcanzó.
+   */
   paidAcceptanceMeasured: boolean;
+  /** `false` ⇒ `acceptedForTargetTotal` es una COTA INFERIOR, no un conteo. */
+  acceptedCountExact: boolean;
   /** Motivos declarados, en orden libre→pago. Vacío en una corrida medida. */
   acceptanceUnknownReasons: readonly AcceptanceUnknownReason[];
 };
@@ -381,6 +407,13 @@ export function resolveAcceptedForTarget(input: {
     uniqueCeiling === null
       ? acceptedPaidRaw
       : Math.min(acceptedPaidRaw, Math.max(0, uniqueCeiling - acceptedFree));
+  /**
+   * 🔴 Un aporte MEDIDO puede seguir siendo una cota inferior. Basta con que uno
+   * lo sea para que el total deje de ser un conteo.
+   */
+  const acceptedCountExact = [input.paid, waterfall].every(
+    (contribution) => !contribution.measured || contribution.exact !== false,
+  );
   const acceptedTotal = acceptedFree + acceptedPaid;
   const unknownReasons: AcceptanceUnknownReason[] = [];
   if (!input.paid.measured) unknownReasons.push(input.paid.reason);
@@ -404,7 +437,10 @@ export function resolveAcceptedForTarget(input: {
     // La mitad gratuita entra por la demanda, que es una cifra ya resuelta: no
     // hay un caso «sin medir» que declarar por este lado.
     freeAcceptanceMeasured: true,
-    paidAcceptanceMeasured: input.paid.measured && waterfall.measured,
+    // 🔴 Medido Y exacto. Publicar `true` con una cota inferior afirmaría un
+    // total que nadie conoce.
+    paidAcceptanceMeasured: input.paid.measured && waterfall.measured && acceptedCountExact,
+    acceptedCountExact,
     acceptanceUnknownReasons: unknownReasons,
   };
 }
@@ -427,6 +463,8 @@ export function toAcceptedForTargetMetadata(
     persisted_paid_candidates: result.persistedPaidCandidates,
     persisted_total_candidates: result.persistedTotalCandidates,
     paid_acceptance_measured: result.paidAcceptanceMeasured,
+    // 🔴 `exact` vs `lower_bound`: la cifra de arriba no siempre es un conteo.
+    accepted_count_kind: result.acceptedCountExact ? 'exact' : 'lower_bound',
     acceptance_unknown_reasons: [...result.acceptanceUnknownReasons],
   };
 }

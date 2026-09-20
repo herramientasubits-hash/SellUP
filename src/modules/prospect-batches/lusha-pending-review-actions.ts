@@ -124,6 +124,7 @@ import {
 // cliente de base de datos de esta ruta; el núcleo sigue sin tener I/O propio.
 import { insertFencedProspectCandidates } from '@/server/prospect-batches/batch-identity-fence';
 import { loadBatchIdentityRegistry } from '@/server/prospect-batches/batch-identity-registry-store';
+import { resolveLushaBatchIdentitySeed } from '@/modules/prospect-batches/lusha-batch-identity-seed';
 // Q3F-5BB.10C2 / AGENT1-APOLLO-SHARED-INTAKE-ADOPTION-1 — read-only
 // official-source resolvers (injected into the pure core), now the SAME
 // provider-neutral wiring Apollo also uses + server-side flag gate. Neither
@@ -1391,11 +1392,15 @@ async function runLushaSearchWithReservation(args: {
   // y R2. Sembrar sólo desde `prePaid.batchId` dejaría a Lusha admitiendo una
   // empresa que Apollo ya había escrito en el mismo lote. El id canónico es la
   // semilla correcta, y en standalone sigue siendo exactamente `prePaid.batchId`.
-  const identitySeedBatchId = prePaid.batchId ?? waterfall?.canonicalBatchId ?? null;
-  const batchIdentitySeed =
-    identitySeedBatchId !== null
-      ? await loadBatchIdentityRegistry(supabase, identitySeedBatchId).catch(() => null)
-      : null;
+  // 🔴 La siembra vive ahora en `resolveLushaBatchIdentitySeed`, con su lectura
+  // inyectada: es la ÚNICA forma de ejercitar también su camino de fallo, que es
+  // fail-OPEN y deja la deduplicación entre proveedores sin proteger.
+  const identitySeed = await resolveLushaBatchIdentitySeed({
+    prePaidBatchId: prePaid.batchId ?? null,
+    waterfallCanonicalBatchId: waterfall?.canonicalBatchId ?? null,
+    loadRegistry: (batchId) => loadBatchIdentityRegistry(supabase, batchId),
+  });
+  const batchIdentitySeed = identitySeed.seed;
 
   try {
     const result = await persistLushaPendingReviewBatch(

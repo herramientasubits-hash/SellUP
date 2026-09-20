@@ -434,6 +434,8 @@ describe('CUT-7 · el bloque de metadata', () => {
       accepted_free_for_target: 4,
       accepted_paid_for_target: 3,
       accepted_for_target_total: 7,
+      // 🔴 `exact` vs `lower_bound`: con escritura total el total es un CONTEO.
+      accepted_count_kind: 'exact',
       remaining_target: 3,
       target_reached: false,
       persisted_free_candidates: 6,

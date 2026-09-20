@@ -823,10 +823,23 @@ describe('CUT-9 §§ 6, 7 · una empresa cuenta hacia el objetivo UNA sola vez',
     // porque en el waterfall el lote ya contiene las empresas de Apollo. La
     // invariante —la siembra sale de la autoridad EXISTENTE y no de una consulta
     // ad-hoc— se conserva.
-    assert.match(action, /loadBatchIdentityRegistry\(supabase, identitySeedBatchId\)/);
+    // 🔴 La resolución de la siembra se EXTRAJO a
+    // `resolveLushaBatchIdentitySeed` para poder ejercitarla —incluido su camino
+    // degradado— con el código del llamador y no preparándola a mano desde un
+    // test. Lo que esta guarda protege NO cambia: la autoridad sigue siendo
+    // `loadBatchIdentityRegistry`, el lote sigue siendo el canónico con el
+    // gratuito como respaldo, y no aparece ninguna consulta ad-hoc.
+    assert.match(action, /loadBatchIdentityRegistry\(supabase, batchId\)/);
+    assert.match(action, /resolveLushaBatchIdentitySeed\(\{/);
     assert.match(
       action,
-      /const identitySeedBatchId = prePaid\.batchId \?\? waterfall\?\.canonicalBatchId \?\? null;/,
+      /prePaidBatchId: prePaid\.batchId \?\? null,/,
+      '🔴 el lote de la capa gratuita dejó de alimentar la siembra',
+    );
+    assert.match(
+      action,
+      /waterfallCanonicalBatchId: waterfall\?\.canonicalBatchId \?\? null,/,
+      '🔴 el lote CANÓNICO dejó de alimentar la siembra',
     );
     // 🔴 NEGATIVE_D (cableado) — la siembra CARGADA es la que viaja al núcleo.
     // Sin esta guarda, sustituirla por `null` en el sitio de la llamada devolvía el
@@ -834,8 +847,8 @@ describe('CUT-9 §§ 6, 7 · una empresa cuenta hacia el objetivo UNA sola vez',
     // inyectan la siembra directamente en el núcleo.
     assert.match(
       action,
-      /const batchIdentitySeed =\s*\n\s*identitySeedBatchId !== null\s*\n\s*\? await loadBatchIdentityRegistry\(supabase, identitySeedBatchId\)\.catch\(\(\) => null\)\s*\n\s*: null;/,
-      '🔴 la siembra dejó de resolverse desde el lote de la capa gratuita',
+      /const batchIdentitySeed = identitySeed\.seed;/,
+      '🔴 la siembra dejó de viajar desde el resolutor del llamador',
     );
     assert.match(
       action,

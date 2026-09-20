@@ -1376,6 +1376,8 @@ export async function executeProspectWizardGeneration(
       completeValidCandidates: number | null | undefined;
       persistedCandidates: number;
       acceptedIdentities?: readonly string[];
+      /** `false` ⇒ la pierna publicó una COTA INFERIOR, no un conteo. */
+      exact?: boolean;
     } = PAID_ROUTE_NOT_RUN_WRITER_TRUTH,
     /**
      * 🔴 X6.13 — el techo de FILAS ÚNICAS del lote.
@@ -2164,6 +2166,7 @@ export async function executeProspectWizardGeneration(
     completeValidCandidates: number | null | undefined;
     persistedCandidates: number;
     acceptedIdentities?: readonly string[];
+    exact?: boolean;
   } = lushaWaterfall.executed
     ? {
         completeValidCandidates: lushaWaterfall.result.multiBranch?.acceptedForTargetTotal ?? null,
@@ -2172,6 +2175,12 @@ export async function executeProspectWizardGeneration(
         // impide que un replay de la misma pierna vuelva a sumarlas.
         ...(lushaWaterfall.result.acceptedCandidateIdentities
           ? { acceptedIdentities: lushaWaterfall.result.acceptedCandidateIdentities }
+          : {}),
+        // 🔴 Si la pierna no pudo saber CUÁLES filas quedaron, lo que publica es
+        // una cota inferior. Se transporta para que el agregado no lo lea como
+        // un total conocido.
+        ...(lushaWaterfall.result.multiBranch?.acceptedCountExact === false
+          ? { exact: false }
           : {}),
       }
     : PAID_ROUTE_NOT_RUN_WRITER_TRUTH;
