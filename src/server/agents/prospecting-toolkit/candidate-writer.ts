@@ -35,7 +35,7 @@ import {
 import { buildProspectCandidateIdentityKey } from "./prospect-candidate-identity-key";
 import { evaluateCountryCompatibility, countryCompatibilityRankWeight } from "./country-compatibility";
 import { classifySourceUrlQuality, isBlockedBySourceUrlQuality } from "./source-url-quality-gate";
-import { evaluateBusinessFit, isBlockedByBusinessFit } from "./business-fit-gate";
+import { evaluateBusinessFit } from "./business-fit-gate";
 import type { BusinessFitResult } from "./business-fit-gate";
 import { evaluateExternalPlatformGate } from "./external-platform-blocklist";
 import { evaluateContentIntermediaryGate } from "./content-intermediary-gate";
@@ -1423,6 +1423,13 @@ export async function writeProspectingCandidates(
     reason: string;
     url: string | null;
     fit: string;
+    /**
+     * 🔴 BUSINESS-FIT-OBSERVATION-ONLY — siempre `false`. Se escribe explícito
+     * porque estas muestras SÍ describían descartes hasta este corte, y quien
+     * lea la serie histórica tiene que poder distinguir las dos épocas sin
+     * inferirlo de la fecha del lote.
+     */
+    blocked: boolean;
     // v1.16K-K: populated when recall recovery inferred a corporate name from domain
     name_for_fit?: string;
     original_name?: string;
@@ -1538,6 +1545,10 @@ export async function writeProspectingCandidates(
     // estaba —y pasa a valer 0 en la ruta país— para que la serie histórica de
     // los lotes ya escritos siga siendo legible.
     countryEvidenceAbsentCount: 0,
+    // 🔴 El subconjunto con señales que no bastaron. `…AbsentCount` sigue
+    // contando la COHORTE ENTERA —su semántica no cambia y sus consumidores no
+    // se mueven—; esto separa las dos realidades que ese nombre mezclaba.
+    countryEvidenceWeakCount: 0,
     samples: [] as EvidencePolicySample[],
   };
 
@@ -1650,7 +1661,6 @@ export async function writeProspectingCandidates(
     noveltyResult: ReturnType<typeof evaluateCandidateNovelty>;
     identityKey: string | null;
     sourceUrlRankingBonus: number;
-    businessFitRankingBonus: number;
     countryEvidenceResult: CountryEvidenceResult;
     businessFitResult: BusinessFitResult;
     /** v1.10: Metadatos de resolución de identidad cuando el nombre fue inferido desde dominio. */
@@ -1991,19 +2001,34 @@ export async function writeProspectingCandidates(
       businessFitGateData.rejectedCount++;
     }
 
-    if (isBlockedByBusinessFit(businessFitResult)) {
-      const bfReason = `business_fit:${businessFitResult.fit}`;
-      skipped.push({
-        name: candidate.name,
-        reason: bfReason,
-        searchTrace: candidate.searchTrace ?? undefined,
-      });
+    /**
+     * 🔴 BUSINESS-FIT-OBSERVATION-ONLY — aquí vivía el RECHAZO por encaje:
+     *
+     *     if (isBlockedByBusinessFit(businessFitResult)) { skipped.push(...); continue; }
+     *
+     * Bloqueaba con `{reject, low}` en TODAS las macro. Esas categorías son
+     * SECTORES —agencia, call center, cobranza, staffing— y el perfil comercial
+     * lo gobiernan los criterios SELECCIONADOS, no una lista escrita para un ICP
+     * de B2B tech. La empresa deja de descartarse por pertenecer a un sector.
+     *
+     * 🔴 Lo que NO cambia: país, sector/subindustria, tamaño, identidad,
+     * ownership, `external_platform`, `content_page`, `content_intermediary` y
+     * duplicados siguen rechazando exactamente igual, cada uno por su cuenta.
+     * Ninguno de ellos pasa a depender de `business_fit` ni lo sustituye.
+     *
+     * 🔴 El resultado y el motivo SE CONSERVAN como observación: los cuatro
+     * contadores de arriba siguen sumando y la muestra se sigue capturando para
+     * los dos niveles que antes bloqueaban, para que la serie no se corte.
+     */
+    if (businessFitResult.fit === 'low' || businessFitResult.fit === 'reject') {
       if (businessFitGateData.samples.length < 10) {
         businessFitGateData.samples.push({
           name: candidate.name,
           reason: businessFitResult.reasons.join('; '),
           url: candidate.website ?? null,
           fit: businessFitResult.fit,
+          // 🔴 Observación, no descarte: la fila sigue su curso.
+          blocked: false,
           ...(domainInferredForOwnership
             ? {
                 name_for_fit: nameForFit,
@@ -2013,12 +2038,6 @@ export async function writeProspectingCandidates(
             : {}),
         });
       }
-      captureOmittedSample(candidate, effectiveDomain, bfReason, 'business_fit', {
-        recallRecoveredName: domainInferredForOwnership ? nameNormResult.name : null,
-        nameForFit: nameForFit,
-        isRecallRecoveryApplied: domainInferredForOwnership,
-      });
-      continue;
     }
 
     // ── Novelty check ─────────────────────────────────────────────────────────
@@ -2078,7 +2097,6 @@ export async function writeProspectingCandidates(
       noveltyResult,
       identityKey: identity.identityKey ?? null,
       sourceUrlRankingBonus: sourceUrlQualityResult.rankingBonus,
-      businessFitRankingBonus: businessFitResult.rankingBonus,
       countryEvidenceResult,
       businessFitResult,
       identityResolution: identityResolutionForEntry,
@@ -2086,22 +2104,23 @@ export async function writeProspectingCandidates(
     });
   }
 
-  // ── Pass 2: rank eligible candidates by priority (Hito 16AB.43.27 / 16AB.43.28 / 16AB.43.29) ─
-  // Priority: 1) composite fit score desc (business fit + URL quality + country compat),
+  // ── Pass 2: rank eligible candidates by priority (Hito 16AB.43.27 / 16AB.43.28) ─
+  // Priority: 1) composite score desc (URL quality + country compat),
   //           2) confidence score desc,
   //           3) path depth asc (closer to root URL is better)
   // ADAPTIVE-EARLY-STOP § 4 — comparador COMPARTIDO con el evaluador PRE-writer.
+  // 🔴 BUSINESS-FIT-OBSERVATION-ONLY — el bono de encaje sale del compuesto.
+  // Este orden decide el ganador del dedupe intra-lote y la entrada al cupo
+  // COMPLETE-FIRST: dejarlo habría mantenido al ICP decidiendo la selección.
   eligibleEntries.sort((a, b) =>
     compareWriterEligibleRank(
       {
-        businessFitRankingBonus: a.businessFitRankingBonus,
         sourceUrlRankingBonus: a.sourceUrlRankingBonus,
         countryCompatWeight: a.countryCompatWeight,
         confidenceScore: a.candidate.scoring.confidenceScore ?? null,
         website: a.candidate.website ?? null,
       },
       {
-        businessFitRankingBonus: b.businessFitRankingBonus,
         sourceUrlRankingBonus: b.sourceUrlRankingBonus,
         countryCompatWeight: b.countryCompatWeight,
         confidenceScore: b.candidate.scoring.confidenceScore ?? null,
@@ -2183,7 +2202,6 @@ export async function writeProspectingCandidates(
       // completa — justo lo que ADAPTIVE-EARLY-STOP § 5 existe para impedir.
       qualityGate: computeEvidencePersistencePolicy({
         countryEvidence: entry.countryEvidenceResult,
-        businessFit: entry.businessFitResult,
       }).targetAcceptanceAuthorized
         ? 'pass'
         : 'fail',
@@ -2318,7 +2336,7 @@ export async function writeProspectingCandidates(
 
   if (linkedInSearchConfig.enabled) {
     const searchCandidates: ControlledLinkedInSearchCandidate[] = toPersist.map(
-      ({ candidate, domain: d, countryEvidenceResult: cer, businessFitResult: bfr, identityResolution: ir }, i) => {
+      ({ candidate, domain: d, countryEvidenceResult: cer, identityResolution: ir }, i) => {
         // Pre-check duplicate guard: same_active_domain or same_inferred_identity
         // would block this candidate in the write loop — skip LinkedIn search for them.
         const preGuardName = ir?.inferred_company_name ?? candidate.name;
@@ -2340,7 +2358,7 @@ export async function writeProspectingCandidates(
         // era a la vez la respuesta a «¿sobrevive?». Separadas las preguntas, el
         // gasto se lee de su propio campo y el conjunto de candidatas saltadas
         // aquí es EXACTAMENTE el de antes del corte: 0 llamadas nuevas.
-        const prePolicy = computeEvidencePersistencePolicy({ countryEvidence: cer, businessFit: bfr });
+        const prePolicy = computeEvidencePersistencePolicy({ countryEvidence: cer });
         const isBlockedByEvidencePolicy = isPaidCompletionBlockedByEvidencePolicy(prePolicy);
 
         return {
@@ -2402,7 +2420,7 @@ export async function writeProspectingCandidates(
     // Build per-candidate enrichment input, reusing pre-computed LinkedIn enrichments.
     // candidateId = String(i) allows us to map results back by toPersist index.
     const enrichmentCandidates = toPersist.map(
-      ({ candidate, domain: d, countryEvidenceResult: cer, businessFitResult: bfr, identityResolution: ir }, i) => {
+      ({ candidate, domain: d, countryEvidenceResult: cer, identityResolution: ir }, i) => {
         // Pre-check duplicate guard (same logic as LinkedIn pre-pass)
         const preGuardName = ir?.inferred_company_name ?? candidate.name;
         const preGuardInput: DuplicateGuardInput = {
@@ -2420,7 +2438,7 @@ export async function writeProspectingCandidates(
 
         // 🔴 X6.2-A — pregunta 5. Ver el pre-paso de LinkedIn: mismo predicado,
         // mismo conjunto saltado, 0 llamadas nuevas al proveedor.
-        const prePolicy = computeEvidencePersistencePolicy({ countryEvidence: cer, businessFit: bfr });
+        const prePolicy = computeEvidencePersistencePolicy({ countryEvidence: cer });
         const isBlockedByEvidencePolicy = isPaidCompletionBlockedByEvidencePolicy(prePolicy);
 
         // Build base rich profile using LinkedIn enrichment from pre-pass
@@ -2507,7 +2525,7 @@ export async function writeProspectingCandidates(
   }
 
   // ── Pass 4: write eligible (after cap) ──────────────────────────────────────
-  for (const [_entryIdx, { candidate, candidateStatus, domain, noveltyResult, countryEvidenceResult, businessFitResult, identityResolution, canonicalNameResolution }] of toPersist.entries()) {
+  for (const [_entryIdx, { candidate, candidateStatus, domain, noveltyResult, countryEvidenceResult, identityResolution, canonicalNameResolution }] of toPersist.entries()) {
     // v1.16K-L: use canonical name when a generic SEO title was resolved to a real company name
     const persistedName = canonicalNameResolution.applied ? canonicalNameResolution.canonicalName : candidate.name;
     // ── Active Duplicate Guard (v1.13.1 / v1.14) ─────────────────────────────
@@ -2579,10 +2597,7 @@ export async function writeProspectingCandidates(
     }
 
     // ── Evidence persistence policy (Hito v1.5) ─────────────────────────────
-    const evidencePolicy = computeEvidencePersistencePolicy({
-      countryEvidence: countryEvidenceResult,
-      businessFit: businessFitResult,
-    });
+    const evidencePolicy = computeEvidencePersistencePolicy({ countryEvidence: countryEvidenceResult });
 
     // 🔴 X6.2-A — este bloque ya no es alcanzable desde el eje PAÍS.
     //
@@ -2669,6 +2684,11 @@ export async function writeProspectingCandidates(
     // sobrevive, se persiste y va a revisión con su causa escrita.
     if (evidencePolicy.incompletenessReason !== null) {
       evidencePolicyGateData.countryEvidenceAbsentCount++;
+      // 🔴 Evidencia DÉBIL no es evidencia AUSENTE: el motivo lo distingue por
+      // candidata y este contador lo agrega para el lote.
+      if (evidencePolicy.incompletenessReason === 'country_evidence_weak') {
+        evidencePolicyGateData.countryEvidenceWeakCount++;
+      }
     }
 
     // Guard override: same_canonical_identity → mark as possible_duplicate
@@ -4141,6 +4161,13 @@ export async function writeProspectingCandidates(
       medium_fit_count: businessFitGateData.mediumFitCount,
       high_fit_count: businessFitGateData.highFitCount,
       samples: businessFitGateData.samples.slice(0, 5),
+      // 🔴 BUSINESS-FIT-OBSERVATION-ONLY — el gate sigue midiendo y ya no
+      // decide. Se declara en la fila para que una corrida antigua y una nueva
+      // no se lean igual: los mismos contadores significan cosas distintas.
+      blocks_admission: false,
+      decides_acceptance: false,
+      authorizes_spend: false,
+      affects_ranking: false,
     };
 
     // Evidence persistence policy gate metadata (Hito v1.5)
@@ -4150,6 +4177,9 @@ export async function writeProspectingCandidates(
       confidence_capped_count: evidencePolicyGateData.confidenceCapCount,
       // 🔴 X6.2-A — la cohorte que antes engordaba `blocked_count`.
       country_evidence_absent_count: evidencePolicyGateData.countryEvidenceAbsentCount,
+      // 🔴 De la cifra de arriba, cuántas tenían señales insuficientes en vez de
+      // ninguna señal. Aditivo: la clave existente no cambia de significado.
+      country_evidence_weak_count: evidencePolicyGateData.countryEvidenceWeakCount,
       samples: evidencePolicyGateData.samples.slice(0, 5),
     };
 

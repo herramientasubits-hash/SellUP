@@ -5802,3 +5802,18 @@ jobs:
       # 0 escrituras en Produccion - 0 migraciones - 0 cambios de bandera.
       - name: Run Agent 1 X6.14 Lusha catalog admission tests
         run: npm run test:a1-lusha-catalog-admission-x6-14
+
+      # AGENT1-BUSINESS-FIT-OBSERVATION-ONLY - el ICP heredado de B2B tech deja
+      # de decidir: no bloquea admision, no decide aceptacion, no autoriza gasto
+      # y no ordena. Se conserva su resultado y su motivo como observacion.
+      #
+      # Cubre: cambiar SOLO el nivel de encaje no altera nada; pais weak = R2
+      # para todos con motivo que distingue debil de ausente; pais strong no
+      # promociona; sector, tamano, ownership, duplicados y plataforma externa
+      # siguen rechazando; nadie se vuelve completa por esto; minimo 5 sin techo
+      # y topes de consumo intactos.
+      #
+      # 0 llamadas a Apollo - 0 a Lusha - 0 creditos - 0 Supabase real -
+      # 0 escrituras en Produccion - 0 migraciones - 0 cambios de bandera.
+      - name: Run Agent 1 business-fit observation-only tests
+        run: npm run test:a1-business-fit-observation-only

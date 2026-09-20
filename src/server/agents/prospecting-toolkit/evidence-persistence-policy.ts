@@ -64,7 +64,6 @@
  * es contar».
  */
 
-import type { BusinessFitResult } from './business-fit-gate';
 import type { CountryEvidenceResult } from './country-evidence-gate';
 
 // ─── Tipos públicos ───────────────────────────────────────────────────────────
@@ -87,7 +86,23 @@ export type EvidencePersistenceDecision = 'blocked' | 'needs_review' | 'ok';
  * `null` ⇒ no le falta nada que esta política sepa nombrar. El vocabulario es
  * cerrado a propósito: un hueco sin nombre no puede viajar a la fila.
  */
-export type EvidencePersistenceIncompletenessReason = 'country_evidence_absent';
+/**
+ * 🔴 DOS motivos, no uno.
+ *
+ * `evidenceLevel: 'weak'` cubre dos realidades distintas y hasta este corte las
+ * nombraba igual:
+ *
+ *   · `country_evidence_absent` — `evidenceSources` vacío: NINGUNA señal situó
+ *     a la empresa. Es lo que el nombre siempre dijo.
+ *   · `country_evidence_weak`   — hubo señales, pero no bastaron para `strong`.
+ *     Evidencia DÉBIL no es evidencia AUSENTE, y confundirlas manda a buscar la
+ *     causa al sitio equivocado.
+ *
+ * Las dos dejan a la candidata incompleta; sólo cambia lo que se afirma de ella.
+ */
+export type EvidencePersistenceIncompletenessReason =
+  | 'country_evidence_absent'
+  | 'country_evidence_weak';
 
 export type EvidencePersistencePolicyResult = {
   /** Decisión de CALIDAD de la afirmación. Ya no decide supervivencia. */
@@ -138,7 +153,6 @@ export type EvidencePersistencePolicyResult = {
 
 export type EvidencePersistencePolicyInput = {
   countryEvidence: CountryEvidenceResult;
-  businessFit: BusinessFitResult;
 };
 
 // ─── Función principal ────────────────────────────────────────────────────────
@@ -146,31 +160,45 @@ export type EvidencePersistencePolicyInput = {
 /**
  * Computa la política de persistencia evidence-first.
  *
+ * ── 🔴 BUSINESS-FIT-OBSERVATION-ONLY — qué cambió y por qué ────────────────
+ *
+ * Hasta este corte el NIVEL de `business_fit` decidía aquí: con evidencia de
+ * país `weak`, un fit `high` autorizaba aceptación y gasto (R3) y un
+ * `medium`/`low` los denegaba (R2). Dos candidatas con la MISMA evidencia de
+ * país recibían autorizaciones distintas por un ICP de B2B tech que la usuaria
+ * nunca seleccionó.
+ *
+ * Por decisión de producto, `business_fit` pasa a ser observación pura: no
+ * bloquea admisión, no decide aceptación, no autoriza gasto y no ordena. La
+ * entrada de esta función ya no lo acepta — el compilador es el trinquete.
+ *
  * Orden de evaluación (primero gana):
  *
  * R1: country_evidence = query_only
- *     → needs_review, confidence capped at 45, forceReviewManually
- *     Razón: el país solo aparece en la query; el sitio no confirma presencia local.
- *     No se bloquea (puede ser empresa real) pero tampoco puede tener alta confianza.
+ *     → needs_review, cap 45, forceReviewManually. Autoriza gasto y aceptación,
+ *       como antes de este corte: el país aparece, aunque sólo en la query.
  *
- * R2: country_evidence = weak + businessFit = medium/low
- *     → 🔴 X6.2-A: needs_review INCOMPLETO. Antes: `blocked`.
- *     Razón: no hay evidencia de país — ni a favor ni en contra. La empresa pasó
- *     los gates obligatorios, así que sobrevive; pero no cuenta hacia el
- *     objetivo y no autoriza gasto.
+ * R2: country_evidence = weak — CUALQUIERA que sea el fit
+ *     → needs_review INCOMPLETO: no cuenta hacia el objetivo y no autoriza
+ *       gasto. Es la doctrina de X6.2-A aplicada sin la excepción que el ICP
+ *       abría. 🔴 El MOTIVO distingue evidencia AUSENTE de evidencia DÉBIL.
  *
- * R3: country_evidence = weak + businessFit = high
- *     → needs_review, confidence capped at 40, forceReviewManually
+ * Default: country_evidence = strong
+ *     → needs_review, sin cap, autoriza gasto y aceptación.
  *
- * R4: country_evidence = strong + businessFit = high
- *     → ok (mejor candidato; sin modificaciones)
- *
- * Default: needs_review sin cap (conservador)
+ * 🔴 Aquí vivía R4 (`strong` + fit `high` ⇒ `decision: 'ok'`). Se retira porque
+ * su única entrada era el fit. No se promociona a nadie a `'ok'`: se comprobó
+ * qué significa para sus consumidores y la respuesta es que `decision` NO
+ * aprueba nada —`'blocked'` ya no lo emite nadie, y `!== 'ok'` sólo decide si se
+ * escribe el bloque `evidence_policy` en la metadata—. Colapsar R4 en el
+ * default deja intactos `confidenceCap`, `forceReviewManually` y las dos
+ * autorizaciones, y AÑADE el bloque de observabilidad a las que antes lo
+ * suprimían. Ninguna candidata pasa a completa ni a aprobada por este cambio.
  */
 export function computeEvidencePersistencePolicy(
   input: EvidencePersistencePolicyInput,
 ): EvidencePersistencePolicyResult {
-  const { countryEvidence, businessFit } = input;
+  const { countryEvidence } = input;
   const warnings: string[] = [];
 
   if (countryEvidence.warning) {
@@ -197,75 +225,39 @@ export function computeEvidencePersistencePolicy(
     };
   }
 
-  // R2: Sin evidencia de país + fit no fuerte
-  //
-  // 🔴 X6.2-A — aquí vivía `decision: 'blocked'`, y con ella el `continue` del
-  // writer que borraba la fila. La condición sobre el fit era además
-  // decorativa: `isBlockedByBusinessFit` ya descartó `low` y `reject` río
-  // arriba, así que cuando esta política corre el fit sólo puede ser `high` o
-  // `medium`, y `high` es inalcanzable fuera del segmento B2B tech al que está
-  // cableado `business-fit-gate`. En cualquier macro no tecnológica la regla
-  // era, literalmente, «sin dominio .com.co no existes»: las cinco filas que el
-  // lote `f6cad05f…` sí persistió son exactamente las cinco con `.com.co`.
-  if (
-    countryEvidence.evidenceLevel === 'weak' &&
-    (businessFit.fit === 'medium' || businessFit.fit === 'low')
-  ) {
+  // ── R2: evidencia de país DÉBIL, sea cual sea el encaje de negocio ────────
+  if (countryEvidence.evidenceLevel === 'weak') {
+    // 🔴 La distinción que el nombre único borraba: hubo señales o no las hubo.
+    const evidenceAbsent = countryEvidence.evidenceSources.length === 0;
     warnings.push(
-      'Sin evidencia de país en URL, dominio, snippet ni título. ' +
-      'Ausencia de evidencia, no evidencia en contra: el candidato se persiste ' +
-      'para revisión manual, no cuenta hacia el objetivo y no autoriza gasto.',
+      evidenceAbsent
+        ? 'Sin evidencia de país en URL, dominio, snippet ni título. ' +
+          'Ausencia de evidencia, no evidencia en contra: el candidato se persiste ' +
+          'para revisión manual, no cuenta hacia el objetivo y no autoriza gasto.'
+        : 'Evidencia de país DÉBIL: hubo señales, pero no bastaron para confirmarla. ' +
+          'El candidato se persiste para revisión manual, no cuenta hacia el objetivo ' +
+          'y no autoriza gasto.',
     );
     return {
       decision: 'needs_review',
       confidenceCap: 40,
       warnings,
       // El nombre anterior —`no_country_evidence_with_weak_fit`— afirmaba un
-      // veredicto sobre la empresa. Éste describe nuestro hueco, que es lo único
-      // que la corrida sabe.
-      primaryReason: 'country_evidence_absent_survives_incomplete',
+      // veredicto sobre la empresa, y además leía el fit. Éste describe nuestro
+      // hueco, que es lo único que la corrida sabe.
+      primaryReason: evidenceAbsent
+        ? 'country_evidence_absent_survives_incomplete'
+        : 'country_evidence_weak_survives_incomplete',
       forceReviewManually: true,
       paidCompletionAuthorized: false,
       targetAcceptanceAuthorized: false,
-      incompletenessReason: 'country_evidence_absent',
+      incompletenessReason: evidenceAbsent
+        ? 'country_evidence_absent'
+        : 'country_evidence_weak',
     };
   }
 
-  // R3: Sin evidencia de país + fit alto → needs_review con cap reducido
-  if (countryEvidence.evidenceLevel === 'weak') {
-    warnings.push(
-      'País sin evidencia directa en el sitio. ' +
-      'Empresa con señales de fit B2B pero sin confirmación geográfica.',
-    );
-    return {
-      decision: 'needs_review',
-      confidenceCap: 40,
-      warnings,
-      primaryReason: 'no_country_evidence_high_fit',
-      forceReviewManually: true,
-      // Igual que R1: antes de X6.2-A esta rama no era `blocked`. No se aprieta
-      // ni se afloja — se declara.
-      paidCompletionAuthorized: true,
-      targetAcceptanceAuthorized: true,
-      incompletenessReason: null,
-    };
-  }
-
-  // R4: Evidencia fuerte + fit alto → candidato sólido
-  if (countryEvidence.evidenceLevel === 'strong' && businessFit.fit === 'high') {
-    return {
-      decision: 'ok',
-      confidenceCap: null,
-      warnings,
-      primaryReason: 'strong_evidence_high_fit',
-      forceReviewManually: false,
-      paidCompletionAuthorized: true,
-      targetAcceptanceAuthorized: true,
-      incompletenessReason: null,
-    };
-  }
-
-  // Default: conservador
+  // Default: evidencia FUERTE. Conservador y sin promoción automática.
   return {
     decision: 'needs_review',
     confidenceCap: null,

@@ -392,7 +392,6 @@ describe('F10 — AR strong + fit medium → evidence policy no bloquea', () => 
 
     const policy = computeEvidencePersistencePolicy({
       countryEvidence,
-      businessFit: makeBusinessFit('medium'),
     });
 
     assert.notEqual(
@@ -414,7 +413,6 @@ describe('F10 — AR strong + fit medium → evidence policy no bloquea', () => 
 
     const policy = computeEvidencePersistencePolicy({
       countryEvidence,
-      businessFit: makeBusinessFit('medium'),
     });
 
     assert.notEqual(
@@ -453,7 +451,6 @@ describe('F11 — AR weak + fit medium → sobrevive incompleto, sin gasto ni ac
 
     const policy = computeEvidencePersistencePolicy({
       countryEvidence,
-      businessFit: makeBusinessFit('medium'),
     });
 
     assert.notEqual(
@@ -479,7 +476,6 @@ describe('F11 — AR weak + fit medium → sobrevive incompleto, sin gasto ni ac
 
     const policy = computeEvidencePersistencePolicy({
       countryEvidence,
-      businessFit: makeBusinessFit('low'),
     });
 
     assert.notEqual(policy.decision, 'blocked');
@@ -520,7 +516,6 @@ describe('F12 — Globant synthetic fixture → strong, not blocked', () => {
 
     const policy = computeEvidencePersistencePolicy({
       countryEvidence,
-      businessFit: makeBusinessFit('medium'),
     });
 
     assert.notEqual(

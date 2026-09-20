@@ -36,8 +36,6 @@
  */
 
 import {
-  evaluateBusinessFit,
-  isBlockedByBusinessFit,
 } from './business-fit-gate';
 import { evaluateCountryEvidence } from './country-evidence-gate';
 import {
@@ -287,19 +285,19 @@ export function evaluateApolloPreWriterQualityGate(input: {
   candidate: unknown;
   matchedHubspotRaw?: unknown;
 }): ApolloPreWriterQualityGate {
-  const businessFit = evaluateBusinessFit({
-    name: input.name,
-    website: input.website,
-    domain: input.domain,
-    sourceSnippet: input.sourceSnippet,
-    sourceTitle: input.sourceTitle,
-    subindustries: [...input.subindustries],
-    additionalCriteria: input.additionalCriteria,
-  });
-  if (isBlockedByBusinessFit(businessFit)) {
-    return { verdict: 'fail', blockingReason: `business_fit:${businessFit.fit}` };
-  }
-
+  /**
+   * 🔴 BUSINESS-FIT-OBSERVATION-ONLY — aquí vivía el rechazo por encaje:
+   *
+   *     if (isBlockedByBusinessFit(businessFit))
+   *       return { verdict: 'fail', blockingReason: `business_fit:${fit}` };
+   *
+   * Se retira. `business_fit` no decide la aceptación: el perfil comercial lo
+   * gobiernan los criterios SELECCIONADOS (país, sector/subindustria, tamaño),
+   * que tienen sus propias autoridades y siguen intactas. El evaluador sigue
+   * corriendo en el writer, donde se conserva su resultado y su motivo como
+   * OBSERVACIÓN; aquí ni siquiera hace falta invocarlo, porque nada de lo que
+   * sigue lo lee.
+   */
   const countryEvidence = evaluateCountryEvidence({
     website: input.website,
     domain: input.domain,
@@ -319,7 +317,7 @@ export function evaluateApolloPreWriterQualityGate(input: {
   //
   // Lo que SÍ cambia es que este `fail` ya no implica que el writer vaya a
   // borrar la fila: desde X6.2-A la persiste como revisión incompleta.
-  const evidencePolicy = computeEvidencePersistencePolicy({ countryEvidence, businessFit });
+  const evidencePolicy = computeEvidencePersistencePolicy({ countryEvidence });
   if (!evidencePolicy.targetAcceptanceAuthorized) {
     return {
       verdict: 'fail',
@@ -844,7 +842,6 @@ export function buildApolloPreWriterRankSignals(
   candidate: ProspectingPipelineCandidate,
   context: ApolloPreWriterGateContext,
 ): {
-  businessFitRankingBonus: number;
   sourceUrlRankingBonus: number;
   countryCompatWeight: number;
   confidenceScore: number | null;
@@ -853,17 +850,10 @@ export function buildApolloPreWriterRankSignals(
   const effectiveDomain = resolveApolloPreWriterEffectiveDomain(candidate);
   const urlOrDomain =
     candidate.website ?? (effectiveDomain ? `https://${effectiveDomain}` : null);
-  const businessFit = evaluateBusinessFit({
-    name: candidate.name,
-    website: candidate.website ?? null,
-    domain: effectiveDomain,
-    sourceSnippet: candidate.sourceSnippet ?? null,
-    sourceTitle: candidate.sourceTitle ?? null,
-    subindustries: [...context.subindustries],
-    additionalCriteria: context.additionalCriteria ?? null,
-  });
+  // 🔴 BUSINESS-FIT-OBSERVATION-ONLY — el bono de encaje sale del compuesto, así
+  // que este proyector ya no necesita evaluarlo. El evaluador sigue corriendo en
+  // el writer, que es donde se conserva su resultado como observación.
   return {
-    businessFitRankingBonus: businessFit.rankingBonus,
     sourceUrlRankingBonus: classifySourceUrlQuality(urlOrDomain, candidate.name).rankingBonus,
     countryCompatWeight: context.targetCountryCode
       ? countryCompatibilityRankWeight(

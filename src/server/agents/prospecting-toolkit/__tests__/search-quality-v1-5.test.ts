@@ -125,7 +125,6 @@ describe('F3 — Cegid: query_only country evidence → needs_review, confidence
   it('Cegid evidence-policy = needs_review con confidenceCap 45', () => {
     const policy = computeEvidencePersistencePolicy({
       countryEvidence: cegidCountryEvidence,
-      businessFit: cegidBusinessFit,
     });
     assert.equal(policy.decision, 'needs_review', `got: ${policy.decision}`);
     assert.equal(policy.primaryReason, 'country_evidence_query_only');
@@ -140,7 +139,6 @@ describe('F3 — Cegid: query_only country evidence → needs_review, confidence
   it('Cegid confidence efectivo nunca supera 45 (capping simulation)', () => {
     const policy = computeEvidencePersistencePolicy({
       countryEvidence: cegidCountryEvidence,
-      businessFit: cegidBusinessFit,
     });
     const originalConfidence = 80; // valor que el scorer podría haber asignado
     const effectiveConfidence =
@@ -191,7 +189,6 @@ describe('F4 — Bizneo HR: query_only country evidence → needs_review, confid
   it('Bizneo evidence-policy = needs_review con confidenceCap ≤ 45', () => {
     const policy = computeEvidencePersistencePolicy({
       countryEvidence: bizneoCountryEvidence,
-      businessFit: bizneoBusinessFit,
     });
     assert.equal(policy.decision, 'needs_review');
     assert.equal(policy.primaryReason, 'country_evidence_query_only');
@@ -238,17 +235,23 @@ describe('F5 — Kondory: strong country evidence + high business fit → eviden
     assert.equal(isBlockedByBusinessFit(kondoryBusinessFit), false);
   });
 
-  it('Kondory strong + high → evidence-policy = ok (mejor candidato)', () => {
-    // Simular el mejor escenario: fit high
+  it('🔴 Kondory con país STRONG: sin cap y autorizada, pero sin promoción a `ok`', () => {
+    // 🔴 BUSINESS-FIT-OBSERVATION-ONLY — este caso exigía `decision: 'ok'` con
+    // `primaryReason: 'strong_evidence_high_fit'`. Esa rama (R4) sólo existía
+    // por el fit `high`, así que se retira con él. Lo que la candidata gana o
+    // pierde de verdad NO se mueve: sin cap, sin revisión forzada y con las dos
+    // autorizaciones en `true`. Lo único que cambia es la etiqueta, y ahora se
+    // escribe el bloque `evidence_policy` también para ella.
     const policy = computeEvidencePersistencePolicy({
       countryEvidence: { ...kondoryCountryEvidence, evidenceLevel: 'strong' },
-      businessFit: { ...kondoryBusinessFit, fit: 'high' },
     });
-    assert.equal(policy.decision, 'ok', `got: ${policy.decision}`);
-    assert.equal(policy.primaryReason, 'strong_evidence_high_fit');
+    assert.equal(policy.decision, 'needs_review', `got: ${policy.decision}`);
+    assert.equal(policy.primaryReason, 'default_conservative');
     assert.equal(policy.confidenceCap, null);
     assert.equal(policy.forceReviewManually, false);
-    assert.equal(policy.warnings.length, 0);
+    assert.equal(policy.paidCompletionAuthorized, true);
+    assert.equal(policy.targetAcceptanceAuthorized, true);
+    assert.equal(policy.incompletenessReason, null);
   });
 });
 
@@ -291,7 +294,6 @@ describe('F6 — Kaizen: strong evidence + medium fit → needs_review (no stron
   it('Kaizen strong + non-high → evidence-policy = needs_review (no ok)', () => {
     const policy = computeEvidencePersistencePolicy({
       countryEvidence: kaizenCountryEvidence,
-      businessFit: { ...kaizenBusinessFit, fit: 'medium' },
     });
     assert.notEqual(policy.decision, 'ok', 'Kaizen no debe ser strong_candidate (ok)');
     assert.equal(policy.decision, 'needs_review');
@@ -332,7 +334,6 @@ describe('F7 — Brettec: query_only evidence → needs_review, confidence cappe
   it('Brettec evidence-policy = needs_review con confidenceCap ≤ 45 (baja confianza)', () => {
     const policy = computeEvidencePersistencePolicy({
       countryEvidence: brettecCountryEvidence,
-      businessFit: brettecBusinessFit,
     });
     assert.equal(policy.decision, 'needs_review', `got: ${policy.decision}`);
     assert.equal(policy.primaryReason, 'country_evidence_query_only');
@@ -344,7 +345,6 @@ describe('F7 — Brettec: query_only evidence → needs_review, confidence cappe
   it('Brettec confidence efectivo ≤ 45 con cualquier confidence de scorer', () => {
     const policy = computeEvidencePersistencePolicy({
       countryEvidence: brettecCountryEvidence,
-      businessFit: brettecBusinessFit,
     });
     for (const originalScore of [30, 50, 70, 90]) {
       const effective =
@@ -445,13 +445,6 @@ describe('Invariantes de computeEvidencePersistencePolicy', () => {
         evidenceSources: [],
         warning: null,
       },
-      businessFit: {
-        fit: 'medium',
-        reasons: [],
-        matchedSignals: [],
-        missingSignals: [],
-        rankingBonus: 30,
-      },
     });
     assert.notEqual(policy.decision, 'blocked');
     assert.equal(policy.decision, 'needs_review');
@@ -470,58 +463,62 @@ describe('Invariantes de computeEvidencePersistencePolicy', () => {
         evidenceSources: [],
         warning: null,
       },
-      businessFit: {
-        fit: 'low',
-        reasons: [],
-        matchedSignals: [],
-        missingSignals: [],
-        rankingBonus: -40,
-      },
     });
     assert.notEqual(policy.decision, 'blocked');
     assert.equal(policy.paidCompletionAuthorized, false);
     assert.equal(policy.targetAcceptanceAuthorized, false);
   });
 
-  it('weak + high → needs_review cap 40 (R3)', () => {
+  it('🔴 weak SIN señales → R2 para todos: incompleta y sin gasto', () => {
+    // 🔴 Aquí vivía R3: con fit `high` esta misma evidencia autorizaba gasto y
+    // aceptación. El fit ya no decide, así que gobierna R2.
     const policy = computeEvidencePersistencePolicy({
       countryEvidence: {
         evidenceLevel: 'weak',
         evidenceSources: [],
         warning: null,
       },
-      businessFit: {
-        fit: 'high',
-        reasons: [],
-        matchedSignals: [],
-        missingSignals: [],
-        rankingBonus: 50,
-      },
     });
     assert.equal(policy.decision, 'needs_review');
-    assert.equal(policy.primaryReason, 'no_country_evidence_high_fit');
+    assert.equal(policy.primaryReason, 'country_evidence_absent_survives_incomplete');
+    assert.equal(policy.incompletenessReason, 'country_evidence_absent');
+    assert.equal(policy.paidCompletionAuthorized, false);
+    assert.equal(policy.targetAcceptanceAuthorized, false);
     assert.ok(policy.confidenceCap !== null);
     assert.ok(policy.confidenceCap! <= 40);
   });
 
-  it('strong + high → ok, sin cap (R4)', () => {
+  it('🔴 weak CON señales insuficientes → mismo desenlace, motivo DISTINTO', () => {
+    const policy = computeEvidencePersistencePolicy({
+      countryEvidence: {
+        evidenceLevel: 'weak',
+        evidenceSources: ['snippet'],
+        warning: null,
+      },
+    });
+    assert.equal(policy.primaryReason, 'country_evidence_weak_survives_incomplete');
+    assert.equal(
+      policy.incompletenessReason,
+      'country_evidence_weak',
+      '🔴 evidencia DÉBIL no es evidencia AUSENTE',
+    );
+    assert.equal(policy.paidCompletionAuthorized, false);
+    assert.equal(policy.targetAcceptanceAuthorized, false);
+  });
+
+  it('🔴 strong → sin cap y autorizada, sin promoción automática', () => {
     const policy = computeEvidencePersistencePolicy({
       countryEvidence: {
         evidenceLevel: 'strong',
         evidenceSources: ['tld'],
         warning: null,
       },
-      businessFit: {
-        fit: 'high',
-        reasons: [],
-        matchedSignals: [],
-        missingSignals: [],
-        rankingBonus: 50,
-      },
     });
-    assert.equal(policy.decision, 'ok');
+    assert.equal(policy.decision, 'needs_review', '🔴 nadie se promociona a `ok`');
     assert.equal(policy.confidenceCap, null);
     assert.equal(policy.forceReviewManually, false);
+    assert.equal(policy.paidCompletionAuthorized, true);
+    assert.equal(policy.targetAcceptanceAuthorized, true);
   });
 
   it('strong + medium → needs_review conservative (default)', () => {
@@ -530,13 +527,6 @@ describe('Invariantes de computeEvidencePersistencePolicy', () => {
         evidenceLevel: 'strong',
         evidenceSources: ['tld'],
         warning: null,
-      },
-      businessFit: {
-        fit: 'medium',
-        reasons: [],
-        matchedSignals: [],
-        missingSignals: [],
-        rankingBonus: 30,
       },
     });
     assert.equal(policy.decision, 'needs_review');
