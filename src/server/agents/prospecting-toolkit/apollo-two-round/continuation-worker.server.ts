@@ -149,9 +149,22 @@ async function runContinuationCascade(
 }
 
 export async function runApolloRoundContinuationWorkerFromEnv(
-  options: { batchId?: string | null; limit?: number; timeBudgetMs?: number } = {},
+  options: {
+    batchId?: string | null;
+    limit?: number;
+    timeBudgetMs?: number;
+    /**
+     * AGENT1-APOLLO-CONTINUATION-POSTGRES-139 — cliente inyectable.
+     *
+     * Existe SÓLO para que la verificación contra un PostgreSQL desechable
+     * ejercite ESTE cuerpo —el reclamo real y el cierre real— en vez de una
+     * reimplementación de sus reglas en la prueba. Ausente, cae al cliente de
+     * servicio de siempre.
+     */
+    client?: SupabaseClient;
+  } = {},
 ): Promise<ApolloContinuationWorkerStats> {
-  const client = adminClient();
+  const client = options.client ?? adminClient();
   const runInputByJobId = new Map<string, ApolloTwoRoundWizardRunInput>();
   const runPolicyByJobId = new Map<string, ApolloContinuationRunPolicy>();
   /** Identidad con la que se lee el checkpoint de cada lote reclamado. */
