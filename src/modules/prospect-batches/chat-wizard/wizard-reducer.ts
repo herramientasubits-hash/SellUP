@@ -36,6 +36,7 @@ export function createInitialProspectWizardState(
     restartConfirmationRequired: false,
     executionError: null,
     executionBatchId: null,
+    executionContinuationPending: false,
     executionRedirectPath: null,
     executionStatus: null,
     // CUT-6B § 5 — el estado inicial no tiene aporte que declarar. `CONFIRM_RESTART`
@@ -542,6 +543,11 @@ export function prospectWizardReducer(
         ...state,
         currentStep: 'success',
         executionBatchId: action.batchId,
+        // § 4 — la pausa viaja en la ACCIÓN, como el resto de lo que el
+        // servidor derivó. El reducer no la deduce de `candidateCount === 0`:
+        // una corrida sin candidatos y una corrida a medias son cosas distintas
+        // y sólo el servidor sabe cuál de las dos ocurrió.
+        executionContinuationPending: action.continuationPending === true,
         executionRedirectPath: action.redirectPath,
         executionStatus: action.status,
         executionNoveltyExhausted: action.noveltyExhausted ?? false,

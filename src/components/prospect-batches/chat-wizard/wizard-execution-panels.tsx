@@ -165,6 +165,25 @@ function WizardPersistenceBreakdown({ rows }: { rows: WizardPersistenceBreakdown
 
 export type SuccessPanelProps = {
   status: WizardExecutionStatus | null;
+  /**
+   * AGENT1-APOLLO-CONTINUATION-WIZARD-WIRING § 4 — la corrida quedó EN PAUSA
+   * con trabajo encolado.
+   *
+   * 🔴 Cambia dos comportamientos y ninguno es cosmético:
+   *
+   *   1. el panel NO se cierra solo. Cerrarse es la forma en que esta pantalla
+   *      dice «ya está»; con trabajo pendiente eso sería falso;
+   *   2. el panel NO afirma que no hubo empresas nuevas. Una corrida en pausa
+   *      tiene organizaciones pagadas SIN MIRAR: anunciarla como un vacío
+   *      invita a repetir —y volver a pagar— una búsqueda que no hacía falta.
+   *
+   * Tampoco pinta cifras de aceptación: en pausa el writer todavía no ha
+   * contado nada, así que no hay resumen que enseñar sin adelantarse.
+   *
+   * El estado vivo lo pinta `WizardApolloContinuationPanel`, montado en la raíz
+   * del mago, que sobrevive a los cambios de paso y al cierre de este panel.
+   */
+  continuationPending?: boolean;
   noveltyExhausted?: boolean;
   /**
    * AGENT1-LOCAL-CUT8 § 3 — FILAS DURABLES que la corrida dejó en el lote.
@@ -207,7 +226,7 @@ export type SuccessPanelProps = {
   acceptedForTarget?: AcceptedForTargetSummary | null;
 };
 
-export function SuccessPanel({ status, noveltyExhausted, candidateCount, onClose, onEditSearch, twoRoundOutcome, targetEligibleCompanies, noNewCandidatesBreakdown, persistenceOutcome, targetSummary, acceptedForTarget }: SuccessPanelProps) {
+export function SuccessPanel({ status, continuationPending = false, noveltyExhausted, candidateCount, onClose, onEditSearch, twoRoundOutcome, targetEligibleCompanies, noNewCandidatesBreakdown, persistenceOutcome, targetSummary, acceptedForTarget }: SuccessPanelProps) {
   const router = useRouter();
 
   // QUERY-QUALITY-2 § 8 + PERSISTENCE-READINESS-4 § 8 — el texto sale de lo que
@@ -248,6 +267,13 @@ export function SuccessPanel({ status, noveltyExhausted, candidateCount, onClose
       : null;
 
   React.useEffect(() => {
+    // § 4 — EN PAUSA: se refresca el listado (lo que la corrida ya guardó es
+    // real) y se para aquí. Ni toast de éxito, ni toast de vacío, ni cierre
+    // automático: la corrida no ha terminado.
+    if (continuationPending) {
+      router.refresh();
+      return;
+    }
     if (status === 'completed_with_errors') {
       // No se cierra solo: el usuario tiene que leer que NO repita la búsqueda.
       //
@@ -318,6 +344,23 @@ export function SuccessPanel({ status, noveltyExhausted, candidateCount, onClose
           </div>
         </div>
         <WizardPersistenceBreakdown rows={persistenceBreakdownRows} />
+        <div className="flex gap-2">
+          <Button size="sm" variant="ghost" onClick={onClose}>
+            Cerrar
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // § 4 — con trabajo pendiente NO se pinta el bloque de «no encontramos
+  // empresas nuevas». Todavía hay organizaciones pagadas sin evaluar, así que
+  // la pregunta «¿hubo empresas nuevas?» aún no tiene respuesta. Quien cuenta
+  // cómo va es el panel de continuación de la cabecera del mago; aquí sólo
+  // queda la salida.
+  if (continuationPending) {
+    return (
+      <div className="space-y-3 animate-su-fade-in" data-testid="wizard-success-paused">
         <div className="flex gap-2">
           <Button size="sm" variant="ghost" onClick={onClose}>
             Cerrar

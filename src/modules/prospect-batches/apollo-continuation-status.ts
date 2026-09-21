@@ -7,6 +7,20 @@
  * componentes, y así el mapeo estado→copy se prueba sin red.
  */
 
+/**
+ * Estados con los que la cola durable describe un trabajo.
+ *
+ * AGENT1-APOLLO-CONTINUATION-WIZARD-WIRING § 1 — se NOMBRA porque ahora hay un
+ * lector que los produce. Mientras la unión vivía en línea dentro de la firma
+ * del resolutor, cada llamador la reescribía por su cuenta.
+ */
+export type ApolloContinuationJobStatus =
+  | 'pending'
+  | 'processing'
+  | 'completed'
+  | 'failed'
+  | 'skipped';
+
 export type ApolloContinuationUiStatus =
   /** Hay un trabajo tomado por alguien y avanzando AHORA. */
   | 'processing'
@@ -37,10 +51,45 @@ export const APOLLO_CONTINUATION_BROWSER_CLOSED_NOTE =
   'diario vuelve a intentarlo. Esa cadencia indica cuándo puede reintentarse, no ' +
   'garantiza que termine en ese plazo.';
 
+/**
+ * AGENT1-APOLLO-CONTINUATION-WIZARD-WIRING § 2 — título de la superficie.
+ *
+ * La pantalla necesita un encabezado que diga QUÉ es esto antes del estado. Sin
+ * él, «Procesando las empresas que quedaron pendientes…» aparece suelto en el
+ * panel y se confunde con el progreso de una búsqueda nueva.
+ */
+export const APOLLO_CONTINUATION_PANEL_TITLE = 'La corrida quedó a medias';
+
+/**
+ * § 2 — lo que se dice mientras la ventana está abierta y el navegador conduce.
+ *
+ * 🔴 No promete inmediatez: la vuelta la puede estar ejecutando otro (el cron o
+ * la misma corrida en otra pestaña), y entonces esta pestaña sólo espera.
+ */
+export const APOLLO_CONTINUATION_IN_SESSION_NOTE =
+  'Mientras esta ventana siga abierta, seguimos retomando el mismo lote. No se ' +
+  'inicia otra búsqueda ni se vuelve a cobrar la que ya se pagó.';
+
+/**
+ * § 2 — el intento NO llegó al servidor.
+ *
+ * 🔴 No es `failed` en el sentido de la cola. El trabajo no agotó sus intentos:
+ * fue esta pantalla la que no pudo hablar con el servidor. Decir «la
+ * continuación falló» aquí sugeriría que el trabajo se perdió, y no se perdió.
+ */
+export const APOLLO_CONTINUATION_TRANSPORT_ERROR_COPY =
+  'No pudimos contactar con el servidor para seguir la corrida. El trabajo sigue ' +
+  'guardado y se retomará.';
+
+/** Estados en los que ya no hay nada más que conducir desde la pantalla. */
+export function isApolloContinuationTerminal(status: ApolloContinuationUiStatus): boolean {
+  return status === 'finished' || status === 'failed';
+}
+
 /** Deriva el estado visible de las señales durables. Sin heurísticas. */
 export function resolveApolloContinuationUiStatus(input: {
   readonly pendingOrganizationCount: number;
-  readonly jobStatus: 'pending' | 'processing' | 'completed' | 'failed' | 'skipped' | null;
+  readonly jobStatus: ApolloContinuationJobStatus | null;
 }): ApolloContinuationUiStatus {
   if (input.jobStatus === 'failed') return 'failed';
   // Sin trabajo pendiente la corrida está cerrada, diga lo que diga la cola: un

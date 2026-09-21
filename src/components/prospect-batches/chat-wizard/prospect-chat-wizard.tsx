@@ -39,6 +39,8 @@ import { useWizardMessageSound } from './use-wizard-message-sound';
 // backend (prop `discoveryProvider` + ruta Lusha + omisión reportada por la
 // acción); aquí sólo se reduce y se pinta.
 import { WizardProviderIndicatorRow } from './wizard-provider-indicator';
+// AGENT1-APOLLO-CONTINUATION-WIZARD-WIRING § 2 — la continuación, conectada.
+import { WizardApolloContinuationPanel } from './wizard-apollo-continuation-panel';
 import { resolveWizardProviderIndicator } from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-indicator';
 import type {
   WizardIndicatorLushaRoute,
@@ -686,6 +688,10 @@ export function ProspectChatWizard({
             ? toAcceptedForTargetSummary(result.acceptedForTarget)
             : null,
           noveltyExhausted: result.noveltyExhausted,
+          // AGENT1-APOLLO-CONTINUATION-WIZARD-WIRING § 4 — la pausa se propaga
+          // TAL CUAL. El cliente no la deduce de un conteo en cero: eso volvería
+          // a confundir «no había empresas» con «todavía no las hemos mirado».
+          continuationPending: result.apolloContinuation !== undefined,
         });
       } else {
         // A1-APOLLO-WIZARD-1: un proveedor omitido trae su propio motivo, con
@@ -798,6 +804,17 @@ export function ProspectChatWizard({
 
           <WizardProviderIndicatorRow indicator={providerIndicator} />
         </div>
+
+        {/* AGENT1-APOLLO-CONTINUATION-WIZARD-WIRING § 2 — una corrida a medias.
+
+            Vive AQUÍ, en la raíz del mago, y no dentro de un paso: mientras el
+            cajón esté abierto hay que poder ver —y seguir— el trabajo
+            pendiente, tanto justo después de la pausa como al reabrir en el
+            primer paso. Colgarlo del panel de éxito lo habría atado a una
+            superficie que se cierra sola y que al reabrir ni siquiera existe.
+
+            No pinta nada cuando no hay trabajo pendiente. */}
+        <WizardApolloContinuationPanel pausedRunSignal={state.executionContinuationPending} />
 
         {/* Conversation history */}
         {messages.length > 0 && (
