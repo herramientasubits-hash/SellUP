@@ -100,6 +100,16 @@ export type ApolloRunModeCopy = {
 
 export const APOLLO_RUN_MODE_LIMITS_TITLE = 'Máximos de esta ejecución:';
 
+/**
+ * § 6 — el recordatorio que separa RESERVA de CONSUMO.
+ *
+ * Existe porque el lote sigue declarando `reserved_credits: 15` /
+ * `estimated_credits: 15` junto a `recorded_usage_credits: 2`, y sin esta línea
+ * las dos cifras se leen como la misma.
+ */
+export const APOLLO_RUN_MODE_SPEND_CAVEAT =
+  'Son topes reservados, no un cargo: el consumo real se registra al terminar y puede ser mucho menor.';
+
 export const APOLLO_RUN_MODE_NO_GUARANTEE_PREFIX = 'No se garantiza encontrar';
 export const APOLLO_RUN_MODE_FILTERS_CAVEAT =
   'Los filtros de calidad y duplicados no se reducirán para alcanzar el objetivo.';
@@ -123,10 +133,26 @@ export function buildApolloRunModeCopy(limits: ApolloRunModeLimits): ApolloRunMo
     limitsTitle: APOLLO_RUN_MODE_LIMITS_TITLE,
     limits: [
       `${limits.maxResultsPerRound} ${pluralize(limits.maxResultsPerRound, 'resultado', 'resultados')} por ronda`,
-      `${limits.maxRawResultsPerRun} ${pluralize(limits.maxRawResultsPerRun, 'resultado', 'resultados')} raw en total`,
-      `${limits.maxEnrichmentsPerRun} ${pluralize(limits.maxEnrichmentsPerRun, 'enrichment', 'enrichments')}`,
-      // El techo, explícito como techo. Nunca «se consumirán N».
-      `Hasta ${limits.maxInternalCredits} ${pluralize(limits.maxInternalCredits, 'crédito interno', 'créditos internos')}`,
+      // AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET § 6 — AQUÍ decía «N resultados
+      // raw en total», y eso dejó de ser cierto con el CORTE 2 del waterfall.
+      //
+      // `maxRawResultsPerRun` fue un tope de ADMISIÓN: la organización número
+      // N+1 de una página ya pagada se descartaba por su posición. El corte lo
+      // retiró a propósito —tirar filas compradas no ahorra nada— y lo dejó como
+      // CONTADOR observacional. La corrida `7d8a9b85` lo demuestra: el copy
+      // prometía 20 y la ronda evaluó 166.
+      //
+      // El gasto lo gobiernan las páginas compradas y el cap de enrichment, que
+      // son las dos líneas que siguen. Anunciar un tope que no acota nada hacía
+      // ilegible justo la cifra que sí importa.
+      `${limits.maxEnrichmentsPerRun} ${pluralize(limits.maxEnrichmentsPerRun, 'enrichment', 'enrichments')} como máximo`,
+      // § 6 — techo RESERVADO, y del pool que de verdad se toca.
+      //
+      // Decía «créditos internos» mientras Apollo ya estaba desacoplado del pool
+      // interno: gasta contra su propia cuota. Un lector con 1 crédito interno
+      // disponible leía «hasta 15 créditos internos» y no podía saber si la
+      // corrida iba a poder ejecutarse.
+      `Hasta ${limits.maxInternalCredits} ${pluralize(limits.maxInternalCredits, 'crédito', 'créditos')} de la cuota de Apollo reservados (el consumo real suele ser menor)`,
     ],
     caveats: [
       `${APOLLO_RUN_MODE_NO_GUARANTEE_PREFIX} ${spellCount(limits.targetEligibleCompanies)} ${pluralize(
@@ -135,6 +161,7 @@ export function buildApolloRunModeCopy(limits: ApolloRunModeLimits): ApolloRunMo
         'empresas',
       )}.`,
       APOLLO_RUN_MODE_FILTERS_CAVEAT,
+      APOLLO_RUN_MODE_SPEND_CAVEAT,
     ],
   };
 }

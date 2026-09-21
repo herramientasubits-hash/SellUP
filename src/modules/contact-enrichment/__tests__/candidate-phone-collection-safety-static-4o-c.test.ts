@@ -305,7 +305,7 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // tabla ni función de la cadena de teléfono 109–117, y el barrido ciego de más abajo —que
       // ya cubre 118 y superiores— lo comprueba sobre su SQL ejecutable en vez de fiarse de este
       // comentario. AUTORADA y NO APLICADA.
-      '138_prospect_discarded_dispositions.sql',
+      '139_agent1_apollo_round_continuation_jobs.sql',
       'el techo conocido es la 138: la 133 (la promoción vallada de identidad fiscal de BR-SOURCE CUT D), la 134 (el almacenamiento compacto de BR), la 135 (AGENT1-LUSHA-CUT-L3, renumerada desde la 134 al integrarse en serie), la 136 (el historial de intentos seguros de Lusha), la 137 (la auditoría administrativa del presupuesto del Wizard) y la 138 (la disposición durable de descartes de Prospectos) — ninguna edita el archivo de una migración anterior de la cadena de teléfono 109–117',
     );
     assert.equal(
@@ -337,13 +337,13 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // así que la ventana prohibida sube a la 139 y superiores.
       // La guarda no se relaja: sigue impidiendo que alguien cuele una POR ENCIMA del último
       // hito conocido sin declararla.
-      files.some((file) => /^1(39|[4-9]\d)/.test(file)),
+      files.some((file) => /^1(4\d|[5-9]\d)/.test(file)),
       false,
       // La 120, la 121 y la 122 son AUTORIZADAS y están declaradas arriba con lo que hacen. Lo que
       // esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último hito
       // conocido sin declararla; la afirmación de que ninguna de ellas escribe sobre las
       // tablas de la cadena de teléfono se comprueba justo abajo, de forma directa.
-      'ninguna migración 139 o superior',
+      'ninguna migración 140 o superior',
     );
     // La afirmación que de verdad importa, ya no delegada en el orden alfabético:
     // ninguna migración posterior a la ÚLTIMA de la cadena de teléfono escribe sobre sus

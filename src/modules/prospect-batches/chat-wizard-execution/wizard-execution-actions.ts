@@ -1,5 +1,6 @@
 'use server';
 
+import { readApolloAssessmentDeadlineReached } from '@/server/agents/prospecting-toolkit/apollo-two-round/continuation-worker';
 import { createClient } from '@/lib/supabase/server';
 
 import { requireActiveUser } from '@/modules/prospect-batches/actions';
@@ -2126,6 +2127,12 @@ export async function executeProspectWizardGeneration(
         usefulAccumulated: acceptedAfterApollo.acceptedForTargetTotal,
         // Se llegó hasta aquí: el pipeline devolvió un veredicto.
         apolloTerminal: true,
+        // AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET § 8 — pero un veredicto con
+        // trabajo pendiente es PROVISIONAL. Mientras Apollo tenga organizaciones
+        // ya pagadas esperando evaluación gratuita, su cuenta de útiles puede
+        // subir sola, y comprar en Lusha contra ese hueco sería pagar por un
+        // hueco que quizá se cierra sin gastar nada.
+        apolloPendingContinuation: readApolloAssessmentDeadlineReached(pipelineResult),
       })
     : { executed: false, reason: 'waterfall_flag_disabled' };
 

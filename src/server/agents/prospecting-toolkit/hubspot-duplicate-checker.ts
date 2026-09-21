@@ -14,6 +14,22 @@ import { createClient as createAdminClient } from '@supabase/supabase-js';
 import type { DuplicateCheckInput, DuplicateMatch } from './types';
 import { buildCompanySearchTerms, normalizeCompanyName } from './normalization';
 import { buildFiscalLookupNeedles } from './fiscal-identity';
+
+/**
+ * AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET § 3 — tope de reloj de CADA llamada
+ * a HubSpot.
+ *
+ * 🔴 El defecto que cierra: estas peticiones no tenían ningún tope. La
+ * verificación del sitio de la empresa sí aborta a los 8 s, pero la comprobación
+ * de duplicados —que corre para la MISMA organización, en el mismo paso— podía
+ * quedarse esperando indefinidamente. Con una evaluación por empresa en serie,
+ * una sola petición colgada bastaba para agotar el límite de ejecución.
+ *
+ * `AbortSignal.timeout` aborta de verdad y libera el socket; un `Promise.race`
+ * por fuera habría devuelto antes dejando la petición viva.
+ */
+export const HUBSPOT_DUPLICATE_CHECK_TIMEOUT_MS = 8_000;
+
 import {
   classifyHubSpotFiscalResult,
   HUBSPOT_FISCAL_PROPERTIES,
@@ -243,6 +259,7 @@ async function getHubSpotCompanyProperties(
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
+        signal: AbortSignal.timeout(HUBSPOT_DUPLICATE_CHECK_TIMEOUT_MS),
       });
       if (res.ok) {
         const data = await res.json();
@@ -288,6 +305,7 @@ async function searchByDomain(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(HUBSPOT_DUPLICATE_CHECK_TIMEOUT_MS),
   });
 
   if (!res.ok) return [];
@@ -312,6 +330,7 @@ async function searchByName(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(HUBSPOT_DUPLICATE_CHECK_TIMEOUT_MS),
   });
 
   if (!res.ok) return [];
@@ -391,6 +410,7 @@ async function searchByTaxIdentifier(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(buildFiscalSearchBody(possibleProperties, needles)),
+    signal: AbortSignal.timeout(HUBSPOT_DUPLICATE_CHECK_TIMEOUT_MS),
   });
 
   if (res.status === 400) {
@@ -405,6 +425,7 @@ async function searchByTaxIdentifier(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(buildFiscalSearchBody(fallbackProps, needles)),
+      signal: AbortSignal.timeout(HUBSPOT_DUPLICATE_CHECK_TIMEOUT_MS),
     });
 
     if (!fallbackRes.ok) return [];

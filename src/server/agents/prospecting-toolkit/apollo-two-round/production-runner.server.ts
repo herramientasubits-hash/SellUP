@@ -454,9 +454,68 @@ export const TWO_ROUND_CONCURRENT_DURABILITY_SOURCE =
  */
 const MAX_STALE_RESOLUTION_ATTEMPTS = 3;
 
+/**
+ * AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET § 2 — evaluaciones baratas en vuelo.
+ *
+ * 8 y no más: `assessCandidate` hace una verificación HTTP contra el sitio de
+ * CADA empresa (tope de 8 s por organización) más una comprobación de duplicados.
+ * Son dominios de terceros distintos entre sí, así que el paralelismo no
+ * concentra carga en ningún servicio nuestro; el único consumidor compartido es
+ * la comprobación de duplicados, que ya está acotada por esta misma cifra.
+ */
+export const APOLLO_ASSESSMENT_CONCURRENCY = 8;
+
+/**
+ * § 3 — cuánto tiempo de reloj puede gastar la EVALUACIÓN de una corrida.
+ *
+ * El límite de la plataforma es de 300 s para toda la petición. Este presupuesto
+ * deja margen deliberado para lo que viene después —enrichment, gates finales,
+ * escritura de candidatos y checkpoints—, que es trabajo que ya costó créditos y
+ * no puede quedarse sin tiempo por culpa de la fase gratuita.
+ */
+export const APOLLO_ASSESSMENT_TIME_BUDGET_MS = 150_000;
+
+/**
+ * § 3 — el límite REAL de la plataforma para una invocación.
+ *
+ * No es una constante decorativa: es el número que mató la corrida `7d8a9b85`
+ * (`Task timed out after 300 seconds`). Vive aquí para que la aritmética del
+ * presupuesto se pueda comprobar en la suite en vez de razonarse en un comentario.
+ */
+export const APOLLO_RUNTIME_INVOCATION_LIMIT_MS = 300_000;
+
+/**
+ * § 3 — margen reservado para lo que corre DESPUÉS de la evaluación dentro de la
+ * misma invocación: enrichment, gates finales, escritura de candidatos y los
+ * checkpoints de cada transición.
+ *
+ * Es trabajo que ya costó créditos, así que no puede quedarse sin tiempo por
+ * culpa de la fase gratuita. El invariante que la suite comprueba es
+ * `ASSESSMENT + DOWNSTREAM <= LIMIT`.
+ */
+export const APOLLO_DOWNSTREAM_STAGES_RESERVE_MS = 150_000;
+
 // ─── Dependencias (inyectables sólo para tests) ───────────────────────────────
 
 export type ApolloTwoRoundProductionDeps = {
+  /**
+   * Reloj monótono de la corrida. Inyectable SÓLO para que la suite pueda
+   * demostrar el presupuesto de tiempo sin esperar de verdad.
+   */
+  now: () => number;
+  /**
+   * § 7 — encola la continuación de un lote que se quedó sin tiempo.
+   *
+   * Inyectable para que la suite pruebe el encolado sin base de datos. En
+   * producción cae a `enqueueApolloRoundContinuation`.
+   */
+  enqueueContinuation: (input: {
+    batchId: string;
+    wizardRunId: string;
+    idempotencyKey: string;
+    requestFingerprint: string;
+    runInput: ApolloTwoRoundWizardRunInput;
+  }) => Promise<{ enqueued: boolean; reason?: string }>;
   searchApollo: typeof runApolloOrganizationsSearch;
   buildCandidate: typeof buildProspectingPipelineCandidate;
   enrichCascade: typeof runApolloOrganizationEnrichmentCascade;
@@ -832,6 +891,20 @@ export type ApolloTwoRoundWizardRunOutcome = IncrementalSearchOutput & {
    * ése es exactamente el defecto que la corrida `be181d2d` dejó ver.
    */
   projectedTargetReached?: boolean;
+
+  /**
+   * AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET §§ 4, 7 — la corrida se quedó sin
+   * tiempo con organizaciones YA PAGADAS sin evaluar.
+   *
+   * Es lo que el conductor de continuaciones lee para decidir si hace falta otra
+   * vuelta, y lo que distingue una PAUSA RECUPERABLE de un agotamiento o de una
+   * parada definitiva.
+   */
+  assessmentDeadlineReached?: boolean;
+  /** Organizaciones que siguen pendientes de evaluar tras esta invocación. */
+  pendingOrganizationCount?: number;
+  /** `true` ⇒ la continuación quedó encolada en la cola durable. */
+  continuationEnqueued?: boolean;
 };
 
 /**
@@ -849,6 +922,11 @@ export async function runApolloTwoRoundWizardDiscovery(
   const deps: ApolloTwoRoundProductionDeps = {
     searchApollo: runApolloOrganizationsSearch,
     buildCandidate: buildProspectingPipelineCandidate,
+    now: () => Date.now(),
+    enqueueContinuation: async (payload) => {
+      const { enqueueApolloRoundContinuation } = await import('./continuation-worker.server');
+      return enqueueApolloRoundContinuation(payload);
+    },
     enrichCascade: runApolloOrganizationEnrichmentCascade,
     enrichOrganization: enrichApolloOrganization,
     persistCandidates: writeProspectingCandidates,
@@ -929,6 +1007,14 @@ export async function runApolloTwoRoundWizardDiscovery(
       upsertApolloPageFenceEntry(batchId, identity, entry),
     ...depsOverride,
   };
+
+  /**
+   * AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET § 3 — instante de arranque de la
+   * corrida, leído del MISMO reloj que la guarda. Se toma aquí, después de
+   * resolver las dependencias, para que el presupuesto cubra exactamente el
+   * trabajo de esta invocación.
+   */
+  const runStartedAtMs = deps.now();
 
   const config = deps.resolveConfig();
   const budget = estimateApolloTwoRoundBudget(config);
@@ -1220,6 +1306,8 @@ export async function runApolloTwoRoundWizardDiscovery(
   const historicalCoveredDomains = new Set<string>();
   let historicalEvidenceDegraded = false;
   let historicalLoads = 0;
+  /** Lectura histórica EN VUELO, compartida por todo candidato que llegue mientras dura. */
+  let historicalLoadPromise: Promise<void> | null = null;
 
   const collectRunDomains = (): string[] => {
     const domains = new Set<string>();
@@ -1245,21 +1333,37 @@ export async function runApolloTwoRoundWizardDiscovery(
       return { rows: [], degraded: historicalEvidenceDegraded };
     }
     if (!historicalCoveredDomains.has(normalizedDomain)) {
-      const pending = [...new Set([...collectRunDomains(), normalizedDomain])].filter(
-        (domain) => !historicalCoveredDomains.has(domain),
-      );
-      historicalLoads++;
-      const loaded = await deps
-        .loadPrepaidHistoricalIndex({ domains: pending })
-        .catch(() => ({ index: new Map() as NoveltyIndex, degraded: true }));
-      if (loaded.degraded) {
-        historicalEvidenceDegraded = true;
-      } else {
-        for (const domain of pending) {
-          historicalCoveredDomains.add(domain);
-          historicalRowsByDomain.set(domain, (loaded.index.get(domain) ?? []) as HistoricalCandidateRow[]);
-        }
+      // AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET § 5 — la memoización ES por
+      // PROMESA, no por resultado.
+      //
+      // Antes se comprobaba `historicalCoveredDomains` y se esperaba la lectura;
+      // con las evaluaciones en vuelo a la vez, N candidatos entraban aquí ANTES
+      // de que la primera lectura resolviera y disparaban N lecturas idénticas.
+      // Guardar la promesa antes de resolverla hace que todas compartan UNA.
+      if (historicalLoadPromise === null) {
+        const pending = [...new Set([...collectRunDomains(), normalizedDomain])].filter(
+          (domain) => !historicalCoveredDomains.has(domain),
+        );
+        historicalLoads++;
+        historicalLoadPromise = deps
+          .loadPrepaidHistoricalIndex({ domains: pending })
+          .catch(() => ({ index: new Map() as NoveltyIndex, degraded: true }))
+          .then((loaded) => {
+            if (loaded.degraded) {
+              historicalEvidenceDegraded = true;
+            } else {
+              for (const domain of pending) {
+                historicalCoveredDomains.add(domain);
+                historicalRowsByDomain.set(
+                  domain,
+                  (loaded.index.get(domain) ?? []) as HistoricalCandidateRow[],
+                );
+              }
+            }
+            historicalLoadPromise = null;
+          });
       }
+      await historicalLoadPromise;
     }
     return {
       rows: historicalRowsByDomain.get(normalizedDomain) ?? [],
@@ -2002,6 +2106,19 @@ export async function runApolloTwoRoundWizardDiscovery(
       };
     },
 
+    /**
+     * AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET § 2 y § 3 — los dos parámetros
+     * que hacen que una ronda grande quepa en el límite de ejecución.
+     *
+     * `assessmentConcurrency` solapa la ESPERA de la verificación de sitio y de
+     * la comprobación de duplicados; `assessmentTimeGuard` corta con estado
+     * durable si aun así no da tiempo. Ninguno de los dos relaja un gate, mueve
+     * el objetivo ni compra nada.
+     */
+    assessmentConcurrency: APOLLO_ASSESSMENT_CONCURRENCY,
+    assessmentTimeGuard: () =>
+      deps.now() - runStartedAtMs < APOLLO_ASSESSMENT_TIME_BUDGET_MS,
+
     assessCandidate: async ({ organization, identity }) => {
       const key = candidateKeyFor(organization);
       const result = readEvidenceResult(evidenceByKey, key);
@@ -2707,6 +2824,29 @@ export async function runApolloTwoRoundWizardDiscovery(
     orchestratorDeps,
   );
 
+  /**
+   * AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET § 7 — la corrida se pausó: encola
+   * la continuación ANTES de seguir.
+   *
+   * Encolar aquí y no al final es deliberado: lo que viene después (enrichment,
+   * gates finales, escritura) es trabajo de una corrida que ya sabe que está a
+   * medias, y si algo de eso fallara, el trabajo pendiente ya estaría a salvo en
+   * una cola durable. El índice único del lote impide que dos pausas del mismo
+   * lote creen dos continuaciones.
+   */
+  const pendingOrganizationCount = runResult.pendingOrganizationCount;
+  let continuationEnqueued: boolean | null = null;
+  if (runResult.assessmentDeadlineReached && pendingOrganizationCount > 0) {
+    const enqueueOutcome = await deps.enqueueContinuation({
+      batchId: input.reservedBatchId,
+      wizardRunId: input.correlation.wizardRunId,
+      idempotencyKey: runIdentity.idempotencyKey,
+      requestFingerprint: runIdentity.requestFingerprint,
+      runInput: input,
+    });
+    continuationEnqueued = enqueueOutcome.enqueued;
+  }
+
   // ── Persistencia ────────────────────────────────────────────────────────────
   //
   // § 5 — `candidates_persisted` se LEE. Un reintento posterior a la escritura no
@@ -3231,6 +3371,10 @@ export async function runApolloTwoRoundWizardDiscovery(
         config.targetEligibleCompanies,
     projectedTargetReached: runResult.targetReached,
     targetPersistibleCandidates: config.targetEligibleCompanies,
+    // AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET §§ 4, 7 — pausa recuperable.
+    assessmentDeadlineReached: runResult.assessmentDeadlineReached,
+    pendingOrganizationCount: pendingOrganizationCount,
+    ...(continuationEnqueued !== null ? { continuationEnqueued } : {}),
     ...(budgetAnomalies.length > 0 ? { budgetAnomalies } : {}),
     ...(persistenceOutcome ? { persistenceOutcome } : {}),
   };

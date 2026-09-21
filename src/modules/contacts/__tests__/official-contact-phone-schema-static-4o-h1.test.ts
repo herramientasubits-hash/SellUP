@@ -200,7 +200,9 @@ describe('114 — numeración', () => {
     // una empresa descartada, para "Descartadas" de Prospectos (issue #389). No es de
     // teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de las
     // cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
-    assert.equal(Math.max(...numbers), 138);
+        // 🔴 AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET movió el techo a la 139: la cola durable de
+    // continuaciones de ronda de Apollo. Ajena a este corte. AUTORADA y NO APLICADA.
+    assert.equal(Math.max(...numbers), 139);
   });
 
   it('114 es la ÚNICA dueña de la forma de las dos tablas oficiales', () => {

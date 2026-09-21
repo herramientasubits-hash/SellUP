@@ -247,6 +247,8 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de las
       // cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
       '138_prospect_discarded_dispositions.sql',
+      // 🔴 AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET reclamó después la 139: la cola durable de continuaciones de ronda de Apollo. Ajena a este corte. AUTORADA y NO APLICADA.
+      '139_agent1_apollo_round_continuation_jobs.sql',
     ]);
   });
 

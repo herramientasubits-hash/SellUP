@@ -548,7 +548,9 @@ describe('4O-G — alcance', () => {
     // una empresa descartada, para "Descartadas" de Prospectos (issue #389). No es de
     // teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de las
     // cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 138);
+        // 🔴 AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET movió el techo a la 139: la cola durable de
+    // continuaciones de ronda de Apollo. Ajena a este corte. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 139);
     // El CONTEO, no el techo: 121 archivos para los números 001–121, es decir SIN un solo
     // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
     // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
@@ -571,7 +573,7 @@ describe('4O-G — alcance', () => {
     // hueco, así que conteo y techo siguen coincidiendo. Esa coincidencia ES la guarda.
     // 138 archivos para los números 001-138: la 138 de la disposición durable de descartes de
     // Prospectos tampoco deja hueco. Esa coincidencia ES la guarda.
-    assert.equal(numbered.length, 138);
+    assert.equal(numbered.length, 139);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {

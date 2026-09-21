@@ -98,6 +98,8 @@ export type LushaWaterfallLegInput = {
   readonly target: number;
   readonly usefulAccumulated: number;
   readonly apolloTerminal: boolean;
+  /** § 8 — Apollo dejó trabajo pendiente encolado; el conteo es provisional. */
+  readonly apolloPendingContinuation?: boolean;
 };
 
 export type LushaWaterfallLegOutcome =
@@ -152,6 +154,7 @@ export async function runLushaWaterfallLeg(
     waterfallEnabled: (deps.waterfallEnabled ?? isAgent1ApolloLushaWaterfallEnabled)(),
     lushaAvailable: (deps.lushaAvailable ?? isLushaPreviewEnabled)(),
     apolloTerminal: input.apolloTerminal,
+    apolloPendingContinuation: input.apolloPendingContinuation === true,
     target: input.target,
     usefulAccumulated: input.usefulAccumulated,
     macroIndustryKey: input.macroIndustryKey,

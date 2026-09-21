@@ -301,7 +301,7 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
       // pestaña "Descartadas" de Prospectos (issue #389). No es de teléfono, no es del catálogo
       // y no nombra ninguna tabla, columna ni función de las cadenas que esta guarda vigila.
       // AUTORADA y NO APLICADA.
-      '138_prospect_discarded_dispositions.sql',
+      '139_agent1_apollo_round_continuation_jobs.sql',
       `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
     // Y ninguna migración es AUTORÍA de 4O-E1: el hito no escribió SQL.

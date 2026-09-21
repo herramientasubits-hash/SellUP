@@ -30,6 +30,18 @@
 export type LushaWaterfallSkipReason =
   | 'waterfall_flag_disabled'
   | 'apollo_run_not_terminal'
+  /**
+   * AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET § 8 — Apollo se quedó sin tiempo
+   * con trabajo pendiente DENTRO de sus límites, y ese trabajo ya está encolado.
+   *
+   * 🔴 Se distingue de `apollo_run_not_terminal` a propósito: aquélla describe
+   * una corrida que no llegó a un veredicto (caída, indeterminada). Ésta
+   * describe una PAUSA RECUPERABLE, con organizaciones ya pagadas esperando a
+   * evaluarse gratis. El conteo de útiles es PROVISIONAL, y activar a Lusha
+   * contra un conteo provisional compra empresas para cerrar un hueco que quizá
+   * no existe.
+   */
+  | 'apollo_pending_continuation'
   | 'target_reached'
   | 'lusha_unavailable'
   | 'macro_industry_unmapped'
@@ -52,6 +64,12 @@ export type LushaWaterfallDecisionInput = {
   readonly lushaAvailable: boolean;
   /** ¿Apollo llegó a un veredicto? Una corrida caída no autoriza continuar. */
   readonly apolloTerminal: boolean;
+  /**
+   * § 8 — ¿Apollo dejó trabajo pendiente recuperable?
+   *
+   * Ausente ⇒ `false`, que es el comportamiento previo byte a byte.
+   */
+  readonly apolloPendingContinuation?: boolean;
   /** El objetivo único del wizard. */
   readonly target: number;
   /**
@@ -216,6 +234,11 @@ export function decideLushaWaterfallLeg(
   }
   if (!input.apolloTerminal) {
     return { run: false, reason: 'apollo_run_not_terminal' };
+  }
+  // § 8 — antes de mirar el hueco. Con trabajo pendiente el conteo de útiles es
+  // provisional, y un hueco provisional no puede autorizar gasto en Lusha.
+  if (input.apolloPendingContinuation === true) {
+    return { run: false, reason: 'apollo_pending_continuation' };
   }
 
   // El hueco se calcula sobre la cuenta de útiles, nunca negativo. Un excedente

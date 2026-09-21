@@ -757,10 +757,10 @@ describe('la migración 128 — su contrato', () => {
     // pestaña "Descartadas" de Prospectos (issue #389). No es de teléfono, no es del catálogo
     // y no nombra ninguna tabla, columna ni función de las cadenas que esta guarda vigila.
     // AUTORADA y NO APLICADA.
-    assert.equal(files[files.length - 1], '138_prospect_discarded_dispositions.sql');
+    assert.equal(files[files.length - 1], '139_agent1_apollo_round_continuation_jobs.sql');
     const numbers = files.map((f) => Number.parseInt(f.slice(0, 3), 10));
-    assert.equal(Math.max(...numbers), 138);
-    assert.equal(files.length, 138, 'techo y conteo coinciden: ni un hueco');
+    assert.equal(Math.max(...numbers), 139);
+    assert.equal(files.length, 139, 'techo y conteo coinciden: ni un hueco');
   });
 
   it('no edita ninguna migración anterior de la cadena de teléfono', () => {

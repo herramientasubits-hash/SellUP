@@ -627,6 +627,15 @@ export type ApolloTwoRoundCheckpointReason =
   | 'search_round_completed'
   | 'search_round_indeterminate'
   | 'round_assessment_completed'
+  /**
+   * AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET § 4 — la ronda se quedó sin tiempo
+   * de ejecución con organizaciones ya pagadas todavía sin evaluar.
+   *
+   * No es un fallo: lo evaluado es válido y las pendientes viajan en
+   * `pending_organizations`. Es el tercer estado que faltaba entre «pendiente» y
+   * «terminado».
+   */
+  | 'round_assessment_partial'
   | 'enrichment_completed'
   | 'enrichment_indeterminate'
   | 'run_completed'

@@ -348,7 +348,11 @@ const POST_APPROVAL_REVEAL_MIGRATION =
 // capa de snapshots de fuente y no nombra ningún símbolo de CUT-3B23 (sólo referencia
 // `prospect_candidates` como FK de su propia tabla nueva, ajena a este corte). AUTORADA y NO
 // APLICADA.
-const REPOSITORY_CEILING = '138_prospect_discarded_dispositions.sql';
+// 🔴 AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET subió el techo a la 139: la cola DURABLE de
+// continuaciones de ronda (`apollo_round_continuation_jobs`). Mantenimiento SANCIONADO, no
+// debilitamiento: lo que esta guarda protege es que no lo mueva ESTE corte, y la 139 no nombra
+// ninguna tabla de CUT-3B23 —el barrido de tablas ajenas de más abajo lo comprueba—.
+const REPOSITORY_CEILING = '139_agent1_apollo_round_continuation_jobs.sql';
 
 /**
  * Cuerpo EJECUTABLE de una migración, en minúsculas.
@@ -460,7 +464,7 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     assert.equal(sql.includes('create trigger'), false, 'no puede añadir triggers');
   });
 
-  it('la 132 es la última, y ni ella ni la 125 ni la 126 ni la 127 son de este corte', () => {
+  it('la 139 es la última, y ni ella ni la 125 ni la 126 ni la 127 son de este corte', () => {
     const migrations = readdirSync(join(REPO_ROOT, 'supabase', 'migrations'))
       .filter((file) => /^\d{3}_/.test(file))
       .sort();
@@ -477,7 +481,7 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     // número): la valla DURABLE de una petición de Lusha Company Prospecting. No es una migración
     // de la capa de snapshots ni escribe candidatos, y su autoría se policía en la prueba de
     // arriba, que barre el directorio completo.
-    assert.ok(last.startsWith('138'), `última migración inesperada: ${last}`);
+    assert.ok(last.startsWith('139'), `última migración inesperada: ${last}`);
     assert.equal(last, REPOSITORY_CEILING);
     assert.ok(migrations.includes(POST_APPROVAL_REVEAL_MIGRATION));
     const lastSnapshotMigration = '127_br_receita_monthly_snapshot_identity.sql';

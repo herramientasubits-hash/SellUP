@@ -384,6 +384,36 @@ export type ApolloTwoRoundDeps = {
     roundNumber: number;
   }) => Promise<CheapAssessment> | CheapAssessment;
 
+  /**
+   * AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET § 2 — cuántas evaluaciones baratas
+   * pueden estar en vuelo a la vez.
+   *
+   * Existe porque `assessCandidate` NO es gratis en tiempo aunque lo sea en
+   * créditos: en producción hace una verificación HTTP del sitio de la empresa
+   * (8 s de tope por organización) y una comprobación de duplicados. Con el bucle
+   * estrictamente secuencial, el coste de la ronda es la SUMA de 166 latencias
+   * independientes, y esa suma es lo que agotó el límite de ejecución.
+   *
+   * Ausente o `<= 1` ⇒ comportamiento secuencial previo, byte a byte.
+   *
+   * 🔴 NO relaja ningún gate ni cambia el ORDEN de nada: la deduplicación y el
+   * registro de identidades siguen siendo secuenciales y deterministas (fase A y
+   * fase C). Sólo se solapa la ESPERA de I/O de la fase B.
+   */
+  assessmentConcurrency?: number;
+
+  /**
+   * § 3 — ¿queda tiempo de ejecución para seguir evaluando?
+   *
+   * Se consulta ENTRE tandas, nunca a mitad de una. `false` detiene la evaluación
+   * y deja las organizaciones no evaluadas en el estado recuperable, en vez de
+   * dejar que la plataforma mate la corrida y pierda TODO el trabajo de una
+   * búsqueda ya pagada.
+   *
+   * Ausente ⇒ sin límite de tiempo, byte a byte como antes.
+   */
+  assessmentTimeGuard?: () => boolean;
+
   /** Ejecuta UN Organization Enrichment. Sólo se llama bajo el cap global. */
   enrichCandidate: (input: {
     candidateKey: string;
@@ -508,6 +538,7 @@ export type ApolloTwoRoundCheckpointSnapshot = {
 
 export type ApolloTwoRoundCheckpointTrigger =
   | 'search_round_completed'
+  | 'round_assessment_partial'
   | 'search_round_indeterminate'
   | 'round_assessment_completed'
   | 'enrichment_completed'
@@ -705,6 +736,24 @@ export type ApolloTwoRoundRunResult = {
   targetReached: boolean;
   /** Código estático cuando el objetivo no se alcanzó. Null cuando sí. */
   partialResultReason: 'partial_target_not_reached' | null;
+  /**
+   * AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET § 4 — la corrida se quedó sin
+   * tiempo de ejecución con organizaciones YA PAGADAS todavía sin evaluar.
+   *
+   * Es el tercer estado que faltaba. `partialResultReason` dice que no se llegó
+   * al objetivo; esto dice algo distinto y accionable: que queda trabajo
+   * recuperable y GRATIS, y que una continuación puede retomarlo sin volver a
+   * buscar ni a pagar. Un lector que confunda los dos diagnostica agotamiento
+   * del universo donde hubo agotamiento del reloj.
+   */
+  assessmentDeadlineReached: boolean;
+  /**
+   * § 7 — organizaciones YA PAGADAS que siguen esperando evaluación gratuita.
+   *
+   * `0` con `assessmentDeadlineReached` en `false` es una corrida que terminó su
+   * trabajo. Cualquier otra combinación describe una pausa recuperable.
+   */
+  pendingOrganizationCount: number;
   secondRoundSkippedReason: SecondRoundSkippedReason | null;
   /**
    * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 7 — código estático cuando la
@@ -873,6 +922,17 @@ export type ApolloTwoRoundResumeState = {
     roundNumber: number;
     organizations: readonly RawDiscoveredOrganization[];
   }[];
+
+  /**
+   * AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET § 5 — recuento PARCIAL de una
+   * ronda que se quedó sin tiempo de ejecución.
+   *
+   * Viaja aparte de `rounds` a propósito: `rounds` son rondas TERMINADAS y las
+   * publica el resultado. Mezclarlas haría que una ronda a medias se leyera como
+   * un recuento final. La continuación la retoma, y sólo al cerrarla pasa a
+   * `rounds` — contada una sola vez.
+   */
+  partialRoundMetrics?: readonly ApolloTwoRoundRoundMetrics[];
 };
 
 /** Candidato recuperado de un intento anterior, con su estado completo. */
@@ -1257,6 +1317,14 @@ export async function runApolloTwoRoundDiscovery(
   ];
   const checkpointWriteFailures: ApolloTwoRoundCheckpointTrigger[] = [];
   /**
+   * § 4 — ¿alguna ronda dejó organizaciones sin evaluar por falta de tiempo?
+   *
+   * Distingue PARCIAL de TERMINADO: una corrida que se quedó sin tiempo tiene
+   * trabajo recuperable pendiente y NO puede declararse completa, aunque todo lo
+   * que llegó a evaluarse sea válido y esté durablemente escrito.
+   */
+  let assessmentDeadlineReached = false;
+  /**
    * Organizaciones de una búsqueda ya pagada cuya evaluación aún no se registró.
    *
    * Se llena en cuanto la búsqueda devuelve y se vacía cuando las métricas de la
@@ -1267,6 +1335,18 @@ export async function runApolloTwoRoundDiscovery(
   const pendingRoundOrganizations = new Map<number, readonly RawDiscoveredOrganization[]>();
   for (const entry of resume?.pendingRoundOrganizations ?? []) {
     pendingRoundOrganizations.set(entry.roundNumber, entry.organizations);
+  }
+
+  /**
+   * § 5 — métricas de una ronda que se quedó a medias, por número de ronda.
+   *
+   * Es lo que hace que el recuento sobreviva a una continuación sin perder ni
+   * duplicar: la ronda reanudada NO empieza de cero, sigue sumando sobre el
+   * mismo objeto. Vacío en una corrida que nunca se quedó sin tiempo.
+   */
+  const partialRoundMetrics = new Map<number, ApolloTwoRoundRoundMetrics>();
+  for (const entry of resume?.partialRoundMetrics ?? []) {
+    partialRoundMetrics.set(entry.roundNumber, { ...entry });
   }
 
   let totalRawResults = resume?.totalRawResults ?? 0;
@@ -1580,6 +1660,7 @@ export async function runApolloTwoRoundDiscovery(
     pendingRoundOrganizations: [...pendingRoundOrganizations].map(
       ([roundNumber, organizations]) => ({ roundNumber, organizations }),
     ),
+    partialRoundMetrics: [...partialRoundMetrics.values()].map((m) => ({ ...m })),
   });
 
   /**
@@ -2097,7 +2178,11 @@ export async function runApolloTwoRoundDiscovery(
       subject: JSON.stringify(hypothesis.queryParameters),
     });
 
-    const metrics = buildEmptyRoundMetrics(
+    // § 5 — una ronda ya evaluada a medias NO vuelve a empezar en cero. El
+    // parcial, cuando existe, manda sobre los CONTADORES.
+    const metrics =
+      partialRoundMetrics.get(roundNumber) ??
+      buildEmptyRoundMetrics(
       roundNumber,
       hypothesis.queryHypothesis,
       hypothesis.queryAdaptationReason,
@@ -2288,95 +2373,186 @@ export async function runApolloTwoRoundDiscovery(
     const identitiesInThisResponse = createSeenOrganizationRegistry();
     let localIdentities = identitiesInThisResponse;
 
-    for (const organization of organizations) {
-      // AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 2 — ELIMINADO el tope de
-      // evaluación.
-      //
-      // Aquí vivía `if (totalRawResults >= config.maxRawResultsPerRun) continue;`
-      // — con `per_page = 100` y un tope de 20, las organizaciones 21 a 100 de
-      // una página YA PAGADA no se deduplicaban, no se filtraban y no llegaban a
-      // competir por el objetivo. Se descartaban por su POSICIÓN en la lista.
-      //
-      // El gasto no lo gobierna este contador: lo gobiernan las páginas que se
-      // compran (`WIZARD_APOLLO_MAX_PAGES_HARD_CAP`, la paginación net-new) y el
-      // presupuesto de enrichment. Evaluar localmente lo que ya se pagó no compra
-      // nada; NO evaluarlo sí tira dinero ya gastado.
-      //
-      // `totalRawResults` sobrevive como CONTADOR observacional —cuántos crudos
-      // procesó la corrida— y deja de ser una autoridad de admisión.
-      totalRawResults++;
+    // ── AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET · evaluación POR TANDAS ──
+    //
+    // El recorrido avanza en tandas del tamaño de la concurrencia, y cada tanda
+    // hace las TRES fases completas sobre sus organizaciones:
+    //
+    //   A) admisión y deduplicación — secuencial y sin I/O;
+    //   B) los gates inyectados — con la espera solapada;
+    //   C) registro — secuencial y en el ORDEN original.
+    //
+    // 🔴 Por qué por tandas y no en tres pasadas sobre toda la ronda: lo que
+    // queda PENDIENTE al agotarse el tiempo tiene que ser un conjunto de
+    // organizaciones INTACTAS, que ningún contador ha tocado. Con tres pasadas
+    // globales, la fase A habría incrementado `totalRawResults` y los contadores
+    // de la ronda para organizaciones que después no se evalúan, y la
+    // continuación las volvería a contar. Así el corte cae SIEMPRE en una
+    // frontera limpia: `organizations.slice(cursor)` está intacto.
+    //
+    // Aquí vivía el defecto: `assessCandidate` se esperaba UNA A UNA. No cuesta
+    // créditos, pero en producción hace una verificación HTTP del sitio de la
+    // empresa y una comprobación de duplicados, así que el coste de la ronda era
+    // la SUMA de tantas latencias independientes como organizaciones trajo la
+    // búsqueda. Con 166 organizaciones esa suma agotó el límite de ejecución.
+    const concurrency = Math.max(1, Math.trunc(deps.assessmentConcurrency ?? 1));
+    let cursor = 0;
+    let assessmentDeadlineReachedInRound = false;
 
-      // 1. Dedup dentro de la respuesta.
-      const withinResponse = evaluateSeenOrganization(localIdentities, organization);
-      if (withinResponse.seen) {
+    while (cursor < organizations.length) {
+      // La guarda se consulta ENTRE tandas, nunca a mitad de una: una tanda ya
+      // lanzada se termina siempre, así que ningún resultado en vuelo se pierde.
+      if (cursor > 0 && deps.assessmentTimeGuard && !deps.assessmentTimeGuard()) {
+        assessmentDeadlineReachedInRound = true;
+        break;
+      }
+
+      const chunk = organizations.slice(cursor, cursor + concurrency);
+      cursor += chunk.length;
+
+      // ── FASE A · admisión y deduplicación, sin I/O ──────────────────────
+      const admitted: {
+        organization: RawDiscoveredOrganization;
+        identity: NormalizedOrganizationIdentity;
+      }[] = [];
+      for (const organization of chunk) {
+        // AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 2 — ELIMINADO el tope de
+        // evaluación.
+        //
+        // Aquí vivía `if (totalRawResults >= config.maxRawResultsPerRun) continue;`
+        // — con `per_page = 100` y un tope de 20, las organizaciones 21 a 100 de
+        // una página YA PAGADA no se deduplicaban, no se filtraban y no llegaban a
+        // competir por el objetivo. Se descartaban por su POSICIÓN en la lista.
+        //
+        // El gasto no lo gobierna este contador: lo gobiernan las páginas que se
+        // compran (`WIZARD_APOLLO_MAX_PAGES_HARD_CAP`, la paginación net-new) y el
+        // presupuesto de enrichment. Evaluar localmente lo que ya se pagó no compra
+        // nada; NO evaluarlo sí tira dinero ya gastado.
+        //
+        // `totalRawResults` sobrevive como CONTADOR observacional —cuántos crudos
+        // procesó la corrida— y deja de ser una autoridad de admisión.
+        totalRawResults++;
+
+        // 1. Dedup dentro de la respuesta.
+        const withinResponse = evaluateSeenOrganization(localIdentities, organization);
+        if (withinResponse.seen) {
+          metrics.normalizedResults++;
+          tallyRejection(metrics, 'duplicate_within_response');
+          observedRejectionReasons.add('duplicate_within_response');
+          continue;
+        }
+        localIdentities = registerSeenOrganization(localIdentities, withinResponse.identity);
+
+        // 2. Dedup contra rondas anteriores. La ronda 2 no puede procesar ni
+        //    facturar de nuevo una organización que la ronda 1 ya vio.
+        const acrossRounds = evaluateSeenOrganization(seenRegistry, organization);
+        if (acrossRounds.seen) {
+          metrics.normalizedResults++;
+          tallyRejection(metrics, 'seen_in_previous_round');
+          observedRejectionReasons.add('seen_in_previous_round');
+          continue;
+        }
+
+        const identity = acrossRounds.identity;
         metrics.normalizedResults++;
-        tallyRejection(metrics, 'duplicate_within_response');
-        observedRejectionReasons.add('duplicate_within_response');
-        continue;
-      }
-      localIdentities = registerSeenOrganization(localIdentities, withinResponse.identity);
+        // § 4 / § 10 — nuevo es lo que superó AMBAS deduplicaciones. Un resultado
+        // no puede contarse a la vez como nuevo y como repetido.
+        metrics.newUniqueResults++;
 
-      // 2. Dedup contra rondas anteriores. La ronda 2 no puede procesar ni
-      //    facturar de nuevo una organización que la ronda 1 ya vio.
-      const acrossRounds = evaluateSeenOrganization(seenRegistry, organization);
-      if (acrossRounds.seen) {
-        metrics.normalizedResults++;
-        tallyRejection(metrics, 'seen_in_previous_round');
-        observedRejectionReasons.add('seen_in_previous_round');
-        continue;
+        admitted.push({ organization, identity });
       }
 
-      const identity = acrossRounds.identity;
-      metrics.normalizedResults++;
-      // § 4 / § 10 — nuevo es lo que superó AMBAS deduplicaciones. Un resultado
-      // no puede contarse a la vez como nuevo y como repetido.
-      metrics.newUniqueResults++;
+      // ── FASE B · los gates inyectados, con la ESPERA solapada ───────────
+      // Solaparlas no relaja nada: el orden de registro lo impone la fase C.
+      const assessments = await Promise.all(
+        admitted.map((entry) =>
+          Promise.resolve(
+            deps.assessCandidate({
+              organization: entry.organization,
+              identity: entry.identity,
+              roundNumber,
+            }),
+          ),
+        ),
+      );
 
-      // 3-11. Resto de gates baratos, inyectados.
-      const assessment = await deps.assessCandidate({ organization, identity, roundNumber });
+      // ── FASE C · registro secuencial, en el ORDEN original ──────────────
+      for (let index = 0; index < assessments.length; index++) {
+        const { organization, identity } = admitted[index]!;
+        const assessment = assessments[index]!;
 
-      seenRegistry = registerSeenOrganization(seenRegistry, identity);
+        seenRegistry = registerSeenOrganization(seenRegistry, identity);
 
-      const candidateKey = buildCandidateKey(identity, roundNumber, organization.providerRank);
-      const eligible = isEligible(assessment.rejection, assessment.sectorEvidenceState);
+        const candidateKey = buildCandidateKey(identity, roundNumber, organization.providerRank);
+        const eligible = isEligible(assessment.rejection, assessment.sectorEvidenceState);
 
-      if (assessment.rejection !== null) {
-        tallyRejection(metrics, assessment.rejection);
-        observedRejectionReasons.add(assessment.rejection);
+        if (assessment.rejection !== null) {
+          tallyRejection(metrics, assessment.rejection);
+          observedRejectionReasons.add(assessment.rejection);
+        }
+
+        const candidate: TrackedCandidate = {
+          candidateKey,
+          roundNumber,
+          providerRank: organization.providerRank,
+          identity,
+          assessment,
+          sectorEvidenceState: assessment.sectorEvidenceState,
+          eligible,
+          becameEligibleAfterEnrichment: false,
+          enrichmentExecuted: false,
+          finallyRejectedOrDuplicated: assessment.rejection !== null,
+          // § D — un gate barato y un sector contradictorio son rechazos con causa.
+          // «Falta evidencia» todavía no lo es: eso es justo lo que el enrichment
+          // existe para resolver.
+          definitivelyRejected:
+            assessment.rejection !== null ||
+            assessment.sectorEvidenceState === 'sector_evidence_contradictory',
+          definitiveRejectionReason:
+            assessment.rejection ??
+            (assessment.sectorEvidenceState === 'sector_evidence_contradictory'
+              ? 'sector_evidence_contradictory'
+              : null),
+          finalGateEvaluated: false,
+          // 🔴 X1 — el `tallyRejection` de justo arriba ya sumó este rechazo
+          // barato. Queda anotado para que el gate final no lo vuelva a sumar.
+          rejectionTallied: assessment.rejection !== null,
+          // STABLE-TARGET-WRITER-PARITY § 5 — todavía nadie compró nada para este
+          // candidato: mandan las señales gratuitas de la búsqueda.
+          resolvedCompanyFields: null,
+        };
+        roundCandidates.push(candidate);
+        tracked.push(candidate);
       }
+    }
 
-      const candidate: TrackedCandidate = {
-        candidateKey,
-        roundNumber,
-        providerRank: organization.providerRank,
-        identity,
-        assessment,
-        sectorEvidenceState: assessment.sectorEvidenceState,
-        eligible,
-        becameEligibleAfterEnrichment: false,
-        enrichmentExecuted: false,
-        finallyRejectedOrDuplicated: assessment.rejection !== null,
-        // § D — un gate barato y un sector contradictorio son rechazos con causa.
-        // «Falta evidencia» todavía no lo es: eso es justo lo que el enrichment
-        // existe para resolver.
-        definitivelyRejected:
-          assessment.rejection !== null ||
-          assessment.sectorEvidenceState === 'sector_evidence_contradictory',
-        definitiveRejectionReason:
-          assessment.rejection ??
-          (assessment.sectorEvidenceState === 'sector_evidence_contradictory'
-            ? 'sector_evidence_contradictory'
-            : null),
-        finalGateEvaluated: false,
-        // 🔴 X1 — el `tallyRejection` de justo arriba ya sumó este rechazo
-        // barato. Queda anotado para que el gate final no lo vuelva a sumar.
-        rejectionTallied: assessment.rejection !== null,
-        // STABLE-TARGET-WRITER-PARITY § 5 — todavía nadie compró nada para este
-        // candidato: mandan las señales gratuitas de la búsqueda.
-        resolvedCompanyFields: null,
-      };
-      roundCandidates.push(candidate);
-      tracked.push(candidate);
+    // § 4 — la evaluación se quedó sin tiempo de ejecución.
+    //
+    // Lo que NO se hace: tirar la ronda. Las organizaciones que todavía no se
+    // evaluaron vuelven al estado recuperable —el MISMO campo que ya existía
+    // para el hueco entre «búsqueda pagada» y «ronda evaluada»—, así que una
+    // continuación las retoma sin volver a buscar y sin volver a pagar.
+    //
+    // Las métricas de la ronda NO se publican en `rounds`: la ronda no terminó,
+    // y publicarlas afirmaría un recuento final que todavía no es el suyo. Van
+    // al estado recuperable, que es donde la continuación las retoma.
+    if (assessmentDeadlineReachedInRound) {
+      // Lo pendiente son organizaciones INTACTAS: el cursor se detuvo en una
+      // frontera de tanda, así que ninguna de ellas tocó un contador.
+      pendingRoundOrganizations.set(roundNumber, organizations.slice(cursor));
+      // § 5 — el recuento PARCIAL de la ronda viaja con el estado.
+      //
+      // Sin esto, la continuación arrancaría la ronda con los contadores en cero
+      // y sólo contaría el resto: los candidatos no se perderían, pero el
+      // desglose por ronda quedaría subcontado. Guardando el objeto tal cual, la
+      // continuación SIGUE sumando sobre él y cada resultado se cuenta UNA vez.
+      metrics.eligibleBeforeEnrichment = roundCandidates.filter((c) => c.eligible).length;
+      metrics.eligibleAfterEnrichment = metrics.eligibleBeforeEnrichment;
+      metrics.newEligibleCompaniesAdded = metrics.eligibleBeforeEnrichment;
+      partialRoundMetrics.set(roundNumber, metrics);
+      assessmentDeadlineReached = true;
+      await persistCheckpoint('round_assessment_partial', null);
+      return;
     }
 
     metrics.eligibleBeforeEnrichment = roundCandidates.filter((c) => c.eligible).length;
@@ -2388,6 +2564,7 @@ export async function runApolloTwoRoundDiscovery(
     roundMetrics.push(metrics);
     // Evaluadas y registradas: ya no hay nada pendiente de esta ronda.
     pendingRoundOrganizations.delete(roundNumber);
+    partialRoundMetrics.delete(roundNumber);
 
     // § 3 — la evaluación barata de la ronda es una transición recuperable: sin
     // este checkpoint, un fallo posterior obligaría a volver a buscar para
@@ -2931,6 +3108,11 @@ export async function runApolloTwoRoundDiscovery(
     roundsExecuted: roundMetrics.length,
     targetReached,
     partialResultReason: targetReached ? null : 'partial_target_not_reached',
+    assessmentDeadlineReached,
+    pendingOrganizationCount: [...pendingRoundOrganizations.values()].reduce(
+      (total, organizations) => total + organizations.length,
+      0,
+    ),
     secondRoundSkippedReason,
     queryCoverageBlockReason,
     effectiveFingerprintsAreDistinct,

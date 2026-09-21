@@ -158,7 +158,9 @@ describe('modelo de datos — sin migración nueva', () => {
     // una empresa descartada, para "Descartadas" de Prospectos (issue #389). No es de
     // teléfono, no es del catálogo y no nombra ninguna tabla, columna ni función de las
     // cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
-    assert.equal(Math.max(...numbers), 138, 'el techo conocido es la 138');
+        // 🔴 AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET movió el techo a la 139: la cola durable de
+    // continuaciones de ronda de Apollo. Ajena a este corte. AUTORADA y NO APLICADA.
+    assert.equal(Math.max(...numbers), 139, 'el techo conocido es la 139');
     assert.equal(
       GATE_SOURCE.includes('supabase/migrations'),
       false,

@@ -1409,7 +1409,7 @@ describe('CUT D — the transport, and the recorded contracts', () => {
     // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 mueve el techo a la 138: la disposición durable de
     // descartes de Prospectos (issue #389). Tampoco es autoría de BR-SOURCE ni de CUT D.
     // AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], '138_prospect_discarded_dispositions.sql');
+    assert.equal(numbered[numbered.length - 1], '139_agent1_apollo_round_continuation_jobs.sql');
     // Control NEGATIVO del filtro, sobre un nombre SINTÉTICO.
     assert.equal(/^\d{3}_/.test('LOCAL_example_unnumbered.sql'), false);
     assert.equal(/^\d{3}_/.test(MIGRATION_FILE), true);
