@@ -31,6 +31,10 @@ import {
   resolveApolloContinuationUiStatus,
   type ApolloContinuationUiStatus,
 } from './apollo-continuation-status';
+import {
+  listOpenContinuationBatchIds,
+  readApolloContinuationSnapshot,
+} from './apollo-continuation-read.server';
 
 export type ContinueApolloRoundResult = {
   readonly status: ApolloContinuationUiStatus | 'forbidden';
@@ -100,4 +104,71 @@ export async function continueApolloRound(batchId: string): Promise<ContinueApol
     pendingOrganizationCount: 1,
     retryAfterMs: resolution === 'failed' ? RETRY_AFTER_FAILURE_MS : RETRY_AFTER_PROGRESS_MS,
   };
+}
+
+// ── AGENT1-APOLLO-CONTINUATION-WIZARD-WIRING § 1 ─────────────────────────────
+
+export type PendingApolloContinuationResult = {
+  readonly batchId: string;
+  readonly status: ApolloContinuationUiStatus;
+  readonly pendingOrganizationCount: number;
+} | null;
+
+/**
+ * §§ 2, 3 — ¿hay una corrida a medias que sea suya?
+ *
+ * ── Por qué el descubrimiento vive en el servidor ────────────────────────────
+ *
+ * Al reabrir el wizard, el cliente no tiene ya el identificador del lote: el
+ * estado de la conversación anterior murió con el cierre. La alternativa
+ * —guardarlo en el navegador— ataría la recuperación a un dispositivo y a un
+ * almacenamiento que el usuario puede vaciar, cuando el hecho «queda trabajo»
+ * es DURABLE y vive en la cola.
+ *
+ * 🔴 Y es también la razón por la que la pantalla NO envía un `batchId` ni
+ * siquiera cuando lo conoce: si el cliente pudiera nombrar el lote a continuar,
+ * la autorización tendría que defenderse de esa elección. Aquí no hay elección
+ * que defender — el servidor mira su cola y responde con lo que la persona
+ * puede ver.
+ *
+ * 🔴 No crea corridas. Devuelve un lote que YA tiene trabajo encolado, o nada.
+ * No hay ninguna rama aquí capaz de lanzar una búsqueda nueva.
+ *
+ * El orden es: candidatos por la cola (servicio) → filtro por lo que la persona
+ * puede ver (RLS) → estado del primero visible. Nunca al revés: publicar la
+ * lista de la cola antes de filtrar revelaría lotes ajenos.
+ */
+export async function findPendingApolloContinuation(): Promise<PendingApolloContinuationResult> {
+  await requireActiveUser();
+
+  const candidateBatchIds = await listOpenContinuationBatchIds();
+  if (candidateBatchIds.length === 0) return null;
+
+  const supabase = await createClient();
+  const { data: visible } = await supabase
+    .from('prospect_batches')
+    .select('id')
+    .in('id', candidateBatchIds);
+
+  const visibleIds = new Set(
+    (Array.isArray(visible) ? visible : [])
+      .map((row) => (row as { id?: unknown }).id)
+      .filter((id): id is string => typeof id === 'string'),
+  );
+
+  // Se conserva el orden de la COLA (más reciente primero), no el que devuelva
+  // el filtro: la corrida que la persona acaba de dejar a medias es la que
+  // espera encontrar al reabrir.
+  for (const batchId of candidateBatchIds) {
+    if (!visibleIds.has(batchId)) continue;
+    const snapshot = await readApolloContinuationSnapshot(batchId);
+    if (snapshot.status === 'finished') continue;
+    return {
+      batchId,
+      status: snapshot.status,
+      pendingOrganizationCount: snapshot.pendingOrganizationCount,
+    };
+  }
+
+  return null;
 }

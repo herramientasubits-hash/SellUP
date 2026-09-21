@@ -5904,3 +5904,24 @@ jobs:
       # 0 escrituras en Produccion - 0 migraciones aplicadas en Produccion.
       - name: Run Agent 1 Apollo continuation Postgres verification
         run: npm run test:a1-apollo-continuation-postgres
+
+      # AGENT1-APOLLO-CONTINUATION-WIZARD-WIRING: la continuacion, CONECTADA a
+      # la pantalla. El corte anterior dejo los cuatro estados y la accion de
+      # servidor sin un solo consumidor; esta suite ejercita el recorrido desde
+      # el componente REAL del mago, con el reductor REAL:
+      #
+      #   1. respuesta parcial -> estado visible -> llamada a la accion ->
+      #      continuacion -> estado terminal, sobre el MISMO lote;
+      #   2. se respeta `retryAfterMs` en las dos direcciones;
+      #   3. cerrar detiene la conduccion y reabrir RECUPERA el trabajo
+      #      pendiente sin crear otra corrida;
+      #   4. un error real termina en fallo visible y deja de insistir, y las
+      #      vueltas sin reclamo (lease ajeno) estan acotadas;
+      #   5. una corrida SIN pausa no cambia: ni panel, ni llamadas.
+      #
+      # Mas la mitad de servidor del lector de estado, con un cliente doble.
+      #
+      # 0 llamadas a Apollo - 0 a Lusha - 0 creditos - 0 Supabase real -
+      # 0 escrituras en Produccion - 0 migraciones aplicadas - 0 cambios de bandera.
+      - name: Run Agent 1 Apollo continuation wizard wiring tests
+        run: npm run test:a1-apollo-continuation-wizard-wiring

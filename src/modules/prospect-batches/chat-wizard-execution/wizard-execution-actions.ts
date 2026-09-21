@@ -2478,6 +2478,8 @@ export async function executeProspectWizardGeneration(
     runProvider: runProviderOutcome,
     // § 11 — cifras reales de dos rondas, sólo si la modalidad corrió.
     ...buildTwoRoundOutcome(pipelineResult),
+    // AGENT1-APOLLO-CONTINUATION-WIZARD-WIRING § 4 — la pausa, cuando la hubo.
+    ...buildApolloContinuationOutcome(pipelineResult),
     // A1-APOLLO-PERSISTENCE-READINESS-4 § 7/§ 8 — se envía siempre que exista,
     // también cuando todo fue bien: la UI resuelve la causa de mayor prioridad a
     // partir de estas cifras en vez de inferirla de un conteo.
@@ -2509,6 +2511,53 @@ function buildTwoRoundOutcome(
     twoRoundOutcome: {
       roundsExecuted: readCount(observability['rounds_executed']),
       eligibleCompaniesFound: readCount(observability['eligible_companies_found']),
+    },
+  };
+}
+
+/**
+ * AGENT1-APOLLO-CONTINUATION-WIZARD-WIRING § 4 — proyecta la PAUSA de la
+ * corrida hacia el resultado que ve el cliente.
+ *
+ * Los campos viven en el propio desenlace del runner
+ * (`ApolloTwoRoundWizardRunOutcome`, que extiende `IncrementalSearchOutput`) y
+ * no en su metadata, así que se leen del objeto con la misma disciplina
+ * defensiva que la proyección de al lado: forma inesperada ⇒ `{}`, nunca un
+ * cero inventado.
+ *
+ * 🔴 `{}` cuando no hubo pausa. La ausencia es informativa: significa que no
+ * quedó trabajo encolado, y una pantalla que reciba el campo puede confiar en
+ * que hay algo que continuar.
+ */
+function buildApolloContinuationOutcome(
+  pipelineResult: IncrementalSearchOutput | null | undefined,
+): {
+  apolloContinuation?: { enqueued: boolean; pendingOrganizationCount: number };
+} {
+  const outcome = pipelineResult as
+    | {
+        assessmentDeadlineReached?: unknown;
+        pendingOrganizationCount?: unknown;
+        continuationEnqueued?: unknown;
+      }
+    | null
+    | undefined;
+  if (!outcome || typeof outcome !== 'object') return {};
+
+  const paused = outcome.assessmentDeadlineReached === true;
+  const pending =
+    typeof outcome.pendingOrganizationCount === 'number' &&
+    Number.isFinite(outcome.pendingOrganizationCount)
+      ? Math.max(0, Math.trunc(outcome.pendingOrganizationCount))
+      : 0;
+  // La misma conjunción que el runner usa para decidir que la corrida está en
+  // pausa. Declararla con otra regla aquí sería tener dos definiciones de pausa.
+  if (!paused || pending === 0) return {};
+
+  return {
+    apolloContinuation: {
+      enqueued: outcome.continuationEnqueued === true,
+      pendingOrganizationCount: pending,
     },
   };
 }

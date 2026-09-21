@@ -392,6 +392,28 @@ export type WizardExecutionActionResult =
        * un conteo de candidatos.
        */
       persistenceOutcome?: WizardPersistenceOutcome;
+      /**
+       * AGENT1-APOLLO-CONTINUATION-WIZARD-WIRING § 4 — la corrida quedó EN
+       * PAUSA con trabajo encolado.
+       *
+       * ── Por qué sube hasta aquí ──────────────────────────────────────────
+       *
+       * El runner ya distinguía la pausa (`assessmentDeadlineReached` con
+       * organizaciones pendientes) y encolaba la continuación, pero el hecho
+       * moría en el servidor: el resultado llegaba con cero candidatos y la
+       * pantalla lo anunciaba como «no encontramos empresas nuevas». Es la
+       * misma corrida descrita como un vacío.
+       *
+       * Ausente en toda corrida que no pausó —Tavily incluido—, de modo que su
+       * presencia significa exactamente una cosa: hay trabajo guardado que
+       * alguien tiene que retomar.
+       */
+      apolloContinuation?: {
+        /** `true` ⇒ el trabajo quedó en la cola durable. */
+        enqueued: boolean;
+        /** Organizaciones YA PAGADAS que quedaron sin evaluar. */
+        pendingOrganizationCount: number;
+      };
     }
   | {
       ok: false;

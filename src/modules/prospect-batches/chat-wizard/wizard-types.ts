@@ -111,6 +111,16 @@ export type ProspectWizardState = {
 
   executionError: { code: string; message: string; retryable: boolean } | null;
   executionBatchId: string | null;
+  /**
+   * AGENT1-APOLLO-CONTINUATION-WIZARD-WIRING § 4 — la corrida terminó EN PAUSA
+   * y su trabajo quedó encolado.
+   *
+   * 🔴 Cambia lo que la pantalla puede afirmar. Con esto en `true`, cero
+   * candidatos NO es «no encontramos empresas nuevas»: es «todavía no hemos
+   * terminado de mirar las que ya pagamos». El panel de éxito deja de cerrarse
+   * solo, porque cerrarse sería declarar terminada una corrida a medias.
+   */
+  executionContinuationPending: boolean;
   executionRedirectPath: string | null;
   executionStatus: WizardExecutionStatus | null;
   /** True when novelty pre-check confirms the universe of domains for these criteria is exhausted. */
@@ -204,7 +214,7 @@ export type ProspectWizardAction =
   // un `targetReached` propio: los dos viven dentro de `acceptedForTarget`, que
   // es la autoridad, y duplicarlos aquí permitiría despachar un veredicto que no
   // concuerde con sus propias cifras.
-  | { type: 'EXECUTION_SUCCEEDED'; batchId: string; redirectPath: string; status: WizardExecutionStatus; noveltyExhausted?: boolean; candidateCount?: number; acceptedForTarget: AcceptedForTargetSummary | null }
+  | { type: 'EXECUTION_SUCCEEDED'; batchId: string; redirectPath: string; status: WizardExecutionStatus; noveltyExhausted?: boolean; candidateCount?: number; acceptedForTarget: AcceptedForTargetSummary | null; continuationPending?: boolean }
   /**
    * AGENT1-LOCAL-CUT6B-PARTIAL-UI-PROPAGATION § 3 — `freeContribution` viaja en la
    * acción, no se vuelve a leer del resultado desde el reducer.

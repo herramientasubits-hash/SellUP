@@ -189,6 +189,9 @@ export function WizardConversationSummary({
          dos se pasa suelto, para que no pueda volver a ocupar el sitio del otro. */
       <SuccessPanel
         status={state.executionStatus}
+        /* § 4 — una corrida EN PAUSA no se cierra sola y no se anuncia como un
+           vacío: el panel de continuación de arriba es quien cuenta cómo va. */
+        continuationPending={state.executionContinuationPending}
         noveltyExhausted={state.executionNoveltyExhausted}
         candidateCount={state.executionCandidateCount}
         acceptedForTarget={state.executionAcceptedForTarget}
