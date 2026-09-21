@@ -531,8 +531,8 @@ describe('4O-E4.1 estático — alcance', () => {
       // una empresa descartada, para "Descartadas" de Prospectos (issue #389). No ASIGNA
       // `mobile_phone`, no lo NOMBRA siquiera y no introduce procedencia del escalar móvil.
       // AUTORADA y NO APLICADA.
-      138,
-      'la 138 (la disposición durable de descartes de Prospectos, AGENT1-DISCARDED-PROSPECTS-REVIEW-1) es la última',
+      139,
+      'la 139 (la cola durable de continuaciones de ronda de Apollo, AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET) es la última',
     );
   });
 

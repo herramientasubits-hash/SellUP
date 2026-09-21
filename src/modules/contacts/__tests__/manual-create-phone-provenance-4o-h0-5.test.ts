@@ -637,7 +637,7 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 mueve el techo a la 138: la disposición durable de
       // una empresa descartada, para "Descartadas" de Prospectos (issue #389). No crea contacto
       // alguno y no escribe `phone_source`. AUTORADA y NO APLICADA.
-      '138_prospect_discarded_dispositions.sql',
+      '139_agent1_apollo_round_continuation_jobs.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
     for (const agent2 of [

@@ -644,7 +644,7 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 then moved the ceiling to 138 with the durable
     // disposition of a discarded prospect, for "Descartadas" (issue #389). Like the 135/136/137,
     // it is not a BR migration; the authorship sweep further down is WIDENED to include it.
-    assert.equal(highest, 138, 'the repository ceiling is 138 — AGENT1-DISCARDED-PROSPECTS-REVIEW-1, not CUT A');
+    assert.equal(highest, 139, 'the repository ceiling is 139 — AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET, not CUT A');
     assert.deepEqual(
       files.filter((f) => f.startsWith('135')),
       ['135_agent1_lusha_prospecting_request_fence.sql'],
@@ -663,7 +663,15 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     assert.deepEqual(
       files.filter((f) => f.startsWith('138')),
       ['138_prospect_discarded_dispositions.sql'],
-      'AGENT1-DISCARDED-PROSPECTS-REVIEW-1 owns exactly one migration, and it is the ceiling',
+      'AGENT1-DISCARDED-PROSPECTS-REVIEW-1 owns exactly one migration',
+    );
+    // 🔴 AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET moved the ceiling to 139 with the durable
+    // queue of Apollo round continuations. Like the 135/136/137/138, it is not a BR migration,
+    // and the authorship sweep further down is WIDENED to include it. AUTHORED and NOT APPLIED.
+    assert.deepEqual(
+      files.filter((f) => f.startsWith('139')),
+      ['139_agent1_apollo_round_continuation_jobs.sql'],
+      'AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET owns exactly one migration, and it is the ceiling',
     );
     assert.deepEqual(
       files.filter((f) => f.startsWith('133')),
