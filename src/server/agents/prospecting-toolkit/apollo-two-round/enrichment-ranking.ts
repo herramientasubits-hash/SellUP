@@ -174,6 +174,15 @@ export type EnrichmentSkippedReason =
   | 'target_already_reached'
   | 'enrichment_cap_reached'
   /**
+   * AGENT1-APOLLO-CONTINUATION-COMPLETES § 2 — no quedaba tiempo de invocación
+   * para pagar este enrichment Y escribir el lote después.
+   *
+   * No es un rechazo del candidato ni un tope de presupuesto: es la corrida
+   * protegiendo lo que ya costó créditos. Degradar el enrichment es barato;
+   * pagarlo y morir antes de escribir convierte un crédito en nada.
+   */
+  | 'run_time_budget_exhausted'
+  /**
    * A1-APOLLO-TWO-ROUND-QUALITY-1-FINAL-FIX § 4 — una operación anterior quedó
    * con cobro sin confirmar. Los enrichments restantes no se ejecutan: el
    * presupuesto real de la corrida ya no es conocido.

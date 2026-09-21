@@ -870,19 +870,29 @@ describe('§ 10 · traducción de vocabularios del adaptador', () => {
     assert.equal(toSectorEvidenceState('sector_not_mapped'), 'sector_not_mapped');
   });
 
+  /**
+   * AGENT1-APOLLO-CONTINUATION-COMPLETES § 2 — el veredicto gana un tercer
+   * campo: `duplicateCheckDegraded`. Un tope que salta en la comprobación deja
+   * la lista de coincidencias VACÍA, y leerla sola convertía «no pude mirar» en
+   * «miré y no hay nada». Aquí los tres casos son comprobaciones SANAS, así que
+   * el campo es `false` en los tres.
+   */
   test('el duplicado se LEE del pipeline: no se consulta una segunda vez', () => {
     const result = apolloResult({ id: 'x', name: 'X', domain: 'x.com' });
     assert.deepEqual(readDuplicateVerdict(pipelineCandidate(result, 'none')), {
       sellUpDuplicate: false,
       hubSpotDuplicate: false,
+      duplicateCheckDegraded: false,
     });
     assert.deepEqual(readDuplicateVerdict(pipelineCandidate(result, 'sellup')), {
       sellUpDuplicate: true,
       hubSpotDuplicate: false,
+      duplicateCheckDegraded: false,
     });
     assert.deepEqual(readDuplicateVerdict(pipelineCandidate(result, 'hubspot')), {
       sellUpDuplicate: false,
       hubSpotDuplicate: true,
+      duplicateCheckDegraded: false,
     });
   });
 });

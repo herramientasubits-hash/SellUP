@@ -43,6 +43,14 @@ export type ApolloContinuationJob = {
   requestFingerprint: string;
   attempts: number;
   maxAttempts: number;
+  /**
+   * AGENT1-APOLLO-CONTINUATION-COMPLETES § 3 — token de PROPIEDAD del lease.
+   *
+   * Se acuña en el reclamo y viaja con el trabajo. Todo cierre lo exige: un
+   * worker cuyo lease caducó y fue tomado por otro tiene un token viejo, así
+   * que su escritura no encuentra fila y no puede pisar el estado del nuevo.
+   */
+  leaseToken: string;
 };
 
 /** Lo que el conductor necesita saber del checkpoint. Nada más. */
@@ -77,6 +85,8 @@ export type ApolloContinuationWorkerDeps = {
     workerId: string;
     limit: number;
     lockDurationMinutes: number;
+    /** § 5 — sólo el trabajo de ESTE lote. `null` ⇒ toda la cola (el cron). */
+    batchId: string | null;
   }) => Promise<readonly ApolloContinuationJob[]>;
   loadCheckpointView: (batchId: string) => Promise<ApolloContinuationCheckpointView | null>;
   /** Reanuda la corrida desde su checkpoint. No puede comprar páginas. */
@@ -87,6 +97,8 @@ export type ApolloContinuationWorkerDeps = {
   /** Cierra el trabajo. `resolution` viaja para que la cola sea auditable. */
   settleJob: (input: {
     jobId: string;
+    /** § 3 — sin el token que reclamó el trabajo, el cierre no se aplica. */
+    leaseToken: string;
     status: 'completed' | 'pending' | 'failed' | 'skipped';
     resolution: ApolloContinuationJobResolution;
     errorCode?: string;
@@ -104,6 +116,8 @@ export type ApolloContinuationWorkerOptions = {
    */
   timeBudgetMs?: number;
   workerId?: string;
+  /** § 5 — acota el reclamo a un lote. Lo usa la continuación en sesión. */
+  batchId?: string | null;
 };
 
 export type ApolloContinuationWorkerStats = {
@@ -171,9 +185,18 @@ async function resolveJob(
     return { resolution: 'identity_mismatch' };
   }
 
-  // Invariante 2 — idempotencia. Un lote ya cerrado, o sin pendientes, no se
-  // vuelve a ejecutar: reanudar dos veces no puede duplicar candidatas.
-  if (checkpoint.candidatesPersisted || checkpoint.pendingOrganizationCount === 0) {
+  // Invariante 2 — idempotencia, medida por TRABAJO PENDIENTE.
+  //
+  // 🔴 § 1 — aquí estaba el defecto que hacía inútil toda la continuación:
+  // la condición era `candidatesPersisted || pending === 0`. Como una corrida
+  // pausada llegaba igual a persistir, `candidates_persisted` salía `true` y el
+  // trabajo se cerraba como «nada pendiente» SIN evaluar una sola organización.
+  //
+  // Lo único que significa «no queda trabajo» es que no queden organizaciones
+  // pendientes. La no duplicación de filas NO se defiende aquí: la defiende el
+  // runner, que lee `candidates_persisted` antes de escribir y devuelve lo ya
+  // escrito en vez de reescribirlo.
+  if (checkpoint.pendingOrganizationCount === 0) {
     return { resolution: 'nothing_pending' };
   }
 
@@ -224,6 +247,7 @@ export async function runApolloRoundContinuationWorker(
     workerId,
     limit: options.limit ?? APOLLO_CONTINUATION_DEFAULT_LIMIT,
     lockDurationMinutes: options.lockDurationMinutes ?? APOLLO_CONTINUATION_DEFAULT_LOCK_MINUTES,
+    batchId: options.batchId ?? null,
   });
 
   const stats: ApolloContinuationWorkerStats = {
@@ -242,13 +266,24 @@ export async function runApolloRoundContinuationWorker(
     // empezado se termina; uno no empezado vuelve a la cola intacto.
     if (deps.now() - startedAt >= timeBudgetMs) {
       stats.deferredForTime++;
-      await deps.settleJob({ jobId: job.id, status: 'pending', resolution: 'requeued' });
+      await deps.settleJob({
+        jobId: job.id,
+        leaseToken: job.leaseToken,
+        status: 'pending',
+        resolution: 'requeued',
+      });
       continue;
     }
 
     const { resolution, errorCode } = await resolveJob(job, deps);
     const status = STATUS_BY_RESOLUTION[resolution];
-    await deps.settleJob({ jobId: job.id, status, resolution, ...(errorCode ? { errorCode } : {}) });
+    await deps.settleJob({
+      jobId: job.id,
+      leaseToken: job.leaseToken,
+      status,
+      resolution,
+      ...(errorCode ? { errorCode } : {}),
+    });
 
     stats.resolutions.push({ jobId: job.id, resolution });
     if (status === 'completed') stats.completed++;
@@ -273,4 +308,49 @@ export async function runApolloRoundContinuationWorker(
 export function readApolloAssessmentDeadlineReached(output: unknown): boolean {
   if (typeof output !== 'object' || output === null) return false;
   return (output as { assessmentDeadlineReached?: unknown }).assessmentDeadlineReached === true;
+}
+
+/**
+ * AGENT1-APOLLO-CONTINUATION-COMPLETES § 4 — la política AUTORIZADA de la
+ * corrida, congelada en el momento de la pausa.
+ *
+ * Existe porque la cascada se reevalúa DESPUÉS, posiblemente horas más tarde, y
+ * para entonces una bandera global puede haber cambiado. Un cambio posterior no
+ * puede habilitar gasto que la corrida original tenía excluido: la decisión se
+ * toma con la conjunción de esta foto Y el estado actual, así que sólo puede
+ * volverse más restrictiva, nunca más permisiva.
+ */
+export type ApolloContinuationRunPolicy = {
+  /** ¿El waterfall estaba habilitado cuando la corrida arrancó? */
+  readonly waterfallEnabledAtRunStart: boolean;
+  /** ¿Lusha estaba disponible cuando la corrida arrancó? */
+  readonly lushaAvailableAtRunStart: boolean;
+  /** Objetivo de la corrida. Un reintento no lo reinicia. */
+  readonly target: number;
+  readonly countryCode: string;
+  readonly macroIndustryKey: string | null;
+  readonly subIndustryId: number | null;
+  /** El lote canónico de la corrida. La pierna escribe DENTRO de él. */
+  readonly batchId: string;
+  readonly requestedSubindustries: readonly string[];
+  readonly wizardClientRequestId: string;
+};
+
+/**
+ * § 4 — la decisión de cascada que una CONTINUACIÓN puede tomar.
+ *
+ * Es la CONJUNCIÓN de la política autorizada de la corrida con el estado
+ * actual. La dirección es el contrato: un cambio posterior de una bandera
+ * global puede APAGAR la pierna, nunca encenderla. Una corrida que arrancó con
+ * el waterfall apagado no puede gastar en Lusha porque alguien lo encendió
+ * mientras su trabajo esperaba en la cola.
+ */
+export function resolveContinuationCascadeInputs(
+  policy: ApolloContinuationRunPolicy,
+  current: { waterfallEnabled: boolean; lushaAvailable: boolean },
+): { waterfallEnabled: boolean; lushaAvailable: boolean } {
+  return {
+    waterfallEnabled: policy.waterfallEnabledAtRunStart && current.waterfallEnabled,
+    lushaAvailable: policy.lushaAvailableAtRunStart && current.lushaAvailable,
+  };
 }

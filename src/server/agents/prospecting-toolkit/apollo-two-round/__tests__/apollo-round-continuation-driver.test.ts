@@ -159,6 +159,7 @@ async function invokeOrchestrator(world: World): Promise<ApolloTwoRoundRunResult
         requestFingerprint: REQUEST_FINGERPRINT,
         attempts: 0,
         maxAttempts: 3,
+        leaseToken: '',
         status: 'pending',
       });
     }
@@ -174,6 +175,8 @@ function workerDeps(world: World, clock: { value: number }): ApolloContinuationW
       for (const job of claimed) {
         job.status = 'processing';
         job.attempts++;
+        // § 3 — cada reclamo acuña un token nuevo, como hace el RPC.
+        job.leaseToken = `lease-${job.id}-${job.attempts}`;
       }
       return claimed.map((job) => ({ ...job }));
     },
@@ -202,8 +205,11 @@ function workerDeps(world: World, clock: { value: number }): ApolloContinuationW
         pendingOrganizationCount: result.pendingOrganizationCount,
       };
     },
-    settleJob: async ({ jobId, status, resolution }) => {
-      const job = world.queue.find((entry) => entry.id === jobId);
+    settleJob: async ({ jobId, leaseToken, status, resolution }) => {
+      // § 3 — vallado: un token viejo no cierra nada.
+      const job = world.queue.find(
+        (entry) => entry.id === jobId && entry.leaseToken === leaseToken,
+      );
       if (!job) return;
       job.status = status;
       job.lastResolution = resolution;
@@ -332,6 +338,7 @@ describe('§ G6 — reanudar lo ya terminado no hace nada', () => {
       requestFingerprint: REQUEST_FINGERPRINT,
       attempts: 0,
       maxAttempts: 3,
+      leaseToken: '',
       status: 'pending',
     });
     const assessmentsBefore = world.assessmentsById.size;
@@ -369,6 +376,7 @@ describe('§ G6 — reanudar lo ya terminado no hace nada', () => {
       requestFingerprint: REQUEST_FINGERPRINT,
       attempts: 0,
       maxAttempts: 3,
+      leaseToken: 'lease-1',
     };
     const view: ApolloContinuationCheckpointView = {
       wizardRunId: WIZARD_RUN_ID,

@@ -24,6 +24,7 @@ import { resolveApolloTwoRoundConfigFromEnv } from '@/server/agents/prospecting-
 import { toApolloTwoRoundConfigDiagnostics } from '@/server/agents/prospecting-toolkit/apollo-two-round';
 import type { ApolloTwoRoundRunCorrelation } from '@/server/agents/prospecting-toolkit/apollo-two-round';
 import { runApolloTwoRoundWizardDiscovery } from '@/server/agents/prospecting-toolkit/apollo-two-round/production-runner.server';
+import type { ApolloContinuationRunPolicy } from '@/server/agents/prospecting-toolkit/apollo-two-round/continuation-worker';
 // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 (CASO B) — la única lectura de
 // `subindustry_search_terms` de la ruta de descubrimiento.
 import {
@@ -131,6 +132,11 @@ export function resolveWizardApolloModality(twoRoundEnabled: boolean): WizardApo
 export type WizardApolloInput = {
   resolved: ResolvedWizardExecution;
   reservedBatchId: string;
+  /**
+   * AGENT1-APOLLO-CONTINUATION-COMPLETES § 4 — política autorizada de la
+   * corrida, compuesta por el wizard y transportada hasta la cola.
+   */
+  continuationRunPolicy?: ApolloContinuationRunPolicy | null;
   /**
    * Q3F-5BB.11E — ADITIVO / OBSERVACIONAL. Metadata extra (p.ej.
    * `{ provider_routing }`) que se reenvía tal cual al pipeline para aterrizar
@@ -286,6 +292,7 @@ export async function runWizardApolloSearch(
       // segunda constante sería un segundo 200 capaz de divergir del primero.
       targetEmployeeThreshold: input.resolved.systemControls.minimumEmployees,
       reservedBatchId: input.reservedBatchId,
+      continuationRunPolicy: input.continuationRunPolicy ?? null,
       triggeredByUserId: input.resolved.userId,
       ownerId: input.resolved.userId,
       correlation: input.correlation,

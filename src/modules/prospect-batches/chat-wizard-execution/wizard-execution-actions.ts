@@ -1,6 +1,10 @@
 'use server';
 
 import { readApolloAssessmentDeadlineReached } from '@/server/agents/prospecting-toolkit/apollo-two-round/continuation-worker';
+import {
+  isAgent1ApolloLushaWaterfallEnabled,
+  isLushaPreviewEnabled,
+} from '@/lib/feature-flags.server';
 import { createClient } from '@/lib/supabase/server';
 
 import { requireActiveUser } from '@/modules/prospect-batches/actions';
@@ -1879,6 +1883,19 @@ export async function executeProspectWizardGeneration(
 
   // 11. Execute discovery pipeline (Tavily or Apollo) using the reserved batchId as anchor
   const reservedBatchId = reservation.batchId;
+  /**
+   * AGENT1-APOLLO-CONTINUATION-COMPLETES § 4 — la macro de la corrida, resuelta
+   * UNA vez.
+   *
+   * La política congelada que viaja con la continuación y la pierna Lusha
+   * necesitan la MISMA macro; resolverla dos veces abriría exactamente la
+   * divergencia que la autoridad única existe para cerrar, y añadiría un
+   * call-site que el trinquete de esta cadena vigila.
+   */
+  const macroIndustryKeyForRun = resolveMacroIndustryKey({
+    slug: catalogResolution.industry.slug,
+    displayName: catalogResolution.industry.name,
+  });
   runCorrelation = withResolvedIds(runCorrelation, { batchId: reservedBatchId });
   let pipelineResult: IncrementalSearchOutput;
   try {
@@ -1890,6 +1907,26 @@ export async function executeProspectWizardGeneration(
       pipelineResult = await apolloRunner({
         resolved,
         reservedBatchId,
+        // AGENT1-APOLLO-CONTINUATION-COMPLETES § 4 — la política AUTORIZADA de
+        // esta corrida, congelada AHORA.
+        //
+        // Se compone aquí porque es la única capa que conoce a la vez los datos
+        // de la pierna Lusha y el estado de las banderas. Viaja con el trabajo
+        // encolado para que una continuación —que puede correr horas después—
+        // reevalúe la cascada con lo que esta corrida tenía autorizado, no con
+        // lo que el mundo tenga entonces. La conjunción con el estado de ese
+        // momento sólo puede restringir, nunca habilitar.
+        continuationRunPolicy: {
+          waterfallEnabledAtRunStart: isAgent1ApolloLushaWaterfallEnabled(),
+          lushaAvailableAtRunStart: isLushaPreviewEnabled(),
+          target: WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
+          countryCode: req.countryCode,
+          macroIndustryKey: macroIndustryKeyForRun,
+          subIndustryId: null,
+          requestedSubindustries: catalogResolution.subindustries.map((s) => s.name),
+          wizardClientRequestId: req.clientRequestId,
+          batchId: reservedBatchId,
+        },
         // Q3F-5BB.11E — additive OBSERVATIONAL routing metadata (never gates).
         extraBatchMetadata: apolloRoutingExtraMetadata,
         // 🔴 CUT-8 · DECISIÓN B — la aceptación NO puede viajar por
@@ -2109,10 +2146,7 @@ export async function executeProspectWizardGeneration(
         // un slug publicado que no casaba dejaba `null` aquí y la pierna se
         // saltaba con `macro_industry_unmapped`, aunque Apollo —que resuelve por
         // nombre visible— hubiera encontrado la macro en la MISMA corrida.
-        macroIndustryKey: resolveMacroIndustryKey({
-          slug: catalogResolution.industry.slug,
-          displayName: catalogResolution.industry.name,
-        }),
+        macroIndustryKey: macroIndustryKeyForRun,
         subIndustryId: null,
         // 🔴 X6.12 — los criterios ORIGINALES de la corrida llegan a la
         // aceptación de la pierna. `subIndustryId` sigue en `null` a propósito:

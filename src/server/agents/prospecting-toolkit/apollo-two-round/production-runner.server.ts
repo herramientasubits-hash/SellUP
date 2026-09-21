@@ -51,6 +51,14 @@ import type { IncrementalSearchOutput } from '../incremental-search-types';
 // hipótesis y el body que sale no puedan salir de dos traducciones distintas.
 import { mapEmployeeThresholdToApolloRanges } from '../apollo-organizations-query-mapping';
 import { getCatalogContext } from '../catalog-context-retriever';
+import type { ApolloContinuationRunPolicy } from './continuation-worker';
+import {
+  createRunDeadline,
+  downstreamReserveMs,
+  ASSESSMENT_WAVE_WORST_CASE_MS,
+  ENRICHMENT_WORST_CASE_MS,
+  PERSISTENCE_WORST_CASE_MS,
+} from './run-deadline';
 import {
   buildProspectingPipelineCandidate,
   buildSummary,
@@ -375,6 +383,15 @@ export type ApolloTwoRoundWizardRunInput = {
    * Ausente ⇒ ningún filtro de tamaño, que es el comportamiento previo.
    */
   targetEmployeeThreshold?: number | null;
+  /**
+   * AGENT1-APOLLO-CONTINUATION-COMPLETES § 4 — foto de la política AUTORIZADA
+   * de esta corrida, para que una continuación pueda reevaluar la cascada sin
+   * heredar un estado global que cambió después.
+   *
+   * La compone el wizard, que es quien conoce los datos de la pierna Lusha y
+   * quien lee las banderas. El runner sólo la transporta hasta la cola.
+   */
+  continuationRunPolicy?: ApolloContinuationRunPolicy | null;
   /** Lote ya reservado. La modalidad NUNCA crea un segundo lote. */
   reservedBatchId: string;
   triggeredByUserId: string;
@@ -455,45 +472,14 @@ export const TWO_ROUND_CONCURRENT_DURABILITY_SOURCE =
 const MAX_STALE_RESOLUTION_ATTEMPTS = 3;
 
 /**
- * AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET § 2 — evaluaciones baratas en vuelo.
+ * AGENT1-APOLLO-CONTINUATION-COMPLETES § 2 — evaluaciones baratas en vuelo.
  *
  * 8 y no más: `assessCandidate` hace una verificación HTTP contra el sitio de
- * CADA empresa (tope de 8 s por organización) más una comprobación de duplicados.
- * Son dominios de terceros distintos entre sí, así que el paralelismo no
- * concentra carga en ningún servicio nuestro; el único consumidor compartido es
- * la comprobación de duplicados, que ya está acotada por esta misma cifra.
+ * CADA empresa más una comprobación de duplicados. Son dominios de terceros
+ * distintos entre sí, así que el paralelismo no concentra carga en ningún
+ * servicio nuestro.
  */
 export const APOLLO_ASSESSMENT_CONCURRENCY = 8;
-
-/**
- * § 3 — cuánto tiempo de reloj puede gastar la EVALUACIÓN de una corrida.
- *
- * El límite de la plataforma es de 300 s para toda la petición. Este presupuesto
- * deja margen deliberado para lo que viene después —enrichment, gates finales,
- * escritura de candidatos y checkpoints—, que es trabajo que ya costó créditos y
- * no puede quedarse sin tiempo por culpa de la fase gratuita.
- */
-export const APOLLO_ASSESSMENT_TIME_BUDGET_MS = 150_000;
-
-/**
- * § 3 — el límite REAL de la plataforma para una invocación.
- *
- * No es una constante decorativa: es el número que mató la corrida `7d8a9b85`
- * (`Task timed out after 300 seconds`). Vive aquí para que la aritmética del
- * presupuesto se pueda comprobar en la suite en vez de razonarse en un comentario.
- */
-export const APOLLO_RUNTIME_INVOCATION_LIMIT_MS = 300_000;
-
-/**
- * § 3 — margen reservado para lo que corre DESPUÉS de la evaluación dentro de la
- * misma invocación: enrichment, gates finales, escritura de candidatos y los
- * checkpoints de cada transición.
- *
- * Es trabajo que ya costó créditos, así que no puede quedarse sin tiempo por
- * culpa de la fase gratuita. El invariante que la suite comprueba es
- * `ASSESSMENT + DOWNSTREAM <= LIMIT`.
- */
-export const APOLLO_DOWNSTREAM_STAGES_RESERVE_MS = 150_000;
 
 // ─── Dependencias (inyectables sólo para tests) ───────────────────────────────
 
@@ -515,6 +501,7 @@ export type ApolloTwoRoundProductionDeps = {
     idempotencyKey: string;
     requestFingerprint: string;
     runInput: ApolloTwoRoundWizardRunInput;
+    runPolicy: ApolloContinuationRunPolicy | null;
   }) => Promise<{ enqueued: boolean; reason?: string }>;
   searchApollo: typeof runApolloOrganizationsSearch;
   buildCandidate: typeof buildProspectingPipelineCandidate;
@@ -816,12 +803,28 @@ export function foldSubindustryPrecisionIntoSectorState(
  */
 export function readDuplicateVerdict(
   candidate: ProspectingPipelineCandidate,
-): { sellUpDuplicate: boolean; hubSpotDuplicate: boolean } {
+): { sellUpDuplicate: boolean; hubSpotDuplicate: boolean; duplicateCheckDegraded: boolean } {
   const matches = candidate.duplicateCheck?.matches ?? [];
+
+  /**
+   * AGENT1-APOLLO-CONTINUATION-COMPLETES § 2 — un fallo de la comprobación NO es
+   * «no hay duplicados».
+   *
+   * 🔴 El defecto que cierra: la comprobación de duplicados contra HubSpot pasó
+   * a tener un tope de 8 s. Un tope que salta produce `status: 'error'` y una
+   * lista de coincidencias VACÍA — y leer sólo la lista convierte «no pude
+   * mirar» en «miré y no hay nada». Con eso, una empresa que HubSpot ya tiene
+   * se declararía nueva y podría llegar a competir por un enrichment pagado.
+   *
+   * `unchecked` es distinto y NO degrada: significa que HubSpot no está
+   * conectado, que es una configuración legítima y estable, no un fallo.
+   */
+  const duplicateCheckDegraded = candidate.duplicateCheck?.status === 'error';
 
   return {
     sellUpDuplicate: hasStrongIdentityDuplicateMatch(matches, 'sellup'),
     hubSpotDuplicate: hasStrongIdentityDuplicateMatch(matches, 'hubspot'),
+    duplicateCheckDegraded,
   };
 }
 
@@ -1015,6 +1018,11 @@ export async function runApolloTwoRoundWizardDiscovery(
    * trabajo de esta invocación.
    */
   const runStartedAtMs = deps.now();
+  /**
+   * § 2 — el plazo COMPARTIDO de esta invocación. Lo consultan la evaluación y
+   * el enrichment; las dos cuentan su peor caso y respetan el margen de salida.
+   */
+  const runDeadline = createRunDeadline({ now: deps.now, startedAtMs: runStartedAtMs });
 
   const config = deps.resolveConfig();
   const budget = estimateApolloTwoRoundBudget(config);
@@ -2116,8 +2124,15 @@ export async function runApolloTwoRoundWizardDiscovery(
      * el objetivo ni compra nada.
      */
     assessmentConcurrency: APOLLO_ASSESSMENT_CONCURRENCY,
-    assessmentTimeGuard: () =>
-      deps.now() - runStartedAtMs < APOLLO_ASSESSMENT_TIME_BUDGET_MS,
+    // § 2 — una tanda más SÓLO si cabe la tanda en su peor caso Y todo lo que
+    // viene después: los enrichments que aún se pueden pagar y la escritura.
+    assessmentTimeGuard: ({ pendingEnrichmentBudget }) =>
+      runDeadline.hasRoomFor(
+        ASSESSMENT_WAVE_WORST_CASE_MS + downstreamReserveMs(pendingEnrichmentBudget),
+      ),
+    // § 2 — un enrichment más SÓLO si cabe el enrichment Y la escritura después.
+    enrichmentTimeGuard: () =>
+      runDeadline.hasRoomFor(ENRICHMENT_WORST_CASE_MS + PERSISTENCE_WORST_CASE_MS),
 
     assessCandidate: async ({ organization, identity }) => {
       const key = candidateKeyFor(organization);
@@ -2235,7 +2250,12 @@ export async function runApolloTwoRoundWizardDiscovery(
         domainConfident: identity.normalizedDomain !== null,
         ownershipConfident: eligibility.eligible && eligibility.domainSource === 'asserted',
         sectorKeywordMatchCount: sector.matchedTerms.length,
-        novel: !knownDuplicate && !cooldownActive && !historicallyKnown,
+        // § 2 — fail-closed: si la comprobación de duplicados se degradó, la
+        // novedad NO se puede AFIRMAR. No se rechaza al candidato —un fallo
+        // transitorio no debe matarlo—, pero deja de contar como empresa nueva,
+        // que es la señal con la que se decide gastar.
+        novel:
+          !knownDuplicate && !cooldownActive && !historicallyKnown && !duplicate.duplicateCheckDegraded,
         hasCompanySizeSignal: readHasEmployeeCount(result),
         hasLocationSignal: readHasLocation(result),
         hasLinkedInUrl: identity.normalizedLinkedInUrl !== null,
@@ -2835,14 +2855,31 @@ export async function runApolloTwoRoundWizardDiscovery(
    * lote creen dos continuaciones.
    */
   const pendingOrganizationCount = runResult.pendingOrganizationCount;
+  /**
+   * AGENT1-APOLLO-CONTINUATION-COMPLETES § 1 — la corrida está EN PAUSA.
+   *
+   * 🔴 El defecto que cierra: antes de este corte la pausa encolaba y seguía
+   * adelante. El runner persistía candidatos y escribía `run_completed` +
+   * `candidates_persisted: true`, y el conductor —que leía `candidates_persisted`
+   * como «no queda trabajo»— cerraba el trabajo al instante como
+   * `nothing_pending`. La continuación era un no-op: las organizaciones ya
+   * pagadas no se evaluaban NUNCA, y la corrida se declaraba terminada sobre una
+   * evaluación a medias.
+   *
+   * Una pausa ahora SALE antes de finalizar: no escribe candidatos, no marca el
+   * lote y no publica `run_completed`. Lo único que hace es dejar el trabajo a
+   * salvo y encolarlo.
+   */
+  const runPaused = runResult.assessmentDeadlineReached && pendingOrganizationCount > 0;
   let continuationEnqueued: boolean | null = null;
-  if (runResult.assessmentDeadlineReached && pendingOrganizationCount > 0) {
+  if (runPaused) {
     const enqueueOutcome = await deps.enqueueContinuation({
       batchId: input.reservedBatchId,
       wizardRunId: input.correlation.wizardRunId,
       idempotencyKey: runIdentity.idempotencyKey,
       requestFingerprint: runIdentity.requestFingerprint,
       runInput: input,
+      runPolicy: input.continuationRunPolicy ?? null,
     });
     continuationEnqueued = enqueueOutcome.enqueued;
   }
@@ -3146,7 +3183,11 @@ export async function runApolloTwoRoundWizardDiscovery(
   // estaban persistidos por un intento anterior del MISMO run).
   let persistenceOutcome: CandidatePersistenceOutcome | undefined;
 
-  if (!candidatesPersisted) {
+  // § 1 — en pausa no se escribe NADA: ni candidatos, ni `run_completed`, ni
+  // `candidates_persisted`. La finalización es trabajo de la continuación, que
+  // la hará cuando la evaluación esté completa. Escribir aquí certificaría un
+  // recuento parcial y, peor, cortocircuitaría a la propia continuación.
+  if (!candidatesPersisted && !runPaused) {
     const pipelineOutput: ProspectingPipelineOutput = {
       input: {
         country: input.country,
