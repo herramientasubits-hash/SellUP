@@ -412,7 +412,22 @@ export type ApolloTwoRoundDeps = {
    *
    * Ausente ⇒ sin límite de tiempo, byte a byte como antes.
    */
-  assessmentTimeGuard?: () => boolean;
+  assessmentTimeGuard?: (input: {
+    /** Enrichments que la corrida todavía puede pagar. Fija la reserva posterior. */
+    readonly pendingEnrichmentBudget: number;
+  }) => boolean;
+
+  /**
+   * AGENT1-APOLLO-CONTINUATION-COMPLETES § 2 — ¿queda tiempo para pagar UN
+   * enrichment más y aun así escribir el lote?
+   *
+   * Es una guarda DISTINTA de la de evaluación y se consulta antes de cada
+   * enrichment. Un enrichment es gasto: quedarse sin tiempo DESPUÉS de pagarlo
+   * y antes de escribir es el único desenlace que convierte un crédito en nada.
+   *
+   * Ausente ⇒ sin límite, byte a byte como antes.
+   */
+  enrichmentTimeGuard?: () => boolean;
 
   /** Ejecuta UN Organization Enrichment. Sólo se llama bajo el cap global. */
   enrichCandidate: (input: {
@@ -2402,7 +2417,17 @@ export async function runApolloTwoRoundDiscovery(
     while (cursor < organizations.length) {
       // La guarda se consulta ENTRE tandas, nunca a mitad de una: una tanda ya
       // lanzada se termina siempre, así que ningún resultado en vuelo se pierde.
-      if (cursor > 0 && deps.assessmentTimeGuard && !deps.assessmentTimeGuard()) {
+      // § 2 — la guarda cuenta el PEOR caso de la tanda y la reserva posterior.
+      //
+      // `cursor > 0` sigue exento a propósito: garantiza que toda invocación
+      // avance al menos una tanda. Sin esa excepción, una corrida que arrancara
+      // ya justa se pausaría sin progresar y la continuación heredaría el mismo
+      // estado — un bucle de pausas sin trabajo hecho.
+      if (
+        cursor > 0 &&
+        deps.assessmentTimeGuard &&
+        !deps.assessmentTimeGuard({ pendingEnrichmentBudget: remainingEnrichmentBudget })
+      ) {
         assessmentDeadlineReachedInRound = true;
         break;
       }
@@ -2732,6 +2757,17 @@ export async function runApolloTwoRoundDiscovery(
         candidateKey: chosen.candidateKey,
         roundNumber: chosen.roundNumber,
         skippedReason: 'known_duplicate',
+      });
+      continue;
+    }
+
+    // § 2 — sin hueco para pagar este enrichment Y escribir después, no se paga.
+    // Degradar el enrichment es barato; pagar y no llegar a escribir, no.
+    if (deps.enrichmentTimeGuard && !deps.enrichmentTimeGuard()) {
+      enrichmentSkips.push({
+        candidateKey: chosen.candidateKey,
+        roundNumber: chosen.roundNumber,
+        skippedReason: 'run_time_budget_exhausted',
       });
       continue;
     }

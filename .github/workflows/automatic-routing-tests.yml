@@ -5854,3 +5854,23 @@ jobs:
       # 0 escrituras en Produccion - 0 migraciones aplicadas - 0 cambios de bandera.
       - name: Run Agent 1 Apollo round execution time budget tests
         run: npm run test:a1-apollo-round-execution-time-budget
+
+      # AGENT1-APOLLO-CONTINUATION-COMPLETES: el recorrido REAL de una ronda que
+      # no cabe en una invocacion, ejercitando el RUNNER y su finalizacion —no
+      # solo el orquestador, que es justo la costura donde el corte anterior se
+      # rompia sin que ninguna prueba lo viera—.
+      #
+      #   1. la pausa conserva el trabajo y NO persiste ni finaliza;
+      #   2. la continuacion evalua, escribe y cierra: una busqueda, una
+      #      escritura, ninguna evaluacion repetida, presupuesto acumulado;
+      #   3. caida y recuperacion por lease vencido, y vallado por token contra
+      #      un worker antiguo;
+      #   4. cascada reevaluada al terminar, con la politica congelada de la
+      #      corrida: una bandera encendida despues no habilita gasto excluido;
+      #   5. aislamiento Apollo-only, fallo de encolado, timeout de duplicados
+      #      fail-closed y los estados visibles de la continuacion.
+      #
+      # 0 llamadas a Apollo - 0 a Lusha - 0 creditos - 0 Supabase real -
+      # 0 escrituras en Produccion - 0 migraciones aplicadas - 0 cambios de bandera.
+      - name: Run Agent 1 Apollo continuation completes tests
+        run: npm run test:a1-apollo-continuation-completes

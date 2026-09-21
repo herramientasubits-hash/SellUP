@@ -425,37 +425,62 @@ describe('§ G5 — la parada por tiempo no compra ni evalúa nada de más', () 
   });
 });
 
-// ── G6 · la aritmética del plazo, comprobada y no razonada ───────────────────
+// ── G6 · el plazo, EJECUTADO y no sólo afirmado ──────────────────────────────
 
-describe('§ G6 — el presupuesto de tiempo CABE en el límite real', () => {
-  test('evaluación + etapas posteriores no superan el límite de invocación', async () => {
-    const {
-      APOLLO_ASSESSMENT_TIME_BUDGET_MS,
-      APOLLO_DOWNSTREAM_STAGES_RESERVE_MS,
-      APOLLO_RUNTIME_INVOCATION_LIMIT_MS,
-    } = await import('../production-runner.server');
+describe('§ G6 — el plazo se hace cumplir, con margen de salida real', () => {
+  test('la evaluación exige hueco para la tanda Y para todo lo posterior', async () => {
+    const { createRunDeadline, downstreamReserveMs, ASSESSMENT_WAVE_WORST_CASE_MS, EXIT_RESERVE_MS, RUNTIME_INVOCATION_LIMIT_MS } =
+      await import('../run-deadline');
 
+    assert.equal(RUNTIME_INVOCATION_LIMIT_MS, PLATFORM_LIMIT_MS);
+
+    let clock = 0;
+    const deadline = createRunDeadline({ now: () => clock, startedAtMs: 0 });
+    const needed = ASSESSMENT_WAVE_WORST_CASE_MS + downstreamReserveMs(5);
+
+    // Al arrancar cabe; justo antes de que deje de caber, también.
+    assert.equal(deadline.hasRoomFor(needed), true);
+    clock = PLATFORM_LIMIT_MS - needed - EXIT_RESERVE_MS;
+    assert.equal(deadline.hasRoomFor(needed), true);
+    // Un milisegundo más y ya no: el margen de salida NO se toca.
+    clock += 1;
     assert.equal(
-      APOLLO_RUNTIME_INVOCATION_LIMIT_MS,
-      PLATFORM_LIMIT_MS,
-      'el límite de la suite y el del runner tienen que ser el mismo número',
-    );
-    assert.ok(
-      APOLLO_ASSESSMENT_TIME_BUDGET_MS + APOLLO_DOWNSTREAM_STAGES_RESERVE_MS <=
-        APOLLO_RUNTIME_INVOCATION_LIMIT_MS,
-      `la evaluación (${APOLLO_ASSESSMENT_TIME_BUDGET_MS} ms) más las etapas posteriores ` +
-        `(${APOLLO_DOWNSTREAM_STAGES_RESERVE_MS} ms) no caben en ${APOLLO_RUNTIME_INVOCATION_LIMIT_MS} ms`,
+      deadline.hasRoomFor(needed),
+      false,
+      'la reserva posterior tiene que ser un límite, no una cuenta en un comentario',
     );
   });
 
-  test('el plazo del conductor también cabe en UNA invocación', async () => {
-    const { APOLLO_CONTINUATION_TIME_BUDGET_MS } = await import('../continuation-worker');
-    const { APOLLO_RUNTIME_INVOCATION_LIMIT_MS } = await import('../production-runner.server');
+  test('el margen de salida sobrevive incluso al peor solapamiento', async () => {
+    const { downstreamReserveMs, ASSESSMENT_WAVE_WORST_CASE_MS, EXIT_RESERVE_MS, RUNTIME_INVOCATION_LIMIT_MS } =
+      await import('../run-deadline');
 
+    // Peor caso real: la guarda concede en el último instante posible, la tanda
+    // dura su peor caso y después corre TODO lo posterior.
+    const worst = ASSESSMENT_WAVE_WORST_CASE_MS + downstreamReserveMs(5) + EXIT_RESERVE_MS;
     assert.ok(
-      APOLLO_CONTINUATION_TIME_BUDGET_MS < APOLLO_RUNTIME_INVOCATION_LIMIT_MS,
-      'el conductor no puede planificar más tiempo del que su propia invocación tiene',
+      worst <= RUNTIME_INVOCATION_LIMIT_MS,
+      `el peor caso (${worst} ms) no cabe en ${RUNTIME_INVOCATION_LIMIT_MS} ms`,
     );
+  });
+
+  test('una operación nunca recibe un tope que se coma el margen de salida', async () => {
+    const { createRunDeadline, EXIT_RESERVE_MS, RUNTIME_INVOCATION_LIMIT_MS } =
+      await import('../run-deadline');
+    let clock = 0;
+    const deadline = createRunDeadline({ now: () => clock, startedAtMs: 0 });
+
+    assert.equal(deadline.operationTimeoutMs(8_000), 8_000, 'con tiempo de sobra manda el preferido');
+    clock = RUNTIME_INVOCATION_LIMIT_MS - EXIT_RESERVE_MS - 3_000;
+    assert.equal(deadline.operationTimeoutMs(8_000), 3_000, 'cerca del final manda lo que queda');
+    clock = RUNTIME_INVOCATION_LIMIT_MS - EXIT_RESERVE_MS;
+    assert.equal(deadline.operationTimeoutMs(8_000), 0, 'agotado el margen, ninguna operación nueva');
+  });
+
+  test('el plazo del conductor cabe en UNA invocación', async () => {
+    const { APOLLO_CONTINUATION_TIME_BUDGET_MS } = await import('../continuation-worker');
+    const { RUNTIME_INVOCATION_LIMIT_MS } = await import('../run-deadline');
+    assert.ok(APOLLO_CONTINUATION_TIME_BUDGET_MS < RUNTIME_INVOCATION_LIMIT_MS);
   });
 });
 

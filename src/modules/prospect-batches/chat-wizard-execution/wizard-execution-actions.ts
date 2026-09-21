@@ -1,6 +1,10 @@
 'use server';
 
 import { readApolloAssessmentDeadlineReached } from '@/server/agents/prospecting-toolkit/apollo-two-round/continuation-worker';
+import {
+  isAgent1ApolloLushaWaterfallEnabled,
+  isLushaPreviewEnabled,
+} from '@/lib/feature-flags.server';
 import { createClient } from '@/lib/supabase/server';
 
 import { requireActiveUser } from '@/modules/prospect-batches/actions';
@@ -1890,6 +1894,29 @@ export async function executeProspectWizardGeneration(
       pipelineResult = await apolloRunner({
         resolved,
         reservedBatchId,
+        // AGENT1-APOLLO-CONTINUATION-COMPLETES § 4 — la política AUTORIZADA de
+        // esta corrida, congelada AHORA.
+        //
+        // Se compone aquí porque es la única capa que conoce a la vez los datos
+        // de la pierna Lusha y el estado de las banderas. Viaja con el trabajo
+        // encolado para que una continuación —que puede correr horas después—
+        // reevalúe la cascada con lo que esta corrida tenía autorizado, no con
+        // lo que el mundo tenga entonces. La conjunción con el estado de ese
+        // momento sólo puede restringir, nunca habilitar.
+        continuationRunPolicy: {
+          waterfallEnabledAtRunStart: isAgent1ApolloLushaWaterfallEnabled(),
+          lushaAvailableAtRunStart: isLushaPreviewEnabled(),
+          target: WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
+          countryCode: req.countryCode,
+          macroIndustryKey: resolveMacroIndustryKey({
+            slug: catalogResolution.industry.slug,
+            displayName: catalogResolution.industry.name,
+          }),
+          subIndustryId: null,
+          requestedSubindustries: catalogResolution.subindustries.map((s) => s.name),
+          wizardClientRequestId: req.clientRequestId,
+          batchId: reservedBatchId,
+        },
         // Q3F-5BB.11E — additive OBSERVATIONAL routing metadata (never gates).
         extraBatchMetadata: apolloRoutingExtraMetadata,
         // 🔴 CUT-8 · DECISIÓN B — la aceptación NO puede viajar por
