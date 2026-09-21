@@ -10,6 +10,20 @@
  *
  * 🔴 No compra páginas, no crea presupuesto y no autoriza gasto: sólo termina de
  * evaluar —gratis— organizaciones que una búsqueda ya pagada dejó pendientes.
+ *
+ * ── 🔴 Frecuencia: la impone el PLAN, no el diseño ───────────────────────────
+ *
+ * El proyecto vive en un plan de Vercel que sólo admite crons DIARIOS (y dos por
+ * proyecto). Una cadencia de minutos hace que el despliegue se rechace en la
+ * validación de `vercel.json`, antes incluso de construir — que es exactamente
+ * lo que pasó al declarar una cadencia de diez minutos.
+ *
+ * Consecuencia declarada: una corrida que se pausa puede tardar hasta un día en
+ * retomarse. La cola es durable, así que no se pierde nada y no hace falta que
+ * intervenga nadie; lo que falta es inmediatez, y eso se compra subiendo de plan
+ * (cron cada pocos minutos) o añadiendo un disparo autenticado desde el wizard
+ * en cuanto la corrida devuelve «en pausa». Las dos opciones dejan esta ruta y
+ * la cola intactas: cambian CUÁNDO se llama, no QUÉ hace.
  */
 import { NextRequest, NextResponse } from 'next/server';
 

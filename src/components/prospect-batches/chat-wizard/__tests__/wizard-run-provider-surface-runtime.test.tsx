@@ -293,9 +293,19 @@ describe('§ 2/§ 5 · caso 3 — los tres gates encendidos', () => {
     assert.ok(text.includes('máximo de 2 rondas'));
     assert.ok(text.includes('Máximos de esta ejecución:'));
     assert.ok(text.includes('5 resultados por ronda'));
-    assert.ok(text.includes('10 resultados raw en total'));
-    assert.ok(text.includes('2 enrichments'));
-    assert.ok(text.includes('Hasta 12 créditos internos'));
+    // 🔴 AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET § 6 — el tope raw ya NO se
+    // anuncia: dejó de acotar nada con el CORTE 2 del waterfall (la corrida
+    // `7d8a9b85` prometía 20 y la ronda evaluó 166). Un límite que no limita
+    // hacía ilegible la única línea que sí acota el gasto.
+    assert.ok(!text.includes('raw en total'), `el copy sigue prometiendo un tope raw: ${text}`);
+    assert.ok(text.includes('2 enrichments como máximo'));
+    // § 6 — techo RESERVADO y contra la cuota de Apollo, que es el bolsillo que
+    // de verdad se toca desde el desacoplamiento del pool interno.
+    assert.ok(
+      text.includes('Hasta 12 créditos de la cuota de Apollo reservados'),
+      `línea de créditos inesperada: ${text}`,
+    );
+    assert.ok(!text.includes('créditos internos'));
     assert.ok(text.includes('No se garantiza encontrar cinco empresas.'));
     assert.ok(
       text.includes('Los filtros de calidad y duplicados no se reducirán para alcanzar el objetivo.'),

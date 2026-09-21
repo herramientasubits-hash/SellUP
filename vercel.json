@@ -7,7 +7,7 @@
     },
     {
       "path": "/api/cron/apollo-round-continuation",
-      "schedule": "*/10 * * * *"
+      "schedule": "15 13 * * *"
     }
   ]
 }
