@@ -55,6 +55,14 @@ import type {
   WebSearchOutput,
   WebSearchResult,
 } from '../../types';
+import { inMemoryRunBudgetDeps } from './fixtures';
+
+  // AGENT1-APOLLO-DURABLE-RUN-BUDGET § 2 — presupuesto de corrida con el ledger
+  // REAL detrás. El default de producción es fail-closed sin cliente de
+  // Supabase: una reserva que no queda durable no es una reserva. Una suite sin
+  // base tiene que traer el suyo; un doble que autorizara siempre dejaría de
+  // medir el tope.
+const runBudgetFixture = inMemoryRunBudgetDeps(1_000);
 
 // ─── Arnés ────────────────────────────────────────────────────────────────────
 
@@ -156,6 +164,8 @@ function buildDeps(options: {
   let searchCalls = 0;
 
   const deps: Partial<ApolloTwoRoundProductionDeps> = {
+    authorizeSpend: runBudgetFixture.authorizeSpend,
+    settleSpend: runBudgetFixture.settleSpend,
     searchApollo: (async () => {
       const output = options.rounds[searchCalls] ?? searchOutput([]);
       searchCalls++;
