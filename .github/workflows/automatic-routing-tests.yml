@@ -5837,3 +5837,20 @@ jobs:
       # 0 escrituras en Produccion - 0 migraciones - 0 cambios de bandera.
       - name: Run Agent 1 pre-E2E counting closure tests
         run: npm run test:a1-pre-e2e-counting-closure
+
+      # AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET: el recorrido completo de una
+      # ronda que no cabe en una sola invocacion.
+      #
+      #   1. reproduccion de la forma del defecto (N esperas en serie) y de la
+      #      correccion (tandas) con I/O simulado;
+      #   2. el CONDUCTOR real: 166 organizaciones, pausa, continuacion y final,
+      #      con una sola busqueda, sin evaluaciones repetidas y con recuentos
+      #      y presupuesto acumulados;
+      #   3. la cascada: Lusha NO se activa con un conteo provisional;
+      #   4. el trinquete del CORTE 2, ahora sobre comportamiento y no sobre un
+      #      token, mas el copy del wizard.
+      #
+      # 0 llamadas a Apollo - 0 a Lusha - 0 creditos - 0 Supabase real -
+      # 0 escrituras en Produccion - 0 migraciones aplicadas - 0 cambios de bandera.
+      - name: Run Agent 1 Apollo round execution time budget tests
+        run: npm run test:a1-apollo-round-execution-time-budget

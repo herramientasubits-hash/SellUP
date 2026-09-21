@@ -463,7 +463,7 @@ const MAX_STALE_RESOLUTION_ATTEMPTS = 3;
  * concentra carga en ningún servicio nuestro; el único consumidor compartido es
  * la comprobación de duplicados, que ya está acotada por esta misma cifra.
  */
-const APOLLO_ASSESSMENT_CONCURRENCY = 8;
+export const APOLLO_ASSESSMENT_CONCURRENCY = 8;
 
 /**
  * § 3 — cuánto tiempo de reloj puede gastar la EVALUACIÓN de una corrida.
@@ -473,7 +473,27 @@ const APOLLO_ASSESSMENT_CONCURRENCY = 8;
  * escritura de candidatos y checkpoints—, que es trabajo que ya costó créditos y
  * no puede quedarse sin tiempo por culpa de la fase gratuita.
  */
-const APOLLO_ASSESSMENT_TIME_BUDGET_MS = 150_000;
+export const APOLLO_ASSESSMENT_TIME_BUDGET_MS = 150_000;
+
+/**
+ * § 3 — el límite REAL de la plataforma para una invocación.
+ *
+ * No es una constante decorativa: es el número que mató la corrida `7d8a9b85`
+ * (`Task timed out after 300 seconds`). Vive aquí para que la aritmética del
+ * presupuesto se pueda comprobar en la suite en vez de razonarse en un comentario.
+ */
+export const APOLLO_RUNTIME_INVOCATION_LIMIT_MS = 300_000;
+
+/**
+ * § 3 — margen reservado para lo que corre DESPUÉS de la evaluación dentro de la
+ * misma invocación: enrichment, gates finales, escritura de candidatos y los
+ * checkpoints de cada transición.
+ *
+ * Es trabajo que ya costó créditos, así que no puede quedarse sin tiempo por
+ * culpa de la fase gratuita. El invariante que la suite comprueba es
+ * `ASSESSMENT + DOWNSTREAM <= LIMIT`.
+ */
+export const APOLLO_DOWNSTREAM_STAGES_RESERVE_MS = 150_000;
 
 // ─── Dependencias (inyectables sólo para tests) ───────────────────────────────
 
@@ -483,6 +503,19 @@ export type ApolloTwoRoundProductionDeps = {
    * demostrar el presupuesto de tiempo sin esperar de verdad.
    */
   now: () => number;
+  /**
+   * § 7 — encola la continuación de un lote que se quedó sin tiempo.
+   *
+   * Inyectable para que la suite pruebe el encolado sin base de datos. En
+   * producción cae a `enqueueApolloRoundContinuation`.
+   */
+  enqueueContinuation: (input: {
+    batchId: string;
+    wizardRunId: string;
+    idempotencyKey: string;
+    requestFingerprint: string;
+    runInput: ApolloTwoRoundWizardRunInput;
+  }) => Promise<{ enqueued: boolean; reason?: string }>;
   searchApollo: typeof runApolloOrganizationsSearch;
   buildCandidate: typeof buildProspectingPipelineCandidate;
   enrichCascade: typeof runApolloOrganizationEnrichmentCascade;
@@ -858,6 +891,20 @@ export type ApolloTwoRoundWizardRunOutcome = IncrementalSearchOutput & {
    * ése es exactamente el defecto que la corrida `be181d2d` dejó ver.
    */
   projectedTargetReached?: boolean;
+
+  /**
+   * AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET §§ 4, 7 — la corrida se quedó sin
+   * tiempo con organizaciones YA PAGADAS sin evaluar.
+   *
+   * Es lo que el conductor de continuaciones lee para decidir si hace falta otra
+   * vuelta, y lo que distingue una PAUSA RECUPERABLE de un agotamiento o de una
+   * parada definitiva.
+   */
+  assessmentDeadlineReached?: boolean;
+  /** Organizaciones que siguen pendientes de evaluar tras esta invocación. */
+  pendingOrganizationCount?: number;
+  /** `true` ⇒ la continuación quedó encolada en la cola durable. */
+  continuationEnqueued?: boolean;
 };
 
 /**
@@ -876,6 +923,10 @@ export async function runApolloTwoRoundWizardDiscovery(
     searchApollo: runApolloOrganizationsSearch,
     buildCandidate: buildProspectingPipelineCandidate,
     now: () => Date.now(),
+    enqueueContinuation: async (payload) => {
+      const { enqueueApolloRoundContinuation } = await import('./continuation-worker.server');
+      return enqueueApolloRoundContinuation(payload);
+    },
     enrichCascade: runApolloOrganizationEnrichmentCascade,
     enrichOrganization: enrichApolloOrganization,
     persistCandidates: writeProspectingCandidates,
@@ -2773,6 +2824,29 @@ export async function runApolloTwoRoundWizardDiscovery(
     orchestratorDeps,
   );
 
+  /**
+   * AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET § 7 — la corrida se pausó: encola
+   * la continuación ANTES de seguir.
+   *
+   * Encolar aquí y no al final es deliberado: lo que viene después (enrichment,
+   * gates finales, escritura) es trabajo de una corrida que ya sabe que está a
+   * medias, y si algo de eso fallara, el trabajo pendiente ya estaría a salvo en
+   * una cola durable. El índice único del lote impide que dos pausas del mismo
+   * lote creen dos continuaciones.
+   */
+  const pendingOrganizationCount = runResult.pendingOrganizationCount;
+  let continuationEnqueued: boolean | null = null;
+  if (runResult.assessmentDeadlineReached && pendingOrganizationCount > 0) {
+    const enqueueOutcome = await deps.enqueueContinuation({
+      batchId: input.reservedBatchId,
+      wizardRunId: input.correlation.wizardRunId,
+      idempotencyKey: runIdentity.idempotencyKey,
+      requestFingerprint: runIdentity.requestFingerprint,
+      runInput: input,
+    });
+    continuationEnqueued = enqueueOutcome.enqueued;
+  }
+
   // ── Persistencia ────────────────────────────────────────────────────────────
   //
   // § 5 — `candidates_persisted` se LEE. Un reintento posterior a la escritura no
@@ -3297,6 +3371,10 @@ export async function runApolloTwoRoundWizardDiscovery(
         config.targetEligibleCompanies,
     projectedTargetReached: runResult.targetReached,
     targetPersistibleCandidates: config.targetEligibleCompanies,
+    // AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET §§ 4, 7 — pausa recuperable.
+    assessmentDeadlineReached: runResult.assessmentDeadlineReached,
+    pendingOrganizationCount: pendingOrganizationCount,
+    ...(continuationEnqueued !== null ? { continuationEnqueued } : {}),
     ...(budgetAnomalies.length > 0 ? { budgetAnomalies } : {}),
     ...(persistenceOutcome ? { persistenceOutcome } : {}),
   };

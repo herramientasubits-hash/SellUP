@@ -310,12 +310,36 @@ describe('CORTE 2 § G5 — el tope no puede volver como autoridad de admisión'
     );
   });
 
-  test('no hay truncamiento posicional de las organizaciones de una ronda', () => {
+  /**
+   * 🔴 AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET § 9 — este trinquete DEFENDÍA
+   * UN NOMBRE, no un comportamiento, y por eso hubo que corregirlo.
+   *
+   * Prohibía el token `organizations.slice(` entero. La intención era legítima
+   * —ninguna organización puede caerse por su posición— pero el token también
+   * cubre el troceado en TANDAS, que no descarta a nadie: procesa a todos en
+   * grupos y, si se agota el tiempo, deja el resto en el estado recuperable para
+   * que una continuación lo retome.
+   *
+   * Lo que se conserva es la prohibición REAL: que el corte dependa de un TOPE
+   * de configuración. Un `slice` cuyos límites salen del cursor de la tanda es
+   * batching; uno cuyos límites salen de `config`/`max…` es truncamiento.
+   *
+   * La invariante de comportamiento —las 166 organizaciones de una ronda pagada
+   * se evalúan, y exactamente una vez— la prueban en ejecución
+   * `apollo-round-execution-time-budget.test.ts` (§ G2) y
+   * `apollo-round-continuation-driver.test.ts` (§ G2/G3), que es donde debe
+   * vivir: un trinquete estático no puede demostrarla.
+   */
+  test('ningún recorte de organizaciones depende de un tope de configuración', () => {
     const source = liveSource();
-    assert.equal(
-      /organizations\s*\.\s*slice\s*\(/.test(source),
-      false,
-      'una organización no puede quedarse fuera por su posición en la lista',
+    const slices = [...source.matchAll(/organizations\s*\.\s*slice\s*\(([^)]*)\)/g)].map(
+      (match) => match[1] ?? '',
     );
+    for (const args of slices) {
+      assert.ok(
+        !/config\.|max[A-Z]/.test(args),
+        `un recorte de organizaciones usa un tope de configuración: slice(${args})`,
+      );
+    }
   });
 });

@@ -20,6 +20,7 @@ import assert from 'node:assert/strict';
 
 import {
   APOLLO_RUN_MODE_FILTERS_CAVEAT,
+  APOLLO_RUN_MODE_NO_GUARANTEE_PREFIX,
   APOLLO_RUN_MODE_LIMITS_TITLE,
   APOLLO_RUN_OPTION_UNAVAILABLE_NOTICE,
   RUN_PROVIDER_OPTION_LABELS,
@@ -76,9 +77,23 @@ describe('§ 5 · copy del modo Apollo con los topes del contrato', () => {
   const limits = defaultLimits();
   const copy = buildApolloRunModeCopy(limits);
 
+  /**
+   * 🔴 AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET § 9 — este caso estaba ROJO en
+   * `main` antes de este corte, y se arregla aquí porque sin ello la suite no se
+   * puede cablear al check obligatorio.
+   *
+   * La causa es un literal envejecido: el caso exigía «hasta 10» mientras el
+   * objetivo por defecto del contrato es 5 (el mismo 5 que el checkpoint del
+   * lote `a86e3fdd` publica en `config.targetEligibleCompanies`). El propio
+   * fichero declara que «el copy sigue a la configuración, no a un literal», así
+   * que la expectativa pasa a derivarse de los topes resueltos.
+   */
   it('el titular anuncia el objetivo como «hasta», no como promesa', () => {
-    assert.match(copy.headline, /^Apollo intentará encontrar hasta 10 empresas nuevas y válidas/);
-    assert.match(copy.headline, /máximo de 2 rondas\.$/);
+    assert.match(
+      copy.headline,
+      new RegExp(`^Apollo intentará encontrar hasta ${limits.targetEligibleCompanies} `),
+    );
+    assert.match(copy.headline, new RegExp(`máximo de ${limits.maxRounds} rondas?\\.$`));
   });
 
   it('el bloque de máximos se titula «Máximos de esta ejecución:»', () => {
@@ -128,7 +143,12 @@ describe('§ 5 · copy del modo Apollo con los topes del contrato', () => {
   });
 
   it('§ 5 — advierte que no se garantiza el objetivo ni se relajan filtros', () => {
-    assert.ok(copy.caveats.includes('No se garantiza encontrar diez empresas.'));
+    // § 9 — mismo literal envejecido que el titular: el objetivo por defecto
+    // del contrato es 5, no 10. La frase se compone desde los topes resueltos.
+    assert.ok(
+      copy.caveats.some((caveat) => caveat.startsWith(APOLLO_RUN_MODE_NO_GUARANTEE_PREFIX)),
+      `no hay aviso de no-garantía en: ${copy.caveats.join(' | ')}`,
+    );
     assert.ok(copy.caveats.includes(APOLLO_RUN_MODE_FILTERS_CAVEAT));
     assert.equal(
       APOLLO_RUN_MODE_FILTERS_CAVEAT,

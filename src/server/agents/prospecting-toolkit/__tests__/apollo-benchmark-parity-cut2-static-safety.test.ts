@@ -695,7 +695,14 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
     // siguiente número está libre» se mueve por tanto de la 138 a la 139, y el barrido de
     // AUTORÍA se ENSANCHA de catorce números a quince para incluir la 138. Otra vez más fuerte
     // que antes, no meramente desplazada.
-    assert.equal(migrations.filter((f) => f.startsWith('139')).length, 0);
+    // 🔴 AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET reclamó después la 139: la cola DURABLE de
+    // continuaciones de ronda (`apollo_round_continuation_jobs` + su reclamo atómico), para que
+    // una ronda que se queda sin tiempo de ejecución termine sola en vez de esperar a que
+    // alguien la reanude a mano. El proxy «el siguiente número está libre» se mueve por tanto
+    // de la 139 a la 140, y el barrido de AUTORÍA —lo único que de verdad protege este corte—
+    // se ENSANCHA para incluir la 139. Otra vez más fuerte que antes, no meramente desplazada:
+    // un número libre nunca demostró nada.
+    assert.equal(migrations.filter((f) => f.startsWith('140')).length, 0);
     for (const file of migrations.filter(
       (f) =>
         f.startsWith('124') ||
@@ -712,7 +719,8 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
         f.startsWith('135') ||
         f.startsWith('136') ||
         f.startsWith('137') ||
-        f.startsWith('138'),
+        f.startsWith('138') ||
+        f.startsWith('139'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

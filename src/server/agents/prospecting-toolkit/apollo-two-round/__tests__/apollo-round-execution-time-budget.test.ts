@@ -424,3 +424,70 @@ describe('§ G5 — la parada por tiempo no compra ni evalúa nada de más', () 
     assert.equal(pendingIds.size + telemetry.callsByOrganization.size, 100);
   });
 });
+
+// ── G6 · la aritmética del plazo, comprobada y no razonada ───────────────────
+
+describe('§ G6 — el presupuesto de tiempo CABE en el límite real', () => {
+  test('evaluación + etapas posteriores no superan el límite de invocación', async () => {
+    const {
+      APOLLO_ASSESSMENT_TIME_BUDGET_MS,
+      APOLLO_DOWNSTREAM_STAGES_RESERVE_MS,
+      APOLLO_RUNTIME_INVOCATION_LIMIT_MS,
+    } = await import('../production-runner.server');
+
+    assert.equal(
+      APOLLO_RUNTIME_INVOCATION_LIMIT_MS,
+      PLATFORM_LIMIT_MS,
+      'el límite de la suite y el del runner tienen que ser el mismo número',
+    );
+    assert.ok(
+      APOLLO_ASSESSMENT_TIME_BUDGET_MS + APOLLO_DOWNSTREAM_STAGES_RESERVE_MS <=
+        APOLLO_RUNTIME_INVOCATION_LIMIT_MS,
+      `la evaluación (${APOLLO_ASSESSMENT_TIME_BUDGET_MS} ms) más las etapas posteriores ` +
+        `(${APOLLO_DOWNSTREAM_STAGES_RESERVE_MS} ms) no caben en ${APOLLO_RUNTIME_INVOCATION_LIMIT_MS} ms`,
+    );
+  });
+
+  test('el plazo del conductor también cabe en UNA invocación', async () => {
+    const { APOLLO_CONTINUATION_TIME_BUDGET_MS } = await import('../continuation-worker');
+    const { APOLLO_RUNTIME_INVOCATION_LIMIT_MS } = await import('../production-runner.server');
+
+    assert.ok(
+      APOLLO_CONTINUATION_TIME_BUDGET_MS < APOLLO_RUNTIME_INVOCATION_LIMIT_MS,
+      'el conductor no puede planificar más tiempo del que su propia invocación tiene',
+    );
+  });
+});
+
+// ── G7 · la cascada no se dispara con un conteo provisional ──────────────────
+
+describe('§ G7 — Lusha NO se activa mientras Apollo tenga trabajo pendiente', () => {
+  test('con continuación pendiente la pierna se salta con causa propia', async () => {
+    const { decideLushaWaterfallLeg } = await import(
+      '@/modules/prospect-batches/chat-wizard-execution/wizard-lusha-waterfall'
+    );
+
+    const base = {
+      waterfallEnabled: true,
+      lushaAvailable: true,
+      apolloTerminal: true,
+      target: 5,
+      // Un hueco REAL de 4: sin la guarda, esto autorizaría gasto en Lusha.
+      usefulAccumulated: 1,
+      macroIndustryKey: 'technology',
+      canonicalBatchId: 'batch-a86e3fdd',
+    };
+
+    const paused = decideLushaWaterfallLeg({ ...base, apolloPendingContinuation: true });
+    assert.equal(paused.run, false);
+    assert.equal(
+      paused.run === false ? paused.reason : null,
+      'apollo_pending_continuation',
+      'la causa es propia: no se confunde con una corrida que no llegó a veredicto',
+    );
+
+    // Y sin trabajo pendiente el comportamiento es el de siempre.
+    const settled = decideLushaWaterfallLeg({ ...base, apolloPendingContinuation: false });
+    assert.equal(settled.run, true);
+  });
+});

@@ -908,7 +908,14 @@ describe('CUT-L7 §§ 5, 23, 29, 40, 43 — alcance, fidelidad y cableado', () =
       );
     }
     // Ninguna 139 o superior, se llame como se llame.
-    assert.equal(migrations.filter((f) => /^139_|^1[4-9]\d_/.test(f)).length, 0);
+    // 🔴 AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET reclamó después la 139: la cola DURABLE de
+    // continuaciones de ronda (`apollo_round_continuation_jobs` + su reclamo atómico), para que
+    // una ronda que se queda sin tiempo de ejecución termine sola en vez de esperar a que
+    // alguien la reanude a mano. El proxy «el siguiente número está libre» se mueve por tanto
+    // de la 139 a la 140, y el barrido de AUTORÍA —lo único que de verdad protege este corte—
+    // se ENSANCHA para incluir la 139. Otra vez más fuerte que antes, no meramente desplazada:
+    // un número libre nunca demostró nada.
+    assert.equal(migrations.filter((f) => /^1[4-9]\d_/.test(f)).length, 0);
   });
 
   it('M14 · § 43 · la suite está cableada al check OBLIGATORIO', () => {
