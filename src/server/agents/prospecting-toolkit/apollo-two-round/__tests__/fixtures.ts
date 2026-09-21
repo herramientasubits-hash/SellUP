@@ -17,6 +17,13 @@ import type {
 } from '../orchestrator';
 import type { ApolloTwoRoundRunCorrelation } from '../idempotency';
 import type { ApolloTwoRoundQueryContext } from '../query-hypothesis';
+import {
+  createRunBudgetLedger,
+  reserveOperation,
+  settleOperation,
+  markOperationIndeterminate,
+  remainingCredits,
+} from '../run-budget-ledger';
 
 /** Configuración del contrato: 5 / 2 / 5 / 10 / 2. */
 export function testConfig(
@@ -167,4 +174,53 @@ export function rejectedAssessment(
 ): CheapAssessment {
   const base = passingAssessment();
   return { ...base, rejection, ...overrides };
+}
+
+/**
+ * AGENT1-APOLLO-DURABLE-RUN-BUDGET § 2 — presupuesto de corrida EN MEMORIA.
+ *
+ * El default de producción es fail-closed: sin cliente de Supabase no hay dónde
+ * escribir la reserva, así que no se llama al proveedor. Correcto en producción
+ * —una reserva que no queda durable no es una reserva— y por eso las suites que
+ * corren sin base tienen que traer su propio presupuesto en vez de un doble que
+ * autorice siempre: con el ledger REAL detrás, la prueba sigue midiendo el tope.
+ */
+export function inMemoryRunBudgetDeps(maxCredits: number): {
+  authorizeSpend: (input: {
+    operationId: string;
+    operationKey: 'organizations_search' | 'organization_enrichment';
+    estimatedCredits: number;
+  }) => Promise<{ authorized: boolean; reason?: string; remainingCredits: number }>;
+  settleSpend: (input: {
+    operationId: string;
+    credits: number | null;
+    billingUnknown: boolean;
+  }) => Promise<void>;
+  remaining: () => number;
+} {
+  let ledger = createRunBudgetLedger(maxCredits);
+  return {
+    authorizeSpend: async ({ operationId, operationKey, estimatedCredits }) => {
+      const reservation = reserveOperation(ledger, {
+        operationId,
+        operationKey,
+        estimatedCredits,
+      });
+      if (!reservation.ok) {
+        return {
+          authorized: false,
+          reason: reservation.reason,
+          remainingCredits: reservation.remainingCredits,
+        };
+      }
+      ledger = reservation.ledger;
+      return { authorized: true, remainingCredits: remainingCredits(ledger) };
+    },
+    settleSpend: async ({ operationId, credits, billingUnknown }) => {
+      ledger = billingUnknown
+        ? markOperationIndeterminate(ledger, { operationId, observedCredits: credits })
+        : settleOperation(ledger, { operationId, credits: credits ?? 0 });
+    },
+    remaining: () => remainingCredits(ledger),
+  };
 }

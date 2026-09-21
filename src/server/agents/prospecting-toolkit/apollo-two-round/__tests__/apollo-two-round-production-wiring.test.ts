@@ -41,6 +41,7 @@ import type {
   WebSearchOutput,
   WebSearchResult,
 } from '../../types';
+import { inMemoryRunBudgetDeps } from './fixtures';
 
 // ─── Fixtures de producción ───────────────────────────────────────────────────
 
@@ -203,7 +204,15 @@ function buildDeps(options: {
     savedCheckpoints: [],
   };
 
+  // § 2 — presupuesto de corrida con el ledger REAL detrás. El default de
+  // producción es fail-closed sin cliente de Supabase, así que una suite sin
+  // base tiene que traer el suyo: un doble que autorizara siempre dejaría de
+  // medir el tope.
+  const runBudget = inMemoryRunBudgetDeps(1_000);
+
   const deps: Partial<ApolloTwoRoundProductionDeps> = {
+    authorizeSpend: runBudget.authorizeSpend,
+    settleSpend: runBudget.settleSpend,
     searchApollo: (async (_input: unknown, maxResults: number) => {
       recorder.requestedLimits.push(maxResults);
       const output = options.rounds[recorder.searchCalls] ?? searchOutput([], 0);

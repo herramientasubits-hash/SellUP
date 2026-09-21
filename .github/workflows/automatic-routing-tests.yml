@@ -5874,3 +5874,33 @@ jobs:
       # 0 escrituras en Produccion - 0 migraciones aplicadas - 0 cambios de bandera.
       - name: Run Agent 1 Apollo continuation completes tests
         run: npm run test:a1-apollo-continuation-completes
+
+      # AGENT1-APOLLO-DURABLE-RUN-BUDGET: el tope de la corrida es una RESERVA
+      # previa y acumulada, no un recuento posterior.
+      #
+      #   1. reproduccion del defecto con la aritmetica real del control
+      #      anterior: una operacion indeterminada liberaba presupuesto y cada
+      #      invocacion reiniciaba el maximo;
+      #   2. la correccion: se reserva antes de llamar, lo que no cabe no se
+      #      llama, el reintento es idempotente y liquidar solo puede devolver.
+      #
+      # 0 llamadas a Apollo - 0 a Lusha - 0 creditos - 0 Supabase real -
+      # 0 escrituras en Produccion - 0 migraciones aplicadas - 0 cambios de bandera.
+      - name: Run Agent 1 Apollo durable run budget tests
+        run: npm run test:a1-apollo-durable-run-budget
+
+      # AGENT1-APOLLO-CONTINUATION-POSTGRES: la mitad que una prueba en memoria
+      # NO puede cubrir. Levanta un PostgreSQL DESECHABLE (embedded), aplica la
+      # migracion 139 VERBATIM con sus dependencias minimas y ejercita el SQL
+      # real: recuperacion por lease vencido, vallado por token, indice unico
+      # parcial, FOR UPDATE SKIP LOCKED con dos conexiones, permisos por rol y
+      # el CAS del presupuesto durable con dos ejecutores compitiendo.
+      #
+      # SELLUP_REQUIRE_POSTGRES_HARNESS=1 convierte el salto del arnes en FALLO:
+      # sin esa variable, un `npm install` incompleto dejaria el paso verde sin
+      # haber probado nada.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 Supabase real -
+      # 0 escrituras en Produccion - 0 migraciones aplicadas en Produccion.
+      - name: Run Agent 1 Apollo continuation Postgres verification
+        run: npm run test:a1-apollo-continuation-postgres
