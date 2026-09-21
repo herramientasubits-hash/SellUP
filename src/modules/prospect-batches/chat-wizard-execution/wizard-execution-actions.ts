@@ -1883,6 +1883,19 @@ export async function executeProspectWizardGeneration(
 
   // 11. Execute discovery pipeline (Tavily or Apollo) using the reserved batchId as anchor
   const reservedBatchId = reservation.batchId;
+  /**
+   * AGENT1-APOLLO-CONTINUATION-COMPLETES § 4 — la macro de la corrida, resuelta
+   * UNA vez.
+   *
+   * La política congelada que viaja con la continuación y la pierna Lusha
+   * necesitan la MISMA macro; resolverla dos veces abriría exactamente la
+   * divergencia que la autoridad única existe para cerrar, y añadiría un
+   * call-site que el trinquete de esta cadena vigila.
+   */
+  const macroIndustryKeyForRun = resolveMacroIndustryKey({
+    slug: catalogResolution.industry.slug,
+    displayName: catalogResolution.industry.name,
+  });
   runCorrelation = withResolvedIds(runCorrelation, { batchId: reservedBatchId });
   let pipelineResult: IncrementalSearchOutput;
   try {
@@ -1908,10 +1921,7 @@ export async function executeProspectWizardGeneration(
           lushaAvailableAtRunStart: isLushaPreviewEnabled(),
           target: WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
           countryCode: req.countryCode,
-          macroIndustryKey: resolveMacroIndustryKey({
-            slug: catalogResolution.industry.slug,
-            displayName: catalogResolution.industry.name,
-          }),
+          macroIndustryKey: macroIndustryKeyForRun,
           subIndustryId: null,
           requestedSubindustries: catalogResolution.subindustries.map((s) => s.name),
           wizardClientRequestId: req.clientRequestId,
@@ -2136,10 +2146,7 @@ export async function executeProspectWizardGeneration(
         // un slug publicado que no casaba dejaba `null` aquí y la pierna se
         // saltaba con `macro_industry_unmapped`, aunque Apollo —que resuelve por
         // nombre visible— hubiera encontrado la macro en la MISMA corrida.
-        macroIndustryKey: resolveMacroIndustryKey({
-          slug: catalogResolution.industry.slug,
-          displayName: catalogResolution.industry.name,
-        }),
+        macroIndustryKey: macroIndustryKeyForRun,
         subIndustryId: null,
         // 🔴 X6.12 — los criterios ORIGINALES de la corrida llegan a la
         // aceptación de la pierna. `subIndustryId` sigue en `null` a propósito:

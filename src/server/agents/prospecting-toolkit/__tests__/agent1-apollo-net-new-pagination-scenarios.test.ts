@@ -268,13 +268,20 @@ function candidateWithMatches(
   } as unknown as ProspectingPipelineCandidate;
 }
 
+/**
+ * 🔴 AGENT1-APOLLO-CONTINUATION-COMPLETES § 2 — el veredicto gana
+ * `duplicateCheckDegraded`. Un tope que salta en la comprobación de duplicados
+ * deja la lista de coincidencias VACÍA, y leerla sola convertía «no pude mirar»
+ * en «miré y no hay nada». En todos estos escenarios la comprobación es SANA,
+ * así que el campo es `false` y ningún veredicto cambia.
+ */
 describe('Scenario F — same name, conflicting domains, does not hard-block', () => {
   it('normalized_name + country exact (88) NO es bloqueo duro Apollo', () => {
     const candidate = candidateWithMatches([
       { source: 'sellup', status: 'existing_in_sellup', confidence: 88 },
     ]);
     const verdict = readDuplicateVerdict(candidate);
-    assert.deepEqual(verdict, { sellUpDuplicate: false, hubSpotDuplicate: false });
+    assert.deepEqual(verdict, { sellUpDuplicate: false, hubSpotDuplicate: false, duplicateCheckDegraded: false });
   });
 });
 
@@ -284,7 +291,7 @@ describe('Scenario G — name-only match stays diagnostic, never a hard rejectio
       { source: 'hubspot', status: 'possible_duplicate', confidence: 65 },
     ]);
     const verdict = readDuplicateVerdict(candidate);
-    assert.deepEqual(verdict, { sellUpDuplicate: false, hubSpotDuplicate: false });
+    assert.deepEqual(verdict, { sellUpDuplicate: false, hubSpotDuplicate: false, duplicateCheckDegraded: false });
   });
 
   it('un match de DOMINIO exacto SÍ sigue siendo un bloqueo duro Apollo', () => {
@@ -292,7 +299,7 @@ describe('Scenario G — name-only match stays diagnostic, never a hard rejectio
       { source: 'sellup', status: 'existing_in_sellup', confidence: 95 },
     ]);
     const verdict = readDuplicateVerdict(candidate);
-    assert.deepEqual(verdict, { sellUpDuplicate: true, hubSpotDuplicate: false });
+    assert.deepEqual(verdict, { sellUpDuplicate: true, hubSpotDuplicate: false, duplicateCheckDegraded: false });
   });
 });
 
