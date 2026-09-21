@@ -53,6 +53,11 @@ import { mapEmployeeThresholdToApolloRanges } from '../apollo-organizations-quer
 import { getCatalogContext } from '../catalog-context-retriever';
 import type { ApolloContinuationRunPolicy } from './continuation-worker';
 import {
+  authorizeRunBudgetSpend,
+  settleRunBudgetSpend,
+  markRunBudgetSpendIndeterminate,
+} from './run-budget.server';
+import {
   createRunDeadline,
   downstreamReserveMs,
   ASSESSMENT_WAVE_WORST_CASE_MS,
@@ -481,6 +486,15 @@ const MAX_STALE_RESOLUTION_ATTEMPTS = 3;
  */
 export const APOLLO_ASSESSMENT_CONCURRENCY = 8;
 
+/**
+ * AGENT1-APOLLO-DURABLE-RUN-BUDGET § 1 — la corrida paró porque el coste de la
+ * siguiente operación NO cabía en el máximo durable.
+ *
+ * Es una parada CORRECTA, no un fallo: significa que el tope funcionó ANTES de
+ * llamar al proveedor.
+ */
+export const RUN_BUDGET_EXHAUSTED = 'APOLLO_RUN_BUDGET_EXHAUSTED';
+
 // ─── Dependencias (inyectables sólo para tests) ───────────────────────────────
 
 export type ApolloTwoRoundProductionDeps = {
@@ -495,6 +509,24 @@ export type ApolloTwoRoundProductionDeps = {
    * Inyectable para que la suite pruebe el encolado sin base de datos. En
    * producción cae a `enqueueApolloRoundContinuation`.
    */
+  /**
+   * § 1 — reserva durable del coste de UNA operación cobrable.
+   *
+   * Inyectable para que la suite reproduzca el defecto y pruebe la corrección
+   * sin base de datos. En producción cae al presupuesto durable del lote.
+   */
+  authorizeSpend: (input: {
+    operationId: string;
+    operationKey: 'organizations_search' | 'organization_enrichment';
+    estimatedCredits: number;
+  }) => Promise<{ authorized: boolean; reason?: string; remainingCredits: number }>;
+  /** § 1 — liquida con el coste real, o marca el cobro como indeterminado. */
+  settleSpend: (input: {
+    operationId: string;
+    credits: number | null;
+    billingUnknown: boolean;
+  }) => Promise<void>;
+
   enqueueContinuation: (input: {
     batchId: string;
     wizardRunId: string;
@@ -904,6 +936,14 @@ export type ApolloTwoRoundWizardRunOutcome = IncrementalSearchOutput & {
    * parada definitiva.
    */
   assessmentDeadlineReached?: boolean;
+  /**
+   * AGENT1-APOLLO-DURABLE-RUN-BUDGET § 1 — la corrida paró porque el coste de
+   * la siguiente operación no cabía en el máximo durable.
+   *
+   * Es una parada CORRECTA, no un vacío: distinguirla es lo que impide leer
+   * «0 candidatos» como agotamiento del universo.
+   */
+  runBudgetStopped?: boolean;
   /** Organizaciones que siguen pendientes de evaluar tras esta invocación. */
   pendingOrganizationCount?: number;
   /** `true` ⇒ la continuación quedó encolada en la cola durable. */
@@ -926,6 +966,39 @@ export async function runApolloTwoRoundWizardDiscovery(
     searchApollo: runApolloOrganizationsSearch,
     buildCandidate: buildProspectingPipelineCandidate,
     now: () => Date.now(),
+
+    // § 1 — el presupuesto DURABLE del lote. La identidad sale del `input`, que
+    // es lo que ata el documento a ESTA corrida y no a otra del mismo lote.
+    authorizeSpend: async (spend) =>
+      authorizeRunBudgetSpend(
+        input.reservedBatchId,
+        {
+          idempotencyKey: input.correlation.idempotencyKey,
+          requestFingerprint: input.correlation.requestFingerprint,
+        },
+        { ...spend, maxCredits: input.reservedCredits },
+      ),
+
+    settleSpend: async ({ operationId, credits, billingUnknown }) => {
+      const identity = {
+        idempotencyKey: input.correlation.idempotencyKey,
+        requestFingerprint: input.correlation.requestFingerprint,
+      };
+      if (billingUnknown) {
+        await markRunBudgetSpendIndeterminate(
+          input.reservedBatchId,
+          identity,
+          { operationId, observedCredits: credits, maxCredits: input.reservedCredits },
+        );
+        return;
+      }
+      await settleRunBudgetSpend(
+        input.reservedBatchId,
+        identity,
+        { operationId, credits: credits ?? 0, maxCredits: input.reservedCredits },
+      );
+    },
+
     enqueueContinuation: async (payload) => {
       const { enqueueApolloRoundContinuation } = await import('./continuation-worker.server');
       return enqueueApolloRoundContinuation(payload);
@@ -1023,6 +1096,13 @@ export async function runApolloTwoRoundWizardDiscovery(
    * el enrichment; las dos cuentan su peor caso y respetan el margen de salida.
    */
   const runDeadline = createRunDeadline({ now: deps.now, startedAtMs: runStartedAtMs });
+
+  /**
+   * § 1 — la corrida se detuvo porque el coste de la siguiente operación no
+   * cabía en el máximo durable. Viaja al resultado para que la parada sea
+   * LEGIBLE y no se confunda con «no había candidatos».
+   */
+  let runBudgetStopped = false;
 
   const config = deps.resolveConfig();
   const budget = estimateApolloTwoRoundBudget(config);
@@ -1977,6 +2057,27 @@ export async function runApolloTwoRoundWizardDiscovery(
         durableResume,
         durablePageFence: {
           beforeRequest: async ({ page, requestFingerprint }) => {
+            // AGENT1-APOLLO-DURABLE-RUN-BUDGET § 1 — se RESERVA el coste de esta
+            // página contra el máximo durable de la corrida ORIGINAL, y sólo si
+            // la reserva queda escrita sale la petición.
+            //
+            // Apollo cobra POR PÁGINA, así que la unidad de reserva es la
+            // página: comprobar por ronda dejaría que la página que cruza el
+            // límite se pidiera igual.
+            const pageAuthorization = await deps.authorizeSpend({
+              operationId: `${fenceIdentity.idempotencyKey}:search:${roundNumber}:${page}`,
+              operationKey: 'organizations_search',
+              estimatedCredits: 1,
+            });
+            if (!pageAuthorization.authorized) {
+              // LANZAR es lo que detiene la paginación sin emitir la petición:
+              // el motor registra la página como `not_charged` y para.
+              throw new Error(
+                `${RUN_BUDGET_EXHAUSTED}: page=${page} reason=${pageAuthorization.reason} ` +
+                  `remaining=${pageAuthorization.remainingCredits}`,
+              );
+            }
+
             const outcome = await deps.writePageFenceEntry(input.reservedBatchId, fenceIdentity, {
               round_number: roundNumber,
               search_plan_fingerprint: requestFingerprint,
@@ -2011,6 +2112,13 @@ export async function runApolloTwoRoundWizardDiscovery(
             totalPages,
             acceptedCount,
           }) => {
+            // § 1 — la página salió y cobró: se LIQUIDA con su coste real.
+            await deps.settleSpend({
+              operationId: `${fenceIdentity.idempotencyKey}:search:${roundNumber}:${page}`,
+              credits,
+              billingUnknown: false,
+            });
+
             const outcome = await deps.writePageFenceEntry(input.reservedBatchId, fenceIdentity, {
               round_number: roundNumber,
               search_plan_fingerprint: requestFingerprint,
@@ -2033,6 +2141,13 @@ export async function runApolloTwoRoundWizardDiscovery(
             }
           },
           onIndeterminate: async ({ page, requestFingerprint }) => {
+            // § 1 — cobro SIN confirmar: la reserva se conserva. No liberar es
+            // la única lectura honesta de «pudo cobrar y no lo sé».
+            await deps.settleSpend({
+              operationId: `${fenceIdentity.idempotencyKey}:search:${roundNumber}:${page}`,
+              credits: null,
+              billingUnknown: true,
+            });
             await deps.writePageFenceEntry(input.reservedBatchId, fenceIdentity, {
               round_number: roundNumber,
               search_plan_fingerprint: requestFingerprint,
@@ -2395,6 +2510,23 @@ export async function runApolloTwoRoundWizardDiscovery(
       // Un solo enrichment: la lista que se le pasa al cascade tiene UN
       // elemento y el cap es 1. El presupuesto global lo gobierna el
       // orquestador, no este cap por llamada.
+      // AGENT1-APOLLO-DURABLE-RUN-BUDGET § 1 — se RESERVA el enrichment ANTES de
+      // comprarlo, contra el mismo máximo durable que gobierna las páginas.
+      //
+      // `operationContext.operationId` es la clave de idempotencia de ESTA
+      // operación, así que un reintento del mismo enrichment no reserva dos
+      // veces por un solo cargo posible.
+      const enrichmentSpendId = operationContext.operationId;
+      const enrichmentAuthorization = await deps.authorizeSpend({
+        operationId: enrichmentSpendId,
+        operationKey: 'organization_enrichment',
+        estimatedCredits: 1,
+      });
+      if (!enrichmentAuthorization.authorized) {
+        runBudgetStopped = true;
+        return notExecuted('budget_exhausted');
+      }
+
       purchaseTrace.cascadeInvoked = true;
       const cascade = await deps.enrichCascade(
         [result],
@@ -2616,6 +2748,15 @@ export async function runApolloTwoRoundWizardDiscovery(
           : refreshed?.duplicate.hubSpotDuplicate === true
             ? 'duplicate_in_hubspot'
             : null;
+
+      // § 1 — se LIQUIDA el enrichment con su coste real. `no_match` no cobra,
+      // así que liquidar a 0 devuelve el crédito reservado al remanente: el tope
+      // sólo se consume con lo que de verdad costó.
+      await deps.settleSpend({
+        operationId: enrichmentSpendId,
+        credits,
+        billingUnknown: false,
+      });
 
       recordEnrichmentSnapshot({
         enrichmentSnapshots,
@@ -3414,6 +3555,7 @@ export async function runApolloTwoRoundWizardDiscovery(
     targetPersistibleCandidates: config.targetEligibleCompanies,
     // AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET §§ 4, 7 — pausa recuperable.
     assessmentDeadlineReached: runResult.assessmentDeadlineReached,
+    runBudgetStopped,
     pendingOrganizationCount: pendingOrganizationCount,
     ...(continuationEnqueued !== null ? { continuationEnqueued } : {}),
     ...(budgetAnomalies.length > 0 ? { budgetAnomalies } : {}),

@@ -51,6 +51,14 @@ import type {
   WebSearchOutput,
   WebSearchResult,
 } from '../../types';
+import { inMemoryRunBudgetDeps } from './fixtures';
+
+  // AGENT1-APOLLO-DURABLE-RUN-BUDGET § 2 — presupuesto de corrida con el ledger
+  // REAL detrás. El default de producción es fail-closed sin cliente de
+  // Supabase: una reserva que no queda durable no es una reserva. Una suite sin
+  // base tiene que traer el suyo; un doble que autorizara siempre dejaría de
+  // medir el tope.
+const runBudgetFixture = inMemoryRunBudgetDeps(1_000);
 
 /**
  * 🔴 AGENT1-OWNERSHIP-PRE-ENRICHMENT-X6.3 — cuántos de los cinco que la
@@ -245,6 +253,8 @@ function buildDeps(
   let searchCalls = 0;
 
   const deps: Partial<ApolloTwoRoundProductionDeps> = {
+    authorizeSpend: runBudgetFixture.authorizeSpend,
+    settleSpend: runBudgetFixture.settleSpend,
     searchApollo: (async () => {
       const output = rounds[searchCalls] ?? searchOutput([]);
       searchCalls++;
@@ -385,6 +395,8 @@ describe('§ 13 · REGRESIÓN `74a49b01` — 5 seleccionados, 0 ejecutados', () 
     // `sectorEvidenceBootstrap`, exactamente como en la corrida live.
     const { deps, recorder } = buildDeps();
     const stripped: Partial<ApolloTwoRoundProductionDeps> = {
+    authorizeSpend: runBudgetFixture.authorizeSpend,
+    settleSpend: runBudgetFixture.settleSpend,
       ...deps,
       enrichCascade: (async (
         results: WebSearchResult[],
@@ -675,6 +687,8 @@ describe('§ 9 · bootstrap → compra → precisión → admisión #276', () =>
       rounds: [searchOutput(CONTROLLED_ORGS.map(controlledResult))],
     });
     const controlled: Partial<ApolloTwoRoundProductionDeps> = {
+    authorizeSpend: runBudgetFixture.authorizeSpend,
+    settleSpend: runBudgetFixture.settleSpend,
       ...deps,
       enrichOrganization: (async ({ domain }: { domain: string }) => {
         recorder.enrichOrganizationCalls.push(domain);

@@ -73,6 +73,14 @@ import { mergeApolloPageFenceEntries, type ApolloPageFenceEntry } from '../page-
 import type { NoveltyIndex } from '../../novelty-checker';
 import type { HistoricalCandidateRow } from '../../apollo-prepaid-historical-parity';
 import type { ProspectingPipelineCandidate, WebSearchResult } from '../../types';
+import { inMemoryRunBudgetDeps } from './fixtures';
+
+  // AGENT1-APOLLO-DURABLE-RUN-BUDGET § 2 — presupuesto de corrida con el ledger
+  // REAL detrás. El default de producción es fail-closed sin cliente de
+  // Supabase: una reserva que no queda durable no es una reserva. Una suite sin
+  // base tiene que traer el suyo; un doble que autorizara siempre dejaría de
+  // medir el tope.
+const runBudgetFixture = inMemoryRunBudgetDeps(1_000);
 
 // ─── Entorno ────────────────────────────────────────────────────────────────
 //
@@ -443,6 +451,8 @@ function buildDeps(options: {
     buildFakePageFenceStore(options.pageFenceStore);
 
   const deps: Partial<ApolloTwoRoundProductionDeps> = {
+    authorizeSpend: runBudgetFixture.authorizeSpend,
+    settleSpend: runBudgetFixture.settleSpend,
     searchApollo,
     loadPrepaidHistoricalIndex,
     readPageFenceEntries,
