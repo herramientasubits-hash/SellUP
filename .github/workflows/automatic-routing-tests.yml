@@ -5925,3 +5925,28 @@ jobs:
       # 0 escrituras en Produccion - 0 migraciones aplicadas - 0 cambios de bandera.
       - name: Run Agent 1 Apollo continuation wizard wiring tests
         run: npm run test:a1-apollo-continuation-wizard-wiring
+
+      # AGENT1-MACRO-EVIDENCE-CONJUNCTION-1 + AGENT1-SIZE-EVIDENCE-PARITY-1: los
+      # dos defectos de ACEPTACION que el lote 52b22335 dejo medidos (60
+      # persistidas, 0 aceptadas).
+      #
+      #   1. `&` y `and` son la misma conjuncion. Apollo declara su taxonomia con
+      #      ampersand (`information technology & services`) y el catalogo macro
+      #      escribia unas entradas con `&` y otras con `and`, asi que no
+      #      coincidian nunca. Corta en las DOS direcciones: cuatro de los trece
+      #      terminos afectados son EXCLUSIONES, y una exclusion que no coincide
+      #      no rechaza a quien debia rechazar;
+      #   2. el tamano acreditado por una fuente que el gate ICP YA admite
+      #      (HubSpot) cuenta para la completitud, con el mismo umbral y la misma
+      #      procedencia. Confirmado por debajo del umbral sigue sin pasar, y
+      #      desconocido sigue sin completar.
+      #
+      # Mas la no-regresion de lo que NO es defecto: `quality_gate` (evidencia de
+      # pais debil, X6.2-A) sigue bloqueando, `business_fit` sigue siendo
+      # observacion pura, y la subindustria pedida conserva su exigencia
+      # independiente.
+      #
+      # 0 llamadas a Apollo - 0 a Lusha - 0 creditos - 0 Supabase real -
+      # 0 escrituras en Produccion - 0 migraciones aplicadas - 0 cambios de bandera.
+      - name: Run Agent 1 acceptance evidence parity tests
+        run: npm run test:a1-acceptance-evidence-parity
