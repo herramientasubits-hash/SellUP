@@ -81,7 +81,82 @@ export type FreeCandidateSignals = {
    * significa «no se observó contradicción», no «hay contradicción».
    */
   declaredSectorContradiction?: boolean;
+
+  /**
+   * AGENT1-ENRICHMENT-SELECTION-TARGET-VALUE-1 — el veredicto de CALIDAD que el
+   * runner ya calcula gratis para este mismo candidato con
+   * `evaluateApolloPreWriterQualityGateForCandidate`, que es el que alimentará
+   * `quality_gate` del contrato canónico.
+   *
+   * No es una segunda autoridad: es la MISMA, leída antes de pagar en vez de
+   * después. Y no se usa para rechazar al candidato —el writer lo persistirá
+   * igual como revisión incompleta— sino para responder la pregunta que
+   * `expectedTargetValue` ya promete responder: si resolver lo pendiente puede
+   * hacer que cuente hacia el objetivo.
+   *
+   * Opcional: ausente ⇒ comportamiento EXACTO anterior a este hito. Un
+   * checkpoint escrito antes no lo trae, y su ausencia significa «no se
+   * observó», nunca «falla». `unknown` es un tercer valor real del gate y vale
+   * lo mismo que ausente: sólo un `fail` explícito puede descalificar un gasto.
+   */
+  qualityGateVerdict?: 'pass' | 'fail' | 'unknown';
+  /**
+   * El motivo del `fail`, tal cual lo emite el gate de calidad. Es lo que separa
+   * un bloqueo irrecuperable de evidencia pendiente que la compra SÍ resuelve
+   * (ver `isQualityBlockRecoverableByEnrichment`). Sin motivo no se descalifica.
+   */
+  qualityGateBlockingReason?: string | null;
 };
+
+// ─── Recuperabilidad de un bloqueo de calidad ─────────────────────────────────
+
+/**
+ * ¿Puede `organization_enrichment` cambiar ESTE `quality_gate: fail`?
+ *
+ * AGENT1-ENRICHMENT-SELECTION-TARGET-VALUE-1. La pregunta se responde con lo que
+ * se sabe ANTES de llamar, nunca con lo que pasó después. `evaluateApolloPreWriterQualityGate`
+ * sólo tiene dos ramas de fallo, y se comportan al revés la una de la otra:
+ *
+ * `icp_size_below_threshold` — 🟢 RECUPERABLE.
+ *   El tamaño se resuelve con `resolveEmployeeSizeForIcpGate`, donde
+ *   `richProfileSize` —el del perfil COMPRADO— tiene la prioridad MÁXIMA, por
+ *   encima de `candidate_company_size` y de HubSpot. Un crédito puede sustituir
+ *   el valor que hoy bloquea y subir a la empresa por encima del umbral. El
+ *   evaluador previo al writer lo calcula a propósito con `richProfileSize: null`,
+ *   así que su `fail` es la proyección conservadora, no la última palabra.
+ *
+ * `evidence_policy:*` (evidencia de país) — 🔴 NO RECUPERABLE.
+ *   `evaluateCountryEvidence` lee exactamente cinco entradas: `website`,
+ *   `domain`, `sourceSnippet`, `sourceTitle` y `queryText`. Las cuatro primeras
+ *   vienen del resultado de BÚSQUEDA y la quinta de la consulta. El enrichment
+ *   no toca ninguna:
+ *
+ *     · `mergeEnrichmentIntoResult` escribe SÓLO dentro de `apollo_profile`, y
+ *       dentro de él sólo rellena claves VACÍAS
+ *       (`oldVal === null || undefined || array vacío`). `metadata.domain` y
+ *       `metadata.website`, que es de donde salen el dominio y el sitio del
+ *       candidato, no están en su lista y no se reescriben nunca;
+ *     · aunque lo estuvieran: para competir por un enrichment el candidato tiene
+ *       que traer `domainConfident`, es decir un dominio ya presente y válido —
+ *       la comprobación está DELANTE de ésta en `disqualifyCategorically`. Un
+ *       valor que ya existe no es una clave vacía, así que la mezcla no lo
+ *       sustituiría ni en esa lista;
+ *     · el runner sólo reconstruye el candidato `if (domainChanged)`, y sin
+ *       cambio de dominio ni siquiera vuelve a evaluar la evidencia de país.
+ *
+ *   El camino de reconstrucción por cambio de dominio EXISTE y está comprobado;
+ *   lo que no existe es la forma de llegar a él desde un candidato elegible.
+ *
+ * Fail-OPEN ante lo desconocido: un motivo nuevo, o ausente, se trata como
+ * recuperable. Un gate que aprenda a fallar por una razón nueva no debe empezar
+ * a cancelar compras en silencio; que lo decida quien añada la razón.
+ */
+export function isQualityBlockRecoverableByEnrichment(
+  blockingReason: string | null | undefined,
+): boolean {
+  if (typeof blockingReason !== 'string' || blockingReason.trim() === '') return true;
+  return !blockingReason.startsWith('evidence_policy:');
+}
 
 // ─── Pesos ────────────────────────────────────────────────────────────────────
 
@@ -171,6 +246,13 @@ export type EnrichmentSkippedReason =
   | 'cooldown_active'
   | 'country_incompatible'
   | 'domain_not_confident'
+  /**
+   * AGENT1-ENRICHMENT-SELECTION-TARGET-VALUE-1 — el candidato ya NO puede contar
+   * hacia el objetivo, y la compra no puede cambiarlo. No es un rechazo de la
+   * empresa: el writer la persistirá igual como revisión incompleta. Es un
+   * rechazo del GASTO.
+   */
+  | 'target_acceptance_irrecoverable'
   | 'target_already_reached'
   | 'enrichment_cap_reached'
   /**
@@ -306,6 +388,20 @@ export function evaluateApolloEnrichmentNeed(
     if (candidate.cooldownActive) return 'cooldown_active';
     if (!candidate.countryCompatible) return 'country_incompatible';
     if (!candidate.domainConfident) return 'domain_not_confident';
+    // AGENT1-ENRICHMENT-SELECTION-TARGET-VALUE-1 — DESPUÉS de `domainConfident`,
+    // y no por orden estético: la irrecuperabilidad de la evidencia de país se
+    // apoya en que el candidato YA tiene dominio (ver
+    // `isQualityBlockRecoverableByEnrichment`). Delante de esa comprobación, la
+    // premisa no estaría garantizada.
+    //
+    // Un `fail` recuperable NO descalifica: es evidencia pendiente que el
+    // crédito puede resolver, que es exactamente lo que un enrichment compra.
+    if (
+      candidate.qualityGateVerdict === 'fail' &&
+      !isQualityBlockRecoverableByEnrichment(candidate.qualityGateBlockingReason)
+    ) {
+      return 'target_acceptance_irrecoverable';
+    }
     // § 7 — una contradicción VISIBLE en campos gratuitos impide el enrichment,
     // aunque el veredicto sectorial todavía diga «falta evidencia». Comprar la
     // descripción de un banco no lo convierte en supermercado.
