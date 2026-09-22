@@ -2360,8 +2360,26 @@ export async function runApolloTwoRoundWizardDiscovery(
       );
       const historicallyKnown = prepaidHistory.alreadyKnown;
 
+      /**
+       * AGENT1-ENRICHMENT-SELECTION-TARGET-VALUE-1 — el veredicto de calidad,
+       * aquí, donde todavía es gratis.
+       *
+       * Es LA MISMA llamada que `readContractConditions` hace más abajo para
+       * proyectar `quality_gate`; lo único que cambia es el momento. Sin esto,
+       * la selección de enrichment decidía a quién pagar sin mirar una condición
+       * que el propio runner ya sabía calcular: en el lote `52b22335`, tres de
+       * los cinco créditos fueron a candidatas cuya evidencia de país ya era
+       * débil, y ningún perfil comprado podía cambiarlo.
+       */
+      const preWriterQuality = evaluateApolloPreWriterQualityGateForCandidate(built.candidate, {
+        targetCountryCode: input.countryCode,
+        subindustries: input.subindustries,
+      });
+
       const signals: CheapAssessment['signals'] = {
         countryCompatible: eligibility.eligible || eligibility.skipReason !== 'country_mismatch',
+        qualityGateVerdict: preWriterQuality.verdict,
+        qualityGateBlockingReason: preWriterQuality.blockingReason,
         domainConfident: identity.normalizedDomain !== null,
         ownershipConfident: eligibility.eligible && eligibility.domainSource === 'asserted',
         sectorKeywordMatchCount: sector.matchedTerms.length,
