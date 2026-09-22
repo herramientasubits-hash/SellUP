@@ -5926,9 +5926,9 @@ jobs:
       - name: Run Agent 1 Apollo continuation wizard wiring tests
         run: npm run test:a1-apollo-continuation-wizard-wiring
 
-      # AGENT1-MACRO-EVIDENCE-CONJUNCTION-1 + AGENT1-SIZE-EVIDENCE-PARITY-1: los
-      # dos defectos de ACEPTACION que el lote 52b22335 dejo medidos (60
-      # persistidas, 0 aceptadas).
+      # AGENT1-MACRO-EVIDENCE-CONJUNCTION-1 + AGENT1-SIZE-EVIDENCE-PARITY-1 +
+      # AGENT1-ENRICHMENT-SELECTION-TARGET-VALUE-1: los tres defectos que el lote
+      # 52b22335 dejo medidos (60 persistidas, 0 aceptadas, 5 creditos gastados).
       #
       #   1. `&` y `and` son la misma conjuncion. Apollo declara su taxonomia con
       #      ampersand (`information technology & services`) y el catalogo macro
@@ -5939,7 +5939,16 @@ jobs:
       #   2. el tamano acreditado por una fuente que el gate ICP YA admite
       #      (HubSpot) cuenta para la completitud, con el mismo umbral y la misma
       #      procedencia. Confirmado por debajo del umbral sigue sin pasar, y
-      #      desconocido sigue sin completar.
+      #      desconocido sigue sin completar;
+      #   3. la seleccion de enrichment lee el veredicto de calidad que el propio
+      #      runner ya calculaba gratis unas lineas antes. Tres de los cinco
+      #      creditos fueron a filas cuya evidencia de pais ya era debil. NO
+      #      convierte cualquier `quality_gate: fail` en rechazo: la evidencia de
+      #      pais es irrecuperable (la mezcla del enrichment solo rellena claves
+      #      vacias, y un candidato elegible ya trae dominio), mientras que el
+      #      tamano bajo umbral SI es recuperable porque el perfil comprado tiene
+      #      prioridad maxima en el resolutor de tamano. Fail-open ante un motivo
+      #      desconocido.
       #
       # Mas la no-regresion de lo que NO es defecto: `quality_gate` (evidencia de
       # pais debil, X6.2-A) sigue bloqueando, `business_fit` sigue siendo

@@ -1,17 +1,22 @@
 /**
- * agent1-acceptance-evidence-parity-1.test.ts — los DOS defectos de aceptación
+ * agent1-acceptance-evidence-parity-1.test.ts — los TRES defectos de aceptación
  * que el lote `52b22335` dejó medidos.
  *
- * AGENT1-MACRO-EVIDENCE-CONJUNCTION-1 · AGENT1-SIZE-EVIDENCE-PARITY-1.
+ * AGENT1-MACRO-EVIDENCE-CONJUNCTION-1 · AGENT1-SIZE-EVIDENCE-PARITY-1 ·
+ * AGENT1-ENRICHMENT-SELECTION-TARGET-VALUE-1.
  *
  * Contexto medido (no hipotético): de 60 candidatas persistidas, CERO contaron
  * hacia el objetivo. El desglose por condición del propio lote —
  * `failed_condition_counts` — decía `subindustry_match: 60`,
- * `employee_count_status: 55`, `quality_gate: 31`, `duplicate_status: 6`.
+ * `employee_count_status: 55`, `quality_gate: 31`, `duplicate_status: 6`. Y de
+ * los 5 créditos de enrichment, 3 se gastaron en candidatas que ese mismo
+ * `quality_gate` ya había bloqueado ANTES de pagar.
  *
- * Aquí se fijan las dos causas que SÍ eran defectos. Lo que NO se toca, y tiene
- * su propia prueba de no-regresión abajo: `quality_gate`, que bloqueó por
- * evidencia de país DÉBIL (X6.2-A) y es un filtro legítimo.
+ * Lo que NO se toca, y tiene su propia prueba de no-regresión abajo: el filtro
+ * de `quality_gate` en sí, que bloquea por evidencia de país DÉBIL (X6.2-A) y es
+ * legítimo. Lo que cambia es que su veredicto, ya calculado y gratis, deja de
+ * ignorarse a la hora de decidir a quién se le compra un perfil — distinguiendo
+ * el bloqueo irrecuperable de la evidencia pendiente que la compra sí resuelve.
  *
  * LIVE_APOLLO_CALLS = 0 · APOLLO_CREDITS_USED = 0 · PRODUCTION_WRITES = 0
  */
@@ -21,6 +26,12 @@ import assert from 'node:assert/strict';
 import { assessMacroIndustryEvidence } from '../apollo-macro-industry-evidence';
 import { evaluateCandidateSubindustryTargetEligibility } from '../candidate-completeness-contract';
 import { normalizeMacroIndustryLabel } from '@/modules/macro-industry-catalog/macro-industries';
+import {
+  evaluateApolloEnrichmentNeed,
+  isQualityBlockRecoverableByEnrichment,
+  selectCandidatesForEnrichment,
+  type FreeCandidateSignals,
+} from '../apollo-two-round/enrichment-ranking';
 import type { WebSearchResult } from '../types';
 import type { CompanyFieldMappingStatus } from '../apollo-company-fields-mapping';
 
@@ -243,5 +254,159 @@ describe('§ 3 — lo que se conserva intacto', () => {
     });
     assert.ok(result.blockingReasons.includes('subindustry_match'));
     assert.equal(result.completeValid, false);
+  });
+});
+
+// ═══ AGENT1-ENRICHMENT-SELECTION-TARGET-VALUE-1 ═══════════════════════════════
+//
+// El tercer defecto del mismo lote: 3 de los 5 créditos fueron a candidatas cuya
+// evidencia de país ya era débil — `quality_gate: fail` — y ningún perfil
+// comprado podía cambiarlo. El veredicto lo calculaba el propio runner, gratis,
+// unas líneas más arriba; la selección no lo miraba.
+
+/** Candidato con TODO en orden salvo lo que cada prueba cambie. */
+function poolCandidate(overrides: Partial<FreeCandidateSignals> = {}): FreeCandidateSignals {
+  return {
+    candidateKey: 'apollo:x',
+    roundNumber: 1,
+    providerRank: 1,
+    countryCompatible: true,
+    domainConfident: true,
+    ownershipConfident: true,
+    sectorKeywordMatchCount: 0,
+    novel: true,
+    hasCompanySizeSignal: false,
+    hasLocationSignal: false,
+    hasLinkedInUrl: true,
+    freeOfContradictoryEvidence: true,
+    sectorEvidenceState: 'sector_evidence_missing_bootstrap_eligible',
+    knownDuplicate: false,
+    cooldownActive: false,
+    declaredSectorContradiction: false,
+    ...overrides,
+  };
+}
+
+describe('§ 4 — recuperable vs no recuperable', () => {
+  it('🔴 la evidencia de país NO la puede cambiar la compra', () => {
+    // `evaluateCountryEvidence` lee website/domain/snippet/title/query, todos de
+    // la BÚSQUEDA, y `mergeEnrichmentIntoResult` sólo rellena claves vacías.
+    assert.equal(isQualityBlockRecoverableByEnrichment('evidence_policy:country_evidence_weak'), false);
+    assert.equal(isQualityBlockRecoverableByEnrichment('evidence_policy:cualquier_otra_causa'), false);
+  });
+
+  it('🔴 el tamaño bajo umbral SÍ es recuperable: el perfil comprado tiene prioridad máxima', () => {
+    // `richProfileSize` va por delante de `candidate_company_size` y de HubSpot
+    // en `resolveEmployeeSizeForIcpGate`. El fail previo al writer es la
+    // proyección conservadora, no la última palabra.
+    assert.equal(isQualityBlockRecoverableByEnrichment('icp_size_below_threshold'), true);
+  });
+
+  it('🔴 fail-open: un motivo nuevo o ausente no cancela la compra en silencio', () => {
+    for (const reason of [null, undefined, '', '   ', 'motivo_que_todavia_no_existe']) {
+      assert.equal(isQualityBlockRecoverableByEnrichment(reason), true, `${String(reason)}`);
+    }
+  });
+
+  it('un bloqueo IRRECUPERABLE descalifica el gasto, y lo dice con su nombre', () => {
+    const need = evaluateApolloEnrichmentNeed(
+      poolCandidate({
+        qualityGateVerdict: 'fail',
+        qualityGateBlockingReason: 'evidence_policy:country_evidence_weak',
+      }),
+    );
+    assert.equal(need.eligibleForEnrichment, false);
+    assert.equal(need.disqualifiedReason, 'target_acceptance_irrecoverable');
+    // Es el campo que ya prometía responder esta pregunta.
+    assert.equal(need.expectedTargetValue, 'no_target_value');
+  });
+
+  it('🔴 un bloqueo RECUPERABLE sigue compitiendo: es evidencia pendiente, no un rechazo', () => {
+    const need = evaluateApolloEnrichmentNeed(
+      poolCandidate({
+        qualityGateVerdict: 'fail',
+        qualityGateBlockingReason: 'icp_size_below_threshold',
+      }),
+    );
+    assert.equal(need.eligibleForEnrichment, true);
+    assert.equal(need.expectedTargetValue, 'contributes_to_target');
+  });
+
+  it('🔴 sin veredicto, el comportamiento es EXACTO al anterior', () => {
+    for (const verdict of [undefined, 'pass', 'unknown'] as const) {
+      const need = evaluateApolloEnrichmentNeed(
+        poolCandidate(verdict === undefined ? {} : { qualityGateVerdict: verdict }),
+      );
+      assert.equal(need.eligibleForEnrichment, true, `${String(verdict)}`);
+    }
+  });
+
+  it('🔴 sin dominio manda `domain_not_confident`: la irrecuperabilidad se apoya en tenerlo', () => {
+    // El orden importa. La evidencia de país es irrecuperable PORQUE el dominio
+    // ya existe y la mezcla no reescribe claves llenas; delante de esa
+    // comprobación la premisa no estaría garantizada.
+    const need = evaluateApolloEnrichmentNeed(
+      poolCandidate({
+        domainConfident: false,
+        qualityGateVerdict: 'fail',
+        qualityGateBlockingReason: 'evidence_policy:country_evidence_weak',
+      }),
+    );
+    assert.equal(need.disqualifiedReason, 'domain_not_confident');
+  });
+});
+
+describe('§ 5 — la selección bajo cupo, con el selector real', () => {
+  /** Reproduce la forma del lote: mismas señales, desempate por rango. */
+  const pool = (quality: readonly ('pass' | 'fail')[]): FreeCandidateSignals[] =>
+    quality.map((q, index) =>
+      poolCandidate({
+        candidateKey: `apollo:${index}`,
+        providerRank: index + 1,
+        qualityGateVerdict: q,
+        ...(q === 'fail' ? { qualityGateBlockingReason: 'evidence_policy:country_evidence_weak' } : {}),
+      }),
+    );
+
+  const select = (candidates: FreeCandidateSignals[], budget: number) =>
+    selectCandidatesForEnrichment({
+      candidates,
+      remainingEnrichmentBudget: budget,
+      eligibleCompaniesSoFar: 0,
+      targetEligibleCompanies: 5,
+    });
+
+  it('🔴 el cupo se gasta en quien puede contar, no en los primeros del ranking', () => {
+    // Forma exacta del lote medido: los bloqueados ocupan las primeras
+    // posiciones y desplazan a candidatas que sí podían llegar.
+    const result = select(pool(['fail', 'fail', 'pass', 'fail', 'pass', 'pass', 'pass']), 3);
+    assert.deepEqual(
+      result.selected.map((s) => s.candidateKey),
+      ['apollo:2', 'apollo:4', 'apollo:5'],
+    );
+    assert.equal(
+      result.skipped.filter((s) => s.skippedReason === 'target_acceptance_irrecoverable').length,
+      3,
+    );
+  });
+
+  it('🔴 sin veredicto de calidad, la selección es la de siempre', () => {
+    const sinVeredicto = pool(['fail', 'fail', 'pass']).map((signals) => {
+      const copy = { ...signals };
+      delete copy.qualityGateVerdict;
+      delete copy.qualityGateBlockingReason;
+      return copy;
+    });
+    const result = select(sinVeredicto, 2);
+    assert.deepEqual(
+      result.selected.map((s) => s.candidateKey),
+      ['apollo:0', 'apollo:1'],
+    );
+  });
+
+  it('no se inventan candidatas: si todas están bloqueadas, no se gasta nada', () => {
+    const result = select(pool(['fail', 'fail', 'fail']), 3);
+    assert.equal(result.selected.length, 0);
+    assert.equal(result.remainingEnrichmentBudget, 3);
   });
 });
