@@ -115,6 +115,34 @@ export type CandidateTargetEligibilityInput = {
   persistenceSuccess: boolean;
   subindustryMatch: SubindustryMatchVerdict;
   employeeCountStatus: CompanyFieldMappingStatus;
+  /**
+   * AGENT1-SIZE-EVIDENCE-PARITY-1 — el tamaño quedó ACREDITADO por encima del
+   * umbral ICP con una de las fuentes que el propio gate de tamaño admite.
+   *
+   * ── El defecto que cierra, medido en el lote `52b22335` ────────────────────
+   *
+   * `employeeCountStatus` es el estado del MAPEO DEL CAMPO de un proveedor
+   * concreto (`apollo-company-fields-mapping`), y sólo conoce lo que Apollo
+   * devolvió. El gate de tamaño (`resolveEmployeeSizeForIcpGate`) admite cuatro
+   * fuentes en orden: perfil enriquecido, `company_size` del candidato,
+   * `numberofemployees` de HubSpot, y desconocido.
+   *
+   * Cinco candidatas del lote tenían tamaño REAL y por encima del umbral
+   * —500, 1000, 1477, 2000 y 100000 empleados, todas vía HubSpot— y su
+   * `icp_size_gate` las declaró `confirmed_above_threshold`. Aun así esta
+   * condición las bloqueaba, porque Apollo no había devuelto el campo: dos
+   * consumidores preguntando «¿se sabe el tamaño?» y respondiendo distinto
+   * sobre el MISMO hecho.
+   *
+   * 🔴 Lo que este campo NO es: «hay algún valor en HubSpot». Quien lo produce
+   * debe pasarlo únicamente cuando el gate ICP resolvió `pass` POR ENCIMA del
+   * umbral desde una fuente admitida. Un conteo confirmado por DEBAJO del
+   * umbral sigue sin satisfacer la condición, y un tamaño desconocido tampoco:
+   * la ausencia nunca completa.
+   *
+   * Ausente ⇒ comportamiento histórico exacto (sólo el mapeo del proveedor).
+   */
+  icpSizeConfirmedAboveThreshold?: boolean;
   linkedinStatus: CompanyFieldMappingStatus;
   /** Valor tal como se persiste en `prospect_candidates.duplicate_status`. */
   duplicateStatus: string | null;
@@ -280,7 +308,12 @@ export function evaluateCandidateTargetEligibility(
   const satisfied: Record<CandidateTargetCondition, boolean> = {
     persistence_success: input.persistenceSuccess,
     subindustry_match: input.subindustryMatch === 'confirmed',
-    employee_count_status: input.employeeCountStatus === 'confirmed',
+    // SIZE-EVIDENCE-PARITY-1 — dos vías admitidas para el MISMO hecho: el campo
+    // mapeado del proveedor, o el veredicto del gate de tamaño por encima del
+    // umbral con una fuente admitida. Ninguna de las dos relaja el umbral.
+    employee_count_status:
+      input.employeeCountStatus === 'confirmed' ||
+      input.icpSizeConfirmedAboveThreshold === true,
     linkedin_status: input.linkedinStatus === 'confirmed',
     duplicate_status: input.duplicateStatus === REQUIRED_DUPLICATE_STATUS,
     ownership_gate: input.ownershipGate === 'pass',
@@ -706,6 +739,8 @@ export function evaluateCandidateSubindustryTargetEligibility(input: {
   requestedSubindustries?: readonly (string | null | undefined)[] | null;
   subindustryPrecision: ApolloSubindustryPrecisionAssessment | null;
   employeeCountStatus: CompanyFieldMappingStatus;
+  /** SIZE-EVIDENCE-PARITY-1 — ver `CandidateTargetEligibilityInput`. */
+  icpSizeConfirmedAboveThreshold?: boolean;
   linkedinStatus: CompanyFieldMappingStatus;
   duplicateStatus: string | null;
   ownershipGate: GateVerdict;
@@ -734,6 +769,7 @@ export function evaluateCandidateSubindustryTargetEligibility(input: {
     persistenceSuccess: input.persistenceSuccess,
     subindustryMatch: subindustry.eligibilityVerdict,
     employeeCountStatus: input.employeeCountStatus,
+    icpSizeConfirmedAboveThreshold: input.icpSizeConfirmedAboveThreshold,
     linkedinStatus: input.linkedinStatus,
     duplicateStatus: input.duplicateStatus,
     ownershipGate: input.ownershipGate,

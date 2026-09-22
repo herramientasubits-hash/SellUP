@@ -1465,12 +1465,39 @@ const BY_KEY: ReadonlyMap<MacroIndustryKey, MacroIndustryDefinition> = new Map(
  * Normalización compartida por TODA resolución de esta taxonomía: minúsculas,
  * sin acentos, sin espacios de sobra. La misma que usa el gate sectorial, para
  * que `Salud & Farmacéuticos` y `salud & farmaceuticos` resuelvan a lo mismo.
+ *
+ * ── AGENT1-MACRO-EVIDENCE-CONJUNCTION-1 — `&` y `and` son la MISMA palabra ───
+ *
+ * El defecto que cierra, medido en el lote `52b22335`: Apollo declara su
+ * taxonomía con ampersand (`information technology & services`, `hospital &
+ * health care`, `marketing & advertising`) y este catálogo escribe UNAS entradas
+ * con `&` y OTRAS con `and`. La comparación es por substring sobre la cadena ya
+ * normalizada, así que las dos formas no se encontraban nunca.
+ *
+ * Consecuencia real: una empresa cuya industria declarada por el proveedor era
+ * exactamente `information technology & services` —el término confirmatorio de
+ * Tecnología, escrito aquí como `information technology and services`— no
+ * confirmaba. Caía a `parent_industry_only` (`ambiguous`) y no acreditaba la
+ * macro pedida.
+ *
+ * 🔴 Y corta en las DOS direcciones. Trece términos del catálogo llevan `and`
+ * sin gemelo `&`, y cuatro de ellos son EXCLUSIONES (`marketing and
+ * advertising`, `logistics and supply chain`): una exclusión que no coincide no
+ * rechaza a quien debía rechazar. Unificar la conjunción no relaja el criterio —
+ * hace que confirmaciones y exclusiones funcionen como están escritas.
+ *
+ * Se canoniza hacia `and` y no hacia `&` porque `and` es la forma que ya
+ * aparece en los términos en prosa (`wine and spirits`), mientras `&` sólo
+ * aparece en etiquetas de taxonomía.
  */
 export function normalizeMacroIndustryLabel(value: string): string {
   return value
     .toLowerCase()
     .normalize('NFD')
     .replace(/\p{M}/gu, '')
+    // `&` → ` and `: los espacios alrededor evitan pegar palabras cuando la
+    // etiqueta viene sin ellos (`a&b`), y el colapso posterior los recompone.
+    .replace(/&/g, ' and ')
     .replace(/\s+/g, ' ')
     .trim();
 }

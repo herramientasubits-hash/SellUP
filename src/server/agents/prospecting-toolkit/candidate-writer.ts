@@ -2795,6 +2795,30 @@ export async function writeProspectingCandidates(
       icpSizeGateData.passCount++;
     }
 
+    /**
+     * AGENT1-SIZE-EVIDENCE-PARITY-1 — el tamaño quedó ACREDITADO por encima del
+     * umbral, con la MISMA jerarquía de fuentes y el MISMO umbral que acaba de
+     * usar el gate ICP.
+     *
+     * Las tres condiciones se exigen juntas a propósito:
+     *
+     *   · `action === 'pass'`      — el gate lo aprobó; `needs_review` (tamaño
+     *                                desconocido) y `skip` (por debajo del
+     *                                umbral) quedan fuera;
+     *   · `size_status` POR ENCIMA — el veredicto nombra el lado del umbral, no
+     *                                sólo que hubo dato;
+     *   · fuente ≠ `unknown`       — el resolutor identificó de dónde salió.
+     *
+     * Sin las tres, un tamaño desconocido o confirmado por debajo del umbral
+     * podría colarse como completitud, que es exactamente lo que este campo NO
+     * debe permitir.
+     */
+    const icpSizeConfirmedAboveThreshold =
+      icpSizeGateAction.action === 'pass' &&
+      (icpSizeGateResult.size_status === 'confirmed_above_threshold' ||
+        icpSizeGateResult.size_status === 'estimated_above_threshold') &&
+      resolvedEmployeeSize.selectedSource !== 'unknown';
+
     // Annotate the rich profile with gate result + resolution trace (immutable)
     const employeeSizeResolutionTrace = {
       selected_source: resolvedEmployeeSize.selectedSource,
@@ -3040,6 +3064,8 @@ export async function writeProspectingCandidates(
       requestedSubindustries: requestedSubindustriesForTarget,
       subindustryPrecision: candidate.providerEnrichmentCapture?.precision ?? null,
       employeeCountStatus: providerCompanyFields?.employeeCount.status ?? 'mapping_failed',
+      // SIZE-EVIDENCE-PARITY-1 — la segunda vía admitida para el mismo hecho.
+      icpSizeConfirmedAboveThreshold,
       linkedinStatus: providerCompanyFields?.linkedin.status ?? 'mapping_failed',
       duplicateStatus: dbDuplicateStatus,
       ownershipGate: 'pass',
