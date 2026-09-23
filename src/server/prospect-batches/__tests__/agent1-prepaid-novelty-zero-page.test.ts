@@ -192,50 +192,89 @@ function run(
   );
 }
 
-describe('§ 21 — regresión con la FORMA de la QA del 2026-08-19', () => {
-  it('tres ramas estériles gastan TRES peticiones, no seis, y aceptan cero', async () => {
-    // Cada rama recibe una página 1 de 10 filas crudas que el detector canónico
-    // declara duplicado exacto. Novedad útil = 0 en las tres.
+describe('§ 21 — la forma de la QA del 2026-08-19, bajo la política NUEVA', () => {
+  it('🔴 tres ramas estériles agotan su techo de SEIS, y siguen aceptando cero', async () => {
+    // Antes de AGENT1-LUSHA-PAGE-NOVELTY-POLICY-1 esta misma entrada gastaba TRES
+    // peticiones: cada rama paraba tras su página estéril. Ahora usa las seis que
+    // su reserva ya había autorizado.
+    //
+    // 🔴 El techo NO se movió: `providerRequestsAllowed` sigue siendo 6, que es
+    // ramas × páginas y es el mismo número del que sale la reserva. Lo que cambia
+    // es que deja de devolverse sin usar lo que ya estaba comprometido — el
+    // consumo EFECTIVO sube hasta el límite existente, nunca por encima.
     const { res, calls } = await run(
       [
-        successResult(distinct(10, 'a')),
-        successResult(distinct(10, 'b')),
-        successResult(distinct(10, 'c')),
+        successResult(distinct(10, 'a')), successResult(distinct(10, 'a2')),
+        successResult(distinct(10, 'b')), successResult(distinct(10, 'b2')),
+        successResult(distinct(10, 'c')), successResult(distinct(10, 'c2')),
       ],
       { plan: planWithBranches(3), targetGap: 5 },
       exactDuplicate,
     );
 
-    assert.equal(calls.length, 3, 'una petición por rama, ninguna segunda página');
-    assert.deepEqual(calls.map((c) => c.page), [0, 0, 0]);
-    // Las tres ramas SÍ se intentaron: la parada es de rama, nunca de corrida.
-    assert.deepEqual(calls.map((c) => c.mainIndustryId), [11, 12, 12]);
+    assert.equal(res.providerRequestsAllowed, 6, 'el techo no se movió');
+    assert.equal(calls.length, 6, '🔴 ahora se usan las seis peticiones reservadas');
+    assert.deepEqual(calls.map((c) => c.page), [0, 1, 0, 1, 0, 1]);
+    assert.deepEqual(calls.map((c) => c.mainIndustryId), [11, 11, 12, 12, 12, 12]);
 
+    // El dedupe y el conteo de aceptadas no se tocan: todo era duplicado exacto.
     assert.equal(res.usefulCandidatesCount, 0);
-    assert.equal(res.rawResultsTotal, 30);
-    assert.equal(res.providerRequestsUsed, 3);
-    // El techo seguía siendo 6: lo que bajó el gasto fue el rendimiento, no el tope.
-    assert.equal(res.providerRequestsAllowed, 6);
-    assert.equal(res.multiBranch?.pagesSkippedZeroNovelty, 3);
+    assert.equal(res.rawResultsTotal, 60);
+    assert.equal(res.multiBranch?.pagesSkippedBranchStopped, 0);
   });
 });
 
-describe('§ 23 — matriz de novedad cero sobre el ejecutor', () => {
-  it('A/C/D — página 1 sin novedad útil ⇒ la rama NO compra su página 2', async () => {
-    const { calls } = await run(
-      [successResult(distinct(10, 'x')), successResult(distinct(10, 'y'))],
-      { plan: planWithBranches(1), targetGap: 5 },
-      exactDuplicate,
-    );
-    assert.equal(calls.length, 1);
-  });
-
-  it('B — una sola empresa nueva y útil permite la página 2 mientras quede hueco', async () => {
+describe('§ 23 — recorrido real de la política nueva', () => {
+  it('🔴 primera página llena de CONOCIDAS y segunda con ÚTILES: se pide y se procesa la segunda', async () => {
+    // Éste es el caso que la política anterior perdía, y que nuestra propia
+    // operación produjo (lote `54f94a91`: página 1 rindió MÁS novedad que la 0).
     const { calls, res } = await run(
       [
-        successResult(distinct(1, 'p')),
-        successResult(distinct(1, 'q')),
+        successResult(distinct(10, 'conocida')),
+        successResult(distinct(3, 'util')),
       ],
+      { plan: planWithBranches(1), targetGap: 5 },
+      (input) => (input.domain?.startsWith('conocida') ? exactDuplicate(input) : noDuplicate(input)),
+    );
+
+    assert.equal(calls.length, 2, '🔴 la segunda página SÍ se pide');
+    assert.deepEqual(calls.map((c) => c.page), [0, 1]);
+    // Y se PROCESA: sus tres empresas sobreviven y se cuentan.
+    assert.equal(res.usefulCandidatesCount, 3);
+  });
+
+  it('🔴 página realmente VACÍA: la rama para', async () => {
+    const { calls } = await run(
+      [successResult([]), successResult(distinct(5, 'nunca'))],
+      { plan: planWithBranches(1), targetGap: 5 },
+    );
+    assert.equal(calls.length, 1, 'una página sin filas no se relee');
+  });
+
+  it('🔴 alcanzar cinco NO corta la búsqueda', async () => {
+    const { calls, res } = await run(
+      [successResult(distinct(5, 'primera')), successResult(distinct(2, 'extra'))],
+      { plan: planWithBranches(1), targetGap: 5 },
+    );
+    assert.equal(calls.length, 2, 'el objetivo es un mínimo, no un tope de compra');
+    assert.equal(res.usefulCandidatesCount, 7, 'las excedentes se conservan');
+  });
+
+  it('🔴 el techo de PETICIONES sigue limitando, con páginas siempre útiles', async () => {
+    const { calls, res } = await run(
+      [
+        successResult(distinct(2, 'u0')), successResult(distinct(2, 'u1')),
+        successResult(distinct(2, 'u2')),
+      ],
+      { plan: planWithBranches(1), targetGap: 50 },
+    );
+    assert.equal(res.providerRequestsAllowed, 2);
+    assert.equal(calls.length, 2, 'ni una petición por encima de lo reservado');
+  });
+
+  it('B — una sola empresa nueva y útil permite la página 2', async () => {
+    const { calls, res } = await run(
+      [successResult(distinct(1, 'p')), successResult(distinct(1, 'q'))],
       { plan: planWithBranches(1), targetGap: 5 },
     );
     assert.equal(calls.length, 2, 'la rama sí continúa');
@@ -243,65 +282,68 @@ describe('§ 23 — matriz de novedad cero sobre el ejecutor', () => {
     assert.equal(res.usefulCandidatesCount, 2);
   });
 
-  it('F — 10 crudas y 0 únicas por dedupe entre ramas ⇒ la rama no compra su página 2', async () => {
-    // La rama 0 se queda las 10 empresas; la rama 1 recibe LAS MISMAS.
+  it('🔴 F — cero únicas por dedupe entre ramas ya NO cierra la rama', async () => {
     const shared = distinct(10, 'dup');
     const { calls } = await run(
       [
-        successResult(shared),
-        successResult([]),
-        successResult(shared),
-        successResult(shared),
+        successResult(shared), successResult([]),
+        successResult(shared), successResult(shared),
       ],
       { plan: planWithBranches(2), targetGap: 5 },
     );
-    // 🔴 X6.13 — el objetivo cerrado ya no para la corrida, así que lo que este
-    // caso mide vuelve a ser lo suyo: la NOVEDAD CERO. La rama que recibe las
-    // mismas diez empresas no compra su página 2, porque no aportó nada nuevo.
-    assert.ok(calls.length <= 3, `peticiones acotadas por la novedad: ${calls.length}`);
+    // La rama 0 se queda las diez; la rama 1 recibe LAS MISMAS y no aporta nada
+    // nuevo — pero eso ya no la cierra: agota sus dos páginas como cualquier otra.
+    assert.equal(calls.length, 4, 'las dos ramas usan sus dos páginas');
   });
 
   it('G — una rama estéril NO impide que la siguiente se ejecute', async () => {
     const { calls, res } = await run(
       [
-        // Rama 0: estéril.
-        successResult(distinct(10, 'seca')),
-        // Rama 1: dos empresas nuevas.
-        successResult(distinct(2, 'viva')),
-        successResult([]),
+        successResult(distinct(10, 'seca')), successResult(distinct(10, 'seca2')),
+        successResult(distinct(2, 'viva')), successResult([]),
       ],
       { plan: planWithBranches(2), targetGap: 5 },
       (input) => (input.domain?.startsWith('seca') ? exactDuplicate(input) : noDuplicate(input)),
     );
 
     assert.equal(calls[0]?.mainIndustryId, 11);
-    assert.equal(calls[1]?.mainIndustryId, 12, 'la rama siguiente SÍ se ejecuta');
+    assert.equal(calls[2]?.mainIndustryId, 12, 'la rama siguiente SÍ se ejecuta');
     assert.equal(res.usefulCandidatesCount, 2);
   });
 
-  it('🔴 X6.13 · H — el mínimo alcanzado ya no impide intentar las demás ramas', async () => {
+  it('🔴 X6.13 · H — el mínimo alcanzado no impide intentar las demás ramas', async () => {
     const { calls, res } = await run(
       [successResult(distinct(5, 'llena'))],
       { plan: planWithBranches(3), targetGap: 5 },
     );
-    // Antes: «no se intenta ninguna rama más» ⇒ una sola petición. Las ramas
-    // restantes están reservadas y sus empresas serían igual de válidas.
     assert.ok(calls.length > 1, '🔴 las ramas restantes se intentan');
     assert.equal(res.usefulCandidatesCount, 5);
   });
 
-  it('🔴 § 19 — la parada por novedad cero NUNCA se reporta como parada de CORRIDA', async () => {
+  it('🔴 § 19 — una rama que no aporta NUNCA se reporta como parada de CORRIDA', async () => {
     const { res } = await run(
-      [successResult(distinct(10, 'z'))],
+      [successResult(distinct(10, 'z')), successResult(distinct(10, 'z2'))],
       { plan: planWithBranches(1), targetGap: 5 },
       exactDuplicate,
     );
-    // La corrida agotó sus ramas; no fue el proveedor quien la detuvo, y el motivo
-    // no puede sugerir que se dejó de buscar por una decisión global.
-    assert.equal(res.stopReason, 'branches_exhausted');
+    assert.equal(res.stopReason, 'request_cap_reached');
     assert.equal(res.remainingGapFinal, 5);
   });
+
+  it('🔴 el motivo de parada NO afirma el objetivo aunque el hueco de COMPRA se cierre', async () => {
+    // Hueco de compra cerrado (5 útiles contra un objetivo de 5) y aun así el
+    // motivo informa el LÍMITE que terminó la búsqueda. La aceptación vive en
+    // `accepted_for_target`, que es la única autoridad.
+    const { res } = await run(
+      [successResult(distinct(5, 'cierra')), successResult(distinct(1, 'mas'))],
+      { plan: planWithBranches(1), targetGap: 5 },
+    );
+    assert.equal(res.remainingGapFinal, 0, 'el hueco de compra se cerró');
+    assert.notEqual(res.stopReason as string, 'target_reached');
+    assert.equal(res.stopReason, 'request_cap_reached', 'informa el límite real');
+  });
 });
+
 
 describe('§ 14 — el hueco residual gobierna la ACEPTACIÓN', () => {
   /**

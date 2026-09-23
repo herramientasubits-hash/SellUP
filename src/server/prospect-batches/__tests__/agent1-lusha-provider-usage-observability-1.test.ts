@@ -109,7 +109,7 @@ function fixtureTelemetry(overrides: Partial<LushaRunTelemetry> = {}): LushaRunT
     branchCountAttempted: 3,
     providerRequestsAllowed: 6,
     providerRequestsUsed: 3,
-    pagesSkippedZeroNovelty: 0,
+    pagesSkippedBranchStopped: 0,
     maxRawResults: 60,
     rawResultsTotal: 30,
     crossBranchDuplicatesRemoved: 4,
@@ -128,7 +128,9 @@ function fixtureTelemetry(overrides: Partial<LushaRunTelemetry> = {}): LushaRunT
     remainingGapFinal: 0,
     creditsReserved: 6,
     creditsReportedActual: 3,
-    stopReason: 'target_reached',
+    // AGENT1-LUSHA-PAGE-NOVELTY-POLICY-1 — `target_reached` salió del vocabulario
+    // de motivos: el motivo informa el límite, la aceptación vive aparte.
+    stopReason: 'request_cap_reached',
     branches: [
       {
         branchIndex: 0,
@@ -221,7 +223,9 @@ function fixtureRun(
     rawResultsTotal: 30,
     pagesRequested: 3,
     providerRequestsUsed: 3,
-    stopReason: 'target_reached',
+    // AGENT1-LUSHA-PAGE-NOVELTY-POLICY-1 — `target_reached` salió del vocabulario
+    // de motivos: el motivo informa el límite, la aceptación vive aparte.
+    stopReason: 'request_cap_reached',
     reviewableFoundTotal: 7,
     acceptedForTargetTotal: 5,
     targetOverflowDiscarded: 2,

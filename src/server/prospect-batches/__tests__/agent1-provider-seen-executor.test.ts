@@ -440,10 +440,11 @@ describe('§§ 7, 8 — lo que este PR NO puede degradar', () => {
       providerSeen: providerSeenOption(harness),
     });
 
-    assert.deepEqual(harness.calls.map((c) => c.page), [0, 0], 'ninguna segunda página');
+    // 🔴 AGENT1-LUSHA-PAGE-NOVELTY-POLICY-1 — la rama estéril agota sus páginas.
+    assert.deepEqual(harness.calls.map((c) => c.page), [0, 1, 0], 'la rama usa su segunda página');
     assert.deepEqual(
       harness.calls.map((c) => c.mainIndustryId),
-      [11, 12],
+      [11, 11, 12],
       'la rama B sí se intentó: la parada es de RAMA',
     );
     assert.equal(harness.writes.length, 2, 'las dos páginas pagadas se recordaron');

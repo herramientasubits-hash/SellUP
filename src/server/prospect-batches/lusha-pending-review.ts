@@ -2931,7 +2931,12 @@ export async function persistLushaPendingReviewBatch(
   let runStopped = false;
   // § 17/§ 20 — páginas que NO se compraron porque su rama vino sin novedad.
   // Hecho observado; nunca un ahorro estimado.
-  let pagesSkippedZeroNovelty = 0;
+  // 🔴 AGENT1-LUSHA-PAGE-NOVELTY-POLICY-1 — se llamaba `pagesSkippedZeroNovelty`
+  // cuando la cero-novedad era el motivo dominante. Ya no lo es: las únicas
+  // paradas de rama son página vacía y agotamiento declarado, así que el nombre
+  // pasa a decir lo que cuenta —páginas no pedidas porque la RAMA paró— en vez
+  // de un motivo que la política retiró.
+  let pagesSkippedBranchStopped = 0;
   // ── ADDENDUM PROVIDER-SEEN § 10 — conteos de la memoria ──
   const providerSeenMemory: ProviderSeenMemory =
     execution?.providerSeen?.memory ?? EMPTY_PROVIDER_SEEN_MEMORY;
@@ -3504,6 +3509,11 @@ export async function persistLushaPendingReviewBatch(
       // sustituye y absorbe (0 filas ⇒ 0 novedad, con su propio motivo).
       const novelUsefulFromPage =
         useful.length - usefulBeforePage + (targetOverflowDiscarded - overflowBeforePage);
+      // 🔴 AGENT1-LUSHA-PAGE-NOVELTY-POLICY-1 — `novelUsefulFromPage` viaja, pero
+      // ya no decide: una página no vacía con cero novedad LOCAL no cierra la
+      // rama. `providerReportedExhaustion` NO se pasa a propósito: la única
+      // candidata (`totalAvailable`) no está verificada en esta respuesta y el
+      // contrato prohíbe inferir agotamiento de una señal ambigua.
       const continuation = decidePaidPageContinuation({
         rawFromPage: pageRaw,
         novelUsefulFromPage,
@@ -3521,7 +3531,7 @@ export async function persistLushaPendingReviewBatch(
       if (!continuation.continueBranch) {
         providerSeenBranchStopReasons[branchIndex] = continuation.stopReason;
         const remainingPages = LUSHA_PENDING_REVIEW_MAX_PAGES - (page + 1);
-        if (remainingPages > 0) pagesSkippedZeroNovelty += remainingPages;
+        if (remainingPages > 0) pagesSkippedBranchStopped += remainingPages;
         break;
       }
 
@@ -3666,14 +3676,29 @@ export async function persistLushaPendingReviewBatch(
     targetGap,
     acceptanceTruthPreWrite.purchaseCredit,
   );
-  if (remainingGapFinal <= 0 && !runStopped) stopReason = 'target_reached';
+  // 🔴 AGENT1-LUSHA-PAGE-NOVELTY-POLICY-1 — aquí vivía
+  // `if (remainingGapFinal <= 0 && !runStopped) stopReason = 'target_reached'`.
+  //
+  // Se retira: el motivo de parada informa el LÍMITE o el AGOTAMIENTO que terminó
+  // la búsqueda, y el cumplimiento del objetivo lo dice `accepted_for_target` y
+  // nadie más. Cerrar el hueco de COMPRA —que se mide con supervivientes y del
+  // que `acceptedForTarget` está excluido por contrato— no es cumplir el
+  // objetivo, y publicarlo con esa palabra producía informes contradictorios
+  // dentro del mismo lote.
+  //
+  // El motivo que sobrevive al bucle es el real: `branches_exhausted` cuando las
+  // ramas gastaron sus páginas, o el que `runStopped` fijó.
+
   // El techo y el agotamiento de ramas COINCIDEN cuando cada rama gastó todas sus
-  // páginas: los bucles terminan solos y nadie llega a rechazar una petición. Con
-  // el hueco todavía abierto, lo que paró la corrida fue el techo —no la falta de
-  // ramas— y reportarlo como `branches_exhausted` escondería que hubo recorte.
+  // páginas: los bucles terminan solos y nadie llega a rechazar una petición.
+  // Reportarlo como `branches_exhausted` escondería que hubo recorte por techo.
+  //
+  // 🔴 Ya no se condiciona a `remainingGapFinal > 0`: el techo de peticiones se
+  // tocó o no se tocó, y eso es cierto con independencia de cuántas empresas
+  // útiles trajera lo comprado. Atarlo al hueco era la última vía por la que el
+  // objetivo se colaba en el motivo de parada.
   if (
     stopReason === 'branches_exhausted' &&
-    remainingGapFinal > 0 &&
     providerRequestsUsed >= providerRequestsAllowed
   ) {
     stopReason = 'request_cap_reached';
@@ -3683,17 +3708,28 @@ export async function persistLushaPendingReviewBatch(
   if (rawResultsTotal === 0 && stopReason === 'branches_exhausted') {
     stopReason = 'no_results';
   }
-  // AGENT1-CUT3B23 § 1 — el motivo de parada NO puede seguir afirmando que el
-  // objetivo se cumplió cuando la admisión de identidad acaba de reabrir el hueco.
+  // AGENT1-CUT3B23 § 1 — aquí vivía la asignación de
+  // `post_admission_identity_gap`, disparada por
+  // `stopReason === 'target_reached' && remainingGapFinal > 0`.
   //
-  // 🔴 La corrida pudo pararse con `target_reached` DENTRO del bucle (`runStopped`),
-  // y entonces ninguna de las reglas de arriba lo revisa. Ésta sí, y contra el
-  // hueco POST-admisión: `target_reached` con hueco > 0 es un informe imposible.
-  // No se reutiliza `request_cap_reached` —el techo puede no haberse tocado— ni
-  // `branches_exhausted`: la causa es la deduplicación posterior, y se nombra.
-  if (stopReason === 'target_reached' && remainingGapFinal > 0) {
-    stopReason = 'post_admission_identity_gap';
-  }
+  // 🔴 AGENT1-LUSHA-PAGE-NOVELTY-POLICY-1 — se retira la asignación, y el motivo
+  // se declara lo que ya era: INALCANZABLE, y no desde este corte sino desde
+  // X6.13.
+  //
+  // La regla nació para un camino que existía entonces: la corrida podía pararse
+  // con `target_reached` DENTRO del bucle, y la admisión de identidad de LOTE
+  // reabría después el hueco. X6.13 retiró esa parada (el objetivo es un MÍNIMO y
+  // ya no detiene la petición), y desde entonces `target_reached` sólo podía
+  // asignarse en el único sitio que exigía `remainingGapFinal <= 0`. Su condición
+  // pedía a la vez `remainingGapFinal <= 0` y `remainingGapFinal > 0`: una
+  // contradicción, y por tanto código muerto en `origin/main`.
+  //
+  // 🔴 No se sustituye por una versión "reanimada". El hueco de compra tras la
+  // admisión es `remainingGapFinal`, y no se conserva ningún recuento ANTERIOR a
+  // ella con el que compararlo, así que cualquier reescritura con los datos de
+  // hoy volvería a ser una contradicción disfrazada. El literal sigue vivo en el
+  // tipo —CUT-3B23 § 4 lo exige— y su hermano de PERSISTENCIA, que sí es
+  // alcanzable, se conserva intacto más abajo.
 
   const pagesRequested = providerRequestsUsed;
 
@@ -3739,7 +3775,7 @@ export async function persistLushaPendingReviewBatch(
     branchCountAttempted: branchTelemetry.filter((b) => b.providerRequests > 0).length,
     providerRequestsAllowed,
     providerRequestsUsed,
-    pagesSkippedZeroNovelty,
+    pagesSkippedBranchStopped,
     maxRawResults: LUSHA_RUN_MAX_RAW_RESULTS,
     rawResultsTotal,
     crossBranchDuplicatesRemoved,
@@ -4149,10 +4185,18 @@ export async function persistLushaPendingReviewBatch(
     ? resolveLushaRunAcceptanceTruth(useful.map(toLushaSurvivorCompletenessInput), acceptanceFacts)
     : acceptanceTruthPreWrite;
   const remainingGapPersisted = resolveLushaRemainingGap(targetGap, survivorsPersisted);
-  // Mismo principio que arriba: `target_reached` con hueco abierto es imposible.
-  // Aquí la causa no es la deduplicación sino la escritura, y se nombra distinto.
+  // 🔴 AGENT1-LUSHA-PAGE-NOVELTY-POLICY-1 — a diferencia de su hermano de
+  // IDENTIDAD, este motivo SÍ es alcanzable, y su condición se conserva EXACTA.
+  //
+  // El disparador era `stopReason === 'target_reached'`, y ese literal sólo podía
+  // asignarse bajo `remainingGapFinal <= 0 && !runStopped`. Al retirar la
+  // etiqueta, esas dos condiciones se escriben tal cual: no se ensanchan —dejar
+  // que una anomalía de ESCRITURA tape el límite que terminó la búsqueda sería
+  // justo lo contrario de separar el motivo del cumplimiento— ni se estrechan.
+  //
+  // La causa aquí no es la deduplicación sino la escritura, y se nombra distinto.
   const stopReasonPersisted: LushaRunStopReason =
-    stopReason === 'target_reached' && remainingGapPersisted > 0
+    remainingGapFinal <= 0 && !runStopped && remainingGapPersisted > 0
       ? 'post_admission_persistence_gap'
       : stopReason;
   const runTelemetryPersisted: LushaRunTelemetry = {

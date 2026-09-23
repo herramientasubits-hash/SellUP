@@ -406,7 +406,8 @@ describe('§ 9 — el objetivo se cumple EXACTAMENTE', () => {
       assert.equal(res.precisionRejectedTotal, 4);
       assert.equal(res.targetOverflowDiscarded, 0);
       assert.equal(res.remainingGapFinal, 0);
-      assert.equal(res.stopReason, 'target_reached');
+      // 🔴 AGENT1-LUSHA-PAGE-NOVELTY-POLICY-1 — ver nota de política.
+      assert.equal(res.stopReason, 'branches_exhausted');
     });
   });
 

@@ -895,7 +895,9 @@ describe('§§ 7, 8 — encender la memoria no degrada lo ya mergeado', () => {
       providerSeen: persistentProviderSeen(store),
     });
 
-    assert.equal(harness.calls.length, 1, 'la segunda página NO se compró');
+    // 🔴 AGENT1-LUSHA-PAGE-NOVELTY-POLICY-1 — la cero novedad ya no cierra la
+    // rama: la segunda página SÍ se compra, dentro del mismo techo reservado.
+    assert.equal(harness.calls.length, 2, 'la segunda página sí se compra');
     assert.equal(res.usefulCandidatesCount, 0);
   });
 });

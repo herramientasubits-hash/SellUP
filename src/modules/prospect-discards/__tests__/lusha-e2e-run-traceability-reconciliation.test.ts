@@ -683,7 +683,9 @@ describe('D. el acumulador no altera ningún desenlace de la corrida', () => {
     assert.equal(res.creditsCharged, 2);
     assert.equal(res.creditsChargedTotal, 2);
     // `targetReached` de la corrida: hueco cerrado y motivo de parada acorde.
-    assert.equal(res.stopReason, 'target_reached');
+    // 🔴 AGENT1-LUSHA-PAGE-NOVELTY-POLICY-1 — el motivo informa el LÍMITE que
+    // terminó la búsqueda; el cumplimiento del objetivo vive en `accepted_for_target`.
+    assert.equal(res.stopReason, 'request_cap_reached');
   });
 
   it('quitar las disposiciones del resultado deja los seis números idénticos', async () => {
