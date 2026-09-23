@@ -170,31 +170,53 @@ export const LUSHA_RUN_MAX_RAW_RESULTS =
 // ─── Decisión de pedir o no (§§ 5, 6, 15, 16, 17) ─────────────────────────────
 
 /**
- * Por qué la corrida dejó de pedir. Distingue las cinco causas de § 19 más los
- * dos desenlaces que ocurren DESPUÉS de que la corrida terminó.
+ * Por qué la corrida dejó de pedir.
  *
- * ── AGENT1-CUT3B23 § 1 — los dos motivos post-corrida ─────────────────────────
+ * ── 🔴 AGENT1-LUSHA-PAGE-NOVELTY-POLICY-1 — este motivo NO habla del objetivo ──
  *
- * `target_reached` afirma que el objetivo se cumplió. Es una afirmación sobre el
- * RESULTADO FINAL, no sobre el instante en que se dejó de pedir, y la corrida no
- * es el último paso: después vienen la admisión por identidad de lote y la
- * escritura. Si cualquiera de las dos reduce lo aceptado, el objetivo dejó de
- * cumplirse y seguir diciendo `target_reached` con hueco abierto es exactamente
- * el informe imposible que CUT-2 prohíbe.
+ * Aquí vivía `target_reached`, y se publicaba en cuanto el hueco de COMPRA se
+ * cerraba. Ese hueco se mide con `purchaseCredit` —cuántas empresas ÚTILES trajo
+ * lo pagado— y por diseño (X5.1, trinquetes M9/M10) `acceptedForTarget` no entra
+ * jamás en él. Resultado: el lote `54f94a91` publicó a la vez
+ * `stop_reason: target_reached` y `accepted_for_target: { target_reached: false,
+ * remaining_target: 4 }`. Dos verdades opuestas sobre la misma corrida, y la
+ * palabra «objetivo» significando cosas distintas en cada una.
+ *
+ * El motivo de parada responde SÓLO a «¿qué límite o agotamiento terminó la
+ * búsqueda?». Si el objetivo se cumplió lo dice `accepted_for_target`, que es la
+ * única autoridad de aceptación. Ningún valor de este tipo afirma ya nada sobre
+ * el objetivo.
+ *
+ * ── AGENT1-CUT3B23 § 1 — los dos desenlaces post-corrida ──────────────────────
+ *
+ * La corrida no es el último paso: después vienen la admisión por identidad de
+ * lote y la escritura, y cualquiera de las dos puede REABRIR el hueco de compra
+ * que estaba cerrado al dejar de pedir. Cuando eso pasa, el motivo lo nombra:
  *
  *   · `post_admission_identity_gap`    — la admisión de identidad de LOTE retiró
- *     duplicados duros y REABRIÓ el hueco. No es techo de peticiones, no es
+ *     duplicados duros y reabrió el hueco. No es techo de peticiones, no es
  *     agotamiento de ramas y no es fallo del proveedor: el proveedor entregó, y
  *     la deduplicación posterior descubrió que entregó menos empresas DISTINTAS.
+ *
+ *     🔴 INALCANZABLE hoy, y no desde este corte sino desde X6.13. Su único
+ *     disparador era un `target_reached` fijado DENTRO del bucle; X6.13 retiró
+ *     esa parada, y desde entonces la condición se contradecía a sí misma. El
+ *     literal se conserva —CUT-3B23 § 4 lo exige, y el desenlace que describe
+ *     sigue siendo real— pero NADIE lo asigna: no hay ningún recuento anterior a
+ *     la admisión con el que comparar el hueco de después, así que reanimarlo
+ *     con los datos de hoy volvería a ser una contradicción disfrazada.
+ *
  *   · `post_admission_persistence_gap` — lo admitido no llegó entero a la base:
  *     el motor confirmó MENOS filas de las escritas. El hueco es real y su causa
- *     es la persistencia, no el descubrimiento.
+ *     es la persistencia, no el descubrimiento. Éste SÍ se asigna, y su condición
+ *     es literalmente la que `target_reached` codificaba: hueco de compra cerrado
+ *     al dejar de pedir, corrida no detenida por un límite, y hueco reabierto por
+ *     la escritura.
  *
  * 🔴 Ninguno de los dos reabre páginas ni autoriza gasto: son etiquetas de
  * VERACIDAD sobre una corrida que ya terminó.
  */
 export type LushaRunStopReason =
-  | 'target_reached'
   | 'branches_exhausted'
   | 'request_cap_reached'
   | 'raw_scan_cap_reached'
@@ -363,7 +385,8 @@ export type LushaRunTelemetry = {
    * emitirse, jamás cuántos créditos o dólares se habrían gastado: eso exigiría
    * un contrafactual que nadie calculó (§ 20).
    */
-  pagesSkippedZeroNovelty: number;
+  /** Páginas no pedidas porque la RAMA paró (vacía o agotamiento declarado). */
+  pagesSkippedBranchStopped: number;
   maxRawResults: number;
   rawResultsTotal: number;
   /**
@@ -462,7 +485,7 @@ export function toLushaRunTelemetryMetadata(
     branch_count_attempted: telemetry.branchCountAttempted,
     provider_requests_allowed: telemetry.providerRequestsAllowed,
     provider_requests_used: telemetry.providerRequestsUsed,
-    pages_skipped_zero_novelty: telemetry.pagesSkippedZeroNovelty,
+    pages_skipped_branch_stopped: telemetry.pagesSkippedBranchStopped,
     max_raw_results: telemetry.maxRawResults,
     raw_results_total: telemetry.rawResultsTotal,
     cross_branch_duplicates_removed: telemetry.crossBranchDuplicatesRemoved,
@@ -520,7 +543,7 @@ export function toLushaRunTelemetryMetadata(
             // de «no se pidió nada» lo publica la capa previa al pago.
             avoided: {
               requestsAvoided: 0,
-              pagesAvoided: telemetry.pagesSkippedZeroNovelty,
+              pagesAvoided: telemetry.pagesSkippedBranchStopped,
             },
           }),
         }

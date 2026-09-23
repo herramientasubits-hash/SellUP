@@ -619,15 +619,18 @@ describe('CUT-L5 · §§ 15, 17 — un bloque a la vez', () => {
       checker: exactDup,
     });
     // 🔴 M7 — suprimir en el CLIENTE no devuelve el crédito: la consulta ya se
-    // cobró antes de que SellUp mirara un solo dominio.
-    assert.equal(res.creditsChargedTotal, 1);
+    // cobró antes de que SellUp mirara un solo dominio. Lo que CUT-L5 fija es que
+    // CADA bloque de 25 cuesta exactamente 1, y eso no se mueve.
     assert.equal(res.usefulCandidatesCount, 0);
-    assert.equal(res.excludedExactDuplicatesCount, 25);
-    // 🔴 Y NO se compra el bloque siguiente de esa rama. Esto NO es CUT-L5: es la
-    // política de novedad cero de CUT-9, que ya prohíbe releer un pozo que la
-    // página anterior demostró seco. Este corte la CONSERVA — comprar el segundo
-    // bloque aquí sería gastar más, no menos.
-    assert.deepEqual(calls.pages, [0]);
+    // Dos bloques de 25, ambos conocidos: 50 duplicados exactos excluidos.
+    assert.equal(res.excludedExactDuplicatesCount, 50);
+    // 🔴 AGENT1-LUSHA-PAGE-NOVELTY-POLICY-1 — aquí se afirmaba `calls.pages === [0]`
+    // apoyándose en la política de novedad cero de CUT-9, que este corte retira:
+    // las 25 conocidas hablan de NUESTRO historial y no predicen el bloque
+    // siguiente. El segundo bloque se compra, dentro del mismo techo de 2.
+    assert.deepEqual(calls.pages, [0, 1]);
+    assert.equal(res.creditsChargedTotal, 2);
+    assert.equal(res.expectedMaxCredits, 2, 'el techo no se movió');
   });
 
   it('§ 17 · queda hueco tras el primer bloque ⇒ el segundo SÍ se compra', async () => {

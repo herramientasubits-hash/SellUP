@@ -93,14 +93,14 @@ test('§ 20 — las páginas segundas evitadas salen del ejecutor, nunca de una 
     required: true,
     initialResidualGap: 3,
     pagesAttempted: 3,
-    pagesSkippedZeroNovelty: 3,
+    pagesSkippedBranchStopped: 3,
     branchesAttempted: 3,
     requestsUsed: 3,
     usefulNovel: 0,
   });
 
   assert.equal(
-    (telemetry.savings as Record<string, unknown>).second_pages_avoided_zero_novelty,
+    (telemetry.savings as Record<string, unknown>).second_pages_avoided_branch_stopped,
     3,
   );
   assert.equal((telemetry.provider as Record<string, unknown>).requests_used, 3);

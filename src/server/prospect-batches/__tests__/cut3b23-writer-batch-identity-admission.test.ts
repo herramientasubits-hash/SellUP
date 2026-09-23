@@ -582,7 +582,9 @@ describe('CUT-3B23 REVIEW-FIX § 1 — residual y motivo de parada POST-admisió
     // hueco se cierra, la corrida para por objetivo, y el GASTO es idéntico al
     // del caso con duplicado. Esa es la propiedad, y no se mueve.
     assert.equal(result.remainingGapFinal, 0);
-    assert.equal(result.stopReason, 'target_reached');
+    // 🔴 AGENT1-LUSHA-PAGE-NOVELTY-POLICY-1 — el motivo informa el LÍMITE que
+    // terminó la búsqueda; el cumplimiento del objetivo vive en `accepted_for_target`.
+    assert.equal(result.stopReason, 'request_cap_reached');
     // Mismas peticiones y mismos créditos que en el caso con duplicado: ésa es
     // la propiedad, y sigue exacta tras X6.13.
     assert.equal(calls.searches, 2);

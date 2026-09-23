@@ -15,7 +15,7 @@
  * Lo que sí se publica son hechos CONTABLES:
  *   · `provider_requests_avoided_by_zero_residual` — 1 cuando la corrida no llegó
  *     a pedir NADA porque el hueco era 0. Es un hecho observado, no una hipótesis.
- *   · `second_pages_avoided_zero_novelty` — cuántas páginas segundas no se
+ *   · `second_pages_avoided_branch_stopped` — cuántas páginas segundas no se
  *     compraron porque su rama vino seca. También observado.
  *
  * snake_case, como el resto del `metadata` del lote. Sin PII, sin nombres de
@@ -33,7 +33,7 @@ export type PaidProviderTelemetryInput = {
   initialResidualGap: number;
   pagesAttempted: number;
   /** Páginas no compradas porque su rama vino sin novedad (§ 17). */
-  pagesSkippedZeroNovelty: number;
+  pagesSkippedBranchStopped: number;
   branchesAttempted: number;
   requestsUsed: number;
   usefulNovel: number;
@@ -80,7 +80,7 @@ export function buildPrePaidNoveltyTelemetry(
           required: paid.required,
           initial_residual_gap: paid.initialResidualGap,
           pages_attempted: paid.pagesAttempted,
-          pages_skipped_zero_novelty: paid.pagesSkippedZeroNovelty,
+          pages_skipped_branch_stopped: paid.pagesSkippedBranchStopped,
           branches_attempted: paid.branchesAttempted,
           requests_used: paid.requestsUsed,
           useful_novel: paid.usefulNovel,
@@ -89,7 +89,7 @@ export function buildPrePaidNoveltyTelemetry(
           required: context.providerRequired,
           initial_residual_gap: context.residualGap,
           pages_attempted: 0,
-          pages_skipped_zero_novelty: 0,
+          pages_skipped_branch_stopped: 0,
           branches_attempted: 0,
           requests_used: 0,
           useful_novel: 0,
@@ -97,7 +97,10 @@ export function buildPrePaidNoveltyTelemetry(
     savings: {
       // Hechos observados, jamás contrafactuales. Ver la cabecera.
       provider_requests_avoided_by_zero_residual: context.providerRequired ? 0 : 1,
-      second_pages_avoided_zero_novelty: paid?.pagesSkippedZeroNovelty ?? 0,
+      // 🔴 AGENT1-LUSHA-PAGE-NOVELTY-POLICY-1 — la cero-novedad dejó de evitar
+      // páginas; lo que las evita ahora es que la RAMA pare (vacía o agotamiento
+      // declarado). El nombre sigue al hecho.
+      second_pages_avoided_branch_stopped: paid?.pagesSkippedBranchStopped ?? 0,
     },
   };
 }

@@ -5959,3 +5959,33 @@ jobs:
       # 0 escrituras en Produccion - 0 migraciones aplicadas - 0 cambios de bandera.
       - name: Run Agent 1 acceptance evidence parity tests
         run: npm run test:a1-acceptance-evidence-parity
+
+      # AGENT1-LUSHA-PAGE-NOVELTY-POLICY-1 - la politica de paginacion de Lusha.
+      #
+      # El defecto que estas suites fijan: una pagina NO VACIA cuya novedad LOCAL
+      # era cero cerraba la rama con `page_zero_novelty`. La premisa era una
+      # apuesta -"una pagina seca predice la siguiente"- y nuestra propia
+      # operacion produjo el contraejemplo con el mismo pais, la misma macro y el
+      # mismo plan de una rama (lote 54f94a91): la pagina 1 rindio MAS novedad que
+      # la 0 (18 frente a 8) y aporto 2 utiles. El coste se midio en el lote
+      # 9a5ac2c8: la rama paro tras UNA de las DOS peticiones que su reserva ya
+      # habia autorizado y pagado por adelantado.
+      #
+      # Lo que cambia: solo para la pagina realmente VACIA y el agotamiento
+      # declarado por el proveedor con senal FIABLE. Hoy NADIE alimenta esa senal
+      # -`totalAvailable` no esta verificada en la ruta de descubrimiento de
+      # empresas- y que la ausencia continue es lo que impide inventar una parada.
+      #
+      # Lo que NO cambia: no sube paginas, ni peticiones maximas, ni presupuesto.
+      # Siguen delante el techo de peticiones, el techo de filas crudas, la
+      # reserva atomica del periodo y `runStopped`. Consecuencia declarada: el
+      # consumo EFECTIVO puede subir hasta el limite que ya existia.
+      #
+      # Y en la misma entrega, el motivo operativo de parada deja de afirmar el
+      # objetivo: `target_reached` desaparece del vocabulario de la corrida. Quien
+      # responde si se cumplio el objetivo es `accepted_for_target`.
+      #
+      # 0 llamadas a Apollo - 0 a Lusha - 0 creditos - 0 Supabase real -
+      # 0 escrituras en Produccion - 0 migraciones aplicadas - 0 cambios de bandera.
+      - name: Run Agent 1 Lusha page novelty policy tests
+        run: npm run test:a1-lusha-page-novelty-policy
