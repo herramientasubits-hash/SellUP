@@ -28,9 +28,10 @@ function Row({ label, value, testId }: { label: string; value: React.ReactNode; 
   );
 }
 
-const usd = (value: number, decimals = 2) =>
-  `$${value.toLocaleString('es-CO', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}`;
-const credits = (value: number) => `${value.toLocaleString('es-CO')} cr`;
+// Mismo formato numérico que el resto del panel (`toLocaleString()` y
+// `$${v.toFixed(n)}`): dos bloques contiguos no pueden escribir 61.200 y 61,270.
+const usd = (value: number, decimals = 2) => `$${value.toFixed(decimals)}`;
+const credits = (value: number) => `${value.toLocaleString()} cr`;
 
 function formatDay(value: string): string {
   return new Date(`${value}T00:00:00Z`).toLocaleDateString('es-CO', {

@@ -89,10 +89,10 @@ describe('«Plan contratado» — render real', () => {
     render(<Card plan={plan({})} />);
     const all = text('provider-contract-plan');
     assert.match(all, /Anual/);
-    assert.match(all, /484\.335 cr \/ año/);
-    assert.match(all, /4\.200,00 USD \/ año/);
-    assert.match(text('provider-contract-plan-price'), /0,00867 USD/);
-    assert.match(text('provider-contract-plan-remaining'), /4\.355 cr/);
+    assert.match(all, /484,335 cr \/ año/);
+    assert.match(all, /\$4200\.00 USD \/ año/);
+    assert.match(text('provider-contract-plan-price'), /\$0\.00867 USD/);
+    assert.match(text('provider-contract-plan-remaining'), /4,355 cr/);
     assert.match(text('provider-contract-plan-renewal'), /en 19 días/);
     assert.equal(
       document.querySelector('[data-testid="provider-contract-plan-price-mismatch"]'),
@@ -106,13 +106,25 @@ describe('«Plan contratado» — render real', () => {
         plan={plan({ providerKey: 'lusha', activeUnitCostUsd: 0.08823529, renewalDate: null })}
       />,
     );
-    assert.match(text('provider-contract-plan-price-mismatch'), /0,08824 USD por crédito/);
+    assert.match(text('provider-contract-plan-price-mismatch'), /\$0\.08824 USD por crédito/);
     assert.match(text('provider-contract-plan-renewal'), /Sin configurar/);
   });
 
   it('sin sincronizar lo dice, en vez de mostrar 0', () => {
     render(<Card plan={plan({ creditsRemaining: null })} />);
     assert.match(text('provider-contract-plan-remaining'), /Sin sincronizar/);
+  });
+});
+
+describe('mismo formato numérico que el bloque de cuota', () => {
+  it('🔴 créditos con el separador de toLocaleString() y USD con toFixed, como el resto del panel', () => {
+    render(
+      <Card plan={plan({ providerKey: 'lusha', creditsRemaining: 4988, renewalDate: null })} />,
+    );
+    const all = text('provider-contract-plan');
+    assert.ok(all.includes(`${(61_200).toLocaleString()} cr / año`));
+    assert.ok(all.includes(`${(4988).toLocaleString()} cr`));
+    assert.ok(all.includes('$4174.57 USD / año'));
   });
 });
 
