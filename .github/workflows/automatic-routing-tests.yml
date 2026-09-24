@@ -5816,6 +5816,17 @@ jobs:
       - name: Run Agent 1 Lusha request observability tests
         run: npm run test:a1-lusha-request-observability
 
+      # AGENT1-LUSHA-PAGE-CURSOR-1 - cada corrida de Lusha arrancaba en la pagina
+      # 0, que para la misma busqueda devuelve SIEMPRE las mismas empresas (la
+      # firma CO x Tecnologia pago 0 y 1 el 22-09 y otra vez la 0 el 23-09). Con
+      # la bandera ENABLE_AGENT1_LUSHA_PAGE_CURSOR encendida, cada rama arranca
+      # en la primera pagina aun no pagada de esa firma; mismas paginas por
+      # corrida. Bandera APAGADA por defecto: sin ella, todo igual que antes.
+      #
+      # 0 llamadas a Lusha - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 Lusha page cursor tests
+        run: npm run test:a1-lusha-page-cursor
+
       # AGENT1-BUSINESS-FIT-OBSERVATION-ONLY - el ICP heredado de B2B tech deja
       # de decidir: no bloquea admision, no decide aceptacion, no autoriza gasto
       # y no ordena. Se conserva su resultado y su motivo como observacion.

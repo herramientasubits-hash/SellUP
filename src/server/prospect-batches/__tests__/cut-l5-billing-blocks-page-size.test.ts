@@ -875,7 +875,12 @@ describe('CUT-L5 · alcance y trinquetes', () => {
   it('M9 · el tope de páginas del PRODUCTO no se movió', () => {
     assert.equal(LUSHA_PENDING_REVIEW_MAX_PAGES, 2);
     assert.match(limits, /LUSHA_PENDING_REVIEW_MAX_PAGES\s*=\s*2/);
-    assert.match(writer, /page\s*<\s*LUSHA_PENDING_REVIEW_MAX_PAGES/);
+    // 🔴 AGENT1-LUSHA-PAGE-CURSOR-1 — el bucle cuenta DESPLAZAMIENTOS acotados
+    // por la constante; la página real es arranque + desplazamiento. El cursor
+    // elige desde qué página, nunca cuántas.
+    assert.match(writer, /pageOffset\s*<\s*LUSHA_PENDING_REVIEW_MAX_PAGES/);
+    assert.match(writer, /const page = branchStartPage \+ pageOffset;/);
+    assert.doesNotMatch(writer, /\bpage\s*<\s*LUSHA_PENDING_REVIEW_MAX_PAGES/);
     // El proveedor permite 1000; SellUp no. Capacidad ≠ política.
     assert.notEqual(LUSHA_PENDING_REVIEW_MAX_PAGES, LUSHA_PROSPECTING_MAX_PROVIDER_PAGES);
   });

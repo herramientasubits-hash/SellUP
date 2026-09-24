@@ -28,6 +28,7 @@ const WIZARD = resolve(SRC, 'components/prospect-batches/chat-wizard/wizard-lush
  */
 const CANONICAL_BATCH = resolve(SRC, 'server/prospect-batches/lusha-canonical-batch.ts');
 const PREVIEW = resolve(SRC, 'server/prospect-batches/lusha-preview.ts');
+const PREVIEW_CURSOR = resolve(SRC, 'server/prospect-batches/lusha-page-cursor.ts');
 // AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 § 6 — los topes se EXTRAJERON del
 // writer a su propio módulo (mismos nombres, mismos valores) porque el ejecutor
 // multi-rama los necesita sin cerrar un ciclo de inicialización con el writer.
@@ -53,9 +54,17 @@ describe('Q3F-5BB.7B static safety', () => {
     assert.match(limits, /LUSHA_PENDING_REVIEW_EXPECTED_MAX_CREDITS\s*=\s*2/);
     assert.match(limits, /LUSHA_PENDING_REVIEW_MIN_USEFUL_CANDIDATES\s*=\s*5/);
     // The loop is bounded by the constant, not by any request/response value.
-    assert.match(read(WRITER), /page\s*<\s*LUSHA_PENDING_REVIEW_MAX_PAGES/);
-    // Preview clamps the page — deep pagination is impossible.
+    // AGENT1-LUSHA-PAGE-CURSOR-1: it counts OFFSETS; the real page is the
+    // server-computed start + offset. Same number of pages per run.
+    assert.match(read(WRITER), /pageOffset\s*<\s*LUSHA_PENDING_REVIEW_MAX_PAGES/);
+    assert.match(read(WRITER), /const page = branchStartPage \+ pageOffset;/);
+    // Preview clamps the page to 1 by default; only the server executor can
+    // authorize a higher ceiling, and that ceiling is itself a hard constant.
     assert.match(read(PREVIEW), /LUSHA_PREVIEW_MAX_PAGE\s*=\s*1/);
+    assert.match(
+      read(PREVIEW_CURSOR),
+      /export const LUSHA_PAGE_CURSOR_MAX_PAGE_INDEX\s*=\s*39;/,
+    );
   });
 
   it('el techo de peticiones de la corrida se DERIVA, no se escribe a mano', () => {
