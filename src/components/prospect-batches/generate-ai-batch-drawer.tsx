@@ -251,6 +251,12 @@ type GenerateAIBatchDrawerProps = {
    */
   lushaPreviewEnabled?: boolean;
   /**
+   * AGENT1-AUTO-PROVIDER-CASCADE-1 — el proveedor lo decide el sistema (Apollo y,
+   * si no alcanza, Lusha). Resuelto en el servidor; ausente ⇒ `false`, el
+   * comportamiento previo.
+   */
+  autoProviderCascade?: boolean;
+  /**
    * A1-APOLLO-WIZARD-1 — proveedor de descubrimiento ya resuelto en el servidor.
    * Sólo se transporta hasta el wizard para que la UI pueda nombrarlo; este
    * componente no lo interpreta ni lo deduce. `null` = sin resolución conocida.
@@ -273,7 +279,7 @@ type GenerateAIBatchDrawerProps = {
   budgetPreflight?: WizardBudgetPreflight | null;
 };
 
-export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableKind = null, catalog = null, executionEnabled = false, lushaPreviewEnabled = false, discoveryProvider = null, providerOverrideCapability, apolloRunModeLimits = null, budgetPreflight = null }: GenerateAIBatchDrawerProps = {}) {
+export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableKind = null, catalog = null, executionEnabled = false, lushaPreviewEnabled = false, autoProviderCascade = false, discoveryProvider = null, providerOverrideCapability, apolloRunModeLimits = null, budgetPreflight = null }: GenerateAIBatchDrawerProps = {}) {
   const router = useRouter();
   const [form, setForm] = React.useState(EMPTY_FORM);
   const [drawer, setDrawer] = React.useState(EMPTY_DRAWER);
@@ -530,6 +536,7 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
           onClose={handleClose}
           executionEnabled={executionEnabled}
           lushaPreviewEnabled={lushaPreviewEnabled}
+          autoProviderCascade={autoProviderCascade}
           discoveryProvider={discoveryProvider}
           providerOverrideCapability={providerOverrideCapability}
           apolloRunModeLimits={apolloRunModeLimits}

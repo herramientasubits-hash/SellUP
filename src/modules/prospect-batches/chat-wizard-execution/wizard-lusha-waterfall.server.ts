@@ -65,7 +65,7 @@ import {
 } from './wizard-lusha-waterfall';
 import { deriveLushaWaterfallClientRequestId } from './waterfall-leg-identity';
 import {
-  isAgent1ApolloLushaWaterfallEnabled,
+  isAgent1LushaFallbackEffective,
   isLushaPreviewEnabled,
 } from '@/lib/feature-flags.server';
 import { generateLushaPendingReviewBatchAction } from '@/modules/prospect-batches/lusha-pending-review-actions';
@@ -151,7 +151,7 @@ export async function runLushaWaterfallLeg(
   deps: LushaWaterfallLegDeps = {},
 ): Promise<LushaWaterfallLegOutcome> {
   const decision = decideLushaWaterfallLeg({
-    waterfallEnabled: (deps.waterfallEnabled ?? isAgent1ApolloLushaWaterfallEnabled)(),
+    waterfallEnabled: (deps.waterfallEnabled ?? isAgent1LushaFallbackEffective)(),
     lushaAvailable: (deps.lushaAvailable ?? isLushaPreviewEnabled)(),
     apolloTerminal: input.apolloTerminal,
     apolloPendingContinuation: input.apolloPendingContinuation === true,

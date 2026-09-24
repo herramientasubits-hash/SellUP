@@ -889,3 +889,51 @@ export const AGENT1_LUSHA_PAGE_CURSOR_FLAG = 'ENABLE_AGENT1_LUSHA_PAGE_CURSOR';
 export function isAgent1LushaPageCursorEnabled(): boolean {
   return isEnvFlagEnabled(process.env[AGENT1_LUSHA_PAGE_CURSOR_FLAG]);
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// Agente 1 · proveedor automático Apollo → Lusha (AGENT1-AUTO-PROVIDER-CASCADE-1)
+// ════════════════════════════════════════════════════════════════════════════
+
+export const AGENT1_AUTO_PROVIDER_CASCADE_FLAG = 'ENABLE_AGENT1_AUTO_PROVIDER_CASCADE';
+
+/**
+ * ¿Decide el SISTEMA con qué proveedor busca el Agente 1, sin preguntarle a nadie?
+ *
+ * Decisión de producto del 2026-09-24 (comparación Apollo vs Lusha con precios
+ * reales): Apollo es el principal y Lusha el respaldo. Encendida:
+ *
+ *   · toda corrida del wizard va a Apollo (si su interruptor
+ *     `ENABLE_APOLLO_COMPANY_SEARCH` está encendido; si no, Tavily, como hoy);
+ *   · si Apollo no completa el objetivo, la pierna Lusha corre sola — con esta
+ *     bandera la cascada queda encendida aunque `ENABLE_AGENT1_APOLLO_LUSHA_WATERFALL`
+ *     no lo esté. `ENABLE_LUSHA_PREVIEW` y el presupuesto de Lusha siguen
+ *     mandando: esta bandera no crea créditos ni relaja ninguna reserva;
+ *   · desaparecen el selector «Proveedor de esta corrida» y el panel aparte de
+ *     Lusha («Buscar con IA»): una petición de proveedor por corrida se ignora.
+ *
+ * 🔴 Fail-closed y por defecto APAGADA: sólo el token exacto `true` la enciende.
+ * Apagada, todo funciona exactamente como antes de este corte.
+ */
+export function isAgent1AutoProviderCascadeEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[AGENT1_AUTO_PROVIDER_CASCADE_FLAG]);
+}
+
+/**
+ * ¿Corre la pierna Lusha cuando Apollo se queda corto? La bandera propia del
+ * waterfall O el modo automático. Es la ÚNICA pregunta que deben hacer los
+ * caminos de ejecución; la observabilidad sigue publicando cada bandera por
+ * separado.
+ */
+export function isAgent1LushaFallbackEffective(): boolean {
+  return isAgent1ApolloLushaWaterfallEnabled() || isAgent1AutoProviderCascadeEnabled();
+}
+
+/**
+ * ¿Puede un administrador elegir el proveedor de UNA corrida? Sólo con
+ * `ENABLE_WIZARD_RUN_PROVIDER_OVERRIDE` y FUERA del modo automático: con el modo
+ * automático encendido el proveedor lo decide el sistema, así que la petición se
+ * ignora en el servidor y el selector no se ofrece en la pantalla.
+ */
+export function isWizardRunProviderOverrideEffective(): boolean {
+  return isWizardRunProviderOverrideEnabled() && !isAgent1AutoProviderCascadeEnabled();
+}

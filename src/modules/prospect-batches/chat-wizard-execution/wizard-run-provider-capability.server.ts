@@ -18,7 +18,7 @@ import { createClient } from '@/lib/supabase/server';
 import {
   isApolloCompanySearchEnabled,
   isApolloTwoRoundDiscoveryEnabled,
-  isWizardRunProviderOverrideEnabled,
+  isWizardRunProviderOverrideEffective,
 } from '@/lib/feature-flags.server';
 import { resolveApolloTwoRoundConfigFromEnv } from '@/server/agents/prospecting-toolkit/apollo-two-round/env.server';
 import { estimateApolloTwoRoundBudget } from '@/server/agents/prospecting-toolkit/apollo-two-round/budget';
@@ -87,7 +87,8 @@ export async function isWizardApolloDiscoveryRolePermitted(): Promise<boolean> {
  * la superficie no añade ni una lectura a la ruta que hoy ya funciona.
  */
 export async function resolveWizardProviderOverrideCapabilityForCurrentUser(): Promise<WizardProviderOverrideCapability> {
-  const runOverrideEnabled = isWizardRunProviderOverrideEnabled();
+  // AGENT1-AUTO-PROVIDER-CASCADE-1 — en modo automático no hay selector.
+  const runOverrideEnabled = isWizardRunProviderOverrideEffective();
 
   const authority = runOverrideEnabled ? await resolveWizardAdminAuthority() : NO_AUTHORITY;
 
