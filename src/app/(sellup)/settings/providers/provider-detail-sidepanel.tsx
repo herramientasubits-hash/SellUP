@@ -43,6 +43,8 @@ import {
 import { parseBudgetCheck, SCOPE_LABEL } from '@/modules/budgets';
 import { toggleBudgetRuleStatus, deleteBudgetRule } from '@/modules/budgets/rule-actions';
 import { ProviderAllowanceDrawer } from '@/app/(sellup)/settings/budget-credits/provider-allowance-drawer';
+import { ProviderContractPlanCard, monthlyCreditsLabel } from './provider-contract-plan-card';
+import type { ProviderContractPlanView } from '@/modules/budgets/provider-contract-plan';
 import {
   CreateDrawer,
   EditDrawer,
@@ -2557,8 +2559,11 @@ function TabPresupuesto({
   loading,
   onRefresh,
   onConfigureAllowance,
+  contractPlan = null,
 }: {
   row: AdminProviderBudgetRow;
+  /** SETTINGS-PROVIDER-CONTRACT-PLAN-1 — null ⇒ proveedor sin contrato de créditos. */
+  contractPlan?: ProviderContractPlanView | null;
   providerRules: BudgetRuleRow[];
   formOptions: import('@/modules/budgets/rule-queries').BudgetRuleFormOptions | null;
   loading: boolean;
@@ -2612,6 +2617,8 @@ function TabPresupuesto({
 
   return (
     <div className="space-y-4">
+      {contractPlan && <ProviderContractPlanCard plan={contractPlan} />}
+
       {/* Cuota del proveedor */}
       <div className="space-y-2">
         <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">Cuota del proveedor</p>
@@ -2621,7 +2628,10 @@ function TabPresupuesto({
           <SectionCard>
             <InfoRow label="Fuente" value={<span className="text-muted-foreground">{quotaSourceLabel}</span>} />
             <InfoRow
-              label="Créditos mensuales"
+              // SETTINGS-PROVIDER-CONTRACT-PLAN-1 — la API de Lusha devuelve el
+              // total del PLAN anual, no un cupo mensual: rotularlo «mensual»
+              // multiplicaba por doce lo que se podía gastar.
+              label={monthlyCreditsLabel(row)}
               value={row.providerMonthlyCreditsAllowance != null
                 ? `${row.providerMonthlyCreditsAllowance.toLocaleString()} cr`
                 : 'No configurado'}
@@ -3679,6 +3689,7 @@ export function ProviderDetailSidepanel({
           <TabsContent value="presupuesto">
             <TabPresupuesto
               row={provider}
+              contractPlan={detailData?.contractPlan ?? null}
               providerRules={providerRules}
               formOptions={formOptions}
               loading={loadingDetail}
