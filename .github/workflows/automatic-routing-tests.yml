@@ -5803,6 +5803,19 @@ jobs:
       - name: Run Agent 1 X6.14 Lusha catalog admission tests
         run: npm run test:a1-lusha-catalog-admission-x6-14
 
+      # AGENT1-LUSHA-REQUEST-OBSERVABILITY-1 - que se le PIDIO a Lusha en cada
+      # pagina y que DEVOLVIO. El 2026-09-24, en CO x Consumo Masivo, las dos
+      # ramas (Alimentos y Bebidas, Cuidado Personal) devolvieron 48 de 50
+      # empresas iguales aunque el codigo SI envia subIndustriesIds. El log
+      # guardaba los ids PLANIFICADOS, no lo pedido ni las industrias devueltas.
+      # Ahora cada pagina registra lo pedido (industria, subindustria, banda de
+      # tamano, avisos) y lo devuelto (industrias y cuantas por debajo del
+      # minimo pedido). Solo observacion: no cambia que se pide, paga ni acepta.
+      #
+      # 0 llamadas a Lusha - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 Lusha request observability tests
+        run: npm run test:a1-lusha-request-observability
+
       # AGENT1-BUSINESS-FIT-OBSERVATION-ONLY - el ICP heredado de B2B tech deja
       # de decidir: no bloquea admision, no decide aceptacion, no autoriza gasto
       # y no ordena. Se conserva su resultado y su motivo como observacion.

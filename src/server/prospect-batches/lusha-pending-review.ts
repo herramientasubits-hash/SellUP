@@ -253,6 +253,11 @@ import {
   toLushaQualityGateMetadata,
   type LushaQualityGateResult,
 } from './lusha-quality-gate';
+// AGENT1-LUSHA-REQUEST-OBSERVABILITY-1 — lo pedido y lo devuelto, por página.
+import {
+  observeLushaPageRequest,
+  type LushaPageRequestObservation,
+} from './lusha-page-request-observation';
 
 // ─── Contract constants (see data-contract in migrations 040/045/093) ─────────
 
@@ -2950,6 +2955,8 @@ export async function persistLushaPendingReviewBatch(
   let providerSeenWriteFailures = 0;
   let providerSeenLastWriteSkippedReason: string | null = null;
   const providerSeenPageYields: ProviderSeenPageYield[] = [];
+  // AGENT1-LUSHA-REQUEST-OBSERVABILITY-1 — lo pedido y lo devuelto, por página.
+  const pageRequestObservations: LushaPageRequestObservation[] = [];
   const providerSeenBranchStopReasons: Record<number, string> = {};
   let hardFailure: PersistLushaPendingReviewResult | null = null;
 
@@ -3078,6 +3085,10 @@ export async function persistLushaPendingReviewBatch(
       branchProviderRequests++;
       branchPagesAttempted++;
       if (firstSearch === null) firstSearch = search;
+      // AGENT1-LUSHA-REQUEST-OBSERVABILITY-1 — se registra TODA petición
+      // despachada, también la que falló o vino vacía: una página pagada y vacía
+      // es justo la que más necesita explicarse. Sólo observa; no decide nada.
+      pageRequestObservations.push(observeLushaPageRequest({ branchIndex, page, search }));
 
       const pageCredits = search.billing?.creditsCharged ?? null;
       creditsChargedTotal = addCredits(creditsChargedTotal, pageCredits);
@@ -3788,6 +3799,7 @@ export async function persistLushaPendingReviewBatch(
     uniqueResultsTotal: normalizedCount,
     usefulResultsTotal: useful.length,
     reviewableFoundTotal,
+    pageRequests: pageRequestObservations,
     // 🔴 X5.1 — `useful.length` es el UNIVERSO de supervivientes, no la
     // aceptación. Publicarlo aquí bajo este nombre era la mitad de la
     // divergencia D1; la otra mitad la publicaba la fila de uso.
