@@ -1,4 +1,14 @@
-'use server';
+// SETTINGS-PROVIDERS-ADMIN-GUARD-1 — ya NO es un módulo `'use server'`.
+//
+// Lo era, y con eso `getAdminBudgetSummary`, `checkBudget` y
+// `checkProviderQuotaAvailable` quedaban expuestas como SERVER ACTIONS: cualquier
+// sesión que conociera su id podía invocarlas desde el navegador y leer, con el
+// cliente de servicio, el consumo de toda la organización o el presupuesto de
+// cualquier usuario. Son funciones INTERNAS del servidor (páginas de Configuración,
+// ejecución del wizard, phone reveal) y ningún componente cliente las llama.
+//
+// 🔴 Por eso tampoco se reexportan desde `@/modules/budgets` (que importan
+// componentes cliente): se importan de este módulo, sólo desde el servidor.
 
 // ============================================================
 // budgets — core budget resolution logic (Hito B)

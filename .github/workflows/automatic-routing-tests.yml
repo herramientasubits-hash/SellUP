@@ -6073,3 +6073,11 @@ jobs:
       # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
       - name: Run settings provider contract plan tests
         run: npm run test:settings-provider-contract-plan
+
+      # SETTINGS-PROVIDERS-ADMIN-GUARD-1 - toda server action de Configuracion y
+      # presupuestos exige administrador antes de leer o escribir con el cliente
+      # de servicio; budget-resolution deja de ser un modulo de acciones.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run settings providers admin guard tests
+        run: npm run test:settings-providers-admin-guard

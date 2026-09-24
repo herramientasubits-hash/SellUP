@@ -69,6 +69,8 @@ export interface ProviderConsumptionSnapshot {
 }
 
 export type ConsumptionErrorStage =
+  /** SETTINGS-PROVIDERS-ADMIN-GUARD-1 — quien llama no es administrador. */
+  | 'authorization'
   | 'provider_stats'
   | 'operation_stats'
   | 'recent_logs'

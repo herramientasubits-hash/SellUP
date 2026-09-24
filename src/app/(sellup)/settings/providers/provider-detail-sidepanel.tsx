@@ -1674,6 +1674,7 @@ function TabConsumo({
   const seqRef = useRef(0);
 
   const STAGE_LABEL: Record<ConsumptionErrorStage, string> = {
+    authorization: 'Permisos de administrador',
     provider_stats: 'Métricas de consumo',
     operation_stats: 'Distribución por operación',
     recent_logs: 'Operaciones recientes',
