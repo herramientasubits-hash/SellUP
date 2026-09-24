@@ -6010,3 +6010,16 @@ jobs:
       # 0 escrituras en Produccion - 0 migraciones aplicadas - 0 cambios de bandera.
       - name: Run Agent 1 Apollo continuation acceptance tests
         run: npm run test:a1-apollo-continuation-acceptance
+
+      # AGENT1-PROVIDER-RUN-SCORECARD-1 - la ficha por corrida y proveedor.
+      #
+      # Compara a Apollo con Lusha con la misma vara: una fila por corrida, con
+      # el coste de la fuente correcta (libro de Apollo, no provider_attempts),
+      # las corridas de Lusha SIN lote y la pierna Lusha de la cascada (log con
+      # batch_id NULL, unido por client_request_id). La aceptacion sale de
+      # accepted_for_target; lo que no se puede atribuir (aceptacion de Apollo
+      # en un lote de cascada) se DECLARA como hueco, nunca se resta.
+      #
+      # Solo lectura: 0 escrituras - 0 proveedores - 0 creditos - 0 migraciones.
+      - name: Run Agent 1 provider run scorecard tests
+        run: npm run test:a1-provider-run-scorecard
