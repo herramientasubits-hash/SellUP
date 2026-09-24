@@ -45,6 +45,7 @@ import { WizardLushaFinalSearch } from './wizard-lusha-final-search';
 // A1-APOLLO-QA-CONTROL-SURFACE-1 — selector administrativo por corrida (§ 2–5) y
 // etapas/cierre de la modalidad de dos rondas (§ 11).
 import { WizardRunProviderSelector } from './wizard-run-provider-selector';
+import { WizardAutoProviderNotice } from './wizard-auto-provider-notice';
 // Paneles de la fase de ejecución (overlay, envío y éxito), extraídos a su propio
 // archivo para mantener este por debajo del techo de tamaño del repo.
 import { SubmittingPanel, SuccessPanel } from './wizard-execution-panels';
@@ -96,6 +97,12 @@ type WizardRunProviderSurfaceProps = {
    * corrida; `null` ⇒ proveedor sin nombrar, y entonces no se bloquea.
    */
   defaultDiscoveryProvider?: WizardRunSelectableProvider | null;
+  /**
+   * AGENT1-AUTO-PROVIDER-CASCADE-1 — el proveedor lo decide el sistema (Apollo y,
+   * si no alcanza, Lusha). Resuelto en el servidor; ausente ⇒ `false`, el
+   * comportamiento previo.
+   */
+  autoProviderCascade?: boolean;
 };
 
 type WizardConversationSummaryProps = WizardRunProviderSurfaceProps & {
@@ -134,6 +141,7 @@ export function WizardConversationSummary({
   persistenceOutcome = null,
   budgetPreflight = null,
   defaultDiscoveryProvider = null,
+  autoProviderCascade = false,
 }: WizardConversationSummaryProps) {
   if (state.currentStep === 'validating') {
     return <ValidatingPanel />;
@@ -159,6 +167,7 @@ export function WizardConversationSummary({
         onRequestedProviderChange={onRequestedProviderChange}
         budgetPreflight={budgetPreflight}
         defaultDiscoveryProvider={defaultDiscoveryProvider}
+        autoProviderCascade={autoProviderCascade}
       />
     );
   }
@@ -268,9 +277,10 @@ type ValidatedPanelProps = {
   onRequestedProviderChange?: (provider: WizardRunSelectableProvider) => void;
   budgetPreflight: WizardBudgetPreflight | null;
   defaultDiscoveryProvider: WizardRunSelectableProvider | null;
+  autoProviderCascade: boolean;
 };
 
-function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute, executionError, freeContribution, onEditSearch, onClose, lushaPreviewEnabled, lushaCriteria, providerOverrideCapability, apolloRunModeLimits, requestedProvider, onRequestedProviderChange, budgetPreflight, defaultDiscoveryProvider }: ValidatedPanelProps) {
+function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute, executionError, freeContribution, onEditSearch, onClose, lushaPreviewEnabled, lushaCriteria, providerOverrideCapability, apolloRunModeLimits, requestedProvider, onRequestedProviderChange, budgetPreflight, defaultDiscoveryProvider, autoProviderCascade }: ValidatedPanelProps) {
   const router = useRouter();
   // Q3F-5BB.3E — Final search step. When the collected criteria resolve to the
   // hidden Lusha provider, the final "Buscar con IA" search runs Lusha read-only
@@ -286,7 +296,11 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
   // sólo puede ser true si el servidor ya autorizó a este usuario a pedir Apollo
   // (`isProviderOptionEnabled` lee la MISMA capacidad sanitizada que gobierna el
   // selector Tavily/Apollo) — nunca por el valor crudo de `requestedProvider`.
+  // AGENT1-AUTO-PROVIDER-CASCADE-1 — en modo automático Lusha deja de ser una
+  // ruta aparte: corre como respaldo DESPUÉS de Apollo, dentro de la misma
+  // ejecución. Sin ruta Lusha, esta pantalla ofrece «Generar prospectos».
   const lushaRouteInEffect =
+    !autoProviderCascade &&
     lushaPreviewEnabled &&
     isLushaRouteHonored(lushaCriteria.provider) &&
     lushaCriteria.input !== null;
@@ -442,13 +456,16 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
 
   // La rama Agente 1 (Tavily/Apollo) conserva EXACTAMENTE su gate previo; se le
   // añade una segunda vía de entrada para la escotilla de escape de Lusha.
+  // AGENT1-AUTO-PROVIDER-CASCADE-1 — el servidor ya no declara la capacidad en
+  // modo automático; el término explícito lo hace legible aquí también.
   const showRunProviderSelector =
-    (!lushaRouteInEffect &&
+    !autoProviderCascade &&
+    ((!lushaRouteInEffect &&
       discoveryAvailability.available &&
       executionEnabled &&
       !isPersistenceBlocked &&
       !isBudgetBlocked) ||
-    canOverrideLushaWithApollo;
+      canOverrideLushaWithApollo);
 
   // 🔴 HALLAZGO-B § contención — la ruta Lusha se OFRECE sólo si el bloqueo de
   // persistencia no está en pantalla.
@@ -581,6 +598,21 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
           onGenerateAnother={() => dispatch({ type: 'CONFIRM_RESTART' })}
         />
       )}
+
+      {/* AGENT1-AUTO-PROVIDER-CASCADE-1 — cómo va a buscar, antes del clic. Mismo
+          gate que «Generar prospectos»: si no se puede ejecutar, no se anuncia. */}
+      {autoProviderCascade &&
+        discoveryAvailability.available &&
+        executionEnabled &&
+        !isPersistenceBlocked &&
+        !isBudgetBlocked && (
+          // El cálculo del respaldo Lusha vive DENTRO del aviso, con el mismo
+          // resolutor que usa el panel de Lusha: este padre no lo reimplementa.
+          <WizardAutoProviderNotice
+            budgetPreflight={budgetPreflight}
+            lushaMacroIndustryKey={lushaCriteria.input?.macroIndustryKey ?? null}
+          />
+        )}
 
       {/* Real IA generation — only when explicitly enabled, the search shape admits
           an external discovery provider, and Lusha is not backing this search. */}

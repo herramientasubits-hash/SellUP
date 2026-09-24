@@ -8,8 +8,14 @@
  *       + ENABLE_APOLLO_COMPANY_SEARCH=false     → tavily (flag apagado)
  *       + ENABLE_APOLLO_COMPANY_SEARCH=true      → apollo_organizations
  *
- * Tavily es y seguirá siendo el default. Apollo solo se activa con AMBAS env vars
- * configuradas explícitamente server-side. No hay selector en UI.
+ * Tavily es el default. Apollo solo se activa con AMBAS env vars configuradas
+ * explícitamente server-side. No hay selector en UI.
+ *
+ * AGENT1-AUTO-PROVIDER-CASCADE-1 — con `ENABLE_AGENT1_AUTO_PROVIDER_CASCADE=true`
+ * el principal es Apollo sin necesidad de `AGENT1_WIZARD_DISCOVERY_PROVIDER`
+ * (decisión de producto del 2026-09-24: Apollo principal, Lusha respaldo). El
+ * interruptor de Apollo sigue mandando: con `ENABLE_APOLLO_COMPANY_SEARCH`
+ * apagado, Tavily, exactamente como hoy.
  *
  * Decisión estratégica Q3F-3:
  *   Apollo Organizations NO es el discovery principal recomendado para lotes masivos.
@@ -53,13 +59,23 @@ export type ApolloOrganizationEnrichmentRole = typeof APOLLO_ORGANIZATION_ROLES.
 
 export type WizardDiscoveryProviderResolution =
   | { provider: 'tavily'; reason: 'default' | 'explicit_tavily' | 'apollo_flag_off' }
-  | { provider: 'apollo_organizations'; reason: 'apollo_both_gates_on' };
+  | { provider: 'apollo_organizations'; reason: 'apollo_both_gates_on' | 'auto_provider_cascade' };
 
 /**
  * Resuelve el provider de discovery con razón explícita.
  * Usar para tests y logging interno.
  */
 export function resolveWizardDiscoveryProviderVerbose(): WizardDiscoveryProviderResolution {
+  // AGENT1-AUTO-PROVIDER-CASCADE-1 — el modo automático gana sobre el override
+  // global, pero nunca sobre el interruptor de Apollo.
+  if (parseEnvBooleanFlag(process.env.ENABLE_AGENT1_AUTO_PROVIDER_CASCADE).enabled) {
+    const companySearchFlag = parseEnvBooleanFlag(process.env.ENABLE_APOLLO_COMPANY_SEARCH);
+    if (!companySearchFlag.enabled) {
+      return { provider: 'tavily', reason: 'apollo_flag_off' };
+    }
+    return { provider: 'apollo_organizations', reason: 'auto_provider_cascade' };
+  }
+
   const override = process.env.AGENT1_WIZARD_DISCOVERY_PROVIDER;
 
   if (matchesEnvToken(override, 'apollo_organizations')) {

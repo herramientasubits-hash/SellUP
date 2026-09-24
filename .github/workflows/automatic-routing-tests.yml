@@ -5827,6 +5827,15 @@ jobs:
       - name: Run Agent 1 Lusha page cursor tests
         run: npm run test:a1-lusha-page-cursor
 
+      # AGENT1-AUTO-PROVIDER-CASCADE-1 - el Agente 1 deja de preguntar con que
+      # proveedor buscar: con ENABLE_AGENT1_AUTO_PROVIDER_CASCADE encendida busca
+      # con Apollo y, si no alcanza el objetivo, sigue con Lusha. Sin selector y
+      # sin el panel aparte de Lusha. Bandera APAGADA por defecto.
+      #
+      # 0 llamadas a Apollo o Lusha - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 auto provider cascade tests
+        run: npm run test:a1-auto-provider-cascade
+
       # AGENT1-BUSINESS-FIT-OBSERVATION-ONLY - el ICP heredado de B2B tech deja
       # de decidir: no bloquea admision, no decide aceptacion, no autoriza gasto
       # y no ordena. Se conserva su resultado y su motivo como observacion.

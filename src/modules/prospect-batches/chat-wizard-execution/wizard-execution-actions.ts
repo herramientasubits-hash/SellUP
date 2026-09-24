@@ -2,7 +2,7 @@
 
 import { readApolloAssessmentDeadlineReached } from '@/server/agents/prospecting-toolkit/apollo-two-round/continuation-worker';
 import {
-  isAgent1ApolloLushaWaterfallEnabled,
+  isAgent1LushaFallbackEffective,
   isLushaPreviewEnabled,
 } from '@/lib/feature-flags.server';
 import { createClient } from '@/lib/supabase/server';
@@ -91,7 +91,10 @@ import {
   type WizardRunProviderSelection,
   type ProviderSelectionAuthority,
 } from './wizard-run-provider-selection';
-import { isWizardRunProviderOverrideEnabled } from '@/lib/feature-flags.server';
+import {
+  isWizardRunProviderOverrideEffective,
+  isWizardRunProviderOverrideEnabled,
+} from '@/lib/feature-flags.server';
 // Q3F-5BB.11E — OBSERVATIONAL Apollo provider-routing wiring. The adapter is pure
 // (no env, no provider client, no Supabase, no contact-enrichment / phone reveal).
 // The barrel exposes the pure 11B resolver + 11C metadata builder. This produces
@@ -742,7 +745,8 @@ export async function executeProspectWizardGenerationAction(
       return resolveWizardRunProvider({
         requestedProvider,
         authority,
-        runOverrideEnabled: isWizardRunProviderOverrideEnabled(),
+        // AGENT1-AUTO-PROVIDER-CASCADE-1 — en modo automático la petición se ignora.
+        runOverrideEnabled: isWizardRunProviderOverrideEffective(),
         globalDefaultProvider: resolveWizardDiscoveryProvider(),
         // § 9 — la elección de un intento anterior gana sobre la petición nueva.
         // El núcleo valida el valor: un string desconocido no resucita nada.
@@ -1925,7 +1929,7 @@ export async function executeProspectWizardGeneration(
         // lo que el mundo tenga entonces. La conjunción con el estado de ese
         // momento sólo puede restringir, nunca habilitar.
         continuationRunPolicy: {
-          waterfallEnabledAtRunStart: isAgent1ApolloLushaWaterfallEnabled(),
+          waterfallEnabledAtRunStart: isAgent1LushaFallbackEffective(),
           lushaAvailableAtRunStart: isLushaPreviewEnabled(),
           target: WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
           countryCode: req.countryCode,

@@ -115,7 +115,7 @@ async function runContinuationCascade(
   policy: ApolloContinuationRunPolicy,
   outcome: { candidatesCreated?: number },
 ): Promise<void> {
-  const [{ runLushaWaterfallLeg }, { isAgent1ApolloLushaWaterfallEnabled, isLushaPreviewEnabled }] =
+  const [{ runLushaWaterfallLeg }, { isAgent1LushaFallbackEffective, isLushaPreviewEnabled }] =
     await Promise.all([
       import('@/modules/prospect-batches/chat-wizard-execution/wizard-lusha-waterfall.server'),
       import('@/lib/feature-flags.server'),
@@ -123,7 +123,7 @@ async function runContinuationCascade(
   const { resolveContinuationCascadeInputs } = await import('./continuation-worker');
 
   const effective = resolveContinuationCascadeInputs(policy, {
-    waterfallEnabled: isAgent1ApolloLushaWaterfallEnabled(),
+    waterfallEnabled: isAgent1LushaFallbackEffective(),
     lushaAvailable: isLushaPreviewEnabled(),
   });
   if (!effective.waterfallEnabled || !effective.lushaAvailable) return;
