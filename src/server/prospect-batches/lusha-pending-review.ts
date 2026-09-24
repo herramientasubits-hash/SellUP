@@ -253,6 +253,13 @@ import {
   toLushaQualityGateMetadata,
   type LushaQualityGateResult,
 } from './lusha-quality-gate';
+// AGENT1-LUSHA-PAGE-CURSOR-1 — por qué página arranca cada rama.
+import {
+  LUSHA_PAGE_CURSOR_MAX_PAGE_INDEX,
+  resolveLushaBranchStartPages,
+  type LushaBranchCursorDecision,
+  type LushaPageCursorContext,
+} from './lusha-page-cursor';
 // AGENT1-LUSHA-REQUEST-OBSERVABILITY-1 — lo pedido y lo devuelto, por página.
 import {
   observeLushaPageRequest,
@@ -2637,6 +2644,12 @@ export interface LushaMultiBranchExecution {
   /** Sólo telemetría: cuánto reservó el llamador, para que el lote lo registre. */
   creditsReserved?: number | null;
   /**
+   * AGENT1-LUSHA-PAGE-CURSOR-1 — el historial de páginas ya pagadas de ESTA
+   * búsqueda. Ausente, `disabled` o `history_unavailable` ⇒ toda rama arranca
+   * en la página 0, exactamente como antes del cursor.
+   */
+  pageCursor?: LushaPageCursorContext | null;
+  /**
    * ADDENDUM PROVIDER-SEEN § 4 — memoria de lo que este proveedor ya nos mostró.
    *
    * Ausente ⇒ memoria vacía y escritura no-op: 0 aciertos, 0 identidades nuevas y
@@ -2957,6 +2970,19 @@ export async function persistLushaPendingReviewBatch(
   const providerSeenPageYields: ProviderSeenPageYield[] = [];
   // AGENT1-LUSHA-REQUEST-OBSERVABILITY-1 — lo pedido y lo devuelto, por página.
   const pageRequestObservations: LushaPageRequestObservation[] = [];
+  // AGENT1-LUSHA-PAGE-CURSOR-1 — por qué página arranca cada rama. Sólo con el
+  // historial cargado; en cualquier otro caso, página 0 como siempre.
+  const pageCursor = execution?.pageCursor ?? null;
+  const pageCursorDecisions: LushaBranchCursorDecision[] =
+    pageCursor?.status === 'loaded'
+      ? resolveLushaBranchStartPages({
+          branchCount: branches.length,
+          history: pageCursor.history,
+          pageSize: LUSHA_PROSPECTING_PAGE_SIZE,
+          pagesPerRun: LUSHA_PENDING_REVIEW_MAX_PAGES,
+        })
+      : [];
+  const pageCursorActive = pageCursorDecisions.length > 0;
   const providerSeenBranchStopReasons: Record<number, string> = {};
   let hardFailure: PersistLushaPendingReviewResult | null = null;
 
@@ -3027,7 +3053,17 @@ export async function persistLushaPendingReviewBatch(
     // 🔴 Igual que el acumulador de corrida: constante por construcción.
     const branchTargetOverflow = 0;
 
-    for (let page = 0; page < LUSHA_PENDING_REVIEW_MAX_PAGES; page++) {
+    // 🔴 AGENT1-LUSHA-PAGE-CURSOR-1 — mismas páginas por corrida
+    // (`LUSHA_PENDING_REVIEW_MAX_PAGES`); lo que cambia es la de ARRANQUE.
+    // `page` sigue siendo la página REAL del proveedor: la valla, las
+    // disposiciones y la telemetría la registran tal cual.
+    const branchStartPage = pageCursorDecisions[branchIndex]?.startPage ?? 0;
+    for (
+      let pageOffset = 0;
+      pageOffset < LUSHA_PENDING_REVIEW_MAX_PAGES;
+      pageOffset++
+    ) {
+      const page = branchStartPage + pageOffset;
       // § 6/§ 16/§ 17 — la decisión de pedir es explícita y de ámbito de corrida.
       // No se delega a la cota de los bucles: ver la cabecera del módulo de
       // política.
@@ -3065,6 +3101,10 @@ export async function persistLushaPendingReviewBatch(
           // Se fija AQUÍ y no en el llamador: `input` viene de la server action y
           // el navegador no puede elegir cuánto cuesta una página.
           pageSize: LUSHA_PROSPECTING_PAGE_SIZE,
+          // 🔴 AGENT1-LUSHA-PAGE-CURSOR-1 — sin esto, `clampLushaPreviewPage`
+          // recortaría en silencio cualquier página por encima de 1. Sólo se
+          // autoriza con el cursor activo, y nunca por encima de su tope.
+          ...(pageCursorActive ? { authorizedMaxPage: LUSHA_PAGE_CURSOR_MAX_PAGE_INDEX } : {}),
           // Rama legacy ⇒ no se manda `industryBranch` y el preview deriva la
           // industria del sector, exactamente como hoy.
           ...(branch !== null
@@ -3541,7 +3581,7 @@ export async function persistLushaPendingReviewBatch(
 
       if (!continuation.continueBranch) {
         providerSeenBranchStopReasons[branchIndex] = continuation.stopReason;
-        const remainingPages = LUSHA_PENDING_REVIEW_MAX_PAGES - (page + 1);
+        const remainingPages = LUSHA_PENDING_REVIEW_MAX_PAGES - (pageOffset + 1);
         if (remainingPages > 0) pagesSkippedBranchStopped += remainingPages;
         break;
       }
@@ -3800,6 +3840,11 @@ export async function persistLushaPendingReviewBatch(
     usefulResultsTotal: useful.length,
     reviewableFoundTotal,
     pageRequests: pageRequestObservations,
+    pageCursor: {
+      status: pageCursor?.status ?? 'disabled',
+      ...(pageCursor?.status === 'history_unavailable' ? { reason: pageCursor.reason } : {}),
+      decisions: pageCursorDecisions,
+    },
     // 🔴 X5.1 — `useful.length` es el UNIVERSO de supervivientes, no la
     // aceptación. Publicarlo aquí bajo este nombre era la mitad de la
     // divergencia D1; la otra mitad la publicaba la fila de uso.

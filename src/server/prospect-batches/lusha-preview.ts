@@ -51,6 +51,7 @@ import {
 // de un sector legacy (`12/71` es farmacéuticas bajo Manufacturing, y ningún
 // sector legacy la contiene). Módulo puro: sin env, sin red, sin DB.
 import { isLushaSubIndustryOfMain } from '@/server/prospect-batches/lusha-industry-metadata';
+import { LUSHA_PAGE_CURSOR_MAX_PAGE_INDEX } from './lusha-page-cursor';
 import {
   ICP_SIZE_GATE_DEFAULT_THRESHOLD,
   classifyKnownEmployeeCount,
@@ -216,6 +217,13 @@ export interface BuildLushaPreviewRequestInput {
   /** Página solicitada. Por defecto 0; clamp a [0, LUSHA_PREVIEW_MAX_PAGE]. */
   page?: number | null;
   /**
+   * AGENT1-LUSHA-PAGE-CURSOR-1 — techo de página que el SERVIDOR autoriza para
+   * ESTA petición. Ausente ⇒ `LUSHA_PREVIEW_MAX_PAGE` (1), el comportamiento de
+   * siempre. Sólo el ejecutor pagado lo pasa, con el cursor encendido. No viaja
+   * desde el navegador: ningún esquema de entrada lo declara.
+   */
+  authorizedMaxPage?: number | null;
+  /**
    * AGENT1-LUSHA-CUT-L5 § 13 — tamaño de página solicitado.
    *
    * Ausente ⇒ `LUSHA_PREVIEW_SIZE` (10), el tamaño histórico del preview. La ruta
@@ -291,11 +299,34 @@ export function resolveLushaProspectingExpectedMaxCredits(
   );
 }
 
-export function clampLushaPreviewPage(page: number | null | undefined): number {
+/**
+ * AGENT1-LUSHA-PAGE-CURSOR-1 — el techo de página que el SERVIDOR autoriza.
+ *
+ * Por omisión, `LUSHA_PREVIEW_MAX_PAGE` (1): el comportamiento de siempre. Sólo
+ * el ejecutor de la ruta pagada, con el cursor encendido, pasa un techo mayor, y
+ * nunca por encima de `LUSHA_PAGE_CURSOR_MAX_PAGE_INDEX`. El navegador no puede
+ * enviarlo: los dos esquemas de entrada (`GenerateInputSchema`,
+ * `PreviewInputSchema`) son `z.object` sin `passthrough` y lo descartan.
+ */
+export function resolveLushaAuthorizedMaxPage(authorizedMaxPage: number | null | undefined): number {
+  if (typeof authorizedMaxPage !== 'number' || !Number.isInteger(authorizedMaxPage)) {
+    return LUSHA_PREVIEW_MAX_PAGE;
+  }
+  return Math.min(
+    Math.max(authorizedMaxPage, LUSHA_PREVIEW_MAX_PAGE),
+    LUSHA_PAGE_CURSOR_MAX_PAGE_INDEX,
+  );
+}
+
+export function clampLushaPreviewPage(
+  page: number | null | undefined,
+  authorizedMaxPage?: number | null,
+): number {
   if (typeof page !== 'number' || !Number.isFinite(page)) return LUSHA_PREVIEW_PAGE;
   const truncated = Math.trunc(page);
   if (truncated < LUSHA_PREVIEW_PAGE) return LUSHA_PREVIEW_PAGE;
-  if (truncated > LUSHA_PREVIEW_MAX_PAGE) return LUSHA_PREVIEW_MAX_PAGE;
+  const maxPage = resolveLushaAuthorizedMaxPage(authorizedMaxPage);
+  if (truncated > maxPage) return maxPage;
   return truncated;
 }
 
@@ -354,7 +385,7 @@ export function buildLushaPreviewRequest(
   return {
     filters: { companies },
     pagination: {
-      page: clampLushaPreviewPage(input.page),
+      page: clampLushaPreviewPage(input.page, input.authorizedMaxPage),
       // CUT-L5 § 13 — el tamaño ya no está cableado: lo decide quien paga.
       size: resolveLushaProspectingPageSize(input.pageSize),
     },
@@ -712,6 +743,13 @@ export interface LushaPreviewInput {
    */
   page?: number | null;
   /**
+   * AGENT1-LUSHA-PAGE-CURSOR-1 — techo de página que el SERVIDOR autoriza para
+   * ESTA petición. Ausente ⇒ `LUSHA_PREVIEW_MAX_PAGE` (1), el comportamiento de
+   * siempre. Sólo el ejecutor pagado lo pasa, con el cursor encendido. No viaja
+   * desde el navegador: ningún esquema de entrada lo declara.
+   */
+  authorizedMaxPage?: number | null;
+  /**
    * AGENT1-LUSHA-CUT-L5 §§ 3, 13 — cuántos resultados pide ESTA petición.
    *
    * Ausente ⇒ 10, el tamaño histórico del preview. El único caller que lo envía
@@ -1028,6 +1066,7 @@ export async function executeLushaPreview(
     sizeBand: sizeBand ? { min: sizeBand.min, max: sizeBand.max } : null,
     searchText: hasSearchText ? trimmedSearch : null,
     page: input.page,
+    authorizedMaxPage: input.authorizedMaxPage ?? null,
     // CUT-L5 § 13 — el tamaño de la ruta que paga. Ausente ⇒ preview (10).
     pageSize: input.pageSize,
     // 🔴 CUT-L1 § 2 — no hay nada que pasar: la petición es de INCLUSIÓN pura.

@@ -43,7 +43,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { MACRO_INDUSTRY_KEYS } from '@/modules/macro-industry-catalog/macro-industries';
 import { createClient } from '@/lib/supabase/server';
-import { isLushaPreviewEnabled } from '@/lib/feature-flags.server';
+import { isAgent1LushaPageCursorEnabled, isLushaPreviewEnabled } from '@/lib/feature-flags.server';
 import { requireActiveUser } from '@/modules/prospect-batches/actions';
 import { getLushaApiKey } from '@/server/services/lusha-connection';
 import { searchLushaCompaniesV3 } from '@/server/integrations/lusha-client';
@@ -56,9 +56,12 @@ import {
 import { resolveLushaRequestFenceStore } from '@/server/prospect-batches/lusha-request-fence-store';
 import {
   resolveLushaProspectingOperation,
+  LUSHA_OPERATION_SIGNATURE_VERSION,
   LUSHA_OPERATION_UNAVAILABLE_CODE,
   type LushaProspectingOperationStore,
 } from '@/server/prospect-batches/lusha-prospecting-operation';
+import { resolveLushaPageCursorContext } from '@/server/prospect-batches/lusha-page-cursor';
+import { loadLushaPageHistory } from '@/server/prospect-batches/lusha-page-history-store';
 import { resolveLushaProspectingOperationStore } from '@/server/prospect-batches/lusha-prospecting-operation-store';
 import { lushaRealRetrySleep } from '@/server/prospect-batches/lusha-safe-retry-policy';
 import type { LushaRequestFenceStore } from '@/server/prospect-batches/lusha-request-fence';
@@ -536,6 +539,7 @@ async function runGenerateLushaPendingReviewBatch(
     routingMetadata,
     routingPlan,
     operationId: operation.operationId,
+    operationSignatureHash: operation.signatureHash,
     // CORTE 5A — `undefined` en standalone. Todo lo que depende de él tiene su
     // rama «como antes» escrita explícitamente.
     waterfall: waterfall ?? null,
@@ -614,6 +618,11 @@ async function runLushaPendingReviewUnderOperation(ctx: {
   routingPlan: ReturnType<typeof resolveProviderRoutingPlan>;
   /** Identidad DURABLE de la operación. La valla de petición cuelga de ella. */
   operationId: string;
+  /**
+   * AGENT1-LUSHA-PAGE-CURSOR-1 — firma estable de la BÚSQUEDA (criterios
+   * normalizados, nada efímero). Es la llave del historial de páginas pagadas.
+   */
+  operationSignatureHash: string;
   /**
    * CORTE 5A — contexto de correlación del waterfall, o `null` en standalone.
    * Ya VERIFICADO arriba: el `clientRequestId` de esta pierna es el derivado del
@@ -925,6 +934,7 @@ async function runLushaPendingReviewUnderOperation(ctx: {
         internalUserId,
         clientRequestId,
         operationId,
+        operationSignatureHash: ctx.operationSignatureHash,
         requestedTarget,
         canonicalBatch,
         reservation,
@@ -1037,6 +1047,8 @@ async function runLushaSearchWithReservation(args: {
    * arreglo cierra.
    */
   operationId: string;
+  /** AGENT1-LUSHA-PAGE-CURSOR-1 — firma estable de la búsqueda. */
+  operationSignatureHash: string;
   /** § 8 — el objetivo PEDIDO, la autoridad que `target_count` publica. */
   requestedTarget: number;
   /**
@@ -1402,6 +1414,22 @@ async function runLushaSearchWithReservation(args: {
   });
   const batchIdentitySeed = identitySeed.seed;
 
+  // AGENT1-LUSHA-PAGE-CURSOR-1 — qué páginas pagó YA esta búsqueda. Con la
+  // bandera apagada no se lee nada; si la lectura falla, página 0 como siempre.
+  const pageCursor = await resolveLushaPageCursorContext({
+    enabled: isAgent1LushaPageCursorEnabled(),
+    signatureVersion: LUSHA_OPERATION_SIGNATURE_VERSION,
+    signatureHash: args.operationSignatureHash,
+    operationId: args.operationId,
+    loadHistory: (query) => loadLushaPageHistory(query),
+  });
+  if (pageCursor.status === 'history_unavailable') {
+    console.warn('[lusha_page_cursor_history_unavailable]', {
+      operation_id: args.operationId,
+      reason: pageCursor.reason,
+    });
+  }
+
   try {
     const result = await persistLushaPendingReviewBatch(
       {
@@ -1685,6 +1713,7 @@ async function runLushaSearchWithReservation(args: {
         // 🔴 CUT-9 §§ 6, 7 — las filas que lo gratuito dejó en ESTE lote. Es lo que
         // impide que una empresa cuente dos veces hacia el objetivo.
         batchIdentitySeed,
+        pageCursor,
       },
     );
 

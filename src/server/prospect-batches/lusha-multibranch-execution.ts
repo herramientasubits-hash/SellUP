@@ -61,6 +61,7 @@ import {
   toLushaPageRequestMetadata,
   type LushaPageRequestObservation,
 } from './lusha-page-request-observation';
+import type { LushaBranchCursorDecision } from './lusha-page-cursor';
 
 // ─── targetGap (§ 3) ──────────────────────────────────────────────────────────
 
@@ -484,6 +485,15 @@ export type LushaRunTelemetry = {
    * compilando y produzca EXACTAMENTE la forma de metadata previa.
    */
   pageRequests?: readonly LushaPageRequestObservation[];
+  /**
+   * AGENT1-LUSHA-PAGE-CURSOR-1 — si el cursor actuó y por qué página arrancó cada
+   * rama. Opcional: un llamador anterior produce la forma de metadata previa.
+   */
+  pageCursor?: {
+    status: 'disabled' | 'history_unavailable' | 'loaded';
+    reason?: string;
+    decisions: readonly LushaBranchCursorDecision[];
+  };
 };
 
 /** Vista serializable para `metadata`. snake_case, como el resto del lote. */
@@ -562,6 +572,21 @@ export function toLushaRunTelemetryMetadata(
       : {}),
     ...(telemetry.pageRequests
       ? { page_requests: toLushaPageRequestMetadata(telemetry.pageRequests) }
+      : {}),
+    ...(telemetry.pageCursor
+      ? {
+          page_cursor: {
+            status: telemetry.pageCursor.status,
+            ...(telemetry.pageCursor.reason ? { reason: telemetry.pageCursor.reason } : {}),
+            decisions: telemetry.pageCursor.decisions.map((d) => ({
+              branch_index: d.branchIndex,
+              start_page: d.startPage,
+              reason: d.reason,
+              last_consumed_page: d.lastConsumedPage,
+              consumed_pages: d.consumedPages,
+            })),
+          },
+        }
       : {}),
   };
 }

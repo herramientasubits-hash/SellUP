@@ -869,3 +869,23 @@ export function isAgent1ApolloLushaWaterfallEnabled(): boolean {
 export function isAgent1ApolloLushaWaterfallFlagConfigured(): boolean {
   return isEnvFlagConfigured(process.env[AGENT1_APOLLO_LUSHA_WATERFALL_FLAG]);
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// Agente 1 · cursor de página de Lusha (AGENT1-LUSHA-PAGE-CURSOR-1)
+// ════════════════════════════════════════════════════════════════════════════
+
+export const AGENT1_LUSHA_PAGE_CURSOR_FLAG = 'ENABLE_AGENT1_LUSHA_PAGE_CURSOR';
+
+/**
+ * ¿Arranca cada rama de Lusha en la primera página que su búsqueda todavía no
+ * pagó, en vez de en la 0?
+ *
+ * 🔴 No autoriza más gasto: las páginas por corrida, el techo de peticiones y la
+ * reserva son los mismos. Cambia QUÉ páginas se piden, no cuántas.
+ *
+ * 🔴 Fail-closed y por defecto APAGADA: sólo el token exacto `true` la enciende.
+ * Apagada, toda corrida arranca en la página 0, exactamente como antes.
+ */
+export function isAgent1LushaPageCursorEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[AGENT1_LUSHA_PAGE_CURSOR_FLAG]);
+}
