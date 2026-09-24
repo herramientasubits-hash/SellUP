@@ -57,6 +57,10 @@ import {
   type ProviderExclusionPlan,
 } from '@/modules/prospect-batches/provider-seen/provider-exclusion-planner';
 import type { PrePaidFreeSourceOutcome } from '@/modules/prospect-batches/prepaid-novelty/prepaid-novelty-context';
+import {
+  toLushaPageRequestMetadata,
+  type LushaPageRequestObservation,
+} from './lusha-page-request-observation';
 
 // ─── targetGap (§ 3) ──────────────────────────────────────────────────────────
 
@@ -472,6 +476,14 @@ export type LushaRunTelemetry = {
   providerExclusionPlan?: ProviderExclusionPlan;
   /** Lo que la fuente gratuita rindió, para el bloque normalizado de § 10. */
   freeSource?: PrePaidFreeSourceOutcome;
+  /**
+   * AGENT1-LUSHA-REQUEST-OBSERVABILITY-1 — por cada página pedida, lo que la
+   * petición LLEVÓ y las industrias y tamaños que DEVOLVIÓ.
+   *
+   * Opcional para que un llamador o doble de prueba anterior a este corte siga
+   * compilando y produzca EXACTAMENTE la forma de metadata previa.
+   */
+  pageRequests?: readonly LushaPageRequestObservation[];
 };
 
 /** Vista serializable para `metadata`. snake_case, como el resto del lote. */
@@ -547,6 +559,9 @@ export function toLushaRunTelemetryMetadata(
             },
           }),
         }
+      : {}),
+    ...(telemetry.pageRequests
+      ? { page_requests: toLushaPageRequestMetadata(telemetry.pageRequests) }
       : {}),
   };
 }
