@@ -36,6 +36,10 @@ import {
 import { getProviderEffectivenessReadModel } from '@/modules/provider-effectiveness/actions';
 import type { ProviderEffectivenessProviderSummary } from '@/modules/provider-effectiveness/types';
 import { isEffectivenessSupportedProvider } from './contact-enrichment-effectiveness-ui';
+import { getAdminClient } from '@/modules/budgets/queries';
+import { getProviderContractPlan } from '@/modules/budgets/provider-contract-plan-queries';
+import type { ProviderContractPlanView } from '@/modules/budgets/provider-contract-plan';
+import { isCurrentUserAdmin } from '@/modules/access/actions';
 
 export interface SidepanelDetailData {
   usageLogs: ProviderUsageLogRow[];
@@ -46,6 +50,22 @@ export interface SidepanelDetailData {
   contactEnrichmentEffectiveness: ProviderEffectivenessProviderSummary | null;
   /** Null when the provider is not an IA provider (anthropic/openai/gemini), or when the read failed. */
   aiProviderDetail: AiProviderDetailResult | null;
+  /**
+   * SETTINGS-PROVIDER-CONTRACT-PLAN-1 — contrato, precio activo, lo que queda y
+   * la renovación. Null para proveedores sin contrato de créditos, para quien no
+   * es administrador, o si la lectura falló.
+   */
+  contractPlan: ProviderContractPlanView | null;
+}
+
+async function loadContractPlanForPanel(providerKey: string): Promise<ProviderContractPlanView | null> {
+  try {
+    // 🔴 Exige administrador ANTES de leer con el cliente de servicio.
+    if (!(await isCurrentUserAdmin())) return null;
+    return await getProviderContractPlan(providerKey, getAdminClient());
+  } catch {
+    return null;
+  }
 }
 
 async function loadContactEnrichmentEffectivenessForPanel(
@@ -73,9 +93,10 @@ export async function loadProviderDetailForPanel(providerKey: string): Promise<S
   try {
     const detail = await getProviderDetail(providerKey);
     if (!detail) return null;
-    const [contactEnrichmentEffectiveness, aiProviderDetail] = await Promise.all([
+    const [contactEnrichmentEffectiveness, aiProviderDetail, contractPlan] = await Promise.all([
       loadContactEnrichmentEffectivenessForPanel(providerKey),
       loadAiProviderDetailForPanel(providerKey),
+      loadContractPlanForPanel(providerKey),
     ]);
     return {
       usageLogs: detail.recentUsageLogs,
@@ -84,6 +105,7 @@ export async function loadProviderDetailForPanel(providerKey: string): Promise<S
       formOptions: detail.formOptions,
       contactEnrichmentEffectiveness,
       aiProviderDetail,
+      contractPlan,
     };
   } catch {
     return null;

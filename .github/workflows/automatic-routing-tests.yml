@@ -6064,3 +6064,12 @@ jobs:
       # Solo lectura: 0 escrituras - 0 proveedores - 0 creditos - 0 migraciones.
       - name: Run Agent 1 provider run scorecard tests
         run: npm run test:a1-provider-run-scorecard
+
+      # SETTINGS-PROVIDER-CONTRACT-PLAN-1 - Configuracion muestra el plan
+      # contratado de Apollo y Lusha (creditos y costo anual, precio por credito
+      # frente a la tabla de costos, lo que queda y la renovacion) y deja de
+      # rotular como mensual el total anual de Lusha. Solo lectura, solo admin.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run settings provider contract plan tests
+        run: npm run test:settings-provider-contract-plan
