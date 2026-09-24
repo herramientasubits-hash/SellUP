@@ -32,6 +32,7 @@ import {
   isProspectChatWizardEnabled,
   isExploratorySearchFormV2Enabled,
   isLushaPreviewEnabled,
+  isAgent1AutoProviderCascadeEnabled,
 } from '@/lib/feature-flags.server';
 // A1-APOLLO-WIZARD-1 — misma función que enruta la ejecución del wizard
 // (`executeProspectWizardGeneration`, paso 5a). Resolver aquí, en el servidor, es
@@ -119,6 +120,8 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
   // OFF in the UI while the server read them as ON — the divergence that let a
   // Lusha-eligible search silently fall through to Agent 1 / Apollo.
   const enableLushaPreview = isLushaPreviewEnabled();
+  // AGENT1-AUTO-PROVIDER-CASCADE-1 — sólo viaja el booleano, nunca el env.
+  const autoProviderCascade = isAgent1AutoProviderCascadeEnabled();
   // Execution only active when wizard is also active — flag parsed by the
   // canonical server-only helper (normalized: trim + toLowerCase).
   const wizardExecutionEnabled =
@@ -231,7 +234,7 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
       tabs={<ModuleTabsNav active="prospectos" />}
       actions={
         <div className="flex flex-wrap items-center gap-2">
-          <GenerateAIBatchDrawer experience={experience} unavailableKind={unavailableKind} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} discoveryProvider={wizardDiscoveryProvider} providerOverrideCapability={wizardProviderOverrideCapability} apolloRunModeLimits={apolloRunModeLimits} budgetPreflight={wizardBudgetPreflight} />
+          <GenerateAIBatchDrawer experience={experience} unavailableKind={unavailableKind} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} autoProviderCascade={autoProviderCascade} discoveryProvider={wizardDiscoveryProvider} providerOverrideCapability={wizardProviderOverrideCapability} apolloRunModeLimits={apolloRunModeLimits} budgetPreflight={wizardBudgetPreflight} />
           <ImportCandidatesDrawer>
             <Button variant="outline" size="sm" className="gap-2 text-xs">
               <Upload className="h-3.5 w-3.5" />

@@ -100,6 +100,12 @@ type ProspectChatWizardProps = {
    */
   lushaPreviewEnabled?: boolean;
   /**
+   * AGENT1-AUTO-PROVIDER-CASCADE-1 — el proveedor lo decide el sistema (Apollo y,
+   * si no alcanza, Lusha). Resuelto en el servidor; ausente ⇒ `false`, el
+   * comportamiento previo.
+   */
+  autoProviderCascade?: boolean;
+  /**
    * A1-APOLLO-WIZARD-1 — proveedor de descubrimiento resuelto EN EL SERVIDOR por
    * `resolveWizardDiscoveryProvider()`, la misma función que enruta la ejecución.
    * `null`/ausente = sin resolución conocida; el indicador lo dice en lugar de
@@ -139,6 +145,7 @@ export function ProspectChatWizard({
   onClose,
   executionEnabled = false,
   lushaPreviewEnabled = false,
+  autoProviderCascade = false,
   discoveryProvider = null,
   providerOverrideCapability = NO_PROVIDER_OVERRIDE_CAPABILITY,
   apolloRunModeLimits = null,
@@ -310,11 +317,22 @@ export function ProspectChatWizard({
     () =>
       resolveWizardProviderIndicator({
         serverDiscoveryProvider: discoveryProvider,
-        lushaRoute: lushaCriteria.provider as WizardIndicatorLushaRoute,
+        // AGENT1-AUTO-PROVIDER-CASCADE-1 — en modo automático Lusha es el
+        // respaldo, no el proveedor de la corrida: el indicador nombra al
+        // principal que resolvió el servidor.
+        lushaRoute: autoProviderCascade
+          ? 'default_ai'
+          : (lushaCriteria.provider as WizardIndicatorLushaRoute),
         skippedProvider,
         runResolvedProvider,
       }),
-    [discoveryProvider, lushaCriteria.provider, skippedProvider, runResolvedProvider],
+    [
+      autoProviderCascade,
+      discoveryProvider,
+      lushaCriteria.provider,
+      skippedProvider,
+      runResolvedProvider,
+    ],
   );
 
   /**
@@ -326,8 +344,11 @@ export function ProspectChatWizard({
    * en vuelo, y por eso las etapas se presentan como PLAN y no como progreso.
    */
   const willRunApolloTwoRound =
-    requestedProvider === 'apollo_organizations' &&
-    isProviderOptionEnabled(providerOverrideCapability, 'apollo_organizations');
+    (requestedProvider === 'apollo_organizations' &&
+      isProviderOptionEnabled(providerOverrideCapability, 'apollo_organizations')) ||
+    // AGENT1-AUTO-PROVIDER-CASCADE-1 — sin selector, Apollo es el principal que
+    // resolvió el servidor.
+    (autoProviderCascade && discoveryProvider === 'apollo_organizations');
 
   // ── Catalog options derived for UI ────────────────────────────────────────
 
@@ -845,6 +866,7 @@ export function ProspectChatWizard({
                 onExecute={handleExecute}
                 onEditSearch={handleEditSearch}
                 lushaPreviewEnabled={lushaPreviewEnabled}
+                autoProviderCascade={autoProviderCascade}
                 lushaCriteria={lushaCriteria}
                 providerOverrideCapability={providerOverrideCapability}
                 apolloRunModeLimits={apolloRunModeLimits}
