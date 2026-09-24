@@ -33,6 +33,13 @@
  * se compró.
  */
 
+import type { ResolveExtraBatchMetadata } from '../writer-metadata-resolution';
+import {
+  buildWriterAcceptedForTargetMetadata,
+  parseRunAcceptanceFacts,
+  type RunAcceptanceFacts,
+} from '@/modules/prospect-batches/accepted-for-target';
+
 /** Trabajo reclamado de la cola durable. */
 export type ApolloContinuationJob = {
   id: string;
@@ -334,7 +341,67 @@ export type ApolloContinuationRunPolicy = {
   readonly batchId: string;
   readonly requestedSubindustries: readonly string[];
   readonly wizardClientRequestId: string;
+  /**
+   * AGENT1-APOLLO-CONTINUATION-ACCEPTANCE-1 — los DATOS con los que el mago
+   * resolvía la aceptación de esta corrida.
+   *
+   * Viajan aquí porque la función que los usaba no puede viajar: la cola es
+   * JSON. Opcional porque un trabajo encolado antes de este corte no los lleva,
+   * y para ése la continuación publica sin aceptación antes que inventarla.
+   */
+  readonly acceptanceFacts?: RunAcceptanceFacts | null;
 };
+
+/**
+ * La columna `metadata` de un trabajo de la cola, tal como vuelve de la base.
+ *
+ * 🔴 Es JSON leído de Postgres: dato NO confiable, y sin funciones.
+ */
+export type ContinuationJobMetadata<TRunInput extends object> =
+  | {
+      run_input?: TRunInput | null;
+      run_policy?: ApolloContinuationRunPolicy | null;
+    }
+  | null
+  | undefined;
+
+/**
+ * AGENT1-APOLLO-CONTINUATION-ACCEPTANCE-1 — el `run_input` con el que se
+ * reanuda, reconstruido desde la cola.
+ *
+ * ── El defecto que cierra ────────────────────────────────────────────────────
+ *
+ * El runner encolaba su `input` entero, y ese `input` llevaba la FUNCIÓN con la
+ * que el writer resuelve `accepted_for_target`. JSON descarta las funciones sin
+ * avisar, así que la continuación escribía el lote sin aceptación. Como la
+ * primera pasada de una corrida pausada no escribe, toda corrida de Apollo que se
+ * pausaba terminaba sin `accepted_for_target` (lote `c681bfcd`, 2026-09-22).
+ *
+ * 🔴 Aquí no hay una aritmética nueva: se valida lo que volvió de la base y se
+ * vuelve a atar `buildWriterAcceptedForTargetMetadata`, la MISMA que usa el mago.
+ * Si los hechos faltan —trabajo anterior al corte— o no cuadran, la corrida se
+ * reanuda igual y sin resolutor: la clave queda ausente, que es verdad, en vez de
+ * presente con un número inventado.
+ *
+ * `null` sólo cuando no hay `run_input`: sin él no se puede reanudar sin
+ * inventar criterios, que es la regla que el worker ya aplicaba.
+ */
+export function restoreContinuationRunInput<TRunInput extends object>(
+  metadata: ContinuationJobMetadata<TRunInput>,
+): {
+  runInput: TRunInput & { resolveExtraBatchMetadata?: ResolveExtraBatchMetadata | null };
+  acceptanceRestored: boolean;
+} | null {
+  const runInput = metadata?.run_input;
+  if (!runInput || typeof runInput !== 'object') return null;
+
+  const facts = parseRunAcceptanceFacts(metadata?.run_policy?.acceptanceFacts);
+  if (!facts) return { runInput, acceptanceRestored: false };
+
+  const resolveExtraBatchMetadata: ResolveExtraBatchMetadata = (outcome) =>
+    buildWriterAcceptedForTargetMetadata(facts, outcome);
+  return { runInput: { ...runInput, resolveExtraBatchMetadata }, acceptanceRestored: true };
+}
 
 /**
  * § 4 — la decisión de cascada que una CONTINUACIÓN puede tomar.

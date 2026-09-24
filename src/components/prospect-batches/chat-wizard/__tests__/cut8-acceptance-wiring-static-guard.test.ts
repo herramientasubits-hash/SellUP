@@ -57,7 +57,18 @@ const WRITER = 'src/server/agents/prospecting-toolkit/candidate-writer.ts';
 const INCREMENTAL = 'src/server/agents/prospecting-toolkit/incremental-search.ts';
 const EFFECTIVENESS = 'src/modules/agent1-effectiveness/queries.ts';
 
+const ACCEPTANCE = 'src/modules/prospect-batches/accepted-for-target.ts';
+
 const code = (rel: string): string => stripTsComments(read(rel));
+
+/** El cuerpo de una función exportada, hasta su llave de cierre en columna 0. */
+function functionBody(src: string, name: string): string {
+  const at = src.indexOf(`export function ${name}(`);
+  assert.ok(at >= 0, `no existe ${name}`);
+  const end = src.indexOf('\n}', at);
+  assert.ok(end > at, `no se encontró el cierre de ${name}`);
+  return src.slice(at, end + 2);
+}
 
 /** La ventana de un despacho/llamada, no el archivo entero. */
 function windowAt(src: string, anchor: string, span = 900): string {
@@ -195,16 +206,30 @@ describe('CUT-8 § D — el panel no ignora el resumen canónico', () => {
 // ── § G · la metadata durable usa el resolver canónico ───────────────────────
 
 describe('CUT-8 § G — la metadata NO recalcula la aceptación', () => {
-  it('el mago publica el bloque con las dos funciones de CUT-7 y con ninguna otra', () => {
+  /**
+   * 🔴 AGENT1-APOLLO-CONTINUATION-ACCEPTANCE-1 — la costura ya no compone el
+   * bloque en el mago: delega en `buildWriterAcceptedForTargetMetadata`, que es la
+   * MISMA que usa la continuación cuando Apollo se pausa. La propiedad que esta
+   * guarda defiende no cambia —el bloque se arma con las funciones de CUT-7 y sin
+   * aritmética propia—; sólo se comprueba donde ahora vive, y en los dos lados.
+   */
+  it('el mago publica el bloque con las funciones de CUT-7 y con ninguna otra', () => {
     const src = code(ACTIONS);
     const at = src.indexOf('resolveAcceptedForTargetBatchMetadata');
     assert.ok(at > 0, 'la costura durable existe');
-    const seam = src.slice(at, at + 700);
-    assert.match(seam, /ACCEPTED_FOR_TARGET_METADATA_KEY/);
-    assert.match(seam, /toAcceptedForTargetMetadata\(/);
-    assert.match(seam, /resolveRunAcceptance\(/);
-    // Sin aritmética propia dentro de la costura.
+    const seam = src.slice(at, src.indexOf(';', at) + 1);
+    assert.match(
+      seam,
+      /buildWriterAcceptedForTargetMetadata\(\s*runAcceptanceFacts,\s*writerOutcome\s*\)/,
+      'la costura delega con los hechos de ESTA corrida y el resultado del writer, nada más',
+    );
     assert.doesNotMatch(seam, /[+\-]\s*\d|Math\.(max|min)|>=/);
+
+    const builder = functionBody(code(ACCEPTANCE), 'buildWriterAcceptedForTargetMetadata');
+    assert.match(builder, /ACCEPTED_FOR_TARGET_METADATA_KEY/);
+    assert.match(builder, /toAcceptedForTargetMetadata\(/);
+    assert.match(builder, /resolveAcceptanceFromRunFacts\(/);
+    assert.doesNotMatch(builder, /[+\-]\s*\d|Math\.(max|min)|>=/);
   });
 
   /**
@@ -215,24 +240,44 @@ describe('CUT-8 § G — la metadata NO recalcula la aceptación', () => {
    * de la corrida —la previa al pago, la durable y la del resultado— pasan por
    * `resolveRunAcceptance`, así que el mago invoca al resolver canónico UNA vez.
    */
-  it('🔴 § 2 — existe UNA sola invocación del resolver de aceptación en el mago', () => {
+  /**
+   * 🔴 AGENT1-APOLLO-CONTINUATION-ACCEPTANCE-1 endurece esta guarda un paso más:
+   * de 1 a 0 entradas DIRECTAS en el mago. La ecuación canónica se compone UNA vez,
+   * en `resolveAcceptanceFromRunFacts` del módulo, y el mago —como la
+   * continuación— sólo delega en ella con sus hechos. Antes, la única entrada vivía
+   * en el mago, y la continuación no tenía forma de llegar a ella sin copiarla.
+   */
+  it('🔴 § 2 — existe UNA sola composición de la aceptación, y el mago sólo delega', () => {
     const src = code(ACTIONS);
-    const calls = src.match(/resolveAcceptedForTarget\(\{/g) ?? [];
     assert.equal(
-      calls.length,
-      1,
-      '🔴 sólo la del helper único de corrida. Una segunda sería una segunda aritmética',
+      (src.match(/resolveAcceptedForTarget\(\{/g) ?? []).length,
+      0,
+      '🔴 el mago no entra directo a la ecuación canónica: una entrada propia sería una segunda aritmética',
     );
-    const helper = src.match(/const resolveRunAcceptance = /g) ?? [];
-    assert.equal(helper.length, 1);
+    assert.equal(
+      (src.match(/resolveAcceptanceFromRunFacts\(/g) ?? []).length,
+      1,
+      'una sola delegación, dentro del helper único de corrida',
+    );
+    assert.equal((src.match(/const resolveRunAcceptance = /g) ?? []).length, 1);
+    assert.equal(
+      (src.match(/const runAcceptanceFacts: RunAcceptanceFacts = /g) ?? []).length,
+      1,
+      'los hechos de la corrida se nombran una vez: helper, costura y continuación leen el MISMO objeto',
+    );
+    assert.equal(
+      (code(ACCEPTANCE).match(/resolveAcceptedForTarget\(\{/g) ?? []).length,
+      1,
+      'y el módulo compone la ecuación UNA vez',
+    );
   });
 
-  it('🔴 § 2 EN NEGATIVO — una segunda llamada directa pondría roja la guarda', () => {
+  it('🔴 § 2 EN NEGATIVO — una llamada directa en el mago pondría roja la guarda', () => {
     const mutated =
       code(ACTIONS) +
       '\nconst rogue = resolveAcceptedForTarget({ demand, freePersistedCandidates: 0, paid });\n';
     const calls = mutated.match(/resolveAcceptedForTarget\(\{/g) ?? [];
-    assert.equal(calls.length, 2, '🔴 así se vería la segunda aritmética que la guarda detiene');
+    assert.equal(calls.length, 1, '🔴 así se vería la segunda aritmética que la guarda detiene');
   });
 
   /**

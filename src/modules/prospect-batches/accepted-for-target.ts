@@ -543,3 +543,135 @@ export const PAID_ROUTE_NOT_RUN_WRITER_TRUTH: {
   persistedCandidates: 0,
   reviewOnlyCandidates: null,
 };
+
+// ─── Los hechos de la corrida, en forma serializable ──────────────────────────
+
+/**
+ * AGENT1-APOLLO-CONTINUATION-ACCEPTANCE-1 — lo que la aceptación de una corrida
+ * necesita saber de ella, y NADA más, en una forma que sobrevive a JSON.
+ *
+ * ── Por qué existe ───────────────────────────────────────────────────────────
+ *
+ * El mago resolvía la aceptación con una FUNCIÓN que cerraba sobre dos datos de
+ * la corrida —la demanda y el aporte gratuito— y se la pasaba al writer. Mientras
+ * la corrida terminaba en el mismo proceso, eso bastaba. Cuando Apollo se pausa,
+ * la corrida termina en una CONTINUACIÓN, que lee su `run_input` de la cola
+ * durable. Lo que viaja por la cola es JSON, y JSON descarta las funciones sin
+ * avisar: el lote se escribía sin `accepted_for_target`. El lote `c681bfcd`
+ * (2026-09-22) es exactamente eso.
+ *
+ * 🔴 La corrección transporta los DATOS, no una aritmética nueva. Quien los lee
+ * vuelve a llamar a `resolveAcceptedForTarget` por el mismo camino que el mago;
+ * ni la continuación ni nadie tiene una segunda expresión de la aceptación.
+ */
+export type RunAcceptanceFacts = {
+  /** § 6 — el hueco de la mitad gratuita, tal como la ruta de pago lo recibió. */
+  readonly demand: ProviderResultDemand;
+  /** Filas que la capa gratuita dejó en el lote. Universo durable, no aceptación. */
+  readonly freePersistedCandidates: number;
+};
+
+type WriterTruthForAcceptance = Parameters<typeof paidAcceptedContributionFromWriterTruth>[0];
+
+/**
+ * La aritmética de aceptación de UNA corrida, a partir de sus hechos.
+ *
+ * Es la expresión que el mago tenía en línea, movida aquí para que la
+ * continuación la llame sin reescribirla. La pierna Lusha entra por omisión
+ * como «no corrió» —cero CONOCIDO— y el techo de filas únicas como ausente, que
+ * es exactamente lo que el writer de Apollo recibía antes de este corte.
+ */
+export function resolveAcceptanceFromRunFacts(
+  facts: RunAcceptanceFacts,
+  paidWriterTruth: WriterTruthForAcceptance,
+  waterfallWriterTruth: WriterTruthForAcceptance = PAID_ROUTE_NOT_RUN_WRITER_TRUTH,
+  persistedUniqueCeiling: number | null = null,
+): AcceptedForTargetResult {
+  return resolveAcceptedForTarget({
+    demand: facts.demand,
+    freePersistedCandidates: facts.freePersistedCandidates,
+    paid: paidAcceptedContributionFromWriterTruth(paidWriterTruth),
+    paidWaterfall: paidAcceptedContributionFromWriterTruth(waterfallWriterTruth),
+    persistedUniqueCeiling,
+  });
+}
+
+/**
+ * El bloque `accepted_for_target` que el writer de pago publica en su escritura
+ * de metadata, a partir de lo que ese writer acaba de contar.
+ *
+ * 🔴 Del resultado del writer sólo se leen `completeValidCandidates` y
+ * `persistedCandidates`, y `null` en el primero sigue significando «no medido»:
+ * sustituirlo por las persistidas es la mentira exacta que CUT-7 cerró.
+ */
+export function buildWriterAcceptedForTargetMetadata(
+  facts: RunAcceptanceFacts,
+  writerOutcome: { completeValidCandidates: number | null | undefined; persistedCandidates: number },
+): Record<string, unknown> {
+  return {
+    [ACCEPTED_FOR_TARGET_METADATA_KEY]: toAcceptedForTargetMetadata(
+      resolveAcceptanceFromRunFacts(facts, {
+        completeValidCandidates: writerOutcome.completeValidCandidates,
+        persistedCandidates: writerOutcome.persistedCandidates,
+      }),
+    ),
+  };
+}
+
+const RESULT_DEMAND_SOURCES: ReadonlySet<ProviderResultDemand['source']> = new Set([
+  'prepaid_novelty_residual_gap',
+  'prepaid_layer_absent',
+]);
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readExactCount(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+/**
+ * Lee los hechos de aceptación que volvieron de la cola durable.
+ *
+ * 🔴 Lo que llega de la base es dato NO confiable, y aquí se valida con las
+ * mismas invariantes que los constructores de la demanda garantizan: cuentas
+ * enteras no negativas, hueco y aceptadas previas acotados por el objetivo, y
+ * `providerRequired` derivado de su propio hueco. Si algo no cuadra, `null`: la
+ * continuación publica SIN aceptación antes que con una inventada.
+ */
+export function parseRunAcceptanceFacts(value: unknown): RunAcceptanceFacts | null {
+  if (!isPlainRecord(value) || !isPlainRecord(value.demand)) return null;
+  const demand = value.demand;
+
+  const requestedTarget = readExactCount(demand.requestedTarget);
+  const acceptedBeforeProvider = readExactCount(demand.acceptedBeforeProvider);
+  const remainingTarget = readExactCount(demand.remainingTarget);
+  const freePersistedCandidates = readExactCount(value.freePersistedCandidates);
+  if (
+    requestedTarget === null ||
+    acceptedBeforeProvider === null ||
+    remainingTarget === null ||
+    freePersistedCandidates === null
+  ) {
+    return null;
+  }
+  if (acceptedBeforeProvider > requestedTarget || remainingTarget > requestedTarget) return null;
+  if (demand.providerRequired !== remainingTarget > 0) return null;
+
+  const source = demand.source;
+  if (typeof source !== 'string' || !RESULT_DEMAND_SOURCES.has(source as ProviderResultDemand['source'])) {
+    return null;
+  }
+
+  return {
+    demand: {
+      requestedTarget,
+      acceptedBeforeProvider,
+      remainingTarget,
+      providerRequired: remainingTarget > 0,
+      source: source as ProviderResultDemand['source'],
+    },
+    freePersistedCandidates,
+  };
+}

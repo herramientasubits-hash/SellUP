@@ -5989,3 +5989,24 @@ jobs:
       # 0 escrituras en Produccion - 0 migraciones aplicadas - 0 cambios de bandera.
       - name: Run Agent 1 Lusha page novelty policy tests
         run: npm run test:a1-lusha-page-novelty-policy
+
+      # AGENT1-APOLLO-CONTINUATION-ACCEPTANCE-1 - la continuacion publica la
+      # MISMA aceptacion que el mago.
+      #
+      # El defecto: una corrida de Apollo que se pausa termina en la
+      # continuacion, que lee su `run_input` de la cola durable. Lo que viaja por
+      # la cola es JSON, y JSON descarta sin avisar la FUNCION con la que el mago
+      # resolvia `accepted_for_target`. Como la primera pasada de una corrida
+      # pausada no escribe, el lote quedaba sin aceptacion (lote c681bfcd,
+      # 2026-09-22). La suite del recorrido no lo veia porque reanudaba con un
+      # `run_input` recien construido en memoria.
+      #
+      # La correccion transporta los DATOS (demanda y aporte gratuito), los valida
+      # al leerlos de la base y vuelve a llamar a la MISMA `resolveAcceptedForTarget`.
+      # Un trabajo anterior al corte o con datos corruptos se reanuda igual y sin
+      # aceptacion: la clave queda ausente antes que inventada.
+      #
+      # 0 llamadas a Apollo - 0 a Lusha - 0 creditos - 0 Supabase real -
+      # 0 escrituras en Produccion - 0 migraciones aplicadas - 0 cambios de bandera.
+      - name: Run Agent 1 Apollo continuation acceptance tests
+        run: npm run test:a1-apollo-continuation-acceptance
