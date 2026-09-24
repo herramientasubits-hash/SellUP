@@ -167,9 +167,10 @@ import {
 import {
   ACCEPTED_FOR_TARGET_METADATA_KEY,
   PAID_ROUTE_NOT_RUN_WRITER_TRUTH,
-  paidAcceptedContributionFromWriterTruth,
-  resolveAcceptedForTarget,
+  buildWriterAcceptedForTargetMetadata,
+  resolveAcceptanceFromRunFacts,
   toAcceptedForTargetMetadata,
+  type RunAcceptanceFacts,
 } from '@/modules/prospect-batches/accepted-for-target';
 // AGENT1-LOCAL-CUT8B — la publicación terminal de la rama sólo-gratuita.
 import { composeFreeOnlyTerminalBatchMetadata } from './free-only-terminal-publication';
@@ -1342,6 +1343,20 @@ export async function executeProspectWizardGeneration(
       : null;
 
   /**
+   * AGENT1-APOLLO-CONTINUATION-ACCEPTANCE-1 — los DATOS que la aceptación de esta
+   * corrida necesita, en forma serializable.
+   *
+   * Son exactamente los dos objetos que la aritmética de abajo cerraba. Se nombran
+   * aparte porque tienen que viajar con la continuación: si Apollo se pausa, la
+   * corrida termina en otro proceso que lee su `run_input` de la cola durable, y
+   * la FUNCIÓN de aceptación no sobrevive a JSON. Los datos sí.
+   */
+  const runAcceptanceFacts: RunAcceptanceFacts = {
+    demand: apolloResultDemand,
+    freePersistedCandidates: freeContribution?.persistedCandidates ?? 0,
+  };
+
+  /**
    * AGENT1-LOCAL-CUT8 §§ 1, 2 — LA ÚNICA ARITMÉTICA DE ACEPTACIÓN DE LA CORRIDA.
    *
    * La aceptación hacia el objetivo hace falta en TRES momentos que no coinciden:
@@ -1397,13 +1412,12 @@ export async function executeProspectWizardGeneration(
      */
     persistedUniqueCeiling: number | null = null,
   ) =>
-    resolveAcceptedForTarget({
-      demand: apolloResultDemand,
-      freePersistedCandidates: freeContribution?.persistedCandidates ?? 0,
-      paid: paidAcceptedContributionFromWriterTruth(paidWriterTruth),
-      paidWaterfall: paidAcceptedContributionFromWriterTruth(waterfallWriterTruth),
+    resolveAcceptanceFromRunFacts(
+      runAcceptanceFacts,
+      paidWriterTruth,
+      waterfallWriterTruth,
       persistedUniqueCeiling,
-    });
+    );
 
   /**
    * DECISIÓN B — la costura durable. En la ruta de pago se invoca DENTRO del
@@ -1420,14 +1434,8 @@ export async function executeProspectWizardGeneration(
    * por `persistedCandidates` publicaría en la base la mentira exacta que CUT-7
    * cerró en la UI.
    */
-  const resolveAcceptedForTargetBatchMetadata: ResolveExtraBatchMetadata = (writerOutcome) => ({
-    [ACCEPTED_FOR_TARGET_METADATA_KEY]: toAcceptedForTargetMetadata(
-      resolveRunAcceptance({
-        completeValidCandidates: writerOutcome.completeValidCandidates,
-        persistedCandidates: writerOutcome.persistedCandidates,
-      }),
-    ),
-  });
+  const resolveAcceptedForTargetBatchMetadata: ResolveExtraBatchMetadata = (writerOutcome) =>
+    buildWriterAcceptedForTargetMetadata(runAcceptanceFacts, writerOutcome);
 
   /**
    * AGENT1-LOCAL-CUT8B § 4 — el bloque canónico de una corrida cuya ruta de pago
@@ -1926,6 +1934,10 @@ export async function executeProspectWizardGeneration(
           requestedSubindustries: catalogResolution.subindustries.map((s) => s.name),
           wizardClientRequestId: req.clientRequestId,
           batchId: reservedBatchId,
+          // 🔴 AGENT1-APOLLO-CONTINUATION-ACCEPTANCE-1 — sin esto, una corrida que
+          // se pausa termina en la continuación y publica su lote SIN
+          // `accepted_for_target` (lote `c681bfcd`).
+          acceptanceFacts: runAcceptanceFacts,
         },
         // Q3F-5BB.11E — additive OBSERVATIONAL routing metadata (never gates).
         extraBatchMetadata: apolloRoutingExtraMetadata,

@@ -11,6 +11,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 import {
+  restoreContinuationRunInput,
   runApolloRoundContinuationWorker,
   type ApolloContinuationRunPolicy,
   type ApolloContinuationJob,
@@ -187,10 +188,15 @@ export async function runApolloRoundContinuationWorkerFromEnv(
       const rows = (data ?? []) as ClaimedRow[];
       const jobs: ApolloContinuationJob[] = [];
       for (const row of rows) {
-        const runInput = row.metadata?.run_input;
         // Sin el input original no se puede reanudar sin inventar criterios.
-        if (!runInput) continue;
-        runInputByJobId.set(row.id, runInput);
+        //
+        // 🔴 AGENT1-APOLLO-CONTINUATION-ACCEPTANCE-1 — y el input que vuelve de la
+        // base es JSON: perdió la función con la que el writer publica
+        // `accepted_for_target`. `restoreContinuationRunInput` la vuelve a atar
+        // desde los hechos de la corrida, con la misma aritmética que el mago.
+        const restored = restoreContinuationRunInput(row.metadata);
+        if (!restored) continue;
+        runInputByJobId.set(row.id, restored.runInput);
         if (row.metadata?.run_policy) runPolicyByJobId.set(row.id, row.metadata.run_policy);
         identityByBatchId.set(row.batch_id, {
           idempotencyKey: row.idempotency_key,

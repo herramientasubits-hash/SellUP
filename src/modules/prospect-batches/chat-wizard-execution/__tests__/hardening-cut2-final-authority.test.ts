@@ -493,10 +493,19 @@ describe('CUT-2 § 6 · guarda estática — el veredicto se resuelve al final',
 
   it('no hay una segunda aritmética de aceptación en el orquestador', () => {
     const src = code(ORCHESTRATOR);
+    // 🔴 AGENT1-APOLLO-CONTINUATION-ACCEPTANCE-1 — la ecuación canónica se
+    // compone UNA vez en el módulo (`resolveAcceptanceFromRunFacts`), porque la
+    // continuación también tiene que llegar a ella. El orquestador ya no entra
+    // directo: delega una sola vez, dentro de `resolveRunAcceptance`.
     assert.equal(
       (src.match(/resolveAcceptedForTarget\(/g) ?? []).length,
+      0,
+      '🔴 ninguna entrada directa a la ecuación canónica en el orquestador',
+    );
+    assert.equal(
+      (src.match(/resolveAcceptanceFromRunFacts\(/g) ?? []).length,
       1,
-      '🔴 una sola entrada a la ecuación canónica, dentro de `resolveRunAcceptance`',
+      '🔴 una sola delegación, dentro de `resolveRunAcceptance`',
     );
     for (const forbidden of [
       /acceptedForTargetTotal\s*\+/,

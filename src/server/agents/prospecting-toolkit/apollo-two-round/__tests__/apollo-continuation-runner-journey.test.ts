@@ -51,10 +51,19 @@ import type { ProspectingPipelineCandidate, WebSearchOutput, WebSearchResult } f
 import {
   runApolloRoundContinuationWorker,
   resolveContinuationCascadeInputs,
+  restoreContinuationRunInput,
   type ApolloContinuationJob,
   type ApolloContinuationRunPolicy,
   type ApolloContinuationWorkerDeps,
+  type ContinuationJobMetadata,
 } from '../continuation-worker';
+import type { ResolveExtraBatchMetadata } from '../../writer-metadata-resolution';
+import {
+  ACCEPTED_FOR_TARGET_METADATA_KEY,
+  buildWriterAcceptedForTargetMetadata,
+  type RunAcceptanceFacts,
+} from '@/modules/prospect-batches/accepted-for-target';
+import { resolveProviderResultDemand } from '@/modules/prospect-batches/prepaid-novelty/provider-result-demand';
 
 const CORRELATION = {
   wizardRunId: 'run-continuation-1',
@@ -137,10 +146,21 @@ type ExternalWorld = {
   usageLogs: Map<string, { credits: number }>;
   writerCalls: number;
   ledger: Map<string, WebSearchOutput>;
+  /**
+   * AGENT1-APOLLO-CONTINUATION-ACCEPTANCE-1 — el resolutor de metadata que el
+   * writer RECIBIÓ en cada escritura. `null` = llegó sin él.
+   */
+  writerResolvers: (ResolveExtraBatchMetadata | null)[];
 };
 
 function externalWorld(): ExternalWorld {
-  return { providerCalls: 0, usageLogs: new Map(), writerCalls: 0, ledger: new Map() };
+  return {
+    providerCalls: 0,
+    usageLogs: new Map(),
+    writerCalls: 0,
+    ledger: new Map(),
+    writerResolvers: [],
+  };
 }
 
 function recordedCredits(world: ExternalWorld): number {
@@ -262,6 +282,12 @@ type QueueRow = {
   leaseToken: string | null;
   leaseExpiresAtMs: number | null;
   runPolicy: ApolloContinuationRunPolicy | null;
+  /**
+   * AGENT1-APOLLO-CONTINUATION-ACCEPTANCE-1 — la columna `metadata` TAL COMO la
+   * guarda Postgres: el payload del encolado pasado por JSON. Es lo único que un
+   * worker de producción puede leer, y JSON no transporta funciones.
+   */
+  storedMetadata: unknown;
 };
 
 type Journey = {
@@ -352,8 +378,10 @@ function runnerDeps(
 
     persistCandidates: (async (writerInput: {
       pipelineOutput: { candidates: ProspectingPipelineCandidate[] };
+      resolveExtraBatchMetadata?: ResolveExtraBatchMetadata | null;
     }) => {
       journey.world.writerCalls++;
+      journey.world.writerResolvers.push(writerInput.resolveExtraBatchMetadata ?? null);
       return {
         dryRun: false,
         batchId: CORRELATION.batchId,
@@ -388,7 +416,7 @@ function runnerDeps(
     logEnrichmentUsage: (async () => ({ kind: 'already_logged' as const })) as never,
 
     // § 7 — el encolado, con la exclusión del índice único parcial.
-    enqueueContinuation: async ({ batchId, runPolicy }) => {
+    enqueueContinuation: async ({ batchId, runPolicy, runInput }) => {
       if (journey.enqueueFails) return { enqueued: false, reason: 'relation_missing' };
       const live = journey.queue.some(
         (job) => job.batchId === batchId && (job.status === 'pending' || job.status === 'processing'),
@@ -403,6 +431,13 @@ function runnerDeps(
         leaseToken: null,
         leaseExpiresAtMs: null,
         runPolicy: runPolicy ?? null,
+        // Lo mismo que `enqueueApolloRoundContinuation` inserta en la columna.
+        storedMetadata: JSON.parse(
+          JSON.stringify({
+            run_input: runInput,
+            ...(runPolicy ? { run_policy: runPolicy } : {}),
+          }),
+        ),
       });
       return { enqueued: true };
     },
@@ -426,16 +461,37 @@ function runInputFor(): ApolloTwoRoundWizardRunInput {
 }
 
 /** Una invocación del runner con el reloj en cero: 300 s frescos. */
-async function invokeRunner(journey: Journey, msPerOrganization: number) {
+async function invokeRunner(
+  journey: Journey,
+  msPerOrganization: number,
+  input: ApolloTwoRoundWizardRunInput = runInputFor(),
+) {
   journey.clockMs = 0;
-  return runApolloTwoRoundWizardDiscovery(
-    runInputFor(),
-    runnerDeps(journey, { msPerOrganization }),
+  return runApolloTwoRoundWizardDiscovery(input, runnerDeps(journey, { msPerOrganization }));
+}
+
+/**
+ * AGENT1-APOLLO-CONTINUATION-ACCEPTANCE-1 — reanuda como PRODUCCIÓN: desde la
+ * `metadata` guardada en la cola, pasada por el MISMO `restoreContinuationRunInput`
+ * que usa el worker real. Las pruebas anteriores reanudaban con un `run_input`
+ * recién construido en memoria, así que la función del mago nunca se perdía y el
+ * defecto no se podía ver.
+ */
+async function resumeFromStoredMetadata(journey: Journey, jobId: string, msPerOrganization: number) {
+  const row = journey.queue.find((q) => q.id === jobId);
+  const restored = restoreContinuationRunInput<ApolloTwoRoundWizardRunInput>(
+    row?.storedMetadata as ContinuationJobMetadata<ApolloTwoRoundWizardRunInput>,
   );
+  if (!restored) throw new Error('continuation_run_input_missing');
+  return invokeRunner(journey, msPerOrganization, restored.runInput);
 }
 
 /** El conductor REAL contra la cola en memoria. */
-function conductorDeps(journey: Journey, msPerOrganization: number): ApolloContinuationWorkerDeps {
+function conductorDeps(
+  journey: Journey,
+  msPerOrganization: number,
+  options: { resumeFromQueue?: boolean } = {},
+): ApolloContinuationWorkerDeps {
   let nowMs = 1_000_000;
   return {
     claimJobs: async ({ limit, lockDurationMinutes, batchId }) => {
@@ -483,7 +539,9 @@ function conductorDeps(journey: Journey, msPerOrganization: number): ApolloConti
       };
     },
     resumeRun: async ({ job }) => {
-      const outcome = await invokeRunner(journey, msPerOrganization);
+      const outcome = options.resumeFromQueue
+        ? await resumeFromStoredMetadata(journey, job.id, msPerOrganization)
+        : await invokeRunner(journey, msPerOrganization);
       const paused = outcome.assessmentDeadlineReached === true;
       const pending = outcome.pendingOrganizationCount ?? 0;
       if (!paused && pending === 0) {
@@ -794,5 +852,126 @@ describe('§ G10 — estado visible: procesando, pendiente, terminado, falló', 
     // 🔴 La cadencia dice cuándo se puede volver a INTENTAR, no cuándo termina.
     assert.ok(!/segundos/.test(APOLLO_CONTINUATION_BROWSER_CLOSED_NOTE));
     assert.ok(!/24 horas/.test(APOLLO_CONTINUATION_BROWSER_CLOSED_NOTE));
+  });
+});
+
+// ── G9 · la continuación publica la MISMA aceptación que el mago ─────────────
+//
+// AGENT1-APOLLO-CONTINUATION-ACCEPTANCE-1. El lote `c681bfcd` (2026-09-22) se
+// pausó, terminó en la continuación y quedó SIN `accepted_for_target`: la primera
+// pasada no escribe, y la continuación escribía con un `run_input` leído de JSON,
+// que no transporta la función con la que el mago resolvía la aceptación.
+
+/** Los hechos de una corrida con aporte gratuito: el caso que más puede fallar. */
+const ACCEPTANCE_FACTS: RunAcceptanceFacts = {
+  demand: resolveProviderResultDemand(
+    { requestedTarget: 5, acceptedBeforeProvider: 2, residualGap: 3, providerRequired: true },
+    5,
+  ),
+  freePersistedCandidates: 2,
+};
+
+const WRITER_OUTCOME = {
+  completeValidCandidates: 1,
+  persistedCandidates: 3,
+  reviewOnlyCandidates: 2,
+} as const;
+
+/** El `run_input` que el mago construye: la función de aceptación Y sus hechos. */
+function wizardRunInput(
+  policy: ApolloContinuationRunPolicy = { ...RUN_POLICY, acceptanceFacts: ACCEPTANCE_FACTS },
+): ApolloTwoRoundWizardRunInput {
+  return {
+    ...runInputFor(),
+    continuationRunPolicy: policy,
+    resolveExtraBatchMetadata: (outcome: Parameters<ResolveExtraBatchMetadata>[0]) =>
+      buildWriterAcceptedForTargetMetadata(ACCEPTANCE_FACTS, outcome),
+  } as unknown as ApolloTwoRoundWizardRunInput;
+}
+
+async function pauseThenFinishFromQueue(journey: Journey, input: ApolloTwoRoundWizardRunInput) {
+  await invokeRunner(journey, 2_000, input);
+  assert.equal(journey.world.writerCalls, 0, 'la pausa no escribe');
+  let guard = 0;
+  while (journey.queue.some((j) => j.status === 'pending') && guard < 20) {
+    guard++;
+    await runApolloRoundContinuationWorker(conductorDeps(journey, 1, { resumeFromQueue: true }), {
+      limit: 1,
+      batchId: CORRELATION.batchId,
+    });
+  }
+  assert.ok(guard < 20, 'el recorrido terminó solo');
+  assert.equal(journey.world.writerCalls, 1, 'se escribe UNA vez, al final');
+}
+
+describe('§ G9 — la continuación publica la aceptación, reanudando desde la cola durable', () => {
+  test('🔴 el defecto: lo encolado pasa por JSON y la FUNCIÓN del mago no sobrevive', async () => {
+    const journey = newJourney();
+    const input = wizardRunInput();
+    assert.equal(typeof (input as { resolveExtraBatchMetadata?: unknown }).resolveExtraBatchMetadata, 'function');
+
+    await invokeRunner(journey, 2_000, input);
+    const stored = journey.queue[0]!.storedMetadata as { run_input: Record<string, unknown> };
+    assert.equal(
+      'resolveExtraBatchMetadata' in stored.run_input,
+      false,
+      'JSON la descarta en silencio: esto es lo que un worker de producción lee',
+    );
+  });
+
+  test('la continuación reconstruye el resolutor y el writer publica `accepted_for_target`', async () => {
+    const journey = newJourney();
+    await pauseThenFinishFromQueue(journey, wizardRunInput());
+
+    const resolver = journey.world.writerResolvers[0];
+    assert.equal(typeof resolver, 'function', '🔴 el writer de la continuación recibe el resolutor');
+    const published = resolver!(WRITER_OUTCOME);
+    assert.ok(published && ACCEPTED_FOR_TARGET_METADATA_KEY in published);
+  });
+
+  test('🔴 paridad: la continuación publica EXACTAMENTE lo que el mago habría publicado', async () => {
+    const journey = newJourney();
+    const input = wizardRunInput();
+    await pauseThenFinishFromQueue(journey, input);
+
+    const fromContinuation = journey.world.writerResolvers[0]!(WRITER_OUTCOME);
+    const fromWizard = (input as unknown as { resolveExtraBatchMetadata: ResolveExtraBatchMetadata })
+      .resolveExtraBatchMetadata(WRITER_OUTCOME);
+    assert.deepEqual(fromContinuation, fromWizard);
+  });
+
+  test('un trabajo encolado ANTES de este corte —sin hechos— termina igual y NO inventa aceptación', async () => {
+    const journey = newJourney();
+    await pauseThenFinishFromQueue(journey, wizardRunInput(RUN_POLICY));
+    assert.equal(
+      journey.world.writerResolvers[0],
+      null,
+      'sin los hechos de la corrida no hay aceptación que publicar: la clave queda ausente, como hoy',
+    );
+  });
+
+  test('hechos corruptos en la cola ⇒ la corrida termina igual y NO inventa aceptación', async () => {
+    const journey = newJourney();
+    await invokeRunner(journey, 2_000, wizardRunInput());
+    const stored = journey.queue[0]!.storedMetadata as {
+      run_policy: { acceptanceFacts: { demand: { requestedTarget: unknown } } };
+    };
+    stored.run_policy.acceptanceFacts.demand.requestedTarget = -1;
+
+    let guard = 0;
+    while (journey.queue.some((j) => j.status === 'pending') && guard < 20) {
+      guard++;
+      await runApolloRoundContinuationWorker(conductorDeps(journey, 1, { resumeFromQueue: true }), {
+        limit: 1,
+        batchId: CORRELATION.batchId,
+      });
+    }
+    assert.equal(journey.world.writerCalls, 1, 'la corrida se completa');
+    assert.equal(journey.world.writerResolvers[0], null);
+  });
+
+  test('sin `run_input` en la cola no hay nada que reanudar', () => {
+    assert.equal(restoreContinuationRunInput(null), null);
+    assert.equal(restoreContinuationRunInput({ run_policy: RUN_POLICY }), null);
   });
 });
