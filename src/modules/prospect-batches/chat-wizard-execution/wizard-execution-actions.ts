@@ -217,7 +217,7 @@ import type { ConsumedCreditsDbClient } from './wizard-budget-reconciliation';
 // catálogo. Nunca crea ni lee un `budget_rule`: eso es `checkBudget`, un
 // concepto distinto (límite de gasto configurado por un admin) que esta
 // puerta no toca.
-import { checkProviderQuotaAvailable } from '@/modules/budgets';
+import { checkProviderQuotaAvailable } from '@/modules/budgets/budget-resolution';
 
 // ── Dependency injection boundary ─────────────────────────────────────────────
 // All I/O dependencies are injected here. The public server action provides real

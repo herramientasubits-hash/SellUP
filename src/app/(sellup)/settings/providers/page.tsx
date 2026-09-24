@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
-import { getAdminBudgetSummary } from '@/modules/budgets';
+import { getAdminBudgetSummary } from '@/modules/budgets/budget-resolution';
 import { getBudgetRulesForAdmin } from '@/modules/budgets/rule-queries';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard } from '@/components/shared/surface-card';

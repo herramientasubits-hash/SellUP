@@ -91,6 +91,8 @@ async function loadAiProviderDetailForPanel(providerKey: string): Promise<AiProv
 
 export async function loadProviderDetailForPanel(providerKey: string): Promise<SidepanelDetailData | null> {
   try {
+    // SETTINGS-PROVIDERS-ADMIN-GUARD-1 — admin ANTES de cualquier lectura o escritura.
+    if (!(await isCurrentUserAdmin())) return null;
     const detail = await getProviderDetail(providerKey);
     if (!detail) return null;
     const [contactEnrichmentEffectiveness, aiProviderDetail, contractPlan] = await Promise.all([
@@ -125,6 +127,8 @@ export async function loadFilteredProviderUsageLogsForPanel(
   filters: UsageFilters,
 ): Promise<ProviderLogsFilterResult> {
   try {
+    // SETTINGS-PROVIDERS-ADMIN-GUARD-1 — admin ANTES de cualquier lectura o escritura.
+    if (!(await isCurrentUserAdmin())) return { ok: false, logs: [], filterOptions: null };
     const [logs, filterOptions] = await Promise.all([
       getFilteredProviderUsageLogs(providerKey, filters, 20),
       getDistinctFilterOptions(),
@@ -151,6 +155,9 @@ export interface ActionResult {
   error?: string;
 }
 
+// SETTINGS-PROVIDERS-ADMIN-GUARD-1 — respuesta uniforme para quien no es admin.
+const NOT_ADMIN_ACTION_RESULT: ActionResult = { ok: false, error: 'No autorizado' };
+
 export interface ProspectingConnectionPanelState {
   supported: boolean;
   credentialsStatus: string;
@@ -167,6 +174,8 @@ export async function testAiProviderConnectionForPanel(
   providerKey: string,
 ): Promise<ActionResult> {
   try {
+    // SETTINGS-PROVIDERS-ADMIN-GUARD-1 — admin ANTES de cualquier lectura o escritura.
+    if (!(await isCurrentUserAdmin())) return NOT_ADMIN_ACTION_RESULT;
     const result = await testAiProviderConnectionWithVault(providerKey);
     return { ok: result.success, message: result.message, error: result.error };
   } catch (e) {
@@ -179,6 +188,8 @@ export async function updateAiProviderCredentialForPanel(
   apiKey: string,
 ): Promise<ActionResult> {
   try {
+    // SETTINGS-PROVIDERS-ADMIN-GUARD-1 — admin ANTES de cualquier lectura o escritura.
+    if (!(await isCurrentUserAdmin())) return NOT_ADMIN_ACTION_RESULT;
     const result = await updateAiProviderCredential(providerKey, apiKey);
     return { ok: result.success, message: result.message, error: result.error };
   } catch (e) {
@@ -190,6 +201,8 @@ export async function disconnectAiProviderForPanel(
   providerKey: string,
 ): Promise<ActionResult> {
   try {
+    // SETTINGS-PROVIDERS-ADMIN-GUARD-1 — admin ANTES de cualquier lectura o escritura.
+    if (!(await isCurrentUserAdmin())) return NOT_ADMIN_ACTION_RESULT;
     const result = await disconnectAiProvider(providerKey);
     return { ok: result.success, message: result.message, error: result.error };
   } catch (e) {
@@ -200,6 +213,8 @@ export async function disconnectAiProviderForPanel(
 /** Thin panel wrapper around the existing syncAnthropicModels() server action — no new backend logic. */
 export async function syncAnthropicModelsForPanel(): Promise<ActionResult> {
   try {
+    // SETTINGS-PROVIDERS-ADMIN-GUARD-1 — admin ANTES de cualquier lectura o escritura.
+    if (!(await isCurrentUserAdmin())) return NOT_ADMIN_ACTION_RESULT;
     const result = await syncAnthropicModels();
     const message = result.success
       ? `Modelos verificados: ${result.models_checked.length} · nuevos: ${result.models_added.length} · no disponibles: ${result.models_marked_unavailable.length}`
@@ -216,6 +231,8 @@ export async function updateAiProviderStatusForPanel(
   newStatus: 'active' | 'inactive',
 ): Promise<ActionResult> {
   try {
+    // SETTINGS-PROVIDERS-ADMIN-GUARD-1 — admin ANTES de cualquier lectura o escritura.
+    if (!(await isCurrentUserAdmin())) return NOT_ADMIN_ACTION_RESULT;
     const result = await updateAIProviderStatus(providerId, newStatus);
     return { ok: result.success, error: result.error };
   } catch (e) {
@@ -229,6 +246,8 @@ export async function updateAiModelStatusForPanel(
   newStatus: 'active' | 'inactive',
 ): Promise<ActionResult> {
   try {
+    // SETTINGS-PROVIDERS-ADMIN-GUARD-1 — admin ANTES de cualquier lectura o escritura.
+    if (!(await isCurrentUserAdmin())) return NOT_ADMIN_ACTION_RESULT;
     const result = await updateAIModelStatus(modelId, newStatus);
     return { ok: result.success, error: result.error };
   } catch (e) {
@@ -244,6 +263,8 @@ export async function addAiModelPricingForPanel(
   currency: string = 'USD',
 ): Promise<ActionResult> {
   try {
+    // SETTINGS-PROVIDERS-ADMIN-GUARD-1 — admin ANTES de cualquier lectura o escritura.
+    if (!(await isCurrentUserAdmin())) return NOT_ADMIN_ACTION_RESULT;
     const result = await addModelPricing(modelId, inputCost, outputCost, currency);
     return { ok: result.success, error: result.error };
   } catch (e) {
@@ -262,6 +283,8 @@ export async function setAiActiveConfigForPanel(
   modelId: string,
 ): Promise<ActionResult> {
   try {
+    // SETTINGS-PROVIDERS-ADMIN-GUARD-1 — admin ANTES de cualquier lectura o escritura.
+    if (!(await isCurrentUserAdmin())) return NOT_ADMIN_ACTION_RESULT;
     const result = await setActiveConfig(providerId, modelId);
     return { ok: result.success, error: result.error };
   } catch (e) {
@@ -287,6 +310,8 @@ export async function loadProspectingProviderConnectionForPanel(
   providerKey: string,
 ): Promise<ProspectingConnectionPanelState> {
   try {
+    // SETTINGS-PROVIDERS-ADMIN-GUARD-1 — admin ANTES de cualquier lectura o escritura.
+    if (!(await isCurrentUserAdmin())) return { ..._NOT_CONFIGURED, loadErrorMsg: 'No autorizado' };
     if (providerKey === 'tavily') {
       const integration = await getTavilyIntegration();
       if (!integration?.connection) return _NOT_CONFIGURED;
@@ -318,6 +343,8 @@ export async function testProspectingProviderConnectionForPanel(
   providerKey: string,
 ): Promise<ActionResult> {
   try {
+    // SETTINGS-PROVIDERS-ADMIN-GUARD-1 — admin ANTES de cualquier lectura o escritura.
+    if (!(await isCurrentUserAdmin())) return NOT_ADMIN_ACTION_RESULT;
     if (providerKey === 'apollo') {
       const r = await testApolloConnectionAction();
       return { ok: r.success, message: r.message, error: r.error };
@@ -341,6 +368,8 @@ export async function updateProspectingProviderCredentialForPanel(
   apiKey: string,
 ): Promise<ActionResult> {
   try {
+    // SETTINGS-PROVIDERS-ADMIN-GUARD-1 — admin ANTES de cualquier lectura o escritura.
+    if (!(await isCurrentUserAdmin())) return NOT_ADMIN_ACTION_RESULT;
     if (providerKey === 'apollo') {
       const r = await updateApolloApiKey(apiKey);
       return { ok: r.success, message: r.message, error: r.error };
@@ -363,6 +392,8 @@ export async function disconnectProspectingProviderForPanel(
   providerKey: string,
 ): Promise<ActionResult> {
   try {
+    // SETTINGS-PROVIDERS-ADMIN-GUARD-1 — admin ANTES de cualquier lectura o escritura.
+    if (!(await isCurrentUserAdmin())) return NOT_ADMIN_ACTION_RESULT;
     if (providerKey === 'apollo') {
       const r = await disconnectApollo();
       return { ok: r.success, message: r.message, error: r.error };

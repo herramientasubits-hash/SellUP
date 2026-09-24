@@ -9,6 +9,7 @@ import {
   type UsageFilters,
   type ProviderScopedUsageFilters,
 } from '@/modules/ai-usage/queries';
+import { isCurrentUserAdmin } from '@/modules/access/actions';
 import type {
   ProviderConsumptionLogEntry,
   ProviderConsumptionSnapshot,
@@ -37,6 +38,17 @@ export async function loadProviderConsumptionForWorkspace(
   providerKey: string,
   filters: UsageFilters,
 ): Promise<ConsumptionLoadResult> {
+  // SETTINGS-PROVIDERS-ADMIN-GUARD-1 — el consumo por usuario de toda la
+  // organización sólo lo ve un administrador. Una server action se puede invocar
+  // sin pasar por la página, que es la que redirigía.
+  try {
+    if (!(await isCurrentUserAdmin())) {
+      return { ok: false, errorStage: 'authorization', errorCode: 'not_admin' };
+    }
+  } catch {
+    return { ok: false, errorStage: 'authorization', errorCode: 'auth_check_failed' };
+  }
+
   const providerFilters: ProviderScopedUsageFilters = { ...filters, provider: providerKey };
 
   let statsResult: Awaited<ReturnType<typeof getProviderStats>>;

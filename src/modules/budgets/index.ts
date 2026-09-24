@@ -13,7 +13,9 @@ export type {
 } from './types';
 
 export { getPeriodBounds, periodStartIso, periodEndIso } from './periods';
-export { checkBudget, getAdminBudgetSummary, checkProviderQuotaAvailable } from './budget-resolution';
+// SETTINGS-PROVIDERS-ADMIN-GUARD-1 — `checkBudget`, `getAdminBudgetSummary` y
+// `checkProviderQuotaAvailable` NO se reexportan aquí: este índice lo importan
+// componentes cliente. Importarlas de './budget-resolution', sólo en el servidor.
 export type { ProviderQuotaAvailability } from './budget-resolution';
 export { updateProviderAllowance } from './allowance-actions';
 export type { UpdateProviderAllowanceResult } from './allowance-actions';
