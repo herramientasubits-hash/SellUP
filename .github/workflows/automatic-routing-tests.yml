@@ -5816,6 +5816,14 @@ jobs:
       - name: Run Agent 1 Lusha request observability tests
         run: npm run test:a1-lusha-request-observability
 
+      # AGENT1-PROVIDER-CONTRACT-PRICES-1 - precio por credito del contrato
+      # anual vigente (Apollo 4.200/484.335, Lusha 4.174,57/61.200), en vez de
+      # los supuestos viejos (480.000 y 3.600/40.800).
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 provider contract prices tests
+        run: npm run test:a1-provider-contract-prices
+
       # AGENT1-LUSHA-PAGE-CURSOR-1 - cada corrida de Lusha arrancaba en la pagina
       # 0, que para la misma busqueda devuelve SIEMPRE las mismas empresas (la
       # firma CO x Tecnologia pago 0 y 1 el 22-09 y otra vez la 0 el 23-09). Con

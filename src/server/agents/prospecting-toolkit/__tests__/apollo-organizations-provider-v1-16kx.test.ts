@@ -26,6 +26,7 @@ import {
 } from '../apollo-organizations-usage-logging';
 import type { ApolloSearchResult, ApolloOrganization } from '@/server/integrations/apollo-client';
 import type { LogProviderUsageInput } from '@/modules/usage-tracking/types';
+import { APOLLO_CONTRACT } from '@/modules/usage-tracking/provider-contract-prices';
 
 // ─── Helpers de test ──────────────────────────────────────────────────────────
 
@@ -154,14 +155,14 @@ describe('B. Flag on real-limited con mock', () => {
     assert.equal(usage?.credits_used, 1);
   });
 
-  it('estimated_cost_usd = credits(1 página) * 0.00875', async () => {
+  it('estimated_cost_usd = credits(1 página) * precio del contrato Apollo', async () => {
     const orgs = [makeOrg({ id: 'o1' }), makeOrg({ id: 'o2' })];
     const { logs, logFn } = makeLogCapture();
     const deps: ApolloOrgsSearchDeps = { searchOrgs: mockSearchSuccess(orgs), logUsage: logFn };
 
     const out = await runApolloOrganizationsSearch({ query: 'test' }, 5, undefined, deps);
 
-    const expectedCost = 1 * 0.00875;
+    const expectedCost = 1 * APOLLO_CONTRACT.usdPerCredit;
     assert.ok(
       Math.abs((out.estimatedCostUsd ?? 0) - expectedCost) < 0.000001,
       `expected ~${expectedCost}, got ${out.estimatedCostUsd}`,

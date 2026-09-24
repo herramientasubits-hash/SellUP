@@ -53,6 +53,7 @@ import type {
   WebSearchOutput,
 } from '../types';
 import { noCandidatePersistenceFailures } from '../prospect-candidate-persistence-readiness';
+import { APOLLO_CONTRACT } from '@/modules/usage-tracking/provider-contract-prices';
 
 // Q3F-5AU.16: mirrors the local intersection types production code uses in
 // incremental-search.ts/web-search-tool.ts — remainingEnrichmentBudget /
@@ -461,7 +462,7 @@ describe('Q3F-5AU.16 — T5: organization_enrichment cost comes from context, ne
     delete process.env.AGENT1_APOLLO_MAX_ENRICHMENTS_PER_RUN;
   });
 
-  // Deliberately distinct from APOLLO_ORGANIZATIONS_UNIT_COST_USD (0.00875) so a
+  // Deliberately distinct from APOLLO_ORGANIZATIONS_UNIT_COST_USD (contract price) so a
   // pass only if the log used the hardcode would be immediately visible.
   const DISTINCT_LIVE_UNIT_COST = 0.02345;
 
@@ -488,7 +489,7 @@ describe('Q3F-5AU.16 — T5: organization_enrichment cost comes from context, ne
     const enrichLogs = logs.filter((l) => l.operation_key === 'organization_enrichment');
     assert.equal(enrichLogs.length, 1);
     assert.equal(enrichLogs[0]!.estimated_cost_usd, DISTINCT_LIVE_UNIT_COST, 'estimated_cost_usd must equal the live unit cost passed via context');
-    assert.notEqual(enrichLogs[0]!.estimated_cost_usd, 0.00875, 'must never silently fall back to the organizations_search hardcode');
+    assert.notEqual(enrichLogs[0]!.estimated_cost_usd, APOLLO_CONTRACT.usdPerCredit, 'must never silently fall back to the organizations_search hardcode');
     assert.equal(
       (enrichLogs[0]!.metadata as Record<string, unknown>)['pricing_missing_warning'],
       false,
@@ -530,7 +531,7 @@ describe('Q3F-5AU.16 — T6: organizations_search cost/behavior is unchanged', (
     delete process.env.ENABLE_APOLLO_COMPANY_SEARCH;
   });
 
-  it('organizations_search still uses the 0.00875 hardcode regardless of organizationEnrichmentUnitCostUsd', async () => {
+  it('organizations_search still uses the contract constant regardless of organizationEnrichmentUnitCostUsd', async () => {
     const { logs, logFn } = makeLogCapture();
     const deps: ApolloOrgsSearchDeps = {
       searchOrgs: makeSearchFn([makeOrg({ id: 'org1', name: 'Org One' })]),
@@ -546,7 +547,7 @@ describe('Q3F-5AU.16 — T6: organizations_search cost/behavior is unchanged', (
 
     const searchLog = logs.find((l) => l.operation_key === 'organizations_search');
     assert.ok(searchLog);
-    assert.equal(searchLog!.estimated_cost_usd, 0.00875, 'organizations_search cost must remain the existing hardcode, unaffected by the enrichment pricing context');
+    assert.equal(searchLog!.estimated_cost_usd, APOLLO_CONTRACT.usdPerCredit, 'organizations_search cost must remain the contract constant, unaffected by the enrichment pricing context');
   });
 });
 

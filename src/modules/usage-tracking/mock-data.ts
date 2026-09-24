@@ -4,6 +4,8 @@
 // Volúmenes y métricas de efectividad son datos demo.
 // ============================================================
 
+import { APOLLO_CONTRACT, LUSHA_CONTRACT } from './provider-contract-prices';
+
 export interface MockAgentStat {
   key: string;
   name: string;
@@ -64,37 +66,37 @@ export interface ProviderPlanInfo {
 // Precios reales de proveedores — fuente: datos del plan vigente
 // ============================================================
 
-// Apollo: $4,200 USD anuales — 480,000 créditos compartidos — corte Oct 13
-//         4200 / 480000 = $0.00875 por crédito
-// Lusha:  $300 USD/mes cobrados anualmente = $3,600/año — 40,800 créditos/mes — corte Nov
-//         3600 / 40800 = $0.088235 por crédito
-//         (Error anterior: se dividía el pago mensual, no el anual)
+// AGENT1-PROVIDER-CONTRACT-PRICES-1 — contratos ANUALES confirmados 2026-09-24
+// (ver provider-contract-prices.ts):
+// Apollo: USD 4.200/año — 484.335 créditos — corte Oct 13 ⇒ 0,00867168 por crédito
+// Lusha:  USD 4.174,57/año — 61.200 créditos (~5.100/mes) ⇒ 0,06821193 por crédito
+// (Antes: Apollo 4.200/480.000 y Lusha 3.600/40.800, supuestos que no eran el contrato.)
 
-const APOLLO_UNIT_COST = 4200 / 480000;   // $0.00875000 por crédito
-const LUSHA_UNIT_COST  = 3600 / 40800;    // $0.08823529 por crédito
+const APOLLO_UNIT_COST = APOLLO_CONTRACT.usdPerCredit;
+const LUSHA_UNIT_COST = LUSHA_CONTRACT.usdPerCredit;
 
 export const PROVIDER_PLANS: ProviderPlanInfo[] = [
   {
     key: 'apollo',
     name: 'Apollo',
-    planCostUsd: 4200,
+    planCostUsd: APOLLO_CONTRACT.annualUsd,
     billingPeriod: 'annual',
-    totalCredits: 480000,
+    totalCredits: APOLLO_CONTRACT.annualCredits,
     creditRenewalDate: 'Oct 13',
-    unitCostUsd: Math.round(APOLLO_UNIT_COST * 1e8) / 1e8,  // $0.00875000
+    unitCostUsd: APOLLO_UNIT_COST,
     unitLabel: 'por crédito / resultado',
-    notes: '$4,200 USD anuales · 480,000 créditos compartidos · Corte Oct 13',
+    notes: 'USD 4.200 anuales · 484.335 créditos/año · Corte Oct 13',
   },
   {
     key: 'lusha',
     name: 'Lusha',
-    planCostUsd: 300,
-    billingPeriod: 'monthly_billed_annually',
-    totalCredits: 40800,
+    planCostUsd: LUSHA_CONTRACT.annualUsd,
+    billingPeriod: 'annual',
+    totalCredits: LUSHA_CONTRACT.annualCredits,
     creditRenewalDate: 'Nov',
-    unitCostUsd: Math.round(LUSHA_UNIT_COST * 1e8) / 1e8,   // $0.08823529 (anual / créditos)
+    unitCostUsd: LUSHA_UNIT_COST,
     unitLabel: 'por crédito / contacto',
-    notes: '$300 USD/mes (cobrado anualmente = $3,600/año) · 40,800 créditos compartidos/mes · Corte Nov',
+    notes: 'USD 4.174,57 anuales · 61.200 créditos/año (~5.100/mes) · Corte Nov',
   },
 ];
 
@@ -103,13 +105,13 @@ export const PROVIDER_PLANS: ProviderPlanInfo[] = [
 // Costos incluyen IA + llamadas a proveedores del agente
 // ============================================================
 
-// Apollo: 820 resultados × $0.00875   = $7.18
-// Lusha:  187 contactos  × $0.08824   = $16.50  (costo anual / créditos)
+// Apollo: 820 resultados × $0.00867   = ~$7.11
+// Lusha:  187 contactos  × $0.06821   = ~$12.76 (costo anual / créditos)
 // IA (Anthropic): $4.82
 // Los costos de Apollo/Lusha se asignan al agente Generación de prospectos
 
-const APOLLO_DEMO_COST = 820 * APOLLO_UNIT_COST;  // $7.18
-const LUSHA_DEMO_COST  = 187 * LUSHA_UNIT_COST;   // $16.50
+const APOLLO_DEMO_COST = 820 * APOLLO_UNIT_COST;  // ~$7.11
+const LUSHA_DEMO_COST  = 187 * LUSHA_UNIT_COST;   // ~$12.76
 
 export const MOCK_AGENTS: MockAgentStat[] = [
   {
@@ -233,7 +235,7 @@ export const MOCK_ACTIVITY: MockActivityItem[] = [
     providerOrAgent: 'Apollo',
     operation: 'company_search',
     status: 'success',
-    // 20 resultados × $0.00875
+    // 20 resultados × precio del contrato Apollo
     estimatedCostUsd: Math.round(20 * APOLLO_UNIT_COST * 10000) / 10000,
     resultCount: 20,
   },
