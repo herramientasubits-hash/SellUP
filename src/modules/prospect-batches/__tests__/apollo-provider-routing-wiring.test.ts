@@ -49,14 +49,15 @@ import type { CatalogResolutionOutput } from '@/modules/prospect-batches/chat-wi
 import type { WizardApolloInput } from '@/modules/prospect-batches/chat-wizard-execution/wizard-apollo-executor';
 import type { WizardTavilyInput } from '@/modules/prospect-batches/chat-wizard-execution/wizard-tavily-executor';
 import type { IncrementalSearchOutput } from '@/server/agents/prospecting-toolkit/incremental-search-types';
+import { APOLLO_CONTRACT } from '@/modules/usage-tracking/provider-contract-prices';
 
 const ROOT = process.cwd();
 
 /** Narrow an unknown JSONB value to a record for assertion access. */
 const rec = (v: unknown): Record<string, unknown> => (v ?? {}) as Record<string, unknown>;
 
-/** Apollo cost is 10 × $0.00875 — assert within float tolerance (never exact). */
-const APOLLO_USD_MAX = 0.0875;
+/** Apollo cost is 10 × contract price — assert within float tolerance (never exact). */
+const APOLLO_USD_MAX = 10 * APOLLO_CONTRACT.usdPerCredit;
 function assertUsd(actual: unknown, expected: number): void {
   assert.equal(typeof actual, 'number');
   assert.ok(Math.abs((actual as number) - expected) < 1e-9, `expected ~${expected}, got ${String(actual)}`);
@@ -123,7 +124,7 @@ describe('11E adapter — default_ai→apollo criteria/config, no fallback', () 
     // observe_only ⇒ dry-run only, never auto-executes.
     assert.equal(plan.dryRunOnly, true);
     assert.equal(plan.allowedToExecute, false);
-    // Apollo USD cost IS known: 10 credits × $0.00875 = $0.0875.
+    // Apollo USD cost IS known: 10 credits × contract price.
     assert.equal(plan.estimatedCost.unknown, false);
     assert.equal(plan.estimatedCost.credits, 10);
     assertUsd(plan.estimatedCost.usdMax, APOLLO_USD_MAX);

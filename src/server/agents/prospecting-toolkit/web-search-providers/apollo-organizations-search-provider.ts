@@ -145,6 +145,7 @@ import { toDiscoveryTaxonomyMetadata } from '@/modules/macro-industry-catalog/di
 import { ingestApolloOrganizationIndustryRawLabels } from '@/modules/industry-mapping/apollo-industry-raw-label-ingestion';
 import { normalizeClassificationValue } from '@/modules/prospect-batches/import-classification/catalog-normalization';
 import { captureProviderIndustryRawLabelObservations } from '../provider-industry-raw-label-capture';
+import { APOLLO_CONTRACT } from '@/modules/usage-tracking/provider-contract-prices';
 
 // ─── Versión de mapping de perfil ────────────────────────────────────────────
 
@@ -277,7 +278,10 @@ export type ApolloOrganizationsUsageMetadata = {
 // reutiliza para que el tope post-hoc del volumen pagado y el tope de páginas
 // de la paginación nunca puedan divergir.
 const MAX_APOLLO_ORGANIZATIONS_CREDITS = WIZARD_APOLLO_MAX_SEARCH_CREDITS_DEFAULT;
-const APOLLO_ORGANIZATIONS_UNIT_COST_USD = 0.00875;
+// AGENT1-PROVIDER-CONTRACT-PRICES-1 — el precio del contrato vigente (antes
+// 0.00875, de un supuesto de 480.000 créditos). Coincide con
+// `provider_pricing_config` (apollo · organizations_search).
+const APOLLO_ORGANIZATIONS_UNIT_COST_USD = APOLLO_CONTRACT.usdPerCredit;
 
 /**
  * QUERY-QUALITY-2-FIX § 1 — el límite efectivo y el request efectivo los resuelve

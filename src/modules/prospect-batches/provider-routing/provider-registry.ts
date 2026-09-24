@@ -10,11 +10,11 @@
  * Sources for the encoded values (documented, not imported at runtime to keep
  * this module pure):
  *   - Lusha: 1 credit / page, 10 results / credit, MAX_PAGES = 2,
- *     EXPECTED_MAX_CREDITS = 2, USD price NOT authorized (unknown). Country
+ *     EXPECTED_MAX_CREDITS = 2, USD price kept unknown HERE (see below). Country
  *     coverage stays an explicit allowlist (~20 countries) so a non-covered search
  *     never silently "matches" Lusha; INDUSTRY coverage is deliberately open —
  *     the Macro-v2 authority upstream decides it (ROUTING-CUTOVER-1 § 6).
- *   - Apollo (organizations): 1 credit / result, MAX = 10, ~$0.00875 / credit,
+ *   - Apollo (organizations): 1 credit / result, MAX = 10, contract price / credit,
  *     no country allowlist, industry by keywords. `fallbackEligible = false`
  *     enforces the 10C3 invariant at the registry level.
  *   - Tavily / Web AI: no hard cap declared, USD cost pending provider pricing
@@ -89,7 +89,12 @@ const LUSHA_DESCRIPTOR: ProviderCapabilityDescriptor = {
     resultsPerCredit: 10,
     maxBillableUnits: 2,
     expectedMaxCredits: 2,
-    unitCostUsd: null, // USD pricing not authorized → unknown, never 0.
+    // AGENT1-PROVIDER-CONTRACT-PRICES-1 — el contrato ya tiene precio
+    // (LUSHA_CONTRACT.usdPerCredit), pero este modelo DECLARATIVO lo mantiene
+    // desconocido a propósito: es metadata de observación del plan de ruta, y el
+    // costo real de cada corrida de Lusha se registra en el log de uso desde
+    // `provider_pricing_config`. Nunca 0.
+    unitCostUsd: null,
     currency: 'USD',
     pricingStatus: 'unknown',
   },
@@ -116,7 +121,10 @@ const APOLLO_DESCRIPTOR: ProviderCapabilityDescriptor = {
     resultsPerCredit: 1,
     maxBillableUnits: 10,
     expectedMaxCredits: 10,
-    unitCostUsd: 0.00875,
+    // AGENT1-PROVIDER-CONTRACT-PRICES-1 — contrato anual 4.200 / 484.335. Literal
+    // a propósito: este módulo sólo importa de su carpeta (static-safety). Una
+    // prueba fija que coincide con APOLLO_CONTRACT.usdPerCredit.
+    unitCostUsd: 0.00867168,
     currency: 'USD',
     pricingStatus: 'known',
   },

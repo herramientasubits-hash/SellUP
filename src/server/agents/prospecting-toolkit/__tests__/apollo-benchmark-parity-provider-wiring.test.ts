@@ -17,6 +17,7 @@ import type { ApolloPageFetchResult } from '../apollo-organizations-paginated-se
 import type { WebSearchInput } from '../types';
 import type { LogProviderUsageInput } from '@/modules/usage-tracking/types';
 import type { ProviderSeenWriteInput } from '@/server/prospect-batches/provider-seen/provider-seen-store';
+import { APOLLO_CONTRACT } from '@/modules/usage-tracking/provider-contract-prices';
 
 const TOUCHED_ENV = [
   'ENABLE_APOLLO_COMPANY_SEARCH',
@@ -142,7 +143,7 @@ describe('P0-4 · la fila de uso declara el volumen PAGADO y los créditos por p
     assert.ok(
       typeof searchLog.estimated_cost_usd === 'number' && searchLog.estimated_cost_usd > 0,
     );
-    assert.equal(searchLog.estimated_cost_usd, 1 * 0.00875);
+    assert.equal(searchLog.estimated_cost_usd, 1 * APOLLO_CONTRACT.usdPerCredit);
   });
 
   it('el bloque de volumen declara que el proveedor NO reportó la factura', async () => {

@@ -60,6 +60,7 @@ import {
 import type { WebSearchInput } from '../types';
 import type { ApolloPageFetchResult } from '../apollo-organizations-paginated-search';
 import type { LogProviderUsageInput } from '@/modules/usage-tracking/types';
+import { APOLLO_CONTRACT } from '@/modules/usage-tracking/provider-contract-prices';
 
 // ─── Arnés ────────────────────────────────────────────────────────────────────
 
@@ -227,8 +228,8 @@ describe('A. 1 crédito por página no vacía, sin importar cuántos resultados 
   it('el costo USD se deriva de los créditos, no del conteo de resultados', async () => {
     const { usageRows } = await runProvider(organizationsPage(100), 100);
     const row = searchRow(usageRows);
-    // 1 crédito × la tarifa del contrato Apollo (0.00875 USD/crédito).
-    assert.equal(row.estimated_cost_usd, 0.00875);
+    // 1 crédito × la tarifa del contrato Apollo (AGENT1-PROVIDER-CONTRACT-PRICES-1).
+    assert.equal(row.estimated_cost_usd, APOLLO_CONTRACT.usdPerCredit);
   });
 });
 
