@@ -14,7 +14,14 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { GlobalIdentityClaim } from '@/server/agents/prospecting-toolkit/global-identity-claims';
+import {
+  deriveGlobalIdentityClaims,
+  type GlobalIdentityClaim,
+} from '@/server/agents/prospecting-toolkit/global-identity-claims';
+import {
+  toRegisteredBatchIdentity,
+  type BatchIdentitySeedRow,
+} from './batch-identity-registry-store';
 
 export const CLAIM_COMPANY_IDENTITIES_RPC = 'claim_company_identities';
 
@@ -99,4 +106,85 @@ export async function claimGlobalCompanyIdentities(
   } catch {
     return { ...EMPTY_OUTCOME, attempted: false, degraded: true };
   }
+}
+
+// ─── AGENT1-LUSHA-GLOBAL-IDENTITY-CLAIMS-1 — reclamar lo que YA se guardó ────
+
+/**
+ * Las MISMAS columnas que siembra el registro de lote (`SEED_COLUMNS` de
+ * `batch-identity-registry-store`), para que la evidencia se reconstruya
+ * exactamente igual que allí. `linkedin_url` queda fuera por la misma razón.
+ */
+const PERSISTED_CLAIM_COLUMNS =
+  'id, name, domain, website, country_code, tax_id, tax_identifier, status, metadata, source_trace';
+
+function readProviderCompanyId(row: BatchIdentitySeedRow): string | null {
+  const trace = row.source_trace;
+  const value = trace && typeof trace === 'object' ? trace['providerCompanyId'] : null;
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+export type PersistedClaimConflict = {
+  candidateId: string;
+  /**
+   * Id nativo del proveedor TAL COMO se guardó (`source_trace.providerCompanyId`).
+   * Crudo a propósito: el llamador lo compara con el suyo por igualdad, sin
+   * normalizar identidad por su cuenta (guarda CUT-3B2 § 6).
+   */
+  providerCompanyId: string | null;
+};
+
+export type PersistedGlobalIdentityClaimOutcome = {
+  claimedElsewhere: PersistedClaimConflict[];
+  /** `true` ⇒ no se pudo completar (lectura, migración ausente o RPC): nadie se marcó. */
+  degraded: boolean;
+};
+
+/**
+ * Reclama las señales globales de filas YA insertadas, leyéndolas de vuelta
+ * por su id.
+ *
+ * Existe para los escritores que insertan un BLOQUE y sólo reciben los ids de
+ * vuelta (Lusha). Releer por id evita suponer que el orden de `RETURNING id`
+ * coincide con el de entrada: la evidencia sale de lo que la base guardó, con
+ * el mismo constructor que usa el registro de lote.
+ *
+ * Degrada CERRADO igual que `claimGlobalCompanyIdentities`.
+ */
+export async function claimGlobalIdentitiesForPersistedCandidates(
+  client: SupabaseClient,
+  batchId: string,
+  candidateIds: readonly string[],
+): Promise<PersistedGlobalIdentityClaimOutcome> {
+  if (candidateIds.length === 0) return { claimedElsewhere: [], degraded: false };
+
+  let rows: BatchIdentitySeedRow[];
+  try {
+    const { data, error } = await client
+      .from('prospect_candidates')
+      .select(PERSISTED_CLAIM_COLUMNS)
+      .eq('batch_id', batchId)
+      .in('id', [...candidateIds]);
+    if (error || !Array.isArray(data)) return { claimedElsewhere: [], degraded: true };
+    rows = data as unknown as BatchIdentitySeedRow[];
+  } catch {
+    return { claimedElsewhere: [], degraded: true };
+  }
+
+  const outcome = await claimGlobalCompanyIdentities(
+    client,
+    batchId,
+    rows.map((row) => ({
+      candidateId: row.id,
+      claims: deriveGlobalIdentityClaims(toRegisteredBatchIdentity(row).evidence),
+    })),
+  );
+  if (outcome.degraded) return { claimedElsewhere: [], degraded: true };
+
+  return {
+    claimedElsewhere: rows
+      .filter((row) => outcome.claimedElsewhereCandidateIds.has(row.id))
+      .map((row) => ({ candidateId: row.id, providerCompanyId: readProviderCompanyId(row) })),
+    degraded: false,
+  };
 }

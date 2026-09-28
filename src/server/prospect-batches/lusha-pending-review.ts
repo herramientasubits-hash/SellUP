@@ -48,6 +48,9 @@ import { PROSPECTOS_TAB_ROUTE } from '@/config/navigation';
 // específico de Lusha. Éste dedupea el LOTE entre capas, en la admisión. Son dos
 // preguntas distintas y las dos siguen vivas.
 import { buildCompanyIdentityEvidence } from '@/server/agents/prospecting-toolkit/company-identity-evidence';
+// AGENT1-LUSHA-GLOBAL-IDENTITY-CLAIMS-1 — sólo el TIPO: el reclamo global lo
+// ejecuta la dependencia inyectada, igual que la valla.
+import type { PersistedGlobalIdentityClaimOutcome } from './global-identity-claims-store';
 import {
   admitByBatchIdentity,
   createBatchIdentityRegistry,
@@ -754,6 +757,29 @@ export interface PersistLushaPendingReviewDeps {
    * combina es `isProvenFenceCapabilityAbsent`, nunca este llamador por su cuenta.
    */
   readBatchIdentityEpoch: (batchId: string) => Promise<FenceCapabilityEvidence>;
+  /**
+   * AGENT1-LUSHA-GLOBAL-IDENTITY-CLAIMS-1 — la empresa ya propuesta a OTRO
+   * vendedor, en OTRO lote, deja de contar aquí (migración 140).
+   *
+   * Recibe los ids que la escritura vallada acaba de confirmar, los relee y
+   * reclama sus señales. Devuelve los que perdieron la carrera, con su clave de
+   * id de Lusha tal como se guardó, para reconocerlos en `useful` SIN depender del
+   * orden de `RETURNING id`.
+   *
+   * 🔴 OPCIONAL a propósito, y no es el caso de `insertCandidatesFenced`. Allí la
+   * ausencia abría una escritura MÁS débil que antes (sin valla). Aquí la ausencia
+   * es EXACTAMENTE el comportamiento anterior a la 140: nadie se marca duplicado.
+   * Nunca puede quedar más débil que hoy. Lo que sí se exige, por guarda
+   * estática, es que la acción de producción la inyecte.
+   *
+   * En producción corre con el cliente ADMINISTRATIVO: la tabla de reclamos es de
+   * todo el sistema, y la sesión de un vendedor no debe leer qué empresas tienen
+   * los demás.
+   */
+  claimGlobalIdentities?: (args: {
+    batchId: string;
+    candidateIds: ReadonlyArray<string>;
+  }) => Promise<PersistedGlobalIdentityClaimOutcome>;
   /**
    * ── AGENT1-LOCAL-CUT9B — la publicación DURABLE de la aceptación ──────────
    *
@@ -4150,6 +4176,48 @@ export async function persistLushaPendingReviewBatch(
       identity_epoch_final: fenced.nextEpoch,
       identity_fence_capability_absent: false,
     };
+
+    // ── AGENT1-LUSHA-GLOBAL-IDENTITY-CLAIMS-1 — ¿ya es de OTRO vendedor? ───────
+    //
+    // La valla de arriba sólo sabe de ESTE lote. Aquí se reclaman las filas recién
+    // escritas contra TODO SellUp; las que pierden quedan `duplicate` en la base
+    // (lo hace la RPC) y dejan de contar para esta corrida.
+    //
+    // 🔴 Se reconocen en `useful` por su id de LUSHA (igualdad cruda), nunca por el
+    // orden de `candidateIds`. Si alguna no se puede reconocer, no se adivina: se
+    // descuenta del total y la aceptación cae a la COTA INFERIOR de siempre
+    // (`fencedInsertedCandidateIds = null`), que es fallo CERRADO.
+    if (deps.claimGlobalIdentities && fenced.candidateIds.length > 0) {
+      const claim = await deps.claimGlobalIdentities({
+        batchId,
+        candidateIds: fenced.candidateIds,
+      });
+      const lost = claim.claimedElsewhere;
+      fenceTelemetry = {
+        ...fenceTelemetry,
+        global_identity_claimed_elsewhere: lost.length,
+        global_identity_claim_degraded: claim.degraded,
+      };
+      if (lost.length > 0) {
+        const lostKeys = new Set(
+          lost.map((c) => c.providerCompanyId).filter((k): k is string => k !== null),
+        );
+        const lostIds = new Set(lost.map((c) => c.candidateId));
+        const kept = useful.filter((entry) => {
+          const key = entry.company.providerCompanyId ?? null;
+          return key === null || !lostKeys.has(key);
+        });
+        const allRecognised =
+          lostKeys.size === lost.length && useful.length - kept.length === lost.length;
+        insertedCount -= lost.length;
+        if (allRecognised) {
+          useful.splice(0, useful.length, ...kept);
+          fencedInsertedCandidateIds = fenced.candidateIds.filter((id) => !lostIds.has(id));
+        } else {
+          fencedInsertedCandidateIds = null;
+        }
+      }
+    }
   } else if (fenced.status === 'capability_absent') {
     // La 126 no está aplicada. Ruta ANTERIOR a B4, tal cual. Lo decide el
     // esquema: no es un flag, no es la forma de un objeto de dependencias y nadie

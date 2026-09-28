@@ -126,6 +126,8 @@ import {
 // AGENT1-CUT3B4 § 22 — el transporte de la RPC vallada. Aquí vive el ÚNICO
 // cliente de base de datos de esta ruta; el núcleo sigue sin tener I/O propio.
 import { insertFencedProspectCandidates } from '@/server/prospect-batches/batch-identity-fence';
+import { claimGlobalIdentitiesForPersistedCandidates } from '@/server/prospect-batches/global-identity-claims-store';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { loadBatchIdentityRegistry } from '@/server/prospect-batches/batch-identity-registry-store';
 import { resolveLushaBatchIdentitySeed } from '@/modules/prospect-batches/lusha-batch-identity-seed';
 // Q3F-5BB.10C2 / AGENT1-APOLLO-SHARED-INTAKE-ADOPTION-1 — read-only
@@ -1597,6 +1599,20 @@ async function runLushaSearchWithReservation(args: {
             expectedEpoch: args.expectedEpoch,
             candidates: args.rows as unknown as Record<string, unknown>[],
           }),
+        // AGENT1-LUSHA-GLOBAL-IDENTITY-CLAIMS-1 — reclamo GLOBAL (migración 140)
+        // de las filas que la valla acaba de confirmar.
+        //
+        // 🔴 Cliente ADMINISTRATIVO, no el de sesión: la tabla de reclamos sólo
+        // tiene política para `service_role` —es de todo el sistema y un vendedor
+        // no debe leer qué empresas tienen los demás—. Con la sesión, cada reclamo
+        // chocaría con RLS, degradaría en silencio y Lusha quedaría sin protección.
+        // Es el MISMO cliente con el que Apollo reclama en `candidate-writer`.
+        claimGlobalIdentities: (args) =>
+          claimGlobalIdentitiesForPersistedCandidates(
+            createSupabaseAdminClient(),
+            args.batchId,
+            args.candidateIds,
+          ),
         // Read-only dep — 🔴 CUT9A-FIX-ADOPTED-EPOCH-REFRESH.
         //
         // La época contra la que la mitad de pago valla se LEE aquí, y se lee
