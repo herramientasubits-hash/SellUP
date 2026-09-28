@@ -202,7 +202,10 @@ describe('114 — numeración', () => {
     // cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
         // 🔴 AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET movió el techo a la 139: la cola durable de
     // continuaciones de ronda de Apollo. Ajena a este corte. AUTORADA y NO APLICADA.
-    assert.equal(Math.max(...numbers), 139);
+    // 🔴 AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 movió el techo a la 140: el reclamo global de
+    // identidad de empresa. No es de teléfono ni nombra ninguna tabla de estas cadenas.
+    // AUTORADA y NO APLICADA.
+    assert.equal(Math.max(...numbers), 140);
   });
 
   it('114 es la ÚNICA dueña de la forma de las dos tablas oficiales', () => {

@@ -362,8 +362,12 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // una empresa descartada, para "Descartadas" de Prospectos (issue #389). No escribe
       // `mobile_phone` ni inventa vocabulario de procedencia del escalar móvil. AUTORADA y NO
       // APLICADA.
-      '139_agent1_apollo_round_continuation_jobs.sql',
-      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa, la contabilidad de presupuesto, el tramo 129–132 de Agente 2, la 133 de BR-SOURCE CUT D, la 134 del compacto de BR y la 135 de la valla de Lusha (AGENT1-LUSHA-CUT-L3, renumerada desde la 134), la 136 del historial de intentos seguros de Lusha, la 137 de la auditoría administrativa del presupuesto del Wizard y la 138 de la disposición durable de descartes de Prospectos, no este hito',
+      // AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET mueve el techo a la 139, y
+      // AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 a la 140: el reclamo global de identidad de
+      // empresa. Ninguna escribe `mobile_phone` ni inventa vocabulario de procedencia del
+      // escalar móvil. AUTORADAS y NO APLICADAS.
+      '140_agent1_global_company_identity_claims.sql',
+      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa, la contabilidad de presupuesto, el tramo 129–132 de Agente 2, la 133 de BR-SOURCE CUT D, la 134 del compacto de BR y la 135 de la valla de Lusha (AGENT1-LUSHA-CUT-L3, renumerada desde la 134), la 136 del historial de intentos seguros de Lusha, la 137 de la auditoría administrativa del presupuesto del Wizard, la 138 de la disposición durable de descartes de Prospectos, la 139 de la cola durable de continuaciones de ronda de Apollo y la 140 del reclamo global de identidad de empresa, no este hito',
     );
     for (const agent2 of [
       '129_agent2_contact_hubspot_stale_completeness.sql',
@@ -409,15 +413,18 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 declara la 138 (la disposición durable de descartes
       // de Prospectos, issue #389). Queda AUTORIZADA y NOMBRADA como las anteriores, así que la
       // ventana prohibida sube a la 139 y superiores.
+      // AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET declara la 139 y
+      // AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 declara la 140. Ambas quedan AUTORIZADAS y
+      // NOMBRADAS como las anteriores, así que la ventana prohibida sube a la 141 y superiores.
       // La guarda no se relaja: sigue impidiendo que alguien cuele una POR ENCIMA del último
       // hito conocido sin declararla.
-      numbered.some((f) => /^1(4\d|[5-9]\d)/.test(f)),
+      numbered.some((f) => /^14[1-9]/.test(f) || /^1[5-9]\d/.test(f)),
       false,
       // La 120 (Fase 1), la 121 (contabilidad) y la 122 («Buscar más números»)
       // (AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1) son AUTORIZADAS y están declaradas arriba;
       // lo que esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último
       // hito conocido sin declararla.
-      'ninguna migración 140 o superior',
+      'ninguna migración 141 o superior',
     );
   });
 

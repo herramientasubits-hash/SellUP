@@ -1174,7 +1174,11 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     // cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
         // 🔴 AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET movió el techo a la 139: la cola durable de
     // continuaciones de ronda de Apollo. Ajena a este corte. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 139, '4O-F reutiliza la 111 sin crear SQL nuevo');
+    // 🔴 AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 movió el techo a la 140: el reclamo global de
+    // identidad de empresa que cierra la carrera de dos-vendedores-misma-empresa a escala de
+    // TODA la cuenta. No es de teléfono, no es del catálogo y no nombra ninguna tabla, columna
+    // ni función de las cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 140, '4O-F reutiliza la 111 sin crear SQL nuevo');
   });
 
   // AGENT2A-PHONE-REVEAL-4O-H3 — este guarda se INVIERTE, no se borra.

@@ -488,6 +488,10 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       '138_prospect_discarded_dispositions.sql',
       // 🔴 AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET reclamó después la 139: la cola durable de continuaciones de ronda de Apollo. Ajena a este corte. AUTORADA y NO APLICADA.
       '139_agent1_apollo_round_continuation_jobs.sql',
+      // 🔴 AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 reclamó después la 140: el reclamo global de
+      // identidad de empresa. No contiene un solo `DELETE`, no nombra `mobile_phone` y no
+      // toca la erasure que esta suite protege. AUTORADA y NO APLICADA.
+      '140_agent1_global_company_identity_claims.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
@@ -556,7 +560,10 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     // descartes de Prospectos (issue #389). No es de teléfono, no es del catálogo y no nombra
     // ninguna tabla, columna ni función de las cadenas que esta guarda vigila. AUTORADA y NO
     // APLICADA.
-    assert.equal(numbered[numbered.length - 1], 139);
+    // AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET mueve el techo a la 139, y
+    // AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 a la 140. Ninguna es de teléfono. AUTORADAS y
+    // NO APLICADAS.
+    assert.equal(numbered[numbered.length - 1], 140);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {

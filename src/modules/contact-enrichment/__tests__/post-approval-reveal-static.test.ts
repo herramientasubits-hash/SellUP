@@ -757,10 +757,13 @@ describe('la migración 128 — su contrato', () => {
     // pestaña "Descartadas" de Prospectos (issue #389). No es de teléfono, no es del catálogo
     // y no nombra ninguna tabla, columna ni función de las cadenas que esta guarda vigila.
     // AUTORADA y NO APLICADA.
-    assert.equal(files[files.length - 1], '139_agent1_apollo_round_continuation_jobs.sql');
+    // AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET mueve el techo a la 139, y
+    // AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 a la 140 (reclamo global de identidad de
+    // empresa). Ninguna es de teléfono, ninguna es del catálogo. AUTORADAS y NO APLICADAS.
+    assert.equal(files[files.length - 1], '140_agent1_global_company_identity_claims.sql');
     const numbers = files.map((f) => Number.parseInt(f.slice(0, 3), 10));
-    assert.equal(Math.max(...numbers), 139);
-    assert.equal(files.length, 139, 'techo y conteo coinciden: ni un hueco');
+    assert.equal(Math.max(...numbers), 140);
+    assert.equal(files.length, 140, 'techo y conteo coinciden: ni un hueco');
   });
 
   it('no edita ninguna migración anterior de la cadena de teléfono', () => {

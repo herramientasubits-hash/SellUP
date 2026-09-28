@@ -271,8 +271,16 @@ test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 
       '138_prospect_discarded_dispositions.sql',
       // 🔴 AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET reclamó después la 139: la cola durable de continuaciones de ronda de Apollo. Ajena a este corte. AUTORADA y NO APLICADA.
       '139_agent1_apollo_round_continuation_jobs.sql',
+      // 🔴 AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 añade la 140: el reclamo global de identidad
+      // de empresa (`agent1_company_identity_claims`) que cierra la carrera de
+      // dos-vendedores-misma-empresa a escala de TODA la cuenta. No es de la capa GRATUITA de
+      // descubrimiento que esta guarda protege: no nombra `provider_seen_entities`, no altera
+      // `prospect_batches`, y sólo referencia `prospect_candidates` como FK de su propia tabla
+      // nueva (igual que la 138). La capa gratuita sigue sin necesitar esquema, que es lo único
+      // que esta guarda afirma. AUTORADA y NO APLICADA.
+      '140_agent1_global_company_identity_claims.sql',
     ],
-    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR, la valla de petición de Lusha, la auditoría administrativa del presupuesto del Wizard y la disposición durable de descartes de Prospectos',
+    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR, la valla de petición de Lusha, la auditoría administrativa del presupuesto del Wizard, la disposición durable de descartes de Prospectos y el reclamo global de identidad de empresa',
   );
 
   // 🔴 Ratchet invertido en AGENT1-PROVIDER-SEEN-MEMORY-3: la 123 YA está aplicada

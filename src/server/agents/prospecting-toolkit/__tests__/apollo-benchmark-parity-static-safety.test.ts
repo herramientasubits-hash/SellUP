@@ -427,7 +427,11 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
     // de la 139 a la 140, y el barrido de AUTORÍA —lo único que de verdad protege este corte—
     // se ENSANCHA para incluir la 139. Otra vez más fuerte que antes, no meramente desplazada:
     // un número libre nunca demostró nada.
-      migrations.filter((f) => f.startsWith('140')).length,
+    // 🔴 AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 reclamó después la 140: el reclamo global de
+    // identidad de empresa que cierra la carrera de dos-vendedores-misma-empresa a escala de
+    // TODA la cuenta. El proxy se mueve de la 140 a la 141, y el barrido de AUTORÍA se ENSANCHA
+    // para incluir la 140.
+      migrations.filter((f) => f.startsWith('141')).length,
       0,
       'este corte no añade migración',
     );
@@ -448,7 +452,8 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
         f.startsWith('136') ||
         f.startsWith('137') ||
         f.startsWith('138') ||
-        f.startsWith('139'),
+        f.startsWith('139') ||
+        f.startsWith('140'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

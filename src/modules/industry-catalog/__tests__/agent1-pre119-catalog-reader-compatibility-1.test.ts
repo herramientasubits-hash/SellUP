@@ -1012,7 +1012,7 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
     // de `prospect_candidate_audit.action_type`; ninguna de las dos es tabla ni vista del
     // catálogo de industrias, y el barrido de abajo lo comprueba sobre su SQL en vez de
     // creerle a este comentario. AUTORADA y NO APLICADA.
-    assert.match(last, /^139_/);
+    assert.match(last, /^140_/);
     // Y por encima de la 119 no hay NINGUNA migración de catálogo. Lo que se vigila
     // NO es el techo por sí mismo: es que ninguna migración posterior al cutover toque
     // las tablas del catálogo. Cada archivo nuevo entra a esta lista con su nombre y
@@ -1131,6 +1131,10 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
       '138_prospect_discarded_dispositions.sql',
       // 🔴 AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET reclamó después la 139: la cola durable de continuaciones de ronda de Apollo. Ajena a este corte. AUTORADA y NO APLICADA.
       '139_agent1_apollo_round_continuation_jobs.sql',
+      // 🔴 AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 reclamó después la 140: el reclamo global de
+      // identidad de empresa; ninguna es tabla ni vista del catálogo de industrias. AUTORADA y
+      // NO APLICADA.
+      '140_agent1_global_company_identity_claims.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);
