@@ -5833,6 +5833,14 @@ jobs:
       - name: Run Agent 1 provider contract prices tests
         run: npm run test:a1-provider-contract-prices
 
+      # AGENT1-APOLLO-ENRICH-SIC-NAICS-1 - el enriquecimiento de Apollo guarda
+      # sic_codes y naics_codes en el perfil del candidato (Apollo Support:
+      # vienen en organizations/enrich, no en la busqueda). Solo observacion.
+      #
+      # 0 llamadas a Apollo - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 Apollo enrich SIC/NAICS tests
+        run: npm run test:a1-apollo-enrich-sic-naics
+
       # AGENT1-LUSHA-PAGE-CURSOR-1 - cada corrida de Lusha arrancaba en la pagina
       # 0, que para la misma busqueda devuelve SIEMPRE las mismas empresas (la
       # firma CO x Tecnologia pago 0 y 1 el 22-09 y otra vez la 0 el 23-09). Con
@@ -5852,6 +5860,15 @@ jobs:
       # 0 llamadas a Apollo o Lusha - 0 creditos - 0 escrituras en Produccion.
       - name: Run Agent 1 auto provider cascade tests
         run: npm run test:a1-auto-provider-cascade
+
+      # AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-1 - con la bandera encendida, la
+      # busqueda de Apollo lleva not_organization_websites_list (documentado en
+      # la especificacion oficial) con lo que ya es nuestro y lo visto en los
+      # ultimos 30 dias: una busqueda agotada vuelve vacia y no se cobra.
+      #
+      # 0 llamadas a Apollo - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 Apollo seen domain exclusion tests
+        run: npm run test:a1-apollo-seen-domain-exclusion
 
       # AGENT1-BUSINESS-FIT-OBSERVATION-ONLY - el ICP heredado de B2B tech deja
       # de decidir: no bloquea admision, no decide aceptacion, no autoriza gasto
@@ -6090,3 +6107,11 @@ jobs:
       # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
       - name: Run settings providers admin guard tests
         run: npm run test:settings-providers-admin-guard
+
+      # AGENT1-APOLLO-COUNTRY-LOCATION-1 - el pais se le envia a Apollo por su
+      # codigo, en el nombre en ingles que Apollo documenta (Mexico, Peru,
+      # Brazil, Spain...). Colombia no cambia ni un byte.
+      #
+      # 0 llamadas a Apollo - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 Apollo country location tests
+        run: npm run test:a1-apollo-country-location

@@ -70,6 +70,7 @@ import {
   type ApolloMacroIndustryRequestContext,
 } from './apollo-macro-industry-request';
 import { toMacroIndustryQueryMetadata } from './apollo-macro-industry-query-terms';
+import { resolveApolloCountryLocation } from './apollo-country-location';
 
 /**
  * La clave de deduplicación vive en `apollo-subindustry-query-terms` para que el
@@ -962,7 +963,9 @@ export function buildApolloOrganizationsSearchParams(
   // L2.11: usar tags array; apollo_keywords_sent como string para backward compat
   const apolloKeywordTagsSent = finalKeywords;
   const apolloKeywordsSentStr = finalKeywords.join(' ').trim() || null;
-  const apolloLocation = input.country?.trim() ?? null;
+  // AGENT1-APOLLO-COUNTRY-LOCATION-1 — por el CÓDIGO del país, en el nombre que
+  // Apollo documenta (inglés). Para Colombia el valor es el de siempre.
+  const apolloLocation = resolveApolloCountryLocation(input.countryCode, input.country);
 
   // L2.11: employee ranges desde targetEmployeeThreshold
   const employeeThreshold = input.targetEmployeeThreshold ?? null;

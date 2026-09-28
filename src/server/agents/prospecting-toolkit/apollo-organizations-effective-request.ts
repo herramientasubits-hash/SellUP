@@ -175,6 +175,13 @@ export type ApolloEffectiveRequestBuildInput = {
   packIndex?: number;
   /** L2.10 — cap de queries, sólo para diagnóstico del pack. Ausente ⇒ 1. */
   maxQueries?: number;
+  /**
+   * AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-1 — dominios a excluir del lado de
+   * Apollo. Entra en los params del mapper y, desde ahí, en el body de CADA
+   * página y en la huella que se compara: una sola traducción para las dos.
+   * Ausente o vacío ⇒ nada cambia.
+   */
+  excludedDomains?: readonly string[] | null;
 };
 
 export type ApolloEffectiveRequest = {
@@ -275,6 +282,9 @@ export function toApolloContractFilters(
     // viaja igual en la huella que se predice y en cada página que se envía. Si
     // se cableara en uno de los dos, las dos dejarían de describir el mismo body.
     prospectedByCurrentTeam: AGENT1_APOLLO_PROSPECTED_BY_CURRENT_TEAM,
+    // AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-1 — por el mismo traductor único, así
+    // la huella predicha y cada página enviada llevan la misma exclusión.
+    excludedDomains: params.not_organization_websites_list ?? null,
   };
 }
 
@@ -301,11 +311,22 @@ export function buildApolloOrganizationsEffectiveRequest(
     legacyMaxResultsPerQuery: input.legacyMaxResultsPerQuery,
   });
 
-  const { params, meta, subindustryTermLists, macroIndustryRequest } =
-    buildApolloOrganizationsSearchParams(input.input, limit.cap, {
-      packIndex: input.packIndex,
-      maxQueries: input.maxQueries,
-    });
+  const {
+    params: mappedParams,
+    meta,
+    subindustryTermLists,
+    macroIndustryRequest,
+  } = buildApolloOrganizationsSearchParams(input.input, limit.cap, {
+    packIndex: input.packIndex,
+    maxQueries: input.maxQueries,
+  });
+  // AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-1 — la exclusión viaja DENTRO de los
+  // params: son los que el provider pasa a la búsqueda paginada, así que ninguna
+  // página puede salir sin ella si la huella comparada la llevaba.
+  const params: SearchOrganizationsParams =
+    input.excludedDomains && input.excludedDomains.length > 0
+      ? { ...mappedParams, not_organization_websites_list: [...input.excludedDomains] }
+      : mappedParams;
 
   const page = normalizeStartPage(input.startPage);
   // AGENT1-APOLLO-NET-NEW-PAGINATION § 9 — `per_page` YA NO es `limit.cap`.

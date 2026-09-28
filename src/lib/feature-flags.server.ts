@@ -937,3 +937,23 @@ export function isAgent1LushaFallbackEffective(): boolean {
 export function isWizardRunProviderOverrideEffective(): boolean {
   return isWizardRunProviderOverrideEnabled() && !isAgent1AutoProviderCascadeEnabled();
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// Agente 1 · exclusión de dominios ya vistos en Apollo (AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-1)
+// ════════════════════════════════════════════════════════════════════════════
+
+export const AGENT1_APOLLO_SEEN_DOMAIN_EXCLUSION_FLAG = 'ENABLE_AGENT1_APOLLO_SEEN_DOMAIN_EXCLUSION';
+
+/**
+ * ¿Le pide el wizard a Apollo que NO devuelva lo que ya es nuestro ni lo que
+ * pagamos por ver en los últimos 30 días (`not_organization_websites_list`)?
+ *
+ * Apagada, la petición a Apollo es exactamente la de antes. Encendida, una
+ * búsqueda agotada vuelve vacía —y Apollo no cobra las páginas vacías— en vez de
+ * cobrar por traer las mismas empresas otra vez.
+ *
+ * 🔴 Fail-closed y por defecto APAGADA: sólo el token exacto `true` la enciende.
+ */
+export function isAgent1ApolloSeenDomainExclusionEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[AGENT1_APOLLO_SEEN_DOMAIN_EXCLUSION_FLAG]);
+}
