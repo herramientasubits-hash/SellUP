@@ -6098,3 +6098,11 @@ jobs:
       # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
       - name: Run settings providers admin guard tests
         run: npm run test:settings-providers-admin-guard
+
+      # AGENT1-APOLLO-COUNTRY-LOCATION-1 - el pais se le envia a Apollo por su
+      # codigo, en el nombre en ingles que Apollo documenta (Mexico, Peru,
+      # Brazil, Spain...). Colombia no cambia ni un byte.
+      #
+      # 0 llamadas a Apollo - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 Apollo country location tests
+        run: npm run test:a1-apollo-country-location
