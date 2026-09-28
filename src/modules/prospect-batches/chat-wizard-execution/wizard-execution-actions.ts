@@ -3,6 +3,7 @@
 import { readApolloAssessmentDeadlineReached } from '@/server/agents/prospecting-toolkit/apollo-two-round/continuation-worker';
 import {
   isAgent1LushaFallbackEffective,
+  isAgent1ApolloSeenDomainExclusionEnabled,
   isLushaPreviewEnabled,
 } from '@/lib/feature-flags.server';
 import { createClient } from '@/lib/supabase/server';
@@ -218,6 +219,7 @@ import type { ConsumedCreditsDbClient } from './wizard-budget-reconciliation';
 // concepto distinto (límite de gasto configurado por un admin) que esta
 // puerta no toca.
 import { checkProviderQuotaAvailable } from '@/modules/budgets/budget-resolution';
+import { resolveApolloSeenDomainExclusion } from '@/modules/prospect-batches/provider-seen/apollo-seen-domain-exclusion';
 
 // ── Dependency injection boundary ─────────────────────────────────────────────
 // All I/O dependencies are injected here. The public server action provides real
@@ -1629,6 +1631,21 @@ export async function executeProspectWizardGeneration(
                 'provider_seen_read_outcome_not_succeeded'),
         };
 
+  // AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-1 — qué le pedimos a Apollo que NO
+  // devuelva. Se resuelve UNA vez, aquí, y viaja congelado en la entrada del
+  // runner (y con ella en la continuación). Apagada la bandera ⇒ lista vacía y
+  // la petición es la de siempre.
+  const apolloDomainExclusion = resolveApolloSeenDomainExclusion({
+    enabled: isAgent1ApolloSeenDomainExclusionEnabled(),
+    authorityDomains: prePaidNovelty?.providerExclusionPlan.domains.dedupeAuthorityValues ?? [],
+    // Una memoria que no se leyó con éxito no puede afirmar que algo se vio.
+    providerSeenMemory:
+      prePaidNovelty !== null && prePaidNovelty.providerSeenLoad.readOutcome === 'succeeded'
+        ? prePaidNovelty.providerSeenMemory
+        : null,
+    now: new Date(),
+  });
+
   // 6. Calculate max credits server-side — provider-aware; client cannot control this value.
   // Apollo: resolvedMaxQueries × resolvedMaxResults × 1 credit/result (default 1×3=3).
   // Tavily: adaptive pipeline ceiling (4 rounds × 5 queries = 20).
@@ -1944,7 +1961,15 @@ export async function executeProspectWizardGeneration(
           acceptanceFacts: runAcceptanceFacts,
         },
         // Q3F-5BB.11E — additive OBSERVATIONAL routing metadata (never gates).
-        extraBatchMetadata: apolloRoutingExtraMetadata,
+        // AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-1 — con la bandera encendida el lote
+        // dice cuántos dominios se excluyeron y de dónde salieron. Apagada, el
+        // metadata es exactamente el de antes.
+        extraBatchMetadata: apolloDomainExclusion.telemetry.enabled
+          ? {
+              ...(apolloRoutingExtraMetadata ?? {}),
+              apollo_domain_exclusion: apolloDomainExclusion.telemetry,
+            }
+          : apolloRoutingExtraMetadata,
         // 🔴 CUT-8 · DECISIÓN B — la aceptación NO puede viajar por
         // `extraBatchMetadata`: esa costura se arma antes de que el writer corra
         // y en ese momento la mitad de pago todavía no existe. Va como FUNCIÓN,
@@ -1966,6 +1991,9 @@ export async function executeProspectWizardGeneration(
         // de facturación que nadie ha verificado.
         resultDemand: apolloResultDemand,
         priorProviderSeen: apolloPriorProviderSeen,
+        ...(apolloDomainExclusion.domains.length > 0
+          ? { excludedDomains: apolloDomainExclusion.domains }
+          : {}),
       });
     } else {
       pipelineResult = await deps.runTavilyPipeline({ resolved, reservedBatchId });

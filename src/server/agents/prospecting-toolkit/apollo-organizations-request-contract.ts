@@ -25,6 +25,8 @@
  *   - No muta el input.
  */
 
+import { createHash } from 'node:crypto';
+
 // ─── Allowlist / denylist ─────────────────────────────────────────────────────
 
 /**
@@ -48,6 +50,13 @@ export const APOLLO_ORGANIZATIONS_ALLOWED_PARAMS = [
   // tipado + tests), no por conveniencia: sin él es literalmente inexpresable
   // la petición que Support recomendó.
   'prospected_by_current_team',
+  // AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-1 — documentado en la especificación
+  // OpenAPI oficial de Organization Search (docs.apollo.io, 2026-09-28):
+  // «Exclude companies that match any of these domains» y «keep companies you
+  // already work with, or have already contacted, out of your results». Entra
+  // por la MISMA regla que el resto: documentación vigente + caso real + tipado
+  // + tests. Sólo por el campo tipado `excludedDomains`, nunca por extras.
+  'not_organization_websites_list',
   'page',
   'per_page',
 ] as const;
@@ -107,6 +116,13 @@ export const APOLLO_MAX_PER_PAGE = 100;
 export const APOLLO_MIN_PAGE = 1;
 /** Tope defensivo por array de filtro — evita requests desmedidos por criterio libre. */
 export const APOLLO_MAX_FILTER_VALUES = 25;
+/**
+ * AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-1 — tope PROPIO de dominios excluidos por
+ * petición. Apollo no publica un máximo; es una decisión conservadora nuestra
+ * (la memoria de Apollo tenía 248 dominios el 2026-09-28). No es un criterio
+ * libre del usuario, por eso no comparte el tope de 25 de los filtros.
+ */
+export const APOLLO_MAX_EXCLUDED_DOMAINS = 500;
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -136,6 +152,12 @@ export type ApolloOrganizationsRequestInput = {
    * Ausente o `null` ⇒ el campo no viaja (comportamiento previo, intacto).
    */
   prospectedByCurrentTeam?: ApolloProspectedByCurrentTeam | null;
+  /**
+   * AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-1 — dominios que Apollo NO debe devolver
+   * (`not_organization_websites_list`). Ausente o vacío ⇒ el campo no viaja
+   * (comportamiento previo, intacto). Tope propio: `APOLLO_MAX_EXCLUDED_DOMAINS`.
+   */
+  excludedDomains?: readonly (string | null | undefined)[] | null;
   page: number;
   perPage: number;
   /**
@@ -172,6 +194,7 @@ export type ApolloOrganizationsRequestBody = {
   revenue_range?: { min?: number; max?: number };
   currently_using_any_of_technology_uids?: string[];
   prospected_by_current_team?: ApolloProspectedByCurrentTeam;
+  not_organization_websites_list?: string[];
   page: number;
   per_page: number;
 };
@@ -206,6 +229,7 @@ export type ApolloOrganizationsRequestContract = {
 /** Limpia, deduplica (case-insensitive) y trunca. Nunca muta el input. */
 function cleanStringArray(
   values: readonly (string | null | undefined)[] | null | undefined,
+  maxValues: number = APOLLO_MAX_FILTER_VALUES,
 ): { cleaned: string[]; droppedCount: number } {
   if (!values) return { cleaned: [], droppedCount: 0 };
 
@@ -220,7 +244,7 @@ function cleanStringArray(
     const key = trimmed.toLowerCase();
     if (seen.has(key)) { droppedCount++; continue; }
     seen.add(key);
-    if (cleaned.length >= APOLLO_MAX_FILTER_VALUES) { droppedCount++; continue; }
+    if (cleaned.length >= maxValues) { droppedCount++; continue; }
     cleaned.push(trimmed);
   }
 
@@ -311,7 +335,16 @@ function fingerprintBody(
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, value]) => {
       if (Array.isArray(value)) {
-        return `${key}=${[...value].map((v) => String(v).toLowerCase()).sort().join(',')}`;
+        const normalized = [...value].map((v) => String(v).toLowerCase()).sort();
+        // AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-1 — la lista de exclusión entra en
+        // la huella como RESUMEN (conteo + hash), no entera: la huella viaja en
+        // las claves idempotentes y en los logs de cada página, y cientos de
+        // dominios las harían ilegibles. Mismo conjunto ⇒ misma huella.
+        if (key === 'not_organization_websites_list') {
+          const digest = createHash('sha256').update(normalized.join(',')).digest('hex');
+          return `${key}=${normalized.length}:${digest.slice(0, 16)}`;
+        }
+        return `${key}=${normalized.join(',')}`;
       }
       if (value !== null && typeof value === 'object') {
         return `${key}=${Object.entries(value as Record<string, unknown>)
@@ -415,6 +448,35 @@ export function buildApolloOrganizationsRequestContract(
     body.prospected_by_current_team = prospected.value;
   } else {
     omittedFilters.push({ param: 'prospected_by_current_team', reason: prospected.reason });
+  }
+
+  // ── AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-1 · not_organization_websites_list ──
+  //
+  // Campo tipado, resuelto ANTES de `extraParams` por la misma razón que
+  // `prospected_by_current_team`: un extra no puede reabrirlo con otro valor.
+  if (input.excludedDomains === null || input.excludedDomains === undefined) {
+    omittedFilters.push({ param: 'not_organization_websites_list', reason: 'not_provided' });
+  } else {
+    const { cleaned, droppedCount } = cleanStringArray(
+      input.excludedDomains,
+      APOLLO_MAX_EXCLUDED_DOMAINS,
+    );
+    if (cleaned.length === 0) {
+      omittedFilters.push({
+        param: 'not_organization_websites_list',
+        reason: 'empty_after_cleanup',
+        droppedCount,
+      });
+    } else {
+      body.not_organization_websites_list = cleaned;
+      if (droppedCount > 0) {
+        omittedFilters.push({
+          param: 'not_organization_websites_list',
+          reason: 'truncated_to_limit',
+          droppedCount,
+        });
+      }
+    }
   }
 
   // ── Parámetros extra propuestos por el caller ───────────────────────────────

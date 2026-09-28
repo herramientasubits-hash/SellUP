@@ -376,7 +376,7 @@ describe('X6.6 § 4 · nada más cambia', () => {
 // ─── § 5: el allowlist sigue cerrado ──────────────────────────────────────────
 
 describe('X6.6 § 5 · sin paso-a-través genérico', () => {
-  it('el allowlist es exactamente el anterior más UN parámetro', () => {
+  it('el allowlist sólo crece por la regla del contrato (X6.6 y luego la exclusión de dominios)', () => {
     assert.deepEqual([...APOLLO_ORGANIZATIONS_ALLOWED_PARAMS], [
       'organization_locations',
       'organization_not_locations',
@@ -387,6 +387,8 @@ describe('X6.6 § 5 · sin paso-a-través genérico', () => {
       'revenue_range',
       'currently_using_any_of_technology_uids',
       'prospected_by_current_team',
+      // AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-1 — documentado, tipado y probado.
+      'not_organization_websites_list',
       'page',
       'per_page',
     ]);
