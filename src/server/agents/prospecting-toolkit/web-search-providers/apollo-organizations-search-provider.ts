@@ -321,6 +321,7 @@ function buildEffectiveRequestForCall(
     twoRoundMaxResultsPerRound: options?.twoRoundMaxResultsPerRound ?? null,
     startPage: options?.startPage ?? null,
     legacyMaxResultsPerQuery: resolveApolloMaxResultsPerQuery(),
+    excludedDomains: options?.excludedDomains ?? null,
   });
 }
 
@@ -717,6 +718,13 @@ export type ApolloOrgsSearchOptions = {
    * misma búsqueda cuando no existe una variante de términos genuinamente nueva.
    */
   startPage?: number;
+  /**
+   * AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-1 — dominios que Apollo NO debe devolver
+   * (`not_organization_websites_list`). Los resuelve el servidor antes de pagar:
+   * los que ya son nuestros y los que ya pagamos por ver hace poco. Ausente ⇒ la
+   * petición es exactamente la de antes.
+   */
+  excludedDomains?: readonly string[] | null;
   /**
    * AGENT1-APOLLO-NET-NEW-PAGINATION § 11 — cuántos candidatos NET-NEW hacen
    * falta todavía. Junto con `evaluateCandidateAcceptance` (los DOS, o ninguno)

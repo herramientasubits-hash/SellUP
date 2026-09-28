@@ -220,6 +220,13 @@ export function collectProviderSeenObservations(
 export type ProviderSeenMemory = {
   providerEntityIds: ReadonlySet<string>;
   normalizedDomains: ReadonlySet<string>;
+  /**
+   * AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-1 — cuándo se vio por ÚLTIMA vez cada
+   * dominio (ISO). Ausente ⇒ la carga no trajo fechas, y nadie puede afirmar que
+   * un dominio se vio «hace poco». La usa la exclusión de Apollo para su ventana
+   * de enfriamiento; no cambia nada de lo que ya contaba aciertos.
+   */
+  domainLastSeenAt?: ReadonlyMap<string, string>;
 };
 
 export const EMPTY_PROVIDER_SEEN_MEMORY: ProviderSeenMemory = {
@@ -228,15 +235,30 @@ export const EMPTY_PROVIDER_SEEN_MEMORY: ProviderSeenMemory = {
 };
 
 export function buildProviderSeenMemory(
-  records: readonly Pick<ProviderSeenObservation, 'providerEntityId' | 'normalizedDomain'>[],
+  records: readonly (Pick<ProviderSeenObservation, 'providerEntityId' | 'normalizedDomain'> & {
+    lastSeenAt?: string | null;
+  })[],
 ): ProviderSeenMemory {
   const providerEntityIds = new Set<string>();
   const normalizedDomains = new Set<string>();
+  const domainLastSeenAt = new Map<string, string>();
   for (const record of records) {
     if (record.providerEntityId !== null) providerEntityIds.add(record.providerEntityId);
-    if (record.normalizedDomain !== null) normalizedDomains.add(record.normalizedDomain);
+    if (record.normalizedDomain !== null) {
+      normalizedDomains.add(record.normalizedDomain);
+      const seenAt = record.lastSeenAt;
+      if (typeof seenAt === 'string' && !Number.isNaN(Date.parse(seenAt))) {
+        // Varias filas del mismo dominio: gana la más reciente.
+        const previous = domainLastSeenAt.get(record.normalizedDomain);
+        if (previous === undefined || Date.parse(seenAt) > Date.parse(previous)) {
+          domainLastSeenAt.set(record.normalizedDomain, seenAt);
+        }
+      }
+    }
   }
-  return { providerEntityIds, normalizedDomains };
+  return domainLastSeenAt.size > 0
+    ? { providerEntityIds, normalizedDomains, domainLastSeenAt }
+    : { providerEntityIds, normalizedDomains };
 }
 
 /**

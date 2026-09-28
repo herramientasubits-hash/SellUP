@@ -5485,6 +5485,15 @@ jobs:
       - name: Run Agent 1 X6.2-A country evidence contract tests
         run: npm run test:a1-country-evidence-contract-x6-2-a
 
+      # AGENT1-COUNTRY-COMPATIBILITY-MULTICOUNTRY-1 - la compatibilidad de pais
+      # deja de devolver "compatible" sin mirar para todo lo que no es Colombia:
+      # 20 paises con su TLD nacional, TLD propios y senales de ruta. Colombia
+      # queda identica (instantanea de 27 URLs tomada con main).
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 country compatibility multicountry tests
+        run: npm run test:a1-country-compatibility-multicountry
+
       # 🔴 AGENT1-OWNERSHIP-PRE-ENRICHMENT-X6.3 — el gate obligatorio de
       # ownership, antes de la caja.
       #
@@ -5680,6 +5689,16 @@ jobs:
       - name: Run Agent 1 X6.9 ownership domain-to-name tests
         run: npm run test:a1-ownership-domain-to-name-x6-9
 
+      # AGENT1-OWNERSHIP-GATE-MULTICOUNTRY-1 - el gate de propiedad reconoce
+      # sufijos (.gob.pe, .gob.mx, .gov.br...), formas societarias (S.A.B. de
+      # C.V., S.A.A., EIRELI...) y cabezas institucionales (municipalidad,
+      # ayuntamiento, prefeitura) de los paises del mago. Colombia identica:
+      # 0 decisiones distintas sobre 370 candidatos reales.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 ownership gate multicountry tests
+        run: npm run test:a1-ownership-gate-multicountry
+
       # ── AGENT1-STRUCTURAL-DOMAIN-OWNERSHIP-X6.10-A ────────────────────────
       #
       # El CONTRATO de evidencia estructural (alias de dominio del proveedor y
@@ -5851,6 +5870,15 @@ jobs:
       # 0 llamadas a Apollo o Lusha - 0 creditos - 0 escrituras en Produccion.
       - name: Run Agent 1 auto provider cascade tests
         run: npm run test:a1-auto-provider-cascade
+
+      # AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-1 - con la bandera encendida, la
+      # busqueda de Apollo lleva not_organization_websites_list (documentado en
+      # la especificacion oficial) con lo que ya es nuestro y lo visto en los
+      # ultimos 30 dias: una busqueda agotada vuelve vacia y no se cobra.
+      #
+      # 0 llamadas a Apollo - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 Apollo seen domain exclusion tests
+        run: npm run test:a1-apollo-seen-domain-exclusion
 
       # AGENT1-BUSINESS-FIT-OBSERVATION-ONLY - el ICP heredado de B2B tech deja
       # de decidir: no bloquea admision, no decide aceptacion, no autoriza gasto
@@ -6089,6 +6117,14 @@ jobs:
       # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
       - name: Run settings providers admin guard tests
         run: npm run test:settings-providers-admin-guard
+
+      # AGENT1-APOLLO-COUNTRY-LOCATION-1 - el pais se le envia a Apollo por su
+      # codigo, en el nombre en ingles que Apollo documenta (Mexico, Peru,
+      # Brazil, Spain...). Colombia no cambia ni un byte.
+      #
+      # 0 llamadas a Apollo - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 Apollo country location tests
+        run: npm run test:a1-apollo-country-location
 
       # AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 - una empresa ya propuesta en
       # SellUp (para CUALQUIER vendedor, en CUALQUIER lote) deja de contar para

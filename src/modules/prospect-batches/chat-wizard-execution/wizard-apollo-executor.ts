@@ -205,6 +205,11 @@ export type WizardApolloInput = {
    * gratuita. Sólo medición: no se envía a Apollo y no recorta el objetivo.
    */
   priorProviderSeen?: ApolloPriorProviderSeen | null;
+  /**
+   * AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-1 — dominios que Apollo no debe devolver.
+   * A diferencia de `priorProviderSeen`, ÉSTOS sí viajan en la petición.
+   */
+  excludedDomains?: readonly string[] | null;
 };
 
 export type WizardApolloRunner = (input: WizardApolloInput) => Promise<IncrementalSearchOutput>;
@@ -308,6 +313,7 @@ export async function runWizardApolloSearch(
       // adyacentes, para que se vea que no se derivan la una de la otra.
       resultDemand: input.resultDemand ?? null,
       priorProviderSeen: input.priorProviderSeen ?? null,
+      excludedDomains: input.excludedDomains ?? null,
     });
   }
 
