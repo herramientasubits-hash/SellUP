@@ -53,6 +53,16 @@ export const INSTITUTIONAL_HEAD_NOUNS: ReadonlySet<string> = new Set([
   'autoridad',
   'servicio',
   'servicios',
+  // AGENT1-OWNERSHIP-GATE-MULTICOUNTRY-1 — encabezados institucionales de los
+  // demás países del mago (PE/CL/AR: municipalidad, intendencia; ES:
+  // ayuntamiento, diputación; BR: prefeitura; MX/AR: gobierno, provincia).
+  'municipalidad',
+  'ayuntamiento',
+  'prefeitura',
+  'intendencia',
+  'diputacion',
+  'gobierno',
+  'provincia',
 ]);
 
 /**
@@ -68,6 +78,14 @@ export const TERRITORIAL_HEAD_NOUNS: ReadonlySet<string> = new Set([
   'distrito',
   'concejo',
   'personeria',
+  // AGENT1-OWNERSHIP-GATE-MULTICOUNTRY-1 — sus equivalentes territoriales.
+  'municipalidad',
+  'ayuntamiento',
+  'prefeitura',
+  'intendencia',
+  'diputacion',
+  'gobierno',
+  'provincia',
 ]);
 
 /**
@@ -98,6 +116,30 @@ export const INSTITUTIONAL_ADJECTIVES: ReadonlySet<string> = new Set([
   'territoriales',
   'general',
   'generales',
+  // AGENT1-OWNERSHIP-GATE-MULTICOUNTRY-1 — gentilicios y calificativos de los
+  // demás países. 🔴 NO se añaden «regional» ni «estado»: aparecen en nombres
+  // oficiales colombianos (Corporación Autónoma Regional, Empresa… del Estado).
+  'mexicano',
+  'mexicana',
+  'peruano',
+  'peruana',
+  'chileno',
+  'chilena',
+  'argentino',
+  'argentina',
+  'brasileno',
+  'brasilena',
+  'brasileiro',
+  'brasileira',
+  'ecuatoriano',
+  'ecuatoriana',
+  'espanol',
+  'espanola',
+  'federal',
+  'federales',
+  'provincial',
+  'provinciales',
+  'estadual',
 ]);
 
 /** Conectores del español: ruido gramatical, nunca evidencia de identidad. */
@@ -173,6 +215,7 @@ export const COLOMBIAN_DEPARTMENT_WORDS: ReadonlySet<string> = new Set([
 export const ADMINISTRATIVE_QUALIFIER_WORDS: ReadonlySet<string> = new Set([
   'gov',
   'gob',
+  'gub',
   'gobierno',
   'alcaldia',
   'gobernacion',
