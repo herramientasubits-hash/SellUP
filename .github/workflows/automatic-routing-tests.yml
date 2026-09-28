@@ -5485,6 +5485,15 @@ jobs:
       - name: Run Agent 1 X6.2-A country evidence contract tests
         run: npm run test:a1-country-evidence-contract-x6-2-a
 
+      # AGENT1-COUNTRY-COMPATIBILITY-MULTICOUNTRY-1 - la compatibilidad de pais
+      # deja de devolver "compatible" sin mirar para todo lo que no es Colombia:
+      # 20 paises con su TLD nacional, TLD propios y senales de ruta. Colombia
+      # queda identica (instantanea de 27 URLs tomada con main).
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 country compatibility multicountry tests
+        run: npm run test:a1-country-compatibility-multicountry
+
       # 🔴 AGENT1-OWNERSHIP-PRE-ENRICHMENT-X6.3 — el gate obligatorio de
       # ownership, antes de la caja.
       #

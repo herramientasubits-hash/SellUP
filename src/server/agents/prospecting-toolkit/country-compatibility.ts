@@ -139,13 +139,244 @@ function getForeignTld(domain: string): string | null {
   return null;
 }
 
+// ─── AGENT1-COUNTRY-COMPATIBILITY-MULTICOUNTRY-1 · reglas por país ────────────
+//
+// Hasta este corte el gate sólo tenía reglas para Colombia: para cualquier otro
+// país devolvía `compatible: true` sin mirar nada, así que una corrida en México
+// admitía un `.com.pe` o un `.com.co` sin rechazo. Esta tabla da a CADA país del
+// mago sus dominios propios y sus señales de ruta.
+//
+// 🔴 Colombia NO pasa por aquí: conserva su rama de siempre, byte por byte (es el
+// único país certificado en Producción).
+//
+// Criterios conservadores:
+//   · `.co` desnudo NO cuenta como «extranjero» para los demás países: lo usan
+//     muchas empresas globales. Sólo `.com.co`, `.gov.co`… son colombianos.
+//   · En las rutas, `/es/` y `es-` son IDIOMA, no España: nunca se usan para
+//     afirmar un país extranjero.
+
+type CountryDomainRules = {
+  /** Dominio nacional (`.mx`). Cualquier subdominio que termine así es nativo. */
+  nationalTld: string;
+  /** Segundo nivel nativo explícito (`.com.mx`, `.gob.mx`), para trazas. */
+  nativeTlds: readonly string[];
+  /** Señales de ruta que prueban operación en ESTE país sobre un dominio global. */
+  pathSignals: readonly string[];
+  /** Señales de ruta que, en OTRO país objetivo, apuntan a éste como extranjero. */
+  foreignPathSignals: readonly string[];
+};
+
+export const COUNTRY_DOMAIN_RULES: Readonly<Record<string, CountryDomainRules>> = Object.freeze({
+  CO: {
+    nationalTld: '.co',
+    nativeTlds: CO_NATIVE_TLDS,
+    pathSignals: CO_PATH_SIGNALS,
+    foreignPathSignals: ['/co/', '/es-co'],
+  },
+  MX: {
+    nationalTld: '.mx',
+    nativeTlds: ['.com.mx', '.net.mx', '.org.mx', '.gob.mx', '.edu.mx'],
+    pathSignals: ['/mx/', '/mx-', '/es-mx', 'mexico'],
+    foreignPathSignals: ['/mx/', '/mx-', '/es-mx'],
+  },
+  CL: {
+    nationalTld: '.cl',
+    nativeTlds: ['.gob.cl'],
+    pathSignals: ['/cl/', '/cl-', '/es-cl', 'chile'],
+    foreignPathSignals: ['/cl/', '/cl-', '/es-cl'],
+  },
+  AR: {
+    nationalTld: '.ar',
+    nativeTlds: ['.com.ar', '.gob.ar', '.gov.ar', '.org.ar'],
+    pathSignals: ['/ar/', '/ar-', '/es-ar', 'argentina'],
+    foreignPathSignals: ['/ar/', '/ar-', '/es-ar'],
+  },
+  BR: {
+    nationalTld: '.br',
+    nativeTlds: ['.com.br', '.gov.br', '.org.br'],
+    pathSignals: ['/br/', '/br-', '/pt-br', 'brasil', 'brazil'],
+    foreignPathSignals: ['/br/', '/br-', '/pt-br'],
+  },
+  PE: {
+    nationalTld: '.pe',
+    nativeTlds: ['.com.pe', '.gob.pe', '.org.pe'],
+    pathSignals: ['/pe/', '/pe-', '/es-pe', 'peru'],
+    foreignPathSignals: ['/pe/', '/pe-', '/es-pe'],
+  },
+  UY: {
+    nationalTld: '.uy',
+    nativeTlds: ['.com.uy', '.gub.uy'],
+    pathSignals: ['/uy/', '/es-uy', 'uruguay'],
+    foreignPathSignals: ['/uy/', '/es-uy'],
+  },
+  EC: {
+    nationalTld: '.ec',
+    nativeTlds: ['.com.ec', '.gob.ec'],
+    pathSignals: ['/ec/', '/es-ec', 'ecuador'],
+    foreignPathSignals: ['/ec/', '/es-ec'],
+  },
+  PY: {
+    nationalTld: '.py',
+    nativeTlds: ['.com.py', '.gov.py'],
+    pathSignals: ['/py/', '/es-py', 'paraguay'],
+    foreignPathSignals: ['/py/', '/es-py'],
+  },
+  BO: {
+    nationalTld: '.bo',
+    nativeTlds: ['.com.bo', '.gob.bo'],
+    pathSignals: ['/bo/', '/es-bo', 'bolivia'],
+    foreignPathSignals: ['/bo/', '/es-bo'],
+  },
+  VE: {
+    nationalTld: '.ve',
+    nativeTlds: ['.com.ve', '.gob.ve'],
+    pathSignals: ['/ve/', '/es-ve', 'venezuela'],
+    foreignPathSignals: ['/ve/', '/es-ve'],
+  },
+  GT: {
+    nationalTld: '.gt',
+    nativeTlds: ['.com.gt', '.gob.gt'],
+    pathSignals: ['/gt/', '/es-gt', 'guatemala'],
+    foreignPathSignals: ['/gt/', '/es-gt'],
+  },
+  HN: {
+    nationalTld: '.hn',
+    nativeTlds: ['.com.hn', '.gob.hn'],
+    pathSignals: ['/hn/', '/es-hn', 'honduras'],
+    foreignPathSignals: ['/hn/', '/es-hn'],
+  },
+  SV: {
+    nationalTld: '.sv',
+    nativeTlds: ['.com.sv', '.gob.sv'],
+    pathSignals: ['/sv/', '/es-sv', 'elsalvador', 'el-salvador'],
+    foreignPathSignals: ['/sv/', '/es-sv'],
+  },
+  NI: {
+    nationalTld: '.ni',
+    nativeTlds: ['.com.ni', '.gob.ni'],
+    pathSignals: ['/ni/', '/es-ni', 'nicaragua'],
+    foreignPathSignals: ['/ni/', '/es-ni'],
+  },
+  CR: {
+    nationalTld: '.cr',
+    nativeTlds: ['.co.cr', '.go.cr', '.fi.cr', '.ac.cr'],
+    pathSignals: ['/cr/', '/es-cr', 'costarica', 'costa-rica'],
+    foreignPathSignals: ['/cr/', '/es-cr'],
+  },
+  PA: {
+    nationalTld: '.pa',
+    nativeTlds: ['.com.pa', '.gob.pa'],
+    pathSignals: ['/pa/', '/es-pa', 'panama'],
+    foreignPathSignals: ['/pa/', '/es-pa'],
+  },
+  DO: {
+    nationalTld: '.do',
+    nativeTlds: ['.com.do', '.gob.do', '.gov.do'],
+    pathSignals: ['/do/', '/es-do', 'dominicana'],
+    foreignPathSignals: ['/es-do'],
+  },
+  US: {
+    nationalTld: '.us',
+    nativeTlds: ['.gov', '.mil'],
+    pathSignals: ['/us/', '/en-us', 'usa', 'united-states'],
+    foreignPathSignals: ['/us/', '/en-us'],
+  },
+  ES: {
+    nationalTld: '.es',
+    nativeTlds: ['.com.es', '.gob.es', '.org.es'],
+    pathSignals: ['/es-es', 'espana', 'spain'],
+    foreignPathSignals: ['/es-es'],
+  },
+});
+
+/** ¿El dominio pertenece al país `code`? Devuelve el sufijo que lo prueba. */
+function nativeSuffixFor(domain: string, code: string): string | null {
+  const rules = COUNTRY_DOMAIN_RULES[code];
+  if (!rules) return null;
+  const explicit = [...rules.nativeTlds]
+    .sort((a, b) => b.length - a.length)
+    .find((tld) => domain.endsWith(tld));
+  if (explicit) return explicit;
+  // `.co` desnudo es ambiguo (uso global): sólo Colombia lo reclama, y no aquí.
+  if (code !== 'CO' && domain.endsWith(rules.nationalTld)) return rules.nationalTld;
+  return null;
+}
+
+/** El país EXTRANJERO (≠ objetivo) al que pertenece el dominio, si alguno. */
+function foreignCountryOfDomain(
+  domain: string,
+  targetCode: string,
+): { code: string; tld: string } | null {
+  let best: { code: string; tld: string } | null = null;
+  for (const code of Object.keys(COUNTRY_DOMAIN_RULES)) {
+    if (code === targetCode) continue;
+    const tld = nativeSuffixFor(domain, code) ?? (code === 'CO' ? getCoNativeTld(domain) : null);
+    if (tld && (best === null || tld.length > best.tld.length)) best = { code, tld };
+  }
+  return best;
+}
+
+function evaluateNonColombia(url: string, code: string): CountryCompatibility {
+  const rules = COUNTRY_DOMAIN_RULES[code];
+  if (!rules) {
+    // País fuera del mago: el comportamiento de siempre (neutral).
+    return {
+      compatible: true,
+      confidence: 'medium',
+      reason: 'country_check_not_implemented_for_code',
+    };
+  }
+  const domain = normalizeDomain(url);
+  const urlNorm = normalizeUrl(url);
+  const hasTargetPath = rules.pathSignals.some((signal) => urlNorm.includes(signal));
+
+  // Más largo gana: `.com.co` (extranjero) no puede leerse como `.co` genérico.
+  const native = nativeSuffixFor(domain, code);
+  const foreign = foreignCountryOfDomain(domain, code);
+  if (native && (!foreign || native.length >= foreign.tld.length)) {
+    return { compatible: true, confidence: 'high', reason: `native_tld:${native}` };
+  }
+  if (foreign) {
+    if (hasTargetPath) {
+      return {
+        compatible: true,
+        confidence: 'medium',
+        reason: `foreign_tld_${foreign.tld}_but_target_path_signal`,
+      };
+    }
+    return {
+      compatible: false,
+      confidence: 'high',
+      reason: `foreign_country_tld:${foreign.tld}:${foreign.code}`,
+    };
+  }
+  if (hasTargetPath) {
+    return {
+      compatible: true,
+      confidence: 'high',
+      reason: 'global_domain_with_target_path_signal',
+    };
+  }
+  for (const [otherCode, otherRules] of Object.entries(COUNTRY_DOMAIN_RULES)) {
+    if (otherCode === code) continue;
+    if (otherRules.foreignPathSignals.some((signal) => urlNorm.includes(signal))) {
+      return {
+        compatible: false,
+        confidence: 'medium',
+        reason: `global_domain_with_foreign_path:${otherCode}`,
+      };
+    }
+  }
+  return { compatible: true, confidence: 'medium', reason: 'global_domain_no_country_signal' };
+}
+
 // ─── Main evaluator ───────────────────────────────────────────────────────────
 
 /**
  * Evalúa compatibilidad entre un URL y un país objetivo.
  *
- * Currently only implements CO (Colombia) rules. Other country codes
- * fall through to a neutral "medium compatible" result.
+ * Colombia usa sus reglas históricas. Los demás países del mago usan
+ * `COUNTRY_DOMAIN_RULES`; un país fuera de la tabla sigue siendo neutral.
  */
 export function evaluateCountryCompatibility(
   url: string | null | undefined,
@@ -161,13 +392,10 @@ export function evaluateCountryCompatibility(
 
   const code = targetCountryCode.toUpperCase();
 
-  // Only enforce for Colombia for now
+  // AGENT1-COUNTRY-COMPATIBILITY-MULTICOUNTRY-1 — cada país con sus reglas.
+  // Colombia sigue por su rama de siempre, abajo, sin cambios.
   if (code !== 'CO') {
-    return {
-      compatible: true,
-      confidence: 'medium',
-      reason: 'country_check_not_implemented_for_code',
-    };
+    return evaluateNonColombia(url, code);
   }
 
   const domain = normalizeDomain(url);
