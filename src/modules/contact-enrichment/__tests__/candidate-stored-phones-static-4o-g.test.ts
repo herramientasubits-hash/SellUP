@@ -550,7 +550,10 @@ describe('4O-G — alcance', () => {
     // cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
         // 🔴 AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET movió el techo a la 139: la cola durable de
     // continuaciones de ronda de Apollo. Ajena a este corte. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 139);
+    // 🔴 AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 movió el techo a la 140: el reclamo global de
+    // identidad de empresa. No es de teléfono ni nombra ninguna tabla de estas cadenas.
+    // AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 140);
     // El CONTEO, no el techo: 121 archivos para los números 001–121, es decir SIN un solo
     // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
     // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
@@ -573,7 +576,8 @@ describe('4O-G — alcance', () => {
     // hueco, así que conteo y techo siguen coincidiendo. Esa coincidencia ES la guarda.
     // 138 archivos para los números 001-138: la 138 de la disposición durable de descartes de
     // Prospectos tampoco deja hueco. Esa coincidencia ES la guarda.
-    assert.equal(numbered.length, 139);
+    // 140 archivos para los números 001-140: la 139 y la 140 tampoco dejan hueco.
+    assert.equal(numbered.length, 140);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {

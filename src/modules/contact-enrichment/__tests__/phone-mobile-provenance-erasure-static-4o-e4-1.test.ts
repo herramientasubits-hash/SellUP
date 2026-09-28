@@ -531,8 +531,12 @@ describe('4O-E4.1 estático — alcance', () => {
       // una empresa descartada, para "Descartadas" de Prospectos (issue #389). No ASIGNA
       // `mobile_phone`, no lo NOMBRA siquiera y no introduce procedencia del escalar móvil.
       // AUTORADA y NO APLICADA.
-      139,
-      'la 139 (la cola durable de continuaciones de ronda de Apollo, AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET) es la última',
+      // AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET mueve el techo a la 139, y
+      // AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 a la 140 (reclamo global de identidad de
+      // empresa). Ninguna ASIGNA `mobile_phone` ni introduce procedencia del escalar móvil.
+      // AUTORADAS y NO APLICADAS.
+      140,
+      'la 140 (el reclamo global de identidad de empresa, AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1) es la última',
     );
   });
 
