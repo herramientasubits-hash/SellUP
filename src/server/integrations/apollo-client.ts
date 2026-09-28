@@ -87,6 +87,14 @@ export interface ApolloOrganization {
    * basic plan responses. Provides richer sector signal than the 200-char short form.
    */
   description?: string | null;
+  /**
+   * AGENT1-APOLLO-ENRICH-SIC-NAICS-1 — códigos SIC / NAICS de la organización.
+   * Apollo Support (2026-09-24): vienen en Organization Enrichment
+   * (`organizations/enrich`, `bulk_enrich`) cuando el registro los tiene; NO en
+   * `mixed_companies/search`. Pueden llegar como cadenas o números.
+   */
+  sic_codes?: Array<string | number> | null;
+  naics_codes?: Array<string | number> | null;
 }
 
 export interface ApolloPerson {
