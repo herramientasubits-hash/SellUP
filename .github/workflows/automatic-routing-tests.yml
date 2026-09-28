@@ -5689,6 +5689,16 @@ jobs:
       - name: Run Agent 1 X6.9 ownership domain-to-name tests
         run: npm run test:a1-ownership-domain-to-name-x6-9
 
+      # AGENT1-OWNERSHIP-GATE-MULTICOUNTRY-1 - el gate de propiedad reconoce
+      # sufijos (.gob.pe, .gob.mx, .gov.br...), formas societarias (S.A.B. de
+      # C.V., S.A.A., EIRELI...) y cabezas institucionales (municipalidad,
+      # ayuntamiento, prefeitura) de los paises del mago. Colombia identica:
+      # 0 decisiones distintas sobre 370 candidatos reales.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 ownership gate multicountry tests
+        run: npm run test:a1-ownership-gate-multicountry
+
       # ── AGENT1-STRUCTURAL-DOMAIN-OWNERSHIP-X6.10-A ────────────────────────
       #
       # El CONTRATO de evidencia estructural (alias de dominio del proveedor y

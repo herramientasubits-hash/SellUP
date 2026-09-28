@@ -98,6 +98,14 @@ const STRIP_TLDS = [
   '.ve', '.com.ve', '.py', '.com.py', '.uy', '.com.uy',
   '.bo', '.com.bo', '.cr',
   '.gt', '.sv', '.hn', '.ni', '.do', '.pa',
+  // AGENT1-OWNERSHIP-GATE-MULTICOUNTRY-1 — dominios de gobierno y de segundo
+  // nivel de los demás países del mago. Sin ellos, `jalisco.gob.mx` quedaba en
+  // `jalisco.gob` y las reglas 5 y 6 leían «gob» como si fuera el nombre.
+  '.gob.mx', '.edu.mx', '.gob.pe', '.gob.cl', '.gob.ar', '.gov.ar', '.gov.br',
+  '.org.br', '.gob.ec', '.gub.uy', '.gov.py', '.gob.bo', '.gob.ve', '.gob.gt',
+  '.com.gt', '.gob.hn', '.com.hn', '.gob.sv', '.com.sv', '.gob.ni', '.com.ni',
+  '.go.cr', '.co.cr', '.gob.pa', '.com.pa', '.gob.do', '.gov.do', '.com.do',
+  '.gob.es', '.com.es', '.gov', '.us',
 ];
 
 function stripTLD(domain: string): string {
@@ -122,6 +130,16 @@ const COMPANY_SUFFIXES = [
   ' group', ' groups', ' solutions', ' software',
   ' technologies', ' technology', ' tech',
   ' consulting', ' consultoria', ' servicios',
+  // AGENT1-OWNERSHIP-GATE-MULTICOUNTRY-1 — formas legales y sufijos de país de
+  // los demás países del mago. Van AL FINAL: la pasada es única y en orden, así
+  // que primero cae la forma legal y después el país («… mexico sa de cv»).
+  ' sab de cv', ' s a b de c v', ' s de rl de cv', ' s de r l de c v',
+  ' sac', ' s a c', ' saa', ' s a a', ' spa', ' eireli', ' sl', ' s l', ' sau',
+  ' de mexico', ' mexico', ' del peru', ' peru', ' de chile', ' chile',
+  ' argentina', ' do brasil', ' brasil', ' brazil', ' del ecuador', ' ecuador',
+  ' de espana', ' espana', ' usa', ' uruguay', ' paraguay', ' bolivia',
+  ' venezuela', ' guatemala', ' honduras', ' el salvador', ' nicaragua',
+  ' costa rica', ' panama', ' dominicana',
 ];
 
 function stripCompanySuffixes(name: string): string {
