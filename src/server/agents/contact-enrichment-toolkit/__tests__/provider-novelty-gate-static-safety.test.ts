@@ -160,7 +160,10 @@ describe('modelo de datos — sin migración nueva', () => {
     // cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
         // 🔴 AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET movió el techo a la 139: la cola durable de
     // continuaciones de ronda de Apollo. Ajena a este corte. AUTORADA y NO APLICADA.
-    assert.equal(Math.max(...numbers), 139, 'el techo conocido es la 139');
+    // 🔴 AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 movió el techo a la 140: el reclamo global de
+    // identidad de empresa. No es de teléfono, no es del catálogo y no nombra ninguna tabla,
+    // columna ni función de las cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
+    assert.equal(Math.max(...numbers), 140, 'el techo conocido es la 140');
     assert.equal(
       GATE_SOURCE.includes('supabase/migrations'),
       false,

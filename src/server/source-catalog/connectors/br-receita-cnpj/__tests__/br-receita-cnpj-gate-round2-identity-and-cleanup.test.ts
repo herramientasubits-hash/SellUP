@@ -644,7 +644,10 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 then moved the ceiling to 138 with the durable
     // disposition of a discarded prospect, for "Descartadas" (issue #389). Like the 135/136/137,
     // it is not a BR migration; the authorship sweep further down is WIDENED to include it.
-    assert.equal(highest, 139, 'the repository ceiling is 139 — AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET, not CUT A');
+    // 🔴 AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 moved the ceiling to 140 with the global company
+    // identity claim (closes the two-reps-same-company race account-wide, not just per batch).
+    // Not a BR migration; the authorship sweep further down is WIDENED to include it.
+    assert.equal(highest, 140, 'the repository ceiling is 140 — AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1, not CUT A');
     assert.deepEqual(
       files.filter((f) => f.startsWith('135')),
       ['135_agent1_lusha_prospecting_request_fence.sql'],
@@ -671,7 +674,12 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     assert.deepEqual(
       files.filter((f) => f.startsWith('139')),
       ['139_agent1_apollo_round_continuation_jobs.sql'],
-      'AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET owns exactly one migration, and it is the ceiling',
+      'AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET owns exactly one migration',
+    );
+    assert.deepEqual(
+      files.filter((f) => f.startsWith('140')),
+      ['140_agent1_global_company_identity_claims.sql'],
+      'AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 owns exactly one migration, and it is the ceiling',
     );
     assert.deepEqual(
       files.filter((f) => f.startsWith('133')),
@@ -711,8 +719,8 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
       // none of them may be authored by a BR round. Asserting it is cheaper than trusting the
       // comment above, and the sweep GROWS with each new ceiling instead of moving off the
       // previous one.
-      ['124', '126', '128', '129', '130', '131', '132', '135', '136', '137', '138'].some((n) =>
-        f.startsWith(n),
+      ['124', '126', '128', '129', '130', '131', '132', '135', '136', '137', '138', '139', '140'].some(
+        (n) => f.startsWith(n),
       ),
     )) {
       const sql = fs.readFileSync(

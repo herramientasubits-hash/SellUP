@@ -702,7 +702,13 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
     // de la 139 a la 140, y el barrido de AUTORÍA —lo único que de verdad protege este corte—
     // se ENSANCHA para incluir la 139. Otra vez más fuerte que antes, no meramente desplazada:
     // un número libre nunca demostró nada.
-    assert.equal(migrations.filter((f) => f.startsWith('140')).length, 0);
+    // 🔴 AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 reclamó después la 140: el reclamo global de
+    // identidad de empresa (`agent1_company_identity_claims`) que cierra la carrera de
+    // dos-vendedores-misma-empresa a escala de TODA la cuenta, no sólo dentro de un lote. El
+    // proxy «el siguiente número está libre» se mueve por tanto de la 140 a la 141, y el
+    // barrido de AUTORÍA se ENSANCHA para incluir la 140. Otra vez más fuerte que antes, no
+    // meramente desplazada.
+    assert.equal(migrations.filter((f) => f.startsWith('141')).length, 0);
     for (const file of migrations.filter(
       (f) =>
         f.startsWith('124') ||
@@ -720,7 +726,8 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
         f.startsWith('136') ||
         f.startsWith('137') ||
         f.startsWith('138') ||
-        f.startsWith('139'),
+        f.startsWith('139') ||
+        f.startsWith('140'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

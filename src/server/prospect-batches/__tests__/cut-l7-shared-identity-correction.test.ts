@@ -915,7 +915,31 @@ describe('CUT-L7 §§ 5, 23, 29, 40, 43 — alcance, fidelidad y cableado', () =
     // de la 139 a la 140, y el barrido de AUTORÍA —lo único que de verdad protege este corte—
     // se ENSANCHA para incluir la 139. Otra vez más fuerte que antes, no meramente desplazada:
     // un número libre nunca demostró nada.
-    assert.equal(migrations.filter((f) => /^1[4-9]\d_/.test(f)).length, 0);
+    // 🔴 AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 reclamó después la 140: el reclamo global de
+    // identidad de empresa que cierra la carrera de dos-vendedores-misma-empresa a escala de
+    // TODA la cuenta. Misma exigencia por AUTORÍA que con la 137/138/139: se EXIGE que la 140
+    // sea exactamente esa migración y que su cuerpo no mencione CUT-L7 ni la identidad
+    // compartida que este corte toca.
+    assert.deepEqual(
+      migrations.filter((f) => /^140_/.test(f)),
+      ['140_agent1_global_company_identity_claims.sql'],
+      'la 140 tiene que ser el reclamo global de identidad, y sólo ella',
+    );
+    const globalIdentityClaims = read(
+      'supabase/migrations/140_agent1_global_company_identity_claims.sql',
+    );
+    for (const foreign of ['CUT-L7', 'shared_fiscal_identity', 'provider_seen_entities']) {
+      assert.equal(
+        globalIdentityClaims.includes(foreign),
+        false,
+        `la 140 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
+      );
+    }
+    // Ninguna 141 o superior, se llame como se llame.
+    assert.equal(
+      migrations.filter((f) => /^14[1-9]_/.test(f) || /^1[5-9]\d_/.test(f)).length,
+      0,
+    );
   });
 
   it('M14 · § 43 · la suite está cableada al check OBLIGATORIO', () => {

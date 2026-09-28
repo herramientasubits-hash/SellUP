@@ -127,6 +127,13 @@ const MIGRATION_138_DISCARDED_DISPOSITIONS = '138_prospect_discarded_disposition
  * its SQL rather than trusting this comment. AUTHORED and NOT APPLIED.
  */
 const MIGRATION_139_APOLLO_ROUND_CONTINUATION = '139_agent1_apollo_round_continuation_jobs.sql';
+/**
+ * AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 (closes the two-reps-same-company race
+ * account-wide, not just per batch). Creates `agent1_company_identity_claims` and its atomic
+ * claim RPC. Names no source-catalog object, which the sweep below proves over its SQL rather
+ * than trusting this comment. AUTHORED and NOT APPLIED.
+ */
+const MIGRATION_140_GLOBAL_IDENTITY_CLAIMS = '140_agent1_global_company_identity_claims.sql';
 
 const readMigration = (file: string) => readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
 const stripComments = (sql: string) =>
@@ -185,7 +192,10 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 then moved it to 138 with the durable disposition of
     // a discarded prospect, for "Descartadas" (issue #389). Same shape: names no source-catalog
     // object, proven below, and JOINS the foreign-authorship sweep.
-    assert.equal(highest, 139);
+    // AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 owns the 140 (global company identity claim). It
+    // names no source-catalog object, which the foreign sweep below proves over its SQL rather
+    // than trusting this comment. AUTHORED and NOT APPLIED.
+    assert.equal(highest, 140);
     assert.ok(files.includes(MIGRATION_125));
     assert.ok(files.includes(MIGRATION_126_AGENT1));
     assert.ok(files.includes(MIGRATION_127));
@@ -247,7 +257,11 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
       files.filter((f) => f.startsWith('139')),
       [MIGRATION_139_APOLLO_ROUND_CONTINUATION],
     );
-    assert.equal(files.some((f) => f.startsWith('140')), false);
+    assert.deepEqual(
+      files.filter((f) => f.startsWith('140')),
+      [MIGRATION_140_GLOBAL_IDENTITY_CLAIMS],
+    );
+    assert.equal(files.some((f) => f.startsWith('141')), false);
     // And the 128 plus the whole 129–132 chain are provably foreign to this milestone: none of
     // them names a single source-catalog object CUT A.1 reconciles.
     for (const foreign of [
@@ -258,6 +272,8 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
       MIGRATION_136_AGENT1_LUSHA_RETRY,
       MIGRATION_137_WIZARD_BUDGET_ADMIN,
       MIGRATION_138_DISCARDED_DISPOSITIONS,
+      MIGRATION_139_APOLLO_ROUND_CONTINUATION,
+      MIGRATION_140_GLOBAL_IDENTITY_CLAIMS,
     ]) {
       const sql = readMigration(foreign);
       for (const owned of [

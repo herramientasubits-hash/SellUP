@@ -6089,3 +6089,12 @@ jobs:
       # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
       - name: Run settings providers admin guard tests
         run: npm run test:settings-providers-admin-guard
+
+      # AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 - una empresa ya propuesta en
+      # SellUp (para CUALQUIER vendedor, en CUALQUIER lote) deja de contar para
+      # otro. La 126 cerro la carrera DENTRO de un lote; esto la cierra a
+      # escala de toda la cuenta, via indice unico parcial (migracion 140).
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 global company identity claims tests
+        run: npm run test:a1-global-company-identity-claims

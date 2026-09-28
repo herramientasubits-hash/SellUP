@@ -85,6 +85,12 @@ import {
   loadBatchIdentityRegistry,
   type BatchIdentitySeedOutcome,
 } from "@/server/prospect-batches/batch-identity-registry-store";
+// AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 — el registro de arriba dedupea
+// DENTRO de este lote; esto dedupea contra TODOS los lotes de TODOS los
+// vendedores. Complementario, no sustituto: una fila puede sobrevivir al
+// registro de lote y aun así perder la carrera aquí.
+import { deriveGlobalIdentityClaims } from "./global-identity-claims";
+import { claimGlobalCompanyIdentities } from "@/server/prospect-batches/global-identity-claims-store";
 // AGENT1-CUT3B4 §§ 10/20 — el vallado optimista y su bucle de reintento, los
 // MISMOS que usan los otros dos escritores. Aquí no vive ninguna política de
 // concurrencia propia.
@@ -3701,6 +3707,31 @@ export async function writeProspectingCandidates(
         searchTrace: candidate.searchTrace ?? undefined,
       });
       continue;
+    }
+
+    // ── AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 — la fila existe, pero puede ya
+    // ser de OTRO vendedor en OTRO lote. Se reclama YA, antes de contar nada: si
+    // pierde la carrera, cuenta como duplicado tardío —igual que un choque de
+    // índice único—, no como admitido. La misma `identityEvidence` que decidió
+    // la admisión DENTRO del lote decide qué reclamar FUERA de él; no se
+    // recalcula nada.
+    //
+    // Degrada CERRADO (`degraded: true`, p. ej. migración 140 ausente): ningún
+    // candidato se trata como duplicado por un fallo de infraestructura.
+    const globalClaims = deriveGlobalIdentityClaims(identityEvidence);
+    if (globalClaims.length > 0) {
+      const globalClaimOutcome = await claimGlobalCompanyIdentities(admin, batchId, [
+        { candidateId: createdCandidateId, claims: globalClaims },
+      ]);
+      if (globalClaimOutcome.claimedElsewhereCandidateIds.has(createdCandidateId)) {
+        lateDuplicateCount += 1;
+        skipped.push({
+          name: candidate.name,
+          reason: 'duplicate_global_identity_claim',
+          searchTrace: candidate.searchTrace ?? undefined,
+        });
+        continue;
+      }
     }
 
     // ── Éxito: la fila EXISTE. Común a las dos rutas ──────────────────────────

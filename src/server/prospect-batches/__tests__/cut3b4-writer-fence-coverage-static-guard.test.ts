@@ -430,7 +430,15 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // como FK—, y el barrido explícito de abajo se ENSANCHA para incluir la 138, el techo
     // anterior, en vez de limitarse a desplazarse. AUTORADA y NO APLICADA.
     const DISCARDED_138 = '138_prospect_discarded_dispositions.sql';
-    const CEILING = '139_agent1_apollo_round_continuation_jobs.sql';
+    const ROUND_CONTINUATION_139 = '139_agent1_apollo_round_continuation_jobs.sql';
+    // 🔴 AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 reclamó después la 140: el reclamo global de
+    // identidad de empresa (`agent1_company_identity_claims`) que cierra la carrera de
+    // dos-vendedores-misma-empresa a escala de TODA la cuenta, no sólo dentro de un lote. No
+    // menciona `AGENT1-CUT3B4` ni reutiliza `identity_epoch` —es una tabla y un índice único
+    // parcial propios, con su propio disparador de liberación—, y referencia
+    // `prospect_candidates`/`prospect_batches` legítimamente por SU PROPIO motivo. AUTORADA y NO
+    // APLICADA.
+    const CEILING = '140_agent1_global_company_identity_claims.sql';
     assert.equal(migrations[migrations.length - 1], CEILING);
     for (const foreign of [
       '127_br_receita_monthly_snapshot_identity.sql',
@@ -444,6 +452,7 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
       LUSHA_RETRY_136,
       WIZARD_BUDGET_ADMIN_137,
       DISCARDED_138,
+      ROUND_CONTINUATION_139,
       CEILING,
     ]) {
       assert.equal(
@@ -457,8 +466,9 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // desde la 134), así que el conteo sube con ambas. AGENT1-LUSHA-CUT-L4 añade la 136,
     // AGENT1-WIZARD-BUDGET-ADMIN-F1B la 137 y AGENT1-DISCARDED-PROSPECTS-REVIEW-1 la 138, así
     // que el conteo vuelve a subir con las tres: sin huecos, conteo y techo siguen coincidiendo.
-    // AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET añade la 139 y el conteo sube otra vez con ella.
-    assert.equal(migrations.length, 139);
+    // AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET añade la 139 y AGENT1-GLOBAL-COMPANY-IDENTITY-
+    // CLAIMS-1 la 140, y el conteo sube otra vez con las dos.
+    assert.equal(migrations.length, 140);
   });
 
   it('🔴 la 124 (Agente 2A) queda intacta, y la 126 no depende de ella', () => {
