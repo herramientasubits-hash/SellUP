@@ -205,8 +205,18 @@ export const LUSHA_EXCLUSION_CAPABILITY: ProviderExclusionCapability = {
 };
 
 /**
- * Apollo: ninguna. Su contrato de Organization Search no prueba exclusiones, y el
- * hito base ya decidió no enviarle ninguna por esa razón.
+ * Apollo: ninguna POR ESTE PLANIFICADOR genérico.
+ *
+ * 🔴 AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-1 — el contrato ya existe: la
+ * especificación oficial de Organization Search documenta
+ * `not_organization_websites_list[]`. Pero la exclusión de Apollo NO sale de
+ * aquí: sale de `resolveApolloSeenDomainExclusion`, detrás de
+ * `ENABLE_AGENT1_APOLLO_SEEN_DOMAIN_EXCLUSION`, porque necesita una regla que
+ * este plan no tiene —`provider_seen` sólo con enfriamiento de 30 días, lo nuestro
+ * siempre—. Encender esta capacidad enviaría TODO lo visto, sin enfriamiento, y
+ * apartaría para siempre empresas que sólo sobraron del objetivo. Por eso se
+ * queda en `false` y la telemetría de la exclusión real es
+ * `apollo_domain_exclusion` en el lote.
  */
 export const APOLLO_EXCLUSION_CAPABILITY: ProviderExclusionCapability = {
   provider: 'apollo',

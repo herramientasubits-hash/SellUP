@@ -171,7 +171,11 @@ async function loadProviderSeen(
   summary: ProviderSeenLoadSummary;
   ids: readonly string[];
   domains: readonly string[];
-  records: readonly { providerEntityId: string | null; normalizedDomain: string | null }[];
+  records: readonly {
+    providerEntityId: string | null;
+    normalizedDomain: string | null;
+    lastSeenAt: string | null;
+  }[];
 }> {
   // 🔴 CUT-2 § 12 — un puerto que se declara no-persistente NO se consulta para
   // decidir nada: su `load()` devolvería `[]` y ese vacío no es una medición. Se
@@ -212,6 +216,9 @@ async function loadProviderSeen(
       records: records.map((record) => ({
         providerEntityId: record.providerEntityId,
         normalizedDomain: record.normalizedDomain,
+        // AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-1 — la fecha viaja a la memoria para
+        // la ventana de enfriamiento de la exclusión de Apollo.
+        lastSeenAt: record.lastSeenAt ?? null,
       })),
     };
   } catch {

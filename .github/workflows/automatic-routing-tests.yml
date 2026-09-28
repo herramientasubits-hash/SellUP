@@ -5852,6 +5852,15 @@ jobs:
       - name: Run Agent 1 auto provider cascade tests
         run: npm run test:a1-auto-provider-cascade
 
+      # AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-1 - con la bandera encendida, la
+      # busqueda de Apollo lleva not_organization_websites_list (documentado en
+      # la especificacion oficial) con lo que ya es nuestro y lo visto en los
+      # ultimos 30 dias: una busqueda agotada vuelve vacia y no se cobra.
+      #
+      # 0 llamadas a Apollo - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 Apollo seen domain exclusion tests
+        run: npm run test:a1-apollo-seen-domain-exclusion
+
       # AGENT1-BUSINESS-FIT-OBSERVATION-ONLY - el ICP heredado de B2B tech deja
       # de decidir: no bloquea admision, no decide aceptacion, no autoriza gasto
       # y no ordena. Se conserva su resultado y su motivo como observacion.
