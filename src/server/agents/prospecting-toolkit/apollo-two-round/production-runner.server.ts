@@ -436,6 +436,14 @@ export type ApolloTwoRoundWizardRunInput = {
    * recorta el objetivo. Alimenta el escalón `provider_seen_hit` del embudo.
    */
   priorProviderSeen?: ApolloPriorProviderSeen | null;
+  /**
+   * AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-1 — dominios que Apollo NO debe devolver,
+   * resueltos UNA vez al arrancar la corrida y congelados: viajan en `run_input`,
+   * así que una continuación horas después pide exactamente lo mismo (misma
+   * huella) en vez de recalcular la lista con la memoria de ese momento.
+   * Ausente o vacío ⇒ la petición es la de antes.
+   */
+  excludedDomains?: readonly string[] | null;
 };
 
 /**
@@ -1955,6 +1963,12 @@ export async function runApolloTwoRoundWizardDiscovery(
       // paginación real dentro de esta invocación (ver comentario arriba).
       netNewTarget: requestedResultLimit,
       evaluateCandidateAcceptance,
+      // AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-1 — ESTA sí es una exclusión: viaja
+      // en el body. Se pasa aquí y al request efectivo de abajo con el MISMO
+      // valor, para que la huella comparada y la página enviada no diverjan.
+      ...(input.excludedDomains && input.excludedDomains.length > 0
+        ? { excludedDomains: input.excludedDomains }
+        : {}),
     };
 
     const effective = buildApolloOrganizationsEffectiveRequest({
@@ -1964,6 +1978,7 @@ export async function runApolloTwoRoundWizardDiscovery(
       twoRoundMaxResultsPerRound: searchOptions.twoRoundMaxResultsPerRound,
       startPage: searchOptions.startPage,
       legacyMaxResultsPerQuery: resolveApolloMaxResultsPerQuery(),
+      excludedDomains: searchOptions.excludedDomains ?? null,
     });
 
     return { searchInput, searchOptions, effective };

@@ -990,8 +990,12 @@ describe('§ 8 · el contrato del proveedor no se amplía', () => {
       'q_organization_domains_list',
       'revenue_range',
       'currently_using_any_of_technology_uids',
-      // X6.6 — única entrada añadida desde que este trinquete existe.
+      // X6.6 — primera entrada añadida desde que este trinquete existe.
       'prospected_by_current_team',
+      // AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-1 — segunda, por la misma regla:
+      // documentado en la especificación oficial de Organization Search, caso
+      // real (no volver a pagar lo ya visto), campo tipado y pruebas propias.
+      'not_organization_websites_list',
       'page',
       'per_page',
     ]);

@@ -132,6 +132,12 @@ export interface SearchOrganizationsParams {
   organization_industry_tag_ids?: string[];
   organization_num_employees_ranges?: string[];
   organization_locations?: string[];
+  /**
+   * AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-1 — dominios que Apollo no debe devolver.
+   * Documentado en la especificación oficial de Organization Search. Lo fija el
+   * servidor (memoria de lo ya visto y lo ya nuestro), nunca el usuario.
+   */
+  not_organization_websites_list?: string[];
   per_page?: number;
   page?: number;
 }
