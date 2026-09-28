@@ -1,0 +1,152 @@
+/**
+ * apollo-seen-domain-exclusion.ts — qué dominios le pedimos a Apollo que NO
+ * devuelva, y por qué.
+ *
+ * AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-1.
+ *
+ * ── El problema ───────────────────────────────────────────────────────────────
+ *
+ * Para los mismos criterios Apollo devuelve SIEMPRE la misma página, y la cobra.
+ * SellUp nunca guarda empresas como Accounts en Apollo, así que
+ * `prospected_by_current_team=no` no las aparta: las aparta después nuestra
+ * propia memoria, cuando el crédito ya se pagó. Una búsqueda agotada sigue
+ * cobrando 1 crédito por traer empresas que vamos a descartar.
+ *
+ * ── El contrato ───────────────────────────────────────────────────────────────
+ *
+ * `not_organization_websites_list[]` está documentado en la especificación
+ * OpenAPI oficial de Organization Search (docs.apollo.io, consultada el
+ * 2026-09-28): excluye las empresas de esos dominios —y sus otros dominios
+ * conocidos— «without retrieving and enriching them first». Apollo Support
+ * (2026-09-24) confirmó que una página vacía no se cobra.
+ *
+ * ── Qué se excluye ────────────────────────────────────────────────────────────
+ *
+ *   1. Lo que YA ES NUESTRO (`dedupeAuthorityValues` del plan): cuentas y
+ *      candidatos de SellUp, dominios de HubSpot locales, lo aceptado por la
+ *      fuente gratuita. Nunca pueden ser un candidato nuevo: siempre se excluyen.
+ *   2. Lo que PAGAMOS POR VER hace poco (memoria provider-seen, últimos
+ *      `APOLLO_SEEN_EXCLUSION_COOLDOWN_DAYS`). 🔴 NO es autoridad de dedupe: ahí
+ *      caen también empresas que sólo sobraron del objetivo o que un gate
+ *      rechazó cuando tenía un defecto ya corregido. Por eso la exclusión es
+ *      TEMPORAL: pasado el enfriamiento vuelven a aparecer y se evalúan con los
+ *      gates de ese día. Sin fecha fiable, un dominio visto NO se excluye.
+ *
+ * Con tope, primero va lo nuestro y después lo visto más reciente. El orden
+ * dentro de cada grupo es determinista: dos corridas idénticas piden lo mismo.
+ *
+ * Puro: sin env, sin I/O; el reloj entra por parámetro.
+ */
+
+import type { ProviderSeenMemory } from './provider-seen-identity';
+
+/** Enfriamiento de lo ya visto: pasado este plazo, vuelve a poder aparecer. */
+export const APOLLO_SEEN_EXCLUSION_COOLDOWN_DAYS = 30;
+
+/** Mismo tope que el contrato de la petición (`APOLLO_MAX_EXCLUDED_DOMAINS`). */
+export const APOLLO_SEEN_EXCLUSION_DOMAIN_CAP = 500;
+
+const MS_PER_DAY = 86_400_000;
+
+export type ApolloSeenDomainExclusionInput = {
+  enabled: boolean;
+  /** Dominios con procedencia que prueba propiedad (ya normalizados). */
+  authorityDomains: readonly string[];
+  /** Memoria provider-seen de Apollo; `null` ⇒ no se cargó. */
+  providerSeenMemory: ProviderSeenMemory | null;
+  now: Date;
+  cooldownDays?: number;
+  cap?: number;
+};
+
+export type ApolloSeenDomainExclusionTelemetry = {
+  enabled: boolean;
+  sent: number;
+  from_authority: number;
+  from_recent_seen: number;
+  /** Vistas pero fuera del enfriamiento: pueden volver a aparecer. */
+  seen_outside_cooldown: number;
+  /** Vistas sin fecha fiable: no se excluyen. */
+  seen_without_date: number;
+  omitted_due_to_cap: number;
+  cooldown_days: number;
+};
+
+export type ApolloSeenDomainExclusion = {
+  domains: string[];
+  telemetry: ApolloSeenDomainExclusionTelemetry;
+};
+
+function normalizeDomain(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().toLowerCase();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+export function resolveApolloSeenDomainExclusion(
+  input: ApolloSeenDomainExclusionInput,
+): ApolloSeenDomainExclusion {
+  const cooldownDays = input.cooldownDays ?? APOLLO_SEEN_EXCLUSION_COOLDOWN_DAYS;
+  const cap = Math.max(0, Math.trunc(input.cap ?? APOLLO_SEEN_EXCLUSION_DOMAIN_CAP));
+
+  if (!input.enabled) {
+    return {
+      domains: [],
+      telemetry: {
+        enabled: false,
+        sent: 0,
+        from_authority: 0,
+        from_recent_seen: 0,
+        seen_outside_cooldown: 0,
+        seen_without_date: 0,
+        omitted_due_to_cap: 0,
+        cooldown_days: cooldownDays,
+      },
+    };
+  }
+
+  const authority = [
+    ...new Set(input.authorityDomains.map(normalizeDomain).filter((d): d is string => d !== null)),
+  ].sort();
+  const authoritySet = new Set(authority);
+
+  const cutoff = input.now.getTime() - cooldownDays * MS_PER_DAY;
+  const recentSeen: { domain: string; seenAt: number }[] = [];
+  let seenOutsideCooldown = 0;
+  let seenWithoutDate = 0;
+  for (const raw of input.providerSeenMemory?.normalizedDomains ?? []) {
+    const domain = normalizeDomain(raw);
+    if (domain === null || authoritySet.has(domain)) continue;
+    const seenAtRaw = input.providerSeenMemory?.domainLastSeenAt?.get(raw);
+    const seenAt = typeof seenAtRaw === 'string' ? Date.parse(seenAtRaw) : Number.NaN;
+    if (Number.isNaN(seenAt)) {
+      seenWithoutDate++;
+      continue;
+    }
+    if (seenAt < cutoff) {
+      seenOutsideCooldown++;
+      continue;
+    }
+    recentSeen.push({ domain, seenAt });
+  }
+  // Lo visto más reciente primero; empate ⇒ orden alfabético.
+  recentSeen.sort((a, b) => b.seenAt - a.seenAt || a.domain.localeCompare(b.domain));
+
+  const ordered = [...authority, ...recentSeen.map((entry) => entry.domain)];
+  const domains = ordered.slice(0, cap);
+  const fromAuthority = Math.min(authority.length, domains.length);
+
+  return {
+    domains,
+    telemetry: {
+      enabled: true,
+      sent: domains.length,
+      from_authority: fromAuthority,
+      from_recent_seen: domains.length - fromAuthority,
+      seen_outside_cooldown: seenOutsideCooldown,
+      seen_without_date: seenWithoutDate,
+      omitted_due_to_cap: ordered.length - domains.length,
+      cooldown_days: cooldownDays,
+    },
+  };
+}
