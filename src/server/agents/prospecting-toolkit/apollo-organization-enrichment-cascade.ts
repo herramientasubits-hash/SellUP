@@ -108,6 +108,13 @@ export type ApolloEnrichmentProfile = {
   annual_revenue?: number | null;
 
   technologies?: string[] | null;
+
+  /**
+   * AGENT1-APOLLO-ENRICH-SIC-NAICS-1 — clasificación estándar de la empresa
+   * (sólo dígitos, deduplicada). Observación: no decide admisión ni gasto.
+   */
+  sic_codes?: string[] | null;
+  naics_codes?: string[] | null;
 };
 
 export type EnrichmentSkipReason =
@@ -232,6 +239,31 @@ function truncateStr(s: string | null | undefined): string | null {
   return s.length > MAX_DESCRIPTION_CHARS ? s.slice(0, MAX_DESCRIPTION_CHARS) : s;
 }
 
+/** Máximo de códigos SIC/NAICS que se guardan por organización. */
+const MAX_INDUSTRY_CODES = 10;
+
+/**
+ * AGENT1-APOLLO-ENRICH-SIC-NAICS-1 — códigos de industria como cadenas de sólo
+ * dígitos. Acepta números o cadenas (Apollo no fija el tipo); descarta lo que no
+ * sea un código (vacíos, texto, decimales) en vez de guardarlo mal.
+ */
+export function normalizeIndustryCodes(codes: unknown): string[] | null {
+  if (!Array.isArray(codes)) return null;
+  const out: string[] = [];
+  for (const code of codes) {
+    const text =
+      typeof code === 'number' && Number.isInteger(code) && code >= 0
+        ? String(code)
+        : typeof code === 'string'
+          ? code.trim()
+          : '';
+    if (!/^\d{2,8}$/.test(text) || out.includes(text)) continue;
+    out.push(text);
+    if (out.length >= MAX_INDUSTRY_CODES) break;
+  }
+  return out.length > 0 ? out : null;
+}
+
 function truncateArr(arr: unknown[] | null | undefined): string[] | null {
   if (!Array.isArray(arr) || arr.length === 0) return null;
   return arr
@@ -272,6 +304,9 @@ export function sanitizeEnrichmentProfile(
     annual_revenue: org.annual_revenue ?? null,
 
     technologies: truncateArr(org.technologies as unknown[]),
+
+    sic_codes: normalizeIndustryCodes(org.sic_codes),
+    naics_codes: normalizeIndustryCodes(org.naics_codes),
   };
 }
 
@@ -411,6 +446,8 @@ export function mergeEnrichmentIntoResult(
     'employee_count',
     'annual_revenue',
     'technologies',
+    'sic_codes',
+    'naics_codes',
     'name',
     'website_url',
     'primary_domain',
