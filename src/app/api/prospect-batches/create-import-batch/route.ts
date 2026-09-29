@@ -13,6 +13,19 @@ import {
   toCandidateRecordOriginColumns,
   toCandidateRecordOriginMetadata,
 } from '@/server/agents/prospecting-toolkit/candidate-record-origin';
+// AGENT1-IMPORT-PARITY-1 — la MISMA identidad y el MISMO reclamo global que
+// Apollo/Lusha. La ruta no decide identidad: la delega.
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { fetchActiveCandidatesForGuard } from '@/server/agents/prospecting-toolkit/candidate-writer';
+import type { ActiveCandidateRecord } from '@/server/agents/prospecting-toolkit/active-candidate-identity-guard';
+import { claimGlobalIdentitiesForPersistedCandidates } from '@/server/prospect-batches/global-identity-claims-store';
+import {
+  IMPORT_ADMISSION_METADATA_KEY,
+  collectImportDomains,
+  planImportIdentityAdmission,
+  toImportAdmissionMetadata,
+  type ImportIdentityRowInput,
+} from '@/server/prospect-batches/import-identity-admission';
 
 interface ImportCandidate {
   company_name: string;
@@ -243,6 +256,46 @@ export async function POST(request: NextRequest) {
       }, { status: 409 });
     }
 
+    // ── AGENT1-IMPORT-PARITY-1 — admisión por identidad ────────────────────
+    //
+    // Se decide ANTES de escribir, con el cliente administrativo: la sesión de
+    // un vendedor no ve los lotes de los demás, y la guarda tiene que verlos.
+    // Si la lectura falla, la guarda degrada ABIERTA (igual que el writer): la
+    // fila entra y el reclamo global de abajo sigue protegiendo.
+    const identityRows: ImportIdentityRowInput[] = input.candidates.map((c, i) => {
+      const website = c.website?.trim() || null;
+      return {
+        rowNumber: i + 1,
+        name: c.company_name,
+        website,
+        domain: website ? extractDomain(website) : null,
+        countryCode: c.country_code?.trim().toUpperCase() || null,
+        taxIdentifier: c.tax_identifier?.trim() || null,
+        linkedinUrl: c.linkedin_url?.trim() || null,
+      };
+    });
+
+    let adminClient: ReturnType<typeof createSupabaseAdminClient> | null = null;
+    try {
+      adminClient = createSupabaseAdminClient();
+    } catch (adminErr) {
+      console.error('[create-import-batch] admin client unavailable:', adminErr);
+    }
+
+    let activeCandidates: ActiveCandidateRecord[] = [];
+    let activeGuardStatus: string = 'unavailable';
+    if (adminClient) {
+      const prefetch = await fetchActiveCandidatesForGuard(
+        adminClient,
+        collectImportDomains(identityRows),
+        null,
+      );
+      activeCandidates = prefetch.records;
+      activeGuardStatus = prefetch.status;
+    }
+
+    const admissionPlan = planImportIdentityAdmission(identityRows, activeCandidates);
+
     // ── Create batch with catalog_version ──────────────────────────────────
     //
     // AGENT1-CUT4-B1 § 8 — la metadata y el nombre del lote se nombran para poder
@@ -301,6 +354,7 @@ export async function POST(request: NextRequest) {
 
     // ── Insert candidates with classification fields ───────────────────────
     let candidatesCreated = 0;
+    const createdCandidateIds: string[] = [];
 
     for (let i = 0; i < input.candidates.length; i++) {
       const candidate = input.candidates[i];
@@ -311,6 +365,9 @@ export async function POST(request: NextRequest) {
       const website = candidate.website?.trim() || null;
       const domain = website ? extractDomain(website) : null;
       const normalizedName = normalizeName(candidate.company_name);
+      const admission = admissionPlan[i];
+      const isDuplicateOnImport = admission.kind === 'duplicate';
+      const candidateStatus = isDuplicateOnImport ? 'duplicate' : 'needs_review';
 
       const notesArr: string[] = [];
       if (candidate.description) notesArr.push(`Descripción: ${candidate.description}`);
@@ -330,6 +387,7 @@ export async function POST(request: NextRequest) {
         ...(candidate.contact_email ? { contact_email: candidate.contact_email.trim() } : {}),
         ...(candidate.owner_email ? { owner_email: candidate.owner_email.trim() } : {}),
         ...(candidate.notes ? { notes: candidate.notes.trim() } : {}),
+        [IMPORT_ADMISSION_METADATA_KEY]: toImportAdmissionMetadata(admission),
         imported_from: input.import_type,
         origen: 'external_import',
         import: {
@@ -358,7 +416,7 @@ export async function POST(request: NextRequest) {
         // Esta ruta no tiene modo seco: si llega hasta aquí, escribe.
         dryRun: false,
         candidate: {
-          status: 'needs_review',
+          status: candidateStatus,
           source_primary: 'external_import',
           review_notes: reviewNotes,
           metadata: candidateBaseMetadata,
@@ -374,6 +432,7 @@ export async function POST(request: NextRequest) {
         batch_id: batch.id,
         name: candidate.company_name.trim(),
         normalized_name: normalizedName,
+        identity_key: admission.identityKey,
         website,
         domain,
         country: candidate.country?.trim() || null,
@@ -385,7 +444,8 @@ export async function POST(request: NextRequest) {
         tax_identifier: candidate.tax_identifier?.trim() || null,
         tax_identifier_type: candidate.tax_identifier_type?.trim() || null,
         source_primary: 'external_import',
-        status: 'needs_review',
+        status: candidateStatus,
+        ...(isDuplicateOnImport ? { duplicate_status: 'exact_duplicate' } : {}),
         review_notes: reviewNotes,
         // § 8 — la fila declara de qué clase de corrida salió, en vez de dejar la
         // columna en NULL por descuido del writer.
@@ -411,15 +471,69 @@ export async function POST(request: NextRequest) {
         insertData.catalog_version_id = catalogVersionId;
       }
 
-      const { error: candidateError } = await supabase
+      const { data: createdRow, error: candidateError } = await supabase
         .from('prospect_candidates')
-        .insert(insertData);
+        .insert(insertData)
+        .select('id')
+        .single();
 
-      if (!candidateError) candidatesCreated++;
+      if (!candidateError) {
+        candidatesCreated++;
+        if (createdRow?.id && !isDuplicateOnImport) createdCandidateIds.push(createdRow.id as string);
+      }
     }
 
     // Ejecutar validación post-importación automáticamente
     await validateImportedCandidatesBatch(batch.id, internalUserId);
+
+    // ── AGENT1-IMPORT-PARITY-1 — reclamo global (migración 140) ────────────
+    //
+    // Después de la validación, que ya dejó `duplicate` lo que existe en SellUp
+    // o HubSpot (y el disparador liberó lo que hubiera). Se reclama lo que siga
+    // vivo; si otro vendedor ya tiene la empresa, la RPC la deja `duplicate`.
+    // Cliente ADMINISTRATIVO por la misma razón que Lusha: la tabla de reclamos
+    // sólo tiene política para `service_role`. Degrada CERRADO: un fallo de
+    // infraestructura nunca marca duplicado a nadie.
+    let claimsDegraded = !adminClient;
+    let claimedElsewhereCount = 0;
+    if (adminClient && createdCandidateIds.length > 0) {
+      const { data: stillActive } = await supabase
+        .from('prospect_candidates')
+        .select('id')
+        .eq('batch_id', batch.id)
+        .in('id', createdCandidateIds)
+        .neq('status', 'duplicate');
+      const activeIds = (stillActive ?? []).map((r) => r.id as string);
+      const claimOutcome = await claimGlobalIdentitiesForPersistedCandidates(
+        adminClient,
+        batch.id,
+        activeIds,
+      );
+      claimsDegraded = claimOutcome.degraded;
+      claimedElsewhereCount = claimOutcome.claimedElsewhere.length;
+    }
+
+    const duplicatesOnImport = admissionPlan.filter((a) => a.kind === 'duplicate');
+    const { data: batchAfterValidation } = await supabase
+      .from('prospect_batches')
+      .select('metadata')
+      .eq('id', batch.id)
+      .single();
+    await supabase
+      .from('prospect_batches')
+      .update({
+        metadata: {
+          ...((batchAfterValidation?.metadata as Record<string, unknown> | null) ?? batchMetadata),
+          [IMPORT_ADMISSION_METADATA_KEY]: {
+            active_candidate_guard: activeGuardStatus,
+            intra_file_duplicates: duplicatesOnImport.filter((a) => a.reason === 'intra_file_duplicate').length,
+            active_candidate_duplicates: duplicatesOnImport.filter((a) => a.reason === 'active_candidate_domain').length,
+            global_claims_degraded: claimsDegraded,
+            claimed_elsewhere: claimedElsewhereCount,
+          },
+        },
+      })
+      .eq('id', batch.id);
 
     // Cargar los candidatos insertados para calcular estadísticas detalladas
     const { data: candidates } = await supabase
