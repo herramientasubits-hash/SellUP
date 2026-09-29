@@ -12,10 +12,19 @@ import { loadActiveDiscoveryCatalog } from '@/modules/industry-catalog/discovery
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
 import { getAiProviderCredential } from '@/server/services/ai-connection';
 import { fetchSafePageHtml } from '../website-verifier';
-import { mergeClassificationIntoMetadata, type ClassifiableCandidateRow } from './classification-metadata';
+import {
+  IN_PROGRESS_STALE_AFTER_MS,
+  mergeClassificationIntoMetadata,
+  type ClassifiableCandidateRow,
+} from './classification-metadata';
 import { buildLiveClassifyCompanyDeps, classifyCompany } from './classify-company';
 import type { ActiveAnthropicModel, ClassifyBatchDeps } from './classify-batch-candidates';
-import { CLAUDE_CLASSIFIER_PROVIDER_KEY, type ClassifierCatalogIndustry } from './types';
+import {
+  CLASSIFICATION_IN_PROGRESS_OUTCOME,
+  CLAUDE_CLASSIFICATION_METADATA_KEY,
+  CLAUDE_CLASSIFIER_PROVIDER_KEY,
+  type ClassifierCatalogIndustry,
+} from './types';
 
 /** Fila única de `ai_active_config` (misma constante que `ai-config/actions.ts`). */
 const AI_ACTIVE_CONFIG_ID = '00000000-0000-0000-0000-000000000001';
@@ -66,30 +75,61 @@ async function loadBatchCandidates(batchId: string): Promise<ClassifiableCandida
   return (data ?? []) as ClassifiableCandidateRow[];
 }
 
+/** Reintentos si otro proceso escribió la fila entre la lectura y la escritura. */
+const SAVE_MAX_ATTEMPTS = 3;
+
 /**
- * Relee la metadata justo antes de escribir y sólo actualiza la columna
- * `metadata`: nunca `status`, así no dispara el trigger de reclamos globales.
+ * Escritura con control de concurrencia optimista: sólo actualiza `metadata`
+ * (nunca `status`, así no dispara el trigger de reclamos globales), sólo si el
+ * candidato sigue «para revisión» y sólo si `updated_at` no cambió desde la
+ * lectura. Una marca «en proceso» no pisa la marca vigente de otra corrida.
  */
 async function saveClassification(
   candidateId: string,
   classification: Parameters<typeof mergeClassificationIntoMetadata>[1],
 ): Promise<boolean> {
   const admin = createSupabaseAdminClient();
-  const current = await admin.from('prospect_candidates').select('metadata').eq('id', candidateId).maybeSingle();
-  if (current.error || !current.data) {
-    console.error('[claude-classifier] metadata read failed:', current.error?.message ?? 'not_found');
+  const isClaim = classification.outcome === CLASSIFICATION_IN_PROGRESS_OUTCOME;
+
+  for (let attempt = 0; attempt < SAVE_MAX_ATTEMPTS; attempt++) {
+    const current = await admin
+      .from('prospect_candidates')
+      .select('metadata, status, updated_at')
+      .eq('id', candidateId)
+      .maybeSingle();
+    if (current.error || !current.data) {
+      console.error('[claude-classifier] metadata read failed:', current.error?.message ?? 'not_found');
+      return false;
+    }
+    const row = current.data as { metadata: Record<string, unknown> | null; status: string; updated_at: string };
+    if (row.status !== 'needs_review') return false;
+    if (isClaim && isFreshlyClaimed(row.metadata, Date.now())) return false;
+
+    const { data, error } = await admin
+      .from('prospect_candidates')
+      .update({ metadata: mergeClassificationIntoMetadata(row.metadata, classification) })
+      .eq('id', candidateId)
+      .eq('status', 'needs_review')
+      .eq('updated_at', row.updated_at)
+      .select('id');
+    if (error) {
+      console.error('[claude-classifier] metadata write failed:', error.message);
+      return false;
+    }
+    if (Array.isArray(data) && data.length === 1) return true;
+  }
+  console.error('[claude-classifier] metadata write lost the race', SAVE_MAX_ATTEMPTS, 'times');
+  return false;
+}
+
+function isFreshlyClaimed(metadata: Record<string, unknown> | null, nowMs: number): boolean {
+  const previous = metadata?.[CLAUDE_CLASSIFICATION_METADATA_KEY] as
+    | { outcome?: unknown; started_at?: unknown }
+    | undefined;
+  if (previous?.outcome !== CLASSIFICATION_IN_PROGRESS_OUTCOME || typeof previous.started_at !== 'string') {
     return false;
   }
-  const metadata = mergeClassificationIntoMetadata(
-    (current.data as { metadata: Record<string, unknown> | null }).metadata,
-    classification,
-  );
-  const { error } = await admin.from('prospect_candidates').update({ metadata }).eq('id', candidateId);
-  if (error) {
-    console.error('[claude-classifier] metadata write failed:', error.message);
-    return false;
-  }
-  return true;
+  return nowMs - Date.parse(previous.started_at) < IN_PROGRESS_STALE_AFTER_MS;
 }
 
 export function buildLiveClassifyBatchDeps(): ClassifyBatchDeps {
@@ -106,5 +146,6 @@ export function buildLiveClassifyBatchDeps(): ClassifyBatchDeps {
     logUsage: logProviderUsage,
     saveClassification,
     nowIso: () => new Date().toISOString(),
+    nowMs: () => Date.now(),
   };
 }

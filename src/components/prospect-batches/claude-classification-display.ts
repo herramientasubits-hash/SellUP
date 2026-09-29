@@ -31,14 +31,15 @@ const OUTCOMES: Record<string, { label: string; tone: ClaudeClassificationDispla
   classified: { label: 'Sector y tamaño sugeridos', tone: 'positive' },
   partially_classified: { label: 'Sugerencia parcial', tone: 'partial' },
   nothing_verifiable: { label: 'Sin datos verificables', tone: 'neutral' },
-  website_unreachable: { label: 'Sitio no accesible', tone: 'neutral' },
+  website_unreachable: { label: 'Sitio no accesible (se puede reintentar)', tone: 'neutral' },
+  website_redirected_offsite: { label: 'El sitio redirige a otro dominio', tone: 'neutral' },
   no_website: { label: 'Sin sitio web', tone: 'neutral' },
-  model_error: { label: 'Error al clasificar', tone: 'error' },
+  model_error: { label: 'Error al clasificar (se puede reintentar)', tone: 'error' },
 };
 
 const VERIFICATION_LABELS: Record<string, string> = {
-  quote_verified: 'Cita verificada en el sitio oficial',
-  source_listed: 'Fuente encontrada por búsqueda web',
+  quote_verified: 'Cita comprobada en la fuente',
+  source_listed: 'Fuente de la búsqueda web — la cita NO se pudo comprobar',
 };
 
 function str(value: unknown): string | null {

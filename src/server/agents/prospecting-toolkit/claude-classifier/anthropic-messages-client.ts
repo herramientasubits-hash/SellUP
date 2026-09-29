@@ -34,6 +34,7 @@ export type AnthropicRequestBody = {
   max_tokens: number;
   system: unknown;
   tools: unknown[];
+  tool_choice?: { type: 'auto' } | { type: 'tool'; name: string };
   messages: Array<{ role: 'user' | 'assistant'; content: unknown }>;
 };
 

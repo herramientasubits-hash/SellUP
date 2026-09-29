@@ -53,9 +53,11 @@ export type RawClassifierSubmission = {
 
 /**
  * Nivel de verificación de un dato:
- *  - `quote_verified`: la cita aparece textual en la página que descargamos nosotros.
- *  - `source_listed`: la URL fue devuelta por la búsqueda web de Claude (no pudimos
- *    leer el texto, pero la fuente existe y no la inventó).
+ *  - `quote_verified`: la cita aparece textual en un texto que NO escribió Claude
+ *    (la página oficial que descargamos, la fuente de búsqueda que descargamos, o el
+ *    `cited_text` que devolvió la propia búsqueda web para esa URL).
+ *  - `source_listed`: la URL fue devuelta por la búsqueda web, pero la cita NO se pudo
+ *    comprobar (p. ej. LinkedIn bloquea la descarga). La UI lo dice tal cual.
  *  - `rejected`: sin fuente verificable → el dato se descarta.
  */
 export type EvidenceVerificationLevel = 'quote_verified' | 'source_listed' | 'rejected';
@@ -97,6 +99,8 @@ export type ClassifierUsage = {
   cacheCreationInputTokens: number;
   webSearchRequests: number;
   estimatedCostUsd: number;
+  /** `fallback` = el modelo no estaba en la tabla de precios; el costo es aproximado. */
+  pricingSource: 'table' | 'fallback';
 };
 
 export type ClassificationOutcome =
@@ -104,8 +108,21 @@ export type ClassificationOutcome =
   | 'partially_classified'
   | 'nothing_verifiable'
   | 'website_unreachable'
+  | 'website_redirected_offsite'
   | 'no_website'
   | 'model_error';
+
+/** Resultados definitivos: no se vuelven a pagar. El resto se puede reintentar. */
+export const FINAL_CLASSIFICATION_OUTCOMES: readonly ClassificationOutcome[] = [
+  'classified',
+  'partially_classified',
+  'nothing_verifiable',
+  'website_redirected_offsite',
+  'no_website',
+];
+
+/** Marca «en proceso»: evita que dos corridas simultáneas paguen la misma empresa. */
+export const CLASSIFICATION_IN_PROGRESS_OUTCOME = 'in_progress';
 
 export type CompanyClassificationResult = {
   candidateId: string;

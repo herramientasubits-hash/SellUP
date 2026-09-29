@@ -19,10 +19,12 @@ import {
   classifyBatchCandidatesWithClaudeAction,
   type ClaudeClassifierActionResult,
 } from '@/modules/prospect-batches/claude-classifier-actions';
+import { CLASSIFIER_MAX_COMPANIES_PER_RUN } from '@/server/agents/prospecting-toolkit/claude-classifier/classify-batch-candidates';
 
 interface ClaudeClassifyBatchButtonProps {
   batchId: string;
-  pendingReviewCount: number;
+  /** Candidatos «para revisión» a los que les falta sector o tamaño y aún no tienen sugerencia. */
+  eligibleCount: number;
 }
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -38,13 +40,14 @@ const ERROR_MESSAGES: Record<string, string> = {
 function describeResult(result: ClaudeClassifierActionResult): string {
   if (!result.ok) return ERROR_MESSAGES[result.error] ?? 'No se pudo clasificar.';
   const done = result.classified + result.partiallyClassified;
+  const pending = result.remaining > 0 ? ` · faltan ${result.remaining}: pulsa otra vez para seguir` : '';
   return (
     `${done} con sugerencia · ${result.nothingVerifiable} sin datos verificables · ` +
-    `${result.skipped} sin sitio accesible · costo estimado US$${result.estimatedCostUsd.toFixed(2)}`
+    `${result.skipped} sin sitio accesible · costo estimado US$${result.estimatedCostUsd.toFixed(2)}${pending}`
   );
 }
 
-export function ClaudeClassifyBatchButton({ batchId, pendingReviewCount }: ClaudeClassifyBatchButtonProps) {
+export function ClaudeClassifyBatchButton({ batchId, eligibleCount }: ClaudeClassifyBatchButtonProps) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
@@ -97,8 +100,9 @@ export function ClaudeClassifyBatchButton({ batchId, pendingReviewCount }: Claud
         <DialogHeader className="pt-2">
           <DialogTitle className="text-base font-semibold">¿Sugerir sector y tamaño con Claude?</DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground">
-            Claude leerá el sitio de los {pendingReviewCount} candidato(s) «para revisión» a los que les falta sector o
-            tamaño, y dejará una sugerencia con su fuente.
+            Claude leerá el sitio de {eligibleCount} candidato(s) «para revisión» a los que les falta sector o tamaño,
+            y dejará una sugerencia con su fuente. Máximo {CLASSIFIER_MAX_COMPANIES_PER_RUN} por vez.
+            Costo aproximado: US$0,01 a US$0,05 por empresa.
           </DialogDescription>
         </DialogHeader>
 

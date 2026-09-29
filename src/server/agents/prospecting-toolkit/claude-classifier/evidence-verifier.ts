@@ -11,7 +11,7 @@
 
 import { normalizeDomain } from '../normalization';
 import type { AnthropicContentBlock } from './anthropic-messages-client';
-import { quoteAppearsInText } from './page-text';
+import { MIN_QUOTE_CHARS, normalizeForQuoteMatch, quoteAppearsInText } from './page-text';
 import { SUBMIT_TOOL_NAME } from './prompt';
 import type {
   ClassifierCatalogIndustry,
@@ -33,6 +33,25 @@ export function extractSubmission(content: readonly AnthropicContentBlock[]): Ra
   return block.input as RawClassifierSubmission;
 }
 
+/**
+ * Textos citados por la búsqueda web (`web_search_result_location.cited_text`),
+ * por URL. Es texto de la fuente devuelto por Anthropic, no escrito por Claude.
+ */
+export function extractCitedTextsByUrl(content: readonly AnthropicContentBlock[]): Map<string, string[]> {
+  const byUrl = new Map<string, string[]>();
+  for (const block of content) {
+    if (block.type !== 'text' || !Array.isArray(block.citations)) continue;
+    for (const citation of block.citations as Array<Record<string, unknown>>) {
+      if (citation?.type !== 'web_search_result_location') continue;
+      if (typeof citation.url !== 'string' || typeof citation.cited_text !== 'string') continue;
+      const key = canonicalUrl(citation.url);
+      if (!key) continue;
+      byUrl.set(key, [...(byUrl.get(key) ?? []), citation.cited_text]);
+    }
+  }
+  return byUrl;
+}
+
 export function extractSearchResultUrls(content: readonly AnthropicContentBlock[]): string[] {
   const urls = content
     .filter((b) => b.type === 'web_search_tool_result' && Array.isArray(b.content))
@@ -42,7 +61,7 @@ export function extractSearchResultUrls(content: readonly AnthropicContentBlock[
   return [...new Set(urls)];
 }
 
-function canonicalUrl(url: string): string | null {
+export function canonicalUrl(url: string): string | null {
   try {
     const u = new URL(url.trim());
     if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
@@ -58,6 +77,10 @@ type SourceContext = {
   pageUrls: readonly string[];
   pageText: string;
   searchResultUrls: readonly string[];
+  /** `cited_text` de la búsqueda web, indexado por `canonicalUrl`. */
+  citedTextsByUrl?: ReadonlyMap<string, readonly string[]>;
+  /** Texto de fuentes de búsqueda que descargamos nosotros, indexado por `canonicalUrl`. */
+  fetchedSourceTexts?: ReadonlyMap<string, string>;
 };
 
 function isOfficialPageSource(sourceUrl: string, ctx: SourceContext): boolean {
@@ -73,7 +96,9 @@ function verifySource(
   sourceUrl: string | null,
   ctx: SourceContext,
 ): { level: EvidenceVerificationLevel; reason: string | null } {
-  if (!quote || !quote.trim()) return { level: 'rejected', reason: 'missing_quote' };
+  if (!quote || normalizeForQuoteMatch(quote).length < MIN_QUOTE_CHARS) {
+    return { level: 'rejected', reason: 'missing_quote' };
+  }
   if (!sourceUrl || !sourceUrl.trim()) return { level: 'rejected', reason: 'missing_source_url' };
   const source = canonicalUrl(sourceUrl);
   if (!source) return { level: 'rejected', reason: 'invalid_source_url' };
@@ -83,7 +108,11 @@ function verifySource(
     return { level: 'quote_verified', reason: null };
   }
   if (ctx.searchResultUrls.some((u) => canonicalUrl(u) === source)) {
-    return { level: 'source_listed', reason: null };
+    const cited = ctx.citedTextsByUrl?.get(source) ?? [];
+    const fetched = ctx.fetchedSourceTexts?.get(source);
+    const verified =
+      cited.some((text) => quoteAppearsInText(quote, text)) || (!!fetched && quoteAppearsInText(quote, fetched));
+    return { level: verified ? 'quote_verified' : 'source_listed', reason: null };
   }
   return {
     level: 'rejected',

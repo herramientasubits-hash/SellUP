@@ -16,11 +16,19 @@ import {
   type AnthropicRequestBody,
   type AnthropicUsageTotals,
 } from './anthropic-messages-client';
-import { estimateClassifierCostUsd } from './cost';
-import { extractSearchResultUrls, extractSubmission, verifySubmission } from './evidence-verifier';
+import { estimateClassifierCost } from './cost';
+import {
+  canonicalUrl,
+  extractCitedTextsByUrl,
+  extractSearchResultUrls,
+  extractSubmission,
+  verifySubmission,
+} from './evidence-verifier';
+import { normalizeDomain } from '../normalization';
 import { extractVisibleText } from './page-text';
 import {
   SUBMIT_TOOL_DEFINITION,
+  SUBMIT_TOOL_NAME,
   buildClassifierSystemPrompt,
   buildClassifierUserMessage,
   buildWebSearchTool,
@@ -36,6 +44,8 @@ import type {
 /** Menos texto que esto = página vacía o bloqueada: no vale la pena gastar. */
 export const MIN_PAGE_TEXT_CHARS = 200;
 export const CLASSIFIER_MAX_OUTPUT_TOKENS = 1_500;
+/** Por petición; con el tope de tiempo de la corrida, cabe en 300 s de Vercel. */
+export const ANTHROPIC_REQUEST_TIMEOUT_MS = 60_000;
 
 export type ClassifyCompanyDeps = {
   fetchPage: (websiteOrDomain: string) => Promise<SafePageFetchResult>;
@@ -71,6 +81,7 @@ export function buildClassifierRequestBody(
 }
 
 function toUsage(totals: AnthropicUsageTotals, model: string): ClassifierUsage {
+  const cost = estimateClassifierCost(totals, model);
   return {
     model,
     inputTokens: totals.inputTokens,
@@ -78,7 +89,8 @@ function toUsage(totals: AnthropicUsageTotals, model: string): ClassifierUsage {
     cacheReadInputTokens: totals.cacheReadInputTokens,
     cacheCreationInputTokens: totals.cacheCreationInputTokens,
     webSearchRequests: totals.webSearchRequests,
-    estimatedCostUsd: estimateClassifierCostUsd(totals, model),
+    estimatedCostUsd: cost.usd,
+    pricingSource: cost.pricingSource,
   };
 }
 
@@ -116,10 +128,19 @@ export async function classifyCompany(
       errorCode: page.error ?? (page.httpStatus ? `http_${page.httpStatus}` : 'empty_page'),
     });
   }
+  // Un sitio que redirige a OTRO dominio (directorio, red social, dominio vendido)
+  // no es la página oficial: no se gasta en clasificarlo.
+  if (isOffsiteRedirect(website, pageFinalUrl)) {
+    return finish({ outcome: 'website_redirected_offsite', pageFinalUrl, errorCode: 'redirected_offsite' });
+  }
 
+  const body = buildClassifierRequestBody(params, pageFinalUrl, pageText);
   let conversation: AnthropicConversationResult;
   try {
-    conversation = await deps.runConversation(buildClassifierRequestBody(params, pageFinalUrl, pageText));
+    conversation = await deps.runConversation(body);
+    if (!extractSubmission(conversation.content) && conversation.stopReason === 'end_turn') {
+      conversation = await forceSubmission(body, conversation, deps);
+    }
   } catch (err) {
     const apiError = err instanceof AnthropicApiError ? err : null;
     return finish({
@@ -136,16 +157,82 @@ export async function classifyCompany(
     return finish({ outcome: 'model_error', pageFinalUrl, usage, errorCode: 'no_submission' });
   }
 
-  const verified = verifySubmission(submission, params.catalog, {
+  const baseCtx = {
     pageUrls: [pageFinalUrl, page.requestedUrl],
     pageText,
     searchResultUrls: extractSearchResultUrls(conversation.content),
-  }, params.company.currentIndustryId);
+    citedTextsByUrl: extractCitedTextsByUrl(conversation.content),
+  };
+  const firstPass = verifySubmission(submission, params.catalog, baseCtx, params.company.currentIndustryId);
+  // Una cita de búsqueda que no pudimos comprobar: intentamos leer NOSOTROS esa fuente.
+  const fetchedSourceTexts = await fetchUnverifiedSources(firstPass, deps);
+  const verified =
+    fetchedSourceTexts.size > 0
+      ? verifySubmission(submission, params.catalog, { ...baseCtx, fetchedSourceTexts }, params.company.currentIndustryId)
+      : firstPass;
+
   const found = Number(verified.sector !== null) + Number(verified.employeeRange !== null);
   const outcome: ClassificationOutcome =
     found === 2 ? 'classified' : found === 1 ? 'partially_classified' : 'nothing_verifiable';
 
   return finish({ outcome, pageFinalUrl, usage, ...verified });
+}
+
+export function isOffsiteRedirect(requested: string, finalUrl: string | null): boolean {
+  if (!finalUrl) return false;
+  const from = normalizeDomain(requested);
+  const to = normalizeDomain(finalUrl);
+  return !!from && !!to && from !== to && !to.endsWith(`.${from}`) && !from.endsWith(`.${to}`);
+}
+
+/** Claude terminó sin entregar: un turno más, obligándolo a usar el tool (reusa la caché). */
+async function forceSubmission(
+  body: AnthropicRequestBody,
+  first: AnthropicConversationResult,
+  deps: ClassifyCompanyDeps,
+): Promise<AnthropicConversationResult> {
+  const second = await deps.runConversation({
+    ...body,
+    tool_choice: { type: 'tool', name: SUBMIT_TOOL_NAME },
+    messages: [
+      ...body.messages,
+      { role: 'assistant', content: first.content },
+      { role: 'user', content: `Entrega ahora tu resultado con ${SUBMIT_TOOL_NAME}. Sin fuente, deja el dato en null.` },
+    ],
+  });
+  return {
+    content: [...first.content, ...second.content],
+    stopReason: second.stopReason,
+    usage: {
+      inputTokens: first.usage.inputTokens + second.usage.inputTokens,
+      outputTokens: first.usage.outputTokens + second.usage.outputTokens,
+      cacheReadInputTokens: first.usage.cacheReadInputTokens + second.usage.cacheReadInputTokens,
+      cacheCreationInputTokens: first.usage.cacheCreationInputTokens + second.usage.cacheCreationInputTokens,
+      webSearchRequests: first.usage.webSearchRequests + second.usage.webSearchRequests,
+    },
+    requests: first.requests + second.requests,
+  };
+}
+
+async function fetchUnverifiedSources(
+  verified: ReturnType<typeof verifySubmission>,
+  deps: ClassifyCompanyDeps,
+): Promise<Map<string, string>> {
+  const urls = [verified.sector, verified.employeeRange]
+    .filter((f) => f?.verification === 'source_listed')
+    .map((f) => f!.sourceUrl);
+  const texts = new Map<string, string>();
+  for (const url of [...new Set(urls)]) {
+    const key = canonicalUrl(url);
+    if (!key) continue;
+    try {
+      const fetched = await deps.fetchPage(url);
+      if (fetched.html && (fetched.httpStatus ?? 0) < 400) texts.set(key, extractVisibleText(fetched.html));
+    } catch {
+      // Fuente no descargable (p. ej. LinkedIn): queda como `source_listed`.
+    }
+  }
+  return texts;
 }
 
 /** Dependencias reales (sólo servidor). */
@@ -155,7 +242,7 @@ export function buildLiveClassifyCompanyDeps(
 ): ClassifyCompanyDeps {
   return {
     fetchPage,
-    runConversation: (body) => runAnthropicConversation({ apiKey, body }),
+    runConversation: (body) => runAnthropicConversation({ apiKey, body, timeoutMs: ANTHROPIC_REQUEST_TIMEOUT_MS }),
     now: () => Date.now(),
   };
 }

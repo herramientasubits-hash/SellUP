@@ -7,12 +7,18 @@
  *
  * Cada llamada se registra en `provider_usage_logs` (provider_key='anthropic').
  * Sólo escribe `metadata.claude_classification`: NUNCA el estado del candidato.
+ *
+ * Una corrida tiene tope de empresas y de tiempo para no pasarse del límite de
+ * la función en Vercel (si la matan, lo ya gastado no quedaría registrado). Lo
+ * que no alcanza queda en `remaining` y se procesa pulsando otra vez.
  */
 
 import {
   buildClassificationMetadata,
+  buildInProgressMarker,
   needsClaudeClassification,
   type ClassifiableCandidateRow,
+  type ClassificationInProgressMarker,
 } from './classification-metadata';
 import {
   CLAUDE_CLASSIFIER_CONTRACT_VERSION,
@@ -27,6 +33,10 @@ import type { LogProviderUsageInput } from '@/modules/usage-tracking/types';
 
 /** Empresas clasificadas en paralelo (ritmo, no presupuesto). */
 export const CLASSIFIER_CONCURRENCY = 4;
+/** Empresas por corrida: cabe holgado en el tiempo de una función de Vercel. */
+export const CLASSIFIER_MAX_COMPANIES_PER_RUN = 20;
+/** Después de esto no se empieza ninguna empresa nueva (las que están en curso terminan). */
+export const CLASSIFIER_RUN_DEADLINE_MS = 180_000;
 
 export type ActiveAnthropicModel = { model: string; apiKey: string };
 
@@ -41,8 +51,16 @@ export type ClassifyBatchDeps = {
     active: ActiveAnthropicModel,
   ) => Promise<CompanyClassificationResult>;
   logUsage: (input: LogProviderUsageInput) => Promise<boolean>;
-  saveClassification: (candidateId: string, classification: ClaudeClassificationMetadata) => Promise<boolean>;
+  /**
+   * Escribe la sugerencia (o la marca «en proceso») sólo si el candidato sigue
+   * «para revisión» y nadie más escribió en medio. false = no se escribió.
+   */
+  saveClassification: (
+    candidateId: string,
+    classification: ClaudeClassificationMetadata | ClassificationInProgressMarker,
+  ) => Promise<boolean>;
   nowIso: () => string;
+  nowMs: () => number;
 };
 
 export type ClassifyBatchSummary =
@@ -58,6 +76,10 @@ export type ClassifyBatchSummary =
       webSearchRequests: number;
       saveFailures: number;
       usageLogFailures: number;
+      /** Elegibles que no entraron en esta corrida (tope o tiempo). */
+      remaining: number;
+      /** Elegibles que otra corrida ya estaba procesando. */
+      claimedElsewhere: number;
     }
   | {
       ok: false;
@@ -103,17 +125,24 @@ export function buildClassifierUsageLog(
       web_search_requests: result.usage.webSearchRequests,
       cache_read_input_tokens: result.usage.cacheReadInputTokens,
       cache_creation_input_tokens: result.usage.cacheCreationInputTokens,
+      pricing_source: result.usage.pricingSource,
     },
   };
 }
 
-async function mapWithConcurrency<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const results: R[] = new Array(items.length);
+/** Procesa en paralelo; deja de EMPEZAR ítems nuevos cuando `shouldStop()` es true. */
+async function mapWithConcurrencyUntil<T, R>(
+  items: readonly T[],
+  limit: number,
+  shouldStop: () => boolean,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = [];
   let next = 0;
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (next < items.length) {
-      const index = next++;
-      results[index] = await fn(items[index]);
+    while (next < items.length && !shouldStop()) {
+      const item = items[next++];
+      results.push(await fn(item));
     }
   });
   await Promise.all(workers);
@@ -170,9 +199,17 @@ export async function classifyBatchCandidates(
   } catch (err) {
     return { ok: false, error: 'candidates_unavailable', detail: err instanceof Error ? err.message : String(err) };
   }
-  const eligible = rows.filter((row) => needsClaudeClassification(row, { force: params.force ?? false }));
+  const startedMs = deps.nowMs();
+  const eligible = rows.filter((row) =>
+    needsClaudeClassification(row, { force: params.force ?? false, nowMs: startedMs }),
+  );
+  const thisRun = eligible.slice(0, CLASSIFIER_MAX_COMPANIES_PER_RUN);
+  const deadlineReached = () => deps.nowMs() - startedMs >= CLASSIFIER_RUN_DEADLINE_MS;
 
-  const outcomes = await mapWithConcurrency(eligible, CLASSIFIER_CONCURRENCY, async (row) => {
+  const processed = await mapWithConcurrencyUntil(thisRun, CLASSIFIER_CONCURRENCY, deadlineReached, async (row) => {
+    // Se reclama ANTES de gastar: si otra corrida lo tomó, no se paga dos veces.
+    const claimed = await deps.saveClassification(row.id, buildInProgressMarker(deps.nowIso()));
+    if (!claimed) return { claimed: false as const };
     const result = await classifyOneSafely(row, catalog, active, deps);
     const classifiedAt = deps.nowIso();
     const usageLog = buildClassifierUsageLog(result, {
@@ -182,8 +219,9 @@ export async function classifyBatchCandidates(
     });
     const logged = usageLog ? await deps.logUsage(usageLog) : true;
     const saved = await deps.saveClassification(row.id, buildClassificationMetadata(result, classifiedAt));
-    return { result, logged, saved };
+    return { claimed: true as const, result, logged, saved };
   });
+  const outcomes = processed.filter((p): p is Extract<typeof p, { claimed: true }> => p.claimed);
 
   const count = (outcome: CompanyClassificationResult['outcome']) =>
     outcomes.filter((o) => o.result.outcome === outcome).length;
@@ -196,11 +234,13 @@ export async function classifyBatchCandidates(
     classified: count('classified'),
     partiallyClassified: count('partially_classified'),
     nothingVerifiable: count('nothing_verifiable'),
-    skipped: count('no_website') + count('website_unreachable'),
+    skipped: count('no_website') + count('website_unreachable') + count('website_redirected_offsite'),
     failed: count('model_error'),
     estimatedCostUsd: Math.round(sum((r) => r.usage?.estimatedCostUsd ?? 0) * 1_000_000) / 1_000_000,
     webSearchRequests: sum((r) => r.usage?.webSearchRequests ?? 0),
     saveFailures: outcomes.filter((o) => !o.saved).length,
     usageLogFailures: outcomes.filter((o) => !o.logged).length,
+    remaining: eligible.length - processed.length,
+    claimedElsewhere: processed.length - outcomes.length,
   };
 }

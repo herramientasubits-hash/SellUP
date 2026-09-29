@@ -3,8 +3,10 @@
  */
 
 import {
+  CLASSIFICATION_IN_PROGRESS_OUTCOME,
   CLAUDE_CLASSIFICATION_METADATA_KEY,
   CLAUDE_CLASSIFIER_CONTRACT_VERSION,
+  FINAL_CLASSIFICATION_OUTCOMES,
   type ClaudeClassificationMetadata,
   type CompanyClassificationResult,
 } from './types';
@@ -30,12 +32,54 @@ function failedConditions(metadata: Record<string, unknown> | null): string[] {
   return Array.isArray(failed) ? failed.filter((f): f is string => typeof f === 'string') : [];
 }
 
-export function needsClaudeClassification(row: ClassifiableCandidateRow, options: { force: boolean }): boolean {
+/** Una marca «en proceso» más vieja que esto se considera abandonada. */
+export const IN_PROGRESS_STALE_AFTER_MS = 15 * 60 * 1000;
+
+function previousClassificationBlocks(metadata: Record<string, unknown> | null, nowMs: number): boolean {
+  const previous = metadata?.[CLAUDE_CLASSIFICATION_METADATA_KEY] as
+    | { outcome?: unknown; classified_at?: unknown; started_at?: unknown }
+    | undefined;
+  if (!previous || typeof previous !== 'object') return false;
+  if (previous.outcome === CLASSIFICATION_IN_PROGRESS_OUTCOME) {
+    const startedAt = typeof previous.started_at === 'string' ? Date.parse(previous.started_at) : NaN;
+    return Number.isFinite(startedAt) && nowMs - startedAt < IN_PROGRESS_STALE_AFTER_MS;
+  }
+  // Errores pasajeros (429, timeout, sitio caído) se pueden reintentar; lo definitivo no.
+  return (FINAL_CLASSIFICATION_OUTCOMES as readonly unknown[]).includes(previous.outcome);
+}
+
+export function needsClaudeClassification(
+  row: ClassifiableCandidateRow,
+  options: { force: boolean; nowMs: number },
+): boolean {
   if (row.status !== 'needs_review') return false;
   if (!row.website && !row.domain) return false;
-  if (!options.force && row.metadata?.[CLAUDE_CLASSIFICATION_METADATA_KEY]) return false;
+  if (!options.force && previousClassificationBlocks(row.metadata, options.nowMs)) return false;
   const failed = failedConditions(row.metadata);
   return failed.some((f) => (CLASSIFIABLE_FAILED_CONDITIONS as readonly string[]).includes(f));
+}
+
+/** Para la UI: cuántos candidatos del lote entrarían (misma regla que el servidor). */
+export function countClaudeClassificationEligible(
+  candidates: ReadonlyArray<Partial<ClassifiableCandidateRow> & { id: string }>,
+  nowMs: number = Date.now(),
+): number {
+  return candidates.filter((c) =>
+    needsClaudeClassification(
+      {
+        id: c.id,
+        industry_id: c.industry_id ?? null,
+        name: c.name ?? null,
+        website: c.website ?? null,
+        domain: c.domain ?? null,
+        country_code: c.country_code ?? null,
+        country: c.country ?? null,
+        status: c.status ?? null,
+        metadata: (c.metadata as Record<string, unknown> | null | undefined) ?? null,
+      },
+      { force: false, nowMs },
+    ),
+  ).length;
 }
 
 export function buildClassificationMetadata(
@@ -81,10 +125,26 @@ export function buildClassificationMetadata(
   };
 }
 
+export type ClassificationInProgressMarker = {
+  contract_version: typeof CLAUDE_CLASSIFIER_CONTRACT_VERSION;
+  outcome: typeof CLASSIFICATION_IN_PROGRESS_OUTCOME;
+  started_at: string;
+  advisory_only: true;
+};
+
+export function buildInProgressMarker(startedAt: string): ClassificationInProgressMarker {
+  return {
+    contract_version: CLAUDE_CLASSIFIER_CONTRACT_VERSION,
+    outcome: CLASSIFICATION_IN_PROGRESS_OUTCOME,
+    started_at: startedAt,
+    advisory_only: true,
+  };
+}
+
 /** Devuelve una metadata NUEVA con la sugerencia; nunca muta la original. */
 export function mergeClassificationIntoMetadata(
   metadata: Record<string, unknown> | null,
-  classification: ClaudeClassificationMetadata,
+  classification: ClaudeClassificationMetadata | ClassificationInProgressMarker,
 ): Record<string, unknown> {
   return { ...(metadata ?? {}), [CLAUDE_CLASSIFICATION_METADATA_KEY]: classification };
 }

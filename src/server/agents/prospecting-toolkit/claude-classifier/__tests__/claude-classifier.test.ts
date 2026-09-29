@@ -8,16 +8,22 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { extractVisibleText, quoteAppearsInText } from '../page-text';
-import { extractSearchResultUrls, extractSubmission, verifySubmission } from '../evidence-verifier';
-import { estimateClassifierCostUsd, WEB_SEARCH_USD_PER_REQUEST } from '../cost';
-import { buildClassifierRequestBody, classifyCompany, type ClassifyCompanyDeps } from '../classify-company';
+import { canonicalUrl, extractCitedTextsByUrl, extractSearchResultUrls, extractSubmission, verifySubmission } from '../evidence-verifier';
+import { estimateClassifierCost, resolveModelPrice, WEB_SEARCH_USD_PER_REQUEST } from '../cost';
+import { buildClassifierRequestBody, classifyCompany, isOffsiteRedirect, type ClassifyCompanyDeps } from '../classify-company';
 import {
   buildClassificationMetadata,
   mergeClassificationIntoMetadata,
   needsClaudeClassification,
   type ClassifiableCandidateRow,
 } from '../classification-metadata';
-import { buildClassifierUsageLog, classifyBatchCandidates, type ClassifyBatchDeps } from '../classify-batch-candidates';
+import {
+  buildClassifierUsageLog,
+  classifyBatchCandidates,
+  CLASSIFIER_MAX_COMPANIES_PER_RUN,
+  CLASSIFIER_RUN_DEADLINE_MS,
+  type ClassifyBatchDeps,
+} from '../classify-batch-candidates';
 import { runAnthropicConversation, AnthropicApiError } from '../anthropic-messages-client';
 import { SUBMIT_TOOL_NAME } from '../prompt';
 import type { ClassifierCatalogIndustry, CompanyClassificationResult, RawClassifierSubmission } from '../types';
@@ -121,6 +127,7 @@ const COMPANY = {
 };
 
 const MODEL = 'claude-haiku-4-5-20251001';
+const NOW_MS = Date.parse('2026-09-29T12:00:00.000Z');
 
 // ─── A. Texto de la página ───────────────────────────────────────────────────
 
@@ -242,30 +249,29 @@ describe('B. verifySubmission', () => {
 
 // ─── C. Costo ────────────────────────────────────────────────────────────────
 
-describe('C. estimateClassifierCostUsd', () => {
-  it('suma tokens + caché + US$0,01 por búsqueda', () => {
-    const noSearch = estimateClassifierCostUsd(
-      { inputTokens: 1_000_000, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, webSearchRequests: 0 },
-      MODEL,
-    );
-    const withSearch = estimateClassifierCostUsd(
-      { inputTokens: 1_000_000, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, webSearchRequests: 3 },
-      MODEL,
-    );
-    assert.ok(noSearch > 0);
-    assert.equal(Math.round((withSearch - noSearch) * 1e6), Math.round(3 * WEB_SEARCH_USD_PER_REQUEST * 1e6));
+describe('C. estimateClassifierCost', () => {
+  const zero = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, webSearchRequests: 0 };
+
+  it('Haiku 4.5 con fecha usa US$1/US$5 (prefijo, no ID exacto)', () => {
+    const c = estimateClassifierCost({ ...zero, inputTokens: 1_000_000, outputTokens: 1_000_000 }, MODEL);
+    assert.equal(c.usd, 6);
+    assert.equal(c.pricingSource, 'table');
   });
 
-  it('la lectura de caché cuesta el 10 % de la entrada', () => {
-    const full = estimateClassifierCostUsd(
-      { inputTokens: 1_000_000, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, webSearchRequests: 0 },
-      MODEL,
-    );
-    const cached = estimateClassifierCostUsd(
-      { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 1_000_000, cacheCreationInputTokens: 0, webSearchRequests: 0 },
-      MODEL,
-    );
-    assert.equal(Math.round(cached * 1e6), Math.round(full * 0.1 * 1e6));
+  it('Sonnet 4.5 con fecha no cae al precio por defecto', () => {
+    assert.equal(resolveModelPrice('claude-sonnet-4-5-20250929').price.inputPerMillion, 3);
+  });
+
+  it('modelo desconocido → precio conservador y marcado como fallback', () => {
+    const r = resolveModelPrice('claude-sonnet-5');
+    assert.equal(r.source, 'fallback');
+  });
+
+  it('suma US$0,01 por búsqueda y caché al 10 %', () => {
+    const search = estimateClassifierCost({ ...zero, webSearchRequests: 3 }, MODEL);
+    assert.equal(search.usd, Math.round(3 * WEB_SEARCH_USD_PER_REQUEST * 1e6) / 1e6);
+    const cached = estimateClassifierCost({ ...zero, cacheReadInputTokens: 1_000_000 }, MODEL);
+    assert.equal(cached.usd, 0.1);
   });
 });
 
@@ -407,19 +413,19 @@ function row(overrides: Partial<ClassifiableCandidateRow> = {}): ClassifiableCan
 
 describe('F. selección y metadata', () => {
   it('sólo candidatos needs_review con sector o tamaño pendiente', () => {
-    assert.equal(needsClaudeClassification(row(), { force: false }), true);
-    assert.equal(needsClaudeClassification(row({ status: 'approved' }), { force: false }), false);
+    assert.equal(needsClaudeClassification(row(), { force: false, nowMs: NOW_MS }), true);
+    assert.equal(needsClaudeClassification(row({ status: 'approved' }), { force: false, nowMs: NOW_MS }), false);
     assert.equal(
-      needsClaudeClassification(row({ metadata: { target_completeness: { failed_conditions: ['duplicate_status'] } } }), { force: false }),
+      needsClaudeClassification(row({ metadata: { target_completeness: { failed_conditions: ['duplicate_status'] } } }), { force: false, nowMs: NOW_MS }),
       false,
     );
-    assert.equal(needsClaudeClassification(row({ website: null, domain: null }), { force: false }), false);
+    assert.equal(needsClaudeClassification(row({ website: null, domain: null }), { force: false, nowMs: NOW_MS }), false);
   });
 
   it('no repite un candidato ya clasificado salvo force', () => {
     const classified = row({ metadata: { ...row().metadata, claude_classification: { outcome: 'classified' } } });
-    assert.equal(needsClaudeClassification(classified, { force: false }), false);
-    assert.equal(needsClaudeClassification(classified, { force: true }), true);
+    assert.equal(needsClaudeClassification(classified, { force: false, nowMs: NOW_MS }), false);
+    assert.equal(needsClaudeClassification(classified, { force: true, nowMs: NOW_MS }), true);
   });
 
   it('merge no muta la metadata original', () => {
@@ -451,6 +457,7 @@ function batchDeps(overrides: Partial<ClassifyBatchDeps> = {}) {
     logUsage: async (input) => (logs.push(input), true),
     saveClassification: async (id, c) => (saves.push({ id, c }), true),
     nowIso: () => '2026-09-29T00:00:00.000Z',
+    nowMs: () => NOW_MS,
     ...overrides,
   };
   return { d, logs, saves };
@@ -464,7 +471,10 @@ describe('G. classifyBatchCandidates', () => {
     if (!s.ok) return;
     assert.equal(s.considered, 3);
     assert.equal(s.classified, 1);
-    assert.equal(saves.length, 1);
+    assert.equal(s.remaining, 0);
+    // 1 marca «en proceso» + 1 sugerencia final
+    assert.equal(saves.length, 2);
+    assert.equal((saves[0].c as { outcome: string }).outcome, 'in_progress');
     assert.equal(logs.length, 1);
     const log = logs[0] as { provider_key: string; operation_key: string; batch_id: string; estimated_cost_usd: number };
     assert.equal(log.provider_key, 'anthropic');
@@ -500,7 +510,7 @@ describe('G. classifyBatchCandidates', () => {
     if (!s.ok) return;
     assert.equal(s.classified, 1);
     assert.equal(s.failed, 1);
-    assert.equal(saves.length, 2);
+    assert.equal(saves.length, 4);
   });
 
   it('fallo al leer candidatos → candidates_unavailable', async () => {
@@ -515,5 +525,170 @@ describe('G. classifyBatchCandidates', () => {
       isOperatingCompany: null, pageFinalUrl: null, usage: null, errorCode: 'timeout', durationMs: 1,
     };
     assert.equal(buildClassifierUsageLog(result, { batchId: 'b', triggeredBy: null, classifiedAt: 'x' }), null);
+  });
+});
+
+// ─── H. Correcciones de la revisión ──────────────────────────────────────────
+
+describe('H1. cita de búsqueda: comprobada vs no comprobada', () => {
+  const pageText = extractVisibleText(PAGE_HTML);
+  const LI = 'https://pe.linkedin.com/company/clinica-san-felipe';
+  const base = { pageUrls: [PAGE_URL], pageText, searchResultUrls: [LI] };
+
+  it('sin cited_text ni descarga → source_listed (la UI dice «no comprobada»)', () => {
+    const v = verifySubmission(submission(), CATALOG, base, SALUD_ID);
+    assert.equal(v.employeeRange?.verification, 'source_listed');
+  });
+
+  it('la cita coincide con el cited_text de la búsqueda → quote_verified', () => {
+    const cited = new Map([[canonicalUrl(LI)!, ['Tamaño de la empresa 1001-5000 empleados']]]);
+    const v = verifySubmission(submission(), CATALOG, { ...base, citedTextsByUrl: cited }, SALUD_ID);
+    assert.equal(v.employeeRange?.verification, 'quote_verified');
+  });
+
+  it('extrae cited_text de las citas de los bloques de texto', () => {
+    const map = extractCitedTextsByUrl([
+      { type: 'text', text: 'x', citations: [{ type: 'web_search_result_location', url: LI, cited_text: 'abc' }] },
+    ]);
+    assert.deepEqual(map.get(canonicalUrl(LI)!), ['abc']);
+  });
+
+  it('cita demasiado corta en fuente de búsqueda → descartada', () => {
+    const v = verifySubmission(
+      submission({ employee_range: { ...submission().employee_range, quote: '500+' } }),
+      CATALOG,
+      base,
+      SALUD_ID,
+    );
+    assert.equal(v.employeeRange, null);
+    assert.equal(v.rejected[0].reason, 'missing_quote');
+  });
+
+  it('classifyCompany descarga la fuente de búsqueda y, si la cita está, la da por comprobada', async () => {
+    const fetched: string[] = [];
+    const r = await classifyCompany(
+      { company: COMPANY, catalog: CATALOG, model: MODEL },
+      deps({
+        fetchPage: async (url) => {
+          fetched.push(url);
+          if (url === LI) return page({ requestedUrl: LI, finalUrl: LI, html: '<p>Empresa con 1001-5000 empleados en Perú</p>' });
+          return page();
+        },
+      }),
+    );
+    assert.deepEqual(fetched, ['clinicasanfelipe.com', LI]);
+    assert.equal(r.employeeRange?.verification, 'quote_verified');
+  });
+});
+
+describe('H2. redirección a otro dominio', () => {
+  it('detecta redirección fuera del dominio', () => {
+    assert.equal(isOffsiteRedirect('clinica.pe', 'https://www.facebook.com/clinica'), true);
+    assert.equal(isOffsiteRedirect('clinica.pe', 'https://www.clinica.pe/inicio'), false);
+    assert.equal(isOffsiteRedirect('clinica.pe', 'https://es.clinica.pe/'), false);
+  });
+
+  it('no gasta en Claude si el sitio redirige a otro dominio', async () => {
+    let called = false;
+    const r = await classifyCompany(
+      { company: COMPANY, catalog: CATALOG, model: MODEL },
+      deps({
+        fetchPage: async () => page({ finalUrl: 'https://directorio.example/clinica' }),
+        runConversation: async () => ((called = true), modelResponse(submission())),
+      }),
+    );
+    assert.equal(r.outcome, 'website_redirected_offsite');
+    assert.equal(called, false);
+  });
+});
+
+describe('H3. segundo turno forzado si Claude no entrega', () => {
+  it('reintenta una vez con tool_choice forzado y suma el uso', async () => {
+    const bodies: Array<{ tool_choice?: unknown; messages: unknown[] }> = [];
+    let n = 0;
+    const r = await classifyCompany(
+      { company: COMPANY, catalog: CATALOG, model: MODEL },
+      deps({
+        runConversation: async (body) => {
+          bodies.push(body);
+          n += 1;
+          if (n === 1) return { ...modelResponse(submission()), content: [{ type: 'text', text: 'pienso…' }], stopReason: 'end_turn' };
+          return modelResponse(submission(), ['https://pe.linkedin.com/company/clinica-san-felipe'], 0);
+        },
+      }),
+    );
+    assert.equal(bodies.length, 2);
+    assert.deepEqual(bodies[1].tool_choice, { type: 'tool', name: SUBMIT_TOOL_NAME });
+    assert.equal(bodies[1].messages.length, 3);
+    assert.equal(r.outcome, 'classified');
+    assert.equal(r.usage?.inputTokens, 8000);
+  });
+});
+
+describe('H4. reintentos, reclamos y topes de la corrida', () => {
+  it('un error pasajero se puede reintentar; un resultado final no', () => {
+    const transient = row({ metadata: { ...row().metadata, claude_classification: { outcome: 'model_error' } } });
+    const unreachable = row({ metadata: { ...row().metadata, claude_classification: { outcome: 'website_unreachable' } } });
+    const final = row({ metadata: { ...row().metadata, claude_classification: { outcome: 'nothing_verifiable' } } });
+    assert.equal(needsClaudeClassification(transient, { force: false, nowMs: NOW_MS }), true);
+    assert.equal(needsClaudeClassification(unreachable, { force: false, nowMs: NOW_MS }), true);
+    assert.equal(needsClaudeClassification(final, { force: false, nowMs: NOW_MS }), false);
+  });
+
+  it('una marca «en proceso» reciente bloquea; una vieja no', () => {
+    const fresh = row({
+      metadata: { ...row().metadata, claude_classification: { outcome: 'in_progress', started_at: new Date(NOW_MS - 60_000).toISOString() } },
+    });
+    const stale = row({
+      metadata: { ...row().metadata, claude_classification: { outcome: 'in_progress', started_at: new Date(NOW_MS - 3_600_000).toISOString() } },
+    });
+    assert.equal(needsClaudeClassification(fresh, { force: false, nowMs: NOW_MS }), false);
+    assert.equal(needsClaudeClassification(stale, { force: false, nowMs: NOW_MS }), true);
+  });
+
+  it('si otra corrida ya reclamó el candidato, no se paga', async () => {
+    let classifyCalls = 0;
+    const { d } = batchDeps({
+      saveClassification: async () => false,
+      classify: async (company, catalog, active) => {
+        classifyCalls += 1;
+        return classifyCompany({ company, catalog, model: active.model }, deps());
+      },
+    });
+    const s = await classifyBatchCandidates({ batchId: 'b', triggeredBy: null }, d);
+    assert.equal(classifyCalls, 0);
+    assert.equal(s.ok && s.claimedElsewhere, 1);
+  });
+
+  it('respeta el tope de empresas por corrida y reporta lo que queda', async () => {
+    const many = Array.from({ length: CLASSIFIER_MAX_COMPANIES_PER_RUN + 5 }, (_, i) => row({ id: `c-${i}` }));
+    const { d } = batchDeps({ loadCandidates: async () => many });
+    const s = await classifyBatchCandidates({ batchId: 'b', triggeredBy: null }, d);
+    assert.equal(s.ok && s.classified, CLASSIFIER_MAX_COMPANIES_PER_RUN);
+    assert.equal(s.ok && s.remaining, 5);
+  });
+
+  it('pasado el tiempo límite no empieza empresas nuevas', async () => {
+    let clock = NOW_MS;
+    const many = Array.from({ length: 10 }, (_, i) => row({ id: `c-${i}` }));
+    const { d } = batchDeps({
+      loadCandidates: async () => many,
+      nowMs: () => clock,
+      classify: async (company, catalog, active) => {
+        clock += CLASSIFIER_RUN_DEADLINE_MS; // cada empresa "tarda" todo el presupuesto
+        return classifyCompany({ company, catalog, model: active.model }, deps());
+      },
+    });
+    const s = await classifyBatchCandidates({ batchId: 'b', triggeredBy: null }, d);
+    assert.ok(s.ok);
+    if (!s.ok) return;
+    assert.ok(s.classified <= 4, `empezó ${s.classified}`);
+    assert.equal(s.remaining, 10 - s.classified);
+  });
+
+  it('el log de uso lleva pricing_source', async () => {
+    const { d, logs } = batchDeps();
+    await classifyBatchCandidates({ batchId: 'b', triggeredBy: null }, d);
+    assert.equal((logs[0] as { metadata: { pricing_source: string } }).metadata.pricing_source, 'table');
   });
 });

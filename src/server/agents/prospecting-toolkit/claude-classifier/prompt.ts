@@ -1,8 +1,9 @@
 /**
  * Agente 1 · Clasificador Claude — prompt y tool estricto (puro).
  *
- * El catálogo va en el system prompt con cache_control: es idéntico para todas
- * las empresas de una corrida y se cobra una sola vez a precio completo.
+ * El catálogo va en el system prompt con cache_control. Sólo ahorra si el prefijo
+ * supera el mínimo cacheable del modelo; con 12 macroindustrias casi seguro no lo
+ * supera y la marca no tiene efecto (tampoco cuesta nada).
  */
 
 import type { ClassifierCatalogIndustry, ClassifierCompanyInput } from './types';
