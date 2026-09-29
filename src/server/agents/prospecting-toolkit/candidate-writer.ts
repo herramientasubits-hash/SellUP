@@ -89,7 +89,10 @@ import {
 // DENTRO de este lote; esto dedupea contra TODOS los lotes de TODOS los
 // vendedores. Complementario, no sustituto: una fila puede sobrevivir al
 // registro de lote y aun así perder la carrera aquí.
-import { deriveGlobalIdentityClaims } from "./global-identity-claims";
+import {
+  deriveGlobalIdentityClaims,
+  isGlobalIdentityClaimableStatus,
+} from "./global-identity-claims";
 import { claimGlobalCompanyIdentities } from "@/server/prospect-batches/global-identity-claims-store";
 // AGENT1-CUT3B4 §§ 10/20 — el vallado optimista y su bucle de reintento, los
 // MISMOS que usan los otros dos escritores. Aquí no vive ninguna política de
@@ -3718,7 +3721,13 @@ export async function writeProspectingCandidates(
     //
     // Degrada CERRADO (`degraded: true`, p. ej. migración 140 ausente): ningún
     // candidato se trata como duplicado por un fallo de infraestructura.
-    const globalClaims = deriveGlobalIdentityClaims(identityEvidence);
+    //
+    // 🔴 AGENT1-CLAIMS-ONLY-LIVE-CANDIDATES-1 — sólo una fila VIVA reclama. Una
+    // insertada ya como `duplicate`/`discarded` no pasa nunca por el UPDATE que
+    // libera (disparador de 140): su reclamo apartaría la empresa para siempre.
+    const globalClaims = isGlobalIdentityClaimableStatus(completenessAdjustedStatus)
+      ? deriveGlobalIdentityClaims(identityEvidence)
+      : [];
     if (globalClaims.length > 0) {
       const globalClaimOutcome = await claimGlobalCompanyIdentities(admin, batchId, [
         { candidateId: createdCandidateId, claims: globalClaims },

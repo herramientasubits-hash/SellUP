@@ -5,12 +5,16 @@
  * (`@/server/agents/prospect-intake`).
  *
  * Builds the injected `OfficialSourceResolver[]` the pure core hands to
- * `enrichNormalizedProspectWithOfficialSources`. Today that is exactly ONE
- * resolver — Colombia (co_siis) name→NIT. No promise of MX/PE/EC/… enrichment
- * is made here; unsupported countries fall through to the shared
- * "unsupported" result (soft warning) automatically.
+ * `enrichNormalizedProspectWithOfficialSources`. Today that is one resolver
+ * per supported country: Colombia (co_siis) name→NIT and República Dominicana
+ * (rd_dgii_bulk) name→RNC. No promise of MX/PE/EC/… enrichment is made here;
+ * unsupported countries fall through to the shared "unsupported" result (soft
+ * warning) automatically.
  *
- * Safe client: the co_siis read is RLS-locked to `service_role`, so it uses
+ * The factory keeps its historical name `buildColombiaOfficialSourceResolvers`
+ * because callers and guard tests import it by that name.
+ *
+ * Safe client: the snapshot reads are RLS-locked to `service_role`, so it uses
  * the approved, env-guarded `createSupabaseAdminClient` factory (NOT an
  * inline `createClient(process.env…)`). The client is used strictly
  * READ-ONLY (a bounded SELECT against `source_company_snapshots`). It is
@@ -32,6 +36,8 @@ import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import type { OfficialSourceResolver } from '@/server/agents/prospect-intake';
 import { createColombiaOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/colombia-official-source-resolver';
 import { buildColombiaSnapshotQuery } from '@/server/prospect-batches/colombia-snapshot-query';
+import { createDominicanOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/dominican-republic-official-source-resolver';
+import { buildDominicanSnapshotQuery } from '@/server/prospect-batches/dominican-republic-snapshot-query';
 
 /**
  * Build the read-only official-source resolvers shared by every discovery
@@ -51,6 +57,9 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
   return [
     createColombiaOfficialSourceResolver({
       querySnapshots: buildColombiaSnapshotQuery(snapshotClient),
+    }),
+    createDominicanOfficialSourceResolver({
+      querySnapshots: buildDominicanSnapshotQuery(snapshotClient),
     }),
   ];
 }
