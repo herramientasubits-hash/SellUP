@@ -6164,3 +6164,13 @@ jobs:
       # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
       - name: Run Agent 1 continuation provider-seen rehydrate tests
         run: npm run test:a1-continuation-provider-seen-rehydrate
+
+      # AGENT1-COUNTRY-EVIDENCE-MULTICOUNTRY-1 - la evidencia de pais deja de ser
+      # "ausente" fuera de Colombia y Argentina: `evaluateCountryEvidence` solo
+      # implementaba CO y AR, y las 282 organizaciones de Apollo de Mexico x
+      # Tecnologia (Produccion 2026-09-29) salieron sin evidencia, incluidas las
+      # 109 con dominio .mx. Fixture con las 282 reales.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 country evidence multicountry tests
+        run: npm run test:a1-country-evidence-multicountry
