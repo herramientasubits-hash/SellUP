@@ -6134,3 +6134,12 @@ jobs:
       # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
       - name: Run Agent 1 global company identity claims tests
         run: npm run test:a1-global-company-identity-claims
+
+      # AGENT1-LUSHA-GLOBAL-IDENTITY-CLAIMS-1 - la ruta de Lusha tambien respeta
+      # "una empresa, un vendedor" (migracion 140): relee por id lo que la valla
+      # confirmo, reclama con el cliente administrativo y reconoce a la perdedora
+      # por su id de Lusha, nunca por el orden de candidateIds.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 Lusha global identity claims tests
+        run: npm run test:a1-lusha-global-identity-claims
