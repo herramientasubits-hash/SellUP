@@ -173,6 +173,14 @@ jobs:
       - name: Run Apollo provider attempts tests
         run: npm run test:apollo-provider-attempts
 
+      # AGENT1-CLAUDE-CLASSIFIER-1 - Claude sugiere macroindustria y tamano con
+      # cita y fuente para candidatos "para revision"; solo escribe
+      # metadata.claude_classification, nunca el estado. Flag apagada.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 Claude classifier tests
+        run: npm run test:a1-claude-classifier
+
       # Q3F-5BB.11F.2 — Apollo per-candidate provider_trace + source_trace.
       # Guards that each inserted candidate row carries an additive
       # metadata.source_provider='apollo', metadata.provider_trace (attempt_index=0,
