@@ -77,3 +77,30 @@ export function deriveGlobalIdentityClaims(
 
   return claims;
 }
+
+/**
+ * AGENT1-CLAIMS-ONLY-LIVE-CANDIDATES-1 — los status que LIBERAN reclamos.
+ *
+ * Son exactamente los del disparador de la migración 140
+ * (`IF NEW.status IN ('discarded', 'duplicate')`). Una prueba estática compara
+ * esta lista con el SQL para que no puedan divergir.
+ */
+export const GLOBAL_IDENTITY_RELEASING_STATUSES = ['discarded', 'duplicate'] as const;
+
+/**
+ * ¿Puede una fila con este status ocupar señales globales?
+ *
+ * El disparador sólo libera en un UPDATE de status. Una fila que se INSERTA ya
+ * como `duplicate` (p. ej. «ya existe en HubSpot») o `discarded` nunca pasa por
+ * ese UPDATE, así que si reclamara, su reclamo no se liberaría jamás y la
+ * empresa quedaría apartada para todos. Medido en Producción el 2026-09-29:
+ * World Vision Perú (lote `701ffe78`), insertada como `duplicate` y con 2
+ * reclamos activos.
+ *
+ * Un status ausente o desconocido NO reclama: reclamar de más aparta empresas
+ * para siempre; reclamar de menos sólo deja la carrera como estaba antes de 140.
+ */
+export function isGlobalIdentityClaimableStatus(status: unknown): boolean {
+  if (typeof status !== 'string' || status.trim() === '') return false;
+  return !(GLOBAL_IDENTITY_RELEASING_STATUSES as readonly string[]).includes(status.trim());
+}
