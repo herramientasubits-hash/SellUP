@@ -3002,8 +3002,14 @@ export async function runApolloTwoRoundWizardDiscovery(
         // resolución es por nombre visible, la MISMA puerta que usa el redactor
         // de la consulta, para que las dos no puedan discrepar sobre qué familias
         // existen.
+        //
+        // 🔴 AGENT1-APOLLO-SINGLE-ROUND-ALL-FAMILIES-1 — y sólo si hay una ronda 2
+        // que busque la segunda familia. Con UNA ronda, repartir familias dejaría
+        // la segunda sin buscar nunca: sin familias, la ronda 1 redacta con TODOS
+        // los `specific` de la macro (la unión, ≤ 17 etiquetas en las 12 macros,
+        // bajo el tope de 25 del contrato).
         macroQueryFamilies:
-          discoveryTaxonomy.mode === 'macro_industry'
+          discoveryTaxonomy.mode === 'macro_industry' && config.maxRounds >= 2
             ? macroIndustryQueryFamilyKeys(
                 resolveMacroIndustryIdentity({ displayName: input.industry })?.definition ?? null,
               )
