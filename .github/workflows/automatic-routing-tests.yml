@@ -6198,3 +6198,12 @@ jobs:
       # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
       - name: Run Agent 1 global identity claims only-live tests
         run: npm run test:a1-global-identity-claims-only-live
+
+      # AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-SCOPE-1 - la exclusion de dominios de
+      # Apollo (bandera apagada) conoce los candidatos vivos de SellUp, deja de
+      # ocultar lo que un vendedor descarto y publica un fallo de lectura como
+      # fallo, no como memoria vacia.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 Apollo seen-domain exclusion scope tests
+        run: npm run test:a1-apollo-seen-domain-exclusion-scope

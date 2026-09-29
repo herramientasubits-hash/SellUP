@@ -7,6 +7,10 @@
  *
  * ── 🔴 Existe, está probada, y NO está encendida ─────────────────────────────
  *
+ * (Nota 2026-09-29, AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-SCOPE-1: este bloque
+ * quedó DESACTUALIZADO — `resolveProviderSeenStore()` ya devuelve este store en
+ * Producción. Se conserva el texto original como historia.)
+ *
  * `resolveProviderSeenStore()` sigue devolviendo el NO-OP. Este módulo no lo
  * sustituye, no se importa desde ningún camino de Producción y una prueba estática
  * lo comprueba. Encenderla es una decisión de la dueña que exige, en este orden:
@@ -133,7 +137,13 @@ export function createSupabaseProviderSeenStore(client: SupabaseClient): Provide
           .order('id', { ascending: true })
           .limit(limit);
 
-        if (error || !data) return [];
+        // 🔴 AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-SCOPE-1 — un fallo de lectura se
+        // LANZA. Devolver `[]` lo disfrazaba de «tabla vacía»: el gate lo publicaba
+        // como `readOutcome: 'succeeded'` y la corrida afirmaba que no había visto
+        // nada. El gate ya captura la excepción y la nombra
+        // (`PROVIDER_SEEN_LOAD_FAILED`), y sigue siendo fail-open.
+        if (error) throw new Error(`provider_seen_load_failed: ${error.message ?? 'unknown'}`);
+        if (!data) throw new Error('provider_seen_load_failed: no_data');
 
         const records: ProviderSeenRecord[] = [];
         // `select()` con columnas por cadena no puede inferir la forma; el doble paso
@@ -143,8 +153,8 @@ export function createSupabaseProviderSeenStore(client: SupabaseClient): Provide
           if (record !== null) records.push(record);
         }
         return records;
-      } catch {
-        return [];
+      } catch (error) {
+        throw error instanceof Error ? error : new Error('provider_seen_load_failed');
       }
     },
 

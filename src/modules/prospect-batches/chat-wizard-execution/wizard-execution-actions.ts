@@ -43,6 +43,8 @@ import {
   runPrePaidNoveltyDiscovery,
   type PrePaidNoveltyDiscoveryOutcome,
 } from '@/server/prospect-batches/country-source-discovery/run-prepaid-novelty-discovery.server';
+import { loadApolloExclusionSellupDomains } from '@/server/prospect-batches/provider-seen/apollo-exclusion-sellup-domains.server';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import type {
   WizardExecutionActionResult,
   ResolvedWizardExecution,
@@ -291,6 +293,16 @@ export type WizardExecutionDeps = {
    * EXACTAMENTE el previo al hito. Los tests que sólo ejercitan Tavily/Apollo no
    * cambian.
    */
+  /**
+   * AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-SCOPE-1 — lo que SellUp sabe de cada
+   * dominio al decidir qué pedirle a Apollo que no devuelva: candidatos VIVOS del
+   * país y, de lo ya visto, lo que sólo está DESCARTADO. Sólo se llama con la
+   * exclusión encendida. Opcional: sin ella la exclusión es la de antes.
+   */
+  loadApolloExclusionSellupDomains?: (input: {
+    countryCode: string;
+    seenDomains: readonly string[];
+  }) => Promise<{ liveDomains: string[]; releasedDomains: string[]; degraded: boolean }>;
   runPrePaidNoveltyDiscovery?: (input: {
     countryCode: string;
     macroIndustryKey: string | null;
@@ -567,6 +579,10 @@ export async function executeProspectWizardGenerationAction(
     // o la fuente gratuita cierra el objetivo entero —y Apollo no corre ni se
     // reserva nada— o no aporta a ESTA corrida y Apollo corre con el objetivo
     // completo. Ver la cabecera de la constante y la del runner.
+    // SCOPE-1 — cliente ADMINISTRATIVO: la regla es global y la sesión del
+    // vendedor sólo ve sus lotes (RLS filtraría en silencio).
+    loadApolloExclusionSellupDomains: (input) =>
+      loadApolloExclusionSellupDomains(createSupabaseAdminClient(), input),
     runPrePaidNoveltyDiscovery: (input) =>
       runPrePaidNoveltyDiscovery(supabase, {
         countryCode: input.countryCode,
@@ -1635,14 +1651,28 @@ export async function executeProspectWizardGeneration(
   // devuelva. Se resuelve UNA vez, aquí, y viaja congelado en la entrada del
   // runner (y con ella en la continuación). Apagada la bandera ⇒ lista vacía y
   // la petición es la de siempre.
+  const apolloSeenDomainExclusionEnabled = isAgent1ApolloSeenDomainExclusionEnabled();
+  // Una memoria que no se leyó con éxito no puede afirmar que algo se vio.
+  const apolloExclusionSeenMemory =
+    prePaidNovelty !== null && prePaidNovelty.providerSeenLoad.readOutcome === 'succeeded'
+      ? prePaidNovelty.providerSeenMemory
+      : null;
+  // SCOPE-1 — sólo con la exclusión encendida: apagada, ni una consulta más.
+  const apolloExclusionSellup =
+    apolloSeenDomainExclusionEnabled && deps.loadApolloExclusionSellupDomains
+      ? await deps
+          .loadApolloExclusionSellupDomains({
+            countryCode: req.countryCode,
+            seenDomains: [...(apolloExclusionSeenMemory?.normalizedDomains ?? [])],
+          })
+          .catch(() => null)
+      : null;
   const apolloDomainExclusion = resolveApolloSeenDomainExclusion({
-    enabled: isAgent1ApolloSeenDomainExclusionEnabled(),
+    enabled: apolloSeenDomainExclusionEnabled,
     authorityDomains: prePaidNovelty?.providerExclusionPlan.domains.dedupeAuthorityValues ?? [],
-    // Una memoria que no se leyó con éxito no puede afirmar que algo se vio.
-    providerSeenMemory:
-      prePaidNovelty !== null && prePaidNovelty.providerSeenLoad.readOutcome === 'succeeded'
-        ? prePaidNovelty.providerSeenMemory
-        : null,
+    providerSeenMemory: apolloExclusionSeenMemory,
+    sellupLiveDomains: apolloExclusionSellup?.liveDomains ?? [],
+    releasedDomains: apolloExclusionSellup?.releasedDomains ?? [],
     now: new Date(),
   });
 

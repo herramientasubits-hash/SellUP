@@ -319,7 +319,11 @@ describe('§ 5 — cableado', () => {
     const source = read(
       'src/modules/prospect-batches/chat-wizard-execution/wizard-execution-actions.ts',
     );
-    assert.match(source, /enabled:\s*isAgent1ApolloSeenDomainExclusionEnabled\(\)/);
+    assert.match(
+      source,
+      /const apolloSeenDomainExclusionEnabled\s*=\s*isAgent1ApolloSeenDomainExclusionEnabled\(\)/,
+    );
+    assert.match(source, /enabled:\s*apolloSeenDomainExclusionEnabled,/);
     assert.match(source, /dedupeAuthorityValues/);
     assert.match(source, /excludedDomains:\s*apolloDomainExclusion\.domains/);
   });

@@ -125,6 +125,11 @@ export type ProviderSeenWriteResult = {
 };
 
 export type ProviderSeenStore = {
+  /**
+   * `[]` = leído con éxito y vacío. 🔴 Un fallo de lectura LANZA
+   * (AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-SCOPE-1): el único llamador, el gate
+   * previo al pago, lo captura y lo publica como `PROVIDER_SEEN_LOAD_FAILED`.
+   */
   load(query: ProviderSeenLoadQuery): Promise<readonly ProviderSeenRecord[]>;
   record(input: ProviderSeenWriteInput): Promise<ProviderSeenWriteResult>;
   /**
