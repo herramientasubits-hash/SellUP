@@ -203,6 +203,21 @@ describe('createDominicanOfficialSourceResolver', () => {
     assert.equal(identity.officialSource.status, 'not_found');
   });
 
+  it('a row with a different core is discarded even if the read returns it', async () => {
+    // Defence in depth: the resolver re-checks every returned row, so a looser
+    // read can never turn a different company into a strong identity.
+    const resolver = createDominicanOfficialSourceResolver({
+      querySnapshots: async () => [row('131735444', 'GRUPO RAMOS ARIAS SRL')],
+    });
+    const identity = await enrichNormalizedProspectWithOfficialSources(
+      makeCandidate({ canonicalName: 'Grupo Ramos' }),
+      DO_CRITERIA,
+      [resolver],
+    );
+    assert.equal(identity.strongIdentityAvailable, false);
+    assert.equal(identity.officialSource.status, 'not_found');
+  });
+
   it('the same RNC repeated in several rows counts once', async () => {
     const { identity } = await enrich(makeCandidate(), [
       row('131735444', 'GRUPO RAMOS ARIAS SRL'),
