@@ -16,6 +16,11 @@
  * La ACTIVACIÓN del segundo proveedor y el veredicto completo/parcial. Esas dos
  * lecturas no son paradas de búsqueda, y este corte no las toca.
  *
+ * 🔴 AGENT1-LUSHA-STOP-AT-TARGET-1 (2026-09-29) — excepción ENTRE RAMAS de Lusha:
+ * con el hueco de compra cerrado, Lusha ya no abre otra rama (decisión de la
+ * dueña). La rama empezada sigue terminando sus páginas. Ver
+ * `lusha-multibranch-executor.test.ts` § 23.
+ *
  * Sin Supabase, sin Apollo, sin Lusha, sin red. 0 créditos, 0 proveedores reales.
  */
 

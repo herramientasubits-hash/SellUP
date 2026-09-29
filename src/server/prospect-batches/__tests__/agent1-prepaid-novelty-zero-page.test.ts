@@ -283,7 +283,9 @@ describe('§ 23 — recorrido real de la política nueva', () => {
   });
 
   it('🔴 F — cero únicas por dedupe entre ramas ya NO cierra la rama', async () => {
-    const shared = distinct(10, 'dup');
+    // Tres, no diez: el hueco (5, su techo) debe seguir ABIERTO tras la rama 0
+    // para que la rama 1 se abra (AGENT1-LUSHA-STOP-AT-TARGET-1).
+    const shared = distinct(3, 'dup');
     const { calls } = await run(
       [
         successResult(shared), successResult([]),
@@ -291,7 +293,7 @@ describe('§ 23 — recorrido real de la política nueva', () => {
       ],
       { plan: planWithBranches(2), targetGap: 5 },
     );
-    // La rama 0 se queda las diez; la rama 1 recibe LAS MISMAS y no aporta nada
+    // La rama 0 se queda las tres; la rama 1 recibe LAS MISMAS y no aporta nada
     // nuevo — pero eso ya no la cierra: agota sus dos páginas como cualquier otra.
     assert.equal(calls.length, 4, 'las dos ramas usan sus dos páginas');
   });
@@ -311,13 +313,17 @@ describe('§ 23 — recorrido real de la política nueva', () => {
     assert.equal(res.usefulCandidatesCount, 2);
   });
 
-  it('🔴 X6.13 · H — el mínimo alcanzado no impide intentar las demás ramas', async () => {
+  it('🔴 STOP-AT-TARGET · H — con el mínimo alcanzado NO se abren las demás ramas', async () => {
     const { calls, res } = await run(
       [successResult(distinct(5, 'llena'))],
       { plan: planWithBranches(3), targetGap: 5 },
     );
-    assert.ok(calls.length > 1, '🔴 las ramas restantes se intentan');
+    // AGENT1-LUSHA-STOP-AT-TARGET-1 deshace X6.13 entre ramas: la rama 0 termina
+    // sus páginas y las ramas 1 y 2 no se piden.
+    assert.equal(calls.length, 2, 'sólo las páginas de la rama 0');
+    assert.ok(calls.every((c) => c.mainIndustryId === calls[0]?.mainIndustryId));
     assert.equal(res.usefulCandidatesCount, 5);
+    assert.equal(res.stopReason, 'purchase_gap_closed');
   });
 
   it('🔴 § 19 — una rama que no aporta NUNCA se reporta como parada de CORRIDA', async () => {
