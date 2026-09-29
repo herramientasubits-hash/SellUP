@@ -18,6 +18,7 @@ import {
   type ApolloContinuationWorkerDeps,
   type ApolloContinuationWorkerStats,
 } from './continuation-worker';
+import { serializePriorProviderSeen } from '@/modules/prospect-batches/provider-seen/provider-seen-memory-serialization';
 import { readTwoRoundCheckpoint } from './checkpoint.server';
 import {
   runApolloTwoRoundWizardDiscovery,
@@ -85,7 +86,14 @@ export async function enqueueApolloRoundContinuation(input: {
       idempotency_key: input.idempotencyKey,
       request_fingerprint: input.requestFingerprint,
       metadata: {
-        run_input: input.runInput,
+        // 🔴 `priorProviderSeen` lleva `Set`/`Map`, que JSON borra (`{}`): se
+        // encola como listas y `restoreContinuationRunInput` las reconstruye.
+        run_input: {
+          ...input.runInput,
+          ...(input.runInput.priorProviderSeen
+            ? { priorProviderSeen: serializePriorProviderSeen(input.runInput.priorProviderSeen) }
+            : {}),
+        },
         ...(input.runPolicy ? { run_policy: input.runPolicy } : {}),
       },
     });

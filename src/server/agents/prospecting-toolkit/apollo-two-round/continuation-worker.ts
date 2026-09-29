@@ -39,6 +39,7 @@ import {
   parseRunAcceptanceFacts,
   type RunAcceptanceFacts,
 } from '@/modules/prospect-batches/accepted-for-target';
+import { revivePriorProviderSeen } from '@/modules/prospect-batches/provider-seen/provider-seen-memory-serialization';
 
 /** Trabajo reclamado de la cola durable. */
 export type ApolloContinuationJob = {
@@ -392,8 +393,21 @@ export function restoreContinuationRunInput<TRunInput extends object>(
   runInput: TRunInput & { resolveExtraBatchMetadata?: ResolveExtraBatchMetadata | null };
   acceptanceRestored: boolean;
 } | null {
-  const runInput = metadata?.run_input;
-  if (!runInput || typeof runInput !== 'object') return null;
+  const stored = metadata?.run_input;
+  if (!stored || typeof stored !== 'object') return null;
+
+  // 🔴 AGENT1-CONTINUATION-PROVIDER-SEEN-REHYDRATE-1 — JSON también borró los
+  // `Set`/`Map` de la memoria provider-seen (quedaron `{}`), y al reanudar
+  // `memory.providerEntityIds.has(...)` lanzaba `TypeError`. Se reconstruyen aquí,
+  // igual que se reata la función de aceptación: lo que vuelve de la base es
+  // JSON, no el objeto que se encoló. Las filas encoladas antes de este corte
+  // traen `{}` y reviven como memoria vacía, que es lo único que dicen.
+  const prior = (stored as { priorProviderSeen?: unknown }).priorProviderSeen;
+  const runInput = (
+    prior === undefined || prior === null
+      ? stored
+      : { ...stored, priorProviderSeen: revivePriorProviderSeen(prior) }
+  ) as TRunInput;
 
   const facts = parseRunAcceptanceFacts(metadata?.run_policy?.acceptanceFacts);
   if (!facts) return { runInput, acceptanceRestored: false };

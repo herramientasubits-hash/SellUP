@@ -6155,3 +6155,12 @@ jobs:
         run: npm run test:a1-global-identity-claims:postgres
         env:
           SELLUP_REQUIRE_POSTGRES_HARNESS: 1
+
+      # AGENT1-CONTINUATION-PROVIDER-SEEN-REHYDRATE-1 - la memoria provider-seen
+      # (Set/Map) sobrevive a la cola de continuaciones: JSON la volvia {} y al
+      # reanudar `.has` lanzaba TypeError (Produccion 2026-09-29, Mexico x
+      # Tecnologia). Se guarda como listas y se reconstruye al restaurar.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 continuation provider-seen rehydrate tests
+        run: npm run test:a1-continuation-provider-seen-rehydrate
