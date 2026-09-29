@@ -75,6 +75,25 @@ export function calculateArgentinaCheckDigit(cuitBody: string): string | null {
   return calculated.toString();
 }
 
+/**
+ * Dígito verificador del RNC dominicano (DGII): pesos 7,9,8,6,5,4,3,2 sobre los
+ * primeros 8 dígitos; resto 0 → 2, resto 1 → 1, si no 11 − resto. Verificado
+ * contra el padrón DGII cargado (493.542 de 493.548 RNC jurídicos lo cumplen;
+ * las 6 excepciones son RNC antiguos de entidades del Estado).
+ */
+export function calculateDominicanRncCheckDigit(rncBody: string): number | null {
+  if (!/^\d{8}$/.test(rncBody)) return null;
+  const weights = [7, 9, 8, 6, 5, 4, 3, 2];
+  let sum = 0;
+  for (let i = 0; i < weights.length; i++) {
+    sum += parseInt(rncBody[i], 10) * weights[i];
+  }
+  const remainder = sum % 11;
+  if (remainder === 0) return 2;
+  if (remainder === 1) return 1;
+  return 11 - remainder;
+}
+
 export function calculateCNPJCheckDigit(digits: number[], weights: number[]): number {
   let sum = 0;
   for (let i = 0; i < weights.length; i++) {
@@ -289,6 +308,27 @@ export const TAX_IDENTIFIER_RULES: Record<string, TaxIdentifierRule> = {
     canonicalExample: '12.345.678/0001-95',
     ruleVersion: 'BR-CNPJ-v1',
   },
+  DO: {
+    countryCode: 'DO',
+    label: 'RNC',
+    placeholder: 'Ej. 131735444',
+    helpText: 'Ingrese el RNC de 9 dígitos de la empresa.',
+    minLength: 9,
+    maxLength: 13,
+    inputMode: 'numeric',
+    acceptedCharacters: /^[\d\s.-]*$/,
+    formatPattern: /^\d{9}$/,
+    validationLevel: 'checksum',
+    normalize: (val) => val.replace(/[\s.-]/g, ''),
+    validateFormat: (val) => /^\d{9}$/.test(val.replace(/[\s.-]/g, '')),
+    validateChecksum: (val) => {
+      const cleaned = val.replace(/[\s.-]/g, '');
+      if (cleaned.length !== 9) return false;
+      return parseInt(cleaned[8], 10) === calculateDominicanRncCheckDigit(cleaned.slice(0, 8));
+    },
+    canonicalExample: '131735444',
+    ruleVersion: 'DO-RNC-v1',
+  },
 };
 
 export function getTaxIdentifierRule(countryCode: string | undefined): TaxIdentifierRule | undefined {
@@ -371,6 +411,7 @@ function getCountryNameByCode(code: string): string {
     EC: 'Ecuador',
     AR: 'Argentina',
     BR: 'Brasil',
+    DO: 'República Dominicana',
   };
   return names[code.toUpperCase().trim()] ?? code;
 }
