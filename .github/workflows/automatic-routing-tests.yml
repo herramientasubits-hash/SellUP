@@ -6174,3 +6174,11 @@ jobs:
       # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
       - name: Run Agent 1 country evidence multicountry tests
         run: npm run test:a1-country-evidence-multicountry
+
+      # AGENT1-APOLLO-SINGLE-ROUND-ALL-FAMILIES-1 - con una sola ronda de Apollo
+      # (AGENT1_APOLLO_MAX_SEARCH_ROUNDS=1), la ronda 1 envia la union de todas
+      # las familias de etiquetas de la macro industria en vez de solo la primera.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 Apollo single round all families tests
+        run: npm run test:a1-apollo-single-round-all-families
