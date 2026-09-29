@@ -10,7 +10,8 @@
  * - query_only: ninguna evidencia en el candidato, pero la query contiene el país.
  * - weak: ninguna evidencia en ningún lado.
  *
- * Países soportados: CO (Colombia), AR (Argentina).
+ * Países soportados: CO (Colombia) y AR (Argentina) aquí; los otros 18 países
+ * del mago en `country-evidence-multicountry.ts` (AGENT1-COUNTRY-EVIDENCE-MULTICOUNTRY-1).
  * Sin llamadas externas. Sin writes. Sin LLM. Determinístico.
  *
  * ── 🔴 AGENT1-COUNTRY-EVIDENCE-CONTRACT-X6.2-A — qué mide y qué NO ───────────
@@ -38,6 +39,7 @@
  * actual de AR, de modo que cambiarlo tenga que ser deliberado.
  */
 
+import { evaluateMulticountryEvidence } from './country-evidence-multicountry';
 import { normalizeDomain } from './normalization';
 
 // ─── Tipos públicos ───────────────────────────────────────────────────────────
@@ -304,7 +306,11 @@ function evaluateColombia(input: {
 
 /**
  * Evalúa el nivel de evidencia de país en los datos del candidato.
- * Soporta Colombia (CO) y Argentina (AR). Para otros países retorna 'weak' sin warning.
+ *
+ * Colombia (CO) y Argentina (AR) conservan sus ramas de siempre. Los demás
+ * países del mago —AGENT1-COUNTRY-EVIDENCE-MULTICOUNTRY-1— se evalúan con la
+ * misma doctrina en `country-evidence-multicountry.ts`. Un país fuera de esa
+ * tabla sigue devolviendo 'weak' sin warning.
  */
 export function evaluateCountryEvidence(input: {
   website: string | null;
@@ -322,6 +328,17 @@ export function evaluateCountryEvidence(input: {
     return evaluateArgentina(input);
   }
 
-  // Otros países: no implementado aún — retorna sin penalizar
+  if (input.targetCountryCode !== null) {
+    const multicountry = evaluateMulticountryEvidence({
+      ...input,
+      hostname: resolveCountryEvidenceHostname(input.website, input.domain),
+      targetCountryCode: input.targetCountryCode,
+    });
+    if (multicountry !== null) return multicountry;
+  }
+
+  // 🔴 Un país fuera de la tabla. OJO: desde X6.2-A este `weak` SÍ penaliza
+  // (ausencia de evidencia ⇒ no cuenta ni autoriza gasto); el comentario que
+  // aquí decía «retorna sin penalizar» dejó de ser verdad en ese corte.
   return { evidenceLevel: 'weak', evidenceSources: [], warning: null };
 }

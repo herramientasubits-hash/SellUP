@@ -316,6 +316,27 @@ function foreignCountryOfDomain(
   return best;
 }
 
+/**
+ * AGENT1-COUNTRY-EVIDENCE-MULTICOUNTRY-1 — el sufijo NATIVO de `code` con el que
+ * termina el hostname, o `null`.
+ *
+ * Es la misma regla que usa `evaluateNonColombia` para su `native_tld`: gana el
+ * sufijo más largo, así que `empresa.com.co` nunca se lee como nativo de un país
+ * cuyo dominio acabe en `.co`. Se exporta para que el gate de EVIDENCIA de país
+ * mida con la misma vara que este gate de COMPATIBILIDAD, en vez de mantener una
+ * segunda lista de dominios que pueda divergir.
+ *
+ * Colombia no pasa por aquí (su `.co` desnudo tiene regla propia).
+ */
+export function resolveNativeCountryHostSuffix(hostname: string, code: string): string | null {
+  if (code === 'CO') return null;
+  const native = nativeSuffixFor(hostname, code);
+  // El propio sufijo no es el hostname de una empresa (`gob.mx` sí; `mx` no).
+  if (native === null || hostname === native.slice(1)) return null;
+  const foreign = foreignCountryOfDomain(hostname, code);
+  return foreign === null || native.length >= foreign.tld.length ? native : null;
+}
+
 function evaluateNonColombia(url: string, code: string): CountryCompatibility {
   const rules = COUNTRY_DOMAIN_RULES[code];
   if (!rules) {
