@@ -160,18 +160,22 @@ test('load — traduce filas y descarta la que no tuviera ninguna señal', async
   assert.equal(found[0]!.firstSeenCorrelation, 'run-1');
 });
 
-test('🔴 load — un error de persistencia devuelve memoria VACÍA y no lanza', async () => {
+// 🔴 AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-SCOPE-1 — antes estas dos pruebas fijaban
+// «un error devuelve memoria VACÍA y no lanza». Ese vacío era indistinguible de
+// una tabla vacía: el gate lo publicaba como `readOutcome: 'succeeded'`. Ahora el
+// store LANZA y el gate —su único llamador— lo nombra `PROVIDER_SEEN_LOAD_FAILED`
+// y sigue fail-open (ver `run-prepaid-novelty-gate.ts`, `loadProviderSeen`).
+test('🔴 load — un error de persistencia LANZA en vez de fingir memoria vacía', async () => {
   const { client } = createClientDouble({ selectError: { message: 'boom' } });
-  const found = await createSupabaseProviderSeenStore(client).load({ provider: 'lusha', limit: 10 });
-  // Memoria vacía ⇒ 0 aciertos ⇒ 0 exclusiones nuevas ⇒ el gasto de hoy. Degradación
-  // segura: nunca más cara que antes del PR.
-  assert.deepEqual([...found], []);
+  await assert.rejects(
+    createSupabaseProviderSeenStore(client).load({ provider: 'lusha', limit: 10 }),
+    /provider_seen_load_failed: boom/,
+  );
 });
 
-test('🔴 load — una excepción del transporte tampoco escapa', async () => {
+test('🔴 load — una excepción del transporte también se propaga', async () => {
   const { client } = createClientDouble({ throwOn: 'select' });
-  const found = await createSupabaseProviderSeenStore(client).load({ provider: 'lusha', limit: 10 });
-  assert.deepEqual([...found], []);
+  await assert.rejects(createSupabaseProviderSeenStore(client).load({ provider: 'lusha', limit: 10 }));
 });
 
 test('record — llama a la función de SQL con la forma que la migración espera', async () => {

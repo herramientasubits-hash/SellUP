@@ -16,6 +16,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   deriveGlobalIdentityClaims,
+  isGlobalIdentityClaimableStatus,
   type GlobalIdentityClaim,
 } from '@/server/agents/prospecting-toolkit/global-identity-claims';
 import {
@@ -171,10 +172,18 @@ export async function claimGlobalIdentitiesForPersistedCandidates(
     return { claimedElsewhere: [], degraded: true };
   }
 
+  // 🔴 AGENT1-CLAIMS-ONLY-LIVE-CANDIDATES-1 — sólo las filas VIVAS reclaman
+  // (ver `isGlobalIdentityClaimableStatus`). Una fila ya `duplicate` no puede
+  // además «perder» la carrera: no se le reclama nada.
+  const claimable = rows.filter((row) =>
+    isGlobalIdentityClaimableStatus((row as { status?: unknown }).status),
+  );
+  if (claimable.length === 0) return { claimedElsewhere: [], degraded: false };
+
   const outcome = await claimGlobalCompanyIdentities(
     client,
     batchId,
-    rows.map((row) => ({
+    claimable.map((row) => ({
       candidateId: row.id,
       claims: deriveGlobalIdentityClaims(toRegisteredBatchIdentity(row).evidence),
     })),
@@ -182,7 +191,7 @@ export async function claimGlobalIdentitiesForPersistedCandidates(
   if (outcome.degraded) return { claimedElsewhere: [], degraded: true };
 
   return {
-    claimedElsewhere: rows
+    claimedElsewhere: claimable
       .filter((row) => outcome.claimedElsewhereCandidateIds.has(row.id))
       .map((row) => ({ candidateId: row.id, providerCompanyId: readProviderCompanyId(row) })),
     degraded: false,
