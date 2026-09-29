@@ -22,15 +22,21 @@
  *
  * ── Qué se excluye ────────────────────────────────────────────────────────────
  *
- *   1. Lo que YA ES NUESTRO (`dedupeAuthorityValues` del plan): cuentas y
- *      candidatos de SellUp, dominios de HubSpot locales, lo aceptado por la
- *      fuente gratuita. Nunca pueden ser un candidato nuevo: siempre se excluyen.
+ *   1. Lo que YA ES NUESTRO: `dedupeAuthorityValues` del plan —hoy `accounts`
+ *      del país y lo aceptado por la fuente gratuita; 🔴 NO incluye HubSpot ni
+ *      candidatos, aunque este comentario lo afirmaba— más, desde
+ *      AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-SCOPE-1, los candidatos VIVOS de SellUp
+ *      en el país (`sellupLiveDomains`), de cualquier vendedor: con «una empresa,
+ *      un vendedor» nunca pueden volver a ser un candidato nuevo.
  *   2. Lo que PAGAMOS POR VER hace poco (memoria provider-seen, últimos
  *      `APOLLO_SEEN_EXCLUSION_COOLDOWN_DAYS`). 🔴 NO es autoridad de dedupe: ahí
  *      caen también empresas que sólo sobraron del objetivo o que un gate
  *      rechazó cuando tenía un defecto ya corregido. Por eso la exclusión es
  *      TEMPORAL: pasado el enfriamiento vuelven a aparecer y se evalúan con los
  *      gates de ese día. Sin fecha fiable, un dominio visto NO se excluye.
+ *      🔴 SCOPE-1 — y lo que en SellUp sólo existe DESCARTADO
+ *      (`releasedDomains`) tampoco: el descarte libera la empresa para los demás
+ *      vendedores, y ocultarla 30 días contradecía esa regla.
  *
  * Con tope, primero va lo nuestro y después lo visto más reciente. El orden
  * dentro de cada grupo es determinista: dos corridas idénticas piden lo mismo.
@@ -54,6 +60,10 @@ export type ApolloSeenDomainExclusionInput = {
   authorityDomains: readonly string[];
   /** Memoria provider-seen de Apollo; `null` ⇒ no se cargó. */
   providerSeenMemory: ProviderSeenMemory | null;
+  /** SCOPE-1 — candidatos VIVOS de SellUp en el país: se excluyen como lo nuestro. */
+  sellupLiveDomains?: readonly string[];
+  /** SCOPE-1 — vistos que en SellUp sólo están descartados: NO se excluyen. */
+  releasedDomains?: readonly string[];
   now: Date;
   cooldownDays?: number;
   cap?: number;
@@ -63,7 +73,11 @@ export type ApolloSeenDomainExclusionTelemetry = {
   enabled: boolean;
   sent: number;
   from_authority: number;
+  /** SCOPE-1 — de `from_authority`, cuántos vinieron de candidatos vivos (y no de cuentas). */
+  from_sellup_live: number;
   from_recent_seen: number;
+  /** SCOPE-1 — vistos que NO se excluyen porque en SellUp sólo están descartados. */
+  seen_released_by_discard: number;
   /** Vistas pero fuera del enfriamiento: pueden volver a aparecer. */
   seen_outside_cooldown: number;
   /** Vistas sin fecha fiable: no se excluyen. */
@@ -96,7 +110,9 @@ export function resolveApolloSeenDomainExclusion(
         enabled: false,
         sent: 0,
         from_authority: 0,
+        from_sellup_live: 0,
         from_recent_seen: 0,
+        seen_released_by_discard: 0,
         seen_outside_cooldown: 0,
         seen_without_date: 0,
         omitted_due_to_cap: 0,
@@ -105,18 +121,31 @@ export function resolveApolloSeenDomainExclusion(
     };
   }
 
-  const authority = [
-    ...new Set(input.authorityDomains.map(normalizeDomain).filter((d): d is string => d !== null)),
-  ].sort();
+  const accountDomains = new Set(
+    input.authorityDomains.map(normalizeDomain).filter((d): d is string => d !== null),
+  );
+  const liveOnly = (input.sellupLiveDomains ?? [])
+    .map(normalizeDomain)
+    .filter((d): d is string => d !== null && !accountDomains.has(d));
+  const authority = [...new Set([...accountDomains, ...liveOnly])].sort();
   const authoritySet = new Set(authority);
+  const liveOnlySet = new Set(liveOnly);
+  const released = new Set(
+    (input.releasedDomains ?? []).map(normalizeDomain).filter((d): d is string => d !== null),
+  );
 
   const cutoff = input.now.getTime() - cooldownDays * MS_PER_DAY;
   const recentSeen: { domain: string; seenAt: number }[] = [];
   let seenOutsideCooldown = 0;
   let seenWithoutDate = 0;
+  let seenReleasedByDiscard = 0;
   for (const raw of input.providerSeenMemory?.normalizedDomains ?? []) {
     const domain = normalizeDomain(raw);
     if (domain === null || authoritySet.has(domain)) continue;
+    if (released.has(domain)) {
+      seenReleasedByDiscard++;
+      continue;
+    }
     const seenAtRaw = input.providerSeenMemory?.domainLastSeenAt?.get(raw);
     const seenAt = typeof seenAtRaw === 'string' ? Date.parse(seenAtRaw) : Number.NaN;
     if (Number.isNaN(seenAt)) {
@@ -135,6 +164,7 @@ export function resolveApolloSeenDomainExclusion(
   const ordered = [...authority, ...recentSeen.map((entry) => entry.domain)];
   const domains = ordered.slice(0, cap);
   const fromAuthority = Math.min(authority.length, domains.length);
+  const fromSellupLive = domains.slice(0, fromAuthority).filter((d) => liveOnlySet.has(d)).length;
 
   return {
     domains,
@@ -142,7 +172,9 @@ export function resolveApolloSeenDomainExclusion(
       enabled: true,
       sent: domains.length,
       from_authority: fromAuthority,
+      from_sellup_live: fromSellupLive,
       from_recent_seen: domains.length - fromAuthority,
+      seen_released_by_discard: seenReleasedByDiscard,
       seen_outside_cooldown: seenOutsideCooldown,
       seen_without_date: seenWithoutDate,
       omitted_due_to_cap: ordered.length - domains.length,
