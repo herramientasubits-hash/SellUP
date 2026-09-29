@@ -6182,3 +6182,11 @@ jobs:
       # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
       - name: Run Agent 1 Apollo single round all families tests
         run: npm run test:a1-apollo-single-round-all-families
+
+      # AGENT1-CLAIMS-ONLY-LIVE-CANDIDATES-1 - solo una fila VIVA reclama senales
+      # globales de identidad: una insertada ya como duplicate/discarded nunca
+      # pasa por el UPDATE que libera (disparador de la migracion 140).
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 global identity claims only-live tests
+        run: npm run test:a1-global-identity-claims-only-live
