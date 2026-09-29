@@ -957,3 +957,22 @@ export const AGENT1_APOLLO_SEEN_DOMAIN_EXCLUSION_FLAG = 'ENABLE_AGENT1_APOLLO_SE
 export function isAgent1ApolloSeenDomainExclusionEnabled(): boolean {
   return isEnvFlagEnabled(process.env[AGENT1_APOLLO_SEEN_DOMAIN_EXCLUSION_FLAG]);
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// Agente 1 · clasificador Claude de sector/tamaño (AGENT1-CLAUDE-CLASSIFIER-1)
+// ════════════════════════════════════════════════════════════════════════════
+
+export const AGENT1_CLAUDE_CLASSIFIER_FLAG = 'ENABLE_AGENT1_CLAUDE_CLASSIFIER';
+
+/**
+ * ¿Puede una persona pedir que Claude sugiera sector y tamaño (con fuente) para
+ * los candidatos «para revisión» de un lote?
+ *
+ * Sólo SUGIERE: escribe `metadata.claude_classification` y NUNCA cambia el
+ * estado del candidato. Usa el modelo y la credencial de Configuración → IA.
+ *
+ * 🔴 Fail-closed y por defecto APAGADA: sólo el token exacto `true` la enciende.
+ */
+export function isAgent1ClaudeClassifierEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[AGENT1_CLAUDE_CLASSIFIER_FLAG]);
+}

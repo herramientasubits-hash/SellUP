@@ -22,6 +22,9 @@ import { CreateCandidateDrawer } from '@/components/prospect-batches/create-cand
 import { CandidatesTableClient } from '@/components/prospect-batches/candidates-table-client';
 import { RollbackBatchDialog } from '@/components/prospect-batches/rollback-batch-dialog';
 import { RehydrateBatchButton } from '@/components/prospect-batches/rehydrate-batch-button';
+import { ClaudeClassifyBatchButton } from '@/components/prospect-batches/claude-classify-batch-button';
+import { isAgent1ClaudeClassifierEnabled } from '@/lib/feature-flags.server';
+import { countClaudeClassificationEligible } from '@/server/agents/prospecting-toolkit/claude-classifier/classification-metadata';
 import {
   getProspectBatchById,
   getCandidatesByBatch,
@@ -56,6 +59,10 @@ interface Props {
   params: Promise<{ batchId: string }>;
 }
 
+// La acción «Sugerir sector y tamaño» (Claude) corre en esta ruta: necesita más
+// que el tiempo por defecto. Su propio tope de tiempo la mantiene por debajo.
+export const maxDuration = 300;
+
 export default async function BatchDetailPage({ params }: Props) {
   const { batchId } = await params;
 
@@ -66,6 +73,10 @@ export default async function BatchDetailPage({ params }: Props) {
   ]);
 
   if (!batch) notFound();
+
+  const claudeEligibleCount = isAgent1ClaudeClassifierEnabled()
+    ? countClaudeClassificationEligible(candidates)
+    : 0;
 
   const isStructuredRues =
     batch.country_code === 'CO' ||
@@ -208,6 +219,9 @@ export default async function BatchDetailPage({ params }: Props) {
                 batch.metadata?.source_key === 'cl_res') && (
                 <RehydrateBatchButton batchId={batch.id} />
               )}
+            {isAdmin && claudeEligibleCount > 0 && (
+              <ClaudeClassifyBatchButton batchId={batch.id} eligibleCount={claudeEligibleCount} />
+            )}
             {batch.metadata?.batch_type === 'structured' &&
               batch.metadata?.initiated_by === 'agent_1' &&
               batch.metadata?.source_key === 'co_rues' &&
