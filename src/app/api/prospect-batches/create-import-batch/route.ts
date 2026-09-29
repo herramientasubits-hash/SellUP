@@ -26,6 +26,7 @@ import {
   toImportAdmissionMetadata,
   type ImportIdentityRowInput,
 } from '@/server/prospect-batches/import-identity-admission';
+import { resolveImportTaxIdentifier } from '@/modules/prospect-batches/import-tax-identifier';
 
 interface ImportCandidate {
   company_name: string;
@@ -262,6 +263,13 @@ export async function POST(request: NextRequest) {
     // un vendedor no ve los lotes de los demás, y la guarda tiene que verlos.
     // Si la lectura falla, la guarda degrada ABIERTA (igual que el writer): la
     // fila entra y el reclamo global de abajo sigue protegiendo.
+    // AGENT1-IMPORT-PARITY-2 — el identificador fiscal se normaliza UNA vez, con
+    // las reglas por país del alta manual, y ese mismo valor alimenta identidad,
+    // reclamo global y columna persistida.
+    const taxResolutions = input.candidates.map((c) =>
+      resolveImportTaxIdentifier(c.tax_identifier, c.country_code),
+    );
+
     const identityRows: ImportIdentityRowInput[] = input.candidates.map((c, i) => {
       const website = c.website?.trim() || null;
       return {
@@ -270,7 +278,7 @@ export async function POST(request: NextRequest) {
         website,
         domain: website ? extractDomain(website) : null,
         countryCode: c.country_code?.trim().toUpperCase() || null,
-        taxIdentifier: c.tax_identifier?.trim() || null,
+        taxIdentifier: taxResolutions[i].value,
         linkedinUrl: c.linkedin_url?.trim() || null,
       };
     });
@@ -388,6 +396,9 @@ export async function POST(request: NextRequest) {
         ...(candidate.owner_email ? { owner_email: candidate.owner_email.trim() } : {}),
         ...(candidate.notes ? { notes: candidate.notes.trim() } : {}),
         [IMPORT_ADMISSION_METADATA_KEY]: toImportAdmissionMetadata(admission),
+        ...(taxResolutions[i].status !== 'absent'
+          ? { tax_identifier_validation: taxResolutions[i].status }
+          : {}),
         imported_from: input.import_type,
         origen: 'external_import',
         import: {
@@ -441,8 +452,8 @@ export async function POST(request: NextRequest) {
         region: candidate.region?.trim() || null,
         industry: candidate.industry?.trim() || null,
         company_size: candidate.company_size?.trim() || null,
-        tax_identifier: candidate.tax_identifier?.trim() || null,
-        tax_identifier_type: candidate.tax_identifier_type?.trim() || null,
+        tax_identifier: taxResolutions[i].value,
+        tax_identifier_type: taxResolutions[i].type ?? (candidate.tax_identifier_type?.trim() || null),
         source_primary: 'external_import',
         status: candidateStatus,
         ...(isDuplicateOnImport ? { duplicate_status: 'exact_duplicate' } : {}),

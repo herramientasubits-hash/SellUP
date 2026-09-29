@@ -213,6 +213,14 @@ describe('AGENT1-IMPORT-PARITY-1 — admisión por identidad en la ruta de impor
     assert.match(String(spy.candidateInserts[1].identity_key), /^tax:co:/);
   });
 
+  it('el NIT se guarda normalizado, con su tipo y su estado de validación (PARITY-2)', async () => {
+    await importRows([company('Nit SAS', '', { tax_identifier: '900.123.456' })]);
+    const [inserted] = spy.candidateInserts;
+    assert.match(String(inserted.tax_identifier), /^900123456-\d$/);
+    assert.equal(inserted.tax_identifier_type, 'NIT');
+    assert.equal((inserted.metadata as Row).tax_identifier_validation, 'valid_check_digit_computed');
+  });
+
   it('sólo se reclaman las filas vivas, con el cliente administrativo y la RPC de la 140', async () => {
     await importRows([
       company('Acme SAS', 'https://acme.com.co'),
