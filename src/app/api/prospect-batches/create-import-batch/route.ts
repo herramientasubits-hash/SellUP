@@ -27,6 +27,10 @@ import {
   type ImportIdentityRowInput,
 } from '@/server/prospect-batches/import-identity-admission';
 import { resolveImportTaxIdentifier } from '@/modules/prospect-batches/import-tax-identifier';
+import {
+  IMPORT_QUALITY_GATES_METADATA_KEY,
+  evaluateImportQualityGates,
+} from '@/server/prospect-batches/import-quality-gates';
 
 interface ImportCandidate {
   company_name: string;
@@ -376,6 +380,15 @@ export async function POST(request: NextRequest) {
       const admission = admissionPlan[i];
       const isDuplicateOnImport = admission.kind === 'duplicate';
       const candidateStatus = isDuplicateOnImport ? 'duplicate' : 'needs_review';
+      // AGENT1-IMPORT-PARITY-3 — reglas de país/plataforma/dominio/tamaño de
+      // Apollo/Lusha en modo revisión: marcan, no descartan.
+      const qualityGates = evaluateImportQualityGates({
+        name: candidate.company_name,
+        website,
+        domain,
+        countryCode: candidate.country_code?.trim().toUpperCase() || null,
+        companySize: candidate.company_size?.trim() || null,
+      });
 
       const notesArr: string[] = [];
       if (candidate.description) notesArr.push(`Descripción: ${candidate.description}`);
@@ -396,6 +409,7 @@ export async function POST(request: NextRequest) {
         ...(candidate.owner_email ? { owner_email: candidate.owner_email.trim() } : {}),
         ...(candidate.notes ? { notes: candidate.notes.trim() } : {}),
         [IMPORT_ADMISSION_METADATA_KEY]: toImportAdmissionMetadata(admission),
+        [IMPORT_QUALITY_GATES_METADATA_KEY]: qualityGates.metadata,
         ...(taxResolutions[i].status !== 'absent'
           ? { tax_identifier_validation: taxResolutions[i].status }
           : {}),
@@ -458,6 +472,7 @@ export async function POST(request: NextRequest) {
         status: candidateStatus,
         ...(isDuplicateOnImport ? { duplicate_status: 'exact_duplicate' } : {}),
         review_notes: reviewNotes,
+        review_flags: qualityGates.reviewFlags,
         // § 8 — la fila declara de qué clase de corrida salió, en vez de dejar la
         // columna en NULL por descuido del writer.
         ...toCandidateRecordOriginColumns(recordOriginResolution),

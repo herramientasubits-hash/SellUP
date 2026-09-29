@@ -221,6 +221,16 @@ describe('AGENT1-IMPORT-PARITY-1 — admisión por identidad en la ruta de impor
     assert.equal((inserted.metadata as Row).tax_identifier_validation, 'valid_check_digit_computed');
   });
 
+  it('las reglas de país y tamaño dejan marcas de revisión, no descartan (PARITY-3)', async () => {
+    await importRows([company('Grupo Bimbo', 'https://www.grupobimbo.com.mx', { company_size: '11-50' })]);
+    const [inserted] = spy.candidateInserts;
+    assert.equal(inserted.status, 'needs_review');
+    assert.deepEqual(
+      [...(inserted.review_flags as string[])].filter((f) => f.startsWith('import_')).sort(),
+      ['import_below_icp_size', 'import_country_mismatch'],
+    );
+  });
+
   it('sólo se reclaman las filas vivas, con el cliente administrativo y la RPC de la 140', async () => {
     await importRows([
       company('Acme SAS', 'https://acme.com.co'),
