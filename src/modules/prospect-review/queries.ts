@@ -9,6 +9,7 @@
 // calls. Only .from/.select/.eq/.in/.order/.limit.
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { REVIEWABLE_RECORD_ORIGINS } from './reviewable-record-origin';
 import type {
   PendingReviewCandidate,
   PendingReviewBatch,
@@ -120,7 +121,8 @@ async function fetchCandidateRows(
   const { data, error } = await admin
     .from('prospect_candidates')
     .select(CANDIDATE_COLUMNS)
-    .eq('record_origin', PENDING_REVIEW_RECORD_ORIGIN)
+    // AGENT1-IMPORT-PARITY-4 — los importados se revisan igual que los de IA.
+    .in('record_origin', [...REVIEWABLE_RECORD_ORIGINS])
     .eq('status', PENDING_REVIEW_STATUS)
     .order('created_at', { ascending: true })
     .limit(MAX_ROWS);

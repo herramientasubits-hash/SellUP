@@ -25,6 +25,8 @@
 //   7. matched_hubspot_company_id present                → requires explicit confirm
 //   8. otherwise                                         → convert
 
+import { isReviewableRecordOrigin } from './reviewable-record-origin';
+
 /** Canonical clean-queue criteria — mirrors queries.ts PENDING_REVIEW_*. */
 export const CLEAN_QUEUE_RECORD_ORIGIN = 'production';
 export const NEEDS_REVIEW_STATUS = 'needs_review';
@@ -83,7 +85,8 @@ export function evaluateConvertApproveEligibility(
   options: ConvertApproveOptions = {},
 ): ConvertApproveEligibility {
   // 1. Must be a clean production record — this surface never converts anything else.
-  if (candidate.recordOrigin !== CLEAN_QUEUE_RECORD_ORIGIN) {
+  // AGENT1-IMPORT-PARITY-4 — `production` o `import` (reviewable-record-origin.ts).
+  if (!isReviewableRecordOrigin(candidate.recordOrigin)) {
     return { decision: 'reject', reason: 'not_clean_production' };
   }
 
