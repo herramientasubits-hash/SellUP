@@ -386,6 +386,19 @@ export type IncrementalSearchMetadata = {
   adaptive_discovery?: AdaptiveDiscoveryMetadata;
   /** Metadata del source-guided investigation v1.12. */
   source_guided_investigation?: SourceGuidedInvestigationMetadata;
+  /**
+   * AGENT1-TAVILY-V2-1 § 1 — plan de consultas de Tavily sobre la macro
+   * industria. Ausente fuera de Tavily y en industrias legacy (no macro).
+   */
+  tavily_query_plan?: {
+    version: string;
+    macro_key: string;
+    term_count: number;
+    rotation_offset: number;
+    rounds_planned: number;
+    queries_planned: number;
+    additional_criteria_applied: boolean;
+  };
   min_useful_candidates: number;
   target_internal: number;
   max_rounds: number;

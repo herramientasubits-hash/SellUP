@@ -15,6 +15,7 @@
 
 import type { WebSearchInput, WebSearchOutput, WebSearchResult } from '../types';
 import { getTavilyApiKey } from '@/server/services/tavily-connection';
+import { resolveTavilyCountryTargeting } from '../tavily-query-plan';
 
 const TAVILY_ENDPOINT = 'https://api.tavily.com/search';
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -67,6 +68,29 @@ function mapTavilyResults(
     }));
 }
 
+/**
+ * Cuerpo de `POST /search`. Puro, para poder fijarlo en tests sin red.
+ *
+ * AGENT1-TAVILY-V2-1 § 1 — `country` realza resultados del país pedido y
+ * `language` sólo viaja donde la consulta está escrita en ese idioma (ver
+ * `resolveTavilyCountryTargeting`). Ninguno de los dos cambia el costo: la
+ * búsqueda `basic` sigue costando 1 crédito.
+ */
+export function buildTavilySearchRequestBody(
+  input: WebSearchInput,
+  maxResults: number,
+): Record<string, unknown> {
+  const targeting = resolveTavilyCountryTargeting(input.countryCode);
+  return {
+    query: input.query,
+    max_results: maxResults,
+    search_depth: input.searchDepth === 'deep' ? 'advanced' : 'basic',
+    include_raw_content: false,
+    ...(targeting.country ? { country: targeting.country } : {}),
+    ...(targeting.language ? { language: targeting.language } : {}),
+  };
+}
+
 // ─── Provider público ─────────────────────────────────────────────────────────
 
 export async function runTavilyWebSearch(input: WebSearchInput, maxResults: number): Promise<WebSearchOutput> {
@@ -98,12 +122,7 @@ export async function runTavilyWebSearch(input: WebSearchInput, maxResults: numb
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({
-        query: input.query,
-        max_results: maxResults,
-        search_depth: input.searchDepth === 'deep' ? 'advanced' : 'basic',
-        include_raw_content: false,
-      }),
+      body: JSON.stringify(buildTavilySearchRequestBody(input, maxResults)),
       signal: controller.signal,
     });
 
