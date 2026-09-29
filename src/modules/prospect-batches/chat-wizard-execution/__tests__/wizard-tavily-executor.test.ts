@@ -14,6 +14,7 @@ import {
   runWizardTavilySearch,
   WIZARD_TAVILY_TARGET_INTERNAL,
   WIZARD_ADAPTIVE_MAX_ROUNDS,
+  WIZARD_TAVILY_MAX_TOTAL_RAW_TO_EVALUATE,
   WIZARD_TARGET_PERSISTIBLE_CANDIDATES,
 } from '../wizard-tavily-executor';
 import type { WizardTavilyInput } from '../wizard-tavily-executor';
@@ -321,5 +322,16 @@ describe('E8: structural guardrail — executor does not reference Apollo', () =
     for (const name of forbidden) {
       assert.ok(!source.includes(name), `executor must not reference: ${name}`);
     }
+  });
+});
+
+// ── E11: AGENT1-TAVILY-V2-1 § 2 — el tope de resultados deja correr 4 rondas ──
+
+describe('E11: maxTotalRawToEvaluate deja correr las 4 rondas del plan', () => {
+  it('runner receives maxTotalRawToEvaluate: 80 (4 rondas × 20 resultados)', async () => {
+    const { runner, getCapture } = makeFakeRunner();
+    await runWizardTavilySearch(makeInput(), runner);
+    assert.equal(getCapture()!.maxTotalRawToEvaluate, WIZARD_TAVILY_MAX_TOTAL_RAW_TO_EVALUATE);
+    assert.equal(WIZARD_TAVILY_MAX_TOTAL_RAW_TO_EVALUATE, WIZARD_ADAPTIVE_MAX_ROUNDS * 20);
   });
 });

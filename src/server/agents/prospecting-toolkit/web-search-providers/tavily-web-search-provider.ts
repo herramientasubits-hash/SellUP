@@ -16,6 +16,7 @@
 import type { WebSearchInput, WebSearchOutput, WebSearchResult } from '../types';
 import { getTavilyApiKey } from '@/server/services/tavily-connection';
 import { resolveTavilyCountryTargeting } from '../tavily-query-plan';
+import { TAVILY_EXCLUDE_DOMAINS_MAX } from '../tavily-exclude-domains';
 
 const TAVILY_ENDPOINT = 'https://api.tavily.com/search';
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -73,14 +74,17 @@ function mapTavilyResults(
  *
  * AGENT1-TAVILY-V2-1 § 1 — `country` realza resultados del país pedido y
  * `language` sólo viaja donde la consulta está escrita en ese idioma (ver
- * `resolveTavilyCountryTargeting`). Ninguno de los dos cambia el costo: la
- * búsqueda `basic` sigue costando 1 crédito.
+ * `resolveTavilyCountryTargeting`). § 2 — `exclude_domains` deja fuera lo ya
+ * visto y el ruido fijo. Nada de esto cambia el costo: la búsqueda `basic`
+ * sigue costando 1 crédito.
  */
 export function buildTavilySearchRequestBody(
   input: WebSearchInput,
   maxResults: number,
 ): Record<string, unknown> {
   const targeting = resolveTavilyCountryTargeting(input.countryCode);
+  // AGENT1-TAVILY-V2-1 § 2 — nunca más de lo que Tavily acepta.
+  const excludeDomains = (input.excludeDomains ?? []).slice(0, TAVILY_EXCLUDE_DOMAINS_MAX);
   return {
     query: input.query,
     max_results: maxResults,
@@ -88,6 +92,7 @@ export function buildTavilySearchRequestBody(
     include_raw_content: false,
     ...(targeting.country ? { country: targeting.country } : {}),
     ...(targeting.language ? { language: targeting.language } : {}),
+    ...(excludeDomains.length > 0 ? { exclude_domains: excludeDomains } : {}),
   };
 }
 

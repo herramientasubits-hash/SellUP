@@ -390,6 +390,17 @@ export type IncrementalSearchMetadata = {
    * AGENT1-TAVILY-V2-1 § 1 — plan de consultas de Tavily sobre la macro
    * industria. Ausente fuera de Tavily y en industrias legacy (no macro).
    */
+  /**
+   * AGENT1-TAVILY-V2-1 § 2 — `exclude_domains` enviado a Tavily en la ÚLTIMA
+   * ronda (la lista crece de ronda en ronda). Ausente fuera de Tavily.
+   */
+  tavily_exclude_domains?: {
+    last_round_sent: number;
+    static_count: number;
+    seen_this_run_count: number;
+    negative_memory_count: number;
+    truncated_count: number;
+  };
   tavily_query_plan?: {
     version: string;
     macro_key: string;

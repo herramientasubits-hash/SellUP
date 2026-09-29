@@ -144,3 +144,70 @@ describe('Fuera de Tavily o fuera del catálogo macro — camino de siempre', ()
     assert.equal(result.metadata.tavily_query_plan, undefined);
   });
 });
+
+// ── AGENT1-TAVILY-V2-1 § 2 — exclusiones por ronda ─────────────────────────────
+
+function pipelineReturningDomains(
+  capturedExcludes: Array<string[] | undefined>,
+  domainsByCall: string[][],
+): PipelineFn {
+  let call = 0;
+  const fn = async (pipelineInput: { excludeDomains?: string[] }): Promise<ProspectingPipelineOutput> => {
+    capturedExcludes.push(pipelineInput.excludeDomains ? [...pipelineInput.excludeDomains] : undefined);
+    const domains = domainsByCall[call++] ?? [];
+    const candidates = domains.map((domain) => ({
+      name: domain,
+      website: `https://${domain}`,
+      domain,
+      country: 'Colombia',
+      countryCode: 'CO',
+      industry: 'Retail',
+      sourceUrl: `https://${domain}`,
+      sourceTitle: domain,
+      sourceSnippet: null,
+      websiteVerification: null,
+      duplicateCheck: null,
+      scoring: { qualityLabel: 'discard', confidenceScore: 0, fitScore: 0, reasons: [], warnings: [] },
+    })) as unknown as ProspectingPipelineOutput['candidates'];
+    return {
+      input: { country: 'Colombia', countryCode: 'CO', industry: 'Retail', webSearchProvider: 'tavily', mode: 'multi_query' },
+      catalogContext: CATALOG_CONTEXT,
+      searchQuery: 'test',
+      webSearch: { provider: 'tavily', query: 'test', results: [], resultsCount: 5, skipped: false, estimatedCostUsd: null, metadata: {} },
+      candidates,
+      summary: { requested: 10, searched: 5, returned: candidates.length, highQualityNew: 0, needsReview: 0, duplicates: 0, insufficientData: 0, discarded: candidates.length, unchecked: 0 },
+      warnings: [],
+      metadata: {},
+    };
+  };
+  return fn as unknown as PipelineFn;
+}
+
+describe('Tavily — cada ronda excluye lo que ya vio', () => {
+  it('la ronda 2 pide excluir los dominios que trajo la ronda 1', async () => {
+    const excludes: Array<string[] | undefined> = [];
+    const result = await runIncrementalProspectingSearch(
+      baseInput(),
+      undefined,
+      pipelineReturningDomains(excludes, [['exito.com', 'falabella.com.co'], ['olimpica.com']]),
+    );
+    assert.ok(excludes[0], 'la ronda 1 envía al menos el ruido fijo');
+    assert.ok(!excludes[0]!.includes('exito.com'));
+    assert.ok(excludes[0]!.includes('linkedin.com'));
+    assert.ok(excludes[1]!.includes('exito.com'));
+    assert.ok(excludes[1]!.includes('falabella.com.co'));
+    assert.ok(excludes[2]!.includes('olimpica.com'));
+    assert.equal(result.metadata.tavily_exclude_domains?.seen_this_run_count, 3);
+  });
+
+  it('fuera de Tavily no viaja ninguna exclusión', async () => {
+    const excludes: Array<string[] | undefined> = [];
+    const result = await runIncrementalProspectingSearch(
+      baseInput({ webSearchProvider: 'mock' }),
+      undefined,
+      pipelineReturningDomains(excludes, [['exito.com']]),
+    );
+    assert.ok(excludes.every((e) => e === undefined));
+    assert.equal(result.metadata.tavily_exclude_domains, undefined);
+  });
+});

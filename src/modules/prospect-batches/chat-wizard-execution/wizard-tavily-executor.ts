@@ -19,6 +19,15 @@ import { WIZARD_TARGET_USEFUL_COMPANIES } from '@/modules/prospect-batches/wizar
 export const WIZARD_TAVILY_TARGET_INTERNAL = 25;
 export const WIZARD_ADAPTIVE_MAX_ROUNDS = 4;
 /**
+ * AGENT1-TAVILY-V2-1 § 2 — tope de resultados evaluados por corrida.
+ *
+ * El default del runner (50) cortaba la corrida en la ronda 3: cada ronda deja
+ * pasar hasta 20 resultados (4 consultas × 5), así que 20 + 20 + 20 ≥ 50 y la
+ * ronda 4 del plan nunca se pagaba. 4 × 20 = 80 deja correr el plan completo
+ * sin abrir más gasto: el tope de consultas (16) sigue mandando.
+ */
+export const WIZARD_TAVILY_MAX_TOTAL_RAW_TO_EVALUATE = 80;
+/**
  * AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 1 — DERIVADO, antes el literal `10`.
  *
  * Este era el TERCER literal del mismo objetivo (junto al de Apollo y al de
@@ -62,6 +71,7 @@ export async function runWizardTavilySearch(
     webSearchProvider: 'tavily',
     targetInternal: WIZARD_TAVILY_TARGET_INTERNAL,
     maxRounds: WIZARD_ADAPTIVE_MAX_ROUNDS,
+    maxTotalRawToEvaluate: WIZARD_TAVILY_MAX_TOTAL_RAW_TO_EVALUATE,
     targetPersistibleCandidates: WIZARD_TARGET_PERSISTIBLE_CANDIDATES,
     existingBatchId: input.reservedBatchId,
     triggeredByUserId: input.resolved.userId,

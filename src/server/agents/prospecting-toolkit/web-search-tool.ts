@@ -406,6 +406,8 @@ export async function runMultiQueryWebSearch(
       provider,
       searchDepth,
       intent: 'company_discovery',
+      // AGENT1-TAVILY-V2-1 § 2 — sólo Tavily lo lee (`exclude_domains`).
+      ...(input.excludeDomains && input.excludeDomains.length > 0 ? { excludeDomains: input.excludeDomains } : {}),
       // L2.7: propagar contexto estructurado al provider (Apollo lo usa; Tavily lo ignora)
       ...(input.subindustries && input.subindustries.length > 0 ? { subindustries: input.subindustries } : {}),
       ...(input.additionalCriteriaTokens && input.additionalCriteriaTokens.length > 0 ? { additionalCriteriaTokens: input.additionalCriteriaTokens } : {}),

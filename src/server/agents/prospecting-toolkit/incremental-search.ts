@@ -93,6 +93,7 @@ import { type HistoricalCandidateRow } from './apollo-prepaid-historical-parity'
 import { createApolloPaginationAcceptanceEvaluator } from './apollo-pagination-usefulness-authority';
 import { normalizeDomain } from './normalization';
 import { buildTavilyMacroQueryPlan } from './tavily-query-plan';
+import { buildTavilyExcludeDomains, type TavilyExcludeDomainsResult } from './tavily-exclude-domains';
 import type { ApolloOrgsSearchOptions } from './web-search-providers/apollo-organizations-search-provider';
 import {
   readApolloPageFenceEntries,
@@ -635,6 +636,9 @@ export async function runIncrementalProspectingSearch(
       })
     : null;
 
+  // AGENT1-TAVILY-V2-1 § 2 — la última lista de exclusión enviada, para metadata.
+  let lastTavilyExclusion: TavilyExcludeDomainsResult | null = null;
+
   for (let round = 1; round <= maxRounds; round++) {
     const subindustries = input.subindustries ?? [];
 
@@ -1019,6 +1023,18 @@ export async function runIncrementalProspectingSearch(
       }
     }
 
+    // ── AGENT1-TAVILY-V2-1 § 2 — lo que Tavily NO debe devolver en esta ronda ──
+    // Ruido fijo + dominios ya vistos en rondas previas de esta corrida + memoria
+    // negativa del país e industria. Cada exclusión es un hueco que Tavily llena
+    // con un resultado distinto, al mismo costo.
+    const tavilyExcludeDomains = input.webSearchProvider === 'tavily'
+      ? buildTavilyExcludeDomains({
+          seenThisRun: seenDomains,
+          negativeMemory: negativeMemory.excludedDomains,
+        })
+      : null;
+    if (tavilyExcludeDomains) lastTavilyExclusion = tavilyExcludeDomains;
+
     const pipelineOutput = await pipelineFn({
       country: input.country,
       countryCode: input.countryCode,
@@ -1041,6 +1057,7 @@ export async function runIncrementalProspectingSearch(
       // la traducción a rangos de Apollo la hace el mapper.
       targetEmployeeThreshold: input.targetEmployeeThreshold ?? null,
       apolloSearchOptions,
+      ...(tavilyExcludeDomains ? { excludeDomains: tavilyExcludeDomains.domains } : {}),
     });
 
     const rawCount = pipelineOutput.webSearch.resultsCount;
@@ -1357,6 +1374,15 @@ export async function runIncrementalProspectingSearch(
           })),
           blocked_source_query_count: sourceGuidedInvestigationOutput.blocked_source_query_count,
           blocked_sources: sourceGuidedInvestigationOutput.blocked_sources,
+        }
+      : undefined,
+    tavily_exclude_domains: lastTavilyExclusion
+      ? {
+          last_round_sent: lastTavilyExclusion.domains.length,
+          static_count: lastTavilyExclusion.staticCount,
+          seen_this_run_count: lastTavilyExclusion.seenThisRunCount,
+          negative_memory_count: lastTavilyExclusion.negativeMemoryCount,
+          truncated_count: lastTavilyExclusion.truncatedCount,
         }
       : undefined,
     tavily_query_plan: tavilyMacroQueryPlan

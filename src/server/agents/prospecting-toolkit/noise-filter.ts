@@ -357,6 +357,7 @@ const ACADEMIC_SOURCE_DOMAINS = new Set([
   // Son clientes de UBITS (decisión 2026-09-29). Lo que sigue fuera es el
   // DOCUMENTO académico, no la institución: ver `classifyInstitutionalContent`.
   'unesdoc.unesco.org',
+  'wikipedia.org',
   'scielo.org',
   'scielo.org.co',
   'redalyc.org',

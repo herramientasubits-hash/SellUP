@@ -53,3 +53,21 @@ describe('buildTavilySearchRequestBody', () => {
     );
   });
 });
+
+describe('buildTavilySearchRequestBody — exclude_domains', () => {
+  it('envía exclude_domains cuando hay dominios', () => {
+    const body = buildTavilySearchRequestBody({ query: 'q', countryCode: 'CO', excludeDomains: ['a.com', 'b.com'] }, 5);
+    assert.deepEqual(body.exclude_domains, ['a.com', 'b.com']);
+  });
+
+  it('no envía la clave si la lista está vacía', () => {
+    const body = buildTavilySearchRequestBody({ query: 'q', countryCode: 'CO', excludeDomains: [] }, 5);
+    assert.equal('exclude_domains' in body, false);
+  });
+
+  it('recorta a 150 aunque el llamador mande más', () => {
+    const many = Array.from({ length: 200 }, (_, i) => `d${i}.com`);
+    const body = buildTavilySearchRequestBody({ query: 'q', excludeDomains: many }, 5);
+    assert.equal((body.exclude_domains as string[]).length, 150);
+  });
+});
