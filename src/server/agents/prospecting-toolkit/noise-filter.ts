@@ -189,7 +189,53 @@ const BUSINESS_DATABASE_DOMAINS = new Set([
   'emis.com.co',  // Hito 13B: variante .co de EMIS para Colombia
   'orbis.bvdinfo.com',
   'bvdinfo.com',
+  // AGENT1-TAVILY-V2-1 § 2 — directorios y bases de empresas que se colaron en
+  // lotes Tavily de Producción (`co.kompass.com`) o que indexan perfiles de
+  // empresa sin serlo. `domainMatchesSet` cubre sus subdominios por país.
+  'kompass.com',
+  'europages.com',
+  'manta.com',
+  'dnb.com',
+  'zoominfo.com',
+  'rocketreach.co',
+  'lusha.com',
+  'apollo.io',
+  'cylex.com.co',
+  'cylex.com.mx',
+  'cylex.cl',
+  'cylex.com.ar',
+  'cylex-usa.com',
+  'infobel.com',
+  'opencorporates.com',
+  'bizapedia.com',
 ]);
+
+/**
+ * AGENT1-TAVILY-V2-1 § 2 — estudios de mercado y datos de comercio exterior.
+ * Publican páginas por país e industria que el buscador devuelve como si fueran
+ * empresas (`fortunebusinessinsights.com`, `seair.co.in` en lotes de junio).
+ */
+const MARKET_RESEARCH_DOMAINS = new Set([
+  'fortunebusinessinsights.com',
+  'statista.com',
+  'mordorintelligence.com',
+  'grandviewresearch.com',
+  'marketsandmarkets.com',
+  'imarcgroup.com',
+  'expertmarketresearch.com',
+  'researchandmarkets.com',
+  'alliedmarketresearch.com',
+  '6wresearch.com',
+  'seair.co.in',
+  'volza.com',
+  'panjiva.com',
+  'importgenius.com',
+]);
+
+/** `empresite.eleconomista.es`, `empresite.eleconomistaamerica.pe`, … */
+function isEmpresiteDirectory(domain: string): boolean {
+  return domain.startsWith('empresite.');
+}
 
 /**
  * Multinacionales globales que no son empresas colombianas objetivo para prospección local.
@@ -286,7 +332,8 @@ const ASSOCIATION_CHAMBER_DOMAINS = new Set([
   'cccomercio.es',
   'camaras.es',
   'colombiatic.net',
-  'mintic.gov.co',
+  // AGENT1-TAVILY-V2-1 § 2 — `mintic.gov.co` salió de aquí: es un ministerio, y
+  // el gobierno SÍ es cliente de UBITS (decisión 2026-09-29).
   'fedesoft.org',           // Hito 12D: Federación Colombiana de Software — gremio
   'fedesoft.com',           // Hito 12D: variante de dominio Fedesoft
   'andicom.co',             // Hito 16AB.43.14: congreso TIC Colombia — no empresa
@@ -305,14 +352,50 @@ const ACADEMIC_SOURCE_DOMAINS = new Set([
   'acm.org',
   'jstor.org',
   'bibliotecadigital.ccb.org.co',
-  'javeriana.edu.co',
-  'unal.edu.co',
-  'ean.edu.co',
-  'cife.edu.co',
-  'uninorte.edu.co',
-  '.edu.co',
-  '.edu',
+  // AGENT1-TAVILY-V2-1 § 2 — antes estaban aquí `javeriana.edu.co`, `unal.edu.co`,
+  // … y los sufijos `.edu`/`.edu.co`: descartaban a toda universidad y colegio.
+  // Son clientes de UBITS (decisión 2026-09-29). Lo que sigue fuera es el
+  // DOCUMENTO académico, no la institución: ver `classifyInstitutionalContent`.
+  'unesdoc.unesco.org',
+  'scielo.org',
+  'scielo.org.co',
+  'redalyc.org',
+  'dialnet.unirioja.es',
 ]);
+
+/**
+ * AGENT1-TAVILY-V2-1 § 2 — subdominios de una institución (universidad,
+ * colegio, entidad pública) que publican DOCUMENTOS, no a la institución:
+ * repositorios de tesis, bibliotecas, revistas y portales de datos o de
+ * contratación. La institución en su dominio principal sí pasa.
+ */
+const INSTITUTIONAL_TLD = /\.(edu|gov|gob|ac)(\.[a-z]{2})?$/;
+const INSTITUTIONAL_DOCUMENT_LABELS = new Set([
+  'repositorio', 'repository', 'bdigital', 'biblioteca', 'bibliotecadigital',
+  'revistas', 'revista', 'dspace', 'ojs', 'tesis', 'catalogo',
+]);
+const PUBLIC_DATA_PORTAL_LABELS = new Set(['datos', 'datosabiertos', 'opendata']);
+const PUBLIC_PROCUREMENT_DOMAINS = new Set(['secop.gov.co', 'colombiacompra.gov.co']);
+
+type InstitutionalContentVerdict =
+  | { kind: 'academic_document'; reason: string }
+  | { kind: 'public_portal'; reason: string }
+  | null;
+
+function classifyInstitutionalContent(domain: string): InstitutionalContentVerdict {
+  if (domainMatchesSet(domain, PUBLIC_PROCUREMENT_DOMAINS)) {
+    return { kind: 'public_portal', reason: `Portal de contratación pública (${domain}) — listado, no la entidad` };
+  }
+  if (!INSTITUTIONAL_TLD.test(domain)) return null;
+  const firstLabel = domain.split('.')[0];
+  if (INSTITUTIONAL_DOCUMENT_LABELS.has(firstLabel)) {
+    return { kind: 'academic_document', reason: `Repositorio o publicación institucional (${domain}) — documento, no la institución` };
+  }
+  if (PUBLIC_DATA_PORTAL_LABELS.has(firstLabel)) {
+    return { kind: 'public_portal', reason: `Portal de datos abiertos (${domain}) — datos, no la entidad` };
+  }
+  return null;
+}
 
 const NEWS_MEDIA_DOMAINS = new Set([
   'dinero.com',
@@ -677,21 +760,19 @@ export function isProspectableCompanyResult(result: {
     };
   }
 
-  // 3b. Dominios gubernamentales colombianos (Hito 13H)
-  if (domain.endsWith('.gov.co') || domain.endsWith('.gob.co')) {
+  // 3b. AGENT1-TAVILY-V2-1 § 2 — el dominio de gobierno o de educación YA NO
+  // descarta: la institución es cliente. Sólo sale el documento o el portal.
+  const institutionalContent = classifyInstitutionalContent(domain);
+  if (institutionalContent) {
     return {
       isProspectable: false,
-      reason: `Dominio gubernamental colombiano (${domain}) — no es empresa prospectable`,
-      resultType: 'non_prospectable_source',
+      reason: institutionalContent.reason,
+      resultType: institutionalContent.kind === 'academic_document' ? 'academic_source' : 'non_prospectable_source',
     };
   }
 
-  // 4. Fuentes académicas
-  if (
-    domainMatchesSet(domain, ACADEMIC_SOURCE_DOMAINS) ||
-    domain.endsWith('.edu.co') ||
-    domain.endsWith('.edu')
-  ) {
+  // 4. Fuentes académicas (repositorios y bases científicas, no instituciones)
+  if (domainMatchesSet(domain, ACADEMIC_SOURCE_DOMAINS)) {
     return {
       isProspectable: false,
       reason: `Fuente académica (${domain})`,
@@ -745,10 +826,19 @@ export function isProspectableCompanyResult(result: {
   }
 
   // 7e. Bases de datos financieras/empresariales (Hito 13B)
-  if (domainMatchesSet(domain, BUSINESS_DATABASE_DOMAINS)) {
+  if (domainMatchesSet(domain, BUSINESS_DATABASE_DOMAINS) || isEmpresiteDirectory(domain)) {
     return {
       isProspectable: false,
       reason: `Base de datos empresarial/financiera (${domain}) — no empresa prospectable`,
+      resultType: 'business_database',
+    };
+  }
+
+  // 7e-bis. AGENT1-TAVILY-V2-1 § 2 — estudios de mercado y comercio exterior
+  if (domainMatchesSet(domain, MARKET_RESEARCH_DOMAINS)) {
+    return {
+      isProspectable: false,
+      reason: `Estudio de mercado o datos de comercio exterior (${domain}) — no empresa prospectable`,
       resultType: 'business_database',
     };
   }
@@ -968,11 +1058,20 @@ export function classifySearchResult(result: {
   }
 
   // 7c. Bases de datos financieras/empresariales (Hito 13B)
-  if (domainMatchesSet(domain, BUSINESS_DATABASE_DOMAINS)) {
+  if (domainMatchesSet(domain, BUSINESS_DATABASE_DOMAINS) || isEmpresiteDirectory(domain)) {
     return {
       resultType: 'business_database',
       shouldKeep: false,
       reason: `Base de datos empresarial/financiera: ${domain}`,
+    };
+  }
+
+  // 7c-bis. AGENT1-TAVILY-V2-1 § 2 — estudios de mercado y comercio exterior
+  if (domainMatchesSet(domain, MARKET_RESEARCH_DOMAINS)) {
+    return {
+      resultType: 'business_database',
+      shouldKeep: false,
+      reason: `Estudio de mercado o datos de comercio exterior: ${domain}`,
     };
   }
 
@@ -1013,13 +1112,15 @@ export function classifySearchResult(result: {
     };
   }
 
-  // 9b. Dominios gubernamentales colombianos (Hito 13H)
-  // .gov.co y .gob.co son dominios de entidades del Estado, no empresas prospectables.
-  if (domain.endsWith('.gov.co') || domain.endsWith('.gob.co')) {
+  // 9b. AGENT1-TAVILY-V2-1 § 2 — antes: `.gov.co`/`.gob.co` ⇒ descarte. Las
+  // entidades del Estado SÍ son clientes de UBITS; sólo sale el documento o el
+  // portal de datos/contratación.
+  const institutionalContent = classifyInstitutionalContent(domain);
+  if (institutionalContent) {
     return {
-      resultType: 'non_prospectable_source',
+      resultType: institutionalContent.kind === 'academic_document' ? 'academic_source' : 'non_prospectable_source',
       shouldKeep: false,
-      reason: `Dominio gubernamental colombiano (${domain}) — no es empresa prospectable`,
+      reason: institutionalContent.reason,
     };
   }
 
@@ -1034,12 +1135,8 @@ export function classifySearchResult(result: {
     };
   }
 
-  // 10. Fuentes académicas
-  if (
-    domainMatchesSet(domain, ACADEMIC_SOURCE_DOMAINS) ||
-    domain.endsWith('.edu.co') ||
-    domain.endsWith('.edu')
-  ) {
+  // 10. Fuentes académicas (repositorios y bases científicas, no instituciones)
+  if (domainMatchesSet(domain, ACADEMIC_SOURCE_DOMAINS)) {
     return {
       resultType: 'academic_source',
       shouldKeep: false,
