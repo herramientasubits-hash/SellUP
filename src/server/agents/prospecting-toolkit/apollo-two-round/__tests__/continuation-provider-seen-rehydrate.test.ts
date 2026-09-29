@@ -18,7 +18,11 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { isProviderSeenKnown } from '@/modules/prospect-batches/provider-seen/provider-seen-identity';
+import {
+  isProviderSeenKnown,
+  type ProviderSeenMemory,
+  type ProviderSeenObservation,
+} from '@/modules/prospect-batches/provider-seen/provider-seen-identity';
 import {
   reviveProviderSeenMemory,
   serializeProviderSeenMemory,
@@ -52,14 +56,21 @@ const PRODUCTION_STUCK_JOB_METADATA = {
   },
 };
 
-const OBSERVATION = { providerEntityId: 'apollo-org-1', normalizedDomain: 'acme.com' };
+/** Una observación completa: el proveedor y el tipo forman parte del contrato. */
+const observe = (providerEntityId: string | null, normalizedDomain: string | null): ProviderSeenObservation => ({
+  provider: 'apollo',
+  entityType: 'company',
+  providerEntityId,
+  normalizedDomain,
+});
+const OBSERVATION = observe('apollo-org-1', 'acme.com');
 
 describe('§ 1 — el defecto, con la forma que quedó en la base', () => {
   it('🔴 JSON convierte la memoria en `{}` y `.has` deja de existir', () => {
     const roundTripped = JSON.parse(JSON.stringify(realMemory()));
     assert.deepEqual(roundTripped, { providerEntityIds: {}, normalizedDomains: {}, domainLastSeenAt: {} });
     assert.throws(
-      () => isProviderSeenKnown(roundTripped, OBSERVATION),
+      () => isProviderSeenKnown(roundTripped as unknown as ProviderSeenMemory, OBSERVATION),
       /has is not a function/,
       'esto es lo que reventaba la continuación',
     );
@@ -93,8 +104,8 @@ describe('§ 2 — restaurar el run_input deja una memoria que funciona', () => 
     assert.ok(memory.normalizedDomains instanceof Set);
     assert.ok(memory.domainLastSeenAt instanceof Map);
     assert.equal(isProviderSeenKnown(memory, OBSERVATION), true);
-    assert.equal(isProviderSeenKnown(memory, { providerEntityId: null, normalizedDomain: 'globex.mx' }), true);
-    assert.equal(isProviderSeenKnown(memory, { providerEntityId: 'otro', normalizedDomain: 'otro.com' }), false);
+    assert.equal(isProviderSeenKnown(memory, observe(null, 'globex.mx')), true);
+    assert.equal(isProviderSeenKnown(memory, observe('otro', 'otro.com')), false);
     assert.equal(memory.domainLastSeenAt!.get('acme.com'), '2026-09-20T10:00:00.000Z');
   });
 
