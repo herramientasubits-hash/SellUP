@@ -314,21 +314,35 @@ describe('§ 23 — ejecución de ramas y parada por objetivo', () => {
     assert.equal(res.topUpTriggered, true);
   });
 
-  it('🔴 X6.13 · C. 2 ramas, la rama 0 llena el mínimo → la rama 1 SÍ se llama', async () => {
+  it('🔴 STOP-AT-TARGET · C. 2 ramas, la rama 0 llena el mínimo → la rama 1 NO se llama', async () => {
     const { res, calls } = await run([successResult(distinctCompanies(5, 'c'))], {
       plan: planWithBranches(2),
     });
-    // Antes: «la rama 1 NUNCA se llama». Sus empresas serían tan válidas como
-    // las de la rama 0, y su página estaba reservada.
-    assert.ok(calls.length > 1, '🔴 la segunda rama se intenta');
-    assert.equal(calls[0].mainIndustryId, 11);
+    // AGENT1-LUSHA-STOP-AT-TARGET-1 (decisión de la dueña, 2026-09-29) deshace
+    // X6.13 entre ramas: con el hueco cerrado no se abre otra rama. La rama 0
+    // termina sus páginas (la segunda viene vacía en este guion).
+    assert.equal(calls.length, 2, 'sólo las dos páginas de la rama 0');
+    assert.ok(calls.every((c) => c.mainIndustryId === 11));
     assert.equal(res.branchCountPlanned, 2);
-    assert.equal(res.branchCountAttempted, 2);
-    assert.notEqual(res.multiBranch?.branches[1].outcome, 'not_attempted');
-    assert.ok(
-      (res.providerRequestsUsed ?? 0) <= (res.providerRequestsAllowed ?? 0),
-      '🔴 y el techo de peticiones sigue mandando',
+    assert.equal(res.branchCountAttempted, 1);
+    assert.equal(res.multiBranch?.branches[1].outcome, 'not_attempted');
+    assert.equal(res.stopReason, 'purchase_gap_closed');
+  });
+
+  it('🔴 STOP-AT-TARGET · Perú × Salud (lote 701ffe78): 2 créditos, no 6', async () => {
+    // Producción 2026-09-29: la rama 0 trajo 11 + 5 útiles en sus dos páginas y
+    // cerró el hueco (4); las ramas 1 y 2 gastaron 4 créditos más y aportaron 0.
+    const { res, calls } = await run(
+      [successResult(distinctCompanies(11, 'pe0')), successResult(distinctCompanies(5, 'pe1'))],
+      { plan: planWithBranches(3), targetGap: 4 },
     );
+    assert.equal(res.providerRequestsAllowed, 6, 'la reserva sigue cubriendo 3 ramas × 2');
+    assert.equal(res.providerRequestsUsed, 2, '🔴 sólo se usan las de la rama que cerró el hueco');
+    assert.equal(calls.length, 2);
+    assert.equal(res.usefulCandidatesCount, 16, 'la rama empezada termina sus páginas');
+    assert.equal(res.multiBranch?.branches[1].outcome, 'not_attempted');
+    assert.equal(res.multiBranch?.branches[2].outcome, 'not_attempted');
+    assert.equal(res.stopReason, 'purchase_gap_closed');
   });
 
   it('D. 2 ramas, la rama 0 queda corta → la rama 1 busca SÓLO el hueco', async () => {
@@ -348,7 +362,7 @@ describe('§ 23 — ejecución de ramas y parada por objetivo', () => {
     assert.equal(calls[2].subIndustryId, 71);
   });
 
-  it('🔴 X6.13 · E. 3 ramas, mínimo alcanzado en la rama 1 → la rama 2 SÍ se intenta', async () => {
+  it('🔴 STOP-AT-TARGET · E. 3 ramas, mínimo alcanzado en la rama 1 → la rama 2 NO se intenta', async () => {
     const { res, calls } = await run(
       [
         successResult(distinctCompanies(2, 'e0')),
@@ -357,11 +371,14 @@ describe('§ 23 — ejecución de ramas y parada por objetivo', () => {
       ],
       { plan: planWithBranches(3) },
     );
-    assert.ok(calls.length > 3, '🔴 la tercera rama entra');
+    // La rama 1 cierra el hueco en su página 0 y termina su página 1; la rama 2
+    // ya no se pide.
+    assert.equal(calls.length, 4, 'rama 0 (2 páginas) + rama 1 (2 páginas)');
     assert.equal(res.branchCountPlanned, 3);
-    assert.equal(res.branchCountAttempted, 3);
-    assert.notEqual(res.multiBranch?.branches[2].outcome, 'not_attempted');
-    assert.ok((res.providerRequestsUsed ?? 0) <= (res.providerRequestsAllowed ?? 0));
+    assert.equal(res.branchCountAttempted, 2);
+    assert.equal(res.multiBranch?.branches[2].outcome, 'not_attempted');
+    assert.equal(res.usefulCandidatesCount, 5);
+    assert.equal(res.stopReason, 'purchase_gap_closed');
   });
 
   it('L. una rama con 0 resultados NO es un fallo: se pasa a la siguiente', async () => {
@@ -399,18 +416,15 @@ describe('§ 23 — ejecución de ramas y parada por objetivo', () => {
     );
   });
 
-  it('🔴 X6.13 · O. targetGap=2 describe el hueco, pero ya no acota la búsqueda', async () => {
+  it('🔴 STOP-AT-TARGET · O. targetGap=2: cerrado en la rama 0, no se abren más ramas', async () => {
     const { res, calls } = await run([successResult(distinctCompanies(2, 'o'))], {
       plan: planWithBranches(3),
       targetGap: 2,
     });
-    // Antes: «la corrida NUNCA busca 5» ⇒ una sola petición. El hueco con el que
-    // la pierna arranca sigue viajando y sigue publicándose, pero no puede
-    // impedir que use las páginas que su reserva autoriza (regla 4).
     assert.equal(res.targetGap, 2, 'el hueco sigue siendo el que llegó');
-    assert.ok(calls.length > 1, '🔴 el hueco no limita la búsqueda del segundo');
-    assert.equal(res.branchCountAttempted, 3);
-    assert.ok((res.providerRequestsUsed ?? 0) <= (res.providerRequestsAllowed ?? 0));
+    assert.equal(calls.length, 2, 'sólo las páginas de la rama 0');
+    assert.equal(res.branchCountAttempted, 1);
+    assert.equal(res.stopReason, 'purchase_gap_closed');
   });
 
   it('🔴 X6.13 · P. el mínimo se cierra y la corrida sigue dentro de su techo', async () => {

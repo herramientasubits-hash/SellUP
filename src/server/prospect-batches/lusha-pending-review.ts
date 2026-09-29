@@ -3038,19 +3038,38 @@ export async function persistLushaPendingReviewBatch(
     });
   };
 
+  // 🔴 AGENT1-LUSHA-STOP-AT-TARGET-1 — la corrida dejó de abrir ramas porque el
+  // hueco de compra ya estaba cerrado. NO es `runStopped`: no la paró un límite,
+  // y el motivo de persistencia (`post_admission_persistence_gap`) tiene que
+  // poder seguir diciéndolo si la escritura reabre el hueco.
+  let stoppedAtClosedGap = false;
+
   for (let branchIndex = 0; branchIndex < branches.length; branchIndex++) {
     const branch = branches[branchIndex] as LushaExecutionBranch;
     const remainingGapBefore = resolveLushaRemainingGap(targetGap, purchaseCreditSoFar());
 
-    // 🔴 X6.13 — la rama restante ya NO se salta por objetivo cerrado.
+    // 🔴 AGENT1-LUSHA-STOP-AT-TARGET-1 — decisión de la dueña (2026-09-29):
+    // «Lusha para al cumplir la meta». Deshace X6.13 SÓLO entre ramas.
     //
-    // § 4 decía: «objetivo cerrado ⇒ las ramas restantes NO se piden». Con el
-    // objetivo entendido como MÍNIMO, una rama con páginas y reserva
-    // disponibles debe pedirse: sus empresas son tan válidas como las de la
-    // primera. La condición se queda SÓLO con `runStopped`, que es lo que
-    // recoge las paradas reales —techo de peticiones, filas crudas, fallo del
-    // proveedor, cancelación—.
-    if (runStopped) {
+    // Medido en Producción ese día (Perú × Salud, lote `701ffe78`): la rama 0
+    // (Healthcare) trajo 16 útiles en 2 créditos y cerró el hueco; las ramas 1 y
+    // 2 gastaron 4 créditos más con el hueco ya en 0 y aportaron 0 útiles —la 2
+    // devolvió exactamente las mismas 50 empresas que la 1—.
+    //
+    // La regla es de RAMA, no de página: una rama empezada termina sus páginas
+    // (en Perú, la página 2 de la rama 0 aportó 5 útiles más). Así el margen
+    // entre «útil» y «aceptada» —que se mide después, en la escritura— lo sigue
+    // cubriendo la propia rama que cerró el hueco.
+    if (!runStopped && !stoppedAtClosedGap && branchIndex > 0 && remainingGapBefore <= 0) {
+      stoppedAtClosedGap = true;
+      stopReason = 'purchase_gap_closed';
+    }
+
+    // X6.13 había retirado este salto («el objetivo es un MÍNIMO: toda rama con
+    // reserva se pide»). AGENT1-LUSHA-STOP-AT-TARGET-1 lo restaura entre ramas
+    // (arriba): se salta por `runStopped` —techo de peticiones, filas crudas,
+    // fallo del proveedor, cancelación— y por `stoppedAtClosedGap`.
+    if (runStopped || stoppedAtClosedGap) {
       pushBranchTelemetry(branchIndex, branch, 'not_attempted', {
         pagesAttempted: 0,
         providerRequests: 0,

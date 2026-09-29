@@ -223,6 +223,12 @@ export const LUSHA_RUN_MAX_RAW_RESULTS =
  */
 export type LushaRunStopReason =
   | 'branches_exhausted'
+  /**
+   * 🔴 AGENT1-LUSHA-STOP-AT-TARGET-1 — la corrida no abrió más ramas porque el
+   * hueco de COMPRA (útiles de lo pagado) ya estaba cerrado. Como los demás
+   * motivos, NO afirma el objetivo: eso lo dice `accepted_for_target`.
+   */
+  | 'purchase_gap_closed'
   | 'request_cap_reached'
   | 'raw_scan_cap_reached'
   | 'provider_failure'
@@ -253,6 +259,7 @@ export type LushaRequestDecision =
       stopReason: Exclude<
         LushaRunStopReason,
         | 'branches_exhausted'
+        | 'purchase_gap_closed'
         | 'no_results'
         | 'post_admission_identity_gap'
         | 'post_admission_persistence_gap'
