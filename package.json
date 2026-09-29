@@ -43,6 +43,7 @@
     "test:a1-ownership-gate-multicountry": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/agent1-ownership-gate-multicountry.test.ts",
     "test:a1-global-company-identity-claims": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/global-identity-claims.test.ts src/server/prospect-batches/__tests__/global-identity-claims-store.test.ts",
     "test:a1-lusha-global-identity-claims": "node --import tsx --test src/server/prospect-batches/__tests__/lusha-global-identity-claims.test.ts",
+    "test:a1-global-identity-claims:postgres": "node --import tsx --test src/server/prospect-batches/__tests__/global-identity-claims-postgres.test.ts",
     "test:a1-structural-domain-ownership-x6-10": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/agent1-structural-domain-ownership-x6-10.test.ts",
     "test:a1-structural-ownership-transport-x6-10b": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/agent1-structural-ownership-transport-x6-10b.test.ts",
     "test:a1-structural-ownership-activation-x6-10c": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/agent1-structural-ownership-activation-x6-10c.test.ts src/server/agents/prospecting-toolkit/__tests__/agent1-ownership-domain-to-name-x6-9.test.ts src/server/agents/prospecting-toolkit/__tests__/agent1-hardening-cut1-ownership-recall-parity.test.ts",

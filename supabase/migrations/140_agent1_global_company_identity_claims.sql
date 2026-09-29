@@ -118,10 +118,20 @@ COMMENT ON TABLE public.agent1_company_identity_claims IS
 -- 2. Liberación automática — disparador sobre prospect_candidates.status
 -- ═══════════════════════════════════════════════════════════════════
 
+-- 🔴 SECURITY DEFINER, y no es un descuido (AGENT1-CLAIMS-RELEASE-TRIGGER-DEFINER-1).
+-- Los vendedores descartan con su cliente de SESIÓN (`discardCandidate`,
+-- rol `authenticated`), y la tabla de reclamos sólo tiene política para
+-- `service_role`. En SECURITY INVOKER el UPDATE de abajo afectaba 0 filas SIN
+-- error: la empresa descartada quedaba bloqueada para siempre. Medido contra
+-- PostgreSQL real antes de aplicar nada (global-identity-claims-postgres).
+--
+-- Es seguro correrlo con el rol del dueño: sólo toca los reclamos de `NEW.id`,
+-- sólo para marcarlos liberados, el `search_path` está fijado, y una función
+-- `RETURNS trigger` no se puede invocar a mano.
 CREATE OR REPLACE FUNCTION public.agent1_release_company_identity_claims()
 RETURNS trigger
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
 AS $fn$
 BEGIN
@@ -260,9 +270,11 @@ COMMENT ON FUNCTION public.claim_company_identities(jsonb) IS
 -- 4. GRANTS — estado final declarativo
 -- ═══════════════════════════════════════════════════════════════════
 --
--- `authenticated` porque la ruta de Lusha corre con el cliente de sesión;
--- `service_role` porque Apollo/Tavily corren con el cliente administrativo.
--- Mismo reparto que 126. `anon` y `PUBLIC` quedan fuera.
+-- Apollo/Tavily Y Lusha reclaman con el cliente ADMINISTRATIVO (`service_role`):
+-- la única política es la suya, y la sesión de un vendedor no lee ni escribe
+-- reclamos. `authenticated` conserva el GRANT de tabla y de EXECUTE sólo porque
+-- el disparador de liberación corre bajo su UPDATE; sin política, no ve filas.
+-- `anon` y `PUBLIC` quedan fuera.
 
 ALTER TABLE public.agent1_company_identity_claims ENABLE ROW LEVEL SECURITY;
 
@@ -291,6 +303,12 @@ BEGIN
   EXECUTE 'REVOKE ALL PRIVILEGES ON TABLE public.agent1_company_identity_claims FROM service_role';
   EXECUTE 'GRANT SELECT, INSERT, UPDATE ON TABLE public.agent1_company_identity_claims TO authenticated, service_role';
 END $$;
+
+-- La función del disparador es SECURITY DEFINER: nadie debe poder invocarla
+-- a mano. Disparar un trigger no exige EXECUTE, así que revocarlo no le quita
+-- nada al descarte (lo prueba global-identity-claims-postgres § 1).
+REVOKE ALL ON FUNCTION public.agent1_release_company_identity_claims() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.agent1_release_company_identity_claims() FROM anon, authenticated, service_role;
 
 REVOKE ALL ON FUNCTION public.claim_company_identities(jsonb) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.claim_company_identities(jsonb) FROM anon;
