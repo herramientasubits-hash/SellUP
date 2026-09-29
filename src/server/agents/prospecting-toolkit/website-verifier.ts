@@ -129,13 +129,13 @@ function buildSafeUrl(rawInput: string): { url: URL; reason?: string } | { url: 
 
 // ─── Extracción de signals de página ─────────────────────────────────────────
 
-type PageSignals = {
+export type PageSignals = {
   title: string | null;
   metaDescription: string | null;
   canonicalUrl: string | null;
 };
 
-function extractPageSignals(html: string): PageSignals {
+export function extractPageSignals(html: string): PageSignals {
   // Extraer solo los primeros MAX_HTML_BYTES caracteres para no guardar todo el HTML
   const slice = html.slice(0, MAX_HTML_BYTES);
 
@@ -377,6 +377,49 @@ async function fetchWithRedirectTracking(
   } finally {
     clearTimeout(timer);
   }
+}
+
+// ─── Descarga segura de la página (reutilizable) ─────────────────────────────
+
+export type SafePageFetchResult = {
+  requestedUrl: string;
+  finalUrl: string | null;
+  httpStatus: number | null;
+  redirected: boolean;
+  /** Primeros 50 KB del HTML; null si la página no respondió o no es HTML. */
+  html: string | null;
+  error: string | null;
+};
+
+/**
+ * Descarga la página con las MISMAS protecciones que `verifyWebsite`
+ * (anti-SSRF, redirects manuales ≤3, timeout, tope de 50 KB). No guarda nada.
+ */
+export async function fetchSafePageHtml(
+  websiteOrDomain: string,
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
+): Promise<SafePageFetchResult> {
+  const requestedUrl = websiteOrDomain.trim();
+  const safeResult = buildSafeUrl(requestedUrl);
+  if (!safeResult.url) {
+    return {
+      requestedUrl,
+      finalUrl: null,
+      httpStatus: null,
+      redirected: false,
+      html: null,
+      error: `blocked_url:${safeResult.reason}`,
+    };
+  }
+  const fetchResult = await fetchWithRedirectTracking(safeResult.url, timeoutMs);
+  return {
+    requestedUrl,
+    finalUrl: fetchResult.finalUrl,
+    httpStatus: fetchResult.httpStatus,
+    redirected: fetchResult.redirectChain.length > 0,
+    html: fetchResult.html,
+    error: fetchResult.fetchError,
+  };
 }
 
 // ─── Función pública ──────────────────────────────────────────────────────────

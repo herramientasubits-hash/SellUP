@@ -22,6 +22,8 @@ import { CreateCandidateDrawer } from '@/components/prospect-batches/create-cand
 import { CandidatesTableClient } from '@/components/prospect-batches/candidates-table-client';
 import { RollbackBatchDialog } from '@/components/prospect-batches/rollback-batch-dialog';
 import { RehydrateBatchButton } from '@/components/prospect-batches/rehydrate-batch-button';
+import { ClaudeClassifyBatchButton } from '@/components/prospect-batches/claude-classify-batch-button';
+import { isAgent1ClaudeClassifierEnabled } from '@/lib/feature-flags.server';
 import {
   getProspectBatchById,
   getCandidatesByBatch,
@@ -66,6 +68,8 @@ export default async function BatchDetailPage({ params }: Props) {
   ]);
 
   if (!batch) notFound();
+
+  const pendingReviewCount = candidates.filter((c) => c.status === 'needs_review').length;
 
   const isStructuredRues =
     batch.country_code === 'CO' ||
@@ -208,6 +212,9 @@ export default async function BatchDetailPage({ params }: Props) {
                 batch.metadata?.source_key === 'cl_res') && (
                 <RehydrateBatchButton batchId={batch.id} />
               )}
+            {isAdmin && isAgent1ClaudeClassifierEnabled() && pendingReviewCount > 0 && (
+              <ClaudeClassifyBatchButton batchId={batch.id} pendingReviewCount={pendingReviewCount} />
+            )}
             {batch.metadata?.batch_type === 'structured' &&
               batch.metadata?.initiated_by === 'agent_1' &&
               batch.metadata?.source_key === 'co_rues' &&

@@ -59,6 +59,8 @@ import {
 } from '@/modules/prospect-batches/types';
 import type { PeruSunatEnrichmentBlock } from '@/server/prospect-batches/peru-sunat-post-approval-enrichment';
 import { PeruSunatLegalValidationBlock } from './peru-sunat-legal-validation-block';
+import { ClaudeClassificationBlock } from './claude-classification-block';
+import { readClaudeClassificationDisplay } from './claude-classification-display';
 import type { PeMigoApiEnrichmentBlock } from '@/server/prospect-batches/peru-migo-legal-enrichment';
 import { PeruMigoLegalValidationBlock } from './peru-migo-legal-validation-block';
 import { getIcpSizeGateUiState } from './icp-size-gate-ui';
@@ -648,6 +650,7 @@ export function CandidateDetailSheet({
     ? (STRUCTURED_SOURCE_LABELS[candidate.source_primary] ?? sourcePrimaryLabel)
     : null) as React.ReactNode;
 
+  const claudeClassification = readClaudeClassificationDisplay(candidate?.metadata);
   const isPeCandidate = candidate?.country_code?.toUpperCase() === 'PE';
   const peSunatBlock = isPeCandidate
     ? ((candidate?.metadata?.source_enrichment as Record<string, unknown> | undefined)
@@ -1487,6 +1490,13 @@ export function CandidateDetailSheet({
               )}
             </SurfaceCard>
             </CollapsibleSection>
+
+            {/* Sugerencia de Claude (sector/tamaño con fuente) — sólo si existe */}
+            {claudeClassification && (
+              <CollapsibleSection title="Sugerencia de Claude" defaultOpen>
+                <ClaudeClassificationBlock display={claudeClassification} />
+              </CollapsibleSection>
+            )}
 
             {/* Validación Legal SUNAT — solo para candidatos Perú */}
             {isPeCandidate && (
