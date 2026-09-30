@@ -19,7 +19,8 @@
  * Server-only. Never import from client components.
  */
 
-import { estimateWizardAdaptiveMaxCredits } from './wizard-budget-reconciliation';
+import { estimateWizardTavilyRunMaxCredits } from './wizard-budget-reconciliation';
+import { isLinkedInCompanySearchEnabled } from '@/lib/feature-flags.server';
 import type { WizardDiscoveryProviderKey } from './wizard-provider-resolver';
 import {
   estimateApolloRunCreditBreakdown,
@@ -144,7 +145,8 @@ export type WizardBudgetEstimateInput = {
  *   Hard cap de invocaciones: queries ≤ 3. Defaults: 1 query × 1 página = 1
  *   crédito de búsqueda (antes 1 × 3 resultados = 3).
  *
- * For Tavily: estimate = estimateWizardAdaptiveMaxCredits() = 20.
+ * For Tavily: estimate = estimateWizardTavilyRunMaxCredits() = 20, or 25 with
+ * ENABLE_LINKEDIN_COMPANY_SEARCH on (AGENT1-TAVILY-V2-1 § 3).
  *
  * Block precedence: max_per_execution checked first, then available budget.
  */
@@ -180,7 +182,10 @@ export function resolveWizardExecutionCreditEstimate(
     estimatedCredits = apolloCreditBreakdown.totalReservedCredits;
     estimateSource = 'apollo_cost_guardrails';
   } else {
-    estimatedCredits = estimateWizardAdaptiveMaxCredits();
+    // AGENT1-TAVILY-V2-1 § 3 — descubrimiento + LinkedIn cuando está encendido.
+    estimatedCredits = estimateWizardTavilyRunMaxCredits({
+      linkedInSearchEnabled: isLinkedInCompanySearchEnabled(),
+    });
     estimateSource = 'tavily_adaptive_pipeline';
   }
 
@@ -268,7 +273,9 @@ export function estimateCreditsForProvider(provider: WizardDiscoveryProviderKey)
     if (twoRound.estimatedCredits !== null) return twoRound.estimatedCredits;
     return resolveApolloRunCreditBreakdown().totalReservedCredits;
   }
-  return estimateWizardAdaptiveMaxCredits();
+  return estimateWizardTavilyRunMaxCredits({
+    linkedInSearchEnabled: isLinkedInCompanySearchEnabled(),
+  });
 }
 
 // ── Apollo hard cap reference (exported for tests) ───────────────────────────

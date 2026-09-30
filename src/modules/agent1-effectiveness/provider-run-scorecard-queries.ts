@@ -38,7 +38,11 @@ const USAGE_LOG_TRAILING_MS = 6 * 60 * 60 * 1000;
 const PRICING_OPERATION = {
   apollo: 'credit',
   lusha: 'company_prospecting_v3',
+  // AGENT1-TAVILY-V2-1 § 5 — mismo precio que `linkedin_company_search` (0,008).
+  tavily: 'multi_query_web_search',
 } as const;
+
+const SCORECARD_PROVIDERS = ['apollo', 'lusha', 'tavily'] as const;
 
 function getAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -84,6 +88,9 @@ type RawBatch = {
   lusha_waterfall_leg: unknown;
   billing: unknown;
   run_metrics: unknown;
+  web_search_provider: unknown;
+  incremental_total_raw: unknown;
+  incremental_total_candidates: unknown;
 };
 
 async function fetchBatches(
@@ -105,6 +112,10 @@ async function fetchBatches(
           'lusha_waterfall_leg:metadata->lusha_waterfall_leg',
           'billing:metadata->billing',
           'run_metrics:metadata->apollo_two_round_discovery->run_metrics',
+          // AGENT1-TAVILY-V2-1 § 5 — marca del lote Tavily y sus dos totales.
+          'web_search_provider:metadata->web_search_provider',
+          'incremental_total_raw:metadata->incremental_search->total_raw_evaluated',
+          'incremental_total_candidates:metadata->incremental_search->total_candidates_accumulated',
         ].join(', '),
       )
       .gte('created_at', request.dateFrom)
@@ -130,6 +141,11 @@ async function fetchBatches(
       lusha_waterfall_leg: b.lusha_waterfall_leg,
       billing: b.billing,
       apollo_two_round_discovery: { run_metrics: b.run_metrics },
+      web_search_provider: b.web_search_provider,
+      incremental_search: {
+        total_raw_evaluated: b.incremental_total_raw,
+        total_candidates_accumulated: b.incremental_total_candidates,
+      },
     },
   }));
 }
@@ -143,6 +159,7 @@ type RawUsageLog = {
   credits_used: number | string | null;
   lusha_run_observability: unknown;
   run_correlation: unknown;
+  provider_reported_credits_mismatch: unknown;
 };
 
 async function fetchUsageLogs(
@@ -157,9 +174,10 @@ async function fetchUsageLogs(
         .from('provider_usage_logs')
         .select(
           'id, created_at, provider_key, operation_key, batch_id, credits_used, ' +
-            'lusha_run_observability:metadata->lusha_run_observability, run_correlation:metadata->run_correlation',
+            'lusha_run_observability:metadata->lusha_run_observability, run_correlation:metadata->run_correlation, ' +
+            'provider_reported_credits_mismatch:metadata->provider_reported_credits_mismatch',
         )
-        .in('provider_key', ['apollo', 'lusha'])
+        .in('provider_key', [...SCORECARD_PROVIDERS])
         .gte('created_at', request.dateFrom)
         .lt('created_at', until)
         .order('id', { ascending: true })
@@ -175,6 +193,7 @@ async function fetchUsageLogs(
     metadata: {
       lusha_run_observability: l.lusha_run_observability,
       run_correlation: l.run_correlation,
+      provider_reported_credits_mismatch: l.provider_reported_credits_mismatch,
     },
   }));
 }
@@ -258,12 +277,12 @@ async function fetchPrices(
   const { data, error } = await admin
     .from('provider_pricing_config')
     .select('provider_key, operation_key, unit_cost_usd, effective_from, is_active')
-    .in('provider_key', ['apollo', 'lusha'])
+    .in('provider_key', [...SCORECARD_PROVIDERS])
     .eq('is_active', true);
   if (error) throw new Error(`provider-run-scorecard: provider_pricing_config: ${error.message}`);
 
   const prices: ScorecardPrice[] = [];
-  for (const provider of ['apollo', 'lusha'] as const) {
+  for (const provider of SCORECARD_PROVIDERS) {
     const override = request.usdPerCreditOverride[provider];
     if (override !== null) {
       prices.push({

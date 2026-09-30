@@ -213,17 +213,24 @@ function injectSubindustryQueries(
 
 // ─── Sectores tech (permiten términos de software en la query) ─────────────────
 
-const TECH_SECTOR_KEYWORDS = [
-  'tecnología', 'tecnologia', 'technology', 'tech',
-  'software', 'tic', ' ti ', ' it ', 'digital',
-  'informática', 'informatica', 'sistemas', 'desarrollo',
+// AGENT1-TAVILY-V2-1 — se compara por PALABRA completa, sin tildes. Por
+// substring, `'tic'` está dentro de «Logís-tic-a» y «Farmacéu-tic-os», y
+// «Transporte & Logística» y «Salud & Farmacéuticos» recibían consultas de
+// software, ciberseguridad y ERP.
+const TECH_SECTOR_KEYWORDS: ReadonlySet<string> = new Set([
+  'tecnologia', 'technology', 'tech',
+  'software', 'tic', 'tics', 'ti', 'it', 'digital',
+  'informatica', 'sistemas', 'desarrollo',
   'saas', 'datos', 'data', 'ciberseguridad', 'cybersecurity',
-  'ecommerce', 'e-commerce', 'fintech',
-];
+  'ecommerce', 'fintech',
+]);
 
 function isTechSector(industry: string): boolean {
-  const lower = ` ${industry.toLowerCase()} `;
-  return TECH_SECTOR_KEYWORDS.some((kw) => lower.includes(kw));
+  const normalized = normalizeKey(industry);
+  if (normalized.includes('e-commerce')) return true;
+  return normalized
+    .split(/[^a-z0-9]+/)
+    .some((word) => TECH_SECTOR_KEYWORDS.has(word));
 }
 
 // ─── Detección manufactura ────────────────────────────────────────────────────

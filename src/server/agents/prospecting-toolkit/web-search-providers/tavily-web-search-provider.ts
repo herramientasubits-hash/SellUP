@@ -15,6 +15,8 @@
 
 import type { WebSearchInput, WebSearchOutput, WebSearchResult } from '../types';
 import { getTavilyApiKey } from '@/server/services/tavily-connection';
+import { resolveTavilyCountryTargeting } from '../tavily-query-plan';
+import { TAVILY_EXCLUDE_DOMAINS_MAX } from '../tavily-exclude-domains';
 
 const TAVILY_ENDPOINT = 'https://api.tavily.com/search';
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -34,6 +36,8 @@ type TavilySearchResponse = {
   query?: string;
   answer?: string | null;
   response_time?: number;
+  /** Presente con `include_usage: true`. */
+  usage?: { credits?: unknown } | null;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -67,6 +71,45 @@ function mapTavilyResults(
     }));
 }
 
+/**
+ * Cuerpo de `POST /search`. Puro, para poder fijarlo en tests sin red.
+ *
+ * AGENT1-TAVILY-V2-1 § 1 — `country` realza resultados del país pedido y
+ * `language` sólo viaja donde la consulta está escrita en ese idioma (ver
+ * `resolveTavilyCountryTargeting`). § 2 — `exclude_domains` deja fuera lo ya
+ * visto y el ruido fijo. Nada de esto cambia el costo: la búsqueda `basic`
+ * sigue costando 1 crédito.
+ */
+export function buildTavilySearchRequestBody(
+  input: WebSearchInput,
+  maxResults: number,
+): Record<string, unknown> {
+  const targeting = resolveTavilyCountryTargeting(input.countryCode);
+  // AGENT1-TAVILY-V2-1 § 2 — nunca más de lo que Tavily acepta.
+  const excludeDomains = (input.excludeDomains ?? []).slice(0, TAVILY_EXCLUDE_DOMAINS_MAX);
+  return {
+    query: input.query,
+    max_results: maxResults,
+    search_depth: input.searchDepth === 'deep' ? 'advanced' : 'basic',
+    include_raw_content: false,
+    // § 3 — la respuesta trae `usage.credits` (no cobra créditos extra).
+    include_usage: true,
+    ...(targeting.country ? { country: targeting.country } : {}),
+    ...(targeting.language ? { language: targeting.language } : {}),
+    ...(excludeDomains.length > 0 ? { exclude_domains: excludeDomains } : {}),
+  };
+}
+
+/**
+ * AGENT1-TAVILY-V2-1 § 3 — créditos que Tavily informa haber cobrado por esta
+ * búsqueda (`usage.credits`, con `include_usage: true`). `null` si no vino o no
+ * es un número válido: nunca se inventa.
+ */
+export function readTavilyReportedCredits(data: unknown): number | null {
+  const credits = (data as TavilySearchResponse | null)?.usage?.credits;
+  return typeof credits === 'number' && Number.isFinite(credits) && credits >= 0 ? credits : null;
+}
+
 // ─── Provider público ─────────────────────────────────────────────────────────
 
 export async function runTavilyWebSearch(input: WebSearchInput, maxResults: number): Promise<WebSearchOutput> {
@@ -98,12 +141,7 @@ export async function runTavilyWebSearch(input: WebSearchInput, maxResults: numb
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({
-        query: input.query,
-        max_results: maxResults,
-        search_depth: input.searchDepth === 'deep' ? 'advanced' : 'basic',
-        include_raw_content: false,
-      }),
+      body: JSON.stringify(buildTavilySearchRequestBody(input, maxResults)),
       signal: controller.signal,
     });
 
@@ -138,6 +176,7 @@ export async function runTavilyWebSearch(input: WebSearchInput, maxResults: numb
       metadata: {
         cost_tracking: 'pending_provider_pricing_config',
         response_time_ms: data.response_time ?? null,
+        provider_reported_credits: readTavilyReportedCredits(data),
       },
     };
   } catch (err: unknown) {

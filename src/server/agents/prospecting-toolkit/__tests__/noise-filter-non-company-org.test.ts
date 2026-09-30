@@ -39,23 +39,35 @@ describe('NC1: andicom.co blocked by ASSOCIATION_CHAMBER_DOMAINS', () => {
 
 // ── NC2: ccc.org.co bloqueado por dominio ─────────────────────────────────────
 
-describe('NC2: ccc.org.co blocked by ASSOCIATION_CHAMBER_DOMAINS', () => {
-  it('shouldKeep is false', () => {
+describe('NC2: ccc.org.co (Cámara de Comercio de Cali) pasa — es cliente', () => {
+  // AGENT1-TAVILY-V2-1 § 2 — gremios y cámaras de comercio SÍ son clientes de
+  // UBITS (decisión de la dueña 2026-09-29). Antes esta prueba exigía descartarlos.
+  it('shouldKeep is true', () => {
     const result = classifySearchResult({
       url: 'https://www.ccc.org.co',
       title: 'Cámara de Comercio de Cali',
       snippet: '',
     });
-    assert.equal(result.shouldKeep, false);
+    assert.equal(result.shouldKeep, true);
   });
 
-  it('resultType is association_or_chamber', () => {
+  it('resultType is not association_or_chamber', () => {
     const result = classifySearchResult({
       url: 'https://ccc.org.co/servicios',
       title: 'Servicios empresariales — Cámara de Comercio de Cali',
       snippet: '',
     });
-    assert.equal(result.resultType, 'association_or_chamber');
+    assert.notEqual(result.resultType, 'association_or_chamber');
+  });
+
+  it('su listado de afiliados sigue fuera como directorio', () => {
+    const result = classifySearchResult({
+      url: 'https://www.ccc.org.co/afiliados/listado',
+      title: 'Afiliados — Cámara de Comercio de Cali',
+      snippet: '',
+    });
+    assert.equal(result.shouldKeep, false);
+    assert.equal(result.resultType, 'directory');
   });
 });
 
@@ -85,25 +97,25 @@ describe('NC3: event detected semantically by title', () => {
 
 // ── NC4: cámara detectada por título (dominio desconocido) ────────────────────
 
-describe('NC4: chamber detected semantically by title', () => {
-  it('blocks "Cámara de Comercio de X" title', () => {
+describe('NC4: una cámara de comercio ya no se descarta por su título', () => {
+  // AGENT1-TAVILY-V2-1 § 2 — gremios y cámaras de comercio SÍ son clientes de
+  // UBITS (decisión de la dueña 2026-09-29). Antes esta prueba exigía descartarlos.
+  it('"Cámara de Comercio de X" pasa', () => {
     const result = classifySearchResult({
       url: 'https://ccantioquia.org.co',
       title: 'Cámara de Comercio de Antioquia',
       snippet: '',
     });
-    assert.equal(result.shouldKeep, false);
-    assert.equal(result.resultType, 'association_or_chamber');
+    assert.equal(result.shouldKeep, true);
   });
 
-  it('blocks "Chamber of Commerce" in snippet', () => {
+  it('"Chamber of Commerce" en el snippet pasa', () => {
     const result = classifySearchResult({
       url: 'https://examplecc.org.co',
       title: 'Servicios empresariales',
       snippet: 'Somos la chamber of commerce de la región',
     });
-    assert.equal(result.shouldKeep, false);
-    assert.equal(result.resultType, 'association_or_chamber');
+    assert.equal(result.shouldKeep, true);
   });
 });
 
@@ -178,13 +190,14 @@ describe('NC8: isProspectableCompanyResult blocks non-company orgs', () => {
     assert.equal(result.resultType, 'event_or_congress');
   });
 
-  it('chamber title with unknown domain is not prospectable', () => {
+  it('chamber title is no longer rejected as association_or_chamber', () => {
+    // AGENT1-TAVILY-V2-1 § 2 — gremios y cámaras de comercio SÍ son clientes de
+    // UBITS (decisión de la dueña 2026-09-29). Antes esta prueba exigía descartarlos.
     const result = isProspectableCompanyResult({
       url: 'https://ccregional.org.co',
       title: 'Cámara de Comercio Regional',
       snippet: '',
     });
-    assert.equal(result.isProspectable, false);
-    assert.equal(result.resultType, 'association_or_chamber');
+    assert.notEqual(result.resultType, 'association_or_chamber');
   });
 });

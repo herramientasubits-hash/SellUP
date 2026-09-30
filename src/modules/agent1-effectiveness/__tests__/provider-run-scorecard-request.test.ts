@@ -26,7 +26,7 @@ describe('§ 1 — parámetros', () => {
     assert.ok(r.ok);
     assert.equal(r.request.dateFrom, '2026-09-24T00:00:00.000Z');
     assert.equal(r.request.dateTo, '2026-09-25T00:00:00.000Z');
-    assert.deepEqual(r.request.usdPerCreditOverride, { apollo: null, lusha: null });
+    assert.deepEqual(r.request.usdPerCreditOverride, { apollo: null, lusha: null, tavily: null });
   });
 
   test('filtros y precio simulado válidos', () => {
@@ -58,6 +58,7 @@ describe('§ 1 — parámetros', () => {
     ['precio cero', 'from=2026-09-24&lusha_usd_per_credit=0'],
     ['precio absurdo', 'from=2026-09-24&apollo_usd_per_credit=500'],
     ['precio no numérico', 'from=2026-09-24&lusha_usd_per_credit=barato'],
+    ['precio de Tavily inválido', 'from=2026-09-24&tavily_usd_per_credit=-1'],
   ];
   for (const [label, query] of invalid) {
     test(`${label} ⇒ rechazado con un mensaje`, () => {
@@ -132,5 +133,13 @@ describe('§ 3 — sólo lectura y sólo administradores', () => {
     assert.ok(auth > 0 && admin > auth && load > admin, 'orden: sesión → admin → lectura');
     assert.match(route, /status: 401/);
     assert.match(route, /status: 403/);
+  });
+});
+
+describe('AGENT1-TAVILY-V2-1 § 5 — precio simulado de Tavily', () => {
+  test('tavily_usd_per_credit válido llega al request', () => {
+    const r = parse('from=2026-09-24&tavily_usd_per_credit=0.008');
+    assert.ok(r.ok);
+    assert.equal(r.request.usdPerCreditOverride.tavily, 0.008);
   });
 });
