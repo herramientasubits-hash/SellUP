@@ -6,7 +6,8 @@
  *
  * Builds the injected `OfficialSourceResolver[]` the pure core hands to
  * `enrichNormalizedProspectWithOfficialSources`. Today that is one resolver
- * per supported country: Colombia (co_siis) name→NIT, República Dominicana
+ * per supported country: Colombia (co_siis, then the cámaras de comercio
+ * registry live) name→NIT, República Dominicana
  * (rd_dgii_bulk) name→RNC, Argentina (ar_rns_registry) name→CUIT, Ecuador
  * (ec_scvs snapshot) name→RUC, Guatemala (gt_rgae_proveedores) name→NIT and
  * Honduras (hn_contrataciones_abiertas) name→RTN and Perú (pe_sunat_registry)
@@ -53,6 +54,12 @@ import {
   normalizeCompanyNameCore,
 } from '@/server/source-catalog/company-name-core';
 import { normalizePeruCompanyCore } from '@/server/source-catalog/connectors/sunat-peru/pe-sunat-registry-row';
+import { createFallbackOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/fallback-official-source-resolver';
+import {
+  buildRuesNameLiveQuery,
+  CO_RUES_LIVE_SOURCE_KEY,
+  normalizeColombiaCompanyCore,
+} from '@/server/source-catalog/connectors/personas-juridicas-cc-colombia/rues-name-live-query';
 
 const normalizeCentralAmericaCore = (name: string | null | undefined) =>
   normalizeCompanyNameCore(name, CENTRAL_AMERICA_LEGAL_FORMS);
@@ -73,9 +80,22 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
   }
 
   return [
-    createColombiaOfficialSourceResolver({
-      querySnapshots: buildColombiaSnapshotQuery(snapshotClient),
-    }),
+    // SOURCES-CO-RUES-LIVE-NIT-1 — Supersociedades primero; si no da NIT fuerte,
+    // el registro de las cámaras de comercio en vivo (gratuito, sólo lectura).
+    createFallbackOfficialSourceResolver(
+      createColombiaOfficialSourceResolver({
+        querySnapshots: buildColombiaSnapshotQuery(snapshotClient),
+      }),
+      createSnapshotNameOfficialSourceResolver({
+        countryCode: 'CO',
+        sourceKey: CO_RUES_LIVE_SOURCE_KEY,
+        taxIdentifierType: 'NIT',
+        validTaxId: /^[89]\d{8}$/,
+        normalizeCore: normalizeColombiaCompanyCore,
+        querySnapshots: buildRuesNameLiveQuery(),
+        singleWordIsSignalOnly: true,
+      }),
+    ),
     createDominicanOfficialSourceResolver({
       querySnapshots: buildDominicanSnapshotQuery(snapshotClient),
     }),
