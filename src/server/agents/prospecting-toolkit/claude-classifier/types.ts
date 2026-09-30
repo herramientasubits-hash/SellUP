@@ -134,6 +134,8 @@ export type CompanyClassificationResult = {
   pageFinalUrl: string | null;
   usage: ClassifierUsage | null;
   errorCode: string | null;
+  /** Mensaje del proveedor (recortado) para diagnosticar; nunca se muestra en la UI. */
+  errorMessage?: string | null;
   durationMs: number;
 };
 

@@ -1,5 +1,5 @@
 /**
- * Agente 1 · Clasificador Claude — prompt y tool estricto (puro).
+ * Agente 1 · Clasificador Claude — prompt y tool de entrega (puro).
  *
  * El catálogo va en el system prompt con cache_control. Sólo ahorra si el prefijo
  * supera el mínimo cacheable del modelo; con 12 macroindustrias casi seguro no lo
@@ -16,8 +16,10 @@ export const MAX_WEB_SEARCHES_PER_COMPANY = 2;
 /** Versión estable del tool de búsqueda web del servidor de Anthropic. */
 export const WEB_SEARCH_TOOL_TYPE = 'web_search_20250305';
 
-const nullableString = { type: ['string', 'null'] } as const;
-const nullableInteger = { type: ['integer', 'null'] } as const;
+// `anyOf` y no `type: [..., 'null']`: la API rechaza (HTTP 400) las uniones en
+// forma de arreglo dentro de un esquema de tool. Prod 2026-09-29: 13/13 fallaron así.
+const nullableString = { anyOf: [{ type: 'string' }, { type: 'null' }] } as const;
+const nullableInteger = { anyOf: [{ type: 'integer' }, { type: 'null' }] } as const;
 const confidence = { type: 'number', description: 'Entre 0 y 1.' } as const;
 
 export const SUBMIT_TOOL_DEFINITION = {
@@ -25,7 +27,8 @@ export const SUBMIT_TOOL_DEFINITION = {
   description:
     'Entrega la clasificación final de la empresa. Llámalo UNA vez, al final. ' +
     'Si un dato no tiene fuente, déjalo en null.',
-  strict: true,
+  // Sin `strict`: el esquema estricto tiene límites propios (uniones, formatos) y no
+  // aporta seguridad aquí, porque `verifySubmission` valida cada campo de todas formas.
   input_schema: {
     type: 'object',
     additionalProperties: false,
