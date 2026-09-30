@@ -17,6 +17,7 @@ export const CLASSIFIABLE_FAILED_CONDITIONS = ['subindustry_match', 'employee_co
 export type ClassifiableCandidateRow = {
   id: string;
   industry_id: string | null;
+  industry?: string | null;
   name: string | null;
   website: string | null;
   domain: string | null;
@@ -119,6 +120,7 @@ export function buildClassificationMetadata(
     rejected: result.rejected,
     is_operating_company: result.isOperatingCompany,
     page_final_url: result.pageFinalUrl,
+    page_source: result.pageSource ?? null,
     estimated_cost_usd: result.usage?.estimatedCostUsd ?? null,
     web_search_requests: result.usage?.webSearchRequests ?? 0,
     error_code: result.errorCode,
