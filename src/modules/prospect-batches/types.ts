@@ -100,6 +100,8 @@ export type TaxIdentifierType =
   | 'RNC'
   | 'RTN'
   | 'cedula_juridica'
+  | 'EIN'
+  | 'NIF'
   | 'other';
 
 // ── Entidades principales ─────────────────────────────────────
@@ -380,6 +382,8 @@ export const TAX_IDENTIFIER_TYPE_LABELS: Record<TaxIdentifierType, string> = {
   RNC: 'RNC (Rep. Dominicana)',
   RTN: 'RTN (Honduras)',
   cedula_juridica: 'Cédula Jurídica',
+  EIN: 'EIN (Estados Unidos)',
+  NIF: 'NIF (España)',
   other: 'Otro',
 };
 

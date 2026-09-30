@@ -366,8 +366,12 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 a la 140: el reclamo global de identidad de
       // empresa. Ninguna escribe `mobile_phone` ni inventa vocabulario de procedencia del
       // escalar móvil. AUTORADAS y NO APLICADAS.
-      '140_agent1_global_company_identity_claims.sql',
-      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa, la contabilidad de presupuesto, el tramo 129–132 de Agente 2, la 133 de BR-SOURCE CUT D, la 134 del compacto de BR y la 135 de la valla de Lusha (AGENT1-LUSHA-CUT-L3, renumerada desde la 134), la 136 del historial de intentos seguros de Lusha, la 137 de la auditoría administrativa del presupuesto del Wizard, la 138 de la disposición durable de descartes de Prospectos, la 139 de la cola durable de continuaciones de ronda de Apollo y la 140 del reclamo global de identidad de empresa, no este hito',
+      // SOURCES-US-EIN-BY-NAME-1 mueve el techo a la 141: sólo amplía el CHECK de
+      // `tax_identifier_type` en `accounts` y `prospect_candidates` con 'EIN' y 'NIF'. No
+      // escribe `mobile_phone` ni inventa vocabulario de procedencia del escalar móvil.
+      // AUTORADA y NO APLICADA.
+      '141_tax_identifier_type_ein_nif.sql',
+      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa, la contabilidad de presupuesto, el tramo 129–132 de Agente 2, la 133 de BR-SOURCE CUT D, la 134 del compacto de BR y la 135 de la valla de Lusha (AGENT1-LUSHA-CUT-L3, renumerada desde la 134), la 136 del historial de intentos seguros de Lusha, la 137 de la auditoría administrativa del presupuesto del Wizard, la 138 de la disposición durable de descartes de Prospectos, la 139 de la cola durable de continuaciones de ronda de Apollo, la 140 del reclamo global de identidad de empresa y la 141 de la ampliación de tipos fiscales con EIN y NIF, no este hito',
     );
     for (const agent2 of [
       '129_agent2_contact_hubspot_stale_completeness.sql',
@@ -416,15 +420,18 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET declara la 139 y
       // AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 declara la 140. Ambas quedan AUTORIZADAS y
       // NOMBRADAS como las anteriores, así que la ventana prohibida sube a la 141 y superiores.
+      // SOURCES-US-EIN-BY-NAME-1 declara la 141 (sólo amplía el CHECK de `tax_identifier_type`
+      // con 'EIN' y 'NIF'). Queda AUTORIZADA y NOMBRADA como las anteriores, así que la ventana
+      // prohibida sube a la 142 y superiores.
       // La guarda no se relaja: sigue impidiendo que alguien cuele una POR ENCIMA del último
       // hito conocido sin declararla.
-      numbered.some((f) => /^14[1-9]/.test(f) || /^1[5-9]\d/.test(f)),
+      numbered.some((f) => /^14[2-9]/.test(f) || /^1[5-9]\d/.test(f)),
       false,
       // La 120 (Fase 1), la 121 (contabilidad) y la 122 («Buscar más números»)
       // (AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1) son AUTORIZADAS y están declaradas arriba;
       // lo que esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último
       // hito conocido sin declararla.
-      'ninguna migración 141 o superior',
+      'ninguna migración 142 o superior',
     );
   });
 

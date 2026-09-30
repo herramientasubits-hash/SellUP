@@ -431,7 +431,11 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
     // identidad de empresa que cierra la carrera de dos-vendedores-misma-empresa a escala de
     // TODA la cuenta. El proxy se mueve de la 140 a la 141, y el barrido de AUTORÍA se ENSANCHA
     // para incluir la 140.
-      migrations.filter((f) => f.startsWith('141')).length,
+    // 🔴 SOURCES-US-EIN-BY-NAME-1 reclamó después la 141: sólo amplía el CHECK de
+    // `tax_identifier_type` en `accounts` y `prospect_candidates` con 'EIN' y 'NIF'. AUTORADA y
+    // NO APLICADA. El proxy se mueve de la 141 a la 142, y el barrido de AUTORÍA se ENSANCHA
+    // para incluir la 141.
+      migrations.filter((f) => f.startsWith('142')).length,
       0,
       'este corte no añade migración',
     );
@@ -453,7 +457,8 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
         f.startsWith('137') ||
         f.startsWith('138') ||
         f.startsWith('139') ||
-        f.startsWith('140'),
+        f.startsWith('140') ||
+        f.startsWith('141'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

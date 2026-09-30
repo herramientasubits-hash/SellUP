@@ -708,7 +708,11 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
     // proxy «el siguiente número está libre» se mueve por tanto de la 140 a la 141, y el
     // barrido de AUTORÍA se ENSANCHA para incluir la 140. Otra vez más fuerte que antes, no
     // meramente desplazada.
-    assert.equal(migrations.filter((f) => f.startsWith('141')).length, 0);
+    // 🔴 SOURCES-US-EIN-BY-NAME-1 reclamó después la 141: sólo amplía el CHECK de
+    // `tax_identifier_type` en `accounts` y `prospect_candidates` con 'EIN' y 'NIF'. AUTORADA y
+    // NO APLICADA. El proxy «el siguiente número está libre» se mueve por tanto de la 141 a la
+    // 142, y el barrido de AUTORÍA se ENSANCHA para incluir la 141.
+    assert.equal(migrations.filter((f) => f.startsWith('142')).length, 0);
     for (const file of migrations.filter(
       (f) =>
         f.startsWith('124') ||
@@ -727,7 +731,8 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
         f.startsWith('137') ||
         f.startsWith('138') ||
         f.startsWith('139') ||
-        f.startsWith('140'),
+        f.startsWith('140') ||
+        f.startsWith('141'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),
