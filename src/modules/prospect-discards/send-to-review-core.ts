@@ -26,6 +26,20 @@ export interface SendToReviewCoreDeps {
   /** Resolves the current viewer's commercial-scope visibility over a batch.
    *  Injected so this module never resolves scope itself. */
   isBatchInScope: (batchId: string) => Promise<boolean>;
+  /**
+   * AGENT1-SEND-TO-REVIEW-RECLAIM-1 — «una empresa, un vendedor» también al
+   * volver de Descartadas. Descartar LIBERA el reclamo global (disparador de la
+   * 140, #468); devolver a revisión tiene que volver a reclamarlo, o la empresa
+   * queda sin dueño y otro vendedor puede recibirla en paralelo.
+   *
+   * Opcional para no romper a quien no lo inyecta; el wrapper humano lo inyecta
+   * con el cliente administrativo (la tabla de reclamos sólo es de `service_role`).
+   * Si la empresa ya la tiene otro, la RPC deja la fila `duplicate`.
+   */
+  claimGlobalIdentities?: (
+    batchId: string,
+    candidateIds: string[],
+  ) => Promise<{ claimedElsewhere: Array<{ candidateId: string }>; degraded: boolean }>;
 }
 
 /**
@@ -54,7 +68,34 @@ export type SendToReviewCoreOutcome =
   | { outcome: 'not_found' }
   | { outcome: 'out_of_scope' }
   | { outcome: 'reject'; reason: SendToReviewRejectReason }
-  | { outcome: 'write_failed'; message: string };
+  | { outcome: 'write_failed'; message: string }
+  /** Volvió a revisión, pero otro vendedor ya tenía la empresa: quedó `duplicate`. */
+  | { outcome: 'claimed_by_other_seller'; candidateId: string };
+
+/**
+ * Reclama la identidad global de la fila recién devuelta a revisión. Degrada
+ * CERRADO (como la 140): si el reclamo no se puede completar, la fila sigue en
+ * revisión y nadie se marca duplicado por un fallo de infraestructura.
+ */
+async function reclaimAfterSend(
+  deps: SendToReviewCoreDeps,
+  sent: Extract<SendToReviewCoreOutcome, { outcome: 'sent' }>,
+): Promise<SendToReviewCoreOutcome> {
+  if (!deps.claimGlobalIdentities) return sent;
+  try {
+    const result = await deps.claimGlobalIdentities(sent.batchId, [sent.candidateId]);
+    if (result.degraded) {
+      console.error('[prospect-discards] identity reclaim degraded for candidate', sent.candidateId);
+      return sent;
+    }
+    if (result.claimedElsewhere.some((c) => c.candidateId === sent.candidateId)) {
+      return { outcome: 'claimed_by_other_seller', candidateId: sent.candidateId };
+    }
+  } catch (err) {
+    console.error('[prospect-discards] identity reclaim failed:', err);
+  }
+  return sent;
+}
 
 function buildOverrideReviewNote(
   disposition: DiscardDispositionCode,
@@ -128,7 +169,7 @@ export async function sendCandidateToReviewCore(
     return { outcome: 'reject', reason: 'status_conflict' };
   }
 
-  return {
+  return reclaimAfterSend(deps, {
     outcome: 'sent',
     candidateId,
     batchId: current.batch_id as string,
@@ -138,7 +179,7 @@ export async function sendCandidateToReviewCore(
       original_status: 'discarded',
       original_reason: current.review_notes,
     },
-  };
+  });
 }
 
 // ─── Branch B: prospect_discarded_dispositions row (pipeline auto-reject) ─
@@ -284,7 +325,7 @@ export async function sendDispositionToReviewCore(
     .update({ resulting_candidate_id: newCandidateId, candidate_id: newCandidateId })
     .eq('id', dispositionId);
 
-  return {
+  return reclaimAfterSend(deps, {
     outcome: 'sent',
     candidateId: newCandidateId,
     batchId: disp.batch_id,
@@ -296,5 +337,5 @@ export async function sendDispositionToReviewCore(
       original_reason_code: disp.reason_code,
       original_reason_detail: disp.reason_detail,
     },
-  };
+  });
 }

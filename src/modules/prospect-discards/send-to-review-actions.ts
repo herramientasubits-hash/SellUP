@@ -24,6 +24,8 @@ import {
   type SendToReviewCoreOutcome,
 } from './send-to-review-core';
 import type { SendToReviewRejectReason } from './send-to-review-eligibility';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { claimGlobalIdentitiesForPersistedCandidates } from '@/server/prospect-batches/global-identity-claims-store';
 
 const ACCOUNTS_PATH = '/accounts';
 
@@ -37,6 +39,7 @@ export type SendToReviewActionResult =
         | 'out_of_scope'
         | SendToReviewRejectReason
         | 'write_failed'
+        | 'claimed_by_other_seller'
         | 'unexpected_error';
       message?: string;
     };
@@ -92,6 +95,9 @@ async function toActionResult(
       return { ok: false, reason: outcome.reason };
     case 'write_failed':
       return { ok: false, reason: 'write_failed', message: outcome.message };
+    case 'claimed_by_other_seller':
+      revalidatePath(ACCOUNTS_PATH);
+      return { ok: false, reason: 'claimed_by_other_seller' };
   }
 }
 
@@ -117,7 +123,15 @@ export async function sendDiscardedProspectToReviewAction(
     }
 
     const supabase = await createClient();
-    const deps = { supabase, actorUserId: internalUserId, isBatchInScope };
+    const deps = {
+      supabase,
+      actorUserId: internalUserId,
+      isBatchInScope,
+      // AGENT1-SEND-TO-REVIEW-RECLAIM-1 — cliente ADMINISTRATIVO: la tabla de
+      // reclamos sólo tiene política para `service_role` (igual que Lusha).
+      claimGlobalIdentities: (batchId: string, candidateIds: string[]) =>
+        claimGlobalIdentitiesForPersistedCandidates(createSupabaseAdminClient(), batchId, candidateIds),
+    };
 
     const outcome =
       source === 'candidate'
