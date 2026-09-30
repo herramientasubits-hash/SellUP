@@ -11,7 +11,8 @@
  * (rd_dgii_bulk) name→RNC, Argentina (ar_rns_registry) name→CUIT, Ecuador
  * (ec_scvs snapshot) name→RUC, Guatemala (gt_rgae_proveedores) name→NIT and
  * Honduras (hn_contrataciones_abiertas) name→RTN and Perú (pe_sunat_registry)
- * name→RUC and Paraguay (py_set_registry) name→RUC. No promise of MX/… enrichment
+ * name→RUC, Paraguay (py_set_registry) name→RUC and Uruguay
+ * (uy_rupe_registry) name→RUT. No promise of MX/… enrichment
  * is made here;
  * unsupported countries fall through to the shared "unsupported" result (soft
  * warning) automatically.
@@ -55,6 +56,7 @@ import {
 } from '@/server/source-catalog/company-name-core';
 import { normalizePeruCompanyCore } from '@/server/source-catalog/connectors/sunat-peru/pe-sunat-registry-row';
 import { normalizeParaguayCompanyCore } from '@/server/source-catalog/connectors/set-paraguay/py-set-registry-row';
+import { normalizeUruguayCompanyCore } from '@/server/source-catalog/connectors/rupe-uruguay/uy-rupe-registry-row';
 import { createFallbackOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/fallback-official-source-resolver';
 import {
   buildRuesNameLiveQuery,
@@ -141,6 +143,15 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
       validTaxId: /^80\d{6}-\d$/,
       normalizeCore: normalizeParaguayCompanyCore,
       querySnapshots: buildSnapshotNameQuery(snapshotClient, 'py_set_registry', 'PY'),
+    }),
+    // SOURCES-UY-RUT-BY-NAME-1 — empresas activas del RUPE (proveedores del Estado).
+    createSnapshotNameOfficialSourceResolver({
+      countryCode: 'UY',
+      sourceKey: 'uy_rupe_registry',
+      taxIdentifierType: 'RUT',
+      validTaxId: /^\d{12}$/,
+      normalizeCore: normalizeUruguayCompanyCore,
+      querySnapshots: buildSnapshotNameQuery(snapshotClient, 'uy_rupe_registry', 'UY'),
     }),
   ];
 }
