@@ -23,6 +23,7 @@ const TAX_GRAIN_SOURCE_KEYS = [
   'co_siis',
   'ar_rns',
   'ar_rns_registry',
+  'pe_sunat_registry',
 ] as const;
 
 const NATIVE_RECORD_GRAIN_SOURCE_KEYS = [

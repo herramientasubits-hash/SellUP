@@ -18,6 +18,7 @@ export type ClassifiableCandidateRow = {
   id: string;
   industry_id: string | null;
   industry?: string | null;
+  source_primary?: string | null;
   name: string | null;
   website: string | null;
   domain: string | null;

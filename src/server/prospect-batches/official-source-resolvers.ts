@@ -9,7 +9,8 @@
  * per supported country: Colombia (co_siis) name→NIT, República Dominicana
  * (rd_dgii_bulk) name→RNC, Argentina (ar_rns_registry) name→CUIT, Ecuador
  * (ec_scvs snapshot) name→RUC, Guatemala (gt_rgae_proveedores) name→NIT and
- * Honduras (hn_contrataciones_abiertas) name→RTN. No promise of MX/PE/… enrichment
+ * Honduras (hn_contrataciones_abiertas) name→RTN and Perú (pe_sunat_registry)
+ * name→RUC. No promise of MX/PE/… enrichment
  * is made here;
  * unsupported countries fall through to the shared "unsupported" result (soft
  * warning) automatically.
@@ -51,6 +52,7 @@ import {
   CENTRAL_AMERICA_LEGAL_FORMS,
   normalizeCompanyNameCore,
 } from '@/server/source-catalog/company-name-core';
+import { normalizePeruCompanyCore } from '@/server/source-catalog/connectors/sunat-peru/pe-sunat-registry-row';
 
 const normalizeCentralAmericaCore = (name: string | null | undefined) =>
   normalizeCompanyNameCore(name, CENTRAL_AMERICA_LEGAL_FORMS);
@@ -100,6 +102,15 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
       validTaxId: /^\d{14}$/,
       normalizeCore: normalizeCentralAmericaCore,
       querySnapshots: buildSnapshotNameQuery(snapshotClient, 'hn_contrataciones_abiertas', 'HN'),
+    }),
+    // SOURCES-PE-RUC-BY-NAME-1 — sociedades activas y habidas del padrón de SUNAT.
+    createSnapshotNameOfficialSourceResolver({
+      countryCode: 'PE',
+      sourceKey: 'pe_sunat_registry',
+      taxIdentifierType: 'RUC',
+      validTaxId: /^20\d{9}$/,
+      normalizeCore: normalizePeruCompanyCore,
+      querySnapshots: buildSnapshotNameQuery(snapshotClient, 'pe_sunat_registry', 'PE'),
     }),
   ];
 }

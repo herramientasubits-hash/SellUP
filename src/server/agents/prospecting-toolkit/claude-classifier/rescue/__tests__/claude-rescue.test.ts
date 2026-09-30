@@ -7,7 +7,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { decideRescue } from '../rescue-decision';
+import { decideRescue, quoteNamesIndustry } from '../rescue-decision';
 import { buildCandidateRescuePatch, buildLinkedInEnrichmentFromClaude, resolveCompletenessConditions, rescueStillPending } from '../rescue-patch';
 import {
   buildDispositionAdmissionOrigin,
@@ -91,7 +91,13 @@ describe('A. decideRescue', () => {
       result({ sector: { ...result().sector!, matchesCurrentIndustry: false, verification: 'source_listed' } }),
       CTX,
     );
-    assert.deepEqual(d, { kind: 'admit', sectorConfirmed: false, sizeConfirmed: true, linkedinConfirmed: false });
+    assert.deepEqual(d, {
+      kind: 'admit',
+      sectorConfirmed: false,
+      sizeConfirmed: true,
+      linkedinConfirmed: false,
+      sectorMismatchUnconfirmed: true,
+    });
   });
 
   it('LinkedIn verificado se marca como confirmado', () => {
@@ -104,7 +110,7 @@ describe('A. decideRescue', () => {
 
   it('menos de 200 con cita comprobada → descartar por tamaño', () => {
     const d = decideRescue(
-      result({ employeeRange: { ...result().employeeRange!, min: 51, max: 200 - 1, verification: 'quote_verified' } }),
+      result({ employeeRange: { ...result().employeeRange!, min: 51, max: 200 - 1, verification: 'quote_verified', confidence: 0.9 } }),
       CTX,
     );
     assert.equal(d.kind === 'discard' && d.reason, 'claude_size_below_min');
@@ -294,6 +300,7 @@ function fakeDeps(overrides: Partial<RescueBatchDeps> = {}) {
     loadCatalog: async () => [{ industryId: 'salud', industryName: SALUD, industryDescription: null, subindustries: [] }],
     loadReviewCandidates: async () => [candidate()],
     loadDispositions: async () => [disposition()],
+    loadBatchIndustryId: async () => 'salud',
     classify: async (company) => result({ candidateId: company.candidateId }),
     logUsage: async (input) => (logs.push(input), true),
     patchCandidate: async (id, build) => {
@@ -424,5 +431,118 @@ describe('E. LinkedIn en el rescate', () => {
     assert.equal(s.ok && s.dispositionsKept, 1);
     const ev = f.evidenceWrites.at(-1)!.evidence as Record<string, Record<string, unknown>>;
     assert.equal(ev.claude_rescue.decision, 'unchanged');
+  });
+});
+
+// ─── F. Descartes más prudentes y Lusha (Prod 30-09, Perú × Tecnología) ─────
+
+describe('F. descartes prudentes', () => {
+  const mismatch = (overrides: Partial<NonNullable<CompanyClassificationResult['sector']>> = {}) =>
+    result({ sector: { ...result().sector!, industryName: 'Retail', matchesCurrentIndustry: false, confidence: 0.95, ...overrides } });
+
+  it('MASPLAY: la cita dice «EMPRESA DE TECNOLOGIA» en un lote de Tecnología → NO descarta', () => {
+    const d = decideRescue(mismatch({ quote: 'MASPLAY.PE EMPRESA DE TECNOLOGIA', confidence: 0.95 }), {
+      icpMinEmployees: 200,
+      requestedIndustryName: 'Tecnología',
+    });
+    assert.notEqual(d.kind, 'discard');
+  });
+
+  it('confianza 0,7 → NO descarta', () => {
+    const d = decideRescue(mismatch({ confidence: 0.7 }), { icpMinEmployees: 200, requestedIndustryName: 'Tecnología' });
+    assert.notEqual(d.kind, 'discard');
+  });
+
+  it('confianza alta, cita comprobada y sin nombrar la industria → sí descarta', () => {
+    const d = decideRescue(
+      mismatch({ quote: 'Multimarca especializada en venta de zapatillas y accesorios' }),
+      { icpMinEmployees: 200, requestedIndustryName: 'Tecnología' },
+    );
+    assert.equal(d.kind, 'discard');
+  });
+
+  it('quoteNamesIndustry ignora tildes y mayúsculas', () => {
+    assert.equal(quoteNamesIndustry('Somos una empresa de TECNOLOGIA', 'Tecnología'), true);
+    assert.equal(quoteNamesIndustry('Venta de calzado deportivo', 'Tecnología'), false);
+  });
+
+  it('un tamaño ya confirmado por el proveedor no se contradice', () => {
+    const d = decideRescue(
+      result({ employeeRange: { ...result().employeeRange!, min: 11, max: 50, verification: 'quote_verified', confidence: 0.95 } }),
+      { icpMinEmployees: 200, sizeAlreadyConfirmed: true },
+    );
+    assert.notEqual(d.kind, 'discard');
+  });
+});
+
+describe('F2. Lusha entra al rescate para revisar el sector', () => {
+  const lushaRow = candidate({
+    id: 'l1',
+    source_primary: 'lusha',
+    industry: 'Technology, Information & Media',
+    metadata: { icp_size_gate: { size_status: 'confirmed_above_threshold', threshold: 200 } },
+  });
+
+  it('una fila de Lusha sin target_completeness es elegible', () => {
+    assert.equal(needsCandidateRescue(lushaRow, NOW), true);
+    assert.equal(needsCandidateRescue({ ...lushaRow, source_primary: 'apollo' }, NOW), false);
+  });
+
+  it('se compara contra la industria PEDIDA, no contra la etiqueta de Lusha', async () => {
+    const seen: Array<{ currentIndustryId: string | null; currentIndustryName: string | null }> = [];
+    const f = fakeDeps({
+      loadReviewCandidates: async () => [lushaRow],
+      loadDispositions: async () => [],
+      loadBatchIndustryId: async () => 'salud',
+      classify: async (company) => {
+        seen.push({ currentIndustryId: company.currentIndustryId, currentIndustryName: company.currentIndustryName });
+        return result({ candidateId: company.candidateId });
+      },
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.deepEqual(seen, [{ currentIndustryId: 'salud', currentIndustryName: null }]);
+    assert.equal(s.ok && s.candidatesDiscarded, 0);
+  });
+
+  it('un medio en un lote de Tecnología (cita comprobada, confianza alta) se descarta', async () => {
+    const f = fakeDeps({
+      loadReviewCandidates: async () => [lushaRow],
+      loadDispositions: async () => [],
+      classify: async (company) =>
+        result({
+          candidateId: company.candidateId,
+          sector: {
+            ...result().sector!,
+            industryName: 'Compañía de Servicios',
+            matchesCurrentIndustry: false,
+            quote: 'Diario de mayor circulación del país con noticias nacionales e internacionales',
+            confidence: 0.9,
+          },
+        }),
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok && s.candidatesDiscarded, 1);
+  });
+});
+
+describe('G. etiqueta honesta (Prod 30-09: «admit» sin sector confirmado)', () => {
+  it('sólo tamaño completado + sector distinto sin confirmar → data_completed con aviso', () => {
+    const decision = decideRescue(
+      result({ sector: { ...result().sector!, industryName: 'Minería', matchesCurrentIndustry: false, verification: 'source_listed' } }),
+      { icpMinEmployees: 200, requestedIndustryName: 'Tecnología' },
+    );
+    const p = buildCandidateRescuePatch({ metadata: REVIEW_METADATA, result: result(), decision, minEmployees: 200, decidedAt: AT });
+    const rescue = p.metadata.claude_rescue as Record<string, unknown>;
+    assert.equal(rescue.decision, 'data_completed');
+    assert.equal(rescue.sector_warning, 'claude_sector_mismatch_unconfirmed');
+    assert.equal(p.status, undefined);
+  });
+
+  it('sector confirmado → admit sin aviso', () => {
+    const decision = decideRescue(result(), { icpMinEmployees: 200 });
+    const p = buildCandidateRescuePatch({ metadata: REVIEW_METADATA, result: result(), decision, minEmployees: 200, decidedAt: AT });
+    const rescue = p.metadata.claude_rescue as Record<string, unknown>;
+    assert.equal(rescue.decision, 'admit');
+    assert.equal(rescue.sector_warning, null);
   });
 });
