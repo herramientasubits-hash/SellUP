@@ -456,3 +456,28 @@ export function resolveContinuationCascadeInputs(
     lushaAvailable: policy.lushaAvailableAtRunStart && current.lushaAvailable,
   };
 }
+
+/**
+ * AGENT1-CONTINUATION-LUSHA-CASCADE-1 — cuántas empresas CUENTAN para el objetivo
+ * cuando la cascada decide si Lusha corre tras una continuación.
+ *
+ * Tiene que ser la MISMA autoridad que usa la corrida en sesión
+ * (`acceptedForTargetTotal`, CUT-7: el hueco lo fija lo ACEPTADO, no lo
+ * persistido). Antes la cascada pasaba `candidatesCreated` —filas escritas,
+ * incluidas las `needs_review`—: medido en Producción el 2026-09-30 (México ×
+ * Tecnología, lote `6d39ed4b`), 154 filas escritas y 0 aceptadas hicieron que
+ * Lusha se saltara con «objetivo cumplido».
+ *
+ * Orden: la cifra DURABLE que el writer publicó en el lote (cubre también el
+ * caso en que la escritura la hizo un intento anterior) y, si no se pudo leer,
+ * la del writer de ESTE intento. Sin ninguna de las dos ⇒ `null`: la cascada NO
+ * corre, porque sin saber qué falta no se autoriza gasto.
+ */
+export function resolveCascadeAcceptedForTarget(input: {
+  durableAcceptedTotal: number | null | undefined;
+  completeValidCandidates: number | null | undefined;
+}): number | null {
+  const pick = (value: number | null | undefined) =>
+    typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : null;
+  return pick(input.durableAcceptedTotal) ?? pick(input.completeValidCandidates);
+}
