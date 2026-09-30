@@ -106,6 +106,17 @@ describe('el CSV real de la dueña (30-09) ya no queda bloqueado', () => {
   });
 });
 
+describe('sin subindustrias en el catálogo, NINGÚN aviso de subindustria (2ª prueba real, 30-09)', () => {
+  it('fila sin columna de subindustria → cero avisos de subindustria', () => {
+    const { r } = classifyOne('Logística y Transporte');
+    assert.equal(
+      r.classification.classificationWarnings.some((w) => w.field === 'subindustry'),
+      false,
+      'antes salía «El valor de subindustria está vacío o no fue proporcionado»',
+    );
+  });
+});
+
 describe('mismas palabras en otro orden o una sola palabra → UNA industria', () => {
   const CASES: Array<[string, string]> = [
     ['Logística y Transporte', 'Transporte & Logística'],
