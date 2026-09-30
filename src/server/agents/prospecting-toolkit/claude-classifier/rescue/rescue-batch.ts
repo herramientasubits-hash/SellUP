@@ -227,9 +227,15 @@ async function mapUntil<T, R>(items: readonly T[], limit: number, shouldStop: ()
 }
 
 export async function rescueBatchWithClaude(
-  params: { batchId: string; triggeredBy: string | null },
+  params: {
+    batchId: string;
+    triggeredBy: string | null;
+    /** Tiempo para EMPEZAR empresas nuevas; por defecto RESCUE_RUN_DEADLINE_MS. */
+    deadlineMs?: number;
+  },
   deps: RescueBatchDeps,
 ): Promise<RescueBatchSummary> {
+  const deadlineMs = params.deadlineMs ?? RESCUE_RUN_DEADLINE_MS;
   const active = await deps.resolveActiveModel();
   if ('error' in active) return { ok: false, error: 'model_not_configured', detail: active.error };
   if (!(await deps.checkQuota()).allowed) return { ok: false, error: 'quota_exhausted' };
@@ -264,7 +270,7 @@ export async function rescueBatchWithClaude(
   const outcomes = await mapUntil(
     thisRun,
     RESCUE_CONCURRENCY,
-    () => deps.nowMs() - startedMs >= RESCUE_RUN_DEADLINE_MS,
+    () => deps.nowMs() - startedMs >= deadlineMs,
     (item) =>
       item.kind === 'candidate' ? rescueCandidate(item.row, ctx, deps) : rescueDisposition(item.row, ctx, deps, admittedIds),
   );
