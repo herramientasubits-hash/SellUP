@@ -34,6 +34,9 @@ import { loadEnvConfig } from '@next/env';
 loadEnvConfig(process.cwd());
 
 import { createClient } from '@supabase/supabase-js';
+// CLI-only: Node < 22 no trae WebSocket global y el cliente de Supabase lo necesita.
+// Mismo patrón que el importador de DGII. Debe llamarse antes de createClient().
+import { ensureNode20WebSocketShim } from '../peru/ensure-node20-websocket-shim';
 
 import { readCsvFile } from '../../src/server/source-catalog/connectors/rns-argentina/streaming-csv';
 import {
@@ -192,6 +195,7 @@ async function main(): Promise<void> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error('supabase_service_role_not_configured');
+  ensureNode20WebSocketShim();
   const client = createClient(url, key);
 
   const writable = rows.filter((row) => row.record_identity_key !== null);
