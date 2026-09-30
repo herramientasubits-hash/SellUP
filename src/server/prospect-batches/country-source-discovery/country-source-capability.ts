@@ -38,6 +38,12 @@ import {
   buildArRnsDiscoveryAdapter,
   type ArRnsDiscoveryReads,
 } from './ar-rns-discovery-adapter';
+import {
+  buildMxDenueDiscoveryAdapter,
+  MX_DENUE_DISCOVERY_SOURCE_KEY,
+  type MxDenueDiscoveryReads,
+} from './mx-denue-discovery-adapter';
+import { macroHasMxCoverage } from './mx-denue-macro-table';
 import { macroHasCiiuCoverage } from './macro-ciiu-index';
 import { macroHasDgiiCoverage } from './do-dgii-macro-table';
 import { macroHasArCoverage } from './ar-rns-macro-table';
@@ -52,8 +58,12 @@ import { macroHasArCoverage } from './ar-rns-macro-table';
  * SOURCES-AR-RNS-1 — Argentina entra con el Registro Nacional de Sociedades
  * cruzado con las adjudicaciones de COMPR.AR, clasificado por la tabla aprobada
  * (`ar-rns-macro-table.ts`) (`ar-rns-discovery-adapter.ts`).
+ *
+ * SOURCES-MX-DENUE-FREE-DISCOVERY-1 — México entra con el DENUE del INEGI en
+ * vivo (gratuito), clasificado por la tabla SCIAN aprobada
+ * (`mx-denue-macro-table.ts`), sólo establecimientos de 51+ personas.
  */
-export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR'] as const;
+export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR', 'MX'] as const;
 
 export type CountrySourceCapability = {
   countryCode: string;
@@ -64,6 +74,7 @@ const CAPABILITIES: Readonly<Record<string, CountrySourceCapability>> = Object.f
   CO: { countryCode: 'CO', sourceKey: CO_SIIS_DISCOVERY_SOURCE_KEY },
   DO: { countryCode: 'DO', sourceKey: DO_DGII_DISCOVERY_SOURCE_KEY },
   AR: { countryCode: 'AR', sourceKey: AR_RNS_DISCOVERY_SOURCE_KEY },
+  MX: { countryCode: 'MX', sourceKey: MX_DENUE_DISCOVERY_SOURCE_KEY },
 });
 
 /** ¿Está cableado el descubrimiento gratuito para este país? */
@@ -80,6 +91,7 @@ export function resolveCountrySourceCapability(
  * Colombia: la macro tiene códigos CIIU derivados del evaluador canónico.
  * República Dominicana: la macro tiene actividades DGII en la tabla aprobada.
  * Argentina: la macro tiene actividades ARCA en la tabla aprobada.
+ * México: la macro tiene filtros SCIAN en la tabla aprobada.
  * Sin cobertura la fuente no consulta nada (nunca una muestra genérica).
  */
 export function countrySourceMacroHasCoverage(
@@ -90,6 +102,7 @@ export function countrySourceMacroHasCoverage(
   if (capability === null) return false;
   if (capability.countryCode === 'DO') return macroHasDgiiCoverage(macroIndustryKey);
   if (capability.countryCode === 'AR') return macroHasArCoverage(macroIndustryKey);
+  if (capability.countryCode === 'MX') return macroHasMxCoverage(macroIndustryKey);
   return macroHasCiiuCoverage(macroIndustryKey);
 }
 
@@ -104,6 +117,7 @@ export function buildCountrySourceAdapter(
     coSiisSnapshotQuery?: CoSiisSnapshotQuery | null;
     doDgiiDiscoveryReads?: DoDgiiDiscoveryReads | null;
     arRnsDiscoveryReads?: ArRnsDiscoveryReads | null;
+    mxDenueDiscoveryReads?: MxDenueDiscoveryReads | null;
   },
 ): CountrySourceAdapter | null {
   const capability = resolveCountrySourceCapability(countryCode);
@@ -113,6 +127,9 @@ export function buildCountrySourceAdapter(
   }
   if (capability.countryCode === 'AR') {
     return deps.arRnsDiscoveryReads ? buildArRnsDiscoveryAdapter(deps.arRnsDiscoveryReads) : null;
+  }
+  if (capability.countryCode === 'MX') {
+    return deps.mxDenueDiscoveryReads ? buildMxDenueDiscoveryAdapter(deps.mxDenueDiscoveryReads) : null;
   }
   if (!deps.coSiisSnapshotQuery) return null;
   return buildCoSiisDiscoveryAdapter(deps.coSiisSnapshotQuery);
