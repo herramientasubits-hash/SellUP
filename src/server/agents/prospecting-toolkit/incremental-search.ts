@@ -631,6 +631,7 @@ export async function runIncrementalProspectingSearch(
     ? buildTavilyMacroQueryPlan({
         industry: input.industry,
         country: input.country,
+        countryCode: input.countryCode,
         seedKey: input.existingBatchId ?? `${input.countryCode}:${input.industry}`,
         additionalCriteria: input.additionalCriteria,
       })
