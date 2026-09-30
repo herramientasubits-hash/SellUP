@@ -93,6 +93,8 @@ import { type HistoricalCandidateRow } from './apollo-prepaid-historical-parity'
 import { createApolloPaginationAcceptanceEvaluator } from './apollo-pagination-usefulness-authority';
 import { normalizeDomain } from './normalization';
 import { buildTavilyMacroQueryPlan } from './tavily-query-plan';
+import { loadTavilyQueryHistory } from './tavily-query-history';
+import type { TavilyQueryHistory } from './tavily-query-space';
 import { buildTavilyExcludeDomains, type TavilyExcludeDomainsResult } from './tavily-exclude-domains';
 import type { ApolloOrgsSearchOptions } from './web-search-providers/apollo-organizations-search-provider';
 import {
@@ -627,6 +629,30 @@ export async function runIncrementalProspectingSearch(
   // Sólo Tavily. Con una de las 12 macro industrias, el plan es la ÚNICA fuente
   // de consultas de todas las rondas: términos calibrados del catálogo, cada uno
   // una vez, rotados por lote. Industria legacy ⇒ `null` y el camino de siempre.
+  //
+  // AGENT1-TAVILY-QUERY-SPACE-1 — el plan lee lo que ya buscaron las corridas de
+  // Tavily del mismo país e industria (sólo lectura) para no repetir búsquedas
+  // entre vendedores ni entre días. Sin cliente o con error ⇒ historial vacío.
+  const tavilyPlanNowMs = Date.now();
+  let tavilyHistory: TavilyQueryHistory = new Map();
+  let tavilyHistoryStatus: 'loaded' | 'unavailable' | 'skipped' = 'skipped';
+  let tavilyHistoryBatchesRead = 0;
+  if (input.webSearchProvider === 'tavily' && adminSupabase) {
+    try {
+      const loaded = await loadTavilyQueryHistory(adminSupabase, {
+        countryCode: input.countryCode,
+        industry: input.industry,
+        nowMs: tavilyPlanNowMs,
+        excludeBatchId: input.existingBatchId ?? null,
+      });
+      tavilyHistory = loaded.history;
+      tavilyHistoryBatchesRead = loaded.batchesRead;
+      tavilyHistoryStatus = 'loaded';
+    } catch {
+      tavilyHistoryStatus = 'unavailable';
+      warnings.push('tavily_query_history_unavailable: plan built as a fresh segment');
+    }
+  }
   const tavilyMacroQueryPlan = input.webSearchProvider === 'tavily'
     ? buildTavilyMacroQueryPlan({
         industry: input.industry,
@@ -634,6 +660,8 @@ export async function runIncrementalProspectingSearch(
         countryCode: input.countryCode,
         seedKey: input.existingBatchId ?? `${input.countryCode}:${input.industry}`,
         additionalCriteria: input.additionalCriteria,
+        history: tavilyHistory,
+        nowMs: tavilyPlanNowMs,
       })
     : null;
 
@@ -1031,7 +1059,9 @@ export async function runIncrementalProspectingSearch(
     const tavilyExcludeDomains = input.webSearchProvider === 'tavily'
       ? buildTavilyExcludeDomains({
           seenThisRun: seenDomains,
+          cellDomains: tavilyMacroQueryPlan?.roundCellDomains[round - 1] ?? [],
           negativeMemory: negativeMemory.excludedDomains,
+          countryCode: input.countryCode,
         })
       : null;
     if (tavilyExcludeDomains) lastTavilyExclusion = tavilyExcludeDomains;
@@ -1383,6 +1413,7 @@ export async function runIncrementalProspectingSearch(
           static_count: lastTavilyExclusion.staticCount,
           seen_this_run_count: lastTavilyExclusion.seenThisRunCount,
           negative_memory_count: lastTavilyExclusion.negativeMemoryCount,
+          cell_domains_count: lastTavilyExclusion.cellDomainsCount,
           truncated_count: lastTavilyExclusion.truncatedCount,
         }
       : undefined,
@@ -1395,6 +1426,22 @@ export async function runIncrementalProspectingSearch(
           rounds_planned: tavilyMacroQueryPlan.rounds.length,
           queries_planned: tavilyMacroQueryPlan.rounds.flat().length,
           additional_criteria_applied: tavilyMacroQueryPlan.additionalCriteriaApplied,
+          regions_count: tavilyMacroQueryPlan.regionsCount,
+          // Lo que lee el historial de la próxima corrida.
+          cells_used: tavilyMacroQueryPlan.cellsUsed,
+          query_space: {
+            total: tavilyMacroQueryPlan.space.total,
+            fresh: tavilyMacroQueryPlan.space.fresh,
+            revisit: tavilyMacroQueryPlan.space.revisit,
+            cooling: tavilyMacroQueryPlan.space.cooling,
+            retired: tavilyMacroQueryPlan.space.retired,
+            exhausted: tavilyMacroQueryPlan.space.exhausted,
+            next_available_at: tavilyMacroQueryPlan.space.nextAvailableAtMs === null
+              ? null
+              : new Date(tavilyMacroQueryPlan.space.nextAvailableAtMs).toISOString(),
+            history_status: tavilyHistoryStatus,
+            history_batches_read: tavilyHistoryBatchesRead,
+          },
         }
       : undefined,
     min_useful_candidates: minUsefulCandidates,

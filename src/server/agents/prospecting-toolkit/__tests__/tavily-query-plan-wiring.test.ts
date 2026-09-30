@@ -79,7 +79,10 @@ describe('Tavily + macro industria — las rondas pagan exactamente el plan', ()
     assert.equal(result.metadata.tavily_query_plan?.macro_key, 'retail');
     // AGENT1-TAVILY-V2-2 — en Colombia Retail pierde sus 6 términos sólo en
     // inglés (retailer, grocery store, department store…): 14 → 8.
-    assert.equal(result.metadata.tavily_query_plan?.queries_planned, 8);
+    assert.equal(result.metadata.tavily_query_plan?.term_count, 8);
+    // AGENT1-TAVILY-QUERY-SPACE-1 — 8 términos × (nacional + 33 regiones) = 272
+    // celdas: la corrida paga su tope completo (16), ya no sólo 8 nacionales.
+    assert.equal(result.metadata.tavily_query_plan?.queries_planned, 16);
   });
 
   it('ninguna consulta de Retail lleva literales de software (R3/R4 legacy)', async () => {
@@ -99,7 +102,7 @@ describe('Tavily + macro industria — las rondas pagan exactamente el plan', ()
     for (const round of captured) assert.ok(round.length <= 4);
   });
 
-  it('Gobierno (7 términos en español) se detiene al agotar el plan, sin inventar consultas', async () => {
+  it('Gobierno (7 términos en español) ya no se agota en 7 consultas, y no inventa ninguna', async () => {
     const captured: string[][] = [];
     const result = await runIncrementalProspectingSearch(
       baseInput({ industry: 'Gobierno' }),
@@ -107,10 +110,21 @@ describe('Tavily + macro industria — las rondas pagan exactamente el plan', ()
       capturingPipeline(captured),
     );
     // AGENT1-TAVILY-V2-2 — sin «government agency», «municipality» ni «public
-    // administration»: 10 → 7 términos, dos rondas (4 + 3).
-    assert.equal(captured.length, 2);
-    assert.equal(captured.flat().length, 7);
-    assert.equal(result.metadata.stopped_reason, 'novelty_exhausted_no_diversification_available');
+    // administration»: 10 → 7 términos.
+    assert.equal(result.metadata.tavily_query_plan?.term_count, 7);
+    // AGENT1-TAVILY-QUERY-SPACE-1 — Prod 30-09 (fb530d9b): con sólo 7 consultas
+    // nacionales la 2.ª corrida repitió la 1.ª. Con regiones, 4 rondas de 4
+    // consultas distintas, todas del plan.
+    const plan = buildTavilyMacroQueryPlan({
+      industry: 'Gobierno',
+      country: 'Colombia',
+      countryCode: 'CO',
+      seedKey: baseInput().existingBatchId!,
+      additionalCriteria: null,
+    })!;
+    assert.deepEqual(captured, plan.rounds);
+    assert.equal(captured.flat().length, 16);
+    assert.equal(new Set(captured.flat()).size, 16);
   });
 
   it('dos lotes distintos arrancan por consultas distintas', async () => {
@@ -216,5 +230,23 @@ describe('Tavily — cada ronda excluye lo que ya vio', () => {
     );
     assert.ok(excludes.every((e) => e === undefined));
     assert.equal(result.metadata.tavily_exclude_domains, undefined);
+  });
+});
+
+describe('AGENT1-TAVILY-QUERY-SPACE-1 — el lote publica lo que leerá la próxima corrida', () => {
+  it('cells_used = las consultas pagadas, con su celda; query_space con el conteo del espacio', async () => {
+    const captured: string[][] = [];
+    const result = await runIncrementalProspectingSearch(
+      baseInput({ industry: 'Gobierno' }),
+      undefined,
+      capturingPipeline(captured),
+    );
+    const plan = result.metadata.tavily_query_plan!;
+    assert.deepEqual(plan.cells_used?.map((c) => c.query), captured.flat());
+    assert.equal(plan.regions_count, 33);
+    assert.equal(plan.query_space?.total, 7 * 34);
+    assert.equal(plan.query_space?.exhausted, false);
+    // dryRun ⇒ sin cliente ⇒ el historial no se lee (y no se inventa).
+    assert.equal(plan.query_space?.history_status, 'skipped');
   });
 });

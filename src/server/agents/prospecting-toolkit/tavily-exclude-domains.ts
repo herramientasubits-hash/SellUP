@@ -49,15 +49,56 @@ export const TAVILY_STATIC_EXCLUDE_DOMAINS: readonly string[] = Object.freeze([
 export type TavilyExcludeDomainsInput = {
   /** Dominios vistos en rondas anteriores de esta corrida, en orden de aparición. */
   seenThisRun: Iterable<string>;
+  /**
+   * AGENT1-TAVILY-QUERY-SPACE-1 — dominios que ya trajeron las celdas de ESTA
+   * ronda en corridas anteriores. Excluirlos es lo que hace que volver a una
+   * celda devuelva resultados nuevos (paginar por exclusión).
+   */
+  cellDomains?: Iterable<string>;
   /** Dominios de la memoria negativa del país e industria. */
   negativeMemory: Iterable<string>;
+  /**
+   * AGENT1-TAVILY-QUERY-SPACE-1 — país de la corrida. La memoria negativa es
+   * GLOBAL (todas las empresas entregadas por SellUp) y crece cada día; con 150
+   * huecos, los primeros deben ser los que esta búsqueda sí podría devolver: los
+   * del dominio del país. Prod 30-09 (fb530d9b): 412 dominios ya no cabían.
+   */
+  countryCode?: string | null;
 };
+
+/** Terminaciones de dominio propias del país, además de `.<cc>`. */
+const EXTRA_COUNTRY_SUFFIXES: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  US: ['.gov', '.us'],
+});
+
+export function isCountryDomain(domain: string, countryCode: string | null | undefined): boolean {
+  const code = countryCode?.trim().toUpperCase() ?? '';
+  if (code.length !== 2) return false;
+  const suffixes = [`.${code.toLowerCase()}`, ...(EXTRA_COUNTRY_SUFFIXES[code] ?? [])];
+  return suffixes.some((suffix) => domain.endsWith(suffix));
+}
+
+/** Los del país primero, conservando el orden dentro de cada grupo. */
+export function prioritizeCountryDomains(
+  domains: Iterable<string>,
+  countryCode: string | null | undefined,
+): string[] {
+  const local: string[] = [];
+  const rest: string[] = [];
+  for (const raw of domains) {
+    const domain = normalizeDomain(raw);
+    if (!domain) continue;
+    (isCountryDomain(domain, countryCode) ? local : rest).push(domain);
+  }
+  return [...local, ...rest];
+}
 
 export type TavilyExcludeDomainsResult = {
   domains: string[];
   staticCount: number;
   seenThisRunCount: number;
   negativeMemoryCount: number;
+  cellDomainsCount: number;
   /** Dominios vistos o de memoria que no cupieron por el tope de 150. */
   truncatedCount: number;
 };
@@ -86,7 +127,8 @@ export function buildTavilyExcludeDomains(input: TavilyExcludeDomainsInput): Tav
 
   const staticCount = addAll(TAVILY_STATIC_EXCLUDE_DOMAINS);
   const seenThisRunCount = addAll(input.seenThisRun);
-  const negativeMemoryCount = addAll(input.negativeMemory);
+  const cellDomainsCount = addAll(input.cellDomains ?? []);
+  const negativeMemoryCount = addAll(prioritizeCountryDomains(input.negativeMemory, input.countryCode));
 
-  return { domains: out, staticCount, seenThisRunCount, negativeMemoryCount, truncatedCount };
+  return { domains: out, staticCount, seenThisRunCount, cellDomainsCount, negativeMemoryCount, truncatedCount };
 }
