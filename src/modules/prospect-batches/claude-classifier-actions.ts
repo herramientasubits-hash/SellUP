@@ -10,8 +10,9 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
-import { isAgent1ClaudeClassifierEnabled } from '@/lib/feature-flags.server';
+import { isAgent1ClaudeClassifierEnabled, isAgent1ClaudeRescueEnabled } from '@/lib/feature-flags.server';
 import type { ClassifyBatchSummary } from '@/server/agents/prospecting-toolkit/claude-classifier/classify-batch-candidates';
+import type { RescueBatchSummary } from '@/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch';
 
 const UUID_PATTERN = /^[0-9a-f-]{36}$/;
 
@@ -57,6 +58,35 @@ export async function classifyBatchCandidatesWithClaudeAction(
   const summary = await classifyBatchCandidates(
     { batchId, triggeredBy: internalUserId },
     buildLiveClassifyBatchDeps(),
+  );
+  if (summary.ok) revalidatePath(`/prospect-batches/${batchId}`);
+  return summary;
+}
+
+export type ClaudeRescueActionResult =
+  | RescueBatchSummary
+  | { ok: false; error: 'disabled' | 'unauthorized' | 'invalid_batch' };
+
+/**
+ * AGENT1-CLAUDE-RESCUE-1 — el MISMO rescate que corre solo al terminar una
+ * búsqueda, lanzado a mano desde el lote. Sirve para lo que no alcanzó a hacerse
+ * en segundo plano (la búsqueda usó casi todo el tiempo) y para lo que agregue
+ * después la continuación de Apollo. Esta ruta tiene 300 s propios.
+ */
+export async function rescueBatchWithClaudeAction(batchId: string): Promise<ClaudeRescueActionResult> {
+  if (!isAgent1ClaudeRescueEnabled()) return { ok: false, error: 'disabled' };
+  if (!batchId || !UUID_PATTERN.test(batchId)) return { ok: false, error: 'invalid_batch' };
+
+  const internalUserId = await resolveAdminInternalUserId();
+  if (!internalUserId) return { ok: false, error: 'unauthorized' };
+
+  const [{ rescueBatchWithClaude }, { buildLiveRescueBatchDeps }] = await Promise.all([
+    import('@/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch'),
+    import('@/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch.server'),
+  ]);
+  const summary = await rescueBatchWithClaude(
+    { batchId, triggeredBy: internalUserId },
+    buildLiveRescueBatchDeps(internalUserId),
   );
   if (summary.ok) revalidatePath(`/prospect-batches/${batchId}`);
   return summary;

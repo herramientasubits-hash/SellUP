@@ -67,6 +67,11 @@ export type ImportClassificationTableProps = {
   onSelectionChange: (ids: Set<number>) => void;
   catalog?: { industries: CatalogIndustry[] };
   catalogVersion?: CatalogVersionState;
+  /**
+   * AGENT1-IMPORT-NO-SUBINDUSTRY-1 — `false` cuando el catálogo no publica
+   * subindustrias: se ocultan la columna, su edición y su detalle.
+   */
+  showSubindustry?: boolean;
   onSaveCorrection?: (
     correction: ManualClassificationCorrection,
     row: ImportClassificationPreviewRow,
@@ -241,9 +246,11 @@ function DetailField({
 function ExpandedDetailRow({
   row,
   colSpan,
+  showSubindustry,
 }: {
   row: ImportClassificationPreviewRow;
   colSpan: number;
+  showSubindustry: boolean;
 }) {
   const statusConfig = CLASSIFICATION_STATUS_MAP[row.validationStatus];
 
@@ -258,7 +265,7 @@ function ExpandedDetailRow({
     : null;
 
   const showOriginalValues =
-    (row.industryOriginalValue || row.subindustryOriginalValue) &&
+    (row.industryOriginalValue || (showSubindustry && row.subindustryOriginalValue)) &&
     (row.correctionSource === 'manual' ||
       row.industryMatchStatus === 'alias_match' ||
       row.industryMatchStatus === 'normalized_match' ||
@@ -279,7 +286,7 @@ function ExpandedDetailRow({
 
   const hasClassificationBlock =
     row.industryCanonicalName ||
-    row.subindustryCanonicalName ||
+    (showSubindustry && row.subindustryCanonicalName) ||
     showOriginalValues ||
     (row.warnings && row.warnings.length > 0) ||
     row.requiresHumanReview;
@@ -425,7 +432,7 @@ function ExpandedDetailRow({
                   {row.industryCanonicalName && (
                     <DetailField label="Industria detectada" value={row.industryCanonicalName} />
                   )}
-                  {row.subindustryCanonicalName && (
+                  {showSubindustry && row.subindustryCanonicalName && (
                     <DetailField label="Subindustria detectada" value={row.subindustryCanonicalName} />
                   )}
                 </div>
@@ -440,7 +447,7 @@ function ExpandedDetailRow({
                       {row.industryOriginalValue && (
                         <span>Industria: <em>{row.industryOriginalValue}</em></span>
                       )}
-                      {row.subindustryOriginalValue && (
+                      {showSubindustry && row.subindustryOriginalValue && (
                         <span>Subindustria: <em>{row.subindustryOriginalValue}</em></span>
                       )}
                       {row.correctionSource === 'manual' && (
@@ -503,6 +510,7 @@ export function ImportClassificationTable({
   onSelectionChange,
   catalog,
   catalogVersion,
+  showSubindustry = true,
   onSaveCorrection,
   onBulkCorrection,
 }: ImportClassificationTableProps) {
@@ -969,9 +977,20 @@ export function ImportClassificationTable({
     ],
   );
 
+  // AGENT1-IMPORT-NO-SUBINDUSTRY-1 — sin subindustrias en el catálogo, sin columna.
+  const visibleColumns = React.useMemo(
+    () =>
+      showSubindustry
+        ? columns
+        : columns.filter(
+            (c) => (c as { accessorKey?: string }).accessorKey !== 'subindustryCanonicalName',
+          ),
+    [columns, showSubindustry],
+  );
+
   const table = useReactTable({
     data: filteredRows,
-    columns,
+    columns: visibleColumns,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
@@ -1014,7 +1033,7 @@ export function ImportClassificationTable({
           <tbody className="divide-y divide-border/20">
             {table.getRowModel().rows.length === 0 ? (
               <tr>
-                <td colSpan={columns.length} className="px-3 py-8 text-center text-muted-foreground">
+                <td colSpan={visibleColumns.length} className="px-3 py-8 text-center text-muted-foreground">
                   No hay filas que coincidan con el filtro.
                 </td>
               </tr>
@@ -1048,7 +1067,7 @@ export function ImportClassificationTable({
                       ))}
                     </tr>
                     {isExpanded && !isEditing && (
-                      <ExpandedDetailRow row={row.original} colSpan={columns.length} />
+                      <ExpandedDetailRow row={row.original} colSpan={visibleColumns.length} showSubindustry={showSubindustry} />
                     )}
                   </React.Fragment>
                 );
