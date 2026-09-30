@@ -8,7 +8,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { decideRescue } from '../rescue-decision';
-import { buildCandidateRescuePatch, resolveCompletenessConditions, rescueStillPending } from '../rescue-patch';
+import { buildCandidateRescuePatch, buildLinkedInEnrichmentFromClaude, resolveCompletenessConditions, rescueStillPending } from '../rescue-patch';
 import {
   buildDispositionAdmissionOrigin,
   buildDispositionStaysEvidence,
@@ -74,7 +74,7 @@ const CTX = { icpMinEmployees: 200 };
 
 describe('A. decideRescue', () => {
   it('sector del lote + tamaño ≥200 → admitir con ambos confirmados', () => {
-    assert.deepEqual(decideRescue(result(), CTX), { kind: 'admit', sectorConfirmed: true, sizeConfirmed: true });
+    assert.deepEqual(decideRescue(result(), CTX), { kind: 'admit', sectorConfirmed: true, sizeConfirmed: true, linkedinConfirmed: false });
   });
 
   it('sector de otro lote con cita COMPROBADA → descartar por sector', () => {
@@ -86,12 +86,20 @@ describe('A. decideRescue', () => {
     assert.equal(d.kind === 'discard' && d.reason, 'claude_sector_mismatch');
   });
 
-  it('sector de otro lote con cita SIN comprobar → no descarta (no hace desaparecer empresas)', () => {
+  it('sector de otro lote con cita SIN comprobar → no descarta; sólo completa el tamaño', () => {
     const d = decideRescue(
       result({ sector: { ...result().sector!, matchesCurrentIndustry: false, verification: 'source_listed' } }),
       CTX,
     );
-    assert.equal(d.kind, 'unchanged');
+    assert.deepEqual(d, { kind: 'admit', sectorConfirmed: false, sizeConfirmed: true, linkedinConfirmed: false });
+  });
+
+  it('LinkedIn verificado se marca como confirmado', () => {
+    const d = decideRescue(
+      result({ linkedin: { url: 'https://www.linkedin.com/company/clinica', slug: 'clinica', source: 'website_social_link' } }),
+      CTX,
+    );
+    assert.equal(d.kind === 'admit' && d.linkedinConfirmed, true);
   });
 
   it('menos de 200 con cita comprobada → descartar por tamaño', () => {
@@ -104,7 +112,7 @@ describe('A. decideRescue', () => {
 
   it('rango que cruza el umbral (150–300) → sector confirmado, tamaño no', () => {
     const d = decideRescue(result({ employeeRange: { ...result().employeeRange!, min: 150, max: 300 } }), CTX);
-    assert.deepEqual(d, { kind: 'admit', sectorConfirmed: true, sizeConfirmed: false });
+    assert.deepEqual(d, { kind: 'admit', sectorConfirmed: true, sizeConfirmed: false, linkedinConfirmed: false });
   });
 
   it('sin veredicto (sitio caído, nada verificable) → sin cambios', () => {
@@ -133,7 +141,7 @@ describe('B. buildCandidateRescuePatch', () => {
     const p = buildCandidateRescuePatch({
       metadata: REVIEW_METADATA,
       result: result(),
-      decision: { kind: 'admit', sectorConfirmed: true, sizeConfirmed: true },
+      decision: { kind: 'admit', sectorConfirmed: true, sizeConfirmed: true, linkedinConfirmed: false },
       minEmployees: 200,
       decidedAt: AT,
     });
@@ -164,7 +172,7 @@ describe('B. buildCandidateRescuePatch', () => {
   it('otras condiciones pendientes (p. ej. LinkedIn) siguen impidiendo contar para la meta', () => {
     const { completeness } = resolveCompletenessConditions(
       { failed_conditions: ['subindustry_match', 'linkedin_status'], requested_subindustries: [] },
-      { kind: 'admit', sectorConfirmed: true, sizeConfirmed: false },
+      { kind: 'admit', sectorConfirmed: true, sizeConfirmed: false, linkedinConfirmed: false },
     );
     assert.deepEqual(completeness?.failed_conditions, ['linkedin_status']);
     assert.equal(completeness?.counts_toward_target, false);
@@ -173,7 +181,7 @@ describe('B. buildCandidateRescuePatch', () => {
   it('con subindustrias pedidas, la macroindustria no resuelve subindustry_match', () => {
     const { resolved } = resolveCompletenessConditions(
       { failed_conditions: ['subindustry_match'], requested_subindustries: ['x'] },
-      { kind: 'admit', sectorConfirmed: true, sizeConfirmed: false },
+      { kind: 'admit', sectorConfirmed: true, sizeConfirmed: false, linkedinConfirmed: false },
     );
     assert.deepEqual(resolved, []);
   });
@@ -183,7 +191,7 @@ describe('B. buildCandidateRescuePatch', () => {
     buildCandidateRescuePatch({
       metadata: REVIEW_METADATA,
       result: result(),
-      decision: { kind: 'admit', sectorConfirmed: true, sizeConfirmed: true },
+      decision: { kind: 'admit', sectorConfirmed: true, sizeConfirmed: true, linkedinConfirmed: false },
       minEmployees: 200,
       decidedAt: AT,
     });
@@ -239,7 +247,7 @@ describe('C. descartadas', () => {
   });
 
   it('al admitir, el candidato nuevo trae la clasificación, el tamaño y una nota de rescate (no human_override)', () => {
-    const origin = buildDispositionAdmissionOrigin(result(), { kind: 'admit', sectorConfirmed: true, sizeConfirmed: true }, 200, AT);
+    const origin = buildDispositionAdmissionOrigin(result(), { kind: 'admit', sectorConfirmed: true, sizeConfirmed: true, linkedinConfirmed: false }, 200, AT);
     assert.equal(origin.kind, 'claude_rescue');
     assert.match(origin.reviewNote, /Rescatada por Claude/);
     assert.equal(origin.columns?.employee_count, 1001);
@@ -372,5 +380,49 @@ describe('D. rescueBatchWithClaude', () => {
     const done = candidate({ metadata: { ...REVIEW_METADATA, claude_rescue: { decision: 'admit' } } });
     assert.equal(needsCandidateRescue(done, NOW), false);
     assert.equal(needsCandidateRescue(candidate(), NOW), true);
+  });
+});
+
+// ─── E. LinkedIn (para que Tavily y Apollo sin LinkedIn puedan contar) ──────
+
+describe('E. LinkedIn en el rescate', () => {
+  const LI = { url: 'https://www.linkedin.com/company/clinica', slug: 'clinica', source: 'website_social_link' as const };
+
+  it('resuelve linkedin_status y escribe linkedin_enrichment canónico', () => {
+    const p = buildCandidateRescuePatch({
+      metadata: {
+        ...REVIEW_METADATA,
+        target_completeness: { failed_conditions: ['employee_count_status', 'linkedin_status'], requested_subindustries: [] },
+      },
+      result: result({ linkedin: LI }),
+      decision: { kind: 'admit', sectorConfirmed: true, sizeConfirmed: true, linkedinConfirmed: true },
+      minEmployees: 200,
+      decidedAt: AT,
+    });
+    const tc = p.metadata.target_completeness as Record<string, unknown>;
+    assert.deepEqual(tc.failed_conditions, []);
+    assert.equal(tc.counts_toward_target, true);
+    const li = p.metadata.linkedin_enrichment as Record<string, unknown>;
+    assert.equal(li.status, 'found');
+    assert.equal(li.company_url, LI.url);
+    assert.equal(li.source, 'website_social_link');
+  });
+
+  it('nunca pisa un LinkedIn ya encontrado', () => {
+    const previous = { status: 'found', company_url: 'https://www.linkedin.com/company/original' };
+    assert.deepEqual(buildLinkedInEnrichmentFromClaude(previous, result({ linkedin: LI }), AT), previous);
+  });
+
+  it('una descartada no vuelve a revisión si sólo se confirmó LinkedIn/tamaño (no el sector)', async () => {
+    const f = fakeDeps({
+      loadReviewCandidates: async () => [],
+      classify: async () =>
+        result({ sector: { ...result().sector!, matchesCurrentIndustry: false, verification: 'source_listed' }, linkedin: LI }),
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(f.admitted.length, 0);
+    assert.equal(s.ok && s.dispositionsKept, 1);
+    const ev = f.evidenceWrites.at(-1)!.evidence as Record<string, Record<string, unknown>>;
+    assert.equal(ev.claude_rescue.decision, 'unchanged');
   });
 });

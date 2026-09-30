@@ -62,3 +62,26 @@ describe('readClaudeClassificationDisplay', () => {
     assert.match(d?.employeeRange?.label ?? '', /^Más de/);
   });
 });
+
+describe('readClaudeClassificationDisplay — LinkedIn', () => {
+  it('muestra el LinkedIn con su origen', () => {
+    const d = readClaudeClassificationDisplay({
+      claude_classification: {
+        ...BASE,
+        linkedin_company: { url: 'https://www.linkedin.com/company/clinica', slug: 'clinica', source: 'website_social_link' },
+      },
+    });
+    assert.equal(d?.linkedin?.url, 'https://www.linkedin.com/company/clinica');
+    assert.match(d?.linkedin?.sourceLabel ?? '', /sitio oficial/);
+  });
+
+  it('ignora un enlace que no es de linkedin.com', () => {
+    const d = readClaudeClassificationDisplay({
+      claude_classification: {
+        ...BASE,
+        linkedin_company: { url: 'https://evil.example/company/x', slug: 'x', source: 'website_social_link' },
+      },
+    });
+    assert.equal(d?.linkedin, null);
+  });
+});

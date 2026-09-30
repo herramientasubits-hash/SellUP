@@ -211,10 +211,10 @@ function resolveSubindustry(
   const trimmed = sanitizedValue.trim();
 
   // AGENT1-IMPORT-MACRO-INDUSTRY-MATCH-1 — el catálogo v2 no publica
-  // subindustrias. Una subindustria en el archivo se conserva como texto
-  // original (aviso), pero NO puede bloquear la fila: no hay contra qué validarla.
+  // subindustrias y SellUp ya no las maneja (decisión de la dueña 30-09). Una
+  // subindustria en el archivo se IGNORA: no bloquea ni genera aviso. El texto
+  // original sigue viajando en `subindustryOriginalValue` (trazabilidad).
   if (!catalogHasSubindustries) {
-    warnings.push({ code: 'SUBINDUSTRY_NOT_FOUND', field: 'subindustry', message: `Subindustry not found in catalog: "${trimmed}".` });
     return { id: null, slug: null, name: null, status: 'missing', source: 'none', suggestedIndustryId: null };
   }
 

@@ -17,7 +17,8 @@
  * edita sin su visto bueno.
  *
  * Reglas:
- *   - La clase (4 o 3 dígitos) manda sobre su división (farmacias en retail →
+ *   - La actividad exacta (6 dígitos) manda sobre su clase, y la clase (4 o 3
+ *     dígitos) manda sobre su división (farmacias en retail →
  *     Salud; telecomunicaciones en correos → Tecnología).
  *   - Una división que no aparece aquí NO tiene macro: la fuente gratuita nunca
  *     ofrece esas empresas (hoteles, educación, medios, asociaciones…).
@@ -100,9 +101,26 @@ export const DO_DGII_CLASS_MACRO: Readonly<Record<string, MacroIndustryKey>> = O
   '642': 'technology', // telecomunicaciones
 });
 
+/**
+ * Actividad exacta (6 dígitos) → macro, o `null` para «sin macro». Manda sobre la
+ * clase y la división. Decidido 30-09-2026 con el mismo criterio que la tabla de
+ * Argentina (la dueña delegó la decisión): radio y TV y los servicios a animales
+ * quedan sin macro, el telemarketing es un servicio y las prisiones son gobierno.
+ */
+export const DO_DGII_ACTIVITY_MACRO: Readonly<Record<string, MacroIndustryKey | null>> = Object.freeze({
+  '642010': null, // servicios de transmisión de radio y televisión
+  '642091': null, // emisión de programas de televisión
+  '642030': 'services_company', // telemarketing / centro de contacto
+  '853131': 'government', // administración de prisiones y servicios correccionales
+  '014292': null, // albergue y cuidado de animales de terceros
+});
+
 /** Macro de UN código CIIU.DR de 6 dígitos, o `null` si no tiene. */
 export function resolveCiiuDrMacro(code: string): MacroIndustryKey | null {
   if (!/^\d{6}$/.test(code)) return null;
+  if (Object.prototype.hasOwnProperty.call(DO_DGII_ACTIVITY_MACRO, code)) {
+    return DO_DGII_ACTIVITY_MACRO[code];
+  }
   return (
     DO_DGII_CLASS_MACRO[code.slice(0, 4)] ??
     DO_DGII_CLASS_MACRO[code.slice(0, 3)] ??

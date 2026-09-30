@@ -14,6 +14,12 @@
 
 import { createClient } from '@/lib/supabase/server';
 import {
+  importDuplicateToItem,
+  isImportDuplicateCandidate,
+  matchesDispositionFilter,
+  type ImportDuplicateCandidateRow,
+} from './import-duplicate-items';
+import {
   requireActiveUser,
   resolveAllowedBatchIds,
   getGlobalCandidatesList,
@@ -231,7 +237,30 @@ export async function getDiscardedProspectsList(
     );
   }
 
-  const merged = [...dispositionItems, ...candidateItems].sort(
+  // ── Source C: importados que quedaron `duplicate` (AGENT1-IMPORT-DUPLICATES-VISIBLE-1)
+  // La importación no escribe en el ledger de disposiciones (su CHECK no admite
+  // `external_import`), así que sin esto sus duplicados eran invisibles.
+  let importDuplicateItems: DiscardedProspectItem[] = [];
+  if (filters.disposition !== 'manual_discard') {
+    const { candidates: importDuplicates } = await getGlobalCandidatesList({
+      search: filters.search,
+      country: filters.country,
+      industry: filters.industry,
+      batchId: filters.batchId,
+      ownerUserIds: filters.ownerUserIds,
+      source: 'external_import',
+      statuses: ['duplicate'],
+      limit,
+      offset: 0,
+    });
+    importDuplicateItems = importDuplicates
+      .map((c) => c as unknown as ImportDuplicateCandidateRow)
+      .filter(isImportDuplicateCandidate)
+      .map(importDuplicateToItem)
+      .filter((item) => matchesDispositionFilter(item, filters.disposition));
+  }
+
+  const merged = [...dispositionItems, ...candidateItems, ...importDuplicateItems].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
 
@@ -283,6 +312,9 @@ export async function getDiscardedProspectDetail(
   if (error || !data) return null;
   if (allowedBatchIds !== null && !allowedBatchIds.includes(data.batch_id as string)) {
     return null;
+  }
+  if (isImportDuplicateCandidate(data as { status?: string; source_primary?: string })) {
+    return importDuplicateToItem(data as unknown as ImportDuplicateCandidateRow);
   }
   if (data.status !== 'discarded') return null;
   return candidateToItem(data as unknown as Parameters<typeof candidateToItem>[0]);

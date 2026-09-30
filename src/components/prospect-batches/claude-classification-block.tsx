@@ -83,6 +83,22 @@ export function ClaudeClassificationBlock({ display }: { display: ClaudeClassifi
           </div>
         )}
 
+        {display.linkedin && (
+          <div className="min-w-0">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground/60">LinkedIn de la empresa</p>
+            <a
+              href={display.linkedin.url}
+              target="_blank"
+              rel="noopener noreferrer nofollow"
+              className="inline-flex items-center gap-1 rounded-md text-xs text-su-brand hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {display.linkedin.url.replace(/^https:\/\/(www\.)?/, '')}
+              <ExternalLink className="h-3 w-3" />
+            </a>
+            <p className="text-[10px] text-muted-foreground/70">{display.linkedin.sourceLabel}</p>
+          </div>
+        )}
+
         <div className="rounded-md border border-border/50 bg-muted/40 px-3 py-2">
           <p className="text-xs leading-snug text-muted-foreground">
             <span className="font-medium text-foreground/70">Sólo es una sugerencia.</span> No cambia el estado del

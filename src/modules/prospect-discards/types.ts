@@ -113,6 +113,11 @@ export interface DiscardedProspectItem {
   resultingCandidateId: string | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * AGENT1-IMPORT-DUPLICATES-VISIBLE-1 — si viene, la fila es de sólo lectura:
+   * «Enviar a revisión» se desactiva y este texto explica por qué.
+   */
+  sendToReviewBlockedReason?: string | null;
 }
 
 export interface DiscardedProspectsListFilters {

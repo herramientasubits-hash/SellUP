@@ -93,10 +93,16 @@ describe('el CSV real de la dueña (30-09) ya no queda bloqueado', () => {
     }
   });
 
-  it('la subindustria del archivo se conserva como aviso, sin bloquear', () => {
+  it('la subindustria del archivo se IGNORA: sin aviso, sin bloqueo, texto original conservado', () => {
     const { r } = classifyOne('Logística y Transporte', 'Courier y Mensajería Empresarial');
     assert.equal(r.classification.subindustryId, null);
-    assert.ok(r.classification.classificationWarnings.some((w) => w.code === 'SUBINDUSTRY_NOT_FOUND'));
+    assert.equal(r.classification.subindustryOriginalValue, 'Courier y Mensajería Empresarial');
+    assert.equal(
+      r.classification.classificationWarnings.some((w) => w.field === 'subindustry'),
+      false,
+      'SellUp ya no maneja subindustrias: no se muestra ningún aviso por ellas',
+    );
+    assert.equal(r.validationStatus === 'requires_review', false);
   });
 });
 
