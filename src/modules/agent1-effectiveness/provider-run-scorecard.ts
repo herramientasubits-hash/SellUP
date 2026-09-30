@@ -22,7 +22,7 @@
 //
 // Puro: sin env, sin I/O, sin reloj, sin proveedor.
 
-export type ScorecardProvider = 'apollo' | 'lusha';
+export type ScorecardProvider = 'apollo' | 'lusha' | 'tavily';
 
 /** `prospect_batches`, reducido a lo que la ficha lee. */
 export type ScorecardBatchInput = {
@@ -85,7 +85,12 @@ export type ScorecardGap =
   /** Más destinos que empresas distintas: algo se contó dos veces. */
   | 'destinations_exceed_unique'
   /** No hay precio para el proveedor: no hay coste en dólares. */
-  | 'price_missing';
+  | 'price_missing'
+  /**
+   * AGENT1-TAVILY-V2-1 § 5 — Tavily informó (`usage.credits`) haber cobrado
+   * distinto de lo que calculamos en al menos una ronda.
+   */
+  | 'credits_mismatch_provider_reported';
 
 export type ScorecardAcceptanceSource =
   | 'batch_accepted_for_target'
@@ -95,7 +100,8 @@ export type ScorecardAcceptanceSource =
 export type ScorecardCreditsSource =
   | 'apollo_run_budget_ledger'
   | 'lusha_batch_billing'
-  | 'lusha_usage_log';
+  | 'lusha_usage_log'
+  | 'tavily_usage_logs';
 
 export type ProviderRunScorecardRow = {
   /** `batch:<id>:<proveedor>` o `log:<id>`: estable y único. */
@@ -134,6 +140,27 @@ export type ProviderRunScorecardRow = {
 
 /** Las operaciones de Lusha que son descubrimiento de empresas (Agente 1). */
 const LUSHA_COMPANY_DISCOVERY_OPERATIONS: ReadonlySet<string> = new Set(['company_prospecting_v3']);
+
+/**
+ * AGENT1-TAVILY-V2-1 § 5 — lo que una corrida Tavily del asistente paga: las
+ * búsquedas de descubrimiento y la búsqueda dirigida de LinkedIn. Ambas escriben
+ * su log con el `batch_id` del lote.
+ */
+const TAVILY_RUN_OPERATIONS: ReadonlySet<string> = new Set([
+  'multi_query_web_search',
+  'linkedin_company_search',
+]);
+
+/**
+ * `source_primary` con el que cada proveedor deja sus filas. Tavily guarda sus
+ * candidatos como `web_ai`; un descarte puede quedar como `web_ai` o `tavily`
+ * (ambos admitidos por el CHECK de `prospect_discarded_dispositions`).
+ */
+const OUTCOME_SOURCES: Readonly<Record<ScorecardProvider, ReadonlySet<string>>> = {
+  apollo: new Set(['apollo']),
+  lusha: new Set(['lusha']),
+  tavily: new Set(['web_ai', 'tavily']),
+};
 
 // ── Lectura defensiva ────────────────────────────────────────────────────────
 
@@ -260,7 +287,7 @@ function outcomeTotals(
 ): OutcomeTotals {
   const totals: OutcomeTotals = { persisted: 0, discarded: 0, byDisposition: {} };
   for (const c of counts) {
-    if (c.batchId !== batchId || c.sourcePrimary !== provider) continue;
+    if (c.batchId !== batchId || !OUTCOME_SOURCES[provider].has(c.sourcePrimary ?? '')) continue;
     const n = readCount(c.count) ?? 0;
     if (c.kind === 'candidate') {
       totals.persisted += n;
@@ -278,7 +305,12 @@ function usageCredits(
   batchId: string,
   provider: ScorecardProvider,
 ): number | null {
-  const own = logs.filter((l) => l.batchId === batchId && l.providerKey === provider);
+  const own = logs.filter(
+    (l) =>
+      l.batchId === batchId &&
+      l.providerKey === provider &&
+      (provider !== 'tavily' || TAVILY_RUN_OPERATIONS.has(l.operationKey ?? '')),
+  );
   if (own.length === 0) return null;
   return sumOrNull(own.map((l) => readCount(l.creditsUsed)));
 }
@@ -367,6 +399,60 @@ function apolloRow(
     discardsByDisposition: totals.byDisposition,
     acceptedForTarget: accepted,
     acceptanceSource,
+    unaccountedCompanies: unaccounted(unique, totals, gaps),
+    gaps,
+  };
+}
+
+/**
+ * AGENT1-TAVILY-V2-1 § 5 — un lote Tavily: `metadata.web_search_provider` es la
+ * única marca fiable (no publica `provider_attempts`).
+ */
+function isTavilyBatch(metadata: Record<string, unknown>): boolean {
+  return metadata['web_search_provider'] === 'tavily';
+}
+
+function tavilyRow(
+  batch: ScorecardBatchInput,
+  metadata: Record<string, unknown>,
+  input: ProviderRunScorecardInput,
+): RowDraft {
+  const gaps: ScorecardGap[] = [];
+  const credits = usageCredits(input.usageLogs, batch.id, 'tavily');
+  const reportedMismatch = input.usageLogs.some(
+    (l) =>
+      l.batchId === batch.id &&
+      l.providerKey === 'tavily' &&
+      l.metadata?.['provider_reported_credits_mismatch'] === true,
+  );
+  if (reportedMismatch) gaps.push('credits_mismatch_provider_reported');
+
+  const incremental = asRecord(metadata['incremental_search']);
+  const unique = readCount(incremental?.['total_candidates_accumulated']);
+  const totals = outcomeTotals(input.outcomeCounts, batch.id, 'tavily');
+  const read = batchPaidAcceptance(metadata);
+  gaps.push(...read.gaps);
+  // Tavily no tiene memoria de lo que el proveedor ya había devuelto.
+  gaps.push('provider_seen_not_measured');
+
+  return {
+    runKey: `batch:${batch.id}:tavily`,
+    provider: 'tavily',
+    role: 'standalone',
+    batchId: batch.id,
+    createdAt: batch.createdAt,
+    countryCode: batch.countryCode,
+    industry: batch.industry,
+    credits,
+    creditsSource: credits === null ? null : 'tavily_usage_logs',
+    rawResults: readCount(incremental?.['total_raw_evaluated']),
+    uniqueResults: unique,
+    alreadySeenByProvider: null,
+    persisted: totals.persisted,
+    discarded: totals.discarded,
+    discardsByDisposition: totals.byDisposition,
+    acceptedForTarget: read.accepted,
+    acceptanceSource: read.accepted === null ? null : 'batch_accepted_for_target',
     unaccountedCompanies: unaccounted(unique, totals, gaps),
     gaps,
   };
@@ -527,6 +613,8 @@ export function buildProviderRunScorecard(
       const log = lushaLogs.find((l) => l.batchId === batch.id) ?? null;
       if (log) consumedLogIds.add(log.id);
       drafts.push(lushaStandaloneBatchRow(batch, metadata, input, log));
+    } else if (provider === null && isTavilyBatch(metadata)) {
+      drafts.push(tavilyRow(batch, metadata, input));
     }
   }
 
@@ -582,6 +670,7 @@ export function summarizeProviderRunScorecard(
   const byProvider: Record<ScorecardProvider, ProviderScorecardTotals> = {
     apollo: empty(),
     lusha: empty(),
+    tavily: empty(),
   };
   for (const row of rows) {
     const totals = byProvider[row.provider];

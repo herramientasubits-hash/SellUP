@@ -2,7 +2,7 @@
  * GET /api/debug/agent1-provider-scorecard
  *
  * AGENT1-PROVIDER-RUN-SCORECARD-1 — la ficha por corrida y proveedor de una
- * ventana de fechas, para comparar a Apollo con Lusha con la misma vara.
+ * ventana de fechas, para comparar a Apollo, Lusha y Tavily con la misma vara.
  *
  * Parámetros (todos validados en `parseProviderRunScorecardRequest`):
  *   from=YYYY-MM-DD            inicio inclusivo (obligatorio)
@@ -11,6 +11,7 @@
  *   industry=Retail            filtro opcional por industria del lote
  *   lusha_usd_per_credit=…     precio SIMULADO; no toca `provider_pricing_config`
  *   apollo_usd_per_credit=…    ídem
+ *   tavily_usd_per_credit=…    ídem (AGENT1-TAVILY-V2-1 § 5)
  *
  * Acceso: admin-only (sesión autenticada + `is_admin`). Sólo lectura: sin
  * escrituras, sin RPC de negocio, sin llamadas a proveedores, sin gasto.
