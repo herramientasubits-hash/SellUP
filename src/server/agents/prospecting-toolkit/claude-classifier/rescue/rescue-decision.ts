@@ -36,8 +36,14 @@ export type RescueDecision =
       sectorConfirmed: boolean;
       sizeConfirmed: boolean;
       linkedinConfirmed: boolean;
+      /** Claude vio OTRO sector pero sin evidencia suficiente para descartar: aviso a la revisora. */
+      sectorMismatchUnconfirmed?: boolean;
     }
-  | { kind: 'unchanged'; why: 'nothing_verifiable' | 'sector_unknown' | 'not_classified' };
+  | {
+      kind: 'unchanged';
+      why: 'nothing_verifiable' | 'sector_unknown' | 'not_classified';
+      sectorMismatchUnconfirmed?: boolean;
+    };
 
 export type RescueContext = {
   icpMinEmployees: number;
@@ -117,6 +123,15 @@ export function decideRescue(result: CompanyClassificationResult, ctx: RescueCon
     };
   }
   const linkedinConfirmed = !!result.linkedin;
-  if (sector !== 'pass' && size !== 'pass' && !linkedinConfirmed) return { kind: 'unchanged', why: 'sector_unknown' };
-  return { kind: 'admit', sectorConfirmed: sector === 'pass', sizeConfirmed: size === 'pass', linkedinConfirmed };
+  const sectorMismatchUnconfirmed = sector === 'unknown' && result.sector?.matchesCurrentIndustry === false;
+  if (sector !== 'pass' && size !== 'pass' && !linkedinConfirmed) {
+    return { kind: 'unchanged', why: 'sector_unknown', ...(sectorMismatchUnconfirmed ? { sectorMismatchUnconfirmed } : {}) };
+  }
+  return {
+    kind: 'admit',
+    sectorConfirmed: sector === 'pass',
+    sizeConfirmed: size === 'pass',
+    linkedinConfirmed,
+    ...(sectorMismatchUnconfirmed ? { sectorMismatchUnconfirmed } : {}),
+  };
 }

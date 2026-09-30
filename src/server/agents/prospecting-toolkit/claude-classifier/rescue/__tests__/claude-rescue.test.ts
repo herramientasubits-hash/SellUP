@@ -91,7 +91,13 @@ describe('A. decideRescue', () => {
       result({ sector: { ...result().sector!, matchesCurrentIndustry: false, verification: 'source_listed' } }),
       CTX,
     );
-    assert.deepEqual(d, { kind: 'admit', sectorConfirmed: false, sizeConfirmed: true, linkedinConfirmed: false });
+    assert.deepEqual(d, {
+      kind: 'admit',
+      sectorConfirmed: false,
+      sizeConfirmed: true,
+      linkedinConfirmed: false,
+      sectorMismatchUnconfirmed: true,
+    });
   });
 
   it('LinkedIn verificado se marca como confirmado', () => {
@@ -516,5 +522,27 @@ describe('F2. Lusha entra al rescate para revisar el sector', () => {
     });
     const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
     assert.equal(s.ok && s.candidatesDiscarded, 1);
+  });
+});
+
+describe('G. etiqueta honesta (Prod 30-09: «admit» sin sector confirmado)', () => {
+  it('sólo tamaño completado + sector distinto sin confirmar → data_completed con aviso', () => {
+    const decision = decideRescue(
+      result({ sector: { ...result().sector!, industryName: 'Minería', matchesCurrentIndustry: false, verification: 'source_listed' } }),
+      { icpMinEmployees: 200, requestedIndustryName: 'Tecnología' },
+    );
+    const p = buildCandidateRescuePatch({ metadata: REVIEW_METADATA, result: result(), decision, minEmployees: 200, decidedAt: AT });
+    const rescue = p.metadata.claude_rescue as Record<string, unknown>;
+    assert.equal(rescue.decision, 'data_completed');
+    assert.equal(rescue.sector_warning, 'claude_sector_mismatch_unconfirmed');
+    assert.equal(p.status, undefined);
+  });
+
+  it('sector confirmado → admit sin aviso', () => {
+    const decision = decideRescue(result(), { icpMinEmployees: 200 });
+    const p = buildCandidateRescuePatch({ metadata: REVIEW_METADATA, result: result(), decision, minEmployees: 200, decidedAt: AT });
+    const rescue = p.metadata.claude_rescue as Record<string, unknown>;
+    assert.equal(rescue.decision, 'admit');
+    assert.equal(rescue.sector_warning, null);
   });
 });
