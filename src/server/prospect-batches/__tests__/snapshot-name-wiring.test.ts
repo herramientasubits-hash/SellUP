@@ -65,7 +65,7 @@ describe('cableado', () => {
     const resolvers = buildColombiaOfficialSourceResolvers();
     assert.ok(Array.isArray(resolvers));
     for (const resolver of resolvers) {
-      assert.ok(['CO', 'DO', 'AR', 'EC', 'GT', 'HN', 'PE', 'PY'].includes(resolver.countryCode), resolver.countryCode);
+      assert.ok(['CO', 'DO', 'AR', 'EC', 'GT', 'HN', 'PE', 'PY', 'UY'].includes(resolver.countryCode), resolver.countryCode);
     }
   });
 
@@ -87,6 +87,12 @@ describe('cableado', () => {
     const wiring = read('src/server/prospect-batches/official-source-resolvers.ts');
     assert.match(wiring, /countryCode: 'PY',\s*sourceKey: 'py_set_registry',\s*taxIdentifierType: 'RUC',\s*validTaxId: \/\^80\\d\{6\}-\\d\$\//);
     assert.match(wiring, /buildSnapshotNameQuery\(snapshotClient, 'py_set_registry', 'PY'\)/);
+  });
+
+  it('el factory construye Uruguay (RUT de 12 dígitos) sobre el RUPE', () => {
+    const wiring = read('src/server/prospect-batches/official-source-resolvers.ts');
+    assert.match(wiring, /countryCode: 'UY',\s*sourceKey: 'uy_rupe_registry',\s*taxIdentifierType: 'RUT',\s*validTaxId: \/\^\\d\{12\}\$\//);
+    assert.match(wiring, /buildSnapshotNameQuery\(snapshotClient, 'uy_rupe_registry', 'UY'\)/);
   });
 
   it('el resolvedor genérico es puro y la lectura no escribe', () => {
