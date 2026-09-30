@@ -55,7 +55,7 @@ export function needsDispositionRescue(row: RescuableDispositionRow, nowMs: numb
   if (row.status !== 'discarded' || row.candidate_id) return false;
   if (!row.domain) return false;
   if (!(RESCUABLE_DISPOSITION_REASON_CODES as readonly string[]).includes(row.reason_code ?? '')) return false;
-  return rescueStillPending(row.evidence?.[CLAUDE_RESCUE_METADATA_KEY], nowMs);
+  return rescueStillPending(row.evidence?.[CLAUDE_RESCUE_METADATA_KEY], nowMs, row.evidence?.claude_classification);
 }
 
 export function dispositionToCompanyInput(row: RescuableDispositionRow): ClassifierCompanyInput {

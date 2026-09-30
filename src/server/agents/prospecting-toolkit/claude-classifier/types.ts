@@ -12,10 +12,11 @@ export const CLAUDE_CLASSIFIER_PROVIDER_KEY = 'anthropic';
 export const CLAUDE_CLASSIFIER_OPERATION_KEY = 'company_classification';
 export const CLAUDE_CLASSIFICATION_METADATA_KEY = 'claude_classification';
 /**
- * a1.v2 (30-09): pregunta directa «¿pertenece a la industria buscada?». Las filas
- * sin veredicto de a1.v1 se reintentan (ver `rescueStillPending`).
+ * a1.v2 (30-09): pregunta directa «¿pertenece a la industria buscada?».
+ * a1.v3 (30-09): esa respuesta cuenta como evidencia aunque no haya macro ni tamaño.
+ * Las filas sin veredicto de versiones anteriores se reintentan (`rescueStillPending`).
  */
-export const CLAUDE_CLASSIFIER_CONTRACT_VERSION = 'a1.v2';
+export const CLAUDE_CLASSIFIER_CONTRACT_VERSION = 'a1.v3';
 
 /** Macroindustria del catálogo activo, con sus subindustrias (vacías en el catálogo v2). */
 export type ClassifierCatalogIndustry = {
