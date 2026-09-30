@@ -349,9 +349,11 @@ describe('D. classifyCompany', () => {
     const system = body.system as Array<{ cache_control?: unknown; text: string }>;
     assert.deepEqual(system[0].cache_control, { type: 'ephemeral' });
     assert.ok(system[0].text.includes(SALUD_ID));
-    const search = body.tools[0] as { max_uses: number; user_location?: { country: string } };
+    assert.match(String(body.messages[0].content), /País esperado: Perú/);
+    const search = body.tools[0] as { max_uses: number; user_location?: unknown };
     assert.equal(search.max_uses, 2);
-    assert.equal(search.user_location?.country, 'PE');
+    // Regresión Prod 30-09: «Country code PE is not supported» → nunca se envía.
+    assert.equal('user_location' in search, false);
   });
 });
 
