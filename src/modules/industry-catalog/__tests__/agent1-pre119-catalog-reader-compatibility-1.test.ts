@@ -698,13 +698,24 @@ describe('§ 7 — clasificación macro-only: sin hija sintética, sin bloqueo',
     assert.equal(c.suggestedIndustryId, null);
   });
 
-  it('una subindustria enviada bajo v2 queda VISIBLE como revisión, nunca silenciada', () => {
+  // AGENT1-IMPORT-MACRO-INDUSTRY-MATCH-1 (30-09) — antes esta fila BLOQUEABA la
+  // importación: la primera prueba real de la dueña (4 filas de logística con
+  // subindustria) quedó 4/4 en «Requiere revisión» sin forma de avanzar salvo
+  // borrar la columna. Decisión de producto: SellUp ya no maneja subindustrias.
+  // La garantía «nunca silenciada» se conserva: el aviso sigue visible y el
+  // texto original viaja con la fila. Lo único que cambia es que no bloquea.
+  it('una subindustria enviada bajo v2 queda VISIBLE como aviso y conservada, sin bloquear', () => {
     const result = classifyUnder(v2ImportCatalog(), 'Retail', 'Ciberseguridad');
     const row = result.rows[0];
-    assert.equal(row.classification.subindustryMatchStatus, 'not_found');
-    assert.equal(row.classification.requiresHumanReview, true);
-    assert.equal(row.validationStatus, 'requires_review');
-    assert.equal(result.valid, false);
+    assert.equal(row.classification.subindustryId, null);
+    assert.equal(row.classification.subindustryOriginalValue, 'Ciberseguridad');
+    assert.ok(
+      row.classification.classificationWarnings.some((w) => w.code === 'SUBINDUSTRY_NOT_FOUND'),
+      'la subindustria no puede desaparecer en silencio',
+    );
+    assert.equal(row.classification.requiresHumanReview, false);
+    assert.equal(row.validationStatus, 'warning');
+    assert.equal(result.valid, true);
   });
 
   it('`missing` está excluido de los estados de revisión, por diseño', () => {

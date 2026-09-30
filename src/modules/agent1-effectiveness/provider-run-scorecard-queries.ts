@@ -44,6 +44,13 @@ const PRICING_OPERATION = {
 
 const SCORECARD_PROVIDERS = ['apollo', 'lusha', 'tavily'] as const;
 
+/**
+ * AGENT1-TAVILY-V2-1 § 5b — los logs que la ficha lee: los tres proveedores de
+ * descubrimiento y `anthropic` (el clasificador de Claude, con su costo por lote).
+ * Los PRECIOS sólo aplican a `SCORECARD_PROVIDERS`: Claude ya trae su costo.
+ */
+const USAGE_LOG_PROVIDERS = [...SCORECARD_PROVIDERS, 'anthropic'] as const;
+
 function getAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -157,6 +164,7 @@ type RawUsageLog = {
   operation_key: string | null;
   batch_id: string | null;
   credits_used: number | string | null;
+  estimated_cost_usd: number | string | null;
   lusha_run_observability: unknown;
   run_correlation: unknown;
   provider_reported_credits_mismatch: unknown;
@@ -173,11 +181,11 @@ async function fetchUsageLogs(
       admin
         .from('provider_usage_logs')
         .select(
-          'id, created_at, provider_key, operation_key, batch_id, credits_used, ' +
+          'id, created_at, provider_key, operation_key, batch_id, credits_used, estimated_cost_usd, ' +
             'lusha_run_observability:metadata->lusha_run_observability, run_correlation:metadata->run_correlation, ' +
             'provider_reported_credits_mismatch:metadata->provider_reported_credits_mismatch',
         )
-        .in('provider_key', [...SCORECARD_PROVIDERS])
+        .in('provider_key', [...USAGE_LOG_PROVIDERS])
         .gte('created_at', request.dateFrom)
         .lt('created_at', until)
         .order('id', { ascending: true })
@@ -190,6 +198,7 @@ async function fetchUsageLogs(
     operationKey: l.operation_key,
     batchId: l.batch_id,
     creditsUsed: l.credits_used,
+    estimatedCostUsd: l.estimated_cost_usd,
     metadata: {
       lusha_run_observability: l.lusha_run_observability,
       run_correlation: l.run_correlation,
