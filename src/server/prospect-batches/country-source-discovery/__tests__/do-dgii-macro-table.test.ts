@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import { MACRO_INDUSTRIES } from '@/modules/macro-industry-catalog/macro-industries';
 import {
   classifyDgiiActivityText,
+  DO_DGII_ACTIVITY_MACRO,
   DO_DGII_CLASS_MACRO,
   DO_DGII_DIVISION_MACRO,
   macroHasDgiiCoverage,
@@ -55,9 +56,45 @@ describe('tabla aprobada división → macro', () => {
     });
   });
 
+  it('las excepciones por actividad exacta son las decididas el 30-09', () => {
+    assert.deepEqual({ ...DO_DGII_ACTIVITY_MACRO }, {
+      '642010': null,
+      '642091': null,
+      '642030': 'services_company',
+      '853131': 'government',
+      '014292': null,
+    });
+    // Radio y TV sin macro; el resto de telecomunicaciones sigue en Tecnología.
+    assert.equal(resolveCiiuDrMacro('642010'), null);
+    assert.equal(resolveCiiuDrMacro('642091'), null);
+    assert.equal(resolveCiiuDrMacro('642020'), 'technology');
+    assert.equal(resolveCiiuDrMacro('642022'), 'technology');
+    assert.equal(resolveCiiuDrMacro('642099'), 'technology');
+    assert.equal(resolveCiiuDrMacro('642030'), 'services_company');
+    // Prisiones a Gobierno; el resto de la división 85 sigue en Salud.
+    assert.equal(resolveCiiuDrMacro('853131'), 'government');
+    assert.equal(resolveCiiuDrMacro('853142'), 'health_pharma');
+    // Albergue de animales sin macro; el resto de la división 01 sigue en Agro.
+    assert.equal(resolveCiiuDrMacro('014292'), null);
+    assert.equal(resolveCiiuDrMacro('014299'), 'agroindustry');
+  });
+
+  it('los textos DGII de esos casos se clasifican según la decisión', () => {
+    assert.equal(classifyDgiiActivityText('SERVICIOS DE TRANSMISIÓN DE RA'), null);
+    assert.equal(classifyDgiiActivityText('EMISIÓN DE PROGRAMAS DE TELEVI'), null);
+    assert.equal(classifyDgiiActivityText('ALBERGUE Y CUIDADO DE  ANIMALE'), null);
+    assert.equal(classifyDgiiActivityText('ADMINISTRACIÓN DE PRISIONES Y')?.macroIndustryKey, 'government');
+    assert.equal(classifyDgiiActivityText('SERVICIOS DE TELEMARKETING Y/O')?.macroIndustryKey, 'services_company');
+    assert.equal(classifyDgiiActivityText('CENTROS DE TELECOMUNICACIONES')?.macroIndustryKey, 'technology');
+  });
+
   it('sólo usa macros que existen en el catálogo', () => {
     const keys = new Set(MACRO_INDUSTRIES.map((d) => d.key));
-    for (const macro of [...Object.values(DO_DGII_DIVISION_MACRO), ...Object.values(DO_DGII_CLASS_MACRO)]) {
+    for (const macro of [
+      ...Object.values(DO_DGII_DIVISION_MACRO),
+      ...Object.values(DO_DGII_CLASS_MACRO),
+      ...Object.values(DO_DGII_ACTIVITY_MACRO).filter((m): m is NonNullable<typeof m> => m !== null),
+    ]) {
       assert.ok(keys.has(macro), macro);
     }
   });
