@@ -297,3 +297,44 @@ describe('SOURCES-DO-FREE-DISCOVERY-1 — República Dominicana', () => {
     assert.equal((candidate.source_trace as Record<string, unknown>).sourceKey, 'co_siis_discovery');
   });
 });
+
+describe('SOURCES-AR-RNS-1 — Argentina', () => {
+  it('el candidato argentino lleva su propia fuente, su CUIT y su código de actividad', async () => {
+    const stats = freshStats();
+    const result = await persistCountrySourceCandidates(makeFiscalAwareFakeSupabase(stats), {
+      companies: [
+        syntheticCompany({
+          recordIdentityKey: 'tax:30500001001',
+          legalName: 'EMPRESA SINTETICA AR S.A.',
+          normalizedLegalName: 'EMPRESA SINTETICA AR S.A.',
+          taxId: '30500001001',
+          taxIdentifierType: 'CUIT',
+          countryCode: 'AR',
+          city: 'CAPITAL FEDERAL',
+          region: 'CIUDAD AUTONOMA BUENOS AIRES',
+          declaredIndustry: 'Servicios de informática n.c.p.',
+          industryCode: '620100',
+          coarseSector: null,
+          officialMacroIndustry: { macroIndustryKeys: ['technology'], tableVersion: 'ar-ciiu4-arca-macro-v1' },
+        }),
+      ],
+      countryCode: 'AR',
+      countryName: 'Argentina',
+      macroIndustryKey: 'technology',
+      requestedByUserId: 'user-synthetic-1',
+    });
+
+    assert.equal(result.failed, false);
+    assert.equal(result.writtenCount, 1);
+    const candidate = stats.candidateInserts[0];
+    assert.equal(candidate.source_primary, 'public_source');
+    assert.equal(candidate.tax_identifier, '30500001001');
+    assert.equal(candidate.tax_identifier_type, 'CUIT');
+    assert.equal(candidate.country_code, 'AR');
+    const trace = candidate.source_trace as Record<string, unknown>;
+    assert.equal(trace.sourceKey, 'ar_rns_discovery');
+    assert.equal(trace.industryCode, '620100');
+    assert.equal((candidate.metadata as Record<string, unknown>).macro_industry_key, 'technology');
+    assert.equal(stats.batchInserts[0].source, 'agent_1');
+  });
+});

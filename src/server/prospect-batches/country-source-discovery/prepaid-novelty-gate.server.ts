@@ -9,8 +9,8 @@
  *
  * ── 🔴 Ninguna dep puede gastar ──────────────────────────────────────────────
  *
- * Las cuatro son de lectura: los snapshots locales de Colombia y de República
- * Dominicana, el detector canónico de
+ * Las cuatro son de lectura: los snapshots locales de Colombia, República
+ * Dominicana y Argentina, el detector canónico de
  * duplicados (SellUp + HubSpot, por empresa), un lector ACOTADO de dominios
  * conocidos y —desde AGENT1-PROVIDER-SEEN-MEMORY-3— la memoria provider-seen. No se
  * importa ninguna RPC de presupuesto y ningún cliente de proveedor. La capa gratuita
@@ -40,6 +40,7 @@ import { resolveProviderSeenStore } from '@/server/prospect-batches/provider-see
 import { buildCountrySourceAdapter } from './country-source-capability';
 import { buildCoSiisDiscoverySnapshotQuery } from './co-siis-snapshot-query';
 import { buildDoDgiiDiscoveryReads } from './do-dgii-snapshot-query';
+import { buildArRnsDiscoveryReads } from './ar-rns-snapshot-query';
 import { PREPAID_EXCLUSION_DOMAIN_CAP } from '@/modules/prospect-batches/prepaid-novelty/provider-exclusion-domains';
 
 /**
@@ -94,6 +95,7 @@ export async function runProductionPrePaidNoveltyGate(
       ? buildCountrySourceAdapter(input.countryCode, {
           coSiisSnapshotQuery: buildCoSiisDiscoverySnapshotQuery(adminClient),
           doDgiiDiscoveryReads: buildDoDgiiDiscoveryReads(adminClient),
+          arRnsDiscoveryReads: buildArRnsDiscoveryReads(adminClient),
         })
       : null,
     checkCompanyDuplicate: adminClient ? (dupInput) => checkCompanyDuplicate(dupInput) : null,
