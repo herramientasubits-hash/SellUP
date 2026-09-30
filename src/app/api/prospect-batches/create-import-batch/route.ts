@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { validateImportedCandidatesBatch } from '@/modules/prospect-batches/actions';
 import { loadImportCatalog } from '@/modules/prospect-batches/import-catalog-loader';
@@ -26,7 +26,17 @@ import {
   toImportAdmissionMetadata,
   type ImportIdentityRowInput,
 } from '@/server/prospect-batches/import-identity-admission';
-import { resolveImportTaxIdentifier } from '@/modules/prospect-batches/import-tax-identifier';
+import {
+  resolveImportTaxIdentifier,
+  type ImportTaxIdentifierResolution,
+} from '@/modules/prospect-batches/import-tax-identifier';
+import { buildColombiaOfficialSourceResolvers } from '@/server/prospect-batches/official-source-resolvers';
+import {
+  IMPORT_SOURCE_ENRICHMENT_METADATA_KEY,
+  enrichImportRowsWithOfficialSources,
+} from '@/server/prospect-batches/import-official-source-enrichment';
+import { drainEnrichmentJobs } from '@/server/prospect-batches/enrichment-drain';
+import { AUTO_ENRICH_CONFIG } from '@/modules/prospect-batches/auto-enrich-config';
 import {
   IMPORT_QUALITY_GATES_METADATA_KEY,
   evaluateImportQualityGates,
@@ -270,9 +280,39 @@ export async function POST(request: NextRequest) {
     // AGENT1-IMPORT-PARITY-2 — el identificador fiscal se normaliza UNA vez, con
     // las reglas por país del alta manual, y ese mismo valor alimenta identidad,
     // reclamo global y columna persistida.
-    const taxResolutions = input.candidates.map((c) =>
+    const fileTaxResolutions = input.candidates.map((c) =>
       resolveImportTaxIdentifier(c.tax_identifier, c.country_code),
     );
+
+    // AGENT1-IMPORT-PARITY-8 — primero los catálogos GRATUITOS (los mismos de
+    // Apollo/Lusha). Sólo filas sin identificador fiscal y de un país con
+    // catálogo conectado; sólo una identidad fuerte llena columnas.
+    const officialSourceOutcomes = await enrichImportRowsWithOfficialSources(
+      input.candidates.map((c, i) => {
+        const website = c.website?.trim() || null;
+        return {
+          rowNumber: i + 1,
+          name: c.company_name,
+          website,
+          domain: website ? extractDomain(website) : null,
+          countryCode: c.country_code?.trim().toUpperCase() || null,
+          taxIdentifier: fileTaxResolutions[i].value,
+        };
+      }),
+      buildColombiaOfficialSourceResolvers(),
+    );
+
+    const taxResolutions: ImportTaxIdentifierResolution[] = fileTaxResolutions.map((r, i) => {
+      const official = officialSourceOutcomes.get(i + 1);
+      const officialTax = official?.strongIdentityAvailable ? official.typedColumns.tax_identifier : null;
+      if (r.value || !officialTax) return r;
+      return {
+        status: 'official_source',
+        value: officialTax,
+        type: official?.typedColumns.tax_identifier_type ?? null,
+        warning: null,
+      };
+    });
 
     const identityRows: ImportIdentityRowInput[] = input.candidates.map((c, i) => {
       const website = c.website?.trim() || null;
@@ -410,6 +450,9 @@ export async function POST(request: NextRequest) {
         ...(candidate.notes ? { notes: candidate.notes.trim() } : {}),
         [IMPORT_ADMISSION_METADATA_KEY]: toImportAdmissionMetadata(admission),
         [IMPORT_QUALITY_GATES_METADATA_KEY]: qualityGates.metadata,
+        ...(officialSourceOutcomes.has(rowNumber)
+          ? { [IMPORT_SOURCE_ENRICHMENT_METADATA_KEY]: officialSourceOutcomes.get(rowNumber)!.metadata }
+          : {}),
         ...(taxResolutions[i].status !== 'absent'
           ? { tax_identifier_validation: taxResolutions[i].status }
           : {}),
@@ -468,6 +511,12 @@ export async function POST(request: NextRequest) {
         company_size: candidate.company_size?.trim() || null,
         tax_identifier: taxResolutions[i].value,
         tax_identifier_type: taxResolutions[i].type ?? (candidate.tax_identifier_type?.trim() || null),
+        ...(officialSourceOutcomes.get(rowNumber)?.strongIdentityAvailable
+          ? {
+              legal_name: officialSourceOutcomes.get(rowNumber)!.typedColumns.legal_name,
+              legal_status: officialSourceOutcomes.get(rowNumber)!.typedColumns.legal_status,
+            }
+          : {}),
         source_primary: 'external_import',
         status: candidateStatus,
         ...(isDuplicateOnImport ? { duplicate_status: 'exact_duplicate' } : {}),
@@ -591,6 +640,21 @@ export async function POST(request: NextRequest) {
         } else if (cand.duplicate_status === 'possible_duplicate') {
           possibleDuplicateCount++;
         }
+      }
+    }
+
+    // AGENT1-IMPORT-PARITY-10 — la IA corre DESPUÉS de responder, sólo si quedó
+    // algo que valga la pena (la elegibilidad ya filtró duplicados, avisos y el
+    // tope). Sin cron programado, esto es lo que hace que el enriquecimiento
+    // exista. Si `after` no está disponible, los trabajos quedan `pending`.
+    if (AUTO_ENRICH_CONFIG.enabled && autoEnrichPendingCount > 0) {
+      try {
+        after(async () => {
+          const drain = await drainEnrichmentJobs();
+          console.info('[create-import-batch] post-import enrichment drain:', drain);
+        });
+      } catch (afterErr) {
+        console.error('[create-import-batch] could not schedule enrichment drain:', afterErr);
       }
     }
 

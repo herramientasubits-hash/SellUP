@@ -6235,6 +6235,14 @@ jobs:
       - name: Run Agent 1 Apollo continuation persist completed run tests
         run: npm run test:a1-apollo-continuation-persist-completed-run
 
+      # AGENT1-CONTINUATION-LUSHA-CASCADE-1 - tras una continuacion, Lusha decide
+      # con lo ACEPTADO para el objetivo (no con las filas escritas) y corre
+      # tambien cuando esa vuelta escribio el lote.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 continuation Lusha cascade accepted tests
+        run: npm run test:a1-continuation-lusha-cascade-accepted
+
       # AGENT1-TAVILY-V2-1 - Tavily compite con Apollo y Lusha: consultas desde
       # el catalogo de 12 macro industrias (rotacion por lote, pais e idioma),
       # universidades/gobierno/gremios pasan el filtro y los directorios no,

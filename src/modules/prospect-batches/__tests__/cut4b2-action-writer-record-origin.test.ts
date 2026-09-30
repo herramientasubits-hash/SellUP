@@ -587,98 +587,10 @@ describe('CUT4-B2 § 7/§ 8/§ 12 — invariantes de createProspectCandidate', (
   });
 });
 
-// ─── B2 § 9 — createExternalCandidatesBatch ────────────────────────────────
-
-const EXTERNAL_INPUT = {
-  import_type: 'paste',
-  candidates: [
-    {
-      company_name: 'Importada Uno SAS',
-      country: 'Colombia',
-      country_code: 'CO',
-      industry: 'Tecnología',
-      website: 'importadauno.co',
-      notes: 'Nota del importador',
-      source_url: 'https://fuente.example/uno',
-      linkedin_url: 'https://linkedin.com/company/importadauno',
-    },
-  ],
-  recognized_columns: ['company_name', 'country_code', 'industry'],
-  unrecognized_columns: [],
-  total_rows: 1,
-  valid_rows: 1,
-  invalid_rows: 0,
-  warning_rows: 0,
-};
-
-async function runExternalImport(): Promise<Record<string, unknown>> {
-  const { createExternalCandidatesBatch } = await import('../actions');
-  await createExternalCandidatesBatch(EXTERNAL_INPUT as never);
-  assert.equal(spy.candidateInserts.length, 1, 'se esperaba exactamente un INSERT de candidato');
-  return spy.candidateInserts[0];
-}
-
-describe('CUT4-B2 § 9 — createExternalCandidatesBatch: import, siempre', () => {
-  beforeEach(resetSpy);
-
-  it('L — la fila importada se persiste con record_origin = import', async () => {
-    const row = await runExternalImport();
-    assert.equal(row.record_origin, 'import');
-  });
-
-  it('M — NUNCA production, ni siquiera para volverla accionable', async () => {
-    const row = await runExternalImport();
-    assert.notEqual(row.record_origin, 'production');
-    assert.equal(originMetadata(row).is_clean_production, false);
-  });
-
-  it('L — la decisión la firma el writer canónico, no un literal', async () => {
-    const row = await runExternalImport();
-    const meta = originMetadata(row);
-    assert.equal(meta.decided_by, 'canonical_writer');
-    assert.equal(meta.classification_source, 'writer');
-    assert.equal(derivation(row).matched_rule, 'external_import');
-  });
-
-  it('N — la metadata canónica es ADITIVA: la metadata de importación sobrevive', async () => {
-    const row = await runExternalImport();
-    const meta = row.metadata as Record<string, unknown>;
-
-    assert.equal(meta.origen, 'external_import');
-    assert.equal(meta.imported_from, 'paste');
-    assert.equal(meta.source_url, 'https://fuente.example/uno');
-    assert.equal(meta.evidence_url, 'https://fuente.example/uno');
-    assert.equal(meta.linkedin_url, 'https://linkedin.com/company/importadauno');
-    assert.equal(meta.notes, 'Nota del importador');
-    assert.equal(
-      (meta.import as Record<string, unknown>).origen,
-      'external_import',
-      'el subobjeto `import` no puede perderse',
-    );
-    assert.ok(meta[CANDIDATE_RECORD_ORIGIN_METADATA_KEY], 'y la derivación se suma a lo anterior');
-  });
-
-  it('Q — semántica intacta: source/source_primary/status como antes', async () => {
-    const row = await runExternalImport();
-    assert.equal(row.source_primary, 'external_import');
-    assert.equal(row.status, 'needs_review');
-    assert.equal(spy.batchInserts[0].source, 'external_import');
-    assert.ok(!Object.prototype.hasOwnProperty.call(row, 'duplicate_status'));
-  });
-
-  it('O — una sola puerta: un INSERT de lote, un INSERT de candidato, cero UPDATE', async () => {
-    await runExternalImport();
-    assert.equal(spy.batchInserts.length, 1);
-    assert.equal(spy.candidateInserts.length, 1);
-    assert.equal(spy.candidateUpdates.length, 0);
-  });
-
-  it('§ 9 — la metadata del LOTE que ve el clasificador es la que se persiste', async () => {
-    await runExternalImport();
-    const batchMeta = spy.batchInserts[0].metadata as Record<string, unknown>;
-    assert.equal(batchMeta.import_type, 'paste');
-    assert.equal(batchMeta.source_label, 'Importación externa');
-    assert.equal(batchMeta.created_from_external_research, true);
-    assert.equal(batchMeta.imported_rows_count, 1);
-  });
-});
+// ─── B2 § 9 — createExternalCandidatesBatch: ELIMINADA ─────────────────────
+//
+// AGENT1-IMPORT-PARITY-5 — la acción no tenía llamadores y, siendo `use server`,
+// era un endpoint que se saltaba las reglas de importación. La procedencia de
+// la ÚNICA escritura de importación (la ruta `create-import-batch`) la fijan
+// `cut4b1-import-record-origin.test.ts` e `import-parity-identity-claims.test.ts`.
+// Que la acción no vuelva la fija `cut4b2-action-writer-static-guard.test.ts`.
