@@ -126,8 +126,9 @@ function assertParity(c: Fixture, label: string): void {
   );
 }
 
+// AGENT1-IMPORT-PARITY-4 — `import` salió de esta lista: un prospecto importado
+// por la vendedora se revisa igual que uno de IA (reviewable-record-origin.ts).
 const NON_PRODUCTION_ORIGINS: (string | null)[] = [
-  'import',
   'smoke_test',
   'qa',
   'synthetic',
@@ -270,6 +271,21 @@ describe('CUT4-C § 9/§ 10 — paridad exacta de acciones con Prospectos', () =
       assert.equal(decision(c).canApprove, false, `${status} no es aprobable`);
       assertParity(c, `production/${status}`);
     }
+  });
+
+  it('3b. record_origin import: MISMAS acciones que production, y en paridad', () => {
+    const imported = fixture({ record_origin: 'import', source_primary: 'external_import' });
+    const production = fixture();
+    assert.deepEqual(batchAvailability(imported), batchAvailability(production));
+    const av = batchAvailability(imported);
+    assert.equal(av.canOfferApprove, true);
+    assert.equal(av.canOfferDiscard, true);
+    assert.equal(av.canOfferMarkDuplicate, true);
+    const view = decision(imported);
+    assert.equal(view.canApprove, decision(production).canApprove);
+    assert.equal(view.canDiscard, true);
+    assert.equal(view.canMarkDuplicate, true);
+    assertParity(imported, 'import');
   });
 
   for (const [i, origin] of NON_PRODUCTION_ORIGINS.entries()) {

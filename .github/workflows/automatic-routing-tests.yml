@@ -4189,6 +4189,16 @@ jobs:
       - name: Run Agent 1 CUT4-B1 writer provenance parity tests
         run: npm run test:a1-cut4-b1-writer-provenance
 
+      # ── AGENT1-IMPORT-PARITY — importar prospectos = mismas reglas que Apollo/Lusha ──
+      #
+      # «Una empresa, un vendedor» (identity_key, duplicados en el archivo, activos
+      # de otro lote, reclamo global de la 140), identificador fiscal por país,
+      # avisos de país/plataforma/dominio/tamaño, y revisión en Prospectos igual
+      # que los de IA sin cambiar `record_origin='import'`.
+      # Offline: dobles de Supabase, cero red, cero proveedores, cero créditos.
+      - name: Run Agent 1 import parity tests
+        run: npm run test:a1-import-parity
+
       # ── AGENT2-FINAL-INTEGRATION — la cadena de sincronización con HubSpot ─────
       #
       # EL DEFECTO QUE CIERRA LA CADENA COMPLETA: la ficha de un contacto decía

@@ -52,7 +52,8 @@ describe('queries — no write/RPC operations (static scan)', () => {
     assert.ok(QUERIES_SRC.includes('.select('));
     assert.ok(QUERIES_SRC.includes('.from('));
     assert.ok(QUERIES_SRC.includes('.limit('));
-    assert.ok(QUERIES_SRC.includes(".eq('record_origin'"));
+    // AGENT1-IMPORT-PARITY-4 — la cola filtra por el conjunto revisable (production + import).
+    assert.ok(QUERIES_SRC.includes(".in('record_origin', [...REVIEWABLE_RECORD_ORIGINS])"));
     assert.ok(QUERIES_SRC.includes(".eq('status'"));
   });
 

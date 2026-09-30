@@ -74,6 +74,10 @@ import {
 import { DURABLE_PROSPECT_CANDIDATE_STATUSES } from '@/server/prospect-batches/batch-durable-candidates';
 import { checkIsColombiaProviderConfigured } from '@/server/prospect-batches/tax-identifier-providers/colombia';
 import { evaluateAutoEnrichmentEligibility } from '@/server/prospect-batches/candidate-enrichment-eligibility';
+import {
+  IMPORT_ADMISSION_METADATA_KEY,
+  resolveImportExistingCompanyDuplicate,
+} from '@/server/prospect-batches/import-identity-admission';
 import { createHubSpotCompany, type CreateHubSpotCompanySentAudit, type CreateHubSpotCompanyResult } from '@/server/integrations/hubspot-company-create';
 import {
   APPROVE_BLOCK_MESSAGES,
@@ -4067,9 +4071,21 @@ export async function validateImportedCandidatesBatch(
           validation,
         };
 
+        // AGENT1-IMPORT-PARITY-1 — paridad con Apollo/Tavily: lo que ya existe
+        // en SellUp (cuenta) o en HubSpot (coincidencia exacta) es `duplicate`.
+        // Y una fila que la admisión de la importación YA dejó `duplicate`
+        // (repetida en el archivo o activa en otro lote) no se rebaja aquí.
+        const wasDuplicateOnImport = candidate.status === 'duplicate';
+        const existingCompanyReason = resolveImportExistingCompanyDuplicate(dupResult);
+        const isDuplicate = wasDuplicateOnImport || existingCompanyReason !== null;
+        const effectiveDuplicateStatus = isDuplicate
+          ? 'exact_duplicate'
+          : dupResult.db_duplicate_status;
+
         const tempCandidateForElig = {
           ...candidate,
-          duplicate_status: dupResult.db_duplicate_status,
+          ...(isDuplicate ? { status: 'duplicate' } : {}),
+          duplicate_status: effectiveDuplicateStatus,
           matched_account_id: dupResult.db_matched_account_id,
           matched_hubspot_company_id: dupResult.db_matched_hubspot_company_id,
           confidence_score: dupResult.db_confidence_score,
@@ -4091,11 +4107,20 @@ export async function validateImportedCandidatesBatch(
         await supabase
           .from('prospect_candidates')
           .update({
-            duplicate_status: dupResult.db_duplicate_status,
+            ...(existingCompanyReason !== null && !wasDuplicateOnImport ? { status: 'duplicate' } : {}),
+            duplicate_status: effectiveDuplicateStatus,
             matched_account_id: dupResult.db_matched_account_id,
             matched_hubspot_company_id: dupResult.db_matched_hubspot_company_id,
             confidence_score: dupResult.db_confidence_score,
-            metadata: updatedMetadataWithEnrichment,
+            metadata: existingCompanyReason !== null && !wasDuplicateOnImport
+              ? {
+                  ...updatedMetadataWithEnrichment,
+                  [IMPORT_ADMISSION_METADATA_KEY]: {
+                    decision: 'duplicate',
+                    reason: existingCompanyReason,
+                  },
+                }
+              : updatedMetadataWithEnrichment,
           })
           .eq('id', candidate.id);
 

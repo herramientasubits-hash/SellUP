@@ -44,6 +44,10 @@ import {
   OWNERSHIP_UNVERIFIED_LABEL,
 } from '@/modules/prospect-batches/ownership-review-flag';
 import {
+  IMPORT_REVIEW_FLAG_LABELS,
+  readImportReviewFlags,
+} from '@/modules/prospect-batches/import-review-flags';
+import {
   CANDIDATE_STATUS_LABELS,
   DUPLICATE_STATUS_LABELS,
   REVIEW_STATUS_LABELS,
@@ -989,6 +993,17 @@ export function CandidateDetailSheet({
                 </span>
               </div>
             )}
+            {/* AGENT1-IMPORT-PARITY-3 — avisos de la importación: revisar, no rechazo. */}
+            {readImportReviewFlags(flags).map((flag) => (
+              <div
+                key={flag}
+                data-testid={`import-review-flag-${flag}`}
+                className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs text-amber-600 dark:text-amber-400 flex items-start gap-2"
+              >
+                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span>{IMPORT_REVIEW_FLAG_LABELS[flag]}</span>
+              </div>
+            ))}
 
             {/* KPIs: Scores y Estado */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
