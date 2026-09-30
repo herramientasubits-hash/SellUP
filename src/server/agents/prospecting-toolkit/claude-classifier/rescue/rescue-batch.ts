@@ -146,6 +146,7 @@ function candidateToCompany(row: ClassifiableCandidateRow, ctx: RescueRunContext
     countryName: row.country,
     currentIndustryId: ctx.requestedIndustry?.id ?? row.industry_id,
     currentIndustryName: ctx.requestedIndustry ? null : row.industry ?? null,
+    requestedIndustryName: ctx.requestedIndustry?.name ?? row.industry ?? null,
   };
 }
 
@@ -216,7 +217,14 @@ async function rescueDisposition(
 
   const company = dispositionToCompanyInput(row);
   const result = await safeClassify(
-    ctx.requestedIndustry ? { ...company, currentIndustryId: ctx.requestedIndustry.id, currentIndustryName: null } : company,
+    ctx.requestedIndustry
+      ? {
+          ...company,
+          currentIndustryId: ctx.requestedIndustry.id,
+          currentIndustryName: null,
+          requestedIndustryName: ctx.requestedIndustry.name,
+        }
+      : { ...company, requestedIndustryName: row.industry },
     ctx.catalog,
     ctx.active,
     deps,

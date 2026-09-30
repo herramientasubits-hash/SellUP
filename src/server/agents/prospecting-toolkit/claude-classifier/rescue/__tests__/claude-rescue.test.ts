@@ -546,3 +546,62 @@ describe('G. etiqueta honesta (Prod 30-09: «admit» sin sector confirmado)', ()
     assert.equal(rescue.sector_warning, null);
   });
 });
+
+// ─── H. «¿Pertenece a la industria buscada?» (Prod 30-09: medios sin veredicto) ─
+
+describe('H. respuesta directa sobre la industria buscada', () => {
+  const media = (fit: Partial<NonNullable<CompanyClassificationResult['requestedIndustryFit']>> = {}) =>
+    result({
+      sector: null,
+      requestedIndustryFit: {
+        fits: false,
+        quote: 'Diario de mayor circulación del país con noticias nacionales e internacionales',
+        sourceUrl: 'https://clinica.pe/',
+        confidence: 0.9,
+        verification: 'quote_verified',
+        ...fit,
+      },
+    });
+
+  it('medio sin macro del catálogo + «no pertenece» con cita comprobada → descarta', () => {
+    const d = decideRescue(media(), { icpMinEmployees: 200, requestedIndustryName: 'Tecnología' });
+    assert.equal(d.kind, 'discard');
+    assert.match(d.kind === 'discard' ? d.detail : '', /no es Tecnología/);
+  });
+
+  it('«no pertenece» sin cita comprobada → no descarta, deja aviso', () => {
+    const d = decideRescue(media({ verification: 'source_listed' }), { icpMinEmployees: 200, requestedIndustryName: 'Tecnología' });
+    assert.notEqual(d.kind, 'discard');
+    assert.equal(d.kind !== 'discard' && d.sectorMismatchUnconfirmed, true);
+  });
+
+  it('catálogo dice Tecnología pero la respuesta directa dice que no → no decide (contradicción)', () => {
+    const d = decideRescue(
+      result({
+        requestedIndustryFit: { fits: false, quote: 'Diario de noticias del país y del mundo', sourceUrl: 'https://clinica.pe/', confidence: 0.9, verification: 'quote_verified' },
+      }),
+      { icpMinEmployees: 200, requestedIndustryName: 'Tecnología' },
+    );
+    assert.notEqual(d.kind, 'discard');
+    assert.equal(d.kind === 'admit' && d.sectorConfirmed, false);
+  });
+
+  it('«sí pertenece» con cita comprobada confirma el sector aunque no haya macro', () => {
+    const d = decideRescue(
+      result({
+        sector: null,
+        requestedIndustryFit: { fits: true, quote: 'Somos una empresa de servicios de TI y software', sourceUrl: 'https://clinica.pe/', confidence: 0.9, verification: 'quote_verified' },
+      }),
+      { icpMinEmployees: 200, requestedIndustryName: 'Tecnología' },
+    );
+    assert.equal(d.kind === 'admit' && d.sectorConfirmed, true);
+  });
+
+  it('filas sin veredicto de la versión anterior se reintentan; lo decidido no', () => {
+    assert.equal(rescueStillPending({ decision: 'data_completed', contract_version: 'a1.v1' }, NOW), true);
+    assert.equal(rescueStillPending({ decision: 'unchanged', contract_version: 'a1.v1' }, NOW), true);
+    assert.equal(rescueStillPending({ decision: 'discard', contract_version: 'a1.v1' }, NOW), false);
+    assert.equal(rescueStillPending({ decision: 'admit', contract_version: 'a1.v1' }, NOW), false);
+    assert.equal(rescueStillPending({ decision: 'unchanged', contract_version: 'a1.v2' }, NOW), false);
+  });
+});

@@ -42,7 +42,7 @@ export function buildSubmitToolDefinition(catalog: readonly ClassifierCatalogInd
   input_schema: {
     type: 'object',
     additionalProperties: false,
-    required: ['sector', 'employee_range', 'is_operating_company', 'linkedin_company_url', 'notes'],
+    required: ['sector', 'employee_range', 'is_operating_company', 'linkedin_company_url', 'fits_requested_industry', 'notes'],
     properties: {
       sector: {
         type: 'object',
@@ -74,6 +74,20 @@ export function buildSubmitToolDefinition(catalog: readonly ClassifierCatalogInd
       is_operating_company: {
         type: 'boolean',
         description: 'false si el sitio es un directorio, medio, marketplace o no es la empresa.',
+      },
+      fits_requested_industry: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['answer', 'quote', 'source_url', 'confidence'],
+        properties: {
+          answer: {
+            anyOf: [{ type: 'boolean' }, { type: 'null' }],
+            description: '¿La empresa pertenece a la INDUSTRIA BUSCADA? true, false o null si no se puede saber.',
+          },
+          quote: { ...nullableString, description: 'Frase TEXTUAL de la fuente que muestra a qué se dedica.' },
+          source_url: nullableString,
+          confidence,
+        },
       },
       linkedin_company_url: {
         ...nullableString,
@@ -140,6 +154,7 @@ export function buildClassifierSystemPrompt(catalog: readonly ClassifierCatalogI
     '- Cada dato necesita una cita TEXTUAL copiada de la fuente y la URL de esa fuente. Sin cita y URL, el dato va en null.',
     '- Para el sector, prefiere citar la página oficial que te damos (su URL es la fuente).',
     '- Criterio comercial: operadores de telecomunicaciones e internet (telefonía, fibra, ISP, data centers) son Tecnología. Medios de comunicación (diarios, TV, radio, editoriales) NO son Tecnología.',
+    '- Responde SIEMPRE fits_requested_industry: si la empresa pertenece a la «Industria buscada» del mensaje (true/false), con la frase textual que muestra a qué se dedica. Aunque ninguna industria del catálogo le encaje, di si pertenece o no a la buscada.',
     '- Usa la búsqueda web SÓLO para el tamaño y sólo si la página no lo dice. Nunca estimes el tamaño por intuición.',
     '- En LinkedIn, el tamaño es el campo «Tamaño de la empresa» (p. ej. «De 201 a 500 empleados»). «Ver los N empleados» o «N empleados en LinkedIn» NO es el tamaño: es cuánta gente tiene perfil; no lo uses.',
     '- No inventes URLs. Sólo usa la URL de la página dada o URLs que aparecieron en tus resultados de búsqueda.',
@@ -161,6 +176,7 @@ export function buildClassifierUserMessage(
     return [
       `Empresa: ${company.name}`,
       `País esperado: ${company.countryName ?? company.countryCode ?? 'desconocido'}`,
+    `Industria buscada: ${company.requestedIndustryName ?? company.currentIndustryName ?? 'no indicada'}`,
       `Página oficial: ${pageUrl}`,
       '',
       'No pudimos descargar la página oficial. Léela PRIMERO con web_fetch sobre la URL de arriba',
@@ -170,6 +186,7 @@ export function buildClassifierUserMessage(
   return [
     `Empresa: ${company.name}`,
     `País esperado: ${company.countryName ?? company.countryCode ?? 'desconocido'}`,
+    `Industria buscada: ${company.requestedIndustryName ?? company.currentIndustryName ?? 'no indicada'}`,
     `Página oficial: ${pageUrl}`,
     '',
     '<pagina_oficial>',

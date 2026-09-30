@@ -96,6 +96,7 @@ function toCompanyInput(row: ClassifiableCandidateRow): ClassifierCompanyInput {
     countryName: row.country,
     currentIndustryId: row.industry_id,
     currentIndustryName: row.industry ?? null,
+    requestedIndustryName: row.industry ?? null,
   };
 }
 
