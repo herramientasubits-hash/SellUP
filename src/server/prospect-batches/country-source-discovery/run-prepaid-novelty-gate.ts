@@ -62,8 +62,10 @@ import {
 import {
   buildPrePaidNoveltyTelemetry,
 } from '@/modules/prospect-batches/prepaid-novelty/prepaid-novelty-telemetry';
-import { macroHasCiiuCoverage } from './macro-ciiu-index';
-import { resolveCountrySourceCapability } from './country-source-capability';
+import {
+  countrySourceMacroHasCoverage,
+  resolveCountrySourceCapability,
+} from './country-source-capability';
 import {
   runCountrySourcePrePaidDiscovery,
   type CheckCountrySourceCompanyDuplicate,
@@ -371,10 +373,11 @@ export async function runPrePaidNoveltyGate(
   if (input.macroIndustryKey === null) {
     return finish(providerOnlyPrePaidNoveltyContext({ ...base, failureCode: 'macro_industry_unresolved' }), []);
   }
-  // Una macro sin códigos CIIU que la confirmen no tiene nada que preguntar. Se
-  // declara como ausencia de cobertura en vez de ejecutar una consulta que sólo
-  // podría devolver una muestra genérica (§ 4).
-  if (!macroHasCiiuCoverage(input.macroIndustryKey)) {
+  // Una macro sin cobertura en la fuente del país (códigos CIIU en Colombia,
+  // actividades de la tabla aprobada en República Dominicana) no tiene nada que
+  // preguntar. Se declara como ausencia de cobertura en vez de ejecutar una
+  // consulta que sólo podría devolver una muestra genérica (§ 4).
+  if (!countrySourceMacroHasCoverage(input.countryCode, input.macroIndustryKey)) {
     return finish(providerOnlyPrePaidNoveltyContext({ ...base, failureCode: 'source_not_criteria_aware' }), []);
   }
 
