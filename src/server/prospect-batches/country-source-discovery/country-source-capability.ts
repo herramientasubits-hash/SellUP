@@ -33,8 +33,14 @@ import {
   DO_DGII_DISCOVERY_SOURCE_KEY,
   type DoDgiiDiscoveryReads,
 } from './do-dgii-discovery-adapter';
+import {
+  AR_RNS_DISCOVERY_SOURCE_KEY,
+  buildArRnsDiscoveryAdapter,
+  type ArRnsDiscoveryReads,
+} from './ar-rns-discovery-adapter';
 import { macroHasCiiuCoverage } from './macro-ciiu-index';
 import { macroHasDgiiCoverage } from './do-dgii-macro-table';
+import { macroHasArCoverage } from './ar-rns-macro-table';
 
 /**
  * Países con descubrimiento gratuito consciente de criterios.
@@ -42,8 +48,12 @@ import { macroHasDgiiCoverage } from './do-dgii-macro-table';
  * SOURCES-DO-FREE-DISCOVERY-1 — República Dominicana entra con el padrón DGII,
  * clasificado por la tabla oficial aprobada (`do-dgii-macro-table.ts`) y
  * restringido a proveedoras del Estado (`do-dgii-discovery-adapter.ts`).
+ *
+ * SOURCES-AR-RNS-1 — Argentina entra con el Registro Nacional de Sociedades
+ * cruzado con las adjudicaciones de COMPR.AR, clasificado por la tabla aprobada
+ * (`ar-rns-macro-table.ts`) (`ar-rns-discovery-adapter.ts`).
  */
-export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO'] as const;
+export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR'] as const;
 
 export type CountrySourceCapability = {
   countryCode: string;
@@ -53,6 +63,7 @@ export type CountrySourceCapability = {
 const CAPABILITIES: Readonly<Record<string, CountrySourceCapability>> = Object.freeze({
   CO: { countryCode: 'CO', sourceKey: CO_SIIS_DISCOVERY_SOURCE_KEY },
   DO: { countryCode: 'DO', sourceKey: DO_DGII_DISCOVERY_SOURCE_KEY },
+  AR: { countryCode: 'AR', sourceKey: AR_RNS_DISCOVERY_SOURCE_KEY },
 });
 
 /** ¿Está cableado el descubrimiento gratuito para este país? */
@@ -68,6 +79,7 @@ export function resolveCountrySourceCapability(
  *
  * Colombia: la macro tiene códigos CIIU derivados del evaluador canónico.
  * República Dominicana: la macro tiene actividades DGII en la tabla aprobada.
+ * Argentina: la macro tiene actividades ARCA en la tabla aprobada.
  * Sin cobertura la fuente no consulta nada (nunca una muestra genérica).
  */
 export function countrySourceMacroHasCoverage(
@@ -77,6 +89,7 @@ export function countrySourceMacroHasCoverage(
   const capability = resolveCountrySourceCapability(countryCode);
   if (capability === null) return false;
   if (capability.countryCode === 'DO') return macroHasDgiiCoverage(macroIndustryKey);
+  if (capability.countryCode === 'AR') return macroHasArCoverage(macroIndustryKey);
   return macroHasCiiuCoverage(macroIndustryKey);
 }
 
@@ -90,12 +103,16 @@ export function buildCountrySourceAdapter(
   deps: {
     coSiisSnapshotQuery?: CoSiisSnapshotQuery | null;
     doDgiiDiscoveryReads?: DoDgiiDiscoveryReads | null;
+    arRnsDiscoveryReads?: ArRnsDiscoveryReads | null;
   },
 ): CountrySourceAdapter | null {
   const capability = resolveCountrySourceCapability(countryCode);
   if (capability === null) return null;
   if (capability.countryCode === 'DO') {
     return deps.doDgiiDiscoveryReads ? buildDoDgiiDiscoveryAdapter(deps.doDgiiDiscoveryReads) : null;
+  }
+  if (capability.countryCode === 'AR') {
+    return deps.arRnsDiscoveryReads ? buildArRnsDiscoveryAdapter(deps.arRnsDiscoveryReads) : null;
   }
   if (!deps.coSiisSnapshotQuery) return null;
   return buildCoSiisDiscoveryAdapter(deps.coSiisSnapshotQuery);

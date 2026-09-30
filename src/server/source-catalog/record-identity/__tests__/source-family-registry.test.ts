@@ -21,6 +21,7 @@ const TAX_GRAIN_SOURCE_KEYS = [
   'rd_dgii_bulk',
   'gt_rgae_proveedores',
   'co_siis',
+  'ar_rns',
 ] as const;
 
 const NATIVE_RECORD_GRAIN_SOURCE_KEYS = [
