@@ -147,6 +147,7 @@ export async function classifyCompany(
       outcome: 'model_error',
       pageFinalUrl,
       errorCode: apiError?.code ?? 'unexpected_error',
+      errorMessage: (apiError?.message ?? (err instanceof Error ? err.message : String(err))).slice(0, 300),
       usage: apiError ? toUsage(apiError.partialUsage, params.model) : null,
     });
   }
