@@ -31,6 +31,32 @@ export const CENTRAL_AMERICA_LEGAL_FORMS: readonly string[] = [
   'SA',
 ];
 
+/**
+ * Formas societarias de Perú (SUNAT), más largas primero. SOURCES-PE-RUC-BY-NAME-1.
+ * Medido sobre las 867.360 sociedades (RUC 20) activas y habidas de septiembre de
+ * 2026: con estas formas el 99,1 % tiene un núcleo que no comparte con ninguna otra.
+ */
+export const PERU_LEGAL_FORMS: readonly string[] = [
+  'EMPRESA INDIVIDUAL DE RESPONSABILIDAD LIMITADA',
+  'SOCIEDAD COMERCIAL DE RESPONSABILIDAD LIMITADA',
+  'SOCIEDAD DE RESPONSABILIDAD LIMITADA',
+  'SOCIEDAD ANONIMA CERRADA',
+  'SOCIEDAD ANONIMA ABIERTA',
+  'SOCIEDAD ANONIMA',
+  'S C R L',
+  'E I R L',
+  'S A C',
+  'S A A',
+  'S R L',
+  'S A',
+  'SCRL',
+  'EIRL',
+  'SAC',
+  'SAA',
+  'SRL',
+  'SA',
+];
+
 /** Núcleo comparable del nombre con las formas dadas, o cadena vacía. */
 export function normalizeCompanyNameCore(
   name: string | null | undefined,

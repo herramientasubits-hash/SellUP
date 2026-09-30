@@ -65,7 +65,7 @@ describe('cableado', () => {
     const resolvers = buildColombiaOfficialSourceResolvers();
     assert.ok(Array.isArray(resolvers));
     for (const resolver of resolvers) {
-      assert.ok(['CO', 'DO', 'AR', 'EC', 'GT', 'HN'].includes(resolver.countryCode), resolver.countryCode);
+      assert.ok(['CO', 'DO', 'AR', 'EC', 'GT', 'HN', 'PE'].includes(resolver.countryCode), resolver.countryCode);
     }
   });
 
@@ -75,6 +75,12 @@ describe('cableado', () => {
     assert.match(wiring, /buildSnapshotNameQuery\(snapshotClient, 'gt_rgae_proveedores', 'GT'\)/);
     assert.match(wiring, /countryCode: 'HN',\s*sourceKey: 'hn_contrataciones_abiertas',\s*taxIdentifierType: 'RTN'/);
     assert.match(wiring, /buildSnapshotNameQuery\(snapshotClient, 'hn_contrataciones_abiertas', 'HN'\)/);
+  });
+
+  it('el factory construye Perú (RUC) sobre el registro de SUNAT', () => {
+    const wiring = read('src/server/prospect-batches/official-source-resolvers.ts');
+    assert.match(wiring, /countryCode: 'PE',\s*sourceKey: 'pe_sunat_registry',\s*taxIdentifierType: 'RUC',\s*validTaxId: \/\^20\\d\{9\}\$\//);
+    assert.match(wiring, /buildSnapshotNameQuery\(snapshotClient, 'pe_sunat_registry', 'PE'\)/);
   });
 
   it('el resolvedor genérico es puro y la lectura no escribe', () => {
