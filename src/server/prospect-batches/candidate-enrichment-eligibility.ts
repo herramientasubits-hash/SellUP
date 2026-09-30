@@ -1,3 +1,10 @@
+import {
+  IMPORT_BELOW_ICP_SIZE_FLAG,
+  IMPORT_COUNTRY_MISMATCH_FLAG,
+  IMPORT_EXTERNAL_PLATFORM_FLAG,
+} from '@/modules/prospect-batches/import-review-flags';
+import { OWNERSHIP_UNVERIFIED_REVIEW_FLAG } from '@/modules/prospect-batches/ownership-review-flag';
+
 export interface EnrichmentEligibilityResult {
   needs_enrichment: boolean;
   completeness_score: number;
@@ -363,6 +370,18 @@ export function evaluateAutoEnrichmentEligibility(candidate: Record<string, unkn
     return { eligible: false, status: 'no_required', reason: 'Bloqueado por validación (inactiva / liquidación).' };
   }
 
+  // AGENT1-IMPORT-PARITY-9 — la IA cuesta: sólo se gasta en empresas que pasan
+  // los filtros de la importación. Una fila con aviso de país, plataforma,
+  // tamaño o dominio no verificado espera la revisión humana, no la IA.
+  const failedQualityFilter = AUTO_ENRICH_BLOCKING_REVIEW_FLAGS.find((f) => flags.includes(f));
+  if (failedQualityFilter) {
+    return {
+      eligible: false,
+      status: 'no_required',
+      reason: `No pasa los filtros de calidad (${failedQualityFilter}); no se gasta IA.`,
+    };
+  }
+
   // Already enriched or enriching
   if (enrichment.status === 'completed' || enrichment.status === 'completed_partially') {
     return { eligible: false, status: 'no_required', reason: 'Ya enriquecido.' };
@@ -379,3 +398,31 @@ export function evaluateAutoEnrichmentEligibility(candidate: Record<string, unkn
   return { eligible: true, status: 'pending' };
 }
 
+/**
+ * AGENT1-IMPORT-PARITY-9 — marcas de revisión que impiden gastar IA: las de los
+ * filtros de la importación y la de dominio no verificado (enriquecer con un
+ * dominio que quizá no es de la empresa sería pagar por datos de otra).
+ */
+export const AUTO_ENRICH_BLOCKING_REVIEW_FLAGS: readonly string[] = [
+  IMPORT_COUNTRY_MISMATCH_FLAG,
+  IMPORT_EXTERNAL_PLATFORM_FLAG,
+  IMPORT_BELOW_ICP_SIZE_FLAG,
+  OWNERSHIP_UNVERIFIED_REVIEW_FLAG,
+];
+
+export const AUTO_ENRICH_BATCH_CAP_REASON = 'Tope de enriquecimiento con IA por importación alcanzado.';
+
+/**
+ * AGENT1-IMPORT-PARITY-9 — aplica `maxCandidatesPerBatch`, que existía en la
+ * configuración pero nadie hacía cumplir. `queuedSoFar` son los ya encolados
+ * en ESTA importación, en el orden del archivo.
+ */
+export function applyAutoEnrichmentBatchCap(
+  eligibility: ReturnType<typeof evaluateAutoEnrichmentEligibility>,
+  queuedSoFar: number,
+  cap: number,
+): ReturnType<typeof evaluateAutoEnrichmentEligibility> {
+  if (eligibility.status !== 'pending') return eligibility;
+  if (queuedSoFar < cap) return eligibility;
+  return { eligible: false, status: 'no_required', reason: AUTO_ENRICH_BATCH_CAP_REASON };
+}

@@ -29,6 +29,8 @@ export type ClassifierCompanyInput = {
   countryName: string | null;
   /** Macroindustria con la que el candidato entró al lote (para comparar). */
   currentIndustryId: string | null;
+  /** Nombre de esa macroindustria (en candidatos de Apollo/Lusha el ID suele venir vacío). */
+  currentIndustryName: string | null;
 };
 
 /** Lo que Claude devuelve por el tool estricto `submit_company_classification`. */
@@ -98,10 +100,13 @@ export type ClassifierUsage = {
   cacheReadInputTokens: number;
   cacheCreationInputTokens: number;
   webSearchRequests: number;
+  webFetchRequests: number;
   estimatedCostUsd: number;
   /** `fallback` = el modelo no estaba en la tabla de precios; el costo es aproximado. */
   pricingSource: 'table' | 'fallback';
 };
+
+export type ClassifierPageSource = 'own_fetch' | 'anthropic_web_fetch' | 'none';
 
 export type ClassificationOutcome =
   | 'classified'
@@ -134,6 +139,11 @@ export type CompanyClassificationResult = {
   pageFinalUrl: string | null;
   usage: ClassifierUsage | null;
   errorCode: string | null;
+  /**
+   * De dónde salió el texto de la página oficial: nuestra descarga, la lectura
+   * web de Anthropic (respaldo cuando la nuestra falla) o ninguna.
+   */
+  pageSource?: ClassifierPageSource;
   /** Mensaje del proveedor (recortado) para diagnosticar; nunca se muestra en la UI. */
   errorMessage?: string | null;
   durationMs: number;
@@ -169,6 +179,7 @@ export type ClaudeClassificationMetadata = {
   rejected: RejectedField[];
   is_operating_company: boolean | null;
   page_final_url: string | null;
+  page_source: ClassifierPageSource | null;
   estimated_cost_usd: number | null;
   web_search_requests: number;
   error_code: string | null;

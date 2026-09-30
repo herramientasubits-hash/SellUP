@@ -82,6 +82,24 @@ function dispositionToItem(
 }
 
 /** A manually-discarded `prospect_candidates` row, normalized to the same shape. */
+function readClaudeRescueDiscard(metadata: Record<string, unknown> | null | undefined): {
+  disposition: DiscardDispositionCode;
+  reasonCode: string;
+  detail: string | null;
+  sourceUrl: string | null;
+} | null {
+  const rescue = metadata?.claude_rescue as
+    | { decision?: unknown; discard_reason?: unknown; discard_detail?: unknown; discard_source_url?: unknown }
+    | undefined;
+  if (rescue?.decision !== 'discard' || typeof rescue.discard_reason !== 'string') return null;
+  return {
+    disposition: rescue.discard_reason === 'claude_sector_mismatch' ? 'sector_rejected' : 'other',
+    reasonCode: rescue.discard_reason,
+    detail: typeof rescue.discard_detail === 'string' ? rescue.discard_detail : null,
+    sourceUrl: typeof rescue.discard_source_url === 'string' ? rescue.discard_source_url : null,
+  };
+}
+
 function candidateToItem(candidate: {
   id: string;
   batch_id: string;
@@ -95,7 +113,11 @@ function candidateToItem(candidate: {
   status: string;
   created_at: string;
   updated_at: string;
+  metadata?: Record<string, unknown> | null;
 }): DiscardedProspectItem {
+  // AGENT1-CLAUDE-RESCUE-1 — un descarte hecho por el rescate de Claude es un
+  // descarte AUTOMÁTICO por filtro (sector o tamaño), no una decisión manual.
+  const claudeDiscard = readClaudeRescueDiscard(candidate.metadata);
   return {
     itemId: `candidate:${candidate.id}`,
     itemSource: 'candidate',
@@ -109,10 +131,10 @@ function candidateToItem(candidate: {
     industry: candidate.industry,
     sourcePrimary: candidate.source_primary,
     roundOrigin: null,
-    disposition: 'manual_discard',
-    reasonCode: null,
-    reasonDetail: candidate.review_notes,
-    evidence: {},
+    disposition: claudeDiscard?.disposition ?? 'manual_discard',
+    reasonCode: claudeDiscard?.reasonCode ?? null,
+    reasonDetail: claudeDiscard?.detail ?? candidate.review_notes,
+    evidence: claudeDiscard ? { claude_rescue_source_url: claudeDiscard.sourceUrl } : {},
     status: 'discarded',
     resultingCandidateId: null,
     createdAt: candidate.created_at,

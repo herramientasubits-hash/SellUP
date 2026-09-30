@@ -28,6 +28,21 @@ export interface SendToReviewCoreDeps {
   isBatchInScope: (batchId: string) => Promise<boolean>;
 }
 
+/**
+ * AGENT1-CLAUDE-RESCUE-1 — quién manda la fila a revisión. Sin `origin`, es una
+ * persona («Enviar a revisión»: `human_override`). Con `claude_rescue`, es el
+ * rescate automático: Claude completó los datos que faltaban y la empresa pasó
+ * los filtros. No hay override humano que registrar, y la nota lo dice.
+ */
+export type SendToReviewOrigin = {
+  kind: 'claude_rescue';
+  reviewNote: string;
+  /** Se mezcla en `metadata` del candidato nuevo (clasificación, rescate). */
+  metadata: Record<string, unknown>;
+  /** Columnas extra del candidato nuevo (p. ej. tamaño estimado). */
+  columns?: Record<string, unknown>;
+};
+
 export type SendToReviewCoreOutcome =
   | {
       outcome: 'sent';
@@ -131,6 +146,7 @@ export async function sendCandidateToReviewCore(
 export async function sendDispositionToReviewCore(
   deps: SendToReviewCoreDeps,
   dispositionId: string,
+  origin?: SendToReviewOrigin,
 ): Promise<SendToReviewCoreOutcome> {
   const { supabase, actorUserId, isBatchInScope } = deps;
 
@@ -178,7 +194,11 @@ export async function sendDispositionToReviewCore(
   }
 
   // Already linked to a real candidate row (e.g. future dedup path) —
-  // transition that row instead of creating a second one.
+  // transition that row instead of creating a second one. El rescate automático
+  // nunca reabre una fila existente: eso sigue siendo decisión de una persona.
+  if (disp.candidate_id && origin) {
+    return { outcome: 'reject', reason: 'status_conflict' };
+  }
   if (disp.candidate_id) {
     return sendCandidateToReviewCore(deps, disp.candidate_id);
   }
@@ -227,15 +247,17 @@ export async function sendDispositionToReviewCore(
       source_primary: toCandidateSourcePrimary(disp.source_primary),
       status: 'needs_review',
       record_origin: 'production',
-      review_notes: buildOverrideReviewNote(disp.disposition, disp.reason_detail),
+      review_notes: origin ? origin.reviewNote : buildOverrideReviewNote(disp.disposition, disp.reason_detail),
+      ...(origin?.columns ?? {}),
       metadata: {
-        human_override: true,
+        ...(origin ? { sent_to_review_by_system: origin.kind } : { human_override: true }),
         sent_to_review_from: 'discarded_disposition',
         discard_disposition_id: dispositionId,
         original_disposition: disp.disposition,
         original_reason_code: disp.reason_code,
         original_reason_detail: disp.reason_detail,
         original_evidence: disp.evidence,
+        ...(origin?.metadata ?? {}),
       },
     })
     .select('id')
@@ -267,7 +289,7 @@ export async function sendDispositionToReviewCore(
     candidateId: newCandidateId,
     batchId: disp.batch_id,
     auditDetails: {
-      human_override: true,
+      ...(origin ? { system_origin: origin.kind } : { human_override: true }),
       source: 'discarded_disposition',
       discard_disposition_id: dispositionId,
       original_disposition: disp.disposition,

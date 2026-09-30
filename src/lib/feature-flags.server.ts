@@ -976,3 +976,24 @@ export const AGENT1_CLAUDE_CLASSIFIER_FLAG = 'ENABLE_AGENT1_CLAUDE_CLASSIFIER';
 export function isAgent1ClaudeClassifierEnabled(): boolean {
   return isEnvFlagEnabled(process.env[AGENT1_CLAUDE_CLASSIFIER_FLAG]);
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// Agente 1 · rescate automático con Claude (AGENT1-CLAUDE-RESCUE-1)
+// ════════════════════════════════════════════════════════════════════════════
+
+export const AGENT1_CLAUDE_RESCUE_FLAG = 'ENABLE_AGENT1_CLAUDE_RESCUE';
+
+/**
+ * Al terminar cada búsqueda del asistente, ¿manda SellUp a Claude —en segundo
+ * plano— las empresas a las que les faltan datos (sector/tamaño), y las
+ * descartadas por falta de datos?
+ *
+ * Si Claude completa y la empresa pasa los filtros, queda en «Candidatos por
+ * revisar»; si no pasa, en «Descartadas» con el motivo y la fuente. NUNCA
+ * aprueba nada. Usa el modelo y la credencial de Configuración → IA.
+ *
+ * 🔴 Fail-closed y por defecto APAGADA: sólo el token exacto `true` la enciende.
+ */
+export function isAgent1ClaudeRescueEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[AGENT1_CLAUDE_RESCUE_FLAG]);
+}

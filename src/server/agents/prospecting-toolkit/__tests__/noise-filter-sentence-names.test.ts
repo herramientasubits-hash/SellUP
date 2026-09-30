@@ -184,15 +184,25 @@ describe('SN7: yahoo.com blocked as news_or_media', () => {
 
 // ── SN8: colombiaedtech.org bloqueado como association ───────────────────────
 
-describe('SN8: colombiaedtech.org blocked as association_or_chamber', () => {
-  it('blocks colombiaedtech.org', () => {
+describe('SN8: colombiaedtech.org — la asociación pasa, su lista de miembros no', () => {
+  // AGENT1-TAVILY-V2-1 § 2 — gremios y cámaras de comercio SÍ son clientes de
+  // UBITS (decisión de la dueña 2026-09-29). Antes esta prueba exigía descartarlos.
+  it('colombiaedtech.org pasa', () => {
     const result = classifySearchResult({
       url: 'https://colombiaedtech.org',
       title: 'Colombia EdTech | Fortaleciendo el ecosistema EdTech',
       snippet: 'Asociación del sector EdTech en Colombia',
     });
+    assert.equal(result.shouldKeep, true);
+  });
+
+  it('colombiaedtech.org/miembros sigue fuera como directorio', () => {
+    const result = classifySearchResult({
+      url: 'https://colombiaedtech.org/miembros',
+      title: 'Miembros del ecosistema EdTech Colombia',
+    });
     assert.equal(result.shouldKeep, false);
-    assert.equal(result.resultType, 'association_or_chamber');
+    assert.equal(result.resultType, 'directory');
   });
 
   it('isProspectableCompanyResult returns false for colombiaedtech.org', () => {

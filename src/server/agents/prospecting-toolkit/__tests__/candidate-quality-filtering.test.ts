@@ -44,7 +44,8 @@ const FIXTURE_MIXED_10: WebSearchResult[] = [
   makeResult('https://empresa.co/blog/erp-2025', 'ERP Colombia'),
   makeResult('https://empresa.co/help/primeros-pasos', 'Primeros pasos con el software'),
 
-  // 1 association/catalog source — blocked by ASSOCIATION_CHAMBER_DOMAINS
+  // 1 member list of a guild — blocked as directory (AGENT1-TAVILY-V2-1 § 2:
+  // the guild itself is a UBITS client; its member list is not)
   makeResult('https://fedesoft.org/miembros', 'Fedesoft - Software Colombia'),
 ];
 
@@ -77,10 +78,10 @@ describe('22.B.1 — Fixture 1: 4 valid + 6 noise (mixed types)', () => {
     assert.ok(blogArticle >= 2, `Expected at least 2 blog_article discards, got ${blogArticle}`);
   });
 
-  it('by_result_type includes association_or_chamber entry for fedesoft', () => {
+  it('by_result_type includes a directory entry for the fedesoft member list', () => {
     const result = filterNoiseResults(FIXTURE_MIXED_10);
-    const assoc = result.by_result_type['association_or_chamber'] ?? 0;
-    assert.ok(assoc >= 1, `Expected at least 1 association_or_chamber discard, got ${assoc}`);
+    const directory = result.by_result_type['directory'] ?? 0;
+    assert.ok(directory >= 1, `Expected at least 1 directory discard, got ${directory}`);
   });
 
   it('valid company URLs are among the kept results', () => {

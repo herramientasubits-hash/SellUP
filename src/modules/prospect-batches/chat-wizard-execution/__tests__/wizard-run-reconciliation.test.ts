@@ -66,7 +66,11 @@ describe('A. Both Apollo operations are reconciled', () => {
       'organizations_search',
       'organization_enrichment',
     ]);
-    assert.deepEqual([...resolveReconciledOperations('tavily')], ['multi_query_web_search']);
+    // AGENT1-TAVILY-V2-1 § 3 — LinkedIn también es gasto de la corrida Tavily.
+    assert.deepEqual([...resolveReconciledOperations('tavily')], [
+      'multi_query_web_search',
+      'linkedin_company_search',
+    ]);
   });
 
   it('maps the wizard provider key to the usage provider key', () => {

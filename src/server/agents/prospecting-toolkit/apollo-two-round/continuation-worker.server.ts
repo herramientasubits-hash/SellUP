@@ -119,22 +119,57 @@ export async function enqueueApolloRoundContinuation(input: {
  * nunca encenderla. Y el objetivo y el acumulado salen de la foto de la
  * corrida, así que reanudar no reinicia ningún tope.
  */
+/** La cifra que el writer publicó en el lote. `null` si no se puede leer. */
+async function readDurableAcceptedForTargetTotal(
+  client: SupabaseClient,
+  batchId: string,
+): Promise<number | null> {
+  try {
+    const { data, error } = await client
+      .from('prospect_batches')
+      .select('metadata')
+      .eq('id', batchId)
+      .maybeSingle();
+    if (error || !data) return null;
+    const accepted = (data as { metadata?: { accepted_for_target?: { accepted_for_target_total?: unknown } } })
+      .metadata?.accepted_for_target?.accepted_for_target_total;
+    return typeof accepted === 'number' ? accepted : null;
+  } catch {
+    return null;
+  }
+}
+
 async function runContinuationCascade(
   policy: ApolloContinuationRunPolicy,
-  outcome: { candidatesCreated?: number },
+  outcome: { persistenceOutcome?: { completeValidCandidates?: number | null } },
+  client: SupabaseClient,
 ): Promise<void> {
   const [{ runLushaWaterfallLeg }, { isAgent1LushaFallbackEffective, isLushaPreviewEnabled }] =
     await Promise.all([
       import('@/modules/prospect-batches/chat-wizard-execution/wizard-lusha-waterfall.server'),
       import('@/lib/feature-flags.server'),
     ]);
-  const { resolveContinuationCascadeInputs } = await import('./continuation-worker');
+  const { resolveContinuationCascadeInputs, resolveCascadeAcceptedForTarget } = await import(
+    './continuation-worker'
+  );
 
   const effective = resolveContinuationCascadeInputs(policy, {
     waterfallEnabled: isAgent1LushaFallbackEffective(),
     lushaAvailable: isLushaPreviewEnabled(),
   });
   if (!effective.waterfallEnabled || !effective.lushaAvailable) return;
+
+  // 🔴 AGENT1-CONTINUATION-LUSHA-CASCADE-1 — lo ACEPTADO, no lo escrito.
+  const acceptedForTarget = resolveCascadeAcceptedForTarget({
+    durableAcceptedTotal: await readDurableAcceptedForTargetTotal(client, policy.batchId),
+    completeValidCandidates: outcome.persistenceOutcome?.completeValidCandidates,
+  });
+  if (acceptedForTarget === null) {
+    console.warn(
+      `[ApolloContinuation] cascada omitida: no se pudo medir lo aceptado del lote ${policy.batchId}`,
+    );
+    return;
+  }
 
   await runLushaWaterfallLeg(
     {
@@ -145,7 +180,7 @@ async function runContinuationCascade(
       subIndustryId: policy.subIndustryId,
       requestedSubindustries: [...policy.requestedSubindustries],
       target: policy.target,
-      usefulAccumulated: outcome.candidatesCreated ?? 0,
+      usefulAccumulated: acceptedForTarget,
       apolloTerminal: true,
       // Ya no hay trabajo pendiente: por definición, esto ya no es una pausa.
       apolloPendingContinuation: false,
@@ -252,10 +287,16 @@ export async function runApolloRoundContinuationWorkerFromEnv(
       // § 4 — Apollo terminó DE VERDAD: ahora, y sólo ahora, toca preguntar si
       // corresponde Lusha. Una pausa NO la activa; esto corre cuando ya no
       // queda trabajo pendiente y el lote está escrito.
-      if (!paused && pending === 0) {
+      //
+      // 🔴 AGENT1-CONTINUATION-LUSHA-CASCADE-1 — y también cuando ESTA vuelta
+      // escribió el lote: con 0 pendientes y candidatas escritas Apollo terminó,
+      // aunque el reloj de evaluación se hubiera agotado por el camino (una
+      // reanudación que sólo escribe tarda y puede marcar el plazo).
+      const wroteThisAttempt = outcome.persistenceOutcome !== undefined;
+      if (pending === 0 && (!paused || wroteThisAttempt)) {
         const policy = runPolicyByJobId.get(job.id);
         if (policy) {
-          await runContinuationCascade(policy, outcome).catch((error) => {
+          await runContinuationCascade(policy, outcome, client).catch((error) => {
             // La cascada no puede tumbar una continuación que YA terminó su
             // trabajo: lo de Apollo está escrito y es válido con o sin Lusha.
             console.error('[ApolloContinuation] cascada tras continuación falló:', error);

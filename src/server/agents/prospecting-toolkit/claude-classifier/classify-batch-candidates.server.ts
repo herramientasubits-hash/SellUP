@@ -26,10 +26,13 @@ import {
   type ClassifierCatalogIndustry,
 } from './types';
 
+/** Sitios del Estado y clínicas responden lento: 8 s (el de verifyWebsite) no alcanzaba. */
+export const CLASSIFIER_PAGE_TIMEOUT_MS = 15_000;
+
 /** Fila única de `ai_active_config` (misma constante que `ai-config/actions.ts`). */
 const AI_ACTIVE_CONFIG_ID = '00000000-0000-0000-0000-000000000001';
 
-async function resolveActiveAnthropicModel(): Promise<ActiveAnthropicModel | { error: string }> {
+export async function resolveActiveAnthropicModel(): Promise<ActiveAnthropicModel | { error: string }> {
   const admin = createSupabaseAdminClient();
   const { data, error } = await admin
     .from('ai_active_config')
@@ -52,7 +55,7 @@ async function resolveActiveAnthropicModel(): Promise<ActiveAnthropicModel | { e
   return { model, apiKey: credential.apiKey };
 }
 
-async function loadClassifierCatalog(): Promise<ClassifierCatalogIndustry[]> {
+export async function loadClassifierCatalog(): Promise<ClassifierCatalogIndustry[]> {
   const catalog = await loadActiveDiscoveryCatalog();
   return catalog.industries.map((industry) => ({
     industryId: industry.id,
@@ -68,7 +71,7 @@ async function loadBatchCandidates(batchId: string): Promise<ClassifiableCandida
   const admin = createSupabaseAdminClient();
   const { data, error } = await admin
     .from('prospect_candidates')
-    .select('id, industry_id, name, website, domain, country_code, country, status, metadata')
+    .select('id, industry_id, industry, name, website, domain, country_code, country, status, metadata')
     .eq('batch_id', batchId)
     .eq('status', 'needs_review');
   if (error) throw new Error(`candidates_read_failed:${error.message}`);
@@ -132,17 +135,25 @@ function isFreshlyClaimed(metadata: Record<string, unknown> | null, nowMs: numbe
   return nowMs - Date.parse(previous.started_at) < IN_PROGRESS_STALE_AFTER_MS;
 }
 
+/** Clasificación real de una empresa (descarga propia + Claude), compartida con el rescate. */
+export function classifyCompanyLive(
+  company: Parameters<ClassifyBatchDeps['classify']>[0],
+  catalog: Parameters<ClassifyBatchDeps['classify']>[1],
+  active: ActiveAnthropicModel,
+) {
+  return classifyCompany(
+    { company, catalog, model: active.model },
+    buildLiveClassifyCompanyDeps(active.apiKey, (website) => fetchSafePageHtml(website, CLASSIFIER_PAGE_TIMEOUT_MS)),
+  );
+}
+
 export function buildLiveClassifyBatchDeps(): ClassifyBatchDeps {
   return {
     resolveActiveModel: resolveActiveAnthropicModel,
     checkQuota: () => checkProviderQuotaAvailable(CLAUDE_CLASSIFIER_PROVIDER_KEY),
     loadCatalog: loadClassifierCatalog,
     loadCandidates: loadBatchCandidates,
-    classify: (company, catalog, active) =>
-      classifyCompany(
-        { company, catalog, model: active.model },
-        buildLiveClassifyCompanyDeps(active.apiKey, (website) => fetchSafePageHtml(website)),
-      ),
+    classify: classifyCompanyLive,
     logUsage: logProviderUsage,
     saveClassification,
     nowIso: () => new Date().toISOString(),

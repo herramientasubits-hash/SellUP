@@ -41,8 +41,15 @@ import {
 
 // ── Operation allowlist ──────────────────────────────────────────────────────
 
-/** Tavily's single billable discovery operation. */
-export const TAVILY_RECONCILED_OPERATIONS = ['multi_query_web_search'] as const;
+/**
+ * Tavily's billable operations in a wizard run: discovery search and, when
+ * `ENABLE_LINKEDIN_COMPANY_SEARCH` is on, the targeted LinkedIn search.
+ *
+ * AGENT1-TAVILY-V2-1 § 3 — LinkedIn used to be missing: its rows matched the run
+ * by `batch_id` but were ignored (anomaly `unexpected_operation_for_provider`),
+ * so up to 5 credits per run never reached the budget.
+ */
+export const TAVILY_RECONCILED_OPERATIONS = ['multi_query_web_search', 'linkedin_company_search'] as const;
 
 /**
  * provider_usage_logs.provider_key per wizard discovery provider.

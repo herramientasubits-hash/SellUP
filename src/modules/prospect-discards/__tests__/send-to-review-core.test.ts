@@ -337,3 +337,49 @@ describe('sendCandidateToReviewCore — manual discard branch', () => {
     assert.equal(outcome.reason, 'status_conflict');
   });
 });
+
+// AGENT1-CLAUDE-RESCUE-1 — el rescate automático usa el MISMO núcleo, marcado
+// como origen de sistema: sin `human_override`, con su nota y sus columnas.
+describe('sendDispositionToReviewCore — origen claude_rescue', () => {
+  beforeEach(resetFakeState);
+
+  it('crea el candidato sin human_override, con la nota, la metadata y las columnas del rescate', async () => {
+    seedBatch();
+    seedDisposition();
+
+    const outcome = await sendDispositionToReviewCore(
+      { supabase: makeFakeSupabase(), actorUserId: 'user-1', isBatchInScope: alwaysInScope },
+      'disp-1',
+      {
+        kind: 'claude_rescue',
+        reviewNote: 'Rescatada por Claude: Salud & Farmacéuticos.',
+        metadata: { claude_rescue: { decision: 'admit' } },
+        columns: { employee_count: 1001 },
+      },
+    );
+
+    assert.equal(outcome.outcome, 'sent');
+    if (outcome.outcome !== 'sent') return;
+    assert.equal(outcome.auditDetails.human_override, undefined);
+    assert.equal(outcome.auditDetails.system_origin, 'claude_rescue');
+    const candidate = db.prospect_candidates.get(outcome.candidateId)!;
+    assert.equal(candidate.status, 'needs_review');
+    assert.equal(candidate.review_notes, 'Rescatada por Claude: Salud & Farmacéuticos.');
+    assert.equal(candidate.employee_count, 1001);
+    const metadata = candidate.metadata as Row;
+    assert.equal(metadata.human_override, undefined);
+    assert.equal(metadata.sent_to_review_by_system, 'claude_rescue');
+    assert.deepEqual(metadata.claude_rescue, { decision: 'admit' });
+  });
+
+  it('el rescate nunca reabre una fila de candidato ya existente', async () => {
+    seedBatch();
+    seedDisposition({ candidate_id: 'cand-9' });
+    const outcome = await sendDispositionToReviewCore(
+      { supabase: makeFakeSupabase(), actorUserId: 'user-1', isBatchInScope: alwaysInScope },
+      'disp-1',
+      { kind: 'claude_rescue', reviewNote: 'x', metadata: {} },
+    );
+    assert.deepEqual(outcome, { outcome: 'reject', reason: 'status_conflict' });
+  });
+});

@@ -386,6 +386,30 @@ export type IncrementalSearchMetadata = {
   adaptive_discovery?: AdaptiveDiscoveryMetadata;
   /** Metadata del source-guided investigation v1.12. */
   source_guided_investigation?: SourceGuidedInvestigationMetadata;
+  /**
+   * AGENT1-TAVILY-V2-1 § 1 — plan de consultas de Tavily sobre la macro
+   * industria. Ausente fuera de Tavily y en industrias legacy (no macro).
+   */
+  /**
+   * AGENT1-TAVILY-V2-1 § 2 — `exclude_domains` enviado a Tavily en la ÚLTIMA
+   * ronda (la lista crece de ronda en ronda). Ausente fuera de Tavily.
+   */
+  tavily_exclude_domains?: {
+    last_round_sent: number;
+    static_count: number;
+    seen_this_run_count: number;
+    negative_memory_count: number;
+    truncated_count: number;
+  };
+  tavily_query_plan?: {
+    version: string;
+    macro_key: string;
+    term_count: number;
+    rotation_offset: number;
+    rounds_planned: number;
+    queries_planned: number;
+    additional_criteria_applied: boolean;
+  };
   min_useful_candidates: number;
   target_internal: number;
   max_rounds: number;

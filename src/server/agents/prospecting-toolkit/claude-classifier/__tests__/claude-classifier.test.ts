@@ -25,7 +25,7 @@ import {
   type ClassifyBatchDeps,
 } from '../classify-batch-candidates';
 import { runAnthropicConversation, AnthropicApiError } from '../anthropic-messages-client';
-import { SUBMIT_TOOL_DEFINITION, SUBMIT_TOOL_NAME } from '../prompt';
+import { buildSubmitToolDefinition, SUBMIT_TOOL_NAME } from '../prompt';
 import type { ClassifierCatalogIndustry, CompanyClassificationResult, RawClassifierSubmission } from '../types';
 import type { SafePageFetchResult } from '../../website-verifier';
 
@@ -100,7 +100,7 @@ function modelResponse(sub: RawClassifierSubmission, searchUrls: string[] = [], 
       outputTokens: 300,
       cacheReadInputTokens: 0,
       cacheCreationInputTokens: 0,
-      webSearchRequests,
+      webSearchRequests, webFetchRequests: 0
     },
     requests: 1,
   };
@@ -124,6 +124,7 @@ const COMPANY = {
   countryCode: 'PE',
   countryName: 'Perú',
   currentIndustryId: SALUD_ID,
+  currentIndustryName: null,
 };
 
 const MODEL = 'claude-haiku-4-5-20251001';
@@ -162,14 +163,14 @@ describe('B. verifySubmission', () => {
   };
 
   it('acepta sector con cita textual de la página oficial (quote_verified)', () => {
-    const v = verifySubmission(submission(), CATALOG, ctx, SALUD_ID);
+    const v = verifySubmission(submission(), CATALOG, ctx, { id: SALUD_ID, name: null });
     assert.equal(v.sector?.industryId, SALUD_ID);
     assert.equal(v.sector?.verification, 'quote_verified');
     assert.equal(v.sector?.matchesCurrentIndustry, true);
   });
 
   it('acepta tamaño cuya fuente vino de la búsqueda web (source_listed) y lo marca estimado', () => {
-    const v = verifySubmission(submission(), CATALOG, ctx, SALUD_ID);
+    const v = verifySubmission(submission(), CATALOG, ctx, { id: SALUD_ID, name: null });
     assert.equal(v.employeeRange?.verification, 'source_listed');
     assert.equal(v.employeeRange?.status, 'estimated');
     assert.equal(v.employeeRange?.min, 1001);
@@ -182,7 +183,7 @@ describe('B. verifySubmission', () => {
       }),
       CATALOG,
       ctx,
-      SALUD_ID,
+      { id: SALUD_ID, name: null },
     );
     assert.equal(v.employeeRange, null);
     assert.deepEqual(v.rejected, [{ field: 'employee_range', reason: 'source_url_not_in_search_results' }]);
@@ -195,7 +196,7 @@ describe('B. verifySubmission', () => {
       }),
       CATALOG,
       ctx,
-      SALUD_ID,
+      { id: SALUD_ID, name: null },
     );
     assert.equal(v.sector, null);
     assert.equal(v.rejected[0].reason, 'quote_not_found_in_official_page');
@@ -206,7 +207,7 @@ describe('B. verifySubmission', () => {
       submission({ sector: { ...submission().sector, industry_id: 'no-existe' } }),
       CATALOG,
       ctx,
-      SALUD_ID,
+      { id: SALUD_ID, name: null },
     );
     assert.equal(v.sector, null);
     assert.equal(v.rejected[0].reason, 'industry_not_in_catalog');
@@ -217,7 +218,7 @@ describe('B. verifySubmission', () => {
       submission({ sector: { ...submission().sector, subindustry_id: 'sub-ajena' } }),
       CATALOG,
       ctx,
-      SALUD_ID,
+      { id: SALUD_ID, name: null },
     );
     assert.equal(v.sector?.industryId, SALUD_ID);
     assert.equal(v.sector?.subindustryId, null);
@@ -229,14 +230,14 @@ describe('B. verifySubmission', () => {
       submission({ employee_range: { ...submission().employee_range, min: 500, max: 10 } }),
       CATALOG,
       ctx,
-      SALUD_ID,
+      { id: SALUD_ID, name: null },
     );
     assert.equal(v.employeeRange, null);
     assert.equal(v.rejected[0].reason, 'invalid_range');
   });
 
   it('marca cuando la sugerencia NO coincide con la macroindustria actual', () => {
-    const v = verifySubmission(submission(), CATALOG, ctx, TECH_ID);
+    const v = verifySubmission(submission(), CATALOG, ctx, { id: TECH_ID, name: null });
     assert.equal(v.sector?.matchesCurrentIndustry, false);
   });
 
@@ -250,7 +251,7 @@ describe('B. verifySubmission', () => {
 // ─── C. Costo ────────────────────────────────────────────────────────────────
 
 describe('C. estimateClassifierCost', () => {
-  const zero = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, webSearchRequests: 0 };
+  const zero = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, webSearchRequests: 0, webFetchRequests: 0 };
 
   it('Haiku 4.5 con fecha usa US$1/US$5 (prefijo, no ID exacto)', () => {
     const c = estimateClassifierCost({ ...zero, inputTokens: 1_000_000, outputTokens: 1_000_000 }, MODEL);
@@ -268,7 +269,7 @@ describe('C. estimateClassifierCost', () => {
   });
 
   it('suma US$0,01 por búsqueda y caché al 10 %', () => {
-    const search = estimateClassifierCost({ ...zero, webSearchRequests: 3 }, MODEL);
+    const search = estimateClassifierCost({ ...zero, webSearchRequests: 3, webFetchRequests: 0 }, MODEL);
     assert.equal(search.usd, Math.round(3 * WEB_SEARCH_USD_PER_REQUEST * 1e6) / 1e6);
     const cached = estimateClassifierCost({ ...zero, cacheReadInputTokens: 1_000_000 }, MODEL);
     assert.equal(cached.usd, 0.1);
@@ -297,18 +298,59 @@ describe('D. classifyCompany', () => {
     assert.equal(r.usage, null);
   });
 
-  it('sitio que no responde → no se gasta en Claude', async () => {
-    let called = false;
+  it('sitio que no responde → Claude lo lee con web_fetch y la cita se verifica contra ese texto', async () => {
+    const bodies: Array<{ tools: Array<{ type?: string; name?: string }>; messages: Array<{ content: unknown }> }> = [];
+    const r = await classifyCompany(
+      { company: COMPANY, catalog: CATALOG, model: MODEL },
+      deps({
+        fetchPage: async () => page({ html: null, httpStatus: null, error: 'fetch_error', finalUrl: 'https://www.clinicasanfelipe.com/' }),
+        runConversation: async (body) => {
+          bodies.push(body as never);
+          const base = modelResponse(submission(), ['https://pe.linkedin.com/company/clinica-san-felipe']);
+          return {
+            ...base,
+            content: [
+              {
+                type: 'web_fetch_tool_result',
+                tool_use_id: 'f1',
+                content: {
+                  type: 'web_fetch_result',
+                  url: 'https://www.clinicasanfelipe.com/',
+                  content: { type: 'document', source: { type: 'text', media_type: 'text/plain', data: extractVisibleText(PAGE_HTML) } },
+                },
+              },
+              ...base.content,
+            ],
+          };
+        },
+      }),
+    );
+    assert.equal(bodies[0].tools[0].type, 'web_fetch_20250910');
+    assert.match(String(bodies[0].messages[0].content), /web_fetch sobre la URL/);
+    assert.match(String(bodies[0].messages[0].content), /https:\/\/www\.clinicasanfelipe\.com/);
+    assert.equal(r.pageSource, 'anthropic_web_fetch');
+    assert.equal(r.sector?.verification, 'quote_verified');
+    assert.equal(r.outcome, 'classified');
+  });
+
+  it('si tampoco web_fetch trae la página y nada se verifica → website_unreachable (reintentable)', async () => {
     const r = await classifyCompany(
       { company: COMPANY, catalog: CATALOG, model: MODEL },
       deps({
         fetchPage: async () => page({ html: null, httpStatus: null, error: 'timeout' }),
-        runConversation: async () => ((called = true), modelResponse(submission())),
+        runConversation: async () =>
+          modelResponse(
+            submission({
+              sector: { industry_id: SALUD_ID, subindustry_id: null, quote: 'Somos una clínica privada con más de 1.200 colaboradores', source_url: PAGE_URL, confidence: 0.9 },
+              employee_range: { min: null, max: null, quote: null, source_url: null, confidence: 0 },
+            }),
+            [],
+          ),
       }),
     );
     assert.equal(r.outcome, 'website_unreachable');
+    assert.equal(r.pageSource, 'none');
     assert.equal(r.errorCode, 'timeout');
-    assert.equal(called, false);
   });
 
   it('error de la API se reporta con el uso parcial', async () => {
@@ -317,7 +359,7 @@ describe('D. classifyCompany', () => {
       deps({
         runConversation: async () => {
           throw new AnthropicApiError(429, 'rate_limited', 'slow down', {
-            inputTokens: 10, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, webSearchRequests: 1,
+            inputTokens: 10, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, webSearchRequests: 1, webFetchRequests: 0
           });
         },
       }),
@@ -538,13 +580,13 @@ describe('H1. cita de búsqueda: comprobada vs no comprobada', () => {
   const base = { pageUrls: [PAGE_URL], pageText, searchResultUrls: [LI] };
 
   it('sin cited_text ni descarga → source_listed (la UI dice «no comprobada»)', () => {
-    const v = verifySubmission(submission(), CATALOG, base, SALUD_ID);
+    const v = verifySubmission(submission(), CATALOG, base, { id: SALUD_ID, name: null });
     assert.equal(v.employeeRange?.verification, 'source_listed');
   });
 
   it('la cita coincide con el cited_text de la búsqueda → quote_verified', () => {
     const cited = new Map([[canonicalUrl(LI)!, ['Tamaño de la empresa 1001-5000 empleados']]]);
-    const v = verifySubmission(submission(), CATALOG, { ...base, citedTextsByUrl: cited }, SALUD_ID);
+    const v = verifySubmission(submission(), CATALOG, { ...base, citedTextsByUrl: cited }, { id: SALUD_ID, name: null });
     assert.equal(v.employeeRange?.verification, 'quote_verified');
   });
 
@@ -560,7 +602,7 @@ describe('H1. cita de búsqueda: comprobada vs no comprobada', () => {
       submission({ employee_range: { ...submission().employee_range, quote: '500+' } }),
       CATALOG,
       base,
-      SALUD_ID,
+      { id: SALUD_ID, name: null },
     );
     assert.equal(v.employeeRange, null);
     assert.equal(v.rejected[0].reason, 'missing_quote');
@@ -710,19 +752,21 @@ function collectArrayTypes(node: unknown, path = '$'): string[] {
 }
 
 describe('I. esquema del tool de entrega', () => {
+  const SUBMIT_TOOL = buildSubmitToolDefinition(CATALOG);
   it('no usa uniones en forma de arreglo (`type: [..]`), que la API rechaza', () => {
-    assert.deepEqual(collectArrayTypes(SUBMIT_TOOL_DEFINITION.input_schema), []);
+    assert.deepEqual(collectArrayTypes(SUBMIT_TOOL.input_schema), []);
   });
 
   it('no declara `strict` (la validación la hace verifySubmission)', () => {
-    assert.equal('strict' in SUBMIT_TOOL_DEFINITION, false);
+    assert.equal('strict' in SUBMIT_TOOL, false);
   });
 
   it('los campos opcionales siguen aceptando null vía anyOf', () => {
-    const sector = SUBMIT_TOOL_DEFINITION.input_schema.properties.sector.properties.industry_id as unknown as {
+    const sector = SUBMIT_TOOL.input_schema.properties.sector.properties.industry_id as unknown as {
       anyOf: Array<{ type: string }>;
     };
     assert.deepEqual(sector.anyOf.map((a) => a.type), ['string', 'null']);
+    assert.deepEqual((sector.anyOf[0] as unknown as { enum: string[] }).enum, [SALUD_ID, TECH_ID]);
   });
 
   it('un 400 de la API deja el mensaje del proveedor en el log de uso', async () => {
@@ -731,7 +775,7 @@ describe('I. esquema del tool de entrega', () => {
       deps({
         runConversation: async () => {
           throw new AnthropicApiError(400, 'http_400', '{"type":"error","error":{"type":"invalid_request_error","message":"bad schema"}}', {
-            inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, webSearchRequests: 0,
+            inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, webSearchRequests: 0, webFetchRequests: 0
           });
         },
       }),
@@ -739,5 +783,58 @@ describe('I. esquema del tool de entrega', () => {
     const log = buildClassifierUsageLog(r, { batchId: 'b', triggeredBy: null, classifiedAt: 'x' });
     assert.equal(log?.error_code, 'http_400');
     assert.match(log?.error_message ?? '', /bad schema/);
+  });
+});
+
+// ─── J. Mejoras tras la 1ª corrida real (Prod 30-09) ────────────────────────
+
+describe('J. calidad de las sugerencias', () => {
+  const pageText = extractVisibleText(PAGE_HTML);
+  const LI = 'https://pe.linkedin.com/company/clinica-san-felipe';
+  const ctx = { pageUrls: [PAGE_URL], pageText, searchResultUrls: [LI] };
+
+  it('«Ver los 198 empleados» de LinkedIn no cuenta como tamaño', () => {
+    const v = verifySubmission(
+      submission({ employee_range: { min: 198, max: 198, quote: 'Ver los 198 empleados', source_url: LI, confidence: 0.8 } }),
+      CATALOG,
+      { ...ctx, citedTextsByUrl: new Map([[canonicalUrl(LI)!, ['Ver los 198 empleados']]]) },
+      { id: SALUD_ID, name: null },
+    );
+    assert.equal(v.employeeRange, null);
+    assert.deepEqual(v.rejected, [{ field: 'employee_range', reason: 'linkedin_member_count_not_company_size' }]);
+  });
+
+  it('el rango «Tamaño de la empresa» de LinkedIn sí cuenta', () => {
+    const v = verifySubmission(
+      submission({ employee_range: { min: 201, max: 500, quote: 'Tamaño de la empresa · De 201 a 500 empleados', source_url: LI, confidence: 0.8 } }),
+      CATALOG,
+      ctx,
+      { id: SALUD_ID, name: null },
+    );
+    assert.equal(v.employeeRange?.min, 201);
+  });
+
+  it('una cita de sector muy corta («MUNICIPALIDAD») se descarta', () => {
+    const v = verifySubmission(
+      submission({ sector: { industry_id: SALUD_ID, subindustry_id: null, quote: 'Clínica San Felipe', source_url: PAGE_URL, confidence: 1 } }),
+      CATALOG,
+      ctx,
+      { id: SALUD_ID, name: null },
+    );
+    assert.equal(v.sector, null);
+    assert.equal(v.rejected[0].reason, 'missing_quote');
+  });
+
+  it('coincide con el lote por NOMBRE cuando el candidato no trae industry_id', () => {
+    const same = verifySubmission(submission(), CATALOG, ctx, { id: null, name: 'Salud & Farmacéuticos' });
+    const other = verifySubmission(submission(), CATALOG, ctx, { id: null, name: 'Tecnología' });
+    assert.equal(same.sector?.matchesCurrentIndustry, true);
+    assert.equal(other.sector?.matchesCurrentIndustry, false);
+  });
+
+  it('la industria sólo puede ser del catálogo (enum en el tool)', () => {
+    const tool = buildSubmitToolDefinition(CATALOG);
+    const industry = tool.input_schema.properties.sector.properties.industry_id as unknown as { anyOf: Array<{ enum?: string[] }> };
+    assert.deepEqual(industry.anyOf[0].enum, [SALUD_ID, TECH_ID]);
   });
 });

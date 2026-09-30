@@ -45,6 +45,7 @@ import {
 } from '@/server/prospect-batches/country-source-discovery/run-prepaid-novelty-discovery.server';
 import { loadApolloExclusionSellupDomains } from '@/server/prospect-batches/provider-seen/apollo-exclusion-sellup-domains.server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { scheduleClaudeRescueAfterWizardRun } from '@/server/agents/prospecting-toolkit/claude-classifier/rescue/schedule-rescue.server';
 import type {
   WizardExecutionActionResult,
   ResolvedWizardExecution,
@@ -865,7 +866,10 @@ export async function executeProspectWizardGenerationAction(
     },
   };
 
-  return executeProspectWizardGeneration(request, deps);
+  const result = await executeProspectWizardGeneration(request, deps);
+  // AGENT1-CLAUDE-RESCUE-1 — en segundo plano, detrás de su propio flag (apagado).
+  scheduleClaudeRescueAfterWizardRun(result, deps.getActiveUserId);
+  return result;
 }
 
 // ── Internal execution function (testable) ────────────────────────────────────
@@ -2026,7 +2030,13 @@ export async function executeProspectWizardGeneration(
           : {}),
       });
     } else {
-      pipelineResult = await deps.runTavilyPipeline({ resolved, reservedBatchId });
+      // AGENT1-TAVILY-V2-1 § 3 — la misma traza de selección que Apollo: por qué
+      // esta corrida fue a Tavily (a propósito o por descarte de Apollo).
+      pipelineResult = await deps.runTavilyPipeline({
+        resolved,
+        reservedBatchId,
+        extraBatchMetadata: runProviderSelectionMetadata,
+      });
     }
   } catch {
     // Reconcile conservatively — the provider may have partially executed
