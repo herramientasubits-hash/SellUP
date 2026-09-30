@@ -108,3 +108,25 @@ describe('empresas normales no cambian', () => {
     assert.deepEqual(out.kept.map((r) => r.url), ['https://www.javeriana.edu.co/']);
   });
 });
+
+describe('AGENT1-TAVILY-V2-1 § 2 — gremios y cámaras de comercio SÍ son clientes', () => {
+  for (const url of [
+    'https://www.andi.com.co/',
+    'https://www.fenalco.com.co/',
+    'https://www.ccb.org.co/',
+    'https://www.camaramedallin.org.co/',
+    'https://fedesoft.org/',
+    'https://colombiafintech.co/',
+  ]) {
+    it(`pasa: ${url}`, () => assert.equal(kept(url), true));
+  }
+
+  for (const url of [
+    'https://fedesoft.org/miembros',
+    'https://www.ccb.org.co/afiliados/directorio',
+    'https://colombiafintech.co/asociados',
+    'https://www.andicom.co/',
+  ]) {
+    it(`fuera (listado de afiliados o evento): ${url}`, () => assert.equal(kept(url), false));
+  }
+});

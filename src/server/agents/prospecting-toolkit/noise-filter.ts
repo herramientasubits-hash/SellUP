@@ -311,36 +311,29 @@ const DIRECTORY_PATH_SEGMENTS = [
   '/listado',             // Hito 13H: /listado, /listado-empresas (más genérico que /listado-empresas/)
   '/lista-',              // Hito 13H: /lista-software, /lista-empresas (más genérico)
   '/listas-',             // Hito 13H: /listas-de-empresas, /listas-software
+  // AGENT1-TAVILY-V2-1 § 2 — listados de afiliados de gremios y cámaras: la
+  // organización pasa, su lista de miembros no.
+  '/miembros',
+  '/afiliados',
+  '/asociados',
+  '/members',
 ];
 
+/**
+ * AGENT1-TAVILY-V2-1 § 2 — antes esta lista descartaba gremios y cámaras de
+ * comercio (ANDI, Fenalco, CCB, Cámara de Comercio de Medellín/Cali, Fedesoft,
+ * Colombia Fintech, Colombia EdTech, …). Son organizaciones con empleados y SÍ
+ * son clientes de UBITS (decisión de la dueña 2026-09-29, como universidades,
+ * gobierno y ONG). Sus listados de afiliados siguen fuera como directorio
+ * (`/miembros`, `/afiliados` en DIRECTORY_PATH_SEGMENTS).
+ *
+ * Queda sólo lo que no es una organización cliente: congresos y portales.
+ */
 const ASSOCIATION_CHAMBER_DOMAINS = new Set([
-  'cintel.co',
-  'cintel.org.co',
-  'tic-col.net',
-  'asobarq.co',
-  'fenalco.com.co',
-  'andi.com.co',
-  'ccb.org.co',
-  'camarabogota.org.co',
-  'camaramedallin.org.co',
-  'cccali.org.co',
-  'acit.org.co',
-  'acofiex.org',
-  'asomicroempresas.com.co',
-  'acopi.org.co',
-  'ascamara.org',
-  'cccomercio.es',
-  'camaras.es',
-  'colombiatic.net',
-  // AGENT1-TAVILY-V2-1 § 2 — `mintic.gov.co` salió de aquí: es un ministerio, y
-  // el gobierno SÍ es cliente de UBITS (decisión 2026-09-29).
-  'fedesoft.org',           // Hito 12D: Federación Colombiana de Software — gremio
-  'fedesoft.com',           // Hito 12D: variante de dominio Fedesoft
-  'andicom.co',             // Hito 16AB.43.14: congreso TIC Colombia — no empresa
-  'ccc.org.co',             // Hito 16AB.43.14: Cámara de Comercio de Cali — no empresa
-  'colombiaedtech.org',     // Hito 16AB.43.20: ecosistema/asociación EdTech Colombia — no empresa
-  'colombiafintech.co',     // Hito 16AB.43.20: asociación Fintech Colombia — no empresa
-  'cifin.com.co',           // Hito 16AB.43.20: central de información financiera — no empresa
+  'tic-col.net',            // portal de noticias TIC
+  'colombiatic.net',        // portal
+  'andicom.co',             // Hito 16AB.43.14: congreso TIC Colombia — evento, no organización
+  'cifin.com.co',           // Hito 16AB.43.20: central de información financiera — consulta de datos
 ]);
 
 const ACADEMIC_SOURCE_DOMAINS = new Set([
@@ -516,13 +509,8 @@ const EDITORIAL_TITLE_START_RE =
  * Frases que indican cámara de comercio en el título o snippet.
  * Estas frases son altamente específicas — no aparecen en nombres de empresas.
  */
-const CHAMBER_TITLE_SIGNALS = [
-  'cámara de comercio',
-  'camara de comercio',
-  'chamber of commerce',
-  'cámara de comercio e industria',
-  'camara de comercio e industria',
-];
+// AGENT1-TAVILY-V2-1 § 2 — `CHAMBER_TITLE_SIGNALS` eliminado: las cámaras de
+// comercio son clientes de UBITS (decisión 2026-09-29).
 
 /**
  * Términos fuertes de evento o congreso.
@@ -577,17 +565,9 @@ function detectNonCompanyOrg(result: {
   snippet?: string | null;
 }): NonCompanyOrgDetection {
   const titleLower = (result.title ?? '').toLowerCase();
-  const snippetLower = (result.snippet ?? '').toLowerCase();
-  const combinedLower = `${titleLower} ${snippetLower}`;
 
-  // Cámara de comercio: señal muy específica — no aparece en nombres de empresas.
-  if (CHAMBER_TITLE_SIGNALS.some((s) => combinedLower.includes(s))) {
-    return {
-      isNonCompanyOrg: true,
-      subtype: 'association_or_chamber',
-      reason: 'Título/snippet indica cámara de comercio — no empresa prospectable',
-    };
-  }
+  // AGENT1-TAVILY-V2-1 § 2 — una cámara de comercio ya NO se descarta por su
+  // título ni su snippet: es cliente de UBITS. Sólo los eventos siguen fuera.
 
   // Evento/congreso: verificar primero que no haya señal corporativa de override.
   const hasCorporateOverride = CORPORATE_OVERRIDE_SIGNALS.some((s) => titleLower.includes(s));
