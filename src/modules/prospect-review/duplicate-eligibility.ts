@@ -18,6 +18,8 @@
 // only classifies the prospect as a duplicate inside SellUp (status='duplicate')
 // so it leaves the pending-review queue. It never approves and never discards.
 
+import { isReviewableRecordOrigin } from './reviewable-record-origin';
+
 /** Canonical clean-queue criteria — mirrors discard-eligibility / approve-eligibility. */
 export const DUPLICATE_QUEUE_RECORD_ORIGIN = 'production';
 export const DUPLICATE_QUEUE_STATUS = 'needs_review';
@@ -48,7 +50,8 @@ export function evaluateDuplicateEligibility(
   candidate: CandidateDuplicateSnapshot,
 ): DuplicateEligibility {
   // 1. Must be a clean production record — this queue never touches anything else.
-  if (candidate.recordOrigin !== DUPLICATE_QUEUE_RECORD_ORIGIN) {
+  // AGENT1-IMPORT-PARITY-4 — `production` o `import` (reviewable-record-origin.ts).
+  if (!isReviewableRecordOrigin(candidate.recordOrigin)) {
     return { decision: 'reject', reason: 'not_clean_production' };
   }
 

@@ -16,6 +16,8 @@
 // duplicate signal blocks from approval should still be removable from review.
 // Discard never marks the candidate as a duplicate (that is a separate hito).
 
+import { isReviewableRecordOrigin } from './reviewable-record-origin';
+
 /** Canonical clean-queue criteria — mirrors approve-eligibility / queries.ts. */
 export const DISCARD_QUEUE_RECORD_ORIGIN = 'production';
 export const DISCARD_QUEUE_STATUS = 'needs_review';
@@ -46,7 +48,8 @@ export function evaluateDiscardEligibility(
   candidate: CandidateDiscardSnapshot,
 ): DiscardEligibility {
   // 1. Must be a clean production record — this queue never touches anything else.
-  if (candidate.recordOrigin !== DISCARD_QUEUE_RECORD_ORIGIN) {
+  // AGENT1-IMPORT-PARITY-4 — `production` o `import` (reviewable-record-origin.ts).
+  if (!isReviewableRecordOrigin(candidate.recordOrigin)) {
     return { decision: 'reject', reason: 'not_clean_production' };
   }
 

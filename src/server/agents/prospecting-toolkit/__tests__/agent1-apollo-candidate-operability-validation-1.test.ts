@@ -272,7 +272,12 @@ describe('§ B · review actions — el gate de origen se preserva', () => {
       );
     });
 
-    for (const nonProduction of ['smoke_test', 'qa', 'import', 'historical_cleanup', 'synthetic', 'unknown']) {
+    // AGENT1-IMPORT-PARITY-4 — un prospecto importado se revisa igual que uno de IA.
+    it(`${gate.name} — record_origin 'import' PASA igual que production`, () => {
+      assert.equal(gate.run('import').decision, gate.pass);
+    });
+
+    for (const nonProduction of ['smoke_test', 'qa', 'historical_cleanup', 'synthetic', 'unknown']) {
       it(`${gate.name} — record_origin '${nonProduction}' sigue RECHAZADO`, () => {
         const decision = gate.run(nonProduction);
         assert.equal(decision.decision, 'reject');

@@ -88,6 +88,17 @@ mock.module('@/modules/prospect-batches/actions', {
   },
 });
 
+// AGENT1-IMPORT-PARITY-1 — sin cliente administrativo: la guarda de activos y
+// el reclamo global degradan (abierta y cerrada respectivamente) y la ruta sigue
+// escribiendo igual. Su lógica tiene su propio test.
+mock.module('@/lib/supabase/admin', {
+  namedExports: {
+    createSupabaseAdminClient: () => {
+      throw new Error('sin service role en este test');
+    },
+  },
+});
+
 mock.module('@/lib/supabase/server', {
   namedExports: {
     createClient: async () => makeFakeSupabase(),
@@ -109,7 +120,13 @@ function makeFakeSupabase(): unknown {
         return chain;
       }
       if (table === 'prospect_batches') {
+        const readChain: Record<string, unknown> = {
+          eq: () => readChain,
+          single: async () => ({ data: { metadata: {} }, error: null }),
+        };
         return {
+          select: () => readChain,
+          update: () => ({ eq: async () => ({ error: null }) }),
           insert(row: Record<string, unknown>) {
             spy.batchInserts.push({ ...row });
             return {
@@ -135,9 +152,12 @@ function makeFakeSupabase(): unknown {
         const chain: Record<string, unknown> = {
           select: () => chain,
           eq: async () => ({ data: [], error: null }),
-          insert: async (row: Record<string, unknown>) => {
+          insert: (row: Record<string, unknown>) => {
             spy.candidateInserts.push({ ...row });
-            return { error: null };
+            const id = `cand-${spy.candidateInserts.length}`;
+            return {
+              select: () => ({ single: async () => ({ data: { id }, error: null }) }),
+            };
           },
         };
         return chain;
