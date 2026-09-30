@@ -46,6 +46,7 @@ import { WizardLushaFinalSearch } from './wizard-lusha-final-search';
 // etapas/cierre de la modalidad de dos rondas (§ 11).
 import { WizardRunProviderSelector } from './wizard-run-provider-selector';
 import { WizardAutoProviderNotice } from './wizard-auto-provider-notice';
+import { WizardAdminTavilyTrialToggle } from './wizard-admin-tavily-trial-toggle';
 // Paneles de la fase de ejecución (overlay, envío y éxito), extraídos a su propio
 // archivo para mantener este por debajo del techo de tamaño del repo.
 import { SubmittingPanel, SuccessPanel } from './wizard-execution-panels';
@@ -77,6 +78,8 @@ type WizardRunProviderSurfaceProps = {
   /** `undefined` = el administrador no tocó el selector (§ 3). */
   requestedProvider?: WizardRunSelectableProvider | undefined;
   onRequestedProviderChange?: (provider: WizardRunSelectableProvider) => void;
+  /** AGENT1-TAVILY-TRIAL-1 — marcar/desmarcar la prueba; ausente ⇒ sin casilla. */
+  onAdminTavilyTrialChange?: (checked: boolean) => void;
   /** § 11 — listar las etapas de dos rondas mientras la corrida está en vuelo. */
   showApolloTwoRoundStages?: boolean;
   /** § 11 — cifras reales devueltas por el backend. `null` = no corrió / no llegó. */
@@ -103,6 +106,11 @@ type WizardRunProviderSurfaceProps = {
    * comportamiento previo.
    */
   autoProviderCascade?: boolean;
+  /**
+   * AGENT1-TAVILY-TRIAL-1 — el usuario actual puede marcar «Probar esta corrida
+   * con Tavily». Resuelto en el servidor; ausente ⇒ `false`.
+   */
+  adminTavilyTrialAvailable?: boolean;
 };
 
 type WizardConversationSummaryProps = WizardRunProviderSurfaceProps & {
@@ -142,6 +150,8 @@ export function WizardConversationSummary({
   budgetPreflight = null,
   defaultDiscoveryProvider = null,
   autoProviderCascade = false,
+  adminTavilyTrialAvailable = false,
+  onAdminTavilyTrialChange,
 }: WizardConversationSummaryProps) {
   if (state.currentStep === 'validating') {
     return <ValidatingPanel />;
@@ -168,6 +178,8 @@ export function WizardConversationSummary({
         budgetPreflight={budgetPreflight}
         defaultDiscoveryProvider={defaultDiscoveryProvider}
         autoProviderCascade={autoProviderCascade}
+        adminTavilyTrialAvailable={adminTavilyTrialAvailable}
+        onAdminTavilyTrialChange={onAdminTavilyTrialChange}
       />
     );
   }
@@ -275,12 +287,15 @@ type ValidatedPanelProps = {
    * es peor que no ofrecerlo: parece elegible y no elige nada.
    */
   onRequestedProviderChange?: (provider: WizardRunSelectableProvider) => void;
+  /** AGENT1-TAVILY-TRIAL-1 — marcar/desmarcar «Probar esta corrida con Tavily». */
+  onAdminTavilyTrialChange?: (checked: boolean) => void;
   budgetPreflight: WizardBudgetPreflight | null;
   defaultDiscoveryProvider: WizardRunSelectableProvider | null;
   autoProviderCascade: boolean;
+  adminTavilyTrialAvailable: boolean;
 };
 
-function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute, executionError, freeContribution, onEditSearch, onClose, lushaPreviewEnabled, lushaCriteria, providerOverrideCapability, apolloRunModeLimits, requestedProvider, onRequestedProviderChange, budgetPreflight, defaultDiscoveryProvider, autoProviderCascade }: ValidatedPanelProps) {
+function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute, executionError, freeContribution, onEditSearch, onClose, lushaPreviewEnabled, lushaCriteria, providerOverrideCapability, apolloRunModeLimits, requestedProvider, onRequestedProviderChange, budgetPreflight, defaultDiscoveryProvider, autoProviderCascade, adminTavilyTrialAvailable, onAdminTavilyTrialChange }: ValidatedPanelProps) {
   const router = useRouter();
   // Q3F-5BB.3E — Final search step. When the collected criteria resolve to the
   // hidden Lusha provider, the final "Buscar con IA" search runs Lusha read-only
@@ -601,7 +616,23 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
 
       {/* AGENT1-AUTO-PROVIDER-CASCADE-1 — cómo va a buscar, antes del clic. Mismo
           gate que «Generar prospectos»: si no se puede ejecutar, no se anuncia. */}
+      {/* AGENT1-TAVILY-TRIAL-1 — sólo admin con la prueba encendida. Visible aunque
+          el presupuesto de Tavily bloquee, para poder desmarcarla. */}
       {autoProviderCascade &&
+        adminTavilyTrialAvailable &&
+        onAdminTavilyTrialChange !== undefined &&
+        discoveryAvailability.available &&
+        executionEnabled &&
+        !isPersistenceBlocked && (
+          <WizardAdminTavilyTrialToggle
+            checked={requestedProvider === 'tavily'}
+            onCheckedChange={onAdminTavilyTrialChange}
+          />
+        )}
+
+      {autoProviderCascade &&
+        // AGENT1-TAVILY-TRIAL-1 — con la prueba marcada no corren Apollo ni Lusha.
+        requestedProvider !== 'tavily' &&
         discoveryAvailability.available &&
         executionEnabled &&
         !isPersistenceBlocked &&
