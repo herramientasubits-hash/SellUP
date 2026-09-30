@@ -96,6 +96,10 @@ export function buildTavilySearchRequestBody(
     include_usage: true,
     ...(targeting.country ? { country: targeting.country } : {}),
     ...(targeting.language ? { language: targeting.language } : {}),
+    // AGENT1-TAVILY-V2-2 — sin `filter_by_language` el idioma sólo REALZA; con él
+    // Tavily descarta las páginas en otro idioma (mismo costo). Tavily responde
+    // 400 si se envía sin `language`, por eso van siempre juntos.
+    ...(targeting.language ? { filter_by_language: true } : {}),
     ...(excludeDomains.length > 0 ? { exclude_domains: excludeDomains } : {}),
   };
 }

@@ -939,6 +939,31 @@ export function isWizardRunProviderOverrideEffective(): boolean {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// Agente 1 · prueba de Tavily por corrida para administradores (AGENT1-TAVILY-TRIAL-1)
+// ════════════════════════════════════════════════════════════════════════════
+
+export const AGENT1_ADMIN_TAVILY_TRIAL_FLAG = 'ENABLE_AGENT1_ADMIN_TAVILY_TRIAL';
+
+/**
+ * ¿Puede un administrador mandar UNA corrida a Tavily aunque el modo automático
+ * esté encendido? Sirve para medir a Tavily en Producción sin cambiar el
+ * proveedor de los vendedores. Ver `wizard-admin-tavily-trial.ts`.
+ *
+ * 🔴 Fail-closed y por defecto APAGADA: sólo el token exacto `true` la enciende.
+ */
+export function isAgent1AdminTavilyTrialEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[AGENT1_ADMIN_TAVILY_TRIAL_FLAG]);
+}
+
+/**
+ * La prueba sólo tiene sentido DENTRO del modo automático: fuera de él ya existe
+ * el override por corrida de siempre (`ENABLE_WIZARD_RUN_PROVIDER_OVERRIDE`).
+ */
+export function isWizardRunTavilyTrialEffective(): boolean {
+  return isAgent1AdminTavilyTrialEnabled() && isAgent1AutoProviderCascadeEnabled();
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // Agente 1 · exclusión de dominios ya vistos en Apollo (AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-1)
 // ════════════════════════════════════════════════════════════════════════════
 

@@ -208,6 +208,12 @@ const BUSINESS_DATABASE_DOMAINS = new Set([
   'infobel.com',
   'opencorporates.com',
   'bizapedia.com',
+  // AGENT1-TAVILY-V2-2 — perfiles de empresas de terceros (cbinsights se coló en
+  // la prueba del 30-09 como «D1»).
+  'cbinsights.com',
+  'pitchbook.com',
+  'owler.com',
+  'craft.co',
 ]);
 
 /**
@@ -351,6 +357,29 @@ const ACADEMIC_SOURCE_DOMAINS = new Set([
   // DOCUMENTO académico, no la institución: ver `classifyInstitutionalContent`.
   'unesdoc.unesco.org',
   'wikipedia.org',
+  // AGENT1-TAVILY-V2-2 — documentos, apuntes, editoriales académicas, bases
+  // jurídicas e informes: publican SOBRE empresas o sectores, no son empresas.
+  'scribd.com',
+  'studocu.com',
+  'cliffsnotes.com',
+  'coursehero.com',
+  'slideshare.net',
+  'issuu.com',
+  'academia.edu',
+  'ssrn.com',
+  'tandfonline.com',
+  'springer.com',
+  'wiley.com',
+  'universitypressscholarship.com',
+  'doi.org',
+  'vlex.com',
+  'vlex.com.co',
+  'oecd.org',
+  // traductores, cachés y archivos: repiten páginas de otros sitios
+  'translate.google.com',
+  'translate.goog',
+  'webcache.googleusercontent.com',
+  'archive.org',
   'scielo.org',
   'scielo.org.co',
   'redalyc.org',
@@ -392,6 +421,15 @@ function classifyInstitutionalContent(domain: string): InstitutionalContentVerdi
 }
 
 const NEWS_MEDIA_DOMAINS = new Set([
+  // AGENT1-TAVILY-V2-2 — medios que se colaron en la prueba controlada del
+  // 30-09 (noticias de sector presentadas como empresas).
+  'clarin.com',
+  'cronista.com',
+  'ambest.com',
+  'elcomercio.pe',
+  'gestion.pe',
+  'eleconomista.com.mx',
+  'expansion.mx',
   'dinero.com',
   'semana.com',
   'eltiempo.com',

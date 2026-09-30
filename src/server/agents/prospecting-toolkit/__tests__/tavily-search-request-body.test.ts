@@ -17,6 +17,7 @@ describe('buildTavilySearchRequestBody', () => {
       include_usage: true,
       country: 'peru',
       language: 'spanish',
+      filter_by_language: true,
     });
   });
 
@@ -41,9 +42,11 @@ describe('buildTavilySearchRequestBody', () => {
     assert.equal('country' in unknown, false);
   });
 
-  it('nunca pide filtrado estricto por idioma ni parámetros que cobren más', () => {
+  it('nunca pide parámetros que cobren más (el filtro de idioma no cuesta)', () => {
+    // AGENT1-TAVILY-V2-2 — el filtro estricto de idioma sí viaja en países
+    // hispanos: descarta páginas en inglés al mismo costo (1 crédito).
     const body = buildTavilySearchRequestBody({ query: 'q', countryCode: 'CO' }, 5);
-    assert.equal('filter_by_language' in body, false);
+    assert.equal(body.filter_by_language, true);
     assert.equal('auto_parameters' in body, false);
     assert.equal(body.search_depth, 'basic');
   });

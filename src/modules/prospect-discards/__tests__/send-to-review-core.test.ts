@@ -383,3 +383,112 @@ describe('sendDispositionToReviewCore — origen claude_rescue', () => {
     assert.deepEqual(outcome, { outcome: 'reject', reason: 'status_conflict' });
   });
 });
+
+// ─── AGENT1-SEND-TO-REVIEW-RECLAIM-1 — volver a revisión vuelve a reclamar ──
+//
+// Descartar libera el reclamo global (disparador de la 140). Devolver a
+// revisión tiene que volver a reclamarlo; si otro vendedor ya tiene la
+// empresa, la RPC la deja `duplicate` y la acción lo dice.
+
+function claimsSpy(opts: { elsewhere?: boolean; degraded?: boolean; throws?: boolean } = {}) {
+  const calls: Array<{ batchId: string; candidateIds: string[] }> = [];
+  return {
+    calls,
+    fn: async (batchId: string, candidateIds: string[]) => {
+      calls.push({ batchId, candidateIds });
+      if (opts.throws) throw new Error('RPC caída');
+      if (opts.elsewhere) {
+        for (const id of candidateIds) {
+          const row = db.prospect_candidates.get(id);
+          if (row) row.status = 'duplicate';
+        }
+      }
+      return {
+        claimedElsewhere: opts.elsewhere ? candidateIds.map((candidateId) => ({ candidateId })) : [],
+        degraded: !!opts.degraded,
+      };
+    },
+  };
+}
+
+describe('AGENT1-SEND-TO-REVIEW-RECLAIM-1 — reclamo global al volver de Descartadas', () => {
+  beforeEach(resetFakeState);
+
+  it('candidato descartado → vuelve a revisión Y se reclama su identidad', async () => {
+    seedBatch();
+    seed('prospect_candidates', { id: 'cand-1', batch_id: 'batch-1', status: 'discarded', review_notes: 'x' });
+    const spy = claimsSpy();
+    const outcome = await sendCandidateToReviewCore(
+      { supabase: makeFakeSupabase(), actorUserId: 'u', isBatchInScope: alwaysInScope, claimGlobalIdentities: spy.fn },
+      'cand-1',
+    );
+    assert.equal(outcome.outcome, 'sent');
+    assert.deepEqual(spy.calls, [{ batchId: 'batch-1', candidateIds: ['cand-1'] }]);
+    assert.equal(db.prospect_candidates.get('cand-1')!.status, 'needs_review');
+  });
+
+  it('disposición → el candidato NUEVO se reclama', async () => {
+    seedBatch();
+    seedDisposition();
+    const spy = claimsSpy();
+    const outcome = await sendDispositionToReviewCore(
+      { supabase: makeFakeSupabase(), actorUserId: 'u', isBatchInScope: alwaysInScope, claimGlobalIdentities: spy.fn },
+      'disp-1',
+    );
+    assert.equal(outcome.outcome, 'sent');
+    if (outcome.outcome !== 'sent') return;
+    assert.deepEqual(spy.calls, [{ batchId: 'batch-1', candidateIds: [outcome.candidateId] }]);
+  });
+
+  it('otro vendedor ya la tiene → claimed_by_other_seller y la fila queda duplicate', async () => {
+    seedBatch();
+    seed('prospect_candidates', { id: 'cand-1', batch_id: 'batch-1', status: 'discarded', review_notes: null });
+    const outcome = await sendCandidateToReviewCore(
+      {
+        supabase: makeFakeSupabase(),
+        actorUserId: 'u',
+        isBatchInScope: alwaysInScope,
+        claimGlobalIdentities: claimsSpy({ elsewhere: true }).fn,
+      },
+      'cand-1',
+    );
+    assert.deepEqual(outcome, { outcome: 'claimed_by_other_seller', candidateId: 'cand-1' });
+    assert.equal(db.prospect_candidates.get('cand-1')!.status, 'duplicate');
+  });
+
+  it('reclamo degradado o caído → degrada CERRADO: sigue en revisión, nadie queda duplicado', async () => {
+    for (const opts of [{ degraded: true }, { throws: true }]) {
+      resetFakeState();
+      seedBatch();
+      seed('prospect_candidates', { id: 'cand-1', batch_id: 'batch-1', status: 'discarded', review_notes: null });
+      const outcome = await sendCandidateToReviewCore(
+        { supabase: makeFakeSupabase(), actorUserId: 'u', isBatchInScope: alwaysInScope, claimGlobalIdentities: claimsSpy(opts).fn },
+        'cand-1',
+      );
+      assert.equal(outcome.outcome, 'sent', JSON.stringify(opts));
+      assert.equal(db.prospect_candidates.get('cand-1')!.status, 'needs_review');
+    }
+  });
+
+  it('idempotente (ya en revisión) → no vuelve a llamar al reclamo', async () => {
+    seedBatch();
+    seed('prospect_candidates', { id: 'cand-1', batch_id: 'batch-1', status: 'needs_review', review_notes: null });
+    const spy = claimsSpy();
+    const outcome = await sendCandidateToReviewCore(
+      { supabase: makeFakeSupabase(), actorUserId: 'u', isBatchInScope: alwaysInScope, claimGlobalIdentities: spy.fn },
+      'cand-1',
+    );
+    assert.equal(outcome.outcome, 'idempotent');
+    assert.equal(spy.calls.length, 0);
+  });
+
+  it('sin la dependencia inyectada, el comportamiento anterior no cambia', async () => {
+    seedBatch();
+    seed('prospect_candidates', { id: 'cand-1', batch_id: 'batch-1', status: 'discarded', review_notes: null });
+    const outcome = await sendCandidateToReviewCore(
+      { supabase: makeFakeSupabase(), actorUserId: 'u', isBatchInScope: alwaysInScope },
+      'cand-1',
+    );
+    assert.equal(outcome.outcome, 'sent');
+  });
+});
