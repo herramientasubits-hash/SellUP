@@ -91,8 +91,57 @@ function resolveIndustry(
     }
   }
 
+  // Step 4 — AGENT1-IMPORT-MACRO-INDUSTRY-MATCH-1: mismas palabras, otro orden.
+  // El catálogo v2 tiene 12 macro industrias con nombres compuestos
+  // («Transporte & Logística», «Industria / Manufactura / Químicos / Automotor»).
+  // Un archivo dice «Logística y Transporte» o sólo «Logística». Se acepta cuando
+  // TODAS las palabras significativas del archivo están en UNA sola industria;
+  // si caben en varias, es ambiguo y va a revisión (nunca se elige a ciegas).
+  const tokenMatches = findIndustriesByTokens(trimmed, indexes);
+  if (tokenMatches.length === 1) {
+    const m = tokenMatches[0];
+    return { id: m.id, slug: m.slug, name: m.name, status: 'normalized_match', source: 'normalized_text' };
+  }
+  if (tokenMatches.length > 1) {
+    warnings.push({ code: 'INDUSTRY_AMBIGUOUS', field: 'industry', message: `Ambiguous industry: "${trimmed}".` });
+    return { id: null, slug: null, name: null, status: 'ambiguous', source: 'normalized_text' };
+  }
+
   warnings.push({ code: 'INDUSTRY_NOT_FOUND', field: 'industry', message: `Industry not found in catalog: "${trimmed}".` });
   return { id: null, slug: null, name: null, status: 'not_found', source: 'none' };
+}
+
+// ── Token matching (AGENT1-IMPORT-MACRO-INDUSTRY-MATCH-1) ─────────────────────
+
+/** Conectores que no identifican una industria. */
+const INDUSTRY_STOPWORDS = new Set(['y', 'e', 'and', 'de', 'del', 'la', 'las', 'los', 'el', 'en', 'o', 'u', 'the', 'of']);
+
+/** Singular aproximado: «químicos» ≈ «químico», «servicios» ≈ «servicio». */
+function stemToken(token: string): string {
+  if (token.length > 4 && token.endsWith('es')) return token.slice(0, -2);
+  if (token.length > 3 && token.endsWith('s')) return token.slice(0, -1);
+  return token;
+}
+
+export function industryTokens(value: string): Set<string> {
+  const normalized = normalizeClassificationValue(value);
+  return new Set(
+    normalized
+      .split(' ')
+      .filter((t) => t.length > 0 && !INDUSTRY_STOPWORDS.has(t))
+      .map(stemToken),
+  );
+}
+
+function findIndustriesByTokens(value: string, indexes: ImportCatalogIndexes) {
+  const input = industryTokens(value);
+  if (input.size === 0) return [];
+  const matches = [];
+  for (const industry of indexes.industryById.values()) {
+    const catalogTokens = industryTokens(industry.name);
+    if ([...input].every((t) => catalogTokens.has(t))) matches.push(industry);
+  }
+  return matches;
 }
 
 // ── Subindustry candidate finder ──────────────────────────────────────────────
@@ -148,6 +197,7 @@ function resolveSubindustry(
   countryCode: string | null,
   indexes: ImportCatalogIndexes,
   warnings: ClassificationWarning[],
+  catalogHasSubindustries: boolean,
 ): SubindustryResolution {
   if (!sanitizedValue || !sanitizedValue.trim()) {
     warnings.push({
@@ -159,6 +209,15 @@ function resolveSubindustry(
   }
 
   const trimmed = sanitizedValue.trim();
+
+  // AGENT1-IMPORT-MACRO-INDUSTRY-MATCH-1 — el catálogo v2 no publica
+  // subindustrias. Una subindustria en el archivo se conserva como texto
+  // original (aviso), pero NO puede bloquear la fila: no hay contra qué validarla.
+  if (!catalogHasSubindustries) {
+    warnings.push({ code: 'SUBINDUSTRY_NOT_FOUND', field: 'subindustry', message: `Subindustry not found in catalog: "${trimmed}".` });
+    return { id: null, slug: null, name: null, status: 'missing', source: 'none', suggestedIndustryId: null };
+  }
+
   const found = findSubindustryCandidates(trimmed, indexes);
 
   if (!found) {
@@ -335,6 +394,7 @@ export function normalizeImportedProspectClassification(
     countryCode,
     indexes,
     warnings,
+    catalog.subindustries.length > 0,
   );
 
   const requiresHumanReview = computeRequiresHumanReview(industryResult, subindustryResult, warnings);
