@@ -352,3 +352,23 @@ describe('E12: extraBatchMetadata viaja al runner', () => {
     assert.equal('extraBatchMetadata' in getCapture()!, false);
   });
 });
+
+// ── E12: la costura de aceptación llega al writer (Prod 30-09) ────────────────
+//
+// Los lotes de Tavily no publicaban `accepted_for_target` porque este ejecutor
+// no reenviaba `resolveExtraBatchMetadata`, la misma costura que Apollo recibe.
+
+describe('E12: resolveExtraBatchMetadata se reenvía tal cual', () => {
+  it('el runner recibe la MISMA función que se le pasó', async () => {
+    const { runner, getCapture } = makeFakeRunner();
+    const seam = () => ({ accepted_for_target: { accepted_paid_for_target: 0 } });
+    await runWizardTavilySearch(makeInput({ resolveExtraBatchMetadata: seam }), runner);
+    assert.equal(getCapture()!.resolveExtraBatchMetadata, seam);
+  });
+
+  it('sin costura, el runner no la recibe', async () => {
+    const { runner, getCapture } = makeFakeRunner();
+    await runWizardTavilySearch(makeInput(), runner);
+    assert.equal(getCapture()!.resolveExtraBatchMetadata ?? null, null);
+  });
+});

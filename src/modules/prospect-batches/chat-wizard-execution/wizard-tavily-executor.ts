@@ -12,6 +12,7 @@
 
 import { runIncrementalProspectingSearch } from '@/server/agents/prospecting-toolkit/incremental-search';
 import type { IncrementalSearchOutput } from '@/server/agents/prospecting-toolkit/incremental-search-types';
+import type { ResolveExtraBatchMetadata } from '@/server/agents/prospecting-toolkit/writer-metadata-resolution';
 import type { ResolvedWizardExecution } from './wizard-execution-types';
 // AGENT1-APOLLO-LUSHA-WATERFALL § CORTE 1 — autoridad única del objetivo.
 import { WIZARD_TARGET_USEFUL_COMPANIES } from '@/modules/prospect-batches/wizard-target-authority';
@@ -50,6 +51,12 @@ export type WizardTavilyInput = {
    * `run_provider_selection`), por la misma costura que usa Apollo.
    */
   extraBatchMetadata?: Record<string, unknown>;
+  /**
+   * AGENT1-TAVILY-V2-3 — la costura de `accepted_for_target` (CUT-8 · DECISIÓN B),
+   * la MISMA que recibe Apollo. Sin ella los lotes de Tavily no publicaban sus
+   * aceptadas (Prod 30-09: ff1ba9f2, 1e9fd646, 26f57743).
+   */
+  resolveExtraBatchMetadata?: ResolveExtraBatchMetadata | null;
 };
 
 export type WizardTavilyRunner = (input: WizardTavilyInput) => Promise<IncrementalSearchOutput>;
@@ -87,5 +94,8 @@ export async function runWizardTavilySearch(
       triggeredByUserId: input.resolved.userId,
     },
     ...(input.extraBatchMetadata ? { extraBatchMetadata: input.extraBatchMetadata } : {}),
+    ...(input.resolveExtraBatchMetadata
+      ? { resolveExtraBatchMetadata: input.resolveExtraBatchMetadata }
+      : {}),
   });
 }
