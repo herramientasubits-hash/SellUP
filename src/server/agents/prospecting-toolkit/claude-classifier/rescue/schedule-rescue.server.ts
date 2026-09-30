@@ -8,12 +8,15 @@
 
 import { after } from 'next/server';
 import { isAgent1ClaudeRescueEnabled } from '@/lib/feature-flags.server';
+import { computeBackgroundRescueDeadlineMs } from './rescue-time-budget';
 
 type WizardRunResultLike = { ok: boolean; batchId?: unknown };
 
 export function scheduleClaudeRescueAfterWizardRun(
   result: WizardRunResultLike,
   resolveTriggeredBy: () => Promise<string | null>,
+  /** Cuándo empezó la acción del asistente: `after()` comparte sus 300 s de Vercel. */
+  actionStartedAtMs: number,
 ): void {
   if (!isAgent1ClaudeRescueEnabled()) return;
   if (!result.ok || typeof result.batchId !== 'string' || !result.batchId) return;
@@ -26,7 +29,17 @@ export function scheduleClaudeRescueAfterWizardRun(
           import('./rescue-batch.server'),
           resolveTriggeredBy().catch(() => null),
         ]);
-        const summary = await rescueBatchWithClaude({ batchId, triggeredBy }, buildLiveRescueBatchDeps(triggeredBy));
+        const deadlineMs = computeBackgroundRescueDeadlineMs(actionStartedAtMs, Date.now());
+        if (deadlineMs === null) {
+          // La búsqueda ya usó casi todo el tiempo de la función: no se empieza nada
+          // que Vercel pueda cortar a la mitad. Queda para el botón del lote.
+          console.info('[claude-rescue] batch', batchId, 'skipped: not enough function time left');
+          return;
+        }
+        const summary = await rescueBatchWithClaude(
+          { batchId, triggeredBy, deadlineMs },
+          buildLiveRescueBatchDeps(triggeredBy),
+        );
         console.info('[claude-rescue] batch', batchId, JSON.stringify(summary));
       } catch (err) {
         console.error('[claude-rescue] background run failed:', err instanceof Error ? err.message : err);

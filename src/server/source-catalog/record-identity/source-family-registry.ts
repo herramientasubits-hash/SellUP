@@ -33,6 +33,8 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   co_siis: 'TAX_GRAIN',
   // SOURCES-AR-RNS-1 — un CUIT, una fila (proveedoras del Estado del RNS de Argentina).
   ar_rns: 'TAX_GRAIN',
+  // SOURCES-AR-CUIT-BY-NAME-1 — un CUIT, una fila (todas las sociedades activas del RNS).
+  ar_rns_registry: 'TAX_GRAIN',
   pa_panamacompra_convenio: 'NATIVE_RECORD_GRAIN',
   co_fedesoft: 'NATIVE_RECORD_GRAIN',
   ec_scvs: 'NATIVE_RECORD_GRAIN',

@@ -57,6 +57,12 @@ const DISPOSITION_FILTER_OPTIONS = (
   Object.keys(DISCARD_DISPOSITION_LABELS) as DiscardDispositionCode[]
 ).map((code) => ({ label: DISCARD_DISPOSITION_LABELS[code], value: code }));
 
+// AGENT1-IMPORT-DUPLICATES-VISIBLE-1 — una fila puede venir de sólo lectura
+// (duplicado importado): se ve, pero no se puede enviar a revisión desde aquí.
+function canSendToReview(item: DiscardedProspectItem): boolean {
+  return item.status !== 'sent_to_review' && !item.sendToReviewBlockedReason;
+}
+
 interface DiscardedProspectsDataTableClientProps {
   items: DiscardedProspectItem[];
   scopeFilterOptions?: ScopeFilterOptions;
@@ -107,6 +113,7 @@ export function DiscardedProspectsDataTableClient({
 
   const handleSendToReview = React.useCallback(
     async (item: DiscardedProspectItem) => {
+      if (!canSendToReview(item)) return;
       setPendingItemId(item.itemId);
       try {
         const outcome = await sendOne(item);
@@ -137,7 +144,7 @@ export function DiscardedProspectsDataTableClient({
    */
   const handleBulkSendToReview = React.useCallback(
     async (selectedRows: DiscardedProspectItem[]) => {
-      const eligible = selectedRows.filter((item) => item.status !== 'sent_to_review');
+      const eligible = selectedRows.filter(canSendToReview);
       if (eligible.length === 0) return;
       setBulkPending(true);
       let sent = 0;
@@ -336,10 +343,16 @@ export function DiscardedProspectsDataTableClient({
             className={
               row.original.status === 'sent_to_review'
                 ? 'border-0 bg-su-brand-soft text-su-brand text-[10px]'
-                : 'border-0 bg-muted text-muted-foreground text-[10px]'
+                : row.original.sendToReviewBlockedReason
+                  ? 'border-0 bg-orange-500/10 text-orange-600 dark:text-orange-400 text-[10px]'
+                  : 'border-0 bg-muted text-muted-foreground text-[10px]'
             }
           >
-            {row.original.status === 'sent_to_review' ? 'Enviada a revisión' : 'Descartada'}
+            {row.original.status === 'sent_to_review'
+              ? 'Enviada a revisión'
+              : row.original.sendToReviewBlockedReason
+                ? 'Duplicada'
+                : 'Descartada'}
           </Badge>
         ),
         size: 140,
@@ -365,7 +378,8 @@ export function DiscardedProspectsDataTableClient({
               size="sm"
               variant="outline"
               className="gap-1.5 text-xs"
-              disabled={item.status === 'sent_to_review' || isPending || bulkPending}
+              disabled={!canSendToReview(item) || isPending || bulkPending}
+              title={item.sendToReviewBlockedReason ?? undefined}
               onClick={(e) => {
                 e.stopPropagation();
                 void handleSendToReview(item);
@@ -398,7 +412,7 @@ export function DiscardedProspectsDataTableClient({
           id: 'send-to-review',
           label: 'Enviar a revisión',
           icon: SendHorizonal,
-          disabled: item.status === 'sent_to_review',
+          disabled: !canSendToReview(item),
           onClick: () => void handleSendToReview(item),
         },
         ...(item.domain
@@ -446,16 +460,17 @@ export function DiscardedProspectsDataTableClient({
         disabled: (selectedRows) =>
           bulkPending ||
           selectedRows.length === 0 ||
-          selectedRows.every((item) => item.status === 'sent_to_review'),
+          selectedRows.every((item) => !canSendToReview(item)),
         disabledLabel: (selectedRows) =>
-          selectedRows.length > 0 &&
-          selectedRows.every((item) => item.status === 'sent_to_review')
+          selectedRows.length > 0 && selectedRows.every((item) => item.status === 'sent_to_review')
             ? 'Ya están en revisión'
-            : undefined,
+            : selectedRows.length > 0 && selectedRows.every((item) => !canSendToReview(item))
+              ? 'Las seleccionadas no se pueden enviar a revisión'
+              : undefined,
         confirm: {
           title: 'Enviar a revisión',
           description: (selectedRows) => {
-            const eligible = selectedRows.filter((item) => item.status !== 'sent_to_review');
+            const eligible = selectedRows.filter(canSendToReview);
             return `Se ${eligible.length === 1 ? 'devolverá' : 'devolverán'} ${eligible.length} empresa${eligible.length === 1 ? '' : 's'} a la cola de revisión con los datos ya guardados. No se hacen búsquedas nuevas ni se consume presupuesto.`;
           },
           confirmLabel: 'Enviar a revisión',

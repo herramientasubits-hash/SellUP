@@ -62,7 +62,7 @@ export function DiscardedProspectDetailSheet({
               : 'border-0 bg-muted text-muted-foreground text-[10px]'
           }
         >
-          {isAlreadySent ? 'Enviada a revisión' : 'Descartada'}
+          {isAlreadySent ? 'Enviada a revisión' : item.sendToReviewBlockedReason ? 'Duplicada' : 'Descartada'}
         </Badge>
       }
       size="md"
@@ -71,9 +71,13 @@ export function DiscardedProspectDetailSheet({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Dejar descartada
           </Button>
+          {/* AGENT1-IMPORT-DUPLICATES-VISIBLE-1 — duplicado importado: sólo lectura. */}
+          {item.sendToReviewBlockedReason && (
+            <span className="mr-auto text-xs text-muted-foreground">{item.sendToReviewBlockedReason}</span>
+          )}
           <Button
             className="gap-1.5"
-            disabled={isAlreadySent || pending}
+            disabled={isAlreadySent || pending || !!item.sendToReviewBlockedReason}
             onClick={() => void onSendToReview(item)}
           >
             <SendHorizonal className="h-3.5 w-3.5" />

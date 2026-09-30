@@ -119,6 +119,9 @@ export function buildClassificationMetadata(
       : null,
     rejected: result.rejected,
     is_operating_company: result.isOperatingCompany,
+    linkedin_company: result.linkedin
+      ? { url: result.linkedin.url, slug: result.linkedin.slug, source: result.linkedin.source }
+      : null,
     page_final_url: result.pageFinalUrl,
     page_source: result.pageSource ?? null,
     estimated_cost_usd: result.usage?.estimatedCostUsd ?? null,

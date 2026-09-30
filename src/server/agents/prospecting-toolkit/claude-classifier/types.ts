@@ -50,7 +50,21 @@ export type RawClassifierSubmission = {
     confidence: number;
   };
   is_operating_company: boolean;
+  /** Página de empresa en LinkedIn (linkedin.com/company/…), o null. */
+  linkedin_company_url?: string | null;
   notes: string | null;
+};
+
+/**
+ * LinkedIn de la empresa, verificado:
+ *  - `website_social_link`: el sitio oficial (descargado por nosotros) enlaza a esa página;
+ *  - `provided_search_result`: la devolvió la búsqueda web y el slug coincide con la empresa.
+ * Son valores que ya existen en `LinkedInEnrichmentSource`.
+ */
+export type VerifiedLinkedInCompany = {
+  url: string;
+  slug: string;
+  source: 'website_social_link' | 'provided_search_result';
 };
 
 /**
@@ -89,7 +103,7 @@ export type VerifiedEmployeeRangeSuggestion = {
 };
 
 export type RejectedField = {
-  field: 'sector' | 'subindustry' | 'employee_range';
+  field: 'sector' | 'subindustry' | 'employee_range' | 'linkedin';
   reason: string;
 };
 
@@ -136,6 +150,7 @@ export type CompanyClassificationResult = {
   employeeRange: VerifiedEmployeeRangeSuggestion | null;
   rejected: RejectedField[];
   isOperatingCompany: boolean | null;
+  linkedin?: VerifiedLinkedInCompany | null;
   pageFinalUrl: string | null;
   usage: ClassifierUsage | null;
   errorCode: string | null;
@@ -178,6 +193,7 @@ export type ClaudeClassificationMetadata = {
   } | null;
   rejected: RejectedField[];
   is_operating_company: boolean | null;
+  linkedin_company: { url: string; slug: string; source: VerifiedLinkedInCompany['source'] } | null;
   page_final_url: string | null;
   page_source: ClassifierPageSource | null;
   estimated_cost_usd: number | null;
