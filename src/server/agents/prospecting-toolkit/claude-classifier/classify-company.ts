@@ -75,7 +75,7 @@ export function buildClassifierRequestBody(
         cache_control: { type: 'ephemeral' },
       },
     ],
-    tools: [buildWebSearchTool(params.company.countryCode), SUBMIT_TOOL_DEFINITION],
+    tools: [buildWebSearchTool(), SUBMIT_TOOL_DEFINITION],
     messages: [{ role: 'user', content: buildClassifierUserMessage(params.company, pageUrl, pageText) }],
   };
 }

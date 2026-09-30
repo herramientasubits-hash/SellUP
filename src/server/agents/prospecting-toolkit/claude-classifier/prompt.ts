@@ -70,14 +70,16 @@ export const SUBMIT_TOOL_DEFINITION = {
   },
 } as const;
 
-export function buildWebSearchTool(countryCode: string | null) {
+/**
+ * Sin `user_location`: la API rechaza (HTTP 400) países que no soporta — Prod
+ * 2026-09-30: «Country code PE is not supported». El país ya va en el mensaje
+ * («País esperado»), así que las búsquedas siguen orientadas a él.
+ */
+export function buildWebSearchTool() {
   return {
     type: WEB_SEARCH_TOOL_TYPE,
     name: 'web_search',
     max_uses: MAX_WEB_SEARCHES_PER_COMPANY,
-    ...(countryCode && /^[A-Z]{2}$/.test(countryCode)
-      ? { user_location: { type: 'approximate', country: countryCode } }
-      : {}),
   };
 }
 
