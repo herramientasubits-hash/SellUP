@@ -33,6 +33,7 @@ import { writeStructuredSourceCandidatesPreview } from '@/server/agents/prospect
 import { COUNTRY_SOURCE_PREPAID_DISCOVERY_LAYER } from '@/server/agents/prospecting-toolkit/structured-discovery-provenance';
 import type { SourceDiscoveryCandidate } from '@/server/source-catalog/source-discovery-types';
 import type { CountrySourceCompany } from './country-source-types';
+import { resolveCountrySourceCapability } from './country-source-capability';
 import {
   CO_SIIS_DISCOVERY_BATCH_SOURCE,
   CO_SIIS_DISCOVERY_SOURCE_KEY,
@@ -71,6 +72,7 @@ export type PersistCountrySourceCandidatesResult = {
 function toSourceDiscoveryCandidate(
   company: CountrySourceCompany,
   macroIndustryKey: string,
+  sourceKey: string,
 ): SourceDiscoveryCandidate {
   return {
     name: company.legalName ?? 'Sin nombre',
@@ -86,7 +88,7 @@ function toSourceDiscoveryCandidate(
     sourcePrimary: CO_SIIS_DISCOVERY_SOURCE_PRIMARY,
     sourceTrace: {
       sourceProvider: CO_SIIS_DISCOVERY_SOURCE_PRIMARY,
-      sourceKey: CO_SIIS_DISCOVERY_SOURCE_KEY,
+      sourceKey,
       sourceRecordId: company.recordIdentityKey,
       industryCode: company.industryCode,
     },
@@ -119,6 +121,11 @@ export async function persistCountrySourceCandidates(
     return { batchId: input.batchId ?? null, writtenCount: 0, skippedCount: 0, failed: false };
   }
 
+  // El `source_key` sale del país (co_siis_discovery / do_dgii_discovery). Un país
+  // sin capacidad no llega aquí; el valor por defecto conserva a Colombia intacta.
+  const sourceKey =
+    resolveCountrySourceCapability(input.countryCode)?.sourceKey ?? CO_SIIS_DISCOVERY_SOURCE_KEY;
+
   try {
     const report = await writeStructuredSourceCandidatesPreview(client, {
       // 🔴 Escritura real. La autoriza el hito para la capa gratuita: sin ella,
@@ -128,13 +135,13 @@ export async function persistCountrySourceCandidates(
       requestedByUserId: input.requestedByUserId,
       country: input.countryName,
       countryCode: input.countryCode,
-      sourceKey: CO_SIIS_DISCOVERY_SOURCE_KEY,
+      sourceKey,
       sourceProvider: CO_SIIS_DISCOVERY_SOURCE_PRIMARY,
       // 🔴 Defecto 1 — vocabulario de lote distinto al de candidato. El CHECK de
       // prospect_batches NO permite 'public_source' (sí el de source_primary);
       // el lote lo persiste Agente 1, así que su source es 'agent_1'.
       batchSource: CO_SIIS_DISCOVERY_BATCH_SOURCE,
-      dataset: CO_SIIS_DISCOVERY_SOURCE_KEY,
+      dataset: sourceKey,
       initiatedBy: 'agent_1',
       batchId: input.batchId ?? null,
       // La comprobación canónica de HubSpot YA corrió en la capa previa al pago,
@@ -149,7 +156,7 @@ export async function persistCountrySourceCandidates(
         macro_industry_key: input.macroIndustryKey,
       },
       candidates: input.companies.map((company) =>
-        toSourceDiscoveryCandidate(company, input.macroIndustryKey),
+        toSourceDiscoveryCandidate(company, input.macroIndustryKey, sourceKey),
       ),
     });
 

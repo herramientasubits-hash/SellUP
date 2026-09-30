@@ -28,23 +28,56 @@ import {
   CO_SIIS_DISCOVERY_SOURCE_KEY,
   type CoSiisSnapshotQuery,
 } from './co-siis-discovery-adapter';
+import {
+  buildDoDgiiDiscoveryAdapter,
+  DO_DGII_DISCOVERY_SOURCE_KEY,
+  type DoDgiiDiscoveryReads,
+} from './do-dgii-discovery-adapter';
+import { macroHasCiiuCoverage } from './macro-ciiu-index';
+import { macroHasDgiiCoverage } from './do-dgii-macro-table';
 
-/** Países con descubrimiento gratuito consciente de criterios. */
-export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO'] as const;
+/**
+ * Países con descubrimiento gratuito consciente de criterios.
+ *
+ * SOURCES-DO-FREE-DISCOVERY-1 — República Dominicana entra con el padrón DGII,
+ * clasificado por la tabla oficial aprobada (`do-dgii-macro-table.ts`) y
+ * restringido a proveedoras del Estado (`do-dgii-discovery-adapter.ts`).
+ */
+export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO'] as const;
 
 export type CountrySourceCapability = {
   countryCode: string;
   sourceKey: string;
 };
 
+const CAPABILITIES: Readonly<Record<string, CountrySourceCapability>> = Object.freeze({
+  CO: { countryCode: 'CO', sourceKey: CO_SIIS_DISCOVERY_SOURCE_KEY },
+  DO: { countryCode: 'DO', sourceKey: DO_DGII_DISCOVERY_SOURCE_KEY },
+});
+
 /** ¿Está cableado el descubrimiento gratuito para este país? */
 export function resolveCountrySourceCapability(
   countryCode: string | null | undefined,
 ): CountrySourceCapability | null {
   if (typeof countryCode !== 'string') return null;
-  const normalized = countryCode.trim().toUpperCase();
-  if (normalized !== 'CO') return null;
-  return { countryCode: 'CO', sourceKey: CO_SIIS_DISCOVERY_SOURCE_KEY };
+  return CAPABILITIES[countryCode.trim().toUpperCase()] ?? null;
+}
+
+/**
+ * ¿La fuente de ESTE país puede preguntar algo útil para esta macro?
+ *
+ * Colombia: la macro tiene códigos CIIU derivados del evaluador canónico.
+ * República Dominicana: la macro tiene actividades DGII en la tabla aprobada.
+ * Sin cobertura la fuente no consulta nada (nunca una muestra genérica).
+ */
+export function countrySourceMacroHasCoverage(
+  countryCode: string | null | undefined,
+  macroIndustryKey: string | null | undefined,
+): boolean {
+  const capability = resolveCountrySourceCapability(countryCode);
+  if (capability === null) return false;
+  if (capability.countryCode === 'DO') return macroHasDgiiCoverage(macroIndustryKey);
+  return macroHasCiiuCoverage(macroIndustryKey);
 }
 
 /**
@@ -54,10 +87,16 @@ export function resolveCountrySourceCapability(
  */
 export function buildCountrySourceAdapter(
   countryCode: string | null | undefined,
-  deps: { coSiisSnapshotQuery?: CoSiisSnapshotQuery | null },
+  deps: {
+    coSiisSnapshotQuery?: CoSiisSnapshotQuery | null;
+    doDgiiDiscoveryReads?: DoDgiiDiscoveryReads | null;
+  },
 ): CountrySourceAdapter | null {
   const capability = resolveCountrySourceCapability(countryCode);
   if (capability === null) return null;
+  if (capability.countryCode === 'DO') {
+    return deps.doDgiiDiscoveryReads ? buildDoDgiiDiscoveryAdapter(deps.doDgiiDiscoveryReads) : null;
+  }
   if (!deps.coSiisSnapshotQuery) return null;
   return buildCoSiisDiscoveryAdapter(deps.coSiisSnapshotQuery);
 }

@@ -49,6 +49,17 @@ export type CountrySourceCompany = {
    * metadato de trazabilidad.
    */
   coarseSector: string | null;
+  /**
+   * SOURCES-DO-FREE-DISCOVERY-1 — macro industria asignada por una tabla OFICIAL
+   * aprobada por la dueña del producto (hoy sólo República Dominicana, ver
+   * `do-dgii-macro-table.ts`). Cuando está presente, ESTA es la prueba de
+   * pertenencia y el evaluador canónico por palabras no se usa. Ausente en
+   * Colombia, que sigue pasando por el evaluador canónico.
+   */
+  officialMacroIndustry?: {
+    macroIndustryKeys: readonly string[];
+    tableVersion: string;
+  } | null;
 };
 
 /** Lo que una fuente de país devuelve para unos criterios. */

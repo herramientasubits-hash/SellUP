@@ -25,7 +25,7 @@ import {
   type ClassifyBatchDeps,
 } from '../classify-batch-candidates';
 import { runAnthropicConversation, AnthropicApiError } from '../anthropic-messages-client';
-import { SUBMIT_TOOL_NAME } from '../prompt';
+import { SUBMIT_TOOL_DEFINITION, SUBMIT_TOOL_NAME } from '../prompt';
 import type { ClassifierCatalogIndustry, CompanyClassificationResult, RawClassifierSubmission } from '../types';
 import type { SafePageFetchResult } from '../../website-verifier';
 
@@ -349,9 +349,11 @@ describe('D. classifyCompany', () => {
     const system = body.system as Array<{ cache_control?: unknown; text: string }>;
     assert.deepEqual(system[0].cache_control, { type: 'ephemeral' });
     assert.ok(system[0].text.includes(SALUD_ID));
-    const search = body.tools[0] as { max_uses: number; user_location?: { country: string } };
+    assert.match(String(body.messages[0].content), /País esperado: Perú/);
+    const search = body.tools[0] as { max_uses: number; user_location?: unknown };
     assert.equal(search.max_uses, 2);
-    assert.equal(search.user_location?.country, 'PE');
+    // Regresión Prod 30-09: «Country code PE is not supported» → nunca se envía.
+    assert.equal('user_location' in search, false);
   });
 });
 
@@ -690,5 +692,52 @@ describe('H4. reintentos, reclamos y topes de la corrida', () => {
     const { d, logs } = batchDeps();
     await classifyBatchCandidates({ batchId: 'b', triggeredBy: null }, d);
     assert.equal((logs[0] as { metadata: { pricing_source: string } }).metadata.pricing_source, 'table');
+  });
+});
+
+// ─── I. Forma del request (regresión Prod 29-09: HTTP 400 en 13/13) ─────────
+
+function collectArrayTypes(node: unknown, path = '$'): string[] {
+  if (!node || typeof node !== 'object') return [];
+  const obj = node as Record<string, unknown>;
+  const here = Array.isArray(obj.type) ? [path] : [];
+  return [
+    ...here,
+    ...Object.entries(obj).flatMap(([k, v]) =>
+      Array.isArray(v) ? v.flatMap((item, i) => collectArrayTypes(item, `${path}.${k}[${i}]`)) : collectArrayTypes(v, `${path}.${k}`),
+    ),
+  ];
+}
+
+describe('I. esquema del tool de entrega', () => {
+  it('no usa uniones en forma de arreglo (`type: [..]`), que la API rechaza', () => {
+    assert.deepEqual(collectArrayTypes(SUBMIT_TOOL_DEFINITION.input_schema), []);
+  });
+
+  it('no declara `strict` (la validación la hace verifySubmission)', () => {
+    assert.equal('strict' in SUBMIT_TOOL_DEFINITION, false);
+  });
+
+  it('los campos opcionales siguen aceptando null vía anyOf', () => {
+    const sector = SUBMIT_TOOL_DEFINITION.input_schema.properties.sector.properties.industry_id as unknown as {
+      anyOf: Array<{ type: string }>;
+    };
+    assert.deepEqual(sector.anyOf.map((a) => a.type), ['string', 'null']);
+  });
+
+  it('un 400 de la API deja el mensaje del proveedor en el log de uso', async () => {
+    const r = await classifyCompany(
+      { company: COMPANY, catalog: CATALOG, model: MODEL },
+      deps({
+        runConversation: async () => {
+          throw new AnthropicApiError(400, 'http_400', '{"type":"error","error":{"type":"invalid_request_error","message":"bad schema"}}', {
+            inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, webSearchRequests: 0,
+          });
+        },
+      }),
+    );
+    const log = buildClassifierUsageLog(r, { batchId: 'b', triggeredBy: null, classifiedAt: 'x' });
+    assert.equal(log?.error_code, 'http_400');
+    assert.match(log?.error_message ?? '', /bad schema/);
   });
 });

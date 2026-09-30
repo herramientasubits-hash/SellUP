@@ -38,6 +38,7 @@
  * Puro: sin I/O, sin env, sin reloj.
  */
 
+import { apolloKeywordAccentVariant } from './apollo-keyword-accent-variants';
 import { createHash } from 'node:crypto';
 import { APOLLO_MAX_FILTER_VALUES } from './apollo-organizations-request-contract';
 import { apolloKeywordDedupeKey, normalizeApolloTermKey } from './apollo-subindustry-query-terms';
@@ -111,6 +112,12 @@ export type MacroIndustryQueryPlan = {
   effectiveKeywords: string[];
   /** Los amplios que sí entraron. Subconjunto de `effectiveKeywords`. */
   admittedBroadTerms: string[];
+  /**
+   * AGENT1-APOLLO-KEYWORD-ACCENT-VARIANTS-1 — formas con tilde añadidas al FINAL
+   * de `effectiveKeywords`, dentro del presupuesto. No cuentan como cobertura ni
+   * como amplios: son la misma señal escrita como la escribe una empresa.
+   */
+  accentVariantsAdded: string[];
   /** Los que no entraron, con su motivo. */
   withheldBroadTerms: Array<{ term: string; reason: MacroBroadTermWithheldReason }>;
 
@@ -342,8 +349,24 @@ export function buildMacroIndustryQueryPlan(
   // 3. § 19 — el criterio adicional va al final y no cuenta como cobertura.
   for (const term of additionalTerms) push(term);
 
+  // La cuota de amplios se mide ANTES de las variantes: una variante no es una
+  // señal nueva y no puede diluir la proporción.
   const broadTermShare =
     effectiveKeywords.length === 0 ? 0 : admittedBroadTerms.length / effectiveKeywords.length;
+
+  // 4. AGENT1-APOLLO-KEYWORD-ACCENT-VARIANTS-1 — la forma con tilde de cada
+  //    término, en el MISMO orden y sólo con presupuesto sobrante. Apollo no
+  //    documenta si compara ignorando tildes y su soporte recomendó enviar
+  //    ambas. Se añaden sin pasar por `push`: su clave de dedupe es la misma
+  //    que la del original, y eso es justamente lo que no hay que colapsar.
+  const accentVariantsAdded: string[] = [];
+  for (const term of [...effectiveKeywords]) {
+    if (effectiveKeywords.length >= keywordBudget) break;
+    const variant = apolloKeywordAccentVariant(term);
+    if (variant === null || effectiveKeywords.includes(variant)) continue;
+    effectiveKeywords.push(variant);
+    accentVariantsAdded.push(variant);
+  }
 
   const coverage: MacroIndustryQueryCoverage = {
     macroIndustryKey: definition.key,
@@ -371,6 +394,7 @@ export function buildMacroIndustryQueryPlan(
     exclusionTerms,
     effectiveKeywords,
     admittedBroadTerms,
+    accentVariantsAdded,
     withheldBroadTerms,
     keywordBudget,
     broadTermAllowance,
@@ -473,6 +497,7 @@ export function toMacroIndustryQueryMetadata(
     macro_industry_effective_keywords: plan.effectiveKeywords,
     macro_industry_specific_terms_travelled: plan.coverage.coveringSpecificTerms,
     macro_industry_broad_terms_admitted: plan.admittedBroadTerms,
+    macro_industry_accent_variants_added: plan.accentVariantsAdded,
     macro_industry_broad_terms_withheld: plan.withheldBroadTerms,
     macro_industry_broad_term_share: plan.coverage.broadTermShare,
     macro_industry_query_coverage_complete: plan.coverage.complete,

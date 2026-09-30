@@ -75,7 +75,7 @@ export function buildClassifierRequestBody(
         cache_control: { type: 'ephemeral' },
       },
     ],
-    tools: [buildWebSearchTool(params.company.countryCode), SUBMIT_TOOL_DEFINITION],
+    tools: [buildWebSearchTool(), SUBMIT_TOOL_DEFINITION],
     messages: [{ role: 'user', content: buildClassifierUserMessage(params.company, pageUrl, pageText) }],
   };
 }
@@ -147,6 +147,7 @@ export async function classifyCompany(
       outcome: 'model_error',
       pageFinalUrl,
       errorCode: apiError?.code ?? 'unexpected_error',
+      errorMessage: (apiError?.message ?? (err instanceof Error ? err.message : String(err))).slice(0, 300),
       usage: apiError ? toUsage(apiError.partialUsage, params.model) : null,
     });
   }

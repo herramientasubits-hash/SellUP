@@ -6217,3 +6217,20 @@ jobs:
       # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
       - name: Run Agent 1 Apollo seen-domain exclusion scope tests
         run: npm run test:a1-apollo-seen-domain-exclusion-scope
+
+      # AGENT1-APOLLO-KEYWORD-ACCENT-VARIANTS-1 - las etiquetas en espanol viajan
+      # tambien con su tilde (clinica + clinica con tilde), al final y dentro del
+      # tope de 25, como recomendo el soporte de Apollo.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 Apollo keyword accent variants tests
+        run: npm run test:a1-apollo-keyword-accent-variants
+
+      # AGENT1-APOLLO-CONTINUATION-PERSIST-COMPLETED-RUN-1 - una corrida pagada y
+      # evaluada entera (run_completed) que se quedo sin tiempo escribiendo se
+      # reanuda para escribir en vez de cerrarse vacia; la pasada por los sitios
+      # web corre en paralelo y con presupuesto de tiempo.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 Apollo continuation persist completed run tests
+        run: npm run test:a1-apollo-continuation-persist-completed-run

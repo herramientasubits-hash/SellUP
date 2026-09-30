@@ -116,6 +116,7 @@ export function buildClassifierUsageLog(
     estimated_cost_usd: result.usage.estimatedCostUsd,
     status: isError && result.errorCode === 'rate_limited' ? 'rate_limited' : isError ? 'error' : 'success',
     error_code: result.errorCode ?? undefined,
+    error_message: result.errorMessage ?? undefined,
     duration_ms: result.durationMs,
     triggered_by: context.triggeredBy ?? undefined,
     metadata: {

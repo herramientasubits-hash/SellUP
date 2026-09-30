@@ -90,8 +90,17 @@ export function isApolloContinuationTerminal(status: ApolloContinuationUiStatus)
 export function resolveApolloContinuationUiStatus(input: {
   readonly pendingOrganizationCount: number;
   readonly jobStatus: ApolloContinuationJobStatus | null;
+  /**
+   * AGENT1-APOLLO-CONTINUATION-PERSIST-COMPLETED-RUN-1 — la evaluación terminó
+   * (`run_completed`) pero las candidatas no se escribieron. Queda trabajo
+   * aunque no queden organizaciones por evaluar.
+   */
+  readonly persistencePending?: boolean;
 }): ApolloContinuationUiStatus {
   if (input.jobStatus === 'failed') return 'failed';
+  if (input.persistencePending === true && (input.jobStatus === 'pending' || input.jobStatus === 'processing')) {
+    return input.jobStatus === 'processing' ? 'processing' : 'pending_continuation';
+  }
   // Sin trabajo pendiente la corrida está cerrada, diga lo que diga la cola: un
   // trabajo huérfano no puede convertir en «pendiente» un lote ya terminado.
   if (input.pendingOrganizationCount === 0) return 'finished';
