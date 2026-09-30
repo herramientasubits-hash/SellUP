@@ -2049,6 +2049,9 @@ export async function executeProspectWizardGeneration(
         resolved,
         reservedBatchId,
         extraBatchMetadata: runProviderSelectionMetadata,
+        // AGENT1-TAVILY-V2-3 — la MISMA costura que Apollo: sin ella el lote de
+        // Tavily no publicaba `accepted_for_target`.
+        resolveExtraBatchMetadata: resolveAcceptedForTargetBatchMetadata,
       });
     }
   } catch {

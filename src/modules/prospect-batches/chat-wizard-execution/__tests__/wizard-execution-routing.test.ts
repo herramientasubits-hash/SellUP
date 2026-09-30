@@ -134,6 +134,25 @@ describe('R1: provider=tavily routes to runTavilyPipeline only', () => {
     assert.equal(apolloCalled, false, 'runApolloPipeline must NOT have been called');
   });
 
+  it('runTavilyPipeline recibe la costura de accepted_for_target (Prod 30-09)', async () => {
+    let seam: unknown = null;
+    const deps = makeBaseDeps({
+      resolveProvider: () => 'tavily',
+      runTavilyPipeline: async (input) => {
+        seam = input.resolveExtraBatchMetadata ?? null;
+        return makePipelineOutput(input.reservedBatchId);
+      },
+    });
+    const result = await executeProspectWizardGeneration(VALID_REQUEST, deps);
+    assert.ok(result.ok, `Expected ok result, got: ${JSON.stringify(result)}`);
+    assert.equal(typeof seam, 'function', 'Tavily debe recibir la misma costura que Apollo');
+    const published = (seam as (o: { persistedCandidates: number; completeValidCandidates: number }) => Record<string, unknown>)({
+      persistedCandidates: 3,
+      completeValidCandidates: 1,
+    });
+    assert.ok(published.accepted_for_target, 'la costura publica el bloque accepted_for_target');
+  });
+
   it('checkTavilyAvailability is called for Tavily provider', async () => {
     let availabilityChecked = false;
 
