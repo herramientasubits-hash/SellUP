@@ -95,8 +95,9 @@ export function calculateDominicanRncCheckDigit(rncBody: string): number | null 
 }
 
 /**
- * Dígito verificador del RUC paraguayo (SET/DNIT): módulo 11 con pesos 2…11 de
- * derecha a izquierda; resto 0 o 1 → 0. SOURCES-PY-RUC-BY-NAME-1: comprobado sobre
+ * Dígito verificador del RUC paraguayo (SET/DNIT): módulo 11 con pesos 2, 3, 4…
+ * de derecha a izquierda (con 8 dígitos como máximo, el peso no pasa de 9);
+ * resto 0 o 1 → 0. SOURCES-PY-RUC-BY-NAME-1: comprobado sobre
  * 200.923 RUC del padrón público de septiembre de 2026, sin un solo fallo.
  */
 export function calculateParaguayRucCheckDigit(rucBody: string): number | null {
@@ -104,7 +105,6 @@ export function calculateParaguayRucCheckDigit(rucBody: string): number | null {
   let total = 0;
   let weight = 2;
   for (let i = rucBody.length - 1; i >= 0; i--) {
-    if (weight > 11) weight = 2;
     total += parseInt(rucBody[i], 10) * weight;
     weight += 1;
   }
