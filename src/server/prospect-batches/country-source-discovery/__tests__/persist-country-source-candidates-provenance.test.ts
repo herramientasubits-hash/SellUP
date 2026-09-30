@@ -210,3 +210,90 @@ describe('AGENT1-COUNTRY-SOURCE-PERSISTENCE-CONTRACT-1 — caller co_siis real',
     assert.equal(stats.batchInserts.length, 0);
   });
 });
+
+/**
+ * Un candidato CON identificador fiscal activa la comprobación de novedad fiscal
+ * del writer, que lee `prospect_candidates` y `accounts` con cadenas
+ * `.select().in().eq()…`. Este doble responde cualquier cadena de lectura con cero
+ * filas (lote nuevo, nada conocido) y conserva las escrituras del doble base.
+ */
+function makeFiscalAwareFakeSupabase(stats: Stats): SupabaseClient {
+  const base = makeFakeSupabase(stats) as unknown as { rpc: unknown; from(table: string): unknown };
+  const emptyRead = () => {
+    const chain: Record<string, unknown> = {};
+    for (const op of ['select', 'in', 'eq', 'neq', 'order', 'limit', 'not', 'or', 'ilike', 'is']) {
+      chain[op] = () => chain;
+    }
+    chain.then = (resolve: (v: unknown) => unknown) => resolve({ data: [], error: null });
+    return chain;
+  };
+  return {
+    rpc: base.rpc,
+    from(table: string) {
+      if (table === 'accounts') return emptyRead();
+      if (table === 'prospect_candidates') {
+        const chain = emptyRead();
+        chain.insert = (row: Record<string, unknown>) => {
+          stats.candidateInserts.push({ ...row });
+          return Promise.resolve({ error: null });
+        };
+        return chain;
+      }
+      return base.from(table);
+    },
+  } as unknown as SupabaseClient;
+}
+
+describe('SOURCES-DO-FREE-DISCOVERY-1 — República Dominicana', () => {
+  it('el candidato dominicano lleva su propia fuente, su RNC y su código CIIU.DR', async () => {
+    const stats = freshStats();
+    const result = await persistCountrySourceCandidates(makeFiscalAwareFakeSupabase(stats), {
+      companies: [
+        syntheticCompany({
+          recordIdentityKey: 'rnc:100000009',
+          legalName: 'EMPRESA SINTETICA DO SRL',
+          normalizedLegalName: 'EMPRESA SINTETICA DO SRL',
+          taxId: '100000009',
+          taxIdentifierType: 'RNC',
+          countryCode: 'DO',
+          city: null,
+          region: null,
+          declaredIndustry: 'Actividades de informática N.C.P.',
+          industryCode: '729000',
+          coarseSector: null,
+          officialMacroIndustry: { macroIndustryKeys: ['technology'], tableVersion: 'do-ciiu-dr-2009-macro-v1' },
+        }),
+      ],
+      countryCode: 'DO',
+      countryName: 'República Dominicana',
+      macroIndustryKey: 'technology',
+      requestedByUserId: 'user-synthetic-1',
+    });
+
+    assert.equal(result.failed, false);
+    assert.equal(result.writtenCount, 1);
+    const candidate = stats.candidateInserts[0];
+    assert.equal(candidate.source_primary, 'public_source');
+    assert.equal(candidate.tax_identifier, '100000009');
+    assert.equal(candidate.tax_identifier_type, 'RNC');
+    const trace = candidate.source_trace as Record<string, unknown>;
+    assert.equal(trace.sourceKey, 'do_dgii_discovery');
+    assert.equal(trace.industryCode, '729000');
+    const metadata = candidate.metadata as Record<string, unknown>;
+    assert.equal(metadata.macro_industry_key, 'technology');
+    assert.equal(stats.batchInserts[0].source, 'agent_1');
+  });
+
+  it('Colombia sigue escribiendo co_siis_discovery', async () => {
+    const stats = freshStats();
+    await persistCountrySourceCandidates(makeFakeSupabase(stats), {
+      companies: [syntheticCompany()],
+      countryCode: 'CO',
+      countryName: 'Colombia',
+      macroIndustryKey: 'health_pharma',
+      requestedByUserId: 'user-synthetic-1',
+    });
+    const candidate = stats.candidateInserts[0];
+    assert.equal((candidate.source_trace as Record<string, unknown>).sourceKey, 'co_siis_discovery');
+  });
+});
