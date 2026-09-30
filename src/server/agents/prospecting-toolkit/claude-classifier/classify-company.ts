@@ -20,6 +20,7 @@ import { estimateClassifierCost } from './cost';
 import {
   canonicalUrl,
   extractCitedTextsByUrl,
+  extractWebFetchTexts,
   extractSearchResultUrls,
   extractSubmission,
   verifySubmission,
@@ -27,7 +28,8 @@ import {
 import { normalizeDomain } from '../normalization';
 import { extractVisibleText } from './page-text';
 import {
-  SUBMIT_TOOL_DEFINITION,
+  buildSubmitToolDefinition,
+  buildWebFetchTool,
   SUBMIT_TOOL_NAME,
   buildClassifierSystemPrompt,
   buildClassifierUserMessage,
@@ -35,6 +37,7 @@ import {
 } from './prompt';
 import type {
   ClassificationOutcome,
+  ClassifierPageSource,
   ClassifierCatalogIndustry,
   ClassifierCompanyInput,
   ClassifierUsage,
@@ -60,11 +63,19 @@ export type ClassifyCompanyParams = {
   model: string;
 };
 
+/**
+ * `pageText === null` = no pudimos descargar la página: se habilita la lectura
+ * web de Anthropic (`web_fetch`) como respaldo, sobre la URL oficial del mensaje.
+ */
 export function buildClassifierRequestBody(
   params: ClassifyCompanyParams,
   pageUrl: string,
-  pageText: string,
+  pageText: string | null,
 ): AnthropicRequestBody {
+  const tools =
+    pageText === null
+      ? [buildWebFetchTool(), buildWebSearchTool(), buildSubmitToolDefinition(params.catalog)]
+      : [buildWebSearchTool(), buildSubmitToolDefinition(params.catalog)];
   return {
     model: params.model,
     max_tokens: CLASSIFIER_MAX_OUTPUT_TOKENS,
@@ -75,7 +86,7 @@ export function buildClassifierRequestBody(
         cache_control: { type: 'ephemeral' },
       },
     ],
-    tools: [buildWebSearchTool(), SUBMIT_TOOL_DEFINITION],
+    tools,
     messages: [{ role: 'user', content: buildClassifierUserMessage(params.company, pageUrl, pageText) }],
   };
 }
@@ -89,6 +100,7 @@ function toUsage(totals: AnthropicUsageTotals, model: string): ClassifierUsage {
     cacheReadInputTokens: totals.cacheReadInputTokens,
     cacheCreationInputTokens: totals.cacheCreationInputTokens,
     webSearchRequests: totals.webSearchRequests,
+    webFetchRequests: totals.webFetchRequests,
     estimatedCostUsd: cost.usd,
     pricingSource: cost.pricingSource,
   };
@@ -119,22 +131,21 @@ export async function classifyCompany(
   if (!website) return finish({ outcome: 'no_website' });
 
   const page = await deps.fetchPage(website);
-  const pageText = page.html ? extractVisibleText(page.html) : '';
+  const ownText = page.html ? extractVisibleText(page.html) : '';
   const pageFinalUrl = page.finalUrl ?? page.requestedUrl;
-  if (!page.html || pageText.length < MIN_PAGE_TEXT_CHARS || (page.httpStatus ?? 0) >= 400) {
-    return finish({
-      outcome: 'website_unreachable',
-      pageFinalUrl,
-      errorCode: page.error ?? (page.httpStatus ? `http_${page.httpStatus}` : 'empty_page'),
-    });
-  }
   // Un sitio que redirige a OTRO dominio (directorio, red social, dominio vendido)
   // no es la página oficial: no se gasta en clasificarlo.
-  if (isOffsiteRedirect(website, pageFinalUrl)) {
+  if (page.html && isOffsiteRedirect(website, pageFinalUrl)) {
     return finish({ outcome: 'website_redirected_offsite', pageFinalUrl, errorCode: 'redirected_offsite' });
   }
+  const ownPageUsable = !!page.html && ownText.length >= MIN_PAGE_TEXT_CHARS && (page.httpStatus ?? 0) < 400;
+  const ownFetchError = ownPageUsable
+    ? null
+    : page.error ?? (page.httpStatus ? `http_${page.httpStatus}` : 'empty_page');
+  // Sin página propia, Claude la lee con web_fetch: la URL tiene que ir en el mensaje.
+  const officialUrl = ownPageUsable ? pageFinalUrl : toFetchableUrl(pageFinalUrl ?? website);
 
-  const body = buildClassifierRequestBody(params, pageFinalUrl, pageText);
+  const body = buildClassifierRequestBody(params, officialUrl, ownPageUsable ? ownText : null);
   let conversation: AnthropicConversationResult;
   try {
     conversation = await deps.runConversation(body);
@@ -153,30 +164,67 @@ export async function classifyCompany(
   }
 
   const usage = toUsage(conversation.usage, params.model);
+  const remoteTexts = extractWebFetchTexts(conversation.content);
+  const remoteOfficialText = officialTextFrom(remoteTexts, officialUrl);
+  const pageText = ownPageUsable ? ownText : remoteOfficialText;
+  const pageSource: ClassifierPageSource = ownPageUsable ? 'own_fetch' : pageText ? 'anthropic_web_fetch' : 'none';
+
   const submission = extractSubmission(conversation.content);
   if (!submission) {
-    return finish({ outcome: 'model_error', pageFinalUrl, usage, errorCode: 'no_submission' });
+    return finish({ outcome: 'model_error', pageFinalUrl, usage, pageSource, errorCode: 'no_submission' });
   }
 
   const baseCtx = {
-    pageUrls: [pageFinalUrl, page.requestedUrl],
+    pageUrls: [officialUrl, pageFinalUrl, page.requestedUrl].filter((u): u is string => !!u),
     pageText,
-    searchResultUrls: extractSearchResultUrls(conversation.content),
+    // Lo leído con web_fetch cuenta como fuente listada y su texto permite comprobar la cita.
+    searchResultUrls: [...extractSearchResultUrls(conversation.content), ...remoteTexts.keys()].map(toFetchableUrl),
     citedTextsByUrl: extractCitedTextsByUrl(conversation.content),
+    fetchedSourceTexts: remoteTexts,
   };
-  const firstPass = verifySubmission(submission, params.catalog, baseCtx, params.company.currentIndustryId);
+  const currentIndustry = {
+    id: params.company.currentIndustryId,
+    name: params.company.currentIndustryName,
+  };
+  const firstPass = verifySubmission(submission, params.catalog, baseCtx, currentIndustry);
   // Una cita de búsqueda que no pudimos comprobar: intentamos leer NOSOTROS esa fuente.
-  const fetchedSourceTexts = await fetchUnverifiedSources(firstPass, deps);
+  const ownSourceTexts = await fetchUnverifiedSources(firstPass, deps);
   const verified =
-    fetchedSourceTexts.size > 0
-      ? verifySubmission(submission, params.catalog, { ...baseCtx, fetchedSourceTexts }, params.company.currentIndustryId)
+    ownSourceTexts.size > 0
+      ? verifySubmission(
+          submission,
+          params.catalog,
+          { ...baseCtx, fetchedSourceTexts: new Map([...remoteTexts, ...ownSourceTexts]) },
+          currentIndustry,
+        )
       : firstPass;
 
   const found = Number(verified.sector !== null) + Number(verified.employeeRange !== null);
+  // Sin página por ninguna vía y nada verificable: es el sitio, no la empresa → reintentable.
+  if (found === 0 && pageSource === 'none') {
+    return finish({ outcome: 'website_unreachable', pageFinalUrl, usage, pageSource, errorCode: ownFetchError, ...verified });
+  }
   const outcome: ClassificationOutcome =
     found === 2 ? 'classified' : found === 1 ? 'partially_classified' : 'nothing_verifiable';
 
-  return finish({ outcome, pageFinalUrl, usage, ...verified });
+  return finish({ outcome, pageFinalUrl, usage, pageSource, ...verified });
+}
+
+/** `http://x` → `https://x`: la lectura web y la comparación de URLs usan la forma canónica. */
+function toFetchableUrl(urlOrDomain: string): string {
+  const trimmed = urlOrDomain.trim();
+  if (/^https:\/\//i.test(trimmed)) return trimmed;
+  if (/^http:\/\//i.test(trimmed)) return `https://${trimmed.slice(7)}`;
+  return `https://${trimmed}`;
+}
+
+function officialTextFrom(texts: ReadonlyMap<string, string>, officialUrl: string): string {
+  const officialDomain = normalizeDomain(officialUrl);
+  if (!officialDomain) return '';
+  return [...texts.entries()]
+    .filter(([url]) => normalizeDomain(`https://${url}`) === officialDomain)
+    .map(([, text]) => text)
+    .join('\n');
 }
 
 export function isOffsiteRedirect(requested: string, finalUrl: string | null): boolean {
@@ -210,6 +258,7 @@ async function forceSubmission(
       cacheReadInputTokens: first.usage.cacheReadInputTokens + second.usage.cacheReadInputTokens,
       cacheCreationInputTokens: first.usage.cacheCreationInputTokens + second.usage.cacheCreationInputTokens,
       webSearchRequests: first.usage.webSearchRequests + second.usage.webSearchRequests,
+      webFetchRequests: first.usage.webFetchRequests + second.usage.webFetchRequests,
     },
     requests: first.requests + second.requests,
   };

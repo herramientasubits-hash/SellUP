@@ -95,6 +95,7 @@ function toCompanyInput(row: ClassifiableCandidateRow): ClassifierCompanyInput {
     countryCode: row.country_code,
     countryName: row.country,
     currentIndustryId: row.industry_id,
+    currentIndustryName: row.industry ?? null,
   };
 }
 
@@ -124,6 +125,8 @@ export function buildClassifierUsageLog(
       candidate_id: result.candidateId,
       outcome: result.outcome,
       web_search_requests: result.usage.webSearchRequests,
+      web_fetch_requests: result.usage.webFetchRequests,
+      page_source: result.pageSource ?? null,
       cache_read_input_tokens: result.usage.cacheReadInputTokens,
       cache_creation_input_tokens: result.usage.cacheCreationInputTokens,
       pricing_source: result.usage.pricingSource,

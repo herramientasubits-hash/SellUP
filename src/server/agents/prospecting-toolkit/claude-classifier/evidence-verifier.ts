@@ -52,6 +52,24 @@ export function extractCitedTextsByUrl(content: readonly AnthropicContentBlock[]
   return byUrl;
 }
 
+/**
+ * Texto de las páginas que leyó la herramienta web_fetch de Anthropic, por URL
+ * canónica. Es el texto de la fuente devuelto por Anthropic, no escrito por Claude.
+ */
+export function extractWebFetchTexts(content: readonly AnthropicContentBlock[]): Map<string, string> {
+  const texts = new Map<string, string>();
+  for (const block of content) {
+    if (block.type !== 'web_fetch_tool_result') continue;
+    const result = block.content as Record<string, unknown> | undefined;
+    if (result?.type !== 'web_fetch_result' || typeof result.url !== 'string') continue;
+    const doc = result.content as { source?: { type?: unknown; data?: unknown } } | undefined;
+    if (doc?.source?.type !== 'text' || typeof doc.source.data !== 'string') continue;
+    const key = canonicalUrl(result.url);
+    if (key) texts.set(key, doc.source.data);
+  }
+  return texts;
+}
+
 export function extractSearchResultUrls(content: readonly AnthropicContentBlock[]): string[] {
   const urls = content
     .filter((b) => b.type === 'web_search_tool_result' && Array.isArray(b.content))
@@ -91,12 +109,27 @@ function isOfficialPageSource(sourceUrl: string, ctx: SourceContext): boolean {
   return ctx.pageUrls.some((u) => canonicalUrl(u) === source) || (!!sourceDomain && pageDomains.includes(sourceDomain));
 }
 
+/** Una cita de sector de menos de esto («MUNICIPALIDAD») no describe a qué se dedica. */
+export const MIN_SECTOR_QUOTE_CHARS = 25;
+
+/**
+ * «Ver los 198 empleados» / «198 empleados en LinkedIn» = personas con perfil en
+ * LinkedIn, siempre menos que la plantilla. No es el tamaño (Prod 30-09: 2 de 9).
+ */
+const LINKEDIN_MEMBER_COUNT_PATTERN =
+  /\bver (?:a )?(?:los|las|todos los)?\s*[\d.,]+\s*emplead|[\d.,]+\s*emplead\w*\s+en\s+linkedin|see all [\d.,]+ employees|[\d.,]+ employees on linkedin/i;
+
+export function isLinkedInMemberCountQuote(quote: string): boolean {
+  return LINKEDIN_MEMBER_COUNT_PATTERN.test(normalizeForQuoteMatch(quote));
+}
+
 function verifySource(
   quote: string | null,
   sourceUrl: string | null,
   ctx: SourceContext,
+  minQuoteChars: number = MIN_QUOTE_CHARS,
 ): { level: EvidenceVerificationLevel; reason: string | null } {
-  if (!quote || normalizeForQuoteMatch(quote).length < MIN_QUOTE_CHARS) {
+  if (!quote || normalizeForQuoteMatch(quote).length < minQuoteChars) {
     return { level: 'rejected', reason: 'missing_quote' };
   }
   if (!sourceUrl || !sourceUrl.trim()) return { level: 'rejected', reason: 'missing_source_url' };
@@ -125,6 +158,15 @@ function clampConfidence(value: unknown): number {
   return Math.min(1, Math.max(0, n));
 }
 
+function matchesIndustry(
+  industry: ClassifierCatalogIndustry,
+  current: { id: string | null; name: string | null },
+): boolean | null {
+  if (current.id) return current.id === industry.industryId;
+  if (current.name) return normalizeForQuoteMatch(current.name) === normalizeForQuoteMatch(industry.industryName);
+  return null;
+}
+
 export type VerifiedSubmission = {
   sector: VerifiedSectorSuggestion | null;
   employeeRange: VerifiedEmployeeRangeSuggestion | null;
@@ -136,7 +178,7 @@ export function verifySubmission(
   submission: RawClassifierSubmission,
   catalog: readonly ClassifierCatalogIndustry[],
   ctx: SourceContext,
-  currentIndustryId: string | null,
+  currentIndustry: { id: string | null; name: string | null },
 ): VerifiedSubmission {
   const rejected: RejectedField[] = [];
 
@@ -144,7 +186,7 @@ export function verifySubmission(
   const rawSector = submission.sector;
   if (rawSector?.industry_id) {
     const industry = catalog.find((o) => o.industryId === rawSector.industry_id);
-    const check = verifySource(rawSector.quote, rawSector.source_url, ctx);
+    const check = verifySource(rawSector.quote, rawSector.source_url, ctx, MIN_SECTOR_QUOTE_CHARS);
     if (!industry) {
       rejected.push({ field: 'sector', reason: 'industry_not_in_catalog' });
     } else if (check.level === 'rejected') {
@@ -161,7 +203,7 @@ export function verifySubmission(
         industryName: industry.industryName,
         subindustryId: sub?.id ?? null,
         subindustryName: sub?.name ?? null,
-        matchesCurrentIndustry: currentIndustryId ? currentIndustryId === industry.industryId : null,
+        matchesCurrentIndustry: matchesIndustry(industry, currentIndustry),
         quote: rawSector.quote!.trim().slice(0, 400),
         sourceUrl: rawSector.source_url!.trim(),
         confidence: clampConfidence(rawSector.confidence),
@@ -184,6 +226,8 @@ export function verifySubmission(
       (max === null || (Number.isInteger(max) && max >= min && max <= MAX_PLAUSIBLE_EMPLOYEES));
     if (!validNumbers) {
       rejected.push({ field: 'employee_range', reason: 'invalid_range' });
+    } else if (rawSize.quote && isLinkedInMemberCountQuote(rawSize.quote)) {
+      rejected.push({ field: 'employee_range', reason: 'linkedin_member_count_not_company_size' });
     } else if (check.level === 'rejected') {
       rejected.push({ field: 'employee_range', reason: check.reason ?? 'unverifiable' });
     } else {

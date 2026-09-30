@@ -26,6 +26,9 @@ import {
   type ClassifierCatalogIndustry,
 } from './types';
 
+/** Sitios del Estado y clínicas responden lento: 8 s (el de verifyWebsite) no alcanzaba. */
+const CLASSIFIER_PAGE_TIMEOUT_MS = 15_000;
+
 /** Fila única de `ai_active_config` (misma constante que `ai-config/actions.ts`). */
 const AI_ACTIVE_CONFIG_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -68,7 +71,7 @@ async function loadBatchCandidates(batchId: string): Promise<ClassifiableCandida
   const admin = createSupabaseAdminClient();
   const { data, error } = await admin
     .from('prospect_candidates')
-    .select('id, industry_id, name, website, domain, country_code, country, status, metadata')
+    .select('id, industry_id, industry, name, website, domain, country_code, country, status, metadata')
     .eq('batch_id', batchId)
     .eq('status', 'needs_review');
   if (error) throw new Error(`candidates_read_failed:${error.message}`);
@@ -141,7 +144,7 @@ export function buildLiveClassifyBatchDeps(): ClassifyBatchDeps {
     classify: (company, catalog, active) =>
       classifyCompany(
         { company, catalog, model: active.model },
-        buildLiveClassifyCompanyDeps(active.apiKey, (website) => fetchSafePageHtml(website)),
+        buildLiveClassifyCompanyDeps(active.apiKey, (website) => fetchSafePageHtml(website, CLASSIFIER_PAGE_TIMEOUT_MS)),
       ),
     logUsage: logProviderUsage,
     saveClassification,

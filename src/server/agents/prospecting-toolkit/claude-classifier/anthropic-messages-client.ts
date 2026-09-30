@@ -19,6 +19,7 @@ export type AnthropicUsageTotals = {
   cacheReadInputTokens: number;
   cacheCreationInputTokens: number;
   webSearchRequests: number;
+  webFetchRequests: number;
 };
 
 export type AnthropicConversationResult = {
@@ -65,6 +66,7 @@ function addUsage(acc: AnthropicUsageTotals, raw: unknown): AnthropicUsageTotals
     cacheReadInputTokens: acc.cacheReadInputTokens + num(usage.cache_read_input_tokens),
     cacheCreationInputTokens: acc.cacheCreationInputTokens + num(usage.cache_creation_input_tokens),
     webSearchRequests: acc.webSearchRequests + num(serverToolUse.web_search_requests),
+    webFetchRequests: acc.webFetchRequests + num(serverToolUse.web_fetch_requests),
   };
 }
 
@@ -74,6 +76,7 @@ export const EMPTY_USAGE: AnthropicUsageTotals = {
   cacheReadInputTokens: 0,
   cacheCreationInputTokens: 0,
   webSearchRequests: 0,
+  webFetchRequests: 0,
 };
 
 export async function runAnthropicConversation(params: {
