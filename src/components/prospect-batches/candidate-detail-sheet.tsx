@@ -44,6 +44,10 @@ import {
   OWNERSHIP_UNVERIFIED_LABEL,
 } from '@/modules/prospect-batches/ownership-review-flag';
 import {
+  IMPORT_REVIEW_FLAG_LABELS,
+  readImportReviewFlags,
+} from '@/modules/prospect-batches/import-review-flags';
+import {
   CANDIDATE_STATUS_LABELS,
   DUPLICATE_STATUS_LABELS,
   REVIEW_STATUS_LABELS,
@@ -59,6 +63,8 @@ import {
 } from '@/modules/prospect-batches/types';
 import type { PeruSunatEnrichmentBlock } from '@/server/prospect-batches/peru-sunat-post-approval-enrichment';
 import { PeruSunatLegalValidationBlock } from './peru-sunat-legal-validation-block';
+import { ClaudeClassificationBlock } from './claude-classification-block';
+import { readClaudeClassificationDisplay } from './claude-classification-display';
 import type { PeMigoApiEnrichmentBlock } from '@/server/prospect-batches/peru-migo-legal-enrichment';
 import { PeruMigoLegalValidationBlock } from './peru-migo-legal-validation-block';
 import { getIcpSizeGateUiState } from './icp-size-gate-ui';
@@ -648,6 +654,7 @@ export function CandidateDetailSheet({
     ? (STRUCTURED_SOURCE_LABELS[candidate.source_primary] ?? sourcePrimaryLabel)
     : null) as React.ReactNode;
 
+  const claudeClassification = readClaudeClassificationDisplay(candidate?.metadata);
   const isPeCandidate = candidate?.country_code?.toUpperCase() === 'PE';
   const peSunatBlock = isPeCandidate
     ? ((candidate?.metadata?.source_enrichment as Record<string, unknown> | undefined)
@@ -986,6 +993,17 @@ export function CandidateDetailSheet({
                 </span>
               </div>
             )}
+            {/* AGENT1-IMPORT-PARITY-3 — avisos de la importación: revisar, no rechazo. */}
+            {readImportReviewFlags(flags).map((flag) => (
+              <div
+                key={flag}
+                data-testid={`import-review-flag-${flag}`}
+                className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs text-amber-600 dark:text-amber-400 flex items-start gap-2"
+              >
+                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span>{IMPORT_REVIEW_FLAG_LABELS[flag]}</span>
+              </div>
+            ))}
 
             {/* KPIs: Scores y Estado */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -1487,6 +1505,13 @@ export function CandidateDetailSheet({
               )}
             </SurfaceCard>
             </CollapsibleSection>
+
+            {/* Sugerencia de Claude (sector/tamaño con fuente) — sólo si existe */}
+            {claudeClassification && (
+              <CollapsibleSection title="Sugerencia de Claude" defaultOpen>
+                <ClaudeClassificationBlock display={claudeClassification} />
+              </CollapsibleSection>
+            )}
 
             {/* Validación Legal SUNAT — solo para candidatos Perú */}
             {isPeCandidate && (

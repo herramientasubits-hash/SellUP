@@ -39,6 +39,7 @@ import {
 } from '@/modules/macro-industry-catalog/macro-industries';
 import {
   assessDeclaredMacroIndustryEvidence,
+  MACRO_INDUSTRY_EVIDENCE_VERSION,
   unresolvedMacroIndustryEvidence,
   type MacroIndustryEvidenceAssessment,
 } from '@/modules/macro-industry-catalog/macro-industry-evidence-core';
@@ -63,12 +64,20 @@ export type CountrySourceMacroPrecision = {
  */
 export function assessCountrySourceMacroPrecision(input: {
   macroIndustryKey: string;
-  company: Pick<CountrySourceCompany, 'declaredIndustry'>;
+  company: Pick<CountrySourceCompany, 'declaredIndustry' | 'officialMacroIndustry'>;
 }): CountrySourceMacroPrecision {
   const definition = getMacroIndustryByKey(input.macroIndustryKey);
   if (definition === null) {
     const assessment = unresolvedMacroIndustryEvidence();
     return { verdict: assessment.verdict, reason: assessment.reason, assessment };
+  }
+
+  // SOURCES-DO-FREE-DISCOVERY-1 — una tabla oficial aprobada por la dueña manda
+  // sobre el evaluador por palabras (ver `CountrySourceCompany.officialMacroIndustry`).
+  // Sólo confirma la macro que la tabla asignó; cualquier otra queda rechazada.
+  const official = input.company.officialMacroIndustry;
+  if (official) {
+    return assessOfficialTableMembership(definition.key, official);
   }
 
   const declared = input.company.declaredIndustry;
@@ -84,6 +93,28 @@ export function assessCountrySourceMacroPrecision(input: {
     providerEvidenceFields: declaredIndustries.length > 0 ? [CIIU_EVIDENCE_FIELD] : [],
   });
 
+  return { verdict: assessment.verdict, reason: assessment.reason, assessment };
+}
+
+/** Campo de evidencia que declara una clasificación por tabla oficial aprobada. */
+export const OFFICIAL_MACRO_TABLE_EVIDENCE_FIELD = 'official_macro_table' as const;
+
+function assessOfficialTableMembership(
+  macroIndustryKey: string,
+  official: NonNullable<CountrySourceCompany['officialMacroIndustry']>,
+): CountrySourceMacroPrecision {
+  const confirmed = official.macroIndustryKeys.includes(macroIndustryKey);
+  const assessment: MacroIndustryEvidenceAssessment = {
+    version: MACRO_INDUSTRY_EVIDENCE_VERSION,
+    verdict: confirmed ? 'confirmed' : 'rejected',
+    reason: confirmed ? 'confirming_term_in_declared_evidence' : 'declared_industry_outside_macro',
+    macroIndustryKey,
+    matchedConfirmingTerms: confirmed ? [official.tableVersion] : [],
+    matchedParentIndustries: [],
+    matchedExcludingIndustries: [],
+    providerEvidenceFields: [OFFICIAL_MACRO_TABLE_EVIDENCE_FIELD],
+    declaredIndustryPresent: true,
+  };
   return { verdict: assessment.verdict, reason: assessment.reason, assessment };
 }
 

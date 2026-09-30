@@ -166,9 +166,18 @@ export async function readApolloContinuationSnapshot(
       : (clientOverride as unknown as CheckpointStoreClient),
   );
   const pendingOrganizationCount = checkpoint?.pending_organizations.length ?? 0;
+  // PERSIST-COMPLETED-RUN-1 — evaluada entera pero sin escribir: sigue abierta.
+  const persistencePending =
+    checkpoint !== null &&
+    checkpoint.checkpoint_reason === 'run_completed' &&
+    checkpoint.candidates_persisted !== true;
 
   return {
-    status: resolveApolloContinuationUiStatus({ pendingOrganizationCount, jobStatus: job.status }),
+    status: resolveApolloContinuationUiStatus({
+      pendingOrganizationCount,
+      jobStatus: job.status,
+      persistencePending,
+    }),
     pendingOrganizationCount,
   };
 }

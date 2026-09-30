@@ -173,6 +173,14 @@ jobs:
       - name: Run Apollo provider attempts tests
         run: npm run test:apollo-provider-attempts
 
+      # AGENT1-CLAUDE-CLASSIFIER-1 - Claude sugiere macroindustria y tamano con
+      # cita y fuente para candidatos "para revision"; solo escribe
+      # metadata.claude_classification, nunca el estado. Flag apagada.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 Claude classifier tests
+        run: npm run test:a1-claude-classifier
+
       # Q3F-5BB.11F.2 — Apollo per-candidate provider_trace + source_trace.
       # Guards that each inserted candidate row carries an additive
       # metadata.source_provider='apollo', metadata.provider_trace (attempt_index=0,
@@ -4181,6 +4189,16 @@ jobs:
       - name: Run Agent 1 CUT4-B1 writer provenance parity tests
         run: npm run test:a1-cut4-b1-writer-provenance
 
+      # ── AGENT1-IMPORT-PARITY — importar prospectos = mismas reglas que Apollo/Lusha ──
+      #
+      # «Una empresa, un vendedor» (identity_key, duplicados en el archivo, activos
+      # de otro lote, reclamo global de la 140), identificador fiscal por país,
+      # avisos de país/plataforma/dominio/tamaño, y revisión en Prospectos igual
+      # que los de IA sin cambiar `record_origin='import'`.
+      # Offline: dobles de Supabase, cero red, cero proveedores, cero créditos.
+      - name: Run Agent 1 import parity tests
+        run: npm run test:a1-import-parity
+
       # ── AGENT2-FINAL-INTEGRATION — la cadena de sincronización con HubSpot ─────
       #
       # EL DEFECTO QUE CIERRA LA CADENA COMPLETA: la ficha de un contacto decía
@@ -6182,3 +6200,37 @@ jobs:
       # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
       - name: Run Agent 1 Apollo single round all families tests
         run: npm run test:a1-apollo-single-round-all-families
+
+      # AGENT1-CLAIMS-ONLY-LIVE-CANDIDATES-1 - solo una fila VIVA reclama senales
+      # globales de identidad: una insertada ya como duplicate/discarded nunca
+      # pasa por el UPDATE que libera (disparador de la migracion 140).
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 global identity claims only-live tests
+        run: npm run test:a1-global-identity-claims-only-live
+
+      # AGENT1-APOLLO-SEEN-DOMAIN-EXCLUSION-SCOPE-1 - la exclusion de dominios de
+      # Apollo (bandera apagada) conoce los candidatos vivos de SellUp, deja de
+      # ocultar lo que un vendedor descarto y publica un fallo de lectura como
+      # fallo, no como memoria vacia.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 Apollo seen-domain exclusion scope tests
+        run: npm run test:a1-apollo-seen-domain-exclusion-scope
+
+      # AGENT1-APOLLO-KEYWORD-ACCENT-VARIANTS-1 - las etiquetas en espanol viajan
+      # tambien con su tilde (clinica + clinica con tilde), al final y dentro del
+      # tope de 25, como recomendo el soporte de Apollo.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 Apollo keyword accent variants tests
+        run: npm run test:a1-apollo-keyword-accent-variants
+
+      # AGENT1-APOLLO-CONTINUATION-PERSIST-COMPLETED-RUN-1 - una corrida pagada y
+      # evaluada entera (run_completed) que se quedo sin tiempo escribiendo se
+      # reanuda para escribir en vez de cerrarse vacia; la pasada por los sitios
+      # web corre en paralelo y con presupuesto de tiempo.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 Apollo continuation persist completed run tests
+        run: npm run test:a1-apollo-continuation-persist-completed-run
