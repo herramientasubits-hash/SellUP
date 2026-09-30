@@ -6,7 +6,8 @@ import {
   authorizeRecoveryCronRequest,
   extractCronSecretFromAuthorizationHeader,
 } from '@/modules/contact-enrichment/phone-reveal-recovery-cron-core';
-import { runEnrichmentWorker } from '@/server/prospect-batches/enrichment-worker';
+// AGENT1-IMPORT-PARITY-10 — el cron vacía la cola con el mismo presupuesto que la importación.
+import { drainEnrichmentJobs } from '@/server/prospect-batches/enrichment-drain';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,7 +24,7 @@ async function handleCronRequest(request: NextRequest) {
     }
 
     console.info('[CronEnrich] Starting enrichment worker run...');
-    const stats = await runEnrichmentWorker();
+    const stats = await drainEnrichmentJobs();
 
     return NextResponse.json({
       success: true,

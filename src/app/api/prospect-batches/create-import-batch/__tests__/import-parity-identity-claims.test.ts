@@ -18,6 +18,7 @@
 import { describe, it, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
+import * as realNextServer from 'next/server';
 import { IMPORT_ADMISSION_METADATA_KEY } from '@/server/prospect-batches/import-identity-admission';
 
 type Row = Record<string, unknown>;
@@ -27,6 +28,11 @@ const spy = {
   batchUpdates: [] as Row[],
   rpcCalls: [] as Array<{ fn: string; args: Row }>,
   claimedElsewhereIds: new Set<string>(),
+  /** Callbacks que la ruta agenda con `after()` (PARITY-10). */
+  afterCallbacks: [] as Array<() => unknown>,
+  drainCalls: 0,
+  /** La validación (simulada) deja estos candidatos con enriquecimiento `pending`. */
+  pendingEnrichment: false,
 };
 
 function resetSpy(): void {
@@ -34,6 +40,9 @@ function resetSpy(): void {
   spy.batchUpdates.length = 0;
   spy.rpcCalls.length = 0;
   spy.claimedElsewhereIds = new Set();
+  spy.afterCallbacks.length = 0;
+  spy.drainCalls = 0;
+  spy.pendingEnrichment = false;
 }
 
 const ACTIVE_ELSEWHERE: Row[] = [
@@ -123,7 +132,14 @@ function makeSession(): unknown {
           const ids = (f['in:id'] as string[]) ?? [];
           return insertedWithIds()
             .filter((r) => (ids.length === 0 || ids.includes(r.id as string)) && r.status !== f['neq:status'])
-            .map((r) => ({ id: r.id, status: r.status, duplicate_status: r.duplicate_status ?? null, metadata: r.metadata }));
+            .map((r) => ({
+              id: r.id,
+              status: r.status,
+              duplicate_status: r.duplicate_status ?? null,
+              metadata: spy.pendingEnrichment
+                ? { ...(r.metadata as Row), enrichment: { status: 'pending' } }
+                : r.metadata,
+            }));
         });
         chain.insert = (row: Row) => {
           spy.candidateInserts.push({ ...row });
@@ -138,6 +154,17 @@ function makeSession(): unknown {
 }
 
 mock.module('@/lib/supabase/server', { namedExports: { createClient: async () => makeSession() } });
+mock.module('next/server', {
+  namedExports: { ...realNextServer, after: (cb: () => unknown) => { spy.afterCallbacks.push(cb); } },
+});
+mock.module('@/server/prospect-batches/enrichment-drain', {
+  namedExports: {
+    drainEnrichmentJobs: async () => {
+      spy.drainCalls++;
+      return { rounds: 1, processed: 0, succeeded: 0, stoppedBy: 'queue_empty' };
+    },
+  },
+});
 mock.module('@/lib/supabase/admin', { namedExports: { createSupabaseAdminClient: () => makeAdmin() } });
 // AGENT1-IMPORT-PARITY-8 — catálogo oficial falso: sólo reconoce «Catálogo SAS».
 mock.module('@/server/prospect-batches/official-source-resolvers', {
@@ -274,6 +301,20 @@ describe('AGENT1-IMPORT-PARITY-1 — admisión por identidad en la ruta de impor
     const [inserted] = spy.candidateInserts;
     assert.notEqual(inserted.tax_identifier, '900123456-8');
     assert.equal('source_enrichment' in (inserted.metadata as Row), false);
+  });
+
+  it('con trabajos de IA pendientes, el vaciado se agenda en segundo plano (PARITY-10)', async () => {
+    spy.pendingEnrichment = true;
+    await importRows([company('Uno SAS', 'uno.co')]);
+    assert.equal(spy.afterCallbacks.length, 1, 'se agenda exactamente un vaciado');
+    assert.equal(spy.drainCalls, 0, 'no corre ANTES de responder');
+    await spy.afterCallbacks[0]();
+    assert.equal(spy.drainCalls, 1);
+  });
+
+  it('sin nada que valga la pena enriquecer, no se agenda IA', async () => {
+    await importRows([company('Uno SAS', 'uno.co')]);
+    assert.equal(spy.afterCallbacks.length, 0);
   });
 
   it('sólo se reclaman las filas vivas, con el cliente administrativo y la RPC de la 140', async () => {

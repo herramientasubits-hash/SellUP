@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { validateImportedCandidatesBatch } from '@/modules/prospect-batches/actions';
 import { loadImportCatalog } from '@/modules/prospect-batches/import-catalog-loader';
@@ -35,6 +35,8 @@ import {
   IMPORT_SOURCE_ENRICHMENT_METADATA_KEY,
   enrichImportRowsWithOfficialSources,
 } from '@/server/prospect-batches/import-official-source-enrichment';
+import { drainEnrichmentJobs } from '@/server/prospect-batches/enrichment-drain';
+import { AUTO_ENRICH_CONFIG } from '@/modules/prospect-batches/auto-enrich-config';
 import {
   IMPORT_QUALITY_GATES_METADATA_KEY,
   evaluateImportQualityGates,
@@ -638,6 +640,21 @@ export async function POST(request: NextRequest) {
         } else if (cand.duplicate_status === 'possible_duplicate') {
           possibleDuplicateCount++;
         }
+      }
+    }
+
+    // AGENT1-IMPORT-PARITY-10 — la IA corre DESPUÉS de responder, sólo si quedó
+    // algo que valga la pena (la elegibilidad ya filtró duplicados, avisos y el
+    // tope). Sin cron programado, esto es lo que hace que el enriquecimiento
+    // exista. Si `after` no está disponible, los trabajos quedan `pending`.
+    if (AUTO_ENRICH_CONFIG.enabled && autoEnrichPendingCount > 0) {
+      try {
+        after(async () => {
+          const drain = await drainEnrichmentJobs();
+          console.info('[create-import-batch] post-import enrichment drain:', drain);
+        });
+      } catch (afterErr) {
+        console.error('[create-import-batch] could not schedule enrichment drain:', afterErr);
       }
     }
 
