@@ -177,6 +177,7 @@ import {
   buildCompanyLinkedInTrace,
   buildEmployeeCountTrace,
 } from './apollo-company-fields-mapping';
+import { resolveWebDiscoveryCompanyFieldStatuses } from './web-discovery-target-completeness';
 import {
   evaluateCandidateSubindustryTargetEligibility,
   buildCandidateCompletenessCounters,
@@ -2670,6 +2671,13 @@ export async function writeProspectingCandidates(
       writerEnrichment: linkedInEnrichment,
     });
 
+    // Tavily — sin `providerCompanyFields` el bloque de completitud no se escribía
+    // y el rescate de Claude no veía la fila. `null` fuera de Tavily: nada cambia.
+    const webDiscoveryFieldStatuses = resolveWebDiscoveryCompanyFieldStatuses({
+      provider: typeof pipelineMeta?.provider === 'string' ? pipelineMeta.provider : null,
+      writerLinkedinVerified: linkedinAvailability.isVerified,
+    });
+
     // § F — el scoring se corrigió si la URL le llegó tarde. Retira la advertencia
     // falsa y aplica el componente canónico exactamente una vez; con la URL ya
     // vista por el scorer (ruta reordenada del pipeline) esto es un no-op.
@@ -3072,10 +3080,16 @@ export async function writeProspectingCandidates(
       // industria.
       requestedSubindustries: requestedSubindustriesForTarget,
       subindustryPrecision: candidate.providerEnrichmentCapture?.precision ?? null,
-      employeeCountStatus: providerCompanyFields?.employeeCount.status ?? 'mapping_failed',
+      employeeCountStatus:
+        providerCompanyFields?.employeeCount.status ??
+        webDiscoveryFieldStatuses?.employeeCountStatus ??
+        'mapping_failed',
       // SIZE-EVIDENCE-PARITY-1 — la segunda vía admitida para el mismo hecho.
       icpSizeConfirmedAboveThreshold,
-      linkedinStatus: providerCompanyFields?.linkedin.status ?? 'mapping_failed',
+      linkedinStatus:
+        providerCompanyFields?.linkedin.status ??
+        webDiscoveryFieldStatuses?.linkedinStatus ??
+        'mapping_failed',
       duplicateStatus: dbDuplicateStatus,
       ownershipGate: 'pass',
       // 🔴 X6.2-A — pregunta 6, y SÓLO la 6. `'pass'` era correcto mientras la
@@ -3269,7 +3283,7 @@ export async function writeProspectingCandidates(
           : {}),
         // § 5 — por qué este candidato cuenta (o no) hacia el target. Persistido
         // no es lo mismo que completo, y aquí queda dicho por candidato.
-        ...(providerCompanyFields
+        ...(providerCompanyFields || webDiscoveryFieldStatuses
           ? {
               target_completeness: {
                 counts_toward_target: targetEligibility.countsTowardTarget,

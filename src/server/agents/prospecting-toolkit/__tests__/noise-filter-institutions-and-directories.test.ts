@@ -130,3 +130,21 @@ describe('AGENT1-TAVILY-V2-1 § 2 — gremios y cámaras de comercio SÍ son cli
     it(`fuera (listado de afiliados o evento): ${url}`, () => assert.equal(kept(url), false));
   }
 });
+
+describe('AGENT1-TAVILY-V2-3 — repositorios de documentos en cualquier dominio', () => {
+  // Prod 30-09 (lote 26f57743, CL×Energía): repositorios en `.org` y `.cl` que el
+  // filtro sólo miraba bajo `.edu`/`.gov`.
+  for (const url of [
+    'https://repositorio.cepal.org/entities/publication/x',
+    'https://repositorio.uahurtado.cl/handle/11242/1',
+    'https://repository.example.org/items/1',
+    'https://dspace.uce.edu.ec/handle/1',
+    'https://bibliotecadigital.oducal.com/x',
+  ]) {
+    it(`fuera: ${url}`, () => assert.equal(kept(url), false));
+  }
+  // Etiquetas que también usan empresas: se siguen exigiendo en dominio institucional.
+  for (const url of ['https://biblioteca.empresa.com/', 'https://revista.acme.com.co/', 'https://catalogo.tienda.cl/']) {
+    it(`pasa (etiqueta ambigua fuera de .edu/.gov): ${url}`, () => assert.equal(kept(url), true));
+  }
+});

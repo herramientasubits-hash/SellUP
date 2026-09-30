@@ -397,6 +397,15 @@ const INSTITUTIONAL_DOCUMENT_LABELS = new Set([
   'repositorio', 'repository', 'bdigital', 'biblioteca', 'bibliotecadigital',
   'revistas', 'revista', 'dspace', 'ojs', 'tesis', 'catalogo',
 ]);
+/**
+ * AGENT1-TAVILY-V2-3 — etiquetas que sólo usan los repositorios de documentos,
+ * en cualquier dominio (Prod 30-09: `repositorio.cepal.org`,
+ * `repositorio.uahurtado.cl`). `biblioteca`, `revista` o `catalogo` las usan
+ * también empresas, así que ésas siguen exigiendo dominio institucional.
+ */
+const DOCUMENT_REPOSITORY_LABELS = new Set([
+  'repositorio', 'repository', 'dspace', 'bdigital', 'bibliotecadigital',
+]);
 const PUBLIC_DATA_PORTAL_LABELS = new Set(['datos', 'datosabiertos', 'opendata']);
 const PUBLIC_PROCUREMENT_DOMAINS = new Set(['secop.gov.co', 'colombiacompra.gov.co']);
 
@@ -409,8 +418,11 @@ function classifyInstitutionalContent(domain: string): InstitutionalContentVerdi
   if (domainMatchesSet(domain, PUBLIC_PROCUREMENT_DOMAINS)) {
     return { kind: 'public_portal', reason: `Portal de contratación pública (${domain}) — listado, no la entidad` };
   }
-  if (!INSTITUTIONAL_TLD.test(domain)) return null;
   const firstLabel = domain.split('.')[0];
+  if (DOCUMENT_REPOSITORY_LABELS.has(firstLabel)) {
+    return { kind: 'academic_document', reason: `Repositorio de documentos (${domain}) — documento, no la organización` };
+  }
+  if (!INSTITUTIONAL_TLD.test(domain)) return null;
   if (INSTITUTIONAL_DOCUMENT_LABELS.has(firstLabel)) {
     return { kind: 'academic_document', reason: `Repositorio o publicación institucional (${domain}) — documento, no la institución` };
   }
