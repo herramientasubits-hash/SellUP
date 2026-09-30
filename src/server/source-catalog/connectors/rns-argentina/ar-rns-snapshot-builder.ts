@@ -19,6 +19,7 @@
 
 import { calculateArgentinaCheckDigit } from '@/modules/prospect-batches/tax-identifier-rules';
 import { deriveTaxRecordIdentity } from '../../record-identity';
+import { normalizeArCompanyCore } from './ar-company-name-core';
 import type { RecordIdentityKey } from '../../record-identity';
 import {
   AR_RNS_MACRO_TABLE_VERSION,
@@ -203,4 +204,51 @@ export function percentileScores(totals: readonly number[]): number[] {
   });
   const denominator = Math.max(sorted.length - 1, 1);
   return totals.map((value) => ((firstIndex.get(value) ?? 0) / denominator) * 100);
+}
+
+// ─── SOURCES-AR-CUIT-BY-NAME-1 — registro completo para CUIT por nombre ──────
+
+export const AR_RNS_REGISTRY_SOURCE_KEY = 'ar_rns_registry' as const;
+
+/** Fila MÍNIMA del registro: sólo lo necesario para resolver nombre → CUIT. */
+export type ArRnsRegistryRow = {
+  source_key: typeof AR_RNS_REGISTRY_SOURCE_KEY;
+  country_code: typeof AR_RNS_COUNTRY_CODE;
+  source_year: number;
+  tax_id: string;
+  normalized_tax_id: string;
+  legal_name: string;
+  normalized_legal_name: string;
+  raw_data: Record<string, unknown>;
+  imported_at: string;
+  record_identity_key: RecordIdentityKey | null;
+};
+
+/**
+ * Fila del registro de sociedades ACTIVAS. `normalized_legal_name` guarda el
+ * NÚCLEO del nombre (`normalizeArCompanyCore`), que es exactamente lo que el
+ * resolvedor de la corrida calcula para comparar. `null` si el nombre no deja
+ * núcleo utilizable.
+ */
+export function buildArRnsRegistryRow(params: {
+  activity: RnsPrincipalActivity;
+  sourceYear: number;
+  importedAt: string;
+}): ArRnsRegistryRow | null {
+  const { activity, sourceYear, importedAt } = params;
+  const core = normalizeArCompanyCore(activity.legalName);
+  if (core.length < 2) return null;
+  const identity = deriveTaxRecordIdentity(activity.cuit);
+  return {
+    source_key: AR_RNS_REGISTRY_SOURCE_KEY,
+    country_code: AR_RNS_COUNTRY_CODE,
+    source_year: sourceYear,
+    tax_id: activity.cuit,
+    normalized_tax_id: activity.cuit,
+    legal_name: activity.legalName,
+    normalized_legal_name: core,
+    raw_data: { actividad_codigo: activity.activityCode },
+    imported_at: importedAt,
+    record_identity_key: identity.status === 'resolved' ? identity.recordIdentityKey : null,
+  };
 }

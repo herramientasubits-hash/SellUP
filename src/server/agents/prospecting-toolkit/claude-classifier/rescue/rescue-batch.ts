@@ -191,7 +191,8 @@ async function rescueDisposition(
 
   const decision = decideRescue(result, { icpMinEmployees: DEFAULT_ICP_MIN_EMPLOYEES });
   const decidedAt = deps.nowIso();
-  if (decision.kind === 'admit') {
+  // Una fila de Descartadas sólo vuelve si el SECTOR quedó confirmado (se descartó por eso).
+  if (decision.kind === 'admit' && decision.sectorConfirmed) {
     const candidateId = await deps.admitDisposition(
       row.id,
       buildDispositionAdmissionOrigin(result, decision, DEFAULT_ICP_MIN_EMPLOYEES, decidedAt),
@@ -202,8 +203,10 @@ async function rescueDisposition(
     }
     return { tag: 'failed', cost };
   }
+  // Se queda en Descartadas: si Claude completó algo pero no el sector, no es un «admit».
+  const staysDecision = decision.kind === 'admit' ? ({ kind: 'unchanged', why: 'sector_unknown' } as const) : decision;
   const saved = await deps.patchDispositionEvidence(row.id, (evidence) =>
-    buildDispositionStaysEvidence(evidence, result, decision, decidedAt),
+    buildDispositionStaysEvidence(evidence, result, staysDecision, decidedAt),
   );
   return { tag: saved ? 'kept' : 'failed', cost };
 }
@@ -224,9 +227,15 @@ async function mapUntil<T, R>(items: readonly T[], limit: number, shouldStop: ()
 }
 
 export async function rescueBatchWithClaude(
-  params: { batchId: string; triggeredBy: string | null },
+  params: {
+    batchId: string;
+    triggeredBy: string | null;
+    /** Tiempo para EMPEZAR empresas nuevas; por defecto RESCUE_RUN_DEADLINE_MS. */
+    deadlineMs?: number;
+  },
   deps: RescueBatchDeps,
 ): Promise<RescueBatchSummary> {
+  const deadlineMs = params.deadlineMs ?? RESCUE_RUN_DEADLINE_MS;
   const active = await deps.resolveActiveModel();
   if ('error' in active) return { ok: false, error: 'model_not_configured', detail: active.error };
   if (!(await deps.checkQuota()).allowed) return { ok: false, error: 'quota_exhausted' };
@@ -261,7 +270,7 @@ export async function rescueBatchWithClaude(
   const outcomes = await mapUntil(
     thisRun,
     RESCUE_CONCURRENCY,
-    () => deps.nowMs() - startedMs >= RESCUE_RUN_DEADLINE_MS,
+    () => deps.nowMs() - startedMs >= deadlineMs,
     (item) =>
       item.kind === 'candidate' ? rescueCandidate(item.row, ctx, deps) : rescueDisposition(item.row, ctx, deps, admittedIds),
   );

@@ -312,6 +312,14 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
 
   const selectedCountry = LATAM_COUNTRIES.find((c) => c.code === selectedCountryCode);
   const selectedIndustryName = catalogData?.industries.find((i) => i.id === selectedIndustry)?.name;
+  // AGENT1-IMPORT-NO-SUBINDUSTRY-1 — SellUp ya no maneja subindustrias: el
+  // catálogo v2 no publica ninguna. Sin subindustrias en el catálogo, la
+  // importación no las pide, no las muestra y no las envía.
+  const subindustriesEnabled = React.useMemo(
+    () => !!catalogData?.industries.some((i) => i.subindustries.length > 0),
+    [catalogData],
+  );
+
   const selectedSubindustryName = (selectedSubindustryId && selectedSubindustryId !== '__none__')
     ? catalogData?.industries.find((i) => i.id === selectedIndustry)?.subindustries.find((s) => s.id === selectedSubindustryId)?.name
     : undefined;
@@ -370,7 +378,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
             company_name: r.raw.company_name,
             country_code: r.resolved_country_code,
             industry: normalizeIndustryRaw(industryRaw),
-            subindustry: normalizeSubindustryRaw(subindustryRaw),
+            subindustry: subindustriesEnabled ? normalizeSubindustryRaw(subindustryRaw) : undefined,
             website: r.raw.website,
             linkedin_url: r.raw.linkedin_url,
             city: r.raw.city,
@@ -672,7 +680,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
         country: r.raw.country,
         country_code: r.resolved_country_code ?? r.raw.country_code,
         industry: r.raw.industry,
-        subindustry: r.raw.subindustry,
+        subindustry: subindustriesEnabled ? r.raw.subindustry : undefined,
         website: r.raw.website,
         city: r.raw.city,
         region: r.raw.region,
@@ -1140,7 +1148,8 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                 </p>
               </div>
 
-              {/* Subindustria por defecto */}
+              {/* Subindustria por defecto — sólo si el catálogo publica subindustrias */}
+              {subindustriesEnabled && (
               <div className="space-y-1.5 col-span-2">
                 <label className="text-xs font-medium text-foreground">
                   Subindustria por defecto{' '}
@@ -1173,6 +1182,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                   Opcional. Se usará únicamente en filas que no incluyan subindustria.
                 </p>
               </div>
+              )}
             </div>
           </SurfaceCard>
 
@@ -1481,6 +1491,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
               onSelectionChange={setClassificationSelectedIds}
               catalog={catalogData ?? undefined}
               catalogVersion={catalogVersion ?? undefined}
+              showSubindustry={subindustriesEnabled}
               onSaveCorrection={handleSaveCorrection}
               onBulkCorrection={handleBulkCorrection}
             />

@@ -704,17 +704,16 @@ describe('§ 7 — clasificación macro-only: sin hija sintética, sin bloqueo',
   // borrar la columna. Decisión de producto: SellUp ya no maneja subindustrias.
   // La garantía «nunca silenciada» se conserva: el aviso sigue visible y el
   // texto original viaja con la fila. Lo único que cambia es que no bloquea.
-  it('una subindustria enviada bajo v2 queda VISIBLE como aviso y conservada, sin bloquear', () => {
+  // AGENT1-IMPORT-NO-SUBINDUSTRY-1 (30-09) — la dueña pidió quitar la
+  // subindustria de la importación: ni bloqueo ni aviso. El texto original se
+  // conserva en `subindustryOriginalValue` (trazabilidad), pero no se muestra.
+  it('una subindustria enviada bajo v2 se ignora: sin aviso, sin bloqueo, original conservado', () => {
     const result = classifyUnder(v2ImportCatalog(), 'Retail', 'Ciberseguridad');
     const row = result.rows[0];
     assert.equal(row.classification.subindustryId, null);
     assert.equal(row.classification.subindustryOriginalValue, 'Ciberseguridad');
-    assert.ok(
-      row.classification.classificationWarnings.some((w) => w.code === 'SUBINDUSTRY_NOT_FOUND'),
-      'la subindustria no puede desaparecer en silencio',
-    );
+    assert.equal(row.classification.classificationWarnings.some((w) => w.field === 'subindustry'), false);
     assert.equal(row.classification.requiresHumanReview, false);
-    assert.equal(row.validationStatus, 'warning');
     assert.equal(result.valid, true);
   });
 

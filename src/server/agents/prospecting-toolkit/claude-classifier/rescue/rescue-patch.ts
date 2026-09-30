@@ -14,6 +14,7 @@ export const CLAUDE_EMPLOYEE_COUNT_SOURCE = 'claude_classifier';
 /** Condiciones del contrato de completitud que el rescate puede dar por cumplidas. */
 const SECTOR_CONDITION = 'subindustry_match';
 const SIZE_CONDITION = 'employee_count_status';
+const LINKEDIN_CONDITION = 'linkedin_status';
 
 /** Un sitio caído o un error del modelo no es un veredicto: se vuelve a intentar. */
 export const RETRYABLE_OUTCOMES: ReadonlySet<string> = new Set(['website_unreachable', 'model_error']);
@@ -88,6 +89,7 @@ export function resolveCompletenessConditions(
   // Con subindustrias pedidas, la macroindustria no basta (el catálogo v2 no tiene subindustrias).
   if (decision.sectorConfirmed && requestedSubindustries.length === 0) resolvable.add(SECTOR_CONDITION);
   if (decision.sizeConfirmed) resolvable.add(SIZE_CONDITION);
+  if (decision.linkedinConfirmed) resolvable.add(LINKEDIN_CONDITION);
 
   const resolved = failed.filter((c) => resolvable.has(c));
   if (resolved.length === 0) return { completeness, resolved };
@@ -126,6 +128,31 @@ export function buildIcpSizeGatePass(
     requires_human_review: false,
     reason: `Claude: «${range.quote.slice(0, 120)}»`,
     source: CLAUDE_EMPLOYEE_COUNT_SOURCE,
+  };
+}
+
+/**
+ * `metadata.linkedin_enrichment` en la forma canónica de SellUp (la que lee
+ * `getCandidateLinkedInUrl`). Nunca pisa un LinkedIn ya encontrado.
+ */
+export function buildLinkedInEnrichmentFromClaude(
+  previous: Metadata | null,
+  result: CompanyClassificationResult,
+  checkedAt: string,
+): Metadata | null {
+  if (!result.linkedin) return previous;
+  if (previous?.status === 'found' && typeof previous.company_url === 'string') return previous;
+  return {
+    enabled: true,
+    status: 'found',
+    company_url: result.linkedin.url,
+    normalized_company_slug: result.linkedin.slug,
+    confidence: result.linkedin.source === 'website_social_link' ? 90 : 75,
+    match_reason: `claude_classifier:${result.linkedin.source}`,
+    signals: null,
+    warnings: [],
+    source: result.linkedin.source,
+    checked_at: checkedAt,
   };
 }
 
@@ -173,6 +200,9 @@ export function buildCandidateRescuePatch(params: {
     ...withCompleteness,
     ...(decision.sizeConfirmed
       ? { icp_size_gate: buildIcpSizeGatePass(asObject(base.icp_size_gate), result, minEmployees) }
+      : {}),
+    ...(decision.linkedinConfirmed
+      ? { linkedin_enrichment: buildLinkedInEnrichmentFromClaude(asObject(base.linkedin_enrichment), result, decidedAt) }
       : {}),
     [CLAUDE_RESCUE_METADATA_KEY]: buildRescueMetadata(decision, resolved, decidedAt),
   };

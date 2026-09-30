@@ -510,6 +510,7 @@ const createWizardBudgetClient = createWizardBudgetServiceClient;
 export async function executeProspectWizardGenerationAction(
   request: unknown,
 ): Promise<WizardExecutionActionResult> {
+  const actionStartedAtMs = Date.now();
   const supabase = await createClient();
   // Budget operations need service_role: the RPC functions grant EXECUTE only to postgres/service_role,
   // and wizard_budget_reservations has no authenticated RLS policy.
@@ -868,7 +869,7 @@ export async function executeProspectWizardGenerationAction(
 
   const result = await executeProspectWizardGeneration(request, deps);
   // AGENT1-CLAUDE-RESCUE-1 — en segundo plano, detrás de su propio flag (apagado).
-  scheduleClaudeRescueAfterWizardRun(result, deps.getActiveUserId);
+  scheduleClaudeRescueAfterWizardRun(result, deps.getActiveUserId, actionStartedAtMs);
   return result;
 }
 

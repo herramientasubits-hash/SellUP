@@ -15,6 +15,7 @@ import {
 import type { SendToReviewOrigin } from '@/modules/prospect-discards/send-to-review-core';
 import type { RescueDecision } from './rescue-decision';
 import {
+  buildLinkedInEnrichmentFromClaude,
   buildIcpSizeGatePass,
   buildRescueInProgress,
   buildRescueMetadata,
@@ -107,6 +108,9 @@ export function buildDispositionAdmissionOrigin(
       claude_classification: buildClassificationMetadata(result, decidedAt),
       [CLAUDE_RESCUE_METADATA_KEY]: buildRescueMetadata(decision, [], decidedAt),
       ...(range ? { icp_size_gate: buildIcpSizeGatePass(null, result, minEmployees) } : {}),
+      ...(decision.linkedinConfirmed
+        ? { linkedin_enrichment: buildLinkedInEnrichmentFromClaude(null, result, decidedAt) }
+        : {}),
     },
     columns: {
       ...(result.sector ? { industry: result.sector.industryName } : {}),

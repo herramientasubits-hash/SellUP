@@ -22,6 +22,7 @@ export type ClaudeClassificationDisplay = {
     sourceUrl: string;
     verificationLabel: string;
   } | null;
+  linkedin: { url: string; sourceLabel: string } | null;
   rejectedCount: number;
   notOperatingCompany: boolean;
   estimatedCostUsd: number | null;
@@ -40,6 +41,11 @@ const OUTCOMES: Record<string, { label: string; tone: ClaudeClassificationDispla
 const VERIFICATION_LABELS: Record<string, string> = {
   quote_verified: 'Cita comprobada en la fuente',
   source_listed: 'Fuente de la búsqueda web — la cita NO se pudo comprobar',
+};
+
+const LINKEDIN_SOURCE_LABELS: Record<string, string> = {
+  website_social_link: 'Enlazada desde el sitio oficial',
+  provided_search_result: 'Encontrada por búsqueda web (el nombre coincide)',
 };
 
 function str(value: unknown): string | null {
@@ -102,12 +108,21 @@ export function readClaudeClassificationDisplay(metadata: unknown): ClaudeClassi
     }
   }
 
+  let linkedin: ClaudeClassificationDisplay['linkedin'] = null;
+  if (c.linkedin_company && typeof c.linkedin_company === 'object') {
+    const l = c.linkedin_company as Record<string, unknown>;
+    const url = safeUrl(l.url);
+    const sourceLabel = LINKEDIN_SOURCE_LABELS[str(l.source) ?? ''];
+    if (url && /(^|\.)linkedin\.com$/i.test(new URL(url).hostname) && sourceLabel) linkedin = { url, sourceLabel };
+  }
+
   return {
     outcomeLabel: outcome.label,
     outcomeTone: outcome.tone,
     classifiedAt: str(c.classified_at),
     sector,
     employeeRange,
+    linkedin,
     rejectedCount: Array.isArray(c.rejected) ? c.rejected.length : 0,
     notOperatingCompany: c.is_operating_company === false,
     estimatedCostUsd: typeof c.estimated_cost_usd === 'number' ? c.estimated_cost_usd : null,
