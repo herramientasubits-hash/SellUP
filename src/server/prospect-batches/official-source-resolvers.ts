@@ -6,8 +6,8 @@
  *
  * Builds the injected `OfficialSourceResolver[]` the pure core hands to
  * `enrichNormalizedProspectWithOfficialSources`. Today that is one resolver
- * per supported country: Colombia (co_siis) name→NIT and República Dominicana
- * (rd_dgii_bulk) name→RNC. No promise of MX/PE/EC/… enrichment is made here;
+ * per supported country: Colombia (co_siis) name→NIT, República Dominicana
+ * (rd_dgii_bulk) name→RNC and Argentina (ar_rns_registry) name→CUIT. No promise of MX/PE/EC/… enrichment is made here;
  * unsupported countries fall through to the shared "unsupported" result (soft
  * warning) automatically.
  *
@@ -38,6 +38,8 @@ import { createColombiaOfficialSourceResolver } from '@/server/agents/prospect-i
 import { buildColombiaSnapshotQuery } from '@/server/prospect-batches/colombia-snapshot-query';
 import { createDominicanOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/dominican-republic-official-source-resolver';
 import { buildDominicanSnapshotQuery } from '@/server/prospect-batches/dominican-republic-snapshot-query';
+import { createArgentinaOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/argentina-official-source-resolver';
+import { buildArgentinaSnapshotQuery } from '@/server/prospect-batches/argentina-snapshot-query';
 
 /**
  * Build the read-only official-source resolvers shared by every discovery
@@ -60,6 +62,9 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
     }),
     createDominicanOfficialSourceResolver({
       querySnapshots: buildDominicanSnapshotQuery(snapshotClient),
+    }),
+    createArgentinaOfficialSourceResolver({
+      querySnapshots: buildArgentinaSnapshotQuery(snapshotClient),
     }),
   ];
 }
