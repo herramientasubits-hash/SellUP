@@ -77,15 +77,36 @@ export function quoteNamesIndustry(quote: string, industryName: string | null | 
   return stems(industryName).some((stem) => quoteText.includes(stem));
 }
 
+function isSafeNegativeEvidence(
+  evidence: { verification: string; confidence: number; quote: string },
+  ctx: RescueContext,
+): boolean {
+  return (
+    evidence.verification === 'quote_verified' &&
+    evidence.confidence >= MIN_DISCARD_CONFIDENCE &&
+    !quoteNamesIndustry(evidence.quote, ctx.requestedIndustryName)
+  );
+}
+
+/**
+ * Dos señales: la macroindustria del catálogo que eligió Claude y su respuesta
+ * directa «¿pertenece a la industria buscada?». La segunda existe porque hay
+ * empresas que no encajan en NINGUNA de las 12 macros (medios, Prod 30-09):
+ * sin ella no había veredicto. Si las dos señales se contradicen, no se decide.
+ */
 function sectorVerdict(result: CompanyClassificationResult, ctx: RescueContext): 'pass' | 'fail' | 'unknown' {
   const sector = result.sector;
-  if (!sector || sector.matchesCurrentIndustry === null) return 'unknown';
-  if (sector.matchesCurrentIndustry) return 'pass';
-  const safeToDiscard =
-    sector.verification === 'quote_verified' &&
-    sector.confidence >= MIN_DISCARD_CONFIDENCE &&
-    !quoteNamesIndustry(sector.quote, ctx.requestedIndustryName);
-  return safeToDiscard ? 'fail' : 'unknown';
+  const fit = result.requestedIndustryFit ?? null;
+  const catalogSays = !sector || sector.matchesCurrentIndustry === null ? null : sector.matchesCurrentIndustry;
+  const fitSays = fit ? fit.fits : null;
+  if (catalogSays !== null && fitSays !== null && catalogSays !== fitSays) return 'unknown';
+
+  if (catalogSays === true) return 'pass';
+  if (fitSays === true && fit!.verification === 'quote_verified') return 'pass';
+
+  if (catalogSays === false && sector && isSafeNegativeEvidence(sector, ctx)) return 'fail';
+  if (fitSays === false && fit && isSafeNegativeEvidence(fit, ctx)) return 'fail';
+  return 'unknown';
 }
 
 function sizeVerdict(result: CompanyClassificationResult, ctx: RescueContext): 'pass' | 'fail' | 'unknown' {
@@ -106,12 +127,15 @@ export function decideRescue(result: CompanyClassificationResult, ctx: RescueCon
   const sector = sectorVerdict(result, ctx);
   const size = sizeVerdict(result, ctx);
 
-  if (sector === 'fail' && result.sector) {
+  if (sector === 'fail') {
+    const bySector = result.sector && result.sector.matchesCurrentIndustry === false ? result.sector : null;
+    const evidence = bySector ?? result.requestedIndustryFit!;
+    const what = bySector ? `es ${bySector.industryName}` : `no es ${ctx.requestedIndustryName ?? 'de la industria buscada'}`;
     return {
       kind: 'discard',
       reason: 'claude_sector_mismatch',
-      detail: `Según Claude es ${result.sector.industryName}: «${result.sector.quote.slice(0, 160)}»`,
-      sourceUrl: result.sector.sourceUrl,
+      detail: `Según Claude ${what}: «${evidence.quote.slice(0, 160)}»`,
+      sourceUrl: evidence.sourceUrl,
     };
   }
   if (size === 'fail' && result.employeeRange) {
@@ -123,7 +147,9 @@ export function decideRescue(result: CompanyClassificationResult, ctx: RescueCon
     };
   }
   const linkedinConfirmed = !!result.linkedin;
-  const sectorMismatchUnconfirmed = sector === 'unknown' && result.sector?.matchesCurrentIndustry === false;
+  const sectorMismatchUnconfirmed =
+    sector === 'unknown' &&
+    (result.sector?.matchesCurrentIndustry === false || result.requestedIndustryFit?.fits === false);
   if (sector !== 'pass' && size !== 'pass' && !linkedinConfirmed) {
     return { kind: 'unchanged', why: 'sector_unknown', ...(sectorMismatchUnconfirmed ? { sectorMismatchUnconfirmed } : {}) };
   }
