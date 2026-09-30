@@ -191,7 +191,8 @@ async function rescueDisposition(
 
   const decision = decideRescue(result, { icpMinEmployees: DEFAULT_ICP_MIN_EMPLOYEES });
   const decidedAt = deps.nowIso();
-  if (decision.kind === 'admit') {
+  // Una fila de Descartadas sólo vuelve si el SECTOR quedó confirmado (se descartó por eso).
+  if (decision.kind === 'admit' && decision.sectorConfirmed) {
     const candidateId = await deps.admitDisposition(
       row.id,
       buildDispositionAdmissionOrigin(result, decision, DEFAULT_ICP_MIN_EMPLOYEES, decidedAt),
@@ -202,8 +203,10 @@ async function rescueDisposition(
     }
     return { tag: 'failed', cost };
   }
+  // Se queda en Descartadas: si Claude completó algo pero no el sector, no es un «admit».
+  const staysDecision = decision.kind === 'admit' ? ({ kind: 'unchanged', why: 'sector_unknown' } as const) : decision;
   const saved = await deps.patchDispositionEvidence(row.id, (evidence) =>
-    buildDispositionStaysEvidence(evidence, result, decision, decidedAt),
+    buildDispositionStaysEvidence(evidence, result, staysDecision, decidedAt),
   );
   return { tag: saved ? 'kept' : 'failed', cost };
 }

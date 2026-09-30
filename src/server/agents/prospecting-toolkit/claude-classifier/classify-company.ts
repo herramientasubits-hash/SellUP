@@ -26,6 +26,8 @@ import {
   verifySubmission,
 } from './evidence-verifier';
 import { normalizeDomain } from '../normalization';
+import { extractLinkedInCompanyUrlsFromHtml } from '../linkedin-website-social-extractor';
+import { verifyLinkedInCompany } from './linkedin-verifier';
 import { extractVisibleText } from './page-text';
 import {
   buildSubmitToolDefinition,
@@ -199,15 +201,30 @@ export async function classifyCompany(
         )
       : firstPass;
 
+  // LinkedIn: sólo con fuente (enlace en el sitio oficial o resultado de búsqueda con slug coincidente).
+  const linkedinCheck = verifyLinkedInCompany({
+    claimedUrl: submission.linkedin_company_url,
+    officialSiteLinks: page.html ? extractLinkedInCompanyUrlsFromHtml(page.html) : [],
+    searchResultUrls: extractSearchResultUrls(conversation.content),
+    companyName: params.company.name,
+    companyDomain: normalizeDomain(website),
+    countryCode: params.company.countryCode,
+  });
+  const verifiedWithLinkedIn = {
+    ...verified,
+    linkedin: linkedinCheck.linkedin,
+    rejected: linkedinCheck.rejected ? [...verified.rejected, linkedinCheck.rejected] : verified.rejected,
+  };
+
   const found = Number(verified.sector !== null) + Number(verified.employeeRange !== null);
   // Sin página por ninguna vía y nada verificable: es el sitio, no la empresa → reintentable.
   if (found === 0 && pageSource === 'none') {
-    return finish({ outcome: 'website_unreachable', pageFinalUrl, usage, pageSource, errorCode: ownFetchError, ...verified });
+    return finish({ outcome: 'website_unreachable', pageFinalUrl, usage, pageSource, errorCode: ownFetchError, ...verifiedWithLinkedIn });
   }
   const outcome: ClassificationOutcome =
     found === 2 ? 'classified' : found === 1 ? 'partially_classified' : 'nothing_verifiable';
 
-  return finish({ outcome, pageFinalUrl, usage, pageSource, ...verified });
+  return finish({ outcome, pageFinalUrl, usage, pageSource, ...verifiedWithLinkedIn });
 }
 
 /** `http://x` → `https://x`: la lectura web y la comparación de URLs usan la forma canónica. */
