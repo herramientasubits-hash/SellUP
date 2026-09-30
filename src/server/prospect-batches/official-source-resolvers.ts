@@ -82,6 +82,7 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
     }),
     createEcuadorOfficialSourceResolver({
       querySnapshots: buildEcuadorSnapshotQuery(snapshotClient),
+    }),
     // SOURCES-GT-HN-BY-NAME-1 — registros ya cargados; la dueña autorizó (30-09)
     // dejar de tratarlos como sólo lectura para la identidad fiscal.
     createSnapshotNameOfficialSourceResolver({

@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { buildSnapshotNameQuery, SNAPSHOT_NAME_QUERY_LIMIT } from '../snapshot-name-query';
+import { buildColombiaOfficialSourceResolvers } from '../official-source-resolvers';
 
 const strip = (code: string) => code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 const read = (rel: string) => strip(readFileSync(join(process.cwd(), rel), 'utf8'));
@@ -60,6 +61,14 @@ describe('buildSnapshotNameQuery', () => {
 });
 
 describe('cableado', () => {
+  it('el módulo del factory compila y se ejecuta (nunca lanza, aunque falte el entorno)', () => {
+    const resolvers = buildColombiaOfficialSourceResolvers();
+    assert.ok(Array.isArray(resolvers));
+    for (const resolver of resolvers) {
+      assert.ok(['CO', 'DO', 'AR', 'EC', 'GT', 'HN'].includes(resolver.countryCode), resolver.countryCode);
+    }
+  });
+
   it('el factory construye Guatemala (NIT) y Honduras (RTN) sobre sus snapshots', () => {
     const wiring = read('src/server/prospect-batches/official-source-resolvers.ts');
     assert.match(wiring, /countryCode: 'GT',\s*sourceKey: 'gt_rgae_proveedores',\s*taxIdentifierType: 'NIT'/);

@@ -164,6 +164,20 @@ describe('createSnapshotNameOfficialSourceResolver', () => {
     assert.equal(identity.officialSource.status, 'not_found');
   });
 
+  it('una fila con otro núcleo se descarta aunque la lectura la devuelva', async () => {
+    const resolver = createSnapshotNameOfficialSourceResolver({
+      countryCode: 'GT',
+      sourceKey: 'gt_rgae_proveedores',
+      taxIdentifierType: 'NIT',
+      validTaxId: /^\d{4,12}K?$/,
+      normalizeCore: core,
+      querySnapshots: async () => [row('68687125', 'OPIGRAFIK HOLDING, SOCIEDAD ANONIMA')],
+    });
+    const identity = await enrichNormalizedProspectWithOfficialSources(makeCandidate(), GT, [resolver]);
+    assert.equal(identity.strongIdentityAvailable, false);
+    assert.equal(identity.officialSource.status, 'not_found');
+  });
+
   it('acepta un NIT guatemalteco con K final', async () => {
     const { resolver } = gtResolver([row('1234567K', 'OPIGRAFIK, SOCIEDAD ANONIMA')]);
     const identity = await enrichNormalizedProspectWithOfficialSources(makeCandidate(), GT, [resolver]);
