@@ -70,6 +70,13 @@ export type ApolloContinuationCheckpointView = {
   pendingOrganizationCount: number;
   /** El lote ya escribió sus candidatas: no queda nada que continuar. */
   candidatesPersisted: boolean;
+  /**
+   * AGENT1-APOLLO-CONTINUATION-PERSIST-COMPLETED-RUN-1 — `true` cuando el
+   * último checkpoint es `run_completed`: la evaluación y el gasto TERMINARON y
+   * sólo falta escribir. Opcional para no romper vistas antiguas: ausente ⇒
+   * `false`, el comportamiento de siempre.
+   */
+  assessmentCompleted?: boolean;
 };
 
 /** Desenlace de la reanudación de UNA corrida. */
@@ -204,8 +211,22 @@ async function resolveJob(
   // pendientes. La no duplicación de filas NO se defiende aquí: la defiende el
   // runner, que lee `candidates_persisted` antes de escribir y devuelve lo ya
   // escrito en vez de reescribirlo.
+  //
+  // 🔴 AGENT1-APOLLO-CONTINUATION-PERSIST-COMPLETED-RUN-1 — con una excepción:
+  // la corrida que TERMINÓ de evaluar (`run_completed`) y se quedó sin tiempo
+  // ESCRIBIENDO. Medido en Producción el 2026-09-30 (México × Tecnología, lote
+  // `6d39ed4b`): 3 búsquedas y 5 enrichments pagados, checkpoint
+  // `run_completed`, 0 candidatas escritas, lease caducado. Cerrarla aquí como
+  // «nada pendiente» tiraba lo pagado. Se reanuda para ESCRIBIR: el runner
+  // restaura las operaciones completadas (ninguna búsqueda ni enrichment se
+  // repite) y lee `candidates_persisted` antes de escribir.
+  //
+  // Sólo con `run_completed`: un checkpoint de pausa con 0 pendientes (p. ej.
+  // `round_assessment_completed`) no afirma que la evaluación terminara, y
+  // reanudarlo podría abrir gasto que nadie autorizó en esta vuelta.
   if (checkpoint.pendingOrganizationCount === 0) {
-    return { resolution: 'nothing_pending' };
+    const persistOnly = checkpoint.assessmentCompleted === true && !checkpoint.candidatesPersisted;
+    if (!persistOnly) return { resolution: 'nothing_pending' };
   }
 
   let outcome: ApolloContinuationRunOutcome;
