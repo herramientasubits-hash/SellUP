@@ -79,6 +79,33 @@ export const MEXICO_LEGAL_FORMS: readonly string[] = [
   'SA',
 ];
 
+/**
+ * Formas societarias de Colombia (registro de las cámaras de comercio), más largas
+ * primero. SOURCES-CO-RUES-LIVE-NIT-1. «BIC» y «E S P» se apilan tras la forma
+ * («S.A.S. - BIC.», «S.A.S E.S.P.»), por eso también se quitan. «EN LIQUIDACION»
+ * NO se quita: una sociedad en liquidación no es la empresa activa.
+ */
+export const COLOMBIA_LEGAL_FORMS: readonly string[] = [
+  'SOCIEDAD POR ACCIONES SIMPLIFICADA',
+  'SOCIEDAD ANONIMA',
+  'S EN C S',
+  'S EN C',
+  'LIMITADA',
+  'S A S',
+  'E S P',
+  'S C A',
+  'C T A',
+  'E U',
+  'S A',
+  'LTDA',
+  'SAS',
+  'BIC',
+  'ESP',
+  'CTA',
+  'EU',
+  'SA',
+];
+
 /** Núcleo comparable del nombre con las formas dadas, o cadena vacía. */
 export function normalizeCompanyNameCore(
   name: string | null | undefined,
