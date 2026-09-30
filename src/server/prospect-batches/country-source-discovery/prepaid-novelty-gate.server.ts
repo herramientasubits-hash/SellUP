@@ -41,6 +41,8 @@ import { buildCountrySourceAdapter } from './country-source-capability';
 import { buildCoSiisDiscoverySnapshotQuery } from './co-siis-snapshot-query';
 import { buildDoDgiiDiscoveryReads } from './do-dgii-snapshot-query';
 import { buildArRnsDiscoveryReads } from './ar-rns-snapshot-query';
+import { buildMxDenueLiveReads } from '@/server/source-catalog/connectors/denue-mexico/denue-activity-live-reads';
+import { resolveSourceCredential } from '@/server/source-catalog/source-connection-resolver';
 import { PREPAID_EXCLUSION_DOMAIN_CAP } from '@/modules/prospect-batches/prepaid-novelty/provider-exclusion-domains';
 
 /**
@@ -96,6 +98,11 @@ export async function runProductionPrePaidNoveltyGate(
           coSiisSnapshotQuery: buildCoSiisDiscoverySnapshotQuery(adminClient),
           doDgiiDiscoveryReads: buildDoDgiiDiscoveryReads(adminClient),
           arRnsDiscoveryReads: buildArRnsDiscoveryReads(adminClient),
+          // SOURCES-MX-DENUE-FREE-DISCOVERY-1 — DENUE en vivo (gratuito); la clave sale
+          // de la bóveda de secretos y sólo se pide si la corrida es de México.
+          mxDenueDiscoveryReads: buildMxDenueLiveReads({
+            getToken: async () => (await resolveSourceCredential('denue_mexico'))?.token ?? null,
+          }),
         })
       : null,
     checkCompanyDuplicate: adminClient ? (dupInput) => checkCompanyDuplicate(dupInput) : null,

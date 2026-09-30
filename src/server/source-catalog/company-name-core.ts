@@ -57,6 +57,28 @@ export const PERU_LEGAL_FORMS: readonly string[] = [
   'SA',
 ];
 
+/**
+ * Formas societarias de México, más largas primero. SOURCES-MX-DENUE-FREE-DISCOVERY-1:
+ * sirve para agrupar las sucursales DENUE de una misma empresa.
+ */
+export const MEXICO_LEGAL_FORMS: readonly string[] = [
+  'SOCIEDAD ANONIMA PROMOTORA DE INVERSION DE CAPITAL VARIABLE',
+  'SOCIEDAD DE RESPONSABILIDAD LIMITADA DE CAPITAL VARIABLE',
+  'SOCIEDAD ANONIMA DE CAPITAL VARIABLE',
+  'SOCIEDAD CIVIL',
+  'SOCIEDAD ANONIMA',
+  'S A P I DE C V',
+  'S DE R L DE C V',
+  'S A B DE C V',
+  'S A DE C V',
+  'S DE R L',
+  'S A P I',
+  'S C',
+  'S A',
+  'SAPI',
+  'SA',
+];
+
 /** Núcleo comparable del nombre con las formas dadas, o cadena vacía. */
 export function normalizeCompanyNameCore(
   name: string | null | undefined,
