@@ -391,8 +391,14 @@ describe('11E runtime — Apollo selection attaches observational provider_routi
     assert.equal(spies.apolloCalls.length, 0, 'Apollo must not be called for the Tavily path');
     assert.equal(spies.tavilyCalls.length, 1);
     // The Tavily executor input has no provider_routing (Tavily routing = future hito).
+    // AGENT1-TAVILY-V2-1 § 3 — pero SÍ lleva `run_provider_selection`: sin él, un
+    // lote Tavily no decía si Tavily se eligió a propósito o por descarte de Apollo
+    // (0 de 31 lotes Tavily de Producción lo tenían).
     const tavilyInput = spies.tavilyCalls[0]! as unknown as Record<string, unknown>;
-    assert.equal('extraBatchMetadata' in tavilyInput, false);
+    const extra = rec(tavilyInput.extraBatchMetadata);
+    assert.deepEqual(Object.keys(extra), ['run_provider_selection']);
+    assert.equal('provider_routing' in extra, false);
+    assert.equal(rec(extra.run_provider_selection).resolved_discovery_provider, 'tavily');
   });
 });
 

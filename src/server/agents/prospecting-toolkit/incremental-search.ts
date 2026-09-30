@@ -92,6 +92,8 @@ import { type HistoricalCandidateRow } from './apollo-prepaid-historical-parity'
 // escribía su propio cuerpo y contaba NOVEDAD en vez de UTILIDAD.
 import { createApolloPaginationAcceptanceEvaluator } from './apollo-pagination-usefulness-authority';
 import { normalizeDomain } from './normalization';
+import { buildTavilyMacroQueryPlan } from './tavily-query-plan';
+import { buildTavilyExcludeDomains, type TavilyExcludeDomainsResult } from './tavily-exclude-domains';
 import type { ApolloOrgsSearchOptions } from './web-search-providers/apollo-organizations-search-provider';
 import {
   readApolloPageFenceEntries,
@@ -621,11 +623,34 @@ export async function runIncrementalProspectingSearch(
   let lastNoveltyPrecheck: NoveltyPrecheckResult | null = null;
   let round1PersistableCount: number | undefined = undefined;
 
+  // ── AGENT1-TAVILY-V2-1 § 1 — plan de consultas sobre la macro industria ────
+  // Sólo Tavily. Con una de las 12 macro industrias, el plan es la ÚNICA fuente
+  // de consultas de todas las rondas: términos calibrados del catálogo, cada uno
+  // una vez, rotados por lote. Industria legacy ⇒ `null` y el camino de siempre.
+  const tavilyMacroQueryPlan = input.webSearchProvider === 'tavily'
+    ? buildTavilyMacroQueryPlan({
+        industry: input.industry,
+        country: input.country,
+        seedKey: input.existingBatchId ?? `${input.countryCode}:${input.industry}`,
+        additionalCriteria: input.additionalCriteria,
+      })
+    : null;
+
+  // AGENT1-TAVILY-V2-1 § 2 — la última lista de exclusión enviada, para metadata.
+  let lastTavilyExclusion: TavilyExcludeDomainsResult | null = null;
+
   for (let round = 1; round <= maxRounds; round++) {
     const subindustries = input.subindustries ?? [];
 
     let queryOverrides: string[] | undefined;
-    if (round === 1) {
+    if (tavilyMacroQueryPlan) {
+      queryOverrides = (tavilyMacroQueryPlan.rounds[round - 1] ?? [])
+        .filter((q) => !usedQueryTexts.has(q));
+      if (queryOverrides.length === 0) {
+        stoppedReason = 'novelty_exhausted_no_diversification_available';
+        break;
+      }
+    } else if (round === 1) {
       queryOverrides = subindustries.length > 0
         ? buildCleanMultiQueryDiscoveryQueries(input.industry, input.country, subindustries)
         : undefined;
@@ -685,7 +710,9 @@ export async function runIncrementalProspectingSearch(
     // strategy filter. Así las source-guided se priorizan sobre fallback.
     // Máximo 2 por ronda para no saturar el per-round cap (4) y dejar espacio
     // a queries de subindustria, fintech, y otras señales contextuales.
-    if (queryOverrides !== undefined && sourceGuidedInvestigationOutput.enabled) {
+    // AGENT1-TAVILY-V2-1: con plan de macro industria no se inyecta nada — el plan
+    // ya decide las 4 consultas de la ronda y su gasto es predecible.
+    if (queryOverrides !== undefined && sourceGuidedInvestigationOutput.enabled && !tavilyMacroQueryPlan) {
       const MAX_INVESTIGATION_PER_ROUND = 2;
       const roundInvestigationQueries = getSourceGuidedQueriesForRound(
         sourceGuidedInvestigationOutput,
@@ -996,6 +1023,18 @@ export async function runIncrementalProspectingSearch(
       }
     }
 
+    // ── AGENT1-TAVILY-V2-1 § 2 — lo que Tavily NO debe devolver en esta ronda ──
+    // Ruido fijo + dominios ya vistos en rondas previas de esta corrida + memoria
+    // negativa del país e industria. Cada exclusión es un hueco que Tavily llena
+    // con un resultado distinto, al mismo costo.
+    const tavilyExcludeDomains = input.webSearchProvider === 'tavily'
+      ? buildTavilyExcludeDomains({
+          seenThisRun: seenDomains,
+          negativeMemory: negativeMemory.excludedDomains,
+        })
+      : null;
+    if (tavilyExcludeDomains) lastTavilyExclusion = tavilyExcludeDomains;
+
     const pipelineOutput = await pipelineFn({
       country: input.country,
       countryCode: input.countryCode,
@@ -1018,6 +1057,7 @@ export async function runIncrementalProspectingSearch(
       // la traducción a rangos de Apollo la hace el mapper.
       targetEmployeeThreshold: input.targetEmployeeThreshold ?? null,
       apolloSearchOptions,
+      ...(tavilyExcludeDomains ? { excludeDomains: tavilyExcludeDomains.domains } : {}),
     });
 
     const rawCount = pipelineOutput.webSearch.resultsCount;
@@ -1165,13 +1205,19 @@ export async function runIncrementalProspectingSearch(
     //   persistable = 0 Y no hay additionalCriteria que abra un ángulo nuevo.
     // Se evita la ronda 2 solo cuando hay evidencia fuerte de que produciría
     // los mismos resultados (ahorro de créditos Tavily).
+    // AGENT1-TAVILY-V2-1: con plan de macro industria la ronda siguiente pregunta
+    // por OTROS términos del catálogo, así que esa evidencia no existe; el plan
+    // se corta solo cuando se agota.
+    const macroPlanHasNextRound =
+      tavilyMacroQueryPlan !== null && tavilyMacroQueryPlan.rounds.length > round;
     if (
       round < maxRounds &&
       newAfterNegMemCount === 0 &&
       rawCount > 0 &&
       writerGateAdjustedEstimate === 0 &&
       !input.additionalCriteria &&
-      !hasDiversificationAvailable(basePlan)
+      !hasDiversificationAvailable(basePlan) &&
+      !macroPlanHasNextRound
     ) {
       stoppedReason = 'novelty_exhausted_no_diversification_available';
       break;
@@ -1328,6 +1374,26 @@ export async function runIncrementalProspectingSearch(
           })),
           blocked_source_query_count: sourceGuidedInvestigationOutput.blocked_source_query_count,
           blocked_sources: sourceGuidedInvestigationOutput.blocked_sources,
+        }
+      : undefined,
+    tavily_exclude_domains: lastTavilyExclusion
+      ? {
+          last_round_sent: lastTavilyExclusion.domains.length,
+          static_count: lastTavilyExclusion.staticCount,
+          seen_this_run_count: lastTavilyExclusion.seenThisRunCount,
+          negative_memory_count: lastTavilyExclusion.negativeMemoryCount,
+          truncated_count: lastTavilyExclusion.truncatedCount,
+        }
+      : undefined,
+    tavily_query_plan: tavilyMacroQueryPlan
+      ? {
+          version: tavilyMacroQueryPlan.version,
+          macro_key: tavilyMacroQueryPlan.macroKey,
+          term_count: tavilyMacroQueryPlan.termCount,
+          rotation_offset: tavilyMacroQueryPlan.rotationOffset,
+          rounds_planned: tavilyMacroQueryPlan.rounds.length,
+          queries_planned: tavilyMacroQueryPlan.rounds.flat().length,
+          additional_criteria_applied: tavilyMacroQueryPlan.additionalCriteriaApplied,
         }
       : undefined,
     min_useful_candidates: minUsefulCandidates,

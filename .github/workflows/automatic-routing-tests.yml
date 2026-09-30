@@ -6242,3 +6242,13 @@ jobs:
       # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
       - name: Run Agent 1 continuation Lusha cascade accepted tests
         run: npm run test:a1-continuation-lusha-cascade-accepted
+
+      # AGENT1-TAVILY-V2-1 - Tavily compite con Apollo y Lusha: consultas desde
+      # el catalogo de 12 macro industrias (rotacion por lote, pais e idioma),
+      # universidades/gobierno/gremios pasan el filtro y los directorios no,
+      # exclude_domains de lo ya visto, traza de seleccion, creditos informados
+      # por Tavily y el gasto de LinkedIn dentro del presupuesto.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 Tavily v2 tests
+        run: npm run test:a1-tavily-v2

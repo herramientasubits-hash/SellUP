@@ -248,6 +248,11 @@ export type WebSearchInput = {
   provider?: WebSearchProviderKey;
   searchDepth?: SearchDepth;
   /**
+   * AGENT1-TAVILY-V2-1 § 2 — dominios que Tavily NO debe devolver
+   * (`exclude_domains`, máx. 150). Sólo Tavily lo usa; los demás lo ignoran.
+   */
+  excludeDomains?: string[];
+  /**
    * Subindustrias canónicas resueltas del catálogo (L2.7).
    * Usadas por Apollo para priorizar keywords específicas sobre el sector padre.
    * Tavily no las usa — fluye por el texto original del wizard.
@@ -476,6 +481,11 @@ export type ProspectingPipelineInput = {
    * replace the standard buildCleanMultiQueryDiscoveryQueries output.
    * Used by the incremental search orchestrator (Hito 16T.1). */
   queryOverrides?: string[];
+  /**
+   * AGENT1-TAVILY-V2-1 § 2 — dominios que Tavily NO debe devolver
+   * (`exclude_domains`, máx. 150). Sólo Tavily lo usa; los demás lo ignoran.
+   */
+  excludeDomains?: string[];
   /** Contexto de uso económico por ronda. Asignado server-side; no proviene del cliente. */
   usageContext?: import('./tavily-usage-logging').TavilyUsageContext | null;
   /** Subindustrias canónicas del catálogo (L2.7). Solo para Apollo; Tavily las ignora aquí. */
@@ -828,6 +838,11 @@ export type MultiQuerySearchInput = {
   maxResultsPerQuery?: number;
   targetCount?: number;
   searchDepth?: SearchDepth;
+  /**
+   * AGENT1-TAVILY-V2-1 § 2 — dominios que Tavily NO debe devolver
+   * (`exclude_domains`, máx. 150). Sólo Tavily lo usa; los demás lo ignoran.
+   */
+  excludeDomains?: string[];
   /** Contexto de uso económico por ronda. Asignado server-side; no proviene del cliente. */
   usageContext?: import('./tavily-usage-logging').TavilyUsageContext | null;
   /** Subindustrias canónicas del catálogo (L2.7). Solo para Apollo; Tavily las ignora. */

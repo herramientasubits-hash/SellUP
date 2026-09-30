@@ -18,7 +18,7 @@ export type ProviderRunScorecardRequest = {
   countryCode: string | null;
   industry: string | null;
   /** Precio simulado por proveedor; `null` = el de `provider_pricing_config`. */
-  usdPerCreditOverride: { apollo: number | null; lusha: number | null };
+  usdPerCreditOverride: { apollo: number | null; lusha: number | null; tavily: number | null };
 };
 
 export type ProviderRunScorecardRequestResult =
@@ -67,7 +67,8 @@ export function parseProviderRunScorecardRequest(
 
   const apollo = parsePrice(params.get('apollo_usd_per_credit'));
   const lusha = parsePrice(params.get('lusha_usd_per_credit'));
-  if (apollo === 'invalid' || lusha === 'invalid') {
+  const tavily = parsePrice(params.get('tavily_usd_per_credit'));
+  if (apollo === 'invalid' || lusha === 'invalid' || tavily === 'invalid') {
     return { ok: false, error: `el precio por crédito debe estar entre 0 y ${MAX_USD_PER_CREDIT}` };
   }
 
@@ -78,7 +79,7 @@ export function parseProviderRunScorecardRequest(
       dateTo: to.toISOString(),
       countryCode,
       industry,
-      usdPerCreditOverride: { apollo, lusha },
+      usdPerCreditOverride: { apollo, lusha, tavily },
     },
   };
 }
