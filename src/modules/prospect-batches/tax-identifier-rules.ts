@@ -109,7 +109,7 @@ export const TAX_IDENTIFIER_RULES: Record<string, TaxIdentifierRule> = {
   CO: {
     countryCode: 'CO',
     label: 'NIT',
-    placeholder: 'Ej. 900123456-1',
+    placeholder: 'Ej. 900123456-8',
     helpText: 'Ingrese el NIT con guion y dígito de verificación.',
     minLength: 5,
     maxLength: 20,
@@ -136,7 +136,7 @@ export const TAX_IDENTIFIER_RULES: Record<string, TaxIdentifierRule> = {
       if (!nitStr || !dvStr || !/^\d+$/.test(nitStr) || !/^\d+$/.test(dvStr)) return false;
       return parseInt(dvStr, 10) === calculateColombianCheckDigit(nitStr);
     },
-    canonicalExample: '900123456-1',
+    canonicalExample: '900123456-8',
     ruleVersion: 'CO-NIT-v1',
   },
   MX: {
@@ -161,7 +161,7 @@ export const TAX_IDENTIFIER_RULES: Record<string, TaxIdentifierRule> = {
   CL: {
     countryCode: 'CL',
     label: 'RUT',
-    placeholder: 'Ej. 76.123.456-K',
+    placeholder: 'Ej. 76.123.456-0',
     helpText: 'Ingrese el RUT con guion y dígito verificador.',
     minLength: 7,
     maxLength: 15,
@@ -188,13 +188,13 @@ export const TAX_IDENTIFIER_RULES: Record<string, TaxIdentifierRule> = {
       if (!body || !dv || !/^\d+$/.test(body)) return false;
       return dv === calculateChileCheckDigit(body);
     },
-    canonicalExample: '76123456-K',
+    canonicalExample: '76123456-0',
     ruleVersion: 'CL-RUT-v1',
   },
   PE: {
     countryCode: 'PE',
     label: 'RUC',
-    placeholder: 'Ej. 20123456789',
+    placeholder: 'Ej. 20123456786',
     helpText: 'Ingrese el RUC de 11 dígitos.',
     minLength: 11,
     maxLength: 15,
@@ -214,7 +214,7 @@ export const TAX_IDENTIFIER_RULES: Record<string, TaxIdentifierRule> = {
       const dv = cleaned.slice(10);
       return dv === calculatePeruCheckDigit(rucBody);
     },
-    canonicalExample: '20123456789',
+    canonicalExample: '20123456786',
     ruleVersion: 'PE-RUC-v1',
   },
   EC: {
@@ -239,7 +239,7 @@ export const TAX_IDENTIFIER_RULES: Record<string, TaxIdentifierRule> = {
   AR: {
     countryCode: 'AR',
     label: 'CUIT',
-    placeholder: 'Ej. 30-12345678-9',
+    placeholder: 'Ej. 30-12345678-1',
     helpText: 'Ingrese el CUIT con guiones o compacto.',
     minLength: 10,
     maxLength: 15,
@@ -266,7 +266,7 @@ export const TAX_IDENTIFIER_RULES: Record<string, TaxIdentifierRule> = {
       const expected = calculateArgentinaCheckDigit(cuitBody);
       return expected !== null && dv === expected;
     },
-    canonicalExample: '30-12345678-9',
+    canonicalExample: '30-12345678-1',
     ruleVersion: 'AR-CUIT-v1',
   },
   BR: {
