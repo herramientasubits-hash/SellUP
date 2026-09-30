@@ -653,13 +653,17 @@ describe('§ 8 · los cuatro gates de revisión', () => {
       assert.equal(gate.run(CANONICAL_PRODUCTION_RECORD_ORIGIN).decision, gate.pass);
     });
 
+    it(`${gate.name} — import PASA igual que production (AGENT1-IMPORT-PARITY-4)`, () => {
+      assert.equal(gate.run('import').decision, gate.pass);
+    });
+
     it(`${gate.name} — NULL y todo origen no-production siguen BLOQUEADOS`, () => {
       for (const origin of [
         null,
         'smoke_test',
         'qa',
         'historical_cleanup',
-        'import',
+        // AGENT1-IMPORT-PARITY-4 — `import` ya no está aquí: se revisa como production.
         'synthetic',
         'unknown',
       ]) {

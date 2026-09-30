@@ -1,3 +1,5 @@
+import { resolveImportTaxIdentifier } from './import-tax-identifier';
+
 // ── Tipos ─────────────────────────────────────────────────────
 
 export type ImportMethod = 'paste' | 'csv' | 'xlsx';
@@ -225,10 +227,13 @@ export const EXTERNAL_IMPORT_CONTRACT: readonly ImportColumnDefinition[] = [
   {
     field: 'tax_identifier',
     officialHeader: 'Identificación Fiscal',
-    aliases: ['nit', 'rut', 'rfc', 'identificacion fiscal', 'tax id', 'tax_identifier', 'tax identifier', 'id fiscal'],
+    aliases: [
+      'nit', 'rut', 'rfc', 'ruc', 'cuit', 'cnpj',
+      'identificacion fiscal', 'identificacion tributaria', 'tax id', 'tax_identifier', 'tax identifier', 'id fiscal',
+    ],
     required: false,
     recommended: false,
-    description: 'Identificador fiscal (NIT en Colombia, RUT en Chile, RFC en México).',
+    description: 'Identificador fiscal (NIT en Colombia, RUT en Chile, RFC en México, RUC en Perú y Ecuador, CUIT en Argentina, CNPJ en Brasil).',
     example: '901234567-8',
   },
   {
@@ -500,6 +505,10 @@ function validateRow(raw: ParsedImportRow, index: number, defaults?: ImportDefau
 
   if (!raw.tax_identifier?.trim()) {
     warnings.push('Sin identificador fiscal — requiere revisión');
+  } else {
+    // AGENT1-IMPORT-PARITY-2 — mismas reglas por país que el alta manual; avisa, no bloquea.
+    const taxWarning = resolveImportTaxIdentifier(raw.tax_identifier, effectiveCountryCode).warning;
+    if (taxWarning) warnings.push(taxWarning);
   }
 
   if (!effectiveIndustry) {
