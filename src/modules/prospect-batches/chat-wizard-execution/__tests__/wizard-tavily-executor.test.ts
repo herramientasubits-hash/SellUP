@@ -335,3 +335,20 @@ describe('E11: maxTotalRawToEvaluate deja correr las 4 rondas del plan', () => {
     assert.equal(WIZARD_TAVILY_MAX_TOTAL_RAW_TO_EVALUATE, WIZARD_ADAPTIVE_MAX_ROUNDS * 20);
   });
 });
+
+// ── E12: AGENT1-TAVILY-V2-1 § 3 — la traza de selección llega al lote ────────
+
+describe('E12: extraBatchMetadata viaja al runner', () => {
+  it('reenvía run_provider_selection tal cual', async () => {
+    const { runner, getCapture } = makeFakeRunner();
+    const extra = { run_provider_selection: { resolved_discovery_provider: 'tavily' } };
+    await runWizardTavilySearch(makeInput({ extraBatchMetadata: extra }), runner);
+    assert.deepEqual(getCapture()!.extraBatchMetadata, extra);
+  });
+
+  it('sin metadata no inventa la clave', async () => {
+    const { runner, getCapture } = makeFakeRunner();
+    await runWizardTavilySearch(makeInput(), runner);
+    assert.equal('extraBatchMetadata' in getCapture()!, false);
+  });
+});

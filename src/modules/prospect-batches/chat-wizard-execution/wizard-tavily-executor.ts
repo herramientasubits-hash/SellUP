@@ -45,6 +45,11 @@ export const WIZARD_TARGET_PERSISTIBLE_CANDIDATES = WIZARD_TARGET_USEFUL_COMPANI
 export type WizardTavilyInput = {
   resolved: ResolvedWizardExecution;
   reservedBatchId: string;
+  /**
+   * AGENT1-TAVILY-V2-1 § 3 — metadata aditiva del lote (hoy sólo
+   * `run_provider_selection`), por la misma costura que usa Apollo.
+   */
+  extraBatchMetadata?: Record<string, unknown>;
 };
 
 export type WizardTavilyRunner = (input: WizardTavilyInput) => Promise<IncrementalSearchOutput>;
@@ -81,5 +86,6 @@ export async function runWizardTavilySearch(
       batchId: input.reservedBatchId,
       triggeredByUserId: input.resolved.userId,
     },
+    ...(input.extraBatchMetadata ? { extraBatchMetadata: input.extraBatchMetadata } : {}),
   });
 }

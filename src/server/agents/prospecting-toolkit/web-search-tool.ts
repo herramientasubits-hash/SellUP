@@ -370,6 +370,7 @@ export async function runMultiQueryWebSearch(
   // ── Paso 1: Ejecutar todas las queries secuencialmente ────────────────────
   const roundStartMs = Date.now();
   const queryResults: MultiQueryQueryResult[] = [];
+  const providerReportedCredits: Array<number | null> = [];
   const allRaw: MultiQuerySearchResultEntry[] = [];
   const dispatch = usageDeps?.dispatchQuery ?? dispatchToProvider;
 
@@ -498,6 +499,11 @@ export async function runMultiQueryWebSearch(
     }));
 
     allRaw.push(...withOrigin);
+    // AGENT1-TAVILY-V2-1 § 3 — lo que el proveedor dice haber cobrado (sólo Tavily lo publica).
+    if (!raw.skipped) {
+      const reported = (raw.metadata as Record<string, unknown> | undefined)?.['provider_reported_credits'];
+      providerReportedCredits.push(typeof reported === 'number' ? reported : null);
+    }
     queryResults.push({
       query,
       rawResultsCount: raw.results.length,
@@ -606,6 +612,9 @@ export async function runMultiQueryWebSearch(
       agent_key: 'prospect_generation',
       request_source: 'prospect_chat_wizard',
       budget_check: budgetCheck,
+      // AGENT1-TAVILY-V2-1 § 3 — dato de comparación: `credits_used` sigue siendo
+      // el cálculo. Total `null` si alguna consulta exitosa no lo informó.
+      ...summarizeProviderReportedCredits(providerReportedCredits, creditsUsed),
     };
 
     const logger = usageDeps?.logUsage ?? realLogTavilyUsage;
@@ -644,6 +653,25 @@ export async function runMultiQueryWebSearch(
     results: finalResults,
     estimatedCreditCount,
     metadata: baseMetadata,
+  };
+}
+
+/**
+ * AGENT1-TAVILY-V2-1 § 3 — resume los créditos que el proveedor informó en la
+ * ronda frente a los que calculamos. Nunca devuelve un total parcial: si falta
+ * uno, el total es `null` y el desvío no se puede afirmar.
+ */
+function summarizeProviderReportedCredits(
+  reported: ReadonlyArray<number | null>,
+  computedCredits: number,
+): Record<string, unknown> {
+  const known = reported.filter((c): c is number => c !== null);
+  const complete = reported.length > 0 && known.length === reported.length;
+  const total = complete ? known.reduce((a, b) => a + b, 0) : null;
+  return {
+    provider_reported_credits_total: total,
+    provider_reported_credits_queries: known.length,
+    provider_reported_credits_mismatch: total === null ? null : total !== computedCredits,
   };
 }
 

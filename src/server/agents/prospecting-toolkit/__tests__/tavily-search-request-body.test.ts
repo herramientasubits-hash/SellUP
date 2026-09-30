@@ -14,6 +14,7 @@ describe('buildTavilySearchRequestBody', () => {
       max_results: 5,
       search_depth: 'basic',
       include_raw_content: false,
+      include_usage: true,
       country: 'peru',
       language: 'spanish',
     });
@@ -34,6 +35,7 @@ describe('buildTavilySearchRequestBody', () => {
       max_results: 5,
       search_depth: 'basic',
       include_raw_content: false,
+      include_usage: true,
     });
     const unknown = buildTavilySearchRequestBody({ query: 'q', countryCode: 'XX' }, 5);
     assert.equal('country' in unknown, false);

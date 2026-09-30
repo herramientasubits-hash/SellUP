@@ -36,6 +36,8 @@ type TavilySearchResponse = {
   query?: string;
   answer?: string | null;
   response_time?: number;
+  /** Presente con `include_usage: true`. */
+  usage?: { credits?: unknown } | null;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -90,10 +92,22 @@ export function buildTavilySearchRequestBody(
     max_results: maxResults,
     search_depth: input.searchDepth === 'deep' ? 'advanced' : 'basic',
     include_raw_content: false,
+    // § 3 — la respuesta trae `usage.credits` (no cobra créditos extra).
+    include_usage: true,
     ...(targeting.country ? { country: targeting.country } : {}),
     ...(targeting.language ? { language: targeting.language } : {}),
     ...(excludeDomains.length > 0 ? { exclude_domains: excludeDomains } : {}),
   };
+}
+
+/**
+ * AGENT1-TAVILY-V2-1 § 3 — créditos que Tavily informa haber cobrado por esta
+ * búsqueda (`usage.credits`, con `include_usage: true`). `null` si no vino o no
+ * es un número válido: nunca se inventa.
+ */
+export function readTavilyReportedCredits(data: unknown): number | null {
+  const credits = (data as TavilySearchResponse | null)?.usage?.credits;
+  return typeof credits === 'number' && Number.isFinite(credits) && credits >= 0 ? credits : null;
 }
 
 // ─── Provider público ─────────────────────────────────────────────────────────
@@ -162,6 +176,7 @@ export async function runTavilyWebSearch(input: WebSearchInput, maxResults: numb
       metadata: {
         cost_tracking: 'pending_provider_pricing_config',
         response_time_ms: data.response_time ?? null,
+        provider_reported_credits: readTavilyReportedCredits(data),
       },
     };
   } catch (err: unknown) {
