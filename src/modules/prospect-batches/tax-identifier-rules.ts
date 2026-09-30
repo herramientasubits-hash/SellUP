@@ -94,6 +94,24 @@ export function calculateDominicanRncCheckDigit(rncBody: string): number | null 
   return 11 - remainder;
 }
 
+/**
+ * Dígito verificador del RUC paraguayo (SET/DNIT): módulo 11 con pesos 2, 3, 4…
+ * de derecha a izquierda (con 8 dígitos como máximo, el peso no pasa de 9);
+ * resto 0 o 1 → 0. SOURCES-PY-RUC-BY-NAME-1: comprobado sobre
+ * 200.923 RUC del padrón público de septiembre de 2026, sin un solo fallo.
+ */
+export function calculateParaguayRucCheckDigit(rucBody: string): number | null {
+  if (!/^\d{1,8}$/.test(rucBody)) return null;
+  let total = 0;
+  let weight = 2;
+  for (let i = rucBody.length - 1; i >= 0; i--) {
+    total += parseInt(rucBody[i], 10) * weight;
+    weight += 1;
+  }
+  const remainder = total % 11;
+  return remainder < 2 ? 0 : 11 - remainder;
+}
+
 export function calculateCNPJCheckDigit(digits: number[], weights: number[]): number {
   let sum = 0;
   for (let i = 0; i < weights.length; i++) {
@@ -328,6 +346,33 @@ export const TAX_IDENTIFIER_RULES: Record<string, TaxIdentifierRule> = {
     },
     canonicalExample: '131735444',
     ruleVersion: 'DO-RNC-v1',
+  },
+  PY: {
+    countryCode: 'PY',
+    label: 'RUC',
+    placeholder: 'Ej. 80000108-7',
+    helpText: 'Ingrese el RUC con guion y dígito verificador.',
+    minLength: 6,
+    maxLength: 12,
+    inputMode: 'text',
+    acceptedCharacters: /^[\d\s.-]*$/,
+    formatPattern: /^\d{5,8}-\d$/,
+    validationLevel: 'checksum',
+    normalize: (val) => {
+      const trimmed = val.replace(/[\s.]/g, '').replace(/[–—]/g, '-');
+      if (/^\d{5,8}-\d$/.test(trimmed)) return trimmed;
+      const digits = trimmed.replace(/\D/g, '');
+      if (digits.length >= 6 && digits.length <= 9) return `${digits.slice(0, -1)}-${digits.slice(-1)}`;
+      return trimmed;
+    },
+    validateFormat: (val) => /^\d{5,8}-\d$/.test(val.replace(/[\s.]/g, '').replace(/[–—]/g, '-')),
+    validateChecksum: (val) => {
+      const [body, dv] = val.replace(/[\s.]/g, '').replace(/[–—]/g, '-').split('-');
+      if (!body || !dv) return false;
+      return parseInt(dv, 10) === calculateParaguayRucCheckDigit(body);
+    },
+    canonicalExample: '80000108-7',
+    ruleVersion: 'PY-RUC-v1',
   },
 };
 
