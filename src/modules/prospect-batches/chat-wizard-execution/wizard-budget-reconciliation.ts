@@ -53,6 +53,28 @@ export function estimateWizardAdaptiveMaxCredits(opts?: { searchDepth?: string }
   return Math.min(uncapped, WIZARD_MAX_CREDITS_PER_EXECUTION);
 }
 
+/**
+ * AGENT1-TAVILY-V2-1 § 3 — tope de la búsqueda dirigida de LinkedIn por lote:
+ * `LINKEDIN_SEARCH_STRICT_CONFIG` = 5 candidatos × 1 búsqueda × 1 crédito
+ * (basic). Una guarda en tests fija que coincida con esa config.
+ */
+export const WIZARD_TAVILY_LINKEDIN_MAX_CREDITS = 5;
+
+/**
+ * AGENT1-TAVILY-V2-1 § 3 — peor caso de una corrida Tavily completa.
+ *
+ * Antes sólo contaba el descubrimiento (20): con `ENABLE_LINKEDIN_COMPANY_SEARCH`
+ * encendida, los hasta 5 créditos de LinkedIn se gastaban sin reserva y sin
+ * entrar en la liquidación. Con la bandera apagada no se reserva nada de más.
+ */
+export function estimateWizardTavilyRunMaxCredits(opts: {
+  linkedInSearchEnabled: boolean;
+  searchDepth?: string;
+}): number {
+  const discovery = estimateWizardAdaptiveMaxCredits({ searchDepth: opts.searchDepth });
+  return discovery + (opts.linkedInSearchEnabled ? WIZARD_TAVILY_LINKEDIN_MAX_CREDITS : 0);
+}
+
 // ── Period calculation ────────────────────────────────────────────────────────
 
 /**
@@ -113,17 +135,24 @@ export async function readWizardConsumedCreditsFromDb(
   batchId: string,
   db: ConsumedCreditsDbClient,
 ): Promise<number | null> {
-  const { data, error } = await db
-    .from('provider_usage_logs')
-    .select('credits_used')
-    .eq('batch_id', batchId)
-    .eq('provider_key', 'tavily')
-    .eq('operation_key', 'multi_query_web_search');
+  const readOperation = async (operationKey: string) =>
+    db
+      .from('provider_usage_logs')
+      .select('credits_used')
+      .eq('batch_id', batchId)
+      .eq('provider_key', 'tavily')
+      .eq('operation_key', operationKey);
 
-  if (error || !data || data.length === 0) return null;
+  const discovery = await readOperation('multi_query_web_search');
+  if (discovery.error || !discovery.data || discovery.data.length === 0) return null;
+
+  // AGENT1-TAVILY-V2-1 § 3 — LinkedIn también es gasto de la corrida. Sin filas
+  // suma 0 (la bandera suele estar apagada); una lectura fallida no es cero.
+  const linkedIn = await readOperation('linkedin_company_search');
+  if (linkedIn.error) return null;
 
   let total = 0;
-  for (const row of data) {
+  for (const row of [...discovery.data, ...(linkedIn.data ?? [])]) {
     if (row.credits_used === null || row.credits_used === undefined) return null;
     total += row.credits_used;
   }

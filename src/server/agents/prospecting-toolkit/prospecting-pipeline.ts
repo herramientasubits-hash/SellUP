@@ -339,6 +339,8 @@ export async function runProspectingPipeline(
           // AGENT1-APOLLO-DEFAULT-PATH-NET-NEW-PAGINATION — transporte puro
           // hasta `dispatchToProvider`; este módulo no la interpreta.
           apolloSearchOptions: input.apolloSearchOptions ?? null,
+          // AGENT1-TAVILY-V2-1 § 2 — transporte puro hasta el proveedor.
+          excludeDomains: input.excludeDomains,
         });
         const sgMeta = hasQueryOverrides || usesPlannerQueries
           ? { enabled: false, sources_used: [] as string[] }
