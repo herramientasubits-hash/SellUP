@@ -43,7 +43,7 @@ export function normalizeUruguayCompanyCore(name: string | null | undefined): st
 /** ¿La razón social termina en una forma societaria uruguaya? */
 export function carriesUruguayLegalForm(name: string | null | undefined): boolean {
   const core = normalizeUruguayCompanyCore(name);
-  return core.length > 0 && core !== normalizeCompanyNameCore(name, []);
+  return core !== normalizeCompanyNameCore(name, []);
 }
 
 /** Registro del RUPE → fila, o `null` si no es una empresa uruguaya activa válida. */

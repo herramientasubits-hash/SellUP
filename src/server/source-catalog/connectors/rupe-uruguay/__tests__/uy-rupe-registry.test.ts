@@ -101,6 +101,10 @@ describe('fila del RUPE', () => {
     assert.equal(buildUyRupeRegistryRow(record('216569480018', 'HORMETAL URUGUAY S.A.', { estado_prov: 'EN INGRESO' }), params), null);
     assert.equal(buildUyRupeRegistryRow(record('B98309511', 'VERATECH FOR HEALTH S.L.', { pais_prov: 'ESPAÑA' }), params), null);
     assert.equal(buildUyRupeRegistryRow(record('216569480017', 'HORMETAL URUGUAY S.A.'), params), null);
+    // Un proveedor extranjero nunca entra, aunque su identificador parezca un RUT válido.
+    assert.equal(buildUyRupeRegistryRow(record('216569480018', 'HORMETAL URUGUAY S.A.', { pais_prov: 'ARGENTINA' }), params), null);
+    // 13 dígitos cuyos 12 primeros son un RUT válido: no es un RUT.
+    assert.equal(buildUyRupeRegistryRow(record('2165694800181', 'HORMETAL URUGUAY S.A.'), params), null);
   });
 
   it('sólo son empresas las razones sociales que terminan en forma societaria', () => {
