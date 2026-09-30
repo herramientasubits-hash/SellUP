@@ -41,6 +41,12 @@ export type ScorecardUsageLogInput = {
   operationKey: string | null;
   batchId: string | null;
   creditsUsed: number | string | null;
+  /**
+   * AGENT1-TAVILY-V2-1 § 5b — costo estimado que el log registró. Hoy sólo lo lee
+   * la ficha para los logs de Claude (`anthropic`); el costo de los proveedores
+   * sigue saliendo de créditos × precio.
+   */
+  estimatedCostUsd?: number | string | null;
   metadata: Record<string, unknown> | null;
 };
 
@@ -90,7 +96,14 @@ export type ScorecardGap =
    * AGENT1-TAVILY-V2-1 § 5 — Tavily informó (`usage.credits`) haber cobrado
    * distinto de lo que calculamos en al menos una ronda.
    */
-  | 'credits_mismatch_provider_reported';
+  | 'credits_mismatch_provider_reported'
+  /**
+   * AGENT1-TAVILY-V2-1 § 5b — el lote es una cascada: el costo de Claude cubre las
+   * empresas de los dos proveedores y no se reparte.
+   */
+  | 'claude_cost_shared_batch'
+  /** Algún log de Claude del lote no trae costo legible: no hay total fiable. */
+  | 'claude_cost_incomplete';
 
 export type ScorecardAcceptanceSource =
   | 'batch_accepted_for_target'
@@ -118,6 +131,15 @@ export type ProviderRunScorecardRow = {
   unitCostUsd: number | null;
   priceSource: string | null;
   costUsd: number | null;
+  /**
+   * AGENT1-TAVILY-V2-1 § 5b — lo que costó el clasificador de Claude sobre las
+   * empresas de ESTE lote (`anthropic`, cualquier operación del lote). `null` =
+   * sin logs de Claude, o no legibles (ver `claude_cost_incomplete`). No entra
+   * en `costUsd`: va aparte para que el costo del proveedor siga siendo el suyo.
+   */
+  claudeCostUsd: number | null;
+  /** `costUsd` + `claudeCostUsd` (este último 0 si no hubo). `null` sin precio. */
+  totalCostUsd: number | null;
   rawResults: number | null;
   uniqueResults: number | null;
   /** Empresas que la memoria del proveedor ya había visto. `null` = no medido. */
@@ -134,6 +156,8 @@ export type ProviderRunScorecardRow = {
    */
   unaccountedCompanies: number | null;
   costPerAccepted: number | null;
+  /** `totalCostUsd` por empresa aceptada: la cifra comparable entre proveedores. */
+  totalCostPerAccepted: number | null;
   costPerPersisted: number | null;
   gaps: ScorecardGap[];
 };
@@ -319,7 +343,14 @@ function usageCredits(
 
 type RowDraft = Omit<
   ProviderRunScorecardRow,
-  'unitCostUsd' | 'priceSource' | 'costUsd' | 'costPerAccepted' | 'costPerPersisted'
+  | 'unitCostUsd'
+  | 'priceSource'
+  | 'costUsd'
+  | 'claudeCostUsd'
+  | 'totalCostUsd'
+  | 'costPerAccepted'
+  | 'totalCostPerAccepted'
+  | 'costPerPersisted'
 >;
 
 function priced(draft: RowDraft, prices: readonly ScorecardPrice[]): ProviderRunScorecardRow {
@@ -335,8 +366,43 @@ function priced(draft: RowDraft, prices: readonly ScorecardPrice[]): ProviderRun
     unitCostUsd: price?.unitCostUsd ?? null,
     priceSource: price?.source ?? null,
     costUsd,
+    // Se completan en `attachClaudeCost`, que necesita los logs de Claude.
+    claudeCostUsd: null,
+    totalCostUsd: costUsd,
     costPerAccepted: divideOrNull(costUsd, draft.acceptedForTarget),
+    totalCostPerAccepted: divideOrNull(costUsd, draft.acceptedForTarget),
     costPerPersisted: divideOrNull(costUsd, draft.persisted),
+  };
+}
+
+/**
+ * AGENT1-TAVILY-V2-1 § 5b — suma el costo de Claude del LOTE a su fila estándar.
+ *
+ * Sólo filas `standalone`: la pierna Lusha de una cascada comparte lote con
+ * Apollo, y darle el costo a las dos lo contaría dos veces. La fila de Apollo de
+ * una cascada lo recibe y declara que cubre a los dos proveedores.
+ */
+function attachClaudeCost(
+  row: ProviderRunScorecardRow,
+  logs: readonly ScorecardUsageLogInput[],
+): ProviderRunScorecardRow {
+  if (row.role !== 'standalone' || row.batchId === null) return row;
+  const own = logs.filter((l) => l.providerKey === 'anthropic' && l.batchId === row.batchId);
+  if (own.length === 0) return row;
+
+  const gaps = [...row.gaps];
+  const claudeCostUsd = sumOrNull(own.map((l) => readCount(l.estimatedCostUsd)));
+  if (claudeCostUsd === null) gaps.push('claude_cost_incomplete');
+  if (row.gaps.includes('shared_batch_acceptance_not_attributable')) gaps.push('claude_cost_shared_batch');
+
+  const totalCostUsd =
+    row.costUsd === null ? null : row.costUsd + (claudeCostUsd ?? 0);
+  return {
+    ...row,
+    gaps,
+    claudeCostUsd,
+    totalCostUsd,
+    totalCostPerAccepted: divideOrNull(totalCostUsd, row.acceptedForTarget),
   };
 }
 
@@ -631,7 +697,7 @@ export function buildProviderRunScorecard(
   }
 
   return drafts
-    .map((d) => priced(d, input.prices))
+    .map((d) => attachClaudeCost(priced(d, input.prices), input.usageLogs))
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
@@ -641,9 +707,14 @@ export type ProviderScorecardTotals = {
   runsWithGaps: number;
   credits: number;
   costUsd: number | null;
+  /** Suma del costo de Claude de las filas que lo registraron. */
+  claudeCostUsd: number;
+  /** `costUsd` + `claudeCostUsd`. `null` si alguna fila no tiene costo de proveedor. */
+  totalCostUsd: number | null;
   persisted: number;
   acceptedForTarget: number;
   costPerAccepted: number | null;
+  totalCostPerAccepted: number | null;
 };
 
 export type ProviderRunScorecardSummary = {
@@ -663,9 +734,12 @@ export function summarizeProviderRunScorecard(
     runsWithGaps: 0,
     credits: 0,
     costUsd: 0,
+    claudeCostUsd: 0,
+    totalCostUsd: 0,
     persisted: 0,
     acceptedForTarget: 0,
     costPerAccepted: null,
+    totalCostPerAccepted: null,
   });
   const byProvider: Record<ScorecardProvider, ProviderScorecardTotals> = {
     apollo: empty(),
@@ -679,11 +753,17 @@ export function summarizeProviderRunScorecard(
     totals.credits += row.credits ?? 0;
     totals.costUsd =
       totals.costUsd === null || row.costUsd === null ? null : totals.costUsd + row.costUsd;
+    totals.claudeCostUsd += row.claudeCostUsd ?? 0;
+    totals.totalCostUsd =
+      totals.totalCostUsd === null || row.totalCostUsd === null
+        ? null
+        : totals.totalCostUsd + row.totalCostUsd;
     totals.persisted += row.persisted ?? 0;
     totals.acceptedForTarget += row.acceptedForTarget ?? 0;
   }
   for (const totals of Object.values(byProvider)) {
     totals.costPerAccepted = divideOrNull(totals.costUsd, totals.acceptedForTarget);
+    totals.totalCostPerAccepted = divideOrNull(totals.totalCostUsd, totals.acceptedForTarget);
   }
   return { byProvider };
 }
