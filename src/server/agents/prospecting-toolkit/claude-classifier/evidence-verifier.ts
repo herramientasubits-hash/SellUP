@@ -19,6 +19,7 @@ import type {
   RawClassifierSubmission,
   RejectedField,
   VerifiedEmployeeRangeSuggestion,
+  VerifiedRequestedIndustryFit,
   VerifiedSectorSuggestion,
 } from './types';
 
@@ -172,6 +173,7 @@ export type VerifiedSubmission = {
   employeeRange: VerifiedEmployeeRangeSuggestion | null;
   rejected: RejectedField[];
   isOperatingCompany: boolean | null;
+  requestedIndustryFit: VerifiedRequestedIndustryFit | null;
 };
 
 export function verifySubmission(
@@ -243,10 +245,29 @@ export function verifySubmission(
     }
   }
 
+  // ¿Pertenece a la industria buscada? Misma verificación de cita que el sector.
+  let requestedIndustryFit: VerifiedRequestedIndustryFit | null = null;
+  const rawFit = submission.fits_requested_industry;
+  if (rawFit && typeof rawFit.answer === 'boolean') {
+    const check = verifySource(rawFit.quote, rawFit.source_url, ctx, MIN_SECTOR_QUOTE_CHARS);
+    if (check.level === 'rejected') {
+      rejected.push({ field: 'requested_industry_fit', reason: check.reason ?? 'unverifiable' });
+    } else {
+      requestedIndustryFit = {
+        fits: rawFit.answer,
+        quote: rawFit.quote!.trim().slice(0, 400),
+        sourceUrl: rawFit.source_url!.trim(),
+        confidence: clampConfidence(rawFit.confidence),
+        verification: check.level,
+      };
+    }
+  }
+
   return {
     sector,
     employeeRange,
     rejected,
     isOperatingCompany: typeof submission.is_operating_company === 'boolean' ? submission.is_operating_company : null,
+    requestedIndustryFit,
   };
 }

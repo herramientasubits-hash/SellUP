@@ -838,3 +838,16 @@ describe('J. calidad de las sugerencias', () => {
     assert.deepEqual(industry.anyOf[0].enum, [SALUD_ID, TECH_ID]);
   });
 });
+
+describe('K. el mensaje dice la industria buscada y el tool pide la respuesta directa', () => {
+  it('incluye «Industria buscada» y exige fits_requested_industry', () => {
+    const body = buildClassifierRequestBody(
+      { company: { ...COMPANY, requestedIndustryName: 'Tecnología' }, catalog: CATALOG, model: MODEL },
+      PAGE_URL,
+      'texto',
+    );
+    assert.match(String(body.messages[0].content), /Industria buscada: Tecnología/);
+    const tool = body.tools[1] as { input_schema: { required: string[] } };
+    assert.ok(tool.input_schema.required.includes('fits_requested_industry'));
+  });
+});

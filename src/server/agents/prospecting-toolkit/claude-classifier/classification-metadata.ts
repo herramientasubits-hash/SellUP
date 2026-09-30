@@ -120,6 +120,15 @@ export function buildClassificationMetadata(
       : null,
     rejected: result.rejected,
     is_operating_company: result.isOperatingCompany,
+    fits_requested_industry: result.requestedIndustryFit
+      ? {
+          fits: result.requestedIndustryFit.fits,
+          quote: result.requestedIndustryFit.quote,
+          source_url: result.requestedIndustryFit.sourceUrl,
+          confidence: result.requestedIndustryFit.confidence,
+          verification: result.requestedIndustryFit.verification,
+        }
+      : null,
     linkedin_company: result.linkedin
       ? { url: result.linkedin.url, slug: result.linkedin.slug, source: result.linkedin.source }
       : null,

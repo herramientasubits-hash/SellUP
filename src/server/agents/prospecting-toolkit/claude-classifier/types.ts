@@ -11,7 +11,11 @@
 export const CLAUDE_CLASSIFIER_PROVIDER_KEY = 'anthropic';
 export const CLAUDE_CLASSIFIER_OPERATION_KEY = 'company_classification';
 export const CLAUDE_CLASSIFICATION_METADATA_KEY = 'claude_classification';
-export const CLAUDE_CLASSIFIER_CONTRACT_VERSION = 'a1.v1';
+/**
+ * a1.v2 (30-09): pregunta directa «¿pertenece a la industria buscada?». Las filas
+ * sin veredicto de a1.v1 se reintentan (ver `rescueStillPending`).
+ */
+export const CLAUDE_CLASSIFIER_CONTRACT_VERSION = 'a1.v2';
 
 /** Macroindustria del catálogo activo, con sus subindustrias (vacías en el catálogo v2). */
 export type ClassifierCatalogIndustry = {
@@ -31,6 +35,8 @@ export type ClassifierCompanyInput = {
   currentIndustryId: string | null;
   /** Nombre de esa macroindustria (en candidatos de Apollo/Lusha el ID suele venir vacío). */
   currentIndustryName: string | null;
+  /** Macroindustria que se está BUSCANDO (se le pregunta a Claude si la empresa encaja). */
+  requestedIndustryName?: string | null;
 };
 
 /** Lo que Claude devuelve por el tool estricto `submit_company_classification`. */
@@ -52,6 +58,13 @@ export type RawClassifierSubmission = {
   is_operating_company: boolean;
   /** Página de empresa en LinkedIn (linkedin.com/company/…), o null. */
   linkedin_company_url?: string | null;
+  /** ¿Pertenece a la industria buscada? Sirve cuando ninguna de las 12 macros encaja (p. ej. medios). */
+  fits_requested_industry?: {
+    answer: boolean | null;
+    quote: string | null;
+    source_url: string | null;
+    confidence: number;
+  } | null;
   notes: string | null;
 };
 
@@ -61,6 +74,14 @@ export type RawClassifierSubmission = {
  *  - `provided_search_result`: la devolvió la búsqueda web y el slug coincide con la empresa.
  * Son valores que ya existen en `LinkedInEnrichmentSource`.
  */
+export type VerifiedRequestedIndustryFit = {
+  fits: boolean;
+  quote: string;
+  sourceUrl: string;
+  confidence: number;
+  verification: Exclude<EvidenceVerificationLevel, 'rejected'>;
+};
+
 export type VerifiedLinkedInCompany = {
   url: string;
   slug: string;
@@ -103,7 +124,7 @@ export type VerifiedEmployeeRangeSuggestion = {
 };
 
 export type RejectedField = {
-  field: 'sector' | 'subindustry' | 'employee_range' | 'linkedin';
+  field: 'sector' | 'subindustry' | 'employee_range' | 'linkedin' | 'requested_industry_fit';
   reason: string;
 };
 
@@ -151,6 +172,7 @@ export type CompanyClassificationResult = {
   rejected: RejectedField[];
   isOperatingCompany: boolean | null;
   linkedin?: VerifiedLinkedInCompany | null;
+  requestedIndustryFit?: VerifiedRequestedIndustryFit | null;
   pageFinalUrl: string | null;
   usage: ClassifierUsage | null;
   errorCode: string | null;
@@ -194,6 +216,13 @@ export type ClaudeClassificationMetadata = {
   rejected: RejectedField[];
   is_operating_company: boolean | null;
   linkedin_company: { url: string; slug: string; source: VerifiedLinkedInCompany['source'] } | null;
+  fits_requested_industry: {
+    fits: boolean;
+    quote: string;
+    source_url: string;
+    confidence: number;
+    verification: VerifiedRequestedIndustryFit['verification'];
+  } | null;
   page_final_url: string | null;
   page_source: ClassifierPageSource | null;
   estimated_cost_usd: number | null;

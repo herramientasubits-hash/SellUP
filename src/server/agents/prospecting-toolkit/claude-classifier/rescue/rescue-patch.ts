@@ -27,14 +27,20 @@ export function buildRescueInProgress(startedAt: string): Record<string, unknown
 }
 
 /** ¿Hay que (re)procesar esta fila? Sin veredicto, o con uno reintentable, o con una marca vieja. */
+/** Decisiones SIN veredicto de sector: se reintentan si cambió el contrato del clasificador. */
+const NO_VERDICT_DECISIONS = new Set(['unchanged', 'data_completed']);
+
 export function rescueStillPending(rescue: unknown, nowMs: number): boolean {
   if (!rescue || typeof rescue !== 'object') return true;
-  const r = rescue as { decision?: unknown; started_at?: unknown };
+  const r = rescue as { decision?: unknown; started_at?: unknown; contract_version?: unknown };
   if (r.decision === 'in_progress') {
     const startedAt = typeof r.started_at === 'string' ? Date.parse(r.started_at) : NaN;
     return !(Number.isFinite(startedAt) && nowMs - startedAt < RESCUE_STALE_AFTER_MS);
   }
-  return r.decision === 'retryable';
+  if (r.decision === 'retryable') return true;
+  // Un clasificador nuevo puede dar el veredicto que el anterior no pudo; lo decidido
+  // (descartes, admisiones) NUNCA se reabre.
+  return NO_VERDICT_DECISIONS.has(String(r.decision)) && r.contract_version !== CLAUDE_CLASSIFIER_CONTRACT_VERSION;
 }
 
 export type ClaudeRescueMetadata = {
