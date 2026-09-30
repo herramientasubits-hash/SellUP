@@ -534,6 +534,7 @@
     "test:a1-apollo-seen-domain-exclusion-scope": "node --import tsx --test src/server/prospect-batches/provider-seen/__tests__/apollo-seen-domain-exclusion-scope-1.test.ts",
     "test:a1-apollo-keyword-accent-variants": "node --import tsx --test src/server/agents/prospecting-toolkit/__tests__/apollo-keyword-accent-variants-1.test.ts",
     "test:a1-apollo-continuation-persist-completed-run": "node --import tsx --test src/server/agents/prospecting-toolkit/apollo-two-round/__tests__/continuation-persist-completed-run-1.test.ts",
+    "test:a1-continuation-lusha-cascade-accepted": "node --import tsx --test src/server/agents/prospecting-toolkit/apollo-two-round/__tests__/continuation-lusha-cascade-accepted-1.test.ts",
     "test:settings-providers-admin-guard": "node --import tsx --test src/modules/budgets/__tests__/settings-providers-admin-guard.test.ts",
     "test:settings-provider-contract-plan": "node --import tsx --test src/modules/budgets/__tests__/provider-contract-plan.test.ts \"src/app/(sellup)/settings/providers/__tests__/provider-contract-plan-card-runtime.test.tsx\"",
     "test:a1-provider-run-scorecard": "node --import tsx --test src/modules/agent1-effectiveness/__tests__/provider-run-scorecard.test.ts src/modules/agent1-effectiveness/__tests__/provider-run-scorecard-request.test.ts"
