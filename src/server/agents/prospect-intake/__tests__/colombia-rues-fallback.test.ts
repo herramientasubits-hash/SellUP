@@ -11,7 +11,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { enrichNormalizedProspectWithOfficialSources } from '../source-enrichment';
+import {
+  DEFAULT_OFFICIAL_SOURCE_ENRICHMENT_POLICY,
+  enrichNormalizedProspectWithOfficialSources,
+} from '../source-enrichment';
 import type {
   OfficialSourceEnrichmentResult,
   OfficialSourceResolver,
@@ -62,7 +65,11 @@ function makeCandidate(canonicalName: string): NormalizedProspectCandidate {
   };
 }
 
-const input = (name: string) => ({ candidate: makeCandidate(name), criteria });
+const input = (name: string) => ({
+  candidate: makeCandidate(name),
+  criteria,
+  policy: DEFAULT_OFFICIAL_SOURCE_ENRICHMENT_POLICY,
+});
 
 function result(
   status: OfficialSourceEnrichmentResult['status'],
@@ -261,6 +268,13 @@ describe('cámaras de comercio: nombre → NIT', () => {
     const out = await resolver.resolve(input('Almaviva'));
     assert.equal(out.status, 'low_confidence_match');
     assert.deepEqual(out.safeMetadata, { normalizedSearchName: 'ALMAVIVA', singleWordName: true });
+  });
+
+  it('una palabra que YA trae su forma societaria es un nombre legal → NIT fuerte', async () => {
+    const { resolver } = ruesResolver(REGISTRY);
+    const out = await resolver.resolve(input('Almaviva S.A.S'));
+    assert.equal(out.status, 'matched');
+    assert.equal(out.taxIdentifier, '901696006');
   });
 
   it('homónimos → pista, con el número de candidatos', async () => {

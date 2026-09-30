@@ -16,6 +16,7 @@
  */
 
 import { isNameTooGeneric } from '@/server/source-catalog/enrichment/tax-identifier-resolution/resolve-candidate-tax-identifier-colombia';
+import { normalizeCompanyNameCore } from '@/server/source-catalog/company-name-core';
 
 import type {
   OfficialSourceEnrichmentResult,
@@ -52,6 +53,8 @@ export interface SnapshotNameResolverConfig {
    * SOURCES-CO-RUES-LIVE-NIT-1 — when true, a candidate whose name core is ONE
    * word («Almaviva», «Supersalud») never becomes strong: a bare brand often
    * coincides with a different, unrelated registered company. It stays a signal.
+   * A one-word name that CARRIES its legal form («Altipal S.A.S») is a legal name,
+   * not a bare brand, and can still be strong.
    */
   singleWordIsSignalOnly?: boolean;
 }
@@ -115,7 +118,9 @@ export function createSnapshotNameOfficialSourceResolver(
         warnings: [],
         issues: [],
       };
-      const singleWord = config.singleWordIsSignalOnly === true && tokens.length === 1;
+      const carriesLegalForm = normalizeCompanyNameCore(input.candidate.canonicalName, []) !== core;
+      const singleWord =
+        config.singleWordIsSignalOnly === true && tokens.length === 1 && !carriesLegalForm;
       if (distinct.length === 1 && !singleWord) {
         return {
           ...base,
