@@ -399,6 +399,7 @@ export type IncrementalSearchMetadata = {
     static_count: number;
     seen_this_run_count: number;
     negative_memory_count: number;
+    cell_domains_count?: number;
     truncated_count: number;
   };
   tavily_query_plan?: {
@@ -409,6 +410,20 @@ export type IncrementalSearchMetadata = {
     rounds_planned: number;
     queries_planned: number;
     additional_criteria_applied: boolean;
+    /** AGENT1-TAVILY-QUERY-SPACE-1 — regiones del país en el espacio. */
+    regions_count?: number;
+    cells_used?: Array<{ key: string; query: string; region: string | null }>;
+    query_space?: {
+      total: number;
+      fresh: number;
+      revisit: number;
+      cooling: number;
+      retired: number;
+      exhausted: boolean;
+      next_available_at: string | null;
+      history_status: 'loaded' | 'unavailable' | 'skipped';
+      history_batches_read: number;
+    };
   };
   min_useful_candidates: number;
   target_internal: number;
