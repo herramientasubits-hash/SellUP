@@ -11,7 +11,7 @@
  * (rd_dgii_bulk) name→RNC, Argentina (ar_rns_registry) name→CUIT, Ecuador
  * (ec_scvs snapshot) name→RUC, Guatemala (gt_rgae_proveedores) name→NIT and
  * Honduras (hn_contrataciones_abiertas) name→RTN and Perú (pe_sunat_registry)
- * name→RUC. No promise of MX/PE/… enrichment
+ * name→RUC and Paraguay (py_set_registry) name→RUC. No promise of MX/… enrichment
  * is made here;
  * unsupported countries fall through to the shared "unsupported" result (soft
  * warning) automatically.
@@ -54,6 +54,7 @@ import {
   normalizeCompanyNameCore,
 } from '@/server/source-catalog/company-name-core';
 import { normalizePeruCompanyCore } from '@/server/source-catalog/connectors/sunat-peru/pe-sunat-registry-row';
+import { normalizeParaguayCompanyCore } from '@/server/source-catalog/connectors/set-paraguay/py-set-registry-row';
 import { createFallbackOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/fallback-official-source-resolver';
 import {
   buildRuesNameLiveQuery,
@@ -131,6 +132,15 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
       validTaxId: /^20\d{9}$/,
       normalizeCore: normalizePeruCompanyCore,
       querySnapshots: buildSnapshotNameQuery(snapshotClient, 'pe_sunat_registry', 'PE'),
+    }),
+    // SOURCES-PY-RUC-BY-NAME-1 — sociedades activas del padrón de RUC de la SET.
+    createSnapshotNameOfficialSourceResolver({
+      countryCode: 'PY',
+      sourceKey: 'py_set_registry',
+      taxIdentifierType: 'RUC',
+      validTaxId: /^80\d{6}-\d$/,
+      normalizeCore: normalizeParaguayCompanyCore,
+      querySnapshots: buildSnapshotNameQuery(snapshotClient, 'py_set_registry', 'PY'),
     }),
   ];
 }

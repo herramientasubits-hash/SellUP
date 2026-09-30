@@ -65,7 +65,7 @@ describe('cableado', () => {
     const resolvers = buildColombiaOfficialSourceResolvers();
     assert.ok(Array.isArray(resolvers));
     for (const resolver of resolvers) {
-      assert.ok(['CO', 'DO', 'AR', 'EC', 'GT', 'HN', 'PE'].includes(resolver.countryCode), resolver.countryCode);
+      assert.ok(['CO', 'DO', 'AR', 'EC', 'GT', 'HN', 'PE', 'PY'].includes(resolver.countryCode), resolver.countryCode);
     }
   });
 
@@ -81,6 +81,12 @@ describe('cableado', () => {
     const wiring = read('src/server/prospect-batches/official-source-resolvers.ts');
     assert.match(wiring, /countryCode: 'PE',\s*sourceKey: 'pe_sunat_registry',\s*taxIdentifierType: 'RUC',\s*validTaxId: \/\^20\\d\{9\}\$\//);
     assert.match(wiring, /buildSnapshotNameQuery\(snapshotClient, 'pe_sunat_registry', 'PE'\)/);
+  });
+
+  it('el factory construye Paraguay (RUC con dígito verificador) sobre el padrón de la SET', () => {
+    const wiring = read('src/server/prospect-batches/official-source-resolvers.ts');
+    assert.match(wiring, /countryCode: 'PY',\s*sourceKey: 'py_set_registry',\s*taxIdentifierType: 'RUC',\s*validTaxId: \/\^80\\d\{6\}-\\d\$\//);
+    assert.match(wiring, /buildSnapshotNameQuery\(snapshotClient, 'py_set_registry', 'PY'\)/);
   });
 
   it('el resolvedor genérico es puro y la lectura no escribe', () => {
