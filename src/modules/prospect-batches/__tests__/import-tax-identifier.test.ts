@@ -10,8 +10,6 @@ import assert from 'node:assert/strict';
 
 import { resolveImportTaxIdentifier } from '../import-tax-identifier';
 import {
-  calculateArgentinaCheckDigit,
-  calculateChileCheckDigit,
   calculateColombianCheckDigit,
   calculatePeruCheckDigit,
   TAX_IDENTIFIER_RULES,
@@ -52,16 +50,12 @@ describe('resolveImportTaxIdentifier', () => {
     assert.match(r.warning ?? '', /NIT no válido/);
   });
 
-  // Valores con el dígito verificador CALCULADO (los `canonicalExample` de CL,
-  // PE y AR son sólo texto de ayuda y no pasan su propio checksum).
-  const VALID_BY_COUNTRY: Record<string, string> = {
-    MX: TAX_IDENTIFIER_RULES.MX.canonicalExample,
-    CL: `76123456-${calculateChileCheckDigit('76123456')}`,
-    PE: `2012345678${calculatePeruCheckDigit('2012345678')}`,
-    EC: TAX_IDENTIFIER_RULES.EC.canonicalExample,
-    AR: `30-12345678-${calculateArgentinaCheckDigit('3012345678')}`,
-    BR: TAX_IDENTIFIER_RULES.BR.canonicalExample,
-  };
+  // AGENT1-IMPORT-PARITY-6 — el ejemplo que ve la vendedora en el formulario
+  // tiene que pasar su PROPIA regla: antes CO, CL, PE y AR mostraban un ejemplo
+  // que la validación rechazaba.
+  const VALID_BY_COUNTRY: Record<string, string> = Object.fromEntries(
+    Object.entries(TAX_IDENTIFIER_RULES).map(([cc, rule]) => [cc, rule.canonicalExample]),
+  );
   for (const [cc, sample] of Object.entries(VALID_BY_COUNTRY)) {
     it(`${cc}: un identificador válido lleva su etiqueta (${TAX_IDENTIFIER_RULES[cc].label})`, () => {
       const r = resolveImportTaxIdentifier(sample, cc);
@@ -69,6 +63,13 @@ describe('resolveImportTaxIdentifier', () => {
       assert.equal(r.type, TAX_IDENTIFIER_RULES[cc].label);
     });
   }
+
+  it('el texto de ayuda («Ej. …») de cada país también es un identificador válido', () => {
+    for (const [cc, rule] of Object.entries(TAX_IDENTIFIER_RULES)) {
+      const example = rule.placeholder.replace(/^Ej\.\s*/, '');
+      assert.ok(resolveImportTaxIdentifier(example, cc).status === 'valid', `${cc}: «${rule.placeholder}»`);
+    }
+  });
 
   it('Perú: RUC con dígito equivocado → inválido', () => {
     const body = '2012345678';

@@ -1,20 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { runEnrichmentWorker } from '@/server/prospect-batches/enrichment-worker';
+// AGENT1-IMPORT-PARITY-7 — la MISMA autorización fail-closed del cron de
+// recuperación de teléfonos: sin `CRON_SECRET` configurado nadie entra. Antes
+// caía a un secreto público (`local_cron_secret`) que cualquiera podía enviar.
+import {
+  authorizeRecoveryCronRequest,
+  extractCronSecretFromAuthorizationHeader,
+} from '@/modules/contact-enrichment/phone-reveal-recovery-cron-core';
+// AGENT1-IMPORT-PARITY-10 — el cron vacía la cola con el mismo presupuesto que la importación.
+import { drainEnrichmentJobs } from '@/server/prospect-batches/enrichment-drain';
 
 export const dynamic = 'force-dynamic';
 
 async function handleCronRequest(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('Authorization');
-    const cronSecret = process.env.CRON_SECRET || 'local_cron_secret';
+    const auth = authorizeRecoveryCronRequest(
+      extractCronSecretFromAuthorizationHeader(request.headers.get('Authorization')),
+      process.env.CRON_SECRET,
+    );
 
-    if (!authHeader || authHeader !== `Bearer ${cronSecret}`) {
-      console.warn('[CronEnrich] Unauthorized attempt to trigger cron endpoint.');
+    if (!auth.authorized) {
+      console.warn(`[CronEnrich] Unauthorized attempt to trigger cron endpoint (${auth.denialCode}).`);
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
     console.info('[CronEnrich] Starting enrichment worker run...');
-    const stats = await runEnrichmentWorker();
+    const stats = await drainEnrichmentJobs();
 
     return NextResponse.json({
       success: true,
