@@ -6,8 +6,9 @@
  *
  * Builds the injected `OfficialSourceResolver[]` the pure core hands to
  * `enrichNormalizedProspectWithOfficialSources`. Today that is one resolver
- * per supported country: Colombia (co_siis) name→NIT and República Dominicana
- * (rd_dgii_bulk) name→RNC. No promise of MX/PE/EC/… enrichment is made here;
+ * per supported country: Colombia (co_siis) name→NIT, República Dominicana
+ * (rd_dgii_bulk) name→RNC, Guatemala (gt_rgae_proveedores) name→NIT and
+ * Honduras (hn_contrataciones_abiertas) name→RTN. No promise of MX/PE/EC/… enrichment is made here;
  * unsupported countries fall through to the shared "unsupported" result (soft
  * warning) automatically.
  *
@@ -38,6 +39,15 @@ import { createColombiaOfficialSourceResolver } from '@/server/agents/prospect-i
 import { buildColombiaSnapshotQuery } from '@/server/prospect-batches/colombia-snapshot-query';
 import { createDominicanOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/dominican-republic-official-source-resolver';
 import { buildDominicanSnapshotQuery } from '@/server/prospect-batches/dominican-republic-snapshot-query';
+import { createSnapshotNameOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/snapshot-name-official-source-resolver';
+import { buildSnapshotNameQuery } from '@/server/prospect-batches/snapshot-name-query';
+import {
+  CENTRAL_AMERICA_LEGAL_FORMS,
+  normalizeCompanyNameCore,
+} from '@/server/source-catalog/company-name-core';
+
+const normalizeCentralAmericaCore = (name: string | null | undefined) =>
+  normalizeCompanyNameCore(name, CENTRAL_AMERICA_LEGAL_FORMS);
 
 /**
  * Build the read-only official-source resolvers shared by every discovery
@@ -60,6 +70,24 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
     }),
     createDominicanOfficialSourceResolver({
       querySnapshots: buildDominicanSnapshotQuery(snapshotClient),
+    }),
+    // SOURCES-GT-HN-BY-NAME-1 — registros ya cargados; la dueña autorizó (30-09)
+    // dejar de tratarlos como sólo lectura para la identidad fiscal.
+    createSnapshotNameOfficialSourceResolver({
+      countryCode: 'GT',
+      sourceKey: 'gt_rgae_proveedores',
+      taxIdentifierType: 'NIT',
+      validTaxId: /^\d{4,12}K?$/,
+      normalizeCore: normalizeCentralAmericaCore,
+      querySnapshots: buildSnapshotNameQuery(snapshotClient, 'gt_rgae_proveedores', 'GT'),
+    }),
+    createSnapshotNameOfficialSourceResolver({
+      countryCode: 'HN',
+      sourceKey: 'hn_contrataciones_abiertas',
+      taxIdentifierType: 'RTN',
+      validTaxId: /^\d{14}$/,
+      normalizeCore: normalizeCentralAmericaCore,
+      querySnapshots: buildSnapshotNameQuery(snapshotClient, 'hn_contrataciones_abiertas', 'HN'),
     }),
   ];
 }
