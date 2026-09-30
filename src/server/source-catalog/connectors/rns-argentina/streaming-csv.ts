@@ -20,6 +20,9 @@ export class CsvRowParser {
   private pendingCr = false;
   private started = false;
 
+  /** `delimiter`: «,» por defecto; el RUPE de Uruguay usa «;» (SOURCES-UY-RUT-BY-NAME-1). */
+  constructor(private readonly delimiter: string = ',') {}
+
   /** Procesa un trozo y devuelve las filas que quedaron completas. */
   push(chunk: string): string[][] {
     const rows: string[][] = [];
@@ -55,7 +58,7 @@ export class CsvRowParser {
 
       if (ch === '"' && this.field === '') {
         this.inQuotes = true;
-      } else if (ch === ',') {
+      } else if (ch === this.delimiter) {
         this.row.push(this.field);
         this.field = '';
       } else if (ch === '\n' || ch === '\r') {
@@ -94,8 +97,9 @@ export class CsvRowParser {
  */
 export async function* readCsvFile(
   path: string,
+  options: { delimiter?: string } = {},
 ): AsyncGenerator<Record<string, string>, void, undefined> {
-  const parser = new CsvRowParser();
+  const parser = new CsvRowParser(options.delimiter ?? ',');
   let header: string[] | null = null;
 
   const toRecord = function* (rows: string[][]) {

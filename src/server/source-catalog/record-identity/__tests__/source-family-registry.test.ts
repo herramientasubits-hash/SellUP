@@ -25,6 +25,7 @@ const TAX_GRAIN_SOURCE_KEYS = [
   'ar_rns_registry',
   'pe_sunat_registry',
   'py_set_registry',
+  'uy_rupe_registry',
 ] as const;
 
 const NATIVE_RECORD_GRAIN_SOURCE_KEYS = [

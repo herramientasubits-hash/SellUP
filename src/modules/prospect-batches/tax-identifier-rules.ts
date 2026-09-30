@@ -112,6 +112,23 @@ export function calculateParaguayRucCheckDigit(rucBody: string): number | null {
   return remainder < 2 ? 0 : 11 - remainder;
 }
 
+/**
+ * Dígito verificador del RUT uruguayo (DGI): módulo 11 sobre los 11 primeros
+ * dígitos con pesos 4,3,2,9,8,7,6,5,4,3,2; 11 → 0 y 10 → RUT inválido.
+ * SOURCES-UY-RUT-BY-NAME-1: comprobado sobre 105.743 RUT del RUPE de agosto de
+ * 2026 (1 solo fallo, un RUT mal cargado en el registro).
+ */
+export function calculateUruguayRutCheckDigit(rutBody: string): number | null {
+  if (!/^\d{11}$/.test(rutBody)) return null;
+  const weights = [4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+  let total = 0;
+  for (let i = 0; i < 11; i++) total += parseInt(rutBody[i], 10) * weights[i];
+  const dv = 11 - (total % 11);
+  if (dv === 11) return 0;
+  if (dv === 10) return null;
+  return dv;
+}
+
 export function calculateCNPJCheckDigit(digits: number[], weights: number[]): number {
   let sum = 0;
   for (let i = 0; i < weights.length; i++) {
@@ -373,6 +390,27 @@ export const TAX_IDENTIFIER_RULES: Record<string, TaxIdentifierRule> = {
     },
     canonicalExample: '80000108-7',
     ruleVersion: 'PY-RUC-v1',
+  },
+  UY: {
+    countryCode: 'UY',
+    label: 'RUT',
+    placeholder: 'Ej. 216569480018',
+    helpText: 'Ingrese el RUT de 12 dígitos.',
+    minLength: 12,
+    maxLength: 16,
+    inputMode: 'numeric',
+    acceptedCharacters: /^[\d\s.-]*$/,
+    formatPattern: /^\d{12}$/,
+    validationLevel: 'checksum',
+    normalize: (val) => val.replace(/[\s.-]/g, ''),
+    validateFormat: (val) => /^\d{12}$/.test(val.replace(/[\s.-]/g, '')),
+    validateChecksum: (val) => {
+      const cleaned = val.replace(/[\s.-]/g, '');
+      if (cleaned.length !== 12) return false;
+      return parseInt(cleaned[11], 10) === calculateUruguayRutCheckDigit(cleaned.slice(0, 11));
+    },
+    canonicalExample: '216569480018',
+    ruleVersion: 'UY-RUT-v1',
   },
 };
 
