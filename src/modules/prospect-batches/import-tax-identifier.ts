@@ -26,7 +26,9 @@ export type ImportTaxIdentifierStatus =
   | 'valid_check_digit_computed'
   | 'invalid'
   | 'unsupported_country'
-  | 'missing_country';
+  | 'missing_country'
+  /** AGENT1-IMPORT-PARITY-8 — no venía en el archivo; lo encontró un catálogo oficial. */
+  | 'official_source';
 
 export type ImportTaxIdentifierResolution = {
   status: ImportTaxIdentifierStatus;

@@ -1,9 +1,10 @@
 /**
  * Guarda estática — AGENT1-CUT4-B2 § 14 y § 15.
  *
- * Lo que fija: los DOS writers de `actions.ts` — `createProspectCandidate` y
- * `createExternalCandidatesBatch` — delegan la procedencia en la AUTORIDAD
- * CANÓNICA y no en un literal. El atajo peligroso es exactamente
+ * Lo que fija: el writer de `actions.ts` — `createProspectCandidate` — delega
+ * la procedencia en la AUTORIDAD CANÓNICA y no en un literal. El segundo writer,
+ * `createExternalCandidatesBatch`, se ELIMINÓ (AGENT1-IMPORT-PARITY-5) y esta
+ * guarda fija que no vuelva. El atajo peligroso es exactamente
  *
  *     record_origin: 'production'
  *
@@ -60,7 +61,10 @@ function writerBody(src: string, name: string): string {
   return end === -1 ? rest : rest.slice(0, end);
 }
 
-const B2_WRITERS = ['createProspectCandidate', 'createExternalCandidatesBatch'] as const;
+const B2_WRITERS = ['createProspectCandidate'] as const;
+
+/** AGENT1-IMPORT-PARITY-5 — acciones `use server` de importación eliminadas. */
+const REMOVED_IMPORT_ACTIONS = ['createExternalCandidatesBatch', 'checkImportDuplicates'] as const;
 
 test('§ 14 — ningún writer de B2 fija record_origin a un literal de producción', () => {
   const src = code(ACTIONS);
@@ -79,7 +83,6 @@ test('§ 14 (control negativo) — la búsqueda SÍ detecta el atajo cuando est�
   const src = code(ACTIONS);
   for (const [writer, projection] of [
     ['createProspectCandidate', '...recordOriginColumns'],
-    ['createExternalCandidatesBatch', '...toCandidateRecordOriginColumns(recordOriginResolution)'],
   ] as const) {
     const mutated = writerBody(src, writer).replace(projection, "record_origin: 'production'");
     assert.ok(
@@ -287,4 +290,19 @@ test('§ 3 — el fail-closed corta ANTES de la puerta de persistencia', () => {
       `el fail-closed «${message}» tiene que cortar antes de insertar la fila`,
     );
   }
+});
+
+test('AGENT1-IMPORT-PARITY-5 — las acciones de importación eliminadas no vuelven a actions.ts', () => {
+  // Una acción `use server` exportada es un endpoint invocable: si reaparece, una
+  // importación podría saltarse el reclamo global, los duplicados y los avisos
+  // de la ruta `create-import-batch`, que es la única escritura de importación.
+  const src = code(ACTIONS);
+  for (const name of REMOVED_IMPORT_ACTIONS) {
+    assert.ok(!src.includes(`function ${name}(`), `${name} no puede volver a actions.ts`);
+  }
+});
+
+test('AGENT1-IMPORT-PARITY-5 (control negativo) — la guarda detecta la acción si reaparece', () => {
+  const mutated = `${code(ACTIONS)}\nexport async function createExternalCandidatesBatch(input: unknown) {}`;
+  assert.ok(mutated.includes('function createExternalCandidatesBatch('));
 });
