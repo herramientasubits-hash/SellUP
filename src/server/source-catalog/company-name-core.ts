@@ -127,6 +127,25 @@ export const PARAGUAY_LEGAL_FORMS: readonly string[] = [
   'SA',
 ];
 
+/**
+ * Formas societarias de Uruguay (RUPE), más largas primero. SOURCES-UY-RUT-BY-NAME-1.
+ * También deciden qué filas del RUPE son EMPRESAS: sólo se carga una razón social
+ * que termina en una de estas formas (así no se guardan personas físicas).
+ */
+export const URUGUAY_LEGAL_FORMS: readonly string[] = [
+  'SOCIEDAD POR ACCIONES SIMPLIFICADA',
+  'SOCIEDAD DE RESPONSABILIDAD LIMITADA',
+  'SOCIEDAD ANONIMA',
+  'LIMITADA',
+  'S A S',
+  'S R L',
+  'S A',
+  'LTDA',
+  'SAS',
+  'SRL',
+  'SA',
+];
+
 /** Núcleo comparable del nombre con las formas dadas, o cadena vacía. */
 export function normalizeCompanyNameCore(
   name: string | null | undefined,
