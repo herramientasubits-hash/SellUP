@@ -6251,6 +6251,13 @@ jobs:
       - name: Run Agent 1 Apollo tech noisy tags tests
         run: npm run test:a1-apollo-tech-noisy-tags
 
+      # AGENT1-APOLLO-TECH-TELECOM-TAGS-1 - Tecnologia tambien pide a Apollo
+      # telecomunicaciones / telecommunications (decision de la duena 30-09).
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 Apollo tech telecom tags tests
+        run: npm run test:a1-apollo-tech-telecom-tags
+
       # AGENT1-TAVILY-V2-1 - Tavily compite con Apollo y Lusha: consultas desde
       # el catalogo de 12 macro industrias (rotacion por lote, pais e idioma),
       # universidades/gobierno/gremios pasan el filtro y los directorios no,

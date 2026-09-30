@@ -120,6 +120,26 @@ export const APOLLO_NOISY_MACRO_TAGS: Readonly<Record<string, readonly string[]>
   technology: ['software', 'technology', 'tecnologia', 'information technology', 'plataforma digital'],
 });
 
+/**
+ * AGENT1-APOLLO-TECH-TELECOM-TAGS-1 — etiquetas que se AÑADEN a la consulta a
+ * Apollo de una macro industria, aunque el catálogo no las tenga.
+ *
+ * Decisión de la dueña (2026-09-30): las telecomunicaciones cuentan como
+ * Tecnología para UBITS. El gate de evidencia ya lo aceptaba
+ * (`telecommunications` está en `parentIndustries` de Tecnología), pero la
+ * búsqueda nunca lo pedía, así que Apollo no traía operadores ni integradores
+ * de telecomunicaciones. En Colombia × Tecnología (lote `67930f23`) Apollo sólo
+ * devolvió 17 empresas con las 13 etiquetas precisas.
+ *
+ * Viajan justo después de los específicos del catálogo, dentro del presupuesto
+ * de 25, y NO cuentan como cobertura: la cobertura mide el catálogo. Sólo en el
+ * plan completo (sin familia): una familia existe para una pregunta estrecha.
+ * Sólo afecta a la consulta a Apollo.
+ */
+export const APOLLO_EXTRA_MACRO_TAGS: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  technology: ['telecomunicaciones', 'telecommunications'],
+});
+
 function isApolloNoisyTag(macroIndustryKey: string, term: string): boolean {
   const noisy = APOLLO_NOISY_MACRO_TAGS[macroIndustryKey];
   if (!noisy) return false;
@@ -155,6 +175,11 @@ export type MacroIndustryQueryPlan = {
    * Apollo por ser demasiado genéricos (`APOLLO_NOISY_MACRO_TAGS`).
    */
   apolloNoisyTagsWithheld: string[];
+  /**
+   * AGENT1-APOLLO-TECH-TELECOM-TAGS-1 — etiquetas de `APOLLO_EXTRA_MACRO_TAGS`
+   * que viajaron. No cuentan como cobertura.
+   */
+  apolloExtraTagsAdded: string[];
   /** Los que no entraron, con su motivo. */
   withheldBroadTerms: Array<{ term: string; reason: MacroBroadTermWithheldReason }>;
 
@@ -322,6 +347,15 @@ export function buildMacroIndustryQueryPlan(
     if (push(term)) coveringSpecificTerms.push(term);
   }
 
+  // AGENT1-APOLLO-TECH-TELECOM-TAGS-1 — lo que la dueña decidió que también es
+  // esta macro industria, sólo en el plan completo y sin contar como cobertura.
+  const apolloExtraTagsAdded: string[] = [];
+  if (resolvedFamily === null) {
+    for (const term of sanitizeTerms(APOLLO_EXTRA_MACRO_TAGS[definition.key] ?? [])) {
+      if (push(term)) apolloExtraTagsAdded.push(term);
+    }
+  }
+
   // 2. Los amplios, sólo si hay con qué discriminar y dentro del tope.
   //
   //    El tope es el MENOR de: la constante dura, la cuota proporcional del
@@ -447,6 +481,7 @@ export function buildMacroIndustryQueryPlan(
     admittedBroadTerms,
     accentVariantsAdded,
     apolloNoisyTagsWithheld,
+    apolloExtraTagsAdded,
     withheldBroadTerms,
     keywordBudget,
     broadTermAllowance,
@@ -551,6 +586,7 @@ export function toMacroIndustryQueryMetadata(
     macro_industry_broad_terms_admitted: plan.admittedBroadTerms,
     macro_industry_accent_variants_added: plan.accentVariantsAdded,
     macro_industry_apollo_noisy_tags_withheld: plan.apolloNoisyTagsWithheld,
+    macro_industry_apollo_extra_tags_added: plan.apolloExtraTagsAdded,
     macro_industry_broad_terms_withheld: plan.withheldBroadTerms,
     macro_industry_broad_term_share: plan.coverage.broadTermShare,
     macro_industry_query_coverage_complete: plan.coverage.complete,
