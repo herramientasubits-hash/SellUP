@@ -49,6 +49,7 @@ import {
   MACRO_QUERY_MAX_BROAD_TERMS,
   MACRO_QUERY_MIN_SPECIFIC_FOR_BROAD,
   toMacroIndustryQueryMetadata,
+  APOLLO_NOISY_MACRO_TAGS,
 } from '../apollo-macro-industry-query-terms';
 import { buildApolloOrganizationsEffectiveRequest } from '../apollo-organizations-effective-request';
 import { APOLLO_CONTRACT_MAX_PER_PAGE } from '../apollo-organizations-pagination-budget';
@@ -100,8 +101,18 @@ function norm(value: string): string {
  * Se deriva del tope del § 15 en vez de copiarlo: si mañana el tope cambia, esta
  * suite mide el tope nuevo, no uno congelado que ya no rige.
  */
+/**
+ * AGENT1-APOLLO-TECH-NOISY-TAGS-1 — los amplios que `APOLLO_NOISY_MACRO_TAGS`
+ * retiene no viajan nunca; los que quedan siguen la ración de siempre.
+ */
+function isNoisyForApollo(definition: MacroIndustryDefinition, term: string): boolean {
+  return (APOLLO_NOISY_MACRO_TAGS[definition.key] ?? []).some((n) => norm(n) === norm(term));
+}
+
 function travellingBroadTerms(definition: MacroIndustryDefinition): string[] {
-  return [...definition.discovery.broad].slice(0, MACRO_QUERY_MAX_BROAD_TERMS);
+  return [...definition.discovery.broad]
+    .filter((term) => !isNoisyForApollo(definition, term))
+    .slice(0, MACRO_QUERY_MAX_BROAD_TERMS);
 }
 
 /**
@@ -343,7 +354,10 @@ describe('V3-A · B. el redactor emite una familia por vez', () => {
       const keys = macroIndustryQueryFamilyKeys(definition);
       const first = buildMacroIndustryQueryPlan({ definition, variantKey: keys[0] });
       const allowance = expectedBroadAllowance(first.coverage.specificTermCount);
-      assert.ok(allowance >= 1, `${definition.key}/${keys[0]} no admitiría ni un amplio`);
+      const hasTravellingBroad = travellingBroadTerms(definition).length > 0;
+      if (hasTravellingBroad) {
+        assert.ok(allowance >= 1, `${definition.key}/${keys[0]} no admitiría ni un amplio`);
+      }
       assert.equal(first.broadTermAllowance, allowance);
       assert.deepEqual(
         first.admittedBroadTerms,
@@ -363,7 +377,9 @@ describe('V3-A · B. el redactor emite una familia por vez', () => {
         assert.equal(later.broadTermAllowance, 0);
         assert.deepEqual(
           later.withheldBroadTerms.map((entry) => entry.reason),
-          later.broadTerms.map(() => 'variant_family_excludes_broad'),
+          later.broadTerms.map((term) =>
+            isNoisyForApollo(definition, term) ? 'apollo_noisy_generic_tag' : 'variant_family_excludes_broad',
+          ),
           `${definition.key}/${key} publicó un motivo que no es el de la variante`,
         );
         assert.equal(later.coverage.broadTermShare, 0);

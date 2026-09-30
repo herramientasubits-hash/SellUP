@@ -97,6 +97,9 @@ describe('§ 3 — la ronda única envía la unión de las familias', () => {
       const sent = new Set(plan.effectiveKeywords.map((k) => k.toLowerCase()));
       for (const family of definition.discovery.families ?? []) {
         for (const term of family.terms) {
+          // AGENT1-APOLLO-TECH-NOISY-TAGS-1 — las etiquetas demasiado genéricas
+          // se retienen a propósito (y se declaran en `apolloNoisyTagsWithheld`).
+          if (plan.apolloNoisyTagsWithheld.includes(term.toLowerCase())) continue;
           assert.ok(sent.has(term.toLowerCase()), `${definition.key}/${family.key}: «${term}» no viaja`);
         }
       }

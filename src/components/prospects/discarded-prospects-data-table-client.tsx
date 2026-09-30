@@ -571,6 +571,9 @@ function describeSendToReviewFailure(reason: string): string {
       return 'El estado del registro cambió — actualiza la lista e inténtalo de nuevo.';
     case 'write_failed':
       return 'No se pudo completar la operación. Intenta de nuevo.';
+    case 'claimed_by_other_seller':
+      // AGENT1-SEND-TO-REVIEW-RECLAIM-1 — la empresa ya es de otro vendedor.
+      return 'Otro vendedor ya tiene esta empresa en SellUp: quedó como duplicada.';
     default:
       return 'Ocurrió un error inesperado.';
   }

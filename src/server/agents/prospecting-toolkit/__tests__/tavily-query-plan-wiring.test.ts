@@ -71,12 +71,15 @@ describe('Tavily + macro industria — las rondas pagan exactamente el plan', ()
     const plan = buildTavilyMacroQueryPlan({
       industry: 'Retail',
       country: 'Colombia',
+      countryCode: 'CO',
       seedKey: input.existingBatchId!,
       additionalCriteria: null,
     })!;
     assert.deepEqual(captured, plan.rounds);
     assert.equal(result.metadata.tavily_query_plan?.macro_key, 'retail');
-    assert.equal(result.metadata.tavily_query_plan?.queries_planned, 14);
+    // AGENT1-TAVILY-V2-2 — en Colombia Retail pierde sus 6 términos sólo en
+    // inglés (retailer, grocery store, department store…): 14 → 8.
+    assert.equal(result.metadata.tavily_query_plan?.queries_planned, 8);
   });
 
   it('ninguna consulta de Retail lleva literales de software (R3/R4 legacy)', async () => {
@@ -96,15 +99,17 @@ describe('Tavily + macro industria — las rondas pagan exactamente el plan', ()
     for (const round of captured) assert.ok(round.length <= 4);
   });
 
-  it('Gobierno (10 términos) se detiene al agotar el plan, sin inventar consultas', async () => {
+  it('Gobierno (7 términos en español) se detiene al agotar el plan, sin inventar consultas', async () => {
     const captured: string[][] = [];
     const result = await runIncrementalProspectingSearch(
       baseInput({ industry: 'Gobierno' }),
       undefined,
       capturingPipeline(captured),
     );
-    assert.equal(captured.length, 3);
-    assert.equal(captured.flat().length, 10);
+    // AGENT1-TAVILY-V2-2 — sin «government agency», «municipality» ni «public
+    // administration»: 10 → 7 términos, dos rondas (4 + 3).
+    assert.equal(captured.length, 2);
+    assert.equal(captured.flat().length, 7);
     assert.equal(result.metadata.stopped_reason, 'novelty_exhausted_no_diversification_available');
   });
 
@@ -186,8 +191,10 @@ function pipelineReturningDomains(
 describe('Tavily — cada ronda excluye lo que ya vio', () => {
   it('la ronda 2 pide excluir los dominios que trajo la ronda 1', async () => {
     const excludes: Array<string[] | undefined> = [];
+    // Salud conserva 11 términos en español (3 rondas): la tercera ronda debe
+    // excluir lo que trajo la segunda.
     const result = await runIncrementalProspectingSearch(
-      baseInput(),
+      baseInput({ industry: 'Salud & Farmacéuticos' }),
       undefined,
       pipelineReturningDomains(excludes, [['exito.com', 'falabella.com.co'], ['olimpica.com']]),
     );

@@ -34,6 +34,7 @@ import {
 } from './web-search-providers/apollo-organizations-search-provider';
 import type { RunCorrelationMetadata } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-correlation';
 import { filterNoiseResults } from './noise-filter';
+import { findForeignCctld } from './tavily-foreign-cctld-guard';
 // NULL-DOMAIN-IDENTITY § 2/§ 3 — lectores canónicos de identidad Apollo.
 import {
   isApolloOrganizationsResult,
@@ -522,8 +523,18 @@ export async function runMultiQueryWebSearch(
   const dedupedResultsCount = dedupedResults.length;
 
   // ── Paso 3: Aplicar noise filter ──────────────────────────────────────────
-  const { kept, filteredCount } = filterNoiseResults(dedupedResults);
-  const keptWithOrigin = kept as MultiQuerySearchResultEntry[];
+  const { kept, filteredCount: noiseFilteredCount } = filterNoiseResults(dedupedResults);
+
+  // ── Paso 3b: AGENT1-TAVILY-V2-2 — dominio claramente de otro país ─────────
+  // Sólo Tavily: Apollo y Lusha ya filtran por país en el proveedor. Corre antes
+  // de ordenar y recortar, para que el cupo no lo ocupen empresas de otro país.
+  const applyForeignCctldGuard = provider === 'tavily' && !!input.countryCode;
+  const countryKept = applyForeignCctldGuard
+    ? kept.filter((r) => findForeignCctld(r.url, input.countryCode) === null)
+    : kept;
+  const foreignCctldFilteredCount = kept.length - countryKept.length;
+  const filteredCount = noiseFilteredCount + foreignCctldFilteredCount;
+  const keptWithOrigin = countryKept as MultiQuerySearchResultEntry[];
 
   // ── Paso 4: Ordenar por señales prospectables ─────────────────────────────
   const sorted = [...keptWithOrigin].sort(
@@ -542,6 +553,7 @@ export async function runMultiQueryWebSearch(
     queriesExecuted: queries.length,
     queriesSkipped: queryResults.filter((q) => q.skipped).length,
     executedAt: new Date().toISOString(),
+    ...(applyForeignCctldGuard ? { foreign_cctld_filtered_count: foreignCctldFilteredCount } : {}),
     ...(provider === 'apollo_organizations' ? {
       apollo_queries_global_cap_enabled: true,
       apollo_queries_global_cap: apolloPerInvocationCap,

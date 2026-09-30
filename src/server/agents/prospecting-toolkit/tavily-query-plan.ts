@@ -36,6 +36,50 @@ export const TAVILY_QUERIES_PER_ROUND = 4;
 export const TAVILY_PLAN_MAX_ROUNDS = 4;
 const ADDITIONAL_CRITERIA_MAX_CHARS = 80;
 
+// ─── Vocabulario ──────────────────────────────────────────────────────────────
+
+/**
+ * AGENT1-TAVILY-V2-2 — términos del catálogo que sólo existen en INGLÉS y que
+ * tienen su equivalente en español en la misma macro industria.
+ *
+ * El catálogo los trae en los dos idiomas porque Apollo declara sus industrias en
+ * inglés. Tavily no: en la prueba del 30-09, «grocery store» trajo tiendas de
+ * Miami y Australia, «health insurer» una noticia de AM Best y «public
+ * administration» artículos de SSRN y OECD. En países hispanos se omiten; los
+ * préstamos que el español usa tal cual («devops», «machine learning», «courier»,
+ * «factoring», «bpo», «staffing», «contact center»…) se conservan.
+ *
+ * Una prueba exige que cada entrada siga existiendo en el catálogo.
+ */
+export const TAVILY_ENGLISH_ONLY_TERMS: readonly string[] = Object.freeze([
+  // transporte y logística
+  'third party logistics', 'freight forwarder', 'customs broker', 'warehousing', 'fulfillment', 'trucking company',
+  // tecnología
+  'enterprise software', 'cybersecurity', 'cloud infrastructure',
+  // seguros y servicios financieros
+  'insurance carrier', 'insurance broker', 'commercial banking', 'asset management',
+  // salud y farmacéuticos
+  'pharmaceutical manufacturer', 'pharmaceutical distribution', 'medical devices', 'health insurer',
+  // retail
+  'retailer', 'retail chain', 'grocery store', 'grocery chain', 'department store', 'ecommerce retail',
+  // propiedad y construcción
+  'general contractor', 'civil engineering', 'real estate developer', 'property management',
+  // industria y manufactura
+  'manufacturing plant', 'auto parts', 'automotive manufacturer', 'chemical manufacturer',
+  // gobierno
+  'government agency', 'municipality', 'public administration',
+  // energía, minería y medio ambiente
+  'oil and gas operator', 'power generation', 'renewable energy', 'mining operation', 'waste management',
+  // consumo masivo
+  'food manufacturer', 'beverage producer', 'personal care manufacturer', 'household products', 'fast moving consumer goods',
+  // servicios
+  'management consulting', 'audit firm', 'business process outsourcing',
+  // agroindustria
+  'agribusiness', 'crop production', 'livestock', 'flower grower', 'aquaculture',
+]);
+
+const ENGLISH_ONLY_TERM_SET: ReadonlySet<string> = new Set(TAVILY_ENGLISH_ONLY_TERMS);
+
 // ─── País e idioma ────────────────────────────────────────────────────────────
 
 /**
@@ -140,6 +184,11 @@ export type TavilyMacroQueryPlanInput = {
   industry: string;
   /** Nombre visible del país, tal como aparece en la consulta. */
   country: string;
+  /**
+   * AGENT1-TAVILY-V2-2 — código ISO del país. Con un país hispano se omiten los
+   * términos que sólo existen en inglés. Ausente ⇒ el plan usa todos los términos.
+   */
+  countryCode?: string | null;
   /** Clave estable del lote: fija la rotación. */
   seedKey: string;
   additionalCriteria: string | null | undefined;
@@ -150,11 +199,20 @@ export type TavilyMacroQueryPlanInput = {
  * cualquier tramo de la lista mezcle los dominios comerciales de la macro. Sin
  * familias declaradas, usa `specific` en su orden.
  */
-function interleaveDiscoveryTerms(definition: MacroIndustryDefinition): string[] {
+function interleaveDiscoveryTerms(
+  definition: MacroIndustryDefinition,
+  options: { spanishOnly: boolean },
+): string[] {
   const families = definition.discovery.families ?? [];
-  const sources = families.length > 0
-    ? families.map((family) => [...family.terms])
-    : [[...definition.discovery.specific]];
+  const keep = (term: string) => !options.spanishOnly || !ENGLISH_ONLY_TERM_SET.has(term);
+  const sources = (
+    families.length > 0
+      ? families.map((family) => [...family.terms])
+      : [[...definition.discovery.specific]]
+  )
+    .map((terms) => terms.filter(keep))
+    .filter((terms) => terms.length > 0);
+  if (sources.length === 0) return [];
 
   const out: string[] = [];
   const seen = new Set<string>();
@@ -198,7 +256,8 @@ export function buildTavilyMacroQueryPlan(
   const definition = resolveMacroIndustryByDisplayName(input.industry);
   if (!definition) return null;
 
-  const terms = interleaveDiscoveryTerms(definition);
+  const spanishOnly = resolveTavilyCountryTargeting(input.countryCode).language === 'spanish';
+  const terms = interleaveDiscoveryTerms(definition, { spanishOnly });
   if (terms.length === 0) return null;
 
   const rotationOffset = stableHash(input.seedKey) % terms.length;
