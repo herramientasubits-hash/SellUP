@@ -851,3 +851,30 @@ describe('K. el mensaje dice la industria buscada y el tool pide la respuesta di
     assert.ok(tool.input_schema.required.includes('fits_requested_industry'));
   });
 });
+
+describe('L. la respuesta directa verificada cuenta como evidencia (ATV, Prod 30-09)', () => {
+  it('sin macro ni tamaño pero con «no pertenece» comprobado → partially_classified (no nothing_verifiable)', async () => {
+    const r = await classifyCompany(
+      { company: { ...COMPANY, requestedIndustryName: 'Tecnología' }, catalog: CATALOG, model: MODEL },
+      deps({
+        runConversation: async () =>
+          modelResponse(
+            submission({
+              sector: { industry_id: null, subindustry_id: null, quote: null, source_url: null, confidence: 0 },
+              employee_range: { min: null, max: null, quote: null, source_url: null, confidence: 0 },
+              fits_requested_industry: {
+                answer: false,
+                quote: 'Somos una clínica privada con más de 1.200 colaboradores',
+                source_url: PAGE_URL,
+                confidence: 1,
+              },
+            }),
+            [],
+          ),
+      }),
+    );
+    assert.equal(r.outcome, 'partially_classified');
+    assert.equal(r.requestedIndustryFit?.fits, false);
+    assert.equal(r.requestedIndustryFit?.verification, 'quote_verified');
+  });
+});

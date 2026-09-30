@@ -118,7 +118,9 @@ function isLushaSectorReview(row: ClassifiableCandidateRow): boolean {
 export function needsCandidateRescue(row: ClassifiableCandidateRow, nowMs: number): boolean {
   if (row.status !== 'needs_review') return false;
   if (!row.website && !row.domain) return false;
-  if (!rescueStillPending(row.metadata?.[CLAUDE_RESCUE_METADATA_KEY], nowMs)) return false;
+  if (!rescueStillPending(row.metadata?.[CLAUDE_RESCUE_METADATA_KEY], nowMs, row.metadata?.claude_classification)) {
+    return false;
+  }
   if (isLushaSectorReview(row)) return true;
   return failedConditions(row.metadata).some((f) => (CLASSIFIABLE_FAILED_CONDITIONS as readonly string[]).includes(f));
 }
@@ -175,7 +177,7 @@ async function rescueCandidate(
   deps: RescueBatchDeps,
 ): Promise<ItemOutcome> {
   const claimed = await deps.patchCandidate(row.id, (metadata) =>
-    rescueStillPending(metadata?.[CLAUDE_RESCUE_METADATA_KEY], deps.nowMs())
+    rescueStillPending(metadata?.[CLAUDE_RESCUE_METADATA_KEY], deps.nowMs(), metadata?.claude_classification)
       ? { metadata: { ...(metadata ?? {}), [CLAUDE_RESCUE_METADATA_KEY]: buildRescueInProgress(deps.nowIso()) } }
       : null,
   );
