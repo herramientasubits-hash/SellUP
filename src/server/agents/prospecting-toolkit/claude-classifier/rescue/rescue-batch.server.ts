@@ -101,7 +101,7 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
     loadReviewCandidates: async (batchId) => {
       const { data, error } = await createSupabaseAdminClient()
         .from('prospect_candidates')
-        .select('id, industry_id, industry, name, website, domain, country_code, country, status, metadata')
+        .select('id, industry_id, industry, source_primary, name, website, domain, country_code, country, status, metadata')
         .eq('batch_id', batchId)
         .eq('status', 'needs_review');
       if (error) throw new Error(`candidates_read_failed:${error.message}`);
@@ -116,6 +116,15 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
         .in('reason_code', [...RESCUABLE_DISPOSITION_REASON_CODES]);
       if (error) throw new Error(`dispositions_read_failed:${error.message}`);
       return (data ?? []) as RescuableDispositionRow[];
+    },
+    loadBatchIndustryId: async (batchId) => {
+      const { data } = await createSupabaseAdminClient()
+        .from('prospect_batches')
+        .select('metadata')
+        .eq('id', batchId)
+        .maybeSingle();
+      const id = (data as { metadata?: { industry_id?: unknown } } | null)?.metadata?.industry_id;
+      return typeof id === 'string' && id ? id : null;
     },
     classify: classifyCompanyLive,
     logUsage: logProviderUsage,

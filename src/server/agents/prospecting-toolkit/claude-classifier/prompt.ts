@@ -139,6 +139,7 @@ export function buildClassifierSystemPrompt(catalog: readonly ClassifierCatalogI
     'Reglas obligatorias:',
     '- Cada dato necesita una cita TEXTUAL copiada de la fuente y la URL de esa fuente. Sin cita y URL, el dato va en null.',
     '- Para el sector, prefiere citar la página oficial que te damos (su URL es la fuente).',
+    '- Criterio comercial: operadores de telecomunicaciones e internet (telefonía, fibra, ISP, data centers) son Tecnología. Medios de comunicación (diarios, TV, radio, editoriales) NO son Tecnología.',
     '- Usa la búsqueda web SÓLO para el tamaño y sólo si la página no lo dice. Nunca estimes el tamaño por intuición.',
     '- En LinkedIn, el tamaño es el campo «Tamaño de la empresa» (p. ej. «De 201 a 500 empleados»). «Ver los N empleados» o «N empleados en LinkedIn» NO es el tamaño: es cuánta gente tiene perfil; no lo uses.',
     '- No inventes URLs. Sólo usa la URL de la página dada o URLs que aparecieron en tus resultados de búsqueda.',

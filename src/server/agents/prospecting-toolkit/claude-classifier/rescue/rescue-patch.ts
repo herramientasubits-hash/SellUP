@@ -40,7 +40,14 @@ export function rescueStillPending(rescue: unknown, nowMs: number): boolean {
 export type ClaudeRescueMetadata = {
   contract_version: typeof CLAUDE_CLASSIFIER_CONTRACT_VERSION;
   decided_at: string;
-  decision: RescueDecision['kind'];
+  /**
+   * `admit` = pasó el filtro de sector; `data_completed` = sólo se completaron datos
+   * (tamaño/LinkedIn), el sector NO quedó confirmado. Prod 30-09: «admit» sin sector
+   * confirmado se leía como «pasó el filtro».
+   */
+  decision: RescueDecision['kind'] | 'data_completed';
+  /** Claude vio otro sector sin evidencia suficiente para descartar. */
+  sector_warning: 'claude_sector_mismatch_unconfirmed' | null;
   discard_reason: string | null;
   discard_detail: string | null;
   discard_source_url: string | null;
@@ -65,7 +72,9 @@ export function buildRescueMetadata(
   return {
     contract_version: CLAUDE_CLASSIFIER_CONTRACT_VERSION,
     decided_at: decidedAt,
-    decision: decision.kind,
+    decision: decision.kind === 'admit' && !decision.sectorConfirmed ? 'data_completed' : decision.kind,
+    sector_warning:
+      decision.kind !== 'discard' && decision.sectorMismatchUnconfirmed ? 'claude_sector_mismatch_unconfirmed' : null,
     discard_reason: decision.kind === 'discard' ? decision.reason : null,
     discard_detail: decision.kind === 'discard' ? decision.detail : null,
     discard_source_url: decision.kind === 'discard' ? decision.sourceUrl : null,
