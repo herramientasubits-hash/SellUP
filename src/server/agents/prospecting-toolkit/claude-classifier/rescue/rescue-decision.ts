@@ -28,9 +28,14 @@ export type RescueDecision =
       sourceUrl: string;
     }
   | {
+      /**
+       * Completa lo que se pudo confirmar. Una fila de Descartadas sólo vuelve a
+       * revisión si el SECTOR quedó confirmado (se había descartado por eso).
+       */
       kind: 'admit';
       sectorConfirmed: boolean;
       sizeConfirmed: boolean;
+      linkedinConfirmed: boolean;
     }
   | { kind: 'unchanged'; why: 'nothing_verifiable' | 'sector_unknown' | 'not_classified' };
 
@@ -78,6 +83,7 @@ export function decideRescue(result: CompanyClassificationResult, ctx: RescueCon
       sourceUrl: result.employeeRange.sourceUrl,
     };
   }
-  if (sector !== 'pass') return { kind: 'unchanged', why: 'sector_unknown' };
-  return { kind: 'admit', sectorConfirmed: true, sizeConfirmed: size === 'pass' };
+  const linkedinConfirmed = !!result.linkedin;
+  if (sector !== 'pass' && size !== 'pass' && !linkedinConfirmed) return { kind: 'unchanged', why: 'sector_unknown' };
+  return { kind: 'admit', sectorConfirmed: sector === 'pass', sizeConfirmed: size === 'pass', linkedinConfirmed };
 }
