@@ -235,6 +235,7 @@ export async function runApolloRoundContinuationWorkerFromEnv(
         requestFingerprint: checkpoint.request_fingerprint,
         pendingOrganizationCount: checkpoint.pending_organizations.length,
         candidatesPersisted: checkpoint.candidates_persisted,
+        assessmentCompleted: checkpoint.checkpoint_reason === 'run_completed',
       };
     },
 

@@ -322,19 +322,51 @@ export type WebsiteLinkedInBatchResult = {
 };
 
 /**
+ * AGENT1-APOLLO-CONTINUATION-PERSIST-COMPLETED-RUN-1 — cuántos sitios se visitan
+ * a la vez y cuánto puede durar esta pasada en total.
+ *
+ * Antes era secuencial y sin tope: hasta 4 páginas × 5 s por candidata, una tras
+ * otra. Medido en Producción el 2026-09-30 (México × Tecnología, lote
+ * `6d39ed4b`, ~210 candidatas a escribir): el writer no terminó dentro de los
+ * 300 s de la función y la corrida pagada quedó sin una sola candidata escrita.
+ *
+ * Es una pasada GRATUITA y opcional (sólo busca el LinkedIn en el sitio): lo
+ * que no quepa en el presupuesto se marca `skipped` y sigue su camino normal.
+ */
+export const WEBSITE_EXTRACTION_CONCURRENCY = 8;
+export const WEBSITE_EXTRACTION_TIME_BUDGET_MS = 60_000;
+
+export type WebsiteLinkedInBatchOptions = {
+  concurrency?: number;
+  timeBudgetMs?: number;
+  /** Reloj inyectable (pruebas). */
+  now?: () => number;
+  /** Extractor inyectable (pruebas). */
+  extract?: typeof extractLinkedInFromOfficialWebsite;
+};
+
+/**
  * Corre extracción de LinkedIn desde website para todos los candidatos elegibles.
  *
  * Candidato elegible: tiene website y su enrichment actual es not_found.
- * Corre para TODOS los candidatos elegibles, sin cap de batch.
+ * Corre para los candidatos elegibles EN PARALELO y con presupuesto de tiempo
+ * (ver `WEBSITE_EXTRACTION_TIME_BUDGET_MS`): lo que no quepa queda `skipped`.
  * No crea provider_usage_logs. No suma costo monetario.
  */
 export async function runWebsiteLinkedInExtraction(
   candidates: WebsiteLinkedInBatchCandidate[],
   checkedAt: string,
+  options: WebsiteLinkedInBatchOptions = {},
 ): Promise<{
   results: WebsiteLinkedInBatchResult[];
   batchSummary: WebsiteExtractionBatchSummary;
 }> {
+  const concurrency = Math.max(1, Math.trunc(options.concurrency ?? WEBSITE_EXTRACTION_CONCURRENCY));
+  const timeBudgetMs = Math.max(0, options.timeBudgetMs ?? WEBSITE_EXTRACTION_TIME_BUDGET_MS);
+  const now = options.now ?? (() => Date.now());
+  const extract = options.extract ?? extractLinkedInFromOfficialWebsite;
+  const deadline = now() + timeBudgetMs;
+
   const summary: WebsiteExtractionBatchSummary = {
     enabled: true,
     attempted_count: 0,
@@ -346,23 +378,26 @@ export async function runWebsiteLinkedInExtraction(
     pages_attempted_count: 0,
   };
 
-  const results: WebsiteLinkedInBatchResult[] = [];
+  // Resultados por POSICIÓN: el llamador los empareja por índice.
+  const results: WebsiteLinkedInBatchResult[] = new Array(candidates.length);
+  const skip = (i: number) => {
+    results[i] = { enrichment: candidates[i]!.currentEnrichment, extractionStatus: 'skipped' };
+    summary.skipped_count++;
+  };
 
-  for (const candidate of candidates) {
+  const eligible: number[] = [];
+  candidates.forEach((candidate, i) => {
     // Only run for candidates without LinkedIn yet and with a website
-    if (candidate.currentEnrichment.status !== 'not_found' || !candidate.website) {
-      results.push({
-        enrichment: candidate.currentEnrichment,
-        extractionStatus: 'skipped',
-      });
-      summary.skipped_count++;
-      continue;
-    }
+    if (candidate.currentEnrichment.status !== 'not_found' || !candidate.website) skip(i);
+    else eligible.push(i);
+  });
 
+  const runOne = async (i: number): Promise<void> => {
+    const candidate = candidates[i]!;
     summary.attempted_count++;
 
-    const extraction = await extractLinkedInFromOfficialWebsite({
-      website: candidate.website,
+    const extraction = await extract({
+      website: candidate.website!,
       candidateName: candidate.name,
       candidateDomain: candidate.domain,
       countryCode: candidate.countryCode,
@@ -382,22 +417,42 @@ export async function runWebsiteLinkedInExtraction(
 
       if (enrichment.status === 'found') {
         summary.found_count++;
-        results.push({ enrichment, extractionStatus: 'found' });
+        results[i] = { enrichment, extractionStatus: 'found' };
       } else {
         summary.not_found_count++;
-        results.push({ enrichment: candidate.currentEnrichment, extractionStatus: 'not_found' });
+        results[i] = { enrichment: candidate.currentEnrichment, extractionStatus: 'not_found' };
       }
     } else if (extraction.status === 'not_found') {
       summary.not_found_count++;
-      results.push({ enrichment: candidate.currentEnrichment, extractionStatus: 'not_found' });
+      results[i] = { enrichment: candidate.currentEnrichment, extractionStatus: 'not_found' };
     } else if (extraction.status === 'skipped') {
       summary.skipped_count++;
-      results.push({ enrichment: candidate.currentEnrichment, extractionStatus: 'skipped' });
+      results[i] = { enrichment: candidate.currentEnrichment, extractionStatus: 'skipped' };
     } else {
       summary.error_count++;
-      results.push({ enrichment: candidate.currentEnrichment, extractionStatus: 'error' });
+      results[i] = { enrichment: candidate.currentEnrichment, extractionStatus: 'error' };
     }
-  }
+  };
+
+  // Cola compartida: cada trabajador toma la siguiente candidata. Pasado el
+  // presupuesto no se EMPIEZA ninguna más; las que ya corren terminan.
+  let cursor = 0;
+  const worker = async (): Promise<void> => {
+    while (cursor < eligible.length) {
+      const i = eligible[cursor++]!;
+      if (now() >= deadline) {
+        skip(i);
+        continue;
+      }
+      try {
+        await runOne(i);
+      } catch {
+        summary.error_count++;
+        results[i] = { enrichment: candidates[i]!.currentEnrichment, extractionStatus: 'error' };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, eligible.length) }, () => worker()));
 
   return { results, batchSummary: summary };
 }
