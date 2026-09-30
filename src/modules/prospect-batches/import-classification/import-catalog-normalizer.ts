@@ -199,6 +199,14 @@ function resolveSubindustry(
   warnings: ClassificationWarning[],
   catalogHasSubindustries: boolean,
 ): SubindustryResolution {
+  // AGENT1-IMPORT-MACRO-INDUSTRY-MATCH-1 — el catálogo v2 no publica
+  // subindustrias y SellUp ya no las maneja (decisión de la dueña 30-09). La
+  // subindustria se IGNORA —venga o no en el archivo—: no bloquea ni genera
+  // aviso (tampoco «vacía»). El texto original sigue en `subindustryOriginalValue`.
+  if (!catalogHasSubindustries) {
+    return { id: null, slug: null, name: null, status: 'missing', source: 'none', suggestedIndustryId: null };
+  }
+
   if (!sanitizedValue || !sanitizedValue.trim()) {
     warnings.push({
       code: 'SUBINDUSTRY_MISSING',
@@ -209,14 +217,6 @@ function resolveSubindustry(
   }
 
   const trimmed = sanitizedValue.trim();
-
-  // AGENT1-IMPORT-MACRO-INDUSTRY-MATCH-1 — el catálogo v2 no publica
-  // subindustrias y SellUp ya no las maneja (decisión de la dueña 30-09). Una
-  // subindustria en el archivo se IGNORA: no bloquea ni genera aviso. El texto
-  // original sigue viajando en `subindustryOriginalValue` (trazabilidad).
-  if (!catalogHasSubindustries) {
-    return { id: null, slug: null, name: null, status: 'missing', source: 'none', suggestedIndustryId: null };
-  }
 
   const found = findSubindustryCandidates(trimmed, indexes);
 
