@@ -106,6 +106,12 @@ type ProspectChatWizardProps = {
    */
   autoProviderCascade?: boolean;
   /**
+   * AGENT1-TAVILY-TRIAL-1 — el usuario actual puede marcar «Probar esta corrida
+   * con Tavily». Resuelto en el servidor (admin ∧ prueba ∧ modo automático);
+   * ausente ⇒ `false`, la casilla no existe.
+   */
+  adminTavilyTrialAvailable?: boolean;
+  /**
    * A1-APOLLO-WIZARD-1 — proveedor de descubrimiento resuelto EN EL SERVIDOR por
    * `resolveWizardDiscoveryProvider()`, la misma función que enruta la ejecución.
    * `null`/ausente = sin resolución conocida; el indicador lo dice en lugar de
@@ -150,6 +156,7 @@ export function ProspectChatWizard({
   providerOverrideCapability = NO_PROVIDER_OVERRIDE_CAPABILITY,
   apolloRunModeLimits = null,
   budgetPreflight = null,
+  adminTavilyTrialAvailable = false,
 }: ProspectChatWizardProps) {
   const [state, dispatch] = React.useReducer(
     prospectWizardReducer,
@@ -348,7 +355,10 @@ export function ProspectChatWizard({
       isProviderOptionEnabled(providerOverrideCapability, 'apollo_organizations')) ||
     // AGENT1-AUTO-PROVIDER-CASCADE-1 — sin selector, Apollo es el principal que
     // resolvió el servidor.
-    (autoProviderCascade && discoveryProvider === 'apollo_organizations');
+    (autoProviderCascade &&
+      discoveryProvider === 'apollo_organizations' &&
+      // AGENT1-TAVILY-TRIAL-1 — marcada la prueba, esta corrida no es de Apollo.
+      requestedProvider !== 'tavily');
 
   // ── Catalog options derived for UI ────────────────────────────────────────
 
@@ -878,6 +888,8 @@ export function ProspectChatWizard({
                 defaultDiscoveryProvider={discoveryProvider}
                 requestedProvider={requestedProvider}
                 onRequestedProviderChange={setRequestedProvider}
+                adminTavilyTrialAvailable={adminTavilyTrialAvailable}
+                onAdminTavilyTrialChange={(checked) => setRequestedProvider(checked ? 'tavily' : undefined)}
                 showApolloTwoRoundStages={willRunApolloTwoRound}
                 twoRoundOutcome={twoRoundOutcome}
                 noNewCandidatesBreakdown={noNewCandidatesBreakdown}

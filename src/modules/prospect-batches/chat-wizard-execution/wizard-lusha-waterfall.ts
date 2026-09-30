@@ -45,7 +45,12 @@ export type LushaWaterfallSkipReason =
   | 'target_reached'
   | 'lusha_unavailable'
   | 'macro_industry_unmapped'
-  | 'canonical_batch_unresolved';
+  | 'canonical_batch_unresolved'
+  /**
+   * AGENT1-TAVILY-TRIAL-1 — corrida de prueba de Tavily pedida por un admin: la
+   * pierna no se abre para que la medida sea de Tavily solo.
+   */
+  | 'admin_tavily_trial_run';
 
 export type LushaWaterfallDecision =
   | { readonly run: false; readonly reason: LushaWaterfallSkipReason }

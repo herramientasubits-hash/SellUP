@@ -93,7 +93,39 @@ export type MacroBroadTermWithheldReason =
    * completo de la macro industria no dejaba ver; añadirle un amplio la devolvería
    * al conjunto genérico del que existe para salir.
    */
-  | 'variant_family_excludes_broad';
+  | 'variant_family_excludes_broad'
+  /**
+   * AGENT1-APOLLO-TECH-NOISY-TAGS-1 — la etiqueta es tan genérica en Apollo que
+   * trae empresas de cualquier sector (ver `APOLLO_NOISY_MACRO_TAGS`).
+   */
+  | 'apollo_noisy_generic_tag';
+
+/**
+ * AGENT1-APOLLO-TECH-NOISY-TAGS-1 — etiquetas que NO se envían a Apollo en una
+ * macro industria porque casi cualquier empresa las tiene.
+ *
+ * Medido en Producción el 2026-09-30 (Perú × Tecnología, lote `d1d035ce`, y
+ * México × Tecnología, lotes `754e169e`/`6d39ed4b`): con `software`,
+ * `technology` y `plataforma digital` en el OR, Apollo devolvió KFC Perú, una
+ * minera, el puerto de Chancay, un diario, inmobiliarias, municipalidades y
+ * decenas de universidades como «Tecnología». Apollo no dice qué etiqueta casó
+ * y la búsqueda no trae sector (soporte de Apollo, 2026-09-29), así que no hay
+ * forma de separarlas después sin pagar un enrichment por cada una.
+ *
+ * Sólo afecta a la consulta a Apollo: el catálogo macro, Tavily, Lusha y el
+ * clasificador de Claude no leen esta lista. Se compara con la clave
+ * normalizada (sin tildes, minúsculas).
+ */
+export const APOLLO_NOISY_MACRO_TAGS: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  technology: ['software', 'technology', 'tecnologia', 'information technology', 'plataforma digital'],
+});
+
+function isApolloNoisyTag(macroIndustryKey: string, term: string): boolean {
+  const noisy = APOLLO_NOISY_MACRO_TAGS[macroIndustryKey];
+  if (!noisy) return false;
+  const key = normalizeApolloTermKey(term);
+  return noisy.some((n) => normalizeApolloTermKey(n) === key);
+}
 
 export type MacroIndustryQueryPlan = {
   version: typeof APOLLO_MACRO_INDUSTRY_QUERY_VERSION;
@@ -118,6 +150,11 @@ export type MacroIndustryQueryPlan = {
    * como amplios: son la misma señal escrita como la escribe una empresa.
    */
   accentVariantsAdded: string[];
+  /**
+   * AGENT1-APOLLO-TECH-NOISY-TAGS-1 — términos del catálogo que NO viajaron a
+   * Apollo por ser demasiado genéricos (`APOLLO_NOISY_MACRO_TAGS`).
+   */
+  apolloNoisyTagsWithheld: string[];
   /** Los que no entraron, con su motivo. */
   withheldBroadTerms: Array<{ term: string; reason: MacroBroadTermWithheldReason }>;
 
@@ -274,7 +311,14 @@ export function buildMacroIndustryQueryPlan(
   };
 
   const coveringSpecificTerms: string[] = [];
+  // AGENT1-APOLLO-TECH-NOISY-TAGS-1 — los específicos demasiado genéricos para
+  // Apollo no viajan (y por tanto no cuentan como cobertura).
+  const apolloNoisyTagsWithheld: string[] = [];
   for (const term of specificTerms) {
+    if (isApolloNoisyTag(definition.key, term)) {
+      apolloNoisyTagsWithheld.push(term);
+      continue;
+    }
     if (push(term)) coveringSpecificTerms.push(term);
   }
 
@@ -324,6 +368,13 @@ export function buildMacroIndustryQueryPlan(
   const withheldBroadTerms: Array<{ term: string; reason: MacroBroadTermWithheldReason }> = [];
 
   for (const term of broadTerms) {
+    // AGENT1-APOLLO-TECH-NOISY-TAGS-1 — antes que cualquier otra regla: la causa
+    // real es que la etiqueta no discrimina en Apollo.
+    if (isApolloNoisyTag(definition.key, term)) {
+      withheldBroadTerms.push({ term, reason: 'apollo_noisy_generic_tag' });
+      apolloNoisyTagsWithheld.push(term);
+      continue;
+    }
     // V3-A — la regla de la variante se evalúa ANTES que el recuento de
     // específicos: el motivo publicado tiene que nombrar la causa REAL, y una
     // familia posterior no lleva amplios aunque tenga específicos de sobra.
@@ -395,6 +446,7 @@ export function buildMacroIndustryQueryPlan(
     effectiveKeywords,
     admittedBroadTerms,
     accentVariantsAdded,
+    apolloNoisyTagsWithheld,
     withheldBroadTerms,
     keywordBudget,
     broadTermAllowance,
@@ -498,6 +550,7 @@ export function toMacroIndustryQueryMetadata(
     macro_industry_specific_terms_travelled: plan.coverage.coveringSpecificTerms,
     macro_industry_broad_terms_admitted: plan.admittedBroadTerms,
     macro_industry_accent_variants_added: plan.accentVariantsAdded,
+    macro_industry_apollo_noisy_tags_withheld: plan.apolloNoisyTagsWithheld,
     macro_industry_broad_terms_withheld: plan.withheldBroadTerms,
     macro_industry_broad_term_share: plan.coverage.broadTermShare,
     macro_industry_query_coverage_complete: plan.coverage.complete,

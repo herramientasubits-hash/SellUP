@@ -14,11 +14,13 @@
  * mismas funciones — y ahí el kill switch manda por encima de todo.
  */
 
+import { resolveAdminTavilyTrialAvailable } from './wizard-admin-tavily-trial';
 import { createClient } from '@/lib/supabase/server';
 import {
   isApolloCompanySearchEnabled,
   isApolloTwoRoundDiscoveryEnabled,
   isWizardRunProviderOverrideEffective,
+  isWizardRunTavilyTrialEffective,
 } from '@/lib/feature-flags.server';
 import { resolveApolloTwoRoundConfigFromEnv } from '@/server/agents/prospecting-toolkit/apollo-two-round/env.server';
 import { estimateApolloTwoRoundBudget } from '@/server/agents/prospecting-toolkit/apollo-two-round/budget';
@@ -127,4 +129,20 @@ export async function resolveApolloRunModeLimitsForSurface(): Promise<ApolloRunM
     maxEnrichmentsPerRun: config.maxEnrichmentsPerRun,
     maxInternalCredits: budget.maximumInternalRecordedCredits,
   };
+}
+
+/**
+ * AGENT1-TAVILY-TRIAL-1 — ¿ve el usuario actual la casilla «Probar esta corrida
+ * con Tavily»? Con la prueba apagada (el estado por defecto) no consulta ni la
+ * sesión ni el rol.
+ */
+export async function resolveAdminTavilyTrialAvailableForCurrentUser(): Promise<boolean> {
+  const trialEffective = isWizardRunTavilyTrialEffective();
+  if (!trialEffective) return false;
+  const authority = await resolveWizardAdminAuthority();
+  return resolveAdminTavilyTrialAvailable({
+    isAuthenticated: authority.isAuthenticated,
+    isAdmin: authority.isAdmin,
+    trialEffective,
+  });
 }
