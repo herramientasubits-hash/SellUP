@@ -60,6 +60,14 @@ export type RescueContext = {
  */
 export const MIN_DISCARD_CONFIDENCE = 0.8;
 
+/**
+ * Descarte con cita que viene de la BÚSQUEDA (no se pudo comprobar en el sitio
+ * de la empresa): sólo con confianza muy alta. Decisión de la dueña 30-09 («no
+ * quiero hacer nada manual»): KFC, COSCO, mineras, medios quedaban con aviso.
+ * Sigue siendo reversible desde Descartadas → «Enviar a revisión».
+ */
+export const MIN_DISCARD_CONFIDENCE_SEARCH_SOURCE = 0.95;
+
 function stems(text: string): string[] {
   return text
     .normalize('NFD')
@@ -81,11 +89,10 @@ function isSafeNegativeEvidence(
   evidence: { verification: string; confidence: number; quote: string },
   ctx: RescueContext,
 ): boolean {
-  return (
-    evidence.verification === 'quote_verified' &&
-    evidence.confidence >= MIN_DISCARD_CONFIDENCE &&
-    !quoteNamesIndustry(evidence.quote, ctx.requestedIndustryName)
-  );
+  if (quoteNamesIndustry(evidence.quote, ctx.requestedIndustryName)) return false;
+  if (evidence.verification === 'quote_verified') return evidence.confidence >= MIN_DISCARD_CONFIDENCE;
+  if (evidence.verification === 'source_listed') return evidence.confidence >= MIN_DISCARD_CONFIDENCE_SEARCH_SOURCE;
+  return false;
 }
 
 /**

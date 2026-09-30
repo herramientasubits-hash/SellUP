@@ -615,3 +615,53 @@ describe('H. respuesta directa sobre la industria buscada', () => {
     assert.equal(rescueStillPending({ decision: 'unchanged', contract_version: CLAUDE_CLASSIFIER_CONTRACT_VERSION }, NOW), false);
   });
 });
+
+// ─── I. Cita de búsqueda con confianza muy alta (decisión de la dueña 30-09) ─
+
+describe('I. descarte con cita de búsqueda y confianza ≥ 0,95', () => {
+  const ctx = { icpMinEmployees: 200, requestedIndustryName: 'Tecnología' };
+  const kfc = (confidence: number, quote = 'Cadena estadounidense de restaurantes de comida rápida especializada en pollo frito') =>
+    result({
+      sector: {
+        ...result().sector!,
+        industryName: 'Consumo Masivo',
+        matchesCurrentIndustry: false,
+        verification: 'source_listed',
+        confidence,
+        quote,
+      },
+      requestedIndustryFit: { fits: false, quote, sourceUrl: 'https://pe.linkedin.com/company/kfc', confidence, verification: 'source_listed' },
+    });
+
+  it('KFC (búsqueda, 0,95) → descarta', () => {
+    assert.equal(decideRescue(kfc(0.95), ctx).kind, 'discard');
+  });
+
+  it('búsqueda con 0,9 → NO descarta', () => {
+    assert.notEqual(decideRescue(kfc(0.9), ctx).kind, 'discard');
+  });
+
+  it('Majestic: la cita nombra «tecnología» → NO descarta aunque la confianza sea alta', () => {
+    assert.notEqual(
+      decideRescue(kfc(0.95, 'tienda virtual que ofrece una selección única en tecnología, juguetes y hogar'), ctx).kind,
+      'discard',
+    );
+  });
+
+  it('medio sin macro, sólo «no pertenece» por búsqueda con 0,95 → descarta', () => {
+    const d = decideRescue(
+      result({
+        sector: null,
+        requestedIndustryFit: {
+          fits: false,
+          quote: 'Conglomerado peruano de medios dueño de diarios y canales de televisión',
+          sourceUrl: 'https://en.wikipedia.org/wiki/El_Comercio',
+          confidence: 0.95,
+          verification: 'source_listed',
+        },
+      }),
+      ctx,
+    );
+    assert.equal(d.kind, 'discard');
+  });
+});
