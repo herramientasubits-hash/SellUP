@@ -6258,6 +6258,14 @@ jobs:
       - name: Run Agent 1 Apollo tech telecom tags tests
         run: npm run test:a1-apollo-tech-telecom-tags
 
+      # AGENT1-APOLLO-EXCLUSION-SAME-INDUSTRY-1 - la lista de exclusion de Apollo
+      # se acota al pais y la industria de la corrida (antes mezclaba todo y el
+      # tope de 500 dejaba fuera lo que si importaba).
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 Apollo exclusion same industry tests
+        run: npm run test:a1-apollo-exclusion-same-industry
+
       # AGENT1-TAVILY-V2-1 - Tavily compite con Apollo y Lusha: consultas desde
       # el catalogo de 12 macro industrias (rotacion por lote, pais e idioma),
       # universidades/gobierno/gremios pasan el filtro y los directorios no,
