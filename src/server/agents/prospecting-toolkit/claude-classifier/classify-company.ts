@@ -217,12 +217,16 @@ export async function classifyCompany(
   };
 
   const found = Number(verified.sector !== null) + Number(verified.employeeRange !== null);
+  // La respuesta directa «¿pertenece a la industria buscada?» verificada ES evidencia:
+  // Prod 30-09, ATV y La República dijeron «no» con cita comprobada (confianza 1,0 y 0,99)
+  // pero sin macro ni tamaño quedaban «nothing_verifiable» y el rescate no las miraba.
+  const hasFit = verified.requestedIndustryFit !== null;
   // Sin página por ninguna vía y nada verificable: es el sitio, no la empresa → reintentable.
-  if (found === 0 && pageSource === 'none') {
+  if (found === 0 && !hasFit && pageSource === 'none') {
     return finish({ outcome: 'website_unreachable', pageFinalUrl, usage, pageSource, errorCode: ownFetchError, ...verifiedWithLinkedIn });
   }
   const outcome: ClassificationOutcome =
-    found === 2 ? 'classified' : found === 1 ? 'partially_classified' : 'nothing_verifiable';
+    found === 2 ? 'classified' : found === 1 || hasFit ? 'partially_classified' : 'nothing_verifiable';
 
   return finish({ outcome, pageFinalUrl, usage, pageSource, ...verifiedWithLinkedIn });
 }

@@ -30,7 +30,12 @@ export function buildRescueInProgress(startedAt: string): Record<string, unknown
 /** Decisiones SIN veredicto de sector: se reintentan si cambió el contrato del clasificador. */
 const NO_VERDICT_DECISIONS = new Set(['unchanged', 'data_completed']);
 
-export function rescueStillPending(rescue: unknown, nowMs: number): boolean {
+/**
+ * `classification` = `metadata.claude_classification` de la fila. Con contrato viejo,
+ * un «admit» cuyo sector NUNCA se confirmó (antes de existir `data_completed`, Prod
+ * 30-09: KFC, mineras, Diario Gestión) tampoco es un veredicto y se reintenta.
+ */
+export function rescueStillPending(rescue: unknown, nowMs: number, classification?: unknown): boolean {
   if (!rescue || typeof rescue !== 'object') return true;
   const r = rescue as { decision?: unknown; started_at?: unknown; contract_version?: unknown };
   if (r.decision === 'in_progress') {
@@ -40,7 +45,13 @@ export function rescueStillPending(rescue: unknown, nowMs: number): boolean {
   if (r.decision === 'retryable') return true;
   // Un clasificador nuevo puede dar el veredicto que el anterior no pudo; lo decidido
   // (descartes, admisiones) NUNCA se reabre.
-  return NO_VERDICT_DECISIONS.has(String(r.decision)) && r.contract_version !== CLAUDE_CLASSIFIER_CONTRACT_VERSION;
+  if (r.contract_version === CLAUDE_CLASSIFIER_CONTRACT_VERSION) return false;
+  if (NO_VERDICT_DECISIONS.has(String(r.decision))) return true;
+  if (r.decision === 'admit') {
+    const sector = (classification as { sector?: { matches_current_industry?: unknown } | null } | undefined)?.sector;
+    return sector?.matches_current_industry !== true;
+  }
+  return false;
 }
 
 export type ClaudeRescueMetadata = {

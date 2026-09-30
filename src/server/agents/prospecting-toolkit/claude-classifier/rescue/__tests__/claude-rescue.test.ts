@@ -17,7 +17,7 @@ import {
 } from '../rescue-dispositions';
 import { needsCandidateRescue, rescueBatchWithClaude, RESCUE_RUN_DEADLINE_MS, type RescueBatchDeps } from '../rescue-batch';
 import type { ClassifiableCandidateRow } from '../../classification-metadata';
-import type { CompanyClassificationResult } from '../../types';
+import { CLAUDE_CLASSIFIER_CONTRACT_VERSION, type CompanyClassificationResult } from '../../types';
 
 const NOW = Date.parse('2026-09-30T12:00:00.000Z');
 const AT = '2026-09-30T12:00:00.000Z';
@@ -384,7 +384,12 @@ describe('D. rescueBatchWithClaude', () => {
   });
 
   it('un candidato ya rescatado no se vuelve a procesar', () => {
-    const done = candidate({ metadata: { ...REVIEW_METADATA, claude_rescue: { decision: 'admit' } } });
+    const done = candidate({
+      metadata: {
+        ...REVIEW_METADATA,
+        claude_rescue: { decision: 'admit', contract_version: CLAUDE_CLASSIFIER_CONTRACT_VERSION },
+      },
+    });
     assert.equal(needsCandidateRescue(done, NOW), false);
     assert.equal(needsCandidateRescue(candidate(), NOW), true);
   });
@@ -601,7 +606,12 @@ describe('H. respuesta directa sobre la industria buscada', () => {
     assert.equal(rescueStillPending({ decision: 'data_completed', contract_version: 'a1.v1' }, NOW), true);
     assert.equal(rescueStillPending({ decision: 'unchanged', contract_version: 'a1.v1' }, NOW), true);
     assert.equal(rescueStillPending({ decision: 'discard', contract_version: 'a1.v1' }, NOW), false);
-    assert.equal(rescueStillPending({ decision: 'admit', contract_version: 'a1.v1' }, NOW), false);
-    assert.equal(rescueStillPending({ decision: 'unchanged', contract_version: 'a1.v2' }, NOW), false);
+    // «admit» viejo con sector confirmado es final; sin sector confirmado se reintenta (KFC, Prod 30-09).
+    assert.equal(
+      rescueStillPending({ decision: 'admit', contract_version: 'a1.v1' }, NOW, { sector: { matches_current_industry: true } }),
+      false,
+    );
+    assert.equal(rescueStillPending({ decision: 'admit', contract_version: 'a1.v1' }, NOW, { sector: null }), true);
+    assert.equal(rescueStillPending({ decision: 'unchanged', contract_version: CLAUDE_CLASSIFIER_CONTRACT_VERSION }, NOW), false);
   });
 });
