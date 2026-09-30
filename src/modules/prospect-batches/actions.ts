@@ -73,7 +73,11 @@ import {
 } from '@/server/prospect-batches/batch-candidate-counts';
 import { DURABLE_PROSPECT_CANDIDATE_STATUSES } from '@/server/prospect-batches/batch-durable-candidates';
 import { checkIsColombiaProviderConfigured } from '@/server/prospect-batches/tax-identifier-providers/colombia';
-import { evaluateAutoEnrichmentEligibility } from '@/server/prospect-batches/candidate-enrichment-eligibility';
+import {
+  applyAutoEnrichmentBatchCap,
+  evaluateAutoEnrichmentEligibility,
+} from '@/server/prospect-batches/candidate-enrichment-eligibility';
+import { AUTO_ENRICH_CONFIG } from '@/modules/prospect-batches/auto-enrich-config';
 import {
   IMPORT_ADMISSION_METADATA_KEY,
   resolveImportExistingCompanyDuplicate,
@@ -3512,11 +3516,13 @@ export async function validateImportedCandidatesBatch(
       return { success: false, error: 'El lote no es de tipo importación externa' };
     }
 
-    // 3. Cargar candidates
+    // 3. Cargar candidates — en orden de inserción (= orden del archivo), para
+    // que el tope de IA (AGENT1-IMPORT-PARITY-9) sea determinístico.
     const { data: candidates, error: candidatesError } = await supabase
       .from('prospect_candidates')
       .select('*')
-      .eq('batch_id', batchId);
+      .eq('batch_id', batchId)
+      .order('created_at', { ascending: true });
 
     if (candidatesError || !candidates) {
       return { success: false, error: `Error al cargar candidatos: ${candidatesError?.message}` };
@@ -3541,6 +3547,7 @@ export async function validateImportedCandidatesBatch(
     let lookup_total_candidates_found = 0;
     let lookup_best_candidate_found = false;
     let lookup_used_for_duplicate_detection = false;
+    let autoEnrichQueuedCount = 0;
 
     for (const candidate of candidates) {
       try {
@@ -3742,7 +3749,13 @@ export async function validateImportedCandidatesBatch(
           metadata: updatedMetadata,
         };
 
-        const eligibility = evaluateAutoEnrichmentEligibility(tempCandidateForElig);
+        // AGENT1-IMPORT-PARITY-9 — el tope de IA por importación, en el orden del archivo.
+        const eligibility = applyAutoEnrichmentBatchCap(
+          evaluateAutoEnrichmentEligibility(tempCandidateForElig),
+          autoEnrichQueuedCount,
+          AUTO_ENRICH_CONFIG.maxCandidatesPerBatch,
+        );
+        if (eligibility.status === 'pending') autoEnrichQueuedCount++;
 
         const updatedMetadataWithEnrichment = {
           ...updatedMetadata,
