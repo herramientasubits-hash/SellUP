@@ -139,6 +139,33 @@ function makeSession(): unknown {
 
 mock.module('@/lib/supabase/server', { namedExports: { createClient: async () => makeSession() } });
 mock.module('@/lib/supabase/admin', { namedExports: { createSupabaseAdminClient: () => makeAdmin() } });
+// AGENT1-IMPORT-PARITY-8 — catálogo oficial falso: sólo reconoce «Catálogo SAS».
+mock.module('@/server/prospect-batches/official-source-resolvers', {
+  namedExports: {
+    buildColombiaOfficialSourceResolvers: () => [
+      {
+        countryCode: 'CO',
+        sourceKey: 'co_siis',
+        canResolve: (input: { candidate: { canonicalName: string | null } }) =>
+          (input.candidate.canonicalName ?? '').toLowerCase().includes('catálogo'),
+        resolve: () => ({
+          status: 'matched',
+          countryCode: 'CO',
+          sourceKey: 'co_siis',
+          confidence: 0.97,
+          matchMethod: 'exact_name',
+          taxIdentifier: '900123456-8',
+          taxIdentifierType: 'NIT',
+          legalName: 'CATALOGO S.A.S.',
+          legalStatus: 'ACTIVA',
+          warnings: [],
+          issues: [],
+        }),
+      },
+    ],
+  },
+});
+
 mock.module('@/modules/prospect-batches/actions', {
   namedExports: { validateImportedCandidatesBatch: async () => ({ success: true }) },
 });
@@ -229,6 +256,24 @@ describe('AGENT1-IMPORT-PARITY-1 — admisión por identidad en la ruta de impor
       [...(inserted.review_flags as string[])].filter((f) => f.startsWith('import_')).sort(),
       ['import_below_icp_size', 'import_country_mismatch'],
     );
+  });
+
+  it('una fila sin NIT lo obtiene del catálogo gratuito y ese NIT decide la identidad (PARITY-8)', async () => {
+    await importRows([company('Catálogo SAS', 'catalogo.co')]);
+    const [inserted] = spy.candidateInserts;
+    assert.equal(inserted.tax_identifier, '900123456-8');
+    assert.equal(inserted.tax_identifier_type, 'NIT');
+    assert.equal(inserted.legal_name, 'CATALOGO S.A.S.');
+    assert.equal((inserted.metadata as Row).tax_identifier_validation, 'official_source');
+    assert.match(String(inserted.identity_key), /^tax:co:/);
+    assert.equal(((inserted.metadata as Row).source_enrichment as Row).strongIdentityAvailable, true);
+  });
+
+  it('el NIT que trae el archivo gana: el catálogo no se consulta ni lo pisa', async () => {
+    await importRows([company('Catálogo SAS', 'catalogo.co', { tax_identifier: '800111222-3' })]);
+    const [inserted] = spy.candidateInserts;
+    assert.notEqual(inserted.tax_identifier, '900123456-8');
+    assert.equal('source_enrichment' in (inserted.metadata as Row), false);
   });
 
   it('sólo se reclaman las filas vivas, con el cliente administrativo y la RPC de la 140', async () => {
