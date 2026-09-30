@@ -14,9 +14,10 @@ export const CLAUDE_CLASSIFICATION_METADATA_KEY = 'claude_classification';
 /**
  * a1.v2 (30-09): pregunta directa «¿pertenece a la industria buscada?».
  * a1.v3 (30-09): esa respuesta cuenta como evidencia aunque no haya macro ni tamaño.
+ * a1.v4 (30-09): descarte también con cita de búsqueda si la confianza es ≥ 0,95.
  * Las filas sin veredicto de versiones anteriores se reintentan (`rescueStillPending`).
  */
-export const CLAUDE_CLASSIFIER_CONTRACT_VERSION = 'a1.v3';
+export const CLAUDE_CLASSIFIER_CONTRACT_VERSION = 'a1.v4';
 
 /** Macroindustria del catálogo activo, con sus subindustrias (vacías en el catálogo v2). */
 export type ClassifierCatalogIndustry = {

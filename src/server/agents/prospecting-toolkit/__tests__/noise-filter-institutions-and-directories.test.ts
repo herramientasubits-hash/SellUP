@@ -148,3 +148,22 @@ describe('AGENT1-TAVILY-V2-3 — repositorios de documentos en cualquier dominio
     it(`pasa (etiqueta ambigua fuera de .edu/.gov): ${url}`, () => assert.equal(kept(url), true));
   }
 });
+
+describe('AGENT1-TAVILY-QUERY-SPACE-1 — portales nacionales que agrupan a todo el Estado', () => {
+  // Prod 30-09 (fb530d9b): «GOV.CO» se guardó como candidato.
+  for (const url of [
+    'https://www.gov.co/',
+    'https://gov.co/entidades',
+    'https://www.gob.mx/',
+    'https://www.argentina.gob.ar/',
+    'https://www.gob.pe/institucion',
+    'https://www.gob.cl/',
+    'https://www.gub.uy/',
+  ]) {
+    it(`fuera: ${url}`, () => assert.equal(kept(url), false));
+  }
+  // Sus entidades SÍ son clientes.
+  for (const url of ['https://www.ins.gov.co/', 'https://www.sat.gob.mx/', 'https://www.minsa.gob.pe/']) {
+    it(`pasa (entidad propia): ${url}`, () => assert.equal(kept(url), true));
+  }
+});
