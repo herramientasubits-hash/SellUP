@@ -46,6 +46,8 @@ export type RescueBatchDeps = {
   loadCatalog: () => Promise<ClassifierCatalogIndustry[]>;
   loadReviewCandidates: (batchId: string) => Promise<ClassifiableCandidateRow[]>;
   loadDispositions: (batchId: string) => Promise<RescuableDispositionRow[]>;
+  /** Macroindustria PEDIDA en la búsqueda (`prospect_batches.metadata.industry_id`). */
+  loadBatchIndustryId: (batchId: string) => Promise<string | null>;
   classify: (
     company: ClassifierCompanyInput,
     catalog: readonly ClassifierCatalogIndustry[],
@@ -104,22 +106,46 @@ function failedConditions(metadata: Record<string, unknown> | null): string[] {
   return Array.isArray(failed) ? failed.filter((f): f is string => typeof f === 'string') : [];
 }
 
+/**
+ * Lusha no escribe `target_completeness` (trae tamaño y LinkedIn confirmados) pero
+ * su sector es genérico («Technology, Information & Media»): se revisa el SECTOR.
+ * Decisión de la dueña 30-09.
+ */
+function isLushaSectorReview(row: ClassifiableCandidateRow): boolean {
+  return row.source_primary === 'lusha' && !row.metadata?.target_completeness;
+}
+
 export function needsCandidateRescue(row: ClassifiableCandidateRow, nowMs: number): boolean {
   if (row.status !== 'needs_review') return false;
   if (!row.website && !row.domain) return false;
   if (!rescueStillPending(row.metadata?.[CLAUDE_RESCUE_METADATA_KEY], nowMs)) return false;
+  if (isLushaSectorReview(row)) return true;
   return failedConditions(row.metadata).some((f) => (CLASSIFIABLE_FAILED_CONDITIONS as readonly string[]).includes(f));
 }
 
-function candidateToCompany(row: ClassifiableCandidateRow): ClassifierCompanyInput {
+function sizeAlreadyConfirmed(metadata: Record<string, unknown> | null): boolean {
+  const status = (metadata?.icp_size_gate as { size_status?: unknown } | undefined)?.size_status;
+  return typeof status === 'string' && status.startsWith('confirmed');
+}
+
+type RescueRunContext = {
+  batchId: string;
+  triggeredBy: string | null;
+  catalog: readonly ClassifierCatalogIndustry[];
+  active: ActiveAnthropicModel;
+  /** Macroindustria pedida: autoridad para «coincide con el lote» (no el `industry` del proveedor). */
+  requestedIndustry: { id: string; name: string } | null;
+};
+
+function candidateToCompany(row: ClassifiableCandidateRow, ctx: RescueRunContext): ClassifierCompanyInput {
   return {
     candidateId: row.id,
     name: row.name ?? '',
     websiteOrDomain: row.website ?? row.domain,
     countryCode: row.country_code,
     countryName: row.country,
-    currentIndustryId: row.industry_id,
-    currentIndustryName: row.industry ?? null,
+    currentIndustryId: ctx.requestedIndustry?.id ?? row.industry_id,
+    currentIndustryName: ctx.requestedIndustry ? null : row.industry ?? null,
   };
 }
 
@@ -144,7 +170,7 @@ async function logUsage(result: CompanyClassificationResult, batchId: string, tr
 
 async function rescueCandidate(
   row: ClassifiableCandidateRow,
-  ctx: { batchId: string; triggeredBy: string | null; catalog: readonly ClassifierCatalogIndustry[]; active: ActiveAnthropicModel },
+  ctx: RescueRunContext,
   deps: RescueBatchDeps,
 ): Promise<ItemOutcome> {
   const claimed = await deps.patchCandidate(row.id, (metadata) =>
@@ -154,12 +180,16 @@ async function rescueCandidate(
   );
   if (!claimed) return { tag: 'skipped', cost: 0 };
 
-  const result = await safeClassify(candidateToCompany(row), ctx.catalog, ctx.active, deps);
+  const result = await safeClassify(candidateToCompany(row, ctx), ctx.catalog, ctx.active, deps);
   if (!result) return { tag: 'failed', cost: 0 };
   await logUsage(result, ctx.batchId, ctx.triggeredBy, deps);
 
   const minEmployees = readIcpThreshold(row.metadata);
-  const decision = decideRescue(result, { icpMinEmployees: minEmployees });
+  const decision = decideRescue(result, {
+    icpMinEmployees: minEmployees,
+    requestedIndustryName: ctx.requestedIndustry?.name ?? row.industry ?? null,
+    sizeAlreadyConfirmed: sizeAlreadyConfirmed(row.metadata),
+  });
   const decidedAt = deps.nowIso();
   const saved = await deps.patchCandidate(row.id, (metadata) =>
     buildCandidateRescuePatch({ metadata, result, decision, minEmployees, decidedAt }),
@@ -173,7 +203,7 @@ async function rescueCandidate(
 
 async function rescueDisposition(
   row: RescuableDispositionRow,
-  ctx: { batchId: string; triggeredBy: string | null; catalog: readonly ClassifierCatalogIndustry[]; active: ActiveAnthropicModel },
+  ctx: RescueRunContext,
   deps: RescueBatchDeps,
   admittedIds: string[],
 ): Promise<ItemOutcome> {
@@ -184,12 +214,21 @@ async function rescueDisposition(
   );
   if (!claimed) return { tag: 'skipped', cost: 0 };
 
-  const result = await safeClassify(dispositionToCompanyInput(row), ctx.catalog, ctx.active, deps);
+  const company = dispositionToCompanyInput(row);
+  const result = await safeClassify(
+    ctx.requestedIndustry ? { ...company, currentIndustryId: ctx.requestedIndustry.id, currentIndustryName: null } : company,
+    ctx.catalog,
+    ctx.active,
+    deps,
+  );
   if (!result) return { tag: 'failed', cost: 0 };
   await logUsage(result, ctx.batchId, ctx.triggeredBy, deps);
   const cost = result.usage?.estimatedCostUsd ?? 0;
 
-  const decision = decideRescue(result, { icpMinEmployees: DEFAULT_ICP_MIN_EMPLOYEES });
+  const decision = decideRescue(result, {
+    icpMinEmployees: DEFAULT_ICP_MIN_EMPLOYEES,
+    requestedIndustryName: ctx.requestedIndustry?.name ?? row.industry,
+  });
   const decidedAt = deps.nowIso();
   // Una fila de Descartadas sólo vuelve si el SECTOR quedó confirmado (se descartó por eso).
   if (decision.kind === 'admit' && decision.sectorConfirmed) {
@@ -264,7 +303,17 @@ export async function rescueBatchWithClaude(
     ...dispositions.filter((row) => needsDispositionRescue(row, startedMs)).map((row) => ({ kind: 'disposition' as const, row })),
   ];
   const thisRun = work.slice(0, RESCUE_MAX_COMPANIES_PER_RUN);
-  const ctx = { batchId: params.batchId, triggeredBy: params.triggeredBy, catalog, active };
+  const requestedIndustryId = await deps.loadBatchIndustryId(params.batchId).catch(() => null);
+  const requestedCatalogIndustry = catalog.find((i) => i.industryId === requestedIndustryId) ?? null;
+  const ctx: RescueRunContext = {
+    batchId: params.batchId,
+    triggeredBy: params.triggeredBy,
+    catalog,
+    active,
+    requestedIndustry: requestedCatalogIndustry
+      ? { id: requestedCatalogIndustry.industryId, name: requestedCatalogIndustry.industryName }
+      : null,
+  };
   const admittedIds: string[] = [];
 
   const outcomes = await mapUntil(
