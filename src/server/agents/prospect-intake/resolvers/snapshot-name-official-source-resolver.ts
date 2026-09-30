@@ -48,6 +48,12 @@ export interface SnapshotNameResolverConfig {
   /** The SAME normalizer the snapshot's `normalized_legal_name` was filled with. */
   normalizeCore: (name: string | null | undefined) => string;
   querySnapshots: SnapshotNameQuery;
+  /**
+   * SOURCES-CO-RUES-LIVE-NIT-1 — when true, a candidate whose name core is ONE
+   * word («Almaviva», «Supersalud») never becomes strong: a bare brand often
+   * coincides with a different, unrelated registered company. It stays a signal.
+   */
+  singleWordIsSignalOnly?: boolean;
 }
 
 /** Build a snapshot-backed `OfficialSourceResolver` for one country. */
@@ -109,7 +115,8 @@ export function createSnapshotNameOfficialSourceResolver(
         warnings: [],
         issues: [],
       };
-      if (distinct.length === 1) {
+      const singleWord = config.singleWordIsSignalOnly === true && tokens.length === 1;
+      if (distinct.length === 1 && !singleWord) {
         return {
           ...base,
           status: 'matched',
@@ -121,7 +128,10 @@ export function createSnapshotNameOfficialSourceResolver(
         ...base,
         status: 'low_confidence_match',
         confidence: SNAPSHOT_NAME_SIGNAL_MATCH_CONFIDENCE,
-        safeMetadata: { normalizedSearchName: core, ambiguous: true, candidateCount: distinct.length },
+        safeMetadata:
+          distinct.length > 1
+            ? { normalizedSearchName: core, ambiguous: true, candidateCount: distinct.length }
+            : { normalizedSearchName: core, singleWordName: true },
       };
     },
   };
