@@ -5,7 +5,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { describeContactAuditDetails } from '../audit-details';
+import { describeContactAuditDetails } from '../[contactId]/audit-details';
 
 describe('describeContactAuditDetails', () => {
   it('sin detalle no dice nada', () => {

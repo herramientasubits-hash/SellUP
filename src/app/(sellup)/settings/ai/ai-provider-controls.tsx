@@ -166,10 +166,6 @@ export function AIProviderControls({ provider, models }: AIProviderControlsProps
     const result = await testAiProviderConnectionWithVault(provider.key);
     setTestingConnection(false);
     // Traza de diagnóstico que devuelve el servidor: se conserva tal cual estaba.
-    console.group('[testVault] Resultado desde servidor');
-    (result.debugLogs ?? []).forEach((line) => console.log(line));
-    console.log('[testVault] success:', result.success, '| error:', result.error, '| message:', result.message);
-    console.groupEnd();
     if (result.success) {
       toast.success(result.message || 'Conexión exitosa');
     } else {

@@ -57,6 +57,13 @@ mano, busca aquí.
 | Pantallas de acceso | `@/components/shared/access-status-screen` | `AccessStatusScreen` (pendiente, rechazado, suspendido, archivado) |
 | Selectores de fecha | `@/components/date` | `DatePicker`, `DateRangePicker`, `PeriodSelector`, `DateFilterBar` (periodo / día / rango). Nunca `<input type="date">` |
 | Fechas | `@/lib/format-date` | `formatInAppZone`, `formatAppDate`, `formatAppDateTime`, `formatAppTime`, `withAppTimeZone` — siempre con la zona fija de la aplicación; nunca `toLocaleDateString` suelto |
+| IA · chat | `@/components/chat` | `ChatPanel` (panel del agente acoplado al shell: estrecha la página, no la tapa), `ChatComposer`, `ChatMark`, `ChatThinking` (con contador), `ChatAgentMessage`, `ChatUserMessage`, `ChatQuestionCard` (opciones numeradas, se contestan con la tecla), `ChatCardView` (`metrics` / `rows`), `ChatMarkdown`, `ChatThread`. Historial, adjuntos, regenerar y feedback solo se pintan si quien monta la pieza pasa su manejador. Ningún asistente se arma con burbujas, cajas de escribir u orbes a mano |
+| IA · estados | `@/components/ai` | `AiAnalyzingState` (la única pantalla de espera de IA; `inline` para una línea), `AiAgentDrawer`, `AIPanel`, `AiGeneratedBadge`, `AIButton` |
+| Gráficos | `@/components/charts` | `BarList`, `DistributionBar`, `DonutChart`, `BarChart`, `LineChart`, `ChartCard`, `PanelHeading`. Nada de barras con `style={{ width }}` |
+| Subida de archivos | `@/components/upload` | `UploadZone` (arrastrar y soltar), `FilePreview`. Nunca un `<input type="file">` oculto tras un botón |
+| Campos especiales | `@/components/forms/*` | `NumberField` (no `type="number"`), `PhoneInput` (E.164; no `type="tel"`), `SearchableSelect` |
+| Confirmar y archivar | `@/components/shared`, `@/components/accounts` | `ConfirmDialog` (diálogo de alerta: sin X, no cierra con clic afuera; `children` para un error o un `Alert`), `ModalShell` (formularios), `ArchiveAccountDialog`. Nunca `<Dialog>` directo en una pantalla, ni un modal sobre otro |
+| Formularios en drawer | — | Dentro de un drawer: `DrawerSection` + `Field`. En una página: `FormSection` + `Field` |
 
 ## 2. Escala de radios (monótona)
 
