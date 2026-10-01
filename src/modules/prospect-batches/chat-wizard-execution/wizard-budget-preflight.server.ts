@@ -92,8 +92,10 @@ export async function resolveWizardBudgetPreflightForSurface(): Promise<WizardBu
     // un coste de Apollo comparado contra `snapshot.availableCredits` —el saldo de
     // ESE pool— generaría un aviso previo falso. Tavily sigue financiado por este
     // pool sin cambios.
+    // AGENT1-TAVILY-PROVIDER-CONFIG-1 — Tavily, como Apollo, se rige por su
+    // configuración en Proveedores: el pool del piloto ya no lo financia.
     const wizardBudgetFundedProviders = WIZARD_RUN_SELECTABLE_PROVIDERS.filter(
-      (provider) => provider !== 'apollo_organizations',
+      (provider) => provider !== 'apollo_organizations' && provider !== 'tavily',
     );
 
     const requiredCreditsByProvider = Object.fromEntries(

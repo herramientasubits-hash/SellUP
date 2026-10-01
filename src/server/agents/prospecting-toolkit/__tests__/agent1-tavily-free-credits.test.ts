@@ -11,13 +11,6 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  TAVILY_DEFAULT_MONTHLY_CREDIT_CAP,
-  evaluateTavilyMonthlyCredits,
-  readTavilyCreditsUsedThisMonth,
-  resolveTavilyMonthlyCreditCap,
-  startOfUtcMonthIso,
-} from '../tavily-monthly-credits';
-import {
   TAVILY_PLAN_MAX_ROUNDS,
   TAVILY_QUERIES_PER_ROUND,
   TAVILY_RESULTS_PER_QUERY,
@@ -25,7 +18,6 @@ import {
   resolveTavilyCountryTerms,
 } from '../tavily-query-plan';
 import { resolveTavilyCountryRegions } from '../tavily-country-regions';
-import type { SupabaseClient } from '@supabase/supabase-js';
 
 const NOW = Date.parse('2026-10-15T12:00:00Z');
 
@@ -42,73 +34,6 @@ describe('créditos por corrida', () => {
     })!;
     assert.ok(plan.rounds.every((round) => round.length <= 2));
     assert.ok(plan.rounds.flat().length <= 8);
-  });
-});
-
-describe('tope mensual de créditos gratis', () => {
-  it('por defecto 1.000; respeta un valor válido del entorno', () => {
-    assert.equal(resolveTavilyMonthlyCreditCap(undefined), TAVILY_DEFAULT_MONTHLY_CREDIT_CAP);
-    assert.equal(TAVILY_DEFAULT_MONTHLY_CREDIT_CAP, 1000);
-    assert.equal(resolveTavilyMonthlyCreditCap('4000'), 4000);
-    assert.equal(resolveTavilyMonthlyCreditCap('abc'), 1000);
-    assert.equal(resolveTavilyMonthlyCreditCap('-5'), 1000);
-  });
-
-  it('alcanza para la corrida ⇒ available', () => {
-    assert.deepEqual(evaluateTavilyMonthlyCredits({ usedCredits: 500, cap: 1000, runMaxCredits: 20 }), {
-      status: 'available', usedCredits: 500, cap: 1000, remaining: 500,
-    });
-  });
-
-  it('no alcanza para el peor caso de la corrida ⇒ exhausted (no se empieza a pagar)', () => {
-    const verdict = evaluateTavilyMonthlyCredits({ usedCredits: 985, cap: 1000, runMaxCredits: 20 });
-    assert.equal(verdict.status, 'exhausted');
-    assert.equal(verdict.remaining, 15);
-  });
-
-  it('pagina más allá de las 1.000 filas de PostgREST', async () => {
-    const all = Array.from({ length: 2500 }, () => ({ credits_used: 1 }));
-    const supabase = {
-      from() {
-        let from = 0;
-        const chain = {
-          select() { return chain; }, eq() { return chain; }, gte() { return chain; }, order() { return chain; },
-          range(f: number, to: number) { from = f; void to; return chain; },
-          then(resolve: (r: { data: unknown[]; error: null }) => void) { resolve({ data: all.slice(from, from + 1000), error: null }); },
-        };
-        return chain;
-      },
-    } as unknown as SupabaseClient;
-    assert.equal(await readTavilyCreditsUsedThisMonth(supabase, NOW), 2500);
-  });
-
-  it('el mes empieza el día 1 en UTC', () => {
-    assert.equal(startOfUtcMonthIso(NOW), '2026-10-01T00:00:00.000Z');
-  });
-
-  it('suma sólo créditos de Tavily del mes en curso (doble de Supabase, sólo lectura)', async () => {
-    const filters: Array<[string, string, unknown]> = [];
-    const rows = [{ credits_used: 7 }, { credits_used: 14 }, { credits_used: null }];
-    const supabase = {
-      from(table: string) {
-        assert.equal(table, 'provider_usage_logs');
-        const chain = {
-          select() { return chain; },
-          eq(col: string, v: unknown) { filters.push(['eq', col, v]); return chain; },
-          gte(col: string, v: unknown) { filters.push(['gte', col, v]); return chain; },
-          order() { return chain; },
-          range(from: number) { filters.push(['range', 'from', from]); return chain; },
-          then(resolve: (r: { data: unknown[]; error: null }) => void) { resolve({ data: rows, error: null }); },
-        };
-        return chain;
-      },
-    } as unknown as SupabaseClient;
-    assert.equal(await readTavilyCreditsUsedThisMonth(supabase, NOW), 21);
-    assert.deepEqual(filters, [
-      ['eq', 'provider_key', 'tavily'],
-      ['gte', 'created_at', '2026-10-01T00:00:00.000Z'],
-      ['range', 'from', 0],
-    ]);
   });
 });
 
