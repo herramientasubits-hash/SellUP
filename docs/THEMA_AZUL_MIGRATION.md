@@ -41,7 +41,7 @@ mano, busca aquí.
 | Tipografía | `@/components/typography` | `Heading`, `Text` |
 | Página | `@/components/shared/*` | `PageHeader` (con `breadcrumbs`), `DataTablePage`, `SurfaceCard`, `SectionHeader` |
 | Navegación | `@/components/navigation/*` | `Breadcrumbs`, `Stepper`, `TabsNav` (pestañas de página con icono y contador) |
-| Datos | `@/components/data-display` | `StatusBadge`, `TableShell`, `Timeline`, `ListItem`/`ListItemGroup`, `Kanban` |
+| Datos | `@/components/data-display` | `StatusBadge`, `TableShell`, `Timeline` (`density="compact"` en `TimelineItem`), `ListItem`/`ListItemGroup`, `Kanban` |
 | Tablas operables | `@/components/data-table` | `DataTable` (título + total, búsqueda, ajustes, selección, barra masiva) |
 | Métricas y avisos | `@/components/shared/*` | `MetricCard` (acento, chip, píldora de variación, `hint`, `chart`), `DeltaPill`, `AttentionStrip` + `AttentionAction` |
 | Filtros | `@/components/filters/*` | `FilterChips` (chips con contador), `FilterBar` |
@@ -49,7 +49,10 @@ mano, busca aquí.
 | Acciones | `@/components/action-rail` | `DataListActionRail`, `DrawerActionRail`, `RailButton`, `ActionFab` |
 | Ventanas | `@/components/shared/*` | `DrawerShell`, `DrawerSection`, `ModalShell`, `ConfirmDialog` |
 | Formularios | `@/components/forms/*` | `Field`, `FieldLabel`, `FieldDescription`, `FieldError`, `FormSection`, `SearchableSelect`, `MultiSelect` |
-| Estados | `@/components/ui/*`, `@/components/feedback/*` | `EmptyState` (`variant="plain"`), `Skeleton`, `Spinner`, `Alert` |
+| Estados | `@/components/ui/*`, `@/components/feedback/*` | `EmptyState` (`variant="plain"`, título opcional), `Skeleton`, `Spinner` (`decorative` para bloques que ya anuncian su estado), `Alert` |
+| Tablas de solo lectura | `@/components/ui/table` + `TableShell` | `Table`, `TableHeader`, `TableBody`, `TableRow` (`data-state="selected"`), `TableHead`, `TableCell` — nunca `<table>` a mano |
+| Pantallas de acceso | `@/components/shared/access-status-screen` | `AccessStatusScreen` (pendiente, rechazado, suspendido, archivado) |
+| Fechas | `@/lib/format-date` | `formatInAppZone`, `formatAppDate`, `formatAppDateTime`, `formatAppTime`, `withAppTimeZone` — siempre con la zona fija de la aplicación; nunca `toLocaleDateString` suelto |
 
 ## 2. Escala de radios (monótona)
 
