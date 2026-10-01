@@ -1,118 +1,101 @@
 "use client";
 
 import * as React from "react";
-import { ChevronLeft, ChevronRight } from "@/icons";
 import type { Table } from "@tanstack/react-table";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+const COUNT_FORMAT = new Intl.NumberFormat("es-CO");
 
 interface DataTablePaginationProps<TData> {
   table: Table<TData>;
   pageSizeOptions?: number[];
+  /** Sustantivo en plural: «empresas», «contactos». */
+  noun?: string;
+  /** Avisa del tamaño elegido (para recordarlo); la tabla ya se actualiza sola. */
+  onPageSizeChange?: (pageSize: number) => void;
   className?: string;
 }
 
 /**
- * Bottom-of-table pagination with summary text + numbered page nav.
- *
- * Format: "Mostrando {first} - {last} de {total} resultados"
- *         [« Anterior] 1 2 3 [Siguiente »]
+ * El pie de una tabla paginada (Thema): «Página x de y · N <sustantivo>», el
+ * tamaño de página y Anterior / Siguiente.
  */
 export function DataTablePagination<TData>({
   table,
   pageSizeOptions = [10, 20, 50, 100],
+  noun = "resultados",
+  onPageSizeChange,
   className,
 }: DataTablePaginationProps<TData>) {
   const totalRows = table.getFilteredRowModel().rows.length;
-  const pageSize = table.getState().pagination.pageSize;
-  const pageIndex = table.getState().pagination.pageIndex;
-  const pageCount = table.getPageCount();
-
-  const first = totalRows === 0 ? 0 : pageIndex * pageSize + 1;
-  const last = Math.min(totalRows, (pageIndex + 1) * pageSize);
-
-  // Build compact page list: first, last, current ± 1, with ellipses.
-  const pages = React.useMemo(() => {
-    const set = new Set<number>([0, pageCount - 1, pageIndex, pageIndex - 1, pageIndex + 1]);
-    const arr = Array.from(set)
-      .filter((p) => p >= 0 && p < pageCount)
-      .sort((a, b) => a - b);
-    const result: Array<number | "…"> = [];
-    for (let i = 0; i < arr.length; i++) {
-      if (i > 0 && arr[i] - arr[i - 1] > 1) result.push("…");
-      result.push(arr[i]);
-    }
-    return result;
-  }, [pageIndex, pageCount]);
-
-  if (totalRows === 0) {
-    return (
-      <div
-        className={cn(
-          "shrink-0 flex items-center justify-between px-5 py-3 text-xs text-muted-foreground",
-          className,
-        )}
-      >
-        <p>0 resultados</p>
-      </div>
-    );
-  }
+  const { pageSize, pageIndex } = table.getState().pagination;
+  const pageCount = Math.max(1, table.getPageCount());
+  const sizes = pageSizeOptions.includes(pageSize)
+    ? pageSizeOptions
+    : [...pageSizeOptions, pageSize].sort((a, b) => a - b);
 
   return (
     <div
       className={cn(
-        "flex flex-wrap items-center justify-between gap-3 px-5 py-3 text-xs text-muted-foreground",
+        "flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border/60 px-4 py-2 text-xs text-muted-foreground sm:px-5",
         className,
       )}
     >
-      <p className="tabular-nums">
-        Mostrando {first} - {last} de {totalRows} resultados
+      <p className="tabular-nums" aria-live="polite">
+        {totalRows === 0
+          ? `0 ${noun}`
+          : `Página ${pageIndex + 1} de ${pageCount} · ${COUNT_FORMAT.format(totalRows)} ${noun}`}
       </p>
 
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-2">
+        <span className="hidden sm:inline">
+          Filas por página
+        </span>
+        <Select
+          value={String(pageSize)}
+          onValueChange={(value) => {
+            const next = Number(value);
+            if (!Number.isFinite(next) || next <= 0) return;
+            table.setPageSize(next);
+            onPageSizeChange?.(next);
+          }}
+        >
+          <SelectTrigger size="sm" aria-label="Filas por página">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {sizes.map((size) => (
+              <SelectItem key={size} value={String(size)}>
+                {size}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
         <Button
-          variant="ghost"
-          size="xs"
-          className="px-2 font-medium"
+          variant="outline"
+          size="sm"
           onClick={() => table.previousPage()}
-          disabled={!table.getCanPreviousPage()}>
-          <ChevronLeft className="h-3 w-3" />
+          disabled={!table.getCanPreviousPage()}
+        >
           Anterior
         </Button>
-
-        {pages.map((p, i) =>
-          p === "…" ? (
-            <span key={`ellipsis-${i}`} className="px-1 text-muted-foreground">
-              …
-            </span>
-          ) : (
-            <button
-              key={p}
-              type="button"
-              onClick={() => table.setPageIndex(p)}
-              className={cn(
-                "h-7 w-7 inline-flex items-center justify-center rounded-md text-xs font-medium tabular-nums",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
-                p === pageIndex
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-surface-muted hover:text-foreground",
-              )}
-              aria-current={p === pageIndex ? "page" : undefined}
-            >
-              {p + 1}
-            </button>
-          ),
-        )}
-
         <Button
-          variant="ghost"
-          size="xs"
-          className="px-2 font-medium"
+          variant="outline"
+          size="sm"
           onClick={() => table.nextPage()}
-          disabled={!table.getCanNextPage()}>
+          disabled={!table.getCanNextPage()}
+        >
           Siguiente
-          <ChevronRight className="h-3 w-3" />
         </Button>
       </div>
     </div>

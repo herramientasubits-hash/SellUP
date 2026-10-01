@@ -535,19 +535,35 @@ Todas las tablas de SellUp (catálogo de fuentes, batches, candidatos, cuentas, 
 
 ### 10.2 Estructura actual
 
+El motor es TanStack Table v8; la **experiencia** es la de la tabla de Thema. Las piezas visuales que no dependen del motor viven en `data-display/` (portadas de Thema) y `data-table/` las conecta con TanStack.
+
 ```
-src/components/data-table/
-├── data-table.tsx                    # Core: TanStack Table v8 + load mode + settings
-├── data-table-toolbar.tsx            # Title + description + search + settings + actions
-├── data-table-pagination.tsx         # Paginación clásica (page-size + páginas)
-├── data-table-load-more.tsx          # Lazy load: sentinel + IntersectionObserver
-├── data-table-settings-drawer.tsx    # Drawer: visibilidad columnas + modo de carga
-├── data-table-column-header.tsx      # Header clickable (sortable)
-├── data-table-column-popover.tsx     # Per-column popover (sort + filter)
-├── data-table-column-reorder.tsx     # Drag-and-drop column reordering
-├── data-table-row-actions.tsx        # Kebab dropdown por fila
-├── data-table-context-menu.tsx       # Right-click menu
-├── data-table-bulk-action-bar.tsx    # Portal de selección masiva (ver § 12)
+src/components/data-display/           # Piezas de Thema, sin motor
+├── table-header-controls.tsx         # FilterSortHeader, SortOnlyHeader, HeaderSortButton, HeaderFilterButton,
+│                                     #   SelectionHeaderMenu, HeaderSelectAllCheckbox, HeaderSelectionMark
+├── table-config-button.tsx           # TableConfigButton — panel «Configurar tabla» (Popover)
+├── use-table-config.ts               # useTableConfig — preferencias por tabla en localStorage
+├── use-column-drag.ts                # Arrastre nativo de la lista de columnas del panel
+└── row-actions-menu.tsx              # RowActionsMenu — «⋯» de una fila
+
+src/components/data-table/             # La tabla operable (TanStack)
+├── data-table.tsx                    # Core: estado, columnas de servicio, render
+├── data-table-types.ts               # DataTableProps, DataTableBulkAction, DataTableListRowState…
+├── data-table-utils.ts               # multiValueFilter, ids/labels de columna, aria-sort
+├── data-table-column-meta.ts         # DataTableColumnMeta (+ augmentación de ColumnMeta)
+├── data-table-toolbar.tsx            # Título + total · acciones · buscador que se abre · Configurar; modo «selección»
+├── data-table-active-filters.tsx     # Chips «Columna: valor ×» + «Limpiar todo»
+├── data-table-column-header.tsx      # Cabecera: orden con un clic + embudo aparte
+├── data-table-selection-header.tsx   # Menú de selección (paginado) / casilla (scroll infinito)
+├── data-table-row.tsx                # Fila: clic, selección, celdas fijadas, menú contextual
+├── data-table-pagination.tsx         # Pie paginado: «Página x de y · N <sustantivo>»
+├── data-table-load-more.tsx          # Pie de scroll infinito + centinela (IntersectionObserver)
+├── data-table-column-reorder.tsx     # Arrastre de cabeceras (dnd-kit)
+├── data-table-row-reorder.tsx        # Arrastre de filas (dnd-kit)
+├── data-table-row-actions.tsx        # Acciones por fila → RowActionsMenu
+├── data-table-context-menu.tsx       # Menú de clic derecho
+├── data-table-bulk-action-bar.tsx    # Barra flotante (portal, § 12) + acciones «en el layout»
+├── use-column-auto-fit.ts            # Reparto del ancho y posición de columnas fijadas
 └── index.ts                          # Barrel exports
 ```
 
@@ -569,7 +585,7 @@ src/components/data-table/
 | `initialPageSize` | `number` | `20` | Filas por página / lote de lazy load |
 | `pageSizeOptions` | `number[]` | `[10, 20, 50, 100]` | Opciones de page-size (modo paginación) |
 | `enableColumnReorder` | `boolean` | `true` | Drag-and-drop en headers |
-| `pinnedColumnIds` | `string[]` | `["select", "actions"]` | Columnas excluidas del reorder |
+| `pinnedColumnIds` | `string[]` | `["select", "reorder", "actions"]` | Columnas de servicio: no se mueven, ni se ocultan, ni se fijan |
 | `manualSorting` / `manualFiltering` | `boolean` | `false` | Si `true`, el padre controla sort/filter via estado externo |
 | `onRowClick` | `(row: T) => void` | — | Click handler (no confundir con selección) |
 | `rowClickable` | `boolean` | `false` | Cursor + hover; necesario junto a `onRowClick` |
@@ -577,46 +593,71 @@ src/components/data-table/
 | `loading` | `boolean` | `false` | Skeleton overlay |
 | `hideToolbar` | `boolean` | `false` | Oculta toolbar completamente |
 | `className` | `string` | — | Wrapper extra classes |
+| `tableId` | `string` | — | Identidad estable de la tabla. Con ella se recuerda la configuración en `localStorage` (`sellup:table:<tableId>`). Sin ella funciona igual pero no recuerda |
+| `noun` | `string` | `"resultados"` | Sustantivo en plural de lo que se lista («empresas», «contactos»): pie, buscador y panel |
+| `nounGender` | `"f" \| "m"` | `"m"` | «3 seleccionadas» frente a «3 seleccionados» |
+| `defaultRowsMode` | `"lazy" \| "paged"` | `"lazy"` | Cómo llegan las filas de fábrica |
+| `getRowLabel` | `(row: T) => string` | — | Nombre de la fila en su casilla y en su menú («Acciones de Acme») |
+| `renderListItem` | `(row, state) => ReactNode` | — | Dibujo de una fila en la vista «Lista». Sin ella el panel no ofrece la vista |
+| `settingsExtraSections` | `ReactNode` | — | Secciones propias de la pantalla dentro de «Configurar tabla» (p. ej. filtros de alcance) |
+| `fillHeight` | `boolean` | `false` | Llena el alto del padre con scroll interno (§ 15) |
 
-### 10.4 Modos de carga — `loadMode`
+### 10.4 Cómo llegan las filas
 
-`DataTableSettings.loadMode` controla cómo se cargan las filas. Configurable desde `<DataTableSettingsDrawer>`:
+Lo elige quien mira en «Configurar tabla» y se recuerda por `tableId`:
 
-| Modo | Comportamiento | Cuándo usarlo |
-|------|----------------|---------------|
-| `'pagination'` | Filas paginadas con `<DataTablePagination>`. Default. | Datasets medianos (≤500 filas en memoria). |
-| `'lazy'` | Filas se revelan incrementalmente con `<DataTableLoadMore>` (IntersectionObserver, automático al hacer scroll). Ver § 13. | Datasets grandes cargados en memoria o listas que se benefician de scroll continuo. |
+| Modo | Comportamiento | Pie |
+|------|----------------|-----|
+| `'lazy'` — **Scroll infinito** (de fábrica) | Se cargan `initialPageSize` filas y un centinela al final del `<tbody>` trae el siguiente tramo al asomar (§ 13) | `Mostrando n de N <sustantivo>` |
+| `'paged'` — **Paginación** | Página por página | `Página x de y · N <sustantivo>` + tamaño de página + Anterior / Siguiente |
 
-El modo se guarda en estado interno del `<DataTable>`. La transición resetea `lazyVisibleCount` automáticamente y `pageSize` se ajusta a `Number.MAX_SAFE_INTEGER` en lazy para que TanStack no interfiera con el slice client-side.
+En los dos modos el corte se hace **después** de filtrar y ordenar (el scroll infinito es una sola página que crece), así que ordenar o filtrar siempre actúa sobre toda la lista y no solo sobre lo cargado. Cambiar filtros, orden o búsqueda vuelve al primer tramo.
 
-**Límite práctico:** lazy es client-side slicing. Para >1000 filas, mover a server-side pagination (`manualPagination`).
+Una tabla corta dentro de un panel puede arrancar paginada con `defaultRowsMode="paged"`.
 
-### 10.5 Ajustes de tabla — `DataTableSettings`
+**Límite práctico:** los datos están en memoria. Para >1000 filas, paginación en servidor.
 
-Estado: `{ globalSearch: boolean; loadMode: 'pagination' | 'lazy' }`.
+### 10.5 «Configurar tabla» — `TableConfigButton` + `useTableConfig`
 
-Configurable desde el `<DataTableSettingsDrawer>` que se abre con el ícono `SlidersHorizontal` en el toolbar. El drawer contiene:
+El botón del engranaje (junto al buscador) abre un **panel anclado** (Popover), no un drawer. Contiene, de arriba abajo:
 
-- **BUSCADOR GENERAL** (`Switch`) — muestra/oculta el input de búsqueda global.
-- **MODO DE CARGA** (`SegmentedControl`) — paginación vs carga perezosa (ver § 13).
-- **COLUMNAS VISIBLES** (checkboxes) — toggle de visibilidad por columna (vía `meta.label`).
+- **Secciones de la pantalla** (`settingsExtraSections`), si las hay.
+- **Columnas** — lista con asa para reordenar (mueve el mismo estado que arrastrar la cabecera), chincheta para **fijar** a la izquierda, ojo para **mostrar/ocultar**; las de servicio (selección, acciones) salen con candado como «Fija»; «Mostrar todas» si hay ocultas. Una columna con `enableHiding: false` se puede mover y fijar pero no ocultar.
+- **Cómo se ven** — Rejilla / Lista (solo si la pantalla pasa `renderListItem`).
+- **Cómo llegan las filas** — Scroll infinito / Paginación.
+- **Cómo se actúa sobre una fila** — Marcando filas / Menú en cada fila (solo con selección y `contextMenu`). Con «menú» desaparecen las casillas y cada fila lleva su «⋯» con las acciones del menú contextual.
+- **Dónde van las acciones** — En la barra flotante / En el layout (solo con acciones masivas). «En el layout» transforma la cabecera de la lista mientras hay selección («× 3 seleccionadas» + acciones) y no se monta la barra flotante.
+- **Restablecer** y un punto en el botón cuando la configuración no es la de fábrica.
 
-Default: `{ globalSearch: true, loadMode: 'pagination' }`. Sin "Modo de edición" — esa feature fue retirada.
+Todo se guarda por tabla en `localStorage` (`sellup:table:<tableId>`) y se lee con `useSyncExternalStore`: el servidor y la hidratación pintan lo de fábrica y lo guardado se aplica después, sin desajuste de hidratación. Lo guardado ilegible se ignora.
+
+El buscador general ya no se activa desde ajustes: la lupa siempre está en la barra y abre el campo.
 
 ### 10.6 Columnas — meta fields
 
-`ColumnMeta` extiende `ColumnDef<T, V>['meta']` con campos del sistema:
+`DataTableColumnMeta` (`data-table-column-meta.ts`) extiende `ColumnDef['meta']`:
 
 ```ts
 {
-  label: string;                          // Aparece en "Columnas visibles"
-  facetedFilterTitle?: string;            // Título del dropdown
-  facetedFilterOptions?: { label, value }[]; // Opciones del multi-select
-  disablePopoverSearch?: boolean;         // Oculta el input de búsqueda en el popover
+  label?: string;                 // Nombre en «Configurar tabla» y en los chips de filtro
+  popoverTitle?: string;          // «Filtrar por <popoverTitle>» si difiere del título
+  filterOptions?: { label, value, icon? }[]; // Opciones del embudo (preferible para enums)
+  disableFilter?: boolean;        // Sin embudo: números, fechas, texto libre
+  disableSort?: boolean;          // Sin orden: la etiqueta es texto
+  filterChipLabel?: (value) => string; // Texto del chip para filtros que no son listas (rangos)
 }
 ```
 
-Los faceted filters se renderizan automáticamente en el toolbar cuando una columna tiene `facetedFilterOptions` Y `enableColumnFilter: true` (default).
+Qué cabecera sale de `<DataTableColumnHeader column title />`:
+
+| Columna | Declara | Cabecera |
+|---|---|---|
+| Enumerable (estado, país, fuente, responsable…) | `meta.filterOptions` (o pocos valores únicos, ≤ 50) | Orden + embudo |
+| Numérica o de fecha | `meta.disableFilter: true` | Solo orden |
+| Texto libre (nombre, dominio, email) | `meta.disableFilter: true` | Solo orden |
+| Sin valor por el que ordenar | `enableSorting: false` / `meta.disableSort` | Etiqueta |
+
+El filtro se guarda como `string[]`. Las columnas sin `filterFn` propio usan el de la tabla («el valor está entre los elegidos»); las que declaran el suyo (`'arrIncludesSome'`, un rango de fechas) lo conservan.
 
 ### 10.7 Uso mínimo
 
@@ -634,20 +675,17 @@ const columns: ColumnDef<Row>[] = [
     header: ({ column }) => <DataTableColumnHeader column={column} title="Nombre" />,
     cell: ({ row }) => <span className="font-medium">{row.original.name}</span>,
     enableHiding: false,
-    meta: { label: 'Nombre' },
+    // Texto libre: se ordena y se busca; sin embudo.
+    meta: { label: 'Nombre', disableFilter: true },
   },
   {
     id: 'status',
     accessorKey: 'status',
     header: ({ column }) => <DataTableColumnHeader column={column} title="Estado" />,
-    filterFn: (row, _id, value: string[]) => {
-      if (!value?.length) return true;
-      return value.includes(row.original.status);
-    },
+    // Enumerable: orden + embudo con estas opciones y su recuento.
     meta: {
       label: 'Estado',
-      facetedFilterTitle: 'Estado',
-      facetedFilterOptions: [
+      filterOptions: [
         { label: 'Activo', value: 'active' },
         { label: 'Inactivo', value: 'inactive' },
       ],
@@ -658,6 +696,8 @@ const columns: ColumnDef<Row>[] = [
 export function MyList({ rows }: { rows: Row[] }) {
   return (
     <DataTable
+      tableId="elements"
+      noun="elementos"
       title="Listado de elementos"
       description="Vista operativa de todos los elementos registrados."
       columns={columns}
@@ -702,50 +742,40 @@ El `<DataTable>` implementa estas zonas visuales (de arriba a abajo):
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ Title + count   [search] [⚙] [actions]                          │  ← Toolbar
-│ Description (subtítulo)                                            │
+│ Título [total]                     [acciones] [🔍] [⚙ Configurar] │  ← Barra
+│ Descripción                                                      │
 ├─────────────────────────────────────────────────────────────────┤
-│ ☐ │ Col 1 ⇅▼ │ Col 2 ⇅▼ │ Col 3 ⇅▼ │ Col 4 ⇅▼ │ Acciones  │  ← Sticky header
-├───┼────────────┼────────────┼────────────┼────────────┼───────────┤
-│ ☐ │ ...        │ ...        │ ...        │ ...        │          │  ← Rows
-│ ☐ │ ...        │ ...        │ ...        │ ...        │          │
-├───┴────────────┴────────────┴────────────┴────────────┴───────────┤
-│ [Footer: pagination | load-more sentinel]                       │
+│ Filtros: [País: Colombia ×] [Estado: Nuevo ×]  Limpiar todo      │  ← Solo con filtros
+├─────────────────────────────────────────────────────────────────┤
+│ ☐▾│ Empresa ⇅ │ País ⇅ [▽] │ Estado ⇅ [▽ 2] │ Creación ⇅ │ │  ← Cabecera pegada
+├───┼───────────┼────────────┼────────────────┼────────────┤
+│ ☐ │ ...       │ ...        │ ...            │ ...        │      ← Filas
+├───┴───────────┴────────────┴────────────────┴────────────┤
+│ Mostrando 20 de 134 empresas   |   Página 1 de 7 · 134 empresas  │  ← Pie
 └─────────────────────────────────────────────────────────────────┘
-                                                (when selecting)
                               ┌─────────────────────────────────────┐
-                              │ N seleccionados  [acción1] [acción2] │  ← Floating
-                              └─────────────────────────────────────┘     bar (portal)
+                              │ N seleccionados  [acción1] [acción2] │  ← Barra flotante
+                              └─────────────────────────────────────┘     (portal) o cabecera
 ```
 
-#### 10.9.1 Per-column popover (Sort + Filter)
+#### 10.9.1 Cabecera de columna (orden + embudo)
 
-`<DataTableColumnPopover>` envuelve el header clickable y abre un popover con:
+`<DataTableColumnHeader>` pinta dos controles **a la vista** (Thema · `FilterSortHeader` / `SortOnlyHeader`):
 
-1. **ORDENAR** — botones `Asc` / `Desc` que controlan `column.toggleSorting`.
-2. **FILTRAR** — lista de checkboxes con conteos. Valores de `meta.facetedFilterOptions` (estático) o `column.getFacetedUniqueValues()` (derivado).
+1. **Etiqueta + flecha** — un clic alterna sin orden → ascendente → descendente → sin orden. La flecha se enciende en `text-primary` y la celda lleva `aria-sort`.
+2. **Embudo** (solo columnas enumerables) — abre un menú con casillas, el recuento de cada opción, un buscador cuando hay más de 8 y «Limpiar filtros (n)» arriba cuando hay alguno. Con filtro puesto el embudo va en `bg-primary/10 text-primary` y muestra cuántos valores hay elegidos. Etiqueta accesible: «Filtrar por <columna>». Las opciones con filas van primero.
 
-Filtros se almacenan como `string[]` en `column.filterValue` con `filterFn: 'arrIncludesSome'`.
+Fijar y ocultar una columna **no** viven en la cabecera: están en «Configurar tabla» (§ 10.5). Texto de cabecera: `text-xs font-semibold`, sin mayúsculas forzadas.
 
-**Indicadores en el header clickable** (en `<DataTableColumnHeader>`):
+Para un filtro que no es una lista (rango de fechas), compón `HeaderSortButton` + `HeaderFilterButton` de `@/components/data-display` con tu propio Popover (ver `prospect-date-range-column-header.tsx`).
 
-| Estado | Indicador |
-|---|---|
-| Sin sort ni filtro | `ChevronsUpDown` tenue (sólo en hover) |
-| Sort ascendente | `ArrowUp` sólido en `text-foreground` |
-| Sort descendente | `ArrowDown` sólido en `text-foreground` |
-| Filtro activo (cualquier valor en `column.filterValue`) | `ListFilter` sólido en `text-primary` (reemplaza el `ChevronsUpDown` por defecto) |
-| Columna pineada | `Pin` en `text-primary` |
+**Filtros activos** — `<DataTableActiveFilters>` pinta bajo la barra un chip `Columna: valor ×` por cada valor elegido y por la búsqueda, con «Limpiar todo». Sin filtros la fila no existe. Con filtros, el total junto al título es el de lo filtrado.
 
-El `ListFilter` aparece aunque la columna no esté ordenada, de modo que el operador ve de un vistazo qué columnas están filtradas sin tener que abrir el popover.
-
-**Coexistencia row reorder + sort:** cuando `enableRowReorder` está activo y el usuario aún no ha hecho click en un sort header, el orden de filas es el que provee el padre (drag-and-drop). Al primer click en un sort header, TanStack toma el control (`manualSorting` pasa a `false`) y reordena la vista. Al limpiar el sort desde el popover (`Limpiar filtros`), el control vuelve al padre y reaparece el orden manual.
-
-**Anatomía del popover** — `w-72` (288px), `p-0`, `rounded-xl border border-border/40`. Cada sección (Título, Ordenar, Buscar, Filtrar) lleva `px-5` en el header de sección y `px-4` en el cuerpo para que el contenido (botones, input, checkboxes) respire ~16px del borde. Los items de filtro van con `px-2 py-1.5` y `gap-2.5` entre checkbox y label. Separadores entre secciones con `<Separator className="mx-4" />`.
+**Coexistencia row reorder + sort:** cuando `enableRowReorder` está activo y el usuario aún no ha ordenado, el orden de filas es el que provee el padre (drag-and-drop). Al ordenar por una cabecera, TanStack toma el control; al volver a «sin orden» (tercer clic), el control vuelve al padre.
 
 #### 10.9.2 Row right-click context menu
 
-`<DataTableContextMenu>` envuelve cada fila cuando el `DataTable` recibe `contextMenu`. Anatomía:
+`<DataTableContextMenu>` engancha el menú a la **propia fila** (`ContextMenuTrigger asChild` sobre el `<tr>`) cuando el `DataTable` recibe `contextMenu`: nada de `<div>` entre `<tbody>` y `<tr>`, que es HTML inválido y rompía la hidratación. Las mismas acciones alimentan el «Menú en cada fila» (§ 10.5). Anatomía:
 
 - `min-w-[220px]`, container `p-1.5`, `rounded-xl border border-border/30`.
 - Items con `px-2.5 py-2`, `gap-2.5` y icono `h-4 w-4` — el icono agrandado y el padding mayor dan aire al texto (evita que se vea "circular" / pegado al borde).
@@ -753,33 +783,44 @@ El `ListFilter` aparece aunque la columna no esté ordenada, de modo que el oper
 
 #### 10.9.3 Column reordering (drag-and-drop)
 
-`<DataTableColumnReorder>` envuelve el header row con `@dnd-kit/core` + `@dnd-kit/sortable`. Columnas en `pinnedColumnIds` (default `["select", "actions"]`) no son draggeables. Activado por defecto (`enableColumnReorder: true`).
+`<DataTableColumnReorder>` envuelve el header row con `@dnd-kit/core` + `@dnd-kit/sortable`. Columnas en `pinnedColumnIds` (default `["select", "reorder", "actions"]`) no se arrastran, ni se ocultan, ni se fijan. Activado por defecto (`enableColumnReorder: true`). Arrastrar una cabecera y arrastrar en el panel «Configurar tabla» mueven el mismo estado (`useTableConfig`).
+
+El `DndContext` lleva `id={useId()}` y `accessibility={{ container: document.body }}`: sin eso, las regiones de anuncio de dnd-kit rompen la hidratación dentro de una tabla. La celda sigue siendo una cabecera de columna (no `role="button"`), para que `aria-sort` sea válido.
+
+**Ancho de columnas** — si sobra ancho, se reparte en proporción al `size` de cada columna; si faltan unos píxeles, las columnas anchas (`size ≥ 160`) ceden hasta un 15 % (nunca por debajo de su `minSize`) antes de obligar a desplazar de lado.
+
+**Columnas fijadas** — las fijadas desde el panel pasan al principio y se quedan quietas a la izquierda (`position: sticky`) al desplazar la tabla de lado; las de servicio (selección) se quedan quietas con ellas.
 
 #### 10.9.4 Floating bulk action bar (portal pattern)
 
 `<DataTableBulkActionBar>` se renderiza via `createPortal` a `document.body` (NO dentro de la tabla). Razón técnica: el `transform` del `animate-su-fade-in` del AppShell crea un containing block que rompe `position: fixed` para descendientes. Ver § 12 para el patrón completo.
 
-#### 10.9.5 Settings drawer (no dialog)
+#### 10.9.5 Configurar tabla (panel, no drawer)
 
-`<DataTableSettingsDrawer>` reemplaza el antiguo settings dialog. Contiene: switch de buscador, segmented control de modo de carga, listado de columnas visibles. Accesible desde el ícono `SlidersHorizontal` en el toolbar.
+`<TableConfigButton>` (§ 10.5). Sustituye al antiguo `DataTableSettingsDrawer`, que ya no existe.
 
-#### 10.9.6 Search input
+#### 10.9.6 Buscador
 
-Input de búsqueda controlado por `state.globalFilter` (TanStack built-in). Aparece/oculta según `settings.globalSearch`.
+La lupa de la barra abre el campo («Buscar en <sustantivo>»), controlado por `state.globalFilter`. La «×» lo limpia y lo cierra. La búsqueda activa aparece como chip en los filtros activos.
 
-#### 10.9.7 Pagination / Load-more footer
+#### 10.9.7 Selección
 
-El footer cambia según `loadMode`:
+- **Paginado** — la casilla de cabecera es un menú (`SelectionHeaderMenu`): «Seleccionar esta página (n) / Seleccionar todos (n) / Deseleccionar esta página / Deseleccionar todos».
+- **Scroll infinito** — es una casilla simple que marca todo lo cargado y, pulsada otra vez, lo suelta.
+- **Clic en la fila** — si la tabla **no** tiene `onRowClick`, picar en la fila la marca (salvo que el clic nazca en un botón, enlace, casilla o menú). Con `onRowClick`, abre el detalle como siempre.
 
-- **Paginación:** `<DataTablePagination>` con formato `Mostrando {first} - {last} de {total} resultados` + `[« Anterior] 1 2 [Siguiente »]` con elipsis entre páginas no consecutivas. Página actual con `bg-foreground text-background`. Si `totalRows === 0`, solo "0 resultados".
-- **Lazy:** `<DataTableLoadMore>` con sentinel de IntersectionObserver. Ver § 13.
+#### 10.9.8 Pie
+
+- **Scroll infinito:** `<DataTableLoadMore>` — `Mostrando n de N <sustantivo>`. El centinela (`<DataTableLazySentinel>`) va dentro del `<tbody>`. Ver § 13.
+- **Paginación:** `<DataTablePagination>` — `Página x de y · N <sustantivo>`, selector «Filas por página» y Anterior / Siguiente. El tamaño elegido se recuerda por `tableId`.
 
 ### 10.10 Checklist de migración
 
 - [ ] Reemplazar `useState`+`useMemo`+`Table` por `<DataTable>` con `columns` + `data` + `getRowId`.
 - [ ] Definir `meta.label` en toda columna visible.
-- [ ] Mover filtros `useState` (país, estado, etc.) a faceted filters via `meta.facetedFilterOptions`.
-- [ ] Acciones por fila: usar `DataTableRowActions` en slot `cell` con kebab `MoreHorizontal`.
+- [ ] Pasar `tableId` (estable) y `noun` (plural) a la tabla.
+- [ ] Mover filtros `useState` (país, estado, etc.) al embudo de su columna via `meta.filterOptions`; marcar `meta.disableFilter` en números, fechas y texto libre.
+- [ ] Acciones por fila: declararlas en `contextMenu.items` (sirven al clic derecho y al «Menú en cada fila»).
 - [ ] Right-click: declarar `contextMenu.items` con `DataTableContextMenuItem[]`.
 - [ ] Bulk actions: declarar `bulkActions` con `confirm` para acciones destructivas.
 - [ ] Eliminar imports de `Table*`, `Input` (search), `useState`/`useMemo` para filtros.
@@ -976,15 +1017,17 @@ Reemplazar el botón "Cargar más" por scroll automático. Más natural para lis
 
 ### 13.2 Comportamiento
 
-Cuando `loadMode === 'lazy'`:
+En scroll infinito (`mode === 'lazy'`, el modo de fábrica):
 
-1. El padre renderiza `data.slice(0, lazyVisibleCount)`.
+1. La tabla es una sola «página» de TanStack que crece: `pagination = { pageIndex: 0, pageSize: lazyVisibleCount }`. El tramo se corta **después** de filtrar y ordenar.
 2. `lazyVisibleCount` empieza en `initialPageSize` (default 20).
-3. Un `<div>` invisible (`h-px w-full`) al final del footer es observado por un `IntersectionObserver` con `rootMargin: "120px 0px"`.
-4. Cuando el sentinel entra en el viewport (con 120px de提前), el observer dispara `onLoadMore()`.
-5. El padre incrementa `lazyVisibleCount` por `initialPageSize` (u otro paso).
-6. Si `lazyVisibleCount >= data.length`, se quita el sentinel.
-7. Cambios en `filters`, `globalFilter`, `sort` o `loadMode` resetean `lazyVisibleCount` a `initialPageSize`.
+3. `<DataTableLazySentinel>` añade al final del `<tbody>` unas filas fantasma (esqueleto); la primera es el centinela de un `IntersectionObserver` cuya raíz es **la caja que de verdad hace scroll** (la de la tabla con `fillHeight`, o la ventana) y con `rootMargin: "240px"`.
+4. Al asomar el centinela se suma `initialPageSize`; al crecer el tramo, el centinela se vuelve a montar (`key`) para volver a preguntar aunque siga a la vista.
+5. Cuando ya está todo cargado, el centinela desaparece. El pie dice `Mostrando n de N <sustantivo>`.
+6. Cambios en filtros, búsqueda, orden o modo vuelven al primer tramo (ajustado durante el render, no en un efecto).
+7. Con teclado, el botón «Cargar más <sustantivo>» (visible al recibir foco) hace lo mismo.
+
+> La implementación de referencia de § 13.3 es histórica; la vigente está en `data-table-load-more.tsx`.
 
 ### 13.3 Implementación de referencia
 
@@ -1073,11 +1116,12 @@ pagination: { pageSize: isLazy ? Number.MAX_SAFE_INTEGER : initialPageSize }
 
 ### 13.4 Reglas
 
-- **`rootMargin: "120px 0px"`** — activa carga antes de que el sentinel llegue al borde. 120px es un buen balance entre naturalidad y trigger temprano.
-- **Reset en cambios de filtro/sort** — el `useEffect` con deps `[isLazy, initialPageSize, globalFilter, columnFilters, sorting]` garantiza que el usuario no quede atrapado en un estado lazy inconsistente.
-- **Spinner sutil** — `Loader2` con `opacity-0` cuando idle para reservar espacio y evitar layout shift.
-- **Texto centrado** — `Mostrando X de Y · N más disponibles` o `Mostrando X de Y resultados` cuando se agota.
-- **Sin botón** — el patrón es scroll-only. El botón reintroduce fricción innecesaria.
+- **El centinela vive dentro de la caja con scroll.** Fuera de ella siempre «se ve» y la tabla se carga entera de un tirón.
+- **`rootMargin: "240px"`** — el siguiente tramo ya está puesto cuando el centinela llega al borde.
+- **Vuelta al primer tramo** al cambiar filtros, búsqueda u orden.
+- **Filas fantasma, no un spinner** — lo que hay bajo el pliegue son filas, y eso es lo que aparece.
+- **Pie** — `Mostrando n de N <sustantivo>`.
+- **Sin botón a la vista** — el botón «Cargar más» solo existe para teclado y lectores de pantalla.
 
 ### 13.5 Trade-offs
 
@@ -1178,7 +1222,8 @@ import { Badge } from '@/components/ui/badge';
 
 ### 14.4 Anti-patterns (NO hacer)
 
-- ❌ Dos botones/popovers separados para "ajustes" y "filtros" — todo vive en un solo `DataTableSettingsDrawer`.
+- ❌ Filtros de columna en una barra aparte o escondidos tras el título — van en el embudo de su columna y se ven como chips (§ 10.9.1).
+- ❌ Un drawer propio de «ajustes de tabla» — la configuración vive en el panel «Configurar tabla» (§ 10.5); lo propio de la pantalla entra por `settingsExtraSections`.
 - ❌ CSV export como acción en toolbar sin endpoint real — quitar o implementar primero.
 - ❌ Edit mode, density toggle, o view options popover — features retiradas.
 - ❌ Lazy load con botón "Cargar más" — usar IntersectionObserver (§ 13).
@@ -1260,16 +1305,19 @@ Encapsula el layout. Recibe título/descripción/acciones para `PageHeader`, mé
 Internamente:
 
 ```tsx
-<div className="flex flex-1 min-h-0 flex-col gap-6">
+<div className="-mx-3 flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-3 pb-1">
   <div className="shrink-0">
     <PageHeader title={title} description={description} actions={actions} backHref={backHref} />
   </div>
+  {tabs && <div className="shrink-0">{tabs}</div>}
   {metrics && <div className="shrink-0">{metrics}</div>}
-  <div className="flex flex-1 min-h-0 flex-col">{children}</div>
+  <div className="flex min-h-[min(100%,32rem)] flex-1 flex-col">{children}</div>
 </div>
 ```
 
-`gap-6` entre secciones. `shrink-0` en header y métricas para que no se colapsen. `flex-1 min-h-0` en el área de contenido para que ocupe el resto y permita scroll interno.
+`shrink-0` en header, pestañas y métricas para que no se colapsen; `flex-1` en el área de contenido para que ocupe todo el alto que queda.
+
+**Alto mínimo de la tabla.** En una pantalla alta la cabecera y las métricas quedan fijas y la tabla llena el resto. En una baja (p. ej. 1440×900 con pestañas y métricas) el alto que quedaba dejaba ver solo unas cuatro filas: ahora la tabla no baja de `min(100%, 32rem)` y lo que se desplaza es la página (`overflow-y-auto` en la propia caja de `DataTablePage`), con la tabla conservando su scroll interno y su cabecera pegada. La caja con scroll es la de `DataTablePage` y no la del shell para que el hueco inferior que reserva `ScreenActionRailProvider` (`pb-20`) quede siempre fuera: la barra flotante nunca tapa el pie de la tabla. El `-mx-3 px-3` deja sitio a sombras y anillos de foco, que una caja con scroll recortaría.
 
 ### 15.4 Prop `fillHeight` en `<DataTable>`
 

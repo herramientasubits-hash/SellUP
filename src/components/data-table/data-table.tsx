@@ -3,13 +3,14 @@
 import * as React from "react";
 import {
   type ColumnDef,
-  type SortingState,
   type ColumnFiltersState,
-  type VisibilityState,
-  type RowSelectionState,
-  type ColumnPinningState,
-  type ColumnOrderState,
+  type FilterFn,
+  type PaginationState,
   type Row,
+  type RowData,
+  type RowSelectionState,
+  type SortingState,
+  type Updater,
   flexRender,
   getCoreRowModel,
   getFacetedRowModel,
@@ -30,6 +31,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ListItemGroup } from "@/components/data-display/list-item";
+import { TableConfigButton } from "@/components/data-display/table-config-button";
+import {
+  useTableConfig,
+  type TableColumnSpec,
+  type TableConfig,
+} from "@/components/data-display/use-table-config";
 
 declare module "@tanstack/react-table" {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -40,165 +48,52 @@ declare module "@tanstack/react-table" {
   }
 }
 
-import type { RowData } from "@tanstack/react-table";
-
-import { DataTableContextMenu, type DataTableContextMenuItem } from "./data-table-context-menu";
 import { DataTableColumnReorder, SortableTableHead } from "./data-table-column-reorder";
 import { DataTableToolbar } from "./data-table-toolbar";
+import { DataTableActiveFilters } from "./data-table-active-filters";
 import { DataTablePagination } from "./data-table-pagination";
-import { DataTableLoadMore } from "./data-table-load-more";
-import { DataTableBulkActionBar } from "./data-table-bulk-action-bar";
-import { DataTableRowReorder, RowDragHandle } from "./data-table-row-reorder";
 import {
-  DataTableSettingsDrawer,
-  DataTableSettingsTrigger,
-  type DataTableSettings,
-} from "./data-table-settings-drawer";
+  DataTableLazyListSentinel,
+  DataTableLazySentinel,
+  DataTableLoadMore,
+} from "./data-table-load-more";
+import { DataTableBulkActionBar, DataTableInlineBulkActions } from "./data-table-bulk-action-bar";
+import { DataTableRowReorder } from "./data-table-row-reorder";
+import { DataTableRowActions } from "./data-table-row-actions";
 
-export interface DataTableBulkAction<TData> {
-  id: string;
-  label: string;
-  icon?: React.ComponentType<{ className?: string }>;
-  variant?: "default" | "destructive";
-  /** Ignored when `items` is set — a grouped action has no direct click target. */
-  onClick?: (rows: TData[]) => void | Promise<void>;
-  loading?: boolean;
-  /**
-   * Optional predicate evaluated with the currently selected rows. Return
-   * `true` to disable the button (e.g. "Ver detalle" only valid with exactly
-   * one selected row, "Abrir URLs" only when at least one row has a URL).
-   */
-  disabled?: (rows: TData[]) => boolean;
-  /**
-   * Optional tooltip copy shown while the button is disabled (e.g. "Aprobación
-   * masiva pendiente" when more than one row is selected). Returning
-   * `undefined` renders no tooltip.
-   */
-  disabledLabel?: (rows: TData[]) => string | undefined;
-  confirm?: {
-    title: string;
-    description: (rows: TData[]) => string;
-    confirmLabel?: string;
-  };
-  /**
-   * When set, renders this action as a dropdown trigger instead of a button —
-   * each entry is its own mini bulk action (own disabled/disabledLabel/onClick).
-   * Used to group not-yet-available actions under a single "Más acciones"
-   * menu, matching the side panel footer hierarchy.
-   */
-  items?: DataTableBulkAction<TData>[];
-}
+import { DataTableRow } from "./data-table-row";
+import { useColumnAutoFit } from "./use-column-auto-fit";
+import {
+  DEFAULT_PINNED,
+  FIXED_COLUMN_LABELS,
+  ROW_MENU_COLUMN_ID,
+  ariaSort,
+  columnLabel,
+  multiValueFilter,
+  resolveColumnId,
+  selectionWord,
+} from "./data-table-utils";
+import { DataTableSelectionHeader } from "./data-table-selection-header";
+import type { DataTableHandle, DataTableProps } from "./data-table-types";
 
-export interface DataTableHandle {
-  /** Clears the current row selection (and, with it, hides the bulk action bar). */
-  clearSelection: () => void;
-}
-
-export interface DataTableContextMenuConfig<TData> {
-  items: (row: TData) => DataTableContextMenuItem[];
-}
-
-interface DataTableProps<TData> {
-  columns: ColumnDef<TData, unknown>[];
-  data: TData[];
-
-  /** Required for stable selection / context menu keys. */
-  getRowId: (row: TData) => string;
-
-  /** Title shown in the toolbar (e.g. "Listado de Cursos de Formación"). */
-  title?: React.ReactNode;
-  /** Description shown below the title. */
-  description?: React.ReactNode;
-  /** Right-aligned action buttons in the toolbar (CSV, New, etc). */
-  actions?: React.ReactNode;
-  /** Optional count badge next to the title. */
-  count?: number;
-
-  /** Selection: enable checkbox column + floating bulk action bar. */
-  enableRowSelection?: boolean;
-  bulkActions?: DataTableBulkAction<TData>[];
-  /**
-   * Avisa de cuántas filas hay marcadas cada vez que cambia. Solo informa: la
-   * pantalla lo usa para ceder el sitio a la barra masiva. Pásale una función
-   * estable.
-   */
-  onSelectionCountChange?: (count: number) => void;
-
-  /** Right-click context menu per row. */
-  contextMenu?: DataTableContextMenuConfig<TData>;
-
-  /** Sticky header inside a scrollable container. */
-  stickyHeader?: boolean;
-
-  /** Initial pagination size. Default: 20. */
-  initialPageSize?: number;
-  pageSizeOptions?: number[];
-
-  /** Enable column reordering via drag-and-drop on header cells. */
-  enableColumnReorder?: boolean;
-  /** Column ids that cannot be reordered (e.g. selection, actions). */
-  pinnedColumnIds?: string[];
-
-  /**
-   * Enable row drag-and-drop. Adds a pinned "reorder" column on the left
-   * with a grip handle; drag rows to reorder them. When enabled, the
-   * table's internal sort is bypassed and the data is rendered in the
-   * exact order provided — the parent is responsible for reordering the
-   * data via `onRowReorder`.
-   */
-  enableRowReorder?: boolean;
-  /** Called with the new data array after a successful row drop. */
-  onRowReorder?: (newData: TData[]) => void;
-
-  /** Server-side or external state control for sorting. */
-  manualSorting?: boolean;
-  manualFiltering?: boolean;
-
-  /** Custom row click handler. */
-  onRowClick?: (row: TData) => void;
-  rowClickable?: boolean;
-
-  /** Custom className for the wrapper. */
-  className?: string;
-
-  /** Optional empty state override. */
-  emptyState?: React.ReactNode;
-
-  /** Optional loading state (skeleton overlay). */
-  loading?: boolean;
-
-  /** Hide the toolbar entirely. */
-  hideToolbar?: boolean;
-
-  /**
-   * Extra sections rendered inside the settings drawer, before column
-   * visibility. Use to inject module-specific filters (e.g. scope filters).
-   */
-  settingsExtraSections?: React.ReactNode;
-
-  /**
-   * Fill the parent's height and scroll the table internally (sticky thead
-   * inside the scroll container). The parent must be a flex container with
-   * a defined height (e.g. <DataTablePage>).
-   *
-   * When true, this overrides the default `stickyHeader` max-height with a
-   * flex layout that grows to fill the available space.
-   */
-  fillHeight?: boolean;
-}
-
-const DEFAULT_SETTINGS: DataTableSettings = {
-  globalSearch: true,
-  loadMode: "pagination",
-};
-
-const DEFAULT_PINNED = ["select", "reorder", "actions"];
+export type {
+  DataTableBulkAction,
+  DataTableContextMenuConfig,
+  DataTableHandle,
+  DataTableListRowState,
+} from "./data-table-types";
 
 function DataTableInner<TData>(
   {
     columns,
     data,
     getRowId,
+    tableId,
+    noun = "resultados",
+    nounGender = "m",
+    defaultRowsMode,
+    getRowLabel,
+    renderListItem,
     title,
     description,
     actions,
@@ -230,31 +125,73 @@ function DataTableInner<TData>(
   const tableWrapperRef = React.useRef<HTMLDivElement | null>(null);
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
-  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
   const [globalFilter, setGlobalFilter] = React.useState("");
-  const [columnPinning, setColumnPinning] = React.useState<ColumnPinningState>({ left: [], right: [] });
-  const [columnOrder, setColumnOrder] = React.useState<ColumnOrderState>([]);
-  const [settings, setSettings] = React.useState<DataTableSettings>(DEFAULT_SETTINGS);
-  const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const [pageIndex, setPageIndex] = React.useState(0);
   const [lazyVisibleCount, setLazyVisibleCount] = React.useState(initialPageSize);
-  const isLazy = settings.loadMode === "lazy";
-  const lazyStep = initialPageSize;
 
-  const showGlobalSearch = settings.globalSearch;
+  // ── Configuración de quien mira (Thema · useTableConfig) ───────────────
+  const hasOwnActionsColumn = React.useMemo(
+    () => columns.some((column) => resolveColumnId(column) === "actions"),
+    [columns],
+  );
+  const columnSpecs: TableColumnSpec[] = React.useMemo(() => {
+    const specs: TableColumnSpec[] = [];
+    if (enableRowReorder) specs.push({ id: "reorder", label: FIXED_COLUMN_LABELS.reorder, fixed: true });
+    if (enableRowSelection) specs.push({ id: "select", label: FIXED_COLUMN_LABELS.select, fixed: true });
+    for (const column of columns) {
+      const id = resolveColumnId(column);
+      if (!id) continue;
+      specs.push({
+        id,
+        label: columnLabel(column, id),
+        fixed: pinnedColumnIds.includes(id),
+        hideable: column.enableHiding !== false,
+      });
+    }
+    return specs;
+  }, [columns, enableRowReorder, enableRowSelection, pinnedColumnIds]);
 
-  // When switching modes or filters, reset the lazy window to its initial size.
-  React.useEffect(() => {
+  const storedConfig = useTableConfig(tableId, columnSpecs, {
+    defaultMode: defaultRowsMode,
+    defaultPageSize: initialPageSize,
+  });
+
+  const isLazy = storedConfig.isLazy;
+  // «Menú en cada fila» solo existe donde hay selección y acciones por fila.
+  const canUseRowMenu = enableRowSelection && Boolean(contextMenu);
+  const usesRowMenu = canUseRowMenu && storedConfig.rowControl === "menu";
+  const usesCheckbox = enableRowSelection && !usesRowMenu;
+  const canPlaceActions = usesCheckbox && bulkActions.length > 0 && !hideToolbar;
+  const actionsInline = canPlaceActions && storedConfig.actions === "inline";
+  const asList = storedConfig.view === "list" && Boolean(renderListItem);
+
+  // Cambiar a «menú en cada fila» suelta lo marcado: en ese modo no hay lote.
+  const config: TableConfig = {
+    ...storedConfig,
+    setRowControl: (rowControl) => {
+      if (rowControl === "menu") setRowSelection({});
+      storedConfig.setRowControl(rowControl);
+    },
+  };
+
+  // Cuando cambia lo que se lista —filtros, orden, búsqueda, modo— la carga
+  // vuelve al primer tramo. Se ajusta durante el render y no en un efecto: un
+  // efecto pintaría primero las filas de la lista anterior.
+  const lazyResetKey = JSON.stringify([isLazy, initialPageSize, globalFilter, columnFilters, sorting]);
+  const [seenLazyResetKey, setSeenLazyResetKey] = React.useState(lazyResetKey);
+  if (seenLazyResetKey !== lazyResetKey) {
+    setSeenLazyResetKey(lazyResetKey);
     setLazyVisibleCount(initialPageSize);
-  }, [isLazy, initialPageSize, globalFilter, columnFilters, sorting]);
+  }
 
-  // Build the effective column set with optional selection column prepended
-  // and actions column appended (handled by user via meta; here we only add
-  // the selection column).
+  // Build the effective column set with the optional reorder / selection
+  // columns prepended and the per-row menu appended.
   const allColumns: ColumnDef<TData, unknown>[] = React.useMemo(() => {
-    const extras: ColumnDef<TData, unknown>[] = [];
+    const leading: ColumnDef<TData, unknown>[] = [];
+    const trailing: ColumnDef<TData, unknown>[] = [];
     if (enableRowReorder) {
-      extras.push({
+      leading.push({
         id: "reorder",
         header: () => <span className="sr-only">Reordenar</span>,
         cell: () => null,
@@ -264,32 +201,82 @@ function DataTableInner<TData>(
         enableColumnFilter: false,
       });
     }
-    if (enableRowSelection) {
-      extras.push({
+    if (usesCheckbox) {
+      leading.push({
         id: "select",
-        header: ({ table }) => (
-          <Checkbox
-            checked={table.getIsAllPageRowsSelected()}
-            onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-            aria-label="Seleccionar todas las filas"
-            className="translate-y-[1px]"
-          />
-        ),
+        header: ({ table }) => <DataTableSelectionHeader table={table} paged={!isLazy} />,
         cell: ({ row }) => (
           <Checkbox
             checked={row.getIsSelected()}
             onCheckedChange={(value) => row.toggleSelected(!!value)}
-            aria-label="Seleccionar fila"
-            className="translate-y-[1px]"
+            aria-label={
+              getRowLabel ? `Seleccionar ${getRowLabel(row.original)}` : "Seleccionar fila"
+            }
+            className="translate-y-px"
           />
         ),
-        size: 36,
+        size: 40,
         enableSorting: false,
         enableHiding: false,
+        enableColumnFilter: false,
       });
     }
-    return [...extras, ...columns];
-  }, [columns, enableRowSelection, enableRowReorder]);
+    if (usesRowMenu && contextMenu && !hasOwnActionsColumn) {
+      trailing.push({
+        id: ROW_MENU_COLUMN_ID,
+        header: () => <span className="sr-only">Acciones</span>,
+        cell: ({ row }) => (
+          <DataTableRowActions
+            items={contextMenu.items(row.original)}
+            rowLabel={getRowLabel?.(row.original)}
+          />
+        ),
+        size: 52,
+        enableSorting: false,
+        enableHiding: false,
+        enableColumnFilter: false,
+      });
+    }
+    return [...leading, ...columns, ...trailing];
+  }, [
+    columns,
+    contextMenu,
+    enableRowReorder,
+    getRowLabel,
+    hasOwnActionsColumn,
+    isLazy,
+    usesCheckbox,
+    usesRowMenu,
+  ]);
+
+  // ── Orden, visibilidad y fijado: salen de la configuración ──────────────
+  const fixedIds = React.useMemo(() => [...pinnedColumnIds, ROW_MENU_COLUMN_ID], [pinnedColumnIds]);
+  const { columnOrder, stickyIds } = React.useMemo(() => {
+    const ids = allColumns.map(resolveColumnId).filter((id): id is string => Boolean(id));
+    const movable = new Set(storedConfig.order);
+    const firstMovable = ids.findIndex((id) => movable.has(id));
+    const leadFixed = ids.filter((id, index) => !movable.has(id) && (firstMovable === -1 || index < firstMovable));
+    const trailFixed = ids.filter((id) => !movable.has(id) && !leadFixed.includes(id));
+    const pinned = storedConfig.pinnedOrder;
+    return {
+      // Las fijadas van primero: una columna quieta en mitad de la tabla
+      // taparía a las que pasan por debajo.
+      columnOrder: [
+        ...leadFixed,
+        ...pinned,
+        ...storedConfig.order.filter((id) => !pinned.includes(id)),
+        ...trailFixed,
+      ],
+      // Con alguna fijada, las de servicio (selección, reordenar) se quedan
+      // quietas también: si no, pasarían por debajo de ella.
+      stickyIds: pinned.length > 0 ? [...leadFixed, ...pinned] : [],
+    };
+  }, [allColumns, storedConfig.order, storedConfig.pinnedOrder]);
+
+  const columnVisibility = React.useMemo(
+    () => Object.fromEntries(Array.from(storedConfig.hidden, (id) => [id, false])),
+    [storedConfig.hidden],
+  );
 
   // Row reorder implies manual order: the parent owns the data array and
   // the table must not re-sort it WHILE the user has not expressed an
@@ -299,36 +286,40 @@ function DataTableInner<TData>(
   const effectiveManualSorting =
     manualSorting || (enableRowReorder && sorting.length === 0);
 
-  // In lazy mode we slice the data the user can see; pagination is disabled
-  // and a "Cargar más" button is shown instead. In pagination mode the
-  // full dataset is paginated normally.
-  const effectiveData = React.useMemo(
-    () => (isLazy ? data.slice(0, lazyVisibleCount) : data),
-    [data, isLazy, lazyVisibleCount],
-  );
+  // Scroll infinito = una sola «página» que crece: así el tramo visible se
+  // corta DESPUÉS de filtrar y ordenar, y los filtros ven todas las filas.
+  const pagination: PaginationState = isLazy
+    ? { pageIndex: 0, pageSize: lazyVisibleCount }
+    : { pageIndex, pageSize: storedConfig.pageSize };
+
+  const handlePaginationChange = (updater: Updater<PaginationState>) => {
+    if (isLazy) return;
+    const next = typeof updater === "function" ? updater(pagination) : updater;
+    setPageIndex(next.pageIndex);
+    if (next.pageSize !== storedConfig.pageSize) storedConfig.setPageSize(next.pageSize);
+  };
 
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
-    data: effectiveData,
+    data,
     columns: allColumns,
+    defaultColumn: { filterFn: multiValueFilter as FilterFn<TData> },
     state: {
       sorting,
       columnFilters,
       columnVisibility,
       rowSelection,
       globalFilter,
-      columnPinning,
-      columnOrder: columnOrder.length > 0 ? columnOrder : undefined,
+      columnOrder,
+      pagination,
     },
-    enableRowSelection,
+    enableRowSelection: usesCheckbox,
     getRowId: (row) => getRowId(row as TData),
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
-    onColumnVisibilityChange: setColumnVisibility,
     onRowSelectionChange: setRowSelection,
     onGlobalFilterChange: setGlobalFilter,
-    onColumnPinningChange: setColumnPinning,
-    onColumnOrderChange: setColumnOrder,
+    onPaginationChange: handlePaginationChange,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -337,9 +328,6 @@ function DataTableInner<TData>(
     getPaginationRowModel: getPaginationRowModel(),
     manualSorting: effectiveManualSorting,
     manualFiltering,
-    initialState: {
-      pagination: { pageSize: isLazy ? Number.MAX_SAFE_INTEGER : initialPageSize },
-    },
     meta: {
       title: title ?? null,
       description: description ?? null,
@@ -347,65 +335,74 @@ function DataTableInner<TData>(
     },
   });
 
-  const selectedRows = table.getFilteredSelectedRowModel().rows.map((r) => r.original);
+  const rows = table.getRowModel().rows;
+  const totalRows = table.getFilteredRowModel().rows.length;
+  const shownRows = rows.length;
+  const hasActiveFilters = columnFilters.length > 0 || globalFilter.trim().length > 0;
+  // Con filtros puestos el total del título es el de lo que se está viendo.
+  const displayCount = count === undefined ? null : hasActiveFilters ? totalRows : count;
+
+  const selectedRows = usesCheckbox
+    ? table.getFilteredSelectedRowModel().rows.map((r) => r.original)
+    : [];
   const selectedCount = selectedRows.length;
+  const reportedSelectionCount = actionsInline ? 0 : selectedCount;
 
   React.useEffect(() => {
-    onSelectionCountChange?.(selectedCount);
-  }, [onSelectionCountChange, selectedCount]);
+    onSelectionCountChange?.(reportedSelectionCount);
+  }, [onSelectionCountChange, reportedSelectionCount]);
 
   const clearSelection = React.useCallback(() => table.resetRowSelection(), [table]);
 
   React.useImperativeHandle(ref, () => ({ clearSelection }), [clearSelection]);
 
-  // ── Auto-fit columns to wrapper width ──────────────────────────────────
-  // `table-layout: fixed` + explicit pixel widths leaves the extra space as
-  // a blank gap on the right when the sum of visible column `size` values is
-  // less than the wrapper. This effect distributes that extra space
-  // proportionally across visible columns so the table always fills its
-  // container, and re-runs when the wrapper resizes or columns toggle.
-  //
-  // We defer the first measurement with `requestAnimationFrame` because the
-  // wrapper sits inside a flex column that may not have laid out yet when
-  // useLayoutEffect runs synchronously, so `clientWidth` would be 0/wrong.
-  React.useLayoutEffect(() => {
-    const wrapper = tableWrapperRef.current;
-    if (!wrapper) return;
+  const loadMore = React.useCallback(
+    () => setLazyVisibleCount((current) => current + initialPageSize),
+    [initialPageSize],
+  );
 
-    const apply = () => {
-      const visible = table.getVisibleLeafColumns();
-      if (visible.length === 0) return;
+  const stickyOffsets = useColumnAutoFit(tableWrapperRef, table, stickyIds, [
+    columnVisibility,
+    columnOrder,
+    asList,
+  ]);
 
-      // Use the rendered wrapper width (excluding scrollbar).
-      const wrapperWidth = wrapper.clientWidth;
-      if (wrapperWidth <= 0) return;
+  const lastStickyId = stickyIds[stickyIds.length - 1];
+  const visibleColumnCount = table.getVisibleLeafColumns().length;
+  const sortedRowOriginals = React.useMemo(() => rows.map((row) => row.original), [rows]);
 
-      // Sum the requested min widths; fall back to 150 per missing value.
-      const sizes = visible.map((c) => {
-        const s = c.columnDef.size;
-        return typeof s === "number" && s > 0 ? s : 150;
-      });
-      const totalRequested = sizes.reduce((a, b) => a + b, 0);
-      const extra = Math.max(0, wrapperWidth - totalRequested);
+  // Soltar una fila reordena solo el tramo que se ve: lo recoloca en las
+  // mismas posiciones que ocupaba dentro de la lista completa.
+  const handleRowReorder = (nextVisible: TData[]) => {
+    if (!onRowReorder) return;
+    const positions = rows.map((row) => row.index).sort((a, b) => a - b);
+    const next = [...data];
+    nextVisible.forEach((row, i) => {
+      next[positions[i]] = row;
+    });
+    onRowReorder(next);
+  };
 
-      visible.forEach((col, i) => {
-        const proportion = sizes[i] / totalRequested;
-        const width = sizes[i] + extra * proportion;
-        const th = wrapper.querySelector<HTMLElement>(
-          `[data-column-id="${col.id}"]`,
-        );
-        if (th) th.style.width = `${width}px`;
-      });
-    };
+  const rowMenuFor = (row: Row<TData>) =>
+    usesRowMenu && contextMenu ? (
+      <DataTableRowActions
+        items={contextMenu.items(row.original)}
+        rowLabel={getRowLabel?.(row.original)}
+      />
+    ) : null;
 
-    const rafId = requestAnimationFrame(apply);
-    const ro = new ResizeObserver(apply);
-    ro.observe(wrapper);
-    return () => {
-      cancelAnimationFrame(rafId);
-      ro.disconnect();
-    };
-  }, [table, columnVisibility, columnOrder]);
+  const configButton = (
+    <TableConfigButton
+      config={config}
+      noun={noun}
+      showView={Boolean(renderListItem)}
+      showRowControl={canUseRowMenu}
+      showActionsPlacement={canPlaceActions}
+      extraSections={settingsExtraSections}
+    />
+  );
+
+  const emptyContent = emptyState ?? (hasActiveFilters ? "Nada coincide con estos filtros." : "Sin resultados.");
 
   // ── Render ─────────────────────────────────────────────────────────────
   // When fillHeight is true, the card uses h-full + flex-col and the table
@@ -415,8 +412,8 @@ function DataTableInner<TData>(
   return (
     <div
       className={cn(
-        "flex",
-        fillHeight ? "h-full min-h-0 flex-col" : "flex-col",
+        "flex flex-col",
+        fillHeight && "h-full min-h-0 flex-1",
         className,
       )}
     >
@@ -424,7 +421,7 @@ function DataTableInner<TData>(
         className={cn(
           "rounded-2xl border border-border/60 bg-card shadow-card",
           fillHeight
-            ? "flex h-full min-h-0 flex-col overflow-hidden"
+            ? "flex h-full min-h-0 flex-1 flex-col overflow-hidden"
             : "overflow-hidden",
         )}
       >
@@ -433,11 +430,29 @@ function DataTableInner<TData>(
             table={table}
             globalFilter={globalFilter}
             onGlobalFilterChange={setGlobalFilter}
-            showGlobalSearch={showGlobalSearch}
             actions={actions}
-            onOpenSettings={() => setSettingsOpen(true)}
+            configButton={configButton}
+            count={displayCount}
+            noun={noun}
+            takeOver={
+              actionsInline && selectedCount > 0
+                ? {
+                    label: `${selectedCount} ${selectionWord(selectedCount, nounGender)}`,
+                    onClear: clearSelection,
+                    actions: (
+                      <DataTableInlineBulkActions selectedRows={selectedRows} actions={bulkActions} />
+                    ),
+                  }
+                : null
+            }
           />
         )}
+
+        <DataTableActiveFilters
+          table={table}
+          globalFilter={globalFilter}
+          onGlobalFilterChange={setGlobalFilter}
+        />
 
         {count !== undefined && title !== undefined && (
           <div className="sr-only">
@@ -456,6 +471,42 @@ function DataTableInner<TData>(
                 ),
           )}
         >
+          {asList ? (
+            rows.length > 0 ? (
+              <ListItemGroup className="p-3">
+                {rows.map((row) => (
+                  <React.Fragment key={row.id}>
+                    {renderListItem?.(row.original, {
+                      selected: row.getIsSelected(),
+                      toggle: () => row.toggleSelected(),
+                      checkbox: usesCheckbox ? (
+                        <Checkbox
+                          checked={row.getIsSelected()}
+                          onCheckedChange={(value) => row.toggleSelected(!!value)}
+                          aria-label={
+                            getRowLabel ? `Seleccionar ${getRowLabel(row.original)}` : "Seleccionar fila"
+                          }
+                        />
+                      ) : null,
+                      menu: rowMenuFor(row),
+                    })}
+                  </React.Fragment>
+                ))}
+                {isLazy && (
+                  <DataTableLazyListSentinel
+                    key={shownRows}
+                    remaining={totalRows - shownRows}
+                    noun={noun}
+                    onLoadMore={loadMore}
+                  />
+                )}
+              </ListItemGroup>
+            ) : (
+              <div className="flex min-h-32 items-center justify-center p-6 text-center text-sm text-muted-foreground">
+                {emptyContent}
+              </div>
+            )
+          ) : (
           <Table
             className={cn(
               "su-table",
@@ -468,13 +519,9 @@ function DataTableInner<TData>(
                 <TableRow key={headerGroup.id} className="hover:bg-transparent border-border/60">
                   {enableColumnReorder ? (
                     <DataTableColumnReorder
-                      columnOrder={
-                        table.getState().columnOrder && table.getState().columnOrder.length > 0
-                          ? table.getState().columnOrder!
-                          : headerGroup.headers.map((h) => h.column.id)
-                      }
-                      disabledColumns={pinnedColumnIds}
-                      onOrderChange={(next) => setColumnOrder(next)}
+                      columnOrder={headerGroup.headers.map((h) => h.column.id)}
+                      disabledColumns={fixedIds}
+                      onMove={config.moveColumn}
                     >
                       {(columnId) => {
                         const header = headerGroup.headers.find((h) => h.column.id === columnId);
@@ -483,9 +530,13 @@ function DataTableInner<TData>(
                           <SortableTableHead
                             key={header.id}
                             id={columnId}
-                            disabled={pinnedColumnIds.includes(columnId)}
+                            disabled={fixedIds.includes(columnId)}
                             style={{ width: header.column.columnDef.size }}
+                            stickyLeft={stickyOffsets[columnId]}
+                            aria-sort={ariaSort(header.column)}
                             data-column-id={columnId}
+                            data-pinned={stickyOffsets[columnId] !== undefined || undefined}
+                            className={cn(columnId === lastStickyId && "border-r border-border/60")}
                           >
                             {header.isPlaceholder
                               ? null
@@ -495,19 +546,35 @@ function DataTableInner<TData>(
                       }}
                     </DataTableColumnReorder>
                   ) : (
-                    headerGroup.headers.map((header) => (
-                      <TableHead
-                        key={header.id}
-                        style={{
-                          width: header.column.columnDef.size,
-                          ...(fillHeight ? { position: "sticky", top: 0, zIndex: 10, backgroundColor: "var(--card)" } : {}),
-                        }}
-                      >
-                        {header.isPlaceholder
-                          ? null
-                          : flexRender(header.column.columnDef.header, header.getContext())}
-                      </TableHead>
-                    ))
+                    headerGroup.headers.map((header) => {
+                      const stickyLeft = stickyOffsets[header.column.id];
+                      const isSticky = stickyLeft !== undefined;
+                      return (
+                        <TableHead
+                          key={header.id}
+                          aria-sort={ariaSort(header.column)}
+                          data-column-id={header.column.id}
+                          data-pinned={isSticky || undefined}
+                          className={cn(header.column.id === lastStickyId && "border-r border-border/60")}
+                          style={{
+                            width: header.column.columnDef.size,
+                            ...(fillHeight || isSticky
+                              ? {
+                                  position: "sticky",
+                                  top: fillHeight ? 0 : undefined,
+                                  left: stickyLeft,
+                                  zIndex: isSticky ? 20 : 10,
+                                  backgroundColor: "var(--card)",
+                                }
+                              : {}),
+                          }}
+                        >
+                          {header.isPlaceholder
+                            ? null
+                            : flexRender(header.column.columnDef.header, header.getContext())}
+                        </TableHead>
+                      );
+                    })
                   )}
                 </TableRow>
               ))}
@@ -516,77 +583,86 @@ function DataTableInner<TData>(
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <TableRow key={`skeleton-${i}`} className="hover:bg-transparent">
-                    {table.getAllColumns().map((col) => (
+                    {table.getVisibleLeafColumns().map((col) => (
                       <TableCell key={col.id}>
                         <div className="su-skeleton h-3.5 w-full rounded-md" />
                       </TableCell>
                     ))}
                   </TableRow>
                 ))
-              ) : table.getRowModel().rows?.length ? (
-                enableRowReorder && onRowReorder ? (
-                  <DataTableRowReorder<TData>
-                    data={effectiveData}
-                    getRowId={(row, i) => getRowId(row) || String(i)}
-                    onRowReorder={onRowReorder}
-                  >
-                    {(row, index, handleProps) => {
-                      const tableRow = table.getRowModel().rows[index];
-                      if (!tableRow) return null;
-                      return (
-                        <DataTableRow
-                          key={tableRow.id}
-                          row={tableRow}
-                          rowClickable={rowClickable}
-                          onRowClick={onRowClick}
-                          contextMenu={contextMenu}
-                          reorderHandleProps={handleProps}
-                        />
-                      );
-                    }}
-                  </DataTableRowReorder>
-                ) : (
-                  table.getRowModel().rows.map((row) => (
-                    <DataTableRow
-                      key={row.id}
-                      row={row}
-                      rowClickable={rowClickable}
-                      onRowClick={onRowClick}
-                      contextMenu={contextMenu}
+              ) : rows.length ? (
+                <>
+                  {enableRowReorder && onRowReorder ? (
+                    <DataTableRowReorder<TData>
+                      data={sortedRowOriginals}
+                      getRowId={(row, i) => getRowId(row) || String(i)}
+                      onRowReorder={handleRowReorder}
+                    >
+                      {(row, index, handleProps) => {
+                        const tableRow = rows[index];
+                        if (!tableRow) return null;
+                        return (
+                          <DataTableRow
+                            key={tableRow.id}
+                            row={tableRow}
+                            rowClickable={rowClickable}
+                            onRowClick={onRowClick}
+                            selectOnClick={usesCheckbox}
+                            contextMenu={contextMenu}
+                            stickyOffsets={stickyOffsets}
+                            lastStickyId={lastStickyId}
+                            reorderHandleProps={handleProps}
+                          />
+                        );
+                      }}
+                    </DataTableRowReorder>
+                  ) : (
+                    rows.map((row) => (
+                      <DataTableRow
+                        key={row.id}
+                        row={row}
+                        rowClickable={rowClickable}
+                        onRowClick={onRowClick}
+                        selectOnClick={usesCheckbox}
+                        contextMenu={contextMenu}
+                        stickyOffsets={stickyOffsets}
+                        lastStickyId={lastStickyId}
+                      />
+                    ))
+                  )}
+                  {isLazy && (
+                    <DataTableLazySentinel
+                      shownRows={shownRows}
+                      remaining={totalRows - shownRows}
+                      colSpan={visibleColumnCount}
+                      noun={noun}
+                      onLoadMore={loadMore}
                     />
-                  ))
-                )
+                  )}
+                </>
               ) : (
                 <TableRow className="hover:bg-transparent">
                   <TableCell
-                    colSpan={allColumns.length}
+                    colSpan={visibleColumnCount}
                     className="h-32 text-center text-sm text-muted-foreground whitespace-normal"
                   >
-                    {emptyState ?? "Sin resultados."}
+                    {emptyContent}
                   </TableCell>
                 </TableRow>
               )}
             </TableBody>
           </Table>
+          )}
         </div>
 
         {isLazy ? (
-          <DataTableLoadMore
-            totalRows={data.length}
-            shownRows={Math.min(effectiveData.length, data.length)}
-            onLoadMore={() =>
-              setLazyVisibleCount((prev) => Math.min(prev + lazyStep, data.length))
-            }
-          />
+          <DataTableLoadMore totalRows={totalRows} shownRows={shownRows} noun={noun} />
         ) : (
-          <DataTablePagination
-            table={table}
-            pageSizeOptions={pageSizeOptions}
-          />
+          <DataTablePagination table={table} pageSizeOptions={pageSizeOptions} noun={noun} />
         )}
       </div>
 
-      {enableRowSelection && (selectedCount > 0 || bulkActions.length > 0) && (
+      {usesCheckbox && !actionsInline && (selectedCount > 0 || bulkActions.length > 0) && (
         <DataTableBulkActionBar
           selectedCount={selectedCount}
           selectedRows={selectedRows}
@@ -594,22 +670,15 @@ function DataTableInner<TData>(
           onClear={clearSelection}
         />
       )}
-
-      <DataTableSettingsDrawer
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        value={settings}
-        onChange={setSettings}
-        table={table}
-        extraSections={settingsExtraSections}
-      />
     </div>
   );
 }
 
 /**
- * DataTable<T> — composable data table built on TanStack Table v8.
- * Designed to consolidate the 15+ bespoke tables in the SellUp app.
+ * DataTable<T> — la tabla operable de SellUp: motor TanStack Table v8 con la
+ * experiencia de Thema (cabeceras con orden y embudo a la vista, filtros
+ * activos en chips, panel «Configurar tabla», menú de selección, scroll
+ * infinito o paginación).
  *
  * @see /docs/DESIGN_SYSTEM_FOUNDATION.md § 10 — DataTable system
  */
@@ -617,100 +686,6 @@ export const DataTable = React.forwardRef(DataTableInner) as <TData>(
   props: DataTableProps<TData> & { ref?: React.ForwardedRef<DataTableHandle> },
 ) => ReturnType<typeof DataTableInner>;
 
-interface DataTableRowProps<TData> {
-  row: Row<TData>;
-  rowClickable: boolean;
-  onRowClick?: (row: TData) => void;
-  contextMenu?: DataTableContextMenuConfig<TData>;
-  /**
-   * When row reorder is enabled, the parent `DataTableRowReorder` passes
-   * the dnd-kit handle props here so the grip cell is rendered as the
-   * first cell. The row is already wrapped in a `<SortableTableRow>` in
-   * that case, so we don't render the `<TableRow>` ourselves.
-   */
-  reorderHandleProps?: React.HTMLAttributes<HTMLButtonElement> & {
-    isDragging: boolean;
-  };
-}
-
-function DataTableRow<TData>({
-  row,
-  rowClickable,
-  onRowClick,
-  contextMenu,
-  reorderHandleProps,
-}: DataTableRowProps<TData>) {
-  const isSelected = row.getIsSelected();
-  const handleClick = rowClickable && onRowClick
-    ? (e: React.MouseEvent<HTMLTableRowElement>) => {
-        const target = e.target as HTMLElement;
-        if (
-          target.closest('[data-table-select]') ||
-          target.closest('[role="checkbox"]') ||
-          target.closest('button') ||
-          target.closest('a')
-        ) {
-          return;
-        }
-        onRowClick(row.original);
-      }
-    : undefined;
-
-  const cells = (
-    <>
-      {reorderHandleProps && (
-        <RowDragHandle {...reorderHandleProps} />
-      )}
-      {row
-        .getVisibleCells()
-        // The `reorder` column lives in `allColumns` so the thead has a
-        // matching header (and the auto-fit effect can size it), but its
-        // cell renders `null`. When row reorder is enabled we replace it
-        // with the grip handle above, so filter it out here to avoid a
-        // phantom empty cell next to the grip.
-        .filter((cell) => (reorderHandleProps ? cell.column.id !== "reorder" : true))
-        .map((cell) => (
-          <TableCell
-            key={cell.id}
-            style={{ width: cell.column.columnDef.size }}
-            data-table-select={cell.column.id === "select" || undefined}
-          >
-            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-          </TableCell>
-        ))}
-    </>
-  );
-
-  const cellContent = reorderHandleProps ? (
-    cells
-  ) : (
-    <TableRow
-      data-state={isSelected ? "selected" : undefined}
-      className={cn(
-        "border-border/60 group",
-        handleClick && "cursor-pointer",
-        isSelected && "bg-primary/[0.07]",
-      )}
-      onClick={handleClick}
-    >
-      {cells}
-    </TableRow>
-  );
-
-  if (!contextMenu) return cellContent;
-
-  return (
-    <DataTableContextMenu items={contextMenu.items(row.original)}>
-      {cellContent}
-    </DataTableContextMenu>
-  );
-}
-
 // Re-exports for consumers
 export { DataTableColumnHeader } from "./data-table-column-header";
-export {
-  DataTableColumnPopover,
-  type DataTableColumnFilterOption,
-  type DataTableColumnMeta,
-} from "./data-table-column-popover";
-export { DataTableSettingsDrawer, DataTableSettingsTrigger, type DataTableSettings };
+export type { DataTableColumnFilterOption, DataTableColumnMeta } from "./data-table-column-meta";

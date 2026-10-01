@@ -269,7 +269,8 @@ export function ContactCandidatesDataTableClient({
         size: 260,
         minSize: 200,
         enableHiding: false,
-        meta: { label: 'Nombre', popoverTitle: 'Nombre' },
+        // Texto libre: se ordena y se busca, no se filtra por valores.
+        meta: { label: 'Nombre', popoverTitle: 'Nombre', disableFilter: true },
       },
       {
         id: 'title',
@@ -282,7 +283,7 @@ export function ContactCandidatesDataTableClient({
         ),
         size: 180,
         minSize: 140,
-        meta: { label: 'Cargo', popoverTitle: 'Cargo' },
+        meta: { label: 'Cargo', popoverTitle: 'Cargo', disableFilter: true },
       },
       {
         id: 'company',
@@ -307,6 +308,7 @@ export function ContactCandidatesDataTableClient({
         },
         size: 200,
         minSize: 150,
+        // Enumerable: el embudo ofrece las empresas que aparecen en la cola.
         meta: { label: 'Empresa', popoverTitle: 'Empresa' },
       },
       {
@@ -381,7 +383,8 @@ export function ContactCandidatesDataTableClient({
         ),
         size: 130,
         minSize: 110,
-        meta: { label: 'Creado', popoverTitle: 'Fecha de creación' },
+        // Fecha: solo se ordena.
+        meta: { label: 'Creado', popoverTitle: 'Fecha de creación', disableFilter: true },
       },
     ],
     [],
@@ -390,6 +393,9 @@ export function ContactCandidatesDataTableClient({
   return (
     <>
     <DataTable
+      tableId="contact-candidates"
+      noun="candidatos"
+      getRowLabel={(row) => row.full_name ?? 'candidato'}
       onSelectionCountChange={reportSelectionCount}
       columns={columns}
       data={filteredCandidates}

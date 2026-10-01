@@ -265,7 +265,8 @@ export function DiscardedProspectsDataTableClient({
         size: 130,
         minSize: 100,
         filterFn: 'arrIncludesSome',
-        meta: { label: 'Proveedor', popoverTitle: 'Proveedor', disableFilter: true },
+        // Enumerable: el embudo ofrece los proveedores que aparecen en la lista.
+        meta: { label: 'Proveedor', popoverTitle: 'Proveedor' },
       },
       {
         id: 'roundOrigin',
@@ -513,6 +514,10 @@ export function DiscardedProspectsDataTableClient({
   return (
     <>
       <DataTable
+        tableId="prospects-discarded"
+        noun="empresas descartadas"
+        nounGender="f"
+        getRowLabel={(row) => row.name}
         columns={columns}
         data={rows}
         getRowId={(row) => row.itemId}

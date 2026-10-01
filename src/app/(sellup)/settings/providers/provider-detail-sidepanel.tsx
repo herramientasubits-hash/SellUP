@@ -2176,6 +2176,11 @@ function TabConsumo({
               />
             ) : (
               <DataTable
+                tableId="provider-operation-breakdown"
+                noun="operaciones"
+                nounGender="f"
+                // Resumen corto dentro de un panel: se lee por páginas.
+                defaultRowsMode="paged"
                 columns={operationColumns}
                 data={operationBreakdown}
                 getRowId={(op) => op.operationKey}
@@ -2201,6 +2206,9 @@ function TabConsumo({
               />
             ) : (
               <DataTable
+                tableId="provider-user-consumption"
+                noun="usuarios"
+                defaultRowsMode="paged"
                 columns={userColumns}
                 data={userConsumption}
                 getRowId={(u) => u.userId ?? '__unattributed__'}

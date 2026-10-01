@@ -42,7 +42,8 @@ mano, busca aquí.
 | Página | `@/components/shared/*` | `PageHeader` (con `breadcrumbs`), `DataTablePage`, `SurfaceCard`, `SectionHeader` |
 | Navegación | `@/components/navigation/*` | `Breadcrumbs`, `Stepper`, `TabsNav` (pestañas de página con icono y contador) |
 | Datos | `@/components/data-display` | `StatusBadge`, `TableShell`, `Timeline` (`density="compact"` en `TimelineItem`), `ListItem`/`ListItemGroup`, `Kanban` |
-| Tablas operables | `@/components/data-table` | `DataTable` (título + total, búsqueda, ajustes, selección, barra masiva) |
+| Datos · piezas de tabla | `@/components/data-display` | `FilterSortHeader`, `SortOnlyHeader`, `HeaderSortButton`, `HeaderFilterButton` (cabeceras: orden con un clic + embudo), `SelectionHeaderMenu` / `HeaderSelectAllCheckbox` / `HeaderSelectionMark` (selección en cabecera), `TableConfigButton` + `useTableConfig` (panel «Configurar tabla», recordado por `tableId`), `useColumnDrag`, `RowActionsMenu` («⋯» de una fila) |
+| Tablas operables | `@/components/data-table` | `DataTable` (motor TanStack con la experiencia de Thema: título + total, buscador que se abre, chips de filtros activos, «Configurar tabla», menú de selección, scroll infinito o paginación, barra masiva o acciones en el layout). Props de experiencia: `tableId`, `noun`, `nounGender`, `getRowLabel`, `renderListItem`, `defaultRowsMode`. Piezas sueltas: `DataTableColumnHeader`, `DataTableActiveFilters`, `DataTableSelectionHeader`, `DataTablePagination`, `DataTableLoadMore`, `DataTableRowActions` |
 | Métricas y avisos | `@/components/shared/*` | `MetricCard` (acento, chip, píldora de variación, `hint`, `chart`), `DeltaPill`, `AttentionStrip` + `AttentionAction` |
 | Filtros | `@/components/filters/*` | `FilterChips` (chips con contador), `FilterBar` |
 | Búsqueda | `@/components/search` | `GlobalSearch` (⌘K) |
@@ -127,6 +128,15 @@ Una card anidada siempre redondea menos que la que la contiene. No hay radios ar
 **Página** — `PageHeader` (título + una línea de descripción + acción primaria y como mucho dos de apoyo; si son más, menú). Secciones separadas con `space-y-6`/`gap-6`. Nada de `max-w-` de página propio: el ancho lo pone `AppShell`.
 
 **Lista / tabla** — `DataTablePage` + `DataTable` (nunca `<Table>` directo). Estados: cargando (skeleton de la tabla), vacío (`EmptyState` con acción), error (`Alert variant="destructive"`).
+
+La tabla se **opera** como la de Thema (Foundation § 10), y cada pantalla tiene que declarar lo suyo para que salga bien:
+
+- `tableId` estable (`"accounts"`, `"contacts"`…) y `noun` en plural (`"empresas"`); `nounGender="f"` si toca («3 seleccionadas»); `getRowLabel` para nombrar la fila.
+- **Columnas enumerables** (estado, país, industria, fuente, responsable, proveedor, tipo): `meta.filterOptions` → cabecera con orden **y embudo** (casillas con recuento, buscador con más de 8 opciones, «Limpiar filtros (n)»). Si los valores salen de los datos y son pocos, basta no poner `disableFilter`: el embudo ofrece los valores únicos.
+- **Numéricas y de fecha**: `meta.disableFilter: true` → solo orden. **Texto libre** (nombre, dominio, email): igual, sin embudo — para eso está el buscador.
+- No montes filtros de columna en una barra aparte ni un drawer de ajustes: los filtros activos salen solos como chips «Columna: valor ×» bajo la barra, y columnas / fijado / scroll infinito o paginación / dónde van las acciones viven en el panel **Configurar tabla**. Lo propio de la pantalla (p. ej. filtros de alcance) entra por `settingsExtraSections`.
+- Acciones por fila en `contextMenu.items`: sirven al clic derecho y al «Menú en cada fila». Acciones masivas en `bulkActions`: van a la barra flotante o, si quien mira lo elige, a la cabecera de la lista.
+- `fillHeight` dentro de `DataTablePage`: la tabla usa todo el alto que queda, con scroll interno y cabecera pegada (Foundation § 15).
 
 **Tabla de solo lectura** (historiales, desgloses, comparaciones dentro de un drawer) — `Table`, `TableHeader`, `TableBody`, `TableRow`, `TableHead`, `TableCell` de `@/components/ui/table`, nunca `<table>`/`<tr>`/`<td>` a mano: la pieza ya pone el fondo de cabecera, los bordes, la altura, el hover y la tipografía, así que en `className` solo queda lo propio (ancho, `text-right tabular-nums` en números y montos, `whitespace-normal` en texto largo, `colSpan`, `sticky`). Fila seleccionada: `data-state="selected"`. Con título propio va dentro de `TableShell` (`@/components/data-display`), que trae título, descripción, acciones, vacío y pie; si vive dentro de una card o un drawer que ya tiene título, basta un contenedor `overflow-x-auto rounded-xl border border-border/60`. Fila vacía: `empty` de `TableShell` o `EmptyState variant="plain"` en una celda con `colSpan`.
 

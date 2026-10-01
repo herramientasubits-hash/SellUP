@@ -868,7 +868,8 @@ export function ProspectsDataTableClient({
         size: 220,
         minSize: 180,
         enableHiding: false,
-        meta: { label: 'Empresa', popoverTitle: 'Empresa' },
+        // Texto libre: se ordena y se busca, no se filtra por valores.
+        meta: { label: 'Empresa', popoverTitle: 'Empresa', disableFilter: true },
       },
       {
         id: 'country_code',
@@ -974,6 +975,8 @@ export function ProspectsDataTableClient({
           label: 'Calidad',
           popoverTitle: 'Calidad',
           disableFilter: true,
+          // La celda resume varias señales: no hay un valor por el que ordenar.
+          disableSort: true,
         },
       },
       {
@@ -1287,6 +1290,9 @@ export function ProspectsDataTableClient({
       )}
 
       <DataTable
+        tableId="prospects"
+        noun="prospectos"
+        getRowLabel={(row) => row.name}
         onSelectionCountChange={reportSelectionCount}
         ref={dataTableRef}
         columns={columns}

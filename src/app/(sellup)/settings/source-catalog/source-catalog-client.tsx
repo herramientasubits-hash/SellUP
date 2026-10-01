@@ -91,6 +91,10 @@ function SourceTable({ data, columns, openDetail, handleRowReorder, onRowClick }
 
   return (
     <DataTable
+      tableId="source-catalog"
+      noun="fuentes"
+      nounGender="f"
+      getRowLabel={(row) => row.name}
       columns={columns}
       data={data}
       getRowId={(row) => row.key}
@@ -175,7 +179,8 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
         size: 260,
         minSize: 200,
         enableHiding: false,
-        meta: { label: 'Fuente', popoverTitle: 'Fuente' },
+        // Texto libre: se ordena y se busca, no se filtra por valores.
+        meta: { label: 'Fuente', popoverTitle: 'Fuente', disableFilter: true },
       },
       {
         id: 'country',

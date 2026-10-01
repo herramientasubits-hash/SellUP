@@ -208,6 +208,20 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
     }
   }
 
+  // Los responsables que aparecen en la lista, para el embudo de la columna
+  // cuando no hay filtros de alcance (si no, saldrían identificadores).
+  const ownerFilterOptions = React.useMemo(() => {
+    const names = new Map<string, string>();
+    for (const account of accounts) {
+      if (account.owner_id && !names.has(account.owner_id)) {
+        names.set(account.owner_id, account.owner_name ?? 'Sin nombre');
+      }
+    }
+    return Array.from(names, ([value, label]) => ({ value, label })).sort((a, b) =>
+      a.label.localeCompare(b.label, 'es'),
+    );
+  }, [accounts]);
+
   // ── Column definitions ────────────────────────────────────────
   const columns: ColumnDef<Row, unknown>[] = React.useMemo(
     () => [
@@ -229,7 +243,8 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
         size: 220,
         minSize: 180,
         enableHiding: false,
-        meta: { label: 'Empresa', popoverTitle: 'Empresa' },
+        // Texto libre: se ordena y se busca, no se filtra por valores.
+        meta: { label: 'Empresa', popoverTitle: 'Empresa', disableFilter: true },
       },
       {
         id: 'country_code',
@@ -295,7 +310,7 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
         },
         size: 160,
         minSize: 120,
-        meta: { label: 'Dominio', popoverTitle: 'Dominio' },
+        meta: { label: 'Dominio', popoverTitle: 'Dominio', disableFilter: true },
       },
       {
         id: 'pipeline_status',
@@ -342,17 +357,16 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
         meta: {
           label: 'Responsable',
           popoverTitle: 'Responsable',
-          ...(scopeFilterOptions?.showScopeFilters && scopeFilterOptions.users.length > 0
-            ? {
-                filterOptions: scopeFilterOptions.users.map((u) => ({
+          filterOptions:
+            scopeFilterOptions?.showScopeFilters && scopeFilterOptions.users.length > 0
+              ? scopeFilterOptions.users.map((u) => ({
                   value: u.id,
                   label:
                     u.full_name && u.email
                       ? `${u.full_name} (${u.email})`
                       : (u.full_name ?? u.email ?? u.id.slice(0, 8)),
-                })),
-              }
-            : {}),
+                }))
+              : ownerFilterOptions,
         },
       },
       {
@@ -395,7 +409,7 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
         meta: { label: 'Creación', popoverTitle: 'Creación', disableFilter: true },
       },
     ],
-    [openDetail, scopeFilterOptions],
+    [openDetail, scopeFilterOptions, ownerFilterOptions],
   );
 
   // ── Context menu ──────────────────────────────────────────────
@@ -539,6 +553,10 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
   return (
     <>
       <DataTable
+        tableId="accounts"
+        noun="empresas"
+        nounGender="f"
+        getRowLabel={(row) => row.name}
         onSelectionCountChange={reportSelectionCount}
         columns={columns}
         data={filteredAccounts}

@@ -27,14 +27,20 @@ interface PopoverContentProps extends React.ComponentPropsWithoutRef<typeof Popo
   /** Lado preferido; Base UI voltea solo si no cabe. */
   side?: "top" | "right" | "bottom" | "left";
   sideOffset?: number;
+  /**
+   * Clases del posicionador (la capa que flota). Sirve para bajar el
+   * `z-index` cuando el popover contiene un `Select`, cuyo desplegable vive
+   * en `z-[70]` y quedaría tapado.
+   */
+  positionerClassName?: string;
 }
 
 const PopoverContent = React.forwardRef<
   React.ComponentRef<typeof PopoverPrimitive.Popup>,
   PopoverContentProps
->(({ className, align = "center", side = "bottom", sideOffset = 4, ...props }, ref) => (
+>(({ className, positionerClassName, align = "center", side = "bottom", sideOffset = 4, ...props }, ref) => (
   <PopoverPrimitive.Portal>
-    <PopoverPrimitive.Positioner side={side} sideOffset={sideOffset} align={align} positionMethod="fixed" className="z-[9999]">
+    <PopoverPrimitive.Positioner side={side} sideOffset={sideOffset} align={align} positionMethod="fixed" className={cn("z-[9999]", positionerClassName)}>
       <PopoverPrimitive.Popup
         ref={ref}
         className={cn(

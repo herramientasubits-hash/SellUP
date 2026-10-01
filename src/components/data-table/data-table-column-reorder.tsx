@@ -27,7 +27,13 @@ interface DataTableColumnReorderProps {
   columnOrder: string[];
   /** Column ids that cannot be reordered. */
   disabledColumns?: string[];
-  onOrderChange: (next: string[]) => void;
+  onOrderChange?: (next: string[]) => void;
+  /**
+   * Alternativa a `onOrderChange`: avisa del gesto (qué columna se soltó junto
+   * a cuál y por qué lado) en vez del orden completo. Es lo que necesita un
+   * estado que recuerda también las columnas ocultas.
+   */
+  onMove?: (sourceId: string, targetId: string, before: boolean) => void;
   children: (columnId: string) => React.ReactNode;
 }
 
@@ -43,6 +49,7 @@ export function DataTableColumnReorder({
   columnOrder,
   disabledColumns = [],
   onOrderChange,
+  onMove,
   children,
 }: DataTableColumnReorderProps) {
   const sensors = useSensors(
@@ -65,6 +72,14 @@ export function DataTableColumnReorder({
     const oldIndex = sortableColumns.indexOf(String(active.id));
     const newIndex = sortableColumns.indexOf(String(over.id));
     if (oldIndex === -1 || newIndex === -1) return;
+
+    if (onMove) {
+      // Soltar hacia la derecha deja la columna después del blanco; hacia la
+      // izquierda, antes (lo mismo que hace `arrayMove`).
+      onMove(String(active.id), String(over.id), oldIndex > newIndex);
+      return;
+    }
+    if (!onOrderChange) return;
 
     const nextSortable = arrayMove(sortableColumns, oldIndex, newIndex);
     // Re-merge with the disabled columns in their original positions.
@@ -109,6 +124,11 @@ interface SortableTableHeadProps
   disabled?: boolean;
   /** Show the grip handle icon on the left of the header content. */
   showGrip?: boolean;
+  /**
+   * Columna fijada: a cuántos píxeles del borde izquierdo se queda quieta
+   * mientras la tabla se desplaza de lado.
+   */
+  stickyLeft?: number;
 }
 
 /**
@@ -124,6 +144,7 @@ export function SortableTableHead({
   id,
   disabled = false,
   showGrip = true,
+  stickyLeft,
   className,
   style,
   children,
@@ -141,7 +162,10 @@ export function SortableTableHead({
     opacity: isDragging ? 0.6 : undefined,
     position: isDragging ? "relative" : "sticky",
     top: isDragging ? undefined : 0,
-    zIndex: isDragging ? 30 : 10,
+    left: isDragging ? undefined : stickyLeft,
+    // Una cabecera fijada pasa por encima de las demás cabeceras y de las
+    // celdas fijadas de las filas.
+    zIndex: isDragging ? 30 : stickyLeft !== undefined ? 20 : 10,
     backgroundColor: isDragging ? undefined : "var(--card)",
   };
 
@@ -158,14 +182,19 @@ export function SortableTableHead({
       data-column-id={id}
       {...(disabled ? {} : attributes)}
       {...(disabled ? {} : listeners)}
+      // dnd-kit la anuncia como botón; sigue siendo una cabecera de columna
+      // (y así `aria-sort` es válido). El arrastre con teclado no cambia.
+      role={undefined}
+      aria-pressed={undefined}
       {...rest}
     >
-      <span className="flex items-center gap-1.5 min-w-0">
-        {showGrip && !disabled && (
-          <DataTableDragHandle className="shrink-0 opacity-30 transition-opacity group-hover/th:opacity-80" />
-        )}
-        <span className="min-w-0 flex-1 truncate">{children}</span>
-      </span>
+      {/* El asa no ocupa sitio: vive en el margen izquierdo de la celda y
+          asoma al pasar el ratón. Así la etiqueta y el embudo disponen de
+          todo el ancho de la columna. */}
+      {showGrip && !disabled && (
+        <DataTableDragHandle className="pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover/th:opacity-70" />
+      )}
+      {children}
     </th>
   );
 }

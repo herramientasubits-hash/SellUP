@@ -24,7 +24,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { DataTableBulkAction } from "./data-table";
+import type { DataTableBulkAction } from "./data-table-types";
 
 interface DataTableBulkActionBarProps<TData> {
   selectedCount: number;
@@ -54,35 +54,13 @@ export function DataTableBulkActionBar<TData>({
   onClear,
   className,
 }: DataTableBulkActionBarProps<TData>) {
-  const [pendingAction, setPendingAction] = React.useState<DataTableBulkAction<TData> | null>(null);
+  const { handleActionClick, confirmDialog } = useBulkActionRunner(selectedRows);
   const [mounted] = React.useState(
     () => typeof document !== "undefined",
   );
 
   if (selectedCount === 0) return null;
   if (!mounted) return null;
-
-  const closeConfirm = () => {
-    setPendingAction(null);
-  };
-
-  const runAction = async (action: DataTableBulkAction<TData>) => {
-    try {
-      await action.onClick?.(selectedRows);
-      closeConfirm();
-    } catch {
-      // surface error in consumer; keep bar open so user can retry
-      closeConfirm();
-    }
-  };
-
-  const handleActionClick = (action: DataTableBulkAction<TData>) => {
-    if (action.confirm) {
-      setPendingAction(action);
-    } else {
-      void runAction(action);
-    }
-  };
 
   return createPortal(
     <>
@@ -201,35 +179,150 @@ export function DataTableBulkActionBar<TData>({
         </Tooltip>
       </div>
 
-      <Dialog
-        open={pendingAction !== null}
-        onOpenChange={(open) => {
-          if (!open) closeConfirm();
-        }}
-      >
-        <DialogContent className="sm:max-w-sm">
-          <DialogTitle>{pendingAction?.confirm?.title}</DialogTitle>
-          {pendingAction?.confirm?.description && (
-            <DialogDescription>
-              {pendingAction.confirm.description(selectedRows)}
-            </DialogDescription>
-          )}
-          <DialogFooter showCloseButton>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                if (pendingAction) {
-                  void runAction(pendingAction);
-                }
-              }}
-            >
-              {pendingAction?.confirm?.confirmLabel ?? "Confirmar"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {confirmDialog}
     </>,
     document.body,
+  );
+}
+
+/**
+ * Lo que comparten la barra flotante y las acciones en la cabecera de la
+ * lista: ejecutar una acción masiva y, si la pide, confirmar antes.
+ */
+function useBulkActionRunner<TData>(selectedRows: TData[]) {
+  const [pendingAction, setPendingAction] = React.useState<DataTableBulkAction<TData> | null>(null);
+
+  const closeConfirm = () => {
+    setPendingAction(null);
+  };
+
+  const runAction = async (action: DataTableBulkAction<TData>) => {
+    try {
+      await action.onClick?.(selectedRows);
+      closeConfirm();
+    } catch {
+      // surface error in consumer; keep bar open so user can retry
+      closeConfirm();
+    }
+  };
+
+  const handleActionClick = (action: DataTableBulkAction<TData>) => {
+    if (action.confirm) {
+      setPendingAction(action);
+    } else {
+      void runAction(action);
+    }
+  };
+
+  const confirmDialog = (
+      <Dialog
+      open={pendingAction !== null}
+      onOpenChange={(open) => {
+        if (!open) closeConfirm();
+      }}
+    >
+      <DialogContent className="sm:max-w-sm">
+        <DialogTitle>{pendingAction?.confirm?.title}</DialogTitle>
+        {pendingAction?.confirm?.description && (
+          <DialogDescription>
+            {pendingAction.confirm.description(selectedRows)}
+          </DialogDescription>
+        )}
+        <DialogFooter showCloseButton>
+          <Button
+            variant="destructive"
+            onClick={() => {
+              if (pendingAction) {
+                void runAction(pendingAction);
+              }
+            }}
+          >
+            {pendingAction?.confirm?.confirmLabel ?? "Confirmar"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+
+  return { handleActionClick, confirmDialog };
+}
+
+interface DataTableInlineBulkActionsProps<TData> {
+  selectedRows: TData[];
+  actions: DataTableBulkAction<TData>[];
+}
+
+/**
+ * Las acciones masivas dentro de la cabecera de la lista («En el layout»): las
+ * mismas que lleva la barra flotante, con las mismas reglas de bloqueo y
+ * confirmación, como botones del propio marco.
+ */
+export function DataTableInlineBulkActions<TData>({
+  selectedRows,
+  actions,
+}: DataTableInlineBulkActionsProps<TData>) {
+  const { handleActionClick, confirmDialog } = useBulkActionRunner(selectedRows);
+
+  return (
+    <>
+      {actions.map((action) => {
+        const Icon = action.icon;
+
+        if (action.items && action.items.length > 0) {
+          return (
+            <DropdownMenu key={action.id}>
+              <DropdownMenuTrigger render={<Button variant="outline" size="xs" />}>
+                {Icon && <Icon className="h-3.5 w-3.5" />}
+                {action.label}
+                <ChevronDown className="h-3.5 w-3.5" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-56">
+                {action.items.map((item) => {
+                  const ItemIcon = item.icon;
+                  const isDisabled = item.loading || (item.disabled?.(selectedRows) ?? false);
+                  const disabledLabel = isDisabled ? item.disabledLabel?.(selectedRows) : undefined;
+                  return (
+                    <DropdownMenuItem
+                      key={item.id}
+                      disabled={isDisabled}
+                      title={disabledLabel}
+                      onClick={() => void item.onClick?.(selectedRows)}
+                    >
+                      {ItemIcon && <ItemIcon className="h-3.5 w-3.5" />}
+                      <span className="flex-1">{item.label}</span>
+                      {disabledLabel && (
+                        <span className="text-xs text-muted-foreground">{disabledLabel}</span>
+                      )}
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          );
+        }
+
+        const isDisabled = action.loading || (action.disabled?.(selectedRows) ?? false);
+        const disabledLabel = isDisabled ? action.disabledLabel?.(selectedRows) : undefined;
+        return (
+          <Button
+            key={action.id}
+            size="xs"
+            variant={action.variant === "destructive" ? "destructive" : "outline"}
+            disabled={isDisabled}
+            title={disabledLabel}
+            onClick={() => handleActionClick(action)}
+          >
+            {action.loading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : Icon ? (
+              <Icon className="h-3.5 w-3.5" />
+            ) : null}
+            {action.label}
+          </Button>
+        );
+      })}
+      {confirmDialog}
+    </>
   );
 }
 

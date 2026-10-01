@@ -36,9 +36,14 @@ interface DataTablePageProps {
  * DataTablePage — page-level layout for the "header + metrics fixed, table
  * scrolls internally" pattern.
  *
- * Wraps <PageHeader> (sticky), an optional metrics row (sticky), and a
- * `flex-1 min-h-0` content area for the table. Pair with
- * `<DataTable fillHeight />` so only the table rows scroll.
+ * Wraps <PageHeader>, an optional metrics row, and a `flex-1` content area
+ * for the table. Pair with `<DataTable fillHeight />` so only the table rows
+ * scroll.
+ *
+ * En pantallas altas la cabecera y las métricas quedan fijas y la tabla llena
+ * el resto. En pantallas bajas la tabla no baja de su alto mínimo
+ * (`min(100%, 32rem)`): la página se desplaza y la tabla sigue con su scroll
+ * interno y su cabecera pegada.
  *
  * **Requires a flex parent with a defined height** — AppShell's <main> is
  * already a flex column that fills the viewport, so most pages just need
@@ -71,7 +76,19 @@ export function DataTablePage({
   className,
 }: DataTablePageProps) {
   return (
-    <div className={cn("flex flex-1 min-h-0 flex-col gap-6", className)}>
+    // La página es su propia caja con scroll: en una pantalla alta no hace
+    // falta (cabecera y métricas quedan fijas y la tabla llena el resto); en una
+    // baja, la tabla conserva su alto mínimo y lo que se desplaza es la página,
+    // en vez de aplastar la tabla a cuatro filas. El hueco inferior que reserva
+    // `ScreenActionRailProvider` queda fuera de esta caja, así que la barra
+    // flotante nunca tapa el pie. El margen negativo deja sitio a las sombras
+    // y a los anillos de foco, que una caja con scroll recortaría.
+    <div
+      className={cn(
+        "-mx-3 flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-3 pb-1",
+        className,
+      )}
+    >
       <div className="shrink-0">
         <PageHeader
           title={title}
@@ -83,7 +100,9 @@ export function DataTablePage({
       </div>
       {tabs && <div className="shrink-0">{tabs}</div>}
       {metrics && <div className="shrink-0">{metrics}</div>}
-      <div className="flex flex-1 min-h-0 flex-col">{children}</div>
+      {/* La tabla ocupa todo el alto que queda, con un mínimo: el de la
+          pantalla visible, hasta 32rem. */}
+      <div className="flex min-h-[min(100%,32rem)] flex-1 flex-col">{children}</div>
     </div>
   );
 }

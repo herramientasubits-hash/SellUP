@@ -201,7 +201,8 @@ export function ContactsDataTableClient({
         size: 200,
         minSize: 160,
         enableHiding: false,
-        meta: { label: 'Nombre', popoverTitle: 'Nombre' },
+        // Texto libre: se ordena y se busca, no se filtra por valores.
+        meta: { label: 'Nombre', popoverTitle: 'Nombre', disableFilter: true },
       },
       {
         id: 'account_name',
@@ -226,9 +227,9 @@ export function ContactsDataTableClient({
         minSize: 140,
         filterFn: 'arrIncludesSome',
         meta: {
+          // Enumerable: el embudo ofrece las cuentas que aparecen en la lista.
           label: 'Cuenta',
           popoverTitle: 'Cuenta',
-          disablePopoverSearch: false,
         },
       },
       {
@@ -244,7 +245,7 @@ export function ContactsDataTableClient({
         ),
         size: 160,
         minSize: 120,
-        meta: { label: 'Cargo', popoverTitle: 'Cargo' },
+        meta: { label: 'Cargo', popoverTitle: 'Cargo', disableFilter: true },
       },
       {
         id: 'email',
@@ -268,7 +269,7 @@ export function ContactsDataTableClient({
         },
         size: 180,
         minSize: 140,
-        meta: { label: 'Email', popoverTitle: 'Email' },
+        meta: { label: 'Email', popoverTitle: 'Email', disableFilter: true },
       },
       {
         id: 'phone_display',
@@ -293,7 +294,7 @@ export function ContactsDataTableClient({
         },
         size: 140,
         minSize: 110,
-        meta: { label: 'Teléfono', popoverTitle: 'Teléfono' },
+        meta: { label: 'Teléfono', popoverTitle: 'Teléfono', disableFilter: true },
       },
       {
         id: 'contact_status',
@@ -479,6 +480,9 @@ export function ContactsDataTableClient({
   return (
     <>
       <DataTable
+        tableId="contacts"
+        noun="contactos"
+        getRowLabel={(row) => row.full_name}
         onSelectionCountChange={reportSelectionCount}
         columns={columns}
         data={filteredContacts}
