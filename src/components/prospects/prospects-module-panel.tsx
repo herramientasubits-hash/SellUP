@@ -44,7 +44,6 @@ import { resolveWizardDiscoveryProvider } from '@/modules/prospect-batches/chat-
 // ni flags, ni sus valores, ni el rol del usuario.
 import {
   resolveWizardProviderOverrideCapabilityForCurrentUser,
-  resolveAdminTavilyTrialAvailableForCurrentUser,
   resolveApolloRunModeLimitsForSurface,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-provider-capability.server';
 // AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — lectura de sólo lectura del período
@@ -146,13 +145,11 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
   //
   // El fallo de esta lectura no puede tumbar la página: `Promise.all` propaga un
   // rechazo, así que el resolutor ya devuelve `null` en vez de lanzar.
-  const [wizardProviderOverrideCapability, apolloRunModeLimits, wizardBudgetPreflight, adminTavilyTrialAvailable] =
+  const [wizardProviderOverrideCapability, apolloRunModeLimits, wizardBudgetPreflight] =
     await Promise.all([
       resolveWizardProviderOverrideCapabilityForCurrentUser(),
       resolveApolloRunModeLimitsForSurface(),
       resolveWizardBudgetPreflightForSurface(),
-      // AGENT1-TAVILY-TRIAL-1 — no lanza: sin prueba devuelve false sin consultar.
-      resolveAdminTavilyTrialAvailableForCurrentUser().catch(() => false),
     ]);
 
   // Load catalog only when any enhanced experience is on — zero Supabase queries
@@ -237,7 +234,7 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
       tabs={<ModuleTabsNav active="prospectos" />}
       actions={
         <div className="flex flex-wrap items-center gap-2">
-          <GenerateAIBatchDrawer experience={experience} unavailableKind={unavailableKind} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} autoProviderCascade={autoProviderCascade} discoveryProvider={wizardDiscoveryProvider} providerOverrideCapability={wizardProviderOverrideCapability} apolloRunModeLimits={apolloRunModeLimits} budgetPreflight={wizardBudgetPreflight} adminTavilyTrialAvailable={adminTavilyTrialAvailable} />
+          <GenerateAIBatchDrawer experience={experience} unavailableKind={unavailableKind} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} autoProviderCascade={autoProviderCascade} discoveryProvider={wizardDiscoveryProvider} providerOverrideCapability={wizardProviderOverrideCapability} apolloRunModeLimits={apolloRunModeLimits} budgetPreflight={wizardBudgetPreflight} />
           <ImportCandidatesDrawer>
             <Button variant="outline" size="sm" className="gap-2 text-xs">
               <Upload className="h-3.5 w-3.5" />

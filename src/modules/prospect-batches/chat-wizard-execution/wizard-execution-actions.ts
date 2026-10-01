@@ -85,10 +85,6 @@ import {
   type WizardApolloAvailability,
 } from './wizard-apollo-availability';
 import { runWizardTavilySearch } from './wizard-tavily-executor';
-import {
-  isAdminTavilyTrialRequest,
-  resolveRunOverrideEnabledForRequest,
-} from './wizard-admin-tavily-trial';
 import type { WizardTavilyRunner, WizardTavilyInput } from './wizard-tavily-executor';
 import { runWizardApolloSearch } from './wizard-apollo-executor';
 import { loadApolloSubindustryCatalogTerms } from '@/server/agents/prospecting-toolkit/apollo-subindustry-catalog-terms-loader.server';
@@ -110,7 +106,6 @@ import {
 } from './wizard-run-provider-selection';
 import {
   isWizardRunProviderOverrideEffective,
-  isWizardRunTavilyTrialEffective,
   isAgent1TavilyFirstEffective,
   isWizardRunProviderOverrideEnabled,
 } from '@/lib/feature-flags.server';
@@ -832,15 +827,8 @@ export async function executeProspectWizardGenerationAction(
       return resolveWizardRunProvider({
         requestedProvider,
         authority,
-        // AGENT1-AUTO-PROVIDER-CASCADE-1 — en modo automático la petición se ignora…
-        // AGENT1-TAVILY-TRIAL-1 — …salvo un admin pidiendo `tavily` con la prueba
-        // encendida (ver `wizard-admin-tavily-trial.ts`).
-        runOverrideEnabled: resolveRunOverrideEnabledForRequest({
-          overrideEffective: isWizardRunProviderOverrideEffective(),
-          trialEffective: isWizardRunTavilyTrialEffective(),
-          requestedProvider,
-          isAdmin: authority === 'admin',
-        }),
+        // AGENT1-AUTO-PROVIDER-CASCADE-1 — en modo automático la petición se ignora.
+        runOverrideEnabled: isWizardRunProviderOverrideEffective(),
         globalDefaultProvider: resolveWizardDiscoveryProvider(),
         // § 9 — la elección de un intento anterior gana sobre la petición nueva.
         // El núcleo valida el valor: un string desconocido no resucita nada.
@@ -2403,16 +2391,7 @@ export async function executeProspectWizardGeneration(
    * devuelve `waterfall_flag_disabled` ANTES de mirar nada más, así que no se
    * deriva identidad, no se reserva un crédito y no sale una sola llamada.
    */
-  // AGENT1-TAVILY-TRIAL-1 — la corrida de prueba mide a Tavily SOLO: la pierna
-  // de Lusha no se abre después (gastaría créditos de Lusha y mezclaría la medida).
-  const isTavilyTrialRun = isAdminTavilyTrialRequest({
-    trialEffective: isWizardRunTavilyTrialEffective(),
-    requestedProvider: req.requestedDiscoveryProvider,
-    resolvedProvider: discoveryProvider,
-  });
-  const lushaWaterfall: LushaWaterfallLegOutcome = isTavilyTrialRun
-    ? { executed: false, reason: 'admin_tavily_trial_run' }
-    : tavilyFirstSatisfied
+  const lushaWaterfall: LushaWaterfallLegOutcome = tavilyFirstSatisfied
     ? { executed: false, reason: 'tavily_first_reviewable_met' }
     : deps.runLushaWaterfallLeg
     ? await deps.runLushaWaterfallLeg({
