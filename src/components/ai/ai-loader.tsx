@@ -40,7 +40,7 @@ export function AILoader({
       <div className={cn("flex flex-col gap-4 rounded-2xl border su-ai-border bg-card/50 p-6 su-ai-glow", className)} role="status" aria-live="polite">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl su-ai-gradient text-su-brand-foreground shadow-lg">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl su-ai-gradient text-su-brand-foreground shadow-drawer">
               <Sparkles className="h-5 w-5" />
             </div>
             <div>
@@ -64,7 +64,7 @@ export function AILoader({
                 style={{ width: `${progress}%` }}
               />
             </div>
-            <div className="flex justify-end text-[10px] font-black su-ai-gradient-text uppercase tracking-widest">
+            <div className="flex justify-end text-xs font-bold su-ai-gradient-text">
               {Math.round(progress)}%
             </div>
           </div>

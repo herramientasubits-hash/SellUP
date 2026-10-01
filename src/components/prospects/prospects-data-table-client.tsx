@@ -106,10 +106,10 @@ const DUPLICATE_STATUS_OPTIONS = [
 const STATUS_STYLES: Record<CandidateStatus, string> = {
   generated: 'bg-muted text-muted-foreground',
   normalized: 'bg-muted text-muted-foreground',
-  needs_review: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-  approved: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-  discarded: 'bg-muted/60 text-muted-foreground/60',
-  duplicate: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
+  needs_review: 'bg-warning/10 text-warning',
+  approved: 'bg-success/10 text-success',
+  discarded: 'bg-surface-muted text-muted-foreground',
+  duplicate: 'bg-warning/10 text-warning',
   converted_to_account: 'bg-su-brand-soft text-su-brand',
 };
 
@@ -209,12 +209,12 @@ function getDisplayStatusStyle(candidate: Row): string {
     candidate.duplicate_status === 'possible_duplicate' ||
     candidate.duplicate_status === 'exact_duplicate';
 
-  if (enrichmentStatus === 'pending') return 'bg-muted text-muted-foreground/80';
+  if (enrichmentStatus === 'pending') return 'bg-muted text-muted-foreground';
   if (enrichmentStatus === 'enriching') return 'bg-su-brand-soft text-su-brand';
   if (enrichmentStatus === 'failed') return 'bg-destructive/10 text-destructive';
 
-  if (validationMeta && !hasDuplicate) return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
-  if (candidate.status === 'needs_review' || candidate.status === 'generated' || candidate.status === 'normalized') return 'bg-amber-500/10 text-amber-600 dark:text-amber-400';
+  if (validationMeta && !hasDuplicate) return 'bg-success/10 text-success';
+  if (candidate.status === 'needs_review' || candidate.status === 'generated' || candidate.status === 'normalized') return 'bg-warning/10 text-warning';
   return STATUS_STYLES[candidate.status] ?? 'bg-muted text-muted-foreground';
 }
 
@@ -327,7 +327,7 @@ function DuplicateCheckCell({ candidate }: { candidate: Row }) {
     primaryDupStyle = 'bg-destructive/10 text-destructive';
   } else if (sellupStatus === 'possible_duplicate' || hsStatus === 'possible_match') {
     primaryDupLabel = 'Posible duplicado';
-    primaryDupStyle = 'bg-amber-500/10 text-amber-600 dark:text-amber-400';
+    primaryDupStyle = 'bg-warning/10 text-warning';
   } else if (sellupStatus === 'no_match' || hsStatus === 'no_match') {
     primaryDupLabel = 'Sin coincidencias';
   }
@@ -350,7 +350,7 @@ function DuplicateCheckCell({ candidate }: { candidate: Row }) {
         <Tooltip>
           <TooltipTrigger render={
             primaryDupStyle ? (
-              <Badge className={`${primaryDupStyle} border-0 text-[10px] font-semibold w-fit py-0.5 cursor-help`}>
+              <Badge className={`${primaryDupStyle} border-0 text-xs font-semibold w-fit py-0.5 cursor-help`}>
                 {primaryDupLabel}
               </Badge>
             ) : (
@@ -359,8 +359,8 @@ function DuplicateCheckCell({ candidate }: { candidate: Row }) {
               </span>
             )
           } />
-          <TooltipContent className="text-[11px] leading-relaxed bg-popover text-popover-foreground border border-border p-2.5 rounded-xl shadow-md z-[70] space-y-1">
-            <p className="font-semibold text-xs border-b border-border/40 pb-1 mb-1">Detalle de Duplicidad</p>
+          <TooltipContent className="text-xs leading-relaxed bg-popover text-popover-foreground border border-border p-2.5 rounded-xl shadow-drawer z-[70] space-y-1">
+            <p className="font-semibold text-xs border-b border-border/60 pb-1 mb-1">Detalle de Duplicidad</p>
             <p>{sellupTooltipLabel}</p>
             <p>{hsTooltipLabel}</p>
           </TooltipContent>
@@ -370,7 +370,7 @@ function DuplicateCheckCell({ candidate }: { candidate: Row }) {
       {matches.length > 0 && (
         <button
           onClick={() => setDetailOpen(true)}
-          className="text-[10px] text-amber-600 dark:text-amber-400 hover:underline text-left font-medium"
+          className="text-xs text-warning hover:underline text-left font-medium"
         >
           {matches.length === 1 ? '1 coincidencia' : `${matches.length} coincidencias`}
         </button>
@@ -392,13 +392,13 @@ function DuplicateCheckCell({ candidate }: { candidate: Row }) {
             {matches.length > 0 ? (
               <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
                 {matches.map((match, i) => (
-                  <div key={i} className="rounded-xl border border-border/40 bg-card p-3 space-y-1">
+                  <div key={i} className="rounded-2xl border border-border/60 bg-card p-3 space-y-1">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold text-foreground">
                         {match.source === 'sellup' ? 'SellUp' : match.source === 'hubspot' ? 'HubSpot' : match.source}
                       </span>
                       {match.confidence !== null && (
-                        <span className="text-[10px] text-muted-foreground tabular-nums">
+                        <span className="text-xs text-muted-foreground tabular-nums">
                           Conf: {match.confidence}%
                         </span>
                       )}
@@ -420,7 +420,7 @@ function DuplicateCheckCell({ candidate }: { candidate: Row }) {
                       </a>
                     )}
                     {match.reason && (
-                      <p className="text-[10px] text-muted-foreground/70 italic">{match.reason}</p>
+                      <p className="text-xs text-muted-foreground italic">{match.reason}</p>
                     )}
                   </div>
                 ))}
@@ -468,14 +468,14 @@ function QualityCell({ candidate }: { candidate: Row }) {
   // Design Refresh v1: la celda dejó de usar badge — un punto de color + texto
   // plano reduce el ruido (máx. un badge de color por fila: el de Estado).
   let completenessText = 'Información completa';
-  let completenessDot = 'bg-emerald-500';
+  let completenessDot = 'bg-success';
   if (missingFields.length > 0) {
     if (missingFields.length >= 3 && !candidate.website && !candidate.tax_identifier) {
       completenessText = 'Sin evidencia';
       completenessDot = 'bg-border';
     } else {
       completenessText = `${missingFields.length} ${missingFields.length === 1 ? 'dato pendiente' : 'datos pendientes'}`;
-      completenessDot = 'bg-amber-500';
+      completenessDot = 'bg-warning';
     }
   }
 
@@ -516,34 +516,34 @@ function QualityCell({ candidate }: { candidate: Row }) {
               <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${completenessDot}`} />
               {completenessText}
             </span>
-            <span className="text-[11px] leading-none text-muted-foreground/80">
+            <span className="text-xs leading-none text-muted-foreground">
               {confidenceText}
               {fiscalStatusKey !== 'none' && ` · ${fiscalText}`}
             </span>
           </div>
         } />
-        <TooltipContent className="max-w-xs text-[11px] leading-relaxed bg-popover text-popover-foreground border border-border p-3 rounded-xl shadow-md z-[70] space-y-1.5">
-          <p className="font-semibold text-xs border-b border-border/40 pb-1 mb-1">Detalle de Calidad</p>
+        <TooltipContent className="max-w-xs text-xs leading-relaxed bg-popover text-popover-foreground border border-border p-3 rounded-xl shadow-drawer z-[70] space-y-1.5">
+          <p className="font-semibold text-xs border-b border-border/60 pb-1 mb-1">Detalle de Calidad</p>
           <ul className="space-y-1 text-muted-foreground">
             <li className="flex items-center gap-1.5">
-              <span className={candidate.website ? 'text-emerald-500' : 'text-amber-500'}>
+              <span className={candidate.website ? 'text-success' : 'text-warning'}>
                 {candidate.website ? '✓' : '✗'}
               </span>
               <span>Sitio web: {candidate.website ? 'Presente' : 'Pendiente'}</span>
             </li>
             <li className="flex items-center gap-1.5">
-              <span className={!missingFields.includes('linkedin_url') ? 'text-emerald-500' : 'text-amber-500'}>
+              <span className={!missingFields.includes('linkedin_url') ? 'text-success' : 'text-warning'}>
                 {!missingFields.includes('linkedin_url') ? '✓' : '✗'}
               </span>
               <span>LinkedIn: {!missingFields.includes('linkedin_url') ? 'Presente' : 'Pendiente'}</span>
             </li>
             <li className="flex items-center gap-1.5">
-              <span className={candidate.tax_identifier ? 'text-emerald-500' : fiscalStatusKey === 'to_review' ? 'text-amber-500' : 'text-muted-foreground/60'}>
+              <span className={candidate.tax_identifier ? 'text-success' : fiscalStatusKey === 'to_review' ? 'text-warning' : 'text-muted-foreground'}>
                 {candidate.tax_identifier ? '✓' : fiscalStatusKey === 'to_review' ? '?' : '✗'}
               </span>
               <span>Identificador fiscal: {candidate.tax_identifier ? `Presente (${candidate.tax_identifier_type || 'NIT'})` : fiscalStatusKey === 'to_review' ? 'Sugerido por revisar' : 'No disponible'}</span>
             </li>
-            <li className="flex items-center gap-1.5 border-t border-border/20 pt-1 mt-1">
+            <li className="flex items-center gap-1.5 border-t border-border/50 pt-1 mt-1">
               <span className="font-medium">Nivel de confianza:</span>
               <span className="text-foreground capitalize">{confidenceText.split(' ')[1]}</span>
             </li>
@@ -562,7 +562,7 @@ function StatusCell({ candidate }: { candidate: Row }) {
   const enrichmentError = enrichment.error_message as string | undefined;
 
   const badgeNode = (
-    <Badge className={`${statusStyle} border-0 text-[10px] font-semibold py-0.5 w-fit ${enrichmentStatus === 'enriching' ? 'animate-pulse' : ''}`}>
+    <Badge className={`${statusStyle} border-0 text-xs font-semibold py-0.5 w-fit ${enrichmentStatus === 'enriching' ? 'animate-pulse' : ''}`}>
       {statusLabel}
     </Badge>
   );
@@ -571,7 +571,7 @@ function StatusCell({ candidate }: { candidate: Row }) {
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger render={badgeNode} />
-        <TooltipContent className="max-w-xs text-[11px] leading-relaxed bg-destructive text-destructive-foreground border-0 p-2.5 rounded-xl shadow-md z-[70]">
+        <TooltipContent className="max-w-xs text-xs leading-relaxed bg-destructive text-destructive-foreground border-0 p-2.5 rounded-xl shadow-drawer z-[70]">
           <p className="font-semibold text-xs border-b border-white/20 pb-1 mb-1">Detalle del Error</p>
           <p>{enrichmentError || 'Error desconocido durante el enriquecimiento con IA.'}</p>
         </TooltipContent>
@@ -608,11 +608,11 @@ function StatusCell({ candidate }: { candidate: Row }) {
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger render={
-            <span className="text-[11px] text-muted-foreground/80 cursor-help hover:text-foreground font-medium transition-colors">
+            <span className="text-xs text-muted-foreground cursor-help hover:text-foreground font-medium transition-colors">
               {evalText}
             </span>
           } />
-          <TooltipContent className="max-w-xs text-[11px] leading-relaxed bg-popover text-popover-foreground border border-border p-2 rounded shadow-md z-[70]">
+          <TooltipContent className="max-w-xs text-xs leading-relaxed bg-popover text-popover-foreground border border-border p-2 rounded shadow-drawer z-[70]">
             Evaluación automática basada en la información pública disponible. No reemplaza la revisión comercial.
           </TooltipContent>
         </Tooltip>
@@ -813,26 +813,26 @@ export function ProspectsDataTableClient({
                   {c.name}
                 </button>
                 {isChileOfficialCandidate ? (
-                  <Badge className="border-0 bg-su-brand-soft text-su-brand text-[10px] font-semibold flex items-center gap-0.5 px-1.5 py-0.5 shrink-0">
+                  <Badge className="border-0 bg-su-brand-soft text-su-brand text-xs font-semibold flex items-center gap-0.5 px-1.5 py-0.5 shrink-0">
                     <ShieldCheck className="h-2.5 w-2.5" />
                     Fuente oficial Chile
                   </Badge>
                 ) : isStructuredCandidate(c) ? (
-                  <Badge className="border-0 bg-su-brand-soft text-su-brand text-[10px] font-semibold flex items-center gap-0.5 px-1.5 py-0.5 shrink-0">
+                  <Badge className="border-0 bg-su-brand-soft text-su-brand text-xs font-semibold flex items-center gap-0.5 px-1.5 py-0.5 shrink-0">
                     <ShieldCheck className="h-2.5 w-2.5" />
                     {VENDOR_STRUCTURED_SOURCE_LABELS[c.source_primary ?? ''] ?? 'Fuente oficial'}
                   </Badge>
                 ) : null}
               </div>
               {location && (
-                <p className="text-[10px] text-muted-foreground/75 leading-tight">{location}</p>
+                <p className="text-xs text-muted-foreground/75 leading-tight">{location}</p>
               )}
               {c.website && (
                 <a
                   href={c.website.startsWith('http') ? c.website : `https://${c.website}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-[10px] text-su-brand hover:underline font-medium"
+                  className="inline-flex items-center gap-1 text-xs text-su-brand hover:underline font-medium"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <Globe className="h-2.5 w-2.5" />
@@ -845,7 +845,7 @@ export function ProspectsDataTableClient({
                   href={companyLinkedInUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-[10px] text-su-brand hover:underline font-medium"
+                  className="inline-flex items-center gap-1 text-xs text-su-brand hover:underline font-medium"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <Link2 className="h-2.5 w-2.5" />
@@ -929,7 +929,7 @@ export function ProspectsDataTableClient({
                 {c.created_at ? formatProspectDate(c.created_at) : '—'}
               </span>
               {isNew && (
-                <Badge className="border-0 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[9px] font-semibold px-1.5 py-0.5 shrink-0">
+                <Badge className="border-0 bg-success/10 text-success text-xs font-semibold px-1.5 py-0.5 shrink-0">
                   Nuevo
                 </Badge>
               )}
@@ -1260,7 +1260,7 @@ export function ProspectsDataTableClient({
                 value={batchStats.total > 0 ? ((batchStats.completed + batchStats.failed) / batchStats.total) * 100 : 0}
                 className="h-1.5 bg-su-brand/10"
               />
-              <div className="flex items-center justify-between text-[10px] text-muted-foreground/70">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span>
                   {batchStats.completed + batchStats.failed} de {batchStats.total} procesados
                 </span>
@@ -1301,8 +1301,8 @@ export function ProspectsDataTableClient({
         }
         emptyState={
           <div className="flex flex-col items-center justify-center py-12 text-center">
-            <div className="mb-3 rounded-full bg-muted/60 p-3">
-              <Building2 className="h-6 w-6 text-muted-foreground/40" />
+            <div className="mb-3 rounded-full bg-surface-muted p-3">
+              <Building2 className="h-6 w-6 text-text-muted" />
             </div>
             <p className="text-sm font-medium text-foreground">Sin prospectos</p>
             <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto">

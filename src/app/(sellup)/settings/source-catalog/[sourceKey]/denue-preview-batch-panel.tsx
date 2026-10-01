@@ -35,8 +35,8 @@ export function DenuePreviewBatchPanel({ hasStoredCredential, isAdmin }: Props) 
 
   return (
     <SurfaceCard>
-      <h2 className="text-[0.8125rem] font-semibold text-foreground  mb-4 flex items-center gap-2">
-        <Database className="h-4 w-4 text-muted-foreground/70" />
+      <h2 className="text-sm font-semibold text-foreground  mb-4 flex items-center gap-2">
+        <Database className="h-4 w-4 text-muted-foreground" />
         Crear lote preview
       </h2>
 
@@ -46,13 +46,13 @@ export function DenuePreviewBatchPanel({ hasStoredCredential, isAdmin }: Props) 
       </p>
 
       {!isAdmin && (
-        <p className="text-xs text-amber-600 dark:text-amber-400 mb-4">
+        <p className="text-xs text-warning mb-4">
           Solo administradores pueden crear lotes preview.
         </p>
       )}
 
       {isAdmin && !hasStoredCredential && (
-        <p className="text-xs text-amber-600 dark:text-amber-400 mb-4">
+        <p className="text-xs text-warning mb-4">
           Configura la credencial DENUE antes de crear un lote preview.
         </p>
       )}
@@ -77,7 +77,7 @@ export function DenuePreviewBatchPanel({ hasStoredCredential, isAdmin }: Props) 
           {/* Estado */}
           <div className="flex items-start gap-2">
             {result.ok ? (
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
             ) : (
               <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
             )}
@@ -86,30 +86,30 @@ export function DenuePreviewBatchPanel({ hasStoredCredential, isAdmin }: Props) 
 
           {/* Detalle si fue exitoso */}
           {result.ok && result.batchId && (
-            <div className="rounded-lg border border-border/40 bg-muted/20 px-4 py-3 space-y-2">
+            <div className="rounded-lg border border-border/60 bg-surface-subtle px-4 py-3 space-y-2">
               <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
                 <div>
-                  <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+                  <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
                     Batch ID
                   </dt>
                   <dd className="font-mono text-foreground break-all">{result.batchId}</dd>
                 </div>
                 <div>
-                  <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+                  <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
                     Candidatos escritos
                   </dt>
                   <dd className="font-medium text-foreground tabular-nums">{result.candidatesWritten}</dd>
                 </div>
                 {result.candidatesSkipped > 0 && (
                   <div>
-                    <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+                    <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
                       Omitidos (novedad)
                     </dt>
                     <dd className="font-medium text-muted-foreground tabular-nums">{result.candidatesSkipped}</dd>
                   </div>
                 )}
               </dl>
-              <p className="text-[11px] text-muted-foreground border-t border-border/30 pt-2 mt-2">
+              <p className="text-xs text-muted-foreground border-t border-border/50 pt-2 mt-2">
                 Lote en estado <span className="font-medium text-foreground">ready_for_review</span>. Valida con SQL usando el Batch ID. Después del QA ejecutar rollback lógico.
               </p>
             </div>
@@ -124,7 +124,7 @@ export function DenuePreviewBatchPanel({ hasStoredCredential, isAdmin }: Props) 
           {result.warnings.length > 0 && (
             <div className="space-y-1">
               {result.warnings.map((w, i) => (
-                <div key={i} className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                <div key={i} className="flex items-start gap-1.5 text-xs text-warning">
                   <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
                   <span>{w}</span>
                 </div>

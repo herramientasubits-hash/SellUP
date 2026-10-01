@@ -140,7 +140,7 @@ export function ContactRowActions({ contact, onActionComplete }: ContactRowActio
     <>
       <DropdownMenu>
         <DropdownMenuTrigger disabled={pending}>
-          <div className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md hover:bg-accent transition-colors">
+          <div className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md hover:bg-surface-muted transition-colors">
             <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
             <span className="sr-only">Acciones</span>
           </div>
@@ -184,7 +184,7 @@ export function ContactRowActions({ contact, onActionComplete }: ContactRowActio
 
           {hubspotAction.kind === 'observed_synced' ? (
             <DropdownMenuItem disabled>
-              <CheckCircle2 className="mr-2 h-3.5 w-3.5 text-emerald-500" />
+              <CheckCircle2 className="mr-2 h-3.5 w-3.5 text-success" />
               {hubspotAction.label}
             </DropdownMenuItem>
           ) : hubspotAction.triggersNetwork ? (

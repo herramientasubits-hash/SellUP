@@ -50,14 +50,14 @@ export function SegmentedControl({
   className,
 }: SegmentedControlProps) {
   const containerStyles = {
-    solid: "p-1 bg-muted/50 rounded-lg border border-border/50",
+    solid: "p-1 bg-surface-muted rounded-lg border border-border/50",
     outline: "p-0.5 border border-border rounded-lg",
     underline: "p-0 border-b border-border rounded-none bg-transparent",
   }[variant];
 
   const segmentBase = cn(
     "relative flex items-center justify-center transition-all duration-200 outline-none focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-su-brand",
-    size === "sm" ? "px-3 py-1.5 text-[11px]" : "px-4 py-2 text-xs",
+    size === "sm" ? "px-3 py-1.5 text-xs" : "px-4 py-2 text-xs",
     fullWidth ? "flex-1" : "flex-initial min-w-[80px]"
   );
 
@@ -89,14 +89,14 @@ export function SegmentedControl({
               onClick={() => onChange?.(option.value)}
               className={cn(
                 segmentBase,
-                "font-bold uppercase tracking-wider",
+                "font-bold",
 
                 // Solid Variant logic
                 variant === "solid" && cn(
                   "rounded-md",
                   isActive
-                    ? "bg-card text-su-brand shadow-sm ring-1 ring-black/[0.05] dark:ring-white/[0.1]"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                    ? "bg-card text-su-brand shadow-card ring-1 ring-black/[0.05] dark:ring-white/[0.1]"
+                    : "text-muted-foreground hover:text-foreground hover:bg-surface-muted"
                 ),
 
                 // Outline Variant logic
@@ -104,7 +104,7 @@ export function SegmentedControl({
                   "rounded-md",
                   isActive
                     ? "bg-su-brand text-su-brand-foreground"
-                    : "text-muted-foreground hover:bg-muted"
+                    : "text-muted-foreground hover:bg-surface-muted"
                 ),
 
                 // Underline Variant logic

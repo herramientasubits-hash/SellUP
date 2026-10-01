@@ -49,27 +49,27 @@ export function DateRangeColumnHeader<TData>({
         render={
           <button
             type="button"
-            className="group inline-flex items-center gap-1.5 -mx-1.5 px-1.5 py-1 rounded-md hover:bg-muted/40 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            className="group inline-flex items-center gap-1.5 -mx-1.5 px-1.5 py-1 rounded-md hover:bg-surface-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
             aria-label={`Opciones de columna ${title}`}
           >
-            <span className="text-[11px] font-semibold tracking-wider uppercase text-foreground">
+            <span className="text-xs font-semibold text-foreground">
               {title}
             </span>
             {sorted === 'asc' && <ArrowUp className="h-3 w-3 text-foreground" strokeWidth={2.5} />}
             {sorted === 'desc' && <ArrowDown className="h-3 w-3 text-foreground" strokeWidth={2.5} />}
             {sorted === false && !isFiltered && (
-              <ChevronsUpDown className="h-3 w-3 text-muted-foreground/60 group-hover:text-muted-foreground" />
+              <ChevronsUpDown className="h-3 w-3 text-muted-foreground group-hover:text-muted-foreground" />
             )}
             {isFiltered && <ListFilter className="h-3 w-3 text-primary" strokeWidth={2.5} />}
           </button>
         }
       />
-      <PopoverContent align="start" sideOffset={6} className="w-64 p-0 rounded-xl border border-border/40 shadow-lg">
-        <div className="px-5 pt-3.5 pb-1.5 text-[10px] font-semibold tracking-wider uppercase text-muted-foreground">
+      <PopoverContent align="start" sideOffset={6} className="w-64 p-0 rounded-xl border border-border/60 shadow-drawer">
+        <div className="px-5 pt-3.5 pb-1.5 text-xs font-semibold text-muted-foreground">
           Fecha de creación
         </div>
 
-        <div className="px-5 pt-2.5 pb-1 text-[10px] font-semibold tracking-wider uppercase text-muted-foreground">
+        <div className="px-5 pt-2.5 pb-1 text-xs font-semibold text-muted-foreground">
           Ordenar
         </div>
         <div className="px-4 pb-2.5 flex items-center gap-1.5">
@@ -77,7 +77,7 @@ export function DateRangeColumnHeader<TData>({
             type="button"
             onClick={() => column.toggleSorting(false)}
             aria-pressed={sorted === 'asc'}
-            className={`flex-1 h-7 rounded-lg text-xs inline-flex items-center justify-center gap-1.5 border transition-colors ${sorted === 'asc' ? 'bg-foreground text-background border-foreground' : 'border-border hover:bg-muted/40 text-foreground'}`}
+            className={`flex-1 h-7 rounded-lg text-xs inline-flex items-center justify-center gap-1.5 border transition-colors ${sorted === 'asc' ? 'bg-foreground text-background border-foreground' : 'border-border hover:bg-surface-muted text-foreground'}`}
           >
             <ArrowUp className="h-3 w-3" />
             Asc
@@ -86,7 +86,7 @@ export function DateRangeColumnHeader<TData>({
             type="button"
             onClick={() => column.toggleSorting(true)}
             aria-pressed={sorted === 'desc'}
-            className={`flex-1 h-7 rounded-lg text-xs inline-flex items-center justify-center gap-1.5 border transition-colors ${sorted === 'desc' ? 'bg-foreground text-background border-foreground' : 'border-border hover:bg-muted/40 text-foreground'}`}
+            className={`flex-1 h-7 rounded-lg text-xs inline-flex items-center justify-center gap-1.5 border transition-colors ${sorted === 'desc' ? 'bg-foreground text-background border-foreground' : 'border-border hover:bg-surface-muted text-foreground'}`}
           >
             <ArrowDown className="h-3 w-3" />
             Desc
@@ -95,12 +95,12 @@ export function DateRangeColumnHeader<TData>({
 
         <Separator className="mx-4" />
 
-        <div className="px-5 pt-2.5 pb-1 text-[10px] font-semibold tracking-wider uppercase text-muted-foreground">
+        <div className="px-5 pt-2.5 pb-1 text-xs font-semibold text-muted-foreground">
           Filtrar por fecha
         </div>
         <div className="px-4 pb-3 space-y-2">
           <div className="space-y-1">
-            <label className="text-[10px] text-muted-foreground font-medium">Desde</label>
+            <label className="text-xs text-muted-foreground font-medium">Desde</label>
             <input
               type="date"
               value={filterValue.from ?? ''}
@@ -109,7 +109,7 @@ export function DateRangeColumnHeader<TData>({
             />
           </div>
           <div className="space-y-1">
-            <label className="text-[10px] text-muted-foreground font-medium">Hasta</label>
+            <label className="text-xs text-muted-foreground font-medium">Hasta</label>
             <input
               type="date"
               value={filterValue.to ?? ''}
@@ -126,7 +126,7 @@ export function DateRangeColumnHeader<TData>({
               <button
                 type="button"
                 onClick={clear}
-                className="w-full h-7 text-xs text-muted-foreground hover:text-foreground inline-flex items-center justify-center gap-1.5 rounded-md hover:bg-muted/40 transition-colors"
+                className="w-full h-7 text-xs text-muted-foreground hover:text-foreground inline-flex items-center justify-center gap-1.5 rounded-md hover:bg-surface-muted transition-colors"
               >
                 <X className="h-3 w-3" />
                 Limpiar filtros

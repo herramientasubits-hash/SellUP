@@ -62,7 +62,7 @@ export function isSvAutoMatchingEnabled(summary: SvComprasalSignalsSummary): boo
 
 function FieldRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-baseline justify-between gap-4 py-1.5 border-b border-border/30 last:border-0">
+    <div className="flex items-baseline justify-between gap-4 py-1.5 border-b border-border/50 last:border-0">
       <dt className="text-xs text-muted-foreground shrink-0">{label}</dt>
       <dd className="text-xs font-medium text-foreground text-right tabular-nums">{value}</dd>
     </div>
@@ -71,7 +71,7 @@ function FieldRow({ label, value }: { label: string; value: string }) {
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2 mt-4 first:mt-0">
+    <p className="text-xs font-semibold text-muted-foreground mb-2 mt-4 first:mt-0">
       {children}
     </p>
   );
@@ -112,18 +112,18 @@ export function SvComprasalSignalsCard({ summary, error }: SvComprasalSignalsCar
       <SurfaceCardHeader title="Señales COMPRASAL El Salvador" />
 
       {/* Tipo de señal */}
-      <div className="mb-4 rounded-lg border border-border/40 bg-muted/30 px-4 py-3">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
+      <div className="mb-4 rounded-lg border border-border/60 bg-surface-subtle px-4 py-3">
+        <p className="text-xs font-semibold text-muted-foreground mb-2">
           Tipo de señal
         </p>
         <div className="flex flex-wrap gap-1.5 mb-2">
-          <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+          <span className="inline-flex items-center rounded-full border border-warning/30 bg-warning/10 px-2.5 py-0.5 text-xs font-medium text-warning">
             Señal débil
           </span>
-          <span className="inline-flex items-center rounded-full border border-border/40 bg-muted/40 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+          <span className="inline-flex items-center rounded-full border border-border/60 bg-surface-subtle px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
             Solo nombre
           </span>
-          <span className="inline-flex items-center rounded-full border border-border/40 bg-muted/40 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+          <span className="inline-flex items-center rounded-full border border-border/60 bg-surface-subtle px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
             Revisión humana requerida
           </span>
         </div>
@@ -179,7 +179,7 @@ export function SvComprasalSignalsCard({ summary, error }: SvComprasalSignalsCar
 
       {/* Limitaciones */}
       <div className="mt-4">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
+        <p className="text-xs font-semibold text-muted-foreground mb-2">
           Limitaciones
         </p>
         <ul className="space-y-1.5">
@@ -194,8 +194,8 @@ export function SvComprasalSignalsCard({ summary, error }: SvComprasalSignalsCar
       </div>
 
       {/* Estado operativo */}
-      <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-amber-600 dark:text-amber-400 mb-1">
+      <div className="mt-4 rounded-lg border border-warning/20 bg-warning/5 px-4 py-3">
+        <p className="text-xs font-semibold text-warning mb-1">
           Estado operativo
         </p>
         <p className="text-xs text-muted-foreground leading-relaxed">
@@ -211,7 +211,7 @@ export function SvComprasalSignalsCard({ summary, error }: SvComprasalSignalsCar
       </div>
 
       {summary.dataSourceReason && (
-        <p className="mt-3 text-[11px] text-muted-foreground/60">
+        <p className="mt-3 text-xs text-muted-foreground">
           Motivo: lectura dinámica no disponible
         </p>
       )}

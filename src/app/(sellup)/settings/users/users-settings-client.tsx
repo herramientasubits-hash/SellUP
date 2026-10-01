@@ -30,8 +30,8 @@ const SUMMARY_CARDS: {
   {
     key: 'pending',
     label: 'Pendientes',
-    icon: <UserPlus className="h-4 w-4 text-amber-500" />,
-    colorClass: 'bg-amber-500/10',
+    icon: <UserPlus className="h-4 w-4 text-warning" />,
+    colorClass: 'bg-warning/10',
   },
   {
     key: 'preapproved',
@@ -42,14 +42,14 @@ const SUMMARY_CARDS: {
   {
     key: 'active',
     label: 'Activos',
-    icon: <UserCheck className="h-4 w-4 text-emerald-500" />,
-    colorClass: 'bg-emerald-500/10',
+    icon: <UserCheck className="h-4 w-4 text-success" />,
+    colorClass: 'bg-success/10',
   },
   {
     key: 'suspended',
     label: 'Suspendidos',
-    icon: <Pause className="h-4 w-4 text-orange-500" />,
-    colorClass: 'bg-orange-500/10',
+    icon: <Pause className="h-4 w-4 text-warning" />,
+    colorClass: 'bg-warning/10',
   },
   {
     key: 'rejected',
@@ -134,7 +134,7 @@ export function UsersSettingsClient({
         onValueChange={(v) => navigate(v, v === 'usuarios' ? activeFilter : undefined)}
         className="flex flex-col flex-1 min-h-0 mt-6"
       >
-        <TabsList className="bg-muted/50 flex-wrap h-auto gap-1 shrink-0">
+        <TabsList className="bg-surface-muted flex-wrap h-auto gap-1 shrink-0">
           <TabsTrigger value="usuarios" className="gap-2">
             <UserCheck className="h-4 w-4" />
             Usuarios

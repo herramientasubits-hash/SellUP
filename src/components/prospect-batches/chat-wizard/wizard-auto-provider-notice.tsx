@@ -48,7 +48,7 @@ export function WizardAutoProviderNotice({
         <p className="text-sm font-semibold text-foreground">{AUTO_PROVIDER_NOTICE_TITLE}</p>
         <p className="text-xs text-muted-foreground">{AUTO_PROVIDER_NOTICE_BODY}</p>
         {lushaBackupBlocked && (
-          <p className="text-xs text-amber-500" data-testid="wizard-auto-provider-lusha-blocked">
+          <p className="text-xs text-warning" data-testid="wizard-auto-provider-lusha-blocked">
             {AUTO_PROVIDER_NOTICE_LUSHA_UNAVAILABLE}
           </p>
         )}

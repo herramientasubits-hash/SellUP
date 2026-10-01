@@ -52,7 +52,7 @@ export function DataTableColumnHeader<TData, TValue>({
     return (
       <span
         className={cn(
-          "text-[11px] font-semibold tracking-wider uppercase text-muted-foreground",
+          "text-xs font-semibold text-muted-foreground",
           className,
         )}
       >
@@ -79,7 +79,7 @@ export function DataTableColumnHeader<TData, TValue>({
         )}
         aria-label={`Opciones de columna ${popoverTitle}`}
       >
-        <span className="text-[11px] font-semibold tracking-wider uppercase text-foreground">
+        <span className="text-xs font-semibold text-foreground">
           {title}
         </span>
         {canSort && sorted === "asc" && (
@@ -89,7 +89,7 @@ export function DataTableColumnHeader<TData, TValue>({
           <ArrowDown className="h-3 w-3 text-foreground" strokeWidth={2.5} />
         )}
         {canSort && sorted === false && !isFiltered && (
-          <ChevronsUpDown className="h-3 w-3 text-muted-foreground/60 group-hover:text-muted-foreground" />
+          <ChevronsUpDown className="h-3 w-3 text-muted-foreground group-hover:text-muted-foreground" />
         )}
         {isFiltered && (
           <ListFilter

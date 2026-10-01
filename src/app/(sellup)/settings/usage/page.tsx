@@ -38,26 +38,26 @@ function formatCost(usd: number, decimals = 4): string {
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; classes: string; dot: string }> = {
-    completed:      { label: 'Completado',  classes: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500', dot: 'bg-emerald-500' },
+    completed:      { label: 'Completado',  classes: 'border-success/30 bg-success/10 text-success', dot: 'bg-success' },
     running:        { label: 'En curso',    classes: 'border-su-brand/30 bg-su-brand/10 text-su-brand',         dot: 'bg-su-brand' },
     failed:         { label: 'Error',       classes: 'border-destructive/30 bg-destructive/10 text-destructive', dot: 'bg-destructive' },
-    cancelled:      { label: 'Cancelado',   classes: 'border-border/40 bg-muted/30 text-muted-foreground/60',   dot: 'bg-muted-foreground/25' },
-    pending:        { label: 'Pendiente',   classes: 'border-amber-500/30 bg-amber-500/10 text-amber-500',       dot: 'bg-amber-500' },
-    success:        { label: 'OK',          classes: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500', dot: 'bg-emerald-500' },
+    cancelled:      { label: 'Cancelado',   classes: 'border-border/60 bg-surface-subtle text-muted-foreground',   dot: 'bg-muted-foreground/25' },
+    pending:        { label: 'Pendiente',   classes: 'border-warning/30 bg-warning/10 text-warning',       dot: 'bg-warning' },
+    success:        { label: 'OK',          classes: 'border-success/30 bg-success/10 text-success', dot: 'bg-success' },
     error:          { label: 'Error',       classes: 'border-destructive/30 bg-destructive/10 text-destructive', dot: 'bg-destructive' },
-    rate_limited:   { label: 'Rate limit',  classes: 'border-amber-500/30 bg-amber-500/10 text-amber-500',       dot: 'bg-amber-500' },
+    rate_limited:   { label: 'Rate limit',  classes: 'border-warning/30 bg-warning/10 text-warning',       dot: 'bg-warning' },
     quota_exceeded: { label: 'Cuota',       classes: 'border-destructive/30 bg-destructive/10 text-destructive', dot: 'bg-destructive' },
-    active:         { label: 'Activo',      classes: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500', dot: 'bg-emerald-500' },
-    idle:           { label: 'Inactivo',    classes: 'border-border/40 bg-muted/30 text-muted-foreground/60',   dot: 'bg-muted-foreground/25' },
-    planned:        { label: 'Planificado', classes: 'border-amber-500/30 bg-amber-500/10 text-amber-500',       dot: 'bg-amber-500' },
+    active:         { label: 'Activo',      classes: 'border-success/30 bg-success/10 text-success', dot: 'bg-success' },
+    idle:           { label: 'Inactivo',    classes: 'border-border/60 bg-surface-subtle text-muted-foreground',   dot: 'bg-muted-foreground/25' },
+    planned:        { label: 'Planificado', classes: 'border-warning/30 bg-warning/10 text-warning',       dot: 'bg-warning' },
   };
   const config = map[status] ?? {
     label: status,
-    classes: 'border-border/40 bg-muted/30 text-muted-foreground/60',
+    classes: 'border-border/60 bg-surface-subtle text-muted-foreground',
     dot: 'bg-muted-foreground/25',
   };
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${config.classes}`}>
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${config.classes}`}>
       <span className={`h-1.5 w-1.5 rounded-full ${config.dot}`} />
       {config.label}
     </span>
@@ -67,17 +67,17 @@ function StatusBadge({ status }: { status: string }) {
 function EventTypeBadge({ type }: { type: string }) {
   const map: Record<string, string> = {
     generated:            'bg-su-brand/10 text-su-brand',
-    normalized:           'bg-muted/40 text-muted-foreground',
-    duplicate_detected:   'bg-amber-500/10 text-amber-500',
+    normalized:           'bg-surface-subtle text-muted-foreground',
+    duplicate_detected:   'bg-warning/10 text-warning',
     discarded:            'bg-destructive/10 text-destructive',
-    approved:             'bg-emerald-500/10 text-emerald-500',
-    converted_to_account: 'bg-emerald-500/10 text-emerald-600',
+    approved:             'bg-success/10 text-success',
+    converted_to_account: 'bg-success/10 text-success',
     sent_to_hubspot:      'bg-su-brand/10 text-su-brand',
-    contact_useful:       'bg-emerald-500/10 text-emerald-500',
+    contact_useful:       'bg-success/10 text-success',
     contact_invalid:      'bg-destructive/10 text-destructive',
   };
   return (
-    <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${map[type] ?? 'bg-muted/40 text-muted-foreground'}`}>
+    <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${map[type] ?? 'bg-surface-subtle text-muted-foreground'}`}>
       {type.replace(/_/g, ' ')}
     </span>
   );
@@ -95,9 +95,9 @@ function AgentRunsTable({ runs }: { runs: AgentRun[] }) {
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
-          <tr className="border-b border-border/40">
+          <tr className="border-b border-border/60">
             {['Agente', 'Estado', 'Generados', 'Aprobados', 'Costo est.', 'Hace'].map((h, i) => (
-              <th key={h} className={`pb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ${i < 2 ? 'text-left' : 'text-right'} pr-4 last:pr-0`}>{h}</th>
+              <th key={h} className={`pb-2 text-xs font-semibold text-muted-foreground ${i < 2 ? 'text-left' : 'text-right'} pr-4 last:pr-0`}>{h}</th>
             ))}
           </tr>
         </thead>
@@ -126,9 +126,9 @@ function ProviderLogsTable({ logs }: { logs: ProviderUsageLog[] }) {
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
-          <tr className="border-b border-border/40">
+          <tr className="border-b border-border/60">
             {['Proveedor', 'Operación', 'Estado', 'Resultados', 'Costo est.', 'Hace'].map((h, i) => (
-              <th key={h} className={`pb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ${i < 3 ? 'text-left' : 'text-right'} pr-4 last:pr-0`}>{h}</th>
+              <th key={h} className={`pb-2 text-xs font-semibold text-muted-foreground ${i < 3 ? 'text-left' : 'text-right'} pr-4 last:pr-0`}>{h}</th>
             ))}
           </tr>
         </thead>
@@ -165,9 +165,9 @@ function QualityEventsTable({ events }: { events: ResultQualityEvent[] }) {
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
-          <tr className="border-b border-border/40">
+          <tr className="border-b border-border/60">
             {['Tipo', 'Evento', 'Fuente', 'Notas', 'Hace'].map((h, i) => (
-              <th key={h} className={`pb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ${i < 4 ? 'text-left' : 'text-right'} pr-4 last:pr-0`}>{h}</th>
+              <th key={h} className={`pb-2 text-xs font-semibold text-muted-foreground ${i < 4 ? 'text-left' : 'text-right'} pr-4 last:pr-0`}>{h}</th>
             ))}
           </tr>
         </thead>
@@ -196,9 +196,9 @@ function MockAgentsTable({ agents }: { agents: MockAgentStat[] }) {
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
-          <tr className="border-b border-border/40">
+          <tr className="border-b border-border/60">
             {['Agente', 'Estado', 'Ejec.', 'Generados', 'Aprobados', 'Efectividad', 'Costo est.', 'Costo / aprobado'].map((h, i) => (
-              <th key={h} className={`pb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ${i < 2 ? 'text-left' : 'text-right'} pr-4 last:pr-0`}>{h}</th>
+              <th key={h} className={`pb-2 text-xs font-semibold text-muted-foreground ${i < 2 ? 'text-left' : 'text-right'} pr-4 last:pr-0`}>{h}</th>
             ))}
           </tr>
         </thead>
@@ -226,9 +226,9 @@ function MockProvidersTable({ providers }: { providers: MockProviderStat[] }) {
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
-          <tr className="border-b border-border/40">
+          <tr className="border-b border-border/60">
             {['Proveedor', 'Operación', 'Llamadas', 'Devueltos', 'Útiles', 'Efectividad', 'Costo est.', 'Costo / útil'].map((h, i) => (
-              <th key={h} className={`pb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ${i < 2 ? 'text-left' : 'text-right'} pr-4 last:pr-0`}>{h}</th>
+              <th key={h} className={`pb-2 text-xs font-semibold text-muted-foreground ${i < 2 ? 'text-left' : 'text-right'} pr-4 last:pr-0`}>{h}</th>
             ))}
           </tr>
         </thead>
@@ -242,10 +242,10 @@ function MockProvidersTable({ providers }: { providers: MockProviderStat[] }) {
               <td className="py-2.5 pr-4 text-right text-foreground font-medium">{p.usefulResults}</td>
               <td className="py-2.5 pr-4 text-right text-muted-foreground">{p.effectivenessRate.toFixed(1)}%</td>
               <td className="py-2.5 pr-4 text-right font-mono text-muted-foreground">
-                {p.estimatedCostUsd === 0 ? <span className="text-muted-foreground/40">—</span> : formatCost(p.estimatedCostUsd, 2)}
+                {p.estimatedCostUsd === 0 ? <span className="text-text-muted">—</span> : formatCost(p.estimatedCostUsd, 2)}
               </td>
               <td className="py-2.5 text-right font-mono text-muted-foreground">
-                {p.avgCostPerUsefulResult === 0 ? <span className="text-muted-foreground/40">—</span> : formatCost(p.avgCostPerUsefulResult)}
+                {p.avgCostPerUsefulResult === 0 ? <span className="text-text-muted">—</span> : formatCost(p.avgCostPerUsefulResult)}
               </td>
             </tr>
           ))}
@@ -263,17 +263,17 @@ function MockActivityTable({ items }: { items: MockActivityItem[] }) {
     <div className="divide-y divide-border/20">
       {items.map((item) => (
         <div key={item.id} className="flex items-center gap-3 py-2.5">
-          <span className="w-20 shrink-0 text-[10px] text-muted-foreground">{item.relativeTime}</span>
-          <span className="rounded bg-muted/40 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+          <span className="w-20 shrink-0 text-xs text-muted-foreground">{item.relativeTime}</span>
+          <span className="rounded bg-surface-subtle px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
             {typeLabel[item.type]}
           </span>
           <div className="flex min-w-0 flex-1 items-center gap-1.5 truncate">
             <span className="font-medium text-foreground">{item.providerOrAgent}</span>
-            <span className="text-muted-foreground/40">·</span>
+            <span className="text-text-muted">·</span>
             <span className="truncate text-muted-foreground">{item.operation}</span>
           </div>
           <StatusBadge status={item.status} />
-          <span className="w-20 shrink-0 text-right font-mono text-[10px] text-muted-foreground">
+          <span className="w-20 shrink-0 text-right font-mono text-xs text-muted-foreground">
             {item.estimatedCostUsd > 0 ? formatCost(item.estimatedCostUsd, 2) : '—'}
           </span>
         </div>
@@ -301,11 +301,11 @@ export default async function UsagePage() {
     activity.quality_events.length === 0;
 
   const summaryCards = [
-    { label: 'Ejecuciones',  value: isEmpty ? String(MOCK_SUMMARY.totalExecutions)   : String(summary.total_agent_runs),      sub: 'de agentes',           icon: Bot,          accent: 'text-foreground',   bg: 'bg-muted/40' },
-    { label: 'En curso',     value: isEmpty ? '0'                                     : String(summary.running_agent_runs),    sub: 'agentes activos',      icon: Zap,          accent: summary.running_agent_runs > 0 ? 'text-su-brand' : 'text-muted-foreground', bg: 'bg-muted/40' },
-    { label: 'Fallidas',     value: isEmpty ? '0'                                     : String(summary.failed_agent_runs),     sub: 'con error',            icon: Bot,          accent: summary.failed_agent_runs > 0 ? 'text-destructive' : 'text-muted-foreground', bg: 'bg-muted/40' },
-    { label: 'Llamadas API', value: isEmpty ? String(MOCK_SUMMARY.totalProviderCalls) : String(summary.total_provider_calls), sub: 'a proveedores',        icon: Plug,         accent: 'text-foreground',   bg: 'bg-muted/40' },
-    { label: 'Aprobados',    value: isEmpty ? String(MOCK_SUMMARY.totalApproved)      : '—',                                  sub: 'resultados aprobados', icon: CheckCircle2, accent: 'text-emerald-500',  bg: 'bg-emerald-500/10' },
+    { label: 'Ejecuciones',  value: isEmpty ? String(MOCK_SUMMARY.totalExecutions)   : String(summary.total_agent_runs),      sub: 'de agentes',           icon: Bot,          accent: 'text-foreground',   bg: 'bg-surface-subtle' },
+    { label: 'En curso',     value: isEmpty ? '0'                                     : String(summary.running_agent_runs),    sub: 'agentes activos',      icon: Zap,          accent: summary.running_agent_runs > 0 ? 'text-su-brand' : 'text-muted-foreground', bg: 'bg-surface-subtle' },
+    { label: 'Fallidas',     value: isEmpty ? '0'                                     : String(summary.failed_agent_runs),     sub: 'con error',            icon: Bot,          accent: summary.failed_agent_runs > 0 ? 'text-destructive' : 'text-muted-foreground', bg: 'bg-surface-subtle' },
+    { label: 'Llamadas API', value: isEmpty ? String(MOCK_SUMMARY.totalProviderCalls) : String(summary.total_provider_calls), sub: 'a proveedores',        icon: Plug,         accent: 'text-foreground',   bg: 'bg-surface-subtle' },
+    { label: 'Aprobados',    value: isEmpty ? String(MOCK_SUMMARY.totalApproved)      : '—',                                  sub: 'resultados aprobados', icon: CheckCircle2, accent: 'text-success',  bg: 'bg-success/10' },
     {
       label: 'Costo est.',
       value: isEmpty
@@ -335,7 +335,7 @@ export default async function UsagePage() {
         description="Foundation operativa para monitorear ejecuciones de agentes, llamadas a proveedores y calidad de resultados."
         backHref="/settings"
         actions={isEmpty ? (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[10px] font-semibold text-amber-500">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-warning/30 bg-warning/10 px-2.5 py-1 text-xs font-semibold text-warning">
             <FlaskConical className="h-3 w-3" />
             Datos demo
           </span>
@@ -396,7 +396,7 @@ export default async function UsagePage() {
             <SurfaceCardHeader
               title="Efectividad por proveedor"
               description="Llamadas, resultados útiles y costo por proveedor — datos ilustrativos."
-              actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/40"><Plug className="h-4 w-4 text-muted-foreground" /></div>}
+              actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface-subtle"><Plug className="h-4 w-4 text-muted-foreground" /></div>}
             />
             <MockProvidersTable providers={MOCK_PROVIDERS} />
           </SurfaceCard>
@@ -456,7 +456,7 @@ export default async function UsagePage() {
             <p className="text-xs font-medium text-foreground">Configuración de costos por proveedor</p>
             <p className="text-xs text-muted-foreground">
               Los costos dependen de{' '}
-              <code className="rounded bg-muted px-1 py-0.5 text-[11px]">provider_pricing_config</code>.{' '}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">provider_pricing_config</code>.{' '}
               Apollo y Lusha ya cuentan con costo estimado por crédito según los contratos vigentes.
               Otros proveedores (Anthropic, OpenAI) pueden requerir configuración adicional según el modelo activo.
             </p>

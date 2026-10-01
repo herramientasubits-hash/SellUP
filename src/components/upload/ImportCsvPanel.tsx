@@ -110,7 +110,7 @@ export function ImportCsvPanel({
                 status={status}
                 label={status === "uploading" ? "Cargando archivo..." : status === "validating" ? "Validando datos..." : "Procesado"}
                 error={error}
-                className="bg-muted/30 p-4 rounded-xl border border-border/50"
+                className="bg-surface-subtle p-4 rounded-xl border border-border/50"
               />
             )}
           </div>
@@ -122,7 +122,7 @@ export function ImportCsvPanel({
             <div className="flex items-center justify-between">
               <h4 className="text-sm font-bold flex items-center gap-2">
                 Previsualización de Datos
-                <span className="text-[10px] font-normal px-1.5 py-0.5 rounded bg-muted text-muted-foreground uppercase">
+                <span className="text-xs font-normal px-1.5 py-0.5 rounded bg-muted text-muted-foreground uppercase">
                   Primeras {previewRows?.length} filas
                 </span>
               </h4>
@@ -132,9 +132,9 @@ export function ImportCsvPanel({
               <div className="rounded-xl border border-border/50 overflow-hidden bg-muted/5">
                 <Table>
                   <TableHeader>
-                    <TableRow className="bg-muted/30 hover:bg-muted/30">
+                    <TableRow className="bg-surface-subtle hover:bg-surface-muted">
                       {previewColumns.map((col) => (
-                        <TableHead key={col.key} className="h-10 text-[10px] font-bold uppercase tracking-wider">
+                        <TableHead key={col.key} className="h-10 text-xs font-bold">
                           {col.label}
                         </TableHead>
                       ))}
@@ -142,7 +142,7 @@ export function ImportCsvPanel({
                   </TableHeader>
                   <TableBody>
                     {previewRows.map((row, idx) => (
-                      <TableRow key={idx} className="hover:bg-muted/20">
+                      <TableRow key={idx} className="hover:bg-surface-muted">
                         {previewColumns.map((col) => (
                           <TableCell key={col.key} className="py-2 text-xs truncate max-w-[200px]">
                             {String(row[col.key] ?? "")}
@@ -174,7 +174,7 @@ export function ImportCsvPanel({
 
         {/* Footer Actions */}
         {actions && (
-          <div className="px-6 py-4 bg-muted/20 border-t border-border/50 flex items-center justify-end gap-3">
+          <div className="px-6 py-4 bg-surface-subtle border-t border-border/50 flex items-center justify-end gap-3">
             {actions}
           </div>
         )}

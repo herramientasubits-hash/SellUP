@@ -108,7 +108,7 @@ export function RadioCardGroup({
                     <Badge
                       variant="outline"
                       className={cn(
-                        "font-bold uppercase tracking-wider text-[9px]",
+                        "font-bold text-xs",
                         "group-data-[state=checked]:bg-su-brand group-data-[state=checked]:text-su-brand-foreground group-data-[state=checked]:border-transparent"
                       )}
                     >
@@ -119,7 +119,7 @@ export function RadioCardGroup({
 
                 <div className="flex flex-col min-w-0 flex-1">
                   {option.eyebrow && (
-                    <span className="text-[10px] font-bold text-su-brand/70 uppercase tracking-widest mb-1">
+                    <span className="text-xs font-bold text-su-brand/70 mb-1">
                       {option.eyebrow}
                     </span>
                   )}
@@ -134,7 +134,7 @@ export function RadioCardGroup({
                 </div>
 
                 <div className={cn(
-                  "absolute top-2 right-2 flex items-center justify-center h-5 w-5 bg-su-brand rounded-full text-su-brand-foreground shadow-sm scale-0 transition-transform duration-200",
+                  "absolute top-2 right-2 flex items-center justify-center h-5 w-5 bg-su-brand rounded-full text-su-brand-foreground shadow-card scale-0 transition-transform duration-200",
                   "group-data-[state=checked]:scale-100"
                 )}>
                   <CheckCircle2 className="h-3 w-3" />

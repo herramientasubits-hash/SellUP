@@ -65,7 +65,7 @@ export function formatActiveHabidoDetail(activeHabidoRows: number, auditedActive
 
 function FieldRow({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="flex items-baseline justify-between gap-4 py-1.5 border-b border-border/30 last:border-0">
+    <div className="flex items-baseline justify-between gap-4 py-1.5 border-b border-border/50 last:border-0">
       <dt className="text-xs text-muted-foreground shrink-0">{label}</dt>
       <dd className="text-xs font-medium text-foreground text-right tabular-nums">{value}</dd>
     </div>
@@ -82,14 +82,14 @@ function CoverageMetric({
   detail: string;
 }) {
   return (
-    <div className="py-2 border-b border-border/30">
+    <div className="py-2 border-b border-border/50">
       <div className="flex items-baseline justify-between gap-4">
         <dt className="text-xs text-muted-foreground shrink-0">{label}</dt>
         <dd className="text-xs font-medium text-foreground text-right tabular-nums">
           {formatCoveragePercent(percent)}
         </dd>
       </div>
-      <p className="mt-0.5 text-[11px] text-muted-foreground/80">{detail}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{detail}</p>
     </div>
   );
 }
@@ -97,7 +97,7 @@ function CoverageMetric({
 function GuardrailItem({ text }: { text: string }) {
   return (
     <li className="flex gap-2 text-xs text-muted-foreground">
-      <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500/50" />
+      <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-warning/50" />
       {text}
     </li>
   );
@@ -138,7 +138,7 @@ export function PeruCoverageCard({ summary, error }: Props) {
         <section aria-labelledby="peru-sunat-heading">
           <h3
             id="peru-sunat-heading"
-            className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-3"
+            className="text-xs font-semibold text-muted-foreground mb-3"
           >
             SUNAT Padrón Reducido
           </h3>
@@ -160,11 +160,11 @@ export function PeruCoverageCard({ summary, error }: Props) {
             <FieldRow label="INACTIVO + HABIDO" value={formatLoadedRows(sunat.inactiveHabidoRows)} />
             <FieldRow label="INACTIVO + NO HABIDO" value={formatLoadedRows(sunat.inactiveNotHabidoRows)} />
           </dl>
-          <p className="mt-2 text-[11px] text-muted-foreground/80">
+          <p className="mt-2 text-xs text-muted-foreground">
             Fuente del indicador: {formatCoverageSource(sunat.coverageSource)}
           </p>
           {formatCoverageSourceReason(sunat.coverageSourceReason) && (
-            <p className="mt-0.5 text-[11px] text-muted-foreground/60">
+            <p className="mt-0.5 text-xs text-muted-foreground">
               Motivo: {formatCoverageSourceReason(sunat.coverageSourceReason)}
             </p>
           )}
@@ -174,7 +174,7 @@ export function PeruCoverageCard({ summary, error }: Props) {
         <section aria-labelledby="peru-migo-heading">
           <h3
             id="peru-migo-heading"
-            className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-3"
+            className="text-xs font-semibold text-muted-foreground mb-3"
           >
             Migo API Perú
           </h3>
@@ -188,7 +188,7 @@ export function PeruCoverageCard({ summary, error }: Props) {
         <section aria-labelledby="peru-guardrails-heading">
           <h3
             id="peru-guardrails-heading"
-            className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-3"
+            className="text-xs font-semibold text-muted-foreground mb-3"
           >
             Guardrails
           </h3>

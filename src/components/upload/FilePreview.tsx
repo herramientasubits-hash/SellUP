@@ -106,11 +106,11 @@ export function FilePreview({
 
         <div className="flex-1 min-w-0 flex flex-col">
           <span className="text-sm font-medium truncate">{name}</span>
-          <span className="text-[10px] text-muted-foreground uppercase tracking-tight">
+          <span className="text-xs text-muted-foreground uppercase tracking-tight">
             {formatFileSize(size)} • {kind}
           </span>
           {hasError && (
-            <span className="text-[10px] text-destructive font-medium mt-0.5 flex items-center gap-1">
+            <span className="text-xs text-destructive font-medium mt-0.5 flex items-center gap-1">
               <AlertCircle className="h-2.5 w-2.5" />
               {error}
             </span>
@@ -121,7 +121,7 @@ export function FilePreview({
           <button
             type="button"
             onClick={onRemove}
-            className="p-1.5 hover:bg-muted rounded-full transition-colors text-muted-foreground hover:text-destructive"
+            className="p-1.5 hover:bg-surface-muted rounded-full transition-colors text-muted-foreground hover:text-destructive"
             aria-label={`Remove ${name}`}
           >
             <X className="h-4 w-4" />
@@ -134,7 +134,7 @@ export function FilePreview({
   // Default: Card variant
   return (
     <div className={cn(
-      "flex flex-col p-4 rounded-xl border bg-card border-border/50 shadow-sm transition-all",
+      "flex flex-col p-4 rounded-2xl border bg-card border-border/50 shadow-card transition-all",
       hasError && "border-destructive/50 ring-1 ring-destructive/20",
       !disabled && !hasError && "hover:border-su-brand/30",
       disabled && "opacity-50 grayscale-[0.5]",
@@ -142,7 +142,7 @@ export function FilePreview({
     )}>
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className={cn(
-          "p-3 rounded-xl bg-muted/50 border border-border/50",
+          "p-3 rounded-xl bg-surface-muted border border-border/50",
           hasError ? "text-destructive bg-destructive/10" : "text-su-brand"
         )}>
           <Icon className="h-6 w-6" />
@@ -151,7 +151,7 @@ export function FilePreview({
           <button
             type="button"
             onClick={onRemove}
-            className="p-1.5 hover:bg-muted rounded-full transition-colors text-muted-foreground hover:text-destructive"
+            className="p-1.5 hover:bg-surface-muted rounded-full transition-colors text-muted-foreground hover:text-destructive"
             aria-label={`Remove ${name}`}
           >
             <X className="h-4 w-4" />
@@ -162,10 +162,10 @@ export function FilePreview({
       <div className="flex flex-col min-w-0">
         <span className="text-sm font-bold truncate" title={name}>{name}</span>
         <div className="flex items-center gap-2 mt-0.5">
-          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+          <span className="text-xs font-semibold text-muted-foreground">
             {formatFileSize(size)}
           </span>
-          <span className="text-[10px] font-bold text-su-brand/70 uppercase px-1.5 py-0.5 rounded-md bg-su-brand/5 border border-su-brand/10">
+          <span className="text-xs font-bold text-su-brand/70 uppercase px-1.5 py-0.5 rounded-md bg-su-brand/5 border border-su-brand/10">
             {kind}
           </span>
         </div>
@@ -173,7 +173,7 @@ export function FilePreview({
         {hasError && (
           <div className="mt-3 flex items-start gap-2 p-2 rounded-lg bg-destructive/10 border border-destructive/20">
             <AlertCircle className="h-3 w-3 text-destructive shrink-0 mt-0.5" />
-            <span className="text-[10px] text-destructive font-medium leading-tight">
+            <span className="text-xs text-destructive font-medium leading-tight">
               {error}
             </span>
           </div>

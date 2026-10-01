@@ -129,7 +129,7 @@ export default async function SourceDetailPage({ params }: Props) {
                 href={source.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-[0.8rem] font-medium text-foreground transition-colors hover:bg-muted"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-surface-muted"
               >
                 <ExternalLink className="h-3.5 w-3.5" />
                 Abrir URL
@@ -145,13 +145,13 @@ export default async function SourceDetailPage({ params }: Props) {
           <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
           {statusLabel}
         </span>
-        <span className="inline-flex items-center rounded-full border border-border/40 bg-muted/30 px-3 py-1 text-xs font-medium text-muted-foreground">
+        <span className="inline-flex items-center rounded-full border border-border/60 bg-surface-subtle px-3 py-1 text-xs font-medium text-muted-foreground">
           {PRIORITY_LABELS[source.priority]}
         </span>
-        <span className="inline-flex items-center rounded-full border border-border/40 bg-muted/30 px-3 py-1 text-xs font-medium text-muted-foreground">
+        <span className="inline-flex items-center rounded-full border border-border/60 bg-surface-subtle px-3 py-1 text-xs font-medium text-muted-foreground">
           {TYPE_LABELS[source.type]}
         </span>
-        <span className="inline-flex items-center rounded-full border border-border/40 bg-muted/30 px-3 py-1 text-xs font-medium text-muted-foreground">
+        <span className="inline-flex items-center rounded-full border border-border/60 bg-surface-subtle px-3 py-1 text-xs font-medium text-muted-foreground">
           Automatización: {AUTOMATION_LEVEL_LABELS[source.automationLevel]}
         </span>
       </div>
@@ -159,25 +159,25 @@ export default async function SourceDetailPage({ params }: Props) {
       <div className="grid gap-4 md:grid-cols-2">
         {/* Info general */}
         <SurfaceCard>
-          <h2 className="text-[0.8125rem] font-semibold text-foreground  mb-4">
+          <h2 className="text-sm font-semibold text-foreground  mb-4">
             Información general
           </h2>
           <dl className="space-y-3 text-sm">
             <div>
-              <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+              <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
                 Key
               </dt>
               <dd className="font-mono text-foreground">{source.key}</dd>
             </div>
             <div>
-              <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+              <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
                 País
               </dt>
               <dd className="text-foreground">{countryLabels}</dd>
             </div>
             {source.sectors.length > 0 && (
               <div>
-                <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+                <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
                   Sectores
                 </dt>
                 <dd className="text-foreground">{source.sectors.join(', ')}</dd>
@@ -185,7 +185,7 @@ export default async function SourceDetailPage({ params }: Props) {
             )}
             {source.url && (
               <div>
-                <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+                <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
                   URL
                 </dt>
                 <dd>
@@ -206,7 +206,7 @@ export default async function SourceDetailPage({ params }: Props) {
 
         {/* Uso recomendado */}
         <SurfaceCard>
-          <h2 className="text-[0.8125rem] font-semibold text-foreground  mb-4">
+          <h2 className="text-sm font-semibold text-foreground  mb-4">
             Uso recomendado
           </h2>
           <p className="text-sm text-muted-foreground leading-relaxed">
@@ -217,7 +217,7 @@ export default async function SourceDetailPage({ params }: Props) {
         {/* Limitaciones */}
         {source.limitations.length > 0 && (
           <SurfaceCard>
-            <h2 className="text-[0.8125rem] font-semibold text-foreground  mb-4">
+            <h2 className="text-sm font-semibold text-foreground  mb-4">
               Limitaciones
             </h2>
             <ul className="space-y-2">
@@ -234,13 +234,13 @@ export default async function SourceDetailPage({ params }: Props) {
         {/* Riesgos */}
         {source.riskNotes.length > 0 && (
           <SurfaceCard>
-            <h2 className="text-[0.8125rem] font-semibold text-foreground  mb-4">
+            <h2 className="text-sm font-semibold text-foreground  mb-4">
               Notas de riesgo
             </h2>
             <ul className="space-y-2">
               {source.riskNotes.map((item, i) => (
-                <li key={i} className="flex gap-2 text-sm text-amber-600 dark:text-amber-400">
-                  <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500/60" />
+                <li key={i} className="flex gap-2 text-sm text-warning">
+                  <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-warning/60" />
                   {item}
                 </li>
               ))}
@@ -254,7 +254,7 @@ export default async function SourceDetailPage({ params }: Props) {
         <BrReceitaCnpjStatusCard />
       ) : isManualSignalOnly ? (
         <SurfaceCard>
-          <h2 className="text-[0.8125rem] font-semibold text-foreground mb-2">
+          <h2 className="text-sm font-semibold text-foreground mb-2">
             Estado de integración
           </h2>
           <p className="text-sm text-muted-foreground leading-relaxed">
@@ -263,32 +263,32 @@ export default async function SourceDetailPage({ params }: Props) {
         </SurfaceCard>
       ) : isHnContrataciones ? (
         <SurfaceCard>
-          <h2 className="text-[0.8125rem] font-semibold text-foreground mb-2">
+          <h2 className="text-sm font-semibold text-foreground mb-2">
             Acceso técnico
           </h2>
           <dl className="space-y-3 text-sm">
             <div className="flex items-center gap-2">
               <dt className="text-muted-foreground">Credenciales:</dt>
               <dd>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/10 px-2.5 py-0.5 text-xs font-medium text-success">
                   No requeridas
                 </span>
               </dd>
             </div>
             <div>
-              <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+              <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
                 Publisher institucional
               </dt>
               <dd className="text-foreground">ONCAE Honduras</dd>
             </div>
             <div>
-              <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+              <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
                 Feed técnico consumido por SellUp
               </dt>
               <dd className="text-foreground">OCP Data Registry · publicación Honduras ONCAE</dd>
             </div>
             <div>
-              <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+              <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
                 Formato
               </dt>
               <dd className="text-foreground">JSONL.gz / OCDS</dd>
@@ -303,13 +303,13 @@ export default async function SourceDetailPage({ params }: Props) {
         />
       ) : source.type === 'public_dataset' || source.key === 'co_rues' || (source.operationalStatus === 'operational_verified' && !source.url?.includes('api')) ? (
         <SurfaceCard>
-          <h2 className="text-[0.8125rem] font-semibold text-foreground  mb-2">
+          <h2 className="text-sm font-semibold text-foreground  mb-2">
             Credencial de API
           </h2>
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">Requiere credencial:</span>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-border/40 bg-muted/30 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-surface-subtle px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
                 No requiere credencial
               </span>
             </div>
@@ -321,7 +321,7 @@ export default async function SourceDetailPage({ params }: Props) {
         </SurfaceCard>
       ) : (
         <SurfaceCard>
-          <h2 className="text-[0.8125rem] font-semibold text-foreground  mb-2">
+          <h2 className="text-sm font-semibold text-foreground  mb-2">
             Credencial de API
           </h2>
           <p className="text-sm text-muted-foreground">
@@ -421,9 +421,9 @@ export default async function SourceDetailPage({ params }: Props) {
 
       {/* Lotes Socrata — solo co_rues */}
       {source.key === 'co_rues' && (
-        <div className="flex items-center justify-between rounded-xl border border-border/40 bg-muted/30 px-5 py-3.5">
+        <div className="flex items-center justify-between rounded-xl border border-border/60 bg-surface-subtle px-5 py-3.5">
           <div className="flex items-center gap-2.5">
-            <Database className="h-4 w-4 shrink-0 text-muted-foreground/60" />
+            <Database className="h-4 w-4 shrink-0 text-muted-foreground" />
             <div>
               <p className="text-sm font-medium text-foreground">Lotes Socrata</p>
               <p className="text-xs text-muted-foreground">

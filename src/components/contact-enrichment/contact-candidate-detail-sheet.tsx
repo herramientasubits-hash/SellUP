@@ -273,9 +273,9 @@ const RELEVANCE_LABELS: Record<ContactRelevanceStatus, string> = {
 };
 
 const RELEVANCE_STYLES: Record<ContactRelevanceStatus, string> = {
-  high_relevance: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+  high_relevance: 'bg-success/10 text-success',
   medium_relevance: 'bg-su-brand-soft text-su-brand',
-  low_relevance: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  low_relevance: 'bg-warning/10 text-warning',
   not_relevant: 'bg-muted text-muted-foreground',
   insufficient_data: 'bg-muted text-muted-foreground',
 };
@@ -2112,7 +2112,7 @@ export function ContactCandidateDetailSheet({
               {/* Parity with Agent 1's "Nuevo": independent of workflow status,
                   same calendar-day (America/Bogota) freshness check. */}
               {candidate.created_at && isCandidateCreatedToday(candidate.created_at) && (
-                <Badge className="border-0 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[9px] font-semibold px-1.5 py-0.5 shrink-0">
+                <Badge className="border-0 bg-success/10 text-success text-xs font-semibold px-1.5 py-0.5 shrink-0">
                   Nuevo
                 </Badge>
               )}
@@ -2128,7 +2128,7 @@ export function ContactCandidateDetailSheet({
               ) : (
                 <Badge
                   variant="outline"
-                  className="shrink-0 border-transparent bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-semibold"
+                  className="shrink-0 border-transparent bg-warning/10 text-warning text-xs font-semibold"
                 >
                   Por revisar
                 </Badge>
@@ -2158,7 +2158,7 @@ export function ContactCandidateDetailSheet({
         candidate && candidate.status !== 'duplicate' ? (
           !showRejectForm ? (
             <>
-              <p className="flex-1 text-[11px] text-muted-foreground/70">
+              <p className="flex-1 text-xs text-muted-foreground">
                 {waterfallBlocksApproval
                   ? PHONE_REVEAL_WATERFALL_APPROVE_BLOCKED_COPY
                   : candidate.account_id
@@ -2213,7 +2213,7 @@ export function ContactCandidateDetailSheet({
             </>
           ) : (
             <>
-              <p className="flex-1 text-[11px] text-muted-foreground/70">
+              <p className="flex-1 text-xs text-muted-foreground">
                 Indica el motivo del rechazo.
               </p>
               <div className="flex shrink-0 items-center gap-2">
@@ -2259,13 +2259,13 @@ export function ContactCandidateDetailSheet({
             className={
               loadOutcome === 'load_error'
                 ? 'flex h-12 w-12 items-center justify-center rounded-xl bg-destructive/10'
-                : 'flex h-12 w-12 items-center justify-center rounded-xl bg-muted/60'
+                : 'flex h-12 w-12 items-center justify-center rounded-xl bg-surface-muted'
             }
           >
             {loadOutcome === 'load_error' ? (
               <AlertTriangle className="h-5 w-5 text-destructive" />
             ) : (
-              <Info className="h-5 w-5 text-muted-foreground/40" />
+              <Info className="h-5 w-5 text-text-muted" />
             )}
           </div>
           <p className="max-w-sm text-sm text-muted-foreground">
@@ -2284,7 +2284,7 @@ export function ContactCandidateDetailSheet({
           {candidate.status === 'duplicate' ? (
             <SurfaceCard>
               <div className="flex items-start gap-2.5">
-                <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/60" />
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                 <div className="space-y-2.5">
                   <p className="text-sm font-medium text-foreground">
                     Este candidato coincide con un contacto existente.
@@ -2348,7 +2348,7 @@ export function ContactCandidateDetailSheet({
                 {candidate.company_domain || <Fallback />}
               </DetailRow>
               <DetailRow icon={Tag} label={CANDIDATE_SOURCE_LABEL}>
-                <Badge variant="outline" className="text-[10px]">
+                <Badge variant="outline" className="text-xs">
                   {SOURCE_LABELS[candidate.source] ?? candidate.source}
                 </Badge>
               </DetailRow>
@@ -2384,13 +2384,13 @@ export function ContactCandidateDetailSheet({
                   {hasPhone ? (
                     <span className="inline-flex flex-wrap items-center gap-2">
                       <span className="break-all">{phoneNumber}</span>
-                      <Badge className="border-0 bg-su-brand-soft text-su-brand text-[10px] font-semibold">
+                      <Badge className="border-0 bg-su-brand-soft text-su-brand text-xs font-semibold">
                         {phoneTypeLabel}
                       </Badge>
                       {phoneSourceLabel && (
                         <Badge
                           variant="outline"
-                          className="text-[10px] font-normal text-muted-foreground"
+                          className="text-xs font-normal text-muted-foreground"
                         >
                           {phoneSourceLabel}
                         </Badge>
@@ -2458,8 +2458,8 @@ export function ContactCandidateDetailSheet({
                       «Proveedor de revelación: Apollo» se leen sin contradicción.
                       Ausente cuando todavía no hubo ningún intento. */}
                   {phoneRevealProviderLabel && (
-                    <p className="text-[11px] text-muted-foreground">
-                      <span className="uppercase tracking-wide text-muted-foreground/70">
+                    <p className="text-xs text-muted-foreground">
+                      <span className="text-muted-foreground">
                         {PHONE_REVEAL_PROVIDER_LABEL}:
                       </span>{' '}
                       <span className="text-foreground">{phoneRevealProviderLabel}</span>
@@ -2468,7 +2468,7 @@ export function ContactCandidateDetailSheet({
                   {phoneRevealInFlight && (
                     <div className="space-y-1">
                       <span className="inline-flex items-center gap-1.5">
-                        <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold">
+                        <Badge className="border-0 bg-warning/10 text-warning text-xs font-semibold">
                           <Loader2 className="mr-1 h-3 w-3 animate-spin" />
                           Revelación en proceso
                         </Badge>
@@ -2480,7 +2480,7 @@ export function ContactCandidateDetailSheet({
                             spinner se resolvería solo si se esperaba aquí.
                             RECOVERY-L3: cuando la ventana de 2 min ya pasó, el
                             copy además ofrece revisarlo ahora. */}
-                        <span className="text-[11px] text-muted-foreground">
+                        <span className="text-xs text-muted-foreground">
                           {canOfferPhoneRecovery
                             ? `${PHONE_REVEAL_IN_FLIGHT_BASE_COPY}, o puedes revisarlo ahora.`
                             : `${PHONE_REVEAL_IN_FLIGHT_BASE_COPY}.`}
@@ -2491,7 +2491,7 @@ export function ContactCandidateDetailSheet({
                           congelado. Es solo informativo: no habilita ninguna
                           acción nueva ni cambia la elegibilidad del CTA L3. */}
                       {liveRefreshActive && (
-                        <p className="text-[11px] text-muted-foreground/70">
+                        <p className="text-xs text-muted-foreground">
                           {PHONE_REVEAL_LIVE_REFRESH_COPY}
                         </p>
                       )}
@@ -2504,7 +2504,7 @@ export function ContactCandidateDetailSheet({
                           reporta `active` y `budgetExhausted` a la vez). No inicia
                           ninguna revelación nueva ni consume créditos. */}
                       {liveRefreshExhausted && (
-                        <p className="text-[11px] text-muted-foreground/70">
+                        <p className="text-xs text-muted-foreground">
                           {PHONE_REVEAL_LIVE_REFRESH_EXHAUSTED_COPY}
                         </p>
                       )}
@@ -2535,13 +2535,13 @@ export function ContactCandidateDetailSheet({
                             </>
                           )}
                         </Button>
-                        <p className="text-[11px] text-muted-foreground/70">
+                        <p className="text-xs text-muted-foreground">
                           Relee el estado guardado en SellUp. No consulta a Apollo ni
                           a Lusha y no consume créditos.
                         </p>
                       </div>
                       {phoneRevealLastCheckedAt && (
-                        <p className="text-[11px] text-muted-foreground/70">
+                        <p className="text-xs text-muted-foreground">
                           Última revisión: {formatDate(phoneRevealLastCheckedAt)}
                         </p>
                       )}
@@ -2549,11 +2549,11 @@ export function ContactCandidateDetailSheet({
                           se ofrece revisión manual: solo se explica la espera. */}
                       {!canOfferPhoneRecovery && (
                         <>
-                          <p className="text-[11px] text-muted-foreground/70">
+                          <p className="text-xs text-muted-foreground">
                             El resultado aún puede estar procesándose. Vuelve a revisar
                             en unos minutos.
                           </p>
-                          <p className="text-[11px] text-muted-foreground/70">
+                          <p className="text-xs text-muted-foreground">
                             Vuelve a abrir el candidato más tarde para ver el resultado.
                           </p>
                         </>
@@ -2585,7 +2585,7 @@ export function ContactCandidateDetailSheet({
                               </>
                             )}
                           </Button>
-                          <p className="text-[11px] text-muted-foreground/70">
+                          <p className="text-xs text-muted-foreground">
                             Consulta el resultado ya solicitado. No inicia una
                             revelación nueva ni consume créditos de revelación.
                           </p>
@@ -2601,12 +2601,12 @@ export function ContactCandidateDetailSheet({
                   {phoneRevealExhausted &&
                     !phoneRevealInFlight &&
                     !(waterfallActive && waterfallAudit) && (
-                      <p className="text-[11px] text-muted-foreground">
+                      <p className="text-xs text-muted-foreground">
                         Teléfono no disponible tras consultar Apollo.
                       </p>
                     )}
                   {phoneRevealNotice && !phoneRevealInFlight && (
-                    <p className="text-[11px] text-muted-foreground">{phoneRevealNotice}</p>
+                    <p className="text-xs text-muted-foreground">{phoneRevealNotice}</p>
                   )}
                   {/* Fallback manual Lusha (LUSHA-PHONE-FALLBACK-1). Solo tras
                       `no_phone_found` de Apollo, admin-only, con diálogo de
@@ -2624,16 +2624,16 @@ export function ContactCandidateDetailSheet({
                         <PhoneCall className="h-3.5 w-3.5" />
                         {lushaPhoneFallbackCopy.buttonLabel}
                       </Button>
-                      <p className="text-[11px] text-muted-foreground">
+                      <p className="text-xs text-muted-foreground">
                         {lushaPhoneFallbackCopy.phoneTypeWarning}
                       </p>
                       {lushaPhoneFallbackNotice && (
-                        <p className="text-[11px] text-muted-foreground">
+                        <p className="text-xs text-muted-foreground">
                           {lushaPhoneFallbackNotice}
                         </p>
                       )}
                       {lushaPhoneFallbackError && (
-                        <p className="text-[11px] text-destructive">{lushaPhoneFallbackError}</p>
+                        <p className="text-xs text-destructive">{lushaPhoneFallbackError}</p>
                       )}
                     </div>
                   )}
@@ -2641,12 +2641,12 @@ export function ContactCandidateDetailSheet({
                       vuelo para que sigan visibles cuando el resultado ya cerró el
                       caso y el candidato deja de estar en `requested`/`pending`. */}
                   {visiblePhoneRecoveryNotice && (
-                    <p className="text-[11px] text-muted-foreground">
+                    <p className="text-xs text-muted-foreground">
                       {visiblePhoneRecoveryNotice}
                     </p>
                   )}
                   {phoneRecoveryError && (
-                    <p className="text-[11px] text-destructive">{phoneRecoveryError}</p>
+                    <p className="text-xs text-destructive">{phoneRecoveryError}</p>
                   )}
                   {/* Botón ÚNICO. Cubre los TRES casos con el mismo label y, con el
                       waterfall activo, SIN modal (AGENT2A-PHONE-WATERFALL-4D):
@@ -2741,7 +2741,7 @@ export function ContactCandidateDetailSheet({
                           revelar. No se nombra proveedor ni se invita a reintentar: la
                           carencia puede ser permanente
                           (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-2). */}
-                      <p className="text-[11px] text-muted-foreground">
+                      <p className="text-xs text-muted-foreground">
                         {!phoneRevealIdentityEligible
                           ? PHONE_REVEAL_IDENTITY_BLOCKED_COPY
                           : // Con la solicitud ya aceptada, el copy de autorización
@@ -2764,7 +2764,7 @@ export function ContactCandidateDetailSheet({
                       {phoneRevealAwaitingConfirmation && (
                         <div className="space-y-1.5 pt-0.5">
                           {liveRefreshExhausted && (
-                            <p className="text-[11px] text-muted-foreground/70">
+                            <p className="text-xs text-muted-foreground">
                               {PHONE_REVEAL_LIVE_REFRESH_EXHAUSTED_COPY}
                             </p>
                           )}
@@ -2806,14 +2806,14 @@ export function ContactCandidateDetailSheet({
                                   (leg) => (
                                     <li
                                       key={leg}
-                                      className="text-[11px] text-muted-foreground"
+                                      className="text-xs text-muted-foreground"
                                     >
                                       {leg}
                                     </li>
                                   ),
                                 )}
                               </ul>
-                              <p className="text-[11px] font-medium text-foreground">
+                              <p className="text-xs font-medium text-foreground">
                                 {waterfallAuthorizationCopy.creditBreakdown.total}
                               </p>
                             </>
@@ -2822,7 +2822,7 @@ export function ContactCandidateDetailSheet({
                             {waterfallAuthorizationCopy.warnings.map((warning) => (
                               <li
                                 key={warning}
-                                className="text-[11px] text-muted-foreground/70"
+                                className="text-xs text-muted-foreground"
                               >
                                 {warning}
                               </li>
@@ -2830,19 +2830,19 @@ export function ContactCandidateDetailSheet({
                           </ul>
                         </>
                       )}
-                      <p className="text-[11px] text-muted-foreground/70">
+                      <p className="text-xs text-muted-foreground">
                         Base aplicada: interés legítimo B2B.
                       </p>
                       {phoneRevealError && (
-                        <p className="text-[11px] text-destructive">{phoneRevealError}</p>
+                        <p className="text-xs text-destructive">{phoneRevealError}</p>
                       )}
                       {legacyWaterfallNotice && (
-                        <p className="text-[11px] text-muted-foreground">
+                        <p className="text-xs text-muted-foreground">
                           {legacyWaterfallNotice}
                         </p>
                       )}
                       {legacyWaterfallError && !waterfallShowsTerminalError && (
-                        <p className="text-[11px] text-destructive">
+                        <p className="text-xs text-destructive">
                           {legacyWaterfallError}
                         </p>
                       )}
@@ -2856,12 +2856,12 @@ export function ContactCandidateDetailSheet({
                     (legacyWaterfallNotice || legacyWaterfallError) && (
                       <div className="space-y-1">
                         {legacyWaterfallNotice && (
-                          <p className="text-[11px] text-muted-foreground">
+                          <p className="text-xs text-muted-foreground">
                             {legacyWaterfallNotice}
                           </p>
                         )}
                         {legacyWaterfallError && !waterfallShowsTerminalError && (
-                          <p className="text-[11px] text-destructive">
+                          <p className="text-xs text-destructive">
                             {legacyWaterfallError}
                           </p>
                         )}
@@ -2875,11 +2875,11 @@ export function ContactCandidateDetailSheet({
                     <div className="space-y-1">
                       {waterfallLushaRunning ? (
                         <span className="inline-flex items-center gap-1.5">
-                          <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold">
+                          <Badge className="border-0 bg-warning/10 text-warning text-xs font-semibold">
                             <Loader2 className="mr-1 h-3 w-3 animate-spin" />
                             Lusha
                           </Badge>
-                          <span className="text-[11px] text-muted-foreground">
+                          <span className="text-xs text-muted-foreground">
                             {/* Mismo copy en las dos modalidades (4D): está en
                                 pasado, así que no afirma que Apollo esté corriendo
                                 ahora. Que en legacy ese intento ocurrió FUERA de
@@ -2888,30 +2888,30 @@ export function ContactCandidateDetailSheet({
                           </span>
                         </span>
                       ) : waterfallSuppressionUnverified ? (
-                        <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                        <p className="text-xs text-warning">
                           {PHONE_REVEAL_WATERFALL_SUPPRESSION_UNVERIFIED_COPY}
                         </p>
                       ) : waterfallAudit.status === 'apollo_in_flight' ? (
-                        <p className="text-[11px] text-muted-foreground">
+                        <p className="text-xs text-muted-foreground">
                           {PHONE_REVEAL_WATERFALL_APOLLO_RUNNING_COPY}
                         </p>
                       ) : waterfallAudit.status === 'completed_apollo' ||
                         waterfallAudit.status === 'completed_lusha' ? (
-                        <p className="text-[11px] text-muted-foreground">
+                        <p className="text-xs text-muted-foreground">
                           {/* Un solo estado terminal con teléfono (4D). Qué pata lo
                               consiguió lo dice «Proveedor final» en la auditoría. */}
                           {PHONE_REVEAL_WATERFALL_REVEALED_COPY}
                         </p>
                       ) : waterfallAudit.status === 'exhausted' ? (
-                        <p className="text-[11px] text-muted-foreground">
+                        <p className="text-xs text-muted-foreground">
                           {PHONE_REVEAL_WATERFALL_EXHAUSTED_COPY}
                         </p>
                       ) : waterfallAudit.status === 'aborted' ? (
-                        <p className="text-[11px] text-muted-foreground">
+                        <p className="text-xs text-muted-foreground">
                           {PHONE_REVEAL_WATERFALL_BLOCKED_COPY}
                         </p>
                       ) : waterfallAudit.status === 'error' ? (
-                        <p className="text-[11px] text-destructive">
+                        <p className="text-xs text-destructive">
                           {/* AGENT2A-LUSHA-PHONE-REVEAL-ERROR-DIAGNOSTIC-1: el motivo
                               REAL, no el rojo genérico. Un código desconocido sigue
                               cayendo en la frase de siempre. */}
@@ -2953,7 +2953,7 @@ export function ContactCandidateDetailSheet({
                         ? ` · ${resolveWaterfallOutcomeLabel(waterfallAudit.apolloOutcome)}`
                         : ''}
                     </span>
-                    <span className="text-[11px] text-muted-foreground">
+                    <span className="text-xs text-muted-foreground">
                       {/* El costo histórico pertenece a la autorización que lo pagó.
                           Aquí no se muestra ninguna cifra — y nunca un 0, que se
                           leería como "fue gratis". */}
@@ -2980,7 +2980,7 @@ export function ContactCandidateDetailSheet({
                           ) ?? 'Pendiente')}
                     </span>
                     {waterfallAudit.lushaAttempted && (
-                      <span className="text-[11px] text-muted-foreground">
+                      <span className="text-xs text-muted-foreground">
                         {formatWaterfallLegCredits(
                           waterfallAudit.lushaCostCredits,
                           waterfallAudit.lushaCostSource,
@@ -3018,7 +3018,7 @@ export function ContactCandidateDetailSheet({
                 {relevance?.status ? (
                   <span className="inline-flex flex-wrap items-center gap-2">
                     <Badge
-                      className={`${RELEVANCE_STYLES[relevance.status]} border-0 text-[10px] font-semibold`}
+                      className={`${RELEVANCE_STYLES[relevance.status]} border-0 text-xs font-semibold`}
                     >
                       {RELEVANCE_LABELS[relevance.status] ?? relevance.status}
                     </Badge>
@@ -3056,7 +3056,7 @@ export function ContactCandidateDetailSheet({
                       <Badge
                         key={kw}
                         variant="outline"
-                        className="text-[10px] font-normal"
+                        className="text-xs font-normal"
                       >
                         {kw}
                       </Badge>
@@ -3082,16 +3082,16 @@ export function ContactCandidateDetailSheet({
             <div className="flex items-start gap-2.5">
               <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center">
                 {identityDisplay.tone === 'consistent' ? (
-                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <ShieldCheck className="h-3.5 w-3.5 text-success" />
                 ) : identityDisplay.tone === 'mismatch' ? (
-                  <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                  <AlertTriangle className="h-3.5 w-3.5 text-warning" />
                 ) : (
-                  <Info className="h-3.5 w-3.5 text-muted-foreground/50" />
+                  <Info className="h-3.5 w-3.5 text-muted-foreground" />
                 )}
               </div>
               <div className="min-w-0 flex-1 space-y-1.5">
                 <Badge
-                  className={`${IDENTITY_TONE_STYLES[identityDisplay.tone]} border-0 text-[10px] font-semibold`}
+                  className={`${IDENTITY_TONE_STYLES[identityDisplay.tone]} border-0 text-xs font-semibold`}
                 >
                   {identityDisplay.label}
                 </Badge>
@@ -3099,7 +3099,7 @@ export function ContactCandidateDetailSheet({
                   {identityDisplay.description}
                 </p>
                 {showIdentityEvidence && (
-                  <div className="space-y-0.5 pt-1 text-[11px] text-muted-foreground/80">
+                  <div className="space-y-0.5 pt-1 text-xs text-muted-foreground">
                     <p>
                       Persona encontrada:{' '}
                       <span className="text-foreground">
@@ -3120,9 +3120,9 @@ export function ContactCandidateDetailSheet({
 
           {/* 3b. Consistencia con la empresa (Hito 17A.9G) */}
           {showConsistencyWarning && companyConsistency && (
-            <div className="rounded-xl border border-dashed border-amber-500/40 bg-amber-500/5 px-4 py-3">
+            <div className="rounded-xl border border-dashed border-warning/40 bg-warning/5 px-4 py-3">
               <div className="flex items-start gap-2.5">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
                 <div className="space-y-1">
                   <p className="text-xs font-medium text-foreground">
                     {companyConsistency.status === 'possible_related_domain'
@@ -3135,7 +3135,7 @@ export function ContactCandidateDetailSheet({
                   {companyConsistency.email_domain &&
                     companyConsistency.expected_domain &&
                     companyConsistency.email_domain !== companyConsistency.expected_domain && (
-                      <p className="text-[11px] text-muted-foreground/70 tabular-nums">
+                      <p className="text-xs text-muted-foreground tabular-nums">
                         Correo: @{companyConsistency.email_domain} · Empresa: {companyConsistency.expected_domain}
                       </p>
                     )}
@@ -3149,11 +3149,11 @@ export function ContactCandidateDetailSheet({
             <SurfaceCardHeader title="Trazabilidad" />
             <dl className="space-y-3">
               <DetailRow icon={Hash} label="Candidate ID">
-                <span className="font-mono text-[11px] break-all">{candidate.id}</span>
+                <span className="font-mono text-xs break-all">{candidate.id}</span>
               </DetailRow>
               <DetailRow icon={Hash} label="Enrichment run ID">
                 {candidate.enrichment_run_id ? (
-                  <span className="font-mono text-[11px] break-all">
+                  <span className="font-mono text-xs break-all">
                     {candidate.enrichment_run_id}
                   </span>
                 ) : (
@@ -3177,12 +3177,12 @@ export function ContactCandidateDetailSheet({
               )}
               {candidate.account_id && (
                 <DetailRow icon={Building2} label="SellUp Account ID">
-                  <span className="font-mono text-[11px] break-all">{candidate.account_id}</span>
+                  <span className="font-mono text-xs break-all">{candidate.account_id}</span>
                 </DetailRow>
               )}
               {candidate.hubspot_company_id && (
                 <DetailRow icon={Globe} label="HubSpot Company ID">
-                  <span className="font-mono text-[11px] break-all">
+                  <span className="font-mono text-xs break-all">
                     {candidate.hubspot_company_id}
                   </span>
                 </DetailRow>
@@ -3237,9 +3237,9 @@ export function ContactCandidateDetailSheet({
               </div>
             </div>
           ) : !candidate.account_id ? (
-            <div className="rounded-xl border border-dashed border-amber-500/40 bg-amber-500/5 px-4 py-3">
+            <div className="rounded-xl border border-dashed border-warning/40 bg-warning/5 px-4 py-3">
               <div className="flex items-start gap-2.5">
-                <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
                 <div className="space-y-1">
                   <p className="text-xs font-medium text-foreground">
                     Sin cuenta SellUp asociada
@@ -3252,9 +3252,9 @@ export function ContactCandidateDetailSheet({
               </div>
             </div>
           ) : (
-            <div className="rounded-xl border border-dashed border-border/60 bg-muted/30 px-4 py-3">
+            <div className="rounded-xl border border-dashed border-border/60 bg-surface-subtle px-4 py-3">
               <div className="flex items-start gap-2.5">
-                <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/60" />
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                 <div className="space-y-1">
                   <p className="text-xs font-medium text-foreground">Revisión humana</p>
                   <p className="text-xs text-muted-foreground leading-relaxed">
@@ -3374,9 +3374,9 @@ export function ContactCandidateDetailSheet({
               : ', con el mismo perfil de LinkedIn.'}
           </DialogDescription>
         </DialogHeader>
-        <div className="rounded-xl border border-dashed border-border/60 bg-muted/30 px-4 py-3">
+        <div className="rounded-xl border border-dashed border-border/60 bg-surface-subtle px-4 py-3">
           <div className="flex items-start gap-2.5">
-            <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/60" />
+            <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
             <p className="text-xs text-muted-foreground leading-relaxed">
               Puedes agregarle la información de este candidato al contacto existente. No se
               reemplaza nada de lo que ya tiene: su teléfono principal y los datos cargados a
@@ -3468,7 +3468,7 @@ export function ContactCandidateDetailSheet({
 }
 
 function Fallback() {
-  return <span className="text-muted-foreground/50">{UNAVAILABLE}</span>;
+  return <span className="text-muted-foreground">{UNAVAILABLE}</span>;
 }
 
 function DetailRow({
@@ -3483,10 +3483,10 @@ function DetailRow({
   return (
     <div className="flex items-start gap-2.5">
       <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center">
-        <Icon className="h-3.5 w-3.5 text-muted-foreground/50" />
+        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
       </div>
       <div className="min-w-0 flex-1">
-        <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+        <dt className="text-xs font-semibold text-muted-foreground">
           {label}
         </dt>
         <dd className="mt-0.5 text-xs text-foreground">{children}</dd>

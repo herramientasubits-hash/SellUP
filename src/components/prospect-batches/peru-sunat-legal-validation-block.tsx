@@ -21,13 +21,13 @@ export function getSunatStatusDisplay(
     case 'verified':
       return {
         label: 'Verificado SUNAT',
-        badgeClass: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+        badgeClass: 'bg-success/10 text-success',
         Icon: ShieldCheck,
       };
     case 'flagged':
       return {
         label: 'Revisar SUNAT',
-        badgeClass: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+        badgeClass: 'bg-warning/10 text-warning',
         Icon: AlertTriangle,
       };
     case 'not_found':
@@ -39,7 +39,7 @@ export function getSunatStatusDisplay(
     case 'snapshot_unavailable':
       return {
         label: 'Snapshot SUNAT no disponible',
-        badgeClass: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+        badgeClass: 'bg-warning/10 text-warning',
         Icon: AlertTriangle,
       };
     case 'pending_snapshot_validation':
@@ -70,7 +70,7 @@ export function PeruSunatLegalValidationBlock({
       <SurfaceCardHeader title="Validación Legal SUNAT" />
       <div className="space-y-3">
         <div className="flex items-center gap-2">
-          <Badge className={`border-0 text-[10px] font-semibold ${badgeClass}`}>
+          <Badge className={`border-0 text-xs font-semibold ${badgeClass}`}>
             <Icon className="h-3 w-3 mr-1" />
             {label}
           </Badge>
@@ -80,13 +80,13 @@ export function PeruSunatLegalValidationBlock({
           <div className="grid grid-cols-2 gap-x-4 gap-y-2">
             {block.ruc && (
               <div className="space-y-0.5 min-w-0">
-                <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">RUC</p>
+                <p className="text-xs text-muted-foreground">RUC</p>
                 <p className="text-xs text-foreground/90 font-mono leading-snug">{block.ruc}</p>
               </div>
             )}
             {block.legal_name && (
               <div className="space-y-0.5 min-w-0">
-                <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">
+                <p className="text-xs text-muted-foreground">
                   Razón social SUNAT
                 </p>
                 <p className="text-xs text-foreground/90 leading-snug">{block.legal_name}</p>
@@ -94,7 +94,7 @@ export function PeruSunatLegalValidationBlock({
             )}
             {block.taxpayer_status && (
               <div className="space-y-0.5 min-w-0">
-                <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">
+                <p className="text-xs text-muted-foreground">
                   Estado contribuyente
                 </p>
                 <p className="text-xs text-foreground/90 leading-snug">
@@ -104,7 +104,7 @@ export function PeruSunatLegalValidationBlock({
             )}
             {block.domicile_condition && (
               <div className="space-y-0.5 min-w-0">
-                <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">
+                <p className="text-xs text-muted-foreground">
                   Condición domicilio
                 </p>
                 <p className="text-xs text-foreground/90 leading-snug">
@@ -113,14 +113,14 @@ export function PeruSunatLegalValidationBlock({
               </div>
             )}
             <div className="col-span-2 space-y-0.5 min-w-0">
-              <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Fuente</p>
+              <p className="text-xs text-muted-foreground">Fuente</p>
               <p className="text-xs text-foreground/90 leading-snug">SUNAT Padrón Reducido</p>
             </div>
           </div>
         )}
 
         {/* Sector inference notice — Perú no tiene CIIU oficial en el MVP */}
-        <div className="rounded-md bg-muted/40 border border-border/50 px-3 py-2">
+        <div className="rounded-md bg-surface-subtle border border-border/50 px-3 py-2">
           <p className="text-xs text-muted-foreground leading-snug">
             <span className="font-medium text-foreground/70">Sector inferido por web/IA.</span>{' '}
             Perú no tiene CIIU oficial disponible en el MVP.

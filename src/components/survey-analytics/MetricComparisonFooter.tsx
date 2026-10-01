@@ -20,13 +20,13 @@ export function MetricComparisonFooter({
 
   return (
     <div className={cn(
-      "grid gap-4 py-4 border-t border-border/40",
+      "grid gap-4 py-4 border-t border-border/60",
       gridCols,
       className
     )}>
       {items.map((item, index) => (
         <div key={index} className="flex flex-col gap-1.5 min-w-0">
-          <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground truncate">
+          <span className="text-xs font-bold text-muted-foreground truncate">
             {item.label}
           </span>
           <div className="flex items-center gap-2">

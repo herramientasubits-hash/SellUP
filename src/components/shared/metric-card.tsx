@@ -75,7 +75,7 @@ export function MetricCard({
       >
         <p className="text-sm font-medium text-muted-foreground">{title}</p>
         {description && (
-          <p className="mt-0.5 text-xs text-muted-foreground/70 line-clamp-1">{description}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{description}</p>
         )}
         <p className="mt-4 text-xs text-destructive">{error}</p>
       </div>
@@ -100,7 +100,7 @@ export function MetricCard({
           </p>
           <p className="text-sm text-muted-foreground">{title}</p>
           {description && (
-            <p className="text-xs text-muted-foreground/70 line-clamp-1">{description}</p>
+            <p className="text-xs text-muted-foreground line-clamp-1">{description}</p>
           )}
         </div>
       </div>
@@ -114,7 +114,7 @@ export function MetricCard({
         <div className="flex flex-1 flex-col px-5 pb-5 pt-3">
           <p className="text-sm font-medium text-muted-foreground">{title}</p>
           {description && (
-            <p className="mt-0.5 text-xs text-muted-foreground/70 line-clamp-1">{description}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{description}</p>
           )}
           <div className="mt-3 flex items-baseline flex-wrap gap-x-2 gap-y-1">
             <span
@@ -127,7 +127,7 @@ export function MetricCard({
               {value}
             </span>
             {subtitle && (
-              <span className="text-sm font-medium text-muted-foreground/70">{subtitle}</span>
+              <span className="text-sm font-medium text-muted-foreground">{subtitle}</span>
             )}
             {hasDelta && (
               <DeltaPill
@@ -155,7 +155,7 @@ export function MetricCard({
         <div className="min-w-0 space-y-0.5">
           <p className="text-sm font-medium text-muted-foreground">{title}</p>
           {description && (
-            <p className="text-xs text-muted-foreground/70 line-clamp-1">{description}</p>
+            <p className="text-xs text-muted-foreground line-clamp-1">{description}</p>
           )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -176,7 +176,7 @@ export function MetricCard({
             {value}
           </span>
           {subtitle && (
-            <span className="text-sm font-medium text-muted-foreground/70">{subtitle}</span>
+            <span className="text-sm font-medium text-muted-foreground">{subtitle}</span>
           )}
           {hasDelta && (
             <DeltaPill

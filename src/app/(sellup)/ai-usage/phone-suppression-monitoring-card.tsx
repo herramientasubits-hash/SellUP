@@ -47,13 +47,13 @@ function Figure({
   emphasis?: boolean;
 }) {
   return (
-    <div className="rounded-lg border border-border/40 bg-muted/20 px-3 py-2.5">
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+    <div className="rounded-lg border border-border/60 bg-surface-subtle px-3 py-2.5">
+      <p className="text-xs font-semibold text-muted-foreground">
         {label}
       </p>
       <p
         className={`mt-1 font-mono text-sm ${
-          emphasis ? 'font-semibold text-amber-500' : 'text-foreground'
+          emphasis ? 'font-semibold text-warning' : 'text-foreground'
         }`}
       >
         {value}
@@ -77,16 +77,16 @@ export function PhoneSuppressionNotEvaluableCard({
         title={CARD_TITLE}
         description={CARD_DESCRIPTION}
         actions={
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/40">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface-subtle">
             <ShieldAlert className="h-4 w-4 text-muted-foreground" />
           </div>
         }
       />
 
       {summary === null ? (
-        <div className="flex items-start gap-2 rounded-lg border border-border/40 bg-muted/20 px-3 py-2.5">
+        <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-surface-subtle px-3 py-2.5">
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <p className="text-[11px] leading-relaxed text-muted-foreground">
+          <p className="text-xs leading-relaxed text-muted-foreground">
             Sin permisos para ver el monitoreo de supresiones.
           </p>
         </div>
@@ -136,9 +136,9 @@ export function PhoneSuppressionNotEvaluableCard({
           </div>
 
           {summary.unclassified_phase_7d > 0 && (
-            <div className="flex items-start gap-2 rounded-lg border border-border/40 bg-muted/20 px-3 py-2.5">
+            <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-surface-subtle px-3 py-2.5">
               <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <p className="text-[11px] leading-relaxed text-muted-foreground">
+              <p className="text-xs leading-relaxed text-muted-foreground">
                 {summary.unclassified_phase_7d.toLocaleString('es-ES')} evento(s) sin
                 fase reconocible. Se cuentan en el total pero no en el desglose.
               </p>
@@ -146,9 +146,9 @@ export function PhoneSuppressionNotEvaluableCard({
           )}
 
           {summary.read_truncated && (
-            <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
-              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-              <p className="text-[11px] leading-relaxed text-amber-500">
+            <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2.5">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+              <p className="text-xs leading-relaxed text-warning">
                 La lectura alcanzó el tope de filas: los conteos son un mínimo, no el
                 total de la ventana.
               </p>
@@ -173,7 +173,7 @@ export function PhoneSuppressionNotEvaluablePanelSkeleton() {
       <SurfaceCardHeader title={CARD_TITLE} description={CARD_DESCRIPTION} />
       <div className="animate-pulse grid grid-cols-2 gap-3 md:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="h-14 rounded-lg border border-border/40 bg-muted/20" />
+          <div key={i} className="h-14 rounded-lg border border-border/60 bg-surface-subtle" />
         ))}
       </div>
     </SurfaceCard>

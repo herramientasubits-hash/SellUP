@@ -76,7 +76,7 @@ export function WizardRunProviderSelector({
 
   return (
     <fieldset
-      className="space-y-2 rounded-xl border border-border bg-card px-4 py-3"
+      className="space-y-2 rounded-2xl border border-border bg-card px-4 py-3"
       data-testid="wizard-run-provider-selector"
     >
       <legend className="px-1 text-xs font-semibold text-foreground">
@@ -93,7 +93,7 @@ export function WizardRunProviderSelector({
               className={
                 inputDisabled
                   ? 'flex cursor-not-allowed items-center gap-2 rounded-md px-1 py-1 text-xs text-muted-foreground opacity-70'
-                  : 'flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-xs text-foreground transition-colors hover:bg-muted/50'
+                  : 'flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-xs text-foreground transition-colors hover:bg-surface-muted'
               }
             >
               <input

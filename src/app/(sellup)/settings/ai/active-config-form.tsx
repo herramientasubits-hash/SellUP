@@ -53,7 +53,7 @@ export function ActiveConfigForm({ providers, models, activeConfig }: ActiveConf
   return (
     <div className="flex flex-col gap-4">
       {activeModelNonExecutable && (
-        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-amber-700 dark:text-amber-400">
+        <div className="rounded-md border border-warning/40 bg-warning/10 px-4 py-2 text-sm text-warning">
           El modelo activo de Claude no está disponible. Selecciona otro modelo o usa <strong>Actualizar modelos disponibles</strong> en el proveedor.
         </div>
       )}
@@ -121,15 +121,15 @@ export function ActiveConfigForm({ providers, models, activeConfig }: ActiveConf
       <button
         onClick={handleSave}
         disabled={!selectedProvider || !selectedModel || saving}
-        className="px-4 py-2 bg-su-brand text-white rounded-md hover:bg-su-brand/90 disabled:opacity-50 disabled:cursor-not-allowed"
+        className="px-4 py-2 bg-su-brand text-primary-foreground rounded-md hover:bg-su-brand/90 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {saving ? 'Guardando...' : 'Guardar'}
       </button>
 
       {toast && (
-        <div className={`fixed bottom-8 left-1/2 -translate-x-1/2 transform px-4 py-3 rounded-lg shadow-lg border z-50 bg-card ${
+        <div className={`fixed bottom-8 left-1/2 -translate-x-1/2 transform px-4 py-3 rounded-lg shadow-drawer border z-50 bg-card ${
           toast.type === 'success'
-            ? 'border-emerald-500/50 text-emerald-700 dark:text-emerald-400'
+            ? 'border-success/50 text-success dark:text-success'
             : 'border-destructive/50 text-destructive'
         }`}>
           {toast.message}

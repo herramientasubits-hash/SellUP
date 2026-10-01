@@ -13,18 +13,18 @@ import {
 
 function ExecutionModeBadge({ mode }: { mode: AutomationExecutionMode }) {
   const styles: Record<AutomationExecutionMode, string> = {
-    manual: 'border-border/40 bg-muted/40 text-muted-foreground',
+    manual: 'border-border/60 bg-surface-subtle text-muted-foreground',
     suggested: 'border-su-brand/30 bg-su-brand-soft text-su-brand',
-    automatic: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+    automatic: 'border-success/30 bg-success/10 text-success',
   };
   const dotStyles: Record<AutomationExecutionMode, string> = {
     manual: 'bg-muted-foreground/40',
     suggested: 'bg-su-brand',
-    automatic: 'bg-emerald-500',
+    automatic: 'bg-success',
   };
 
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${styles[mode]}`}>
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${styles[mode]}`}>
       <span className={`h-1.5 w-1.5 rounded-full ${dotStyles[mode]}`} />
       {EXECUTION_MODE_LABELS[mode]}
     </span>
@@ -34,7 +34,7 @@ function ExecutionModeBadge({ mode }: { mode: AutomationExecutionMode }) {
 function DependencyTag({ label, active }: { label: string; active: boolean }) {
   if (!active) return null;
   return (
-    <span className="inline-flex items-center gap-1 rounded-md border border-border/40 bg-muted/30 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+    <span className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-surface-subtle px-1.5 py-0.5 text-xs text-muted-foreground">
       {label}
     </span>
   );
@@ -56,7 +56,7 @@ export function AutomationCard({ automation }: { automation: SystemAutomation })
         {/* Info */}
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+            <span className="text-xs font-semibold text-muted-foreground">
               {CATEGORY_LABELS[automation.category] ?? automation.category}
             </span>
             <ExecutionModeBadge mode={displayMode} />
@@ -71,17 +71,17 @@ export function AutomationCard({ automation }: { automation: SystemAutomation })
           )}
 
           <div className="flex items-center gap-1.5">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60">
+            <span className="text-xs text-muted-foreground">
               Trigger:
             </span>
-            <code className="rounded bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            <code className="rounded bg-surface-subtle px-1.5 py-0.5 text-xs text-muted-foreground">
               {automation.trigger_key}
             </code>
           </div>
 
           {hasDependencies && (
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60">
+              <span className="text-xs text-muted-foreground">
                 Requiere:
               </span>
               <DependencyTag label="Proveedor IA" active={automation.requires_ai_provider} />
@@ -90,7 +90,7 @@ export function AutomationCard({ automation }: { automation: SystemAutomation })
             </div>
           )}
 
-          <p className="text-[11px] italic text-muted-foreground/60">
+          <p className="text-xs italic text-muted-foreground">
             {EXECUTION_MODE_DESCRIPTIONS[displayMode]}
           </p>
         </div>
@@ -104,7 +104,7 @@ export function AutomationCard({ automation }: { automation: SystemAutomation })
             onModeChange={setDisplayMode}
           />
           {automation.updated_at && (
-            <span className="text-[10px] text-muted-foreground/50">
+            <span className="text-xs text-muted-foreground">
               Actualizado{' '}
               {new Date(automation.updated_at).toLocaleDateString('es-ES', {
                 day: '2-digit',

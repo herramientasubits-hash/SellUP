@@ -136,24 +136,24 @@ function periodToDateFrom(period: UsageFilters['period']): string | undefined {
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; classes: string; dot: string }> = {
-    completed:      { label: 'Completado',  classes: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500', dot: 'bg-emerald-500' },
+    completed:      { label: 'Completado',  classes: 'border-success/30 bg-success/10 text-success', dot: 'bg-success' },
     running:        { label: 'En curso',    classes: 'border-su-brand/30 bg-su-brand/10 text-su-brand',         dot: 'bg-su-brand' },
     failed:         { label: 'Error',       classes: 'border-destructive/30 bg-destructive/10 text-destructive', dot: 'bg-destructive' },
-    cancelled:      { label: 'Cancelado',   classes: 'border-border/40 bg-muted/30 text-muted-foreground/60',   dot: 'bg-muted-foreground/25' },
-    pending:        { label: 'Pendiente',   classes: 'border-amber-500/30 bg-amber-500/10 text-amber-500',       dot: 'bg-amber-500' },
-    success:        { label: 'OK',          classes: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500', dot: 'bg-emerald-500' },
+    cancelled:      { label: 'Cancelado',   classes: 'border-border/60 bg-surface-subtle text-muted-foreground',   dot: 'bg-muted-foreground/25' },
+    pending:        { label: 'Pendiente',   classes: 'border-warning/30 bg-warning/10 text-warning',       dot: 'bg-warning' },
+    success:        { label: 'OK',          classes: 'border-success/30 bg-success/10 text-success', dot: 'bg-success' },
     error:          { label: 'Error',       classes: 'border-destructive/30 bg-destructive/10 text-destructive', dot: 'bg-destructive' },
-    rate_limited:   { label: 'Rate limit',  classes: 'border-amber-500/30 bg-amber-500/10 text-amber-500',       dot: 'bg-amber-500' },
+    rate_limited:   { label: 'Rate limit',  classes: 'border-warning/30 bg-warning/10 text-warning',       dot: 'bg-warning' },
     quota_exceeded: { label: 'Cuota',       classes: 'border-destructive/30 bg-destructive/10 text-destructive', dot: 'bg-destructive' },
-    no_new_candidates: { label: 'Sin nuevos', classes: 'border-border/40 bg-muted/30 text-muted-foreground/60', dot: 'bg-muted-foreground/25' },
+    no_new_candidates: { label: 'Sin nuevos', classes: 'border-border/60 bg-surface-subtle text-muted-foreground', dot: 'bg-muted-foreground/25' },
   };
   const cfg = map[status] ?? {
     label: status,
-    classes: 'border-border/40 bg-muted/30 text-muted-foreground/60',
+    classes: 'border-border/60 bg-surface-subtle text-muted-foreground',
     dot: 'bg-muted-foreground/25',
   };
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium ${cfg.classes}`}>
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium ${cfg.classes}`}>
       <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
       {cfg.label}
     </span>
@@ -161,10 +161,10 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function EffectivenessBar({ pct }: { pct: number }) {
-  const color = pct >= 80 ? 'bg-emerald-500' : pct >= 50 ? 'bg-su-brand' : 'bg-amber-500';
+  const color = pct >= 80 ? 'bg-success' : pct >= 50 ? 'bg-su-brand' : 'bg-warning';
   return (
     <div className="flex items-center gap-2">
-      <div className="h-1.5 w-20 overflow-hidden rounded-full bg-muted/40">
+      <div className="h-1.5 w-20 overflow-hidden rounded-full bg-surface-subtle">
         <div className={`h-full rounded-full ${color}`} style={{ width: `${Math.min(pct, 100)}%` }} />
       </div>
       <span className="text-xs font-medium text-foreground">{pct.toFixed(1)}%</span>
@@ -179,7 +179,7 @@ function EffectivenessBar({ pct }: { pct: number }) {
 function EmptyState({ message }: { message: string }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 py-8">
-      <Activity className="h-6 w-6 text-muted-foreground/40" />
+      <Activity className="h-6 w-6 text-text-muted" />
       <p className="text-xs text-muted-foreground">{message}</p>
     </div>
   );
@@ -198,11 +198,11 @@ function AgentStatsTable({ agents }: { agents: AgentStat[] }) {
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
-          <tr className="border-b border-border/40">
+          <tr className="border-b border-border/60">
             {['Agente', 'Ejec.', 'Generados', 'Aprobados', 'Efectividad', 'Costo est.', 'Costo/aprobado'].map((h) => (
               <th
                 key={h}
-                className={`pb-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground ${h === 'Agente' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
+                className={`pb-2.5 text-xs font-semibold text-muted-foreground ${h === 'Agente' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
               >
                 {h}
               </th>
@@ -238,7 +238,7 @@ function AgentStatsTable({ agents }: { agents: AgentStat[] }) {
                     {effectiveness !== null ? (
                       <EffectivenessBar pct={effectiveness} />
                     ) : (
-                      <span className="text-muted-foreground/50 text-[10px]">Sin datos</span>
+                      <span className="text-muted-foreground text-xs">Sin datos</span>
                     )}
                   </div>
                 </td>
@@ -248,7 +248,7 @@ function AgentStatsTable({ agents }: { agents: AgentStat[] }) {
                 <td className="py-3 text-right font-mono text-muted-foreground">
                   {costPerApproved !== null
                     ? formatCost(costPerApproved)
-                    : <span className="text-muted-foreground/40">—</span>}
+                    : <span className="text-text-muted">—</span>}
                 </td>
               </tr>
             );
@@ -310,11 +310,11 @@ function ProviderStatsTable({ providers }: { providers: ProviderStat[] }) {
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
-          <tr className="border-b border-border/40">
+          <tr className="border-b border-border/60">
             {['Proveedor', 'Medición', 'Llamadas', 'Cantidad', 'Resultados', 'Costo est.', 'Último uso'].map((h) => (
               <th
                 key={h}
-                className={`pb-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground ${h === 'Proveedor' || h === 'Medición' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
+                className={`pb-2.5 text-xs font-semibold text-muted-foreground ${h === 'Proveedor' || h === 'Medición' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
               >
                 {h}
               </th>
@@ -326,7 +326,7 @@ function ProviderStatsTable({ providers }: { providers: ProviderStat[] }) {
             <tr key={p.provider_key}>
               <td className="py-3 pr-4">
                 <div className="flex items-center gap-2">
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted/40">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-subtle">
                     <Plug className="h-3.5 w-3.5 text-muted-foreground" />
                   </div>
                   <span className="font-medium text-foreground">
@@ -334,7 +334,7 @@ function ProviderStatsTable({ providers }: { providers: ProviderStat[] }) {
                   </span>
                 </div>
               </td>
-              <td className="py-3 pr-4 text-muted-foreground text-[11px]">
+              <td className="py-3 pr-4 text-muted-foreground text-xs">
                 {providerMeasurementLabel(p)}
               </td>
               <td className="py-3 pr-4 text-right text-muted-foreground">{p.total_calls}</td>
@@ -345,13 +345,13 @@ function ProviderStatsTable({ providers }: { providers: ProviderStat[] }) {
                     return <div className="flex justify-end"><CreditsValue display={credits} /></div>;
                   }
                   const tokens = providerMeasurementTokens(p);
-                  return tokens ?? <span className="text-muted-foreground/40">—</span>;
+                  return tokens ?? <span className="text-text-muted">—</span>;
                 })()}
               </td>
               <td className="py-3 pr-4 text-right text-muted-foreground">{p.total_results_returned}</td>
               <td className="py-3 pr-4 text-right font-mono text-muted-foreground">
                 {p.total_estimated_cost_usd === 0 && !p.has_unknown_cost
-                  ? <span className="text-muted-foreground/40">—</span>
+                  ? <span className="text-text-muted">—</span>
                   : (
                     <CostValue
                       display={resolveCostDisplay({
@@ -386,11 +386,11 @@ function RecentLogsTable({ logs }: { logs: ProviderUsageLog[] }) {
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
-          <tr className="border-b border-border/40">
+          <tr className="border-b border-border/60">
             {['Fecha', 'Proveedor', 'Operación', 'Estado', 'Cred./Tokens', 'Costo est.'].map((h) => (
               <th
                 key={h}
-                className={`pb-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground ${h === 'Fecha' || h === 'Proveedor' || h === 'Operación' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
+                className={`pb-2.5 text-xs font-semibold text-muted-foreground ${h === 'Fecha' || h === 'Proveedor' || h === 'Operación' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
               >
                 {h}
               </th>
@@ -441,7 +441,7 @@ function RecentLogsTable({ logs }: { logs: ProviderUsageLog[] }) {
                 <td className="py-2.5 text-right font-mono text-muted-foreground">
                   {Number(log.estimated_cost_usd) > 0
                     ? formatCost(Number(log.estimated_cost_usd))
-                    : <span className="text-muted-foreground/40">—</span>}
+                    : <span className="text-text-muted">—</span>}
                 </td>
               </tr>
             );
@@ -533,7 +533,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
           sub: 'runs registrados',
           icon: Bot,
           accent: 'text-foreground',
-          iconBg: 'bg-muted/40',
+          iconBg: 'bg-surface-subtle',
         },
         {
           label: 'Llamadas a proveedores',
@@ -541,7 +541,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
           sub: `${summary.distinct_providers} proveedor${summary.distinct_providers !== 1 ? 'es' : ''} activo${summary.distinct_providers !== 1 ? 's' : ''}`,
           icon: Zap,
           accent: 'text-foreground',
-          iconBg: 'bg-muted/40',
+          iconBg: 'bg-surface-subtle',
         },
         {
           label: 'Errores',
@@ -553,7 +553,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
             : 'text-muted-foreground',
           iconBg: summary.error_provider_calls + summary.failed_executions > 0
             ? 'bg-destructive/10'
-            : 'bg-muted/40',
+            : 'bg-surface-subtle',
         },
         {
           label: 'Costo promedio / run',
@@ -563,7 +563,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
           sub: 'por ejecución de agente',
           icon: TrendingUp,
           accent: 'text-foreground',
-          iconBg: 'bg-muted/40',
+          iconBg: 'bg-surface-subtle',
         },
         {
           label: 'En curso ahora',
@@ -571,7 +571,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
           sub: 'agentes activos',
           icon: CheckCircle2,
           accent: 'text-foreground',
-          iconBg: summary.running_executions > 0 ? 'bg-su-brand-soft' : 'bg-muted/40',
+          iconBg: summary.running_executions > 0 ? 'bg-su-brand-soft' : 'bg-surface-subtle',
         },
       ];
 
@@ -582,7 +582,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
         description="Consumo real de agentes y proveedores externos. Datos registrados automáticamente por el Agente 1."
         actions={
           hasData ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold text-emerald-500">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/10 px-2.5 py-1 text-xs font-semibold text-success">
               <CheckCircle2 className="h-3 w-3" />
               Datos reales
             </span>
@@ -592,7 +592,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
 
       {/* ── Banner contextual ────────────────────────────────── */}
       {isRestricted && (
-        <div className="flex items-start gap-3 rounded-xl border border-border/40 bg-muted/20 px-4 py-3">
+        <div className="flex items-start gap-3 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
           <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
           <p className="text-xs text-muted-foreground leading-relaxed">
             Esta vista requiere permisos de administrador para mostrar datos de consumo.
@@ -612,8 +612,8 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
       )}
 
       {hasData && (
-        <div className="flex items-start gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3">
-          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+        <div className="flex items-start gap-3 rounded-xl border border-success/20 bg-success/5 px-4 py-3">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
           <p className="text-xs text-muted-foreground leading-relaxed">
             Mostrando datos reales desde Supabase.{' '}
             <strong className="text-foreground font-medium">Tavily</strong> se mide por créditos/consultas (no tokens).{' '}
@@ -637,7 +637,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
               currentGroupId={filters.groupId ?? ''}
             />
             {activeFiltersCount > 0 && (
-              <span className="text-[10px] text-muted-foreground">
+              <span className="text-xs text-muted-foreground">
                 {activeFiltersCount} filtro{activeFiltersCount !== 1 ? 's' : ''} activo{activeFiltersCount !== 1 ? 's' : ''}
               </span>
             )}
@@ -703,7 +703,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
             title="Consumo por proveedor"
             description="Llamadas, créditos o tokens consumidos, y costo estimado por proveedor."
             actions={
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/40">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface-subtle">
                 <Plug className="h-4 w-4 text-muted-foreground" />
               </div>
             }
@@ -712,7 +712,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
 
           <div className="mt-4 flex items-start gap-2 rounded-lg border border-su-brand/20 bg-su-brand/5 px-3 py-2.5">
             <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-su-brand" />
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
+            <p className="text-xs text-muted-foreground leading-relaxed">
               <strong className="text-foreground font-medium">Tavily</strong> no consume tokens — se cobra por crédito/consulta.{' '}
               <strong className="text-foreground font-medium">Apollo</strong> y{' '}
               <strong className="text-foreground font-medium">Lusha</strong> se medirán por crédito cuando se integren.
@@ -745,15 +745,15 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
             title="Consumo por usuario"
             description="Adopción y costo por usuario activo. Los usuarios sin consumo aparecen con cero para visibilizar la no-adopción."
             actions={
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/40">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface-subtle">
                 <Users className="h-4 w-4 text-muted-foreground" />
               </div>
             }
           />
           {userConsumption === null || userConsumption.length === 0 ? (
-            <div className="flex items-start gap-2 rounded-lg border border-border/40 bg-muted/20 px-3 py-2.5">
+            <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-surface-subtle px-3 py-2.5">
               <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <p className="text-[11px] text-muted-foreground leading-relaxed">
+              <p className="text-xs text-muted-foreground leading-relaxed">
                 {userConsumption === null
                   ? 'Sin permisos para ver consumo por usuario.'
                   : 'No hay usuarios activos que coincidan con los filtros actuales.'}
@@ -763,11 +763,11 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="border-b border-border/40">
+                  <tr className="border-b border-border/60">
                     {['Usuario', 'Ejecuciones', 'Llamadas', 'Proveedores', 'Costo est.', 'Último uso'].map((h) => (
                       <th
                         key={h}
-                        className={`pb-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground ${h === 'Usuario' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
+                        className={`pb-2.5 text-xs font-semibold text-muted-foreground ${h === 'Usuario' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
                       >
                         {h}
                       </th>
@@ -785,7 +785,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
                               {u.full_name ?? u.email ?? u.triggered_by.slice(0, 8)}
                             </span>
                             {u.full_name && u.email && (
-                              <span className="text-[10px] text-muted-foreground">{u.email}</span>
+                              <span className="text-xs text-muted-foreground">{u.email}</span>
                             )}
                           </div>
                         </td>
@@ -794,11 +794,11 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
                         <td className="py-3 pr-4 text-right text-muted-foreground">
                           {u.providers.length > 0
                             ? u.providers.map(providerDisplayName).join(', ')
-                            : <span className="text-muted-foreground/40">—</span>}
+                            : <span className="text-text-muted">—</span>}
                         </td>
                         <td className="py-3 pr-4 text-right font-mono text-muted-foreground">
                           {u.estimated_cost_usd === 0 && !u.has_unknown_cost
-                            ? <span className="text-muted-foreground/40">$0.00</span>
+                            ? <span className="text-text-muted">$0.00</span>
                             : (
                               <CostValue
                                 display={resolveCostDisplay({

@@ -35,16 +35,16 @@ function StatCard({
   const percentage = total > 0 ? Math.round((count / total) * 100) : 0;
 
   const variantStyles: Record<string, string> = {
-    success: 'border-emerald-500/30 bg-emerald-500/5',
-    warning: 'border-amber-500/30 bg-amber-500/5',
+    success: 'border-success/30 bg-success/5',
+    warning: 'border-warning/30 bg-warning/5',
     destructive: 'border-destructive/30 bg-destructive/5',
     info: 'border-su-brand/30 bg-su-brand/5',
-    default: 'border-border/40 bg-muted/20',
+    default: 'border-border/60 bg-surface-subtle',
   };
 
   const iconStyles: Record<string, string> = {
-    success: 'text-emerald-500',
-    warning: 'text-amber-500',
+    success: 'text-success',
+    warning: 'text-warning',
     destructive: 'text-destructive',
     info: 'text-su-brand',
     default: 'text-muted-foreground',
@@ -55,7 +55,7 @@ function StatCard({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <Icon className={cn('h-3 w-3', iconStyles[variant])} />
-          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+          <span className="text-xs font-semibold text-muted-foreground">
             {label}
           </span>
         </div>
@@ -64,12 +64,12 @@ function StatCard({
         </span>
       </div>
       {/* Progress bar */}
-      <div className="mt-2 h-1.5 rounded-full bg-muted/40 overflow-hidden">
+      <div className="mt-2 h-1.5 rounded-full bg-surface-subtle overflow-hidden">
         <div
           className={cn(
             'h-full rounded-full transition-all duration-500',
-            variant === 'success' && 'bg-emerald-500',
-            variant === 'warning' && 'bg-amber-500',
+            variant === 'success' && 'bg-success',
+            variant === 'warning' && 'bg-warning',
             variant === 'destructive' && 'bg-destructive',
             variant === 'info' && 'bg-su-brand',
             variant === 'default' && 'bg-muted-foreground/40',
@@ -77,7 +77,7 @@ function StatCard({
           style={{ width: `${percentage}%` }}
         />
       </div>
-      <p className="mt-1 text-[10px] text-muted-foreground tabular-nums">
+      <p className="mt-1 text-xs text-muted-foreground tabular-nums">
         {percentage}% del total
       </p>
     </div>
@@ -102,14 +102,14 @@ export function ImportClassificationSummary({
         className={cn(
           'rounded-xl border p-3 flex items-center gap-3',
           canProceed
-            ? 'border-emerald-500/30 bg-emerald-500/5'
-            : 'border-amber-500/30 bg-amber-500/5',
+            ? 'border-success/30 bg-success/5'
+            : 'border-warning/30 bg-warning/5',
         )}
       >
         {canProceed ? (
-          <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+          <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
         ) : (
-          <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+          <AlertTriangle className="h-4 w-4 text-warning shrink-0" />
         )}
         <div>
           <p className="text-xs font-medium text-foreground">
@@ -117,7 +117,7 @@ export function ImportClassificationSummary({
               ? `${readyCount} de ${stats.total} filas listas para importar (${readyPercentage}%)`
               : `${stats.requiresReview + stats.invalid} de ${stats.total} filas requieren corrección antes de importar`}
           </p>
-          <p className="text-[10px] text-muted-foreground mt-0.5">
+          <p className="text-xs text-muted-foreground mt-0.5">
             Catálogo: v{catalogVersion}
           </p>
         </div>

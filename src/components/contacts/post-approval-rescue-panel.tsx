@@ -162,7 +162,7 @@ export function OfficialContactRescuePanel({
             )}
             {busy === 'recovery' ? RESCUE_RECOVERY_BUSY_LABEL : RESCUE_RECOVERY_LABEL}
           </Button>
-          <p className="text-[11px] text-muted-foreground/70">{RESCUE_RECOVERY_HELPER}</p>
+          <p className="text-xs text-muted-foreground">{RESCUE_RECOVERY_HELPER}</p>
         </div>
       )}
 
@@ -271,7 +271,7 @@ function PaidRescueAction({
           {busy ? busyLabel : label}
         </Button>
       )}
-      <p className="text-[11px] text-muted-foreground/70">{helper}</p>
+      <p className="text-xs text-muted-foreground">{helper}</p>
     </div>
   );
 }

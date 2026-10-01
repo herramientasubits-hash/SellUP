@@ -204,10 +204,10 @@ function SearchTypeStep({ state, dispatch, titleRef }: SearchTypeStepProps) {
                 // punteado, fondo muted y SIN hover (antes conservaba el hover
                 // azul de las activas y parecía clickeable).
                 isComingSoon
-                  ? 'cursor-default border-dashed border-border/70 bg-muted/20'
+                  ? 'cursor-default border-dashed border-border/70 bg-surface-subtle'
                   : isSelected
-                  ? 'cursor-pointer border-su-brand bg-su-brand-soft/40 shadow-sm'
-                  : 'cursor-pointer border-border bg-card hover:border-su-brand/40 hover:bg-muted/40',
+                  ? 'cursor-pointer border-su-brand bg-su-brand-soft/40 shadow-card'
+                  : 'cursor-pointer border-border bg-card hover:border-su-brand/40 hover:bg-surface-muted',
               ].join(' ')}
             >
               <div
@@ -216,7 +216,7 @@ function SearchTypeStep({ state, dispatch, titleRef }: SearchTypeStepProps) {
                   isSelected && !isComingSoon
                     ? 'bg-su-brand-soft'
                     : isComingSoon
-                    ? 'bg-muted/50'
+                    ? 'bg-surface-muted'
                     : 'bg-muted',
                 ].join(' ')}
               >
@@ -226,7 +226,7 @@ function SearchTypeStep({ state, dispatch, titleRef }: SearchTypeStepProps) {
                     isSelected && !isComingSoon
                       ? 'text-su-brand'
                       : isComingSoon
-                      ? 'text-muted-foreground/40'
+                      ? 'text-text-muted'
                       : 'text-muted-foreground',
                   ].join(' ')}
                   aria-hidden
@@ -243,7 +243,7 @@ function SearchTypeStep({ state, dispatch, titleRef }: SearchTypeStepProps) {
                     {def.label}
                   </span>
                   {isComingSoon && (
-                    <span className="flex items-center gap-1 rounded-full border border-border/60 bg-muted/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">
+                    <span className="flex items-center gap-1 rounded-full border border-border/60 bg-surface-muted px-2 py-0.5 text-xs font-semibold text-muted-foreground">
                       <Clock className="h-2.5 w-2.5" aria-hidden />
                       Próximamente
                     </span>
@@ -252,7 +252,7 @@ function SearchTypeStep({ state, dispatch, titleRef }: SearchTypeStepProps) {
                 <p
                   className={[
                     'mt-0.5 text-xs leading-relaxed',
-                    isComingSoon ? 'text-muted-foreground/60' : 'text-muted-foreground',
+                    isComingSoon ? 'text-muted-foreground' : 'text-muted-foreground',
                   ].join(' ')}
                 >
                   {def.description}
@@ -266,7 +266,7 @@ function SearchTypeStep({ state, dispatch, titleRef }: SearchTypeStepProps) {
       {comingSoonWarning && (
         <div
           role="status"
-          className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-700 dark:border-amber-800/40 dark:bg-amber-900/10 dark:text-amber-400"
+          className="rounded-lg border border-warning/20 bg-warning/15 px-3 py-2.5 text-xs text-warning dark:border-warning/40 dark:bg-warning/10"
         >
           Esta forma de búsqueda estará disponible próximamente. Por ahora puedes buscar empresas por criterios.
         </div>
@@ -525,7 +525,7 @@ function AdditionalCriteriaStep({
 function ValidatingStep() {
   return (
     <div
-      className="flex items-center gap-3 rounded-xl bg-muted/40 px-5 py-4"
+      className="flex items-center gap-3 rounded-xl bg-surface-subtle px-5 py-4"
       role="status"
       aria-live="polite"
     >

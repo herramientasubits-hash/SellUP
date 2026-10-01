@@ -127,7 +127,7 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
     >
       <div className="space-y-6">
         {/* Identity preview */}
-        <div className="flex items-center gap-4 rounded-xl border border-border/50 bg-muted/30 px-4 py-3">
+        <div className="flex items-center gap-4 rounded-xl border border-border/50 bg-surface-subtle px-4 py-3">
           <Avatar className="h-12 w-12 shrink-0">
             <AvatarFallback className="bg-su-brand-soft text-su-brand text-sm font-semibold">
               {previewInitials}
@@ -141,7 +141,7 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
               {email || <span className="italic">correo@ubits.co</span>}
             </p>
             {selectedRole && (
-              <Badge variant="outline" className="mt-1 text-[10px] bg-su-brand-soft text-su-brand border-su-brand/20">
+              <Badge variant="outline" className="mt-1 text-xs bg-su-brand-soft text-su-brand border-su-brand/20">
                 {selectedRole.name}
               </Badge>
             )}
@@ -150,7 +150,7 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
 
         {/* ── Section: Identidad ────────────────────────── */}
         <div className="space-y-4">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+          <p className="text-xs font-semibold text-muted-foreground">
             Identidad
           </p>
 
@@ -170,7 +170,7 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
                 className={`pl-9 pr-9 ${
                   emailTouched
                     ? emailValid
-                      ? 'border-emerald-500/60 focus-visible:ring-emerald-500/30'
+                      ? 'border-success/60 focus-visible:ring-success/30'
                       : 'border-destructive/60 focus-visible:ring-destructive/30'
                     : ''
                 }`}
@@ -178,7 +178,7 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
               {emailTouched && (
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
                   {emailValid
-                    ? <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                    ? <CheckCircle2 className="h-4 w-4 text-success" />
                     : <XCircle className="h-4 w-4 text-destructive" />
                   }
                 </span>
@@ -209,7 +209,7 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
 
         {/* ── Section: Acceso ───────────────────────────── */}
         <div className="space-y-4">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+          <p className="text-xs font-semibold text-muted-foreground">
             Acceso
           </p>
 
@@ -228,7 +228,7 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
                     <div className="flex flex-col py-0.5">
                       <span className="font-medium">{r.name}</span>
                       {r.description && (
-                        <span className="text-[11px] text-muted-foreground leading-tight">{r.description}</span>
+                        <span className="text-xs text-muted-foreground leading-tight">{r.description}</span>
                       )}
                     </div>
                   </SelectItem>
@@ -256,9 +256,9 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
               </SelectContent>
             </Select>
             {selectedManager && (
-              <div className="flex items-center gap-2 rounded-lg border border-border/40 bg-muted/30 px-3 py-2">
+              <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-surface-subtle px-3 py-2">
                 <Avatar className="h-6 w-6 shrink-0">
-                  <AvatarFallback className="bg-su-brand-soft text-su-brand text-[10px]">
+                  <AvatarFallback className="bg-su-brand-soft text-su-brand text-xs">
                     {getInitials(selectedManager.full_name ?? '', selectedManager.email)}
                   </AvatarFallback>
                 </Avatar>
@@ -270,7 +270,7 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
 
         {/* ── Section: Organización ─────────────────────── */}
         <div className="space-y-4">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+          <p className="text-xs font-semibold text-muted-foreground">
             Organización
           </p>
 

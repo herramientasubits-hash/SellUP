@@ -21,9 +21,9 @@ import {
 
 /** Tono → clases. La autoridad devuelve tono y no colores, así que Tailwind vive sólo aquí. */
 export const HUBSPOT_SYNC_TONE_CLASSES: Readonly<Record<HubSpotSyncPresentationTone, string>> = {
-  synced: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-  neutral: 'bg-muted/40 text-muted-foreground',
-  pending: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  synced: 'bg-success/10 text-success',
+  neutral: 'bg-surface-subtle text-muted-foreground',
+  pending: 'bg-warning/10 text-warning',
   error: 'bg-destructive/10 text-destructive',
 };
 
@@ -41,7 +41,7 @@ export function ContactHubSpotSyncBadge({
   return (
     <Badge
       variant="outline"
-      className={`text-[10px] border-transparent ${HUBSPOT_SYNC_TONE_CLASSES[tone]}`}
+      className={`text-xs border-transparent ${HUBSPOT_SYNC_TONE_CLASSES[tone]}`}
     >
       {label}
     </Badge>

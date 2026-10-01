@@ -93,7 +93,7 @@ export function AppSidebar({
                 >
                   <Avatar className="h-8 w-8">
                     <AvatarImage src={avatarUrl} alt={displayName} />
-                    <AvatarFallback className="bg-primary text-[10px] font-semibold text-primary-foreground">
+                    <AvatarFallback className="bg-primary text-xs font-semibold text-primary-foreground">
                       {initials}
                     </AvatarFallback>
                   </Avatar>
@@ -113,7 +113,7 @@ export function AppSidebar({
                 <div className="flex items-center gap-3 px-1 py-1.5">
                   <Avatar size="lg" className="shrink-0">
                     <AvatarImage src={avatarUrl} alt={displayName} />
-                    <AvatarFallback className="bg-primary text-[11px] font-semibold text-primary-foreground">
+                    <AvatarFallback className="bg-primary text-xs font-semibold text-primary-foreground">
                       {initials}
                     </AvatarFallback>
                   </Avatar>

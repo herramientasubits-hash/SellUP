@@ -99,7 +99,7 @@ export function AssignUsersToGroupDialog({
                   className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors ${
                     isSelected
                       ? 'border-su-brand/40 bg-su-brand-soft/20'
-                      : 'border-border/50 hover:border-border/80 hover:bg-muted/30'
+                      : 'border-border/50 hover:border-border/80 hover:bg-surface-muted'
                   }`}
                 >
                   <div
@@ -110,7 +110,7 @@ export function AssignUsersToGroupDialog({
                     {isSelected && <Check className="h-3 w-3 text-white" />}
                   </div>
                   <Avatar className="h-7 w-7 shrink-0">
-                    <AvatarFallback className="bg-su-brand-soft text-su-brand text-[10px]">
+                    <AvatarFallback className="bg-su-brand-soft text-su-brand text-xs">
                       {getInitials(user.full_name, user.email)}
                     </AvatarFallback>
                   </Avatar>
@@ -123,7 +123,7 @@ export function AssignUsersToGroupDialog({
                   {user.group_id && (
                     <Badge
                       variant="outline"
-                      className="shrink-0 text-[10px] text-muted-foreground border-border/60"
+                      className="shrink-0 text-xs text-muted-foreground border-border/60"
                     >
                       {formatGroupLabel(user.group_id, allGroups)}
                     </Badge>

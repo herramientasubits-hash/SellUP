@@ -189,7 +189,7 @@ export function CreateDrawer({
         <FieldWrapper>
           <Label>Proveedor <span className="text-destructive">*</span></Label>
           {defaultProviderKey ? (
-            <div className="flex h-9 w-full items-center rounded-md border border-border/60 bg-muted/30 px-3 text-sm text-muted-foreground">
+            <div className="flex h-9 w-full items-center rounded-md border border-border/60 bg-surface-subtle px-3 text-sm text-muted-foreground">
               {options.providers.find((p) => p.providerKey === defaultProviderKey)?.displayName ?? defaultProviderKey}
             </div>
           ) : (
@@ -322,7 +322,7 @@ export function CreateDrawer({
             />
           </FieldWrapper>
         </div>
-        <p className="text-[11px] text-muted-foreground -mt-1">
+        <p className="text-xs text-muted-foreground -mt-1">
           Al menos uno es obligatorio. Ambos pueden coexistir.
         </p>
 
@@ -436,7 +436,7 @@ export function EditDrawer({
           {' · '}
           <span>{rule.scopeLabel}</span>
           <br />
-          <span className="text-[11px]">
+          <span className="text-xs">
             El proveedor y el alcance no se pueden cambiar. Para modificarlos, desactiva esta regla y crea una nueva.
           </span>
         </>
@@ -618,10 +618,10 @@ function RulesTabTable({ rules, emptyMessage, onEdit, onToggle, onArchive, toggl
 
   return (
     <>
-      <div className="overflow-x-auto rounded-lg border border-border/40">
+      <div className="overflow-x-auto rounded-lg border border-border/60">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-border/40 bg-muted/20">
+            <tr className="border-b border-border/60 bg-surface-subtle">
               <th className="w-10 px-4 py-3">
                 <Checkbox
                   checked={allSelected ? true : someSelected ? 'indeterminate' : false}
@@ -640,7 +640,7 @@ function RulesTabTable({ rules, emptyMessage, onEdit, onToggle, onArchive, toggl
             {rules.map((rule) => {
               const isSelected = selectedIds.has(rule.id);
               return (
-                <tr key={rule.id} className={`hover:bg-muted/10 transition-colors ${isSelected ? 'bg-muted/20' : ''}`}>
+                <tr key={rule.id} className={`hover:bg-surface-muted transition-colors ${isSelected ? 'bg-surface-subtle' : ''}`}>
                   <td className="w-10 px-4 py-3">
                     <Checkbox
                       checked={isSelected}
@@ -650,7 +650,7 @@ function RulesTabTable({ rules, emptyMessage, onEdit, onToggle, onArchive, toggl
                   </td>
                   <td className="px-4 py-3 font-medium text-foreground">{rule.providerDisplayName}</td>
                   <td className="px-4 py-3">
-                    <span className="inline-flex items-center rounded-full border border-border/40 bg-muted/30 px-2 py-0.5 text-[11px] text-muted-foreground">
+                    <span className="inline-flex items-center rounded-full border border-border/60 bg-surface-subtle px-2 py-0.5 text-xs text-muted-foreground">
                       {rule.scopeLabel}
                     </span>
                   </td>
@@ -659,16 +659,16 @@ function RulesTabTable({ rules, emptyMessage, onEdit, onToggle, onArchive, toggl
                   <td className="px-4 py-3 text-muted-foreground text-xs">{ON_EXCEED_LABELS[rule.on_exceed]}</td>
                   <td className="px-4 py-3">
                     <span
-                      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${
+                      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${
                         rule.is_active
-                          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500'
-                          : 'border-border/40 bg-muted/30 text-muted-foreground'
+                          ? 'border-success/30 bg-success/10 text-success'
+                          : 'border-border/60 bg-surface-subtle text-muted-foreground'
                       }`}
                     >
                       {rule.is_active ? 'Activa' : 'Inactiva'}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-[11px] text-muted-foreground">{formatDate(rule.updated_at)}</td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">{formatDate(rule.updated_at)}</td>
                 </tr>
               );
             })}
@@ -744,11 +744,11 @@ export function BudgetRulesTabbedSection({ rules, options }: TabbedSectionProps)
 
         {/* Tabs */}
         <Tabs defaultValue="global">
-          <TabsList className="border border-border/40 bg-muted/30">
+          <TabsList className="border border-border/60 bg-surface-subtle">
             <TabsTrigger value="global">
               Globales
               {globalRules.length > 0 && (
-                <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
                   {globalRules.length}
                 </span>
               )}
@@ -756,7 +756,7 @@ export function BudgetRulesTabbedSection({ rules, options }: TabbedSectionProps)
             <TabsTrigger value="role">
               Por rol
               {roleRules.length > 0 && (
-                <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
                   {roleRules.length}
                 </span>
               )}
@@ -764,7 +764,7 @@ export function BudgetRulesTabbedSection({ rules, options }: TabbedSectionProps)
             <TabsTrigger value="group">
               Por grupo
               {groupRules.length > 0 && (
-                <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
                   {groupRules.length}
                 </span>
               )}
@@ -772,7 +772,7 @@ export function BudgetRulesTabbedSection({ rules, options }: TabbedSectionProps)
             <TabsTrigger value="user">
               Por usuario
               {userRules.length > 0 && (
-                <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
                   {userRules.length}
                 </span>
               )}
@@ -835,7 +835,7 @@ export function BudgetRulesTabbedSection({ rules, options }: TabbedSectionProps)
             className="absolute inset-0 bg-background/80 backdrop-blur-sm"
             onClick={() => setConfirmArchive(null)}
           />
-          <div className="relative z-10 w-full max-w-sm rounded-xl border border-border/60 bg-card shadow-lg p-6 space-y-4 mx-4">
+          <div className="relative z-10 w-full max-w-sm rounded-2xl border border-border/60 bg-card shadow-drawer p-6 space-y-4 mx-4">
             <div className="space-y-1">
               <h3 className="text-sm font-semibold text-foreground">¿Eliminar esta regla?</h3>
               <p className="text-xs text-muted-foreground leading-relaxed">
@@ -932,10 +932,10 @@ export function BudgetRulesClient({ rules, options }: Props) {
           </p>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-border/40">
+        <div className="overflow-x-auto rounded-lg border border-border/60">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border/40 bg-muted/20">
+              <tr className="border-b border-border/60 bg-surface-subtle">
                 {['Proveedor', 'Alcance', 'Límite', 'Período', 'Acción', 'Estado', 'Actualizado', 'Acciones'].map(
                   (col) => (
                     <th key={col} className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
@@ -947,12 +947,12 @@ export function BudgetRulesClient({ rules, options }: Props) {
             </thead>
             <tbody className="divide-y divide-border/30">
               {rules.map((rule) => (
-                <tr key={rule.id} className="hover:bg-muted/10 transition-colors">
+                <tr key={rule.id} className="hover:bg-surface-muted transition-colors">
                   <td className="px-4 py-3 font-medium text-foreground">
                     {rule.providerDisplayName}
                   </td>
                   <td className="px-4 py-3">
-                    <span className="inline-flex items-center rounded-full border border-border/40 bg-muted/30 px-2 py-0.5 text-[11px] text-muted-foreground">
+                    <span className="inline-flex items-center rounded-full border border-border/60 bg-surface-subtle px-2 py-0.5 text-xs text-muted-foreground">
                       {rule.scopeLabel}
                     </span>
                   </td>
@@ -967,16 +967,16 @@ export function BudgetRulesClient({ rules, options }: Props) {
                   </td>
                   <td className="px-4 py-3">
                     <span
-                      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${
+                      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${
                         rule.is_active
-                          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500'
-                          : 'border-border/40 bg-muted/30 text-muted-foreground'
+                          ? 'border-success/30 bg-success/10 text-success'
+                          : 'border-border/60 bg-surface-subtle text-muted-foreground'
                       }`}
                     >
                       {rule.is_active ? 'Activa' : 'Inactiva'}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-[11px] text-muted-foreground">
+                  <td className="px-4 py-3 text-xs text-muted-foreground">
                     {formatDate(rule.updated_at)}
                   </td>
                   <td className="px-4 py-3">
@@ -1033,7 +1033,7 @@ export function BudgetRulesClient({ rules, options }: Props) {
             className="absolute inset-0 bg-background/80 backdrop-blur-sm"
             onClick={() => setConfirmArchive(null)}
           />
-          <div className="relative z-10 w-full max-w-sm rounded-xl border border-border/60 bg-card shadow-lg p-6 space-y-4 mx-4">
+          <div className="relative z-10 w-full max-w-sm rounded-2xl border border-border/60 bg-card shadow-drawer p-6 space-y-4 mx-4">
             <div className="space-y-1">
               <h3 className="text-sm font-semibold text-foreground">¿Eliminar esta regla?</h3>
               <p className="text-xs text-muted-foreground leading-relaxed">

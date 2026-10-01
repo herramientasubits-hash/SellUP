@@ -24,7 +24,7 @@ export function SaveIndicator({
     },
     saved: {
       icon: CheckCircle,
-      color: "text-emerald-500",
+      color: "text-success",
       label: "Guardado",
     },
     error: {
@@ -55,9 +55,9 @@ export function SaveIndicator({
       <Icon className={cn("h-3.5 w-3.5", status === "saving" && "animate-spin")} />
       {!compact && (
         <div className="flex items-baseline gap-1.5">
-          <span className="text-[11px] font-medium leading-none">{displayLabel}</span>
+          <span className="text-xs font-medium leading-none">{displayLabel}</span>
           {timestamp && status === "saved" && (
-            <span className="text-[10px] opacity-60 leading-none">
+            <span className="text-xs opacity-60 leading-none">
               {timestamp}
             </span>
           )}

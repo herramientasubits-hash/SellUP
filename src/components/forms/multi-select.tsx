@@ -99,7 +99,7 @@ export function MultiSelect({
                     <Badge
                       key={val}
                       variant="secondary"
-                      className="flex items-center gap-1 pr-1 pl-2 h-6 border-border/50 text-[12px] font-normal"
+                      className="flex items-center gap-1 pr-1 pl-2 h-6 border-border/50 text-xs font-normal"
                     >
                       {option?.label}
                       <div
@@ -139,7 +139,7 @@ export function MultiSelect({
       {/* Use --anchor-width (Base UI variable) to match trigger width, capped at available space */}
       <PopoverContent
         className={cn(
-          "w-(--anchor-width) max-w-(--available-width) p-0 rounded-xl border shadow-md",
+          "w-(--anchor-width) max-w-(--available-width) p-0 rounded-xl border shadow-drawer",
           contentClassName,
         )}
       >
@@ -168,7 +168,7 @@ export function MultiSelect({
                   {option.description && (
                     <span
                       className={cn(
-                        "text-[11px] text-muted-foreground leading-tight mt-0.5",
+                        "text-xs text-muted-foreground leading-tight mt-0.5",
                         compact && "line-clamp-1",
                       )}
                     >

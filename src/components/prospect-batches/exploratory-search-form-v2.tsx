@@ -308,7 +308,7 @@ export function ExploratorySearchFormV2({
       {/* Employee size — informational only */}
       <SurfaceCard>
         <SurfaceCardHeader title="Tamaño mínimo" />
-        <div className="flex items-center justify-between rounded-lg bg-muted/50 px-4 py-3">
+        <div className="flex items-center justify-between rounded-lg bg-surface-muted px-4 py-3">
           <span className="text-sm font-medium text-foreground">Más de 200 empleados</span>
           <span className="text-xs text-muted-foreground">Fijo</span>
         </div>
@@ -434,7 +434,7 @@ function ValidationResultCard({ result }: { result: ExploratorySearchValidationR
             Configuración validada. La generación de prospectos todavía no se ejecutó.
           </p>
           {result.warnings.map((w, i) => (
-            <p key={i} className="text-amber-600 dark:text-amber-400">
+            <p key={i} className="text-warning">
               {w}
             </p>
           ))}
@@ -454,7 +454,7 @@ function ValidationResultCard({ result }: { result: ExploratorySearchValidationR
           <p key={i}>· {msg}</p>
         ))}
         {result.warnings.map((w, i) => (
-          <p key={`w-${i}`} className="text-amber-600 dark:text-amber-400">
+          <p key={`w-${i}`} className="text-warning">
             {w}
           </p>
         ))}

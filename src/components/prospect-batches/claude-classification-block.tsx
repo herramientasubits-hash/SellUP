@@ -8,7 +8,7 @@ import type { ClaudeClassificationDisplay } from './claude-classification-displa
 
 const TONE_CLASSES: Record<ClaudeClassificationDisplay['outcomeTone'], string> = {
   positive: 'bg-su-brand-soft text-su-brand',
-  partial: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  partial: 'bg-warning/10 text-warning',
   neutral: 'bg-muted text-muted-foreground',
   error: 'bg-destructive/10 text-destructive',
 };
@@ -31,12 +31,12 @@ function Evidence({ quote, sourceUrl, verificationLabel }: { quote: string; sour
         href={sourceUrl}
         target="_blank"
         rel="noopener noreferrer nofollow"
-        className="inline-flex items-center gap-1 rounded-md text-[11px] text-su-brand hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="inline-flex items-center gap-1 rounded-md text-xs text-su-brand hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {hostOf(sourceUrl)}
         <ExternalLink className="h-3 w-3" />
       </a>
-      <p className="text-[10px] text-muted-foreground/70">{verificationLabel}</p>
+      <p className="text-xs text-muted-foreground">{verificationLabel}</p>
     </div>
   );
 }
@@ -47,12 +47,12 @@ export function ClaudeClassificationBlock({ display }: { display: ClaudeClassifi
       <SurfaceCardHeader title="Sugerencia de Claude" />
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge className={`border-0 text-[10px] font-semibold ${TONE_CLASSES[display.outcomeTone]}`}>
+          <Badge className={`border-0 text-xs font-semibold ${TONE_CLASSES[display.outcomeTone]}`}>
             <Sparkles className="mr-1 h-3 w-3" />
             {display.outcomeLabel}
           </Badge>
           {display.notOperatingCompany && (
-            <Badge className="border-0 bg-amber-500/10 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+            <Badge className="border-0 bg-warning/10 text-xs font-semibold text-warning">
               <AlertTriangle className="mr-1 h-3 w-3" />
               El sitio no parece ser la empresa
             </Badge>
@@ -61,14 +61,14 @@ export function ClaudeClassificationBlock({ display }: { display: ClaudeClassifi
 
         {display.sector && (
           <div className="min-w-0">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground/60">Sector sugerido</p>
+            <p className="text-xs text-muted-foreground">Sector sugerido</p>
             <p className="text-xs leading-snug text-foreground/90">
               {display.sector.label}
               {display.sector.matchesCurrentIndustry === false && (
-                <span className="ml-1.5 text-amber-600 dark:text-amber-400">· distinto al del lote</span>
+                <span className="ml-1.5 text-warning">· distinto al del lote</span>
               )}
               {display.sector.matchesCurrentIndustry === true && (
-                <span className="ml-1.5 text-emerald-600 dark:text-emerald-400">· coincide con el lote</span>
+                <span className="ml-1.5 text-success">· coincide con el lote</span>
               )}
             </p>
             <Evidence {...display.sector} />
@@ -77,7 +77,7 @@ export function ClaudeClassificationBlock({ display }: { display: ClaudeClassifi
 
         {display.employeeRange && (
           <div className="min-w-0">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground/60">Tamaño sugerido</p>
+            <p className="text-xs text-muted-foreground">Tamaño sugerido</p>
             <p className="text-xs leading-snug text-foreground/90">{display.employeeRange.label}</p>
             <Evidence {...display.employeeRange} />
           </div>
@@ -85,7 +85,7 @@ export function ClaudeClassificationBlock({ display }: { display: ClaudeClassifi
 
         {display.linkedin && (
           <div className="min-w-0">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground/60">LinkedIn de la empresa</p>
+            <p className="text-xs text-muted-foreground">LinkedIn de la empresa</p>
             <a
               href={display.linkedin.url}
               target="_blank"
@@ -95,11 +95,11 @@ export function ClaudeClassificationBlock({ display }: { display: ClaudeClassifi
               {display.linkedin.url.replace(/^https:\/\/(www\.)?/, '')}
               <ExternalLink className="h-3 w-3" />
             </a>
-            <p className="text-[10px] text-muted-foreground/70">{display.linkedin.sourceLabel}</p>
+            <p className="text-xs text-muted-foreground">{display.linkedin.sourceLabel}</p>
           </div>
         )}
 
-        <div className="rounded-md border border-border/50 bg-muted/40 px-3 py-2">
+        <div className="rounded-md border border-border/50 bg-surface-subtle px-3 py-2">
           <p className="text-xs leading-snug text-muted-foreground">
             <span className="font-medium text-foreground/70">Sólo es una sugerencia.</span> No cambia el estado del
             candidato; verifica la fuente antes de decidir.

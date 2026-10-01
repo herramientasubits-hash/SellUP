@@ -280,7 +280,7 @@ export function AIControls({ type, item, models, activeConfig }: AIControlsProps
     <>
       <DropdownMenu>
         <DropdownMenuTrigger>
-          <div className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md hover:bg-muted">
+          <div className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md hover:bg-surface-muted">
             <MoreHorizontal className="h-4 w-4" />
           </div>
         </DropdownMenuTrigger>
@@ -569,9 +569,9 @@ export function AIControls({ type, item, models, activeConfig }: AIControlsProps
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed bottom-8 left-1/2 -translate-x-1/2 transform px-4 py-3 rounded-lg shadow-lg border z-50 bg-card ${
+        <div className={`fixed bottom-8 left-1/2 -translate-x-1/2 transform px-4 py-3 rounded-lg shadow-drawer border z-50 bg-card ${
           toast.type === 'success'
-            ? 'border-emerald-500/50 text-emerald-700 dark:text-emerald-400'
+            ? 'border-success/50 text-success dark:text-success'
             : 'border-destructive/50 text-destructive'
         }`}>
           {toast.message}

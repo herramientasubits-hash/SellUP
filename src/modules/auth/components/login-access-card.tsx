@@ -43,13 +43,13 @@ export function LoginAccessCard({ children, errorMessage }: LoginAccessCardProps
     <div className="w-full max-w-[440px] animate-su-fade-in">
       {/* Logo visible solo en mobile */}
       <div className="mb-8 flex items-center justify-center lg:hidden">
-        <h1 className="text-3xl font-extrabold tracking-tight">
+        <h1 className="text-3xl font-bold tracking-tight">
           <span className="text-foreground">Sell</span>
           <span className="su-gradient-text">Up</span>
         </h1>
       </div>
 
-      <Card className="border-border/60 shadow-lg shadow-black/[0.06]">
+      <Card className="border-border/60 shadow-drawer">
         <CardContent className="space-y-7 px-7 py-7">
           {/* Encabezado */}
           <div className="space-y-2">

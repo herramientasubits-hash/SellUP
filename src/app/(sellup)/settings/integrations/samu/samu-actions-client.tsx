@@ -99,14 +99,14 @@ export function SamuConnectModal({ open, onOpenChange }: ConnectModalProps) {
                 {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Obtén tu API Key en Samu IA → Configuración → Integraciones → API.
               Requiere plan Enterprise.
             </p>
           </div>
 
-          <div className="rounded-lg border border-border/40 bg-muted/20 px-3 py-2.5">
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
+          <div className="rounded-lg border border-border/60 bg-surface-subtle px-3 py-2.5">
+            <p className="text-xs text-muted-foreground leading-relaxed">
               La disponibilidad de reuniones, transcripciones y participantes dependerá
               de los permisos y del entorno asociado a esta API Key.
             </p>
@@ -120,7 +120,7 @@ export function SamuConnectModal({ open, onOpenChange }: ConnectModalProps) {
           )}
 
           {successMsg && (
-            <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400">
+            <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-xs text-success">
               {successMsg}
             </p>
           )}
@@ -231,7 +231,7 @@ export function SamuUpdateModal({ open, onOpenChange }: UpdateModalProps) {
           )}
 
           {successMsg && (
-            <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400">
+            <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-xs text-success">
               {successMsg}
             </p>
           )}
@@ -288,7 +288,7 @@ export function SamuTestConnectionButton({ disabled }: TestConnectionProps) {
         <p
           className={`rounded-lg border px-3 py-2 text-xs ${
             result.success
-              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+              ? 'border-success/30 bg-success/10 text-success dark:text-success'
               : 'border-destructive/30 bg-destructive/10 text-destructive'
           }`}
         >

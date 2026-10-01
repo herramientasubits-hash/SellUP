@@ -116,13 +116,13 @@ export function SourceDetailDrawer({
           <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
           {statusLabel}
         </span>
-        <span className="inline-flex items-center rounded-full border border-border/40 bg-muted/30 px-3 py-1 text-xs font-medium text-muted-foreground">
+        <span className="inline-flex items-center rounded-full border border-border/60 bg-surface-subtle px-3 py-1 text-xs font-medium text-muted-foreground">
           {PRIORITY_LABELS[source.priority]}
         </span>
-        <span className="inline-flex items-center rounded-full border border-border/40 bg-muted/30 px-3 py-1 text-xs font-medium text-muted-foreground">
+        <span className="inline-flex items-center rounded-full border border-border/60 bg-surface-subtle px-3 py-1 text-xs font-medium text-muted-foreground">
           {TYPE_LABELS[source.type]}
         </span>
-        <span className="inline-flex items-center rounded-full border border-border/40 bg-muted/30 px-3 py-1 text-xs font-medium text-muted-foreground">
+        <span className="inline-flex items-center rounded-full border border-border/60 bg-surface-subtle px-3 py-1 text-xs font-medium text-muted-foreground">
           Automatización: {AUTOMATION_LEVEL_LABELS[source.automationLevel]}
         </span>
       </div>
@@ -141,7 +141,7 @@ export function SourceDetailDrawer({
 
       <div className="grid gap-4 md:grid-cols-2">
         <SurfaceCard>
-          <h2 className="text-[0.8125rem] font-semibold text-foreground mb-4">Información general</h2>
+          <h2 className="text-sm font-semibold text-foreground mb-4">Información general</h2>
           {/* Design Refresh v6: filas horizontales (label izquierda / valor a la
               derecha) consistentes con los drawers de Empresa y Contacto. */}
           <dl className="space-y-2.5 text-sm">
@@ -150,17 +150,17 @@ export function SourceDetailDrawer({
             </SourceInfoRow>
             <SourceInfoRow label="País">{countryLabels}</SourceInfoRow>
             <SourceInfoRow label="Uso en SellUp">
-              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${sellupUseBadgeClass(source.sellupUse)}`}>
+              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${sellupUseBadgeClass(source.sellupUse)}`}>
                 {SELLUP_USE_LABELS[source.sellupUse]}
               </span>
             </SourceInfoRow>
             <SourceInfoRow label="Estado flujo IA">
-              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${aiFlowStatusBadgeClass(source.aiFlowStatus)}`}>
+              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${aiFlowStatusBadgeClass(source.aiFlowStatus)}`}>
                 {AI_FLOW_STATUS_LABELS[source.aiFlowStatus]}
               </span>
             </SourceInfoRow>
             <SourceInfoRow label="Conexión">
-              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${connectionModeBadgeClass(source.connectionMode)}`}>
+              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${connectionModeBadgeClass(source.connectionMode)}`}>
                 {CONNECTION_MODE_LABELS[source.connectionMode]}
               </span>
             </SourceInfoRow>
@@ -180,13 +180,13 @@ export function SourceDetailDrawer({
         </SurfaceCard>
 
         <SurfaceCard>
-          <h2 className="text-[0.8125rem] font-semibold text-foreground mb-4">Uso recomendado</h2>
+          <h2 className="text-sm font-semibold text-foreground mb-4">Uso recomendado</h2>
           <p className="text-sm text-muted-foreground leading-relaxed">{source.recommendedUse}</p>
         </SurfaceCard>
 
         {source.limitations.length > 0 && (
           <SurfaceCard>
-            <h2 className="text-[0.8125rem] font-semibold text-foreground mb-4">Limitaciones</h2>
+            <h2 className="text-sm font-semibold text-foreground mb-4">Limitaciones</h2>
             <ul className="space-y-2">
               {source.limitations.map((item, i) => (
                 <li key={i} className="flex gap-2 text-sm text-muted-foreground">
@@ -200,11 +200,11 @@ export function SourceDetailDrawer({
 
         {source.riskNotes.length > 0 && (
           <SurfaceCard>
-            <h2 className="text-[0.8125rem] font-semibold text-foreground mb-4">Notas de riesgo</h2>
+            <h2 className="text-sm font-semibold text-foreground mb-4">Notas de riesgo</h2>
             <ul className="space-y-2">
               {source.riskNotes.map((item, i) => (
-                <li key={i} className="flex gap-2 text-sm text-amber-600 dark:text-amber-400">
-                  <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500/60" />
+                <li key={i} className="flex gap-2 text-sm text-warning">
+                  <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-warning/60" />
                   {item}
                 </li>
               ))}
@@ -221,37 +221,37 @@ export function SourceDetailDrawer({
         <>
           {isManualSignalOnly ? (
             <SurfaceCard>
-              <h2 className="text-[0.8125rem] font-semibold text-foreground mb-2">Estado de integración</h2>
+              <h2 className="text-sm font-semibold text-foreground mb-2">Estado de integración</h2>
               <p className="text-sm text-muted-foreground leading-relaxed">
                 Esta fuente se conserva como referencia manual. No existe una integración automática aprobada para SellUp.
               </p>
             </SurfaceCard>
           ) : isHnContrataciones ? (
             <SurfaceCard>
-              <h2 className="text-[0.8125rem] font-semibold text-foreground mb-2">Acceso técnico</h2>
+              <h2 className="text-sm font-semibold text-foreground mb-2">Acceso técnico</h2>
               <dl className="space-y-3 text-sm">
                 <div className="flex items-center gap-2">
                   <dt className="text-muted-foreground">Credenciales:</dt>
                   <dd>
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/10 px-2.5 py-0.5 text-xs font-medium text-success">
                       No requeridas
                     </span>
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+                  <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
                     Publisher institucional
                   </dt>
                   <dd className="text-foreground">ONCAE Honduras</dd>
                 </div>
                 <div>
-                  <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+                  <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
                     Feed técnico consumido por SellUp
                   </dt>
                   <dd className="text-foreground">OCP Data Registry · publicación Honduras ONCAE</dd>
                 </div>
                 <div>
-                  <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+                  <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
                     Formato
                   </dt>
                   <dd className="text-foreground">JSONL.gz / OCDS</dd>
@@ -266,11 +266,11 @@ export function SourceDetailDrawer({
             />
           ) : source.type === 'public_dataset' || source.key === 'co_rues' || (source.operationalStatus === 'operational_verified' && !source.url?.includes('api')) ? (
             <SurfaceCard>
-              <h2 className="text-[0.8125rem] font-semibold text-foreground mb-2">Credencial de API</h2>
+              <h2 className="text-sm font-semibold text-foreground mb-2">Credencial de API</h2>
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-muted-foreground">Requiere credencial:</span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-border/40 bg-muted/30 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-surface-subtle px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
                     No requiere credencial
                   </span>
                 </div>
@@ -282,7 +282,7 @@ export function SourceDetailDrawer({
             </SurfaceCard>
           ) : (
             <SurfaceCard>
-              <h2 className="text-[0.8125rem] font-semibold text-foreground mb-2">Credencial de API</h2>
+              <h2 className="text-sm font-semibold text-foreground mb-2">Credencial de API</h2>
               <p className="text-sm text-muted-foreground">
                 Esta fuente aún no tiene configuración de credencial registrada en el sistema.
               </p>
@@ -321,9 +321,9 @@ export function SourceDetailDrawer({
           )}
 
           {isRues && (
-            <div className="flex items-center justify-between rounded-xl border border-border/40 bg-muted/30 px-5 py-3.5">
+            <div className="flex items-center justify-between rounded-xl border border-border/60 bg-surface-subtle px-5 py-3.5">
               <div className="flex items-center gap-2.5">
-                <Database className="h-4 w-4 shrink-0 text-muted-foreground/60" />
+                <Database className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <div>
                   <p className="text-sm font-medium text-foreground">Lotes Socrata</p>
                   <p className="text-xs text-muted-foreground">
@@ -348,7 +348,7 @@ export function SourceDetailDrawer({
     <div className="space-y-4">
       <SurfaceCard>
         <div className="flex items-center gap-2.5 mb-2">
-          <Layers className="h-4 w-4 shrink-0 text-muted-foreground/60" />
+          <Layers className="h-4 w-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0">
             <p className="text-sm font-semibold text-foreground">Lotes Socrata</p>
             <p className="text-xs text-muted-foreground">Revisión interna de lotes creados desde RUES. Solo lectura.</p>
@@ -357,9 +357,9 @@ export function SourceDetailDrawer({
       </SurfaceCard>
 
       <SurfaceCard noPadding>
-        <div className="flex items-center gap-2.5 px-5 py-2.5 border-b border-border/40 bg-muted/30">
-          <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-          <p className="text-[11px] text-muted-foreground">
+        <div className="flex items-center gap-2.5 px-5 py-2.5 border-b border-border/60 bg-surface-subtle">
+          <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <p className="text-xs text-muted-foreground">
             <span className="font-medium text-foreground/80">Solo lectura para candidatos.</span>{' '}
             No permite editar, aprobar, descartar ni sincronizar.
           </p>
@@ -367,7 +367,7 @@ export function SourceDetailDrawer({
 
         {batchesCount === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-            <Database className="h-7 w-7 text-muted-foreground/30" />
+            <Database className="h-7 w-7 text-text-muted" />
             <p className="text-sm text-muted-foreground">Aún no hay lotes Socrata creados.</p>
           </div>
         ) : (
@@ -417,7 +417,7 @@ export function SourceDetailDrawer({
             <TabsTrigger value="batches">
               <Layers className="h-4 w-4" /> Lotes
               {batchesCount > 0 && (
-                <span className="ml-1.5 inline-flex items-center justify-center rounded-full border border-border/40 bg-muted/60 px-1.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
+                <span className="ml-1.5 inline-flex items-center justify-center rounded-full border border-border/60 bg-surface-muted px-1.5 text-xs font-semibold tabular-nums text-muted-foreground">
                   {batchesCount}
                 </span>
               )}
@@ -438,26 +438,26 @@ function SocrataBatchesTable({ batches }: { batches: SocrataPreviewBatchListItem
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-border/40 text-left">
-            <th className="px-5 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Nombre</th>
-            <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Estado</th>
-            <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Dataset</th>
-            <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Candidatos</th>
-            <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Flags</th>
-            <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Fecha</th>
+          <tr className="border-b border-border/60 text-left">
+            <th className="px-5 py-2.5 text-xs font-semibold text-muted-foreground">Nombre</th>
+            <th className="px-4 py-2.5 text-xs font-semibold text-muted-foreground">Estado</th>
+            <th className="px-4 py-2.5 text-xs font-semibold text-muted-foreground">Dataset</th>
+            <th className="px-4 py-2.5 text-xs font-semibold text-muted-foreground">Candidatos</th>
+            <th className="px-4 py-2.5 text-xs font-semibold text-muted-foreground">Flags</th>
+            <th className="px-4 py-2.5 text-xs font-semibold text-muted-foreground">Fecha</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border/30">
           {batches.map((batch) => (
-            <tr key={batch.id} className="transition-colors hover:bg-muted/20">
+            <tr key={batch.id} className="transition-colors hover:bg-surface-muted">
               <td className="px-5 py-3">
                 <span className="font-medium text-foreground">{batch.name}</span>
                 {batch.countryCode && (
-                  <span className="ml-2 text-[11px] text-muted-foreground/60">{batch.countryCode}</span>
+                  <span className="ml-2 text-xs text-muted-foreground">{batch.countryCode}</span>
                 )}
               </td>
               <td className="px-4 py-3">
-                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${batchStatusBadgeClass(batch.status)}`}>
+                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${batchStatusBadgeClass(batch.status)}`}>
                   {BATCH_STATUS_LABELS[batch.status] ?? batch.status}
                 </span>
               </td>
@@ -467,22 +467,22 @@ function SocrataBatchesTable({ batches }: { batches: SocrataPreviewBatchListItem
               <td className="px-4 py-3 tabular-nums text-muted-foreground">
                 {batch.candidatesCount}
                 {batch.targetCount ? (
-                  <span className="ml-1 text-[11px] text-muted-foreground/50">/ {batch.targetCount}</span>
+                  <span className="ml-1 text-xs text-muted-foreground">/ {batch.targetCount}</span>
                 ) : null}
               </td>
               <td className="px-4 py-3">
                 <div className="flex flex-wrap gap-1">
                   {batch.previewMode && (
-                    <Badge className="border-su-brand/30 bg-su-brand-soft text-su-brand border text-[10px]">Preview</Badge>
+                    <Badge className="border-su-brand/30 bg-su-brand-soft text-su-brand border text-xs">Preview</Badge>
                   )}
                   {batch.smokeTest && (
-                    <Badge className="border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400 border text-[10px]">Smoke</Badge>
+                    <Badge className="border-info/30 bg-info/10 text-info border text-xs">Smoke</Badge>
                   )}
                   {batch.rollbackLogical && (
-                    <Badge className="border-border/40 bg-muted/60 text-muted-foreground/60 border text-[10px]">Rollback</Badge>
+                    <Badge className="border-border/60 bg-surface-muted text-muted-foreground border text-xs">Rollback</Badge>
                   )}
                   {!batch.previewMode && !batch.smokeTest && !batch.rollbackLogical && (
-                    <span className="text-xs text-muted-foreground/40">—</span>
+                    <span className="text-xs text-text-muted">—</span>
                   )}
                 </div>
               </td>
@@ -501,7 +501,7 @@ function SocrataBatchesTable({ batches }: { batches: SocrataPreviewBatchListItem
 function SourceInfoRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-start gap-3">
-      <dt className="shrink-0 min-w-[116px] pt-0.5 text-[11px] font-medium text-muted-foreground/80">
+      <dt className="shrink-0 min-w-[116px] pt-0.5 text-xs font-medium text-muted-foreground">
         {label}
       </dt>
       <dd className="min-w-0 flex-1 text-right text-foreground">{children}</dd>
@@ -524,10 +524,10 @@ function CopyKeyInline({ sourceKey }: { sourceKey: string }) {
     <button
       type="button"
       onClick={handleCopy}
-      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-[0.8rem] font-medium text-foreground transition-colors hover:bg-muted"
+      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-surface-muted"
     >
       {copied ? (
-        <Check className="h-3.5 w-3.5 text-emerald-500" />
+        <Check className="h-3.5 w-3.5 text-success" />
       ) : (
         <Copy className="h-3.5 w-3.5" />
       )}

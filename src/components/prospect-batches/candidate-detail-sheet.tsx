@@ -273,7 +273,7 @@ function isDirectoryOrThirdPartyDomain(url: string | null | undefined): boolean 
 
 function SectionHeader({ children }: { children: React.ReactNode }) {
   return (
-    <h3 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-2">
+    <h3 className="text-xs font-semibold text-muted-foreground mb-2">
       {children}
     </h3>
   );
@@ -290,7 +290,7 @@ function Field({
 }) {
   return (
     <div className="space-y-0.5 min-w-0">
-      <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider truncate">{label}</p>
+      <p className="text-xs text-muted-foreground truncate">{label}</p>
       <div className={`text-xs ${mono ? 'font-mono' : ''} text-foreground/90 leading-snug break-words`}>
         {value}
       </div>
@@ -303,11 +303,11 @@ function FieldGrid({ children }: { children: React.ReactNode }) {
 }
 
 function Divider() {
-  return <div className="border-t border-border/30 my-4" />;
+  return <div className="border-t border-border/50 my-4" />;
 }
 
 function MissingText({ text }: { text: string }) {
-  return <span className="text-muted-foreground/40 italic">{text}</span>;
+  return <span className="text-text-muted italic">{text}</span>;
 }
 
 function InfoTooltip({ content }: { content: string | React.ReactNode }) {
@@ -318,13 +318,13 @@ function InfoTooltip({ content }: { content: string | React.ReactNode }) {
           render={
             <button
               type="button"
-              className="text-muted-foreground/60 hover:text-muted-foreground transition-colors cursor-help p-0.5 ml-1 inline-flex items-center align-middle shrink-0"
+              className="text-muted-foreground hover:text-muted-foreground transition-colors cursor-help p-0.5 ml-1 inline-flex items-center align-middle shrink-0"
             >
               <Info className="h-3.5 w-3.5" />
             </button>
           }
         />
-        <TooltipContent className="max-w-xs text-[11px] leading-relaxed bg-popover text-popover-foreground border border-border p-2 rounded shadow-md z-[70]">
+        <TooltipContent className="max-w-xs text-xs leading-relaxed bg-popover text-popover-foreground border border-border p-2 rounded shadow-drawer z-[70]">
           {content}
         </TooltipContent>
       </Tooltip>
@@ -343,12 +343,12 @@ function CopyButton({ value }: { value: string }) {
     <Button
       variant="ghost"
       size="sm"
-      className="h-5 px-1.5 text-[10px] text-muted-foreground/60 hover:text-muted-foreground ml-1.5 gap-1 shrink-0 inline-flex items-center"
+      className="h-5 px-1.5 text-xs text-muted-foreground hover:text-muted-foreground ml-1.5 gap-1 shrink-0 inline-flex items-center"
       onClick={handleCopy}
       type="button"
     >
       {copied ? (
-        <span className="text-emerald-500 font-medium">¡Copiado!</span>
+        <span className="text-success font-medium">¡Copiado!</span>
       ) : (
         <>
           <Copy className="h-2.5 w-2.5" />
@@ -407,7 +407,7 @@ function CollapsibleSection({
     <div>
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 hover:text-muted-foreground transition-colors mb-2"
+        className="flex w-full items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-muted-foreground transition-colors mb-2"
       >
         {open ? (
           <ChevronDown className="h-3 w-3" />
@@ -428,13 +428,13 @@ const SOURCE_LABELS: Record<string, string> = {
 
 function DuplicateMatchCard({ match }: { match: DuplicateMatch }) {
   return (
-    <div className="rounded-lg border border-border/40 bg-card p-2.5 space-y-1">
+    <div className="rounded-lg border border-border/60 bg-card p-2.5 space-y-1">
       <div className="flex items-center justify-between">
         <span className="text-xs font-semibold text-foreground">
           {SOURCE_LABELS[match.source] ?? match.source}
         </span>
         {match.confidence !== null && (
-          <span className="text-[10px] text-muted-foreground tabular-nums">
+          <span className="text-xs text-muted-foreground tabular-nums">
             Conf: {match.confidence}%
           </span>
         )}
@@ -446,7 +446,7 @@ function DuplicateMatchCard({ match }: { match: DuplicateMatch }) {
         <p className="text-xs text-muted-foreground">{match.matched_domain}</p>
       )}
       {match.reason && (
-        <p className="text-[10px] text-muted-foreground/60 italic">{match.reason}</p>
+        <p className="text-xs text-muted-foreground italic">{match.reason}</p>
       )}
     </div>
   );
@@ -919,12 +919,12 @@ export function CandidateDetailSheet({
               </span>
             )}
             {structuredSourceLabel ? (
-              <Badge className="border-0 bg-su-brand-soft text-su-brand text-[9px] font-semibold flex items-center gap-0.5 px-1.5 py-0.5 h-4">
+              <Badge className="border-0 bg-su-brand-soft text-su-brand text-xs font-semibold flex items-center gap-0.5 px-1.5 py-0.5 h-4">
                 <ShieldCheck className="h-2.5 w-2.5" />
                 {structuredSourceLabel}
               </Badge>
             ) : sourcePrimaryLabel ? (
-              <span className="text-[10px] text-muted-foreground/60">{sourcePrimaryLabel}</span>
+              <span className="text-xs text-muted-foreground">{sourcePrimaryLabel}</span>
             ) : null}
           </div>
         }
@@ -959,12 +959,12 @@ export function CandidateDetailSheet({
           <TabsContent value="empresa" className="flex-1 overflow-y-auto px-7 py-6 min-h-0 space-y-6">
             {/* Banners de advertencia */}
             {flags.includes('limited_public_data') && (
-              <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3 text-xs text-blue-600 dark:text-blue-400">
+              <div className="rounded-xl border border-info/20 bg-info/5 px-4 py-3 text-xs text-info">
                 Datos comerciales públicos limitados. Puedes revisarlo con la información oficial disponible.
               </div>
             )}
             {hasNitConflict && (
-              <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs text-amber-600 dark:text-amber-400 flex items-start gap-2">
+              <div className="rounded-xl border border-warning/20 bg-warning/5 px-4 py-3 text-xs text-warning flex items-start gap-2">
                 <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                 <span>NIT inconsistente detectado en evidencia web. Verificar datos antes de aprobar.</span>
               </div>
@@ -984,7 +984,7 @@ export function CandidateDetailSheet({
             {hasOwnershipUnverifiedFlag(flags) && (
               <div
                 data-testid="ownership-unverified-banner"
-                className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs text-amber-600 dark:text-amber-400 flex items-start gap-2"
+                className="rounded-xl border border-warning/20 bg-warning/5 px-4 py-3 text-xs text-warning flex items-start gap-2"
               >
                 <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                 <span>
@@ -998,7 +998,7 @@ export function CandidateDetailSheet({
               <div
                 key={flag}
                 data-testid={`import-review-flag-${flag}`}
-                className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs text-amber-600 dark:text-amber-400 flex items-start gap-2"
+                className="rounded-xl border border-warning/20 bg-warning/5 px-4 py-3 text-xs text-warning flex items-start gap-2"
               >
                 <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                 <span>{IMPORT_REVIEW_FLAG_LABELS[flag]}</span>
@@ -1018,7 +1018,7 @@ export function CandidateDetailSheet({
                   </div>
                 }
                 iconPosition="right"
-                valueClassName={fitScore !== null ? (fitScore >= 75 ? 'text-emerald-600 dark:text-emerald-400' : fitScore >= 50 ? 'text-amber-600 dark:text-amber-400' : '') : ''}
+                valueClassName={fitScore !== null ? (fitScore >= 75 ? 'text-success' : fitScore >= 50 ? 'text-warning' : '') : ''}
               />
               <MetricCard
                 title="Completitud"
@@ -1053,14 +1053,14 @@ export function CandidateDetailSheet({
                 compact
                 icon={
                   <div className={`rounded-lg p-1.5 ${
-                    candidate.status === 'approved' ? 'bg-emerald-500/10' :
-                    candidate.status === 'needs_review' ? 'bg-amber-500/10' :
+                    candidate.status === 'approved' ? 'bg-success/10' :
+                    candidate.status === 'needs_review' ? 'bg-warning/10' :
                     candidate.status === 'converted_to_account' ? 'bg-su-brand-soft' :
                     'bg-muted'
                   }`}>
                     <CheckCircle2 className={`h-4 w-4 ${
-                      candidate.status === 'approved' ? 'text-emerald-500' :
-                      candidate.status === 'needs_review' ? 'text-amber-500' :
+                      candidate.status === 'approved' ? 'text-success' :
+                      candidate.status === 'needs_review' ? 'text-warning' :
                       candidate.status === 'converted_to_account' ? 'text-su-brand' :
                       'text-muted-foreground'
                     }`} />
@@ -1068,9 +1068,9 @@ export function CandidateDetailSheet({
                 }
                 iconPosition="right"
                 footer={candidate.review_status ? (
-                  <div className="flex items-center gap-2 pt-2 border-t border-border/40">
-                    <span className="text-[10px] text-muted-foreground">Revisión:</span>
-                    <Badge className={`border-0 text-[9px] font-semibold ${
+                  <div className="flex items-center gap-2 pt-2 border-t border-border/60">
+                    <span className="text-xs text-muted-foreground">Revisión:</span>
+                    <Badge className={`border-0 text-xs font-semibold ${
                       REVIEW_STATUS_STYLES[candidate.review_status as ReviewStatus] ?? 'bg-muted text-muted-foreground'
                     }`}>
                       {REVIEW_STATUS_LABELS[candidate.review_status as ReviewStatus] ?? candidate.review_status}
@@ -1082,7 +1082,7 @@ export function CandidateDetailSheet({
 
             {/* AI Summary */}
             {aiSummary && (
-              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-2">
+              <div className="rounded-2xl border border-border/50 bg-card p-4 space-y-2">
                 <SectionHeader>Resumen del Negocio (IA)</SectionHeader>
                 <p className="text-xs text-muted-foreground leading-relaxed italic">
                   &ldquo;{isChileOfficialCandidate ? sanitizeTextForChile(aiSummary) : aiSummary}&rdquo;
@@ -1092,7 +1092,7 @@ export function CandidateDetailSheet({
 
             {/* Por qué fue encontrado */}
             {!!(searchTrace ?? sourceTitle ?? sourceSnippet) && (
-              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
+              <div className="rounded-2xl border border-border/50 bg-card p-4 space-y-3">
                 <div className="flex items-center gap-1.5">
                   <Sparkles className="h-3.5 w-3.5 text-su-brand shrink-0" />
                   <SectionHeader>Por qué fue encontrado</SectionHeader>
@@ -1100,41 +1100,41 @@ export function CandidateDetailSheet({
                 <div className="space-y-2">
                   {!!searchTrace?.query_text && (
                     <div className="space-y-0.5">
-                      <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Query de búsqueda</p>
-                      <p className="text-xs text-foreground/90 leading-snug font-mono break-words bg-muted/30 rounded-md px-2.5 py-1.5">
+                      <p className="text-xs text-muted-foreground">Query de búsqueda</p>
+                      <p className="text-xs text-foreground/90 leading-snug font-mono break-words bg-surface-subtle rounded-md px-2.5 py-1.5">
                         {String(searchTrace.query_text)}
                       </p>
                     </div>
                   )}
                   {sourceTitle && (
                     <div className="space-y-0.5">
-                      <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Título encontrado</p>
+                      <p className="text-xs text-muted-foreground">Título encontrado</p>
                       <p className="text-xs text-foreground/90 leading-snug">{sourceTitle}</p>
                     </div>
                   )}
                   {sourceSnippet && (
                     <div className="space-y-0.5">
-                      <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Fragmento</p>
+                      <p className="text-xs text-muted-foreground">Fragmento</p>
                       <p className="text-xs text-muted-foreground leading-relaxed italic">&ldquo;{sourceSnippet}&rdquo;</p>
                     </div>
                   )}
                   {!!searchTrace && (
-                    <div className="grid grid-cols-3 gap-2 pt-1 border-t border-border/20">
+                    <div className="grid grid-cols-3 gap-2 pt-1 border-t border-border/50">
                       {searchTrace.round_number !== undefined && (
                         <div className="space-y-0.5">
-                          <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Ronda</p>
+                          <p className="text-xs text-muted-foreground">Ronda</p>
                           <p className="text-xs text-foreground/90">#{String(searchTrace.round_number)}</p>
                         </div>
                       )}
                       {searchTrace.provider_rank !== undefined && (
                         <div className="space-y-0.5">
-                          <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Ranking</p>
+                          <p className="text-xs text-muted-foreground">Ranking</p>
                           <p className="text-xs text-foreground/90">#{String(searchTrace.provider_rank)}</p>
                         </div>
                       )}
                       {!!searchTrace.query_type && (
                         <div className="space-y-0.5">
-                          <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Tipo</p>
+                          <p className="text-xs text-muted-foreground">Tipo</p>
                           <p className="text-xs text-foreground/90 capitalize">{String(searchTrace.query_type)}</p>
                         </div>
                       )}
@@ -1146,7 +1146,7 @@ export function CandidateDetailSheet({
 
             {/* Decisión recomendada */}
             {!!scoringMeta?.recommended_action && (
-              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
+              <div className="rounded-2xl border border-border/50 bg-card p-4 space-y-3">
                 <SectionHeader>Decisión recomendada</SectionHeader>
                 {(() => {
                   const action = scoringMeta.recommended_action as string;
@@ -1157,13 +1157,13 @@ export function CandidateDetailSheet({
                     needs_enrichment: 'Enriquecer antes de decidir',
                   };
                   const actionStyles: Record<string, string> = {
-                    review_manually: 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20',
-                    approve: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20',
+                    review_manually: 'bg-warning/10 text-warning border-warning/20',
+                    approve: 'bg-success/10 text-success border-success/20',
                     discard: 'bg-destructive/10 text-destructive border-destructive/20',
-                    needs_enrichment: 'bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20',
+                    needs_enrichment: 'bg-info/10 text-info border-info/20',
                   };
                   const label = actionLabels[action] ?? action;
-                  const style = actionStyles[action] ?? 'bg-muted text-muted-foreground border-border/30';
+                  const style = actionStyles[action] ?? 'bg-muted text-muted-foreground border-border/50';
 
                   const fitScoreVal = candidate.fit_score ?? null;
                   const confidenceVal = candidate.confidence_score ?? null;
@@ -1195,22 +1195,22 @@ export function CandidateDetailSheet({
                         <p className="text-xs text-muted-foreground leading-relaxed">{reason}</p>
                       )}
                       {(fitScoreVal !== null || confidenceVal !== null || completenessVal !== null) && (
-                        <div className="grid grid-cols-3 gap-2 pt-1 border-t border-border/20">
+                        <div className="grid grid-cols-3 gap-2 pt-1 border-t border-border/50">
                           {fitScoreVal !== null && (
                             <div className="space-y-0.5">
-                              <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Encaje</p>
+                              <p className="text-xs text-muted-foreground">Encaje</p>
                               <p className="text-xs font-semibold text-foreground/90">{fitScoreVal}/100</p>
                             </div>
                           )}
                           {confidenceVal !== null && (
                             <div className="space-y-0.5">
-                              <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Confianza</p>
+                              <p className="text-xs text-muted-foreground">Confianza</p>
                               <p className="text-xs font-semibold text-foreground/90">{confidenceVal}%</p>
                             </div>
                           )}
                           {completenessVal !== null && (
                             <div className="space-y-0.5">
-                              <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Completitud</p>
+                              <p className="text-xs text-muted-foreground">Completitud</p>
                               <p className="text-xs font-semibold text-foreground/90">{completenessVal}%</p>
                             </div>
                           )}
@@ -1224,7 +1224,7 @@ export function CandidateDetailSheet({
 
             {/* Conversión y HubSpot Sync */}
             {candidate.status === 'converted_to_account' && candidate.converted_account_id && (
-              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
+              <div className="rounded-2xl border border-border/50 bg-card p-4 space-y-3">
                 <SectionHeader>Conversión a Cuenta</SectionHeader>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="rounded-lg border border-su-brand/20 bg-su-brand-soft/30 px-3 py-2.5 space-y-1">
@@ -1232,7 +1232,7 @@ export function CandidateDetailSheet({
                       <ArrowRightCircle className="h-3.5 w-3.5 text-su-brand shrink-0" />
                       <span className="text-xs font-semibold text-su-brand">Creada en SellUp</span>
                     </div>
-                    <p className="text-[10px] text-muted-foreground/70 font-mono break-all pt-1">
+                    <p className="text-xs text-muted-foreground font-mono break-all pt-1">
                       ID Cuenta: {candidate.converted_account_id}
                     </p>
                   </div>
@@ -1242,8 +1242,8 @@ export function CandidateDetailSheet({
                     if (!hsSync) return null;
 
                     const statusStyles: Record<string, string> = {
-                      synced: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
-                      blocked_duplicate: 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20',
+                      synced: 'bg-success/10 text-success border-success/20',
+                      blocked_duplicate: 'bg-warning/10 text-warning border-warning/20',
                       blocked_inactive_or_liquidation: 'bg-destructive/10 text-destructive border-destructive/20',
                       skipped_flag_off: 'bg-muted text-muted-foreground border-transparent',
                       skipped_rollback: 'bg-muted text-muted-foreground border-transparent',
@@ -1265,13 +1265,13 @@ export function CandidateDetailSheet({
                     const label = statusLabels[hsSync.status] || hsSync.status;
 
                     return (
-                      <div className="rounded-lg border border-border/40 bg-card px-3 py-2.5 space-y-1 flex flex-col justify-between">
+                      <div className="rounded-lg border border-border/60 bg-card px-3 py-2.5 space-y-1 flex flex-col justify-between">
                         <div className="space-y-1.5">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                            <span className="text-xs font-semibold text-muted-foreground">
                               HubSpot Sync
                             </span>
-                            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-semibold ${style}`}>
+                            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${style}`}>
                               {label}
                             </span>
                           </div>
@@ -1283,7 +1283,7 @@ export function CandidateDetailSheet({
                               </div>
                               <div className="flex items-center justify-between">
                                 <span className="text-muted-foreground">Owner:</span>
-                                <span className="font-medium text-foreground text-[10px]">
+                                <span className="font-medium text-foreground text-xs">
                                   {hsSync.owner_assigned || hsSync.owner_mapping_status === 'mapped' ? 'Asignado' : 'No asignado'}
                                 </span>
                               </div>
@@ -1299,7 +1299,7 @@ export function CandidateDetailSheet({
 
             {/* Análisis de Encaje IA */}
             {hasAiEval && showAiEvaluation && (
-              <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
+              <div className="rounded-2xl border border-border/50 bg-card p-4 space-y-3">
                 <div className="flex items-center gap-1">
                   <SectionHeader>Análisis de Encaje</SectionHeader>
                   <InfoTooltip content="Evaluación automática basada en información pública. No reemplaza la revisión comercial." />
@@ -1308,12 +1308,12 @@ export function CandidateDetailSheet({
                   <ul className="space-y-1">
                     {fitReasons.slice(0, 4).map((r, i) => (
                       <li key={i} className="flex items-start gap-1.5 text-xs text-foreground/80">
-                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
+                        <CheckCircle2 className="h-3.5 w-3.5 text-success mt-0.5 shrink-0" />
                         <span>{isChileOfficialCandidate ? sanitizeTextForChile(r) : r}</span>
                       </li>
                     ))}
                     {fitReasons.length > 4 && (
-                      <li className="text-[10px] text-muted-foreground/60 italic pl-5">
+                      <li className="text-xs text-muted-foreground italic pl-5">
                         +{fitReasons.length - 4} razones más en detalle
                       </li>
                     )}
@@ -1325,8 +1325,8 @@ export function CandidateDetailSheet({
                   const recommended = enrichmentData?.sellup_fit?.recommended_next_step;
                   if (!recommended) return null;
                   return (
-                    <div className="pt-3 border-t border-border/10 space-y-1">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-su-brand">Siguiente paso recomendado</p>
+                    <div className="pt-3 border-t border-border/50 space-y-1">
+                      <p className="text-xs font-semibold text-su-brand">Siguiente paso recomendado</p>
                       <p className="text-xs text-foreground/90 font-medium leading-relaxed">{recommended}</p>
                     </div>
                   );
@@ -1337,26 +1337,26 @@ export function CandidateDetailSheet({
             {/* Oportunidades comerciales */}
             {hasAiEval && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
+                <div className="rounded-2xl border border-border/50 bg-card p-4 space-y-3">
                   <SectionHeader>Necesidades Detectadas</SectionHeader>
                   {(() => {
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     const enrichmentData = candidate.metadata?.enrichment as any;
                     const needs = enrichmentData?.sellup_fit?.possible_needs as string[] | undefined;
-                    if (!needs || needs.length === 0) return <p className="text-xs text-muted-foreground/50 italic">Ninguna detectada</p>;
+                    if (!needs || needs.length === 0) return <p className="text-xs text-muted-foreground italic">Ninguna detectada</p>;
                     const visibleNeeds = showAllNeeds ? needs : needs.slice(0, 3);
                     return (
                       <div className="space-y-2">
                         <ul className="space-y-1.5">
                           {visibleNeeds.map((n, i) => (
                             <li key={i} className="flex items-start gap-1.5 text-xs text-foreground/80">
-                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
+                              <CheckCircle2 className="h-3.5 w-3.5 text-success mt-0.5 shrink-0" />
                               <span>{n}</span>
                             </li>
                           ))}
                         </ul>
                         {needs.length > 3 && (
-                          <Button variant="ghost" size="sm" className="text-[10px] h-6 p-0 text-su-brand hover:bg-transparent font-semibold mt-1" onClick={() => setShowAllNeeds(!showAllNeeds)} type="button">
+                          <Button variant="ghost" size="sm" className="text-xs h-6 p-0 text-su-brand hover:bg-transparent font-semibold mt-1" onClick={() => setShowAllNeeds(!showAllNeeds)} type="button">
                             {showAllNeeds ? 'Ver menos' : `Ver todas (${needs.length})`}
                           </Button>
                         )}
@@ -1364,13 +1364,13 @@ export function CandidateDetailSheet({
                     );
                   })()}
                 </div>
-                <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
+                <div className="rounded-2xl border border-border/50 bg-card p-4 space-y-3">
                   <SectionHeader>Ángulos Comerciales</SectionHeader>
                   {(() => {
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     const enrichmentData = candidate.metadata?.enrichment as any;
                     const angles = enrichmentData?.commercial_angles as string[] | undefined;
-                    if (!angles || angles.length === 0) return <p className="text-xs text-muted-foreground/50 italic">Ninguno disponible</p>;
+                    if (!angles || angles.length === 0) return <p className="text-xs text-muted-foreground italic">Ninguno disponible</p>;
                     const visibleAngles = showAllAngles ? angles : angles.slice(0, 3);
                     return (
                       <div className="space-y-2">
@@ -1383,7 +1383,7 @@ export function CandidateDetailSheet({
                           ))}
                         </ul>
                         {angles.length > 3 && (
-                          <Button variant="ghost" size="sm" className="text-[10px] h-6 p-0 text-su-brand hover:bg-transparent font-semibold mt-1" onClick={() => setShowAllAngles(!showAllAngles)} type="button">
+                          <Button variant="ghost" size="sm" className="text-xs h-6 p-0 text-su-brand hover:bg-transparent font-semibold mt-1" onClick={() => setShowAllAngles(!showAllAngles)} type="button">
                             {showAllAngles ? 'Ver menos' : `Ver todos (${angles.length})`}
                           </Button>
                         )}
@@ -1402,7 +1402,7 @@ export function CandidateDetailSheet({
                 <FieldGrid>
                   <Field label="Razón social" value={val(candidate.legal_name ?? candidate.name)} />
                   <div className="space-y-0.5 min-w-0">
-                    <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">RUT</p>
+                    <p className="text-xs text-muted-foreground">RUT</p>
                     <div className="text-xs text-foreground/90 font-mono leading-snug flex items-center">
                       {candidate.tax_identifier ? (
                         <>
@@ -1463,7 +1463,7 @@ export function CandidateDetailSheet({
                   <FieldGrid>
                     <Field label="Razón social" value={val(candidate.legal_name ?? candidate.name)} />
                     <div className="space-y-0.5 min-w-0">
-                      <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">
+                      <p className="text-xs text-muted-foreground">
                         {candidate.tax_identifier_type ?? 'Identificador fiscal'}
                       </p>
                       <div className="text-xs text-foreground/90 font-mono leading-snug flex items-center">
@@ -1548,12 +1548,12 @@ export function CandidateDetailSheet({
                             {candidate.domain ?? candidate.website}
                           </a>
                           {websiteConfidence && (
-                            <span className={`text-[9px] font-medium px-1 py-0.5 rounded ${
+                            <span className={`text-xs font-medium px-1 py-0.5 rounded ${
                               websiteConfidence === 'high'
-                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                ? 'bg-success/10 text-success dark:text-success'
                                 : websiteConfidence === 'medium'
-                                ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                                : 'bg-muted text-muted-foreground/60'
+                                ? 'bg-warning/10 text-warning dark:text-warning'
+                                : 'bg-muted text-muted-foreground'
                             }`}>
                               {websiteConfidence}
                             </span>
@@ -1587,12 +1587,12 @@ export function CandidateDetailSheet({
                             Ver perfil
                           </a>
                           {linkedinConfidence && (
-                            <span className={`text-[9px] font-medium px-1 py-0.5 rounded ${
+                            <span className={`text-xs font-medium px-1 py-0.5 rounded ${
                               linkedinConfidence === 'high'
-                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                ? 'bg-success/10 text-success dark:text-success'
                                 : linkedinConfidence === 'medium'
-                                ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                                : 'bg-muted text-muted-foreground/60'
+                                ? 'bg-warning/10 text-warning dark:text-warning'
+                                : 'bg-muted text-muted-foreground'
                             }`}>
                               {linkedinConfidence}
                             </span>
@@ -1605,17 +1605,17 @@ export function CandidateDetailSheet({
                               href={suggestedLinkedinDisplay.url.startsWith('http') ? suggestedLinkedinDisplay.url : `https://${suggestedLinkedinDisplay.url}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="flex items-center gap-1 text-amber-600 dark:text-amber-400 hover:underline font-medium text-xs"
+                              className="flex items-center gap-1 text-warning hover:underline font-medium text-xs"
                             >
                               <Link2 className="h-3 w-3 shrink-0" />
                               Ver perfil
                             </a>
                           </div>
-                          <p className="text-[9px] text-muted-foreground/60 italic">Requiere revisión manual</p>
+                          <p className="text-xs text-muted-foreground italic">Requiere revisión manual</p>
                         </div>
                       ) : (isChileOfficialCandidate && !hasNitConflict && (possibleLinkedInMatches.length > 0 || linkedinConfirmedUrl)) ? (
                         <div className="space-y-1.5">
-                          <p className="text-[9px] text-muted-foreground/50 italic">No confirmado — requiere revisión</p>
+                          <p className="text-xs text-muted-foreground italic">No confirmado — requiere revisión</p>
                           {linkedinConfirmedUrl && (
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <a
@@ -1637,14 +1637,14 @@ export function CandidateDetailSheet({
                           <p
                             className={
                               linkedInFieldDisplay.kind === 'internal_loss'
-                                ? 'text-xs text-amber-600 dark:text-amber-400'
+                                ? 'text-xs text-warning'
                                 : 'text-xs text-muted-foreground'
                             }
                           >
                             {linkedInFieldDisplay.message}
                           </p>
                           {linkedInFieldDisplay.sourceLabel && (
-                            <p className="text-[9px] text-muted-foreground/60">
+                            <p className="text-xs text-muted-foreground">
                               {linkedInFieldDisplay.sourceLabel}
                             </p>
                           )}
@@ -1664,7 +1664,7 @@ export function CandidateDetailSheet({
                             {employeeCountFieldDisplay.value.toLocaleString('es-CO')}
                           </p>
                           {employeeCountFieldDisplay.sourceLabel && (
-                            <p className="text-[9px] text-muted-foreground/60">
+                            <p className="text-xs text-muted-foreground">
                               {employeeCountFieldDisplay.sourceLabel}
                             </p>
                           )}
@@ -1679,14 +1679,14 @@ export function CandidateDetailSheet({
                           <p
                             className={
                               employeeCountFieldDisplay.kind === 'internal_loss'
-                                ? 'text-xs text-amber-600 dark:text-amber-400'
+                                ? 'text-xs text-warning'
                                 : 'text-xs text-muted-foreground'
                             }
                           >
                             {employeeCountFieldDisplay.message}
                           </p>
                           {employeeCountFieldDisplay.sourceLabel && (
-                            <p className="text-[9px] text-muted-foreground/60">
+                            <p className="text-xs text-muted-foreground">
                               {employeeCountFieldDisplay.sourceLabel}
                             </p>
                           )}
@@ -1703,8 +1703,8 @@ export function CandidateDetailSheet({
 
                 {/* Descripción pública */}
                 {!hasNitConflict && publicDescription && (!isChileOfficialCandidate || isDescriptionConfiable) ? (
-                  <div className="space-y-0.5 pt-2 border-t border-border/10">
-                    <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Descripción pública</p>
+                  <div className="space-y-0.5 pt-2 border-t border-border/50">
+                    <p className="text-xs text-muted-foreground">Descripción pública</p>
                     <p className="text-xs text-muted-foreground leading-relaxed line-clamp-4">{publicDescription}</p>
                   </div>
                 ) : null}
@@ -1719,16 +1719,16 @@ export function CandidateDetailSheet({
                 candidate.company_size
               );
               const toneStyle: Record<string, string> = {
-                success: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
-                warning: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
+                success: 'bg-success/10 text-success border-success/20',
+                warning: 'bg-warning/10 text-warning border-warning/20',
                 danger: 'bg-destructive/10 text-destructive border-destructive/20',
-                neutral: 'bg-muted/40 text-muted-foreground border-border/30',
+                neutral: 'bg-surface-subtle text-muted-foreground border-border/50',
               };
               const badgeStyle: Record<string, string> = {
-                success: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-                warning: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+                success: 'bg-success/10 text-success',
+                warning: 'bg-warning/10 text-warning',
                 danger: 'bg-destructive/10 text-destructive',
-                neutral: 'bg-muted text-muted-foreground/60',
+                neutral: 'bg-muted text-muted-foreground',
               };
               return (
                 <CollapsibleSection title="Tamaño ICP">
@@ -1736,7 +1736,7 @@ export function CandidateDetailSheet({
                   <SurfaceCardHeader title="Tamaño ICP" description="Umbral: más de 200 colaboradores" />
                   <div className="space-y-3 mt-1">
                     {/* Badge de estado */}
-                    <Badge className={`border-0 text-[10px] font-semibold ${badgeStyle[icpState.tone]}`}>
+                    <Badge className={`border-0 text-xs font-semibold ${badgeStyle[icpState.tone]}`}>
                       {icpState.decision === 'pass'
                         ? 'ICP >200 validado'
                         : icpState.decision === 'needs_validation'
@@ -1748,20 +1748,20 @@ export function CandidateDetailSheet({
 
                     {/* Detalle */}
                     {!icpState.decision ? (
-                      <p className="text-xs text-muted-foreground/70 italic">
+                      <p className="text-xs text-muted-foreground italic">
                         Este candidato no tiene evaluación de tamaño ICP registrada. Puede venir de un flujo anterior o de un flujo que aún no pasa por el ICP Size Gate.
                       </p>
                     ) : (
                       <div className="space-y-2">
                         {icpState.rangeLabel && (
                           <div className="space-y-0.5">
-                            <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Rango detectado</p>
+                            <p className="text-xs text-muted-foreground">Rango detectado</p>
                             <p className="text-xs text-foreground/90 font-medium">{icpState.rangeLabel}</p>
                           </div>
                         )}
                         {icpState.reason && (
                           <div className="space-y-0.5">
-                            <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Motivo</p>
+                            <p className="text-xs text-muted-foreground">Motivo</p>
                             <p className="text-xs text-muted-foreground leading-relaxed">{icpState.reason}</p>
                           </div>
                         )}
@@ -1801,12 +1801,12 @@ export function CandidateDetailSheet({
               // no debe leerse con la misma alarma que «Ambigua» o «Rechazada».
               const verdictBadgeStyle =
                 subindustryStatus.verdict === 'confirmed'
-                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                  ? 'bg-success/10 text-success'
                   : subindustryStatus.verdict === 'ambiguous'
-                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                  ? 'bg-warning/10 text-warning'
                   : subindustryStatus.verdict === 'rejected'
                   ? 'bg-destructive/10 text-destructive'
-                  : 'bg-muted text-muted-foreground/60';
+                  : 'bg-muted text-muted-foreground';
               // Cubre 'unmapped' y null (sin medir) — ambos comparten el estilo
               // neutro por diseño, no por omisión.
 
@@ -1819,7 +1819,7 @@ export function CandidateDetailSheet({
                   />
                   <div className="space-y-3 mt-1" data-testid="candidate-subindustry-status">
                     <div className="space-y-0.5">
-                      <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">
+                      <p className="text-xs text-muted-foreground">
                         Subindustria solicitada
                       </p>
                       <p className="text-xs text-foreground/90 font-medium">
@@ -1829,12 +1829,12 @@ export function CandidateDetailSheet({
 
                     <div className="flex items-center gap-2 flex-wrap">
                       <Badge
-                        className={`border-0 text-[10px] font-semibold ${verdictBadgeStyle}`}
+                        className={`border-0 text-xs font-semibold ${verdictBadgeStyle}`}
                         data-testid="candidate-subindustry-verdict"
                       >
                         {subindustryStatus.verdictLabel}
                       </Badge>
-                      <span className="text-[11px] text-muted-foreground">
+                      <span className="text-xs text-muted-foreground">
                         Cuenta hacia el objetivo:{' '}
                         <span
                           className="font-semibold text-foreground"
@@ -1846,7 +1846,7 @@ export function CandidateDetailSheet({
                     </div>
 
                     {subindustryStatus.notConfirmedMessage && (
-                      <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
+                      <div className="flex items-start gap-2 rounded-lg border border-warning/20 bg-warning/10 px-3 py-2 text-xs text-warning">
                         <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" aria-hidden />
                         <span data-testid="candidate-subindustry-not-confirmed">
                           {subindustryStatus.notConfirmedMessage}
@@ -1856,7 +1856,7 @@ export function CandidateDetailSheet({
 
                     {subindustryStatus.reviewReasons.length > 0 && (
                       <div className="space-y-1">
-                        <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">
+                        <p className="text-xs text-muted-foreground">
                           Motivo de revisión
                         </p>
                         <ul className="space-y-1" data-testid="candidate-subindustry-review-reasons">
@@ -1867,7 +1867,7 @@ export function CandidateDetailSheet({
                               data-testid={`candidate-subindustry-reason-${reason.key}`}
                             >
                               <span
-                                className="h-1.5 w-1.5 rounded-full bg-amber-500/70 shrink-0"
+                                className="h-1.5 w-1.5 rounded-full bg-warning/70 shrink-0"
                                 aria-hidden
                               />
                               {reason.label}
@@ -1891,23 +1891,23 @@ export function CandidateDetailSheet({
                   {displayedPublicEvidence.map((item, idx) => {
                     const label = SOURCE_TYPE_LABELS[item.source_type as string] || item.source_type;
                     return (
-                      <div key={idx} className="flex items-center justify-between text-xs rounded-xl border border-border/40 p-2.5 bg-muted/10">
+                      <div key={idx} className="flex items-center justify-between text-xs rounded-xl border border-border/60 p-2.5 bg-surface-subtle">
                         <div className="min-w-0 flex-1 pr-2">
                           <p className="font-semibold text-foreground truncate" title={item.title as string}>
                             {item.title as string}
                           </p>
-                          <p className="text-[10px] text-muted-foreground/70 mt-0.5">
+                          <p className="text-xs text-muted-foreground mt-0.5">
                             {label as string} · {item.domain as string}
                           </p>
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0">
                           {item.confidence ? (
-                            <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full ${
+                            <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${
                               item.confidence === 'high'
-                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                ? 'bg-success/10 text-success dark:text-success'
                                 : item.confidence === 'medium'
-                                ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                                : 'bg-muted text-muted-foreground/60'
+                                ? 'bg-warning/10 text-warning dark:text-warning'
+                                : 'bg-muted text-muted-foreground'
                             }`}>
                               {item.confidence as string}
                             </span>
@@ -1938,7 +1938,7 @@ export function CandidateDetailSheet({
                 /* Identificador ya existente */
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <Badge className="border-0 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold flex items-center gap-1">
+                    <Badge className="border-0 bg-success/10 text-success text-xs font-semibold flex items-center gap-1">
                       <CheckCircle2 className="h-2.5 w-2.5" />
                       Identificador validado
                     </Badge>
@@ -1950,7 +1950,7 @@ export function CandidateDetailSheet({
                     <CopyButton value={candidate.tax_identifier} />
                   </div>
                   {taxIdLookup?.selected_candidate && (
-                    <p className="text-[10px] text-muted-foreground/60">
+                    <p className="text-xs text-muted-foreground">
                       Fuente: {taxIdLookup.selected_candidate.source_name}
                     </p>
                   )}
@@ -1982,7 +1982,7 @@ export function CandidateDetailSheet({
                     return (
                       <div className="space-y-3">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <Badge className="border-0 bg-amber-500/5 text-amber-600/70 dark:text-amber-400/70 text-[9px] font-medium flex items-center gap-1">
+                          <Badge className="border-0 bg-warning/5 text-warning/70 text-xs font-medium flex items-center gap-1">
                             <AlertTriangle className="h-2.5 w-2.5" />
                             {`${getTaxIdLabel(candidate.country_code)} sugerido — requiere revisión`}
                           </Badge>
@@ -1990,7 +1990,7 @@ export function CandidateDetailSheet({
                         <div className="rounded-xl border border-su-brand/20 bg-su-brand-soft/10 p-3.5 space-y-3">
                           <div className="flex items-start justify-between gap-2">
                             <div className="space-y-0.5">
-                              <p className="text-[10px] font-semibold uppercase tracking-wider text-su-brand">
+                              <p className="text-xs font-semibold text-su-brand">
                                 {`${getTaxIdLabel(candidate.country_code)} sugerido`}
                               </p>
                               <p className="font-mono text-sm font-bold text-foreground">
@@ -2002,16 +2002,16 @@ export function CandidateDetailSheet({
                                 </p>
                               )}
                             </div>
-                            <Badge className={`border-0 text-[9px] font-semibold shrink-0 ${
+                            <Badge className={`border-0 text-xs font-semibold shrink-0 ${
                               taxIdLookup.best_candidate.confidence === 'high'
-                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                                : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                ? 'bg-success/10 text-success dark:text-success'
+                                : 'bg-warning/10 text-warning dark:text-warning'
                             }`}>
                               {taxIdLookup.best_candidate.confidence === 'high' ? 'Alta confianza' : 'Confianza media'}
                             </Badge>
                           </div>
-                          <div className="flex items-center justify-between gap-2 border-t border-border/20 pt-2.5">
-                            <div className="text-[10px] text-muted-foreground/80 leading-relaxed">
+                          <div className="flex items-center justify-between gap-2 border-t border-border/50 pt-2.5">
+                            <div className="text-xs text-muted-foreground leading-relaxed">
                               <span>Fuente: {taxIdLookup.best_candidate.source_name}</span>
                               {taxIdLookup.best_candidate.source_url && (
                                 <a href={taxIdLookup.best_candidate.source_url} target="_blank" rel="noopener noreferrer" className="ml-1 text-su-brand hover:underline inline-flex items-center gap-0.5">
@@ -2028,7 +2028,7 @@ export function CandidateDetailSheet({
                                 confidence: taxIdLookup.best_candidate!.confidence,
                               })}
                               size="sm"
-                              className="h-7 text-[10px] font-semibold bg-su-brand hover:bg-su-brand/90 text-white"
+                              className="h-7 text-xs font-semibold bg-su-brand hover:bg-su-brand/90 text-primary-foreground"
                               type="button"
                             >
                               Usar este {getTaxIdLabel(candidate.country_code)}
@@ -2044,7 +2044,7 @@ export function CandidateDetailSheet({
                   if (lookupStatus === 'failed') {
                     return (
                       <div className="space-y-2">
-                        <p className="text-xs text-muted-foreground/80">No fue posible completar la búsqueda.</p>
+                        <p className="text-xs text-muted-foreground">No fue posible completar la búsqueda.</p>
                         {!isDuplicateConfirmed && isCO && (
                           <Button
                             onClick={handleLookupTaxIdentifier}
@@ -2077,9 +2077,9 @@ export function CandidateDetailSheet({
                       : null;
                     return (
                       <div className="space-y-2">
-                        <p className="text-xs text-muted-foreground/80">
+                        <p className="text-xs text-muted-foreground">
                           No encontramos un identificador fiscal confiable.
-                          {skipReason && <span className="italic text-muted-foreground/60"> Motivo: {skipReason}</span>}
+                          {skipReason && <span className="italic text-muted-foreground"> Motivo: {skipReason}</span>}
                         </p>
                         {!isDuplicateConfirmed && isCO && (
                           <Button
@@ -2103,7 +2103,7 @@ export function CandidateDetailSheet({
                   if (!isCO) {
                     return (
                       <div className="space-y-2">
-                        <p className="text-xs text-muted-foreground/80 italic">
+                        <p className="text-xs text-muted-foreground italic">
                           La búsqueda automática todavía no está disponible para este país.
                         </p>
                       </div>
@@ -2112,8 +2112,8 @@ export function CandidateDetailSheet({
 
                   /* Estado inicial / pendiente para CO */
                   return (
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground/70">
-                      <Info className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40" />
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Info className="h-3.5 w-3.5 shrink-0 text-text-muted" />
                       <span>Identificador fiscal pendiente de búsqueda automática.</span>
                     </div>
                   );
@@ -2149,14 +2149,14 @@ export function CandidateDetailSheet({
                 {isAutoValidated ? (
                   <>
                     <Badge
-                      className={`border-0 text-[10px] font-semibold ${
+                      className={`border-0 text-xs font-semibold ${
                         sellupDupStatus === 'duplicate'
                           ? 'bg-destructive/10 text-destructive'
                           : sellupDupStatus === 'possible_duplicate'
-                          ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                          ? 'bg-warning/10 text-warning dark:text-warning'
                           : sellupDupStatus === 'no_match'
-                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                          : 'bg-muted text-muted-foreground/60'
+                          ? 'bg-success/10 text-success dark:text-success'
+                          : 'bg-muted text-muted-foreground'
                       }`}
                     >
                       {sellupDupStatus === 'duplicate'
@@ -2168,14 +2168,14 @@ export function CandidateDetailSheet({
                         : 'SellUp sin validar'}
                     </Badge>
                     <Badge
-                      className={`border-0 text-[10px] font-semibold ${
+                      className={`border-0 text-xs font-semibold ${
                         hsDupStatus === 'match'
                           ? 'bg-destructive/10 text-destructive'
                           : hsDupStatus === 'possible_match'
-                          ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                          ? 'bg-warning/10 text-warning dark:text-warning'
                           : hsDupStatus === 'no_match'
-                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                          : 'bg-muted text-muted-foreground/60'
+                          ? 'bg-success/10 text-success dark:text-success'
+                          : 'bg-muted text-muted-foreground'
                       }`}
                     >
                       {hsDupStatus === 'match'
@@ -2189,14 +2189,14 @@ export function CandidateDetailSheet({
                   </>
                 ) : (
                   <Badge
-                    className={`border-0 text-[10px] font-semibold ${
+                    className={`border-0 text-xs font-semibold ${
                       {
-                        unchecked: 'bg-muted text-muted-foreground/60',
-                        no_match: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-                        possible_duplicate: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+                        unchecked: 'bg-muted text-muted-foreground',
+                        no_match: 'bg-success/10 text-success dark:text-success',
+                        possible_duplicate: 'bg-warning/10 text-warning dark:text-warning',
                         exact_duplicate: 'bg-destructive/10 text-destructive',
-                        related_company: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
-                        insufficient_data: 'bg-muted/60 text-muted-foreground/60',
+                        related_company: 'bg-warning/10 dark:text-warning',
+                        insufficient_data: 'bg-surface-muted text-muted-foreground',
                       }[candidate.duplicate_status]
                     }`}
                   >
@@ -2212,8 +2212,8 @@ export function CandidateDetailSheet({
                 {/* Bloque SellUp detail */}
                 {(sellupDupStatus === 'duplicate' || sellupDupStatus === 'possible_duplicate') &&
                   validationMetaSheet?.sellup_duplicate_check?.matched_name && (
-                  <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                  <div className="rounded-2xl border border-border/50 bg-card p-4 space-y-3">
+                    <p className="text-xs font-semibold text-muted-foreground">
                       Coincidencia interna en SellUp
                     </p>
                     <FieldGrid>
@@ -2252,8 +2252,8 @@ export function CandidateDetailSheet({
                 {/* Bloque HubSpot detail */}
                 {(hsDupStatus === 'match' || hsDupStatus === 'possible_match') &&
                   validationMetaSheet?.hubspot_duplicate_check?.matched_company_name && (
-                  <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                  <div className="rounded-2xl border border-border/50 bg-card p-4 space-y-3">
+                    <p className="text-xs font-semibold text-muted-foreground">
                       Coincidencia en HubSpot CRM
                     </p>
                     <FieldGrid>
@@ -2281,7 +2281,7 @@ export function CandidateDetailSheet({
                       )}
                     </FieldGrid>
                     {validationMetaSheet.hubspot_duplicate_check.hubspot_url && (
-                      <div className="pt-2.5 border-t border-border/20 mt-1 flex">
+                      <div className="pt-2.5 border-t border-border/50 mt-1 flex">
                         <a
                           href={validationMetaSheet.hubspot_duplicate_check.hubspot_url}
                           target="_blank"
@@ -2321,23 +2321,23 @@ export function CandidateDetailSheet({
 
                   if (rows.length === 0) return null;
                   return (
-                    <div className="rounded-xl border border-border/30 bg-card p-4 space-y-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Comparación rápida</p>
-                      <div className="overflow-x-auto rounded-lg border border-border/40">
+                    <div className="rounded-2xl border border-border/50 bg-card p-4 space-y-2">
+                      <p className="text-xs font-semibold text-muted-foreground">Comparación rápida</p>
+                      <div className="overflow-x-auto rounded-lg border border-border/60">
                         <table className="w-full text-xs">
-                          <thead className="bg-muted/30">
+                          <thead className="bg-surface-subtle">
                             <tr>
-                              <th className="text-left text-[10px] text-muted-foreground/60 font-medium py-2 px-3">Campo</th>
-                              <th className="text-left text-[10px] text-muted-foreground/60 font-medium py-2 px-3">Candidato</th>
-                              <th className="text-left text-[10px] text-muted-foreground/60 font-medium py-2 px-3">Coincidencia</th>
+                              <th className="text-left text-xs text-muted-foreground font-medium py-2 px-3">Campo</th>
+                              <th className="text-left text-xs text-muted-foreground font-medium py-2 px-3">Candidato</th>
+                              <th className="text-left text-xs text-muted-foreground font-medium py-2 px-3">Coincidencia</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border/20">
                             {rows.map(({ label: rl, cv, mv }) => (
                               <tr key={rl}>
-                                <td className="py-2 px-3 text-muted-foreground/70 font-medium">{rl}</td>
-                                <td className="py-2 px-3 text-foreground/90">{cv ?? <span className="text-muted-foreground/40 italic">Sin dato</span>}</td>
-                                <td className="py-2 px-3 text-foreground/90">{mv ?? <span className="text-muted-foreground/40 italic">Sin dato</span>}</td>
+                                <td className="py-2 px-3 text-muted-foreground font-medium">{rl}</td>
+                                <td className="py-2 px-3 text-foreground/90">{cv ?? <span className="text-text-muted italic">Sin dato</span>}</td>
+                                <td className="py-2 px-3 text-foreground/90">{mv ?? <span className="text-text-muted italic">Sin dato</span>}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -2350,8 +2350,8 @@ export function CandidateDetailSheet({
             ) : (
               <div className="space-y-4">
                 {dcMatches.length > 0 && (
-                  <div className="rounded-xl border border-border/30 bg-card p-4 space-y-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                  <div className="rounded-2xl border border-border/50 bg-card p-4 space-y-3">
+                    <p className="text-xs font-semibold text-muted-foreground">
                       Coincidencias encontradas
                     </p>
                     <div className="space-y-2">
@@ -2373,10 +2373,10 @@ export function CandidateDetailSheet({
                   {sortedRisks.map((risk, i) => {
                     const severity = classifyRisk(risk);
                     const styleMap = {
-                      critical: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20',
-                      high: 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20',
-                      medium: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
-                      low: 'bg-muted/50 text-muted-foreground border-border/30',
+                      critical: 'bg-destructive/10 text-destructive border-destructive/20',
+                      high: 'bg-warning/10 text-warning border-warning/20',
+                      medium: 'bg-warning/10 text-warning border-warning/20',
+                      low: 'bg-surface-muted text-muted-foreground border-border/50',
                     };
                     const badgeMap = { critical: 'Crítico', high: 'Alto', medium: 'Medio', low: 'Bajo' };
                     return (
@@ -2385,7 +2385,7 @@ export function CandidateDetailSheet({
                           <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
                           <span className="leading-relaxed">{isChileOfficialCandidate ? sanitizeTextForChile(risk) : risk}</span>
                         </div>
-                        <Badge className="border-0 text-[8px] font-bold uppercase py-0.5 px-1.5 shrink-0 select-none bg-black/5 dark:bg-white/5 text-inherit">
+                        <Badge className="border-0 text-xs font-bold uppercase py-0.5 px-1.5 shrink-0 select-none bg-black/5 dark:bg-white/5 text-inherit">
                           {badgeMap[severity]}
                         </Badge>
                       </div>
@@ -2403,8 +2403,8 @@ export function CandidateDetailSheet({
                 <SurfaceCardHeader title="Datos Faltantes" />
                 <ul className="space-y-1.5">
                   {missingFields.map((field, i) => (
-                    <li key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground/80">
-                      <AlertTriangle className="h-3 w-3 shrink-0 text-amber-500/70" />
+                    <li key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <AlertTriangle className="h-3 w-3 shrink-0 text-warning/70" />
                       <span>{isChileOfficialCandidate ? sanitizeTextForChile(field) : field}</span>
                     </li>
                   ))}
@@ -2424,8 +2424,8 @@ export function CandidateDetailSheet({
                   const warning = countryEvidence.warning as string | undefined;
 
                   const levelConfig = {
-                    strong: { label: 'Fuerte', style: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400', icon: <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> },
-                    weak: { label: 'Débil', style: 'bg-amber-500/10 text-amber-700 dark:text-amber-400', icon: <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> },
+                    strong: { label: 'Fuerte', style: 'bg-success/10 text-success', icon: <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> },
+                    weak: { label: 'Débil', style: 'bg-warning/10 text-warning', icon: <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> },
                     query_only: { label: 'Solo en query', style: 'bg-destructive/10 text-destructive', icon: <XCircle className="h-3.5 w-3.5 shrink-0" /> },
                   };
                   const cfg = level ? (levelConfig[level as keyof typeof levelConfig] ?? { label: level, style: 'bg-muted text-muted-foreground', icon: <Info className="h-3.5 w-3.5 shrink-0" /> }) : null;
@@ -2440,16 +2440,16 @@ export function CandidateDetailSheet({
                       )}
                       {sources && sources.length > 0 && (
                         <div className="space-y-1">
-                          <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Señales detectadas</p>
+                          <p className="text-xs text-muted-foreground">Señales detectadas</p>
                           <div className="flex flex-wrap gap-1.5">
                             {sources.map((s, i) => (
-                              <span key={i} className="inline-flex items-center rounded-md bg-muted/50 px-2 py-0.5 text-[10px] font-mono text-foreground/80 border border-border/30">
+                              <span key={i} className="inline-flex items-center rounded-md bg-surface-muted px-2 py-0.5 text-xs font-mono text-foreground/80 border border-border/50">
                                 {s}
                               </span>
                             ))}
                           </div>
                           {level === 'strong' && sources.some(s => s.includes('.com.co')) && (
-                            <p className="text-[10px] text-muted-foreground/70 italic pt-0.5">
+                            <p className="text-xs text-muted-foreground italic pt-0.5">
                               El dominio .com.co indica presencia en Colombia.
                             </p>
                           )}
@@ -2464,15 +2464,15 @@ export function CandidateDetailSheet({
                         </div>
                       )}
                       {level === 'weak' && (
-                        <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 flex items-start gap-2">
-                          <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                          <p className="text-xs text-amber-700 dark:text-amber-400">
+                        <div className="rounded-lg border border-warning/20 bg-warning/5 px-3 py-2 flex items-start gap-2">
+                          <AlertTriangle className="h-3.5 w-3.5 text-warning shrink-0 mt-0.5" />
+                          <p className="text-xs text-warning">
                             Evidencia de país débil. Requiere revisión manual.
                           </p>
                         </div>
                       )}
                       {warning && level !== 'query_only' && level !== 'weak' && (
-                        <p className="text-xs text-muted-foreground/70 italic">{warning}</p>
+                        <p className="text-xs text-muted-foreground italic">{warning}</p>
                       )}
                     </div>
                   );
@@ -2495,17 +2495,17 @@ export function CandidateDetailSheet({
 
                   if (wvSkipped) {
                     return (
-                      <p className="text-xs text-muted-foreground/60 italic">
+                      <p className="text-xs text-muted-foreground italic">
                         La verificación del sitio web fue omitida para este candidato.
                       </p>
                     );
                   }
 
                   const statusConfig: Record<string, { label: string; style: string; icon: React.ReactNode }> = {
-                    verified: { label: 'Verificado', style: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400', icon: <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> },
-                    inferred: { label: 'Inferido', style: 'bg-blue-500/10 text-blue-700 dark:text-blue-400', icon: <Info className="h-3.5 w-3.5 shrink-0" /> },
-                    mismatch: { label: 'No coincide', style: 'bg-amber-500/10 text-amber-700 dark:text-amber-400', icon: <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> },
-                    not_found: { label: 'No encontrado', style: 'bg-muted text-muted-foreground/70', icon: <XCircle className="h-3.5 w-3.5 shrink-0" /> },
+                    verified: { label: 'Verificado', style: 'bg-success/10 text-success', icon: <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> },
+                    inferred: { label: 'Inferido', style: 'bg-info/10 text-info', icon: <Info className="h-3.5 w-3.5 shrink-0" /> },
+                    mismatch: { label: 'No coincide', style: 'bg-warning/10 text-warning', icon: <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> },
+                    not_found: { label: 'No encontrado', style: 'bg-muted text-muted-foreground', icon: <XCircle className="h-3.5 w-3.5 shrink-0" /> },
                     error: { label: 'Error', style: 'bg-destructive/10 text-destructive', icon: <XCircle className="h-3.5 w-3.5 shrink-0" /> },
                   };
                   const cfg = wvStatus ? (statusConfig[wvStatus] ?? { label: wvStatus, style: 'bg-muted text-muted-foreground', icon: <Info className="h-3.5 w-3.5" /> }) : null;
@@ -2525,7 +2525,7 @@ export function CandidateDetailSheet({
                           <Field
                             label="HTTP Status"
                             value={
-                              <span className={wvHttpStatus === 200 ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : 'text-amber-600 dark:text-amber-400 font-semibold'}>
+                              <span className={wvHttpStatus === 200 ? 'text-success font-semibold' : 'text-warning font-semibold'}>
                                 {wvHttpStatus}
                               </span>
                             }
@@ -2547,11 +2547,11 @@ export function CandidateDetailSheet({
                 <div className="space-y-3">
                   {Array.isArray(scoringMeta.reasons) && (scoringMeta.reasons as string[]).length > 0 && (
                     <div className="space-y-1.5">
-                      <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Razones positivas</p>
+                      <p className="text-xs text-muted-foreground">Razones positivas</p>
                       <ul className="space-y-1">
                         {(scoringMeta.reasons as string[]).map((r, i) => (
                           <li key={i} className="flex items-start gap-1.5 text-xs text-foreground/80">
-                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
+                            <CheckCircle2 className="h-3.5 w-3.5 text-success mt-0.5 shrink-0" />
                             <span>{r}</span>
                           </li>
                         ))}
@@ -2560,11 +2560,11 @@ export function CandidateDetailSheet({
                   )}
                   {Array.isArray(scoringMeta.warnings) && (scoringMeta.warnings as string[]).length > 0 && (
                     <div className="space-y-1.5">
-                      <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Advertencias</p>
+                      <p className="text-xs text-muted-foreground">Advertencias</p>
                       <ul className="space-y-1">
                         {(scoringMeta.warnings as string[]).map((w, i) => (
-                          <li key={i} className="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
-                            <AlertTriangle className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />
+                          <li key={i} className="flex items-start gap-1.5 text-xs text-warning">
+                            <AlertTriangle className="h-3.5 w-3.5 text-warning mt-0.5 shrink-0" />
                             <span>{w}</span>
                           </li>
                         ))}
@@ -2573,7 +2573,7 @@ export function CandidateDetailSheet({
                   )}
                   {Array.isArray(scoringMeta.blockers) && (scoringMeta.blockers as string[]).length > 0 && (
                     <div className="space-y-1.5">
-                      <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Bloqueadores</p>
+                      <p className="text-xs text-muted-foreground">Bloqueadores</p>
                       <ul className="space-y-1">
                         {(scoringMeta.blockers as string[]).map((b, i) => (
                           <li key={i} className="flex items-start gap-1.5 text-xs text-destructive">
@@ -2629,8 +2629,8 @@ export function CandidateDetailSheet({
                   </FieldGrid>
 
                   {validationMetaSheet.normalized_keys && (
-                    <div className="pt-3 border-t border-border/10">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 mb-2">Claves normalizadas</p>
+                    <div className="pt-3 border-t border-border/50">
+                      <p className="text-xs font-semibold text-muted-foreground mb-2">Claves normalizadas</p>
                       <FieldGrid>
                         {validationMetaSheet.normalized_keys.normalized_name && (
                           <Field label="Nombre norm." value={validationMetaSheet.normalized_keys.normalized_name} mono />
@@ -2671,8 +2671,8 @@ export function CandidateDetailSheet({
               </FieldGrid>
 
               {candidate.review_notes && (
-                <div className="pt-3 border-t border-border/10">
-                  <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mb-1">Notas de revisión</p>
+                <div className="pt-3 border-t border-border/50">
+                  <p className="text-xs text-muted-foreground mb-1">Notas de revisión</p>
                   <p className="text-xs text-muted-foreground leading-relaxed">{candidate.review_notes}</p>
                 </div>
               )}
@@ -2686,13 +2686,13 @@ export function CandidateDetailSheet({
                 const rawTrace = hasSourceTrace ? candidate.source_trace : hasSearchTrace ? searchTrace : null;
                 if (!rawTrace) {
                   return (
-                    <p className="text-xs text-muted-foreground/60 italic">
+                    <p className="text-xs text-muted-foreground italic">
                       No hay trazabilidad de búsqueda disponible para este candidato.
                     </p>
                   );
                 }
                 return (
-                  <pre className="text-[9px] text-muted-foreground/80 overflow-auto max-h-48 leading-relaxed font-mono bg-muted/40 p-2.5 rounded-lg border border-border/20">
+                  <pre className="text-xs text-muted-foreground overflow-auto max-h-48 leading-relaxed font-mono bg-surface-subtle p-2.5 rounded-lg border border-border/50">
                     {JSON.stringify(rawTrace, null, 2)}
                   </pre>
                 );
@@ -2727,7 +2727,7 @@ export function CandidateDetailSheet({
             </Button>
             <Button
               size="sm"
-              className="text-xs bg-su-brand hover:bg-su-brand/90 text-white"
+              className="text-xs bg-su-brand hover:bg-su-brand/90 text-primary-foreground"
               onClick={async () => {
                 if (confirmDialogData) {
                   await handleApproveTaxIdentifier(
@@ -2753,12 +2753,12 @@ export function CandidateDetailSheet({
       >
         <div className="space-y-2">
           {confirmDialogData?.legalName && (
-            <div className="text-xs flex items-center justify-between border-b border-border/30 pb-2">
+            <div className="text-xs flex items-center justify-between border-b border-border/50 pb-2">
               <span className="text-muted-foreground">Razón Social:</span>
               <span className="font-medium text-foreground">{confirmDialogData.legalName}</span>
             </div>
           )}
-          <div className="text-xs flex items-center justify-between border-b border-border/30 pb-2">
+          <div className="text-xs flex items-center justify-between border-b border-border/50 pb-2">
             <span className="text-muted-foreground">Fuente:</span>
             <span className="text-foreground">{confirmDialogData?.sourceName}</span>
           </div>
@@ -2766,13 +2766,13 @@ export function CandidateDetailSheet({
             <div className="text-xs flex items-center justify-between pb-2">
               <span className="text-muted-foreground">Confianza:</span>
               <span className={`font-semibold capitalize ${
-                confirmDialogData.confidence === 'high' ? 'text-emerald-500' : 'text-amber-500'
+                confirmDialogData.confidence === 'high' ? 'text-success' : 'text-warning'
               }`}>
                 {confirmDialogData.confidence === 'high' ? 'Alta' : 'Media'}
               </span>
             </div>
           )}
-          <p className="text-[10px] text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded-md p-2 mt-2 leading-relaxed">
+          <p className="text-xs text-warning bg-warning/10 rounded-md p-2 mt-2 leading-relaxed">
             * El identificador se guardará localmente en SellUp. No se sincronizará con HubSpot en este momento.
           </p>
         </div>

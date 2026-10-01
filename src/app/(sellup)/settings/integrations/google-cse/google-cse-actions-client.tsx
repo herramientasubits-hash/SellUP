@@ -104,11 +104,11 @@ export function GoogleCSEConnectModal({ open, onOpenChange }: ConnectModalProps)
                 {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Obtén tu API Key en{' '}
               <span className="font-medium text-foreground">console.cloud.google.com</span>{' '}
               → Credenciales. Habilita{' '}
-              <code className="rounded bg-muted px-1 py-0.5 text-[10px]">Custom Search API</code>{' '}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">Custom Search API</code>{' '}
               antes de usar.
             </p>
           </div>
@@ -126,7 +126,7 @@ export function GoogleCSEConnectModal({ open, onOpenChange }: ConnectModalProps)
               disabled={isPending}
               autoComplete="off"
             />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Encuéntralo en{' '}
               <span className="font-medium text-foreground">programmablesearchengine.google.com</span>{' '}
               → Panel de control → ID del motor de búsqueda.
@@ -134,10 +134,10 @@ export function GoogleCSEConnectModal({ open, onOpenChange }: ConnectModalProps)
           </div>
 
           {/* Quota note */}
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
+          <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2.5">
             <div className="flex items-start gap-2">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-              <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+              <p className="text-xs text-warning leading-relaxed">
                 El plan gratuito incluye <strong>100 consultas/día</strong>. El botón
                 &ldquo;Probar conexión&rdquo; consume 1 consulta de tu cuota diaria.
               </p>
@@ -152,7 +152,7 @@ export function GoogleCSEConnectModal({ open, onOpenChange }: ConnectModalProps)
           )}
 
           {successMsg && (
-            <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400">
+            <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-xs text-success">
               {successMsg}
             </p>
           )}
@@ -272,9 +272,9 @@ export function GoogleCSEUpdateModal({ open, onOpenChange, cx_masked }: UpdateMo
               autoComplete="off"
             />
             {cx_masked && (
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 CX actual:{' '}
-                <code className="rounded bg-muted px-1 py-0.5 text-[10px] font-mono">
+                <code className="rounded bg-muted px-1 py-0.5 text-xs font-mono">
                   {cx_masked}
                 </code>
               </p>
@@ -289,7 +289,7 @@ export function GoogleCSEUpdateModal({ open, onOpenChange, cx_masked }: UpdateMo
           )}
 
           {successMsg && (
-            <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400">
+            <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-xs text-success">
               {successMsg}
             </p>
           )}
@@ -337,10 +337,10 @@ export function GoogleCSETestConnectionButton({ disabled }: TestConnectionProps)
 
   if (showConfirm) {
     return (
-      <div className="space-y-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+      <div className="space-y-3 rounded-lg border border-warning/30 bg-warning/10 p-3">
         <div className="flex items-start gap-2">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-          <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+          <p className="text-xs text-warning leading-relaxed">
             Esta acción consumirá <strong>1 consulta</strong> de tu cuota diaria de Google CSE
             (100 gratuitas/día). ¿Deseas continuar?
           </p>
@@ -378,7 +378,7 @@ export function GoogleCSETestConnectionButton({ disabled }: TestConnectionProps)
         <p
           className={`rounded-lg border px-3 py-2 text-xs ${
             result.success
-              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+              ? 'border-success/30 bg-success/10 text-success dark:text-success'
               : 'border-destructive/30 bg-destructive/10 text-destructive'
           }`}
         >

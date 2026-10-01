@@ -61,7 +61,7 @@ export function NavLink({ item, mode = "full" }: NavLinkProps) {
       href={item.href}
       aria-current={isActive ? "page" : undefined}
       className={cn(
-        "group relative flex items-center gap-3 rounded-md py-2.5 pl-3.5 pr-3 text-[0.8125rem] font-medium transition-colors duration-200",
+        "group relative flex items-center gap-3 rounded-md py-2.5 pl-3.5 pr-3 text-sm font-medium transition-colors duration-200",
         isActive
           ? "bg-sidebar-accent font-semibold text-primary"
           : "text-muted-foreground hover:bg-background hover:text-foreground",
@@ -89,7 +89,7 @@ export function MobileNavLink({ item }: NavLinkProps) {
           href={item.href}
           aria-current={isActive ? "page" : undefined}
           className={cn(
-            "relative flex items-center gap-3 rounded-md px-3.5 py-2.5 text-[0.8125rem] font-medium transition-colors duration-200",
+            "relative flex items-center gap-3 rounded-md px-3.5 py-2.5 text-sm font-medium transition-colors duration-200",
             isActive
               ? "bg-sidebar-accent font-semibold text-primary"
               : "text-muted-foreground hover:bg-background hover:text-foreground",

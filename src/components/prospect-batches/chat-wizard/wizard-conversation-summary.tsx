@@ -250,7 +250,7 @@ export function WizardConversationSummary({
 function ValidatingPanel() {
   return (
     <div
-      className="flex items-center gap-3 rounded-xl bg-muted/40 px-5 py-4"
+      className="flex items-center gap-3 rounded-xl bg-surface-subtle px-5 py-4"
       role="status"
       aria-live="polite"
     >
@@ -517,16 +517,16 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
   return (
     <div className="space-y-4 animate-su-fade-in" role="status">
       {/* Banner A — validation (positive). */}
-      <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4 dark:border-emerald-800/40 dark:bg-emerald-900/10">
+      <div className="flex items-start gap-3 rounded-xl border border-success/20 bg-success/10 px-5 py-4 dark:border-success/40">
         <CheckCircle2
-          className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400"
+          className="mt-0.5 h-5 w-5 shrink-0 text-success"
           aria-hidden
         />
         <div className="space-y-1">
-          <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">
+          <p className="text-sm font-semibold text-success">
             La configuración es válida.
           </p>
-          <p className="text-xs text-emerald-600/80 dark:text-emerald-400/70">
+          <p className="text-xs text-success/80">
             {validBody}
           </p>
         </div>
@@ -757,17 +757,17 @@ function DiscoveryUnavailableNotice({ reason }: DiscoveryUnavailableNoticeProps)
   const copy = DISCOVERY_UNAVAILABLE_COPY[reason];
   return (
     <div
-      className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 dark:border-amber-800/40 dark:bg-amber-900/10"
+      className="flex items-start gap-3 rounded-xl border border-warning/20 bg-warning/15 px-5 py-4 dark:border-warning/40 dark:bg-warning/10"
       role="alert"
       data-testid="wizard-discovery-unavailable-notice"
     >
       <AlertTriangle
-        className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400"
+        className="mt-0.5 h-5 w-5 shrink-0 text-warning"
         aria-hidden
       />
       <div className="space-y-1">
-        <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">{copy.title}</p>
-        <p className="text-xs text-amber-600/80 dark:text-amber-400/70">{copy.detail}</p>
+        <p className="text-sm font-semibold text-warning">{copy.title}</p>
+        <p className="text-xs text-warning/80">{copy.detail}</p>
       </div>
     </div>
   );
@@ -880,7 +880,7 @@ function SubindustrySelectionRecap({
             </li>
           ))}
           {recap.unresolvedIds.map((id) => (
-            <li key={id} className="flex gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+            <li key={id} className="flex gap-1.5 text-xs text-warning">
               <span aria-hidden>•</span>
               <span>Subindustria no reconocida en el catálogo ({id})</span>
             </li>
@@ -930,7 +930,7 @@ function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
         Resumen de la búsqueda
       </h3>
 
-      <div className="rounded-xl border border-border bg-card divide-y divide-border/60">
+      <div className="rounded-2xl border border-border bg-card divide-y divide-border/60">
         <SummaryRow
           label="Tipo de búsqueda"
           value="Empresas por criterios"
@@ -973,7 +973,7 @@ function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
         <SubindustrySelectionRecap state={state} catalog={catalog} />
       )}
 
-      <div className="rounded-lg bg-muted/40 px-4 py-3">
+      <div className="rounded-lg bg-surface-subtle px-4 py-3">
         <p className="text-xs text-muted-foreground leading-relaxed">
           <span className="font-medium text-foreground">Cantidad:</span> SellUp determinará cuántas empresas entregar según calidad, disponibilidad y criterios de búsqueda.
         </p>
@@ -983,7 +983,7 @@ function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
         <div
           key={w.code}
           role="status"
-          className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-700 dark:border-amber-800/40 dark:bg-amber-900/10 dark:text-amber-400"
+          className="flex items-start gap-2 rounded-lg border border-warning/20 bg-warning/15 px-3 py-2.5 text-xs text-warning dark:border-warning/40 dark:bg-warning/10"
         >
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
           <span>{w.message}</span>
@@ -1056,7 +1056,7 @@ export function RestartConfirmation({ dispatch }: RestartConfirmationProps) {
       role="dialog"
       aria-modal="true"
       aria-label="Confirmar reinicio"
-      className="rounded-xl border border-border bg-card p-5 shadow-md space-y-4 animate-su-scale-in"
+      className="rounded-2xl border border-border bg-card p-5 shadow-drawer space-y-4 animate-su-scale-in"
     >
       <div>
         <p className="text-sm font-semibold text-foreground">

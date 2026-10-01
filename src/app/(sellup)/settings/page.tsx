@@ -100,7 +100,7 @@ export default async function SettingsPage() {
                 className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors ${
                   section.status === 'Funcional'
                     ? 'bg-su-brand-soft text-su-brand group-hover:bg-su-brand/20'
-                    : 'bg-accent/60 text-muted-foreground/40 group-hover:bg-su-brand/10 group-hover:text-su-brand/60'
+                    : 'bg-accent/60 text-text-muted group-hover:bg-su-brand/10 group-hover:text-su-brand/60'
                 }`}
               >
                 <section.icon className="h-4 w-4" />
@@ -112,17 +112,17 @@ export default async function SettingsPage() {
                   </h2>
                   <div className="flex shrink-0 items-center gap-2">
                     {pendingCount > 0 && (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-amber-500">
+                      <span className="inline-flex items-center gap-1 rounded-full border border-warning/30 bg-warning/10 px-2.5 py-0.5 text-xs font-semibold text-warning">
                         {pendingCount} pendiente{pendingCount > 1 ? 's' : ''}
                       </span>
                     )}
                     {'badge' in section && section.badge && (
-                      <span className="inline-flex items-center rounded-full border border-su-brand/30 bg-su-brand-soft px-2.5 py-0.5 text-[10px] font-medium text-su-brand">
+                      <span className="inline-flex items-center rounded-full border border-su-brand/30 bg-su-brand-soft px-2.5 py-0.5 text-xs font-medium text-su-brand">
                         {section.badge}
                       </span>
                     )}
                     {section.status !== 'Funcional' && (
-                      <span className="inline-flex items-center gap-1.5 rounded-full border border-border/40 bg-muted/30 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground/60">
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-surface-subtle px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
                         <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/25" />
                         {section.status}
                       </span>
@@ -139,7 +139,7 @@ export default async function SettingsPage() {
           if (section.href) {
             return (
               <Link key={section.title} href={section.href}>
-                <SurfaceCard className="group cursor-pointer transition-all hover:border-su-brand/30 hover:shadow-md">
+                <SurfaceCard className="group cursor-pointer transition-all hover:border-su-brand/30 hover:shadow-drawer">
                   {CardContent}
                 </SurfaceCard>
               </Link>
@@ -156,7 +156,7 @@ export default async function SettingsPage() {
         {/* Mi Google Drive — visible para todo usuario activo */}
         {isActive && (
           <Link href="/settings/my-drive">
-            <SurfaceCard className="group cursor-pointer transition-all hover:border-su-brand/30 hover:shadow-md">
+            <SurfaceCard className="group cursor-pointer transition-all hover:border-su-brand/30 hover:shadow-drawer">
               <div className="flex items-start gap-4">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-su-brand-soft text-su-brand transition-colors group-hover:bg-su-brand/20">
                   <HardDrive className="h-4 w-4" />
@@ -167,15 +167,15 @@ export default async function SettingsPage() {
                       Mi Google Drive
                     </h2>
                     <span
-                      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${
+                      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${
                         driveConnected
-                          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500'
-                          : 'border-border/40 bg-muted/30 text-muted-foreground/60'
+                          ? 'border-success/30 bg-success/10 text-success'
+                          : 'border-border/60 bg-surface-subtle text-muted-foreground'
                       }`}
                     >
                       <span
                         className={`h-1.5 w-1.5 rounded-full ${
-                          driveConnected ? 'bg-emerald-500' : 'bg-muted-foreground/25'
+                          driveConnected ? 'bg-success' : 'bg-muted-foreground/25'
                         }`}
                       />
                       {driveConnected ? 'Conectado' : 'No conectado'}

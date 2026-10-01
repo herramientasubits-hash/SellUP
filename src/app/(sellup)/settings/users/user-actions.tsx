@@ -154,7 +154,7 @@ export function UserActions({ user, roles, activeUsers, groups, triggerMode = 'd
       {triggerMode === 'dropdown' ? (
         <DropdownMenu>
           <DropdownMenuTrigger>
-            <div className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md hover:bg-muted">
+            <div className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md hover:bg-surface-muted">
               <MoreHorizontal className="h-4 w-4" />
             </div>
           </DropdownMenuTrigger>

@@ -20,7 +20,7 @@ import type { SafeDryRunReport } from '@/modules/source-catalog/source-credentia
 function SummaryRow({ label, value }: { label: string; value: string | number }) {
   return (
     <div>
-      <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+      <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
         {label}
       </dt>
       <dd className="text-sm font-medium text-foreground tabular-nums">{value}</dd>
@@ -34,10 +34,10 @@ function SampleItemsTable({ items }: { items: SafeDryRunReport['sampleItems'] })
   if (items.length === 0) return null;
   return (
     <div className="space-y-1.5">
-      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+      <p className="text-xs font-semibold text-muted-foreground">
         Muestra aceptados ({items.length})
       </p>
-      <div className="rounded-lg border border-border/40 divide-y divide-border/30 overflow-hidden">
+      <div className="rounded-lg border border-border/60 divide-y divide-border/30 overflow-hidden">
         {items.map((item, i) => (
           <div key={i} className="px-3 py-2 text-xs">
             <span className="font-medium text-foreground">{item.name ?? '—'}</span>
@@ -47,7 +47,7 @@ function SampleItemsTable({ items }: { items: SafeDryRunReport['sampleItems'] })
             {item.activity && (
               <p className="text-muted-foreground mt-0.5 truncate">{item.activity}</p>
             )}
-            <p className="text-emerald-600 dark:text-emerald-400 mt-0.5">{item.qualityReason}</p>
+            <p className="text-success mt-0.5">{item.qualityReason}</p>
           </div>
         ))}
       </div>
@@ -59,17 +59,17 @@ function FilteredSamplesTable({ items }: { items: SafeDryRunReport['filteredSamp
   if (items.length === 0) return null;
   return (
     <div className="space-y-1.5">
-      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+      <p className="text-xs font-semibold text-muted-foreground">
         Muestra filtrados ({items.length})
       </p>
-      <div className="rounded-lg border border-border/40 divide-y divide-border/30 overflow-hidden">
+      <div className="rounded-lg border border-border/60 divide-y divide-border/30 overflow-hidden">
         {items.map((item, i) => (
           <div key={i} className="px-3 py-2 text-xs">
             <span className="font-medium text-foreground">{item.name ?? '—'}</span>
             {item.city && (
               <span className="text-muted-foreground ml-2">· {item.city}</span>
             )}
-            <p className="text-amber-600 dark:text-amber-400 mt-0.5">{item.filterReason}</p>
+            <p className="text-warning mt-0.5">{item.filterReason}</p>
           </div>
         ))}
       </div>
@@ -99,9 +99,9 @@ function DryRunReportView({ report }: { report: SafeDryRunReport }) {
 
       {/* Warnings */}
       {report.warnings.length > 0 && (
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 space-y-0.5">
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 space-y-0.5">
           {report.warnings.map((w, i) => (
-            <p key={i} className="text-xs text-amber-600 dark:text-amber-400">{w}</p>
+            <p key={i} className="text-xs text-warning">{w}</p>
           ))}
         </div>
       )}
@@ -127,7 +127,7 @@ function DryRunReportView({ report }: { report: SafeDryRunReport }) {
       )}
 
       {/* Timestamp + connection source */}
-      <div className="flex items-center justify-between text-[11px] text-muted-foreground border-t border-border/40 pt-2">
+      <div className="flex items-center justify-between text-xs text-muted-foreground border-t border-border/60 pt-2">
         <span>
           Ejecutado: {new Intl.DateTimeFormat('es-CO', {
             day: '2-digit', month: 'short', year: 'numeric',
@@ -185,14 +185,14 @@ export function SourceDryRunPanel({ sourceKey, hasStoredCredential, isAdmin }: P
 
         {/* Guard states */}
         {!isAdmin && (
-          <div className="flex items-start gap-2 rounded-lg border border-border/40 bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground">
+          <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-surface-subtle px-3 py-2.5 text-xs text-muted-foreground">
             <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             Solo administradores pueden ejecutar dry-runs de fuente.
           </div>
         )}
 
         {isAdmin && !hasStoredCredential && (
-          <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-600 dark:text-amber-400">
+          <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2.5 text-xs text-warning">
             <FlaskConical className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             Configura y verifica la credencial de API antes de ejecutar el dry-run.
           </div>
@@ -232,7 +232,7 @@ export function SourceDryRunPanel({ sourceKey, hasStoredCredential, isAdmin }: P
         {report && (
           <div className="space-y-3">
             <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+              <CheckCircle2 className="h-4 w-4 text-success" />
               <span className="text-sm font-medium text-foreground">Dry-run completado</span>
             </div>
             <DryRunReportView report={report} />
@@ -240,7 +240,7 @@ export function SourceDryRunPanel({ sourceKey, hasStoredCredential, isAdmin }: P
         )}
 
         {/* Disclaimer */}
-        <div className="flex items-center gap-1.5 border-t border-border/40 pt-3 text-xs text-muted-foreground">
+        <div className="flex items-center gap-1.5 border-t border-border/60 pt-3 text-xs text-muted-foreground">
           <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
           No escribe en Supabase. No crea candidatos. El token nunca se muestra ni se registra.
         </div>

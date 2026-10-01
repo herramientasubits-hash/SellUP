@@ -58,16 +58,16 @@ import { CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS } from '@/modules/contact-enrichme
 const STATUS_STYLES: Record<PipelineStatus, string> = {
   new: 'bg-muted text-muted-foreground',
   ready_for_research: 'bg-su-brand-soft text-su-brand',
-  research_in_progress: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-  ready_for_outreach: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-  archived: 'bg-muted/60 text-muted-foreground/60',
+  research_in_progress: 'bg-warning/10 text-warning',
+  ready_for_outreach: 'bg-success/10 text-success',
+  archived: 'bg-surface-muted text-muted-foreground',
 };
 
 const SOURCE_STYLES: Record<AccountSource, string> = {
   manual: 'border-border text-muted-foreground',
   agent_1: 'bg-su-brand-soft text-su-brand border-transparent',
-  hubspot: 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-transparent',
-  apollo: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-transparent',
+  hubspot: 'bg-warning/10 text-warning border-transparent',
+  apollo: 'bg-info/10 text-info border-transparent',
   imported: 'border-border text-muted-foreground',
   other: 'border-border text-muted-foreground',
 };
@@ -238,7 +238,7 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
               <span className="text-xs text-muted-foreground">{code}</span>
             </span>
           ) : (
-            <span className="text-muted-foreground/40 text-xs">—</span>
+            <span className="text-text-muted text-xs">—</span>
           );
         },
         size: 100,
@@ -258,7 +258,7 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
         ),
         cell: ({ row }) => (
           <span className="text-xs text-muted-foreground truncate block max-w-[160px]">
-            {row.original.industry ?? <span className="text-muted-foreground/40">—</span>}
+            {row.original.industry ?? <span className="text-text-muted">—</span>}
           </span>
         ),
         size: 160,
@@ -283,7 +283,7 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
               {domain}
             </span>
           ) : (
-            <span className="text-muted-foreground/40 text-xs">—</span>
+            <span className="text-text-muted text-xs">—</span>
           );
         },
         size: 160,
@@ -300,7 +300,7 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
           const status = row.original.pipeline_status;
           return (
             <span
-              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_STYLES[status]}`}
+              className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLES[status]}`}
             >
               {PIPELINE_STATUS_LABELS[status]}
             </span>
@@ -323,7 +323,7 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
         ),
         cell: ({ row }) => (
           <span className="text-xs text-muted-foreground">
-            {row.original.owner_name ?? <span className="text-muted-foreground/40">—</span>}
+            {row.original.owner_name ?? <span className="text-text-muted">—</span>}
           </span>
         ),
         size: 140,
@@ -361,7 +361,7 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
           return (
             <Badge
               variant="outline"
-              className={`text-[10px] ${SOURCE_STYLES[source]}`}
+              className={`text-xs ${SOURCE_STYLES[source]}`}
             >
               {SOURCE_LABELS[source]}
             </Badge>
@@ -562,8 +562,8 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
         }
         emptyState={
           <div className="flex flex-col items-center justify-center py-12 text-center">
-            <div className="mb-3 rounded-full bg-muted/60 p-3">
-              <Building2 className="h-6 w-6 text-muted-foreground/40" />
+            <div className="mb-3 rounded-full bg-surface-muted p-3">
+              <Building2 className="h-6 w-6 text-text-muted" />
             </div>
             <p className="text-sm font-medium text-foreground">Sin cuentas todavía</p>
             <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto">

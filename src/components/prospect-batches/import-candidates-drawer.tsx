@@ -899,7 +899,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
       }
       icon={
         step === 'success'
-          ? <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+          ? <CheckCircle2 className="h-4 w-4 text-success" />
           : step === 'classification'
           ? <Search className="h-4 w-4 text-su-brand" />
           : step === 'preview'
@@ -941,7 +941,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
 
             {step === 'classification' && needsMappingResolution && (
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <p className="text-[11px] text-muted-foreground flex-1">
+                <p className="text-xs text-muted-foreground flex-1">
                   Corrige el mapeo de columnas y luego reclasifica.
                 </p>
                 <div className="flex items-center gap-2 justify-end shrink-0">
@@ -954,7 +954,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                     onClick={handleBuildClassification}
                     disabled={loadingClassification || computeHasMappingConflict(columnMappings)}
                     size="sm"
-                    className="gap-2 text-xs font-semibold bg-su-brand text-white hover:bg-su-brand/90"
+                    className="gap-2 text-xs font-semibold bg-su-brand text-primary-foreground hover:bg-su-brand/90"
                   >
                     {loadingClassification ? (
                       <>
@@ -976,21 +976,21 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div className="text-left flex-1 space-y-1">
                   {classificationSelectedIds.size === 0 && (
-                    <p className="text-[11px] text-muted-foreground font-medium">
+                    <p className="text-xs text-muted-foreground font-medium">
                       Selecciona al menos una fila para importar.
                     </p>
                   )}
                   {classificationSelectedIds.size > 0 && selectedBlockingCount > 0 && (
-                    <p className="text-[11px] text-destructive font-medium">
+                    <p className="text-xs text-destructive font-medium">
                       Corrige o deselecciona {selectedBlockingCount} fila{selectedBlockingCount !== 1 ? 's' : ''} para continuar.
                     </p>
                   )}
                   {classificationSelectedIds.size > 0 && selectedBlockingCount === 0 && (
-                    <p className="text-[11px] text-emerald-500 font-medium">
+                    <p className="text-xs text-success font-medium">
                       {classificationSelectedIds.size} fila{classificationSelectedIds.size !== 1 ? 's' : ''} seleccionada{classificationSelectedIds.size !== 1 ? 's' : ''} listas para importar.
                     </p>
                   )}
-                  <p className="text-[10px] text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     Seleccionadas: {classificationSelectedIds.size} de {classificationRows.length}
                   </p>
                 </div>
@@ -1023,16 +1023,16 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div className="text-left flex-1 space-y-1">
                   {selectedRows.length > 0 && (
-                    <p className="text-[11px] text-su-brand font-medium">
+                    <p className="text-xs text-su-brand font-medium">
                       {selectedRows.length} fila{selectedRows.length !== 1 ? 's' : ''} seleccionada{selectedRows.length !== 1 ? 's' : ''} para importar.
                     </p>
                   )}
                   {preview.errors > 0 && (
-                    <p className="text-[11px] text-destructive font-medium">
+                    <p className="text-xs text-destructive font-medium">
                       {preview.errors} {preview.errors === 1 ? 'fila' : 'filas'} con errores no {preview.errors === 1 ? 'será importada' : 'serán importadas'}.
                     </p>
                   )}
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     SellUp validará duplicidad y calidad básica. No creará cuentas ni sincronizará con HubSpot hasta que apruebes candidatos.
                   </p>
                 </div>
@@ -1098,7 +1098,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   Se usará en filas que no incluyan país.
                 </p>
               </div>
@@ -1109,7 +1109,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                   Industria por defecto
                 </label>
                 {catalogLoading ? (
-                  <div className="flex items-center gap-2 h-11 rounded-xl border border-input bg-muted/30 px-4">
+                  <div className="flex items-center gap-2 h-11 rounded-xl border border-input bg-surface-subtle px-4">
                     <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
                     <span className="text-xs text-muted-foreground">Cargando catálogo…</span>
                   </div>
@@ -1122,14 +1122,14 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                     <button
                       type="button"
                       onClick={loadCatalog}
-                      className="flex items-center gap-1 text-[10px] text-su-brand hover:underline"
+                      className="flex items-center gap-1 text-xs text-su-brand hover:underline"
                     >
                       <RefreshCw className="h-3 w-3" />
                       Reintentar
                     </button>
                   </div>
                 ) : catalogData && catalogData.industries.length === 0 ? (
-                  <div className="flex items-center gap-2 h-11 rounded-xl border border-input bg-muted/30 px-4">
+                  <div className="flex items-center gap-2 h-11 rounded-xl border border-input bg-surface-subtle px-4">
                     <span className="text-xs text-muted-foreground">No hay un catálogo publicado disponible.</span>
                   </div>
                 ) : (
@@ -1143,7 +1143,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                     disabled={!catalogData || catalogLoading}
                   />
                 )}
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   Se usará únicamente en filas que no incluyan industria.
                 </p>
               </div>
@@ -1156,7 +1156,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                   <span className="font-normal text-muted-foreground">(opcional)</span>
                 </label>
                 {subindustryCountryWarning && (
-                  <p className="text-[10px] text-amber-500">
+                  <p className="text-xs text-warning">
                     La subindustria seleccionada no está disponible para el nuevo país y fue eliminada.
                   </p>
                 )}
@@ -1178,7 +1178,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                     !!catalogError
                   }
                 />
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   Opcional. Se usará únicamente en filas que no incluyan subindustria.
                 </p>
               </div>
@@ -1194,7 +1194,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
               className={`flex flex-col items-center gap-1.5 rounded-xl border px-3 py-3 text-xs font-medium transition-colors ${
                 fileMethod === 'paste'
                   ? 'border-su-brand bg-su-brand-soft text-su-brand'
-                  : 'border-border/40 bg-muted/30 text-muted-foreground hover:border-border hover:bg-muted/60'
+                  : 'border-border/60 bg-surface-subtle text-muted-foreground hover:border-border hover:bg-surface-muted'
               }`}
             >
               <ClipboardPaste className="h-4 w-4" />
@@ -1206,7 +1206,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
               className={`flex flex-col items-center gap-1.5 rounded-xl border px-3 py-3 text-xs font-medium transition-colors ${
                 fileMethod === 'file'
                   ? 'border-su-brand bg-su-brand-soft text-su-brand'
-                  : 'border-border/40 bg-muted/30 text-muted-foreground hover:border-border hover:bg-muted/60'
+                  : 'border-border/60 bg-surface-subtle text-muted-foreground hover:border-border hover:bg-surface-muted'
               }`}
             >
               <FileText className="h-4 w-4" />
@@ -1226,7 +1226,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                 value={pasteText}
                 onChange={(e) => setPasteText(e.target.value)}
               />
-              <p className="text-[10px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 Acepta separadores tab, coma, punto y coma o tablas Markdown (incluso si vienen con texto explicativo alrededor). La primera fila válida será interpretada como encabezados.
                 Si el archivo no trae país o industria, SellUp usará los valores seleccionados arriba.
               </p>
@@ -1240,7 +1240,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                 Sube un archivo CSV o Excel (.xlsx)
               </p>
               <div
-                className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border/40 bg-muted/20 px-6 py-10 text-center cursor-pointer hover:border-border hover:bg-muted/40 transition-colors"
+                className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border/60 bg-surface-subtle px-6 py-10 text-center cursor-pointer hover:border-border hover:bg-surface-muted transition-colors"
                 onClick={() => fileInputRef.current?.click()}
               >
                 <div className="rounded-full bg-su-brand-soft p-2.5">
@@ -1267,7 +1267,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                 className="hidden"
                 onChange={handleFileChange}
               />
-              <p className="text-[10px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 La primera fila debe contener los encabezados. Los archivos .xlsm no son soportados.
               </p>
             </div>
@@ -1282,14 +1282,14 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                 </div>
               </AccordionTrigger>
               <AccordionContent className="space-y-4 pt-1">
-                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                <p className="text-xs text-muted-foreground leading-relaxed">
                   SellUp tiene un <strong>contrato oficial de columnas</strong> en español. Puedes copiar tablas desde Excel, Google Sheets, o directamente desde los chats con <strong>Claude, Gemini o ChatGPT</strong>. El parser resolverá automáticamente los siguientes campos:
                 </p>
 
-                <div className="max-h-[220px] overflow-y-auto rounded-lg border border-border/30 bg-card">
-                  <table className="w-full text-[10px] border-collapse">
+                <div className="max-h-[220px] overflow-y-auto rounded-lg border border-border/50 bg-card">
+                  <table className="w-full text-xs border-collapse">
                     <thead>
-                      <tr className="border-b border-border/30 bg-muted/30 text-muted-foreground font-semibold">
+                      <tr className="border-b border-border/50 bg-surface-subtle text-muted-foreground font-semibold">
                         <th className="px-2 py-1.5 text-left">Columna oficial</th>
                         <th className="px-2 py-1.5 text-center">Estado</th>
                         <th className="px-2 py-1.5 text-left">Descripción</th>
@@ -1298,17 +1298,17 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                     </thead>
                     <tbody className="divide-y divide-border/20">
                       {EXTERNAL_IMPORT_CONTRACT.map((col) => (
-                        <tr key={col.field} className="hover:bg-muted/10">
+                        <tr key={col.field} className="hover:bg-surface-muted">
                           <td className="px-2 py-1.5 font-bold text-foreground whitespace-nowrap">
                             {col.officialHeader}
                           </td>
                           <td className="px-2 py-1.5 text-center">
                             {col.required ? (
-                              <span className="text-[9px] font-semibold text-destructive uppercase">Requerido</span>
+                              <span className="text-xs font-semibold text-destructive uppercase">Requerido</span>
                             ) : col.recommended ? (
-                              <span className="text-[9px] font-semibold text-su-brand uppercase">Recomendado</span>
+                              <span className="text-xs font-semibold text-su-brand uppercase">Recomendado</span>
                             ) : (
-                              <span className="text-[9px] text-muted-foreground">Opcional</span>
+                              <span className="text-xs text-muted-foreground">Opcional</span>
                             )}
                           </td>
                           <td className="px-2 py-1.5 text-muted-foreground leading-normal">
@@ -1316,7 +1316,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                           </td>
                           <td className="px-2 py-1.5 text-muted-foreground leading-normal">
                             <span className="italic block text-foreground/80 mb-0.5">Ej: {col.example}</span>
-                            <span className="text-[9px] text-muted-foreground/60 block truncate max-w-[150px]" title={col.aliases.join(', ')}>
+                            <span className="text-xs text-muted-foreground block truncate max-w-[150px]" title={col.aliases.join(', ')}>
                               Aliases: {col.aliases.join(', ')}
                             </span>
                           </td>
@@ -1328,7 +1328,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
 
                 <div className="space-y-2 rounded-lg border border-su-brand/20 bg-su-brand-soft/20 p-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-semibold uppercase tracking-widest text-su-brand">
+                    <span className="text-xs font-semibold text-su-brand">
                       Ejemplo de tabla copiable
                     </span>
                     <Button
@@ -1342,17 +1342,17 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                         navigator.clipboard.writeText(exampleText);
                         toast.success('Ejemplo copiado en formato TSV al portapapeles');
                       }}
-                      className="h-6 gap-1 px-2 text-[10px] text-su-brand hover:text-su-brand hover:bg-su-brand-soft"
+                      className="h-6 gap-1 px-2 text-xs text-su-brand hover:text-su-brand hover:bg-su-brand-soft"
                     >
                       <Copy className="h-3 w-3" />
                       Copiar ejemplo
                     </Button>
                   </div>
-                  <pre className="overflow-x-auto text-[9px] font-mono bg-card p-2 rounded border border-border/30 text-muted-foreground">
+                  <pre className="overflow-x-auto text-xs font-mono bg-card p-2 rounded border border-border/50 text-muted-foreground">
                     {EXTERNAL_IMPORT_CONTRACT.map(c => c.officialHeader).join('\t')}{'\n'}
                     {EXTERNAL_IMPORT_CONTRACT.map(c => c.example).join('\t')}
                   </pre>
-                  <p className="text-[9px] text-muted-foreground/80 leading-normal">
+                  <p className="text-xs text-muted-foreground leading-normal">
                     Tip: Puedes copiar este ejemplo, pegarlo en Google Sheets o Excel, rellenar tus datos y luego copiar la tabla para pegarla en el campo superior. También puedes pegar directamente una tabla generada por Claude, Gemini o GPT. SellUp intentará reconocer las columnas e ignorar las filas separadoras o el texto introductorio, incluso si viene como tabla Markdown con pipes.
                   </p>
                 </div>
@@ -1374,21 +1374,21 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
         <div className="flex flex-col flex-1 min-h-0 gap-4">
           <div className="animate-pulse space-y-3">
             {/* Banner skeleton */}
-            <div className="h-14 rounded-xl bg-muted/60" />
+            <div className="h-14 rounded-xl bg-surface-muted" />
             {/* Stat cards skeleton */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="h-20 rounded-xl bg-muted/40" />
+                <div key={i} className="h-20 rounded-xl bg-surface-subtle" />
               ))}
             </div>
             {/* Filter tabs skeleton */}
             <div className="flex gap-2">
               {[1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className="h-7 w-20 rounded-lg bg-muted/40" />
+                <div key={i} className="h-7 w-20 rounded-lg bg-surface-subtle" />
               ))}
             </div>
             {/* Table skeleton */}
-            <div className="h-64 rounded-xl bg-muted/40" />
+            <div className="h-64 rounded-xl bg-surface-subtle" />
           </div>
           <p className="text-center text-xs text-muted-foreground animate-pulse">
             Clasificando industrias y subindustrias…
@@ -1467,23 +1467,23 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                 type="button"
                 onClick={() => setFilterStatus(opt.value)}
                 className={cn(
-                  'rounded-lg px-2.5 py-1 text-[10px] font-medium transition-colors',
+                  'rounded-lg px-2.5 py-1 text-xs font-medium transition-colors',
                   filterStatus === opt.value
-                    ? 'bg-su-brand text-white'
-                    : 'bg-muted/60 text-muted-foreground hover:bg-muted',
+                    ? 'bg-su-brand text-primary-foreground'
+                    : 'bg-surface-muted text-muted-foreground hover:bg-surface-muted',
                 )}
               >
                 {opt.label}
                 <span className="ml-1 tabular-nums opacity-70">({opt.count})</span>
               </button>
             ))}
-            <span className="ml-auto text-[10px] text-muted-foreground">
+            <span className="ml-auto text-xs text-muted-foreground">
               Seleccionadas: <strong className="text-foreground">{classificationSelectedIds.size}</strong> de {classificationRows.length}
             </span>
           </div>
 
           {/* Classification table — full width, inline editing, no side panel */}
-          <div className="flex-1 min-h-0 overflow-hidden rounded-xl border border-border/40 bg-card">
+          <div className="flex-1 min-h-0 overflow-hidden rounded-2xl border border-border/60 bg-card">
             <ImportClassificationTable
               rows={classificationRows}
               filterStatus={filterStatus}
@@ -1514,21 +1514,21 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
           {/* Defaults del lote */}
           {(selectedCountryCode || selectedIndustry || selectedSubindustryId) && (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-su-brand/20 bg-su-brand-soft/30 px-4 py-2.5">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-su-brand/70 mr-1">
+              <p className="text-xs font-semibold text-su-brand/70 mr-1">
                 Criterios de importación:
               </p>
               {selectedCountryCode && (
-                <Badge variant="secondary" className="text-[10px] font-normal bg-su-brand-soft text-su-brand border-0">
+                <Badge variant="secondary" className="text-xs font-normal bg-su-brand-soft text-su-brand border-0">
                   🌍 {selectedCountry?.name ?? selectedCountryCode}
                 </Badge>
               )}
               {selectedIndustry && (
-                <Badge variant="secondary" className="text-[10px] font-normal bg-su-brand-soft text-su-brand border-0">
+                <Badge variant="secondary" className="text-xs font-normal bg-su-brand-soft text-su-brand border-0">
                   🏭 {selectedIndustryName ?? selectedIndustry}
                 </Badge>
               )}
               {selectedSubindustryId && selectedSubindustryId !== '__none__' && selectedSubindustryName && (
-                <Badge variant="secondary" className="text-[10px] font-normal bg-su-brand-soft text-su-brand border-0">
+                <Badge variant="secondary" className="text-xs font-normal bg-su-brand-soft text-su-brand border-0">
                   🏷️ {selectedSubindustryName}
                 </Badge>
               )}
@@ -1538,14 +1538,14 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
           {/* Resumen estadístico */}
           <div className="flex flex-wrap gap-2">
             {[
-              { label: 'Filas detectadas', value: preview.total, color: 'text-foreground', bg: 'bg-muted/60' },
+              { label: 'Filas detectadas', value: preview.total, color: 'text-foreground', bg: 'bg-surface-muted' },
               { label: 'Importables', value: preview.valid + preview.warnings_only, color: 'text-su-brand font-bold', bg: 'bg-su-brand-soft' },
-              { label: 'Sin observaciones', value: preview.valid, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
-              { label: 'Con advertencias', value: preview.warnings_only, color: 'text-amber-500', bg: 'bg-amber-500/10' },
+              { label: 'Sin observaciones', value: preview.valid, color: 'text-success', bg: 'bg-success/10' },
+              { label: 'Con advertencias', value: preview.warnings_only, color: 'text-warning', bg: 'bg-warning/10' },
               { label: 'Con errores', value: preview.errors, color: 'text-destructive', bg: 'bg-destructive/10' },
             ].map((card) => (
               <div key={card.label} className={`rounded-xl ${card.bg} px-3 py-2.5 flex-1 min-w-[100px] sm:min-w-[120px]`}>
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                <p className="text-xs font-semibold text-muted-foreground">
                   {card.label}
                 </p>
                 <p className={`mt-1 text-xl font-semibold tabular-nums ${card.color}`}>
@@ -1561,7 +1561,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
               <AlertDescription className="text-xs space-y-0.5">
                 {exactDuplicateCount > 0 && (
                   <p>
-                    <span className="font-semibold text-orange-600 dark:text-orange-400">
+                    <span className="font-semibold text-warning">
                       {exactDuplicateCount} duplicado{exactDuplicateCount !== 1 ? 's' : ''} exacto{exactDuplicateCount !== 1 ? 's' : ''}
                     </span>{' '}
                     encontrado{exactDuplicateCount !== 1 ? 's' : ''} en SellUp — se importarán igualmente para revisión.
@@ -1569,7 +1569,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                 )}
                 {possibleDuplicateCount > 0 && (
                   <p>
-                    <span className="font-semibold text-amber-600 dark:text-amber-400">
+                    <span className="font-semibold text-warning">
                       {possibleDuplicateCount} posible{possibleDuplicateCount !== 1 ? 's' : ''} duplicado{possibleDuplicateCount !== 1 ? 's' : ''}
                     </span>{' '}
                     — verifica manualmente antes de aprobar.
@@ -1583,12 +1583,12 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
             <SurfaceCard>
               {preview.recognized_columns.length > 0 && (
                 <div className="space-y-1.5">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                  <p className="text-xs font-semibold text-muted-foreground">
                     Columnas reconocidas
                   </p>
                   <div className="flex flex-wrap gap-1">
                     {preview.recognized_columns.map((col) => (
-                      <Badge key={col} variant="secondary" className="text-[10px] font-normal">
+                      <Badge key={col} variant="secondary" className="text-xs font-normal">
                         {col}
                       </Badge>
                     ))}
@@ -1596,13 +1596,13 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                 </div>
               )}
               {preview.unrecognized_columns.length > 0 && (
-                <div className={cn("space-y-1.5", preview.recognized_columns.length > 0 && "pt-3 border-t border-border/30")}>
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                <div className={cn("space-y-1.5", preview.recognized_columns.length > 0 && "pt-3 border-t border-border/50")}>
+                  <p className="text-xs font-semibold text-muted-foreground">
                     Columnas no reconocidas (se ignorarán)
                   </p>
                   <div className="flex flex-wrap gap-1">
                     {preview.unrecognized_columns.map((col) => (
-                      <Badge key={col} variant="outline" className="text-[10px] font-normal text-muted-foreground">
+                      <Badge key={col} variant="outline" className="text-xs font-normal text-muted-foreground">
                         {col}
                       </Badge>
                     ))}
@@ -1613,7 +1613,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
           )}
 
           {/* Tabla de filas */}
-          <div className="flex-1 min-h-0 overflow-hidden rounded-xl border border-border/40 bg-card">
+          <div className="flex-1 min-h-0 overflow-hidden rounded-2xl border border-border/60 bg-card">
             <ImportPreviewDataTable
               rows={preview.rows}
               duplicateMap={duplicateMap}

@@ -59,7 +59,7 @@ export default async function AccountsPage({ searchParams }: PageProps) {
             description="Recientes"
             value={summary.new}
             icon={
-              <div className="rounded-lg p-1.5 bg-muted/60">
+              <div className="rounded-lg p-1.5 bg-surface-muted">
                 <TrendingUp className="h-4 w-4 text-muted-foreground" />
               </div>
             }
@@ -79,8 +79,8 @@ export default async function AccountsPage({ searchParams }: PageProps) {
             description="Aptas para outreach"
             value={summary.ready_for_outreach}
             icon={
-              <div className="rounded-lg p-1.5 bg-emerald-500/10">
-                <Globe className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              <div className="rounded-lg p-1.5 bg-success/10">
+                <Globe className="h-4 w-4 text-success" />
               </div>
             }
           />

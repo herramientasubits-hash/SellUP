@@ -133,13 +133,13 @@ export function BrReceitaCnpjStatusCard() {
         description="Preparación técnica / dry-run local listo. La fuente aún no importa, no escribe en Supabase y no alimenta el runtime de prospección."
       />
 
-      <div className="mb-4 rounded-md border border-border/50 bg-muted/30 px-3 py-2.5">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+      <div className="mb-4 rounded-md border border-border/50 bg-surface-subtle px-3 py-2.5">
+        <p className="text-xs font-semibold text-muted-foreground">
           Reconciliación de clave
         </p>
         <dl className="mt-2 grid gap-2 sm:grid-cols-2">
           <div>
-            <dt className="text-[11px] text-muted-foreground">
+            <dt className="text-xs text-muted-foreground">
               Clave de catálogo existente
             </dt>
             <dd className="font-mono text-xs text-foreground">
@@ -147,7 +147,7 @@ export function BrReceitaCnpjStatusCard() {
             </dd>
           </div>
           <div>
-            <dt className="text-[11px] text-muted-foreground">
+            <dt className="text-xs text-muted-foreground">
               Clave técnica canónica
             </dt>
             <dd className="font-mono text-xs text-foreground">
@@ -164,13 +164,13 @@ export function BrReceitaCnpjStatusCard() {
         {BR_RECEITA_READY_ITEMS.map((item) => (
           <div
             key={item.label}
-            className="flex items-start gap-2.5 rounded-md border border-emerald-500/20 bg-emerald-500/[0.06] px-3 py-2.5"
+            className="flex items-start gap-2.5 rounded-md border border-success/20 bg-success/[0.06] px-3 py-2.5"
           >
-            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
             <div className="min-w-0">
-              <dt className="flex items-center gap-2 text-[0.8125rem] font-medium text-foreground">
+              <dt className="flex items-center gap-2 text-sm font-medium text-foreground">
                 {item.label}
-                <span className="inline-flex items-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                <span className="inline-flex items-center rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
                   Listo
                 </span>
               </dt>
@@ -184,13 +184,13 @@ export function BrReceitaCnpjStatusCard() {
         {BR_RECEITA_BLOCKED_ITEMS.map((item) => (
           <div
             key={item.label}
-            className="flex items-start gap-2.5 rounded-md border border-border/50 bg-muted/30 px-3 py-2.5"
+            className="flex items-start gap-2.5 rounded-md border border-border/50 bg-surface-subtle px-3 py-2.5"
           >
             <Lock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
             <div className="min-w-0">
-              <dt className="flex items-center gap-2 text-[0.8125rem] font-medium text-foreground">
+              <dt className="flex items-center gap-2 text-sm font-medium text-foreground">
                 {item.label}
-                <span className="inline-flex items-center rounded-full border border-border/50 bg-muted/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                <span className="inline-flex items-center rounded-full border border-border/50 bg-surface-subtle px-2 py-0.5 text-xs font-medium text-muted-foreground">
                   Bloqueado
                 </span>
               </dt>
@@ -202,7 +202,7 @@ export function BrReceitaCnpjStatusCard() {
         ))}
       </dl>
 
-      <p className="mt-4 rounded-md border border-amber-500/20 bg-amber-500/[0.06] px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
+      <p className="mt-4 rounded-md border border-warning/20 bg-warning/[0.06] px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
         Esta fuente está preparada técnicamente para validaciones locales y
         dry-run, pero todavía no ejecuta importaciones, no escribe en Supabase y
         no alimenta el runtime de prospección. La importación, el runtime, la

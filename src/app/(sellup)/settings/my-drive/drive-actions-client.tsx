@@ -66,7 +66,7 @@ export function DriveActionsPanel({ connectionStatus, folderId }: DriveActionsPa
         <p
           className={`text-sm rounded-lg border px-3 py-2 ${
             message.type === 'success'
-              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+              ? 'border-success/30 bg-success/10 text-success dark:text-success'
               : 'border-destructive/30 bg-destructive/10 text-destructive'
           }`}
         >
@@ -94,7 +94,7 @@ export function DriveActionsPanel({ connectionStatus, folderId }: DriveActionsPa
               href={driveUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+              className="inline-flex items-center rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium shadow-card transition-colors hover:bg-surface-muted hover:text-foreground"
             >
               Abrir carpeta SellUp ↗
             </a>
@@ -137,7 +137,7 @@ export function DriveActionsPanel({ connectionStatus, folderId }: DriveActionsPa
       ) : (
         <a
           href="/api/integrations/google-drive/oauth/start"
-          className="inline-flex items-center rounded-md bg-su-brand px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-su-brand/90"
+          className="inline-flex items-center rounded-md bg-su-brand px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-su-brand/90"
         >
           Conectar Google Drive
         </a>

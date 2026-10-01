@@ -34,18 +34,18 @@ import { setPrimaryContact, changeContactStatus, archiveContact } from '@/module
 // ── Badge styles ───────────────────────────────────────────────
 
 const STATUS_STYLES: Record<ContactStatus, string> = {
-  active: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-transparent',
+  active: 'bg-success/10 text-success border-transparent',
   inactive: 'bg-muted text-muted-foreground border-transparent',
-  left_company: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-transparent',
+  left_company: 'bg-warning/10 text-warning border-transparent',
   do_not_contact: 'bg-destructive/10 text-destructive border-transparent',
-  archived: 'bg-muted/60 text-muted-foreground/60 border-transparent',
+  archived: 'bg-surface-muted text-muted-foreground border-transparent',
 };
 
 const ROLE_STYLES: Record<string, string> = {
   decision_maker: 'bg-su-brand-soft text-su-brand border-transparent',
   economic_buyer: 'bg-su-brand-soft text-su-brand border-transparent',
-  champion: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-transparent',
-  influencer: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-transparent',
+  champion: 'bg-success/10 text-success border-transparent',
+  influencer: 'bg-warning/10 text-warning border-transparent',
 };
 
 // ── Filter option arrays ───────────────────────────────────────
@@ -180,7 +180,7 @@ export function ContactsDataTableClient({
           const c = row.original;
           return (
             <div className="flex items-center gap-2 min-w-0">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-foreground/70">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground/70">
                 {c.full_name.charAt(0).toUpperCase()}
               </div>
               <button
@@ -214,7 +214,7 @@ export function ContactsDataTableClient({
               {c.account_name}
             </Link>
           ) : (
-            <span className="text-muted-foreground/40 text-xs">—</span>
+            <span className="text-text-muted text-xs">—</span>
           );
         },
         size: 180,
@@ -234,7 +234,7 @@ export function ContactsDataTableClient({
         ),
         cell: ({ row }) => (
           <span className="text-xs text-foreground/80 truncate block max-w-[160px]">
-            {row.original.job_title ?? <span className="text-muted-foreground/40">—</span>}
+            {row.original.job_title ?? <span className="text-text-muted">—</span>}
           </span>
         ),
         size: 160,
@@ -258,7 +258,7 @@ export function ContactsDataTableClient({
               <span className="truncate max-w-[140px]">{email}</span>
             </a>
           ) : (
-            <span className="text-muted-foreground/40 text-xs">—</span>
+            <span className="text-text-muted text-xs">—</span>
           );
         },
         size: 180,
@@ -283,7 +283,7 @@ export function ContactsDataTableClient({
               {phone}
             </a>
           ) : (
-            <span className="text-muted-foreground/40 text-xs">—</span>
+            <span className="text-text-muted text-xs">—</span>
           );
         },
         size: 140,
@@ -301,7 +301,7 @@ export function ContactsDataTableClient({
           return (
             <Badge
               variant="outline"
-              className={`text-[10px] ${STATUS_STYLES[status]}`}
+              className={`text-xs ${STATUS_STYLES[status]}`}
             >
               {CONTACT_STATUS_LABELS[status]}
             </Badge>
@@ -327,12 +327,12 @@ export function ContactsDataTableClient({
           return role ? (
             <Badge
               variant="outline"
-              className={`text-[10px] ${ROLE_STYLES[role] ?? 'bg-muted text-muted-foreground border-transparent'}`}
+              className={`text-xs ${ROLE_STYLES[role] ?? 'bg-muted text-muted-foreground border-transparent'}`}
             >
               {ROLE_LABELS[role as ContactRole]}
             </Badge>
           ) : (
-            <span className="text-muted-foreground/40 text-xs">—</span>
+            <span className="text-text-muted text-xs">—</span>
           );
         },
         size: 140,
@@ -505,8 +505,8 @@ export function ContactsDataTableClient({
         }
         emptyState={
           <div className="flex flex-col items-center justify-center py-12 text-center">
-            <div className="mb-3 rounded-full bg-muted/60 p-3">
-              <Info className="h-6 w-6 text-muted-foreground/40" />
+            <div className="mb-3 rounded-full bg-surface-muted p-3">
+              <Info className="h-6 w-6 text-text-muted" />
             </div>
             <p className="text-sm font-medium text-foreground">Sin contactos todavía</p>
             <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto">

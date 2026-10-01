@@ -112,14 +112,14 @@ export function CheckboxCardGroup({
                       "p-2.5 rounded-xl border transition-colors",
                       isSelected
                         ? "bg-su-brand text-su-brand-foreground border-su-brand"
-                        : "bg-muted/50 text-muted-foreground border-border/50 group-hover:bg-su-brand/5 group-hover:text-su-brand group-hover:border-su-brand/20"
+                        : "bg-surface-muted text-muted-foreground border-border/50 group-hover:bg-su-brand/5 group-hover:text-su-brand group-hover:border-su-brand/20"
                     )}>
                       {Icon ? <Icon className="h-5 w-5" /> : <Checkbox checked={isSelected} className="rounded" />}
                     </div>
                     {option.badge && (
                       <Badge
                         variant={isSelected ? "default" : "outline"}
-                        className="font-bold uppercase tracking-wider text-[9px]"
+                        className="font-bold text-xs"
                       >
                         {option.badge}
                       </Badge>
@@ -129,7 +129,7 @@ export function CheckboxCardGroup({
                   {/* Content */}
                   <div className="flex flex-col min-w-0 flex-1">
                     {option.eyebrow && (
-                      <span className="text-[10px] font-bold text-su-brand/70 uppercase tracking-widest mb-1">
+                      <span className="text-xs font-bold text-su-brand/70 mb-1">
                         {option.eyebrow}
                       </span>
                     )}

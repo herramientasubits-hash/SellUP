@@ -25,7 +25,7 @@ interface DiscardedProspectDetailSheetProps {
 function DetailField({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="space-y-0.5">
-      <p className="text-[10px] uppercase tracking-wide text-muted-foreground/75">{label}</p>
+      <p className="text-xs text-muted-foreground/75">{label}</p>
       <p className="text-sm text-foreground">{value ?? '—'}</p>
     </div>
   );
@@ -58,8 +58,8 @@ export function DiscardedProspectDetailSheet({
         <Badge
           className={
             isAlreadySent
-              ? 'border-0 bg-su-brand-soft text-su-brand text-[10px]'
-              : 'border-0 bg-muted text-muted-foreground text-[10px]'
+              ? 'border-0 bg-su-brand-soft text-su-brand text-xs'
+              : 'border-0 bg-muted text-muted-foreground text-xs'
           }
         >
           {isAlreadySent ? 'Enviada a revisión' : item.sendToReviewBlockedReason ? 'Duplicada' : 'Descartada'}
@@ -118,7 +118,7 @@ export function DiscardedProspectDetailSheet({
             <Separator />
             <div className="space-y-2">
               <p className="text-xs font-semibold text-foreground">Evidencia disponible</p>
-              <pre className="max-h-64 overflow-auto rounded-md bg-muted p-3 text-[11px] leading-relaxed text-muted-foreground">
+              <pre className="max-h-64 overflow-auto rounded-md bg-muted p-3 text-xs leading-relaxed text-muted-foreground">
                 {JSON.stringify(item.evidence, null, 2)}
               </pre>
             </div>

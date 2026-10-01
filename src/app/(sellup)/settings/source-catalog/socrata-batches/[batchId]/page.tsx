@@ -45,7 +45,7 @@ export async function generateMetadata({ params }: Props) {
 // ─── Flag chips (max 3 + overflow) ────────────────────────────────────────────
 
 function FlagChips({ flags }: { flags: string[] }) {
-  if (flags.length === 0) return <span className="text-xs text-muted-foreground/40">—</span>;
+  if (flags.length === 0) return <span className="text-xs text-text-muted">—</span>;
   const visible = flags.slice(0, 3);
   const overflow = flags.length - 3;
   return (
@@ -53,13 +53,13 @@ function FlagChips({ flags }: { flags: string[] }) {
       {visible.map((flag) => (
         <span
           key={flag}
-          className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${reviewFlagBadgeClass(flag)}`}
+          className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-medium ${reviewFlagBadgeClass(flag)}`}
         >
           {REVIEW_FLAG_LABELS[flag] ?? flag}
         </span>
       ))}
       {overflow > 0 && (
-        <span className="inline-flex items-center rounded-full border border-border/40 bg-muted/30 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+        <span className="inline-flex items-center rounded-full border border-border/60 bg-surface-subtle px-1.5 py-0.5 text-xs text-muted-foreground">
           +{overflow}
         </span>
       )}
@@ -75,11 +75,11 @@ function SizeCell({ candidate }: { candidate: SocrataPreviewCandidateItem }) {
     return (
       <div>
         <span
-          className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${employeeCountStatusBadgeClass('unknown_requires_manual_validation')}`}
+          className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-medium ${employeeCountStatusBadgeClass('unknown_requires_manual_validation')}`}
         >
           {EMPLOYEE_COUNT_STATUS_LABELS['unknown_requires_manual_validation']}
         </span>
-        <p className="mt-0.5 text-[10px] text-muted-foreground/60">Validar manualmente</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">Validar manualmente</p>
       </div>
     );
   }
@@ -89,7 +89,7 @@ function SizeCell({ candidate }: { candidate: SocrataPreviewCandidateItem }) {
         <span className="tabular-nums text-foreground">{employeeCount}</span>
         {employeeCountStatus && (
           <span
-            className={`ml-1.5 inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${employeeCountStatusBadgeClass(employeeCountStatus)}`}
+            className={`ml-1.5 inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-medium ${employeeCountStatusBadgeClass(employeeCountStatus)}`}
           >
             {EMPLOYEE_COUNT_STATUS_LABELS[employeeCountStatus] ?? employeeCountStatus}
           </span>
@@ -97,7 +97,7 @@ function SizeCell({ candidate }: { candidate: SocrataPreviewCandidateItem }) {
       </div>
     );
   }
-  return <span className="text-xs text-muted-foreground/40">—</span>;
+  return <span className="text-xs text-text-muted">—</span>;
 }
 
 // ─── HubSpot cell ─────────────────────────────────────────────────────────────
@@ -106,7 +106,7 @@ function HubSpotCell({ status }: { status: string | null }) {
   const s = status ?? 'not_attempted';
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${hubspotMatchStatusBadgeClass(s)}`}
+      className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-medium ${hubspotMatchStatusBadgeClass(s)}`}
     >
       {HUBSPOT_MATCH_STATUS_LABELS[s] ?? s}
     </span>
@@ -126,15 +126,15 @@ function SourceCell({
   const datasetLabel = formatDatasetLabel(datasetId ?? batchDataset);
   const hasTrace = sourceKey || datasetId;
   return (
-    <div className="space-y-0.5 font-mono text-[10px] text-muted-foreground">
+    <div className="space-y-0.5 font-mono text-xs text-muted-foreground">
       <div className="font-medium text-foreground/70">Socrata / {datasetLabel}</div>
       {hasTrace && (
-        <div className="text-muted-foreground/70">
+        <div className="text-muted-foreground">
           {[sourceKey, datasetId].filter(Boolean).join(' · ')}
         </div>
       )}
       {sourceRecordId && (
-        <div className="truncate max-w-[120px] text-muted-foreground/50">
+        <div className="truncate max-w-[120px] text-muted-foreground">
           record: {sourceRecordId}
         </div>
       )}
@@ -156,7 +156,7 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
       {/* Breadcrumb */}
       <Link
         href="/settings/source-catalog/socrata-batches"
-        className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+        className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-surface-muted hover:text-foreground transition-colors"
       >
         <ArrowLeft className="h-3.5 w-3.5" />
         Lotes Socrata
@@ -168,8 +168,8 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
       />
 
       {/* Read-only notice */}
-      <div className="flex items-center gap-2.5 rounded-xl border border-border/40 bg-muted/40 px-5 py-3.5">
-        <Lock className="h-4 w-4 shrink-0 text-muted-foreground/60" />
+      <div className="flex items-center gap-2.5 rounded-xl border border-border/60 bg-surface-subtle px-5 py-3.5">
+        <Lock className="h-4 w-4 shrink-0 text-muted-foreground" />
         <p className="text-xs text-muted-foreground">
           <span className="font-medium text-foreground/80">Modo revisión estructurada.</span>{' '}
           Puedes consultar los candidatos y su trazabilidad, pero no aprobarlos, convertirlos
@@ -179,11 +179,11 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
 
       {/* Smoke test alert */}
       {batch.smokeTest && (
-        <div className="rounded-xl border border-blue-500/30 bg-blue-500/5 px-5 py-3.5">
+        <div className="rounded-xl border border-info/30 bg-info/5 px-5 py-3.5">
           <div className="flex items-start gap-2.5">
-            <FlaskConical className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
+            <FlaskConical className="mt-0.5 h-4 w-4 shrink-0 text-info" />
             <div>
-              <p className="text-sm font-medium text-blue-700 dark:text-blue-400">
+              <p className="text-sm font-medium text-info">
                 Lote de smoke test
               </p>
               <p className="mt-0.5 text-xs text-muted-foreground">
@@ -197,7 +197,7 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
 
       {/* Rollback alert */}
       {batch.rollbackLogical && (
-        <div className="rounded-xl border border-border/50 bg-muted/40 px-5 py-3.5">
+        <div className="rounded-xl border border-border/50 bg-surface-subtle px-5 py-3.5">
           <div className="flex items-start gap-2.5">
             <RotateCcw className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
             <div>
@@ -214,7 +214,7 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
 
       {/* Cancelled alert */}
       {batch.status === 'cancelled' && !batch.rollbackLogical && (
-        <div className="rounded-xl border border-border/50 bg-muted/40 px-5 py-3.5">
+        <div className="rounded-xl border border-border/50 bg-surface-subtle px-5 py-3.5">
           <div className="flex items-start gap-2.5">
             <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">Este lote fue cancelado.</p>
@@ -229,7 +229,7 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
           {
             label: 'Necesitan revisión',
             value: batch.summary.needsReview,
-            cls: 'text-amber-600 dark:text-amber-400',
+            cls: 'text-warning',
           },
           {
             label: 'Descartados',
@@ -256,7 +256,7 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
           },
         ].map((card) => (
           <SurfaceCard key={card.label} className="py-3.5">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+            <p className="text-xs font-semibold text-muted-foreground">
               {card.label}
             </p>
             <p className={`mt-1.5 text-xl font-semibold tabular-nums ${card.cls}`}>
@@ -270,65 +270,65 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
       <SurfaceCard>
         <div className="grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-3 lg:grid-cols-4 text-sm">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">
+            <p className="text-xs font-semibold text-muted-foreground mb-1">
               Estado
             </p>
             <span
-              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${batchStatusBadgeClass(batch.status)}`}
+              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${batchStatusBadgeClass(batch.status)}`}
             >
               {BATCH_STATUS_LABELS[batch.status] ?? batch.status}
             </span>
           </div>
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">
+            <p className="text-xs font-semibold text-muted-foreground mb-1">
               País
             </p>
             <p className="font-medium text-foreground">{batch.countryCode ?? '—'}</p>
           </div>
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">
+            <p className="text-xs font-semibold text-muted-foreground mb-1">
               Dataset
             </p>
             <p className="font-mono text-xs text-foreground">{formatDatasetLabel(batch.dataset)}</p>
           </div>
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">
+            <p className="text-xs font-semibold text-muted-foreground mb-1">
               Objetivo
             </p>
             <p className="tabular-nums text-foreground">{batch.targetCount ?? '—'}</p>
           </div>
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">
+            <p className="text-xs font-semibold text-muted-foreground mb-1">
               Candidatos cargados
             </p>
             <p className="tabular-nums text-foreground">{candidates.length}</p>
           </div>
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">
+            <p className="text-xs font-semibold text-muted-foreground mb-1">
               Preview mode
             </p>
             <p className="text-foreground">{batch.previewMode ? 'Sí' : 'No'}</p>
           </div>
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">
+            <p className="text-xs font-semibold text-muted-foreground mb-1">
               Smoke test
             </p>
             <p className="text-foreground">{batch.smokeTest ? 'Sí' : 'No'}</p>
           </div>
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">
+            <p className="text-xs font-semibold text-muted-foreground mb-1">
               Rollback lógico
             </p>
             <p className="text-foreground">{batch.rollbackLogical ? 'Sí' : 'No'}</p>
           </div>
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">
+            <p className="text-xs font-semibold text-muted-foreground mb-1">
               Profundidad
             </p>
             <p className="text-foreground">{batch.searchDepth ?? '—'}</p>
           </div>
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">
+            <p className="text-xs font-semibold text-muted-foreground mb-1">
               Costo estimado lote
             </p>
             <p className="tabular-nums text-foreground">
@@ -336,29 +336,29 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
             </p>
           </div>
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">
+            <p className="text-xs font-semibold text-muted-foreground mb-1">
               Fecha creación
             </p>
             <p className="text-foreground">{formatShortDate(batch.createdAt)}</p>
           </div>
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">
+            <p className="text-xs font-semibold text-muted-foreground mb-1">
               Última actualización
             </p>
             <p className="text-foreground">{formatShortDate(batch.updatedAt)}</p>
           </div>
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">
+            <p className="text-xs font-semibold text-muted-foreground mb-1">
               ID lote
             </p>
-            <p className="font-mono text-[11px] text-muted-foreground">{batch.id}</p>
+            <p className="font-mono text-xs text-muted-foreground">{batch.id}</p>
           </div>
         </div>
       </SurfaceCard>
 
       {/* Candidates table */}
       <SurfaceCard noPadding>
-        <div className="border-b border-border/40 px-5 py-3.5">
+        <div className="border-b border-border/60 px-5 py-3.5">
           <p className="text-sm font-semibold text-foreground">
             {candidates.length === 0
               ? 'Sin candidatos en este lote'
@@ -368,84 +368,84 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
 
         {candidates.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-            <Building2 className="h-8 w-8 text-muted-foreground/30" />
+            <Building2 className="h-8 w-8 text-text-muted" />
             <p className="text-sm text-muted-foreground">Sin candidatos en este lote.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border/40 text-left">
-                  <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                <tr className="border-b border-border/60 text-left">
+                  <th className="px-5 py-3 text-xs font-semibold text-muted-foreground">
                     Empresa
                   </th>
-                  <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground">
                     NIT
                   </th>
-                  <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground">
                     Ciudad / Dpto.
                   </th>
-                  <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground">
                     Sector
                   </th>
-                  <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground">
                     Tamaño
                   </th>
-                  <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground">
                     HubSpot
                   </th>
-                  <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground">
                     Estado revisión
                   </th>
-                  <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground">
                     Duplicado
                   </th>
-                  <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground">
                     Flags
                   </th>
-                  <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground">
                     Fuente
                   </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/30">
                 {candidates.map((candidate) => (
-                  <tr key={candidate.id} className="transition-colors hover:bg-muted/20">
+                  <tr key={candidate.id} className="transition-colors hover:bg-surface-muted">
                     <td className="px-5 py-3.5">
                       <p className="font-medium text-foreground">
-                        {candidate.name ?? <span className="text-muted-foreground/40">—</span>}
+                        {candidate.name ?? <span className="text-text-muted">—</span>}
                       </p>
                       {candidate.website && (
-                        <div className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground/60">
+                        <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
                           <Globe className="h-3 w-3" />
                           <span className="truncate max-w-[140px]">{candidate.domain ?? candidate.website}</span>
                         </div>
                       )}
                       <div className="mt-1 flex flex-wrap gap-1">
                         <span
-                          className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${candidateStatusBadgeClass(candidate.status)}`}
+                          className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-medium ${candidateStatusBadgeClass(candidate.status)}`}
                         >
                           {CANDIDATE_STATUS_LABELS[candidate.status] ?? candidate.status}
                         </span>
                         {candidate.isConverted && (
-                          <span className="inline-flex items-center rounded-full border border-su-brand/30 bg-su-brand-soft px-1.5 py-0.5 text-[10px] font-medium text-su-brand">
+                          <span className="inline-flex items-center rounded-full border border-su-brand/30 bg-su-brand-soft px-1.5 py-0.5 text-xs font-medium text-su-brand">
                             Convertido
                           </span>
                         )}
                       </div>
                     </td>
                     <td className="px-4 py-3.5 font-mono text-xs text-muted-foreground">
-                      {candidate.taxId ?? <span className="text-muted-foreground/40">—</span>}
+                      {candidate.taxId ?? <span className="text-text-muted">—</span>}
                     </td>
                     <td className="px-4 py-3.5 text-xs text-muted-foreground">
                       <div>{candidate.city ?? '—'}</div>
                       {candidate.department && (
-                        <div className="text-muted-foreground/50">{candidate.department}</div>
+                        <div className="text-muted-foreground">{candidate.department}</div>
                       )}
                     </td>
                     <td className="px-4 py-3.5 text-xs text-muted-foreground">
                       {candidate.sectorDescription ?? candidate.sectorCode ?? (
-                        <span className="text-muted-foreground/40">—</span>
+                        <span className="text-text-muted">—</span>
                       )}
                     </td>
                     <td className="px-4 py-3.5">
@@ -457,23 +457,23 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
                     <td className="px-4 py-3.5">
                       {candidate.reviewStatus ? (
                         <span
-                          className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${reviewStatusBadgeClass(candidate.reviewStatus)}`}
+                          className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-medium ${reviewStatusBadgeClass(candidate.reviewStatus)}`}
                         >
                           {REVIEW_STATUS_LABELS[candidate.reviewStatus] ?? candidate.reviewStatus}
                         </span>
                       ) : (
-                        <span className="text-xs text-muted-foreground/40">—</span>
+                        <span className="text-xs text-text-muted">—</span>
                       )}
                     </td>
                     <td className="px-4 py-3.5">
                       {candidate.duplicateStatus ? (
                         <span
-                          className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${duplicateStatusBadgeClass(candidate.duplicateStatus)}`}
+                          className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-medium ${duplicateStatusBadgeClass(candidate.duplicateStatus)}`}
                         >
                           {DUPLICATE_STATUS_LABELS[candidate.duplicateStatus] ?? candidate.duplicateStatus}
                         </span>
                       ) : (
-                        <span className="text-xs text-muted-foreground/40">—</span>
+                        <span className="text-xs text-text-muted">—</span>
                       )}
                     </td>
                     <td className="px-4 py-3.5">

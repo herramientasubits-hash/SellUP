@@ -77,7 +77,7 @@ export function AppHeader({ user, initialUnreadCount = 0, navAccess }: AppHeader
         <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-gradient text-xs font-bold text-primary-foreground shadow-card">
           S
         </span>
-        <span className="text-[15px] font-bold tracking-tight">
+        <span className="text-base font-bold tracking-tight">
           <span className="text-foreground">Sell</span>
           <span className="text-primary">Up</span>
         </span>
@@ -114,15 +114,15 @@ export function AppHeader({ user, initialUnreadCount = 0, navAccess }: AppHeader
           >
             {/* Brand */}
             <div className="flex h-16 shrink-0 items-center gap-2.5 border-b border-sidebar-border px-5">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-gradient text-[15px] font-bold text-primary-foreground shadow-card">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-gradient text-base font-bold text-primary-foreground shadow-card">
                 S
               </span>
               <div className="flex min-w-0 flex-col leading-none">
-                <span className="text-[15px] font-bold tracking-tight">
+                <span className="text-base font-bold tracking-tight">
                   <span className="text-sidebar-foreground">Sell</span>
                   <span className="text-primary">Up</span>
                 </span>
-                <span className="mt-1 text-[11px] font-medium text-muted-foreground">
+                <span className="mt-1 text-xs font-medium text-muted-foreground">
                   Inteligencia Comercial
                 </span>
               </div>
@@ -148,12 +148,12 @@ export function AppHeader({ user, initialUnreadCount = 0, navAccess }: AppHeader
                   className="shrink-0"
                 >
                   <AvatarImage src={avatarUrl} alt={displayName} />
-                  <AvatarFallback className="bg-primary text-[11px] font-semibold text-primary-foreground">
+                  <AvatarFallback className="bg-primary text-xs font-semibold text-primary-foreground">
                     {initials}
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex min-w-0 flex-1 flex-col items-start">
-                  <span className="w-full truncate text-[13px] font-semibold text-sidebar-foreground">
+                  <span className="w-full truncate text-sm font-semibold text-sidebar-foreground">
                     {displayName}
                   </span>
                   <span className="w-full truncate text-xs text-muted-foreground">
@@ -190,7 +190,7 @@ export function AppHeader({ user, initialUnreadCount = 0, navAccess }: AppHeader
           <DropdownMenuTrigger className="ml-0.5 inline-flex cursor-pointer rounded-full p-0 transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden">
             <Avatar className="h-8 w-8">
               <AvatarImage src={avatarUrl} alt={displayName} />
-              <AvatarFallback className="bg-primary text-[11px] font-semibold text-primary-foreground">
+              <AvatarFallback className="bg-primary text-xs font-semibold text-primary-foreground">
                 {initials}
               </AvatarFallback>
             </Avatar>

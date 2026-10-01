@@ -64,7 +64,7 @@ export function isDgcpFiscalSource(summary: DgcpSourceCoverageSummary): boolean 
 
 function FieldRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-baseline justify-between gap-4 py-1.5 border-b border-border/30 last:border-0">
+    <div className="flex items-baseline justify-between gap-4 py-1.5 border-b border-border/50 last:border-0">
       <dt className="text-xs text-muted-foreground shrink-0">{label}</dt>
       <dd className="text-xs font-medium text-foreground text-right tabular-nums">{value}</dd>
     </div>
@@ -73,7 +73,7 @@ function FieldRow({ label, value }: { label: string; value: string }) {
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2 mt-4 first:mt-0">
+    <p className="text-xs font-semibold text-muted-foreground mb-2 mt-4 first:mt-0">
       {children}
     </p>
   );
@@ -116,8 +116,8 @@ export function RdDgcpCoverageCard({ summary, error }: RdDgcpCoverageCardProps) 
       <SurfaceCardHeader title="Cobertura DGCP República Dominicana" />
 
       {/* Señal tipo */}
-      <div className="mb-4 rounded-lg border border-border/40 bg-muted/30 px-4 py-3">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">
+      <div className="mb-4 rounded-lg border border-border/60 bg-surface-subtle px-4 py-3">
+        <p className="text-xs font-semibold text-muted-foreground mb-1">
           Tipo de señal
         </p>
         <p className="text-sm font-medium text-foreground">Procurement B2G</p>
@@ -168,7 +168,7 @@ export function RdDgcpCoverageCard({ summary, error }: RdDgcpCoverageCardProps) 
 
       {/* Limitaciones explícitas */}
       <div className="mt-4">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
+        <p className="text-xs font-semibold text-muted-foreground mb-2">
           Limitaciones
         </p>
         <ul className="space-y-1.5">
@@ -182,8 +182,8 @@ export function RdDgcpCoverageCard({ summary, error }: RdDgcpCoverageCardProps) 
       </div>
 
       {/* Estado operativo */}
-      <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-amber-600 dark:text-amber-400 mb-1">
+      <div className="mt-4 rounded-lg border border-warning/20 bg-warning/5 px-4 py-3">
+        <p className="text-xs font-semibold text-warning mb-1">
           Estado operativo
         </p>
         <p className="text-xs text-muted-foreground">
@@ -193,7 +193,7 @@ export function RdDgcpCoverageCard({ summary, error }: RdDgcpCoverageCardProps) 
       </div>
 
       {sourceReasonLabel && (
-        <p className="mt-3 text-[11px] text-muted-foreground/60">
+        <p className="mt-3 text-xs text-muted-foreground">
           Motivo: {sourceReasonLabel}
         </p>
       )}

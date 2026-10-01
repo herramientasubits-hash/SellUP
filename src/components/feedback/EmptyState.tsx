@@ -23,7 +23,7 @@ export function EmptyState({
   return (
     <Card
       className={cn(
-        "flex flex-col items-center justify-center p-12 text-center border-dashed border-2 bg-muted/30",
+        "flex flex-col items-center justify-center p-12 text-center border-dashed border-2 bg-surface-subtle",
         className
       )}
       {...props}

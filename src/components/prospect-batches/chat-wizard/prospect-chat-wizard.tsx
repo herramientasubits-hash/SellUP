@@ -914,7 +914,7 @@ export function ProspectChatWizard({
       {/* Sticky composer — spans full width by negating the drawer's px-7 padding.
           Hidden at the final review step: actions move to the panel footer. */}
       {!hideComposer && (
-        <div className="sticky bottom-0 -mx-7 px-7 pt-3 pb-4 bg-background border-t border-border/30 mt-auto">
+        <div className="sticky bottom-0 -mx-7 px-7 pt-3 pb-4 bg-background border-t border-border/50 mt-auto">
           <WizardChatComposer
             mode={composerMode}
             value={criteriaText}

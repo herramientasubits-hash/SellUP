@@ -268,8 +268,8 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
               description="Candidatos sin señales bloqueantes"
               value={kpis.readyForApproval}
               icon={
-                <div className="rounded-lg p-1.5 bg-emerald-500/10">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                <div className="rounded-lg p-1.5 bg-success/10">
+                  <CheckCircle2 className="h-4 w-4 text-success" />
                 </div>
               }
             />
@@ -278,8 +278,8 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
               description="Coincidencias detectadas"
               value={kpis.possibleDuplicates}
               icon={
-                <div className="rounded-lg p-1.5 bg-orange-500/10">
-                  <GitMerge className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                <div className="rounded-lg p-1.5 bg-warning/10">
+                  <GitMerge className="h-4 w-4 text-warning" />
                 </div>
               }
             />
@@ -288,8 +288,8 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
               description="Últimos 7 días"
               value={kpis.importedRecently}
               icon={
-                <div className="rounded-lg p-1.5 bg-blue-500/10">
-                  <Upload className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                <div className="rounded-lg p-1.5 bg-info/10">
+                  <Upload className="h-4 w-4 text-info" />
                 </div>
               }
             />

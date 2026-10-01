@@ -172,7 +172,7 @@ export function DrawerShell({
           {loading ? (
             <div className="flex flex-col gap-4 animate-su-fade-in">
               <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-6">
-                <div className="absolute inset-0 -translate-x-full skew-x-[-12deg] bg-[linear-gradient(90deg,transparent_0%,rgba(255,255,255,0.08)_25%,rgba(255,255,255,0.45)_50%,rgba(255,255,255,0.08)_75%,transparent_100%)] animate-su-mirror-shine" />
+                <div className="absolute inset-0 -translate-x-full skew-x-[-12deg] su-mirror-shine animate-su-mirror-shine" />
                 <div className="space-y-3">
                   <div className="h-4 w-3/4 rounded-md bg-surface-muted dark:bg-secondary" />
                   <div className="h-3 w-1/2 rounded-md bg-surface-muted dark:bg-secondary" />
@@ -180,8 +180,8 @@ export function DrawerShell({
               </div>
               <div className="space-y-3">
                 {[1, 2, 3].map((i) => (
-                  <div key={i} className="relative overflow-hidden rounded-xl border border-border/60 bg-card p-4">
-                    <div className="absolute inset-0 -translate-x-full skew-x-[-12deg] bg-[linear-gradient(90deg,transparent_0%,rgba(255,255,255,0.08)_25%,rgba(255,255,255,0.45)_50%,rgba(255,255,255,0.08)_75%,transparent_100%)] animate-su-mirror-shine" style={{ animationDelay: `${i * 0.2}s` }} />
+                  <div key={i} className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-4">
+                    <div className="absolute inset-0 -translate-x-full skew-x-[-12deg] su-mirror-shine animate-su-mirror-shine" style={{ animationDelay: `${i * 0.2}s` }} />
                     <div className="space-y-2">
                       <div className="h-3 w-full rounded-md bg-surface-muted dark:bg-secondary" />
                       <div className="h-3 w-4/5 rounded-md bg-surface-muted dark:bg-secondary" />

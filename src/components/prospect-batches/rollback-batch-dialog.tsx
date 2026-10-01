@@ -90,7 +90,7 @@ export function RollbackBatchDialog({ batchId, batchName }: RollbackBatchDialogP
 
         <div className="space-y-4 py-3">
           <div className="space-y-1.5">
-            <Label htmlFor="rollback-reason" className="text-xs font-semibold text-muted-foreground/80">
+            <Label htmlFor="rollback-reason" className="text-xs font-semibold text-muted-foreground">
               Motivo (opcional)
             </Label>
             <Textarea

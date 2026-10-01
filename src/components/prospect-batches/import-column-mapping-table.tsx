@@ -84,14 +84,14 @@ export function ImportColumnMappingTable({
     <div className="space-y-4">
       {/* Summary */}
       <div className="rounded-xl border border-su-brand/20 bg-su-brand-soft/20 p-3 space-y-2">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-su-brand">
+        <p className="text-xs font-semibold text-su-brand">
           Columnas detectadas para clasificación
         </p>
         <div className="flex flex-wrap gap-3 text-xs">
           <div className="flex items-center gap-1.5">
             <span className="text-muted-foreground">Industria:</span>
             {industryMapping ? (
-              <Badge variant="secondary" className="text-[10px] bg-su-brand-soft text-su-brand border-0">
+              <Badge variant="secondary" className="text-xs bg-su-brand-soft text-su-brand border-0">
                 {industryMapping.sourceColumn}
               </Badge>
             ) : (
@@ -101,7 +101,7 @@ export function ImportColumnMappingTable({
           <div className="flex items-center gap-1.5">
             <span className="text-muted-foreground">Subindustria:</span>
             {subindustryMapping ? (
-              <Badge variant="secondary" className="text-[10px] bg-su-brand-soft text-su-brand border-0">
+              <Badge variant="secondary" className="text-xs bg-su-brand-soft text-su-brand border-0">
                 {subindustryMapping.sourceColumn}
               </Badge>
             ) : (
@@ -122,10 +122,10 @@ export function ImportColumnMappingTable({
       )}
 
       {/* Mapping table */}
-      <div className="overflow-x-auto rounded-xl border border-border/40">
+      <div className="overflow-x-auto rounded-xl border border-border/60">
         <table className="w-full text-xs">
           <thead>
-            <tr className="border-b border-border/30 bg-muted/30">
+            <tr className="border-b border-border/50 bg-surface-subtle">
               <th className="px-3 py-2 text-left font-semibold text-muted-foreground whitespace-nowrap">
                 Columna del archivo
               </th>
@@ -149,7 +149,7 @@ export function ImportColumnMappingTable({
                   key={mapping.sourceColumn}
                   className={cn(
                     'transition-colors',
-                    isKey ? 'bg-su-brand-soft/10 hover:bg-su-brand-soft/20' : 'hover:bg-muted/20',
+                    isKey ? 'bg-su-brand-soft/10 hover:bg-su-brand-soft/20' : 'hover:bg-surface-muted',
                     isDuplicate && 'bg-destructive/5',
                   )}
                 >
@@ -166,7 +166,7 @@ export function ImportColumnMappingTable({
                         {mapping.sourceColumn}
                       </span>
                       {mapping.detectedAutomatically && isKey && (
-                        <Badge variant="outline" className="text-[9px] text-muted-foreground px-1 py-0">
+                        <Badge variant="outline" className="text-xs text-muted-foreground px-1 py-0">
                           auto
                         </Badge>
                       )}
@@ -176,7 +176,7 @@ export function ImportColumnMappingTable({
                   {/* Target select */}
                   <td className="px-3 py-2.5">
                     <div className="flex items-center gap-1.5">
-                      <ArrowRight className="h-3 w-3 text-muted-foreground/50 shrink-0" />
+                      <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
                       {isKey || mapping.targetField === 'ignore' ? (
                         <Select
                           value={mapping.targetField}
@@ -197,7 +197,7 @@ export function ImportColumnMappingTable({
                           </SelectContent>
                         </Select>
                       ) : (
-                        <span className="text-muted-foreground text-[11px]">
+                        <span className="text-muted-foreground text-xs">
                           {TARGET_LABELS[mapping.targetField] ?? mapping.targetField}
                         </span>
                       )}
@@ -207,11 +207,11 @@ export function ImportColumnMappingTable({
                   {/* Sample values */}
                   <td className="px-3 py-2.5">
                     {mapping.sampleValues.length > 0 ? (
-                      <span className="text-[10px] text-muted-foreground truncate block max-w-[200px]">
+                      <span className="text-xs text-muted-foreground truncate block max-w-[200px]">
                         {mapping.sampleValues.slice(0, 3).join(', ')}
                       </span>
                     ) : (
-                      <span className="text-[10px] text-muted-foreground/40 italic">—</span>
+                      <span className="text-xs text-text-muted italic">—</span>
                     )}
                   </td>
                 </tr>
@@ -222,7 +222,7 @@ export function ImportColumnMappingTable({
       </div>
 
       {/* Legacy note */}
-      <p className="text-[10px] text-muted-foreground leading-relaxed">
+      <p className="text-xs text-muted-foreground leading-relaxed">
         Columnas con nombres como <span className="font-medium">Sector</span> o{' '}
         <span className="font-medium">Subsector</span> son detectadas automáticamente como Industria y Subindustria.
         La subindustria es opcional: si el archivo no la incluye, la importación continuará sin ella.

@@ -63,8 +63,8 @@ function depthLabel(depth: number): string {
 function depthBadgeClass(depth: number): string {
   return [
     'bg-su-brand-soft text-su-brand border-su-brand/20',
-    'bg-amber-500/10 text-amber-600 border-amber-500/20',
-    'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
+    'bg-warning/10 text-warning border-warning/20',
+    'bg-success/10 text-success border-success/20',
   ][depth] ?? '';
 }
 
@@ -80,7 +80,7 @@ function TreeNodeRow({ node, level }: TreeNodeRowProps) {
   return (
     <div>
       <div
-        className="flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-muted/50 transition-colors cursor-default"
+        className="flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-surface-muted transition-colors cursor-default"
         style={{ paddingLeft: `${12 + level * 20}px` }}
       >
         <button
@@ -101,7 +101,7 @@ function TreeNodeRow({ node, level }: TreeNodeRowProps) {
 
         <span className="flex-1 text-sm font-medium text-foreground">{node.group.name}</span>
 
-        <Badge variant="outline" className={`text-[10px] ${depthBadgeClass(node.group.depth)}`}>
+        <Badge variant="outline" className={`text-xs ${depthBadgeClass(node.group.depth)}`}>
           {depthLabel(node.group.depth)}
         </Badge>
       </div>

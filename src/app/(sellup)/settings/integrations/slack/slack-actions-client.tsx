@@ -134,21 +134,21 @@ function SlackConnectModal({ open, onOpenChange }: ConnectModalProps) {
               autoComplete="off"
               className="font-mono text-sm"
             />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Debe usar HTTPS y estar registrada en tu Slack App → OAuth &amp; Permissions.
             </p>
           </div>
 
           {/* Permisos requeridos */}
-          <div className="rounded-lg border border-border/40 bg-muted/20 px-4 py-3 space-y-1.5">
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+          <div className="rounded-lg border border-border/60 bg-surface-subtle px-4 py-3 space-y-1.5">
+            <p className="text-xs font-semibold text-muted-foreground">
               Bot Token Scopes requeridos
             </p>
             <div className="flex flex-wrap gap-1.5 pt-0.5">
               {['channels:manage', 'chat:write'].map((scope) => (
                 <span
                   key={scope}
-                  className="inline-flex items-center gap-1 rounded-full border border-su-brand/30 bg-su-brand-soft px-2.5 py-0.5 text-[11px] font-medium text-su-brand"
+                  className="inline-flex items-center gap-1 rounded-full border border-su-brand/30 bg-su-brand-soft px-2.5 py-0.5 text-xs font-medium text-su-brand"
                 >
                   <CheckCircle2 className="h-3 w-3" />
                   {scope}
@@ -161,7 +161,7 @@ function SlackConnectModal({ open, onOpenChange }: ConnectModalProps) {
             href="https://api.slack.com/apps"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-[11px] text-su-brand hover:underline"
+            className="inline-flex items-center gap-1 text-xs text-su-brand hover:underline"
           >
             Crear o gestionar Slack Apps
             <ExternalLink className="h-3 w-3" />
@@ -233,7 +233,7 @@ export function SlackTestConnectionButton() {
         <p
           className={`rounded-lg border px-3 py-2 text-xs ${
             result.success
-              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+              ? 'border-success/30 bg-success/10 text-success dark:text-success'
               : 'border-destructive/30 bg-destructive/10 text-destructive'
           }`}
         >
@@ -314,7 +314,7 @@ export function SlackCreateChannelModal({ open, onOpenChange }: CreateChannelMod
                 autoComplete="off"
               />
             </div>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Solo letras minúsculas, números y guiones. Máximo 80 caracteres.
             </p>
           </div>
@@ -327,7 +327,7 @@ export function SlackCreateChannelModal({ open, onOpenChange }: CreateChannelMod
           )}
 
           {successMsg && (
-            <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400">
+            <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-xs text-success">
               {successMsg}
             </p>
           )}
@@ -377,7 +377,7 @@ export function SlackSendTestMessageButton() {
         <p
           className={`rounded-lg border px-3 py-2 text-xs ${
             result.success
-              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+              ? 'border-success/30 bg-success/10 text-success dark:text-success'
               : 'border-destructive/30 bg-destructive/10 text-destructive'
           }`}
         >

@@ -36,13 +36,13 @@ function truncate(text: string | null, maxLen = 60): string {
 function StatusIcon({ status }: { status: SourceConnectionTestStatus }) {
   switch (status) {
     case 'success':
-      return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />;
+      return <CheckCircle2 className="h-3.5 w-3.5 text-success" />;
     case 'failed':
     case 'blocked':
       return <XCircle className="h-3.5 w-3.5 text-destructive" />;
     case 'requires_credentials':
     case 'input_required':
-      return <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />;
+      return <AlertTriangle className="h-3.5 w-3.5 text-warning" />;
     case 'not_supported':
       return <Clock className="h-3.5 w-3.5 text-muted-foreground" />;
   }
@@ -66,7 +66,7 @@ function StatusBadge({ status }: { status: SourceConnectionTestStatus }) {
 function MetaRow({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+      <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
         {label}
       </dt>
       <dd className="text-sm text-foreground">{value}</dd>
@@ -80,7 +80,7 @@ function LatestTestBlock({ item }: { item: SourceConnectionTestHistoryItem }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+        <span className="text-xs font-semibold text-muted-foreground">
           Resultado
         </span>
         <StatusBadge status={item.status} />
@@ -112,7 +112,7 @@ function LatestTestBlock({ item }: { item: SourceConnectionTestHistoryItem }) {
         />
         {item.recommendation && (
           <div className="col-span-2 sm:col-span-3">
-            <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+            <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
               Recomendación
             </dt>
             <dd className="text-sm text-muted-foreground">{item.recommendation}</dd>
@@ -143,7 +143,7 @@ function HistoryTable({ items }: { items: SourceConnectionTestHistoryItem[] }) {
             ].map((col) => (
               <th
                 key={col}
-                className="pb-2 pr-4 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground last:pr-0"
+                className="pb-2 pr-4 text-left text-xs font-semibold text-muted-foreground last:pr-0"
               >
                 {col}
               </th>
@@ -152,7 +152,7 @@ function HistoryTable({ items }: { items: SourceConnectionTestHistoryItem[] }) {
         </thead>
         <tbody>
           {items.map((item) => (
-            <tr key={item.id} className="border-b border-border/30 last:border-0">
+            <tr key={item.id} className="border-b border-border/50 last:border-0">
               <td className="py-2.5 pr-4 text-xs text-muted-foreground whitespace-nowrap">
                 {formatDateTime(item.checkedAt)}
               </td>
@@ -215,7 +215,7 @@ export function ConnectionTestHistory({ history }: Props) {
     <div className="space-y-4">
       {/* Latest test */}
       <SurfaceCard>
-        <h2 className="text-[0.8125rem] font-semibold text-foreground  mb-4">
+        <h2 className="text-sm font-semibold text-foreground  mb-4">
           Última prueba de conexión
         </h2>
         {latest ? <LatestTestBlock item={latest} /> : <EmptyState />}
@@ -225,7 +225,7 @@ export function ConnectionTestHistory({ history }: Props) {
       {totalShown > 0 && (
         <SurfaceCard>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-[0.8125rem] font-semibold text-foreground ">
+            <h2 className="text-sm font-semibold text-foreground ">
               Historial reciente
             </h2>
             <span className="text-xs text-muted-foreground">

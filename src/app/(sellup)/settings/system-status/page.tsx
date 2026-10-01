@@ -25,13 +25,13 @@ function ConnectionBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; classes: string; dot: string }> = {
     connected: {
       label: 'Conectado',
-      classes: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500',
-      dot: 'bg-emerald-500',
+      classes: 'border-success/30 bg-success/10 text-success',
+      dot: 'bg-success',
     },
     not_tested: {
       label: 'Sin probar',
-      classes: 'border-amber-500/30 bg-amber-500/10 text-amber-500',
-      dot: 'bg-amber-500',
+      classes: 'border-warning/30 bg-warning/10 text-warning',
+      dot: 'bg-warning',
     },
     error: {
       label: 'Error',
@@ -40,12 +40,12 @@ function ConnectionBadge({ status }: { status: string }) {
     },
     disconnected: {
       label: 'Desconectado',
-      classes: 'border-border/40 bg-muted/30 text-muted-foreground/60',
+      classes: 'border-border/60 bg-surface-subtle text-muted-foreground',
       dot: 'bg-muted-foreground/25',
     },
     not_configured: {
       label: 'Sin configurar',
-      classes: 'border-border/40 bg-muted/30 text-muted-foreground/60',
+      classes: 'border-border/60 bg-surface-subtle text-muted-foreground',
       dot: 'bg-muted-foreground/25',
     },
   };
@@ -54,7 +54,7 @@ function ConnectionBadge({ status }: { status: string }) {
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${config.classes}`}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${config.classes}`}
     >
       <span className={`h-1.5 w-1.5 rounded-full ${config.dot}`} />
       {config.label}
@@ -70,11 +70,11 @@ function RiskBadge({ severity }: { severity: RiskSeverity }) {
     },
     pending: {
       label: 'Pendiente',
-      classes: 'border-amber-500/30 bg-amber-500/10 text-amber-500',
+      classes: 'border-warning/30 bg-warning/10 text-warning',
     },
     ok: {
       label: 'Correcto',
-      classes: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500',
+      classes: 'border-success/30 bg-success/10 text-success',
     },
   };
 
@@ -82,7 +82,7 @@ function RiskBadge({ severity }: { severity: RiskSeverity }) {
 
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${config.classes}`}
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${config.classes}`}
     >
       {config.label}
     </span>
@@ -133,17 +133,17 @@ export default async function SystemStatusPage() {
       {/* ── Bloque 1: Resumen ejecutivo ──────────────────────── */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <SurfaceCard>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+          <p className="text-xs font-semibold text-muted-foreground">
             Componentes OK
           </p>
-          <p className="mt-2 text-3xl font-semibold tracking-tight text-emerald-500">
+          <p className="mt-2 text-3xl font-semibold tracking-tight text-success">
             {summary.configured_components}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">configurados y activos</p>
         </SurfaceCard>
 
         <SurfaceCard>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+          <p className="text-xs font-semibold text-muted-foreground">
             Con alertas
           </p>
           <p
@@ -157,7 +157,7 @@ export default async function SystemStatusPage() {
         </SurfaceCard>
 
         <SurfaceCard>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+          <p className="text-xs font-semibold text-muted-foreground">
             Automáticas
           </p>
           <p className="mt-2 text-3xl font-semibold tracking-tight text-foreground">
@@ -167,12 +167,12 @@ export default async function SystemStatusPage() {
         </SurfaceCard>
 
         <SurfaceCard>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+          <p className="text-xs font-semibold text-muted-foreground">
             Acceso pendiente
           </p>
           <p
             className={`mt-2 text-3xl font-semibold tracking-tight ${
-              summary.pending_access_requests > 0 ? 'text-amber-500' : 'text-muted-foreground'
+              summary.pending_access_requests > 0 ? 'text-warning' : 'text-muted-foreground'
             }`}
           >
             {summary.pending_access_requests}
@@ -216,7 +216,7 @@ export default async function SystemStatusPage() {
                 health.ai_providers.map((provider) => (
                   <div
                     key={provider.key}
-                    className="flex items-center justify-between gap-2 rounded-lg border border-border/40 bg-muted/20 px-3 py-2"
+                    className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-surface-subtle px-3 py-2"
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <Cpu className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -224,7 +224,7 @@ export default async function SystemStatusPage() {
                         {provider.name}
                       </span>
                       {provider.is_active_provider && (
-                        <span className="text-[10px] text-su-brand font-medium">activo</span>
+                        <span className="text-xs text-su-brand font-medium">activo</span>
                       )}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -257,7 +257,7 @@ export default async function SystemStatusPage() {
                 <span
                   className={`text-xs font-medium ${
                     health.hubspot.credentials_status === 'stored'
-                      ? 'text-emerald-500'
+                      ? 'text-success'
                       : 'text-muted-foreground'
                   }`}
                 >
@@ -286,7 +286,7 @@ export default async function SystemStatusPage() {
               )}
               {health.hubspot.last_connection_error && (
                 <div className="rounded-md border border-destructive/20 bg-destructive/5 px-2.5 py-1.5">
-                  <p className="text-[10px] text-destructive line-clamp-2">
+                  <p className="text-xs text-destructive line-clamp-2">
                     {health.hubspot.last_connection_error}
                   </p>
                 </div>
@@ -315,7 +315,7 @@ export default async function SystemStatusPage() {
                 <span
                   className={`text-xs font-medium ${
                     health.apollo.credentials_status === 'stored'
-                      ? 'text-emerald-500'
+                      ? 'text-success'
                       : 'text-muted-foreground'
                   }`}
                 >
@@ -336,7 +336,7 @@ export default async function SystemStatusPage() {
               )}
               {health.apollo.last_connection_error && (
                 <div className="rounded-md border border-destructive/20 bg-destructive/5 px-2.5 py-1.5">
-                  <p className="text-[10px] text-destructive line-clamp-2">
+                  <p className="text-xs text-destructive line-clamp-2">
                     {health.apollo.last_connection_error}
                   </p>
                 </div>
@@ -365,7 +365,7 @@ export default async function SystemStatusPage() {
                 <span
                   className={`text-xs font-medium ${
                     health.lusha.credentials_status === 'stored'
-                      ? 'text-emerald-500'
+                      ? 'text-success'
                       : 'text-muted-foreground'
                   }`}
                 >
@@ -386,7 +386,7 @@ export default async function SystemStatusPage() {
               )}
               {health.lusha.last_connection_error && (
                 <div className="rounded-md border border-destructive/20 bg-destructive/5 px-2.5 py-1.5">
-                  <p className="text-[10px] text-destructive line-clamp-2">
+                  <p className="text-xs text-destructive line-clamp-2">
                     {health.lusha.last_connection_error}
                   </p>
                 </div>
@@ -415,7 +415,7 @@ export default async function SystemStatusPage() {
                 <span
                   className={`text-xs font-medium ${
                     health.samu.credentials_status === 'stored'
-                      ? 'text-emerald-500'
+                      ? 'text-success'
                       : 'text-muted-foreground'
                   }`}
                 >
@@ -444,7 +444,7 @@ export default async function SystemStatusPage() {
               )}
               {health.samu.last_connection_error && (
                 <div className="rounded-md border border-destructive/20 bg-destructive/5 px-2.5 py-1.5">
-                  <p className="text-[10px] text-destructive line-clamp-2">
+                  <p className="text-xs text-destructive line-clamp-2">
                     {health.samu.last_connection_error}
                   </p>
                 </div>
@@ -479,17 +479,17 @@ export default async function SystemStatusPage() {
                   {
                     label: 'Automático',
                     count: health.automations.automatic,
-                    color: 'text-emerald-500 border-emerald-500/30 bg-emerald-500/10',
+                    color: 'text-success border-success/30 bg-success/10',
                   },
                   {
                     label: 'Sugerido',
                     count: health.automations.suggested,
-                    color: 'text-amber-500 border-amber-500/30 bg-amber-500/10',
+                    color: 'text-warning border-warning/30 bg-warning/10',
                   },
                   {
                     label: 'Manual',
                     count: health.automations.manual,
-                    color: 'text-muted-foreground border-border/40 bg-muted/30',
+                    color: 'text-muted-foreground border-border/60 bg-surface-subtle',
                   },
                 ].map((item) => (
                   <div
@@ -497,7 +497,7 @@ export default async function SystemStatusPage() {
                     className={`flex-1 rounded-lg border px-2 py-2 text-center ${item.color}`}
                   >
                     <p className="text-lg font-semibold">{item.count}</p>
-                    <p className="text-[10px] opacity-80">{item.label}</p>
+                    <p className="text-xs opacity-80">{item.label}</p>
                   </div>
                 ))}
               </div>
@@ -515,8 +515,8 @@ export default async function SystemStatusPage() {
         {risks.length === 0 ? (
           <SurfaceCard>
             <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/10">
-                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-success/10">
+                <CheckCircle2 className="h-4 w-4 text-success" />
               </div>
               <div>
                 <p className="text-sm font-medium text-foreground">
@@ -548,8 +548,8 @@ export default async function SystemStatusPage() {
 function RiskItem({ risk }: { risk: AdminRisk }) {
   const iconMap: Record<RiskSeverity, React.ReactNode> = {
     attention: <AlertTriangle className="h-4 w-4 text-destructive" />,
-    pending: <Clock className="h-4 w-4 text-amber-500" />,
-    ok: <CheckCircle2 className="h-4 w-4 text-emerald-500" />,
+    pending: <Clock className="h-4 w-4 text-warning" />,
+    ok: <CheckCircle2 className="h-4 w-4 text-success" />,
   };
 
   return (
@@ -562,7 +562,7 @@ function RiskItem({ risk }: { risk: AdminRisk }) {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <RiskBadge severity={risk.severity} />
-            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 group-hover:text-su-brand transition-colors" />
+            <ChevronRight className="h-3.5 w-3.5 text-text-muted group-hover:text-su-brand transition-colors" />
           </div>
         </div>
       </SurfaceCard>

@@ -93,8 +93,8 @@ const WARNING_LABELS: Record<string, string> = {
 };
 
 const PREFLIGHT_STATUS_ICONS = {
-  success: <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />,
-  warning: <TriangleAlert className="h-3.5 w-3.5 text-amber-500" />,
+  success: <CheckCircle2 className="h-3.5 w-3.5 text-success" />,
+  warning: <TriangleAlert className="h-3.5 w-3.5 text-warning" />,
   error: <XCircle className="h-3.5 w-3.5 text-destructive" />,
   skipped: <Info className="h-3.5 w-3.5 text-muted-foreground" />,
 };
@@ -124,13 +124,13 @@ function ThinkingStepsDisplay({ steps, isTyping }: { steps: string[]; isTyping: 
   return (
     <div className="space-y-2 animate-su-fade-in">
       {steps.map((msg, i) => (
-        <div key={i} className="flex items-start gap-2 text-xs text-muted-foreground/80 animate-su-fade-in">
+        <div key={i} className="flex items-start gap-2 text-xs text-muted-foreground animate-su-fade-in">
           <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0 text-su-brand" />
           <span className="leading-relaxed">{msg}</span>
         </div>
       ))}
       {isTyping && (
-        <div className="flex items-start gap-2 text-xs text-muted-foreground/60 animate-su-fade-in">
+        <div className="flex items-start gap-2 text-xs text-muted-foreground animate-su-fade-in">
           <Loader2 className="h-3.5 w-3.5 mt-0.5 shrink-0 animate-spin text-su-brand/60" />
           <span className="leading-relaxed flex items-center gap-0.5">
             Pensando
@@ -616,7 +616,7 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
         /* ── Resultado de generación ── */
         <div ref={resultPanelRef}>
           {progressSteps.length > 0 && (
-            <div className="mb-4 pb-4 border-b border-border/30">
+            <div className="mb-4 pb-4 border-b border-border/50">
               <ThinkingStepsDisplay steps={progressSteps} isTyping={false} />
             </div>
           )}
@@ -892,7 +892,7 @@ function ResultFooterMessage({
 }: ResultFooterMessageProps) {
   if (usefulCandidatesCount === 0) {
     return (
-      <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium leading-relaxed">
+      <p className="text-xs text-warning font-medium leading-relaxed">
         No se encontraron empresas útiles para revisión. SellUp omitió registros por liquidación, inactividad, duplicidad o datos mínimos insuficientes.
       </p>
     );
@@ -900,7 +900,7 @@ function ResultFooterMessage({
 
   if (sourceStrategy === 'official_source_satisfied') {
     return (
-      <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+      <p className="text-xs text-muted-foreground leading-relaxed">
         SellUp encontró {structuredBatchResult?.candidatesWritten ?? 10} empresas útiles en fuente oficial. Se omitieron {structuredBatchResult?.candidatesSkipped ?? 0} registros no viables.
       </p>
     );
@@ -908,7 +908,7 @@ function ResultFooterMessage({
 
   if (sourceStrategy === 'official_plus_commercial') {
     return (
-      <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+      <p className="text-xs text-muted-foreground leading-relaxed">
         SellUp encontró {structuredBatchResult?.candidatesWritten ?? 0} empresas útiles en fuente oficial y completó con fuente comercial.
       </p>
     );
@@ -916,7 +916,7 @@ function ResultFooterMessage({
 
   if (sourceStrategy === 'commercial_fallback') {
     return (
-      <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+      <p className="text-xs text-muted-foreground leading-relaxed">
         No se encontraron empresas útiles con los criterios actuales. Intenta otra industria o país.
       </p>
     );
@@ -924,7 +924,7 @@ function ResultFooterMessage({
 
   if (structuredBatchResult && !structuredBatchResult.ok && isAutoModeAllPagesScanned(structuredBatchResult)) {
     return (
-      <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+      <p className="text-xs text-muted-foreground leading-relaxed">
         SellUp encontró {structuredBatchResult?.candidatesWritten ?? 0} empresas útiles. Se detuvo después de 2 intentos para controlar costos.
       </p>
     );
@@ -932,7 +932,7 @@ function ResultFooterMessage({
 
   if (structuredBatchResult?.ok && structuredBatchResult.batchId) {
     return (
-      <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+      <p className="text-xs text-muted-foreground leading-relaxed">
         SellUp creó candidatas desde fuente oficial y Apollo. Puedes revisarlas por separado.
       </p>
     );
@@ -1077,7 +1077,7 @@ function SourcesInfo({ sources, hasCountry }: SourcesInfoProps) {
       <div className="flex flex-wrap gap-2">
         {sources.map((src) => (
           <Badge key={src.label} variant="secondary" className="rounded-full px-3 py-1 text-xs">
-            <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-500" />
+            <CheckCircle2 className="h-3 w-3 shrink-0 text-success" />
             <span className="font-medium">{src.label}</span>
             <span className="text-muted-foreground">· {src.desc}</span>
           </Badge>
@@ -1116,7 +1116,7 @@ function AdvancedOptionsSection({
       onValueChange={() => onToggle()}
     >
       <AccordionItem value="advanced" className="border-none">
-        <AccordionTrigger className="py-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground/60 hover:no-underline hover:text-muted-foreground/80">
+        <AccordionTrigger className="py-2 text-xs font-semibold text-muted-foreground hover:no-underline hover:text-muted-foreground">
           <div className="flex items-center gap-2">
             <Settings2 className="h-3.5 w-3.5" />
             Opciones avanzadas
@@ -1310,12 +1310,12 @@ function GenerationResultPanel({
       <SurfaceCard elevated>
         <div className="flex items-center gap-3">
           {usefulCandidatesCount > 0 ? (
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/10">
-              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-success/10">
+              <CheckCircle2 className="h-4 w-4 text-success" />
             </div>
           ) : (
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500/10">
-              <TriangleAlert className="h-4 w-4 text-amber-500" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-warning/10">
+              <TriangleAlert className="h-4 w-4 text-warning" />
             </div>
           )}
           <div>
@@ -1361,12 +1361,12 @@ function GenerationResultPanel({
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Estado:</span>
               {usefulCandidatesCount > 0 ? (
-                <Badge variant="secondary" className="rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                <Badge variant="secondary" className="rounded-full bg-success/10 text-success">
                   <CheckCircle2 className="h-3 w-3" />
                   Creado
                 </Badge>
               ) : (
-                <Badge variant="secondary" className="rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                <Badge variant="secondary" className="rounded-full bg-warning/10 text-warning">
                   <TriangleAlert className="h-3 w-3" />
                   Sin candidatas útiles
                 </Badge>
@@ -1399,16 +1399,16 @@ function GenerationResultPanel({
         const nothingToWrite = isStructuredSourceNothingToWrite(structuredBatch);
         const isSocrataTimeout = isSocrataTimeoutError(structuredBatch);
         const dotClass = structuredBatch.ok || structuredBatch.status === 'official_source_success'
-          ? 'bg-emerald-500'
+          ? 'bg-success'
           : structuredBatch.status === 'official_source_error'
             ? 'bg-destructive'
-            : 'bg-amber-500';
+            : 'bg-warning';
 
         return (
           <SurfaceCard>
             <div className="flex items-center gap-2 mb-3">
               <div className={`h-2 w-2 rounded-full ${dotClass}`} />
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
+              <span className="text-xs font-semibold text-muted-foreground">
                 Fuente oficial procesada
               </span>
             </div>
@@ -1431,7 +1431,7 @@ function GenerationResultPanel({
                   <div className="space-y-2 text-sm">
                     <div className="flex items-center justify-between">
                       <span className="text-muted-foreground">Estado:</span>
-                      <Badge variant="secondary" className="rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                      <Badge variant="secondary" className="rounded-full bg-success/10 text-success">
                         <CheckCircle2 className="h-3 w-3" />
                         Creado · Revisión humana pendiente
                       </Badge>

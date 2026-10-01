@@ -30,7 +30,7 @@ export function ActiveUsersPanel({ userCount, listContent, orgContent, groupsCon
           {userCount} {userCount === 1 ? 'usuario activo' : 'usuarios activos'}
         </span>
 
-        <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-muted/40 p-1">
+        <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-surface-subtle p-1">
           {tabs.map(tab => (
             <button
               key={tab.id}
@@ -38,7 +38,7 @@ export function ActiveUsersPanel({ userCount, listContent, orgContent, groupsCon
               className={cn(
                 'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
                 view === tab.id
-                  ? 'bg-card text-foreground shadow-sm'
+                  ? 'bg-card text-foreground shadow-card'
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >

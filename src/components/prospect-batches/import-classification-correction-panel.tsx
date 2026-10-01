@@ -193,36 +193,36 @@ export function ImportClassificationCorrectionPanel({
       </div>
 
       {/* Current classification */}
-      <div className="rounded-xl border border-border/40 bg-muted/20 p-3">
-        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+      <div className="rounded-xl border border-border/60 bg-surface-subtle p-3">
+        <p className="text-xs font-semibold text-muted-foreground mb-2">
           Clasificación actual
         </p>
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <p className="text-[10px] text-muted-foreground">Industria</p>
+            <p className="text-xs text-muted-foreground">Industria</p>
             <p className="text-xs font-medium text-foreground">
               {row.industryCanonicalName ?? row.industryOriginalValue ?? '—'}
             </p>
             {row.industryOriginalValue && row.industryCanonicalName &&
               row.industryOriginalValue !== row.industryCanonicalName && (
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   Original: <span className="italic">{row.industryOriginalValue}</span>
                 </p>
               )}
           </div>
           <div>
-            <p className="text-[10px] text-muted-foreground">Subindustria</p>
+            <p className="text-xs text-muted-foreground">Subindustria</p>
             <p className="text-xs font-medium text-foreground">
               {row.subindustryCanonicalName ?? row.subindustryOriginalValue ?? '—'}
             </p>
           </div>
         </div>
         <div className="mt-2 flex items-center gap-2">
-          <Badge variant={statusConfig.variant === 'success' ? 'secondary' : statusConfig.variant === 'warning' ? 'default' : 'destructive'} className="text-[10px]">
+          <Badge variant={statusConfig.variant === 'success' ? 'secondary' : statusConfig.variant === 'warning' ? 'default' : 'destructive'} className="text-xs">
             {statusConfig.label}
           </Badge>
           {row.correctionSource && (
-            <Badge variant="outline" className="text-[10px]">
+            <Badge variant="outline" className="text-xs">
               Corrección: {row.correctionSource}
             </Badge>
           )}
@@ -231,16 +231,16 @@ export function ImportClassificationCorrectionPanel({
 
       {/* Warnings */}
       {row.warnings.length > 0 && (
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
+        <div className="rounded-xl border border-warning/30 bg-warning/5 p-3">
           <div className="flex items-center gap-1.5 mb-1.5">
-            <AlertTriangle className="h-3 w-3 text-amber-500" />
-            <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-wide">
+            <AlertTriangle className="h-3 w-3 text-warning" />
+            <p className="text-xs font-semibold text-warning">
               Advertencias
             </p>
           </div>
           <ul className="space-y-0.5">
             {row.warnings.map((w, i) => (
-              <li key={i} className="text-xs text-amber-700">
+              <li key={i} className="text-xs text-warning">
                 {w.message ?? 'Advertencia'}
               </li>
             ))}
@@ -250,7 +250,7 @@ export function ImportClassificationCorrectionPanel({
 
       {/* Correction form */}
       <div className="space-y-3">
-        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+        <p className="text-xs font-semibold text-muted-foreground">
           Corrección manual
         </p>
 
@@ -289,17 +289,17 @@ export function ImportClassificationCorrectionPanel({
         <div
           className={`rounded-xl border p-3 ${
             validationMessage.type === 'success'
-              ? 'border-emerald-500/30 bg-emerald-500/5'
+              ? 'border-success/30 bg-success/5'
               : validationMessage.type === 'warning'
-                ? 'border-amber-500/30 bg-amber-500/5'
+                ? 'border-warning/30 bg-warning/5'
                 : 'border-destructive/30 bg-destructive/5'
           }`}
         >
           <div className="flex items-center gap-1.5">
             {validationMessage.type === 'success' ? (
-              <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+              <CheckCircle2 className="h-3 w-3 text-success" />
             ) : validationMessage.type === 'warning' ? (
-              <AlertTriangle className="h-3 w-3 text-amber-500" />
+              <AlertTriangle className="h-3 w-3 text-warning" />
             ) : (
               <Info className="h-3 w-3 text-destructive" />
             )}
@@ -310,7 +310,7 @@ export function ImportClassificationCorrectionPanel({
 
       {/* Bulk correction option */}
       {equivalentCount > 0 && (
-        <div className="rounded-xl border border-border/40 bg-muted/20 p-3">
+        <div className="rounded-xl border border-border/60 bg-surface-subtle p-3">
           <div className="flex items-start gap-2.5">
             <Checkbox
               id="apply-to-equivalent"
@@ -325,7 +325,7 @@ export function ImportClassificationCorrectionPanel({
                   Aplicar a {equivalentCount + 1} filas equivalentes
                 </span>
               </div>
-              <p className="text-[10px] text-muted-foreground leading-relaxed">
+              <p className="text-xs text-muted-foreground leading-relaxed">
                 Otras {equivalentCount} {equivalentCount === 1 ? 'fila tiene' : 'filas tienen'} el
                 mismo valor original de industria, subindustria y país.
               </p>
@@ -351,7 +351,7 @@ export function ImportClassificationCorrectionPanel({
           size="sm"
           onClick={handleSave}
           disabled={isSaving || !selectedIndustryId}
-          className="h-8 text-xs bg-su-brand text-white hover:bg-su-brand/90"
+          className="h-8 text-xs bg-su-brand text-primary-foreground hover:bg-su-brand/90"
         >
           {isSaving
             ? 'Aplicando...'

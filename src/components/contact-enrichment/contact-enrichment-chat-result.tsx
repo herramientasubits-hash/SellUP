@@ -27,7 +27,7 @@ export function SourceBadge({ source }: { source: 'sellup' | 'hubspot' | 'manual
     return (
       <Badge
         variant="outline"
-        className="text-[10px] border-muted-foreground/30 text-muted-foreground bg-muted/40"
+        className="text-xs border-muted-foreground/30 text-muted-foreground bg-surface-subtle"
       >
         Manual
       </Badge>
@@ -38,8 +38,8 @@ export function SourceBadge({ source }: { source: 'sellup' | 'hubspot' | 'manual
       variant="outline"
       className={
         source === 'sellup'
-          ? 'text-[10px] border-su-brand/30 text-su-brand bg-su-brand-soft'
-          : 'text-[10px] border-amber-500/30 text-amber-600 bg-amber-500/10'
+          ? 'text-xs border-su-brand/30 text-su-brand bg-su-brand-soft'
+          : 'text-xs border-warning/30 text-warning bg-warning/10'
       }
     >
       {source === 'sellup' ? 'SellUp' : 'HubSpot'}
@@ -57,7 +57,7 @@ function sourceLabel(source: 'sellup' | 'hubspot' | 'manual'): string {
 
 export function CompanyChip({ candidate }: { candidate: CompanyCandidate }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/40 p-3">
+    <div className="flex items-center gap-3 rounded-xl border border-border bg-surface-subtle p-3">
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-su-brand-soft">
         <Building2 className="h-4 w-4 text-su-brand" aria-hidden />
       </div>
@@ -123,12 +123,12 @@ export function RunResultSnapshot({
     <SurfaceCard className="space-y-4 p-6">
       <div className="flex items-center gap-2">
         {lushaTerminalError ? (
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500/10">
-            <XCircle className="h-4 w-4 text-amber-500" aria-hidden />
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-warning/10">
+            <XCircle className="h-4 w-4 text-warning" aria-hidden />
           </div>
         ) : (
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/10">
-            <Check className="h-4 w-4 text-emerald-500" aria-hidden />
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-success/10">
+            <Check className="h-4 w-4 text-success" aria-hidden />
           </div>
         )}
         <p className="text-sm font-semibold text-foreground">
@@ -143,21 +143,21 @@ export function RunResultSnapshot({
             {provider === 'lusha' && lushaResult?.status === 'missing_api_key' ? (
               <Badge
                 variant="outline"
-                className="text-xs text-amber-600 border-amber-500/30 bg-amber-500/10"
+                className="text-xs text-warning border-warning/30 bg-warning/10"
               >
                 Sin credenciales
               </Badge>
             ) : provider === 'lusha' && lushaResult?.status === 'disabled' ? (
               <Badge
                 variant="outline"
-                className="text-xs text-muted-foreground border-border bg-muted/30"
+                className="text-xs text-muted-foreground border-border bg-surface-subtle"
               >
                 Desactivado
               </Badge>
             ) : provider === 'lusha' && lushaCompanyContextError ? (
               <Badge
                 variant="outline"
-                className="text-xs text-amber-600 border-amber-500/30 bg-amber-500/10"
+                className="text-xs text-warning border-warning/30 bg-warning/10"
               >
                 Sin contexto de empresa
               </Badge>
@@ -171,7 +171,7 @@ export function RunResultSnapshot({
             ) : (
               <Badge
                 variant="outline"
-                className="text-xs text-emerald-600 border-emerald-500/30 bg-emerald-500/10"
+                className="text-xs text-success border-success/30 bg-success/10"
               >
                 {apolloResult?.status === 'ready_for_review' || lushaResult?.status === 'ready_for_review' || lushaResult?.providerStatus === 'success'
                   ? 'Listo para revisión'
@@ -255,19 +255,19 @@ export function RunResultSnapshot({
                   {combined.incompleteContacts.missingEmail > 0 && (
                     <div className="flex justify-between">
                       <dt className="text-muted-foreground">Sin email</dt>
-                      <dd className="text-amber-600">{combined.incompleteContacts.missingEmail}</dd>
+                      <dd className="text-warning">{combined.incompleteContacts.missingEmail}</dd>
                     </div>
                   )}
                   {combined.incompleteContacts.missingPhone > 0 && (
                     <div className="flex justify-between">
                       <dt className="text-muted-foreground">Sin teléfono</dt>
-                      <dd className="text-amber-600">{combined.incompleteContacts.missingPhone}</dd>
+                      <dd className="text-warning">{combined.incompleteContacts.missingPhone}</dd>
                     </div>
                   )}
                   {combined.incompleteContacts.missingLinkedin > 0 && (
                     <div className="flex justify-between">
                       <dt className="text-muted-foreground">Sin LinkedIn</dt>
-                      <dd className="text-amber-600">
+                      <dd className="text-warning">
                         {combined.incompleteContacts.missingLinkedin}
                       </dd>
                     </div>
@@ -288,13 +288,13 @@ export function RunResultSnapshot({
           onCreateManualContact={onCreateManualContact}
         />
       ) : lushaCredentialsMissing ? (
-        <p className="border-t border-border pt-3 text-xs text-amber-600">
+        <p className="border-t border-border pt-3 text-xs text-warning">
           {lushaResult?.status === 'missing_api_key'
             ? 'Lusha no pudo acceder a la credencial configurada en Supabase Vault desde este runtime. No se ejecutó el proveedor y no se crearon candidatos.'
             : 'Lusha está desactivado en este entorno. No se ejecutó el proveedor y no se crearon candidatos.'}
         </p>
       ) : lushaCompanyContextError ? (
-        <p className="border-t border-border pt-3 text-xs text-amber-600">
+        <p className="border-t border-border pt-3 text-xs text-warning">
           No se pudo resolver suficiente contexto de la empresa para ejecutar Lusha. No se crearon candidatos.
         </p>
       ) : lushaProviderError ? (
@@ -334,7 +334,7 @@ function LushaEmptyState({ result }: { result: LushaEnrichmentUiResult }) {
   });
 
   return (
-    <div className="space-y-3 rounded-xl border border-border bg-muted/30 p-4">
+    <div className="space-y-3 rounded-xl border border-border bg-surface-subtle p-4">
       <div className="flex items-start gap-3">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
           <Info className="h-4 w-4 text-muted-foreground" aria-hidden />
@@ -414,7 +414,7 @@ export function ApolloPreflightCard({ provider }: { provider?: ContactEnrichment
               <dd className="font-medium text-foreground">no disponible</dd>
             </div>
           </dl>
-          <p className="border-t border-border/50 pt-2 text-[11px] text-muted-foreground">
+          <p className="border-t border-border/50 pt-2 text-xs text-muted-foreground">
             Lusha puede consumir créditos según disponibilidad del proveedor. SellUp limita
             resultados e intentos para evitar corridas amplias. Los candidatos quedan en revisión
             humana; no se crean contactos finales ni se escribe en HubSpot.
@@ -442,7 +442,7 @@ export function ApolloPreflightCard({ provider }: { provider?: ContactEnrichment
                   : `${g.maxEstimatedSearchCreditsPerRun} créditos`}
               </dd>
             </div>
-            <div className="flex justify-between border-t border-border/30 pt-1.5 mt-1">
+            <div className="flex justify-between border-t border-border/50 pt-1.5 mt-1">
               <dt className="text-muted-foreground font-medium">Completion de perfiles</dt>
             </div>
             <div className="flex justify-between">
@@ -465,7 +465,7 @@ export function ApolloPreflightCard({ provider }: { provider?: ContactEnrichment
               </dd>
             </div>
           </dl>
-          <p className="border-t border-border/50 pt-2 text-[11px] text-muted-foreground">
+          <p className="border-t border-border/50 pt-2 text-xs text-muted-foreground">
             La búsqueda puede consumir créditos según el plan. SellUp limita resultados e intentos
             para evitar corridas amplias. Solo se completarán perfiles de alta relevancia (RR. HH.,
             Talento, Aprendizaje, Cultura).
@@ -506,10 +506,10 @@ function ApolloEmptyState({ result, runId, accountId, onCreateManualContact }: A
   const canCreateManual = !!(runId && accountId && onCreateManualContact);
 
   return (
-    <div className="space-y-4 rounded-xl border border-border bg-muted/30 p-4">
+    <div className="space-y-4 rounded-xl border border-border bg-surface-subtle p-4">
       <div className="flex items-start gap-3">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500/10">
-          <AlertCircle className="h-4 w-4 text-amber-500" aria-hidden />
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-warning/10">
+          <AlertCircle className="h-4 w-4 text-warning" aria-hidden />
         </div>
         <div className="space-y-1">
           <p className="text-sm font-semibold text-foreground">{copy.headline}</p>
@@ -568,7 +568,7 @@ function ApolloResultSummary({ result, runId, accountId, companyName, companyDom
   if (result.providerStatus === 'error' || result.providerStatus === 'skipped') {
     return (
       <div className="border-t border-border pt-3">
-        <p className="text-xs text-amber-600">
+        <p className="text-xs text-warning">
           {result.error ?? 'Apollo no pudo ejecutarse. No se crearon candidatos.'}
         </p>
       </div>
@@ -587,7 +587,7 @@ function ApolloResultSummary({ result, runId, accountId, companyName, companyDom
         </div>
         <div className="flex justify-between">
           <dt className="text-muted-foreground">Filtrados por relevancia/calidad</dt>
-          <dd className={result.rejectedByRelevance > 0 ? 'text-amber-600' : 'text-foreground'}>
+          <dd className={result.rejectedByRelevance > 0 ? 'text-warning' : 'text-foreground'}>
             {result.rejectedByRelevance}
           </dd>
         </div>
@@ -610,7 +610,7 @@ function ApolloResultSummary({ result, runId, accountId, companyName, companyDom
         {result.possibleDuplicates > 0 && (
           <div className="flex justify-between">
             <dt className="text-muted-foreground">Posibles duplicados</dt>
-            <dd className="text-amber-600">{result.possibleDuplicates}</dd>
+            <dd className="text-warning">{result.possibleDuplicates}</dd>
           </div>
         )}
         <div className="flex justify-between border-t border-border/50 pt-1.5">
@@ -638,7 +638,7 @@ function ApolloResultSummary({ result, runId, accountId, companyName, companyDom
 
       {result.costGuardrail && (
         <div className="space-y-1.5 border-t border-border/50 pt-2">
-          <p className="text-[11px] font-medium text-muted-foreground">Créditos de completion</p>
+          <p className="text-xs font-medium text-muted-foreground">Créditos de completion</p>
           <dl className="space-y-1 text-xs">
             <div className="flex justify-between">
               <dt className="text-muted-foreground">Email/básico</dt>
@@ -670,13 +670,13 @@ function ApolloResultSummary({ result, runId, accountId, companyName, companyDom
             </div>
           </dl>
           {result.costGuardrail.guardrail_blocked && (
-            <p className="text-[11px] text-amber-600">
+            <p className="text-xs text-warning">
               Guardrail activado — algunos perfiles no se completaron para no superar el límite de{' '}
               {result.costGuardrail.max_credits_per_run} créditos.
             </p>
           )}
           {result.completionAttempted > 0 && result.actionableContactsCount === 0 && (
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Se intentó completar datos en {result.completionAttempted} perfil
               {result.completionAttempted !== 1 ? 'es' : ''}, pero Apollo no devolvió canales
               accionables.
@@ -687,7 +687,7 @@ function ApolloResultSummary({ result, runId, accountId, companyName, companyDom
 
       {result.searchGuardrail && (
         <div className="space-y-1.5 border-t border-border/50 pt-2">
-          <p className="text-[11px] font-medium text-muted-foreground">Búsqueda Apollo</p>
+          <p className="text-xs font-medium text-muted-foreground">Búsqueda Apollo</p>
           <dl className="space-y-1 text-xs">
             <div className="flex justify-between">
               <dt className="text-muted-foreground">Resultados evaluados</dt>
@@ -715,7 +715,7 @@ function ApolloResultSummary({ result, runId, accountId, companyName, companyDom
             )}
           </dl>
           {result.searchGuardrail.blocked_by_search_budget && (
-            <p className="text-[11px] text-amber-600">
+            <p className="text-xs text-warning">
               Búsqueda detenida al alcanzar el límite de{' '}
               {result.searchGuardrail.max_results_per_run} resultados.
             </p>

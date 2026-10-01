@@ -99,18 +99,18 @@ export function TavilyConnectModal({ open, onOpenChange }: ConnectModalProps) {
                 {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Obtén tu API Key en{' '}
               <span className="font-medium text-foreground">app.tavily.com</span>{' '}
               → Dashboard → API Keys. Las claves comienzan con{' '}
-              <code className="rounded bg-muted px-1 py-0.5 text-[10px]">tvly-</code>.
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">tvly-</code>.
             </p>
           </div>
 
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
+          <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2.5">
             <div className="flex items-start gap-2">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-              <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+              <p className="text-xs text-warning leading-relaxed">
                 El botón &ldquo;Probar conexión&rdquo; (disponible después de guardar)
                 consume 1 crédito de Tavily. No usar de forma masiva.
               </p>
@@ -125,7 +125,7 @@ export function TavilyConnectModal({ open, onOpenChange }: ConnectModalProps) {
           )}
 
           {successMsg && (
-            <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400">
+            <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-xs text-success">
               {successMsg}
             </p>
           )}
@@ -236,7 +236,7 @@ export function TavilyUpdateModal({ open, onOpenChange }: UpdateModalProps) {
           )}
 
           {successMsg && (
-            <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400">
+            <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-xs text-success">
               {successMsg}
             </p>
           )}
@@ -287,10 +287,10 @@ export function TavilyTestConnectionButton({ disabled }: TestConnectionProps) {
 
   if (showConfirm) {
     return (
-      <div className="space-y-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+      <div className="space-y-3 rounded-lg border border-warning/30 bg-warning/10 p-3">
         <div className="flex items-start gap-2">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-          <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+          <p className="text-xs text-warning leading-relaxed">
             Esta acción consumirá <strong>1 crédito</strong> de tu plan Tavily.
             ¿Deseas continuar?
           </p>
@@ -323,7 +323,7 @@ export function TavilyTestConnectionButton({ disabled }: TestConnectionProps) {
         <p
           className={`rounded-lg border px-3 py-2 text-xs ${
             result.success
-              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+              ? 'border-success/30 bg-success/10 text-success dark:text-success'
               : 'border-destructive/30 bg-destructive/10 text-destructive'
           }`}
         >

@@ -37,7 +37,7 @@ const detailSheetCode = stripComments(detailSheet);
 
 const agent1DataTable = readRepo('src/components/prospects/prospects-data-table-client.tsx');
 const AGENT1_BADGE_CLASSES =
-  'border-0 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[9px] font-semibold px-1.5 py-0.5 shrink-0';
+  'border-0 bg-success/10 text-success text-xs font-semibold px-1.5 py-0.5 shrink-0';
 
 describe('Nuevo badge — reuses Agent 1 source of truth', () => {
   it('imports isCandidateCreatedToday (mirrors isProspectCreatedToday), not a bespoke rule', () => {

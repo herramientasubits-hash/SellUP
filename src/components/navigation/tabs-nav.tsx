@@ -34,15 +34,15 @@ const TabsNav = React.forwardRef<HTMLDivElement, TabsNavProps>(
               className={cn(
                 "relative rounded-full px-4 py-1.5 text-sm font-medium transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 isActive
-                  ? "bg-su-brand text-su-brand-foreground shadow-sm"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                  ? "bg-su-brand text-su-brand-foreground shadow-card"
+                  : "text-muted-foreground hover:bg-surface-muted hover:text-foreground"
               )}
             >
               {tab.label}
               {tab.count !== undefined && tab.count > 0 && (
                 <span
                   className={cn(
-                    "absolute -top-1 -right-1 min-w-[16px] h-5 rounded-full bg-su-brand/20 text-[10px] font-medium px-1.5 text-center text-su-brand",
+                    "absolute -top-1 -right-1 min-w-[16px] h-5 rounded-full bg-su-brand/20 text-xs font-medium px-1.5 text-center text-su-brand",
                     isActive && "bg-su-brand-foreground/20 text-su-brand-foreground"
                   )}
                 >

@@ -343,21 +343,21 @@ export function BulkContactEnrichmentDrawer({
                     </div>
                     <div className="shrink-0 mt-0.5">
                       {state === 'checking_eligibility' && (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground/60" />
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
                       )}
                       {eligible && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
                           <CheckCircle2 className="h-3 w-3" />
                           Elegible
                         </span>
                       )}
                       {skipped && (
                         <div className="text-right">
-                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
                             <XCircle className="h-3 w-3" />
                             Omitida
                           </span>
-                          <p className="mt-0.5 text-[10px] text-muted-foreground max-w-[140px] text-right">
+                          <p className="mt-0.5 text-xs text-muted-foreground max-w-[140px] text-right">
                             {SKIP_REASON_LABELS[skipped.reason] ?? skipped.reason}
                           </p>
                         </div>
@@ -403,7 +403,7 @@ export function BulkContactEnrichmentDrawer({
             )}
 
             {noEligible && (
-              <div className="rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+              <div className="rounded-md bg-warning/10 px-3 py-2 text-xs text-warning">
                 No hay cuentas elegibles para enriquecer en este lote.
               </div>
             )}
@@ -427,7 +427,7 @@ export function BulkContactEnrichmentDrawer({
 
         {/* Unknown / in-progress state after recovery */}
         {!tooManyAccounts && state === 'execution_unknown' && (
-          <div className="flex items-start gap-2 rounded-md bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-400">
+          <div className="flex items-start gap-2 rounded-md bg-warning/10 px-3 py-2.5 text-xs text-warning">
             <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
             El lote fue iniciado, pero todavía no tenemos confirmación final. Puedes actualizar el
             estado en unos segundos.
@@ -436,7 +436,7 @@ export function BulkContactEnrichmentDrawer({
 
         {/* Disclaimer */}
         {!tooManyAccounts && state !== 'error' && !isDone && !isUnknown && (
-          <div className="rounded-md bg-muted/60 px-3 py-2.5">
+          <div className="rounded-md bg-surface-muted px-3 py-2.5">
             <p className="text-xs text-muted-foreground">
               Este proceso{' '}
               <strong className="text-foreground">no crea contactos oficiales</strong> ni
@@ -455,12 +455,12 @@ export function BulkContactEnrichmentDrawer({
             <Separator />
             <div className="space-y-2">
               {state === 'completed_with_errors' ? (
-                <div className="flex items-center gap-1.5 text-sm font-medium text-amber-600 dark:text-amber-400">
+                <div className="flex items-center gap-1.5 text-sm font-medium text-warning">
                   <AlertCircle className="h-4 w-4" />
                   El lote terminó con algunos errores. Revisa el resumen.
                 </div>
               ) : summary.candidates_created > 0 ? (
-                <div className="flex items-center gap-1.5 text-sm font-medium text-emerald-600 dark:text-emerald-400">
+                <div className="flex items-center gap-1.5 text-sm font-medium text-success">
                   <CheckCircle2 className="h-4 w-4" />
                   Listo. Se crearon {summary.candidates_created} candidato
                   {summary.candidates_created !== 1 ? 's' : ''} para revisión.
@@ -550,13 +550,13 @@ function StatCard({
 }) {
   const valueClass =
     variant === 'success'
-      ? 'text-emerald-600 dark:text-emerald-400'
+      ? 'text-success'
       : variant === 'warn' && value > 0
-        ? 'text-amber-600 dark:text-amber-400'
+        ? 'text-warning'
         : 'text-foreground';
 
   return (
-    <div className="rounded-lg bg-muted/40 px-2 py-2.5 text-center">
+    <div className="rounded-lg bg-surface-subtle px-2 py-2.5 text-center">
       <p className={`text-lg font-semibold ${valueClass}`}>{value}</p>
       <p className="text-xs text-muted-foreground">{label}</p>
     </div>

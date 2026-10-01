@@ -54,9 +54,9 @@ function getStatusConfig(
   if (!connection || connection.connection_status === 'not_connected') {
     return {
       label: 'No configurado',
-      badgeClass: 'border-border/40 bg-muted/30 text-muted-foreground/60',
+      badgeClass: 'border-border/60 bg-surface-subtle text-muted-foreground',
       dotClass: 'bg-muted-foreground/25',
-      icon: <XCircle className="h-4 w-4 text-muted-foreground/50" />,
+      icon: <XCircle className="h-4 w-4 text-muted-foreground" />,
     };
   }
 
@@ -66,27 +66,27 @@ function getStatusConfig(
   ) {
     return {
       label: 'No configurado',
-      badgeClass: 'border-border/40 bg-muted/30 text-muted-foreground/60',
+      badgeClass: 'border-border/60 bg-surface-subtle text-muted-foreground',
       dotClass: 'bg-muted-foreground/25',
-      icon: <XCircle className="h-4 w-4 text-muted-foreground/50" />,
+      icon: <XCircle className="h-4 w-4 text-muted-foreground" />,
     };
   }
 
   if (connection.connection_status === 'not_tested') {
     return {
       label: 'Credencial guardada',
-      badgeClass: 'border-amber-500/30 bg-amber-500/10 text-amber-500',
-      dotClass: 'bg-amber-500',
-      icon: <Clock className="h-4 w-4 text-amber-500" />,
+      badgeClass: 'border-warning/30 bg-warning/10 text-warning',
+      dotClass: 'bg-warning',
+      icon: <Clock className="h-4 w-4 text-warning" />,
     };
   }
 
   if (connection.connection_status === 'connected') {
     return {
       label: 'Conectado',
-      badgeClass: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500',
-      dotClass: 'bg-emerald-500',
-      icon: <CheckCircle2 className="h-4 w-4 text-emerald-500" />,
+      badgeClass: 'border-success/30 bg-success/10 text-success',
+      dotClass: 'bg-success',
+      icon: <CheckCircle2 className="h-4 w-4 text-success" />,
     };
   }
 
@@ -101,9 +101,9 @@ function getStatusConfig(
 
   return {
     label: 'No configurado',
-    badgeClass: 'border-border/40 bg-muted/30 text-muted-foreground/60',
+    badgeClass: 'border-border/60 bg-surface-subtle text-muted-foreground',
     dotClass: 'bg-muted-foreground/25',
-    icon: <XCircle className="h-4 w-4 text-muted-foreground/50" />,
+    icon: <XCircle className="h-4 w-4 text-muted-foreground" />,
   };
 }
 
@@ -262,7 +262,7 @@ export function LushaProviderCard({ connection: initialConnection, description }
           description={description ?? undefined}
           actions={
             <span
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${status.badgeClass}`}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${status.badgeClass}`}
             >
               <span className={`h-1.5 w-1.5 rounded-full ${status.dotClass}`} />
               {status.label}
@@ -272,7 +272,7 @@ export function LushaProviderCard({ connection: initialConnection, description }
 
         {/* Tipo de proveedor */}
         <div className="flex items-center gap-2 mb-4">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/60 text-muted-foreground/50">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/60 text-muted-foreground">
             <Sparkles className="h-4 w-4" />
           </div>
           <span className="text-xs text-muted-foreground">
@@ -283,7 +283,7 @@ export function LushaProviderCard({ connection: initialConnection, description }
         {/* Error message */}
         {connection?.connection_status === 'error' && connection.last_connection_error && (
           <div className="mb-4 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2">
-            <p className="text-[11px] text-destructive line-clamp-2">
+            <p className="text-xs text-destructive line-clamp-2">
               {connection.last_connection_error}
             </p>
           </div>
@@ -291,7 +291,7 @@ export function LushaProviderCard({ connection: initialConnection, description }
 
         {/* Última prueba */}
         {connection?.last_tested_at && (
-          <p className="mb-4 text-[11px] text-muted-foreground/60">
+          <p className="mb-4 text-xs text-muted-foreground">
             Última prueba:{' '}
             {new Date(connection.last_tested_at).toLocaleString('es-ES', {
               day: 'numeric',
@@ -309,7 +309,7 @@ export function LushaProviderCard({ connection: initialConnection, description }
               size="sm"
               onClick={() => openDialog('connect')}
               disabled={isPending}
-              className="bg-su-brand text-white hover:bg-su-brand/90"
+              className="bg-su-brand text-primary-foreground hover:bg-su-brand/90"
             >
               Conectar Lusha
             </Button>
@@ -353,9 +353,9 @@ export function LushaProviderCard({ connection: initialConnection, description }
       {/* Toast */}
       {toast && (
         <div
-          className={`fixed bottom-6 right-6 z-50 max-w-sm rounded-xl border px-4 py-3 shadow-lg animate-su-slide-in ${
+          className={`fixed bottom-6 right-6 z-50 max-w-sm rounded-2xl border px-4 py-3 shadow-drawer animate-su-slide-in ${
             toast.type === 'success'
-              ? 'border-emerald-500/30 bg-card text-emerald-500'
+              ? 'border-success/30 bg-card text-success'
               : 'border-destructive/30 bg-card text-destructive'
           }`}
         >
@@ -394,7 +394,7 @@ export function LushaProviderCard({ connection: initialConnection, description }
               />
             </div>
 
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
+            <p className="text-xs text-muted-foreground leading-relaxed">
               Las capacidades disponibles y el consumo de créditos dependen del plan de
               Lusha asociado a esta API Key.
             </p>
@@ -408,7 +408,7 @@ export function LushaProviderCard({ connection: initialConnection, description }
               size="sm"
               onClick={handleSaveCredential}
               disabled={isPending || apiKeyInput.trim().length < 10}
-              className="bg-su-brand text-white hover:bg-su-brand/90"
+              className="bg-su-brand text-primary-foreground hover:bg-su-brand/90"
             >
               {isPending ? 'Guardando...' : 'Guardar credencial'}
             </Button>

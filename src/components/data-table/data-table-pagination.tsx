@@ -84,7 +84,7 @@ export function DataTablePagination<TData>({
 
         {pages.map((p, i) =>
           p === "…" ? (
-            <span key={`ellipsis-${i}`} className="px-1 text-muted-foreground/60">
+            <span key={`ellipsis-${i}`} className="px-1 text-muted-foreground">
               …
             </span>
           ) : (

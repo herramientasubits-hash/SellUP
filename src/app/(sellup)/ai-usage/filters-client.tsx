@@ -214,7 +214,7 @@ export function FiltersClient({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mr-1">
+      <span className="text-xs font-semibold text-muted-foreground mr-1">
         Filtrar
       </span>
 

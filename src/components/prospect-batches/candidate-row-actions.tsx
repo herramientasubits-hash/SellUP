@@ -415,7 +415,7 @@ export function CandidateRowActions({
                 // convert-and-approve flow. handleApproveClick — the only path to
                 // approveAndConvertCandidateAction — is unreachable in that mode.
                 <DropdownMenuItem onClick={onApproveOverride ?? handleApproveClick}>
-                  <CheckCircle2 className="mr-2 h-3.5 w-3.5 text-emerald-500" />
+                  <CheckCircle2 className="mr-2 h-3.5 w-3.5 text-success" />
                   Aprobar{!onApproveOverride && isPossibleDuplicate ? '…' : ''}
                 </DropdownMenuItem>
               )
@@ -424,7 +424,7 @@ export function CandidateRowActions({
             {canRollback && (
               <DropdownMenuItem
                 onClick={() => { setRollbackReason(''); setRollbackOpen(true); }}
-                className="text-amber-600 dark:text-amber-400 focus:text-amber-600"
+                className="text-warning focus:text-warning"
               >
                 <RotateCcw className="mr-2 h-3.5 w-3.5" />
                 Deshacer conversión…
@@ -438,7 +438,7 @@ export function CandidateRowActions({
               // — the only path to the legacy markCandidateDuplicate — is
               // unreachable in that mode.
               <DropdownMenuItem onClick={onMarkDuplicateOverride ?? handleMarkDuplicateClick}>
-                <GitMerge className="mr-2 h-3.5 w-3.5 text-amber-500" />
+                <GitMerge className="mr-2 h-3.5 w-3.5 text-warning" />
                 Marcar como duplicado{onMarkDuplicateOverride ? '' : '…'}
               </DropdownMenuItem>
             )}
@@ -466,7 +466,7 @@ export function CandidateRowActions({
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <ShieldAlert className="h-4 w-4 text-amber-500 shrink-0" />
+              <ShieldAlert className="h-4 w-4 text-warning shrink-0" />
               Posibles duplicados detectados
             </DialogTitle>
             <DialogDescription>
@@ -484,14 +484,14 @@ export function CandidateRowActions({
                 {dc.matches.map((match, i) => (
                   <div
                     key={i}
-                    className="rounded-xl border border-border/40 bg-card p-2.5 space-y-0.5"
+                    className="rounded-2xl border border-border/60 bg-card p-2.5 space-y-0.5"
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold text-foreground">
                         {SOURCE_LABELS[match.source] ?? match.source}
                       </span>
                       {match.confidence !== null && (
-                        <span className="text-[10px] text-muted-foreground tabular-nums">
+                        <span className="text-xs text-muted-foreground tabular-nums">
                           Conf: {match.confidence}%
                         </span>
                       )}
@@ -503,7 +503,7 @@ export function CandidateRowActions({
                       <p className="text-xs text-muted-foreground">{match.matched_domain}</p>
                     )}
                     {match.reason && (
-                      <p className="text-[10px] text-muted-foreground/70 italic">{match.reason}</p>
+                      <p className="text-xs text-muted-foreground italic">{match.reason}</p>
                     )}
                   </div>
                 ))}
@@ -526,7 +526,7 @@ export function CandidateRowActions({
             <Button
               onClick={doApprove}
               disabled={loading}
-              className="gap-1.5 bg-amber-500 hover:bg-amber-600 text-white"
+              className="gap-1.5 bg-warning hover:bg-warning/90 text-white"
             >
               {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               Aprobar de todas formas
@@ -563,7 +563,7 @@ export function CandidateRowActions({
                     className={`rounded-lg border px-3 py-2.5 text-left transition-colors ${
                       discardReasonKey === r.value
                         ? 'border-destructive bg-destructive/10'
-                        : 'border-border/40 bg-card hover:bg-muted/40'
+                        : 'border-border/60 bg-card hover:bg-surface-muted'
                     }`}
                   >
                     <p className={`text-sm leading-snug ${discardReasonKey === r.value ? 'text-destructive font-medium' : 'text-foreground'}`}>
@@ -631,7 +631,7 @@ export function CandidateRowActions({
                       value: 'possible_duplicate',
                       label: 'Posible duplicado',
                       desc: 'Requiere confirmación manual',
-                      color: 'text-amber-600 dark:text-amber-400',
+                      color: 'text-warning',
                     },
                     {
                       value: 'exact_duplicate',
@@ -643,7 +643,7 @@ export function CandidateRowActions({
                       value: 'related_company',
                       label: 'Empresa relacionada',
                       desc: 'Filial o subsidiaria de otra empresa',
-                      color: 'text-orange-600 dark:text-orange-400',
+                      color: 'text-warning',
                     },
                   ] as const
                 ).map((opt) => (
@@ -654,11 +654,11 @@ export function CandidateRowActions({
                     className={`rounded-lg border px-3 py-2 text-left transition-colors ${
                       markDuplicateType === opt.value
                         ? 'border-su-brand bg-su-brand-soft'
-                        : 'border-border/40 bg-card hover:bg-muted/40'
+                        : 'border-border/60 bg-card hover:bg-surface-muted'
                     }`}
                   >
                     <p className={`text-xs font-semibold ${opt.color}`}>{opt.label}</p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">{opt.desc}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{opt.desc}</p>
                   </button>
                 ))}
               </div>
@@ -715,7 +715,7 @@ export function CandidateRowActions({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="rounded-xl border border-border/40 bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground space-y-1">
+          <div className="rounded-xl border border-border/60 bg-surface-subtle px-3 py-2.5 text-xs text-muted-foreground space-y-1">
             <p className="font-medium text-foreground">¿Ya verificaste?</p>
             <p>• Buscar la empresa en SellUp (Cuentas / Candidatos)</p>
             <p>• Buscar la empresa en HubSpot por nombre y NIT</p>
@@ -749,7 +749,7 @@ export function CandidateRowActions({
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <RotateCcw className="h-4 w-4 text-amber-500 shrink-0" />
+              <RotateCcw className="h-4 w-4 text-warning shrink-0" />
               Deshacer conversión
             </DialogTitle>
             <DialogDescription>
@@ -757,7 +757,7 @@ export function CandidateRowActions({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-400 space-y-1">
+          <div className="rounded-xl border border-warning/20 bg-warning/5 px-3 py-2.5 text-xs text-warning space-y-1">
             <p className="font-medium">¿Qué hace este rollback?</p>
             <p>• La cuenta queda marcada como no operativa en metadata.</p>
             <p>• El candidato vuelve a estado &quot;Aprobado&quot; con trazabilidad completa.</p>
@@ -788,7 +788,7 @@ export function CandidateRowActions({
             <Button
               onClick={handleRollback}
               disabled={loading || !rollbackReason.trim()}
-              className="gap-1.5 bg-amber-500 hover:bg-amber-600 text-white"
+              className="gap-1.5 bg-warning hover:bg-warning/90 text-white"
             >
               {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               Deshacer conversión
@@ -802,7 +802,7 @@ export function CandidateRowActions({
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Link2 className="h-4 w-4 text-orange-500 shrink-0" />
+              <Link2 className="h-4 w-4 text-warning shrink-0" />
               Empresa relacionada detectada
             </DialogTitle>
             <DialogDescription>
@@ -827,7 +827,7 @@ export function CandidateRowActions({
             <Button
               onClick={doApprove}
               disabled={loading}
-              className="gap-1.5 bg-orange-500 hover:bg-orange-600 text-white"
+              className="gap-1.5 bg-warning hover:bg-warning/90 text-white"
             >
               {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               Aprobar de todas formas

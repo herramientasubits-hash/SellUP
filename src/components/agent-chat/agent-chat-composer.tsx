@@ -65,7 +65,7 @@ export function AgentChatComposer({
       className={cn(
         'rounded-xl border transition-colors',
         isLocked
-          ? 'border-border/40 bg-muted/20'
+          ? 'border-border/60 bg-surface-subtle'
           : 'border-border bg-card focus-within:border-su-brand/40 focus-within:ring-1 focus-within:ring-su-brand/20',
       )}
     >
@@ -81,8 +81,8 @@ export function AgentChatComposer({
           placeholder={placeholder}
           rows={1}
           className={cn(
-            'flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground/60 leading-relaxed',
-            isLocked ? 'cursor-default text-muted-foreground/50' : 'text-foreground',
+            'flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground leading-relaxed',
+            isLocked ? 'cursor-default text-muted-foreground' : 'text-foreground',
           )}
           style={{ minHeight: '20px', maxHeight: '120px' }}
           tabIndex={isLocked ? -1 : 0}
@@ -98,7 +98,7 @@ export function AgentChatComposer({
               ? {
                   background:
                     'linear-gradient(135deg, var(--su-ai-stop-1) 0%, var(--su-ai-stop-3) 100%)',
-                  boxShadow: '0 2px 8px rgba(45,92,247,0.35)',
+                  boxShadow: 'var(--su-ai-send-shadow)',
                 }
               : undefined
           }
@@ -106,7 +106,7 @@ export function AgentChatComposer({
             'h-7 w-7 shrink-0 rounded-full transition-all',
             canSend
               ? 'text-white hover:opacity-90 active:scale-95'
-              : 'bg-muted text-muted-foreground/40',
+              : 'bg-muted text-text-muted',
           )}
         >
           <ArrowUp className="h-3.5 w-3.5" aria-hidden />
@@ -115,15 +115,15 @@ export function AgentChatComposer({
 
       {isTextInput && charCount > 0 && (
         <div className="flex items-center justify-between px-3 pb-2 pt-0">
-          <span className="text-[10px] text-muted-foreground/50">
+          <span className="text-xs text-muted-foreground">
             Shift+Enter para nueva línea
           </span>
           <span
             aria-live="polite"
             aria-atomic="true"
             className={cn(
-              'text-[10px] tabular-nums',
-              overLimit ? 'font-medium text-destructive' : 'text-muted-foreground/50',
+              'text-xs tabular-nums',
+              overLimit ? 'font-medium text-destructive' : 'text-muted-foreground',
             )}
           >
             {charCount}/{maxLength}

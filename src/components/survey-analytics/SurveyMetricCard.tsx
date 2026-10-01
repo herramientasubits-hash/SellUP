@@ -62,7 +62,7 @@ export function SurveyMetricCard({
       <Card className={cn("h-full", className)}>
         <CardHeader>
           {title && (
-            <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
+            <CardTitle className="text-sm font-bold text-muted-foreground">
               {title}
             </CardTitle>
           )}
@@ -83,7 +83,7 @@ export function SurveyMetricCard({
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
             {title && (
-              <CardTitle className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80">
+              <CardTitle className="text-xs font-bold text-muted-foreground">
                 {title}
               </CardTitle>
             )}
@@ -124,7 +124,7 @@ export function SurveyMetricCard({
       </CardContent>
 
       {footer && (
-        <CardFooter className="bg-muted/5 border-t border-border/5 text-[11px] text-muted-foreground py-3">
+        <CardFooter className="bg-muted/5 border-t border-border/5 text-xs text-muted-foreground py-3">
           {footer}
         </CardFooter>
       )}

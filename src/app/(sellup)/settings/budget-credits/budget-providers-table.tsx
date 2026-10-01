@@ -74,8 +74,8 @@ function deriveAttention(row: AdminProviderBudgetRow): AttentionLevel {
 }
 
 const ATTENTION_BADGE: Record<Exclude<AttentionLevel, 'none'>, { label: string; className: string }> = {
-  quota_required: { label: 'Cuota requerida', className: 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400' },
-  warning:        { label: 'Advertencia',      className: 'border-amber-500/30 bg-amber-500/10 text-amber-500' },
+  quota_required: { label: 'Cuota requerida', className: 'border-warning/30 bg-warning/10 text-warning' },
+  warning:        { label: 'Advertencia',      className: 'border-warning/30 bg-warning/10 text-warning' },
   exceeded:       { label: 'Excedido',         className: 'border-destructive/30 bg-destructive/10 text-destructive' },
 };
 
@@ -106,15 +106,15 @@ function SelectionReviewPanel({
   const totalConsumed = deriveConsumedDisplay(totalCredits, totalUsd, totalHasUnknownCost);
 
   return (
-    <div className="rounded-lg border border-su-brand/20 bg-muted/10 animate-su-fade-in">
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/30">
+    <div className="rounded-lg border border-su-brand/20 bg-surface-subtle animate-su-fade-in">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/50">
         <p className="text-xs font-medium text-foreground">
           {rows.length} proveedor{rows.length !== 1 ? 'es' : ''} seleccionado{rows.length !== 1 ? 's' : ''}
         </p>
         <button
           type="button"
           onClick={onClose}
-          className="inline-flex items-center justify-center h-6 w-6 rounded-md hover:bg-muted/60 transition-colors"
+          className="inline-flex items-center justify-center h-6 w-6 rounded-md hover:bg-surface-muted transition-colors"
           aria-label="Cerrar revisión"
         >
           <X className="h-3.5 w-3.5 text-muted-foreground" />
@@ -128,18 +128,18 @@ function SelectionReviewPanel({
           const opBadge = OPERATIONAL_TYPE_BADGE[opType];
           const consumed = deriveConsumed(row, ms);
           return (
-            <div key={row.providerKey} className="flex items-center gap-3 py-1.5 border-b border-border/20 last:border-0">
+            <div key={row.providerKey} className="flex items-center gap-3 py-1.5 border-b border-border/50 last:border-0">
               <span className="text-xs font-medium text-foreground min-w-0 truncate shrink-0" style={{ maxWidth: '10rem' }}>
                 {row.displayName ?? row.providerKey}
               </span>
-              <span className={`shrink-0 inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-medium ${opBadge}`}>
+              <span className={`shrink-0 inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-medium ${opBadge}`}>
                 {OPERATIONAL_TYPE_LABEL[opType]}
               </span>
-              <span className={`shrink-0 inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-medium ${msBadge.className}`}>
+              <span className={`shrink-0 inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-medium ${msBadge.className}`}>
                 {MEASUREMENT_STATUS_LABEL[ms]}
               </span>
               <span
-                className="ml-auto shrink-0 text-[11px] text-muted-foreground whitespace-nowrap"
+                className="ml-auto shrink-0 text-xs text-muted-foreground whitespace-nowrap"
                 title={consumed.description}
               >
                 {consumed.label}
@@ -149,11 +149,11 @@ function SelectionReviewPanel({
         })}
         {hasTotal && (
           <div className="flex items-center justify-between pt-1 text-xs font-medium">
-            <span className="text-muted-foreground/70">Total consumo del mes</span>
+            <span className="text-muted-foreground">Total consumo del mes</span>
             <span title={totalConsumed.description}>{totalConsumed.label}</span>
           </div>
         )}
-        <p className="text-[11px] text-muted-foreground/60 leading-relaxed pt-1">
+        <p className="text-xs text-muted-foreground leading-relaxed pt-1">
           Las acciones masivas se conectarán progresivamente. Por ahora puedes revisar la selección y abrir proveedores individuales.
         </p>
       </div>
@@ -319,10 +319,10 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], pro
   return (
     <>
       <div className="space-y-3">
-        <div className="overflow-x-auto rounded-lg border border-border/40">
+        <div className="overflow-x-auto rounded-lg border border-border/60">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border/40 bg-muted/20">
+              <tr className="border-b border-border/60 bg-surface-subtle">
                 <th className="w-10 px-4 py-3">
                   <Checkbox
                     checked={allSelected ? true : someSelected ? 'indeterminate' : false}
@@ -358,7 +358,7 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], pro
                 return (
                   <tr
                     key={row.providerKey}
-                    className={`hover:bg-muted/10 transition-colors ${isSelected ? 'bg-muted/20' : ''}`}
+                    className={`hover:bg-surface-muted transition-colors ${isSelected ? 'bg-surface-subtle' : ''}`}
                   >
                     {/* Checkbox — selecting does NOT open sidepanel */}
                     <td className="w-10 px-4 py-3" onClick={(e) => e.stopPropagation()}>
@@ -390,7 +390,7 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], pro
 
                     {/* Estado */}
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${msBadge.className}`}>
+                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${msBadge.className}`}>
                         {MEASUREMENT_STATUS_LABEL[ms]}
                       </span>
                     </td>
@@ -403,23 +403,23 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], pro
                     {/* Alerta */}
                     <td className="px-4 py-3">
                       {attention !== 'none' ? (
-                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${ATTENTION_BADGE[attention].className}`}>
+                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${ATTENTION_BADGE[attention].className}`}>
                           {ATTENTION_BADGE[attention].label}
                         </span>
                       ) : (
-                        <span className="text-xs text-muted-foreground/40">—</span>
+                        <span className="text-xs text-text-muted">—</span>
                       )}
                     </td>
 
                     {/* Última sync */}
                     <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
-                      {syncedAt ?? <span className="text-muted-foreground/40">—</span>}
+                      {syncedAt ?? <span className="text-text-muted">—</span>}
                     </td>
 
                     {/* Acciones */}
                     <td className="px-4 py-3">
                       <DropdownMenu>
-                        <DropdownMenuTrigger className="inline-flex items-center justify-center h-7 w-7 rounded-md hover:bg-muted/60 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border">
+                        <DropdownMenuTrigger className="inline-flex items-center justify-center h-7 w-7 rounded-md hover:bg-surface-muted transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border">
                           <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
                           <span className="sr-only">Acciones</span>
                         </DropdownMenuTrigger>
@@ -467,7 +467,7 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], pro
           <SelectionReviewPanel rows={selectedRows} onClose={() => setReviewOpen(false)} />
         )}
 
-        <p className="px-1 text-[11px] text-muted-foreground/50">
+        <p className="px-1 text-xs text-muted-foreground">
           Datos del período mensual actual · Actualizado {resolvedDate}
         </p>
       </div>

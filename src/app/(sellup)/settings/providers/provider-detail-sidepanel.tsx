@@ -227,8 +227,8 @@ function formatDate(iso: string): string {
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-4 py-2 border-b border-border/30 last:border-0">
-      <span className="text-[11px] uppercase tracking-wide text-muted-foreground/60 font-medium shrink-0 pt-0.5">
+    <div className="flex items-start justify-between gap-4 py-2 border-b border-border/50 last:border-0">
+      <span className="text-xs text-muted-foreground font-medium shrink-0 pt-0.5">
         {label}
       </span>
       <span className="text-xs text-foreground text-right">{value}</span>
@@ -238,7 +238,7 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
 
 function SectionCard({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3 space-y-0">
+    <div className="rounded-lg border border-border/60 bg-surface-subtle px-4 py-3 space-y-0">
       {children}
     </div>
   );
@@ -247,25 +247,25 @@ function SectionCard({ children }: { children: React.ReactNode }) {
 function ProgressiveNote({ children }: { children: React.ReactNode }) {
   return (
     <div className="rounded-lg border border-su-brand/20 bg-su-brand-soft px-4 py-3">
-      <p className="text-[11px] text-muted-foreground/80 leading-relaxed">{children}</p>
+      <p className="text-xs text-muted-foreground leading-relaxed">{children}</p>
     </div>
   );
 }
 
 function LoadingPlaceholder({ label }: { label: string }) {
   return (
-    <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-6 flex items-center justify-center gap-2">
-      <Loader2 className="h-3.5 w-3.5 text-muted-foreground/50 animate-spin" />
-      <p className="text-xs text-muted-foreground/60">{label}</p>
+    <div className="rounded-lg border border-border/50 bg-surface-subtle px-4 py-6 flex items-center justify-center gap-2">
+      <Loader2 className="h-3.5 w-3.5 text-muted-foreground animate-spin" />
+      <p className="text-xs text-muted-foreground">{label}</p>
     </div>
   );
 }
 
 function EmptyBlock({ message, sub }: { message: string; sub?: string }) {
   return (
-    <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-5 text-center">
+    <div className="rounded-lg border border-border/50 bg-surface-subtle px-4 py-5 text-center">
       <p className="text-xs text-muted-foreground">{message}</p>
-      {sub && <p className="text-[10px] text-muted-foreground/50 mt-1">{sub}</p>}
+      {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
     </div>
   );
 }
@@ -276,12 +276,12 @@ function EmptyBlock({ message, sub }: { message: string; sub?: string }) {
 // empties, so a zero-consumption filter combination reads as one clear signal.
 function GlobalConsumptionEmptyBlock() {
   return (
-    <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-6 text-center space-y-1">
+    <div className="rounded-lg border border-border/50 bg-surface-subtle px-4 py-6 text-center space-y-1">
       <p className="text-xs font-medium text-foreground">Sin consumo registrado</p>
-      <p className="text-[10px] text-muted-foreground/60">
+      <p className="text-xs text-muted-foreground">
         No encontramos consumo de este proveedor para los filtros seleccionados.
       </p>
-      <p className="text-[10px] text-muted-foreground/50">
+      <p className="text-xs text-muted-foreground">
         Ajusta los filtros para consultar otro período, usuario o contexto.
       </p>
     </div>
@@ -415,7 +415,7 @@ function TabResumen({
           <InfoRow
             label="Tipo"
             value={
-              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${opBadge}`}>
+              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${opBadge}`}>
                 {OPERATIONAL_TYPE_LABEL[opType]}
               </span>
             }
@@ -428,7 +428,7 @@ function TabResumen({
         {/* 2. Consumo y presupuesto */}
         <SectionCard>
           <InfoRow label="Consumo del mes" value={<span title={consumed.description}>{consumed.label}</span>} />
-          <InfoRow label="Cuota configurada" value={hasQuota ? allowance : <span className="text-muted-foreground/50">Sin cuota configurada</span>} />
+          <InfoRow label="Cuota configurada" value={hasQuota ? allowance : <span className="text-muted-foreground">Sin cuota configurada</span>} />
           {row.activeRules > 0 && (
             <InfoRow label="Reglas activas" value={`${row.activeRules} regla${row.activeRules !== 1 ? 's' : ''}`} />
           )}
@@ -443,14 +443,14 @@ function TabResumen({
           )}
           {progressPct !== null && (
             <div className="pt-1.5 pb-0.5">
-              <div className="flex items-center justify-between text-[10px] text-muted-foreground/60 mb-1">
+              <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
                 <span>Uso del presupuesto</span>
                 <span>{progressPct}%</span>
               </div>
-              <div className="h-1.5 w-full rounded-full bg-muted/40 overflow-hidden">
+              <div className="h-1.5 w-full rounded-full bg-surface-subtle overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all ${
-                    progressPct >= 90 ? 'bg-destructive' : progressPct >= 70 ? 'bg-amber-500' : 'bg-su-brand'
+                    progressPct >= 90 ? 'bg-destructive' : progressPct >= 70 ? 'bg-warning' : 'bg-su-brand'
                   }`}
                   style={{ width: `${progressPct}%` }}
                 />
@@ -462,7 +462,7 @@ function TabResumen({
 
       {/* 3. Actividad reciente */}
       <div className="space-y-2">
-        <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">Actividad reciente</p>
+        <p className="text-xs text-muted-foreground px-1">Actividad reciente</p>
         {loadingDetail ? (
           <LoadingPlaceholder label="Cargando actividad..." />
         ) : ms === 'not_measured' ? (
@@ -472,29 +472,29 @@ function TabResumen({
             {recentOps.map((log) => {
               const isError = log.status != null && (log.status.toLowerCase().includes('error') || log.status.toLowerCase().includes('fail'));
               return (
-                <div key={log.id} className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2 flex items-center gap-3">
-                  <span className={`shrink-0 h-1.5 w-1.5 rounded-full ${isError ? 'bg-destructive' : 'bg-emerald-500'}`} />
+                <div key={log.id} className="rounded-lg border border-border/60 bg-surface-subtle px-3 py-2 flex items-center gap-3">
+                  <span className={`shrink-0 h-1.5 w-1.5 rounded-full ${isError ? 'bg-destructive' : 'bg-success'}`} />
                   <span className="text-xs text-foreground truncate flex-1">
                     {log.operationKey ?? 'operación general'}
                   </span>
                   {log.creditsUsed != null && (
-                    <span className="text-[10px] text-muted-foreground/70 shrink-0">
+                    <span className="text-xs text-muted-foreground shrink-0">
                       {log.creditsUsed.toLocaleString()} cr
                     </span>
                   )}
                   {log.estimatedCostUsd != null && (
-                    <span className="text-[10px] text-muted-foreground/70 shrink-0">
+                    <span className="text-xs text-muted-foreground shrink-0">
                       ${log.estimatedCostUsd.toFixed(4)}
                     </span>
                   )}
-                  <span className="text-[10px] text-muted-foreground/50 shrink-0">
+                  <span className="text-xs text-muted-foreground shrink-0">
                     {formatDateShort(log.createdAt)}
                   </span>
                 </div>
               );
             })}
             {successRate !== null && (
-              <p className="text-[10px] text-muted-foreground/50 px-1">
+              <p className="text-xs text-muted-foreground px-1">
                 Tasa de éxito: {successRate}% ({totalOps - errorCount}/{totalOps} ops)
               </p>
             )}
@@ -505,22 +505,22 @@ function TabResumen({
               const outcome = parseBudgetCheck(log.budgetCheck)?.outcome;
               const isError = outcome === 'technical_error' || outcome === 'would_block';
               return (
-                <div key={log.id} className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2 flex items-center gap-3">
-                  <span className={`shrink-0 h-1.5 w-1.5 rounded-full ${isError ? 'bg-destructive' : 'bg-emerald-500'}`} />
+                <div key={log.id} className="rounded-lg border border-border/60 bg-surface-subtle px-3 py-2 flex items-center gap-3">
+                  <span className={`shrink-0 h-1.5 w-1.5 rounded-full ${isError ? 'bg-destructive' : 'bg-success'}`} />
                   <span className="text-xs text-foreground truncate flex-1">
                     {log.operationKey ?? 'operación general'}
                   </span>
                   {log.creditsUsed != null && (
-                    <span className="text-[10px] text-muted-foreground/70 shrink-0">
+                    <span className="text-xs text-muted-foreground shrink-0">
                       {log.creditsUsed.toLocaleString()} cr
                     </span>
                   )}
                   {log.estimatedCostUsd != null && (
-                    <span className="text-[10px] text-muted-foreground/70 shrink-0">
+                    <span className="text-xs text-muted-foreground shrink-0">
                       ${log.estimatedCostUsd.toFixed(4)}
                     </span>
                   )}
-                  <span className="text-[10px] text-muted-foreground/50 shrink-0">
+                  <span className="text-xs text-muted-foreground shrink-0">
                     {formatDateShort(log.createdAt)}
                   </span>
                 </div>
@@ -537,17 +537,17 @@ function TabResumen({
 
       {/* 4. Salud del proveedor */}
       <div className="space-y-2">
-        <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">Salud del proveedor</p>
+        <p className="text-xs text-muted-foreground px-1">Salud del proveedor</p>
         <SectionCard>
           <InfoRow
             label="Estado sync"
             value={
-              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${
                 syncSignal === 'ok'
-                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                  ? 'border-success/30 bg-success/10 text-success dark:text-success'
                   : syncSignal === 'error'
                     ? 'border-destructive/30 bg-destructive/10 text-destructive'
-                    : 'border-border/40 bg-muted/30 text-muted-foreground/60'
+                    : 'border-border/60 bg-surface-subtle text-muted-foreground'
               }`}>
                 {syncSignal === 'ok' ? 'OK' : syncSignal === 'error' ? 'Error' : 'Sin registro'}
               </span>
@@ -557,7 +557,7 @@ function TabResumen({
             <InfoRow
               label="Error"
               value={
-                <span className="text-destructive text-[10px] leading-relaxed line-clamp-2">
+                <span className="text-destructive text-xs leading-relaxed line-clamp-2">
                   {syncErrorMsg}
                 </span>
               }
@@ -575,7 +575,7 @@ function TabResumen({
       {/* 5. Próximas acciones */}
       {actions.length > 0 ? (
         <div className="space-y-2">
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">Acciones sugeridas</p>
+          <p className="text-xs text-muted-foreground px-1">Acciones sugeridas</p>
           <div className="flex flex-wrap gap-2">
             {actions.map((action) => (
               <button
@@ -584,7 +584,7 @@ function TabResumen({
                 onClick={() => onNavigate(action.tab)}
                 className={`inline-flex items-center rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
                   action.variant === 'warn'
-                    ? 'border-amber-500/30 bg-amber-500/5 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10'
+                    ? 'border-warning/30 bg-warning/5 text-warning hover:bg-warning/10'
                     : 'border-su-brand/20 bg-su-brand-soft text-su-brand hover:bg-su-brand-soft/80'
                 }`}
               >
@@ -594,7 +594,7 @@ function TabResumen({
           </div>
         </div>
       ) : (
-        <p className="text-[10px] text-muted-foreground/40 px-1">Sin acciones críticas por ahora.</p>
+        <p className="text-xs text-text-muted px-1">Sin acciones críticas por ahora.</p>
       )}
     </div>
   );
@@ -605,21 +605,21 @@ function TabResumen({
 function SectionHeader({ icon, label }: { icon: React.ReactNode; label: string }) {
   return (
     <div className="flex items-center gap-2 mb-2">
-      <span className="text-muted-foreground/50">{icon}</span>
-      <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 font-medium">{label}</p>
+      <span className="text-muted-foreground">{icon}</span>
+      <p className="text-xs text-muted-foreground font-medium">{label}</p>
     </div>
   );
 }
 
 function ReadOnlyToggle({ label, checked, note }: { label: string; checked: boolean; note?: string }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-2 border-b border-border/30 last:border-0">
+    <div className="flex items-center justify-between gap-4 py-2 border-b border-border/50 last:border-0">
       <div className="min-w-0">
         <span className="text-xs text-foreground">{label}</span>
-        {note && <p className="text-[10px] text-muted-foreground/50 mt-0.5">{note}</p>}
+        {note && <p className="text-xs text-muted-foreground mt-0.5">{note}</p>}
       </div>
       <div className="shrink-0 flex items-center gap-1.5">
-        <span className="text-[10px] text-muted-foreground/40">Solo lectura</span>
+        <span className="text-xs text-text-muted">Solo lectura</span>
         <Switch checked={checked} disabled className="opacity-50 cursor-not-allowed" />
       </div>
     </div>
@@ -629,17 +629,17 @@ function ReadOnlyToggle({ label, checked, note }: { label: string; checked: bool
 function ConfigAccordion({ label, children }: { label: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="rounded-lg border border-border/40 bg-muted/10">
+    <div className="rounded-lg border border-border/60 bg-surface-subtle">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-foreground hover:bg-muted/20 transition-colors rounded-lg"
+        className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-foreground hover:bg-surface-muted transition-colors rounded-lg"
       >
         <span className="font-medium">{label}</span>
-        <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground/60 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div className="px-4 pb-3 pt-1 border-t border-border/30">
+        <div className="px-4 pb-3 pt-1 border-t border-border/50">
           {children}
         </div>
       )}
@@ -650,17 +650,17 @@ function ConfigAccordion({ label, children }: { label: string; children: React.R
 // ── Tab: Configuración — estado de conexión helpers ──────────────────────────
 
 const CONNECTION_STATUS_BADGE: Record<string, { label: string; cls: string }> = {
-  connected:      { label: 'Conectado',      cls: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
-  not_tested:     { label: 'Sin probar',     cls: 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400' },
-  not_configured: { label: 'No configurado', cls: 'border-border/40 bg-muted/30 text-muted-foreground/60' },
+  connected:      { label: 'Conectado',      cls: 'border-success/30 bg-success/10 text-success' },
+  not_tested:     { label: 'Sin probar',     cls: 'border-warning/30 bg-warning/10 text-warning' },
+  not_configured: { label: 'No configurado', cls: 'border-border/60 bg-surface-subtle text-muted-foreground' },
   error:          { label: 'Error',          cls: 'border-destructive/30 bg-destructive/10 text-destructive' },
-  disconnected:   { label: 'Desconectado',   cls: 'border-border/40 bg-muted/30 text-muted-foreground/60' },
+  disconnected:   { label: 'Desconectado',   cls: 'border-border/60 bg-surface-subtle text-muted-foreground' },
 };
 
 function ConnectionStatusBadge({ status }: { status: string }) {
-  const cfg = CONNECTION_STATUS_BADGE[status] ?? { label: status, cls: 'border-border/40 bg-muted/30 text-muted-foreground/60' };
+  const cfg = CONNECTION_STATUS_BADGE[status] ?? { label: status, cls: 'border-border/60 bg-surface-subtle text-muted-foreground' };
   return (
-    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${cfg.cls}`}>
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${cfg.cls}`}>
       {cfg.label}
     </span>
   );
@@ -669,7 +669,7 @@ function ConnectionStatusBadge({ status }: { status: string }) {
 function InlineFeedback({ feedback }: { feedback: { ok: boolean; msg: string } | null }) {
   if (!feedback) return null;
   return (
-    <p className={`text-xs mt-2 px-1 ${feedback.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}`}>
+    <p className={`text-xs mt-2 px-1 ${feedback.ok ? 'text-success dark:text-success' : 'text-destructive'}`}>
       {feedback.msg}
     </p>
   );
@@ -678,15 +678,15 @@ function InlineFeedback({ feedback }: { feedback: { ok: boolean; msg: string } |
 // ── Tab: Configuración IA — modelos y tarifas helpers ────────────────────────
 
 const MODEL_STATUS_BADGE: Record<string, { label: string; cls: string }> = {
-  active:   { label: 'Activo',   cls: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
-  inactive: { label: 'Inactivo', cls: 'border-border/40 bg-muted/30 text-muted-foreground/60' },
+  active:   { label: 'Activo',   cls: 'border-success/30 bg-success/10 text-success' },
+  inactive: { label: 'Inactivo', cls: 'border-border/60 bg-surface-subtle text-muted-foreground' },
   error:    { label: 'Error',    cls: 'border-destructive/30 bg-destructive/10 text-destructive' },
 };
 
 function ModelStatusBadge({ status }: { status: string }) {
-  const cfg = MODEL_STATUS_BADGE[status] ?? { label: status, cls: 'border-border/40 bg-muted/30 text-muted-foreground/60' };
+  const cfg = MODEL_STATUS_BADGE[status] ?? { label: status, cls: 'border-border/60 bg-surface-subtle text-muted-foreground' };
   return (
-    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${cfg.cls}`}>
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${cfg.cls}`}>
       {cfg.label}
     </span>
   );
@@ -748,15 +748,15 @@ function AiModelRow({
   };
 
   return (
-    <div className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2.5 space-y-1.5">
+    <div className="rounded-lg border border-border/60 bg-surface-subtle px-3 py-2.5 space-y-1.5">
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
           <p className="text-xs font-medium text-foreground truncate">{model.displayName}</p>
-          <p className="text-[10px] text-muted-foreground/50 truncate">{model.modelKey}</p>
+          <p className="text-xs text-muted-foreground truncate">{model.modelKey}</p>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           {model.isActiveGlobalModel && (
-            <span className="inline-flex items-center rounded-full border border-su-brand/30 bg-su-brand-soft px-2 py-0.5 text-[10px] font-medium text-su-brand">
+            <span className="inline-flex items-center rounded-full border border-su-brand/30 bg-su-brand-soft px-2 py-0.5 text-xs font-medium text-su-brand">
               Activo global
             </span>
           )}
@@ -764,33 +764,33 @@ function AiModelRow({
         </div>
       </div>
       {model.latestPricing ? (
-        <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[10px] text-muted-foreground/70">
+        <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
           <span>Entrada: {formatPricePerMillion(model.latestPricing.inputPerMillion, model.latestPricing.currency)}</span>
           <span>Salida: {formatPricePerMillion(model.latestPricing.outputPerMillion, model.latestPricing.currency)}</span>
-          <span className="text-muted-foreground/40">Vigente desde {formatDateShort(model.latestPricing.effectiveFrom)}</span>
+          <span className="text-text-muted">Vigente desde {formatDateShort(model.latestPricing.effectiveFrom)}</span>
         </div>
       ) : (
-        <p className="text-[10px] text-muted-foreground/50">Sin tarifa vigente configurada.</p>
+        <p className="text-xs text-muted-foreground">Sin tarifa vigente configurada.</p>
       )}
 
       <div className="flex flex-wrap gap-1.5 pt-1">
-        <Button size="sm" variant="outline" disabled={isPending} onClick={handleToggleStatus} className="h-6 text-[10px] px-2">
+        <Button size="sm" variant="outline" disabled={isPending} onClick={handleToggleStatus} className="h-6 text-xs px-2">
           {isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
           {model.status === 'active' ? 'Desactivar modelo' : 'Activar modelo'}
         </Button>
-        <Button size="sm" variant="outline" disabled={isPending} onClick={() => setShowPricingForm((v) => !v)} className="h-6 text-[10px] px-2">
+        <Button size="sm" variant="outline" disabled={isPending} onClick={() => setShowPricingForm((v) => !v)} className="h-6 text-xs px-2">
           {model.latestPricing ? 'Actualizar tarifa' : 'Agregar tarifa'}
         </Button>
         {!model.isActiveGlobalModel && (
-          <Button size="sm" variant="outline" disabled={isPending} onClick={handleUseAsGlobalBase} className="h-6 text-[10px] px-2">
+          <Button size="sm" variant="outline" disabled={isPending} onClick={handleUseAsGlobalBase} className="h-6 text-xs px-2">
             Usar como modelo base global
           </Button>
         )}
       </div>
 
       {showPricingForm && (
-        <div className="rounded-lg border border-border/40 bg-background px-3 py-2 space-y-2">
-          <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wide font-medium">Costo por millón de tokens</p>
+        <div className="rounded-lg border border-border/60 bg-background px-3 py-2 space-y-2">
+          <p className="text-xs text-muted-foreground font-medium">Costo por millón de tokens</p>
           <div className="flex gap-2">
             <input
               type="number"
@@ -798,7 +798,7 @@ function AiModelRow({
               value={inputCost}
               onChange={(e) => setInputCost(e.target.value)}
               placeholder="Input (USD)"
-              className="w-full rounded-md border border-border/60 bg-background px-2 py-1 text-[11px] outline-none focus:ring-1 focus:ring-su-brand/40"
+              className="w-full rounded-md border border-border/60 bg-background px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-su-brand/40"
             />
             <input
               type="number"
@@ -806,15 +806,15 @@ function AiModelRow({
               value={outputCost}
               onChange={(e) => setOutputCost(e.target.value)}
               placeholder="Output (USD)"
-              className="w-full rounded-md border border-border/60 bg-background px-2 py-1 text-[11px] outline-none focus:ring-1 focus:ring-su-brand/40"
+              className="w-full rounded-md border border-border/60 bg-background px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-su-brand/40"
             />
           </div>
           <div className="flex gap-2">
-            <Button size="sm" disabled={isPending || !inputCost || !outputCost} onClick={handleSavePricing} className="h-6 text-[10px] px-2">
+            <Button size="sm" disabled={isPending || !inputCost || !outputCost} onClick={handleSavePricing} className="h-6 text-xs px-2">
               {isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
               Guardar tarifa
             </Button>
-            <Button size="sm" variant="outline" onClick={() => { setShowPricingForm(false); setInputCost(''); setOutputCost(''); }} className="h-6 text-[10px] px-2">
+            <Button size="sm" variant="outline" onClick={() => { setShowPricingForm(false); setInputCost(''); setOutputCost(''); }} className="h-6 text-xs px-2">
               Cancelar
             </Button>
           </div>
@@ -951,7 +951,7 @@ function TabConfiguracionIA({
                 <InfoRow label="Última prueba" value={<span className="text-muted-foreground">{formatDateShort(connState.lastTestedAt)}</span>} />
               )}
               {connState?.lastConnectionError && (
-                <InfoRow label="Error" value={<span className="text-destructive text-[10px] leading-relaxed">{connState.lastConnectionError}</span>} />
+                <InfoRow label="Error" value={<span className="text-destructive text-xs leading-relaxed">{connState.lastConnectionError}</span>} />
               )}
             </SectionCard>
 
@@ -973,8 +973,8 @@ function TabConfiguracionIA({
             </div>
 
             {showKeyForm && (
-              <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3 space-y-2">
-                <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wide font-medium">Nueva API key</p>
+              <div className="rounded-lg border border-border/60 bg-surface-subtle px-4 py-3 space-y-2">
+                <p className="text-xs text-muted-foreground font-medium">Nueva API key</p>
                 <input
                   type="password"
                   value={apiKeyInput}
@@ -998,7 +998,7 @@ function TabConfiguracionIA({
             {showDisconnectConfirm && (
               <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 space-y-2">
                 <p className="text-xs text-foreground">¿Confirmar desconexión del proveedor?</p>
-                <p className="text-[10px] text-muted-foreground/70">Se eliminarán las credenciales. Esta acción no se puede deshacer.</p>
+                <p className="text-xs text-muted-foreground">Se eliminarán las credenciales. Esta acción no se puede deshacer.</p>
                 <div className="flex gap-2">
                   <Button size="sm" variant="destructive" disabled={isPending} onClick={handleDisconnect} className="h-7 text-xs">
                     {isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
@@ -1023,7 +1023,7 @@ function TabConfiguracionIA({
             <InfoRow
               label="Estado"
               value={
-                <span className={aiProviderDetail.providerStatus === 'active' ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}>
+                <span className={aiProviderDetail.providerStatus === 'active' ? 'text-success' : 'text-muted-foreground'}>
                   {aiProviderDetail.providerStatus === 'active' ? 'Activo' : 'Inactivo'}
                 </span>
               }
@@ -1042,7 +1042,7 @@ function TabConfiguracionIA({
       {/* Modelos y tarifas */}
       <div>
         <SectionHeader icon={<Cpu className="h-3.5 w-3.5" />} label="Modelos y tarifas" />
-        <p className="text-[11px] text-muted-foreground/60 px-1 -mt-1.5 mb-2">
+        <p className="text-xs text-muted-foreground px-1 -mt-1.5 mb-2">
           Modelos disponibles y tarifa vigente para este proveedor.
         </p>
         <div className="space-y-2">
@@ -1059,13 +1059,13 @@ function TabConfiguracionIA({
                     aiProviderDetail.isActiveProviderGlobal && aiProviderDetail.activeModelKey ? (
                       <span className="text-foreground">{aiProviderDetail.activeModelKey}</span>
                     ) : (
-                      <span className="text-muted-foreground/60 text-[10px]">Ningún modelo de este proveedor está activo globalmente</span>
+                      <span className="text-muted-foreground text-xs">Ningún modelo de este proveedor está activo globalmente</span>
                     )
                   }
                 />
               </SectionCard>
               {!aiProviderDetail.models.some((m) => m.latestPricing) && (
-                <p className="text-[10px] text-muted-foreground/50 px-1">Sin tarifa vigente configurada.</p>
+                <p className="text-xs text-muted-foreground px-1">Sin tarifa vigente configurada.</p>
               )}
               <div className="space-y-1.5">
                 {aiProviderDetail.models.map((m) => (
@@ -1103,7 +1103,7 @@ function TabConfiguracionIA({
         <SectionCard>
           <ReadOnlyToggle label="Habilitado para agentes" checked={ms === 'active' || ms === 'connected'} note="Pendiente de configurar por agente" />
         </SectionCard>
-        <p className="text-[10px] text-muted-foreground/40 mt-2 px-1 leading-relaxed">
+        <p className="text-xs text-text-muted mt-2 px-1 leading-relaxed">
           La configuración por agente se conectará progresivamente dentro de este workspace.
         </p>
       </div>
@@ -1271,7 +1271,7 @@ function TabConfiguracionNoIA({
         {loadingConn ? (
           <LoadingPlaceholder label="Cargando estado de conexión..." />
         ) : connLoadError || connState?.loadErrorMsg ? (
-          <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-4 space-y-2">
+          <div className="rounded-lg border border-border/60 bg-surface-subtle px-4 py-4 space-y-2">
             <p className="text-xs text-muted-foreground">{connState?.loadErrorMsg ?? 'No fue posible cargar el estado de conexión.'}</p>
             <Button size="sm" variant="outline" onClick={() => void loadConn()} className="h-7 text-xs">
               Reintentar
@@ -1304,7 +1304,7 @@ function TabConfiguracionNoIA({
                 <InfoRow label="Última conexión" value={<span className="text-muted-foreground">{formatDateShort(connState.lastConnectedAt)}</span>} />
               )}
               {connState?.lastConnectionError && (
-                <InfoRow label="Error" value={<span className="text-destructive text-[10px] leading-relaxed">{connState.lastConnectionError}</span>} />
+                <InfoRow label="Error" value={<span className="text-destructive text-xs leading-relaxed">{connState.lastConnectionError}</span>} />
               )}
             </SectionCard>
 
@@ -1326,8 +1326,8 @@ function TabConfiguracionNoIA({
             </div>
 
             {showKeyForm && (
-              <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3 space-y-2">
-                <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wide font-medium">Nueva API key</p>
+              <div className="rounded-lg border border-border/60 bg-surface-subtle px-4 py-3 space-y-2">
+                <p className="text-xs text-muted-foreground font-medium">Nueva API key</p>
                 <input
                   type="password"
                   value={apiKeyInput}
@@ -1351,7 +1351,7 @@ function TabConfiguracionNoIA({
             {showDisconnectConfirm && (
               <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 space-y-2">
                 <p className="text-xs text-foreground">¿Confirmar desconexión?</p>
-                <p className="text-[10px] text-muted-foreground/70">Se eliminarán las credenciales almacenadas.</p>
+                <p className="text-xs text-muted-foreground">Se eliminarán las credenciales almacenadas.</p>
                 <div className="flex gap-2">
                   <Button size="sm" variant="destructive" disabled={isPending} onClick={handleDisconnect} className="h-7 text-xs">
                     {isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
@@ -1372,9 +1372,9 @@ function TabConfiguracionNoIA({
       {/* Descripción y uso */}
       <div>
         <SectionHeader icon={<Bot className="h-3.5 w-3.5" />} label="Descripción y uso en SellUp" />
-        <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3 space-y-1">
+        <div className="rounded-lg border border-border/60 bg-surface-subtle px-4 py-3 space-y-1">
           <p className="text-xs text-foreground leading-relaxed">{operationalUse}</p>
-          <p className="text-[10px] text-muted-foreground/50">Módulos: {modules}</p>
+          <p className="text-xs text-muted-foreground">Módulos: {modules}</p>
         </div>
       </div>
 
@@ -1383,12 +1383,12 @@ function TabConfiguracionNoIA({
         <SectionHeader icon={<Zap className="h-3.5 w-3.5" />} label="Estado operativo" />
         <SectionCard>
           <InfoRow label="Tipo operativo" value={
-            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${opBadge}`}>
+            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${opBadge}`}>
               {OPERATIONAL_TYPE_LABEL[opType]}
             </span>
           } />
           <InfoRow label="Estado de medición" value={
-            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${msBadge.className}`}>
+            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${msBadge.className}`}>
               {MEASUREMENT_STATUS_LABEL[ms]}
             </span>
           } />
@@ -1403,7 +1403,7 @@ function TabConfiguracionNoIA({
           )}
           {syncedAt && <InfoRow label="Última sync" value={<span className="text-muted-foreground">{syncedAt}</span>} />}
           {row.quotaSyncError && (
-            <InfoRow label="Error sync" value={<span className="text-destructive text-[10px]">{row.quotaSyncError}</span>} />
+            <InfoRow label="Error sync" value={<span className="text-destructive text-xs">{row.quotaSyncError}</span>} />
           )}
         </SectionCard>
       </div>
@@ -1415,15 +1415,15 @@ function TabConfiguracionNoIA({
           {apiNotes && (
             <>
               <ConfigAccordion label="Dónde obtener la API key">
-                <p className="text-[11px] text-muted-foreground/70 leading-relaxed pt-1">{apiNotes.where}</p>
+                <p className="text-xs text-muted-foreground leading-relaxed pt-1">{apiNotes.where}</p>
               </ConfigAccordion>
               <ConfigAccordion label="Recomendaciones de configuración">
-                <p className="text-[11px] text-muted-foreground/70 leading-relaxed pt-1">{apiNotes.tips}</p>
+                <p className="text-xs text-muted-foreground leading-relaxed pt-1">{apiNotes.tips}</p>
               </ConfigAccordion>
             </>
           )}
           <ConfigAccordion label="Configuración avanzada por agente">
-            <p className="text-[11px] text-muted-foreground/70 leading-relaxed pt-1">
+            <p className="text-xs text-muted-foreground leading-relaxed pt-1">
               La configuración avanzada por agente se conectará progresivamente dentro del workspace del proveedor.
             </p>
           </ConfigAccordion>
@@ -1596,7 +1596,7 @@ function ConsumptionUserFilter({
             variant="outline"
             role="combobox"
             aria-expanded={open}
-            className="h-8 w-[160px] justify-between rounded-lg border-input bg-transparent px-2 font-normal text-[11px] hover:bg-accent dark:bg-input/30 dark:hover:bg-input/50"
+            className="h-8 w-[160px] justify-between rounded-lg border-input bg-transparent px-2 font-normal text-xs hover:bg-surface-muted dark:bg-input/30 dark:hover:bg-input/50"
           >
             <span className="truncate">{triggerLabel}</span>
             <ChevronDownIcon className="pointer-events-none size-4 shrink-0 text-muted-foreground" />
@@ -1605,7 +1605,7 @@ function ConsumptionUserFilter({
       />
       <PopoverContent
         align="start"
-        className="w-(--anchor-width) max-w-(--available-width) p-0 rounded-xl border shadow-md"
+        className="w-(--anchor-width) max-w-(--available-width) p-0 rounded-xl border shadow-drawer"
       >
         <Command shouldFilter={false}>
           <CommandInput placeholder="Buscar usuario..." value={query} onValueChange={setQuery} />
@@ -1619,7 +1619,7 @@ function ConsumptionUserFilter({
             {noMatches ? (
               <div className="py-4 text-center">
                 <p className="text-xs text-foreground">No encontramos usuarios</p>
-                <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                <p className="text-xs text-muted-foreground mt-0.5">
                   Prueba con otro nombre o correo.
                 </p>
               </div>
@@ -1639,7 +1639,7 @@ function ConsumptionUserFilter({
                         {selectedUserId === u.id && <Check className="ml-2 h-3.5 w-3.5 shrink-0" />}
                       </div>
                       {identity.secondary && (
-                        <span className="text-[10px] text-muted-foreground/60 leading-tight">
+                        <span className="text-xs text-muted-foreground leading-tight">
                           {identity.secondary}
                         </span>
                       )}
@@ -1779,7 +1779,7 @@ function TabConsumo({
         enableSorting: false,
         size: 100,
         cell: ({ row }) => (
-          <div className="text-right text-muted-foreground/70 whitespace-nowrap">
+          <div className="text-right text-muted-foreground whitespace-nowrap">
             {formatOperationPercent(row.original.creditsPercentage)}
           </div>
         ),
@@ -1791,7 +1791,7 @@ function TabConsumo({
         enableSorting: false,
         size: 120,
         cell: ({ row }) => (
-          <div className="text-right text-muted-foreground/70 whitespace-nowrap">
+          <div className="text-right text-muted-foreground whitespace-nowrap">
             {row.original.totalCostUsd === 0 && !row.original.hasUnknownCost ? (
               '—'
             ) : (
@@ -1826,7 +1826,7 @@ function TabConsumo({
             <div className="leading-snug">
               <span className="block text-foreground">{primary}</span>
               {secondary && (
-                <span className="block text-[10px] text-muted-foreground/60">{secondary}</span>
+                <span className="block text-xs text-muted-foreground">{secondary}</span>
               )}
             </div>
           );
@@ -1863,7 +1863,7 @@ function TabConsumo({
         enableSorting: false,
         size: 120,
         cell: ({ row }) => (
-          <div className="text-right text-muted-foreground/70 whitespace-nowrap">
+          <div className="text-right text-muted-foreground whitespace-nowrap">
             {row.original.totalCostUsd === 0 && !row.original.hasUnknownCost ? (
               '—'
             ) : (
@@ -1885,7 +1885,7 @@ function TabConsumo({
         enableSorting: false,
         size: 130,
         cell: ({ row }) => (
-          <div className="text-right text-muted-foreground/70 whitespace-nowrap">
+          <div className="text-right text-muted-foreground whitespace-nowrap">
             {row.original.lastActivityAt ? formatDateShort(row.original.lastActivityAt) : '—'}
           </div>
         ),
@@ -1962,11 +1962,11 @@ function TabConsumo({
         <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-4 space-y-2">
           <p className="text-xs text-foreground">{loadError}</p>
           {diagnosticStage && (
-            <p className="text-[10px] text-muted-foreground/70">
+            <p className="text-xs text-muted-foreground">
               No se pudo cargar: {STAGE_LABEL[diagnosticStage]}
             </p>
           )}
-          <p className="text-[10px] text-muted-foreground/70">Puedes reintentar sin cerrar el workspace.</p>
+          <p className="text-xs text-muted-foreground">Puedes reintentar sin cerrar el workspace.</p>
           <Button
             size="sm"
             variant="outline"
@@ -1982,7 +1982,7 @@ function TabConsumo({
       <div className="flex flex-wrap gap-1.5">
         {/* Período */}
         <Select value={period} onValueChange={(v) => setFilter('period', v)}>
-          <SelectTrigger className="h-7 w-[140px] text-[11px]">
+          <SelectTrigger className="h-7 w-[140px] text-xs">
             <SelectValue>
               {CONSUMPTION_PERIOD_OPTIONS.find((o) => o.value === period)?.label ?? period}
             </SelectValue>
@@ -1999,7 +1999,7 @@ function TabConsumo({
         {/* Rol */}
         {(options?.roles ?? []).length > 0 && (
           <Select value={filters.role ?? 'all'} onValueChange={onRoleChange}>
-            <SelectTrigger className="h-7 w-[150px] text-[11px]">
+            <SelectTrigger className="h-7 w-[150px] text-xs">
               <SelectValue placeholder="Rol">
                 {filters.role
                   ? (options?.roles.find((r) => r.key === filters.role)?.label ?? filters.role)
@@ -2018,7 +2018,7 @@ function TabConsumo({
         {/* Grupo */}
         {(options?.groups ?? []).length > 0 && (
           <Select value={filters.groupId ?? 'all'} onValueChange={onGroupChange}>
-            <SelectTrigger className="h-7 w-[160px] text-[11px]">
+            <SelectTrigger className="h-7 w-[160px] text-xs">
               <SelectValue placeholder="Grupo">
                 {filters.groupId
                   ? (groupNameMap.get(filters.groupId) ?? filters.groupId)
@@ -2050,7 +2050,7 @@ function TabConsumo({
         {/* Agente */}
         {(options?.agents ?? []).length > 0 && (
           <Select value={filters.agent ?? 'all'} onValueChange={(v) => setFilter('agent', v)}>
-            <SelectTrigger className="h-7 w-[180px] text-[11px]">
+            <SelectTrigger className="h-7 w-[180px] text-xs">
               <SelectValue placeholder="Agente">
                 {filters.agent
                   ? labelConsumptionAgent(
@@ -2074,7 +2074,7 @@ function TabConsumo({
         {/* Estado */}
         {(options?.statuses ?? []).length > 0 && (
           <Select value={filters.status ?? 'all'} onValueChange={(v) => setFilter('status', v)}>
-            <SelectTrigger className="h-7 w-[130px] text-[11px]">
+            <SelectTrigger className="h-7 w-[130px] text-xs">
               <SelectValue placeholder="Estado">
                 {filters.status ? filters.status.replace(/_/g, ' ') : 'Todos los estados'}
               </SelectValue>
@@ -2101,15 +2101,15 @@ function TabConsumo({
           <SectionCard>
             {isPending ? (
               <div className="flex items-center gap-2 py-1">
-                <Loader2 className="h-3 w-3 text-muted-foreground/50 animate-spin" />
-                <span className="text-xs text-muted-foreground/60">Calculando...</span>
+                <Loader2 className="h-3 w-3 text-muted-foreground animate-spin" />
+                <span className="text-xs text-muted-foreground">Calculando...</span>
               </div>
             ) : (
               <div className="py-1 space-y-3">
-                <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60">{kpiLabel}</p>
+                <p className="text-xs text-muted-foreground">{kpiLabel}</p>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
                   <div>
-                    <p className="text-[10px] text-muted-foreground/60 mb-0.5">Créditos consumidos</p>
+                    <p className="text-xs text-muted-foreground mb-0.5">Créditos consumidos</p>
                     <p className="text-xs font-medium text-foreground">
                       {filteredCredits == null && !(snapshot?.hasUnknownCredits ?? false) ? (
                         '—'
@@ -2128,7 +2128,7 @@ function TabConsumo({
                     </p>
                   </div>
                   <div>
-                    <p className="text-[10px] text-muted-foreground/60 mb-0.5">Costo estimado</p>
+                    <p className="text-xs text-muted-foreground mb-0.5">Costo estimado</p>
                     <p className="text-xs font-medium text-foreground">
                       {filteredCost === 0 && !(snapshot?.hasUnknownCost ?? false) ? (
                         '—'
@@ -2144,15 +2144,15 @@ function TabConsumo({
                     </p>
                   </div>
                   <div>
-                    <p className="text-[10px] text-muted-foreground/60 mb-0.5">Operaciones</p>
+                    <p className="text-xs text-muted-foreground mb-0.5">Operaciones</p>
                     <p className="text-xs font-medium text-foreground">{totalCalls.toLocaleString()}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] text-muted-foreground/60 mb-0.5">Exitosas</p>
-                    <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">{successCalls.toLocaleString()}</p>
+                    <p className="text-xs text-muted-foreground mb-0.5">Exitosas</p>
+                    <p className="text-xs font-medium text-success">{successCalls.toLocaleString()}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] text-muted-foreground/60 mb-0.5">Con error</p>
+                    <p className="text-xs text-muted-foreground mb-0.5">Con error</p>
                     <p className={`text-xs font-medium ${errorCalls > 0 ? 'text-destructive' : 'text-foreground'}`}>
                       {errorCalls.toLocaleString()}
                     </p>
@@ -2170,7 +2170,7 @@ function TabConsumo({
 
           {/* Distribución por operación — misma scope que el KPI de arriba */}
           <div className="space-y-1.5">
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">
+            <p className="text-xs text-muted-foreground px-1">
               Distribución por operación
             </p>
             {isPending ? (
@@ -2195,7 +2195,7 @@ function TabConsumo({
 
           {/* Consumo por usuario — misma scope que el KPI de arriba (Q3F-9) */}
           <div className="space-y-1.5">
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">
+            <p className="text-xs text-muted-foreground px-1">
               Consumo por usuario
             </p>
             {isPending ? (
@@ -2222,7 +2222,7 @@ function TabConsumo({
 
       {/* Reglas de consumo — estáticas, no cambian con filtros analíticos */}
       <div className="space-y-1.5">
-        <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">Reglas de consumo</p>
+        <p className="text-xs text-muted-foreground px-1">Reglas de consumo</p>
         <SectionCard>
           {hasGlobalRule ? (
             <>
@@ -2241,7 +2241,7 @@ function TabConsumo({
           ) : (
             <div className="py-1">
               <p className="text-xs text-foreground">Sin regla global</p>
-              <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+              <p className="text-xs text-muted-foreground mt-0.5">
                 Pueden aplicar reglas por rol, grupo o usuario.
               </p>
             </div>
@@ -2255,9 +2255,9 @@ function TabConsumo({
       {ms === 'active' && !showGlobalEmpty && (
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-2 px-1">
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Operaciones recientes</p>
+            <p className="text-xs text-muted-foreground">Operaciones recientes</p>
             {recentLogs.length > 0 && (
-              <p className="text-[10px] text-muted-foreground/50">
+              <p className="text-xs text-muted-foreground">
                 Últimas {visibleCount} de {recentLogs.length} cargadas
               </p>
             )}
@@ -2272,21 +2272,21 @@ function TabConsumo({
           ) : (
             <div className="space-y-1.5">
               {recentOps.map((log) => (
-                <div key={log.id} className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2 flex items-center gap-3">
+                <div key={log.id} className="rounded-lg border border-border/60 bg-surface-subtle px-3 py-2 flex items-center gap-3">
                   <span className="text-xs text-foreground truncate flex-1">
                     {getProviderOperationLabel(providerKey, log.operationKey ?? '')}
                   </span>
                   {log.creditsUsed != null && (
-                    <span className="text-[10px] text-muted-foreground/70 shrink-0">
+                    <span className="text-xs text-muted-foreground shrink-0">
                       {log.creditsUsed.toLocaleString()} cr
                     </span>
                   )}
                   {log.estimatedCostUsd != null && (
-                    <span className="text-[10px] text-muted-foreground/70 shrink-0">
+                    <span className="text-xs text-muted-foreground shrink-0">
                       ${log.estimatedCostUsd.toFixed(4)}
                     </span>
                   )}
-                  <span className="text-[10px] text-muted-foreground/50 shrink-0 ml-auto">
+                  <span className="text-xs text-muted-foreground shrink-0 ml-auto">
                     {formatDateShort(log.createdAt)}
                   </span>
                 </div>
@@ -2376,7 +2376,7 @@ function ProviderRulesInline({
 
   if (isNotMeasured) {
     return (
-      <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-3">
+      <div className="rounded-lg border border-border/50 bg-surface-subtle px-4 py-3">
         <p className="text-xs text-muted-foreground">Las reglas no aplican para este proveedor.</p>
       </div>
     );
@@ -2388,9 +2388,9 @@ function ProviderRulesInline({
     <>
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-3 px-1">
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Reglas de presupuesto</p>
+          <p className="text-xs text-muted-foreground">Reglas de presupuesto</p>
           {formOptions && (
-            <Button size="sm" variant="outline" className="h-6 px-2 text-[10px] gap-1" onClick={() => setShowCreate(true)}>
+            <Button size="sm" variant="outline" className="h-6 px-2 text-xs gap-1" onClick={() => setShowCreate(true)}>
               <Plus className="h-3 w-3" />
               Crear regla
             </Button>
@@ -2400,7 +2400,7 @@ function ProviderRulesInline({
         <Tabs defaultValue="global">
           <TabsList className="w-full grid grid-cols-4 h-auto">
             {RULE_SCOPES.map((s) => (
-              <TabsTrigger key={s} value={s} className="text-[10px] py-1.5">
+              <TabsTrigger key={s} value={s} className="text-xs py-1.5">
                 {SCOPE_SECTION_LABEL[s]}
               </TabsTrigger>
             ))}
@@ -2410,7 +2410,7 @@ function ProviderRulesInline({
             return (
               <TabsContent key={s} value={s}>
                 {scopeRules.length === 0 ? (
-                  <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-4 mt-2 text-center">
+                  <div className="rounded-lg border border-border/50 bg-surface-subtle px-4 py-4 mt-2 text-center">
                     <p className="text-xs text-muted-foreground">
                       Sin reglas configuradas para este alcance.
                     </p>
@@ -2418,7 +2418,7 @@ function ProviderRulesInline({
                       <Button
                         size="sm"
                         variant="outline"
-                        className="mt-3 h-6 px-3 text-[10px]"
+                        className="mt-3 h-6 px-3 text-xs"
                         onClick={() => setShowCreate(true)}
                       >
                         Crear primera regla
@@ -2428,15 +2428,15 @@ function ProviderRulesInline({
                 ) : (
                   <div className="space-y-1.5 mt-2">
                     {scopeRules.map((rule) => (
-                      <div key={rule.id} className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2.5">
+                      <div key={rule.id} className="rounded-lg border border-border/60 bg-surface-subtle px-3 py-2.5">
                         <div className="flex items-center justify-between gap-2 mb-1">
                           <div className="flex items-center gap-2 min-w-0">
                             <span className="text-xs font-medium text-foreground truncate">{rule.scopeLabel}</span>
                             <span
-                              className={`shrink-0 inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-medium ${
+                              className={`shrink-0 inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-medium ${
                                 rule.is_active
-                                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                                  : 'border-border/40 bg-muted/30 text-muted-foreground/60'
+                                  ? 'border-success/30 bg-success/10 text-success dark:text-success'
+                                  : 'border-border/60 bg-surface-subtle text-muted-foreground'
                               }`}
                             >
                               {rule.is_active ? 'Activa' : 'Inactiva'}
@@ -2445,14 +2445,14 @@ function ProviderRulesInline({
                           <div className="flex items-center gap-1 shrink-0">
                             <button
                               type="button"
-                              className="inline-flex items-center gap-1 px-1.5 py-1 rounded text-[10px] text-muted-foreground/70 hover:text-foreground hover:bg-muted/30 transition-colors"
+                              className="inline-flex items-center gap-1 px-1.5 py-1 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-surface-muted transition-colors"
                               onClick={() => setEditRule(rule)}
                             >
                               <Pencil className="h-2.5 w-2.5" />
                             </button>
                             <button
                               type="button"
-                              className="inline-flex items-center gap-1 px-1.5 py-1 rounded text-[10px] text-muted-foreground/70 hover:text-foreground hover:bg-muted/30 transition-colors"
+                              className="inline-flex items-center gap-1 px-1.5 py-1 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-surface-muted transition-colors"
                               disabled={toggling === rule.id}
                               onClick={() => handleToggle(rule)}
                             >
@@ -2460,7 +2460,7 @@ function ProviderRulesInline({
                             </button>
                             <button
                               type="button"
-                              className="inline-flex items-center gap-1 px-1.5 py-1 rounded text-[10px] text-destructive/50 hover:text-destructive hover:bg-destructive/10 transition-colors"
+                              className="inline-flex items-center gap-1 px-1.5 py-1 rounded text-xs text-destructive/50 hover:text-destructive hover:bg-destructive/10 transition-colors"
                               disabled={archiving === rule.id}
                               onClick={() => setConfirmArchive(rule)}
                             >
@@ -2468,7 +2468,7 @@ function ProviderRulesInline({
                             </button>
                           </div>
                         </div>
-                        <div className="flex items-center gap-3 text-[10px] text-muted-foreground/70">
+                        <div className="flex items-center gap-3 text-xs text-muted-foreground">
                           <span>{formatLimit(rule.limit_credits, rule.limit_usd)}</span>
                           <span>{PERIOD_LABELS[rule.period_type]}</span>
                           <span className="ml-auto">{ON_EXCEED_LABELS[rule.on_exceed]}</span>
@@ -2484,7 +2484,7 @@ function ProviderRulesInline({
 
         {activeRules.length === 0 && rules.length === 0 && !formOptions && (
           <div className="rounded-lg border border-su-brand/20 bg-su-brand-soft px-4 py-3 mt-1">
-            <p className="text-[11px] text-muted-foreground/80 leading-relaxed">
+            <p className="text-xs text-muted-foreground leading-relaxed">
               La creación de reglas se conectará directamente en este panel de forma progresiva.
             </p>
           </div>
@@ -2498,7 +2498,7 @@ function ProviderRulesInline({
             className="absolute inset-0 bg-background/80 backdrop-blur-sm"
             onClick={() => setConfirmArchive(null)}
           />
-          <div className="relative z-10 w-full max-w-sm rounded-xl border border-border/60 bg-card shadow-lg p-5 space-y-4 mx-4">
+          <div className="relative z-10 w-full max-w-sm rounded-2xl border border-border/60 bg-card shadow-drawer p-5 space-y-4 mx-4">
             <div className="space-y-1">
               <h3 className="text-sm font-semibold text-foreground">¿Eliminar esta regla?</h3>
               <p className="text-xs text-muted-foreground leading-relaxed">
@@ -2622,7 +2622,7 @@ function TabPresupuesto({
 
       {/* Cuota del proveedor */}
       <div className="space-y-2">
-        <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">Cuota del proveedor</p>
+        <p className="text-xs text-muted-foreground px-1">Cuota del proveedor</p>
         {isNotMeasured ? (
           <EmptyBlock message="Este proveedor no tiene cuota de medición configurada." />
         ) : (
@@ -2653,8 +2653,8 @@ function TabPresupuesto({
               <InfoRow label="Última sync" value={<span className="text-muted-foreground">{formatDateShort(row.quotaSyncedAt)}</span>} />
             )}
             {row.quotaSyncError && (
-              <div className="rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2 mt-2">
-                <p className="text-[11px] text-amber-600 dark:text-amber-400">{row.quotaSyncError}</p>
+              <div className="rounded-md border border-warning/20 bg-warning/5 px-3 py-2 mt-2">
+                <p className="text-xs text-warning">{row.quotaSyncError}</p>
               </div>
             )}
           </SectionCard>
@@ -2693,7 +2693,7 @@ function TabPresupuesto({
           )}
         </div>
         {!isNotMeasured && row.providerKey === 'anthropic' && (
-          <p className="text-[11px] text-muted-foreground/70 leading-relaxed px-1">
+          <p className="text-xs text-muted-foreground leading-relaxed px-1">
             Sync de costo requiere Admin API key. Anthropic requiere una Admin API key
             para sincronizar costo USD. Mientras tanto, configura el presupuesto
             mensual de forma manual.
@@ -2771,40 +2771,40 @@ function TabEfectividad({
     <div className="space-y-4">
       <div className="grid md:grid-cols-2 gap-3">
         {/* Resultado técnico reciente */}
-        <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-4">
+        <div className="rounded-lg border border-border/50 bg-surface-subtle px-4 py-4">
           <p className="text-xs font-medium text-foreground mb-1">Resultado técnico reciente</p>
-          <p className="text-[11px] text-muted-foreground/60 leading-relaxed mb-2">
+          <p className="text-xs text-muted-foreground leading-relaxed mb-2">
             Proporción de éxito técnico en los logs recientes registrados.
           </p>
           {loading ? (
             <div className="flex items-center gap-1.5">
-              <Loader2 className="h-3 w-3 text-muted-foreground/40 animate-spin" />
-              <span className="text-[10px] text-muted-foreground/50">Cargando...</span>
+              <Loader2 className="h-3 w-3 text-text-muted animate-spin" />
+              <span className="text-xs text-muted-foreground">Cargando...</span>
             </div>
           ) : technicalSuccessRate != null ? (
             <p className="text-sm font-medium text-foreground">
               {technicalSuccessRate}%
-              <span className="text-[10px] text-muted-foreground/60 ml-1.5 font-normal">
+              <span className="text-xs text-muted-foreground ml-1.5 font-normal">
                 ({technicalSuccessCount} / {observedLogCount} {windowSuffix})
               </span>
             </p>
           ) : (
-            <p className="text-[10px] text-muted-foreground/40 italic">Sin datos suficientes</p>
+            <p className="text-xs text-text-muted italic">Sin datos suficientes</p>
           )}
         </div>
 
         {/* Costo registrado */}
-        <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-4">
+        <div className="rounded-lg border border-border/50 bg-surface-subtle px-4 py-4">
           <p className="text-xs font-medium text-foreground mb-1">Costo registrado</p>
-          <p className="text-[11px] text-muted-foreground/60 leading-relaxed mb-2">
+          <p className="text-xs text-muted-foreground leading-relaxed mb-2">
             {costMtd != null
               ? 'Costo estimado del mes en curso, según catálogo del proveedor.'
               : 'Costo estimado de las operaciones recientes registradas.'}
           </p>
           {loading ? (
             <div className="flex items-center gap-1.5">
-              <Loader2 className="h-3 w-3 text-muted-foreground/40 animate-spin" />
-              <span className="text-[10px] text-muted-foreground/50">Cargando...</span>
+              <Loader2 className="h-3 w-3 text-text-muted animate-spin" />
+              <span className="text-xs text-muted-foreground">Cargando...</span>
             </div>
           ) : costMtd != null ? (
             <p className="text-sm font-medium text-foreground">${costMtd.toFixed(4)} MTD (API)</p>
@@ -2817,68 +2817,68 @@ function TabEfectividad({
                   formatUsd: (v) => `$${v.toFixed(4)}`,
                 })}
               />
-              <span className="text-[10px] text-muted-foreground/60 ml-1.5 font-normal">
+              <span className="text-xs text-muted-foreground ml-1.5 font-normal">
                 {windowCaption}
               </span>
             </p>
           ) : (
-            <p className="text-[10px] text-muted-foreground/40 italic">Sin datos suficientes</p>
+            <p className="text-xs text-text-muted italic">Sin datos suficientes</p>
           )}
         </div>
 
         {/* Fallos técnicos recientes */}
-        <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-4">
+        <div className="rounded-lg border border-border/50 bg-surface-subtle px-4 py-4">
           <p className="text-xs font-medium text-foreground mb-1">Fallos técnicos recientes</p>
-          <p className="text-[11px] text-muted-foreground/60 leading-relaxed mb-2">
+          <p className="text-xs text-muted-foreground leading-relaxed mb-2">
             Errores y límites de proveedor en los logs recientes registrados.
           </p>
           {loading ? (
             <div className="flex items-center gap-1.5">
-              <Loader2 className="h-3 w-3 text-muted-foreground/40 animate-spin" />
-              <span className="text-[10px] text-muted-foreground/50">Cargando...</span>
+              <Loader2 className="h-3 w-3 text-text-muted animate-spin" />
+              <span className="text-xs text-muted-foreground">Cargando...</span>
             </div>
           ) : hasSufficientRecentEvidence ? (
             <p className="text-sm font-medium text-foreground">
               {technicalFailureCount}
-              <span className="text-[10px] text-muted-foreground/60 ml-1.5 font-normal">
+              <span className="text-xs text-muted-foreground ml-1.5 font-normal">
                 fallo{technicalFailureCount !== 1 ? 's' : ''} en {windowCaption}
               </span>
             </p>
           ) : (
-            <p className="text-[10px] text-muted-foreground/40 italic">Sin datos suficientes</p>
+            <p className="text-xs text-text-muted italic">Sin datos suficientes</p>
           )}
         </div>
 
         {/* Disponibilidad del proveedor */}
-        <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-4">
+        <div className="rounded-lg border border-border/50 bg-surface-subtle px-4 py-4">
           <p className="text-xs font-medium text-foreground mb-1">Disponibilidad del proveedor</p>
-          <p className="text-[11px] text-muted-foreground/60 leading-relaxed mb-2">
+          <p className="text-xs text-muted-foreground leading-relaxed mb-2">
             Estado basado en última sincronización.
           </p>
           {loading ? (
             <div className="flex items-center gap-1.5">
-              <Loader2 className="h-3 w-3 text-muted-foreground/40 animate-spin" />
-              <span className="text-[10px] text-muted-foreground/50">Cargando...</span>
+              <Loader2 className="h-3 w-3 text-text-muted animate-spin" />
+              <span className="text-xs text-muted-foreground">Cargando...</span>
             </div>
           ) : latestSync ? (
             <div className="flex items-center gap-2">
               <span
-                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${
                   syncOk
-                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                    ? 'border-success/30 bg-success/10 text-success dark:text-success'
                     : 'border-destructive/30 bg-destructive/10 text-destructive'
                 }`}
               >
                 {syncOk ? 'OK' : 'Error'}
               </span>
-              <span className="text-[10px] text-muted-foreground/60">{formatDateShort(latestSync.syncedAt)}</span>
+              <span className="text-xs text-muted-foreground">{formatDateShort(latestSync.syncedAt)}</span>
             </div>
           ) : row.quotaSyncedAt ? (
-            <span className="inline-flex items-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+            <span className="inline-flex items-center rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
               OK
             </span>
           ) : (
-            <p className="text-[10px] text-muted-foreground/40 italic">Sin datos de sync</p>
+            <p className="text-xs text-text-muted italic">Sin datos de sync</p>
           )}
         </div>
       </div>
@@ -2888,7 +2888,7 @@ function TabEfectividad({
           <button
             type="button"
             onClick={onRevisarLogs}
-            className="inline-flex items-center rounded-md border px-3 py-1.5 text-xs font-medium transition-colors border-amber-500/30 bg-amber-500/5 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10"
+            className="inline-flex items-center rounded-md border px-3 py-1.5 text-xs font-medium transition-colors border-warning/30 bg-warning/5 text-warning hover:bg-warning/10"
           >
             Revisar logs →
           </button>
@@ -2902,11 +2902,11 @@ function TabEfectividad({
       )}
 
       {isEffectivenessSupportedProvider(row.providerKey) && (
-        <div className="pt-1 border-t border-border/30 mt-1">
+        <div className="pt-1 border-t border-border/50 mt-1">
           <p className="text-xs font-semibold text-foreground mt-4 mb-1">
             Resultado en enriquecimiento de contactos
           </p>
-          <p className="text-[11px] text-muted-foreground/60 leading-relaxed mb-3">
+          <p className="text-xs text-muted-foreground leading-relaxed mb-3">
             Enriquecimientos individuales de contactos con evidencia suficiente para evaluar resultado — no es un puntaje general del proveedor.
           </p>
           {loading ? (
@@ -2969,21 +2969,21 @@ function ContactEnrichmentOutcomeSection({
   return (
     <div className="space-y-3">
       <div className="grid md:grid-cols-3 gap-3">
-        <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-4">
+        <div className="rounded-lg border border-border/50 bg-surface-subtle px-4 py-4">
           <p className="text-xs font-medium text-foreground mb-1">Tasa de aprobación</p>
-          <p className="text-[11px] text-muted-foreground/60 leading-relaxed mb-2">
+          <p className="text-xs text-muted-foreground leading-relaxed mb-2">
             Candidatos aprobados sobre candidatos revisables en ejecuciones con resultado comparable.
           </p>
           {approvalDisplay != null ? (
             <p className="text-sm font-medium text-foreground">{approvalDisplay}</p>
           ) : (
-            <p className="text-[10px] text-muted-foreground/40 italic">Sin candidatos revisables en ejecuciones maduras</p>
+            <p className="text-xs text-text-muted italic">Sin candidatos revisables en ejecuciones maduras</p>
           )}
         </div>
 
-        <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-4">
+        <div className="rounded-lg border border-border/50 bg-surface-subtle px-4 py-4">
           <p className="text-xs font-medium text-foreground mb-1">Costo por contacto aprobado</p>
-          <p className="text-[11px] text-muted-foreground/60 leading-relaxed mb-2">
+          <p className="text-xs text-muted-foreground leading-relaxed mb-2">
             Costo conocido de las ejecuciones que produjeron un contacto aprobado.
           </p>
           {comparable.costPerApprovedContactUsd != null ? (
@@ -2997,33 +2997,33 @@ function ContactEnrichmentOutcomeSection({
               />
             </p>
           ) : coverage.approvedCandidateCount === 0 ? (
-            <p className="text-[10px] text-muted-foreground/40 italic">Aún no hay contactos aprobados</p>
+            <p className="text-xs text-text-muted italic">Aún no hay contactos aprobados</p>
           ) : coverage.costEligibleRunCount === 0 ? (
-            <p className="text-[10px] text-muted-foreground/40 italic">Costo desconocido para las ejecuciones disponibles</p>
+            <p className="text-xs text-text-muted italic">Costo desconocido para las ejecuciones disponibles</p>
           ) : (
-            <p className="text-[10px] text-muted-foreground/40 italic">Sin datos suficientes</p>
+            <p className="text-xs text-text-muted italic">Sin datos suficientes</p>
           )}
         </div>
 
-        <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-4">
+        <div className="rounded-lg border border-border/50 bg-surface-subtle px-4 py-4">
           <p className="text-xs font-medium text-foreground mb-1">Ejecuciones sin candidatos revisables</p>
-          <p className="text-[11px] text-muted-foreground/60 leading-relaxed mb-2">
+          <p className="text-xs text-muted-foreground leading-relaxed mb-2">
             Ejecuciones técnicamente exitosas que no produjeron ningún candidato revisable.
           </p>
           {zeroReviewableDisplay != null ? (
             <p className="text-sm font-medium text-foreground">
               {zeroReviewableDisplay}
-              <span className="text-[10px] text-muted-foreground/60 ml-1.5 font-normal">
+              <span className="text-xs text-muted-foreground ml-1.5 font-normal">
                 ({coverage.zeroReviewableRunCount} / {coverage.zeroReviewableEligibleRunCount})
               </span>
             </p>
           ) : (
-            <p className="text-[10px] text-muted-foreground/40 italic">Sin datos suficientes</p>
+            <p className="text-xs text-text-muted italic">Sin datos suficientes</p>
           )}
         </div>
       </div>
 
-      <p className="text-[11px] text-muted-foreground/50 leading-relaxed">
+      <p className="text-xs text-muted-foreground leading-relaxed">
         Lectura basada en {coverage.outcomeMatureRunCount} ejecución{coverage.outcomeMatureRunCount === 1 ? '' : 'es'} de
         enriquecimiento individual con resultado maduro
         {coverage.openReviewRunCount > 0
@@ -3037,12 +3037,12 @@ function ContactEnrichmentOutcomeSection({
 // ── Tab: Logs y auditoría ─────────────────────────────────────────────────────
 
 const OUTCOME_BADGE: Record<string, { label: string; className: string }> = {
-  allowed:         { label: 'Permitido',        className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500' },
-  alerted:         { label: 'Alerta',           className: 'border-amber-500/30 bg-amber-500/10 text-amber-500' },
+  allowed:         { label: 'Permitido',        className: 'border-success/30 bg-success/10 text-success' },
+  alerted:         { label: 'Alerta',           className: 'border-warning/30 bg-warning/10 text-warning' },
   would_block:     { label: 'Habría bloqueado', className: 'border-destructive/30 bg-destructive/10 text-destructive' },
-  technical_error: { label: 'Error técnico',    className: 'border-border/40 bg-muted/30 text-muted-foreground' },
-  missing_user:    { label: 'Sin usuario',      className: 'border-border/40 bg-muted/30 text-muted-foreground' },
-  unknown:         { label: 'Desconocido',      className: 'border-border/40 bg-muted/30 text-muted-foreground' },
+  technical_error: { label: 'Error técnico',    className: 'border-border/60 bg-surface-subtle text-muted-foreground' },
+  missing_user:    { label: 'Sin usuario',      className: 'border-border/60 bg-surface-subtle text-muted-foreground' },
+  unknown:         { label: 'Desconocido',      className: 'border-border/60 bg-surface-subtle text-muted-foreground' },
 };
 
 function TabLogs({
@@ -3172,8 +3172,8 @@ function TabLogs({
   const syncStatusClass = syncError
     ? 'text-destructive'
     : syncedAt
-      ? 'text-emerald-600 dark:text-emerald-400'
-      : 'text-muted-foreground/60';
+      ? 'text-success'
+      : 'text-muted-foreground';
 
   const hasSyncLogs = SYNC_CAPABLE_PROVIDERS.has(row.providerKey);
 
@@ -3181,28 +3181,28 @@ function TabLogs({
     <div className="space-y-5">
       {/* Status cards */}
       <div className="grid grid-cols-3 gap-3">
-        <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3">
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 mb-1.5">Estado de sync</p>
+        <div className="rounded-lg border border-border/60 bg-surface-subtle px-4 py-3">
+          <p className="text-xs text-muted-foreground mb-1.5">Estado de sync</p>
           <p className={`text-xs font-medium ${syncStatusClass}`}>{syncStatusLabel}</p>
         </div>
-        <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3">
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 mb-1.5">Última sync</p>
+        <div className="rounded-lg border border-border/60 bg-surface-subtle px-4 py-3">
+          <p className="text-xs text-muted-foreground mb-1.5">Última sync</p>
           <p className="text-xs font-medium text-foreground">{syncedAt ?? 'Sin registro'}</p>
         </div>
-        <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3">
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 mb-1.5">Evaluaciones</p>
+        <div className="rounded-lg border border-border/60 bg-surface-subtle px-4 py-3">
+          <p className="text-xs text-muted-foreground mb-1.5">Evaluaciones</p>
           <p className="text-xs font-medium text-foreground">{budgetLogs.length}</p>
         </div>
       </div>
 
       {/* Actividad reciente (provider_usage_logs) */}
       <div className="space-y-2">
-        <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">Actividad reciente (usage logs)</p>
+        <p className="text-xs text-muted-foreground px-1">Actividad reciente (usage logs)</p>
 
         {logsLoadError && (
           <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-4 space-y-2">
             <p className="text-xs text-foreground">{logsLoadError}</p>
-            <p className="text-[10px] text-muted-foreground/70">Puedes reintentar sin cerrar el workspace.</p>
+            <p className="text-xs text-muted-foreground">Puedes reintentar sin cerrar el workspace.</p>
             <Button
               size="sm"
               variant="outline"
@@ -3218,7 +3218,7 @@ function TabLogs({
           <div className="flex flex-wrap gap-1.5">
             {/* Período */}
             <Select value={logFilters.period ?? 'all'} onValueChange={(v) => setLogFilter('period', v)}>
-              <SelectTrigger className="h-7 w-[140px] text-[11px]">
+              <SelectTrigger className="h-7 w-[140px] text-xs">
                 <SelectValue>
                   {logFilters.period
                     ? (CONSUMPTION_PERIOD_OPTIONS.find((o) => o.value === logFilters.period)?.label ?? logFilters.period)
@@ -3237,7 +3237,7 @@ function TabLogs({
             {/* Rol */}
             {(filterOptions?.roles ?? []).length > 0 && (
               <Select value={logFilters.role ?? 'all'} onValueChange={onLogRoleChange}>
-                <SelectTrigger className="h-7 w-[150px] text-[11px]">
+                <SelectTrigger className="h-7 w-[150px] text-xs">
                   <SelectValue placeholder="Rol">
                     {logFilters.role
                       ? (filterOptions?.roles.find((r) => r.key === logFilters.role)?.label ?? logFilters.role)
@@ -3256,7 +3256,7 @@ function TabLogs({
             {/* Grupo */}
             {(filterOptions?.groups ?? []).length > 0 && (
               <Select value={logFilters.groupId ?? 'all'} onValueChange={onLogGroupChange}>
-                <SelectTrigger className="h-7 w-[160px] text-[11px]">
+                <SelectTrigger className="h-7 w-[160px] text-xs">
                   <SelectValue placeholder="Grupo">
                     {logFilters.groupId
                       ? (logGroupNameMap.get(logFilters.groupId) ?? logFilters.groupId)
@@ -3288,7 +3288,7 @@ function TabLogs({
             {/* Agente */}
             {(filterOptions?.agents ?? []).length > 0 && (
               <Select value={logFilters.agent ?? 'all'} onValueChange={(v) => setLogFilter('agent', v)}>
-                <SelectTrigger className="h-7 w-[180px] text-[11px]">
+                <SelectTrigger className="h-7 w-[180px] text-xs">
                   <SelectValue placeholder="Agente">
                     {logFilters.agent
                       ? labelConsumptionAgent(
@@ -3312,7 +3312,7 @@ function TabLogs({
             {/* Estado */}
             {(filterOptions?.statuses ?? []).length > 0 && (
               <Select value={logFilters.status ?? 'all'} onValueChange={(v) => setLogFilter('status', v)}>
-                <SelectTrigger className="h-7 w-[130px] text-[11px]">
+                <SelectTrigger className="h-7 w-[130px] text-xs">
                   <SelectValue placeholder="Estado">
                     {logFilters.status ? logFilters.status.replace(/_/g, ' ') : 'Todos los estados'}
                   </SelectValue>
@@ -3348,12 +3348,12 @@ function TabLogs({
           )
         ) : (
           <>
-            <div className="overflow-x-auto rounded-lg border border-border/40">
+            <div className="overflow-x-auto rounded-lg border border-border/60">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="border-b border-border/40 bg-muted/20">
+                  <tr className="border-b border-border/60 bg-surface-subtle">
                     {['Fecha', 'Operación', 'Usuario / Agente', 'Créditos', 'Costo USD', 'Estado', 'Detalle de error'].map((col) => (
-                      <th key={col} className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground/70 whitespace-nowrap">
+                      <th key={col} className="px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">
                         {col}
                       </th>
                     ))}
@@ -3361,8 +3361,8 @@ function TabLogs({
                 </thead>
                 <tbody className="divide-y divide-border/20">
                   {visibleUsageLogs.map((log) => (
-                    <tr key={log.id} className="hover:bg-muted/10">
-                      <td className="px-3 py-2 text-muted-foreground/70 whitespace-nowrap">
+                    <tr key={log.id} className="hover:bg-surface-muted">
+                      <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">
                         {formatDateShort(log.createdAt)}
                       </td>
                       <td className="px-3 py-2 text-foreground max-w-[140px] truncate">
@@ -3370,7 +3370,7 @@ function TabLogs({
                       </td>
                       <td className="px-3 py-2 text-foreground max-w-[170px]">
                         <div className="truncate">{log.userDisplay?.primary ?? '—'}</div>
-                        <div className="truncate text-[10px] text-muted-foreground/60">{log.agentDisplay ?? '—'}</div>
+                        <div className="truncate text-xs text-muted-foreground">{log.agentDisplay ?? '—'}</div>
                       </td>
                       <td className="px-3 py-2 text-foreground whitespace-nowrap">
                         {log.creditsUsed != null ? `${log.creditsUsed.toLocaleString()} cr` : '—'}
@@ -3378,7 +3378,7 @@ function TabLogs({
                       <td className="px-3 py-2 text-foreground whitespace-nowrap">
                         {log.estimatedCostUsd != null ? `$${log.estimatedCostUsd.toFixed(4)}` : '—'}
                       </td>
-                      <td className="px-3 py-2 text-muted-foreground/70 capitalize">
+                      <td className="px-3 py-2 text-muted-foreground capitalize">
                         {log.status ?? '—'}
                       </td>
                       <td className="px-3 py-2 text-destructive max-w-[180px] truncate" title={formatUsageLogErrorDetailText(log.errorDetail ?? null)}>
@@ -3393,7 +3393,7 @@ function TabLogs({
               <button
                 type="button"
                 onClick={() => setShowAllUsage((v) => !v)}
-                className="w-full text-center text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors py-1.5"
+                className="w-full text-center text-xs text-muted-foreground hover:text-muted-foreground transition-colors py-1.5"
               >
                 {showAllUsage
                   ? 'Contraer'
@@ -3407,7 +3407,7 @@ function TabLogs({
       {/* Historial de sincronización (tool_quota_sync_logs) */}
       {hasSyncLogs && (
         <div className="space-y-2">
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">Historial de sincronización</p>
+          <p className="text-xs text-muted-foreground px-1">Historial de sincronización</p>
           {loading ? (
             <LoadingPlaceholder label="Cargando historial de sync..." />
           ) : syncLogs.length === 0 ? (
@@ -3416,12 +3416,12 @@ function TabLogs({
               sub="Ejecuta un sync desde la tabla de proveedores para registrar actividad."
             />
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-border/40">
+            <div className="overflow-x-auto rounded-lg border border-border/60">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="border-b border-border/40 bg-muted/20">
+                  <tr className="border-b border-border/60 bg-surface-subtle">
                     {['Fecha', 'Estado', 'Fuente', 'HTTP', 'Créditos ext.', 'Costo MTD', 'Error'].map((col) => (
-                      <th key={col} className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground/70 whitespace-nowrap">
+                      <th key={col} className="px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">
                         {col}
                       </th>
                     ))}
@@ -3429,23 +3429,23 @@ function TabLogs({
                 </thead>
                 <tbody className="divide-y divide-border/20">
                   {syncLogs.map((log) => (
-                    <tr key={log.id} className="hover:bg-muted/10">
-                      <td className="px-3 py-2 text-muted-foreground/70 whitespace-nowrap">
+                    <tr key={log.id} className="hover:bg-surface-muted">
+                      <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">
                         {formatDate(log.syncedAt)}
                       </td>
                       <td className="px-3 py-2">
                         <span
-                          className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-medium ${
+                          className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-medium ${
                             log.syncStatus === 'success'
-                              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                              ? 'border-success/30 bg-success/10 text-success dark:text-success'
                               : 'border-destructive/30 bg-destructive/10 text-destructive'
                           }`}
                         >
                           {log.syncStatus ?? '—'}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-muted-foreground/70">{log.source ?? '—'}</td>
-                      <td className="px-3 py-2 text-muted-foreground/70">{log.httpStatus ?? '—'}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{log.source ?? '—'}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{log.httpStatus ?? '—'}</td>
                       <td className="px-3 py-2 text-foreground whitespace-nowrap">
                         {log.creditsRemainingExternal != null
                           ? `${log.creditsRemainingExternal.toLocaleString()} cr`
@@ -3454,7 +3454,7 @@ function TabLogs({
                       <td className="px-3 py-2 text-foreground whitespace-nowrap">
                         {log.usdCostMtd != null ? `$${log.usdCostMtd.toFixed(2)}` : '—'}
                       </td>
-                      <td className="px-3 py-2 text-destructive text-[10px] max-w-[150px] truncate">
+                      <td className="px-3 py-2 text-destructive text-xs max-w-[150px] truncate">
                         {log.errorMessage ?? '—'}
                       </td>
                     </tr>
@@ -3468,7 +3468,7 @@ function TabLogs({
 
       {/* Evaluaciones de presupuesto (budget check logs) */}
       <div className="space-y-2">
-        <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">Evaluaciones de presupuesto</p>
+        <p className="text-xs text-muted-foreground px-1">Evaluaciones de presupuesto</p>
         {ms === 'not_measured' ? (
           <EmptyBlock message="Este proveedor no genera evaluaciones de presupuesto." />
         ) : budgetLogs.length === 0 ? (
@@ -3482,18 +3482,18 @@ function TabLogs({
                   ? (OUTCOME_BADGE[parsed.outcome] ?? OUTCOME_BADGE['unknown'])
                   : null;
                 return (
-                  <div key={log.id} className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2.5 space-y-1.5">
+                  <div key={log.id} className="rounded-lg border border-border/60 bg-surface-subtle px-3 py-2.5 space-y-1.5">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-xs text-foreground font-medium truncate">
                         {log.operationKey ?? 'operación general'}
                       </span>
                       {outcomeBadge && (
-                        <span className={`shrink-0 inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-medium ${outcomeBadge.className}`}>
+                        <span className={`shrink-0 inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-medium ${outcomeBadge.className}`}>
                           {outcomeBadge.label}
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-3 text-[10px] text-muted-foreground/70">
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
                       {log.creditsUsed != null && <span>{log.creditsUsed.toLocaleString()} cr</span>}
                       {log.estimatedCostUsd != null && <span>${log.estimatedCostUsd.toFixed(4)}</span>}
                       {parsed?.scopeApplied && parsed.scopeApplied !== 'none' && (
@@ -3509,7 +3509,7 @@ function TabLogs({
               <button
                 type="button"
                 onClick={() => setShowAllBudget((v) => !v)}
-                className="w-full text-center text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors py-1.5"
+                className="w-full text-center text-xs text-muted-foreground hover:text-muted-foreground transition-colors py-1.5"
               >
                 {showAllBudget
                   ? 'Contraer evaluaciones'
@@ -3614,11 +3614,11 @@ export function ProviderDetailSidepanel({
       title={provider?.displayName ?? provider?.providerKey ?? 'Proveedor'}
       titleBadge={
         <div className="flex items-center gap-1.5">
-          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${msBadge.className}`}>
+          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${msBadge.className}`}>
             {MEASUREMENT_STATUS_LABEL[ms]}
           </span>
           {hasAttention && (
-            <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400">
+            <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium border-warning/30 bg-warning/10 text-warning">
               Atención
             </span>
           )}

@@ -45,7 +45,7 @@ export default function PipelinePage() {
                 <p className="text-xs font-semibold text-foreground/80">
                   {state.label}
                 </p>
-                <span className="flex h-5 w-5 items-center justify-center rounded-md bg-muted/60 text-[10px] font-bold text-muted-foreground">
+                <span className="flex h-5 w-5 items-center justify-center rounded-md bg-surface-muted text-xs font-bold text-muted-foreground">
                   {i + 1}
                 </span>
               </div>
@@ -53,7 +53,7 @@ export default function PipelinePage() {
               <p className="text-3xl font-bold tracking-tight text-foreground/85 tabular-nums">
                 {state.count}
               </p>
-              <p className="text-[11px] text-muted-foreground/70">
+              <p className="text-xs text-muted-foreground">
                 Sin cuentas todavía
               </p>
             </div>

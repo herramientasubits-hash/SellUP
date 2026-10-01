@@ -99,7 +99,7 @@ export function GenerateMockBatchDrawer() {
       }
       title="Generar lote de prueba"
       description="Prueba el pipeline completo con datos mock sin consumir ningún proveedor real."
-      icon={<FlaskConical className="h-4 w-4 text-amber-600 dark:text-amber-400" />}
+      icon={<FlaskConical className="h-4 w-4 text-warning" />}
       size="xl"
       actions={
         <div className="flex w-full items-center justify-end gap-2">
@@ -118,7 +118,7 @@ export function GenerateMockBatchDrawer() {
             size="sm"
             disabled={!canSubmit}
             variant="outline"
-            className="gap-1.5 border-amber-500/40 text-amber-700 hover:bg-amber-500/10 dark:text-amber-400 disabled:opacity-40"
+            className="gap-1.5 border-warning/40 text-warning hover:bg-warning/10 disabled:opacity-40"
           >
             {loading ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -136,9 +136,9 @@ export function GenerateMockBatchDrawer() {
         className="space-y-8"
       >
         {/* Alerta de seguridad */}
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3">
+        <div className="rounded-xl border border-warning/30 bg-warning/5 px-4 py-3">
           <div className="flex gap-2.5">
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
             <p className="text-xs text-muted-foreground">
               Este modo usa datos mock para probar el flujo{' '}
               <strong className="font-medium text-foreground">
@@ -237,7 +237,7 @@ export function GenerateMockBatchDrawer() {
 
         {/* Qué NO se usa */}
         <div className="space-y-2">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+          <p className="text-xs font-semibold text-muted-foreground">
             Proveedores desactivados en modo prueba
           </p>
           <div className="flex flex-col gap-1.5">
@@ -250,9 +250,9 @@ export function GenerateMockBatchDrawer() {
             ].map((label) => (
               <div
                 key={label}
-                className="flex items-center gap-2.5 rounded-lg border border-border/40 bg-card px-3 py-2"
+                className="flex items-center gap-2.5 rounded-lg border border-border/60 bg-card px-3 py-2"
               >
-                <Info className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
+                <Info className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 <span className="text-xs text-muted-foreground">{label}</span>
               </div>
             ))}

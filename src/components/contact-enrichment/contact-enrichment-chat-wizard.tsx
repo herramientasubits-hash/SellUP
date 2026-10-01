@@ -367,7 +367,7 @@ export function ContactEnrichmentChatWizard({
         )}
       </div>
 
-      <div className="sticky bottom-0 mt-auto border-t border-border/30 bg-background pb-2 pt-3">
+      <div className="sticky bottom-0 mt-auto border-t border-border/50 bg-background pb-2 pt-3">
         <AgentChatComposer
           mode={composerMode}
           value={composerText}
@@ -399,7 +399,7 @@ function CandidateMeta({ candidate }: { candidate: CompanyCandidate }) {
         </span>
       )}
       {candidate.hubspotCompanyId && (
-        <span className="font-mono text-[10px] text-muted-foreground">
+        <span className="font-mono text-xs text-muted-foreground">
           HS: {candidate.hubspotCompanyId}
         </span>
       )}
@@ -437,7 +437,7 @@ function AutomaticEnrichmentInfoCard() {
         Si el proveedor principal no encuentra resultados suficientes, SellUp podrá intentar un
         proveedor alternativo según configuración.
       </p>
-      <p className="border-t border-border/50 pt-2 text-[11px] text-muted-foreground">
+      <p className="border-t border-border/50 pt-2 text-xs text-muted-foreground">
         Los candidatos quedan en revisión humana; no se crean contactos finales ni se escribe en
         HubSpot sin tu aprobación. El teléfono personal queda fuera de alcance.
       </p>

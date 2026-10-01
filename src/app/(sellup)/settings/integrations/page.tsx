@@ -46,7 +46,7 @@ function ConnectionStatusBadge({
 }) {
   if (!isAvailable) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-border/40 bg-muted/30 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground/60">
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-surface-subtle px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
         <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/25" />
         Próximamente
       </span>
@@ -55,7 +55,7 @@ function ConnectionStatusBadge({
 
   if (credentialsStatus === 'missing' || !credentialsStatus) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-border/40 bg-muted/30 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground/60">
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-surface-subtle px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
         <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/25" />
         No configurado
       </span>
@@ -64,8 +64,8 @@ function ConnectionStatusBadge({
 
   if (connectionStatus === 'connected') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-medium text-emerald-500">
-        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/10 px-2.5 py-0.5 text-xs font-medium text-success">
+        <span className="h-1.5 w-1.5 rounded-full bg-success" />
         Conectado
       </span>
     );
@@ -73,7 +73,7 @@ function ConnectionStatusBadge({
 
   if (connectionStatus === 'error') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-destructive/30 bg-destructive/10 px-2.5 py-0.5 text-[10px] font-medium text-destructive">
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-destructive/30 bg-destructive/10 px-2.5 py-0.5 text-xs font-medium text-destructive">
         <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
         Error
       </span>
@@ -82,15 +82,15 @@ function ConnectionStatusBadge({
 
   if (connectionStatus === 'disconnected') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-medium text-amber-500">
-        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-warning/30 bg-warning/10 px-2.5 py-0.5 text-xs font-medium text-warning">
+        <span className="h-1.5 w-1.5 rounded-full bg-warning" />
         Desconectado
       </span>
     );
   }
 
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-border/40 bg-muted/30 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground/60">
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-surface-subtle px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
       <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/25" />
       Sin probar
     </span>
@@ -106,7 +106,7 @@ function IntegrationCard({ integration }: { integration: IntegrationWithConnecti
 
   const statusBadge = isPersonal ? (
     // Google Drive: conexión personal, no gestionada aquí
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-su-brand/30 bg-su-brand-soft px-2.5 py-0.5 text-[10px] font-medium text-su-brand">
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-su-brand/30 bg-su-brand-soft px-2.5 py-0.5 text-xs font-medium text-su-brand">
       <span className="h-1.5 w-1.5 rounded-full bg-su-brand" />
       Personal
     </span>
@@ -134,13 +134,13 @@ function IntegrationCard({ integration }: { integration: IntegrationWithConnecti
               ? 'bg-su-brand-soft text-su-brand group-hover:bg-su-brand/20'
               : isAvailable
               ? 'bg-su-brand-soft/60 text-su-brand/70 group-hover:bg-su-brand/15'
-              : 'bg-accent/60 text-muted-foreground/40'
+              : 'bg-accent/60 text-text-muted'
           }`}
         >
           <Icon className="h-4 w-4" />
         </div>
         {(isAvailable || isPersonal) && meta?.href && (
-          <span className="flex items-center gap-1 text-[11px] font-medium text-su-brand opacity-0 transition-opacity group-hover:opacity-100">
+          <span className="flex items-center gap-1 text-xs font-medium text-su-brand opacity-0 transition-opacity group-hover:opacity-100">
             {meta.cta}
             <ExternalLink className="h-3 w-3" />
           </span>
@@ -158,7 +158,7 @@ function IntegrationCard({ integration }: { integration: IntegrationWithConnecti
   if ((isAvailable || isPersonal) && meta?.href) {
     return (
       <Link href={meta.href}>
-        <SurfaceCard className="group cursor-pointer transition-all hover:border-su-brand/30 hover:shadow-md">
+        <SurfaceCard className="group cursor-pointer transition-all hover:border-su-brand/30 hover:shadow-drawer">
           {cardContent}
         </SurfaceCard>
       </Link>

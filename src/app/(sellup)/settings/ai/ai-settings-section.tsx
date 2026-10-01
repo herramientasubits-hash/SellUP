@@ -31,9 +31,9 @@ function formatDate(dateStr: string | null): string {
 
 function getStatusBadge(status: string) {
   const map: Record<string, { label: string; className: string }> = {
-    active: { label: 'Activo', className: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30' },
+    active: { label: 'Activo', className: 'bg-success/10 text-success border-success/30' },
     inactive: { label: 'Inactivo', className: 'bg-muted text-muted-foreground border-border' },
-    not_configured: { label: 'Sin configurar', className: 'bg-amber-500/10 text-amber-500 border-amber-500/30' },
+    not_configured: { label: 'Sin configurar', className: 'bg-warning/10 text-warning border-warning/30' },
     error: { label: 'Error', className: 'bg-destructive/10 text-destructive border-destructive/30' },
   };
   return map[status] ?? { label: status, className: '' };
@@ -41,9 +41,9 @@ function getStatusBadge(status: string) {
 
 function getConnectionBadge(connStatus: string | undefined) {
   const map: Record<string, { label: string; className: string; icon: string }> = {
-    connected: { label: 'Conectado', className: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30', icon: '✓' },
+    connected: { label: 'Conectado', className: 'bg-success/10 text-success border-success/30', icon: '✓' },
     not_tested: { label: 'Sin probar', className: 'bg-muted text-muted-foreground border-border', icon: '?' },
-    not_configured: { label: 'Sin credenciales', className: 'bg-amber-500/10 text-amber-500 border-amber-500/30', icon: '!' },
+    not_configured: { label: 'Sin credenciales', className: 'bg-warning/10 text-warning border-warning/30', icon: '!' },
     error: { label: 'Error conexión', className: 'bg-destructive/10 text-destructive border-destructive/30', icon: '✗' },
   };
   return map[connStatus ?? ''] ?? { label: 'Desconocido', className: '', icon: '' };
@@ -82,8 +82,8 @@ export async function AiSettingsSection() {
           value={summary.activeModel ?? '-'}
           iconPosition="left-large"
           icon={
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/10">
-              <CheckCircle className="h-6 w-6 text-emerald-500" />
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-success/10">
+              <CheckCircle className="h-6 w-6 text-success" />
             </div>
           }
         />
@@ -93,8 +93,8 @@ export async function AiSettingsSection() {
           value={`${summary.activeModels}/${summary.totalModels}`}
           iconPosition="left-large"
           icon={
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500/10">
-              <Settings className="h-6 w-6 text-blue-500" />
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-info/10">
+              <Settings className="h-6 w-6 text-info" />
             </div>
           }
         />
@@ -104,8 +104,8 @@ export async function AiSettingsSection() {
           value={formatDate(summary.lastPricingUpdate)}
           iconPosition="left-large"
           icon={
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-500/10">
-              <Clock className="h-6 w-6 text-amber-500" />
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-warning/10">
+              <Clock className="h-6 w-6 text-warning" />
             </div>
           }
         />
@@ -124,7 +124,7 @@ export async function AiSettingsSection() {
       </SurfaceCard>
 
       <Tabs defaultValue="providers" className="space-y-4">
-        <TabsList className="bg-muted/50">
+        <TabsList className="bg-surface-muted">
           <TabsTrigger value="providers" className="gap-2">
             <BrainCircuit className="h-4 w-4" />
             Proveedores ({providers.length})
@@ -148,7 +148,7 @@ export async function AiSettingsSection() {
             providers.map(provider => (
               <div
                 key={provider.id}
-                className="flex items-center gap-4 rounded-xl border border-border/50 bg-card p-4"
+                className="flex items-center gap-4 rounded-2xl border border-border/50 bg-card p-4"
               >
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-su-brand-soft">
                   <BrainCircuit className="h-5 w-5 text-su-brand" />
@@ -156,10 +156,10 @@ export async function AiSettingsSection() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-foreground">{provider.name}</span>
-                    <Badge variant="outline" className={`text-[10px] ${getStatusBadge(provider.status).className}`}>
+                    <Badge variant="outline" className={`text-xs ${getStatusBadge(provider.status).className}`}>
                       {getStatusBadge(provider.status).label}
                     </Badge>
-                    <Badge variant="outline" className={`text-[10px] ${getConnectionBadge(provider.connection_status).className}`}>
+                    <Badge variant="outline" className={`text-xs ${getConnectionBadge(provider.connection_status).className}`}>
                       {getConnectionBadge(provider.connection_status).icon} {getConnectionBadge(provider.connection_status).label}
                     </Badge>
                   </div>
@@ -187,7 +187,7 @@ export async function AiSettingsSection() {
             models.map(model => (
               <div
                 key={model.id}
-                className="flex items-center gap-4 rounded-xl border border-border/50 bg-card p-4"
+                className="flex items-center gap-4 rounded-2xl border border-border/50 bg-card p-4"
               >
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted">
                   <Settings className="h-5 w-5 text-muted-foreground" />
@@ -195,7 +195,7 @@ export async function AiSettingsSection() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-foreground">{model.name}</span>
-                    <Badge variant="outline" className={`text-[10px] ${getStatusBadge(model.status).className}`}>
+                    <Badge variant="outline" className={`text-xs ${getStatusBadge(model.status).className}`}>
                       {getStatusBadge(model.status).label}
                     </Badge>
                   </div>
@@ -222,7 +222,7 @@ export async function AiSettingsSection() {
                       </div>
                     </div>
                   ) : (
-                    <span className="text-xs text-amber-500">Sin tarifa</span>
+                    <span className="text-xs text-warning">Sin tarifa</span>
                   )}
                 </div>
                 <AIControls
@@ -246,15 +246,15 @@ export async function AiSettingsSection() {
               .map(model => (
                 <div
                   key={model.id}
-                  className="flex items-center gap-4 rounded-xl border border-border/50 bg-card p-4"
+                  className="flex items-center gap-4 rounded-2xl border border-border/50 bg-card p-4"
                 >
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10">
-                    <DollarSign className="h-5 w-5 text-amber-500" />
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-warning/10">
+                    <DollarSign className="h-5 w-5 text-warning" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-foreground">{model.name}</span>
-                      <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-500 border-emerald-500/30">
+                      <Badge variant="outline" className="text-xs bg-success/10 text-success border-success/30">
                         Vigente
                       </Badge>
                     </div>
@@ -268,14 +268,14 @@ export async function AiSettingsSection() {
                       <p className="font-semibold text-foreground">
                         {formatCurrency(model.current_pricing?.input_cost_per_million_tokens ?? 0, model.current_pricing?.currency ?? 'USD')}
                       </p>
-                      <p className="text-[10px] text-muted-foreground">por millón tokens</p>
+                      <p className="text-xs text-muted-foreground">por millón tokens</p>
                     </div>
                     <div className="text-center">
                       <p className="text-xs text-muted-foreground">Output</p>
                       <p className="font-semibold text-foreground">
                         {formatCurrency(model.current_pricing?.output_cost_per_million_tokens ?? 0, model.current_pricing?.currency ?? 'USD')}
                       </p>
-                      <p className="text-[10px] text-muted-foreground">por millón tokens</p>
+                      <p className="text-xs text-muted-foreground">por millón tokens</p>
                     </div>
                   </div>
                   <AIControls

@@ -79,7 +79,7 @@ export function DrawerSection({
               {title}
             </h3>
             {badge && (
-              <span className="rounded-full bg-surface-muted px-2 py-0.5 text-[11px] font-semibold tabular-nums text-muted-foreground">
+              <span className="rounded-full bg-surface-muted px-2 py-0.5 text-xs font-semibold tabular-nums text-muted-foreground">
                 {badge}
               </span>
             )}

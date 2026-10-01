@@ -262,7 +262,7 @@ export function WizardLushaFinalSearch({
             cifras: media instantánea no explica nada. */}
         {availableCredits !== null && requiredCredits !== null && (
           <dl
-            className="rounded-xl border border-border bg-card divide-y divide-border/60 text-sm"
+            className="rounded-2xl border border-border bg-card divide-y divide-border/60 text-sm"
             data-testid="lusha-budget-preflight"
           >
             <DetailRow
@@ -335,7 +335,7 @@ function SearchLoader() {
       }}
     >
       {/* Mirror shine sweep */}
-      <div className="pointer-events-none absolute inset-0 -translate-x-full skew-x-[-12deg] bg-[linear-gradient(90deg,transparent_0%,rgba(255,255,255,0.06)_20%,rgba(255,255,255,0.35)_50%,rgba(255,255,255,0.06)_80%,transparent_100%)] animate-su-mirror-shine" />
+      <div className="pointer-events-none absolute inset-0 -translate-x-full skew-x-[-12deg] su-mirror-shine animate-su-mirror-shine" />
 
       <div className="relative z-10 space-y-4">
         <div className="flex items-center gap-2 text-white">
@@ -397,16 +397,16 @@ function PersistConfirmation({
 
   return (
     <div className="space-y-4 animate-su-fade-in" data-testid="wizard-lusha-persist-confirmation">
-      <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4 dark:border-emerald-800/40 dark:bg-emerald-900/10">
+      <div className="flex items-start gap-3 rounded-xl border border-success/20 bg-success/10 px-5 py-4 dark:border-success/40">
         <CheckCircle2
-          className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400"
+          className="mt-0.5 h-5 w-5 shrink-0 text-success"
           aria-hidden
         />
         <div className="space-y-1">
-          <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">
+          <p className="text-sm font-semibold text-success">
             Empresas candidatas listas para revisión
           </p>
-          <p className="text-xs text-emerald-600/80 dark:text-emerald-400/70">
+          <p className="text-xs text-success/80">
             Encontramos {count} {count === 1 ? 'empresa' : 'empresas'} y las dejamos en
             Prospectos para que las revises antes de aprobarlas.
           </p>
@@ -414,7 +414,7 @@ function PersistConfirmation({
       </div>
 
       <dl
-        className="rounded-xl border border-border bg-card divide-y divide-border/60 text-sm"
+        className="rounded-2xl border border-border bg-card divide-y divide-border/60 text-sm"
         data-testid="wizard-lusha-persist-metrics"
       >
         <DetailRow
@@ -488,7 +488,7 @@ function PersistConfirmation({
         <DetailRow label="Lote" value={shortBatch} />
       </dl>
 
-      <div className="rounded-lg bg-muted/40 px-4 py-3 space-y-1">
+      <div className="rounded-lg bg-surface-subtle px-4 py-3 space-y-1">
         {/* § P0 — misma razón que arriba: «hasta 20 empresas (2 × 10)» describía
             el ejecutor de una sola rama. El número de empresas que una corrida
             puede devolver lo fija el plan de su macro industria; lo que sí puede
@@ -553,13 +553,13 @@ function DetailRow({
 function EmptyResult({ onGenerateAnother }: { onGenerateAnother?: () => void }) {
   return (
     <div className="space-y-4 animate-su-fade-in" data-testid="wizard-lusha-empty">
-      <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 dark:border-amber-800/40 dark:bg-amber-900/10">
-        <Info className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+      <div className="flex items-start gap-3 rounded-xl border border-warning/20 bg-warning/15 px-5 py-4 dark:border-warning/40 dark:bg-warning/10">
+        <Info className="mt-0.5 h-5 w-5 shrink-0 text-warning" aria-hidden />
         <div className="space-y-1">
-          <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+          <p className="text-sm font-semibold text-warning">
             No encontramos empresas nuevas con estos criterios.
           </p>
-          <p className="text-xs text-amber-600/80 dark:text-amber-400/70">
+          <p className="text-xs text-warning/80">
             Prueba con otra industria, país o criterio adicional.
           </p>
         </div>

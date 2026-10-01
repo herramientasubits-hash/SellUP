@@ -236,7 +236,7 @@ export function ScopeFiltersInDrawer(props: ScopeFiltersInDrawerProps) {
   if (!props.scopeFilterOptions.showScopeFilters) return null;
   return (
     <div className="space-y-3">
-      <p className="text-[11px] font-semibold tracking-wider uppercase text-foreground">
+      <p className="text-xs font-semibold text-foreground">
         Alcance de equipo
       </p>
       <Suspense>
@@ -331,7 +331,7 @@ export function ScopeFilterDrawerSection({
 
   return (
     <div className="space-y-3">
-      <p className="text-[11px] font-semibold tracking-wider uppercase text-foreground">
+      <p className="text-xs font-semibold text-foreground">
         Alcance de equipo
       </p>
       <div className="flex flex-col gap-2">

@@ -39,16 +39,16 @@ import { AccountDetailSheet } from './account-detail-sheet';
 const STATUS_STYLES: Record<PipelineStatus, string> = {
   new: 'bg-muted text-muted-foreground',
   ready_for_research: 'bg-su-brand-soft text-su-brand',
-  research_in_progress: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-  ready_for_outreach: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-  archived: 'bg-muted/60 text-muted-foreground/60',
+  research_in_progress: 'bg-warning/10 text-warning',
+  ready_for_outreach: 'bg-success/10 text-success',
+  archived: 'bg-surface-muted text-muted-foreground',
 };
 
 const SOURCE_STYLES: Record<AccountSource, string> = {
   manual: 'border-border text-muted-foreground',
   agent_1: 'bg-su-brand-soft text-su-brand border-transparent',
-  hubspot: 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-transparent',
-  apollo: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-transparent',
+  hubspot: 'bg-warning/10 text-warning border-transparent',
+  apollo: 'bg-info/10 text-info border-transparent',
   imported: 'border-border text-muted-foreground',
   other: 'border-border text-muted-foreground',
 };
@@ -123,8 +123,8 @@ export function AccountsTable({ accounts, users }: AccountsTableProps) {
   if (accounts.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 px-6 py-16 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted/60">
-          <Building2 className="h-5 w-5 text-muted-foreground/40" />
+        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-surface-muted">
+          <Building2 className="h-5 w-5 text-text-muted" />
         </div>
         <div className="space-y-1">
           <p className="text-sm font-medium text-foreground">Sin cuentas todavía</p>
@@ -142,12 +142,12 @@ export function AccountsTable({ accounts, users }: AccountsTableProps) {
       <div className="overflow-x-auto">
         <table className="w-full min-w-[760px] text-sm">
           <thead>
-            <tr className="border-b border-border/30">
+            <tr className="border-b border-border/50">
               {['Empresa', 'País', 'Industria', 'Dominio', 'Estado', 'Owner', 'Fuente', 'Creación', ''].map(
                 (col) => (
                   <th
                     key={col}
-                    className="px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50 last:w-12 last:px-3"
+                    className="px-5 py-2.5 text-left text-xs font-semibold text-muted-foreground last:w-12 last:px-3"
                   >
                     {col}
                   </th>
@@ -159,7 +159,7 @@ export function AccountsTable({ accounts, users }: AccountsTableProps) {
             {accounts.map((account, i) => (
               <tr
                 key={account.id}
-                className="group border-b border-border/20 transition-colors hover:bg-accent/30 last:border-0 animate-su-slide-in"
+                className="group border-b border-border/50 transition-colors hover:bg-surface-muted last:border-0 animate-su-slide-in"
                 style={{ animationDelay: `${i * 30}ms` }}
               >
                 {/* Nombre — abre el drawer */}
@@ -180,38 +180,38 @@ export function AccountsTable({ accounts, users }: AccountsTableProps) {
                       <span className="text-xs">{account.country_code}</span>
                     </span>
                   ) : (
-                    <span className="text-muted-foreground/40">—</span>
+                    <span className="text-text-muted">—</span>
                   )}
                 </td>
 
                 <td className="px-5 py-3.5 text-xs text-muted-foreground">
-                  {account.industry ?? <span className="text-muted-foreground/40">—</span>}
+                  {account.industry ?? <span className="text-text-muted">—</span>}
                 </td>
 
                 <td className="px-5 py-3.5 text-xs text-muted-foreground">
                   {account.domain ? (
                     <span className="font-mono">{account.domain}</span>
                   ) : (
-                    <span className="text-muted-foreground/40">—</span>
+                    <span className="text-text-muted">—</span>
                   )}
                 </td>
 
                 <td className="px-5 py-3.5">
                   <span
-                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_STYLES[account.pipeline_status]}`}
+                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLES[account.pipeline_status]}`}
                   >
                     {PIPELINE_STATUS_LABELS[account.pipeline_status]}
                   </span>
                 </td>
 
                 <td className="px-5 py-3.5 text-xs text-muted-foreground">
-                  {account.owner_name ?? <span className="text-muted-foreground/40">—</span>}
+                  {account.owner_name ?? <span className="text-text-muted">—</span>}
                 </td>
 
                 <td className="px-5 py-3.5">
                   <Badge
                     variant="outline"
-                    className={`text-[10px] ${SOURCE_STYLES[account.source as AccountSource]}`}
+                    className={`text-xs ${SOURCE_STYLES[account.source as AccountSource]}`}
                   >
                     {SOURCE_LABELS[account.source as AccountSource]}
                   </Badge>
@@ -224,7 +224,7 @@ export function AccountsTable({ accounts, users }: AccountsTableProps) {
                 <td className="px-3 py-3.5">
                   <DropdownMenu>
                     <DropdownMenuTrigger>
-                      <div className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md opacity-0 transition-opacity group-hover:opacity-100 hover:bg-accent">
+                      <div className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md opacity-0 transition-opacity group-hover:opacity-100 hover:bg-surface-muted">
                         <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
                         <span className="sr-only">Acciones</span>
                       </div>

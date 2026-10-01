@@ -47,7 +47,7 @@ function NotificationItem({
       onClick={() => onRead(notification.id, notification.action_url)}
       className={[
         "group relative w-full rounded-lg px-4 py-3 text-left transition-colors",
-        "hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         !notification.is_read && "bg-su-brand-soft/40",
       ]
         .filter(Boolean)
@@ -69,7 +69,7 @@ function NotificationItem({
           >
             {notification.title}
           </span>
-          <span className="shrink-0 text-[11px] text-muted-foreground">
+          <span className="shrink-0 text-xs text-muted-foreground">
             {formatRelativeDate(notification.created_at)}
           </span>
         </div>
@@ -147,7 +147,7 @@ export function NotificationDrawer({
     >
       <div className="flex flex-col gap-4">
         {/* Tabs + acción */}
-        <div className="flex items-center justify-between pb-3 border-b border-border/40">
+        <div className="flex items-center justify-between pb-3 border-b border-border/60">
           <div className="flex gap-0.5 rounded-md bg-muted p-0.5">
             {(["unread", "all"] as NotificationFilter[]).map((f) => (
               <button
@@ -157,7 +157,7 @@ export function NotificationDrawer({
                 className={[
                   "rounded px-2.5 py-1 text-xs font-medium transition-colors",
                   filter === f
-                    ? "bg-background text-foreground shadow-sm"
+                    ? "bg-background text-foreground shadow-card"
                     : "text-muted-foreground hover:text-foreground",
                 ].join(" ")}
               >
@@ -165,7 +165,7 @@ export function NotificationDrawer({
                   <span className="flex items-center gap-1.5">
                     No leídas
                     {hasUnread && (
-                      <span className="flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-su-brand px-1 text-[10px] font-bold text-white">
+                      <span className="flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-su-brand px-1 text-xs font-bold text-primary-foreground">
                         {unreadCount}
                       </span>
                     )}
@@ -196,7 +196,7 @@ export function NotificationDrawer({
           {loading ? (
             <div className="flex flex-col gap-1">
               {Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="h-16 animate-pulse rounded-lg bg-muted/60" />
+                <div key={i} className="h-16 animate-pulse rounded-lg bg-surface-muted" />
               ))}
             </div>
           ) : displayed.length === 0 ? (

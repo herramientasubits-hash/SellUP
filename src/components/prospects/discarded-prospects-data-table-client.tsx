@@ -294,7 +294,7 @@ export function DiscardedProspectsDataTableClient({
                 {createdAt ? formatProspectDate(createdAt) : '—'}
               </span>
               {isNew && (
-                <Badge className="border-0 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[9px] font-semibold px-1.5 py-0.5 shrink-0">
+                <Badge className="border-0 bg-success/10 text-success text-xs font-semibold px-1.5 py-0.5 shrink-0">
                   Nuevo
                 </Badge>
               )}
@@ -321,7 +321,7 @@ export function DiscardedProspectsDataTableClient({
         accessorKey: 'disposition',
         header: ({ column }) => <DataTableColumnHeader column={column} title="Motivo" />,
         cell: ({ row }) => (
-          <Badge variant="outline" className="text-[10px] font-medium">
+          <Badge variant="outline" className="text-xs font-medium">
             {DISCARD_DISPOSITION_LABELS[row.original.disposition] ?? 'Otro motivo'}
           </Badge>
         ),
@@ -342,10 +342,10 @@ export function DiscardedProspectsDataTableClient({
           <Badge
             className={
               row.original.status === 'sent_to_review'
-                ? 'border-0 bg-su-brand-soft text-su-brand text-[10px]'
+                ? 'border-0 bg-su-brand-soft text-su-brand text-xs'
                 : row.original.sendToReviewBlockedReason
-                  ? 'border-0 bg-orange-500/10 text-orange-600 dark:text-orange-400 text-[10px]'
-                  : 'border-0 bg-muted text-muted-foreground text-[10px]'
+                  ? 'border-0 bg-warning/10 text-warning text-xs'
+                  : 'border-0 bg-muted text-muted-foreground text-xs'
             }
           >
             {row.original.status === 'sent_to_review'
@@ -536,8 +536,8 @@ export function DiscardedProspectsDataTableClient({
         }
         emptyState={
           <div className="flex flex-col items-center justify-center py-12 text-center">
-            <div className="mb-3 rounded-full bg-muted/60 p-3">
-              <Building2 className="h-6 w-6 text-muted-foreground/40" />
+            <div className="mb-3 rounded-full bg-surface-muted p-3">
+              <Building2 className="h-6 w-6 text-text-muted" />
             </div>
             <p className="text-sm font-medium text-foreground">Sin empresas descartadas</p>
             <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto">

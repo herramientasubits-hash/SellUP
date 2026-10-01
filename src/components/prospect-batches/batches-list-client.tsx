@@ -24,11 +24,11 @@ import {
 
 const STATUS_STYLES: Record<BatchStatus, string> = {
   draft: 'bg-muted text-muted-foreground',
-  generating: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  generating: 'bg-warning/10 text-warning',
   ready_for_review: 'bg-su-brand-soft text-su-brand',
-  in_review: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
-  completed: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-  cancelled: 'bg-muted/60 text-muted-foreground/60',
+  in_review: 'bg-info/10 text-info',
+  completed: 'bg-success/10 text-success',
+  cancelled: 'bg-surface-muted text-muted-foreground',
   failed: 'bg-destructive/10 text-destructive',
 };
 
@@ -92,7 +92,7 @@ function BatchRowActions({ batch, onStatusChange, loading }: BatchRowActionsProp
         )}
         {batch.status === 'ready_for_review' && (
           <DropdownMenuItem onClick={() => onStatusChange(batch.id, 'in_review')}>
-            <GitMerge className="mr-2 h-3.5 w-3.5 text-blue-500" />
+            <GitMerge className="mr-2 h-3.5 w-3.5 text-info" />
             Iniciar revisión
           </DropdownMenuItem>
         )}
@@ -146,11 +146,11 @@ export function BatchesListClient({ batches }: BatchesListClientProps) {
   return (
     <div className="overflow-x-auto">
       {technicalCount > 0 && (
-        <div className="flex items-center justify-end border-b border-border/30 px-4 py-2">
+        <div className="flex items-center justify-end border-b border-border/50 px-4 py-2">
           <button
             type="button"
             onClick={() => setShowTechnical((v) => !v)}
-            className="flex items-center gap-1.5 text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-muted-foreground transition-colors"
           >
             <FlaskConical className="h-3 w-3" />
             {showTechnical
@@ -161,12 +161,12 @@ export function BatchesListClient({ batches }: BatchesListClientProps) {
       )}
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-border/40">
+          <tr className="border-b border-border/60">
             {['Nombre', 'País', 'Industria', 'Estado', 'Fuente', 'Candidatos', 'Aprobados', 'Convertidos', 'Costo est.', 'Creación', ''].map(
               (col) => (
                 <th
                   key={col}
-                  className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60"
+                  className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground"
                 >
                   {col}
                 </th>
@@ -194,7 +194,7 @@ export function BatchesListClient({ batches }: BatchesListClientProps) {
           {visibleBatches.map((batch) => (
             <tr
               key={batch.id}
-              className="group border-b border-border/30 transition-colors last:border-0 hover:bg-muted/30"
+              className="group border-b border-border/50 transition-colors last:border-0 hover:bg-surface-muted"
             >
               {/* Nombre */}
               <td className="px-4 py-3">
@@ -210,7 +210,7 @@ export function BatchesListClient({ batches }: BatchesListClientProps) {
                   </p>
                 )}
                 {batch.metadata?.generation_mode === 'controlled_real_test' && (
-                  <Badge className="mt-1 border-0 bg-blue-500/10 text-[10px] font-semibold text-blue-600 dark:text-blue-400">
+                  <Badge className="mt-1 border-0 bg-info/10 text-xs font-semibold text-info">
                     Búsqueda real
                   </Badge>
                 )}
@@ -223,23 +223,23 @@ export function BatchesListClient({ batches }: BatchesListClientProps) {
                     <span className="text-xs">{batch.country ?? batch.country_code}</span>
                   </span>
                 ) : (
-                  <span className="text-xs text-muted-foreground/50">—</span>
+                  <span className="text-xs text-muted-foreground">—</span>
                 )}
               </td>
               {/* Industria */}
               <td className="px-4 py-3">
                 <span className="text-xs text-muted-foreground">
-                  {batch.industry ?? <span className="text-muted-foreground/50">—</span>}
+                  {batch.industry ?? <span className="text-muted-foreground">—</span>}
                 </span>
               </td>
               {/* Estado */}
               <td className="px-4 py-3">
                 {batch.metadata?.review_ready === false && batch.status === 'ready_for_review' ? (
-                  <Badge className="bg-muted text-muted-foreground border-0 text-[10px] font-semibold">
+                  <Badge className="bg-muted text-muted-foreground border-0 text-xs font-semibold">
                     Sin candidatas útiles
                   </Badge>
                 ) : (
-                  <Badge className={`${STATUS_STYLES[batch.status]} border-0 text-[10px] font-semibold`}>
+                  <Badge className={`${STATUS_STYLES[batch.status]} border-0 text-xs font-semibold`}>
                     {BATCH_STATUS_LABELS[batch.status]}
                   </Badge>
                 )}
@@ -256,7 +256,7 @@ export function BatchesListClient({ batches }: BatchesListClientProps) {
               </td>
               {/* Aprobados */}
               <td className="px-4 py-3 tabular-nums">
-                <span className="text-emerald-600 dark:text-emerald-400">
+                <span className="text-success">
                   {batch.approved_count}
                 </span>
               </td>

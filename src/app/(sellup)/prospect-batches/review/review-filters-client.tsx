@@ -100,7 +100,7 @@ export function ReviewFiltersClient({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="mr-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+      <span className="mr-1 text-xs font-semibold text-muted-foreground">
         Filtrar
       </span>
 

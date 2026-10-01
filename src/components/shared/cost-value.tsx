@@ -23,11 +23,11 @@ export function CostValue({ display, className }: CostValueProps) {
           render={
             <span className={`inline-flex items-center gap-1 cursor-help ${className ?? ''}`}>
               {display.label}
-              <Info className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+              <Info className="h-3 w-3 shrink-0 text-muted-foreground" />
             </span>
           }
         />
-        <TooltipContent className="max-w-[220px] text-[11px] leading-relaxed">
+        <TooltipContent className="max-w-[220px] text-xs leading-relaxed">
           {display.description}
         </TooltipContent>
       </Tooltip>

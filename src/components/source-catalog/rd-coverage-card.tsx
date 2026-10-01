@@ -49,7 +49,7 @@ export function formatRdCoverageStatus(status: 'complete_snapshot' | 'partial_sn
 
 function FieldRow({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="flex items-baseline justify-between gap-4 py-1.5 border-b border-border/30 last:border-0">
+    <div className="flex items-baseline justify-between gap-4 py-1.5 border-b border-border/50 last:border-0">
       <dt className="text-xs text-muted-foreground shrink-0">{label}</dt>
       <dd className="text-xs font-medium text-foreground text-right tabular-nums">{value}</dd>
     </div>
@@ -58,7 +58,7 @@ function FieldRow({ label, value }: { label: string; value: string | number }) {
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2 mt-4 first:mt-0">
+    <p className="text-xs font-semibold text-muted-foreground mb-2 mt-4 first:mt-0">
       {children}
     </p>
   );
@@ -143,7 +143,7 @@ export function RdCoverageCard({ summary, error }: RdCoverageCardProps) {
       </dl>
 
       {sourceReasonLabel && (
-        <p className="mt-3 text-[11px] text-muted-foreground/60">
+        <p className="mt-3 text-xs text-muted-foreground">
           Motivo: {sourceReasonLabel}
         </p>
       )}

@@ -53,7 +53,7 @@ export function OptionTile({
           "shrink-0 p-2 rounded-lg border transition-colors",
           selected
             ? "bg-su-brand text-su-brand-foreground border-su-brand"
-            : "bg-muted/50 text-muted-foreground border-border/50 group-hover:bg-su-brand/5 group-hover:text-su-brand group-hover:border-su-brand/20",
+            : "bg-surface-muted text-muted-foreground border-border/50 group-hover:bg-su-brand/5 group-hover:text-su-brand group-hover:border-su-brand/20",
           compact && "p-1.5"
         )}>
           <Icon className={cn("h-4 w-4", compact && "h-3.5 w-3.5")} />
@@ -69,7 +69,7 @@ export function OptionTile({
             {option.label}
           </span>
           {option.badge && (
-            <Badge variant={selected ? "default" : "outline"} className="text-[8px] h-3.5 px-1 font-bold uppercase tracking-tighter">
+            <Badge variant={selected ? "default" : "outline"} className="text-xs h-3.5 px-1 font-bold uppercase tracking-tighter">
               {option.badge}
             </Badge>
           )}

@@ -78,7 +78,7 @@ export function IndustryCombobox({
               width: rect.width,
               zIndex: 9999,
             }}
-            className="rounded-xl border border-border bg-popover shadow-lg"
+            className="rounded-xl border border-border bg-popover shadow-drawer"
           >
             <div className="max-h-52 overflow-y-auto py-1">
               {filtered.map((ind) => (
@@ -86,7 +86,7 @@ export function IndustryCombobox({
                   key={ind}
                   type="button"
                   className={cn(
-                    'flex w-full items-center gap-2.5 px-3 py-2 text-sm transition-colors hover:bg-accent',
+                    'flex w-full items-center gap-2.5 px-3 py-2 text-sm transition-colors hover:bg-surface-muted',
                     value === ind && 'bg-su-brand-soft text-su-brand font-medium',
                   )}
                   onMouseDown={(e) => {
@@ -108,12 +108,12 @@ export function IndustryCombobox({
 
   return (
     <div ref={wrapperRef} className="relative">
-      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/40" />
+      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
       <input
         ref={inputRef}
         className={cn(
           'h-8 w-full rounded-lg border border-input bg-transparent py-1 pl-8 pr-7 text-sm outline-none',
-          'placeholder:text-muted-foreground/60 transition-colors',
+          'placeholder:text-muted-foreground transition-colors',
           'focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30',
         )}
         placeholder={value || 'Buscar industria…'}
@@ -130,7 +130,7 @@ export function IndustryCombobox({
         <button
           type="button"
           tabIndex={-1}
-          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/40 transition-colors hover:text-foreground"
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted transition-colors hover:text-foreground"
           onMouseDown={clear}
         >
           <X className="h-3.5 w-3.5" />
@@ -153,8 +153,8 @@ export function Section({
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        {Icon && <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40" />}
-        <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/50">
+        {Icon && <Icon className="h-3.5 w-3.5 shrink-0 text-text-muted" />}
+        <span className="text-xs font-semibold text-muted-foreground">
           {label}
         </span>
         <div className="h-px flex-1 bg-border/40" />

@@ -35,8 +35,8 @@ export default async function AutomationsPage() {
       description: 'Ejecutadas sin intervención',
       value: summary.automatic,
       icon: Zap,
-      color: 'text-emerald-500',
-      bg: 'bg-emerald-500/10',
+      color: 'text-success',
+      bg: 'bg-success/10',
     },
     {
       label: 'Sugeridas',
@@ -52,7 +52,7 @@ export default async function AutomationsPage() {
       value: summary.manual,
       icon: MousePointerClick,
       color: 'text-muted-foreground',
-      bg: 'bg-muted/40',
+      bg: 'bg-surface-subtle',
     },
   ];
 
@@ -95,7 +95,7 @@ export default async function AutomationsPage() {
                 mode: 'manual' as AutomationExecutionMode,
                 icon: MousePointerClick,
                 color: 'text-muted-foreground',
-                bg: 'bg-muted/40',
+                bg: 'bg-surface-subtle',
               },
               {
                 mode: 'suggested' as AutomationExecutionMode,
@@ -106,14 +106,14 @@ export default async function AutomationsPage() {
               {
                 mode: 'automatic' as AutomationExecutionMode,
                 icon: Zap,
-                color: 'text-emerald-500',
-                bg: 'bg-emerald-500/10',
+                color: 'text-success',
+                bg: 'bg-success/10',
               },
             ] as const
           ).map(({ mode, icon: Icon, color, bg }) => (
             <div
               key={mode}
-              className="flex items-start gap-3 rounded-xl border border-border/40 p-3"
+              className="flex items-start gap-3 rounded-xl border border-border/60 p-3"
             >
               <div className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg ${bg}`}>
                 <Icon className={`h-3 w-3 ${color}`} />
@@ -122,7 +122,7 @@ export default async function AutomationsPage() {
                 <p className="text-xs font-semibold text-foreground">
                   {EXECUTION_MODE_LABELS[mode]}
                 </p>
-                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                <p className="text-xs leading-relaxed text-muted-foreground">
                   {EXECUTION_MODE_DESCRIPTIONS[mode]}
                 </p>
               </div>
@@ -141,8 +141,8 @@ export default async function AutomationsPage() {
         {automations.length === 0 ? (
           <SurfaceCard>
             <div className="flex flex-col items-center gap-3 py-8 text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/40">
-                <Bot className="h-6 w-6 text-muted-foreground/40" />
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-surface-subtle">
+                <Bot className="h-6 w-6 text-text-muted" />
               </div>
               <div>
                 <p className="text-sm font-medium text-foreground">
@@ -164,7 +164,7 @@ export default async function AutomationsPage() {
       </div>
 
       {/* Nota informativa */}
-      <SurfaceCard className="border-border/30 bg-muted/20">
+      <SurfaceCard className="border-border/50 bg-surface-subtle">
         <div className="flex items-start gap-3">
           <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-su-brand-soft mt-0.5">
             <Brain className="h-3 w-3 text-su-brand" />
@@ -173,7 +173,7 @@ export default async function AutomationsPage() {
             <p className="text-xs font-semibold text-foreground">
               Esta sección configura comportamiento, no ejecuta flujos
             </p>
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
+            <p className="text-xs leading-relaxed text-muted-foreground">
               Los ajustes realizados aquí serán consultados por los módulos operativos de
               SellUp (Pipeline, Cuentas, agentes de IA) cuando estén disponibles.
               Cambiar el modo a{' '}

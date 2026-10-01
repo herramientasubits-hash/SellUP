@@ -103,7 +103,7 @@ export function HubSpotConnectModal({ open, onOpenChange }: ConnectModalProps) {
                 )}
               </button>
             </div>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Genera tu token en HubSpot → Configuración → Integraciones → Private Apps.
             </p>
           </div>
@@ -116,7 +116,7 @@ export function HubSpotConnectModal({ open, onOpenChange }: ConnectModalProps) {
           )}
 
           {successMsg && (
-            <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400">
+            <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-xs text-success">
               {successMsg}
             </p>
           )}
@@ -231,7 +231,7 @@ export function HubSpotUpdateModal({ open, onOpenChange }: UpdateModalProps) {
           )}
 
           {successMsg && (
-            <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400">
+            <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-xs text-success">
               {successMsg}
             </p>
           )}
@@ -292,7 +292,7 @@ export function HubSpotTestConnectionButton({ disabled }: TestConnectionProps) {
         <p
           className={`rounded-lg border px-3 py-2 text-xs ${
             result.success
-              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+              ? 'border-success/30 bg-success/10 text-success dark:text-success'
               : 'border-destructive/30 bg-destructive/10 text-destructive'
           }`}
         >

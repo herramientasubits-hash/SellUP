@@ -44,9 +44,9 @@ function ConnectionStatusBlock({
     connected: {
       label: 'Conectado',
       icon: CheckCircle2,
-      color: 'text-emerald-500',
-      bg: 'bg-emerald-500/10',
-      border: 'border-emerald-500/30',
+      color: 'text-success',
+      bg: 'bg-success/10',
+      border: 'border-success/30',
     },
     error: {
       label: 'Error de conexión',
@@ -58,16 +58,16 @@ function ConnectionStatusBlock({
     disconnected: {
       label: 'Desconectado',
       icon: WifiOff,
-      color: 'text-amber-500',
-      bg: 'bg-amber-500/10',
-      border: 'border-amber-500/30',
+      color: 'text-warning',
+      bg: 'bg-warning/10',
+      border: 'border-warning/30',
     },
     not_tested: {
       label: 'Sin probar',
       icon: Clock,
       color: 'text-muted-foreground',
-      bg: 'bg-muted/30',
-      border: 'border-border/40',
+      bg: 'bg-surface-subtle',
+      border: 'border-border/60',
     },
   };
 
@@ -86,16 +86,16 @@ function ConnectionStatusBlock({
 
 function ScopeRow({ label, active }: { label: string; active: boolean }) {
   return (
-    <div className="flex items-center justify-between py-2.5 border-b border-border/40 last:border-b-0">
+    <div className="flex items-center justify-between py-2.5 border-b border-border/60 last:border-b-0">
       <span className="text-xs text-muted-foreground">{label}</span>
       {active ? (
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-medium text-emerald-500">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/10 px-2.5 py-0.5 text-xs font-medium text-success">
+          <span className="h-1.5 w-1.5 rounded-full bg-success" />
           Activo
         </span>
       ) : (
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-medium text-amber-500">
-          <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-warning/30 bg-warning/10 px-2.5 py-0.5 text-xs font-medium text-warning">
+          <span className="h-1.5 w-1.5 rounded-full bg-warning" />
           Falta permiso
         </span>
       )}
@@ -119,16 +119,16 @@ function ScopeReadinessCard({ scopes }: { scopes: string[] | undefined }) {
         <ScopeRow label="Escritura de empresas" active={readiness.canWriteCompanies} />
         <div className="pt-3">
           {!readiness.canWriteCompanies ? (
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
-              <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
+            <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2.5">
+              <p className="text-xs text-warning leading-relaxed">
                 Para crear empresas automáticamente en HubSpot, la Private App debe incluir el scope{' '}
                 <code className="font-mono font-semibold">crm.objects.companies.write</code>.
                 Actualiza el token en HubSpot y vuelve a probar la conexión.
               </p>
             </div>
           ) : (
-            <div className="rounded-lg border border-border/40 bg-muted/30 px-3 py-2.5">
-              <p className="text-[11px] text-muted-foreground leading-relaxed">
+            <div className="rounded-lg border border-border/60 bg-surface-subtle px-3 py-2.5">
+              <p className="text-xs text-muted-foreground leading-relaxed">
                 SellUp tiene permisos para crear companies en HubSpot. La escritura seguirá
                 desactivada hasta habilitar la automatización correspondiente.
               </p>
@@ -150,23 +150,23 @@ function ReadinessCheckRow({
   hint?: string;
 }) {
   return (
-    <div className="flex items-start justify-between gap-3 py-2.5 border-b border-border/40 last:border-b-0">
+    <div className="flex items-start justify-between gap-3 py-2.5 border-b border-border/60 last:border-b-0">
       <div className="flex-1 min-w-0">
         <span className="text-xs text-muted-foreground">{label}</span>
         {hint && !ok && (
-          <p className="mt-0.5 text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
+          <p className="mt-0.5 text-xs text-warning leading-relaxed">
             {hint}
           </p>
         )}
       </div>
       {ok ? (
-        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-medium text-emerald-500">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-success/30 bg-success/10 px-2.5 py-0.5 text-xs font-medium text-success">
+          <span className="h-1.5 w-1.5 rounded-full bg-success" />
           Listo
         </span>
       ) : (
-        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-medium text-amber-500">
-          <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-warning/30 bg-warning/10 px-2.5 py-0.5 text-xs font-medium text-warning">
+          <span className="h-1.5 w-1.5 rounded-full bg-warning" />
           Falta
         </span>
       )}
@@ -189,38 +189,38 @@ function ContactSyncReadinessCard({
       label: 'Listo para sincronizar contactos',
       description:
         'SellUp puede crear contactos en HubSpot y asociarlos con empresas existentes.',
-      color: 'text-emerald-600 dark:text-emerald-400',
-      bg: 'bg-emerald-500/10',
-      border: 'border-emerald-500/30',
+      color: 'text-success',
+      bg: 'bg-success/10',
+      border: 'border-success/30',
     },
     not_connected: {
       label: 'HubSpot no está conectado',
       description: 'Conecta HubSpot antes de sincronizar contactos.',
       color: 'text-muted-foreground',
-      bg: 'bg-muted/30',
-      border: 'border-border/40',
+      bg: 'bg-surface-subtle',
+      border: 'border-border/60',
     },
     missing_credentials: {
       label: 'Faltan credenciales',
       description: 'Guarda el Private App Access Token de HubSpot para continuar.',
-      color: 'text-amber-700 dark:text-amber-400',
-      bg: 'bg-amber-500/10',
-      border: 'border-amber-500/30',
+      color: 'text-warning',
+      bg: 'bg-warning/10',
+      border: 'border-warning/30',
     },
     missing_vault_secret: {
       label: 'Falta vincular la credencial segura',
       description:
         'La conexión existe, pero SellUp no tiene asociado el secreto del token en Vault. Guarda nuevamente el token.',
-      color: 'text-amber-700 dark:text-amber-400',
-      bg: 'bg-amber-500/10',
-      border: 'border-amber-500/30',
+      color: 'text-warning',
+      bg: 'bg-warning/10',
+      border: 'border-warning/30',
     },
     missing_scopes: {
       label: 'Faltan permisos en la Private App',
       description: `Agrega los siguientes scopes al Private App de HubSpot: ${missingScopes.join(', ')}.`,
-      color: 'text-amber-700 dark:text-amber-400',
-      bg: 'bg-amber-500/10',
-      border: 'border-amber-500/30',
+      color: 'text-warning',
+      bg: 'bg-warning/10',
+      border: 'border-warning/30',
     },
   };
 
@@ -236,8 +236,8 @@ function ContactSyncReadinessCard({
         <div
           className={`rounded-lg border px-3 py-3 ${summary.bg} ${summary.border}`}
         >
-          <p className={`text-[0.8125rem] font-semibold ${summary.color}`}>{summary.label}</p>
-          <p className={`mt-0.5 text-[11px] leading-relaxed ${summary.color} opacity-90`}>
+          <p className={`text-sm font-semibold ${summary.color}`}>{summary.label}</p>
+          <p className={`mt-0.5 text-xs leading-relaxed ${summary.color} opacity-90`}>
             {summary.description}
           </p>
         </div>
@@ -284,7 +284,7 @@ function ContactSyncReadinessCard({
 
 function MetaRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-4 py-2.5 border-b border-border/40 last:border-b-0">
+    <div className="flex items-start justify-between gap-4 py-2.5 border-b border-border/60 last:border-b-0">
       <span className="text-xs text-muted-foreground shrink-0">{label}</span>
       <span className="text-xs font-medium text-foreground text-right">{value}</span>
     </div>
@@ -332,12 +332,12 @@ export default async function HubSpotIntegrationPage() {
             <div className="flex items-center justify-between">
               <span className="text-xs text-muted-foreground">Credencial</span>
               {hasCredential ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-medium text-emerald-500">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/10 px-2.5 py-0.5 text-xs font-medium text-success">
+                  <span className="h-1.5 w-1.5 rounded-full bg-success" />
                   Almacenada
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-border/40 bg-muted/30 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground/60">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-surface-subtle px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
                   <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/25" />
                   No configurada
                 </span>
@@ -358,8 +358,8 @@ export default async function HubSpotIntegrationPage() {
 
             {conn?.last_connection_error && (
               <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2">
-                <p className="text-[11px] font-medium text-destructive mb-0.5">Último error</p>
-                <p className="text-[11px] text-destructive/80">{conn.last_connection_error}</p>
+                <p className="text-xs font-medium text-destructive mb-0.5">Último error</p>
+                <p className="text-xs text-destructive/80">{conn.last_connection_error}</p>
               </div>
             )}
           </div>
@@ -390,13 +390,13 @@ export default async function HubSpotIntegrationPage() {
                   {metadata.scopes.slice(0, 8).map((scope) => (
                     <span
                       key={scope}
-                      className="inline-flex items-center rounded-full border border-border/40 bg-muted/30 px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+                      className="inline-flex items-center rounded-full border border-border/60 bg-surface-subtle px-2 py-0.5 text-xs font-medium text-muted-foreground"
                     >
                       {scope}
                     </span>
                   ))}
                   {metadata.scopes.length > 8 && (
-                    <span className="inline-flex items-center rounded-full border border-border/40 bg-muted/30 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    <span className="inline-flex items-center rounded-full border border-border/60 bg-surface-subtle px-2 py-0.5 text-xs font-medium text-muted-foreground">
                       +{metadata.scopes.length - 8} más
                     </span>
                   )}
@@ -405,8 +405,8 @@ export default async function HubSpotIntegrationPage() {
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-6 text-center">
-              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-muted/40">
-                <ShieldCheck className="h-5 w-5 text-muted-foreground/50" />
+              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-surface-subtle">
+                <ShieldCheck className="h-5 w-5 text-muted-foreground" />
               </div>
               <p className="text-sm text-muted-foreground">
                 Prueba la conexión para ver la información del portal.
@@ -442,7 +442,7 @@ export default async function HubSpotIntegrationPage() {
         <div className="flex items-start gap-3">
           <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-su-brand" />
           <div>
-            <p className="text-[0.8125rem] font-semibold text-foreground ">
+            <p className="text-sm font-semibold text-foreground ">
               Almacenamiento seguro de credenciales
             </p>
             <p className="mt-1 text-xs text-muted-foreground leading-relaxed">

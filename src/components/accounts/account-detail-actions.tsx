@@ -84,7 +84,7 @@ export function AccountDetailActions({
     <>
       <DropdownMenu>
         <DropdownMenuTrigger>
-          <div className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-border/60 bg-card hover:bg-accent transition-colors">
+          <div className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-border/60 bg-card hover:bg-surface-muted transition-colors">
             <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
             <span className="sr-only">Acciones de cuenta</span>
           </div>

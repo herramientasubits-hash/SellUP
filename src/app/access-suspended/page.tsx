@@ -15,11 +15,11 @@ export default async function AccessSuspendedPage() {
 
   return (
     <div className="w-full max-w-md text-center">
-      <div className="mb-6 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-orange-500/10">
-        <Ban className="h-8 w-8 text-orange-500" />
+      <div className="mb-6 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-warning/10">
+        <Ban className="h-8 w-8 text-warning" />
       </div>
 
-      <h1 className="mb-3 text-2xl font-extrabold tracking-tight text-foreground">
+      <h1 className="mb-3 text-2xl font-bold tracking-tight text-foreground">
         Acceso suspended
       </h1>
 
@@ -29,7 +29,7 @@ export default async function AccessSuspendedPage() {
         el estado de tu cuenta.
       </p>
 
-      <div className="mb-8 flex items-center justify-center gap-2 rounded-xl border border-border/50 bg-card p-4">
+      <div className="mb-8 flex items-center justify-center gap-2 rounded-2xl border border-border/50 bg-card p-4">
         <Mail className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm text-foreground">{user.email}</span>
       </div>
@@ -37,7 +37,7 @@ export default async function AccessSuspendedPage() {
       <form action={signOut}>
         <button
           type="submit"
-          className="inline-flex items-center justify-center gap-2 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+          className="inline-flex items-center justify-center gap-2 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-surface-muted focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
         >
           <LogOut className="h-4 w-4" />
           Cerrar sesión

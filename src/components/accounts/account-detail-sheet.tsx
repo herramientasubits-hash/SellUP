@@ -50,9 +50,9 @@ import type { PeMigoApiEnrichmentBlock } from '@/server/prospect-batches/peru-mi
 const STATUS_STYLES: Record<PipelineStatus, string> = {
   new: 'bg-muted text-muted-foreground border-transparent',
   ready_for_research: 'bg-su-brand-soft text-su-brand border-transparent',
-  research_in_progress: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-transparent',
-  ready_for_outreach: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-transparent',
-  archived: 'bg-muted/60 text-muted-foreground/60 border-transparent',
+  research_in_progress: 'bg-warning/10 text-warning border-transparent',
+  ready_for_outreach: 'bg-success/10 text-success border-transparent',
+  archived: 'bg-surface-muted text-muted-foreground border-transparent',
 };
 
 const AUDIT_ICONS: Partial<Record<AccountAuditAction, React.ComponentType<{ className?: string }>>> = {
@@ -190,7 +190,7 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
       >
         {loading || !data ? (
           <div className="flex items-center justify-center py-20">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/40" />
+            <Loader2 className="h-6 w-6 animate-spin text-text-muted" />
           </div>
         ) : (
           // Design Refresh v3: tabs alineados con el contenido (antes mx-7 mt-4
@@ -263,7 +263,7 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                               : <EmptyValue />}
                           </DetailRow>
                           <DetailRow icon={Tag} label="Fuente">
-                            <Badge variant="outline" className="text-[10px]">
+                            <Badge variant="outline" className="text-xs">
                               {SOURCE_LABELS[data.account.source as AccountSource]}
                             </Badge>
                           </DetailRow>
@@ -282,7 +282,7 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                           </DetailRow>
                           <DetailRow icon={Tag} label="Estado pipeline">
                             <span
-                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_STYLES[data.account.pipeline_status]}`}
+                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLES[data.account.pipeline_status]}`}
                             >
                               {PIPELINE_STATUS_LABELS[data.account.pipeline_status]}
                             </span>
@@ -299,8 +299,8 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                           </DetailRow>
                         </dl>
                         {data.account.notes && (
-                          <div className="mt-4 rounded-lg bg-muted/40 px-3 py-2.5">
-                            <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                          <div className="mt-4 rounded-lg bg-surface-subtle px-3 py-2.5">
+                            <p className="mb-1 text-xs font-semibold text-muted-foreground">
                               Notas
                             </p>
                             <p className="text-xs text-muted-foreground leading-relaxed">
@@ -318,7 +318,7 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                         title="Actividad reciente"
                         actions={
                           data.auditLog.length > 3 ? (
-                            <span className="text-[11px] text-muted-foreground/70">
+                            <span className="text-xs text-muted-foreground">
                               {data.auditLog.length} eventos
                             </span>
                           ) : undefined
@@ -326,8 +326,8 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                       />
                       {data.auditLog.length === 0 ? (
                         <div className="flex flex-col items-center gap-2 py-8 text-center">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted/50">
-                            <Activity className="h-4 w-4 text-muted-foreground/40" />
+                          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-surface-muted">
+                            <Activity className="h-4 w-4 text-text-muted" />
                           </div>
                           <p className="text-xs text-muted-foreground">
                             Sin actividad registrada todavía.
@@ -339,14 +339,14 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                             const Icon = AUDIT_ICONS[entry.action_type] ?? Activity;
                             return (
                               <li key={entry.id} className="flex items-start gap-3">
-                                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted/60">
-                                  <Icon className="h-3.5 w-3.5 text-muted-foreground/70" />
+                                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-muted">
+                                  <Icon className="h-3.5 w-3.5 text-muted-foreground" />
                                 </div>
                                 <div className="min-w-0 flex-1">
                                   <p className="text-xs font-medium text-foreground">
                                     {AUDIT_ACTION_LABELS[entry.action_type]}
                                   </p>
-                                  <p className="text-[11px] text-muted-foreground/70">
+                                  <p className="text-xs text-muted-foreground">
                                     {entry.actor
                                       ? `${entry.actor.full_name ?? entry.actor.email} · `
                                       : ''}
@@ -376,8 +376,8 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                   <TabsContent value="inteligencia">
                     <SurfaceCard>
                       <div className="flex flex-col items-center gap-3 py-10 text-center">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted/60">
-                          <Brain className="h-5 w-5 text-muted-foreground/40" />
+                        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-surface-muted">
+                          <Brain className="h-5 w-5 text-text-muted" />
                         </div>
                         <div className="max-w-sm space-y-1">
                           <p className="text-sm font-semibold text-foreground">
@@ -408,19 +408,19 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                             const Icon = AUDIT_ICONS[entry.action_type] ?? Activity;
                             return (
                               <li key={entry.id} className="flex items-start gap-3">
-                                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted/60">
-                                  <Icon className="h-3.5 w-3.5 text-muted-foreground/60" />
+                                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-muted">
+                                  <Icon className="h-3.5 w-3.5 text-muted-foreground" />
                                 </div>
                                 <div className="min-w-0 flex-1">
                                   <p className="text-xs font-medium text-foreground">
                                     {AUDIT_ACTION_LABELS[entry.action_type]}
                                   </p>
                                   {entry.actor && (
-                                    <p className="text-[11px] text-muted-foreground">
+                                    <p className="text-xs text-muted-foreground">
                                       por {entry.actor.full_name ?? entry.actor.email}
                                     </p>
                                   )}
-                                  <p className="text-[11px] text-muted-foreground/50">
+                                  <p className="text-xs text-muted-foreground">
                                     {formatDate(entry.created_at)}
                                   </p>
                                 </div>
@@ -465,8 +465,8 @@ function DetailRow({
   return (
     <div className="flex items-center gap-3">
       <div className="flex shrink-0 items-center gap-2 min-w-[104px]">
-        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-        <dt className="text-[11px] font-medium text-muted-foreground/80">
+        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <dt className="text-xs font-medium text-muted-foreground">
           {label}
         </dt>
       </div>
@@ -477,5 +477,5 @@ function DetailRow({
 
 /** Valor vacío consistente para campos sin dato (— o texto custom). */
 function EmptyValue({ children }: { children?: React.ReactNode }) {
-  return <span className="text-muted-foreground/40">{children ?? '—'}</span>;
+  return <span className="text-text-muted">{children ?? '—'}</span>;
 }

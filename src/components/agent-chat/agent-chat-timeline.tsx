@@ -57,9 +57,9 @@ export function AgentChatTimeline({
       {isTyping && (
         <div className="flex items-start gap-2.5 animate-su-fade-in">
           <AgentChatOrb size="sm" className="mt-0.5" />
-          <div className="flex items-center gap-1.5 rounded-xl rounded-tl-sm bg-muted/40 px-4 py-3">
+          <div className="flex items-center gap-1.5 rounded-xl rounded-tl-sm bg-surface-subtle px-4 py-3">
             <Loader2 className="h-3 w-3 animate-spin text-su-brand" />
-            <span className="text-sm text-muted-foreground/70 animate-pulse">
+            <span className="text-sm text-muted-foreground animate-pulse">
               {typingLabel}
             </span>
           </div>
@@ -75,7 +75,7 @@ function AssistantMessage({ message }: { message: AgentChatMessage }) {
   return (
     <div className="flex items-start gap-2.5 animate-su-fade-in">
       <AgentChatOrb size="sm" className="mt-0.5" />
-      <div className="max-w-[85%] whitespace-pre-line rounded-xl rounded-tl-sm bg-muted/60 px-4 py-2.5 text-sm text-foreground">
+      <div className="max-w-[85%] whitespace-pre-line rounded-xl rounded-tl-sm bg-surface-muted px-4 py-2.5 text-sm text-foreground">
         {message.content}
       </div>
     </div>
@@ -94,7 +94,7 @@ function UserMessage({ message }: { message: AgentChatMessage }) {
 
 function SystemMessage({ message }: { message: AgentChatMessage }) {
   return (
-    <div className="rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+    <div className="rounded-lg bg-surface-subtle px-3 py-2 text-xs text-muted-foreground">
       {message.content}
     </div>
   );
@@ -104,7 +104,7 @@ function WarningMessage({ message }: { message: AgentChatMessage }) {
   return (
     <div
       role="status"
-      className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-700 dark:border-amber-800/40 dark:bg-amber-900/10 dark:text-amber-400"
+      className="flex items-start gap-2 rounded-lg border border-warning/20 bg-warning/15 px-3 py-2.5 text-xs text-warning dark:border-warning/40 dark:bg-warning/10"
     >
       <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
       <span>{message.content}</span>

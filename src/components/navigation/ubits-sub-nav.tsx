@@ -72,7 +72,7 @@ export function UbitsSubNav({
   return (
     <header
       className={cn(
-        "w-full h-10 bg-card border border-border/40 rounded-full px-5 flex items-center justify-between transition-all duration-300 z-[40]",
+        "w-full h-10 bg-card border border-border/60 rounded-full px-5 flex items-center justify-between transition-all duration-300 z-[40]",
         isSticky && "sticky top-4",
         className
       )}
@@ -80,7 +80,7 @@ export function UbitsSubNav({
       {/* Left Area: Logo & Navigation */}
       <div className="flex items-center h-full gap-5 flex-1 overflow-hidden">
         {showLogo && (
-          <div className="flex items-center gap-2 pr-5 border-r border-border/40 h-6">
+          <div className="flex items-center gap-2 pr-5 border-r border-border/60 h-6">
             <div className="w-5 h-5 bg-su-brand rounded flex items-center justify-center">
               <Sparkles className="w-3 h-3 text-su-brand-foreground" />
             </div>
@@ -100,7 +100,7 @@ export function UbitsSubNav({
                     <ChevronDown className="w-3.5 h-3.5 opacity-30" />
                   </button>
                 </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-56 rounded-lg p-1 border-border/40 shadow-lg">
+              <DropdownMenuContent align="start" className="w-56 rounded-lg p-1 border-border/60 shadow-drawer">
                 {tabs.map((tab) => {
                   const TabIcon = tab.icon ? ICON_MAP[tab.icon] : null;
                   const isActive = tab.id === currentTabId;
@@ -137,7 +137,7 @@ export function UbitsSubNav({
                     "relative h-full px-3 flex items-center gap-2 transition-all group outline-none",
                     isActive
                       ? "text-su-brand font-bold"
-                      : "text-muted-foreground/60 hover:text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
                   )}
                 >
                   {TabIcon && (
@@ -170,10 +170,10 @@ export function UbitsSubNav({
 
       {/* Right Area: Minimal Tools */}
       <div className="flex items-center gap-1.5 ml-4">
-        <button className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-muted/40 transition-colors text-muted-foreground/50 hover:text-foreground">
+        <button className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-surface-muted transition-colors text-muted-foreground hover:text-foreground">
           <Search className="w-3.5 h-3.5" />
         </button>
-        <button className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-muted/40 transition-colors text-muted-foreground/50 hover:text-foreground">
+        <button className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-surface-muted transition-colors text-muted-foreground hover:text-foreground">
           <Settings className="w-3.5 h-3.5" />
         </button>
       </div>

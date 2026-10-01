@@ -136,7 +136,7 @@ function SortableTableRow({ id, children }: SortableTableRowProps) {
       ref={setNodeRef}
       style={style}
       data-state={isDragging ? "dragging" : undefined}
-      className={cn(isDragging && "opacity-60 shadow-sm")}
+      className={cn(isDragging && "opacity-60 shadow-card")}
     >
       {children({
         ...(listeners ?? {}),
@@ -178,7 +178,7 @@ export function RowDragHandle({
         type="button"
         aria-label="Reordenar fila"
         className={cn(
-          "inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground/40 transition-colors hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+          "inline-flex h-8 w-8 items-center justify-center rounded-md text-text-muted transition-colors hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
           isDragging && "text-muted-foreground",
         )}
         tabIndex={0}

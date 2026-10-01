@@ -21,7 +21,7 @@ import type { SafeClResDryRunReport } from '@/modules/source-catalog/source-cred
 function SummaryRow({ label, value }: { label: string; value: string | number }) {
   return (
     <div>
-      <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+      <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
         {label}
       </dt>
       <dd className="text-sm font-medium text-foreground tabular-nums">{value}</dd>
@@ -35,10 +35,10 @@ function AcceptedSamplesTable({ items }: { items: SafeClResDryRunReport['accepte
   if (items.length === 0) return null;
   return (
     <div className="space-y-1.5">
-      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+      <p className="text-xs font-semibold text-muted-foreground">
         Muestra aceptados ({items.length})
       </p>
-      <div className="rounded-lg border border-border/40 divide-y divide-border/30 overflow-hidden">
+      <div className="rounded-lg border border-border/60 divide-y divide-border/30 overflow-hidden">
         {items.map((item, i) => (
           <div key={i} className="px-3 py-2 text-xs">
             <span className="font-medium text-foreground">{item.name ?? '—'}</span>
@@ -48,7 +48,7 @@ function AcceptedSamplesTable({ items }: { items: SafeClResDryRunReport['accepte
             {item.region && (
               <span className="text-muted-foreground ml-2">· {item.region}</span>
             )}
-            <p className="text-emerald-600 dark:text-emerald-400 mt-0.5">{item.qualityReason}</p>
+            <p className="text-success mt-0.5">{item.qualityReason}</p>
           </div>
         ))}
       </div>
@@ -60,17 +60,17 @@ function FilteredSamplesTable({ items }: { items: SafeClResDryRunReport['filtere
   if (items.length === 0) return null;
   return (
     <div className="space-y-1.5">
-      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+      <p className="text-xs font-semibold text-muted-foreground">
         Muestra filtrados ({items.length})
       </p>
-      <div className="rounded-lg border border-border/40 divide-y divide-border/30 overflow-hidden">
+      <div className="rounded-lg border border-border/60 divide-y divide-border/30 overflow-hidden">
         {items.map((item, i) => (
           <div key={i} className="px-3 py-2 text-xs">
             <span className="font-medium text-foreground">{item.name ?? '—'}</span>
             {item.tipoActuacion && (
               <span className="text-muted-foreground ml-2">· {item.tipoActuacion}</span>
             )}
-            <p className="text-amber-600 dark:text-amber-400 mt-0.5">{item.filterReason}</p>
+            <p className="text-warning mt-0.5">{item.filterReason}</p>
           </div>
         ))}
       </div>
@@ -98,7 +98,7 @@ function ClResDryRunReportView({ report }: { report: SafeClResDryRunReport }) {
       </dl>
 
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <ShieldCheck className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+        <ShieldCheck className="h-3.5 w-3.5 text-success shrink-0" />
         <span>
           Origen credencial:{' '}
           <strong className="text-foreground">No requiere</strong> — acceso público CKAN datos.gob.cl
@@ -106,9 +106,9 @@ function ClResDryRunReportView({ report }: { report: SafeClResDryRunReport }) {
       </div>
 
       {report.warnings.length > 0 && (
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 space-y-0.5">
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 space-y-0.5">
           {report.warnings.map((w, i) => (
-            <p key={i} className="text-xs text-amber-600 dark:text-amber-400">{w}</p>
+            <p key={i} className="text-xs text-warning">{w}</p>
           ))}
         </div>
       )}
@@ -136,7 +136,7 @@ function ClResDryRunReportView({ report }: { report: SafeClResDryRunReport }) {
         </div>
       )}
 
-      <div className="flex items-center justify-between text-[11px] text-muted-foreground border-t border-border/40 pt-2">
+      <div className="flex items-center justify-between text-xs text-muted-foreground border-t border-border/60 pt-2">
         <span>
           Ejecutado:{' '}
           {new Intl.DateTimeFormat('es-CO', {
@@ -193,9 +193,9 @@ export function ChileResDryRunPanel({ isAdmin }: Props) {
           Solo lectura — sin writes a Supabase, sin HubSpot, sin credencial requerida.
         </p>
 
-        <div className="space-y-1.5 rounded-lg border border-border/40 bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground">
+        <div className="space-y-1.5 rounded-lg border border-border/60 bg-surface-subtle px-3 py-2.5 text-xs text-muted-foreground">
           <p className="flex items-start gap-1.5">
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
             RES Chile no incluye giro/actividad económica ni CIIU. Todos los registros salen con sector desconocido.
           </p>
           <p className="flex items-start gap-1.5">
@@ -209,7 +209,7 @@ export function ChileResDryRunPanel({ isAdmin }: Props) {
         </div>
 
         {!isAdmin && (
-          <div className="flex items-start gap-2 rounded-lg border border-border/40 bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground">
+          <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-surface-subtle px-3 py-2.5 text-xs text-muted-foreground">
             <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             Solo administradores pueden ejecutar dry-runs de fuente.
           </div>
@@ -246,14 +246,14 @@ export function ChileResDryRunPanel({ isAdmin }: Props) {
         {report && (
           <div className="space-y-3">
             <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+              <CheckCircle2 className="h-4 w-4 text-success" />
               <span className="text-sm font-medium text-foreground">Dry-run completado</span>
             </div>
             <ClResDryRunReportView report={report} />
           </div>
         )}
 
-        <div className="flex items-center gap-1.5 border-t border-border/40 pt-3 text-xs text-muted-foreground">
+        <div className="flex items-center gap-1.5 border-t border-border/60 pt-3 text-xs text-muted-foreground">
           <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
           No escribe en Supabase. No crea candidatos. No crea lotes. No sincroniza HubSpot.
         </div>

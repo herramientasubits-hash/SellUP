@@ -74,9 +74,9 @@ export interface HnContratacionesAbiertasCardProps {
 
 function MetricCell({ label, value, highlight }: { label: string; value: string | number; highlight?: boolean }) {
   return (
-    <div className="rounded-lg border border-border/30 bg-muted/20 px-3 py-2.5 text-center">
-      <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">{label}</dt>
-      <dd className={`text-xl font-semibold tabular-nums ${highlight ? 'text-teal-600 dark:text-teal-400' : 'text-foreground'}`}>
+    <div className="rounded-lg border border-border/50 bg-surface-subtle px-3 py-2.5 text-center">
+      <dt className="text-xs font-semibold text-muted-foreground mb-0.5">{label}</dt>
+      <dd className={`text-xl font-semibold tabular-nums ${highlight ? 'text-success dark:text-success' : 'text-foreground'}`}>
         {value}
       </dd>
     </div>
@@ -85,7 +85,7 @@ function MetricCell({ label, value, highlight }: { label: string; value: string 
 
 function FieldRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-baseline justify-between gap-4 py-1.5 border-b border-border/30 last:border-0">
+    <div className="flex items-baseline justify-between gap-4 py-1.5 border-b border-border/50 last:border-0">
       <dt className="text-xs text-muted-foreground shrink-0">{label}</dt>
       <dd className="text-xs font-medium text-foreground text-right">{value}</dd>
     </div>
@@ -94,8 +94,8 @@ function FieldRow({ label, value }: { label: string; value: string }) {
 
 function GuardrailRow({ children }: { children: React.ReactNode }) {
   return (
-    <li className="flex gap-2 text-xs text-amber-600 dark:text-amber-400">
-      <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500/60" />
+    <li className="flex gap-2 text-xs text-warning">
+      <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-warning/60" />
       {children}
     </li>
   );
@@ -122,7 +122,7 @@ function SnapshotSection({ coverage }: { coverage: HnContratacionesCoverageSumma
 
   return (
     <div className="mb-6">
-      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-3">
+      <p className="text-xs font-semibold text-muted-foreground mb-3">
         Snapshot persistido
       </p>
 
@@ -155,7 +155,7 @@ function SnapshotSection({ coverage }: { coverage: HnContratacionesCoverageSumma
           </p>
         </>
       ) : (
-        <div className="rounded-lg border border-border/30 bg-muted/20 px-4 py-3">
+        <div className="rounded-lg border border-border/50 bg-surface-subtle px-4 py-3">
           <p className="text-xs text-muted-foreground">
             {coverage === null
               ? 'Cargando cobertura…'
@@ -184,8 +184,8 @@ function DryRunSection() {
   const rtnCoverage = formatHnRtnCoverage(m.validRtn, m.hnRtnSeen);
 
   return (
-    <div className="border-t border-border/30 pt-5">
-      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">
+    <div className="border-t border-border/50 pt-5">
+      <p className="text-xs font-semibold text-muted-foreground mb-1">
         Validación técnica previa
       </p>
       <p className="text-xs text-muted-foreground mb-3">
@@ -200,7 +200,7 @@ function DryRunSection() {
         <MetricCell label="Riesgo persona natural" value={m.naturalPersonRisk} />
       </dl>
 
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         Cobertura RTN:{' '}
         <span className="font-semibold tabular-nums text-foreground">{rtnCoverage}</span> de proveedores
         con HN-RTN tuvieron RTN válido. RTN inválidos: {m.invalidRtn}. Legacy scheme ignorado:{' '}
@@ -222,16 +222,16 @@ export function HnContratacionesAbiertasCard({ coverage }: HnContratacionesAbier
 
       {/* Status badges */}
       <div className="mb-5 flex flex-wrap gap-1.5">
-        <span className="inline-flex items-center rounded-full border border-teal-500/30 bg-teal-500/10 px-2.5 py-0.5 text-[11px] font-medium text-teal-600 dark:text-teal-400">
+        <span className="inline-flex items-center rounded-full border border-success/30 bg-success/10 px-2.5 py-0.5 text-xs font-medium text-success">
           Snapshot parcial
         </span>
-        <span className="inline-flex items-center rounded-full border border-teal-500/30 bg-teal-500/10 px-2.5 py-0.5 text-[11px] font-medium text-teal-600 dark:text-teal-400">
+        <span className="inline-flex items-center rounded-full border border-success/30 bg-success/10 px-2.5 py-0.5 text-xs font-medium text-success">
           Read-only snapshot
         </span>
-        <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+        <span className="inline-flex items-center rounded-full border border-warning/30 bg-warning/10 px-2.5 py-0.5 text-xs font-medium text-warning">
           Revisión humana requerida
         </span>
-        <span className="inline-flex items-center rounded-full border border-border/40 bg-muted/40 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+        <span className="inline-flex items-center rounded-full border border-border/60 bg-surface-subtle px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
           Post-approval no habilitado
         </span>
       </div>
@@ -241,8 +241,8 @@ export function HnContratacionesAbiertasCard({ coverage }: HnContratacionesAbier
       <DryRunSection />
 
       {/* Limitaciones */}
-      <div className="mt-5 border-t border-border/30 pt-5">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
+      <div className="mt-5 border-t border-border/50 pt-5">
+        <p className="text-xs font-semibold text-muted-foreground mb-2">
           Limitaciones
         </p>
         <ul className="space-y-1.5">

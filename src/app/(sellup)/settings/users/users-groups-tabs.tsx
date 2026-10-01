@@ -105,7 +105,7 @@ function PreapprovalCard({ preapproval, isAdmin }: PreapprovalCardProps) {
           <span className="truncate font-medium text-foreground">
             {preapproval.full_name ?? 'Sin nombre registrado'}
           </span>
-          <Badge variant="outline" className="text-[10px] bg-su-brand-soft text-su-brand border-su-brand/30 shrink-0">
+          <Badge variant="outline" className="text-xs bg-su-brand-soft text-su-brand border-su-brand/30 shrink-0">
             Esperando primer login
           </Badge>
         </div>
@@ -169,7 +169,7 @@ export function UsersTab({
     <div className="flex flex-col flex-1 min-h-0 space-y-4">
       {/* Filter bar + view toggle */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-1 rounded-xl border border-border/60 bg-muted/40 p-1">
+        <div className="flex flex-wrap gap-1 rounded-xl border border-border/60 bg-surface-subtle p-1">
           {USER_FILTERS.map(f => (
             <button
               key={f.id}
@@ -180,13 +180,13 @@ export function UsersTab({
               className={cn(
                 'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap',
                 filter === f.id
-                  ? 'bg-card text-foreground shadow-sm'
+                  ? 'bg-card text-foreground shadow-card'
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >
               {f.label}
               <span className={cn(
-                'ml-1.5 rounded-full px-1.5 py-0.5 text-[10px]',
+                'ml-1.5 rounded-full px-1.5 py-0.5 text-xs',
                 filter === f.id ? 'bg-su-brand-soft text-su-brand' : 'bg-muted text-muted-foreground',
               )}>
                 {filterCounts[f.id]}
@@ -196,12 +196,12 @@ export function UsersTab({
         </div>
 
         {showViewToggle && (
-          <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-muted/40 p-1">
+          <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-surface-subtle p-1">
             <button
               onClick={() => setViewMode('list')}
               className={cn(
                 'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-                viewMode === 'list' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                viewMode === 'list' ? 'bg-card text-foreground shadow-card' : 'text-muted-foreground hover:text-foreground',
               )}
             >
               <LayoutList className="h-3.5 w-3.5" />
@@ -211,7 +211,7 @@ export function UsersTab({
               onClick={() => setViewMode('org')}
               className={cn(
                 'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-                viewMode === 'org' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                viewMode === 'org' ? 'bg-card text-foreground shadow-card' : 'text-muted-foreground hover:text-foreground',
               )}
             >
               <GitBranch className="h-3.5 w-3.5" />
@@ -283,12 +283,12 @@ export function GroupsTab({ users, groups, roles, isAdmin = false }: GroupsTabPr
         <span className="text-sm text-muted-foreground">
           {groups.length} {groups.length === 1 ? 'grupo' : 'grupos'}
         </span>
-        <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-muted/40 p-1">
+        <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-surface-subtle p-1">
           <button
             onClick={() => setViewMode('list')}
             className={cn(
               'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-              viewMode === 'list' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+              viewMode === 'list' ? 'bg-card text-foreground shadow-card' : 'text-muted-foreground hover:text-foreground',
             )}
           >
             <LayoutList className="h-3.5 w-3.5" />
@@ -298,7 +298,7 @@ export function GroupsTab({ users, groups, roles, isAdmin = false }: GroupsTabPr
             onClick={() => setViewMode('org')}
             className={cn(
               'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-              viewMode === 'org' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+              viewMode === 'org' ? 'bg-card text-foreground shadow-card' : 'text-muted-foreground hover:text-foreground',
             )}
           >
             <GitBranch className="h-3.5 w-3.5" />
@@ -314,7 +314,7 @@ export function GroupsTab({ users, groups, roles, isAdmin = false }: GroupsTabPr
       )}
 
       {viewMode === 'org' && (
-        <div className="flex-1 min-h-0 overflow-y-auto rounded-xl border border-border/40">
+        <div className="flex-1 min-h-0 overflow-y-auto rounded-xl border border-border/60">
           <GroupsView users={activeUsers} groups={groups} roles={roles} isAdmin={isAdmin} />
         </div>
       )}

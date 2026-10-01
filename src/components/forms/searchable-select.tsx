@@ -81,7 +81,7 @@ export function SearchableSelect({
       {/* Use --anchor-width (Base UI variable) to match trigger width, capped at available space */}
       <PopoverContent
         className={cn(
-          "w-(--anchor-width) max-w-(--available-width) p-0 rounded-xl border shadow-md",
+          "w-(--anchor-width) max-w-(--available-width) p-0 rounded-xl border shadow-drawer",
           contentClassName,
         )}
       >
@@ -113,7 +113,7 @@ export function SearchableSelect({
                   {option.description && (
                     <span
                       className={cn(
-                        "text-[11px] text-muted-foreground leading-tight mt-0.5",
+                        "text-xs text-muted-foreground leading-tight mt-0.5",
                         compact && "line-clamp-1",
                       )}
                     >

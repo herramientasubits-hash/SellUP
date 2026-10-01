@@ -67,7 +67,7 @@ export default async function ContactsPage({ searchParams }: ContactsPageProps) 
             description="Contactos registrados"
             value={total}
             icon={
-              <div className="rounded-lg p-1.5 bg-muted/60">
+              <div className="rounded-lg p-1.5 bg-surface-muted">
                 <Users className="h-4 w-4 text-foreground" />
               </div>
             }
@@ -87,8 +87,8 @@ export default async function ContactsPage({ searchParams }: ContactsPageProps) 
             description="Contactos clave"
             value={champions}
             icon={
-              <div className="rounded-lg p-1.5 bg-emerald-500/10">
-                <Target className="h-4 w-4 text-emerald-500" />
+              <div className="rounded-lg p-1.5 bg-success/10">
+                <Target className="h-4 w-4 text-success" />
               </div>
             }
           />
@@ -97,8 +97,8 @@ export default async function ContactsPage({ searchParams }: ContactsPageProps) 
             description="Primer contacto por cuenta"
             value={primary}
             icon={
-              <div className="rounded-lg p-1.5 bg-amber-500/10">
-                <Star className="h-4 w-4 text-amber-500" />
+              <div className="rounded-lg p-1.5 bg-warning/10">
+                <Star className="h-4 w-4 text-warning" />
               </div>
             }
           />

@@ -310,7 +310,7 @@ export function LushaPreviewPanel({
           {/* Criterio avanzado — searchText (oculto/colapsable + advertencia) */}
           <Accordion>
             <AccordionItem value="advanced" className="border-none">
-              <AccordionTrigger className="py-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground/60 hover:no-underline hover:text-muted-foreground/80">
+              <AccordionTrigger className="py-2 text-xs font-semibold text-muted-foreground hover:no-underline hover:text-muted-foreground">
                 <div className="flex items-center gap-2">
                   <Settings2 className="h-3.5 w-3.5" />
                   Criterio avanzado (opcional)
@@ -539,7 +539,7 @@ function PreviewResult({
               {status === 'empty' ? 'Sin resultados' : `${results.length} empresa${results.length !== 1 ? 's' : ''}`}
             </span>
           </div>
-          <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
             <Badge variant="outline" className="rounded-full">
               Créditos: {billing.creditsCharged ?? '—'} / máx {billing.expectedMaxCredits}
             </Badge>
@@ -550,7 +550,7 @@ function PreviewResult({
         </div>
         {providerTraceabilityLabel && (
           <p
-            className="mt-3 text-[11px] text-muted-foreground"
+            className="mt-3 text-xs text-muted-foreground"
             data-testid="lusha-preview-provider-traceability"
           >
             {PROVIDER_TRACEABILITY_PREFIX} <span className="font-medium text-foreground">{providerTraceabilityLabel}</span>
@@ -573,7 +573,7 @@ function PreviewResult({
         </div>
       )}
 
-      <p className="text-[11px] text-muted-foreground/70 leading-relaxed" data-testid="lusha-preview-not-saved">
+      <p className="text-xs text-muted-foreground leading-relaxed" data-testid="lusha-preview-not-saved">
         {LUSHA_PREVIEW_NOT_SAVED_FOOTER}
       </p>
     </div>
@@ -594,12 +594,12 @@ function PreviewCompanyCard({ company }: { company: LushaPreviewCompany }) {
           <div className="flex items-center gap-2">
             <span className="truncate text-sm font-semibold text-foreground">{company.name ?? 'Empresa sin nombre'}</span>
             {company.passesGate ? (
-              <Badge variant="secondary" className="rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+              <Badge variant="secondary" className="rounded-full bg-success/10 text-success">
                 <CheckCircle2 className="h-3 w-3" />
                 Pasa
               </Badge>
             ) : (
-              <Badge variant="secondary" className="rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
+              <Badge variant="secondary" className="rounded-full bg-warning/10 text-warning">
                 <TriangleAlert className="h-3 w-3" />
                 No pasa
               </Badge>
@@ -625,7 +625,7 @@ function PreviewCompanyCard({ company }: { company: LushaPreviewCompany }) {
           {company.issues.length > 0 && (
             <div className="flex flex-wrap gap-1 pt-1">
               {company.issues.map((issue) => (
-                <Badge key={issue} variant="outline" className="rounded-full text-[10px] text-muted-foreground">
+                <Badge key={issue} variant="outline" className="rounded-full text-xs text-muted-foreground">
                   {ISSUE_LABELS[issue] ?? issue}
                 </Badge>
               ))}
@@ -634,7 +634,7 @@ function PreviewCompanyCard({ company }: { company: LushaPreviewCompany }) {
         </div>
         <div className="shrink-0 text-right">
           <span className="text-lg font-bold text-foreground">{company.score}</span>
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Score</p>
+          <p className="text-xs text-muted-foreground">Score</p>
         </div>
       </div>
     </SurfaceCard>

@@ -98,7 +98,7 @@ export function DataTableBulkActionBar<TData>({
         )}
       >
         <div className="inline-flex items-center gap-2 pl-1 pr-2">
-          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-[11px] font-semibold tabular-nums">
+          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-semibold tabular-nums">
             {selectedCount}
           </span>
           <span className="text-xs font-medium">Seleccionados</span>
@@ -131,7 +131,7 @@ export function DataTableBulkActionBar<TData>({
                 "hover:bg-white/10 transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40",
                 "disabled:opacity-50 disabled:cursor-not-allowed",
-                action.variant === "destructive" && "text-red-300 hover:bg-destructive/25",
+                action.variant === "destructive" && "text-destructive hover:bg-destructive/25",
               )}
             >
               {action.loading ? (
@@ -277,7 +277,7 @@ function BulkActionDropdownGroup<TData>({
               {ItemIcon && <ItemIcon className="h-3.5 w-3.5" />}
               <span className="flex-1">{item.label}</span>
               {disabledLabel && (
-                <span className="text-[10px] text-muted-foreground">{disabledLabel}</span>
+                <span className="text-xs text-muted-foreground">{disabledLabel}</span>
               )}
             </DropdownMenuItem>
           );

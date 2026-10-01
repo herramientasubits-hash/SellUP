@@ -255,7 +255,7 @@ export function AccountEditDrawer({
               </Field>
               <Field id="edit-website" label="Sitio web">
                 <div className="relative">
-                  <Globe className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/40" />
+                  <Globe className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
                   <Input
                     id="edit-website"
                     type="url"
@@ -398,7 +398,7 @@ export function AccountEditDrawer({
                   <SelectTrigger className="w-full">
                     {form.owner_id ? (
                       <span className="flex items-center gap-2 text-sm">
-                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-su-brand-soft text-[10px] font-semibold text-su-brand">
+                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-su-brand-soft text-xs font-semibold text-su-brand">
                           {(
                             users.find((u) => u.id === form.owner_id)?.full_name ?? 'U'
                           )
@@ -418,7 +418,7 @@ export function AccountEditDrawer({
                     {users.map((u) => (
                       <SelectItem key={u.id} value={u.id}>
                         <span className="flex items-center gap-2">
-                          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[10px] font-semibold">
+                          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-muted text-xs font-semibold">
                             {(u.full_name ?? u.email).charAt(0).toUpperCase()}
                           </span>
                           <span>{u.full_name ?? u.email}</span>
@@ -431,7 +431,7 @@ export function AccountEditDrawer({
             )}
             <Field id="edit-notes" label="Notas">
               <div className="relative">
-                <FileText className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground/40" />
+                <FileText className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-text-muted" />
                 <Textarea
                   id="edit-notes"
                   placeholder="Contexto, señales de compra, próximos pasos…"

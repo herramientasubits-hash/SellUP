@@ -115,7 +115,7 @@ export function AutomationModeControl({
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
-              <AlertTriangle className="h-4 w-4 text-amber-500" />
+              <AlertTriangle className="h-4 w-4 text-warning" />
               Activar modo automático
             </DialogTitle>
             <DialogDescription className="text-sm leading-relaxed">
@@ -126,7 +126,7 @@ export function AutomationModeControl({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs text-amber-600 dark:text-amber-400">
+          <div className="rounded-xl border border-warning/20 bg-warning/5 px-4 py-3 text-xs text-warning">
             Asegúrate de que los proveedores requeridos por esta automatización
             estén correctamente configurados y conectados antes de activar el modo
             automático.
@@ -150,9 +150,9 @@ export function AutomationModeControl({
       {/* Toast */}
       {toast && (
         <div
-          className={`fixed bottom-8 left-1/2 z-50 -translate-x-1/2 rounded-lg border bg-card px-4 py-3 shadow-lg ${
+          className={`fixed bottom-8 left-1/2 z-50 -translate-x-1/2 rounded-lg border bg-card px-4 py-3 shadow-drawer ${
             toast.type === 'success'
-              ? 'border-emerald-500/50 text-emerald-700 dark:text-emerald-400'
+              ? 'border-success/50 text-success dark:text-success'
               : 'border-destructive/50 text-destructive'
           }`}
         >

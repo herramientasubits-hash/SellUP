@@ -45,42 +45,42 @@ function HealthCheckResult({ report }: { report: ChileCompraOcdsHealthCheckRepor
     );
   }
   return (
-    <div className="space-y-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5">
+    <div className="space-y-2 rounded-lg border border-success/30 bg-success/10 px-3 py-2.5">
       <p className="flex items-center gap-2 text-sm font-medium text-foreground">
-        <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+        <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
         Fuente operativa. {report.totalMonthProcesses ?? 0} procesos en {report.month}/{report.year}.
       </p>
       <dl className="grid grid-cols-3 gap-2 text-xs sm:grid-cols-4">
         <div>
-          <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Total mes</dt>
+          <dt className="text-xs font-semibold text-muted-foreground">Total mes</dt>
           <dd className="tabular-nums text-foreground">{report.totalMonthProcesses ?? '—'}</dd>
         </div>
         <div>
-          <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Limit</dt>
+          <dt className="text-xs font-semibold text-muted-foreground">Limit</dt>
           <dd className="tabular-nums text-foreground">{report.limit}</dd>
         </div>
         <div>
-          <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Offset</dt>
+          <dt className="text-xs font-semibold text-muted-foreground">Offset</dt>
           <dd className="tabular-nums text-foreground">{report.offset}</dd>
         </div>
         <div>
-          <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Escrituras</dt>
+          <dt className="text-xs font-semibold text-muted-foreground">Escrituras</dt>
           <dd className="tabular-nums text-foreground">{report.writes_performed}</dd>
         </div>
       </dl>
       {report.firstOcids.length > 0 && (
         <div className="space-y-0.5">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+          <p className="text-xs font-semibold text-muted-foreground">
             Primeros ocid
           </p>
-          <ul className="space-y-0.5 font-mono text-[11px] text-muted-foreground">
+          <ul className="space-y-0.5 font-mono text-xs text-muted-foreground">
             {report.firstOcids.map((ocid) => (
               <li key={ocid} className="truncate">{ocid}</li>
             ))}
           </ul>
         </div>
       )}
-      <p className="text-[11px] text-muted-foreground">{report.message}</p>
+      <p className="text-xs text-muted-foreground">{report.message}</p>
     </div>
   );
 }
@@ -90,7 +90,7 @@ function HealthCheckResult({ report }: { report: ChileCompraOcdsHealthCheckRepor
 function SummaryCell({ label, value }: { label: string; value: string | number }) {
   return (
     <div>
-      <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{label}</dt>
+      <dt className="text-xs font-semibold text-muted-foreground">{label}</dt>
       <dd className="text-sm font-medium tabular-nums text-foreground">{value}</dd>
     </div>
   );
@@ -105,13 +105,13 @@ function DryRunResult({ report }: { report: ChileCompraOcdsDryRunReport }) {
     const listedButDetailsFailed = s.listed_count > 0;
     return (
       <div className="space-y-3">
-        <div className="rounded-lg border border-border/40 bg-muted/20 px-3 py-2.5 text-sm text-muted-foreground">
+        <div className="rounded-lg border border-border/60 bg-surface-subtle px-3 py-2.5 text-sm text-muted-foreground">
           {listedButDetailsFailed
             ? 'Se encontraron procesos, pero no fue posible normalizar los detalles.'
             : 'No se encontraron procesos para el mes consultado.'}
         </div>
         {report.warnings.map((w, i) => (
-          <p key={i} className="text-xs text-amber-600 dark:text-amber-400">{w}</p>
+          <p key={i} className="text-xs text-warning">{w}</p>
         ))}
       </div>
     );
@@ -133,17 +133,17 @@ function DryRunResult({ report }: { report: ChileCompraOcdsDryRunReport }) {
       </dl>
 
       {report.warnings.length > 0 && (
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 space-y-0.5">
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 space-y-0.5">
           {report.warnings.map((w, i) => (
-            <p key={i} className="text-xs text-amber-600 dark:text-amber-400">{w}</p>
+            <p key={i} className="text-xs text-warning">{w}</p>
           ))}
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-lg border border-border/40">
+      <div className="overflow-x-auto rounded-lg border border-border/60">
         <table className="w-full min-w-[760px] text-xs">
           <thead>
-            <tr className="border-b border-border/40 bg-muted/30 text-left text-[10px] uppercase tracking-widest text-muted-foreground">
+            <tr className="border-b border-border/60 bg-surface-subtle text-left text-xs text-muted-foreground">
               <th className="px-2.5 py-2 font-semibold">ocid</th>
               <th className="px-2.5 py-2 font-semibold">Título</th>
               <th className="px-2.5 py-2 font-semibold">Comprador</th>
@@ -158,7 +158,7 @@ function DryRunResult({ report }: { report: ChileCompraOcdsDryRunReport }) {
           <tbody className="divide-y divide-border/30">
             {report.items.map((item) => (
               <tr key={item.ocid} className="align-top">
-                <td className="px-2.5 py-2 font-mono text-[11px] text-muted-foreground">{item.ocid}</td>
+                <td className="px-2.5 py-2 font-mono text-xs text-muted-foreground">{item.ocid}</td>
                 <td className="px-2.5 py-2 text-foreground">{item.tender_title ?? '—'}</td>
                 <td className="px-2.5 py-2 text-foreground">{item.buyer_name ?? '—'}</td>
                 <td className="px-2.5 py-2 font-mono text-muted-foreground">{item.buyer_rut ?? '—'}</td>
@@ -166,13 +166,13 @@ function DryRunResult({ report }: { report: ChileCompraOcdsDryRunReport }) {
                   {formatAmount(item.tender_value_amount, item.tender_value_currency)}
                 </td>
                 <td className="px-2.5 py-2 text-muted-foreground">{item.tender_status ?? '—'}</td>
-                <td className="px-2.5 py-2 font-mono text-[11px] text-muted-foreground">
+                <td className="px-2.5 py-2 font-mono text-xs text-muted-foreground">
                   {item.unspsc_codes.length > 0 ? item.unspsc_codes.join(', ') : '—'}
                 </td>
                 <td className="px-2.5 py-2 text-foreground">
                   {item.awarded_supplier_name ?? '—'}
                   {item.awarded_supplier_rut && (
-                    <span className="ml-1 font-mono text-[11px] text-muted-foreground">
+                    <span className="ml-1 font-mono text-xs text-muted-foreground">
                       ({item.awarded_supplier_rut})
                     </span>
                   )}
@@ -194,7 +194,7 @@ function DryRunResult({ report }: { report: ChileCompraOcdsDryRunReport }) {
         </table>
       </div>
 
-      <p className="text-[11px] text-muted-foreground">{report.message}</p>
+      <p className="text-xs text-muted-foreground">{report.message}</p>
     </div>
   );
 }
@@ -255,7 +255,7 @@ export function ChileCompraOcdsDryRunPanel({ isAdmin }: Props) {
 
       <div className="space-y-4">
         {/* Advertencia visible */}
-        <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-600 dark:text-amber-400">
+        <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2.5 text-xs text-warning">
           <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           Fuente pública abierta, sin credenciales. No escribe datos en SellUp ni genera prospectos automáticamente.
         </div>
@@ -263,7 +263,7 @@ export function ChileCompraOcdsDryRunPanel({ isAdmin }: Props) {
         {/* Controles año/mes/muestra */}
         <div className="flex flex-wrap items-end gap-3">
           <label className="space-y-1">
-            <span className="block text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Año</span>
+            <span className="block text-xs font-semibold text-muted-foreground">Año</span>
             <input
               type="number"
               value={year}
@@ -274,7 +274,7 @@ export function ChileCompraOcdsDryRunPanel({ isAdmin }: Props) {
             />
           </label>
           <label className="space-y-1">
-            <span className="block text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Mes</span>
+            <span className="block text-xs font-semibold text-muted-foreground">Mes</span>
             <input
               type="number"
               value={month}
@@ -285,7 +285,7 @@ export function ChileCompraOcdsDryRunPanel({ isAdmin }: Props) {
             />
           </label>
           <label className="space-y-1">
-            <span className="block text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Muestra (máx 20)</span>
+            <span className="block text-xs font-semibold text-muted-foreground">Muestra (máx 20)</span>
             <input
               type="number"
               value={sampleSize}
@@ -298,7 +298,7 @@ export function ChileCompraOcdsDryRunPanel({ isAdmin }: Props) {
         </div>
 
         {!isAdmin && (
-          <div className="flex items-start gap-2 rounded-lg border border-border/40 bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground">
+          <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-surface-subtle px-3 py-2.5 text-xs text-muted-foreground">
             <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             Solo administradores pueden ejecutar verificaciones de fuente.
           </div>
@@ -345,7 +345,7 @@ export function ChileCompraOcdsDryRunPanel({ isAdmin }: Props) {
         {healthReport && <HealthCheckResult report={healthReport} />}
         {dryReport && <DryRunResult report={dryReport} />}
 
-        <div className="flex items-center gap-1.5 border-t border-border/40 pt-3 text-xs text-muted-foreground">
+        <div className="flex items-center gap-1.5 border-t border-border/60 pt-3 text-xs text-muted-foreground">
           <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
           No escribe en Supabase. No crea cuentas, candidatos ni oportunidades. No toca el connector ChileCompra legacy.
         </div>

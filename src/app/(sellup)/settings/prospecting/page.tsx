@@ -37,19 +37,19 @@ function lifecycleLabel(status: LifecycleStatus): { label: string; className: st
     case 'planned':
       return {
         label: 'Contemplado',
-        className: 'border-border/40 bg-muted/30 text-muted-foreground/70',
+        className: 'border-border/60 bg-surface-subtle text-muted-foreground',
         dotClass: 'bg-muted-foreground/30',
       };
     case 'connected':
       return {
         label: 'Conectado',
-        className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500',
-        dotClass: 'bg-emerald-500',
+        className: 'border-success/30 bg-success/10 text-success',
+        dotClass: 'bg-success',
       };
     case 'inactive':
       return {
         label: 'Inactivo',
-        className: 'border-border/40 bg-muted/30 text-muted-foreground/50',
+        className: 'border-border/60 bg-surface-subtle text-muted-foreground',
         dotClass: 'bg-muted-foreground/20',
       };
   }
@@ -69,7 +69,7 @@ function StaticProviderCard({ provider }: { provider: ProspectingProvider }) {
         description={provider.description ?? undefined}
         actions={
           <span
-            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${lifecycle.className}`}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${lifecycle.className}`}
           >
             <span className={`h-1.5 w-1.5 rounded-full ${lifecycle.dotClass}`} />
             {lifecycle.label}
@@ -79,7 +79,7 @@ function StaticProviderCard({ provider }: { provider: ProspectingProvider }) {
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/60 text-muted-foreground/50">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/60 text-muted-foreground">
             {provider.provider_type === 'enrichment' ? (
               <Sparkles className="h-4 w-4" />
             ) : (
@@ -91,7 +91,7 @@ function StaticProviderCard({ provider }: { provider: ProspectingProvider }) {
           </span>
         </div>
 
-        <span className="text-[11px] font-medium text-muted-foreground/50 cursor-default select-none">
+        <span className="text-xs font-medium text-muted-foreground cursor-default select-none">
           Conexión pendiente de definición
         </span>
       </div>
@@ -140,7 +140,7 @@ export default async function ProspectingPage() {
 
       {/* Resumen */}
       <div>
-        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/60 mb-3">
+        <p className="text-xs font-semibold text-muted-foreground mb-3">
           Resumen
         </p>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -181,14 +181,14 @@ export default async function ProspectingPage() {
             value={activeProviderValue}
             valueClassName={
               activeProviderNames.length > 0
-                ? 'text-emerald-500 text-lg'
-                : 'text-muted-foreground/60 text-base'
+                ? 'text-success text-lg'
+                : 'text-muted-foreground text-base'
             }
             icon={
               <div
                 className={`flex h-8 w-8 items-center justify-center rounded-lg ${
                   activeProviderNames.length > 0
-                    ? 'bg-emerald-500/10 text-emerald-500'
+                    ? 'bg-success/10 text-success'
                     : 'bg-muted text-muted-foreground'
                 }`}
               >
@@ -201,7 +201,7 @@ export default async function ProspectingPage() {
 
       {/* Proveedores */}
       <div>
-        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/60 mb-3">
+        <p className="text-xs font-semibold text-muted-foreground mb-3">
           Proveedores
         </p>
         <div className="grid gap-4 md:grid-cols-2">

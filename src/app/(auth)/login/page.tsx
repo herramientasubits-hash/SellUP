@@ -36,7 +36,7 @@ export default async function LoginPage({
           className="pointer-events-none absolute inset-0 hidden lg:block"
           style={{
             background:
-              'radial-gradient(ellipse 65% 55% at 50% 50%, rgba(91,127,255,0.05) 0%, transparent 75%)',
+              'radial-gradient(ellipse 65% 55% at 50% 50%, color-mix(in srgb, var(--su-brand) 6%, transparent) 0%, transparent 75%)',
           }}
         />
         <LoginAccessCard errorMessage={errorMessage}>

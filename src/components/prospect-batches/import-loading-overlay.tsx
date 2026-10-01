@@ -65,7 +65,7 @@ export function ImportLoadingOverlay({
       }}
     >
       {/* Mirror shine sweep */}
-      <div className="pointer-events-none absolute inset-0 -translate-x-full skew-x-[-12deg] bg-[linear-gradient(90deg,transparent_0%,rgba(255,255,255,0.06)_20%,rgba(255,255,255,0.35)_50%,rgba(255,255,255,0.06)_80%,transparent_100%)] animate-su-mirror-shine" />
+      <div className="pointer-events-none absolute inset-0 -translate-x-full skew-x-[-12deg] su-mirror-shine animate-su-mirror-shine" />
 
       {/* Sparkle icon */}
       <div className="animate-su-float relative z-10">

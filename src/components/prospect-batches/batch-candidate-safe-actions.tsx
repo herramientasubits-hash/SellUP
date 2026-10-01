@@ -101,7 +101,7 @@ export function BatchCandidateSafeActions({
 
         {availability.canOfferApprove && (
           <DropdownMenuItem onClick={() => onOpenDetail(candidate, 'approve')}>
-            <CheckCircle2 className="mr-2 h-3.5 w-3.5 text-emerald-500" />
+            <CheckCircle2 className="mr-2 h-3.5 w-3.5 text-success" />
             Aprobar
           </DropdownMenuItem>
         )}
@@ -115,7 +115,7 @@ export function BatchCandidateSafeActions({
 
         {availability.canOfferMarkDuplicate && (
           <DropdownMenuItem onClick={() => onOpenDetail(candidate, 'duplicate')}>
-            <GitMerge className="mr-2 h-3.5 w-3.5 text-orange-500" />
+            <GitMerge className="mr-2 h-3.5 w-3.5 text-warning" />
             Marcar como duplicado
           </DropdownMenuItem>
         )}

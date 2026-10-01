@@ -75,15 +75,15 @@ const TYPE_CONFIG: Record<AIInsightType, TypeConfig> = {
     icon: Lightbulb,
     label: "Recomendación",
     className:
-      "border-amber-500/20 bg-amber-500/5 text-amber-600 dark:text-amber-400",
-    iconColor: "text-amber-500",
+      "border-warning/20 bg-warning/5 text-warning",
+    iconColor: "text-warning",
   },
   opportunity: {
     icon: Target,
     label: "Oportunidad",
     className:
-      "border-emerald-500/20 bg-emerald-500/5 text-emerald-600 dark:text-emerald-400",
-    iconColor: "text-emerald-500",
+      "border-success/20 bg-success/5 text-success",
+    iconColor: "text-success",
   },
 };
 
@@ -102,7 +102,7 @@ const CONFIDENCE_CONFIG: Record<
   high: {
     label: "Confiabilidad Alta",
     className:
-      "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-none",
+      "bg-success/10 text-success border-none",
   },
 };
 
@@ -124,7 +124,7 @@ function AIInsightCard({
   return (
     <Card
       className={cn(
-        "overflow-hidden border-border/50 shadow-sm transition-all hover:shadow-md",
+        "overflow-hidden border-border/50 shadow-card transition-all hover:shadow-drawer",
         className,
       )}
     >
@@ -133,14 +133,14 @@ function AIInsightCard({
           <div className={cn("p-1.5 rounded-md", config.className)}>
             <Icon className={cn("h-4 w-4", config.iconColor)} />
           </div>
-          <span className="text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <span className="text-xs font-semibold text-muted-foreground">
             {config.label}
           </span>
         </div>
         <Badge
           variant="outline"
           className={cn(
-            "text-[10px] font-bold h-5 px-1.5",
+            "text-xs font-bold h-5 px-1.5",
             confidenceData.className,
           )}
         >
@@ -160,7 +160,7 @@ function AIInsightCard({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
             {evidence && (
               <div className="space-y-1">
-                <span className="text-[11px] font-bold text-muted-foreground uppercase">
+                <span className="text-xs font-bold text-muted-foreground uppercase">
                   Evidencia
                 </span>
                 <p className="text-xs font-medium">{evidence}</p>
@@ -168,7 +168,7 @@ function AIInsightCard({
             )}
             {impact && (
               <div className="space-y-1">
-                <span className="text-[11px] font-bold text-muted-foreground uppercase">
+                <span className="text-xs font-bold text-muted-foreground uppercase">
                   Impacto
                 </span>
                 <p className="text-xs font-medium">{impact}</p>

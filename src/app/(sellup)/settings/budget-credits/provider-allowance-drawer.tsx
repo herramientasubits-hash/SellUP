@@ -59,19 +59,19 @@ function QuotaSourceSection({
   }
 
   return (
-    <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3 space-y-2.5">
-      <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 font-medium">
+    <div className="rounded-lg border border-border/60 bg-surface-subtle px-4 py-3 space-y-2.5">
+      <p className="text-xs text-muted-foreground font-medium">
         Fuente de cuota
       </p>
       <div className="space-y-0.5">
         <p className="text-xs font-medium text-foreground">Fuente actual: {sourceLabel}</p>
-        <p className="text-[11px] text-muted-foreground/70">{sourceDescription}</p>
+        <p className="text-xs text-muted-foreground">{sourceDescription}</p>
       </div>
 
       {/* Manual con dato externo disponible → ofrecer usar API */}
       {source === 'manual' && hasExternalData && isSyncable && (
         <div className="pt-1 space-y-1">
-          <p className="text-[11px] text-muted-foreground/60">
+          <p className="text-xs text-muted-foreground">
             Dato API disponible como referencia ({provider.creditsRemainingExternal?.toLocaleString()} cr restantes).
           </p>
           <Button
@@ -103,7 +103,7 @@ function QuotaSourceSection({
 
       {/* API synced → instrucción para volver a manual */}
       {source === 'api_synced' && (
-        <p className="text-[11px] text-muted-foreground/60 leading-relaxed">
+        <p className="text-xs text-muted-foreground leading-relaxed">
           Para usar valor manual, ingresa créditos o USD en el formulario y guarda.
         </p>
       )}
@@ -201,7 +201,7 @@ export function ProviderAllowanceDrawer({ provider, open, onClose, onSaved }: Pr
       description="Configura la bolsa mensual contratada con el proveedor."
       icon={<Wallet className="h-4 w-4 text-su-brand" />}
       footer={
-        <div className="shrink-0 flex items-center justify-end gap-3 border-t border-border/50 bg-muted/20 px-7 py-4">
+        <div className="shrink-0 flex items-center justify-end gap-3 border-t border-border/50 bg-surface-subtle px-7 py-4">
           <Button variant="ghost" size="sm" onClick={onClose} disabled={isPending}>
             Cancelar
           </Button>
@@ -228,11 +228,11 @@ export function ProviderAllowanceDrawer({ provider, open, onClose, onSaved }: Pr
           )}
 
           {/* Info box */}
-          <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3 space-y-1">
+          <div className="rounded-lg border border-border/60 bg-surface-subtle px-4 py-3 space-y-1">
             <p className="text-xs font-medium text-foreground">
               Bolsa externa contratada
             </p>
-            <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+            <p className="text-xs text-muted-foreground leading-relaxed">
               Estos valores representan la cuota mensual del proveedor (créditos o USD
               contratados). No son reglas de bloqueo de SellUp — solo sirven para
               visualizar el disponible real frente al consumo.
@@ -245,10 +245,10 @@ export function ProviderAllowanceDrawer({ provider, open, onClose, onSaved }: Pr
               <p className="text-xs font-medium text-su-brand">
                 Claude se mide principalmente en USD/tokens, no en créditos.
               </p>
-              <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+              <p className="text-xs text-muted-foreground leading-relaxed">
                 Configura el presupuesto mensual USD. El campo de créditos no aplica para este proveedor.
               </p>
-              <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+              <p className="text-xs text-muted-foreground leading-relaxed">
                 Anthropic requiere una Admin API key para sincronizar costo USD. Mientras
                 tanto, configura el presupuesto mensual de forma manual.
               </p>
@@ -256,7 +256,7 @@ export function ProviderAllowanceDrawer({ provider, open, onClose, onSaved }: Pr
           )}
 
           {isNotApplicable ? (
-            <div className="rounded-lg border border-border/30 bg-muted/10 px-4 py-6 text-center">
+            <div className="rounded-lg border border-border/50 bg-surface-subtle px-4 py-6 text-center">
               <p className="text-sm text-muted-foreground">
                 Este proveedor no aplica configuración de cuota por ahora.
               </p>
@@ -277,7 +277,7 @@ export function ProviderAllowanceDrawer({ provider, open, onClose, onSaved }: Pr
                   onChange={(e) => setCredits(e.target.value)}
                   className="text-sm"
                 />
-                <p className="text-[10px] text-muted-foreground/60">
+                <p className="text-xs text-muted-foreground">
                   Dejar vacío para &quot;No configurado&quot;.
                 </p>
               </div>
@@ -296,7 +296,7 @@ export function ProviderAllowanceDrawer({ provider, open, onClose, onSaved }: Pr
                   onChange={(e) => setUsd(e.target.value)}
                   className="text-sm"
                 />
-                <p className="text-[10px] text-muted-foreground/60">
+                <p className="text-xs text-muted-foreground">
                   Útil para modelos LLM. Dejar vacío para &quot;No configurado&quot;.
                 </p>
               </div>

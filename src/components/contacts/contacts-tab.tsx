@@ -34,11 +34,11 @@ interface ContactsTabProps {
 // ── Estilos de estado ─────────────────────────────────────────
 
 const STATUS_STYLES: Record<string, string> = {
-  active: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-transparent',
+  active: 'bg-success/10 text-success border-transparent',
   inactive: 'bg-muted text-muted-foreground border-transparent',
-  left_company: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-transparent',
+  left_company: 'bg-warning/10 text-warning border-transparent',
   do_not_contact: 'bg-destructive/10 text-destructive border-transparent',
-  archived: 'bg-muted/60 text-muted-foreground/60 border-transparent',
+  archived: 'bg-surface-muted text-muted-foreground border-transparent',
 };
 
 // ── Componente principal ──────────────────────────────────────
@@ -67,7 +67,7 @@ export function ContactsTab({
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <SummaryCard icon={Users} label="Total" value={summary.total} color="text-foreground" />
         <SummaryCard icon={Crown} label="Decisores" value={summary.decision_makers} color="text-su-brand" />
-        <SummaryCard icon={Target} label="Champions" value={summary.champions} color="text-emerald-500" />
+        <SummaryCard icon={Target} label="Champions" value={summary.champions} color="text-success" />
         <SummaryCard icon={Archive} label="Inactivos" value={summary.inactive_or_archived} color="text-muted-foreground" />
       </div>
 
@@ -79,12 +79,12 @@ export function ContactsTab({
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
-                <TableHead className="pl-4 text-[11px]">Nombre</TableHead>
-                <TableHead className="text-[11px]">Cargo</TableHead>
-                <TableHead className="text-[11px]">Email</TableHead>
-                <TableHead className="text-[11px]">Teléfono</TableHead>
-                <TableHead className="text-[11px]">Estado</TableHead>
-                <TableHead className="text-[11px]">Fuente</TableHead>
+                <TableHead className="pl-4 text-xs">Nombre</TableHead>
+                <TableHead className="text-xs">Cargo</TableHead>
+                <TableHead className="text-xs">Email</TableHead>
+                <TableHead className="text-xs">Teléfono</TableHead>
+                <TableHead className="text-xs">Estado</TableHead>
+                <TableHead className="text-xs">Fuente</TableHead>
                 <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
@@ -120,7 +120,7 @@ function ContactRow({
     <TableRow className="group">
       <TableCell className="pl-4">
         <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-foreground/70">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground/70">
             {contact.full_name.charAt(0).toUpperCase()}
           </div>
           <div className="min-w-0">
@@ -139,7 +139,7 @@ function ContactRow({
                 </span>
               )}
               {contact.is_primary && (
-                <Star className="h-3 w-3 shrink-0 fill-amber-400 text-amber-400" />
+                <Star className="h-3 w-3 shrink-0 fill-warning text-warning" />
               )}
             </div>
           </div>
@@ -148,7 +148,7 @@ function ContactRow({
 
       <TableCell>
         <span className="text-xs text-foreground/80 truncate max-w-[120px] block">
-          {contact.job_title ?? <span className="text-muted-foreground/40">—</span>}
+          {contact.job_title ?? <span className="text-text-muted">—</span>}
         </span>
       </TableCell>
 
@@ -162,7 +162,7 @@ function ContactRow({
             <span className="truncate max-w-[140px]">{contact.email}</span>
           </a>
         ) : (
-          <span className="text-muted-foreground/40 text-xs">—</span>
+          <span className="text-text-muted text-xs">—</span>
         )}
       </TableCell>
 
@@ -176,21 +176,21 @@ function ContactRow({
             {contact.mobile_phone ?? contact.phone}
           </a>
         ) : (
-          <span className="text-muted-foreground/40 text-xs">—</span>
+          <span className="text-text-muted text-xs">—</span>
         )}
       </TableCell>
 
       <TableCell>
         <Badge
           variant="outline"
-          className={`text-[10px] ${STATUS_STYLES[contact.contact_status] ?? ''}`}
+          className={`text-xs ${STATUS_STYLES[contact.contact_status] ?? ''}`}
         >
           {CONTACT_STATUS_LABELS[contact.contact_status]}
         </Badge>
       </TableCell>
 
       <TableCell>
-        <Badge variant="outline" className="text-[10px] bg-muted/40 border-transparent text-muted-foreground">
+        <Badge variant="outline" className="text-xs bg-surface-subtle border-transparent text-muted-foreground">
           {CONTACT_SOURCE_LABELS[contact.source]}
         </Badge>
       </TableCell>
@@ -218,12 +218,12 @@ function SummaryCard({
   return (
     <SurfaceCard className="p-3">
       <div className="flex items-center gap-2.5">
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted/60">
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-muted">
           <Icon className={`h-3.5 w-3.5 ${color}`} />
         </div>
         <div>
           <p className="text-lg font-semibold leading-none text-foreground">{value}</p>
-          <p className="mt-0.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50">
+          <p className="mt-0.5 text-xs font-medium text-muted-foreground">
             {label}
           </p>
         </div>
@@ -238,8 +238,8 @@ function EmptyState() {
   return (
     <SurfaceCard>
       <div className="flex flex-col items-center gap-3 py-12 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted/60">
-          <Users className="h-5 w-5 text-muted-foreground/40" />
+        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-surface-muted">
+          <Users className="h-5 w-5 text-text-muted" />
         </div>
         <div className="max-w-xs space-y-1 mx-auto">
           <p className="text-sm font-semibold text-foreground">Sin contactos todavía</p>

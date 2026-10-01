@@ -132,27 +132,27 @@ const COMPLETENESS_CONFIG: Record<
 > = {
   complete: {
     label: 'Costo completo',
-    classes: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500',
+    classes: 'border-success/30 bg-success/10 text-success',
     Icon: CheckCircle2,
   },
   partial_missing_llm_cost: {
     label: 'Costo parcial · falta LLM',
-    classes: 'border-amber-500/30 bg-amber-500/10 text-amber-500',
+    classes: 'border-warning/30 bg-warning/10 text-warning',
     Icon: AlertTriangle,
   },
   partial_missing_provider_pricing: {
     label: 'Costo parcial · falta pricing',
-    classes: 'border-amber-500/30 bg-amber-500/10 text-amber-500',
+    classes: 'border-warning/30 bg-warning/10 text-warning',
     Icon: AlertTriangle,
   },
   partial_missing_candidate_outcomes: {
     label: 'Funnel parcial',
-    classes: 'border-amber-500/30 bg-amber-500/10 text-amber-500',
+    classes: 'border-warning/30 bg-warning/10 text-warning',
     Icon: AlertTriangle,
   },
   unknown: {
     label: 'Datos insuficientes',
-    classes: 'border-border/40 bg-muted/30 text-muted-foreground/70',
+    classes: 'border-border/60 bg-surface-subtle text-muted-foreground',
     Icon: Info,
   },
 };
@@ -162,7 +162,7 @@ function CompletenessBadge({ flag }: { flag: Agent1CostCompletenessFlag }) {
   const { Icon } = cfg;
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${cfg.classes}`}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${cfg.classes}`}
     >
       <Icon className="h-3 w-3" />
       {cfg.label}
@@ -184,8 +184,8 @@ function StatCell({
   mono?: boolean;
 }) {
   return (
-    <div className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2.5">
-      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+    <div className="rounded-lg border border-border/60 bg-surface-subtle px-3 py-2.5">
+      <p className="text-xs font-medium text-muted-foreground">
         {label}
       </p>
       <p className={`mt-1 text-sm font-semibold text-foreground ${mono ? 'font-mono' : ''}`}>
@@ -197,7 +197,7 @@ function StatCell({
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+    <p className="mb-2 text-xs font-semibold text-muted-foreground">
       {children}
     </p>
   );
@@ -238,7 +238,7 @@ function PanelMessage({
   const classes =
     tone === 'error'
       ? 'border-destructive/20 bg-destructive/5'
-      : 'border-border/40 bg-muted/20';
+      : 'border-border/60 bg-surface-subtle';
   const Icon = tone === 'error' ? AlertTriangle : Info;
   const iconColor = tone === 'error' ? 'text-destructive' : 'text-muted-foreground';
   return (
@@ -255,10 +255,10 @@ export function Agent1EffectivenessPanelSkeleton() {
       <div className="animate-pulse space-y-4">
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="h-16 rounded-lg border border-border/40 bg-muted/20" />
+            <div key={i} className="h-16 rounded-lg border border-border/60 bg-surface-subtle" />
           ))}
         </div>
-        <div className="h-24 rounded-lg border border-border/40 bg-muted/10" />
+        <div className="h-24 rounded-lg border border-border/60 bg-surface-subtle" />
       </div>
     </PanelShell>
   );
@@ -285,12 +285,12 @@ function ProviderBreakdownTable({
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
-          <tr className="border-b border-border/40">
+          <tr className="border-b border-border/60">
             {['Proveedor', 'Operación', 'Logs', 'Créditos', 'Resultados', 'Costo est.', 'Sin costo', 'Costo 0'].map(
               (h) => (
                 <th
                   key={h}
-                  className={`pb-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground ${
+                  className={`pb-2.5 text-xs font-semibold text-muted-foreground ${
                     h === 'Proveedor' || h === 'Operación' ? 'text-left' : 'text-right'
                   } pr-4 last:pr-0`}
                 >
@@ -305,7 +305,7 @@ function ProviderBreakdownTable({
             <tr key={`${r.providerKey}::${r.operationKey}`}>
               <td className="py-3 pr-4">
                 <div className="flex items-center gap-2">
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted/40">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-subtle">
                     <Plug className="h-3.5 w-3.5 text-muted-foreground" />
                   </div>
                   <span className="font-medium text-foreground">
@@ -323,23 +323,23 @@ function ProviderBreakdownTable({
               <td className="py-3 pr-4 text-right text-muted-foreground">{r.resultsReturned}</td>
               <td className="py-3 pr-4 text-right font-mono text-muted-foreground">
                 {r.estimatedCostUsd === 0 && r.missingCostRows === 0 ? (
-                  <span className="text-muted-foreground/40">—</span>
+                  <span className="text-text-muted">—</span>
                 ) : (
                   formatUsd(r.estimatedCostUsd, 2)
                 )}
               </td>
               <td className="py-3 pr-4 text-right">
                 {r.missingCostRows > 0 ? (
-                  <span className="font-mono text-amber-500">{r.missingCostRows}</span>
+                  <span className="font-mono text-warning">{r.missingCostRows}</span>
                 ) : (
-                  <span className="text-muted-foreground/40">0</span>
+                  <span className="text-text-muted">0</span>
                 )}
               </td>
               <td className="py-3 text-right">
                 {r.zeroCostRows > 0 ? (
                   <span className="font-mono text-muted-foreground">{r.zeroCostRows}</span>
                 ) : (
-                  <span className="text-muted-foreground/40">0</span>
+                  <span className="text-text-muted">0</span>
                 )}
               </td>
             </tr>
@@ -368,11 +368,11 @@ function BreakdownChip({
     tone === 'brand'
       ? 'border-su-brand/30 bg-su-brand-soft text-su-brand'
       : tone === 'warn'
-        ? 'border-amber-500/30 bg-amber-500/10 text-amber-500'
-        : 'border-border/40 bg-muted/20 text-muted-foreground';
+        ? 'border-warning/30 bg-warning/10 text-warning'
+        : 'border-border/60 bg-surface-subtle text-muted-foreground';
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium ${toneClasses}`}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${toneClasses}`}
     >
       {label}
       <span className="font-mono font-semibold">{count.toLocaleString('es-ES')}</span>
@@ -390,7 +390,7 @@ function OriginBreakdownChips({ breakdown }: { breakdown: OriginBreakdown }) {
 
   if (visible.length === 0) {
     return (
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         Sin candidatos clasificados en este alcance.
       </p>
     );
@@ -417,7 +417,7 @@ function RejectionBreakdownChips({ breakdown }: { breakdown: RejectionReasonBrea
 
   if (entries.length === 0) {
     return (
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         Sin motivos de rechazo clasificados en este alcance.
       </p>
     );
@@ -462,12 +462,12 @@ function CleanProductionSection({
           </div>
           <div>
             <p className="text-sm font-semibold text-foreground">Producción limpia</p>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Solo candidatos de origen productivo real.
             </p>
           </div>
         </div>
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-border/40 bg-muted/30 px-2.5 py-1 text-[10px] font-semibold text-muted-foreground">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-surface-subtle px-2.5 py-1 text-xs font-semibold text-muted-foreground">
           <Filter className="h-3 w-3" />
           Excluye QA, smoke, cleanup e import
         </span>
@@ -539,11 +539,11 @@ function CleanProductionSection({
 
       {/* Classification warnings */}
       {classificationWarnings.length > 0 && (
-        <div className="space-y-1.5 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3">
+        <div className="space-y-1.5 rounded-xl border border-warning/20 bg-warning/5 px-4 py-3">
           {classificationWarnings.map((code) => (
             <div key={code} className="flex items-start gap-2">
-              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-              <p className="text-[11px] leading-relaxed text-muted-foreground">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+              <p className="text-xs leading-relaxed text-muted-foreground">
                 {CLEAN_PRODUCTION_WARNING_LABELS[code] ?? code}
               </p>
             </div>
@@ -579,18 +579,18 @@ function SummaryBody({ summary }: { summary: Agent1EffectivenessSummary }) {
       <div className="flex flex-wrap items-center gap-2">
         <CompletenessBadge flag={costCompletenessFlag} />
         {funnel.generatedCandidatesCount !== null && (
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {formatInt(funnel.generatedCandidatesCount)} candidatos generados (best-effort)
           </span>
         )}
       </div>
 
       {warnings.length > 0 && (
-        <div className="space-y-1.5 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3">
+        <div className="space-y-1.5 rounded-xl border border-warning/20 bg-warning/5 px-4 py-3">
           {warnings.map((w, i) => (
             <div key={i} className="flex items-start gap-2">
-              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-              <p className="text-[11px] leading-relaxed text-muted-foreground">{w}</p>
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+              <p className="text-xs leading-relaxed text-muted-foreground">{w}</p>
             </div>
           ))}
         </div>

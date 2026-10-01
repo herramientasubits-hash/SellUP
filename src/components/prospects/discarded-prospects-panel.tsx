@@ -78,8 +78,8 @@ export async function DiscardedProspectsPanel({ params }: DiscardedProspectsPane
             description="Descartadas en el día"
             value={newToday}
             icon={
-              <div className="rounded-lg p-1.5 bg-emerald-500/10">
-                <Sparkles className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              <div className="rounded-lg p-1.5 bg-success/10">
+                <Sparkles className="h-4 w-4 text-success" />
               </div>
             }
           />
@@ -88,7 +88,7 @@ export async function DiscardedProspectsPanel({ params }: DiscardedProspectsPane
             description="Sin decisión humana"
             value={autoDiscarded}
             icon={
-              <div className="rounded-lg p-1.5 bg-muted/60">
+              <div className="rounded-lg p-1.5 bg-surface-muted">
                 <Ban className="h-4 w-4 text-muted-foreground" />
               </div>
             }
@@ -98,8 +98,8 @@ export async function DiscardedProspectsPanel({ params }: DiscardedProspectsPane
             description="Decisión humana en revisión"
             value={manualDiscards}
             icon={
-              <div className="rounded-lg p-1.5 bg-orange-500/10">
-                <UserRoundX className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+              <div className="rounded-lg p-1.5 bg-warning/10">
+                <UserRoundX className="h-4 w-4 text-warning" />
               </div>
             }
           />

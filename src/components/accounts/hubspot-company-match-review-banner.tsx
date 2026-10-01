@@ -54,15 +54,15 @@ export function HubSpotCompanyMatchReviewBanner({
   }
 
   return (
-    <div className="flex gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3.5">
-      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+    <div className="flex gap-3 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3.5">
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
       <div className="min-w-0 flex-1 space-y-2">
-        <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">
+        <p className="text-sm font-semibold text-warning">
           Podría ya existir en HubSpot como &laquo;{pendingMatch.name ?? 'empresa sin nombre'}
           &raquo;
           {pendingMatch.domain ? ` (${pendingMatch.domain})` : ''}
         </p>
-        <p className="text-xs text-amber-700/80 dark:text-amber-300/80 leading-relaxed">
+        <p className="text-xs text-warning/80 leading-relaxed">
           Coincidencia por {pendingMatch.matchMethod}, confianza {pendingMatch.confidence}%.
           &iquest;Es la misma empresa?
         </p>

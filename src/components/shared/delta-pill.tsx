@@ -15,9 +15,9 @@ interface DeltaPillProps {
 }
 
 const TONE_CLASSES: Record<DeltaTone, string> = {
-  positive: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+  positive: "bg-success/10 text-success border-success/20",
   negative: "bg-destructive/10 text-destructive border-destructive/20",
-  neutral: "bg-muted/40 text-muted-foreground border-border/40",
+  neutral: "bg-surface-subtle text-muted-foreground border-border/60",
 };
 
 const ICON_CLASS: Record<"sm" | "md", string> = {
@@ -26,8 +26,8 @@ const ICON_CLASS: Record<"sm" | "md", string> = {
 };
 
 const SIZE_CLASSES: Record<"sm" | "md", string> = {
-  sm: "px-1.5 py-0.5 text-[10px] gap-1",
-  md: "px-2 py-1 text-[11px] gap-1.5",
+  sm: "px-1.5 py-0.5 text-xs gap-1",
+  md: "px-2 py-1 text-xs gap-1.5",
 };
 
 function resolveTone(value: number | undefined, tone?: DeltaTone): DeltaTone {

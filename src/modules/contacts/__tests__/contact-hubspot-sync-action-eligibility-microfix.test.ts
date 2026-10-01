@@ -400,10 +400,10 @@ describe('3. las superficies consumen la autoridad y no deducen', () => {
     assert.match(button, /resolveHubSpotSyncAction\(/);
     assert.equal(/alreadySynced/.test(button), false);
     // Un solo sitio nombra el check verde, y su guard es el `kind`.
-    const greenAt = button.indexOf('text-emerald-500');
+    const greenAt = button.indexOf('text-success');
     assert.ok(greenAt > 0, 'el botón debe seguir teniendo un estado verde para lo observado');
     assert.equal(
-      button.split('text-emerald-500').length - 1,
+      button.split('text-success').length - 1,
       1,
       'hay más de un camino verde en el botón',
     );

@@ -85,7 +85,7 @@ export function ChartCard({
         <div className="flex items-start justify-between gap-4">
           <div className="flex flex-col gap-0.5 min-w-0">
             {meta && (
-              <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+              <span className="text-xs font-medium text-muted-foreground">
                 {meta}
               </span>
             )}
