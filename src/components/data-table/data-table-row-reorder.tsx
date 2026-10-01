@@ -90,6 +90,9 @@ export function DataTableRowReorder<TData>({
       // Id estable entre servidor y cliente: sin él, dnd-kit numera sus
       // regiones de anuncio con un contador y la hidratación no coincide.
       id={dndId}
+      // Las regiones de anuncio de dnd-kit son <div> y solo se montan en el
+      // cliente: dentro de una tabla serían HTML inválido, así que van al body.
+      accessibility={{ container: typeof document === "undefined" ? undefined : document.body }}
     >
       <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
         {data.map((row, index) => (
