@@ -15,8 +15,8 @@ import {
   Sparkles,
   Clock,
   Loader2,
-  AlertTriangle,
 } from "@/icons";
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { DrawerShell } from '@/components/shared/drawer-shell';
@@ -286,7 +286,7 @@ function CandidateDetail({
       </div>
 
       {/* Actions */}
-      <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
+      <div className="border-t border-border/50 pt-4">
         <div className="flex flex-wrap gap-2">
           <Button
             size="sm"
@@ -586,12 +586,11 @@ export function ReviewQueueClient({
               No se convierte a cuenta ni se envía a HubSpot.
             </AlertDialogDescription>
             {approveNeedsWarning && (
-              <div className="mt-2 flex items-start gap-2 rounded-xl border border-warning/25 bg-warning/15 p-3 text-warning">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span className="text-xs">
+              <Alert variant="warning" className="mt-2 text-left">
+                <AlertDescription className="text-xs text-current">
                   Este candidato tiene posible coincidencia. Revisa antes de aprobar.
-                </span>
-              </div>
+                </AlertDescription>
+              </Alert>
             )}
           </AlertDialogHeader>
           <AlertDialogFooter>

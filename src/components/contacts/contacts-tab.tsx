@@ -2,9 +2,10 @@
 
 import * as React from 'react';
 import { Star, Mail, Phone, Users, Crown, Target, Archive } from "@/icons";
-import { SurfaceCard } from '@/components/shared/surface-card';
+import { TableShell } from '@/components/data-display';
 import { MetricCard } from '@/components/shared/metric-card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import {
   Table,
@@ -54,18 +55,7 @@ export function ContactsTab({
 }: ContactsTabProps) {
   return (
     <div className="space-y-4">
-      {/* Header interno + botón */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
-          <h2 className="text-base font-semibold tracking-tight text-foreground">Contactos</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Decisores, sponsors y personas clave vinculadas a esta cuenta.
-          </p>
-        </div>
-        <CreateContactDrawer accountId={accountId} />
-      </div>
-
-      {/* Summary mini-cards */}
+      {/* Summary mini-cards: primero cuántos hay y de qué tipo; la lista viene debajo. */}
       {/* La pestaña vive tanto en la página como en el drawer de la cuenta: la
           rejilla responde al ancho de su contenedor, no al de la ventana. */}
       <div className="@container">
@@ -77,40 +67,54 @@ export function ContactsTab({
         </div>
       </div>
 
-      {/* Tabla de contactos */}
-      {contacts.length === 0 ? (
-        <EmptyState
-          icon={Users}
-          title="Sin contactos todavía"
-          description="Todavía no hay contactos asociados a esta cuenta. Agrega un contacto manualmente o, más adelante, enriquécelo con Apollo o Lusha."
-        />
-      ) : (
-        <SurfaceCard className="overflow-hidden p-0">
-          <Table>
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead className="pl-4 text-xs">Nombre</TableHead>
-                <TableHead className="text-xs">Cargo</TableHead>
-                <TableHead className="text-xs">Email</TableHead>
-                <TableHead className="text-xs">Teléfono</TableHead>
-                <TableHead className="text-xs">Estado</TableHead>
-                <TableHead className="text-xs">Fuente</TableHead>
-                <TableHead className="w-10" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {contacts.map((contact) => (
-                <ContactRow
-                  key={contact.id}
-                  contact={contact}
-                  onViewContact={onViewContact}
-                  onActionComplete={onContactsChanged}
-                />
-              ))}
-            </TableBody>
-          </Table>
-        </SurfaceCard>
-      )}
+      {/* La lista en UN solo marco (`TableShell`): título con su total, la acción
+          de agregar a la derecha, la tabla a sangre y, sin contactos, el vacío
+          dentro del mismo marco. Antes eran un encabezado suelto y una tarjeta. */}
+      <TableShell
+        title={
+          <>
+            Contactos
+            {contacts.length > 0 && <Badge variant="neutral">{contacts.length}</Badge>}
+          </>
+        }
+        description="Decisores, sponsors y personas clave vinculadas a esta cuenta."
+        actions={<CreateContactDrawer accountId={accountId} />}
+        empty={contacts.length === 0}
+        emptyState={
+          <EmptyState
+            variant="plain"
+            icon={Users}
+            title="Sin contactos todavía"
+            description="Todavía no hay contactos asociados a esta cuenta. Agrega un contacto manualmente o, más adelante, enriquécelo con Apollo o Lusha."
+          />
+        }
+      >
+        <Table>
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead className="text-xs">Nombre</TableHead>
+              <TableHead className="text-xs">Cargo</TableHead>
+              <TableHead className="text-xs">Email</TableHead>
+              <TableHead className="text-xs">Teléfono</TableHead>
+              <TableHead className="text-xs">Estado</TableHead>
+              <TableHead className="text-xs">Fuente</TableHead>
+              <TableHead className="w-10">
+                <span className="sr-only">Acciones</span>
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {contacts.map((contact) => (
+              <ContactRow
+                key={contact.id}
+                contact={contact}
+                onViewContact={onViewContact}
+                onActionComplete={onContactsChanged}
+              />
+            ))}
+          </TableBody>
+        </Table>
+      </TableShell>
     </div>
   );
 }
@@ -128,7 +132,7 @@ function ContactRow({
 }) {
   return (
     <TableRow className="group">
-      <TableCell className="pl-4">
+      <TableCell>
         <div className="flex items-center gap-2">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
             {contact.full_name.charAt(0).toUpperCase()}
@@ -136,13 +140,14 @@ function ContactRow({
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
               {onViewContact ? (
-                <button
+                <Button
                   type="button"
+                  variant="link"
                   onClick={() => onViewContact(contact.id)}
-                  className="text-xs font-medium text-foreground hover:text-primary hover:underline truncate text-left rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+                  className="h-auto min-w-0 justify-start truncate p-0 text-xs font-medium text-foreground hover:text-primary"
                 >
                   {contact.full_name}
-                </button>
+                </Button>
               ) : (
                 <span className="text-xs font-medium text-foreground truncate">
                   {contact.full_name}

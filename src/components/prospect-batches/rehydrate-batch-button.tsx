@@ -2,17 +2,8 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { RefreshCcw, Loader2 } from "@/icons";
-import {
-  Dialog,
-  DialogTrigger,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-  DialogClose,
-} from '@/components/ui/dialog';
+import { RefreshCcw } from '@/icons';
+import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { rehydrateStructuredBatchCandidatesAction } from '@/modules/prospect-batches/actions';
@@ -64,64 +55,29 @@ export function RehydrateBatchButton({ batchId }: RehydrateBatchButtonProps) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
-      <DialogTrigger
-        render={
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setOpen(true)}
-          >
-            <RefreshCcw className="h-3.5 w-3.5" />
-            Recalcular datos
-          </Button>
-        }
-      />
-
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader className="pt-2">
-          <DialogTitle>
-            ¿Reprocesar enrichment de candidatos?
-          </DialogTitle>
-          <DialogDescription>
-            Esto recalculará sector, flags de revisión y completitud de los candidatos existentes en este lote.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div>
-          <ul className="list-disc space-y-1 pl-4 text-sm text-muted-foreground">
-            <li>No toca HubSpot ni crea empresas.</li>
-            <li>No cambia estados comerciales ni de revisión.</li>
-            <li>No modifica cuentas ni conversiones.</li>
-            <li>Actualiza <code>review_flags</code>, <code>sector_description</code> y <code>metadata.enrichment</code>.</li>
-          </ul>
-        </div>
-
-        <DialogFooter>
-          <DialogClose
-            render={
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={loading}
-                onClick={handleClose}
-              />
-            }
-          >
-            Cancelar
-          </DialogClose>
-          <Button size="sm" onClick={handleConfirm} disabled={loading}>
-            {loading ? (
-              <>
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                Procesando…
-              </>
-            ) : (
-              'Reprocesar'
-            )}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <ConfirmDialog
+      open={open}
+      onOpenChange={(v) => (v ? setOpen(true) : handleClose())}
+      trigger={
+        <Button variant="outline" size="sm">
+          <RefreshCcw className="h-3.5 w-3.5" />
+          Recalcular datos
+        </Button>
+      }
+      icon={RefreshCcw}
+      title="¿Reprocesar enrichment de candidatos?"
+      description="Esto recalculará sector, flags de revisión y completitud de los candidatos existentes en este lote."
+      confirmLabel={loading ? 'Procesando…' : 'Reprocesar'}
+      loading={loading}
+      onConfirm={handleConfirm}
+      className="sm:max-w-md"
+    >
+      <ul className="list-disc space-y-1 pl-4 text-sm text-muted-foreground">
+        <li>No toca HubSpot ni crea empresas.</li>
+        <li>No cambia estados comerciales ni de revisión.</li>
+        <li>No modifica cuentas ni conversiones.</li>
+        <li>Actualiza <code>review_flags</code>, <code>sector_description</code> y <code>metadata.enrichment</code>.</li>
+      </ul>
+    </ConfirmDialog>
   );
 }

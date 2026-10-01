@@ -18,13 +18,8 @@ import {
   TooltipContent,
   TooltipProvider,
 } from '@/components/ui/tooltip';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { ModalShell } from '@/components/shared/modal-shell';
 import { EmptyCell } from '@/components/shared/table-cells';
 import { getCandidateLinkedInUrl } from '@/modules/prospect-batches/candidate-linkedin-url';
 import {
@@ -264,8 +259,9 @@ export function DuplicateCheckCell({ candidate }: { candidate: ProspectRow }) {
       </TooltipProvider>
 
       {matches.length > 0 && (
-        <button
-          type="button"
+        <Button
+          variant="link"
+          size="xs"
           onClick={(event) => {
             event.stopPropagation();
             setDetailOpen(true);
@@ -276,29 +272,27 @@ export function DuplicateCheckCell({ candidate }: { candidate: ProspectRow }) {
               : `Ver ${matches.length} coincidencias de ${candidate.name}`
           }
           title={matches.length === 1 ? 'Ver 1 coincidencia' : `Ver ${matches.length} coincidencias`}
-          className="shrink-0 rounded-sm text-xs font-semibold tabular-nums text-warning underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+          className="h-auto shrink-0 p-0 tabular-nums text-warning"
         >
           ({matches.length})
-        </button>
+        </Button>
       )}
 
-      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Coincidencias de duplicidad</DialogTitle>
-            <DialogDescription>
-              {candidate.name} · {primaryDupLabel}
-            </DialogDescription>
-          </DialogHeader>
+      <ModalShell
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        title="Coincidencias de duplicidad"
+        description={`${candidate.name} · ${primaryDupLabel}`}
+      >
 
           <div className="space-y-3">
             {dc?.summary && (
               <p className="text-sm leading-relaxed text-muted-foreground">{dc.summary}</p>
             )}
             {matches.length > 0 ? (
-              <ul className="max-h-60 space-y-2 overflow-y-auto pr-1">
+              <ul className="max-h-60 divide-y divide-border/50 overflow-y-auto pr-1">
                 {matches.map((match, i) => (
-                  <li key={i} className="space-y-1 rounded-lg border border-border/60 bg-surface-subtle p-3">
+                  <li key={i} className="space-y-1 py-2.5 first:pt-0 last:pb-0">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-xs font-semibold text-foreground">
                         {match.source === 'sellup' ? 'SellUp' : match.source === 'hubspot' ? 'HubSpot' : match.source}
@@ -335,8 +329,7 @@ export function DuplicateCheckCell({ candidate }: { candidate: ProspectRow }) {
               <p className="text-sm text-muted-foreground">Sin detalle de duplicidad disponible.</p>
             )}
           </div>
-        </DialogContent>
-      </Dialog>
+      </ModalShell>
     </div>
   );
 }

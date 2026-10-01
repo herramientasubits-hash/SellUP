@@ -79,7 +79,7 @@ function StoredPhoneRow({ phone }: { phone: StoredCandidatePhoneView }) {
     .filter((label): label is string => typeof label === 'string');
 
   return (
-    <li className="flex min-w-0 flex-col gap-1 rounded-lg border border-border/60 bg-surface-subtle px-3 py-2">
+    <li className="flex min-w-0 flex-col gap-1 py-2 first:pt-0 last:pb-0">
       <span className="inline-flex flex-wrap items-center gap-2">
         <span className="break-all text-sm font-medium tabular-nums text-foreground">{phone.number}</span>
         <Badge variant="brand">{typeLabel}</Badge>
@@ -169,17 +169,17 @@ export function CandidateStoredPhonesDisclosure({
       {open && (
         <div id={panelId} className="space-y-1.5">
           {state.kind === 'loading' && (
-            <p className="rounded-lg border border-border/60 bg-surface-subtle px-3 py-2 text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {STORED_PHONES_LOADING_COPY}
             </p>
           )}
           {state.kind === 'error' && (
-            <p className="rounded-lg border border-border/60 bg-surface-subtle px-3 py-2 text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {STORED_PHONES_ERROR_COPY}
             </p>
           )}
           {state.kind === 'loaded' && state.phones.length === 0 && (
-            <p className="rounded-lg border border-border/60 bg-surface-subtle px-3 py-2 text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {STORED_PHONES_EMPTY_COPY}
             </p>
           )}
@@ -188,7 +188,7 @@ export function CandidateStoredPhonesDisclosure({
               <p className="text-xs text-muted-foreground">
                 {getStoredPhonesHeading(state.phones.length)}
               </p>
-              <ul className="space-y-1.5">
+              <ul className="divide-y divide-border/60">
                 {state.phones.map((phone) => (
                   <StoredPhoneRow key={phone.id} phone={phone} />
                 ))}

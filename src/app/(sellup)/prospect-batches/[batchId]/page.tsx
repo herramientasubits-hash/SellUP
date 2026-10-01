@@ -9,17 +9,16 @@ import {
   ArrowRightCircle,
   AlertTriangle,
   Layers,
-  FlaskConical,
-  Globe,
-  RefreshCw,
-  ShieldCheck,
-  Info,
+  ChevronDown,
 } from "@/icons";
 import { PageHeader } from '@/components/shared/page-header';
 import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { MetricCard } from '@/components/shared/metric-card';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { CreateCandidateDrawer } from '@/components/prospect-batches/create-candidate-drawer';
 import { CandidatesTableClient } from '@/components/prospect-batches/candidates-table-client';
 import { RollbackBatchDialog } from '@/components/prospect-batches/rollback-batch-dialog';
@@ -245,101 +244,65 @@ export default async function BatchDetailPage({ params }: Props) {
               ?.status === 'not_configured',
         );
         return (
-          <div className="rounded-xl border border-border/60 bg-surface-subtle px-5 py-3.5 animate-in fade-in-0 duration-200">
-            <div className="flex items-start gap-2.5">
-              <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-              <div className="flex-1">
-                {hasImportValidation ? (
-                  <>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-sm font-medium text-foreground">
-                        Candidatos importados y validados automáticamente
-                      </p>
-                      {hsNotConfigured && (
-                        <Badge variant="neutral">
-                          HubSpot no configurado
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      SellUp revisó duplicidad local y calidad básica. HubSpot se validará cuando la
-                      integración esté configurada.
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-sm font-medium text-foreground">
-                      Candidatos importados desde fuente externa
-                    </p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      Estos candidatos fueron cargados manualmente o desde un archivo externo.
-                      Requieren revisión humana antes de aprobarse o sincronizarse.
-                    </p>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
+          <Alert className="animate-su-fade-in motion-reduce:animate-none">
+            {hasImportValidation ? (
+              <>
+                <AlertTitle className="flex flex-wrap items-center gap-2 text-sm">
+                  Candidatos importados y validados automáticamente
+                  {hsNotConfigured && <Badge variant="neutral">HubSpot no configurado</Badge>}
+                </AlertTitle>
+                <AlertDescription className="text-xs">
+                  SellUp revisó duplicidad local y calidad básica. HubSpot se validará cuando la
+                  integración esté configurada.
+                </AlertDescription>
+              </>
+            ) : (
+              <>
+                <AlertTitle className="text-sm">Candidatos importados desde fuente externa</AlertTitle>
+                <AlertDescription className="text-xs">
+                  Estos candidatos fueron cargados manualmente o desde un archivo externo.
+                  Requieren revisión humana antes de aprobarse o sincronizarse.
+                </AlertDescription>
+              </>
+            )}
+          </Alert>
         );
       })()}
 
       {/* Alerta de rollback lógico aplicado */}
       {batch.status === 'cancelled' && batch.metadata?.rollback_logical === true && (
-        <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-5 py-3.5 animate-in fade-in-0 duration-200">
-          <div className="flex items-start gap-2.5">
-            <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-            <div>
-              <p className="text-sm font-medium text-destructive">
-                Lote revertido
-              </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Los datos permanecen para auditoría, pero el lote ya no está operativo.
-                {typeof batch.metadata?.rollback_reason === 'string' && (
-                  <span className="block mt-1 text-xs text-muted-foreground font-mono">
-                    Motivo: {batch.metadata.rollback_reason}
-                  </span>
-                )}
-              </p>
-            </div>
-          </div>
-        </div>
+        <Alert variant="destructive" className="animate-su-fade-in motion-reduce:animate-none">
+          <AlertTitle className="text-sm">Lote revertido</AlertTitle>
+          <AlertDescription className="text-xs">
+            Los datos permanecen para auditoría, pero el lote ya no está operativo.
+            {typeof batch.metadata?.rollback_reason === 'string' && (
+              <span className="mt-1 block font-mono">Motivo: {batch.metadata.rollback_reason}</span>
+            )}
+          </AlertDescription>
+        </Alert>
       )}
 
       {/* Banner revisión humana — lotes estructurados */}
       {batch.metadata?.batch_type === 'structured' &&
         batch.metadata?.human_review_required === true && (
-          <div className="rounded-xl border border-primary/20 bg-primary/5 px-5 py-3.5 animate-in fade-in-0 duration-200">
-            <div className="flex items-start gap-2.5">
-              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-              <div>
-                <p className="text-sm font-medium text-foreground">
-                  Empresas verificadas con fuente oficial
-                </p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {isStructuredChile
-                    ? 'Estas empresas fueron contrastadas con el Registro de Empresas y Sociedades de Chile. Requieren revisión humana antes de aprobarse o sincronizarse.'
-                    : 'Estas empresas fueron contrastadas con el registro oficial de Colombia. Requieren revisión humana antes de aprobarse o sincronizarse con HubSpot.'}
-                </p>
-              </div>
-            </div>
-          </div>
+          <Alert variant="info" className="animate-su-fade-in motion-reduce:animate-none">
+            <AlertTitle className="text-sm text-foreground">Empresas verificadas con fuente oficial</AlertTitle>
+            <AlertDescription className="text-xs">
+              {isStructuredChile
+                ? 'Estas empresas fueron contrastadas con el Registro de Empresas y Sociedades de Chile. Requieren revisión humana antes de aprobarse o sincronizarse.'
+                : 'Estas empresas fueron contrastadas con el registro oficial de Colombia. Requieren revisión humana antes de aprobarse o sincronizarse con HubSpot.'}
+            </AlertDescription>
+          </Alert>
         )}
 
       {/* Alerta modo mock */}
       {batch.metadata?.generation_mode === 'mock' && (
-        <div className="rounded-xl border border-warning/25 bg-warning/5 px-5 py-3.5">
-          <div className="flex items-start gap-2.5">
-            <FlaskConical className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-            <div>
-              <p className="text-sm font-medium text-warning">
-                Lote generado en modo prueba
-              </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Este lote fue generado con datos mock para validar el flujo del pipeline. No usar estos candidatos para convertirlos en empresas reales.
-              </p>
-            </div>
-          </div>
-        </div>
+        <Alert variant="warning">
+          <AlertTitle className="text-sm">Lote generado en modo prueba</AlertTitle>
+          <AlertDescription className="text-xs">
+            Este lote fue generado con datos mock para validar el flujo del pipeline. No usar estos candidatos para convertirlos en empresas reales.
+          </AlertDescription>
+        </Alert>
       )}
 
       {/* Alerta novelty: empresas omitidas por repetición reciente */}
@@ -353,44 +316,32 @@ export default async function BatchDetailPage({ params }: Props) {
           .slice(0, 3)
           .map((i) => i.name);
         return (
-          <div className="rounded-xl border border-warning/25 bg-warning/5 px-5 py-3.5">
-            <div className="flex items-start gap-2.5">
-              <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-              <div>
-                <p className="text-sm font-medium text-warning">
-                  SellUp omitió {skippedCount} empresa{skippedCount !== 1 ? 's' : ''} repetida{skippedCount !== 1 ? 's' : ''}
-                </p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {skippedCount === 1
-                    ? 'Esta empresa ya estaba pendiente de revisión en un lote reciente y fue omitida para evitar duplicados.'
-                    : `Estas empresas ya estaban pendientes de revisión en lotes recientes y fueron omitidas para evitar duplicados.`}
-                  {previewNames.length > 0 && (
-                    <span className="ml-1">
-                      Ej.: {previewNames.join(', ')}{(ns?.skipped_items?.length ?? 0) > 3 ? '…' : '.'}
-                    </span>
-                  )}
-                </p>
-              </div>
-            </div>
-          </div>
+          <Alert variant="warning">
+            <AlertTitle className="text-sm">
+              SellUp omitió {skippedCount} empresa{skippedCount !== 1 ? 's' : ''} repetida{skippedCount !== 1 ? 's' : ''}
+            </AlertTitle>
+            <AlertDescription className="text-xs">
+              {skippedCount === 1
+                ? 'Esta empresa ya estaba pendiente de revisión en un lote reciente y fue omitida para evitar duplicados.'
+                : `Estas empresas ya estaban pendientes de revisión en lotes recientes y fueron omitidas para evitar duplicados.`}
+              {previewNames.length > 0 && (
+                <span className="ml-1">
+                  Ej.: {previewNames.join(', ')}{(ns?.skipped_items?.length ?? 0) > 3 ? '…' : '.'}
+                </span>
+              )}
+            </AlertDescription>
+          </Alert>
         );
       })()}
 
       {/* Alerta modo prueba controlada con búsqueda real */}
       {batch.metadata?.generation_mode === 'controlled_real_test' && (
-        <div className="rounded-xl border border-info/20 bg-info/5 px-5 py-3.5">
-          <div className="flex items-start gap-2.5">
-            <Globe className="mt-0.5 h-4 w-4 shrink-0 text-info" />
-            <div>
-              <p className="text-sm font-medium text-info">
-                Lote generado con búsqueda web real (prueba controlada)
-              </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Este lote fue generado usando Tavily para búsquedas reales en modo de prueba controlada. Los datos son reales pero el lote se generó en un entorno de validación — revisar antes de convertir candidatos.
-              </p>
-            </div>
-          </div>
-        </div>
+        <Alert variant="info">
+          <AlertTitle className="text-sm">Lote generado con búsqueda web real (prueba controlada)</AlertTitle>
+          <AlertDescription className="text-xs">
+            Este lote fue generado usando Tavily para búsquedas reales en modo de prueba controlada. Los datos son reales pero el lote se generó en un entorno de validación — revisar antes de convertir candidatos.
+          </AlertDescription>
+        </Alert>
       )}
 
       {/* Información de búsqueda incremental */}
@@ -415,30 +366,25 @@ export default async function BatchDetailPage({ params }: Props) {
           error: 'Error en búsqueda',
         };
         return (
-          <div className="rounded-xl border border-primary/20 bg-primary/5 px-5 py-3.5">
-            <div className="flex items-start gap-2.5">
-              <Layers className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-foreground">
-                  Búsqueda incremental · {roundsExecuted} ronda{roundsExecuted !== 1 ? 's' : ''}
-                </p>
-                <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                  {stoppedReason && (
-                    <span>Detuvo por: <span className="font-medium text-foreground">{reasonLabels[stoppedReason] ?? stoppedReason}</span></span>
-                  )}
-                  {totalRaw !== undefined && (
-                    <span>Resultados evaluados: <span className="font-medium text-foreground">{totalRaw}</span></span>
-                  )}
-                  {totalAcc !== undefined && (
-                    <span>Candidatos acumulados: <span className="font-medium text-foreground">{totalAcc}</span></span>
-                  )}
-                  {usefulCount !== undefined && (
-                    <span>Útiles: <span className="font-medium text-foreground">{usefulCount}</span></span>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
+          <Alert variant="info">
+            <AlertTitle className="text-sm text-foreground">
+              Búsqueda incremental · {roundsExecuted} ronda{roundsExecuted !== 1 ? 's' : ''}
+            </AlertTitle>
+            <AlertDescription className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+              {stoppedReason && (
+                <span>Detuvo por: <span className="font-medium text-foreground">{reasonLabels[stoppedReason] ?? stoppedReason}</span></span>
+              )}
+              {totalRaw !== undefined && (
+                <span>Resultados evaluados: <span className="font-medium text-foreground">{totalRaw}</span></span>
+              )}
+              {totalAcc !== undefined && (
+                <span>Candidatos acumulados: <span className="font-medium text-foreground">{totalAcc}</span></span>
+              )}
+              {usefulCount !== undefined && (
+                <span>Útiles: <span className="font-medium text-foreground">{usefulCount}</span></span>
+              )}
+            </AlertDescription>
+          </Alert>
         );
       })()}
 
@@ -603,18 +549,32 @@ export default async function BatchDetailPage({ params }: Props) {
         POR QUÉ el clasificador de calidad las señala.
       */}
       {qualityFlaggedCandidates.length > 0 && (
-        <details className="group rounded-xl border border-border/60 bg-card p-4">
-          <summary className="flex cursor-pointer items-center justify-between rounded-md text-xs font-semibold text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
-            <span className="flex items-center gap-2">
-              <span>Empresas señaladas por calidad ({qualityFlaggedCandidates.length})</span>
-              <Badge variant="warning">Inactivas, disueltas, duplicadas o sin NIT</Badge>
-            </span>
-          </summary>
-          <p className="mt-2 text-xs text-muted-foreground">
+        <SurfaceCard className="p-4">
+          <Collapsible>
+            <CollapsibleTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="group/quality h-auto w-full justify-between whitespace-normal px-2 py-1.5 text-left text-muted-foreground"
+                />
+              }
+            >
+              <span className="flex flex-wrap items-center gap-2">
+                <span>Empresas señaladas por calidad ({qualityFlaggedCandidates.length})</span>
+                <Badge variant="warning">Inactivas, disueltas, duplicadas o sin NIT</Badge>
+              </span>
+              <ChevronDown
+                aria-hidden
+                className="transition-transform group-aria-expanded/quality:rotate-180 motion-reduce:transition-none"
+              />
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+          <p className="mt-2 px-2 text-xs text-muted-foreground">
             Estas empresas aparecen en la tabla de arriba. Aquí sólo se explica la
             señal de calidad; no cambia qué acciones autoriza la revisión.
           </p>
-          <div className="mt-4 overflow-x-auto rounded-lg border border-border/60">
+          <div className="mt-4 overflow-x-auto">
             <Table className="text-xs">
               <TableHeader>
                 <TableRow>
@@ -668,9 +628,9 @@ export default async function BatchDetailPage({ params }: Props) {
                       </TableCell>
                       <TableCell className="text-muted-foreground">{c.city || c.region || '—'}</TableCell>
                       <TableCell className="whitespace-normal">
-                        <span className="inline-block rounded-md bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning">
+                        <Badge variant="warning" className="h-auto whitespace-normal py-0.5 text-left">
                           {reasons.length > 0 ? reasons.join(', ') : 'Omitida por calidad'}
-                        </span>
+                        </Badge>
                       </TableCell>
                     </TableRow>
                   );
@@ -678,7 +638,9 @@ export default async function BatchDetailPage({ params }: Props) {
               </TableBody>
             </Table>
           </div>
-        </details>
+            </CollapsibleContent>
+          </Collapsible>
+        </SurfaceCard>
       )}
     </div>
   );

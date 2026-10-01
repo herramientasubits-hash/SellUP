@@ -5,12 +5,9 @@ import { useRouter } from 'next/navigation';
 import {
   Loader2,
   User,
-  Mail,
-  Phone,
-  Link2,
   Briefcase,
+  Mail,
   Star,
-  FileText,
 } from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Button } from '@/components/ui/button';
@@ -35,7 +32,11 @@ import {
   type ContactRole,
   type ContactStatus,
 } from '@/modules/contacts/types';
-import { Section, Field, Row } from '@/components/accounts/account-form-helpers';
+import { Field, FieldLabel } from '@/components/forms/field';
+import { DrawerSection } from '@/components/shared/drawer-section';
+import { PhoneInput } from '@/components/forms/phone-input';
+import { canEditAsE164, isSamePhoneNumber } from '@/components/forms/phone-countries';
+import { Checkbox } from '@/components/ui/checkbox';
 
 interface EditContactDrawerProps {
   contact: Contact;
@@ -71,6 +72,21 @@ export function EditContactDrawer({ contact, open, onClose }: EditContactDrawerP
 
   function set<K extends keyof typeof form>(field: K, value: (typeof form)[K]) {
     setForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  // Un teléfono guardado como texto libre que el campo con prefijo no sabría
+  // mostrar entero (extensión, país fuera de la lista, dígitos de más) se sigue
+  // editando como texto: así no se enseña cortado ni se reescribe al tocarlo.
+  // Se decide con el valor GUARDADO, no con lo que se va escribiendo.
+  const isPhoneEditable = canEditAsE164(contact.phone ?? '');
+  const isMobileEditable = canEditAsE164(contact.mobile_phone ?? '');
+
+  // El campo con prefijo emite E.164. Si lo escrito vuelve a ser el mismo
+  // número que ya estaba guardado, se conserva el texto guardado tal cual:
+  // tocar y deshacer no cambia el dato.
+  function setPhone(field: 'phone' | 'mobile_phone', next: string) {
+    const stored = contact[field] ?? '';
+    set(field, isSamePhoneNumber(next, stored) ? stored : next);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -161,9 +177,9 @@ export function EditContactDrawer({ contact, open, onClose }: EditContactDrawerP
         className="space-y-4"
       >
         {/* Identidad */}
-        <Section icon={User} label="Identidad">
-          <Row>
-            <Field id="edit_first_name" label="Nombre">
+        <DrawerSection title="Identidad" icon={User} contentClassName="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Nombre">
               <Input
                 id="edit_first_name"
                 placeholder="Juan"
@@ -171,7 +187,7 @@ export function EditContactDrawer({ contact, open, onClose }: EditContactDrawerP
                 onChange={(e) => set('first_name', e.target.value)}
               />
             </Field>
-            <Field id="edit_last_name" label="Apellido">
+            <Field label="Apellido">
               <Input
                 id="edit_last_name"
                 placeholder="García"
@@ -179,8 +195,8 @@ export function EditContactDrawer({ contact, open, onClose }: EditContactDrawerP
                 onChange={(e) => set('last_name', e.target.value)}
               />
             </Field>
-          </Row>
-          <Field id="edit_full_name" label="Nombre completo">
+          </div>
+          <Field label="Nombre completo">
             <Input
               id="edit_full_name"
               placeholder="Nombre completo"
@@ -188,70 +204,70 @@ export function EditContactDrawer({ contact, open, onClose }: EditContactDrawerP
               onChange={(e) => set('full_name', e.target.value)}
             />
           </Field>
-        </Section>
+        </DrawerSection>
 
         {/* Contacto */}
-        <Section icon={Mail} label="Datos de contacto">
-          <Field id="edit_email" label="Email corporativo">
-            <div className="relative">
-              <Mail className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
-              <Input
-                id="edit_email"
-                type="email"
-                placeholder="juan.garcia@empresa.com"
-                value={form.email}
-                onChange={(e) => set('email', e.target.value)}
-                className="pl-8"
-              />
-            </div>
+        <DrawerSection title="Datos de contacto" icon={Mail} contentClassName="space-y-4">
+          <Field label="Email corporativo">
+            <Input
+              id="edit_email"
+              type="email"
+              placeholder="juan.garcia@empresa.com"
+              value={form.email}
+              onChange={(e) => set('email', e.target.value)}
+            />
           </Field>
-          <Row>
-            <Field id="edit_phone" label="Teléfono">
-              <div className="relative">
-                <Phone className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Teléfono">
+              {isPhoneEditable ? (
+                <PhoneInput
+                  id="edit_phone"
+                  value={form.phone}
+                  onValueChange={(next) => setPhone('phone', next)}
+                />
+              ) : (
                 <Input
                   id="edit_phone"
                   type="tel"
                   placeholder="+57 1 234 5678"
                   value={form.phone}
                   onChange={(e) => set('phone', e.target.value)}
-                  className="pl-8"
                 />
-              </div>
+              )}
             </Field>
-            <Field id="edit_mobile_phone" label="Celular">
-              <div className="relative">
-                <Phone className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
+            <Field label="Celular">
+              {isMobileEditable ? (
+                <PhoneInput
+                  id="edit_mobile_phone"
+                  value={form.mobile_phone}
+                  onValueChange={(next) => setPhone('mobile_phone', next)}
+                />
+              ) : (
                 <Input
                   id="edit_mobile_phone"
                   type="tel"
                   placeholder="+57 310 123 4567"
                   value={form.mobile_phone}
                   onChange={(e) => set('mobile_phone', e.target.value)}
-                  className="pl-8"
                 />
-              </div>
+              )}
             </Field>
-          </Row>
-          <Field id="edit_linkedin" label="LinkedIn">
-            <div className="relative">
-              <Link2 className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
-              <Input
-                id="edit_linkedin"
-                type="url"
-                placeholder="https://linkedin.com/in/juangarcia"
-                value={form.linkedin_url}
-                onChange={(e) => set('linkedin_url', e.target.value)}
-                className="pl-8"
-              />
-            </div>
+          </div>
+          <Field label="LinkedIn">
+            <Input
+              id="edit_linkedin"
+              type="url"
+              placeholder="https://linkedin.com/in/juangarcia"
+              value={form.linkedin_url}
+              onChange={(e) => set('linkedin_url', e.target.value)}
+            />
           </Field>
-        </Section>
+        </DrawerSection>
 
         {/* Cargo y función */}
-        <Section icon={Briefcase} label="Cargo y función">
-          <Row>
-            <Field id="edit_job_title" label="Cargo">
+        <DrawerSection title="Cargo y función" icon={Briefcase} contentClassName="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Cargo">
               <Input
                 id="edit_job_title"
                 placeholder="Chief HR Officer"
@@ -276,8 +292,8 @@ export function EditContactDrawer({ contact, open, onClose }: EditContactDrawerP
                 </SelectContent>
               </Select>
             </Field>
-          </Row>
-          <Row>
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Seniority">
               <Select
                 value={form.seniority}
@@ -314,12 +330,12 @@ export function EditContactDrawer({ contact, open, onClose }: EditContactDrawerP
                 </SelectContent>
               </Select>
             </Field>
-          </Row>
-        </Section>
+          </div>
+        </DrawerSection>
 
         {/* Estado y prioridad */}
-        <Section icon={Star} label="Estado y prioridad">
-          <Row>
+        <DrawerSection title="Estado y prioridad" icon={Star} contentClassName="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Estado">
               <Select
                 value={form.contact_status}
@@ -339,31 +355,27 @@ export function EditContactDrawer({ contact, open, onClose }: EditContactDrawerP
                 </SelectContent>
               </Select>
             </Field>
-            <label htmlFor="edit_is_primary" className="flex cursor-pointer items-center gap-2.5 pt-6">
-              <input
+            <div className="flex items-center gap-2.5 sm:pt-6">
+              <Checkbox
                 id="edit_is_primary"
-                type="checkbox"
                 checked={form.is_primary}
-                onChange={(e) => set('is_primary', e.target.checked)}
-                className="h-4 w-4 rounded-xs border-border accent-primary focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+                onCheckedChange={(checked) => set('is_primary', checked === true)}
               />
-              <span className="text-sm font-medium text-foreground">Contacto primario</span>
-            </label>
-          </Row>
-          <Field id="edit_notes" label="Notas">
-            <div className="relative">
-              <FileText className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-text-muted" />
-              <Textarea
-                id="edit_notes"
-                placeholder="Contexto, señales de interés, último contacto…"
-                value={form.notes}
-                onChange={(e) => set('notes', e.target.value)}
-                rows={3}
-                className="pl-8 pt-2"
-              />
+              <FieldLabel htmlFor="edit_is_primary" className="cursor-pointer">
+                Contacto primario
+              </FieldLabel>
             </div>
+          </div>
+          <Field label="Notas">
+            <Textarea
+              id="edit_notes"
+              placeholder="Contexto, señales de interés, último contacto…"
+              value={form.notes}
+              onChange={(e) => set('notes', e.target.value)}
+              rows={3}
+            />
           </Field>
-        </Section>
+        </DrawerSection>
       </form>
     </DrawerShell>
   );

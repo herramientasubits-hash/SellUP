@@ -9,12 +9,12 @@ import {
   Link2,
   ShieldCheck,
   ExternalLink,
-  Sparkles,
   X,
   Info,
-  Loader2,
   CheckCircle2,
 } from "@/icons";
+import { Alert, AlertTitle } from '@/components/ui/alert';
+import { Spinner } from '@/components/feedback/spinner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -902,18 +902,13 @@ export function ProspectsDataTableClient({
       <div className="flex min-h-0 flex-1 flex-col gap-3">
         {/* Banner de operación reciente (sourceId activo) */}
         {isSourceFiltered && (
-          <div
-            className="flex shrink-0 flex-col gap-3 rounded-2xl border border-primary/20 bg-primary/10 px-4 py-3"
-            aria-live="polite"
-          >
+          <Alert variant="info" role="status" aria-live="polite" className="shrink-0 [&>div]:gap-3">
             <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
               <div className="flex min-w-0 items-center gap-2.5">
-                {batchStats && (batchStats.pending > 0 || batchStats.enriching > 0) ? (
-                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" aria-hidden="true" />
-                ) : (
-                  <Sparkles className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                {batchStats && (batchStats.pending > 0 || batchStats.enriching > 0) && (
+                  <Spinner size="sm" tone="primary" decorative />
                 )}
-                <p className="min-w-0 text-sm font-medium text-primary">
+                <AlertTitle className="min-w-0 text-sm font-medium">
                   {batchStats ? (
                     (batchStats.pending > 0 || batchStats.enriching > 0) ? (
                       `Importación completada. Estamos completando la información de ${batchStats.pending + batchStats.enriching} prospecto${batchStats.pending + batchStats.enriching !== 1 ? 's' : ''}…`
@@ -923,7 +918,7 @@ export function ProspectsDataTableClient({
                   ) : (
                     getSourceBanner(sourceBatchType)
                   )}
-                </p>
+                </AlertTitle>
               </div>
               <Button
                 type="button"
@@ -952,7 +947,7 @@ export function ProspectsDataTableClient({
                 </div>
               </div>
             )}
-          </div>
+          </Alert>
         )}
 
         {showQuickFilters && !isWide && (

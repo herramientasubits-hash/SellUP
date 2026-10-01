@@ -1,7 +1,15 @@
 'use client';
 
 import * as React from 'react';
-import { Plus, Loader2, Layers, Globe, Target, User, Zap } from "@/icons";
+import {
+  Plus,
+  Loader2,
+  Layers,
+  Zap,
+  Globe,
+  Target,
+  User,
+} from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,8 +30,10 @@ import {
   type InternalUserOption,
   type BatchSearchDepth,
 } from '@/modules/prospect-batches/types';
-import { Section, Field, Row, getFlagEmoji } from '@/components/accounts/account-form-helpers';
-import { Field as FormField } from '@/components/forms/field';
+import { getFlagEmoji } from '@/components/accounts/account-form-helpers';
+import { Field } from '@/components/forms/field';
+import { DrawerSection } from '@/components/shared/drawer-section';
+import { NumberField } from '@/components/forms/number-field';
 
 interface CreateBatchDrawerProps {
   users: InternalUserOption[];
@@ -143,8 +153,8 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
         className="space-y-4"
       >
         {/* Identificación */}
-        <Section icon={Layers} label="Identificación">
-          <FormField label="Nombre del lote" required>
+        <DrawerSection title="Identificación" icon={Layers} contentClassName="space-y-4">
+          <Field label="Nombre del lote" required>
             <Input
               value={form.name}
               onChange={(e) => set('name', e.target.value)}
@@ -152,8 +162,8 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
               disabled={saving}
               autoFocus
             />
-          </FormField>
-          <FormField label="Descripción">
+          </Field>
+          <Field label="Descripción">
             <Textarea
               value={form.description}
               onChange={(e) => set('description', e.target.value)}
@@ -161,12 +171,12 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
               rows={3}
               disabled={saving}
             />
-          </FormField>
-        </Section>
+          </Field>
+        </DrawerSection>
 
         {/* Segmentación */}
-        <Section icon={Globe} label="Segmentación">
-          <Row>
+        <DrawerSection title="Segmentación" icon={Globe} contentClassName="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="País">
               <Select
                 value={form.country_code}
@@ -201,32 +211,34 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
                 </SelectContent>
               </Select>
             </Field>
-          </Row>
-        </Section>
+          </div>
+        </DrawerSection>
 
         {/* Parámetros */}
-        <Section icon={Target} label="Parámetros">
-          <Row>
-            <FormField
+        <DrawerSection title="Parámetros" icon={Target} contentClassName="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field
               label="Cantidad objetivo"
               description={`Para cuidar calidad y costos, el MVP permite máximo ${MVP_MAX_CANDIDATES} empresas candidatas por lote.`}
             >
-              <Input
-                type="number"
+              <NumberField
                 min={1}
                 max={MVP_MAX_CANDIDATES}
-                value={form.target_count}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  const num = parseInt(val);
-                  if (val === '' || (!isNaN(num) && num <= MVP_MAX_CANDIDATES)) {
-                    set('target_count', val);
-                  }
-                }}
+                step={1}
+                precision={0}
+                value={form.target_count === '' ? null : Number(form.target_count)}
+                onValueChange={(next) =>
+                  // Mismo tope que antes: nunca queda guardado más del máximo,
+                  // ni siquiera a medio escribir.
+                  set(
+                    'target_count',
+                    next === null ? '' : String(Math.min(Math.trunc(next), MVP_MAX_CANDIDATES)),
+                  )
+                }
                 placeholder="25"
                 disabled={saving}
               />
-            </FormField>
+            </Field>
             <Field label="Profundidad de búsqueda">
               <Select
                 value={form.search_depth}
@@ -245,12 +257,12 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
                 </SelectContent>
               </Select>
             </Field>
-          </Row>
-        </Section>
+          </div>
+        </DrawerSection>
 
         {/* Asignación */}
         {users.length > 0 && (
-          <Section icon={User} label="Asignación">
+          <DrawerSection title="Asignación" icon={User} contentClassName="space-y-4">
             <Field label="Responsable (owner)">
               <Select
                 value={form.owner_id}
@@ -269,7 +281,7 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
                 </SelectContent>
               </Select>
             </Field>
-          </Section>
+          </DrawerSection>
         )}
       </form>
     </DrawerShell>

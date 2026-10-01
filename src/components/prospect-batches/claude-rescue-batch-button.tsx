@@ -2,17 +2,8 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Sparkles, Loader2 } from "@/icons";
-import {
-  Dialog,
-  DialogTrigger,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-  DialogClose,
-} from '@/components/ui/dialog';
+import { Sparkles } from '@/icons';
+import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import {
@@ -69,45 +60,28 @@ export function ClaudeRescueBatchButton({ batchId }: { batchId: string }) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
-      <DialogTrigger
-        render={
-          <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
-            <Sparkles className="h-3.5 w-3.5" />
-            Completar con Claude
-          </Button>
-        }
-      />
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader className="pt-2">
-          <DialogTitle>¿Completar este lote con Claude?</DialogTitle>
-          <DialogDescription>
-            Es el mismo rescate que corre solo al terminar cada búsqueda. Sirve para lo que quedó pendiente.
-          </DialogDescription>
-        </DialogHeader>
-        <div>
-          <ul className="list-disc space-y-1 pl-4 text-sm text-muted-foreground">
-            <li>Si Claude completa los datos y la empresa cumple, queda en Candidatos por revisar.</li>
-            <li>Si Claude demuestra con fuente que no cumple, pasa a Descartadas con el motivo.</li>
-            <li>Nada se aprueba solo. Costo aproximado: US$0,035 por empresa.</li>
-          </ul>
-        </div>
-        <DialogFooter>
-          <DialogClose render={<Button variant="outline" size="sm" disabled={loading} onClick={handleClose} />}>
-            Cancelar
-          </DialogClose>
-          <Button size="sm" onClick={handleConfirm} disabled={loading}>
-            {loading ? (
-              <>
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                Completando…
-              </>
-            ) : (
-              'Completar'
-            )}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <ConfirmDialog
+      open={open}
+      onOpenChange={(v) => (v ? setOpen(true) : handleClose())}
+      trigger={
+        <Button variant="outline" size="sm">
+          <Sparkles className="h-3.5 w-3.5" />
+          Completar con Claude
+        </Button>
+      }
+      icon={Sparkles}
+      title="¿Completar este lote con Claude?"
+      description="Es el mismo rescate que corre solo al terminar cada búsqueda. Sirve para lo que quedó pendiente."
+      confirmLabel={loading ? 'Completando…' : 'Completar'}
+      loading={loading}
+      onConfirm={handleConfirm}
+      className="sm:max-w-md"
+    >
+      <ul className="list-disc space-y-1 pl-4 text-sm text-muted-foreground">
+        <li>Si Claude completa los datos y la empresa cumple, queda en Candidatos por revisar.</li>
+        <li>Si Claude demuestra con fuente que no cumple, pasa a Descartadas con el motivo.</li>
+        <li>Nada se aprueba solo. Costo aproximado: US$0,035 por empresa.</li>
+      </ul>
+    </ConfirmDialog>
   );
 }

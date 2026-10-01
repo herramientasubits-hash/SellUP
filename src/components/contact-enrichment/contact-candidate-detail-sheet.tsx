@@ -1,64 +1,58 @@
 'use client';
 
-import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
-import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
   UserSearch,
-  User,
-  Briefcase,
-  Building2,
-  Globe,
-  Tag,
-  Calendar,
   Mail,
   Link2,
   Phone,
   PhoneCall,
-  Gauge,
-  ShieldCheck,
-  Copy,
-  Hash,
   Info,
-  Check,
-  X,
   Loader2,
-  Ban,
   AlertTriangle,
   RefreshCw,
 } from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
+import { DrawerSection } from '@/components/shared/drawer-section';
+import { DetailList } from '@/components/shared/detail-list';
+import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { Alert } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { Checkbox } from '@/components/ui/checkbox';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from '@/components/ui/select';
-import { DrawerSection } from '@/components/shared/drawer-section';
-import { DetailItem, DetailList } from '@/components/shared/detail-list';
-import { cn } from '@/lib/utils';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Spinner } from '@/components/feedback/spinner';
 import {
   getReviewableContactCandidateById,
   getDuplicateCandidateMergeOffer,
-  approveContactCandidate,
-  mergeContactCandidateIntoExistingContactAction,
-  discardContactCandidate,
 } from '@/modules/contact-enrichment/actions';
-import type { ExistingContactMergeOffer } from '@/modules/contact-enrichment/candidate-review-core';
+// Las secciones de solo lectura, la revisión humana y la auditoría del waterfall salieron
+// de este archivo. Lo que se queda aquí es el TELÉFONO —revelado, créditos, supresión,
+// caché— con todo su estado y sus handlers: es el bloque que las guardas estáticas de
+// seguridad y facturación leen en este archivo.
+import {
+  PHONE_REVEAL_PROVIDER_LABEL,
+  UNAVAILABLE,
+  formatDate,
+  normalizeLinkedinUrl,
+} from './contact-candidate-detail-format';
+import {
+  CandidateCompanyConsistencyNotice,
+  CandidateDetailItem,
+  CandidateIdentityConsistencySection,
+  CandidateMainInfoSection,
+  CandidateSignalsSection,
+  CandidateSummarySection,
+  CandidateTraceabilitySection,
+} from './contact-candidate-detail-sections';
+import {
+  CandidateDuplicateDecisionDialog,
+  CandidateDuplicateNotice,
+  CandidateReviewActions,
+  CandidateReviewStep,
+} from './contact-candidate-review-sections';
+import { CandidateWaterfallAuditSection } from './contact-candidate-waterfall-audit-section';
+import { useCandidateReviewDecision } from './use-candidate-review-decision';
 import { revealCandidatePhoneAction } from '@/modules/contact-enrichment/phone-reveal-actions';
 import { PHONE_REVEAL_PROCESSING_BASIS as SHARED_PHONE_REVEAL_PROCESSING_BASIS } from '@/modules/contact-enrichment/phone-reveal-processing-basis';
 import { recoverCandidatePhoneRevealNowAction } from '@/modules/contact-enrichment/phone-reveal-manual-recovery-actions';
@@ -117,11 +111,7 @@ import {
   type CandidateDetailLoadOutcome,
 } from './contact-candidate-detail-load-copy';
 import {
-  formatWaterfallLegCredits,
   getPhoneRevealWaterfallAuthorizationCopy,
-  resolveWaterfallFinalProviderLabel,
-  resolveWaterfallLushaSkippedLabel,
-  resolveWaterfallOutcomeLabel,
   PHONE_REVEAL_WATERFALL_APOLLO_RUNNING_COPY,
   PHONE_REVEAL_WATERFALL_APPROVE_BLOCKED_COPY,
   PHONE_REVEAL_WATERFALL_BLOCKED_COPY,
@@ -145,8 +135,6 @@ import {
   PHONE_REVEAL_WATERFALL_EXHAUSTED_COPY,
   PHONE_REVEAL_WATERFALL_INFRASTRUCTURE_UNAVAILABLE_COPY,
   PHONE_REVEAL_WATERFALL_INSUFFICIENT_CREDITS_COPY,
-  PHONE_REVEAL_WATERFALL_LEGACY_APOLLO_AUDIT_COPY,
-  PHONE_REVEAL_WATERFALL_LEGACY_APOLLO_COST_COPY,
   PHONE_REVEAL_WATERFALL_LUSHA_RUNNING_COPY,
   PHONE_REVEAL_WATERFALL_REQUESTING_COPY,
   PHONE_REVEAL_WATERFALL_REVEALED_COPY,
@@ -167,17 +155,10 @@ import {
 } from '@/modules/contact-enrichment/phone-reveal-identity-eligibility';
 import type {
   PendingContactCandidate,
-  ContactRelevanceStatus,
-  ContactDuplicateStatus,
-  ContactSource,
   ContactCandidateCompanyConsistency,
   LushaPersonIdentityEvidenceV1,
   PhoneProcessingBasis,
 } from '@/modules/contact-enrichment/types';
-import {
-  IDENTITY_TONE_STYLES,
-  resolveIdentityDisplay,
-} from './contact-candidate-identity-display';
 // Refresco acotado del candidato mientras el reveal está en vuelo
 // (APOLLO-PHONE-REVEAL-LIVE-REFRESH-1). Política de arranque/parada en el núcleo
 // puro; los timers viven en el hook. NO llama a proveedores ni a recovery.
@@ -199,46 +180,6 @@ import {
   PHONE_REVEAL_LIVE_REFRESH_EXHAUSTED_COPY,
 } from './phone-reveal-drawer-sync-core';
 import { usePhoneRevealWindowRefresh } from './use-phone-reveal-window-refresh';
-
-// Motivos de rechazo sugeridos (Hito 17A.4B). "Otro" habilita un comentario
-// opcional; el resto se guarda tal cual en review_notes + metadata.review.
-const REJECTION_REASONS = [
-  'Cargo no relevante',
-  'Datos insuficientes',
-  'No pertenece a la empresa',
-  'Duplicado',
-  'No es decisor / sponsor útil',
-  'Otro',
-] as const;
-
-// ── Label & style maps (espejo de contact-candidates-data-table-client) ──────
-
-const SOURCE_LABELS: Record<ContactSource, string> = {
-  apollo: 'Apollo',
-  lusha: 'Lusha',
-  hubspot: 'HubSpot',
-  manual: 'Manual',
-  mock: 'Mock',
-};
-
-/**
- * Etiqueta de `candidate.source` (AGENT2A-PHONE-REVEAL-UI-STATE-1 § 8.1).
- *
- * Antes era sólo «Fuente», y esa ambigüedad hacía leer «Fuente: Lusha» como
- * "Lusha consiguió este teléfono" incluso cuando el reveal lo había ejecutado
- * Apollo. `candidate.source` y `phone_reveal_provider` son ejes INDEPENDIENTES:
- * quién descubrió a la persona no dice nada de quién reveló (o intentó revelar)
- * su teléfono.
- */
-const CANDIDATE_SOURCE_LABEL = 'Fuente del candidato';
-
-/**
- * Etiqueta de `phone_reveal_provider` (§ 8.2). Vive en la sección de Teléfono,
- * separada de la fuente del candidato, y sólo se muestra cuando existe un intento
- * real: sin intento no se infiere desde `candidate.source`, porque inferirlo es
- * precisamente el error que este hito corrige.
- */
-const PHONE_REVEAL_PROVIDER_LABEL = 'Proveedor de revelación';
 
 /**
  * Nombres visibles de los proveedores de revelación. Deliberadamente separado de
@@ -266,32 +207,6 @@ function resolvePhoneRevealProviderLabel(
   if (!normalized) return null;
   return PHONE_REVEAL_PROVIDER_LABELS[normalized] ?? null;
 }
-
-const RELEVANCE_LABELS: Record<ContactRelevanceStatus, string> = {
-  high_relevance: 'Alta',
-  medium_relevance: 'Media',
-  low_relevance: 'Baja',
-  not_relevant: 'No relevante',
-  insufficient_data: 'Datos insuficientes',
-};
-
-const RELEVANCE_VARIANT: Record<
-  ContactRelevanceStatus,
-  'positive' | 'brand' | 'warning' | 'neutral'
-> = {
-  high_relevance: 'positive',
-  medium_relevance: 'brand',
-  low_relevance: 'warning',
-  not_relevant: 'neutral',
-  insufficient_data: 'neutral',
-};
-
-const DUPLICATE_LABELS: Record<ContactDuplicateStatus, string> = {
-  unchecked: 'Sin verificar',
-  no_match: 'Sin coincidencias',
-  possible_duplicate: 'Posible duplicado',
-  exact_duplicate: 'Duplicado exacto',
-};
 
 // ── Teléfono: tipo y fuente (PHONE-3B) ───────────────────────────────────────
 // Etiquetas de solo lectura para visualizar el tipo/fuente del teléfono que
@@ -341,32 +256,6 @@ const PHONE_REVEAL_PROCESSING_BASIS: PhoneProcessingBasis =
  */
 const PHONE_REVEAL_IN_FLIGHT_BASE_COPY =
   'Apollo puede tardar. SellUp revisará automáticamente el resultado';
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-const UNAVAILABLE = 'No disponible';
-
-function formatDate(iso: string | null): string {
-  if (!iso) return UNAVAILABLE;
-  return formatInAppZone(iso, {
-    day: '2-digit',
-    month: 'long',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }, 'es-CO');
-}
-
-/** Convierte un score 0–1 (o 0–100) en porcentaje legible; null si no hay dato. */
-function toPercent(score: number | undefined | null): string | null {
-  if (typeof score !== 'number' || Number.isNaN(score)) return null;
-  const normalized = score > 1 ? score : score * 100;
-  return `${Math.round(normalized)}%`;
-}
-
-function normalizeLinkedinUrl(url: string): string {
-  return url.startsWith('http') ? url : `https://${url}`;
-}
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
@@ -433,7 +322,6 @@ export function ContactCandidateDetailSheet({
   phoneRevealWaterfallEnabled = false,
   phoneRevealWaterfallAuthorized = false,
 }: ContactCandidateDetailSheetProps) {
-  const router = useRouter();
   const [candidate, setCandidate] = React.useState<PendingContactCandidate | null>(null);
   const [loading, setLoading] = React.useState(false);
   /**
@@ -444,44 +332,18 @@ export function ContactCandidateDetailSheet({
   const [loadOutcome, setLoadOutcome] =
     React.useState<CandidateDetailLoadOutcome | null>(null);
 
-  // Estado de revisión humana (Hito 17A.4B)
-  const [approving, setApproving] = React.useState(false);
-  const [rejecting, setRejecting] = React.useState(false);
-  const [showRejectForm, setShowRejectForm] = React.useState(false);
-  const [reason, setReason] = React.useState<string>(REJECTION_REASONS[0]);
-  const [otherComment, setOtherComment] = React.useState('');
-
-  // Override de discrepancia de identidad (Hito 17B.4W.8) — solo aplica cuando
-  // identity_consistency === 'mismatch'. El servidor sigue siendo la autoridad;
-  // este estado solo controla el diálogo de confirmación humana.
-  const [showIdentityOverrideDialog, setShowIdentityOverrideDialog] = React.useState(false);
-  const [overrideAcknowledged, setOverrideAcknowledged] = React.useState(false);
-  const [overrideReason, setOverrideReason] = React.useState('');
-  const [overrideValidationError, setOverrideValidationError] = React.useState<string | null>(null);
-
-  // Duplicado con contacto existente (AGENT2A-PHONE-REVEAL-4O-H3-B). El veredicto no cambia —
-  // el candidato pasa a `duplicate` igual que antes de este hito —, pero cuando la identidad del
-  // contacto existente es exacta e inequívoca el humano puede además AGREGARLE la información en
-  // vez de limitarse a descartar. Este estado sólo controla el diálogo: la decisión de si la
-  // acción es siquiera ofrecible la toma el servidor, y volverá a tomarla al ejecutarla.
-  const [duplicateDecision, setDuplicateDecision] = React.useState<{
-    contactId: string;
-    signal: 'email' | 'linkedin';
-  } | null>(null);
-  const [mergingIntoExisting, setMergingIntoExisting] = React.useState(false);
-  const mergeInFlightRef = React.useRef(false);
-
-  /**
-   * 4O-H3-B-R1 — la oferta DURADERA, releída del servidor cada vez que se abre un candidato ya
-   * marcado como `duplicate`.
-   *
-   * `duplicateDecision` (arriba) sólo vive el instante posterior a la detección; si el operador
-   * cerraba el drawer, la decisión desaparecía. Esta es la que sobrevive a un refresh y a navegar
-   * a otra parte: el servidor vuelve a resolver la identidad con las mismas reglas exactas y la
-   * UI sólo pinta lo que él autoriza.
-   */
-  const [durableMergeOffer, setDurableMergeOffer] =
-    React.useState<ExistingContactMergeOffer | null>(null);
+  // Decisión humana (Hito 17A.4B · 17B.4W.8 · 4O-H3-B): aprobar, rechazar, override de
+  // identidad y duplicado. Estado y handlers viven en el hook; aquí sólo se lee lo que
+  // el bloque de teléfono necesita (`busy`) y lo que la carga del candidato escribe.
+  const review = useCandidateReviewDecision({ candidate, onClose });
+  const {
+    busy,
+    durableMergeOffer,
+    setDurableMergeOffer,
+    mergingIntoExisting,
+    resetReviewState,
+    handleMergeIntoExistingContact,
+  } = review;
 
   // Reveal de teléfono (APOLLO-PHONE-ASYNC-5) — flujo ONE-CLICK sin modal. Al
   // hacer clic se solicita de inmediato la revelación asíncrona con base fija
@@ -614,8 +476,6 @@ export function ContactCandidateDetailSheet({
       currentCandidateIdRef.current = null;
     };
   }, [open, candidateId]);
-
-  const busy = approving || rejecting;
 
   /**
    * ¿El waterfall está realmente activo para este operador? Flag ON **y** permiso de
@@ -808,7 +668,7 @@ export function ContactCandidateDetailSheet({
         }
       }
     },
-    [],
+    [setDurableMergeOffer],
   );
 
   /**
@@ -831,22 +691,9 @@ export function ContactCandidateDetailSheet({
    * en el `finally` de su propio handler, así que no puede quedarse encendido.
    */
   const resetTransientCandidateState = React.useCallback(() => {
-    setApproving(false);
-    setRejecting(false);
-    setShowRejectForm(false);
-    setReason(REJECTION_REASONS[0]);
-    setOtherComment('');
-    setShowIdentityOverrideDialog(false);
-    setOverrideAcknowledged(false);
-    setOverrideReason('');
-    setOverrideValidationError(null);
-    // 4O-H3-B: la decisión de duplicado pertenece al candidato que la produjo. Arrastrarla al
-    // siguiente sería ofrecerle al operador fusionar a OTRA persona en el mismo contacto.
-    setDuplicateDecision(null);
-    setMergingIntoExisting(false);
-    // 4O-H3-B-R1: por la misma razón, la oferta duradera tampoco se hereda. Se vuelve a pedir al
-    // servidor para el candidato que se está abriendo.
-    setDurableMergeOffer(null);
+    // La decisión humana (aprobar / rechazar / override / duplicado) vive en
+    // `useCandidateReviewDecision`; su estado pertenece al mismo candidato.
+    resetReviewState();
     setRevealingPhone(false);
     setPhoneRevealSubmitted(false);
     setPhoneRevealError(null);
@@ -874,7 +721,7 @@ export function ContactCandidateDetailSheet({
     // SEARCH-MORE-1: el plan también pertenece al candidato anterior, y dejarlo puesto sería
     // peor que un conteo obsoleto — ofrecería una COMPRA autorizada sobre otra persona.
     setSearchMorePreflight(null);
-  }, []);
+  }, [resetReviewState]);
 
   /**
    * Apaga los guards contra doble clic. Viven en refs, así que esto NUNCA puede
@@ -1048,141 +895,6 @@ export function ContactCandidateDetailSheet({
     reloadStoredPhoneSummary,
     reloadSearchMorePreflight,
   ]);
-
-  async function handleApprove(identityOverride?: { acknowledged: boolean; reason: string }) {
-    if (!candidate || busy) return;
-    setApproving(true);
-    if (identityOverride) setOverrideValidationError(null);
-    try {
-      const result = await approveContactCandidate(candidate.id, identityOverride);
-      if (result.ok) {
-        toast.success(result.message ?? 'Contacto aprobado y creado en SellUp.');
-        setShowIdentityOverrideDialog(false);
-        router.refresh();
-        onClose();
-      } else if (result.duplicate) {
-        // El candidato pasó a `duplicate` y sale de revisión — eso no ha cambiado. Lo que cambia
-        // (4O-H3-B) es que, si el servidor confirma que el contacto existente es la MISMA persona
-        // por una señal exacta, no cerramos sin preguntar: se le muestra la decisión. Sin oferta,
-        // el comportamiento es exactamente el de antes.
-        if (result.mergeOffer?.offered && result.contactId) {
-          setDuplicateDecision({
-            contactId: result.contactId,
-            signal: result.mergeOffer.signal,
-          });
-          router.refresh();
-          return;
-        }
-        toast.warning(result.error ?? 'Este candidato parece estar duplicado.');
-        router.refresh();
-        onClose();
-      } else if (result.code === 'IDENTITY_MISMATCH_REQUIRES_REVIEW') {
-        // El estado en pantalla quedó obsoleto respecto al servidor (autoridad
-        // real): abrimos el diálogo de revisión en vez de mostrar un error genérico.
-        setShowIdentityOverrideDialog(true);
-        toast.warning(
-          result.error ?? 'Este candidato requiere revisar la discrepancia de identidad antes de aprobar.',
-        );
-      } else if (result.code === 'IDENTITY_OVERRIDE_REASON_REQUIRED') {
-        setShowIdentityOverrideDialog(true);
-        setOverrideValidationError(
-          result.error ?? 'Debes confirmar que revisaste la discrepancia e indicar un motivo.',
-        );
-      } else {
-        toast.error(result.error ?? 'No fue posible aprobar el candidato.');
-      }
-    } catch {
-      toast.error('No fue posible aprobar el candidato.');
-    } finally {
-      setApproving(false);
-    }
-  }
-
-  /**
-   * 4O-H3-B — «Descartar como duplicado». No escribe NADA: el veredicto duplicado ya
-   * terminalizó al candidato cuando se detectó. Cerrar es exactamente el comportamiento que
-   * existía antes de este hito, y por eso este camino no llama a ninguna acción.
-   */
-  function handleDiscardDuplicate() {
-    if (mergingIntoExisting) return;
-    setDuplicateDecision(null);
-    toast.warning('Candidato marcado como duplicado.');
-    router.refresh();
-    onClose();
-  }
-
-  /**
-   * 4O-H3-B — «Agregar información al contacto existente». La decisión humana explícita.
-   *
-   * El id del contacto viaja como CONFIRMACIÓN, no como instrucción: el servidor lo revalida
-   * contra el `matched_contacts_id` que él mismo escribió y la transacción lo vuelve a
-   * comprobar bajo el lock. Un doble clic queda cortado aquí por el ref y, si aun así llegaran
-   * dos peticiones, la transacción devuelve `already_merged` sin escribir por segunda vez.
-   */
-  async function handleMergeIntoExistingContact(targetContactId?: string) {
-    // 4O-H3-B-R1: el destino puede venir de la decisión recién detectada (el diálogo) o de la
-    // oferta DURADERA releída al reabrir un duplicado. Son dos caminos hacia la misma acción, y
-    // el servidor revalida el id en los dos casos por igual.
-    const contactId = targetContactId ?? duplicateDecision?.contactId;
-    if (!candidate || !contactId) return;
-    if (mergeInFlightRef.current) return;
-    mergeInFlightRef.current = true;
-    setMergingIntoExisting(true);
-    try {
-      const result = await mergeContactCandidateIntoExistingContactAction(
-        candidate.id,
-        contactId,
-      );
-      if (result.ok) {
-        toast.success(result.message ?? 'Información agregada al contacto existente.');
-        setDuplicateDecision(null);
-        setDurableMergeOffer(null);
-        router.refresh();
-        onClose();
-      } else {
-        toast.error(
-          result.error ?? 'No fue posible agregar la información al contacto existente.',
-        );
-      }
-    } catch {
-      toast.error('No fue posible agregar la información al contacto existente.');
-    } finally {
-      mergeInFlightRef.current = false;
-      setMergingIntoExisting(false);
-    }
-  }
-
-  function handleConfirmIdentityOverride() {
-    const trimmedReason = overrideReason.trim();
-    if (!overrideAcknowledged || trimmedReason.length === 0) {
-      setOverrideValidationError('Debes confirmar que revisaste la discrepancia e indicar un motivo.');
-      return;
-    }
-    void handleApprove({ acknowledged: overrideAcknowledged, reason: trimmedReason });
-  }
-
-  async function handleReject() {
-    if (!candidate || busy) return;
-    const finalReason =
-      reason === 'Otro' && otherComment.trim()
-        ? `Otro: ${otherComment.trim()}`
-        : reason;
-    setRejecting(true);
-    try {
-      const result = await discardContactCandidate(candidate.id, finalReason);
-      if (result.ok) {
-        toast.success(result.message ?? 'Candidato rechazado.');
-        router.refresh();
-        onClose();
-      } else {
-        toast.error(result.error ?? 'No fue posible rechazar el candidato.');
-      }
-    } catch {
-      toast.error('No fue posible rechazar el candidato.');
-    } finally {
-      setRejecting(false);
-    }
-  }
 
   // ── Reveal de teléfono (APOLLO-PHONE-ASYNC-5) — one-click, sin modal ───────
   /**
@@ -1755,13 +1467,6 @@ export function ContactCandidateDetailSheet({
     }
   }
 
-  const relevance = candidate?.enrichment_metadata?.relevance;
-  const relevanceScore = toPercent(relevance?.score);
-  const qualityScore = toPercent(relevance?.quality_score);
-  const confidenceLabel = toPercent(candidate?.confidence);
-  const apolloAttempt = candidate?.enrichment_metadata?.apollo_search_attempt ?? null;
-  const matchedKeywords = relevance?.matched_keywords?.filter(Boolean) ?? [];
-
   // Teléfono (PHONE-3B): solo VISUALIZA lo que PHONE-3A conservó. El número
   // escalar sigue siendo la autoridad; la metadata solo aporta tipo/fuente.
   const phoneMeta = candidate?.enrichment_metadata?.phone ?? null;
@@ -2084,9 +1789,6 @@ export function ContactCandidateDetailSheet({
       | ContactCandidateCompanyConsistency
       | null
       | undefined) ?? null;
-  const showConsistencyWarning =
-    companyConsistency?.status === 'possible_mismatch' ||
-    companyConsistency?.status === 'possible_related_domain';
 
   // Consistencia de identidad de persona (17B.4W.6). null ⇒ candidato legacy.
   const personIdentity =
@@ -2094,12 +1796,9 @@ export function ContactCandidateDetailSheet({
       | LushaPersonIdentityEvidenceV1
       | null
       | undefined) ?? null;
-  const identityDisplay = resolveIdentityDisplay(personIdentity);
-  const showIdentityEvidence =
-    personIdentity?.identity_consistency === 'mismatch';
   // Gate de aprobación (Hito 17B.4W.8): mismatch exige override humano explícito
   // antes de aprobar. El servidor sigue siendo la autoridad real de esta regla.
-  const isIdentityMismatch = showIdentityEvidence;
+  const isIdentityMismatch = personIdentity?.identity_consistency === 'mismatch';
 
   return (
     <>
@@ -2156,246 +1855,59 @@ export function ContactCandidateDetailSheet({
         // en el cuerpo del drawer. Presentarlo con la barra de aprobación normal era justamente
         // mezclarlo con una aprobación pendiente.
         candidate && candidate.status !== 'duplicate' ? (
-          !showRejectForm ? (
-            <>
-              <p className="min-w-0 flex-1 text-xs leading-relaxed text-muted-foreground">
-                {waterfallBlocksApproval
-                  ? PHONE_REVEAL_WATERFALL_APPROVE_BLOCKED_COPY
-                  : candidate.account_id
-                    ? 'Al aprobar se creará un contacto oficial en SellUp.'
-                    : candidate.hubspot_company_id
-                      ? 'Al aprobar, SellUp creará o vinculará la cuenta automáticamente.'
-                      : 'Sin cuenta SellUp asociada: no se puede aprobar.'}
-              </p>
-              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => setShowRejectForm(true)}
-                >
-                  <Ban className="h-4 w-4" />
-                  Rechazar
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={
-                    busy ||
-                    (!candidate.account_id && !candidate.hubspot_company_id) ||
-                    // Waterfall en curso: aprobar ahora crearía el contacto oficial
-                    // sin el teléfono que se está pagando por conseguir.
-                    waterfallBlocksApproval
-                  }
-                  onClick={() =>
-                    isIdentityMismatch ? setShowIdentityOverrideDialog(true) : handleApprove()
-                  }
-                >
-                  {approving ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Aprobando…
-                    </>
-                  ) : isIdentityMismatch ? (
-                    <>
-                      <AlertTriangle className="h-4 w-4" />
-                      Revisar y aprobar de todas formas
-                    </>
-                  ) : (
-                    <>
-                      <Check className="h-4 w-4" />
-                      Aprobar candidato
-                    </>
-                  )}
-                </Button>
-              </div>
-            </>
-          ) : (
-            <>
-              <p className="min-w-0 flex-1 text-xs leading-relaxed text-muted-foreground">
-                Indica el motivo del rechazo.
-              </p>
-              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => setShowRejectForm(false)}
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="sm"
-                  disabled={busy}
-                  onClick={handleReject}
-                >
-                  {rejecting ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Rechazando…
-                    </>
-                  ) : (
-                    <>
-                      <X className="h-4 w-4" />
-                      Confirmar rechazo
-                    </>
-                  )}
-                </Button>
-              </div>
-            </>
-          )
+          <CandidateReviewActions
+            candidate={candidate}
+            review={review}
+            isIdentityMismatch={isIdentityMismatch}
+            // Gate de aprobación del waterfall: el copy explica el bloqueo y su
+            // presencia es lo que deshabilita «Aprobar».
+            approveBlockedCopy={
+              waterfallBlocksApproval ? PHONE_REVEAL_WATERFALL_APPROVE_BLOCKED_COPY : null
+            }
+          />
         ) : undefined
       }
     >
       {loadOutcome ? (
-        <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
-          {/* El icono acompaña al copy: informativo cuando el candidato salió de
-              revisión, de advertencia cuando la lectura falló. */}
-          <div
-            className={
-              loadOutcome === 'load_error'
-                ? 'flex h-12 w-12 items-center justify-center rounded-xl bg-destructive/10 ring-1 ring-inset ring-border/40'
-                : 'flex h-12 w-12 items-center justify-center rounded-xl bg-surface-muted'
-            }
-          >
-            {loadOutcome === 'load_error' ? (
-              <AlertTriangle className="h-5 w-5 text-destructive" />
-            ) : (
-              <Info className="h-5 w-5 text-text-muted" />
-            )}
-          </div>
-          <p className="max-w-sm text-sm text-muted-foreground">
-            {loadOutcome === 'load_error'
+        // El icono acompaña al copy: informativo cuando el candidato salió de
+        // revisión, de advertencia cuando la lectura falló. El título ya está en la
+        // cabecera del drawer, así que el vacío solo da la explicación.
+        <EmptyState
+          variant="plain"
+          className="py-20"
+          icon={loadOutcome === 'load_error' ? AlertTriangle : Info}
+          description={
+            loadOutcome === 'load_error'
               ? CANDIDATE_DETAIL_LOAD_ERROR_BODY_COPY
-              : CANDIDATE_DETAIL_NOT_FOUND_BODY_COPY}
-          </p>
-        </div>
+              : CANDIDATE_DETAIL_NOT_FOUND_BODY_COPY
+          }
+        />
       ) : !candidate ? null : (
         <div className="space-y-4">
-          {/* 4O-H3-B-R1 — aviso DURADERO de duplicado.
-              Vive en el cuerpo del drawer, no en un diálogo, y por eso sigue ahí después de
-              cerrar, refrescar o navegar. Con una identidad exacta confirmada por el servidor
-              ofrece la fusión; sin ella lo dice con claridad y NO ofrece ningún CTA. No expone
-              internals: ni ids, ni nombres de columnas, ni evidencia cruda. */}
+          {/* 4O-H3-B-R1 — aviso DURADERO de duplicado. Vive en el cuerpo del drawer, no en
+              un diálogo, y por eso sigue ahí después de cerrar, refrescar o navegar. */}
           {candidate.status === 'duplicate' ? (
-            <div className="rounded-xl border border-info/20 bg-info/10 px-4 py-3">
-              <div className="flex items-start gap-2.5">
-                <Info className="mt-0.5 h-4 w-4 shrink-0 text-info" />
-                <div className="min-w-0 flex-1 space-y-2.5">
-                  <p className="text-sm font-medium text-foreground">
-                    Este candidato coincide con un contacto existente.
-                  </p>
-                  {durableMergeOffer?.offered ? (
-                    <>
-                      <p className="text-xs leading-relaxed text-muted-foreground">
-                        {durableMergeOffer.signal === 'email'
-                          ? 'Tiene el mismo correo electrónico que un contacto que ya está en SellUp.'
-                          : 'Tiene el mismo perfil de LinkedIn que un contacto que ya está en SellUp.'}{' '}
-                        Puedes agregarle la información de este candidato. No se reemplaza nada de
-                        lo que ya tiene: su teléfono principal y los datos cargados a mano se
-                        conservan tal como están.
-                      </p>
-                      <Button
-                        type="button"
-                        size="sm"
-                        disabled={mergingIntoExisting}
-                        onClick={() =>
-                          void handleMergeIntoExistingContact(
-                            durableMergeOffer.offered ? durableMergeOffer.contactId : undefined,
-                          )
-                        }
-                      >
-                        {mergingIntoExisting ? (
-                          <>
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            Agregando…
-                          </>
-                        ) : (
-                          'Agregar información al contacto existente'
-                        )}
-                      </Button>
-                    </>
-                  ) : (
-                    <p className="text-xs leading-relaxed text-muted-foreground">
-                      No podemos confirmar que sea la misma persona con suficiente certeza, así que
-                      no ofrecemos asociarlo automáticamente. Queda registrado como duplicado para
-                      que puedas revisarlo cuando quieras.
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
+            <CandidateDuplicateNotice
+              mergeOffer={durableMergeOffer}
+              merging={mergingIntoExisting}
+              onMerge={(contactId) => void handleMergeIntoExistingContact(contactId)}
+            />
           ) : null}
 
           {/* Lo que decide, antes que nada: qué tan bien encaja, qué tan fiable es
-              el dato y si ya lo teníamos. Estaba dos secciones más abajo, tras
-              todo el bloque de teléfonos. */}
-          <section
-            aria-label="Resumen del candidato"
-            className="rounded-2xl border border-border/60 bg-card p-4 shadow-card"
-          >
-            <DetailList columns={4}>
-              <DetailItem icon={Gauge} label="Relevancia" emptyLabel="Sin calcular">
-                {relevance?.status ? (
-                  <span className="inline-flex flex-wrap items-center gap-2">
-                    <Badge variant={RELEVANCE_VARIANT[relevance.status] ?? 'neutral'}>
-                      {RELEVANCE_LABELS[relevance.status] ?? relevance.status}
-                    </Badge>
-                    {relevanceScore && (
-                      <span className="text-xs text-muted-foreground tabular-nums">{relevanceScore}</span>
-                    )}
-                  </span>
-                ) : null}
-              </DetailItem>
-              <DetailItem icon={ShieldCheck} label="Calidad del dato" emptyLabel="Sin calcular">
-                {qualityScore ? <span className="tabular-nums">{qualityScore}</span> : null}
-              </DetailItem>
-              <DetailItem icon={Gauge} label="Confianza" emptyLabel="Sin calcular">
-                {confidenceLabel ? <span className="tabular-nums">{confidenceLabel}</span> : null}
-              </DetailItem>
-              <DetailItem icon={Copy} label="Duplicidad">
-                {DUPLICATE_LABELS[candidate.duplicate_status] ?? candidate.duplicate_status}
-              </DetailItem>
-            </DetailList>
-          </section>
+              el dato y si ya lo teníamos. */}
+          <CandidateSummarySection candidate={candidate} />
 
           {/* 1. Información principal */}
-            <DrawerSection icon={User} title="Información principal">
-            <dl className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-              <DetailRow icon={User} label="Nombre completo">
-                {candidate.full_name || <Fallback />}
-              </DetailRow>
-              <DetailRow icon={Briefcase} label="Cargo">
-                {candidate.title || <Fallback />}
-              </DetailRow>
-              <DetailRow icon={Building2} label="Empresa">
-                {candidate.company_name || <Fallback />}
-              </DetailRow>
-              <DetailRow icon={Globe} label="Dominio de la empresa">
-                {candidate.company_domain || <Fallback />}
-              </DetailRow>
-              <DetailRow icon={Tag} label={CANDIDATE_SOURCE_LABEL}>
-                <Badge variant="outline">
-                  {SOURCE_LABELS[candidate.source] ?? candidate.source}
-                </Badge>
-              </DetailRow>
-              <DetailRow icon={Calendar} label="Fecha de creación">
-                {formatDate(candidate.created_at)}
-              </DetailRow>
-            </dl>
-          </DrawerSection>
+          <CandidateMainInfoSection candidate={candidate} />
 
           {/* 2. Canales de contacto */}
             <DrawerSection icon={Phone} title="Canales de contacto">
-            <dl className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-              <DetailRow icon={Mail} label="Email">
-                {candidate.email || <Fallback />}
-              </DetailRow>
-              <DetailRow icon={Link2} label="LinkedIn">
+            <DetailList>
+              <CandidateDetailItem icon={Mail} label="Email">
+                {candidate.email || null}
+              </CandidateDetailItem>
+              <CandidateDetailItem icon={Link2} label="LinkedIn">
                 {candidate.linkedin_url ? (
                   <a
                     href={normalizeLinkedinUrl(candidate.linkedin_url)}
@@ -2405,11 +1917,9 @@ export function ContactCandidateDetailSheet({
                   >
                     {candidate.linkedin_url}
                   </a>
-                ) : (
-                  <Fallback />
-                )}
-              </DetailRow>
-              <DetailRow icon={Phone} label="Teléfono" className="sm:col-span-2">
+                ) : null}
+              </CandidateDetailItem>
+              <CandidateDetailItem icon={Phone} label="Teléfono" className="sm:col-span-2">
                 <div className="space-y-2">
                   {hasPhone ? (
                     <span className="inline-flex flex-wrap items-center gap-2">
@@ -2422,7 +1932,7 @@ export function ContactCandidateDetailSheet({
                       )}
                     </span>
                   ) : (
-                    <Fallback />
+                    <span className="text-text-muted">{UNAVAILABLE}</span>
                   )}
                   {/* «Ver más números» (AGENT2A-PHONE-REVEAL-4O-G). Aparece SOLO si
                       hay al menos un número adicional YA almacenado, y lista
@@ -2491,10 +2001,11 @@ export function ContactCandidateDetailSheet({
                     </p>
                   )}
                   {phoneRevealInFlight && (
-                    <div className="space-y-1.5 rounded-lg border border-warning/25 bg-warning/15 p-3">
+                    <Alert variant="warning" role="note" className="p-3">
+                      <div className="space-y-1.5">
                       <span className="inline-flex flex-wrap items-center gap-1.5">
                         <Badge variant="warning">
-                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                          <Spinner decorative size="xs" className="mr-1 text-current" />
                           Revelación en proceso
                         </Badge>
                         {/* Copy honesto (RECOVERY-CRON-1): el resultado NO llega
@@ -2614,7 +2125,8 @@ export function ContactCandidateDetailSheet({
                           </p>
                         </div>
                       )}
-                    </div>
+                      </div>
+                    </Alert>
                   )}
                   {/* Con el waterfall activo y una corrida viva este copy se omite:
                       diría "no disponible tras Apollo" mientras Lusha aún está
@@ -2896,7 +2408,7 @@ export function ContactCandidateDetailSheet({
                       {waterfallLushaRunning ? (
                         <span className="inline-flex flex-wrap items-center gap-1.5">
                           <Badge variant="warning">
-                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                            <Spinner decorative size="xs" className="mr-1 text-current" />
                             Lusha
                           </Badge>
                           <span className="text-xs text-muted-foreground">
@@ -2941,8 +2453,8 @@ export function ContactCandidateDetailSheet({
                     </div>
                   )}
                 </div>
-              </DetailRow>
-            </dl>
+              </CandidateDetailItem>
+            </DetailList>
           </DrawerSection>
 
           {/* 2b. Auditoría del waterfall de teléfono (AGENT2A-PHONE-WATERFALL-1).
@@ -2950,493 +2462,56 @@ export function ContactCandidateDetailSheet({
                hizo CADA proveedor y cuánto costó CADA pata por separado — nunca un
                total mezclado — y no expone ningún dato personal adicional. */}
           {waterfallActive && waterfallAudit && (
-              <DrawerSection
-                icon={PhoneCall}
-                tone="neutral"
-                title="Revelación de teléfono por proveedor"
-                hint="Trazabilidad de la última revelación autorizada: qué intentó cada proveedor y cuánto costó cada consulta."
-              >
-              <dl className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-                <DetailRow icon={PhoneCall} label="Apollo">
-                  <span className="flex flex-col gap-0.5">
-                    <span>
-                      {/* En una corrida legacy `apolloAttempted` es false porque
-                          Apollo NO corrió bajo esta autorización — pero decir "No
-                          intentado" sería falso: se intentó antes. La modalidad es
-                          lo que resuelve la ambigüedad, y por eso viaja en la
-                          proyección en vez de deducirse del timestamp. */}
-                      {waterfallAudit.runMode === 'legacy_lusha_only'
-                        ? PHONE_REVEAL_WATERFALL_LEGACY_APOLLO_AUDIT_COPY
-                        : waterfallAudit.apolloAttempted
-                          ? 'Intentado'
-                          : 'No intentado'}
-                      {resolveWaterfallOutcomeLabel(waterfallAudit.apolloOutcome)
-                        ? ` · ${resolveWaterfallOutcomeLabel(waterfallAudit.apolloOutcome)}`
-                        : ''}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {/* El costo histórico pertenece a la autorización que lo pagó.
-                          Aquí no se muestra ninguna cifra — y nunca un 0, que se
-                          leería como "fue gratis". */}
-                      {waterfallAudit.runMode === 'legacy_lusha_only'
-                        ? PHONE_REVEAL_WATERFALL_LEGACY_APOLLO_COST_COPY
-                        : formatWaterfallLegCredits(
-                            waterfallAudit.apolloCostCredits,
-                            waterfallAudit.apolloCostSource,
-                          )}
-                    </span>
-                  </span>
-                </DetailRow>
-                <DetailRow icon={PhoneCall} label="Lusha">
-                  <span className="flex flex-col gap-0.5">
-                    <span>
-                      {waterfallAudit.lushaAttempted
-                        ? `Intentado${
-                            resolveWaterfallOutcomeLabel(waterfallAudit.lushaOutcome)
-                              ? ` · ${resolveWaterfallOutcomeLabel(waterfallAudit.lushaOutcome)}`
-                              : ''
-                          }`
-                        : (resolveWaterfallLushaSkippedLabel(
-                            waterfallAudit.lushaSkippedReason,
-                          ) ?? 'Pendiente')}
-                    </span>
-                    {waterfallAudit.lushaAttempted && (
-                      <span className="text-xs text-muted-foreground">
-                        {formatWaterfallLegCredits(
-                          waterfallAudit.lushaCostCredits,
-                          waterfallAudit.lushaCostSource,
-                        )}
-                      </span>
-                    )}
-                  </span>
-                </DetailRow>
-                <DetailRow icon={ShieldCheck} label="Proveedor final">
-                  {resolveWaterfallFinalProviderLabel(waterfallAudit.finalProvider) ? (
-                    <span>
-                      {resolveWaterfallFinalProviderLabel(waterfallAudit.finalProvider)}
-                    </span>
-                  ) : (
-                    <Fallback />
-                  )}
-                </DetailRow>
-                <DetailRow icon={Gauge} label="Máximo autorizado">
-                  <span className="tabular-nums">
-                    {waterfallAudit.maxCreditsAuthorized} créditos
-                  </span>
-                </DetailRow>
-              </dl>
-            </DrawerSection>
+            <CandidateWaterfallAuditSection audit={waterfallAudit} />
           )}
 
           {/* 3. Señales de la evaluación — relevancia, calidad, confianza y
               duplicidad subieron al resumen de arriba; aquí queda el porqué. */}
-          {matchedKeywords.length > 0 && (
-            <DrawerSection
-              icon={Gauge}
-              title="Señales detectadas"
-              hint="Lo que el filtro de relevancia encontró en el perfil para puntuarlo."
-              badge={matchedKeywords.length}
-            >
-              <ul className="flex flex-wrap gap-1">
-                {matchedKeywords.map((kw) => (
-                  <li key={kw}>
-                    <Badge variant="outline">{kw}</Badge>
-                  </li>
-                ))}
-              </ul>
-            </DrawerSection>
-          )}
+          <CandidateSignalsSection candidate={candidate} />
 
           {/* 3a. Consistencia de identidad (Hito 17B.4W.6) — observacional */}
-            <DrawerSection
-              icon={ShieldCheck}
-              tone="neutral"
-              title="Consistencia de identidad"
-              /* § 8.3: copy NEUTRAL respecto al proveedor. El texto anterior
-                 nombraba a Lusha ("la persona encontrada en Lusha"), lo que sugería
-                 que Lusha había participado en el teléfono cuando lo único que
-                 indica es `candidate.source`. Este bloque compara identidades del
-                 CANDIDATO y del enriquecimiento; no dice nada del proveedor
-                 telefónico, así que tampoco debe nombrar a ninguno. */
-              hint="Compara la identidad del candidato encontrado por la fuente original con la identidad devuelta durante el enriquecimiento."
-            >
-            <div className="flex items-start gap-2.5">
-              <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center">
-                {identityDisplay.tone === 'consistent' ? (
-                  <ShieldCheck className="h-3.5 w-3.5 text-success" />
-                ) : identityDisplay.tone === 'mismatch' ? (
-                  <AlertTriangle className="h-3.5 w-3.5 text-warning" />
-                ) : (
-                  <Info className="h-3.5 w-3.5 text-muted-foreground" />
-                )}
-              </div>
-              <div className="min-w-0 flex-1 space-y-1.5">
-                <Badge
-                  className={`${IDENTITY_TONE_STYLES[identityDisplay.tone]} border-0`}
-                >
-                  {identityDisplay.label}
-                </Badge>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  {identityDisplay.description}
-                </p>
-                {showIdentityEvidence && (
-                  <div className="space-y-0.5 pt-1 text-xs text-muted-foreground">
-                    <p>
-                      Persona encontrada:{' '}
-                      <span className="text-foreground">
-                        {personIdentity?.prospect_full_name || UNAVAILABLE}
-                      </span>
-                    </p>
-                    <p>
-                      Identidad enriquecida:{' '}
-                      <span className="text-foreground">
-                        {personIdentity?.enrich_full_name || UNAVAILABLE}
-                      </span>
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </DrawerSection>
+          <CandidateIdentityConsistencySection personIdentity={personIdentity} />
 
           {/* 3b. Consistencia con la empresa (Hito 17A.9G) */}
-          {showConsistencyWarning && companyConsistency && (
-            <div className="rounded-xl border border-warning/25 bg-warning/15 px-4 py-3">
-              <div className="flex items-start gap-2.5">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-                <div className="min-w-0 flex-1 space-y-1">
-                  <p className="text-sm font-medium text-foreground">
-                    {companyConsistency.status === 'possible_related_domain'
-                      ? 'Posible empresa relacionada'
-                      : 'Revisar pertenencia a empresa'}
-                  </p>
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    {companyConsistency.explanation}
-                  </p>
-                  {companyConsistency.email_domain &&
-                    companyConsistency.expected_domain &&
-                    companyConsistency.email_domain !== companyConsistency.expected_domain && (
-                      <p className="break-words text-xs text-muted-foreground tabular-nums">
-                        Correo: @{companyConsistency.email_domain} · Empresa: {companyConsistency.expected_domain}
-                      </p>
-                    )}
-                </div>
-              </div>
-            </div>
-          )}
+          <CandidateCompanyConsistencyNotice companyConsistency={companyConsistency} />
 
           {/* 4. Trazabilidad */}
-            <DrawerSection icon={Hash} tone="neutral" title="Trazabilidad">
-            <dl className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-              <DetailRow icon={Hash} label="ID del candidato">
-                <span className="font-mono text-xs break-all">{candidate.id}</span>
-              </DetailRow>
-              {/* «Ejecución», no «búsqueda»: con el desglose del waterfall a la
-                  vista, esa palabra se leería como un crédito de búsqueda. */}
-              <DetailRow icon={Hash} label="ID de la ejecución">
-                {candidate.enrichment_run_id ? (
-                  <span className="font-mono text-xs break-all">
-                    {candidate.enrichment_run_id}
-                  </span>
-                ) : (
-                  <Fallback />
-                )}
-              </DetailRow>
-              <DetailRow icon={Tag} label={CANDIDATE_SOURCE_LABEL}>
-                {SOURCE_LABELS[candidate.source] ?? candidate.source}
-              </DetailRow>
-              {/* § 8.2 en Trazabilidad: el eje del teléfono, junto al del candidato
-                  pero nunca fundido con él. Solo si hubo intento real. */}
-              {phoneRevealProviderLabel && (
-                <DetailRow icon={PhoneCall} label={PHONE_REVEAL_PROVIDER_LABEL}>
-                  {phoneRevealProviderLabel}
-                </DetailRow>
-              )}
-              {apolloAttempt && (
-                <DetailRow icon={UserSearch} label="Intento de búsqueda Apollo" className="sm:col-span-2">
-                  <span className="text-xs">{apolloAttempt}</span>
-                </DetailRow>
-              )}
-              {candidate.account_id && (
-                <DetailRow icon={Building2} label="ID de la empresa en SellUp">
-                  <span className="font-mono text-xs break-all">{candidate.account_id}</span>
-                </DetailRow>
-              )}
-              {candidate.hubspot_company_id && (
-                <DetailRow icon={Globe} label="ID de la empresa en HubSpot">
-                  <span className="font-mono text-xs break-all">
-                    {candidate.hubspot_company_id}
-                  </span>
-                </DetailRow>
-              )}
-            </dl>
-          </DrawerSection>
+          <CandidateTraceabilitySection
+            candidate={candidate}
+            phoneRevealProviderLabel={phoneRevealProviderLabel}
+          />
 
-          {/* 5. Revisión humana (Hito 17A.4B) */}
-          {showRejectForm ? (
-              <DrawerSection
-                icon={Ban}
-                tone="negative"
-                title="Motivo de rechazo"
-                hint="Quedará registrado en la trazabilidad del candidato."
-              >
-              <div className="space-y-3">
-                <Select value={reason} onValueChange={(v) => setReason(v ?? REJECTION_REASONS[0])}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Selecciona un motivo" />
-                  </SelectTrigger>
-                  <SelectContent className="!w-auto min-w-[var(--anchor-width)]">
-                    {REJECTION_REASONS.map((r) => (
-                      <SelectItem key={r} value={r}>
-                        {r}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {reason === 'Otro' && (
-                  <Textarea
-                    value={otherComment}
-                    onChange={(e) => setOtherComment(e.target.value)}
-                    rows={3}
-                    placeholder="Comentario opcional…"
-                  />
-                )}
-              </div>
-            </DrawerSection>
-          ) : !candidate.account_id && candidate.hubspot_company_id ? (
-            <div className="rounded-xl border border-primary/20 bg-primary/10 px-4 py-3">
-              <div className="flex items-start gap-2.5">
-                <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                <div className="min-w-0 flex-1 space-y-1">
-                  <p className="text-sm font-medium text-foreground">
-                    Empresa vinculada vía HubSpot
-                  </p>
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    Al aprobar, SellUp creará o vinculará la cuenta automáticamente y asociará
-                    este contacto. No se realizarán acciones hasta hacer clic en Aprobar.
-                  </p>
-                </div>
-              </div>
-            </div>
-          ) : !candidate.account_id ? (
-            <div className="rounded-xl border border-warning/25 bg-warning/15 px-4 py-3">
-              <div className="flex items-start gap-2.5">
-                <Info className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-                <div className="min-w-0 flex-1 space-y-1">
-                  <p className="text-sm font-medium text-foreground">
-                    Sin cuenta SellUp asociada
-                  </p>
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    No se puede aprobar porque la empresa no existe en SellUp ni está vinculada a
-                    HubSpot. Puedes rechazarlo indicando un motivo.
-                  </p>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
-              <div className="flex items-start gap-2.5">
-                <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                <div className="min-w-0 flex-1 space-y-1">
-                  <p className="text-sm font-medium text-foreground">Revisión humana</p>
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    Aprueba para crear el contacto oficial en SellUp, o recházalo indicando un
-                    motivo.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
+          {/* 5. Revisión humana (Hito 17A.4B): el override de identidad, el motivo de
+              rechazo o, en reposo, el aviso de qué pasa al aprobar. */}
+          <CandidateReviewStep candidate={candidate} review={review} />
         </div>
       )}
     </DrawerShell>
 
-    <Dialog
-      open={showIdentityOverrideDialog}
-      onOpenChange={(v) => {
-        if (busy) return;
-        setShowIdentityOverrideDialog(v);
-        if (!v) {
-          setOverrideAcknowledged(false);
-          setOverrideReason('');
-          setOverrideValidationError(null);
-        }
-      }}
-    >
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Revisar discrepancia de identidad</DialogTitle>
-          <DialogDescription>
-            La identidad encontrada inicialmente y la identidad devuelta por el enriquecimiento
-            no coinciden completamente. Esto no demuestra que el correo sea incorrecto, pero
-            debes revisar la información antes de crear el contacto.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4">
-          <label className="flex items-start gap-2.5 text-sm">
-            <Checkbox
-              checked={overrideAcknowledged}
-              onCheckedChange={(v) => {
-                setOverrideAcknowledged(v === true);
-                setOverrideValidationError(null);
-              }}
-              disabled={busy}
-              className="mt-0.5"
-            />
-            <span className="text-foreground">
-              He revisado la discrepancia de identidad y decido continuar.
-            </span>
-          </label>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-foreground">Motivo de aprobación</label>
-            <Textarea
-              value={overrideReason}
-              onChange={(e) => {
-                setOverrideReason(e.target.value);
-                setOverrideValidationError(null);
-              }}
-              rows={3}
-              placeholder="Describe brevemente qué verificaste antes de continuar."
-              disabled={busy}
-            />
-          </div>
-          {overrideValidationError && (
-            <p className="text-xs text-destructive">{overrideValidationError}</p>
-          )}
-        </div>
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={busy}
-            onClick={() => setShowIdentityOverrideDialog(false)}
-          >
-            Cancelar
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            disabled={busy || !overrideAcknowledged || overrideReason.trim().length === 0}
-            onClick={handleConfirmIdentityOverride}
-          >
-            {approving ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Aprobando…
-              </>
-            ) : (
-              'Aprobar de todas formas'
-            )}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <CandidateDuplicateDecisionDialog review={review} />
 
-    {/* AGENT2A-PHONE-REVEAL-4O-H3-B — decisión humana sobre un duplicado con identidad exacta.
-        Sólo se abre cuando el SERVIDOR confirmó que el contacto existente es la misma persona
-        por email o LinkedIn exactos; con identidad ambigua, por nombre o sin señal exacta, este
-        diálogo no aparece y el flujo es el de siempre. No muestra internals: ni ids, ni el
-        nombre de la columna, ni la evidencia cruda. */}
-    <Dialog
-      open={duplicateDecision !== null}
-      onOpenChange={(v) => {
-        if (mergingIntoExisting) return;
-        if (!v) handleDiscardDuplicate();
-      }}
-    >
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Candidato duplicado</DialogTitle>
-          <DialogDescription>
-            Este candidato coincide con un contacto que ya existe en SellUp
-            {duplicateDecision?.signal === 'email'
-              ? ', con el mismo correo electrónico.'
-              : ', con el mismo perfil de LinkedIn.'}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
-          <div className="flex items-start gap-2.5">
-            <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Puedes agregarle la información de este candidato al contacto existente. No se
-              reemplaza nada de lo que ya tiene: su teléfono principal y los datos cargados a
-              mano se conservan tal como están.
-            </p>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={mergingIntoExisting}
-            onClick={handleDiscardDuplicate}
-          >
-            Descartar como duplicado
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            disabled={mergingIntoExisting}
-            onClick={() => void handleMergeIntoExistingContact()}
-          >
-            {mergingIntoExisting ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Agregando…
-              </>
-            ) : (
-              'Agregar información al contacto existente'
-            )}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-
-    <Dialog
+    {/* Fallback manual Lusha (LUSHA-PHONE-FALLBACK-1): la confirmación EXPLÍCITA del
+        costo, obligatoria antes de ejecutar. Es un `ConfirmDialog` (diálogo de alerta):
+        exige respuesta, sin X ni cierre por clic afuera, y el foco entra en «Cancelar».
+        Los textos llegan de `lusha-phone-fallback-copy`, sin tocar. */}
+    <ConfirmDialog
       open={showLushaPhoneFallbackConfirm}
       onOpenChange={(v) => {
         if (revealingPhoneViaLusha) return;
         setShowLushaPhoneFallbackConfirm(v);
       }}
+      title={lushaPhoneFallbackCopy.buttonLabel}
+      description={lushaPhoneFallbackCopy.costConfirmationMessage}
+      icon={PhoneCall}
+      className="sm:max-w-md"
+      loading={revealingPhoneViaLusha}
+      onConfirm={handleConfirmLushaPhoneFallback}
+      confirmLabel="Confirmar y revelar"
     >
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{lushaPhoneFallbackCopy.buttonLabel}</DialogTitle>
-          <DialogDescription>{lushaPhoneFallbackCopy.costConfirmationMessage}</DialogDescription>
-        </DialogHeader>
-        <p className="text-xs text-muted-foreground">
-          {lushaPhoneFallbackCopy.phoneTypeWarning}
-        </p>
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={revealingPhoneViaLusha}
-            onClick={() => setShowLushaPhoneFallbackConfirm(false)}
-          >
-            Cancelar
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            disabled={revealingPhoneViaLusha}
-            onClick={handleConfirmLushaPhoneFallback}
-          >
-            {revealingPhoneViaLusha ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Revelando…
-              </>
-            ) : (
-              'Confirmar y revelar'
-            )}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      <p className="text-xs text-muted-foreground">
+        {lushaPhoneFallbackCopy.phoneTypeWarning}
+      </p>
+    </ConfirmDialog>
 
     {/* AGENT2A-PHONE-WATERFALL-4D: aquí vivía el modal ÚNICO del waterfall. Ya no
         existe ningún diálogo del waterfall — ni «Confirmar y revelar», ni
@@ -3445,34 +2520,5 @@ export function ContactCandidateDetailSheet({
         fallback manual de Lusha (flag OFF) queda intacto arriba. */}
 
     </>
-  );
-}
-
-function Fallback() {
-  return <span className="text-muted-foreground">{UNAVAILABLE}</span>;
-}
-
-function DetailRow({
-  icon: Icon,
-  label,
-  className,
-  children,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  /** Solo layout: cuántas columnas ocupa el par dentro de la rejilla del `dl`. */
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className={cn('flex min-w-0 items-start gap-2.5', className)}>
-      <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center">
-        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <dt className="text-xs text-muted-foreground">{label}</dt>
-        <dd className="mt-0.5 break-words text-sm text-foreground">{children}</dd>
-      </div>
-    </div>
   );
 }

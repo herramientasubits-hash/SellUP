@@ -11,13 +11,8 @@ import {
   OWNERSHIP_UNVERIFIED_DETAIL,
   OWNERSHIP_UNVERIFIED_LABEL,
 } from '@/modules/prospect-batches/ownership-review-flag';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { ModalShell } from '@/components/shared/modal-shell';
 import {
   Tooltip,
   TooltipTrigger,
@@ -117,7 +112,7 @@ const FIT_STATUS_LABELS: Record<string, string> = {
 
 function MatchDetail({ match }: { match: DuplicateMatch }) {
   return (
-    <div className="space-y-1 rounded-lg border border-border/60 bg-surface-subtle p-3">
+    <li className="space-y-1 py-2.5 first:pt-0 last:pb-0">
       <div className="flex items-center justify-between">
         <span className="text-xs font-semibold text-foreground">
           {SOURCE_LABELS[match.source] ?? match.source}
@@ -151,7 +146,7 @@ function MatchDetail({ match }: { match: DuplicateMatch }) {
       {match.reason && (
         <p className="text-xs text-muted-foreground italic">{match.reason}</p>
       )}
-    </div>
+    </li>
   );
 }
 
@@ -236,42 +231,35 @@ function DuplicateCheckCell({ candidate }: { candidate: ProspectCandidateWithRev
       </TooltipProvider>
 
       {matches.length > 0 && (
-        <button
-          type="button"
+        <Button
+          variant="link"
+          size="xs"
           onClick={() => setDetailOpen(true)}
-          className="rounded-sm text-left text-xs font-medium text-warning hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+          className="h-auto justify-start p-0 font-medium text-warning"
         >
           {matches.length === 1 ? '1 coincidencia' : `${matches.length} coincidencias`}
-        </button>
+        </Button>
       )}
 
-      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Coincidencias de duplicidad</DialogTitle>
-            <DialogDescription>
-              {candidate.name} · {primaryDupLabel}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3">
-            {dc?.summary && (
-              <p className="text-sm text-muted-foreground">{dc.summary}</p>
-            )}
-            {matches.length > 0 ? (
-              <div className="max-h-60 space-y-2 overflow-y-auto pr-1">
-                {matches.map((match, i) => (
-                  <MatchDetail key={i} match={match} />
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                Sin detalle de duplicidad disponible.
-              </p>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      <ModalShell
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        title="Coincidencias de duplicidad"
+        description={`${candidate.name} · ${primaryDupLabel}`}
+      >
+        <div className="space-y-3">
+          {dc?.summary && <p className="text-sm text-muted-foreground">{dc.summary}</p>}
+          {matches.length > 0 ? (
+            <ul className="max-h-60 divide-y divide-border/50 overflow-y-auto pr-1">
+              {matches.map((match, i) => (
+                <MatchDetail key={i} match={match} />
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-muted-foreground">Sin detalle de duplicidad disponible.</p>
+          )}
+        </div>
+      </ModalShell>
     </div>
   );
 }
@@ -470,15 +458,15 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                   <TableCell className="max-w-56">
                     <div className="space-y-1">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <button
+                        <Button
                           id={`candidate-trigger-${c.id}`}
-                          type="button"
+                          variant="link"
                           onClick={() => openCandidateDetail(c, 'detail')}
                           title={c.name}
-                          className="line-clamp-2 rounded-sm text-left text-sm font-semibold text-foreground transition-colors hover:text-primary focus:text-primary focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+                          className="line-clamp-2 h-auto whitespace-normal p-0 text-left text-sm text-foreground hover:text-primary hover:no-underline focus:text-primary"
                         >
                           {c.name}
-                        </button>
+                        </Button>
                         {isChileOfficialCandidate ? (
                           <Badge variant="brand" className="shrink-0">
                             <ShieldCheck aria-hidden />

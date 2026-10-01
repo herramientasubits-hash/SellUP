@@ -17,6 +17,7 @@ import {
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { DetailItem, DetailList } from '@/components/shared/detail-list';
+import { Heading } from '@/components/typography';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -269,7 +270,9 @@ export default async function ContactDetailPage({ params, searchParams }: Contac
               </DetailList>
 
               <section className="mt-4 border-t border-border/60 pt-4">
-                <h3 className="mb-1 text-xs font-medium text-muted-foreground">Notas</h3>
+                <Heading level={6} as="h3" weight="medium" className="mb-1 text-xs leading-normal text-muted-foreground">
+                  Notas
+                </Heading>
                 {contact.notes ? (
                   <p className="whitespace-pre-line text-sm leading-relaxed text-foreground">{contact.notes}</p>
                 ) : (
@@ -366,7 +369,9 @@ export default async function ContactDetailPage({ params, searchParams }: Contac
               </DetailItem>
             </DetailList>
             <section className="mt-4 border-t border-border/60 pt-4">
-              <h3 className="mb-1 text-xs font-medium text-muted-foreground">Qué se envía</h3>
+              <Heading level={6} as="h3" weight="medium" className="mb-1 text-xs leading-normal text-muted-foreground">
+                  Qué se envía
+                </Heading>
               <p className="text-sm leading-relaxed text-muted-foreground">
                 {/* AGENT2-FINAL-LOCAL-CLOSURE-MICROFIX — este párrafo no afirma nada sobre si la
                     sincronización está activa: eso lo dice el badge de arriba. Lo que sí sigue

@@ -6,6 +6,7 @@ import { Star, Mail, Phone } from "@/icons";
 import { EmptyState } from '@/components/ui/empty-state';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   Table,
   TableBody,
@@ -91,13 +92,14 @@ export function ContactsTableClient({ contacts }: ContactsTableClientProps) {
                     <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
                       {contact.full_name.charAt(0).toUpperCase()}
                     </div>
-                    <button
+                    <Button
                       type="button"
+                      variant="link"
                       onClick={() => openSheet(contact.id)}
-                      className="text-xs font-medium text-foreground hover:text-primary hover:underline text-left rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+                      className="h-auto min-w-0 justify-start p-0 text-xs font-medium text-foreground hover:text-primary"
                     >
                       {contact.full_name}
-                    </button>
+                    </Button>
                   </div>
                 </TableCell>
 

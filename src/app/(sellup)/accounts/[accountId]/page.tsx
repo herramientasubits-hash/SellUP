@@ -17,6 +17,7 @@ import {
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { DetailItem, DetailList } from '@/components/shared/detail-list';
+import { Heading } from '@/components/typography/heading';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
@@ -331,12 +332,14 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
               </DetailList>
 
               <section className="mt-4 border-t border-border/60 pt-4">
-                <h3 className="mb-1 text-xs font-medium text-muted-foreground">Notas</h3>
+                <Heading level={6} as="h3" weight="medium" className="mb-1 text-xs leading-normal text-muted-foreground">
+                  Notas
+                </Heading>
                 {account.notes ? (
                   <p className="whitespace-pre-line text-sm leading-relaxed text-foreground">{account.notes}</p>
                 ) : (
                   <p className="text-sm text-text-muted">
-                    Sin notas. Añádelas con «Editar cuenta», en el menú de acciones.
+                    Sin notas. Añádelas con «Editar empresa», en el menú de acciones.
                   </p>
                 )}
               </section>

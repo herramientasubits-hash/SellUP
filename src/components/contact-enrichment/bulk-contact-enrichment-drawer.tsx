@@ -6,12 +6,12 @@ import {
   Loader2,
   Users,
   CheckCircle2,
-  AlertCircle,
   XCircle,
   Building2,
 } from "@/icons";
 import { Button } from '@/components/ui/button';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { SurfaceCard } from '@/components/shared/surface-card';
 import { MetricCard } from '@/components/shared/metric-card';
 import { Spinner } from '@/components/feedback/spinner';
 import { Badge } from '@/components/ui/badge';
@@ -424,8 +424,9 @@ export function BulkContactEnrichmentDrawer({
           (state === 'creating_bulk_run' ||
             state === 'executing' ||
             state === 'checking_status') && (
-            <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+            <div role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+              {/* Decorativo: el texto de al lado es el que anuncia la espera. */}
+              <Spinner decorative size="sm" />
               {state === 'creating_bulk_run'
                 ? 'Preparando enriquecimiento en lote…'
                 : state === 'checking_status'
@@ -446,8 +447,8 @@ export function BulkContactEnrichmentDrawer({
 
         {/* Disclaimer */}
         {!tooManyAccounts && state !== 'error' && !isDone && !isUnknown && (
-          <div className="rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
-            <p className="text-xs leading-relaxed text-muted-foreground">
+          <Alert role="note">
+            <AlertDescription className="text-xs leading-relaxed">
               Este proceso{' '}
               <strong className="text-foreground">no crea contactos oficiales</strong> ni
               escribe en HubSpot. Los resultados quedarán como{' '}
@@ -455,8 +456,8 @@ export function BulkContactEnrichmentDrawer({
                 candidatos pendientes de revisión
               </strong>
               .
-            </p>
-          </div>
+            </AlertDescription>
+          </Alert>
         )}
 
         {/* Completed summary */}
@@ -464,24 +465,30 @@ export function BulkContactEnrichmentDrawer({
           <>
             <Separator />
             <div className="space-y-2">
+              {/* El desenlace del lote, como aviso en su tono: ámbar si hubo
+                  errores, verde si dejó candidatos, neutro si no dejó nada. */}
               {state === 'completed_with_errors' ? (
-                <div className="flex items-center gap-1.5 text-sm font-medium text-warning">
-                  <AlertCircle className="h-4 w-4" />
-                  El lote terminó con algunos errores. Revisa el resumen.
-                </div>
+                <Alert variant="warning" role="status">
+                  <AlertTitle className="text-sm">
+                    El lote terminó con algunos errores. Revisa el resumen.
+                  </AlertTitle>
+                </Alert>
               ) : summary.candidates_created > 0 ? (
-                <div className="flex items-center gap-1.5 text-sm font-medium text-success">
-                  <CheckCircle2 className="h-4 w-4" />
-                  Listo. Se crearon {summary.candidates_created} candidato
-                  {summary.candidates_created !== 1 ? 's' : ''} para revisión.
-                </div>
+                <Alert variant="success" role="status">
+                  <AlertTitle className="text-sm">
+                    Listo. Se crearon {summary.candidates_created} candidato
+                    {summary.candidates_created !== 1 ? 's' : ''} para revisión.
+                  </AlertTitle>
+                </Alert>
               ) : (
-                <div className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
-                  <CheckCircle2 className="h-4 w-4" />
-                  El lote terminó sin candidatos nuevos para revisar.
-                </div>
+                <Alert role="status">
+                  <AlertTitle className="text-sm">
+                    El lote terminó sin candidatos nuevos para revisar.
+                  </AlertTitle>
+                </Alert>
               )}
-              <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 rounded-xl border border-border/60 bg-card p-4 text-xs">
+              <SurfaceCard className="p-4">
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
                 <SummaryRow label="Cuentas procesadas" value={summary.processed} />
                 <SummaryRow label="Con candidatos" value={summary.with_candidates} />
                 <SummaryRow
@@ -494,6 +501,7 @@ export function BulkContactEnrichmentDrawer({
                   value={summary.candidates_created}
                 />
               </dl>
+              </SurfaceCard>
             </div>
           </>
         )}

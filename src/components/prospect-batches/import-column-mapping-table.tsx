@@ -5,7 +5,7 @@
 // Allows the user to change which column maps to Industry or Subindustry.
 
 import * as React from 'react';
-import { ArrowRight, Check, Info } from "@/icons";
+import { ArrowRight, Check } from "@/icons";
 import {
   Select,
   SelectContent,
@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import type {
@@ -84,12 +85,10 @@ export function ImportColumnMappingTable({
   return (
     <div className="space-y-4">
       {/* Summary */}
-      <div className="space-y-2 rounded-xl border border-primary/20 bg-primary/10 p-3">
-        <p className="text-xs font-semibold text-primary">
-          Columnas detectadas para clasificación
-        </p>
-        <div className="flex flex-wrap gap-3 text-xs">
-          <div className="flex items-center gap-1.5">
+      <Alert variant="info">
+        <AlertTitle className="text-xs">Columnas detectadas para clasificación</AlertTitle>
+        <AlertDescription className="flex flex-wrap gap-3 text-xs">
+          <span className="flex items-center gap-1.5">
             <span className="text-muted-foreground">Industria:</span>
             {industryMapping ? (
               <Badge variant="brand">
@@ -98,8 +97,8 @@ export function ImportColumnMappingTable({
             ) : (
               <span className="text-muted-foreground italic">No detectada</span>
             )}
-          </div>
-          <div className="flex items-center gap-1.5">
+          </span>
+          <span className="flex items-center gap-1.5">
             <span className="text-muted-foreground">Subindustria:</span>
             {subindustryMapping ? (
               <Badge variant="brand">
@@ -108,18 +107,17 @@ export function ImportColumnMappingTable({
             ) : (
               <span className="text-muted-foreground italic">No detectada (opcional)</span>
             )}
-          </div>
-        </div>
-      </div>
+          </span>
+        </AlertDescription>
+      </Alert>
 
       {/* Conflict warning */}
       {hasConflict && (
-        <div className="flex items-center gap-2 rounded-xl border border-destructive/20 bg-destructive/10 p-3">
-          <Info className="h-3.5 w-3.5 text-destructive shrink-0" />
-          <p className="text-xs text-destructive">
+        <Alert variant="destructive">
+          <AlertDescription className="text-xs text-destructive">
             Dos columnas no pueden asignarse al mismo campo. Corrige el mapeo antes de continuar.
-          </p>
-        </div>
+          </AlertDescription>
+        </Alert>
       )}
 
       {/* Mapping table */}
