@@ -13,7 +13,7 @@
 import type { LogProviderUsageInput } from '@/modules/usage-tracking/types';
 import { normalizeLinkedInCompanyUrl } from '../../linkedin-company-enrichment';
 import type { DuplicateStatus } from '../../types';
-import type { DomainFinderInput, DomainFinderOutcome } from '../domain-finder';
+import type { DomainFinderInput, DomainFinderOutcome, DomainVerification } from '../domain-finder';
 import { CLAUDE_CLASSIFIER_CONTRACT_VERSION, CLAUDE_CLASSIFIER_PROVIDER_KEY } from '../types';
 import { CLAUDE_RESCUE_METADATA_KEY } from './rescue-patch';
 
@@ -23,9 +23,13 @@ export const CLAUDE_DOMAIN_SEARCH_OPERATION_KEY = 'company_domain_search';
 /**
  * Versión del buscador. d1 = #514 (30-09). d2 (01-10): nombre desde el slug de LinkedIn
  * cuando falta el original, subdominios de un resultado y URL fuera de la búsqueda si
- * enlaza al mismo LinkedIn. Un «no encontrado» de una versión anterior se reintenta UNA vez.
+ * enlaza al mismo LinkedIn. d3 (01-10): si el sitio bloquea nuestra descarga, vale el título
+ * del resultado de búsqueda de ese dominio; redirección válida si el destino salió de la
+ * búsqueda; el nombre se compara en todas sus formas. Un «no encontrado» de una versión
+ * anterior se reintenta UNA vez.
  */
-export const DOMAIN_SEARCH_VERSION = 'd2';
+export const DOMAIN_SEARCH_VERSION = 'd3';
+const VERIFICATIONS: readonly DomainVerification[] = ['linkedin_cross_link', 'name_match', 'search_result_match'];
 
 /** Errores pasajeros (modelo, sitio caído) se reintentan hasta este número de búsquedas. */
 export const DOMAIN_SEARCH_MAX_ATTEMPTS = 3;
@@ -50,7 +54,7 @@ export type DomainSearchRow = {
 export type FoundWebsite = {
   website: string;
   domain: string;
-  verification: 'linkedin_cross_link' | 'name_match';
+  verification: DomainVerification;
 };
 
 /** Resultado de revisar duplicados en SellUp + HubSpot (sólo lectura). */
@@ -119,6 +123,9 @@ export function isDomainSearchCandidate(row: Pick<DomainSearchRow, 'domain' | 'r
 export function buildDomainFinderInput(row: DomainSearchRow, countryName: string | null): DomainFinderInput {
   return {
     name: dispositionDisplayName(row),
+    alternateNames: [row.name, nameFromLinkedInSlug(readString(row.evidence, 'linkedin_url'))].filter(
+      (n): n is string => !!n,
+    ),
     countryName,
     countryCode: row.country_code,
     linkedinUrl: dispositionLinkedInUrl(row),
@@ -132,8 +139,8 @@ export function readFoundWebsite(evidence: Evidence | null): FoundWebsite | null
     | undefined;
   if (search?.found !== true) return null;
   if (typeof search.website !== 'string' || typeof search.domain !== 'string') return null;
-  if (search.verification !== 'linkedin_cross_link' && search.verification !== 'name_match') return null;
-  return { website: search.website, domain: search.domain, verification: search.verification };
+  if (!(VERIFICATIONS as readonly unknown[]).includes(search.verification)) return null;
+  return { website: search.website, domain: search.domain, verification: search.verification as DomainVerification };
 }
 
 export function buildFoundEvidence(evidence: Evidence | null, found: FoundWebsite, searchedAt: string): Evidence {
