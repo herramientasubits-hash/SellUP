@@ -1003,10 +1003,16 @@ describe('BR-SOURCE CUT B — the boundary this cut does not cross', () => {
       '133_br_candidate_identity_promotion.sql',
       '134_br_receita_compact_snapshot.sql',
     ];
+    // 🔴 SOURCES-US-EIN-BY-NAME-1 (la 141) re-enuncia la lista COMPLETA de tipos fiscales
+    // permitidos, que ya contenía el valor 'CNPJ', para añadir 'EIN' y 'NIF'. Ese valor entre
+    // comillas de un CHECK no es autoría brasileña, así que se descuenta antes de buscar; una
+    // migración de BR sigue cayendo por BR-SOURCE, RECEITA o cualquier CNPJ fuera de ese valor.
     const brAuthored = files
       .filter((file) => Number.parseInt(file.slice(0, 3), 10) > 127)
       .filter((name) =>
-        /BR-SOURCE|RECEITA|CNPJ/i.test(fs.readFileSync(join(repoRoot, 'supabase/migrations', name), 'utf8')),
+        /BR-SOURCE|RECEITA|CNPJ/i.test(
+          fs.readFileSync(join(repoRoot, 'supabase/migrations', name), 'utf8').replace(/'CNPJ'/g, ''),
+        ),
       )
       .sort();
     assert.deepEqual(

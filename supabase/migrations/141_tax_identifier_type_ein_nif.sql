@@ -5,8 +5,8 @@
 --
 -- El Agente 1 ya obtiene el número fiscal por nombre en 12 países. Para Estados
 -- Unidos el identificador es el EIN (SEC EDGAR e IRS), y para España el NIF. Hoy
--- `accounts` y `prospect_candidates` sólo aceptan NIT, RFC, RUT, RUC, CUIT, CNPJ,
--- RNC, RTN, cedula_juridica y other: escribir 'EIN' fallaría la inserción entera.
+-- `accounts` y `prospect_candidates` sólo aceptan los tipos latinoamericanos más
+-- cedula_juridica y other: escribir 'EIN' fallaría la inserción entera.
 --
 -- Sólo AMPLÍA las dos listas (misma lista + 'EIN' y 'NIF'). No cambia datos, no
 -- toca otras columnas y ningún valor existente deja de ser válido.
