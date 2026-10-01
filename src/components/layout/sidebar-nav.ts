@@ -51,37 +51,31 @@ const MODULE_VIEWS: Readonly<Record<string, readonly SidebarNavChild[]>> = {
   ],
 };
 
-function settingsChild(section: SettingsSection): SidebarNavChild {
-  return {
-    id: `settings-${section.id}`,
-    label: section.title,
-    href: section.href,
-    aliases: section.aliases,
-  };
-}
-
 /**
- * El árbol del menú lateral para quien mira: las secciones de
- * `mainNavItems` que su rol puede ver (`navAccess`) y, dentro, sus vistas.
- * Nunca lista un destino que le redirigiría.
+ * El árbol del menú lateral para quien mira: los módulos de `mainNavItems`
+ * que su rol puede ver (`navAccess`) y, dentro, sus vistas. Nunca lista un
+ * destino que le redirigiría.
+ *
+ * Configuración NO es un módulo del menú lateral (ni desplegado, ni en el riel
+ * contraído, ni en el cajón del móvil): toda vive en el menú de la marca
+ * (`buildWorkspaceSettingsGroups`). Sigue en `mainNavItems` porque de ahí
+ * salen la ruta de la cabecera («SellUp › Configuración») y el destino del
+ * buscador; aquí se deja fuera. Dentro de `/settings/**` ningún ítem del menú
+ * lateral queda marcado.
  */
 export function buildSidebarNav(navAccess: NavAccessContext): SidebarNavRoot[] {
-  const settingsChildren = getVisibleSettingsSections({
-    isAdmin: navAccess.isAdmin,
-    isActive: true,
-  }).map(settingsChild);
-
-  return getVisibleNavItems(mainNavItems, navAccess).map((item) => {
-    const children =
-      item.href === SETTINGS_ROOT_HREF ? settingsChildren : MODULE_VIEWS[item.href];
-    return {
-      id: item.href,
-      label: item.title,
-      href: item.href,
-      icon: item.icon,
-      children: children && children.length > 0 ? children : undefined,
-    };
-  });
+  return getVisibleNavItems(mainNavItems, navAccess)
+    .filter((item) => item.href !== SETTINGS_ROOT_HREF)
+    .map((item) => {
+      const children = MODULE_VIEWS[item.href];
+      return {
+        id: item.href,
+        label: item.title,
+        href: item.href,
+        icon: item.icon,
+        children: children && children.length > 0 ? children : undefined,
+      };
+    });
 }
 
 function matchesPath(pathname: string, href: string): boolean {
@@ -162,12 +156,18 @@ const SETTINGS_GROUPS: readonly { id: string; label: string; icon: LucideIcon; s
   { id: "connections", label: "Conexiones", icon: HardDrive, sections: ["integrations", "my-drive"] },
 ];
 
-/** Para que una sección nueva de Configuración nunca se quede sin puerta. */
+/**
+ * El guardián de la puerta: el menú de la marca es la ÚNICA entrada a
+ * Configuración, así que una sección nueva de `SETTINGS_SECTIONS` que nadie
+ * haya puesto en un grupo cae aquí en vez de quedarse sin puerta. Lo fija
+ * `workspace-settings-door.test.ts`.
+ */
 const OTHER_GROUP = { id: "other", label: "Más ajustes", icon: Activity } as const;
 
 /**
  * Los ajustes del menú de la marca, agrupados: un grupo, una fila. Solo las
- * secciones que puede ver quien mira; un grupo vacío no se pinta.
+ * secciones que puede ver quien mira (`getVisibleSettingsSections`); un grupo
+ * vacío no se pinta, y quien no ve ninguna sección no ve el bloque.
  */
 export function buildWorkspaceSettingsGroups(navAccess: NavAccessContext): WorkspaceSettingsGroup[] {
   const visible = getVisibleSettingsSections({ isAdmin: navAccess.isAdmin, isActive: true });

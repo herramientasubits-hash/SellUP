@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { ActionRailReserve } from "@/components/action-rail";
 import { DataTablePage } from "@/components/shared/data-table-page";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -16,9 +17,10 @@ interface ListPageSkeletonProps {
   /** Cierto para pintar además la franja de indicadores (pantallas estrechas). */
   withIndicators?: boolean;
   /**
-   * Reserva abajo el hueco de la barra flotante de acciones, igual que
-   * `ListActionRailProvider`: sin él, la tabla daría un salto al llegar los
-   * datos. Falso en las pantallas que no tienen barra.
+   * Reserva el hueco de la barra flotante de acciones, igual que
+   * `ListActionRailProvider` (`ActionRailReserve`: ninguno si las acciones van
+   * «En la pantalla»): sin él, la tabla daría un salto al llegar los datos.
+   * Falso en las pantallas que no tienen barra.
    */
   reserveActionRail?: boolean;
 }
@@ -109,5 +111,5 @@ export function ListPageSkeleton({
     </DataTablePage>
   );
 
-  return reserveActionRail ? <div className="flex min-h-0 flex-1 flex-col pb-20">{page}</div> : page;
+  return reserveActionRail ? <ActionRailReserve>{page}</ActionRailReserve> : page;
 }

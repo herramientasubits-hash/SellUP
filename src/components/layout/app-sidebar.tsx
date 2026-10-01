@@ -9,7 +9,8 @@ import type { NavAccessContext } from "@/config/navigation";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSidebar } from "@/components/layout/sidebar-context";
 import { SidebarIconRail } from "@/components/layout/sidebar-icon-rail";
-import { ThemeMenuItems, WorkspaceMenu } from "@/components/layout/workspace-menu";
+import { PersonalizationMenu } from "@/components/layout/personalization-menu";
+import { WorkspaceMenu } from "@/components/layout/workspace-menu";
 import {
   buildSidebarNav,
   buildWorkspaceSettingsGroups,
@@ -21,6 +22,7 @@ import {
 const PRODUCT_NAME = "SellUp";
 const PRODUCT_TAGLINE = "Inteligencia comercial";
 const SETTINGS_ALL = { label: "Toda la configuración", href: "/settings" } as const;
+const BRAND_MENU_LABEL = `${PRODUCT_NAME}: personalización y configuración`;
 
 interface AppSidebarProps {
   className?: string;
@@ -183,11 +185,12 @@ function Accordion({
 /**
  * Menú lateral — port de Thema (`app-shell/AppSidebar` + `SidebarIconRail`).
  *
- * Desplegado (240px): la marca abre el menú de la plataforma (tema y
- * configuración agrupada) y debajo va la navegación, con secciones plegables:
- * Empresas, Contactos y Configuración despliegan las vistas que hoy también
- * están en las pestañas de cada pantalla. La sección en la que estás llega
- * abierta.
+ * Desplegado (240px): la marca abre el menú de la plataforma —Personalización
+ * y TODA la configuración, agrupada— y debajo va la navegación de módulos, con
+ * secciones plegables: Empresas y Contactos despliegan las vistas que hoy
+ * también están en las pestañas de cada pantalla. La sección en la que estás
+ * llega abierta. Configuración no es un módulo de esta lista: se entra por la
+ * marca.
  *
  * Contraído (64px): el mismo menú como riel de iconos; cada sección con vistas
  * las muestra al pasar el puntero.
@@ -234,7 +237,7 @@ export function AppSidebar({ className, navAccess, forceExpanded = false, onNavi
       tagline={PRODUCT_TAGLINE}
       groups={settingsGroups}
       all={isAdmin ? SETTINGS_ALL : undefined}
-      extra={<ThemeMenuItems />}
+      extra={<PersonalizationMenu />}
       onNavigate={onNavigate}
     />
   );
@@ -249,7 +252,7 @@ export function AppSidebar({ className, navAccess, forceExpanded = false, onNavi
         brand={workspaceMenu(
           <button
             type="button"
-            aria-label={`${PRODUCT_NAME}: tema y configuración`}
+            aria-label={BRAND_MENU_LABEL}
             className="mb-2 flex size-8 shrink-0 items-center justify-center rounded-lg hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
           >
             <BrandMark compact />
@@ -284,11 +287,11 @@ export function AppSidebar({ className, navAccess, forceExpanded = false, onNavi
         </div>
       )}
 
-      {/* La marca: de ella cuelga lo que se ajusta una vez (tema, configuración). */}
+      {/* La marca: de ella cuelga lo que se ajusta una vez (personalización, configuración). */}
       {workspaceMenu(
         <button
           type="button"
-          aria-label={`${PRODUCT_NAME}: tema y configuración`}
+          aria-label={BRAND_MENU_LABEL}
           className="mb-4 flex w-full shrink-0 items-center gap-2 rounded-xl border border-border/60 bg-card px-3 py-2 transition-colors hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
         >
           <span className="min-w-0 flex-1">

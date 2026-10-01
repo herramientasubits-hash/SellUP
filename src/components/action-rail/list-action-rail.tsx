@@ -3,9 +3,12 @@
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
+import { useActionsPlacement } from "./actions-placement";
 import { DataListActionRail } from "./data-list-action-rail";
+import { RailAgentProvider } from "./rail-agent";
 import type { RailActionSpec } from "./rail-actions";
 import { useRailOrientation, useRailPosition } from "./rail-preferences";
+import { ScreenHeaderActions } from "./screen-header-actions";
 import { useCompactViewport } from "./use-compact-viewport";
 
 /** Lo que una lista le cuenta a la barra sobre lo que tiene marcado. */
@@ -22,6 +25,7 @@ export interface RailSelectionReport {
 
 interface ScreenEntry {
   actions: readonly RailActionSpec[];
+  agent: RailActionSpec | null;
   isBlocked: boolean;
 }
 
@@ -67,9 +71,13 @@ interface ListActionRailProviderProps {
  * Sin selección la barra enseña lo de la pantalla; con selección lo SUSTITUYE
  * por el recuento y las acciones sobre lo marcado. Nunca hay dos barras.
  *
- * También reserva el hueco de la barra para que no tape el pie de la tabla:
- * abajo cuando va tendida, a la derecha cuando va de pie, y ninguno cuando
- * quien mira la arrastró a otro sitio (ahí la puso a propósito).
+ * También reserva el hueco de la barra para que no tape el pie de la tabla
+ * (`ActionRailReserve`).
+ *
+ * Con «Dónde van las acciones → En la pantalla» (`useActionsPlacement`) la
+ * barra NO se monta, ni con filas marcadas: las acciones de pantalla las pinta
+ * `RailScreenActions` en la cabecera y las de la selección la cabecera de la
+ * tabla. El hueco reservado desaparece con ella.
  *
  * @example
  * <ListActionRailProvider label="Acciones de empresas" gender="f">
@@ -81,9 +89,7 @@ interface ListActionRailProviderProps {
 export function ListActionRailProvider({ children, label, gender = "m" }: ListActionRailProviderProps) {
   const [screenEntries, setScreenEntries] = React.useState<Readonly<Record<string, ScreenEntry>>>({});
   const [selections, setSelections] = React.useState<Readonly<Record<string, RailSelectionReport>>>({});
-  const [orientation] = useRailOrientation();
-  const [position] = useRailPosition();
-  const isCompact = useCompactViewport();
+  const [placement] = useActionsPlacement();
 
   const registry = React.useMemo<RailRegistry>(
     () => ({
@@ -96,6 +102,7 @@ export function ListActionRailProvider({ children, label, gender = "m" }: ListAc
   const entries = Object.values(screenEntries);
   const screenActions = entries.flatMap((entry) => entry.actions);
   const isBlocked = entries.some((entry) => entry.isBlocked);
+  const agent = entries.find((entry) => entry.agent)?.agent ?? null;
   const selection = Object.values(selections).find((report) => report.count > 0) ?? null;
 
   const actions = React.useMemo(
@@ -104,32 +111,62 @@ export function ListActionRailProvider({ children, label, gender = "m" }: ListAc
     [screenEntries, selection],
   );
 
-  // El hueco que deja libre el pie de la tabla. En estrecho la barra es un
-  // botón abajo a la derecha, que también necesita su sitio.
-  const isDocked = position === null;
-  const reserve = isCompact
-    ? "pb-20"
-    : !isDocked
-      ? ""
-      : orientation === "vertical"
-        ? "pr-20"
-        : "pb-20";
-
   return (
     <RailRegistryContext.Provider value={registry}>
-      {/* Mantiene la cadena flex que necesita DataTablePage. */}
-      <div data-slot="action-rail-reserve" className={cn("flex min-h-0 flex-1 flex-col", reserve)}>
-        {children}
-      </div>
-      <DataListActionRail
-        label={label}
-        actions={actions}
-        selectedCount={selection?.count ?? 0}
-        onClearSelection={selection?.onClear ?? NOOP}
-        gender={selection?.gender ?? gender}
-        isBlocked={isBlocked}
-      />
+      <ActionRailReserve>{children}</ActionRailReserve>
+      {placement === "rail" && (
+        <RailAgentProvider value={agent}>
+          <DataListActionRail
+            label={label}
+            actions={actions}
+            selectedCount={selection?.count ?? 0}
+            onClearSelection={selection?.onClear ?? NOOP}
+            gender={selection?.gender ?? gender}
+            isBlocked={isBlocked}
+          />
+        </RailAgentProvider>
+      )}
     </RailRegistryContext.Provider>
+  );
+}
+
+/**
+ * ActionRailReserve
+ *
+ * El hueco que la barra flotante necesita para no tapar el pie de la tabla:
+ * abajo cuando va tendida (y en estrecho, donde es un botón en la esquina), a
+ * la derecha cuando va de pie, y ninguno cuando quien mira la arrastró a otro
+ * sitio (ahí la puso a propósito) o cuando las acciones van «En la pantalla»
+ * (no hay barra). Mantiene la cadena flex que necesita `DataTablePage`.
+ *
+ * `ListActionRailProvider` ya lo pone; a mano solo hace falta en un estado de
+ * carga que deba ocupar lo mismo que la pantalla que va a llegar.
+ *
+ * @example
+ * <ActionRailReserve><ListPageSkeleton … /></ActionRailReserve>
+ */
+export function ActionRailReserve({ children }: { children: React.ReactNode }) {
+  const [placement] = useActionsPlacement();
+  const [orientation] = useRailOrientation();
+  const [position] = useRailPosition();
+  const isCompact = useCompactViewport();
+
+  const isDocked = position === null;
+  const reserve =
+    placement === "inline"
+      ? ""
+      : isCompact
+        ? "pb-20"
+        : !isDocked
+          ? ""
+          : orientation === "vertical"
+            ? "pr-20"
+            : "pb-20";
+
+  return (
+    <div data-slot="action-rail-reserve" className={cn("flex min-h-0 flex-1 flex-col", reserve)}>
+      {children}
+    </div>
   );
 }
 
@@ -140,19 +177,31 @@ interface RailScreenActionsProps {
    */
   actions: readonly RailActionSpec[];
   /**
+   * El agente de IA de la pantalla («Generar con IA», «Buscar contactos con
+   * IA»). No es una acción más: cierra la barra por la derecha con el
+   * degradado de IA y la chispa (o, «En la pantalla», como botón de IA al
+   * final de la cabecera). Memorizado, igual que `actions`.
+   */
+  agent?: RailActionSpec | null;
+  /**
    * Un panel que abrió una de estas acciones tomó la pantalla: la barra se
    * recoge en su pastilla hasta que se cierre.
    */
   isBlocked?: boolean;
+  /** La etiqueta del «⋯» que pliega las terciarias cuando van en la cabecera. */
+  moreLabel?: string;
 }
 
 /**
  * RailScreenActions
  *
- * Declara las acciones de pantalla de la barra flotante. No pinta nada: se las
- * entrega a la barra del `ListActionRailProvider` que la envuelve. Fuera de un
- * proveedor monta su propia barra, para que la pantalla nunca se quede sin
- * acciones.
+ * Declara las acciones de pantalla. Con las acciones «En la barra» no pinta
+ * nada: se las entrega a la barra del `ListActionRailProvider` que la
+ * envuelve (fuera de un proveedor monta su propia barra, para que la pantalla
+ * nunca se quede sin acciones). Con las acciones «En la pantalla» las pinta
+ * AQUÍ MISMO como botones (`ScreenHeaderActions`): por eso se coloca en el
+ * hueco de acciones de la cabecera (`DataTablePage actions`, `PageHeader
+ * actions`).
  *
  * Va en un componente de cliente junto a los paneles que abre (drawers,
  * diálogos), que se montan controlados (`open` / `onOpenChange`).
@@ -172,23 +221,30 @@ interface RailScreenActionsProps {
  *   );
  * }
  */
-export function RailScreenActions({ actions, isBlocked = false }: RailScreenActionsProps) {
+export function RailScreenActions({ actions, agent = null, isBlocked = false, moreLabel }: RailScreenActionsProps) {
   const registry = React.useContext(RailRegistryContext);
   const sourceId = React.useId();
+  const [placement] = useActionsPlacement();
+  const isInline = placement === "inline";
 
   React.useEffect(() => {
     if (!registry) return;
-    registry.setScreenEntry(sourceId, { actions, isBlocked });
-  }, [registry, sourceId, actions, isBlocked]);
+    registry.setScreenEntry(sourceId, isInline ? null : { actions, agent, isBlocked });
+  }, [registry, sourceId, actions, agent, isBlocked, isInline]);
 
   React.useEffect(() => {
     if (!registry) return;
     return () => registry.setScreenEntry(sourceId, null);
   }, [registry, sourceId]);
 
+  if (isInline) return <ScreenHeaderActions actions={actions} agent={agent} moreLabel={moreLabel} />;
   if (registry) return null;
 
-  return <DataListActionRail actions={actions} selectedCount={0} onClearSelection={NOOP} isBlocked={isBlocked} />;
+  return (
+    <RailAgentProvider value={agent}>
+      <DataListActionRail actions={actions} selectedCount={0} onClearSelection={NOOP} isBlocked={isBlocked} />
+    </RailAgentProvider>
+  );
 }
 
 /**

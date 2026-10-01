@@ -1,11 +1,22 @@
 "use client";
 
 import * as React from "react";
-import { Check, Minimize2, PanelBottom, PanelRight, Pin, RotateCcw, Settings } from "@/icons";
+import {
+  Check,
+  LayoutDashboard,
+  Minimize2,
+  MousePointerClick,
+  PanelBottom,
+  PanelRight,
+  Pin,
+  RotateCcw,
+  Settings,
+} from "@/icons";
 
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useActionsPlacement } from "./actions-placement";
 import { railIconButtonClass } from "./rail-button";
 import {
   useRailAutoHide,
@@ -29,6 +40,10 @@ export const RAIL_POPOVER_CLASS =
  *
  * Lo elegido se recuerda en este navegador y vale para todas las pantallas.
  *
+ * «Dónde van las acciones» es la preferencia global de la persona
+ * (`useActionsPlacement`): pasarlas «En la pantalla» apaga esta barra, que se
+ * vuelve a encender desde «Personalización», en el menú de la marca.
+ *
  * @example
  * <RailSettingsMenu onOpenChange={setIsSettingsOpen} />
  */
@@ -36,6 +51,7 @@ export function RailSettingsMenu({ onOpenChange }: { onOpenChange?: (open: boole
   const [autoHide, setAutoHide] = useRailAutoHide();
   const [orientation, setOrientation] = useRailOrientation();
   const [position, setPosition] = useRailPosition();
+  const [placement, setPlacement] = useActionsPlacement();
   const [open, setOpen] = React.useState(false);
   const side = useRailPopoutSide();
 
@@ -89,6 +105,25 @@ export function RailSettingsMenu({ onOpenChange }: { onOpenChange?: (open: boole
             label="Ocultar sola"
             isActive={autoHide}
             onClick={() => setAutoHide(true)}
+          />
+        </SettingGroup>
+
+        {/* Pasarlas a la pantalla apaga esta barra; se vuelve a encender en «Personalización». */}
+        <SettingGroup label="Dónde van las acciones" className="mt-1.5">
+          <ChoiceRow
+            icon={<MousePointerClick strokeWidth={2} />}
+            label="En esta barra"
+            isActive={placement === "rail"}
+            onClick={() => setPlacement("rail")}
+          />
+          <ChoiceRow
+            icon={<LayoutDashboard strokeWidth={2} />}
+            label="En la pantalla"
+            isActive={placement === "inline"}
+            onClick={() => {
+              handleOpenChange(false);
+              setPlacement("inline");
+            }}
           />
         </SettingGroup>
 

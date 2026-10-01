@@ -27,6 +27,8 @@ interface FabEntry {
   label: string;
   icon: React.ReactNode;
   tone?: "default" | "danger";
+  /** `ai`: su pastilla lleva el degradado de IA (el agente de la pantalla). */
+  variant?: "default" | "ai";
   blockedReason?: string | null;
   onSelect?: () => void;
 }
@@ -140,6 +142,7 @@ export function ActionFab({
                   key={action.id}
                   label={action.label}
                   tone={action.tone}
+                  variant={action.variant}
                   blockedReason={action.blockedReason}
                   onClick={() => run(action)}
                   index={index + (selectedCount > 0 ? 1 : 0)}
@@ -191,6 +194,7 @@ export function ActionFab({
 function FabRow({
   label,
   tone = "default",
+  variant = "default",
   blockedReason,
   onClick,
   index,
@@ -198,6 +202,7 @@ function FabRow({
 }: {
   label: string;
   tone?: "default" | "danger";
+  variant?: "default" | "ai";
   blockedReason?: string | null;
   onClick: () => void;
   index: number;
@@ -219,9 +224,12 @@ function FabRow({
         {label}
       </span>
       <span
+        data-variant={variant}
         className={cn(
-          "flex size-11 items-center justify-center rounded-full bg-card shadow-rail ring-1 ring-border [&_svg]:size-5",
-          tone === "danger" ? "text-destructive" : "text-foreground",
+          "flex size-11 items-center justify-center rounded-full shadow-rail [&_svg]:size-5",
+          variant === "ai"
+            ? "bg-ai-gradient text-primary-foreground"
+            : cn("bg-card ring-1 ring-border", tone === "danger" ? "text-destructive" : "text-foreground"),
         )}
       >
         {children}

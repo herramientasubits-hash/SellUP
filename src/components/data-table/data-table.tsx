@@ -57,7 +57,7 @@ import {
   DataTableLazySentinel,
   DataTableLoadMore,
 } from "./data-table-load-more";
-import { DataListActionRail, useRailSelectionReporter } from "@/components/action-rail";
+import { DataListActionRail, useActionsPlacement, useRailSelectionReporter } from "@/components/action-rail";
 import { DataTableInlineBulkActions, useBulkRailActions } from "./data-table-bulk-actions";
 import { DataTableRowReorder } from "./data-table-row-reorder";
 import { DataTableRowActions } from "./data-table-row-actions";
@@ -167,8 +167,14 @@ function DataTableInner<TData>(
   const canUseRowMenu = enableRowSelection && Boolean(contextMenu);
   const usesRowMenu = canUseRowMenu && storedConfig.rowControl === "menu";
   const usesCheckbox = enableRowSelection && !usesRowMenu;
+  // Dónde van las acciones es una preferencia de la persona, la misma en
+  // todas las tablas («Personalización» / ajustes de la barra): con «En la
+  // pantalla» las de la selección van en la cabecera de la lista y la barra
+  // flotante no se monta. Una tabla sin cabecera no tiene dónde ponerlas y
+  // conserva la barra.
+  const [actionsPlacement] = useActionsPlacement();
   const canPlaceActions = usesCheckbox && bulkActions.length > 0 && !hideToolbar;
-  const actionsInline = canPlaceActions && storedConfig.actions === "inline";
+  const actionsInline = canPlaceActions && actionsPlacement === "inline";
   const asList = storedConfig.view === "list" && Boolean(renderListItem);
 
   // Cambiar a «menú en cada fila» suelta lo marcado: en ese modo no hay lote.
@@ -361,8 +367,8 @@ function DataTableInner<TData>(
   // ── La selección va a LA barra de la pantalla (una sola por pantalla) ────
   // Con filas marcadas, las acciones masivas sustituyen a las de pantalla en
   // la barra flotante. Dentro de un `ListActionRailProvider` la tabla solo
-  // informa; fuera de él monta la barra ella misma. Con las acciones «en el
-  // layout» no informa nada: van en la cabecera de la lista.
+  // informa; fuera de él monta la barra ella misma. Con las acciones «En la
+  // pantalla» no informa nada: van en la cabecera de la lista.
   const { railActions, confirmDialog } = useBulkRailActions(bulkActions, selectedRows);
   const reportSelection = useRailSelectionReporter();
   const railSelection = React.useMemo(
@@ -420,7 +426,6 @@ function DataTableInner<TData>(
       noun={noun}
       showView={Boolean(renderListItem)}
       showRowControl={canUseRowMenu}
-      showActionsPlacement={canPlaceActions}
       extraSections={settingsExtraSections}
     />
   );

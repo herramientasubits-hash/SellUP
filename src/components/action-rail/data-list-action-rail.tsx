@@ -2,8 +2,10 @@
 
 import * as React from "react";
 
+import { Sparkles } from "@/icons";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ActionFab } from "./action-fab";
 import {
   ActionRailShell,
@@ -15,6 +17,7 @@ import { AnimatedActionItem, RailButton, RailCreateOption, RailPrimaryAction } f
 import { RailOverflowMenu, type RailOverflowItem } from "./rail-overflow-menu";
 import { RailSelectionChip } from "./rail-selection-chip";
 import { RAIL_POPOVER_CLASS } from "./rail-settings-menu";
+import { useAnnounceRail, useRailAgentAction } from "./rail-agent";
 import {
   railActionLabel,
   railActionsFor,
@@ -93,6 +96,11 @@ function toOverflowItem(action: RailActionSpec, label: string): RailOverflowItem
  * menú «más», salvo que sobre una sola: un menú de un ítem cuesta más que un
  * sexto icono.
  *
+ * **El agente de IA** de la pantalla (`RailAgentProvider`; lo declara
+ * `<RailScreenActions agent={…} />`) cierra la barra por la derecha como una
+ * segunda principal: un botón con el degradado de IA y la chispa, con su
+ * nombre en el tooltip. Solo sin selección, a un clic.
+ *
  * Quien la usa solo declara las acciones y su ámbito; los modos, el orden, el
  * escalonado y el plegado los resuelve la barra. En pantalla estrecha es la
  * misma pieza en su otra forma: `ActionFab`.
@@ -124,6 +132,10 @@ export function DataListActionRail({
   isBlocked = false,
   label,
 }: DataListActionRailProps) {
+  // El agente de IA de la pantalla, si lo hay, cierra la barra por la derecha
+  // como una segunda principal: no es una acción más de la lista.
+  const agent = useRailAgentAction();
+  useAnnounceRail();
   const isCompact = useCompactViewport();
 
   const mode: RailActionScope = railModeFor(selectedCount);
@@ -167,7 +179,7 @@ export function DataListActionRail({
   const hasSelection = selectedCount > 0;
   // Sin nada marcado y sin nada que ofrecer no hay barra: una barra con solo
   // su asa y sus ajustes no le sirve a nadie.
-  if (!hasSelection && forMode.length === 0) return null;
+  if (!hasSelection && forMode.length === 0 && !agent) return null;
 
   // Estrecho: la misma pieza en su otra forma. No es una barra encogida, es un
   // botón que despliega lo mismo —el reparto de acciones lo decide el mismo
@@ -176,7 +188,7 @@ export function DataListActionRail({
     if (isBlocked) return null;
     return (
       <ActionFab
-        actions={actions}
+        actions={agent ? [agent, ...actions] : actions}
         selectedCount={selectedCount}
         onClearSelection={onClearSelection}
         gender={gender}
@@ -261,10 +273,70 @@ export function DataListActionRail({
                 <PrimaryRailAction action={primary} onOpenChange={trackMenu(primary.id)} />
               </AnimatedActionItem>
             )}
+            {agent && (
+              <AnimatedActionItem
+                animKey={animKey}
+                staggerIndex={screenOffset + screenInline.length + (primary ? 1 : 0)}
+                skipColorFlash
+              >
+                <RailAgentButton agent={agent} />
+              </AnimatedActionItem>
+            )}
           </>
         )
       }
     />
+  );
+}
+
+/**
+ * El agente de IA en la barra: solo la chispa sobre el degradado de IA; el
+ * nombre va en el tooltip, como en el resto de iconos de la barra. De pie es
+ * el mismo botón cuadrado. Un agente sin `variant: "ai"` (p. ej. «Búsqueda no
+ * disponible») no promete IA: sale como un icono más, con el suyo.
+ */
+function RailAgentButton({ agent }: { agent: RailActionSpec }) {
+  const side = useRailPopoutSide();
+  const isBlocked = agent.blockedReason != null;
+
+  if (agent.variant !== "ai") {
+    return (
+      <span data-slot="rail-agent" data-variant="default" className="flex">
+        <RailButton
+          icon={agent.icon}
+          label={agent.label}
+          blockedReason={agent.blockedReason}
+          onClick={() => agent.onSelect?.()}
+        />
+      </span>
+    );
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label={agent.label}
+            aria-disabled={isBlocked || undefined}
+            data-slot="rail-agent"
+            data-variant="ai"
+            onClick={isBlocked ? undefined : () => agent.onSelect?.()}
+            className={cn(
+              "bg-ai-gradient relative flex size-10 shrink-0 items-center justify-center rounded-xl text-primary-foreground transition-transform [&_svg]:size-4.5",
+              "hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground/40 active:scale-95",
+              "aria-disabled:cursor-not-allowed aria-disabled:opacity-40 aria-disabled:active:scale-100 motion-reduce:transition-none",
+            )}
+          >
+            <Sparkles strokeWidth={2.5} aria-hidden="true" />
+          </button>
+        }
+      />
+      <TooltipContent side={side} className="max-w-56">
+        {agent.blockedReason ?? agent.label}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

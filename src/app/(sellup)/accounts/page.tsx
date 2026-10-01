@@ -11,6 +11,7 @@ import { AccountsDataTableClient } from '@/components/accounts/accounts-data-tab
 import { ModuleTabsNav, type ModuleTabId } from '@/components/navigation/module-tabs-nav';
 import {
   ProspectsModulePanel,
+  loadGenerateProspectsAgent,
   type ProspectsPanelSearchParams,
 } from '@/components/prospects/prospects-module-panel';
 import {
@@ -53,8 +54,6 @@ export default async function AccountsPage({ searchParams }: PageProps) {
           tabs={<ModuleTabsNav active={activeTab} />}
           noun={SKELETON_NOUN[activeTab]}
           columns={activeTab === 'empresas' ? 7 : 6}
-          // «Descartadas» no tiene barra flotante de acciones.
-          reserveActionRail={activeTab !== 'descartadas'}
         />
       }
     >
@@ -64,10 +63,13 @@ export default async function AccountsPage({ searchParams }: PageProps) {
 }
 
 async function AccountsPanel() {
-  const [accounts, users, scopeFilterOptions] = await Promise.all([
+  // El agente «Generar con IA» es el mismo asistente de «Por revisar», resuelto
+  // por la misma carga de servidor y en paralelo con los datos de la pestaña.
+  const [accounts, users, scopeFilterOptions, generateAgent] = await Promise.all([
     getAccountsList(),
     getActiveUsers(),
     getCommercialScopeFilterOptions(),
+    loadGenerateProspectsAgent(),
   ]);
 
   return (
@@ -77,7 +79,7 @@ async function AccountsPanel() {
         title={EMPRESAS_MODULE_TITLE}
         description={EMPRESAS_TAB_DESCRIPTIONS.empresas}
         tabs={<ModuleTabsNav active="empresas" counts={{ empresas: accounts.length }} />}
-        actions={<AccountsScreenActions users={users} />}
+        actions={<AccountsScreenActions users={users} generateAgent={generateAgent} />}
       >
         <AccountsDataTableClient
           accounts={accounts}

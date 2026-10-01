@@ -13,6 +13,7 @@ import {
 } from '@/components/prospect-batches/generate-ai-batch-experience';
 import { ProspectsDataTableClient } from '@/components/prospects/prospects-data-table-client';
 import { ProspectsScreenActions } from '@/components/prospects/prospects-screen-actions';
+import type { GenerateProspectsAgent } from '@/components/prospects/generate-prospects-agent';
 import { ModuleTabsNav } from '@/components/navigation/module-tabs-nav';
 import { DiscardedProspectsPanel } from '@/components/prospects/discarded-prospects-panel';
 import {
@@ -105,9 +106,137 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
   // of the wizard/flag resolution below runs, keeps that panel independent
   // and guarantees zero change to the "Por revisar" behaviour that follows.
   if (params.view === 'descartadas') {
-    return <DiscardedProspectsPanel params={params} />;
+    // El agente de IA de la pestaña se resuelve en paralelo con sus datos; un
+    // fallo ahí no tumba la lista (la pestaña sale sin agente).
+    return <DiscardedProspectsPanel params={params} generateAgent={loadGenerateProspectsAgent()} />;
   }
 
+  // El asistente «Generar con IA», con todo lo que el servidor resolvió para
+  // él (flags, catálogo, proveedor, topes, presupuesto). Es la MISMA carga que
+  // usan las otras dos pestañas del módulo para su agente de IA.
+  const { generateDrawer, isGenerateAvailable } = await resolveGenerateProspectsAgent();
+
+  const sourceId = params.sourceId ?? null;
+
+  let sourceBatchType: string | null = null;
+  if (sourceId) {
+    const parsed = z.string().uuid().safeParse(sourceId);
+    if (!parsed.success) {
+      redirect(PROSPECTOS_TAB_ROUTE);
+    }
+    try {
+      const sourceBatch = await getProspectBatchById(sourceId);
+      if (!sourceBatch) {
+        redirect(PROSPECTOS_TAB_ROUTE);
+      }
+      sourceBatchType = sourceBatch.source ?? null;
+    } catch {
+      redirect(PROSPECTOS_TAB_ROUTE);
+    }
+  }
+
+  let statuses = ['needs_review', 'generated', 'normalized'];
+  if (params.status) {
+    if (params.status === 'pending') {
+      statuses = ['needs_review', 'generated', 'normalized'];
+    } else {
+      statuses = [params.status];
+    }
+  }
+
+  // Scope refinement: resolve ownerUserIds from userId/groupId URL params.
+  // resolveScopeOwnerFilter enforces commercial scope — cannot widen visibility.
+  const [scopeFilterOptions, ownerUserIds] = await Promise.all([
+    getCommercialScopeFilterOptions(),
+    resolveScopeOwnerFilter(params.userId, params.groupId),
+  ]);
+
+  // Los indicadores de la cabecera ya no se cuentan aparte en el servidor: la
+  // tabla los calcula sobre estas mismas filas y los ofrece como filtros de un
+  // toque, así el número de cada uno es exactamente lo que deja ver al pulsarlo.
+  const listResult = await getGlobalCandidatesList({
+    search: params.search,
+    country: params.country,
+    industry: params.industry,
+    source: params.source,
+    statuses,
+    limit: 2000,
+    offset: 0,
+    ...(sourceId ? { batchId: sourceId } : {}),
+    ...(ownerUserIds !== null ? { ownerUserIds } : {}),
+  });
+
+  const { candidates } = listResult;
+
+  // La lista puede llegar ya filtrada por la URL: un vacío así no significa
+  // que no haya prospectos, y la tabla lo explica de otra manera.
+  const hasUrlFilters = Boolean(
+    params.search ||
+      params.country ||
+      params.industry ||
+      params.source ||
+      params.status ||
+      params.userId ||
+      params.groupId,
+  );
+
+  return (
+    <ListActionRailProvider label="Acciones de prospectos" gender="m">
+    <DataTablePage
+      compact
+      title={EMPRESAS_MODULE_TITLE}
+      description={EMPRESAS_TAB_DESCRIPTIONS.prospectos}
+      tabs={<ModuleTabsNav active="prospectos" counts={sourceId ? undefined : { prospectos: candidates.length }} />}
+      actions={
+        // La IA está a un clic: es el agente de la barra. Importar y crear a
+        // mano son las acciones de pantalla. El asistente va ya resuelto por
+        // el servidor; si no puede ejecutarse, el agente lo dice en vez de
+        // ofrecer «Generar con IA».
+        <ProspectsScreenActions
+          generateDrawer={generateDrawer}
+          isGenerateAvailable={isGenerateAvailable}
+        />
+      }
+    >
+      <ProspectsDataTableClient
+        candidates={candidates as ProspectCandidateWithReviewer[]}
+        sourceId={sourceId ?? undefined}
+        sourceBatchType={sourceBatchType ?? undefined}
+        scopeFilterOptions={scopeFilterOptions}
+        currentUserId={params.userId ?? ''}
+        currentGroupId={params.groupId ?? ''}
+        currentRoleKey={params.roleKey ?? ''}
+        hasUrlFilters={hasUrlFilters}
+        emptyActions={
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {generateDrawer}
+            <ImportCandidatesDrawer>
+              <Button type="button" variant="outline" size="sm">
+                <Upload aria-hidden="true" />
+                Importar un archivo
+              </Button>
+            </ImportCandidatesDrawer>
+            <CreateCandidateDrawer triggerText="Crear prospecto" triggerVariant="outline" />
+          </div>
+        }
+      />
+    </DataTablePage>
+    </ListActionRailProvider>
+  );
+}
+
+/**
+ * El agente de IA del módulo Empresas («Generar con IA»), resuelto en el
+ * servidor: flags, catálogo, proveedor, topes y presupuesto, y el asistente
+ * (`GenerateAIBatchDrawer`) con todo eso ya puesto. Es UNA sola carga para las
+ * tres pestañas del módulo (Empresas, Por revisar, Descartadas): ninguna
+ * resuelve la experiencia por su cuenta ni en el cliente.
+ *
+ * `isGenerateAvailable` es falso cuando la búsqueda no puede ejecutarse: quien
+ * pinta el agente lo llama entonces «Búsqueda no disponible» (capa 4 del cerco
+ * del camino heredado).
+ */
+export async function resolveGenerateProspectsAgent(): Promise<GenerateProspectsAgent> {
   // Feature flags: read server-side only — never NEXT_PUBLIC_
   // A1-LEGACY-PATH-FENCE-1 (P0-1): both flags are parsed through the canonical
   // server-only helpers (trim + toLowerCase). A strict `=== 'true'` here made
@@ -180,70 +309,6 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
     availability,
   );
 
-  const sourceId = params.sourceId ?? null;
-
-  let sourceBatchType: string | null = null;
-  if (sourceId) {
-    const parsed = z.string().uuid().safeParse(sourceId);
-    if (!parsed.success) {
-      redirect(PROSPECTOS_TAB_ROUTE);
-    }
-    try {
-      const sourceBatch = await getProspectBatchById(sourceId);
-      if (!sourceBatch) {
-        redirect(PROSPECTOS_TAB_ROUTE);
-      }
-      sourceBatchType = sourceBatch.source ?? null;
-    } catch {
-      redirect(PROSPECTOS_TAB_ROUTE);
-    }
-  }
-
-  let statuses = ['needs_review', 'generated', 'normalized'];
-  if (params.status) {
-    if (params.status === 'pending') {
-      statuses = ['needs_review', 'generated', 'normalized'];
-    } else {
-      statuses = [params.status];
-    }
-  }
-
-  // Scope refinement: resolve ownerUserIds from userId/groupId URL params.
-  // resolveScopeOwnerFilter enforces commercial scope — cannot widen visibility.
-  const [scopeFilterOptions, ownerUserIds] = await Promise.all([
-    getCommercialScopeFilterOptions(),
-    resolveScopeOwnerFilter(params.userId, params.groupId),
-  ]);
-
-  // Los indicadores de la cabecera ya no se cuentan aparte en el servidor: la
-  // tabla los calcula sobre estas mismas filas y los ofrece como filtros de un
-  // toque, así el número de cada uno es exactamente lo que deja ver al pulsarlo.
-  const listResult = await getGlobalCandidatesList({
-    search: params.search,
-    country: params.country,
-    industry: params.industry,
-    source: params.source,
-    statuses,
-    limit: 2000,
-    offset: 0,
-    ...(sourceId ? { batchId: sourceId } : {}),
-    ...(ownerUserIds !== null ? { ownerUserIds } : {}),
-  });
-
-  const { candidates } = listResult;
-
-  // La lista puede llegar ya filtrada por la URL: un vacío así no significa
-  // que no haya prospectos, y la tabla lo explica de otra manera.
-  const hasUrlFilters = Boolean(
-    params.search ||
-      params.country ||
-      params.industry ||
-      params.source ||
-      params.status ||
-      params.userId ||
-      params.groupId,
-  );
-
   // El asistente «Generar con IA», con todo lo que el servidor resolvió para
   // él. Es UN elemento que se monta en dos sitios: controlado por la barra
   // flotante (que lo abre sin pintar su botón) y, con su propio botón, en el
@@ -253,46 +318,20 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
     <GenerateAIBatchDrawer experience={experience} unavailableKind={unavailableKind} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} autoProviderCascade={autoProviderCascade} discoveryProvider={wizardDiscoveryProvider} providerOverrideCapability={wizardProviderOverrideCapability} apolloRunModeLimits={apolloRunModeLimits} budgetPreflight={wizardBudgetPreflight} adminTavilyTrialAvailable={adminTavilyTrialAvailable} />
   );
 
-  return (
-    <ListActionRailProvider label="Acciones de prospectos" gender="m">
-    <DataTablePage
-      compact
-      title={EMPRESAS_MODULE_TITLE}
-      description={EMPRESAS_TAB_DESCRIPTIONS.prospectos}
-      tabs={<ModuleTabsNav active="prospectos" counts={sourceId ? undefined : { prospectos: candidates.length }} />}
-      actions={
-        // La barra abre los mismos tres paneles desde UNA acción primaria. El
-        // asistente de IA va ya resuelto por el servidor; si no puede
-        // ejecutarse, la opción lo dice en vez de ofrecer «Generar con IA».
-        <ProspectsScreenActions
-          generateDrawer={generateDrawer}
-          isGenerateAvailable={experience !== 'unavailable'}
-        />
-      }
-    >
-      <ProspectsDataTableClient
-        candidates={candidates as ProspectCandidateWithReviewer[]}
-        sourceId={sourceId ?? undefined}
-        sourceBatchType={sourceBatchType ?? undefined}
-        scopeFilterOptions={scopeFilterOptions}
-        currentUserId={params.userId ?? ''}
-        currentGroupId={params.groupId ?? ''}
-        currentRoleKey={params.roleKey ?? ''}
-        hasUrlFilters={hasUrlFilters}
-        emptyActions={
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            {generateDrawer}
-            <ImportCandidatesDrawer>
-              <Button type="button" variant="outline" size="sm">
-                <Upload aria-hidden="true" />
-                Importar un archivo
-              </Button>
-            </ImportCandidatesDrawer>
-            <CreateCandidateDrawer triggerText="Crear prospecto" triggerVariant="outline" />
-          </div>
-        }
-      />
-    </DataTablePage>
-    </ListActionRailProvider>
-  );
+  return { generateDrawer, isGenerateAvailable: experience !== 'unavailable' };
+}
+
+/**
+ * Lo mismo, para las pestañas donde el agente es un añadido (Empresas,
+ * Descartadas): si su resolución falla, la pestaña sale sin agente en vez de
+ * caerse. «Por revisar» usa `resolveGenerateProspectsAgent` tal cual, como
+ * siempre.
+ */
+export async function loadGenerateProspectsAgent(): Promise<GenerateProspectsAgent | null> {
+  try {
+    return await resolveGenerateProspectsAgent();
+  } catch (error) {
+    console.error('[empresas] No se pudo resolver el agente «Generar con IA»', error);
+    return null;
+  }
 }

@@ -77,8 +77,8 @@ export interface DataTableProps<TData> {
   /**
    * Identidad de la tabla. Con ella se recuerda en este navegador la
    * configuración de quien mira (`localStorage`, clave `sellup:table:<tableId>`):
-   * orden de columnas, ocultas, fijadas, scroll infinito o paginación, tamaño
-   * de página y dónde van las acciones. Tiene que ser estable: si cambia, se
+   * orden de columnas, ocultas, fijadas, scroll infinito o paginación y tamaño
+   * de página. Tiene que ser estable: si cambia, se
    * pierden los ajustes. Sin ella la tabla funciona igual pero no recuerda.
    */
   tableId?: string;
@@ -113,7 +113,7 @@ export interface DataTableProps<TData> {
   bulkActions?: DataTableBulkAction<TData>[];
   /**
    * Avisa de cuántas filas hay marcadas en la barra flotante cada vez que
-   * cambia (con las acciones «en el layout» la selección no va a la barra,
+   * cambia (con las acciones «En la pantalla» la selección no va a la barra,
    * así que informa 0). Solo informa: la barra de la pantalla ya recibe la
    * selección por su cuenta (`ListActionRailProvider`). Pásale una función
    * estable.
