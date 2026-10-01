@@ -647,7 +647,11 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     // 🔴 AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 moved the ceiling to 140 with the global company
     // identity claim (closes the two-reps-same-company race account-wide, not just per batch).
     // Not a BR migration; the authorship sweep further down is WIDENED to include it.
-    assert.equal(highest, 140, 'the repository ceiling is 140 — AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1, not CUT A');
+    // 🔴 SOURCES-US-EIN-BY-NAME-1 then moved the ceiling to 141: it only widens the
+    // `tax_identifier_type` CHECK on `accounts` and `prospect_candidates` with 'EIN' and 'NIF'.
+    // Not a BR migration; because the widened list legitimately re-states the existing 'CNPJ'
+    // value, it gets its own authorship check further down. AUTHORED and NOT APPLIED.
+    assert.equal(highest, 141, 'the repository ceiling is 141 — SOURCES-US-EIN-BY-NAME-1, not CUT A');
     assert.deepEqual(
       files.filter((f) => f.startsWith('135')),
       ['135_agent1_lusha_prospecting_request_fence.sql'],
@@ -679,7 +683,12 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     assert.deepEqual(
       files.filter((f) => f.startsWith('140')),
       ['140_agent1_global_company_identity_claims.sql'],
-      'AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 owns exactly one migration, and it is the ceiling',
+      'AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 owns exactly one migration',
+    );
+    assert.deepEqual(
+      files.filter((f) => f.startsWith('141')),
+      ['141_tax_identifier_type_ein_nif.sql'],
+      'SOURCES-US-EIN-BY-NAME-1 owns exactly one migration, and it is the ceiling',
     );
     assert.deepEqual(
       files.filter((f) => f.startsWith('133')),
@@ -732,6 +741,23 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
         false,
         `${name} must not be authored by a BR round`,
       );
+    }
+    // The 141 (SOURCES-US-EIN-BY-NAME-1) re-states the full, pre-existing tax_identifier_type
+    // list, which already contains 'CNPJ'. It is checked on its own instead of being exempted:
+    // no BR-SOURCE / RECEITA anywhere in the file, and once comments and the quoted 'CNPJ'
+    // CHECK value are removed, not a single CNPJ mention remains.
+    {
+      const sql141 = fs.readFileSync(
+        new URL('../../../../../../supabase/migrations/141_tax_identifier_type_ein_nif.sql', import.meta.url),
+        'utf8',
+      );
+      assert.equal(/BR-SOURCE|RECEITA/i.test(sql141), false, '141 must not be authored by a BR round');
+      const body141 = sql141
+        .split('\n')
+        .filter((line) => !line.trim().startsWith('--'))
+        .join('\n')
+        .replace(/'CNPJ'/g, '');
+      assert.equal(/CNPJ/i.test(body141), false, '141 may only name CNPJ as the existing CHECK value');
     }
 
     // The sibling reconciliation migration (125) belongs to BR-SOURCE CUT A.1 — a real BR-SOURCE

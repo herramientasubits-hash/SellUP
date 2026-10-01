@@ -304,7 +304,10 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
       // AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET mueve el techo a la 139, y
       // AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 a la 140 (reclamo global de identidad de
       // empresa). Ninguna es de teléfono, ninguna es del catálogo. AUTORADAS y NO APLICADAS.
-      '140_agent1_global_company_identity_claims.sql',
+      // SOURCES-US-EIN-BY-NAME-1 mueve el techo a la 141: sólo amplía el CHECK de
+      // `tax_identifier_type` en `accounts` y `prospect_candidates` con 'EIN' y 'NIF'. No es de
+      // teléfono ni del catálogo. AUTORADA y NO APLICADA.
+      '141_tax_identifier_type_ein_nif.sql',
       `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
     // Y ninguna migración es AUTORÍA de 4O-E1: el hito no escribió SQL.

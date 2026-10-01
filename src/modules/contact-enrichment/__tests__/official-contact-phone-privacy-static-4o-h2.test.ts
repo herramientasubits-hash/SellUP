@@ -198,7 +198,11 @@ describe('115 — numeración', () => {
     // 🔴 AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 movió el techo a la 140: el reclamo global de
     // identidad de empresa. No es de teléfono ni nombra ninguna tabla de estas cadenas.
     // AUTORADA y NO APLICADA.
-    assert.equal(Math.max(...numbers), 140);
+    // 🔴 SOURCES-US-EIN-BY-NAME-1 movió el techo a la 141: sólo amplía el CHECK de
+    // `tax_identifier_type` en `accounts` y `prospect_candidates` con 'EIN' y 'NIF'. No es de
+    // teléfono ni toca ninguna columna, función ni tabla nueva de estas cadenas. AUTORADA y NO
+    // APLICADA.
+    assert.equal(Math.max(...numbers), 141);
   });
 
   it('declara NO estar aplicada en Producción', () => {

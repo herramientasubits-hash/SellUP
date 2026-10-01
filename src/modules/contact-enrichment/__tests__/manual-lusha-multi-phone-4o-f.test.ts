@@ -1178,7 +1178,10 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     // identidad de empresa que cierra la carrera de dos-vendedores-misma-empresa a escala de
     // TODA la cuenta. No es de teléfono, no es del catálogo y no nombra ninguna tabla, columna
     // ni función de las cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 140, '4O-F reutiliza la 111 sin crear SQL nuevo');
+    // 🔴 SOURCES-US-EIN-BY-NAME-1 movió el techo a la 141: sólo amplía el CHECK de
+    // `tax_identifier_type` en `accounts` y `prospect_candidates` con 'EIN' y 'NIF'. No es de
+    // teléfono ni del catálogo. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 141, '4O-F reutiliza la 111 sin crear SQL nuevo');
   });
 
   // AGENT2A-PHONE-REVEAL-4O-H3 — este guarda se INVIERTE, no se borra.

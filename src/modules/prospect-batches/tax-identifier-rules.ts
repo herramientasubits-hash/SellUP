@@ -412,6 +412,26 @@ export const TAX_IDENTIFIER_RULES: Record<string, TaxIdentifierRule> = {
     canonicalExample: '216569480018',
     ruleVersion: 'UY-RUT-v1',
   },
+  US: {
+    countryCode: 'US',
+    label: 'EIN',
+    placeholder: 'Ej. 36-0698440',
+    helpText: 'Ingrese el EIN de 9 dígitos (con o sin guion).',
+    minLength: 9,
+    maxLength: 12,
+    inputMode: 'text',
+    acceptedCharacters: /^[\d\s-]*$/,
+    formatPattern: /^\d{2}-\d{7}$/,
+    // El EIN no tiene dígito verificador: sólo se valida la forma.
+    validationLevel: 'format_only',
+    normalize: (val) => {
+      const digits = val.replace(/\D/g, '');
+      return digits.length === 9 ? `${digits.slice(0, 2)}-${digits.slice(2)}` : val.trim();
+    },
+    validateFormat: (val) => /^\d{9}$/.test(val.replace(/[\s-]/g, '')),
+    canonicalExample: '36-0698440',
+    ruleVersion: 'US-EIN-v1',
+  },
 };
 
 export function getTaxIdentifierRule(countryCode: string | undefined): TaxIdentifierRule | undefined {
