@@ -408,6 +408,16 @@ const DOCUMENT_REPOSITORY_LABELS = new Set([
 ]);
 const PUBLIC_DATA_PORTAL_LABELS = new Set(['datos', 'datosabiertos', 'opendata']);
 const PUBLIC_PROCUREMENT_DOMAINS = new Set(['secop.gov.co', 'colombiacompra.gov.co']);
+/**
+ * AGENT1-TAVILY-QUERY-SPACE-1 — portales nacionales que agrupan a TODO el Estado
+ * (Prod 30-09: «GOV.CO» se guardó como candidato). Coincidencia EXACTA: sus
+ * subdominios son entidades propias y sí son clientes (ins.gov.co, sat.gob.mx).
+ */
+const NATIONAL_GOVERNMENT_PORTAL_DOMAINS = new Set([
+  'gov.co', 'gob.mx', 'argentina.gob.ar', 'gob.pe', 'gob.cl', 'gob.ec', 'gub.uy',
+  'paraguay.gov.py', 'gob.bo', 'gob.ve', 'gob.gt', 'gob.hn', 'gob.sv', 'gob.ni',
+  'gob.pa', 'gob.do', 'gov.br', 'usa.gov', 'administracion.gob.es',
+]);
 
 type InstitutionalContentVerdict =
   | { kind: 'academic_document'; reason: string }
@@ -415,6 +425,9 @@ type InstitutionalContentVerdict =
   | null;
 
 function classifyInstitutionalContent(domain: string): InstitutionalContentVerdict {
+  if (NATIONAL_GOVERNMENT_PORTAL_DOMAINS.has(domain.replace(/^www\./, ''))) {
+    return { kind: 'public_portal', reason: `Portal nacional del Estado (${domain}) — agrupa entidades, no es una` };
+  }
   if (domainMatchesSet(domain, PUBLIC_PROCUREMENT_DOMAINS)) {
     return { kind: 'public_portal', reason: `Portal de contratación pública (${domain}) — listado, no la entidad` };
   }

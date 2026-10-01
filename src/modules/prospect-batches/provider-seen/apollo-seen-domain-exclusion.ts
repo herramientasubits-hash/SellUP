@@ -64,6 +64,13 @@ export type ApolloSeenDomainExclusionInput = {
   sellupLiveDomains?: readonly string[];
   /** SCOPE-1 — vistos que en SellUp sólo están descartados: NO se excluyen. */
   releasedDomains?: readonly string[];
+  /**
+   * SAME-INDUSTRY-1 — vistos que TODO lo que se sabe de ellos sitúa en otro país
+   * u otra industria: no ocupan sitio en la lista. Ausente ⇒ se excluyen todos.
+   */
+  outOfScopeSeenDomains?: readonly string[];
+  /** SAME-INDUSTRY-1 — vivos del país que el lector dejó fuera por ser de otra industria (sólo telemetría). */
+  liveOutOfScopeCount?: number;
   now: Date;
   cooldownDays?: number;
   cap?: number;
@@ -78,6 +85,10 @@ export type ApolloSeenDomainExclusionTelemetry = {
   from_recent_seen: number;
   /** SCOPE-1 — vistos que NO se excluyen porque en SellUp sólo están descartados. */
   seen_released_by_discard: number;
+  /** SAME-INDUSTRY-1 — vistos que NO se excluyen por ser de otro país u otra industria. */
+  seen_out_of_scope: number;
+  /** SAME-INDUSTRY-1 — vivos del país que NO se excluyen por ser de otra industria. */
+  live_out_of_scope: number;
   /** Vistas pero fuera del enfriamiento: pueden volver a aparecer. */
   seen_outside_cooldown: number;
   /** Vistas sin fecha fiable: no se excluyen. */
@@ -113,6 +124,8 @@ export function resolveApolloSeenDomainExclusion(
         from_sellup_live: 0,
         from_recent_seen: 0,
         seen_released_by_discard: 0,
+        seen_out_of_scope: 0,
+        live_out_of_scope: 0,
         seen_outside_cooldown: 0,
         seen_without_date: 0,
         omitted_due_to_cap: 0,
@@ -134,16 +147,25 @@ export function resolveApolloSeenDomainExclusion(
     (input.releasedDomains ?? []).map(normalizeDomain).filter((d): d is string => d !== null),
   );
 
+  const outOfScope = new Set(
+    (input.outOfScopeSeenDomains ?? []).map(normalizeDomain).filter((d): d is string => d !== null),
+  );
+
   const cutoff = input.now.getTime() - cooldownDays * MS_PER_DAY;
   const recentSeen: { domain: string; seenAt: number }[] = [];
   let seenOutsideCooldown = 0;
   let seenWithoutDate = 0;
   let seenReleasedByDiscard = 0;
+  let seenOutOfScope = 0;
   for (const raw of input.providerSeenMemory?.normalizedDomains ?? []) {
     const domain = normalizeDomain(raw);
     if (domain === null || authoritySet.has(domain)) continue;
     if (released.has(domain)) {
       seenReleasedByDiscard++;
+      continue;
+    }
+    if (outOfScope.has(domain)) {
+      seenOutOfScope++;
       continue;
     }
     const seenAtRaw = input.providerSeenMemory?.domainLastSeenAt?.get(raw);
@@ -175,6 +197,8 @@ export function resolveApolloSeenDomainExclusion(
       from_sellup_live: fromSellupLive,
       from_recent_seen: domains.length - fromAuthority,
       seen_released_by_discard: seenReleasedByDiscard,
+      seen_out_of_scope: seenOutOfScope,
+      live_out_of_scope: Math.max(0, Math.trunc(input.liveOutOfScopeCount ?? 0)),
       seen_outside_cooldown: seenOutsideCooldown,
       seen_without_date: seenWithoutDate,
       omitted_due_to_cap: ordered.length - domains.length,

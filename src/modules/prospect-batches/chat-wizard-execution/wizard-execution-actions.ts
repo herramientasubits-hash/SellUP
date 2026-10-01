@@ -308,7 +308,19 @@ export type WizardExecutionDeps = {
   loadApolloExclusionSellupDomains?: (input: {
     countryCode: string;
     seenDomains: readonly string[];
-  }) => Promise<{ liveDomains: string[]; releasedDomains: string[]; degraded: boolean }>;
+    /**
+     * AGENT1-APOLLO-EXCLUSION-SAME-INDUSTRY-1 — la industria de la corrida tal como
+     * la publica el catálogo. El lector la resuelve a su macro y acota la exclusión
+     * a su país Y su industria; si no resuelve, cubre todo como antes.
+     */
+    scope?: { industrySlug: string | null; industryName: string | null };
+  }) => Promise<{
+    liveDomains: string[];
+    releasedDomains: string[];
+    degraded: boolean;
+    outOfScopeSeenDomains?: string[];
+    liveOutOfScopeCount?: number;
+  }>;
   runPrePaidNoveltyDiscovery?: (input: {
     countryCode: string;
     macroIndustryKey: string | null;
@@ -1681,6 +1693,12 @@ export async function executeProspectWizardGeneration(
           .loadApolloExclusionSellupDomains({
             countryCode: req.countryCode,
             seenDomains: [...(apolloExclusionSeenMemory?.normalizedDomains ?? [])],
+            // SAME-INDUSTRY-1 — la industria de la corrida; el lector la resuelve y,
+            // si no hay macro conocida, todo se excluye como antes.
+            scope: {
+              industrySlug: catalogResolution.industry.slug,
+              industryName: catalogResolution.industry.name,
+            },
           })
           .catch(() => null)
       : null;
@@ -1690,6 +1708,8 @@ export async function executeProspectWizardGeneration(
     providerSeenMemory: apolloExclusionSeenMemory,
     sellupLiveDomains: apolloExclusionSellup?.liveDomains ?? [],
     releasedDomains: apolloExclusionSellup?.releasedDomains ?? [],
+    outOfScopeSeenDomains: apolloExclusionSellup?.outOfScopeSeenDomains ?? [],
+    liveOutOfScopeCount: apolloExclusionSellup?.liveOutOfScopeCount ?? 0,
     now: new Date(),
   });
 

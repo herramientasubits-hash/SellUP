@@ -79,3 +79,52 @@ describe('TAVILY_STATIC_EXCLUDE_DOMAINS', () => {
     }
   });
 });
+
+// ─── AGENT1-TAVILY-QUERY-SPACE-1 — los huecos se gastan en dominios del país ──
+
+import { isCountryDomain, prioritizeCountryDomains } from '../tavily-exclude-domains';
+
+describe('AGENT1-TAVILY-QUERY-SPACE-1 — memoria negativa priorizada por país', () => {
+  it('isCountryDomain reconoce el ccTLD y sus segundos niveles', () => {
+    assert.equal(isCountryDomain('ins.gov.co', 'CO'), true);
+    assert.equal(isCountryDomain('empresa.com.co', 'CO'), true);
+    assert.equal(isCountryDomain('empresa.com.mx', 'CO'), false);
+    assert.equal(isCountryDomain('empresa.com', 'CO'), false);
+    assert.equal(isCountryDomain('agency.gov', 'US'), true);
+    assert.equal(isCountryDomain('empresa.co', null), false);
+  });
+
+  it('prioritizeCountryDomains pone primero los del país sin perder ninguno', () => {
+    const out = prioritizeCountryDomains(['a.com', 'b.gov.co', 'c.com.mx', 'd.co'], 'CO');
+    assert.deepEqual(out, ['b.gov.co', 'd.co', 'a.com', 'c.com.mx']);
+  });
+
+  it('con memoria mayor que el tope, entran los del país y se truncan los de fuera', () => {
+    const foreign = Array.from({ length: 300 }, (_, i) => `empresa${i}.com.mx`);
+    const local = Array.from({ length: 50 }, (_, i) => `entidad${i}.gov.co`);
+    const result = buildTavilyExcludeDomains({ seenThisRun: [], negativeMemory: [...foreign, ...local], countryCode: 'CO' });
+    for (const d of local) assert.ok(result.domains.includes(d), d);
+    assert.equal(result.domains.length, 150);
+  });
+
+  it('sin país conserva el orden de siempre', () => {
+    const result = buildTavilyExcludeDomains({ seenThisRun: [], negativeMemory: ['x.com', 'y.co'] });
+    assert.ok(result.domains.indexOf('x.com') < result.domains.indexOf('y.co'));
+  });
+});
+
+describe('AGENT1-TAVILY-QUERY-SPACE-1 — dominios de la celda antes que la memoria global', () => {
+  it('cellDomains entra después de lo visto en la corrida y antes de la memoria', () => {
+    const memory = Array.from({ length: 400 }, (_, i) => `e${i}.gov.co`);
+    const result = buildTavilyExcludeDomains({
+      seenThisRun: ['vista.gov.co'],
+      cellDomains: ['celda.gov.co'],
+      negativeMemory: memory,
+      countryCode: 'CO',
+    });
+    assert.ok(result.domains.includes('celda.gov.co'));
+    assert.equal(result.cellDomainsCount, 1);
+    assert.ok(result.domains.indexOf('vista.gov.co') < result.domains.indexOf('celda.gov.co'));
+    assert.ok(result.domains.indexOf('celda.gov.co') < result.domains.indexOf('e0.gov.co'));
+  });
+});

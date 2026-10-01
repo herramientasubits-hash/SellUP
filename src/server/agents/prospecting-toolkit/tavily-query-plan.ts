@@ -29,8 +29,16 @@ import {
   type MacroIndustryDefinition,
   type MacroIndustryKey,
 } from '@/modules/macro-industry-catalog/macro-industries';
+import { resolveTavilyCountryRegions } from './tavily-country-regions';
+import {
+  normalizeTavilyQueryKey,
+  selectTavilyQueryCells,
+  type TavilyQueryCell,
+  type TavilyQueryHistory,
+  type TavilyQuerySpaceSummary,
+} from './tavily-query-space';
 
-export const TAVILY_QUERY_PLAN_VERSION = 'tavily_macro_query_plan_v1';
+export const TAVILY_QUERY_PLAN_VERSION = 'tavily_macro_query_plan_v2';
 
 export const TAVILY_QUERIES_PER_ROUND = 4;
 export const TAVILY_PLAN_MAX_ROUNDS = 4;
@@ -177,6 +185,18 @@ export type TavilyMacroQueryPlan = {
   /** Consultas por ronda, en orden de emisión. Nunca vacío por dentro. */
   rounds: string[][];
   additionalCriteriaApplied: boolean;
+  /**
+   * AGENT1-TAVILY-QUERY-SPACE-1 — el espacio término × (nacional + regiones) y
+   * cuánto queda. `exhausted` ⇒ `rounds` vacío: la corrida no debe pagar.
+   */
+  space: TavilyQuerySpaceSummary;
+  regionsCount: number;
+  /** Celdas de esta corrida, en orden de emisión (clave = consulta base normalizada). */
+  cellsUsed: Array<{ key: string; query: string; region: string | null }>;
+  /** Todas las claves del espacio (sólo en memoria; no va a metadata). */
+  allCellKeys: string[];
+  /** Por ronda: dominios que esas celdas ya trajeron antes (van a `exclude_domains`). */
+  roundCellDomains: string[][];
 };
 
 export type TavilyMacroQueryPlanInput = {
@@ -192,6 +212,12 @@ export type TavilyMacroQueryPlanInput = {
   /** Clave estable del lote: fija la rotación. */
   seedKey: string;
   additionalCriteria: string | null | undefined;
+  /**
+   * AGENT1-TAVILY-QUERY-SPACE-1 — lo que ya buscaron las corridas de Tavily del
+   * mismo país e industria. Ausente ⇒ segmento nuevo (fail-open).
+   */
+  history?: TavilyQueryHistory;
+  nowMs?: number;
 };
 
 /**
@@ -239,11 +265,26 @@ function stableHash(value: string): number {
   return hash >>> 0;
 }
 
-function redactQuery(definition: MacroIndustryDefinition, term: string, country: string): string {
+function redactQuery(definition: MacroIndustryDefinition, term: string, location: string): string {
   // Una entidad pública no es una «empresa», y un término que ya dice
   // «empresa …» no necesita repetirlo.
   const needsCompanyWord = definition.key !== 'government' && !/^empresa\b/i.test(term);
-  return needsCompanyWord ? `empresa ${term} ${country}` : `${term} ${country}`;
+  return needsCompanyWord ? `empresa ${term} ${location}` : `${term} ${location}`;
+}
+
+function buildQueryCells(
+  definition: MacroIndustryDefinition,
+  terms: readonly string[],
+  country: string,
+  regions: readonly string[],
+): TavilyQueryCell[] {
+  const locations: (string | null)[] = [null, ...regions];
+  return terms.flatMap((term) =>
+    locations.map((region) => {
+      const query = redactQuery(definition, term, region ? `${region} ${country}` : country);
+      return { term, region, query, key: normalizeTavilyQueryKey(query) };
+    }),
+  );
 }
 
 /**
@@ -261,23 +302,40 @@ export function buildTavilyMacroQueryPlan(
   if (terms.length === 0) return null;
 
   const rotationOffset = stableHash(input.seedKey) % terms.length;
-  const rotated = [...terms.slice(rotationOffset), ...terms.slice(0, rotationOffset)];
-  const selected = rotated.slice(0, TAVILY_QUERIES_PER_ROUND * TAVILY_PLAN_MAX_ROUNDS);
+  const country = input.country.trim();
+  const regions = resolveTavilyCountryRegions(input.countryCode);
+  const cells = buildQueryCells(definition, terms, country, regions);
+  const { selected, summary } = selectTavilyQueryCells({
+    cells,
+    history: input.history ?? new Map(),
+    nowMs: input.nowMs ?? Date.now(),
+    seedKey: input.seedKey,
+    limit: TAVILY_QUERIES_PER_ROUND * TAVILY_PLAN_MAX_ROUNDS,
+  });
 
   const criteria = sanitizeTavilyAdditionalCriteria(input.additionalCriteria);
-  const country = input.country.trim();
-
+  const cellsUsed: TavilyMacroQueryPlan['cellsUsed'] = [];
   const rounds: string[][] = [];
+  const roundCellDomains: string[][] = [];
+  const history = input.history ?? new Map();
   for (let start = 0; start < selected.length; start += TAVILY_QUERIES_PER_ROUND) {
     const round = selected
       .slice(start, start + TAVILY_QUERIES_PER_ROUND)
-      .map((term, index) => {
-        const base = redactQuery(definition, term, country);
+      .map((cell, index) => {
         // Mitad de la ronda con criterio, mitad sin él: el criterio orienta sin
         // estrechar toda la ronda a un texto libre que nadie calibró.
-        return criteria && index % 2 === 0 ? `${base} ${criteria}` : base;
+        const query = criteria && index % 2 === 0 ? `${cell.query} ${criteria}` : cell.query;
+        cellsUsed.push({ key: cell.key, query, region: cell.region });
+        return query;
       });
     rounds.push(round);
+    roundCellDomains.push([
+      ...new Set(
+        selected
+          .slice(start, start + TAVILY_QUERIES_PER_ROUND)
+          .flatMap((cell) => history.get(cell.key)?.domains ?? []),
+      ),
+    ]);
   }
 
   return {
@@ -287,5 +345,10 @@ export function buildTavilyMacroQueryPlan(
     rotationOffset,
     rounds,
     additionalCriteriaApplied: criteria !== null,
+    space: summary,
+    regionsCount: regions.length,
+    cellsUsed,
+    allCellKeys: cells.map((cell) => cell.key),
+    roundCellDomains,
   };
 }
