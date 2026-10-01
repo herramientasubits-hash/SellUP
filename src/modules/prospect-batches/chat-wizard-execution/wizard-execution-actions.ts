@@ -68,8 +68,11 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { isTavilyConfiguredForWizard } from './wizard-availability';
 import {
   TAVILY_FIRST_MAX_ROUNDS,
+  canStartApolloAfterTavilyFirst,
+  canStartLushaAfterTavilyFirst,
   combineWriterTruths,
   isTavilyFirstSatisfied,
+  resolveInlineRescueWindowMs,
   resolveTavilyFirstPrecheck,
   type TavilyFirstOutcome,
   type WriterTruthLike,
@@ -107,6 +110,7 @@ import {
 import {
   isWizardRunProviderOverrideEffective,
   isAgent1TavilyFirstEffective,
+  isAgent1ClaudeRescueEnabled,
   isWizardRunProviderOverrideEnabled,
 } from '@/lib/feature-flags.server';
 // Q3F-5BB.11E — OBSERVATIONAL Apollo provider-routing wiring. The adapter is pure
@@ -290,6 +294,16 @@ export type WizardExecutionDeps = {
    * duplicadas ni descartadas). `null` = no se pudo contar.
    */
   countReviewableCandidates?: (batchId: string) => Promise<number | null>;
+  /**
+   * AGENT1-TAVILY-FIRST-2 — Claude revisa las empresas de Tavily DENTRO de la
+   * corrida, con una ventana acotada para empezar empresas nuevas. `true` = se
+   * revisó. Sin dep ⇒ no se revisa dentro (la decisión usa lo de Tavily).
+   */
+  rescueBatchInline?: (input: { batchId: string; windowMs: number }) => Promise<boolean>;
+  /** AGENT1-TAVILY-FIRST-2 — inicio de la acción, para medir los 300 s de Vercel. */
+  actionStartedAtMs?: number;
+  /** Reloj inyectable (pruebas). Por defecto `Date.now`. */
+  nowMs?: () => number;
   /**
    * A1-APOLLO-WIZARD-1: preflight de Apollo. Se ejecuta ANTES de cualquier
    * reserva. Opcional para no romper a los tests que sólo ejercitan Tavily; si
@@ -566,6 +580,24 @@ export async function executeProspectWizardGenerationAction(
     checkTavilyAvailability: isTavilyConfiguredForWizard,
     // AGENT1-TAVILY-FIRST-1 — bandera propia, sólo dentro del modo automático.
     resolveTavilyFirst: isAgent1TavilyFirstEffective,
+    // AGENT1-TAVILY-FIRST-2 — el MISMO rescate que corre en segundo plano, con
+    // su propio flag; aquí con una ventana corta y antes de decidir.
+    actionStartedAtMs,
+    rescueBatchInline: async ({ batchId, windowMs }) => {
+      if (!isAgent1ClaudeRescueEnabled()) return false;
+      const [{ rescueBatchWithClaude }, { buildLiveRescueBatchDeps }] = await Promise.all([
+        import('@/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch'),
+        import('@/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch.server'),
+      ]);
+      const triggeredBy = await requireActiveUser()
+        .then((auth) => auth.internalUserId)
+        .catch(() => null);
+      const summary = await rescueBatchWithClaude(
+        { batchId, triggeredBy, deadlineMs: windowMs },
+        buildLiveRescueBatchDeps(triggeredBy),
+      );
+      return summary.ok;
+    },
     countReviewableCandidates: async (batchId) => {
       const { count, error } = await budgetClient
         .from('prospect_candidates')
@@ -2068,6 +2100,11 @@ export async function executeProspectWizardGeneration(
   // y Lusha no se pagan. Cualquier tropiezo ⇒ Apollo como siempre.
   let tavilyFirstOutcome: TavilyFirstOutcome | null = null;
   let tavilyFirstResult: IncrementalSearchOutput | null = null;
+  /** Tiempo desde el inicio de la acción (0 si no se sabe: nunca bloquea por error). */
+  const elapsedSinceActionStartMs = (): number =>
+    deps.actionStartedAtMs === undefined
+      ? 0
+      : (deps.nowMs ? deps.nowMs() : Date.now()) - deps.actionStartedAtMs;
   if (discoveryProvider === 'apollo_organizations' && deps.resolveTavilyFirst?.() === true) {
     const tavilyMaxCredits = estimateCreditsForProvider('tavily');
     const quota = deps.checkTavilyProviderQuota
@@ -2093,18 +2130,66 @@ export async function executeProspectWizardGeneration(
       }
 
       if (tavilyFirstResult) {
-        const reviewable = deps.countReviewableCandidates
-          ? await deps.countReviewableCandidates(reservedBatchId).catch(() => null)
-          : null;
         const target = WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES;
-        tavilyFirstOutcome = isTavilyFirstSatisfied(reviewable, target)
-          ? { outcome: 'satisfied', reviewable: reviewable as number, target }
-          : { outcome: 'apollo_completed', reviewable, target };
+        const countReviewable = async (): Promise<number | null> =>
+          deps.countReviewableCandidates
+            ? await deps.countReviewableCandidates(reservedBatchId).catch(() => null)
+            : null;
+        const before = await countReviewable();
+        let after = before;
+        let claudeReviewed = false;
+        // AGENT1-TAVILY-FIRST-2 — sólo vale la pena revisar si Tavily «basta»:
+        // con menos, Apollo corre igual y la revisión se queda para después.
+        if (before !== null && isTavilyFirstSatisfied(before, target) && deps.rescueBatchInline) {
+          const windowMs = resolveInlineRescueWindowMs(elapsedSinceActionStartMs());
+          if (windowMs !== null) {
+            const reviewed = await deps
+              .rescueBatchInline({ batchId: reservedBatchId, windowMs })
+              .catch(() => false);
+            if (reviewed) {
+              claudeReviewed = true;
+              after = await countReviewable();
+            }
+          }
+        }
+        if (isTavilyFirstSatisfied(after, target)) {
+          tavilyFirstOutcome = {
+            outcome: 'satisfied',
+            reviewable: after as number,
+            reviewableBeforeClaude: before as number,
+            claudeReviewed,
+            target,
+          };
+        } else if (
+          claudeReviewed &&
+          before !== null &&
+          after !== null &&
+          !canStartApolloAfterTavilyFirst(elapsedSinceActionStartMs())
+        ) {
+          // Claude dejó pocas y ya no cabe Apollo en los 300 s: se entrega lo que hay.
+          tavilyFirstOutcome = {
+            outcome: 'short_no_time',
+            reviewable: after,
+            reviewableBeforeClaude: before,
+            claudeReviewed: true,
+            target,
+          };
+        } else {
+          tavilyFirstOutcome = {
+            outcome: 'apollo_completed',
+            reviewable: after,
+            reviewableBeforeClaude: before,
+            claudeReviewed,
+            target,
+          };
+        }
       }
     }
   }
+  /** Tavily cierra la corrida (bastó, o no queda tiempo para Apollo). */
   const tavilyFirstSatisfied =
-    tavilyFirstOutcome?.outcome === 'satisfied' && tavilyFirstResult !== null;
+    (tavilyFirstOutcome?.outcome === 'satisfied' || tavilyFirstOutcome?.outcome === 'short_no_time') &&
+    tavilyFirstResult !== null;
   /** Verdad del escritor del tramo de Tavily cuando Apollo completó después. */
   const tavilyFirstTruth: WriterTruthLike | null =
     tavilyFirstOutcome?.outcome === 'apollo_completed' && tavilyFirstResult
@@ -2391,8 +2476,13 @@ export async function executeProspectWizardGeneration(
    * devuelve `waterfall_flag_disabled` ANTES de mirar nada más, así que no se
    * deriva identidad, no se reserva un crédito y no sale una sola llamada.
    */
-  const lushaWaterfall: LushaWaterfallLegOutcome = tavilyFirstSatisfied
+  const lushaWaterfall: LushaWaterfallLegOutcome = tavilyFirstOutcome?.outcome === 'short_no_time'
+    ? { executed: false, reason: 'tavily_first_time_budget' }
+    : tavilyFirstSatisfied
     ? { executed: false, reason: 'tavily_first_reviewable_met' }
+    : tavilyFirstOutcome?.outcome === 'apollo_completed' &&
+      !canStartLushaAfterTavilyFirst(elapsedSinceActionStartMs())
+    ? { executed: false, reason: 'tavily_first_time_budget' }
     : deps.runLushaWaterfallLeg
     ? await deps.runLushaWaterfallLeg({
         wizardClientRequestId: req.clientRequestId,
