@@ -168,6 +168,34 @@ export const US_LEGAL_FORMS: readonly string[] = [
   'CO',
 ];
 
+/**
+ * Formas societarias de España (adjudicatarias de la Plataforma de Contratación),
+ * más largas primero. SOURCES-ES-NIF-BY-NAME-1.
+ */
+export const SPAIN_LEGAL_FORMS: readonly string[] = [
+  'SOCIEDAD LIMITADA UNIPERSONAL',
+  'SOCIEDAD ANONIMA UNIPERSONAL',
+  'SOCIEDAD LIMITADA PROFESIONAL',
+  'SOCIEDAD LIMITADA LABORAL',
+  'SOCIEDAD COOPERATIVA',
+  'SOCIEDAD LIMITADA',
+  'SOCIEDAD ANONIMA',
+  'S COOP',
+  'S L U',
+  'S L P',
+  'S L L',
+  'S A U',
+  'S L',
+  'S A',
+  'SCOOP',
+  'SLU',
+  'SLP',
+  'SLL',
+  'SAU',
+  'SL',
+  'SA',
+];
+
 /** Núcleo comparable del nombre con las formas dadas, o cadena vacía. */
 export function normalizeCompanyNameCore(
   name: string | null | undefined,

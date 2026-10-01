@@ -12,7 +12,8 @@
  * (ec_scvs snapshot) name→RUC, Guatemala (gt_rgae_proveedores) name→NIT and
  * Honduras (hn_contrataciones_abiertas) name→RTN and Perú (pe_sunat_registry)
  * name→RUC, Paraguay (py_set_registry) name→RUC, Uruguay
- * (uy_rupe_registry) name→RUT and Estados Unidos (SEC, then IRS) name→EIN. No promise of MX/… enrichment
+ * (uy_rupe_registry) name→RUT, Estados Unidos (SEC, then IRS) name→EIN and
+ * España (es_placsp_registry, adjudicatarias) name→NIF. No promise of MX/… enrichment
  * is made here;
  * unsupported countries fall through to the shared "unsupported" result (soft
  * warning) automatically.
@@ -58,6 +59,7 @@ import { normalizePeruCompanyCore } from '@/server/source-catalog/connectors/sun
 import { normalizeParaguayCompanyCore } from '@/server/source-catalog/connectors/set-paraguay/py-set-registry-row';
 import { normalizeUruguayCompanyCore } from '@/server/source-catalog/connectors/rupe-uruguay/uy-rupe-registry-row';
 import { normalizeUsCompanyCore } from '@/server/source-catalog/connectors/us-ein/us-ein-registry-rows';
+import { normalizeSpainCompanyCore } from '@/server/source-catalog/connectors/placsp-spain/es-placsp-registry-rows';
 import { createFallbackOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/fallback-official-source-resolver';
 import {
   buildRuesNameLiveQuery,
@@ -175,5 +177,15 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
         querySnapshots: buildSnapshotNameQuery(snapshotClient, 'us_irs_eo_registry', 'US'),
       }),
     ),
+    // SOURCES-ES-NIF-BY-NAME-1 — sociedades adjudicatarias de la Plataforma de
+    // Contratación. Requiere la migración 141 (tipo 'NIF') antes de cargarla.
+    createSnapshotNameOfficialSourceResolver({
+      countryCode: 'ES',
+      sourceKey: 'es_placsp_registry',
+      taxIdentifierType: 'NIF',
+      validTaxId: /^[A-HJNPQRSUVW]\d{7}[0-9A-J]$/,
+      normalizeCore: normalizeSpainCompanyCore,
+      querySnapshots: buildSnapshotNameQuery(snapshotClient, 'es_placsp_registry', 'ES'),
+    }),
   ];
 }
