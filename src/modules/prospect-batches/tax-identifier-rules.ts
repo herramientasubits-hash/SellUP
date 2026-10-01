@@ -129,6 +129,28 @@ export function calculateUruguayRutCheckDigit(rutBody: string): number | null {
   return dv;
 }
 
+/**
+ * Control del NIF de una SOCIEDAD española (antiguo CIF): letra + 7 dígitos +
+ * control. Posiciones impares ×2 (sumando sus cifras) + pares; control =
+ * (10 − suma mod 10) mod 10, como dígito o como letra «JABCDEFGHI»[control].
+ * SOURCES-ES-NIF-BY-NAME-1: comprobado sobre 11.404 NIF de adjudicatarias de la
+ * Plataforma de Contratación (septiembre de 2026), 1 solo fallo del propio registro.
+ */
+export function calculateSpainCompanyNifControl(body7: string): { digit: string; letter: string } | null {
+  if (!/^\d{7}$/.test(body7)) return null;
+  let total = 0;
+  for (let i = 0; i < 7; i++) {
+    let value = parseInt(body7[i], 10);
+    if (i % 2 === 0) {
+      value *= 2;
+      value = Math.floor(value / 10) + (value % 10);
+    }
+    total += value;
+  }
+  const control = (10 - (total % 10)) % 10;
+  return { digit: String(control), letter: 'JABCDEFGHI'[control] };
+}
+
 export function calculateCNPJCheckDigit(digits: number[], weights: number[]): number {
   let sum = 0;
   for (let i = 0; i < weights.length; i++) {
@@ -431,6 +453,27 @@ export const TAX_IDENTIFIER_RULES: Record<string, TaxIdentifierRule> = {
     validateFormat: (val) => /^\d{9}$/.test(val.replace(/[\s-]/g, '')),
     canonicalExample: '36-0698440',
     ruleVersion: 'US-EIN-v1',
+  },
+  ES: {
+    countryCode: 'ES',
+    label: 'NIF',
+    placeholder: 'Ej. A58710740',
+    helpText: 'Ingrese el NIF de la sociedad (letra, 7 dígitos y control).',
+    minLength: 9,
+    maxLength: 11,
+    inputMode: 'text',
+    acceptedCharacters: /^[a-zA-Z\d\s-]*$/,
+    formatPattern: /^[A-HJNPQRSUVW]\d{7}[0-9A-J]$/,
+    validationLevel: 'checksum',
+    normalize: (val) => val.toUpperCase().replace(/[\s.-]/g, ''),
+    validateFormat: (val) => /^[A-HJNPQRSUVW]\d{7}[0-9A-J]$/.test(val.toUpperCase().replace(/[\s.-]/g, '')),
+    validateChecksum: (val) => {
+      const cleaned = val.toUpperCase().replace(/[\s.-]/g, '');
+      const control = calculateSpainCompanyNifControl(cleaned.slice(1, 8));
+      return control !== null && (cleaned[8] === control.digit || cleaned[8] === control.letter);
+    },
+    canonicalExample: 'A58710740',
+    ruleVersion: 'ES-NIF-v1',
   },
 };
 

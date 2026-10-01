@@ -28,6 +28,7 @@ const TAX_GRAIN_SOURCE_KEYS = [
   'uy_rupe_registry',
   'us_sec_edgar_registry',
   'us_irs_eo_registry',
+  'es_placsp_registry',
 ] as const;
 
 const NATIVE_RECORD_GRAIN_SOURCE_KEYS = [

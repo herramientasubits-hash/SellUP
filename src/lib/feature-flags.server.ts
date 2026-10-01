@@ -944,6 +944,23 @@ export function isWizardRunProviderOverrideEffective(): boolean {
 
 export const AGENT1_ADMIN_TAVILY_TRIAL_FLAG = 'ENABLE_AGENT1_ADMIN_TAVILY_TRIAL';
 
+// ════════════════════════════════════════════════════════════════════════════
+// Agente 1 · Tavily primero (AGENT1-TAVILY-FIRST-1)
+// ════════════════════════════════════════════════════════════════════════════
+
+export const AGENT1_TAVILY_FIRST_FLAG = 'ENABLE_AGENT1_TAVILY_FIRST';
+
+/**
+ * ¿Corre Tavily (gratis, 1.000 créditos al mes) ANTES de Apollo en el modo
+ * automático? Si deja suficientes empresas para revisar, Apollo y Lusha no se
+ * pagan. Sólo tiene sentido DENTRO del modo automático.
+ *
+ * 🔴 Fail-closed y por defecto APAGADA: sólo el token exacto `true` la enciende.
+ */
+export function isAgent1TavilyFirstEffective(): boolean {
+  return isEnvFlagEnabled(process.env[AGENT1_TAVILY_FIRST_FLAG]) && isAgent1AutoProviderCascadeEnabled();
+}
+
 /**
  * ¿Puede un administrador mandar UNA corrida a Tavily aunque el modo automático
  * esté encendido? Sirve para medir a Tavily en Producción sin cambiar el
