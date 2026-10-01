@@ -102,6 +102,15 @@ describe('SEC EDGAR', () => {
     assert.equal(buildUsSecRegistryRow(submission({ filings: {} }), secParams), null);
   });
 
+  it('la última presentación se busca en toda la lista, aunque no venga primero', () => {
+    const row = buildUsSecRegistryRow(submission({ filings: { recent: { filingDate: ['2019-03-01', '2026-08-01'] } } }), secParams);
+    assert.equal(row?.tax_id, '36-0698440');
+  });
+
+  it('un nombre sin núcleo utilizable no entra', () => {
+    assert.equal(buildUsSecRegistryRow(submission({ name: 'X' }), secParams), null);
+  });
+
   it('la fecha de corte es inclusiva', () => {
     const row = buildUsSecRegistryRow(submission({ filings: { recent: { filingDate: ['2024-09-30'] } } }), secParams);
     assert.equal(row?.tax_id, '36-0698440');
