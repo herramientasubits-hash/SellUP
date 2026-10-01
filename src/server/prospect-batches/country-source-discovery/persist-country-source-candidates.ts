@@ -98,11 +98,13 @@ function toSourceDiscoveryCandidate(
       declared_industry: company.declaredIndustry,
       coarse_sector: company.coarseSector,
       // 🔴 Se deja dicho que NO hay web, en vez de omitir el campo: la ausencia
-      // explícita es un dato para quien revise (§ 22(I)).
-      website: null,
-      website_available: false,
+      // explícita es un dato para quien revise (§ 22(I)). Las fuentes colombianas
+      // no publican web; SOURCES-MX-DENUE-MIX-WEB-DEDUPE-1: DENUE sí, y entonces se
+      // guarda (el writer la lee de aquí y deriva el dominio) en vez de tirarla.
+      website: company.domain ? `https://${company.domain}` : null,
+      website_available: company.domain !== null,
     },
-    reviewFlags: ['missing_website'],
+    reviewFlags: company.domain ? [] : ['missing_website'],
     qualityDecision: 'accepted',
   };
 }
