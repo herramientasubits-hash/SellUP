@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, Loader2 } from 'lucide-react';
+import { Plus, Loader2 } from "@/icons";
 import { ModalShell } from '@/components/shared/modal-shell';
 import { FieldLabel, FieldDescription } from '@/components/forms/field';
 import {

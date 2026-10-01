@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Plus, Loader2, Layers, Globe, Target, User, Zap } from 'lucide-react';
+import { Plus, Loader2, Layers, Globe, Target, User, Zap } from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

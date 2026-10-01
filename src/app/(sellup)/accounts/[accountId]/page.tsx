@@ -13,7 +13,7 @@ import {
   Calendar,
   User,
   Briefcase,
-} from 'lucide-react';
+} from "@/icons";
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { Badge } from '@/components/ui/badge';

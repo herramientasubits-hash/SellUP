@@ -10,7 +10,7 @@ import {
   ChevronDown,
   ChevronUp,
   AlertTriangle,
-} from 'lucide-react';
+} from "@/icons";
 import { Button } from '@/components/ui/button';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { runClResDryRunAction } from '@/modules/source-catalog/source-credential-actions';

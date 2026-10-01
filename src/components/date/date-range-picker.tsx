@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CalendarIcon } from "lucide-react";
+import { CalendarIcon } from "@/icons";
 import type { DateRange } from "react-day-picker";
 
 import { cn } from "@/lib/utils";

@@ -1,4 +1,4 @@
-import { Building2, Ban, Sparkles, UserRoundX } from 'lucide-react';
+import { Building2, Ban, Sparkles, UserRoundX } from "@/icons";
 import { DataTablePage } from '@/components/shared/data-table-page';
 import { MetricCard } from '@/components/shared/metric-card';
 import { ModuleTabsNav } from '@/components/navigation/module-tabs-nav';

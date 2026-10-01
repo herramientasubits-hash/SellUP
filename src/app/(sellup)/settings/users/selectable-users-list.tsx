@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { X, Pause, RotateCcw, Archive, UserX, Layers, Loader2 } from 'lucide-react';
+import { X, Pause, RotateCcw, Archive, UserX, Layers, Loader2 } from "@/icons";
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';

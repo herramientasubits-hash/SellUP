@@ -11,7 +11,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { AlertTriangle, Info, ShieldCheck, ArrowRightCircle } from 'lucide-react';
+import { AlertTriangle, Info, ShieldCheck, ArrowRightCircle } from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import {

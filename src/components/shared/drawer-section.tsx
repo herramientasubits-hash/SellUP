@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { LucideIcon } from "lucide-react";
+import type { LucideIcon } from "@/icons";
 import { cn } from "@/lib/utils";
 
 export type DrawerSectionTone =

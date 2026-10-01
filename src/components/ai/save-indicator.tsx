@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { Save, Loader2, CheckCircle, AlertCircle, WifiOff, Layers } from "lucide-react";
+import { Save, Loader2, CheckCircle, AlertCircle, WifiOff, Layers } from "@/icons";
 import type { SaveIndicatorProps } from "./aiInteractionTypes";
 
 export function SaveIndicator({

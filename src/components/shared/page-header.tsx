@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "@/icons";
 import { cn } from "@/lib/utils";
 
 interface PageHeaderProps {

@@ -1,4 +1,5 @@
-import { Users, Crown, Target, Star } from 'lucide-react';
+import { Users, Crown, Target, Star } from "@/icons";
+import { ScreenActionRail, ScreenActionRailProvider } from "@/components/action-rail";
 import { DataTablePage } from '@/components/shared/data-table-page';
 import { MetricCard } from '@/components/shared/metric-card';
 import { getAllContacts } from '@/modules/contacts/actions';
@@ -50,15 +51,16 @@ export default async function ContactsPage({ searchParams }: ContactsPageProps) 
   const primary = contacts.filter((c) => c.is_primary).length;
 
   return (
+    <ScreenActionRailProvider>
     <DataTablePage
       title="Contactos"
       description="Centraliza decisores, sponsors y personas clave vinculadas a cuentas y prospectos."
       tabs={<ContactsModuleTabsNav active="approved" />}
       actions={
-        <div className="flex flex-wrap items-center gap-2">
+        <ScreenActionRail label="Acciones de contactos">
           <ContactsEnrichmentCTA />
           <CreateContactDrawer accounts={accounts} />
-        </div>
+        </ScreenActionRail>
       }
       metrics={
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -111,5 +113,6 @@ export default async function ContactsPage({ searchParams }: ContactsPageProps) 
         scopeFilterOptions={scopeFilterOptions}
       />
     </DataTablePage>
+    </ScreenActionRailProvider>
   );
 }

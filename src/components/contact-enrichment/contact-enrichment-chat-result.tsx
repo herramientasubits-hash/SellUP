@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { AlertCircle, Building2, Check, Globe, Info, Lightbulb, MapPin, ShieldCheck, UserPlus, XCircle } from 'lucide-react';
+import { AlertCircle, Building2, Check, Globe, Info, Lightbulb, MapPin, ShieldCheck, UserPlus, XCircle } from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { SurfaceCard } from '@/components/shared/surface-card';

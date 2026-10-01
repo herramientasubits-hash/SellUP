@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { UserSearch } from 'lucide-react';
+import { UserSearch } from "@/icons";
 import { Button } from '@/components/ui/button';
 import { ContactEnrichmentDrawer } from '@/components/contact-enrichment/contact-enrichment-drawer';
 import type { ContactEnrichmentInitialCompany } from '@/components/contact-enrichment/contact-enrichment-drawer';

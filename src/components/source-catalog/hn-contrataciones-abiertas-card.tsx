@@ -18,7 +18,7 @@
  * Hito: Centroamérica.8C.4C
  */
 
-import { Landmark, type LucideIcon } from 'lucide-react';
+import { Landmark, type LucideIcon } from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';

@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Sparkles, AlertTriangle, ExternalLink } from 'lucide-react';
+import { Sparkles, AlertTriangle, ExternalLink } from "@/icons";
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { Badge } from '@/components/ui/badge';
 import type { ClaudeClassificationDisplay } from './claude-classification-display';

@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { CheckCircle2, XCircle, WifiOff, Clock, FolderOpen, AlertTriangle } from 'lucide-react';
+import { CheckCircle2, XCircle, WifiOff, Clock, FolderOpen, AlertTriangle } from "@/icons";
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { hasActiveAccess } from '@/modules/access/actions';

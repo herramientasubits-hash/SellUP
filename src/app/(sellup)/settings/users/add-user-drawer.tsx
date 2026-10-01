@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { UserPlus, Mail, CheckCircle2, XCircle, ChevronDown, User, KeyRound, Network, Loader2 } from 'lucide-react';
+import { UserPlus, Mail, CheckCircle2, XCircle, ChevronDown, User, KeyRound, Network, Loader2 } from "@/icons";
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FieldLabel, FieldError } from '@/components/forms/field';

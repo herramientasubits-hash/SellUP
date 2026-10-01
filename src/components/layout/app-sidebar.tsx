@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen } from "@/icons";
 import { cn } from "@/lib/utils";
 import {
   mainNavItems,

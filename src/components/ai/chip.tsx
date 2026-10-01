@@ -3,7 +3,7 @@
 import * as React from "react";
 import { cva } from "class-variance-authority";
 import { cn } from "@/lib/utils";
-import { X } from "lucide-react";
+import { X } from "@/icons";
 import type { ChipProps } from "./aiInteractionTypes";
 
 const chipVariants = cva(

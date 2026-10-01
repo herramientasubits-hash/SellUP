@@ -5,7 +5,7 @@
 // already fetched server-side — no provider call, no re-query, ever.
 
 import * as React from 'react';
-import { Building2, FileSearch, MessageSquareText, SendHorizonal } from 'lucide-react';
+import { Building2, FileSearch, MessageSquareText, SendHorizonal } from "@/icons";
 import { DrawerSection } from '@/components/shared/drawer-section';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Badge } from '@/components/ui/badge';

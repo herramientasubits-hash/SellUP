@@ -5,7 +5,7 @@
 // Allows the user to change which column maps to Industry or Subindustry.
 
 import * as React from 'react';
-import { ArrowRight, Check, Info } from 'lucide-react';
+import { ArrowRight, Check, Info } from "@/icons";
 import {
   Select,
   SelectContent,

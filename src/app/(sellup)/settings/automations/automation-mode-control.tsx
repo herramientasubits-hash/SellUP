@@ -20,7 +20,7 @@ import { Button } from '@/components/ui/button';
 import { updateAutomationMode } from '@/modules/automations/actions';
 import type { AutomationExecutionMode } from '@/modules/automations/types';
 import { EXECUTION_MODE_LABELS } from '@/modules/automations/types';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle } from "@/icons";
 
 interface AutomationModeControlProps {
   automationId: string;

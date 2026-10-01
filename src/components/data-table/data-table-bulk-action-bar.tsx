@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Loader2, Pin, X } from "lucide-react";
+import { ChevronDown, Loader2, Pin, X } from "@/icons";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";

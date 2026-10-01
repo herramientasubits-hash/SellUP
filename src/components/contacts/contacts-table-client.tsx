@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { Star, Mail, Phone } from 'lucide-react';
+import { Star, Mail, Phone } from "@/icons";
 import { EmptyState } from '@/components/ui/empty-state';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { Badge } from '@/components/ui/badge';

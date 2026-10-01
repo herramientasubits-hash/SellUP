@@ -1,11 +1,12 @@
 'use client';
 
 import * as React from 'react';
+import { useReportSelectionCount } from "@/components/action-rail";
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
 import { toast } from 'sonner';
-import { Mail, Phone, ExternalLink, Info, Pencil, Star, RefreshCw, Archive } from 'lucide-react';
+import { Mail, Phone, ExternalLink, Info, Pencil, Star, RefreshCw, Archive } from "@/icons";
 
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -86,6 +87,7 @@ export function ContactsDataTableClient({
   accountOwners,
   scopeFilterOptions,
 }: ContactsDataTableClientProps) {
+  const reportSelectionCount = useReportSelectionCount();
   const router = useRouter();
   const [detailContactId, setDetailContactId] = React.useState<string | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
@@ -477,6 +479,7 @@ export function ContactsDataTableClient({
   return (
     <>
       <DataTable
+        onSelectionCountChange={reportSelectionCount}
         columns={columns}
         data={filteredContacts}
         getRowId={(row) => row.id}

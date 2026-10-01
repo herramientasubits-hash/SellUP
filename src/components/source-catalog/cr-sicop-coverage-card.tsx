@@ -19,7 +19,7 @@ import type {
   SicopCoverageSourceReason,
   SicopSourceCoverageSummary,
 } from '@/server/services/cr-sicop-source-coverage-summary';
-import { Landmark, type LucideIcon } from 'lucide-react';
+import { Landmark, type LucideIcon } from "@/icons";
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 
 // ---------------------------------------------------------------------------

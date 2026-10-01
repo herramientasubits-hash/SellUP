@@ -7,7 +7,7 @@ import {
   ShieldCheck,
   Globe,
   AlertTriangle,
-} from 'lucide-react';
+} from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Alert } from '@/components/ui/alert';

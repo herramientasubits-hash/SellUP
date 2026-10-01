@@ -15,7 +15,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { CheckCircle2, Pencil, AlertCircle, Sparkles } from 'lucide-react';
+import { CheckCircle2, Pencil, AlertCircle, Sparkles } from "@/icons";
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {

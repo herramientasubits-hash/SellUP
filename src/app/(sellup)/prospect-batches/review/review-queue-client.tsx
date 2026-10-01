@@ -16,7 +16,7 @@ import {
   Clock,
   Loader2,
   AlertTriangle,
-} from 'lucide-react';
+} from "@/icons";
 import { toast } from 'sonner';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { DrawerShell } from '@/components/shared/drawer-shell';

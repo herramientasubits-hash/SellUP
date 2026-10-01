@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { AlertTriangle, XCircle, Pencil, Loader2 } from 'lucide-react';
+import { AlertTriangle, XCircle, Pencil, Loader2 } from "@/icons";
 import { AIOrb } from './ai-orb';
 import type {
   DerivedWizardMessage,

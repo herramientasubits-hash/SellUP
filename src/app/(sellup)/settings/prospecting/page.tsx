@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { Search, Sparkles, Database, CircleDashed, CheckCircle2, Clock } from 'lucide-react';
+import { Search, Sparkles, Database, CircleDashed, CheckCircle2, Clock } from "@/icons";
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { MetricCard } from '@/components/shared/metric-card';

@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { RotateCcw, Loader2, AlertTriangle } from 'lucide-react';
+import { RotateCcw, Loader2, AlertTriangle } from "@/icons";
 import { DialogClose } from '@/components/ui/dialog';
 import { ModalShell } from '@/components/shared/modal-shell';
 import { FieldLabel } from '@/components/forms/field';

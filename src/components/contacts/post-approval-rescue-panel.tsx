@@ -22,7 +22,7 @@
 // y estado en el servidor.
 
 import * as React from 'react';
-import { Loader2, PhoneCall, RefreshCw, Search } from 'lucide-react';
+import { Loader2, PhoneCall, RefreshCw, Search } from "@/icons";
 import { Button } from '@/components/ui/button';
 import {
   continueOfficialContactPhoneRevealWithLushaAction,

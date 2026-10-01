@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { CheckCircle2, AlertCircle, Loader2 } from "@/icons";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import type { UploadProgressStatus } from "./uploadTypes";

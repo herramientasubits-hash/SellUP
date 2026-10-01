@@ -1,4 +1,5 @@
-import { Building2, CheckCircle2, GitMerge, Upload } from 'lucide-react';
+import { Building2, CheckCircle2, GitMerge, Upload } from "@/icons";
+import { ScreenActionRail, ScreenActionRailProvider } from "@/components/action-rail";
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { DataTablePage } from '@/components/shared/data-table-page';
@@ -231,12 +232,13 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
   const { candidates } = listResult;
 
   return (
+    <ScreenActionRailProvider>
     <DataTablePage
       title="Prospectos"
       description="Genera, importa y revisa empresas candidatas antes de convertirlas en cuentas listas para trabajar."
       tabs={<ModuleTabsNav active="prospectos" />}
       actions={
-        <div className="flex flex-wrap items-center gap-2">
+        <ScreenActionRail label="Acciones de prospectos">
           <GenerateAIBatchDrawer experience={experience} unavailableKind={unavailableKind} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} autoProviderCascade={autoProviderCascade} discoveryProvider={wizardDiscoveryProvider} providerOverrideCapability={wizardProviderOverrideCapability} apolloRunModeLimits={apolloRunModeLimits} budgetPreflight={wizardBudgetPreflight} adminTavilyTrialAvailable={adminTavilyTrialAvailable} />
           <ImportCandidatesDrawer>
             <Button type="button" variant="outline" size="sm">
@@ -248,7 +250,7 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
             triggerText="Crear prospecto"
             triggerVariant="outline"
           />
-        </div>
+        </ScreenActionRail>
       }
       metrics={
         !sourceId ? (
@@ -307,5 +309,6 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
         currentRoleKey={params.roleKey ?? ''}
       />
     </DataTablePage>
+    </ScreenActionRailProvider>
   );
 }

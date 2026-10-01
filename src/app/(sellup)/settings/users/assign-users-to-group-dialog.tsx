@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Check, Users, Loader2 } from 'lucide-react';
+import { Check, Users, Loader2 } from "@/icons";
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';

@@ -1,4 +1,5 @@
-import { Inbox, Sparkles, Mail, Link2, CopyCheck } from 'lucide-react';
+import { Inbox, Sparkles, Mail, Link2, CopyCheck } from "@/icons";
+import { ScreenActionRail, ScreenActionRailProvider } from "@/components/action-rail";
 import { DataTablePage } from '@/components/shared/data-table-page';
 import { MetricCard } from '@/components/shared/metric-card';
 import { CreateContactDrawer } from '@/components/contacts/create-contact-drawer';
@@ -96,15 +97,16 @@ export async function ContactCandidatesPanel({
   const withLinkedin = candidates.filter((c) => !!c.linkedin_url).length;
 
   return (
+    <ScreenActionRailProvider>
     <DataTablePage
       title="Contactos"
       description="Centraliza decisores, sponsors y personas clave vinculadas a cuentas y prospectos."
       tabs={<ContactsModuleTabsNav active={isDuplicateQueue ? 'duplicates' : 'candidates'} />}
       actions={
-        <div className="flex flex-wrap items-center gap-2">
+        <ScreenActionRail label="Acciones de contactos">
           <ContactsEnrichmentCTA />
           <CreateContactDrawer accounts={accounts} />
-        </div>
+        </ScreenActionRail>
       }
       metrics={
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -183,5 +185,6 @@ export async function ContactCandidatesPanel({
         phoneRevealWaterfallAuthorized={phoneRevealWaterfallAuthorized}
       />
     </DataTablePage>
+    </ScreenActionRailProvider>
   );
 }

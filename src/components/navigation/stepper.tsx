@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AlertCircle, Check } from "lucide-react";
+import { AlertCircle, Check } from "@/icons";
 
 import { cn } from "@/lib/utils";
 

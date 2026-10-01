@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, Pencil, Power, ShieldAlert, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Power, ShieldAlert, Trash2 } from "@/icons";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DataTableBulkActionBar } from '@/components/data-table/data-table-bulk-action-bar';

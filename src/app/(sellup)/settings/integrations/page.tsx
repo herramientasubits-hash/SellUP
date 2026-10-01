@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Plug, MessageSquare, HardDrive, Bot, Globe, Search, ExternalLink } from 'lucide-react';
+import { Plug, MessageSquare, HardDrive, Bot, Globe, Search, ExternalLink } from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { PageHeader } from '@/components/shared/page-header';
 import { Breadcrumbs } from '@/components/navigation/breadcrumbs';

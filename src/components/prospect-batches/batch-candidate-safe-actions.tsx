@@ -36,7 +36,7 @@
  */
 
 import * as React from 'react';
-import { MoreHorizontal, Info, CheckCircle2, XCircle, GitMerge } from 'lucide-react';
+import { MoreHorizontal, Info, CheckCircle2, XCircle, GitMerge } from "@/icons";
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,

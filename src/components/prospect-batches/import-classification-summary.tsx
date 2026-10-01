@@ -3,7 +3,7 @@
 // ── Import Classification Summary — Hito 16AB.40 ──────────────────────────────
 // Shows classification summary stats with visual indicators.
 
-import { CheckCircle2, AlertTriangle, XCircle, Pencil, Info } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, XCircle, Pencil, Info } from "@/icons";
 import { cn } from '@/lib/utils';
 import type { ClassificationSummaryStats } from '@/modules/prospect-batches/import-classification/import-classification-ui-types';
 

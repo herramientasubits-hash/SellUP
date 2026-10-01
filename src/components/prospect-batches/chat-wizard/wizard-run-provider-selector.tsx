@@ -19,7 +19,7 @@
  */
 
 import * as React from 'react';
-import { Info } from 'lucide-react';
+import { Info } from "@/icons";
 import {
   WIZARD_RUN_SELECTABLE_PROVIDERS,
   isProviderOptionEnabled,

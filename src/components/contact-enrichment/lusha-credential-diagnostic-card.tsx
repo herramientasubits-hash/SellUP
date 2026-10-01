@@ -8,7 +8,7 @@
  */
 
 import * as React from 'react';
-import { AlertCircle, CheckCircle2, CircleDot, Loader2, ShieldCheck } from 'lucide-react';
+import { AlertCircle, CheckCircle2, CircleDot, Loader2, ShieldCheck } from "@/icons";
 import { Button } from '@/components/ui/button';
 import {
   diagnoseLushaCredentialsAction,

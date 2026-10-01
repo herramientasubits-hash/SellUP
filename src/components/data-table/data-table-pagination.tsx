@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "@/icons";
 import type { Table } from "@tanstack/react-table";
 
 import { cn } from "@/lib/utils";

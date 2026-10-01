@@ -18,7 +18,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
-import { SendHorizonal, Ban, Info, ExternalLink, Building2 } from 'lucide-react';
+import { SendHorizonal, Ban, Info, ExternalLink, Building2 } from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';

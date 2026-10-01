@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { MoreHorizontal, Pencil, Star, RefreshCw, Archive, Eye, CheckCircle2, Cloud, Link2 } from 'lucide-react';
+import { MoreHorizontal, Pencil, Star, RefreshCw, Archive, Eye, CheckCircle2, Cloud, Link2 } from "@/icons";
 import {
   DropdownMenu,
   DropdownMenuContent,

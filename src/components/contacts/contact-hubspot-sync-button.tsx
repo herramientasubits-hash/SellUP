@@ -18,7 +18,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, RefreshCw, CheckCircle2, Link2 } from 'lucide-react';
+import { Loader2, RefreshCw, CheckCircle2, Link2 } from "@/icons";
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { syncContactToHubSpot } from '@/modules/contacts/actions';

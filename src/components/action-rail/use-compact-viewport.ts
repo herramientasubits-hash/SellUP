@@ -7,7 +7,7 @@ import * as React from "react"
  * de `lg` no hay sitio para una barra horizontal con sus grupos, y las
  * acciones pasan a un botón flotante.
  */
-const COMPACT_QUERY = "(max-width: 1023px)"
+export const COMPACT_QUERY = "(max-width: 1023px)"
 
 /** Cierto mientras la ventana sea estrecha. Reacciona al girar el teléfono. */
 export function useCompactViewport(): boolean {

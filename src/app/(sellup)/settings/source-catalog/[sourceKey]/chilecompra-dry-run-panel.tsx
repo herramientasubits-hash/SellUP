@@ -14,7 +14,7 @@ import {
   Zap,
   Search,
   Building2,
-} from 'lucide-react';
+} from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';

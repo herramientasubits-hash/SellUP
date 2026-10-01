@@ -31,11 +31,29 @@ import {
   Copy,
   Target,
   BarChart3,
-} from 'lucide-react';
+  FileText,
+  Search,
+  ClipboardCheck,
+  Lightbulb,
+  Landmark,
+  Users,
+  Tag,
+  FileSearch,
+  Hash,
+  Layers,
+  ShieldAlert,
+  CircleDashed,
+  ListFilter,
+  Key,
+  Settings2,
+  Database,
+} from "@/icons";
 import type { TaxIdentifierLookupMetadata } from '@/server/prospect-batches/tax-identifier-lookup';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { ModalShell } from '@/components/shared/modal-shell';
-import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { DrawerSection } from '@/components/shared/drawer-section';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Spinner } from '@/components/feedback/spinner';
 import { MetricCard } from '@/components/shared/metric-card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -271,14 +289,6 @@ function isDirectoryOrThirdPartyDomain(url: string | null | undefined): boolean 
 
 // ── Sub-componentes ────────────────────────────────────────────
 
-function SectionHeader({ children }: { children: React.ReactNode }) {
-  return (
-    <h3 className="text-xs font-semibold text-muted-foreground mb-2">
-      {children}
-    </h3>
-  );
-}
-
 function Field({
   label,
   value,
@@ -289,17 +299,19 @@ function Field({
   mono?: boolean;
 }) {
   return (
-    <div className="space-y-0.5 min-w-0">
-      <p className="text-xs text-muted-foreground truncate">{label}</p>
-      <div className={`text-xs ${mono ? 'font-mono' : ''} text-foreground leading-snug break-words`}>
+    <div className="min-w-0 space-y-0.5">
+      <dt className="truncate text-xs text-muted-foreground">{label}</dt>
+      <dd className={`text-sm ${mono ? 'font-mono' : ''} text-foreground leading-snug break-words`}>
         {value}
-      </div>
+      </dd>
     </div>
   );
 }
 
+// Pares etiqueta/valor como lista de definiciones: dos columnas que colapsan a
+// una en móvil. Todo `Field` vive dentro de un `FieldGrid`.
 function FieldGrid({ children }: { children: React.ReactNode }) {
-  return <div className="grid grid-cols-2 gap-x-4 gap-y-3">{children}</div>;
+  return <dl className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">{children}</dl>;
 }
 
 function Divider() {
@@ -430,8 +442,8 @@ const SOURCE_LABELS: Record<string, string> = {
 
 function DuplicateMatchCard({ match }: { match: DuplicateMatch }) {
   return (
-    <div className="rounded-xl border border-border/60 bg-card p-2.5 space-y-1">
-      <div className="flex items-center justify-between">
+    <div className="rounded-lg border border-border/60 bg-surface-subtle p-2.5 space-y-1">
+      <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-semibold text-foreground">
           {SOURCE_LABELS[match.source] ?? match.source}
         </span>
@@ -442,13 +454,13 @@ function DuplicateMatchCard({ match }: { match: DuplicateMatch }) {
         )}
       </div>
       {match.matched_name && (
-        <p className="text-xs text-foreground">{match.matched_name}</p>
+        <p className="text-sm text-foreground break-words">{match.matched_name}</p>
       )}
       {match.matched_domain && (
-        <p className="text-xs text-muted-foreground">{match.matched_domain}</p>
+        <p className="text-xs text-muted-foreground break-all">{match.matched_domain}</p>
       )}
       {match.reason && (
-        <p className="text-xs text-muted-foreground italic">{match.reason}</p>
+        <p className="text-xs text-muted-foreground italic break-words">{match.reason}</p>
       )}
     </div>
   );
@@ -910,19 +922,19 @@ export function CandidateDetailSheet({
         side="right"
         className="w-full md:w-[70vw] lg:w-[50vw] lg:min-w-[720px] lg:max-w-[960px]"
         scrollable={false}
-        icon={<Building2 className="h-4 w-4 text-muted-foreground" />}
+        icon={<Building2 className="h-4 w-4" />}
         title={candidate.name}
         description={
           <div className="flex items-center gap-2 flex-wrap">
             {candidate.country_code && (
               <span className="flex items-center gap-1">
-                <MapPin className="h-3 w-3" />
+                <MapPin className="h-3 w-3" aria-hidden="true" />
                 {candidate.country ?? candidate.country_code}
               </span>
             )}
             {structuredSourceLabel ? (
-              <Badge variant="brand" className="flex items-center gap-0.5 px-1.5 py-0.5 h-4">
-                <ShieldCheck className="h-2.5 w-2.5" />
+              <Badge variant="brand">
+                <ShieldCheck aria-hidden="true" />
                 {structuredSourceLabel}
               </Badge>
             ) : sourcePrimaryLabel ? (
@@ -958,21 +970,21 @@ export function CandidateDetailSheet({
           </TabsList>
 
           {/* Tab 1: Empresa */}
-          <TabsContent value="empresa" className="flex-1 overflow-y-auto px-7 py-6 min-h-0 space-y-6">
+          <TabsContent value="empresa" className="flex-1 overflow-y-auto px-7 py-6 min-h-0 space-y-4">
             {/* Banners de advertencia */}
             {flags.includes('limited_public_data') && (
-              <div className="rounded-xl border border-info/20 bg-info/5 px-4 py-3 text-xs text-info">
+              <div className="rounded-xl border border-info/20 bg-info/10 px-4 py-3 text-xs text-info">
                 Datos comerciales públicos limitados. Puedes revisarlo con la información oficial disponible.
               </div>
             )}
             {hasNitConflict && (
-              <div className="rounded-xl border border-warning/20 bg-warning/5 px-4 py-3 text-xs text-warning flex items-start gap-2">
+              <div className="rounded-xl border border-warning/20 bg-warning/10 px-4 py-3 text-xs text-warning flex items-start gap-2">
                 <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                 <span>NIT inconsistente detectado en evidencia web. Verificar datos antes de aprobar.</span>
               </div>
             )}
             {flags.includes('liquidation_signal') && (
-              <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-xs text-destructive flex items-start gap-2">
+              <div className="rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-xs text-destructive flex items-start gap-2">
                 <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                 <span>Esta empresa presenta una señal crítica de liquidación o cese de operaciones.</span>
               </div>
@@ -986,7 +998,7 @@ export function CandidateDetailSheet({
             {hasOwnershipUnverifiedFlag(flags) && (
               <div
                 data-testid="ownership-unverified-banner"
-                className="rounded-xl border border-warning/20 bg-warning/5 px-4 py-3 text-xs text-warning flex items-start gap-2"
+                className="rounded-xl border border-warning/20 bg-warning/10 px-4 py-3 text-xs text-warning flex items-start gap-2"
               >
                 <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                 <span>
@@ -1000,7 +1012,7 @@ export function CandidateDetailSheet({
               <div
                 key={flag}
                 data-testid={`import-review-flag-${flag}`}
-                className="rounded-xl border border-warning/20 bg-warning/5 px-4 py-3 text-xs text-warning flex items-start gap-2"
+                className="rounded-xl border border-warning/20 bg-warning/10 px-4 py-3 text-xs text-warning flex items-start gap-2"
               >
                 <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                 <span>{IMPORT_REVIEW_FLAG_LABELS[flag]}</span>
@@ -1008,7 +1020,7 @@ export function CandidateDetailSheet({
             ))}
 
             {/* KPIs: Scores y Estado */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <MetricCard
                 title="Encaje"
                 description="Evaluación comercial"
@@ -1084,72 +1096,68 @@ export function CandidateDetailSheet({
 
             {/* AI Summary */}
             {aiSummary && (
-              <div className="rounded-xl border border-border/50 bg-card p-4 space-y-2">
-                <SectionHeader>Resumen del Negocio (IA)</SectionHeader>
-                <p className="text-xs text-muted-foreground leading-relaxed italic">
+              <DrawerSection title="Resumen del Negocio (IA)" icon={FileText}>
+                <p className="text-sm text-muted-foreground leading-relaxed italic break-words">
                   &ldquo;{isChileOfficialCandidate ? sanitizeTextForChile(aiSummary) : aiSummary}&rdquo;
                 </p>
-              </div>
+              </DrawerSection>
             )}
 
             {/* Por qué fue encontrado */}
             {!!(searchTrace ?? sourceTitle ?? sourceSnippet) && (
-              <div className="rounded-xl border border-border/50 bg-card p-4 space-y-3">
-                <div className="flex items-center gap-1.5">
-                  <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
-                  <SectionHeader>Por qué fue encontrado</SectionHeader>
-                </div>
-                <div className="space-y-2">
-                  {!!searchTrace?.query_text && (
-                    <div className="space-y-0.5">
-                      <p className="text-xs text-muted-foreground">Query de búsqueda</p>
-                      <p className="text-xs text-foreground leading-snug font-mono break-words bg-surface-subtle rounded-md px-2.5 py-1.5">
-                        {String(searchTrace.query_text)}
-                      </p>
-                    </div>
-                  )}
-                  {sourceTitle && (
-                    <div className="space-y-0.5">
-                      <p className="text-xs text-muted-foreground">Título encontrado</p>
-                      <p className="text-xs text-foreground leading-snug">{sourceTitle}</p>
-                    </div>
-                  )}
-                  {sourceSnippet && (
-                    <div className="space-y-0.5">
-                      <p className="text-xs text-muted-foreground">Fragmento</p>
-                      <p className="text-xs text-muted-foreground leading-relaxed italic">&ldquo;{sourceSnippet}&rdquo;</p>
-                    </div>
-                  )}
+              <DrawerSection title="Por qué fue encontrado" icon={Search}>
+                <div className="space-y-3">
+                  <dl className="space-y-3">
+                    {!!searchTrace?.query_text && (
+                      <div className="min-w-0 space-y-1">
+                        <dt className="text-xs text-muted-foreground">Query de búsqueda</dt>
+                        <dd className="text-xs text-foreground leading-snug font-mono break-words bg-surface-subtle rounded-md px-2.5 py-1.5">
+                          {String(searchTrace.query_text)}
+                        </dd>
+                      </div>
+                    )}
+                    {sourceTitle && (
+                      <div className="min-w-0 space-y-0.5">
+                        <dt className="text-xs text-muted-foreground">Título encontrado</dt>
+                        <dd className="text-sm text-foreground leading-snug break-words">{sourceTitle}</dd>
+                      </div>
+                    )}
+                    {sourceSnippet && (
+                      <div className="min-w-0 space-y-0.5">
+                        <dt className="text-xs text-muted-foreground">Fragmento</dt>
+                        <dd className="text-sm text-muted-foreground leading-relaxed italic break-words">&ldquo;{sourceSnippet}&rdquo;</dd>
+                      </div>
+                    )}
+                  </dl>
                   {!!searchTrace && (
-                    <div className="grid grid-cols-3 gap-2 pt-1 border-t border-border/50">
+                    <dl className="grid grid-cols-3 gap-2 border-t border-border/50 pt-3">
                       {searchTrace.round_number !== undefined && (
-                        <div className="space-y-0.5">
-                          <p className="text-xs text-muted-foreground">Ronda</p>
-                          <p className="text-xs text-foreground">#{String(searchTrace.round_number)}</p>
+                        <div className="min-w-0 space-y-0.5">
+                          <dt className="text-xs text-muted-foreground">Ronda</dt>
+                          <dd className="text-sm text-foreground tabular-nums">#{String(searchTrace.round_number)}</dd>
                         </div>
                       )}
                       {searchTrace.provider_rank !== undefined && (
-                        <div className="space-y-0.5">
-                          <p className="text-xs text-muted-foreground">Ranking</p>
-                          <p className="text-xs text-foreground">#{String(searchTrace.provider_rank)}</p>
+                        <div className="min-w-0 space-y-0.5">
+                          <dt className="text-xs text-muted-foreground">Ranking</dt>
+                          <dd className="text-sm text-foreground tabular-nums">#{String(searchTrace.provider_rank)}</dd>
                         </div>
                       )}
                       {!!searchTrace.query_type && (
-                        <div className="space-y-0.5">
-                          <p className="text-xs text-muted-foreground">Tipo</p>
-                          <p className="text-xs text-foreground capitalize">{String(searchTrace.query_type)}</p>
+                        <div className="min-w-0 space-y-0.5">
+                          <dt className="text-xs text-muted-foreground">Tipo</dt>
+                          <dd className="text-sm text-foreground capitalize break-words">{String(searchTrace.query_type)}</dd>
                         </div>
                       )}
-                    </div>
+                    </dl>
                   )}
                 </div>
-              </div>
+              </DrawerSection>
             )}
 
             {/* Decisión recomendada */}
             {!!scoringMeta?.recommended_action && (
-              <div className="rounded-xl border border-border/50 bg-card p-4 space-y-3">
-                <SectionHeader>Decisión recomendada</SectionHeader>
+              <DrawerSection title="Decisión recomendada" icon={ClipboardCheck}>
                 {(() => {
                   const action = scoringMeta.recommended_action as string;
                   const actionLabels: Record<string, string> = {
@@ -1158,14 +1166,14 @@ export function CandidateDetailSheet({
                     discard: 'Descartar',
                     needs_enrichment: 'Enriquecer antes de decidir',
                   };
-                  const actionStyles: Record<string, string> = {
-                    review_manually: 'bg-warning/10 text-warning border-warning/20',
-                    approve: 'bg-success/10 text-success border-success/20',
-                    discard: 'bg-destructive/10 text-destructive border-destructive/20',
-                    needs_enrichment: 'bg-info/10 text-info border-info/20',
+                  const actionVariants: Record<string, 'warning' | 'positive' | 'negative' | 'info'> = {
+                    review_manually: 'warning',
+                    approve: 'positive',
+                    discard: 'negative',
+                    needs_enrichment: 'info',
                   };
                   const label = actionLabels[action] ?? action;
-                  const style = actionStyles[action] ?? 'bg-muted text-muted-foreground border-border/50';
+                  const actionVariant = actionVariants[action] ?? 'neutral';
 
                   const fitScoreVal = candidate.fit_score ?? null;
                   const confidenceVal = candidate.confidence_score ?? null;
@@ -1189,49 +1197,46 @@ export function CandidateDetailSheet({
                   }
 
                   return (
-                    <div className="space-y-2">
-                      <div className={`inline-flex items-center rounded-lg border px-3 py-1.5 text-xs font-semibold ${style}`}>
-                        {label}
-                      </div>
+                    <div className="space-y-3">
+                      <Badge variant={actionVariant}>{label}</Badge>
                       {reason && (
-                        <p className="text-xs text-muted-foreground leading-relaxed">{reason}</p>
+                        <p className="text-sm text-muted-foreground leading-relaxed">{reason}</p>
                       )}
                       {(fitScoreVal !== null || confidenceVal !== null || completenessVal !== null) && (
-                        <div className="grid grid-cols-3 gap-2 pt-1 border-t border-border/50">
+                        <dl className="grid grid-cols-3 gap-2 border-t border-border/50 pt-3">
                           {fitScoreVal !== null && (
-                            <div className="space-y-0.5">
-                              <p className="text-xs text-muted-foreground">Encaje</p>
-                              <p className="text-xs font-semibold text-foreground">{fitScoreVal}/100</p>
+                            <div className="min-w-0 space-y-0.5">
+                              <dt className="text-xs text-muted-foreground">Encaje</dt>
+                              <dd className="text-sm font-semibold text-foreground tabular-nums">{fitScoreVal}/100</dd>
                             </div>
                           )}
                           {confidenceVal !== null && (
-                            <div className="space-y-0.5">
-                              <p className="text-xs text-muted-foreground">Confianza</p>
-                              <p className="text-xs font-semibold text-foreground">{confidenceVal}%</p>
+                            <div className="min-w-0 space-y-0.5">
+                              <dt className="text-xs text-muted-foreground">Confianza</dt>
+                              <dd className="text-sm font-semibold text-foreground tabular-nums">{confidenceVal}%</dd>
                             </div>
                           )}
                           {completenessVal !== null && (
-                            <div className="space-y-0.5">
-                              <p className="text-xs text-muted-foreground">Completitud</p>
-                              <p className="text-xs font-semibold text-foreground">{completenessVal}%</p>
+                            <div className="min-w-0 space-y-0.5">
+                              <dt className="text-xs text-muted-foreground">Completitud</dt>
+                              <dd className="text-sm font-semibold text-foreground tabular-nums">{completenessVal}%</dd>
                             </div>
                           )}
-                        </div>
+                        </dl>
                       )}
                     </div>
                   );
                 })()}
-              </div>
+              </DrawerSection>
             )}
 
             {/* Conversión y HubSpot Sync */}
             {candidate.status === 'converted_to_account' && candidate.converted_account_id && (
-              <div className="rounded-xl border border-border/50 bg-card p-4 space-y-3">
-                <SectionHeader>Conversión a Cuenta</SectionHeader>
+              <DrawerSection title="Conversión a Cuenta" icon={ArrowRightCircle}>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className="rounded-lg border border-primary/20 bg-primary/10 px-3 py-2.5 space-y-1">
+                  <div className="rounded-xl border border-primary/20 bg-primary/10 px-3 py-2.5 space-y-1">
                     <div className="flex items-center gap-2">
-                      <ArrowRightCircle className="h-3.5 w-3.5 text-primary shrink-0" />
+                      <ArrowRightCircle className="h-3.5 w-3.5 text-primary shrink-0" aria-hidden="true" />
                       <span className="text-xs font-semibold text-primary">Creada en SellUp</span>
                     </div>
                     <p className="text-xs text-muted-foreground font-mono break-all pt-1">
@@ -1267,49 +1272,52 @@ export function CandidateDetailSheet({
                     const label = statusLabels[hsSync.status] || hsSync.status;
 
                     return (
-                      <div className="rounded-xl border border-border/60 bg-card px-3 py-2.5 space-y-1 flex flex-col justify-between">
+                      <div className="rounded-xl border border-border/60 bg-surface-subtle px-3 py-2.5 space-y-1 flex flex-col justify-between">
                         <div className="space-y-1.5">
-                          <div className="flex items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
                             <span className="text-xs font-semibold text-muted-foreground">
                               HubSpot Sync
                             </span>
                             <Badge variant={variant}>{label}</Badge>
                           </div>
                           {hsSync.status === 'synced' && hsSync.company_id && (
-                            <div className="space-y-1 text-xs pt-1">
-                              <div className="flex items-center justify-between">
-                                <span className="text-muted-foreground">ID HubSpot:</span>
-                                <span className="font-mono font-medium text-foreground">{hsSync.company_id}</span>
+                            <dl className="space-y-1 text-xs pt-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <dt className="text-muted-foreground">ID HubSpot:</dt>
+                                <dd className="min-w-0 break-all font-mono font-medium text-foreground">{hsSync.company_id}</dd>
                               </div>
-                              <div className="flex items-center justify-between">
-                                <span className="text-muted-foreground">Owner:</span>
-                                <span className="font-medium text-foreground text-xs">
+                              <div className="flex items-center justify-between gap-2">
+                                <dt className="text-muted-foreground">Owner:</dt>
+                                <dd className="font-medium text-foreground">
                                   {hsSync.owner_assigned || hsSync.owner_mapping_status === 'mapped' ? 'Asignado' : 'No asignado'}
-                                </span>
+                                </dd>
                               </div>
-                            </div>
+                            </dl>
                           )}
                         </div>
                       </div>
                     );
                   })()}
                 </div>
-              </div>
+              </DrawerSection>
             )}
 
             {/* Análisis de Encaje IA */}
             {hasAiEval && showAiEvaluation && (
-              <div className="rounded-xl border border-border/50 bg-card p-4 space-y-3">
-                <div className="flex items-center gap-1">
-                  <SectionHeader>Análisis de Encaje</SectionHeader>
+              <DrawerSection
+                title="Análisis de Encaje"
+                icon={Target}
+                action={
                   <InfoTooltip content="Evaluación automática basada en información pública. No reemplaza la revisión comercial." />
-                </div>
+                }
+                contentClassName="space-y-3"
+              >
                 {fitReasons.length > 0 && (
-                  <ul className="space-y-1">
+                  <ul className="space-y-1.5">
                     {fitReasons.slice(0, 4).map((r, i) => (
-                      <li key={i} className="flex items-start gap-1.5 text-xs text-foreground">
-                        <CheckCircle2 className="h-3.5 w-3.5 text-success mt-0.5 shrink-0" />
-                        <span>{isChileOfficialCandidate ? sanitizeTextForChile(r) : r}</span>
+                      <li key={i} className="flex items-start gap-1.5 text-sm text-foreground">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-success mt-0.5 shrink-0" aria-hidden="true" />
+                        <span className="min-w-0 break-words">{isChileOfficialCandidate ? sanitizeTextForChile(r) : r}</span>
                       </li>
                     ))}
                     {fitReasons.length > 4 && (
@@ -1327,92 +1335,89 @@ export function CandidateDetailSheet({
                   return (
                     <div className="pt-3 border-t border-border/50 space-y-1">
                       <p className="text-xs font-semibold text-primary">Siguiente paso recomendado</p>
-                      <p className="text-xs text-foreground font-medium leading-relaxed">{recommended}</p>
+                      <p className="text-sm text-foreground font-medium leading-relaxed break-words">{recommended}</p>
                     </div>
                   );
                 })()}
-              </div>
+              </DrawerSection>
             )}
 
             {/* Oportunidades comerciales */}
             {hasAiEval && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="rounded-xl border border-border/50 bg-card p-4 space-y-3">
-                  <SectionHeader>Necesidades Detectadas</SectionHeader>
+                <DrawerSection title="Necesidades Detectadas" icon={Lightbulb}>
                   {(() => {
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     const enrichmentData = candidate.metadata?.enrichment as any;
                     const needs = enrichmentData?.sellup_fit?.possible_needs as string[] | undefined;
-                    if (!needs || needs.length === 0) return <p className="text-xs text-muted-foreground italic">Ninguna detectada</p>;
+                    if (!needs || needs.length === 0) return <EmptyState variant="plain" title="Ninguna detectada" className="py-4" />;
                     const visibleNeeds = showAllNeeds ? needs : needs.slice(0, 3);
                     return (
                       <div className="space-y-2">
                         <ul className="space-y-1.5">
                           {visibleNeeds.map((n, i) => (
-                            <li key={i} className="flex items-start gap-1.5 text-xs text-foreground">
-                              <CheckCircle2 className="h-3.5 w-3.5 text-success mt-0.5 shrink-0" />
-                              <span>{n}</span>
+                            <li key={i} className="flex items-start gap-1.5 text-sm text-foreground">
+                              <CheckCircle2 className="h-3.5 w-3.5 text-success mt-0.5 shrink-0" aria-hidden="true" />
+                              <span className="min-w-0 break-words">{n}</span>
                             </li>
                           ))}
                         </ul>
                         {needs.length > 3 && (
-                          <Button variant="ghost" size="xs" className="p-0 text-primary hover:bg-transparent font-semibold mt-1" onClick={() => setShowAllNeeds(!showAllNeeds)} type="button">
+                          <Button variant="link" size="xs" className="mt-1 px-0" onClick={() => setShowAllNeeds(!showAllNeeds)} type="button">
                             {showAllNeeds ? 'Ver menos' : `Ver todas (${needs.length})`}
                           </Button>
                         )}
                       </div>
                     );
                   })()}
-                </div>
-                <div className="rounded-xl border border-border/50 bg-card p-4 space-y-3">
-                  <SectionHeader>Ángulos Comerciales</SectionHeader>
+                </DrawerSection>
+                <DrawerSection title="Ángulos Comerciales" icon={Sparkles}>
                   {(() => {
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     const enrichmentData = candidate.metadata?.enrichment as any;
                     const angles = enrichmentData?.commercial_angles as string[] | undefined;
-                    if (!angles || angles.length === 0) return <p className="text-xs text-muted-foreground italic">Ninguno disponible</p>;
+                    if (!angles || angles.length === 0) return <EmptyState variant="plain" title="Ninguno disponible" className="py-4" />;
                     const visibleAngles = showAllAngles ? angles : angles.slice(0, 3);
                     return (
                       <div className="space-y-2">
                         <ul className="space-y-1.5">
                           {visibleAngles.map((ang, i) => (
-                            <li key={i} className="flex items-start gap-1.5 text-xs text-foreground font-medium">
-                              <Sparkles className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />
-                              <span>{ang}</span>
+                            <li key={i} className="flex items-start gap-1.5 text-sm text-foreground font-medium">
+                              <Sparkles className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" aria-hidden="true" />
+                              <span className="min-w-0 break-words">{ang}</span>
                             </li>
                           ))}
                         </ul>
                         {angles.length > 3 && (
-                          <Button variant="ghost" size="xs" className="p-0 text-primary hover:bg-transparent font-semibold mt-1" onClick={() => setShowAllAngles(!showAllAngles)} type="button">
+                          <Button variant="link" size="xs" className="mt-1 px-0" onClick={() => setShowAllAngles(!showAllAngles)} type="button">
                             {showAllAngles ? 'Ver menos' : `Ver todos (${angles.length})`}
                           </Button>
                         )}
                       </div>
                     );
                   })()}
-                </div>
+                </DrawerSection>
               </div>
             )}
 
             {/* Datos Oficiales y Legales */}
             <CollapsibleSection title="Datos Oficiales y Legales" defaultOpen>
-            <SurfaceCard>
-              <SurfaceCardHeader title="Datos Oficiales y Legales" />
+            <DrawerSection title="Datos Oficiales y Legales" icon={Landmark}>
               {isChileOfficialCandidate ? (
                 <FieldGrid>
                   <Field label="Razón social" value={val(candidate.legal_name ?? candidate.name)} />
                   <div className="space-y-0.5 min-w-0">
-                    <p className="text-xs text-muted-foreground">RUT</p>
-                    <div className="text-xs text-foreground font-mono leading-snug flex items-center">
+                    <dt className="text-xs text-muted-foreground">RUT</dt>
+                    <dd className="text-sm text-foreground font-mono leading-snug flex flex-wrap items-center">
                       {candidate.tax_identifier ? (
                         <>
-                          <span>{candidate.tax_identifier}</span>
+                          <span className="min-w-0 break-all tabular-nums">{candidate.tax_identifier}</span>
                           <CopyButton value={candidate.tax_identifier} />
                         </>
                       ) : (
                         <MissingText text="Sin dato" />
                       )}
-                    </div>
+                    </dd>
                   </div>
                   <Field
                     label="País"
@@ -1463,19 +1468,19 @@ export function CandidateDetailSheet({
                   <FieldGrid>
                     <Field label="Razón social" value={val(candidate.legal_name ?? candidate.name)} />
                     <div className="space-y-0.5 min-w-0">
-                      <p className="text-xs text-muted-foreground">
+                      <dt className="text-xs text-muted-foreground">
                         {candidate.tax_identifier_type ?? 'Identificador fiscal'}
-                      </p>
-                      <div className="text-xs text-foreground font-mono leading-snug flex items-center">
+                      </dt>
+                      <dd className="text-sm text-foreground font-mono leading-snug flex flex-wrap items-center">
                         {candidate.tax_identifier ? (
                           <>
-                            <span>{candidate.tax_identifier}</span>
+                            <span className="min-w-0 break-all tabular-nums">{candidate.tax_identifier}</span>
                             <CopyButton value={candidate.tax_identifier} />
                           </>
                         ) : (
                           <MissingText text="Sin dato" />
                         )}
-                      </div>
+                      </dd>
                     </div>
                     <Field
                       label="País"
@@ -1503,7 +1508,7 @@ export function CandidateDetailSheet({
                 </FieldGrid>
                 </>
               )}
-            </SurfaceCard>
+            </DrawerSection>
             </CollapsibleSection>
 
             {/* Sugerencia de Claude (sector/tamaño con fuente) — sólo si existe */}
@@ -1529,8 +1534,7 @@ export function CandidateDetailSheet({
 
             {/* Datos Comerciales y Web */}
             <CollapsibleSection title="Datos Comerciales y Web">
-            <SurfaceCard>
-              <SurfaceCardHeader title="Datos Comerciales y Web" />
+            <DrawerSection title="Datos Comerciales y Web" icon={Globe}>
               <div className="space-y-3">
                 <FieldGrid>
                   <Field
@@ -1542,21 +1546,23 @@ export function CandidateDetailSheet({
                             href={candidate.website.startsWith('http') ? candidate.website : `https://${candidate.website}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex items-center gap-1 text-primary hover:underline font-medium"
+                            className="flex min-w-0 items-center gap-1 break-all text-primary hover:underline font-medium rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                           >
-                            <Globe className="h-3 w-3 shrink-0" />
+                            <Globe className="h-3 w-3 shrink-0" aria-hidden="true" />
                             {candidate.domain ?? candidate.website}
                           </a>
                           {websiteConfidence && (
-                            <span className={`text-xs font-medium px-1 py-0.5 rounded ${
-                              websiteConfidence === 'high'
-                                ? 'bg-success/10 text-success dark:text-success'
-                                : websiteConfidence === 'medium'
-                                ? 'bg-warning/10 text-warning dark:text-warning'
-                                : 'bg-muted text-muted-foreground'
-                            }`}>
+                            <Badge
+                              variant={
+                                websiteConfidence === 'high'
+                                  ? 'positive'
+                                  : websiteConfidence === 'medium'
+                                  ? 'warning'
+                                  : 'neutral'
+                              }
+                            >
                               {websiteConfidence}
-                            </span>
+                            </Badge>
                           )}
                         </div>
                       ) : (
@@ -1581,21 +1587,23 @@ export function CandidateDetailSheet({
                             href={effectiveLinkedinUrl.startsWith('http') ? effectiveLinkedinUrl : `https://${effectiveLinkedinUrl}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex items-center gap-1 text-primary hover:underline font-medium"
+                            className="flex items-center gap-1 text-primary hover:underline font-medium rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                           >
-                            <Link2 className="h-3 w-3 shrink-0" />
+                            <Link2 className="h-3 w-3 shrink-0" aria-hidden="true" />
                             Ver perfil
                           </a>
                           {linkedinConfidence && (
-                            <span className={`text-xs font-medium px-1 py-0.5 rounded ${
-                              linkedinConfidence === 'high'
-                                ? 'bg-success/10 text-success dark:text-success'
-                                : linkedinConfidence === 'medium'
-                                ? 'bg-warning/10 text-warning dark:text-warning'
-                                : 'bg-muted text-muted-foreground'
-                            }`}>
+                            <Badge
+                              variant={
+                                linkedinConfidence === 'high'
+                                  ? 'positive'
+                                  : linkedinConfidence === 'medium'
+                                  ? 'warning'
+                                  : 'neutral'
+                              }
+                            >
                               {linkedinConfidence}
-                            </span>
+                            </Badge>
                           )}
                         </div>
                       ) : suggestedLinkedinDisplay ? (
@@ -1605,9 +1613,9 @@ export function CandidateDetailSheet({
                               href={suggestedLinkedinDisplay.url.startsWith('http') ? suggestedLinkedinDisplay.url : `https://${suggestedLinkedinDisplay.url}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="flex items-center gap-1 text-warning hover:underline font-medium text-xs"
+                              className="flex items-center gap-1 text-warning hover:underline font-medium rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                             >
-                              <Link2 className="h-3 w-3 shrink-0" />
+                              <Link2 className="h-3 w-3 shrink-0" aria-hidden="true" />
                               Ver perfil
                             </a>
                           </div>
@@ -1622,9 +1630,9 @@ export function CandidateDetailSheet({
                                 href={linkedinConfirmedUrl.startsWith('http') ? linkedinConfirmedUrl : `https://${linkedinConfirmedUrl}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="flex items-center gap-1 text-muted-foreground hover:underline text-xs"
+                                className="flex items-center gap-1 text-muted-foreground hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                               >
-                                <Link2 className="h-3 w-3 shrink-0" />
+                                <Link2 className="h-3 w-3 shrink-0" aria-hidden="true" />
                                 Posible perfil
                               </a>
                             </div>
@@ -1660,7 +1668,7 @@ export function CandidateDetailSheet({
                       employeeCountFieldDisplay.kind === 'value' &&
                       employeeCountFieldDisplay.value !== null ? (
                         <div className="space-y-0.5">
-                          <p className="text-xs font-medium">
+                          <p className="text-sm font-medium tabular-nums">
                             {employeeCountFieldDisplay.value.toLocaleString('es-CO')}
                           </p>
                           {employeeCountFieldDisplay.sourceLabel && (
@@ -1672,7 +1680,7 @@ export function CandidateDetailSheet({
                       ) : employeeCountFieldDisplay.message ? (
                         <div className="space-y-0.5">
                           {employeeCountFieldDisplay.value !== null && (
-                            <p className="text-xs font-medium">
+                            <p className="text-sm font-medium tabular-nums">
                               {employeeCountFieldDisplay.value.toLocaleString('es-CO')}
                             </p>
                           )}
@@ -1703,13 +1711,13 @@ export function CandidateDetailSheet({
 
                 {/* Descripción pública */}
                 {!hasNitConflict && publicDescription && (!isChileOfficialCandidate || isDescriptionConfiable) ? (
-                  <div className="space-y-0.5 pt-2 border-t border-border/50">
+                  <div className="space-y-0.5 pt-3 border-t border-border/50">
                     <p className="text-xs text-muted-foreground">Descripción pública</p>
-                    <p className="text-xs text-muted-foreground leading-relaxed line-clamp-4">{publicDescription}</p>
+                    <p className="text-sm text-foreground leading-relaxed line-clamp-4 break-words">{publicDescription}</p>
                   </div>
                 ) : null}
               </div>
-            </SurfaceCard>
+            </DrawerSection>
             </CollapsibleSection>
 
             {/* Tamaño ICP */}
@@ -1732,9 +1740,8 @@ export function CandidateDetailSheet({
               };
               return (
                 <CollapsibleSection title="Tamaño ICP">
-                <SurfaceCard>
-                  <SurfaceCardHeader title="Tamaño ICP" description="Umbral: más de 200 colaboradores" />
-                  <div className="space-y-3 mt-1">
+                <DrawerSection title="Tamaño ICP" hint="Umbral: más de 200 colaboradores" icon={Users}>
+                  <div className="space-y-3">
                     {/* Badge de estado */}
                     <Badge variant={badgeVariant[icpState.tone] ?? 'neutral'}>
                       {icpState.decision === 'pass'
@@ -1752,34 +1759,38 @@ export function CandidateDetailSheet({
                         Este candidato no tiene evaluación de tamaño ICP registrada. Puede venir de un flujo anterior o de un flujo que aún no pasa por el ICP Size Gate.
                       </p>
                     ) : (
-                      <div className="space-y-2">
-                        {icpState.rangeLabel && (
-                          <div className="space-y-0.5">
-                            <p className="text-xs text-muted-foreground">Rango detectado</p>
-                            <p className="text-xs text-foreground font-medium">{icpState.rangeLabel}</p>
-                          </div>
-                        )}
-                        {icpState.reason && (
-                          <div className="space-y-0.5">
-                            <p className="text-xs text-muted-foreground">Motivo</p>
-                            <p className="text-xs text-muted-foreground leading-relaxed">{icpState.reason}</p>
-                          </div>
+                      <div className="space-y-3">
+                        {(icpState.rangeLabel || icpState.reason) && (
+                          <dl className="space-y-3">
+                            {icpState.rangeLabel && (
+                              <div className="min-w-0 space-y-0.5">
+                                <dt className="text-xs text-muted-foreground">Rango detectado</dt>
+                                <dd className="text-sm text-foreground font-medium tabular-nums">{icpState.rangeLabel}</dd>
+                              </div>
+                            )}
+                            {icpState.reason && (
+                              <div className="min-w-0 space-y-0.5">
+                                <dt className="text-xs text-muted-foreground">Motivo</dt>
+                                <dd className="text-sm text-foreground leading-relaxed break-words">{icpState.reason}</dd>
+                              </div>
+                            )}
+                          </dl>
                         )}
                         {icpState.requiresHumanReview && (
-                          <div className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${toneStyle.warning}`}>
-                            <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                          <div className={`flex items-start gap-2 rounded-xl border px-3 py-2 text-xs ${toneStyle.warning}`}>
+                            <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" aria-hidden="true" />
                             <span>Requiere validación humana</span>
                           </div>
                         )}
                         {icpState.decision === 'needs_validation' && (
-                          <div className={`rounded-lg border px-3 py-2 text-xs ${toneStyle.warning}`}>
+                          <div className={`rounded-xl border px-3 py-2 text-xs ${toneStyle.warning}`}>
                             {icpState.description}
                           </div>
                         )}
                       </div>
                     )}
                   </div>
-                </SurfaceCard>
+                </DrawerSection>
                 </CollapsibleSection>
               );
             })()}
@@ -1799,37 +1810,39 @@ export function CandidateDetailSheet({
               // usa el mismo tono neutro que «Sin medir»: no es un error del
               // candidato, es SellUp sin reglas todavía para esa subindustria, y
               // no debe leerse con la misma alarma que «Ambigua» o «Rechazada».
-              const verdictBadgeStyle =
+              const verdictBadgeVariant =
                 subindustryStatus.verdict === 'confirmed'
-                  ? 'bg-success/10 text-success'
+                  ? 'positive'
                   : subindustryStatus.verdict === 'ambiguous'
-                  ? 'bg-warning/10 text-warning'
+                  ? 'warning'
                   : subindustryStatus.verdict === 'rejected'
-                  ? 'bg-destructive/10 text-destructive'
-                  : 'bg-muted text-muted-foreground';
+                  ? 'negative'
+                  : 'neutral';
               // Cubre 'unmapped' y null (sin medir) — ambos comparten el estilo
               // neutro por diseño, no por omisión.
 
               return (
                 <CollapsibleSection title="Subindustria solicitada">
-                <SurfaceCard>
-                  <SurfaceCardHeader
-                    title="Subindustria solicitada"
-                    description="Sólo una subindustria confirmada cuenta hacia el objetivo de la búsqueda."
-                  />
-                  <div className="space-y-3 mt-1" data-testid="candidate-subindustry-status">
-                    <div className="space-y-0.5">
-                      <p className="text-xs text-muted-foreground">
-                        Subindustria solicitada
-                      </p>
-                      <p className="text-xs text-foreground font-medium">
-                        {subindustryStatus.requestedSubindustry ?? 'Sin subindustria declarada'}
-                      </p>
-                    </div>
+                <DrawerSection
+                  title="Subindustria solicitada"
+                  hint="Sólo una subindustria confirmada cuenta hacia el objetivo de la búsqueda."
+                  icon={Tag}
+                >
+                  <div className="space-y-3" data-testid="candidate-subindustry-status">
+                    <dl>
+                      <div className="min-w-0 space-y-0.5">
+                        <dt className="text-xs text-muted-foreground">
+                          Subindustria solicitada
+                        </dt>
+                        <dd className="text-sm text-foreground font-medium break-words">
+                          {subindustryStatus.requestedSubindustry ?? 'Sin subindustria declarada'}
+                        </dd>
+                      </div>
+                    </dl>
 
                     <div className="flex items-center gap-2 flex-wrap">
                       <Badge
-                        className={`border-0 ${verdictBadgeStyle}`}
+                        variant={verdictBadgeVariant}
                         data-testid="candidate-subindustry-verdict"
                       >
                         {subindustryStatus.verdictLabel}
@@ -1846,7 +1859,7 @@ export function CandidateDetailSheet({
                     </div>
 
                     {subindustryStatus.notConfirmedMessage && (
-                      <div className="flex items-start gap-2 rounded-lg border border-warning/20 bg-warning/10 px-3 py-2 text-xs text-warning">
+                      <div className="flex items-start gap-2 rounded-xl border border-warning/20 bg-warning/10 px-3 py-2 text-xs text-warning">
                         <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" aria-hidden />
                         <span data-testid="candidate-subindustry-not-confirmed">
                           {subindustryStatus.notConfirmedMessage}
@@ -1867,7 +1880,7 @@ export function CandidateDetailSheet({
                               data-testid={`candidate-subindustry-reason-${reason.key}`}
                             >
                               <span
-                                className="h-1.5 w-1.5 rounded-full bg-warning/70 shrink-0"
+                                className="h-1.5 w-1.5 rounded-full bg-warning shrink-0"
                                 aria-hidden
                               />
                               {reason.label}
@@ -1877,7 +1890,7 @@ export function CandidateDetailSheet({
                       </div>
                     )}
                   </div>
-                </SurfaceCard>
+                </DrawerSection>
                 </CollapsibleSection>
               );
             })()}
@@ -1885,66 +1898,75 @@ export function CandidateDetailSheet({
             {/* Evidencia Pública Encontrada */}
             {displayedPublicEvidence.length > 0 && (
               <CollapsibleSection title="Evidencia Pública">
-              <SurfaceCard>
-                <SectionHeader>Evidencia pública encontrada</SectionHeader>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <DrawerSection
+                title="Evidencia pública encontrada"
+                icon={FileSearch}
+                badge={displayedPublicEvidence.length}
+              >
+                <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {displayedPublicEvidence.map((item, idx) => {
                     const label = SOURCE_TYPE_LABELS[item.source_type as string] || item.source_type;
                     return (
-                      <div key={idx} className="flex items-center justify-between text-xs rounded-xl border border-border/60 p-2.5 bg-surface-subtle">
+                      <li key={idx} className="flex min-w-0 items-center justify-between text-xs rounded-lg border border-border/60 p-2.5 bg-surface-subtle">
                         <div className="min-w-0 flex-1 pr-2">
                           <p className="font-semibold text-foreground truncate" title={item.title as string}>
                             {item.title as string}
                           </p>
-                          <p className="text-xs text-muted-foreground mt-0.5">
+                          <p className="text-xs text-muted-foreground mt-0.5 truncate">
                             {label as string} · {item.domain as string}
                           </p>
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0">
                           {item.confidence ? (
-                            <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${
-                              item.confidence === 'high'
-                                ? 'bg-success/10 text-success dark:text-success'
-                                : item.confidence === 'medium'
-                                ? 'bg-warning/10 text-warning dark:text-warning'
-                                : 'bg-muted text-muted-foreground'
-                            }`}>
+                            <Badge
+                              variant={
+                                item.confidence === 'high'
+                                  ? 'positive'
+                                  : item.confidence === 'medium'
+                                  ? 'warning'
+                                  : 'neutral'
+                              }
+                            >
                               {item.confidence as string}
-                            </span>
+                            </Badge>
                           ) : null}
                           <a
                             href={item.url as string}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-primary hover:underline p-1"
+                            aria-label="Abrir fuente"
+                            className="rounded-md p-1 text-primary transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                           >
-                            <Link2 className="h-3.5 w-3.5" />
+                            <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
                           </a>
                         </div>
-                      </div>
+                      </li>
                     );
                   })}
-                </div>
-              </SurfaceCard>
+                </ul>
+              </DrawerSection>
               </CollapsibleSection>
             )}
 
             {/* Identificador Fiscal — estado automático */}
             <CollapsibleSection title="Identificador Fiscal">
-            <SurfaceCard>
-              <SurfaceCardHeader title="Identificador Fiscal" description="Dato legal o tributario consultado en fuentes disponibles. Debe revisarse antes de aprobarlo." />
+            <DrawerSection
+              title="Identificador Fiscal"
+              hint="Dato legal o tributario consultado en fuentes disponibles. Debe revisarse antes de aprobarlo."
+              icon={Hash}
+            >
 
               {candidate.tax_identifier ? (
                 /* Identificador ya existente */
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <Badge variant="positive" className="flex items-center gap-1">
-                      <CheckCircle2 className="h-2.5 w-2.5" />
+                    <Badge variant="positive">
+                      <CheckCircle2 aria-hidden="true" />
                       Identificador validado
                     </Badge>
                   </div>
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="font-mono text-sm font-semibold text-foreground">
+                    <span className="min-w-0 break-all font-mono text-sm font-semibold tabular-nums text-foreground">
                       {candidate.tax_identifier}
                     </span>
                     <CopyButton value={candidate.tax_identifier} />
@@ -1970,7 +1992,7 @@ export function CandidateDetailSheet({
                   if (isLookingUpTaxId || lookupStatus === 'searching') {
                     return (
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                        <Spinner size="sm" tone="primary" label="Buscando identificador fiscal…" />
                         <span>Buscando identificador fiscal…</span>
                         <InfoTooltip content="SellUp está consultando fuentes disponibles para encontrar el identificador fiscal." />
                       </div>
@@ -1983,17 +2005,17 @@ export function CandidateDetailSheet({
                       <div className="space-y-3">
                         <div className="flex items-center gap-2 flex-wrap">
                           <Badge variant="warning">
-                            <AlertTriangle className="h-2.5 w-2.5" />
+                            <AlertTriangle aria-hidden="true" />
                             {`${getTaxIdLabel(candidate.country_code)} sugerido — requiere revisión`}
                           </Badge>
                         </div>
                         <div className="rounded-xl border border-primary/20 bg-primary/10 p-3.5 space-y-3">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="space-y-0.5">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div className="min-w-0 space-y-0.5">
                               <p className="text-xs font-semibold text-primary">
                                 {`${getTaxIdLabel(candidate.country_code)} sugerido`}
                               </p>
-                              <p className="font-mono text-sm font-bold text-foreground">
+                              <p className="break-all font-mono text-sm font-bold tabular-nums text-foreground">
                                 {taxIdLookup.best_candidate.tax_identifier}
                               </p>
                               {taxIdLookup.best_candidate.legal_name && (
@@ -2009,11 +2031,11 @@ export function CandidateDetailSheet({
                               {taxIdLookup.best_candidate.confidence === 'high' ? 'Alta confianza' : 'Confianza media'}
                             </Badge>
                           </div>
-                          <div className="flex items-center justify-between gap-2 border-t border-border/50 pt-2.5">
-                            <div className="text-xs text-muted-foreground leading-relaxed">
+                          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/50 pt-2.5">
+                            <div className="min-w-0 text-xs text-muted-foreground leading-relaxed">
                               <span>Fuente: {taxIdLookup.best_candidate.source_name}</span>
                               {taxIdLookup.best_candidate.source_url && (
-                                <a href={taxIdLookup.best_candidate.source_url} target="_blank" rel="noopener noreferrer" className="ml-1 text-primary hover:underline inline-flex items-center gap-0.5">
+                                <a href={taxIdLookup.best_candidate.source_url} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center gap-0.5 rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
                                   (Ver fuente)
                                 </a>
                               )}
@@ -2027,7 +2049,6 @@ export function CandidateDetailSheet({
                                 confidence: taxIdLookup.best_candidate!.confidence,
                               })}
                               size="xs"
-                              className="font-semibold"
                               type="button">
                               Usar este {getTaxIdLabel(candidate.country_code)}
                             </Button>
@@ -2048,11 +2069,10 @@ export function CandidateDetailSheet({
                             onClick={handleLookupTaxIdentifier}
                             variant="outline"
                             size="sm"
-                            className="gap-1.5 text-xs border-destructive/20 text-destructive hover:bg-destructive/5"
                             type="button"
                             aria-label="Reintentar búsqueda de identificador fiscal"
                           >
-                            <RefreshCw className="h-3.5 w-3.5" />
+                            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
                             Reintentar búsqueda
                           </Button>
                         )}
@@ -2084,11 +2104,10 @@ export function CandidateDetailSheet({
                             onClick={handleLookupTaxIdentifier}
                             variant="outline"
                             size="sm"
-                            className="gap-1.5 text-xs hover:bg-primary/10 hover:text-primary hover:border-primary/30"
                             type="button"
                             aria-label="Reintentar búsqueda de identificador fiscal"
                           >
-                            <RefreshCw className="h-3.5 w-3.5" />
+                            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
                             Reintentar búsqueda
                           </Button>
                         )}
@@ -2111,19 +2130,19 @@ export function CandidateDetailSheet({
                   /* Estado inicial / pendiente para CO */
                   return (
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <Info className="h-3.5 w-3.5 shrink-0 text-text-muted" />
+                      <Info className="h-3.5 w-3.5 shrink-0 text-text-muted" aria-hidden="true" />
                       <span>Identificador fiscal pendiente de búsqueda automática.</span>
                     </div>
                   );
                 })()
               )}
-            </SurfaceCard>
+            </DrawerSection>
             </CollapsibleSection>
 
           </TabsContent>
 
           {/* Tab 2: Validación */}
-          <TabsContent value="validacion" className="flex-1 overflow-y-auto px-7 py-6 min-h-0 space-y-6">
+          <TabsContent value="validacion" className="flex-1 overflow-y-auto px-7 py-6 min-h-0 space-y-4">
             {/* Q3F-5AZ.2D-1-UX1 — Estado de revisión (informational only). The
                 operative "Aprobar" action moved to the drawer's action zone
                 (sticky footer, below) so it's available regardless of tab. */}
@@ -2141,9 +2160,12 @@ export function CandidateDetailSheet({
             />
 
             {/* Estado de Duplicidad */}
-            <SurfaceCard>
-              <SurfaceCardHeader title="Verificación de Duplicidad" description="Determina si esta empresa ya existe en los registros internos de SellUp o HubSpot CRM." />
-              <div className="flex items-center gap-2 flex-wrap mt-1">
+            <DrawerSection
+              title="Verificación de Duplicidad"
+              hint="Determina si esta empresa ya existe en los registros internos de SellUp o HubSpot CRM."
+              icon={Layers}
+            >
+              <div className="flex items-center gap-2 flex-wrap">
                 {isAutoValidated ? (
                   <>
                     <Badge
@@ -2204,7 +2226,7 @@ export function CandidateDetailSheet({
                   </Badge>
                 )}
               </div>
-            </SurfaceCard>
+            </DrawerSection>
 
             {/* Coincidencias de Duplicidad */}
             {isAutoValidated ? (
@@ -2212,10 +2234,7 @@ export function CandidateDetailSheet({
                 {/* Bloque SellUp detail */}
                 {(sellupDupStatus === 'duplicate' || sellupDupStatus === 'possible_duplicate') &&
                   validationMetaSheet?.sellup_duplicate_check?.matched_name && (
-                  <div className="rounded-xl border border-border/50 bg-card p-4 space-y-3">
-                    <p className="text-xs font-semibold text-muted-foreground">
-                      Coincidencia interna en SellUp
-                    </p>
+                  <DrawerSection title="Coincidencia interna en SellUp" icon={Building2} tone="warning">
                     <FieldGrid>
                       <Field label="Empresa encontrada" value={val(validationMetaSheet.sellup_duplicate_check.matched_name)} />
                       <Field
@@ -2246,16 +2265,13 @@ export function CandidateDetailSheet({
                         } as Record<string, string>)[validationMetaSheet.sellup_duplicate_check.matched_by ?? ''] ?? val(validationMetaSheet.sellup_duplicate_check.matched_by)}
                       />
                     </FieldGrid>
-                  </div>
+                  </DrawerSection>
                 )}
 
                 {/* Bloque HubSpot detail */}
                 {(hsDupStatus === 'match' || hsDupStatus === 'possible_match') &&
                   validationMetaSheet?.hubspot_duplicate_check?.matched_company_name && (
-                  <div className="rounded-xl border border-border/50 bg-card p-4 space-y-3">
-                    <p className="text-xs font-semibold text-muted-foreground">
-                      Coincidencia en HubSpot CRM
-                    </p>
+                  <DrawerSection title="Coincidencia en HubSpot CRM" icon={Database} tone="warning">
                     <FieldGrid>
                       <Field label="Empresa encontrada" value={val(validationMetaSheet.hubspot_duplicate_check.matched_company_name)} />
                       <Field label="HubSpot Company ID" value={val(validationMetaSheet.hubspot_duplicate_check.matched_company_id)} mono />
@@ -2281,19 +2297,19 @@ export function CandidateDetailSheet({
                       )}
                     </FieldGrid>
                     {validationMetaSheet.hubspot_duplicate_check.hubspot_url && (
-                      <div className="pt-2.5 border-t border-border/50 mt-1 flex">
+                      <div className="pt-3 border-t border-border/50 mt-3 flex">
                         <a
                           href={validationMetaSheet.hubspot_duplicate_check.hubspot_url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
+                          className="inline-flex items-center gap-1.5 rounded-sm text-xs font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                         >
-                          <Link2 className="h-3.5 w-3.5" />
+                          <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
                           Ver empresa en HubSpot CRM
                         </a>
                       </div>
                     )}
-                  </div>
+                  </DrawerSection>
                 )}
 
                 {/* Comparación rápida */}
@@ -2321,45 +2337,46 @@ export function CandidateDetailSheet({
 
                   if (rows.length === 0) return null;
                   return (
-                    <div className="rounded-xl border border-border/50 bg-card p-4 space-y-2">
-                      <p className="text-xs font-semibold text-muted-foreground">Comparación rápida</p>
+                    <DrawerSection title="Comparación rápida" icon={ListFilter} tone="neutral">
                       <div className="overflow-x-auto rounded-lg border border-border/60">
                         <table className="w-full text-xs">
                           <thead className="bg-surface-subtle">
                             <tr>
-                              <th className="text-left text-xs text-muted-foreground font-medium py-2 px-3">Campo</th>
-                              <th className="text-left text-xs text-muted-foreground font-medium py-2 px-3">Candidato</th>
-                              <th className="text-left text-xs text-muted-foreground font-medium py-2 px-3">Coincidencia</th>
+                              <th scope="col" className="text-left text-xs text-muted-foreground font-medium py-2 px-3">Campo</th>
+                              <th scope="col" className="text-left text-xs text-muted-foreground font-medium py-2 px-3">Candidato</th>
+                              <th scope="col" className="text-left text-xs text-muted-foreground font-medium py-2 px-3">Coincidencia</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-border/20">
+                          <tbody className="divide-y divide-border/50">
                             {rows.map(({ label: rl, cv, mv }) => (
                               <tr key={rl}>
                                 <td className="py-2 px-3 text-muted-foreground font-medium">{rl}</td>
-                                <td className="py-2 px-3 text-foreground">{cv ?? <span className="text-text-muted italic">Sin dato</span>}</td>
-                                <td className="py-2 px-3 text-foreground">{mv ?? <span className="text-text-muted italic">Sin dato</span>}</td>
+                                <td className="py-2 px-3 text-foreground break-words">{cv ?? <span className="text-text-muted italic">Sin dato</span>}</td>
+                                <td className="py-2 px-3 text-foreground break-words">{mv ?? <span className="text-text-muted italic">Sin dato</span>}</td>
                               </tr>
                             ))}
                           </tbody>
                         </table>
                       </div>
-                    </div>
+                    </DrawerSection>
                   );
                 })()}
               </div>
             ) : (
               <div className="space-y-4">
                 {dcMatches.length > 0 && (
-                  <div className="rounded-xl border border-border/50 bg-card p-4 space-y-3">
-                    <p className="text-xs font-semibold text-muted-foreground">
-                      Coincidencias encontradas
-                    </p>
+                  <DrawerSection
+                    title="Coincidencias encontradas"
+                    icon={Layers}
+                    tone="warning"
+                    badge={dcMatches.length}
+                  >
                     <div className="space-y-2">
                       {dcMatches.map((match, i) => (
                         <DuplicateMatchCard key={i} match={match} />
                       ))}
                     </div>
-                  </div>
+                  </DrawerSection>
                 )}
               </div>
             )}
@@ -2367,9 +2384,13 @@ export function CandidateDetailSheet({
             {/* Riesgos e Incertidumbres */}
             {sortedRisks.length > 0 && (
               <CollapsibleSection title="Riesgos e Incertidumbres">
-              <SurfaceCard>
-                <SurfaceCardHeader title="Riesgos e Incertidumbres" />
-                <div className="space-y-2">
+              <DrawerSection
+                title="Riesgos e Incertidumbres"
+                icon={ShieldAlert}
+                tone="warning"
+                badge={sortedRisks.length}
+              >
+                <ul className="space-y-2">
                   {sortedRisks.map((risk, i) => {
                     const severity = classifyRisk(risk);
                     const styleMap = {
@@ -2381,7 +2402,7 @@ export function CandidateDetailSheet({
                     const badgeMap = { critical: 'Crítico', high: 'Alto', medium: 'Medio', low: 'Bajo' };
                     const badgeVariantMap = { critical: 'negative', high: 'warning', medium: 'warning', low: 'neutral' } as const;
                     return (
-                      <div key={i} className={`flex items-start justify-between gap-3 text-xs rounded-lg border p-2.5 ${styleMap[severity]}`}>
+                      <li key={i} className={`flex items-start justify-between gap-3 text-xs rounded-lg border p-2.5 ${styleMap[severity]}`}>
                         <div className="flex min-w-0 items-start gap-2">
                           <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
                           <span className="min-w-0 break-words leading-relaxed">{isChileOfficialCandidate ? sanitizeTextForChile(risk) : risk}</span>
@@ -2389,64 +2410,67 @@ export function CandidateDetailSheet({
                         <Badge variant={badgeVariantMap[severity]} className="shrink-0 select-none">
                           {badgeMap[severity]}
                         </Badge>
-                      </div>
+                      </li>
                     );
                   })}
-                </div>
-              </SurfaceCard>
+                </ul>
+              </DrawerSection>
               </CollapsibleSection>
             )}
 
             {/* Datos Faltantes (de evaluación IA) */}
             {missingFields.length > 0 && (
               <CollapsibleSection title="Datos Faltantes">
-              <SurfaceCard>
-                <SurfaceCardHeader title="Datos Faltantes" />
+              <DrawerSection
+                title="Datos Faltantes"
+                icon={CircleDashed}
+                tone="neutral"
+                badge={missingFields.length}
+              >
                 <ul className="space-y-1.5">
                   {missingFields.map((field, i) => (
-                    <li key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <AlertTriangle className="h-3 w-3 shrink-0 text-warning" />
-                      <span>{isChileOfficialCandidate ? sanitizeTextForChile(field) : field}</span>
+                    <li key={i} className="flex items-start gap-1.5 text-sm text-muted-foreground">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
+                      <span className="min-w-0 break-words">{isChileOfficialCandidate ? sanitizeTextForChile(field) : field}</span>
                     </li>
                   ))}
                 </ul>
-              </SurfaceCard>
+              </DrawerSection>
               </CollapsibleSection>
             )}
 
             {/* Evidencia de País */}
             {!!countryEvidence && (
               <CollapsibleSection title="Evidencia de País" defaultOpen>
-              <SurfaceCard>
-                <SurfaceCardHeader title="Evidencia de País" />
+              <DrawerSection title="Evidencia de País" icon={MapPin}>
                 {(() => {
                   const level = countryEvidence.evidence_level as string | undefined;
                   const sources = countryEvidence.evidence_sources as string[] | undefined;
                   const warning = countryEvidence.warning as string | undefined;
 
                   const levelConfig = {
-                    strong: { label: 'Fuerte', style: 'bg-success/10 text-success', icon: <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> },
-                    weak: { label: 'Débil', style: 'bg-warning/10 text-warning', icon: <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> },
-                    query_only: { label: 'Solo en query', style: 'bg-destructive/10 text-destructive', icon: <XCircle className="h-3.5 w-3.5 shrink-0" /> },
-                  };
-                  const cfg = level ? (levelConfig[level as keyof typeof levelConfig] ?? { label: level, style: 'bg-muted text-muted-foreground', icon: <Info className="h-3.5 w-3.5 shrink-0" /> }) : null;
+                    strong: { label: 'Fuerte', variant: 'positive', icon: <CheckCircle2 aria-hidden="true" /> },
+                    weak: { label: 'Débil', variant: 'warning', icon: <AlertTriangle aria-hidden="true" /> },
+                    query_only: { label: 'Solo en query', variant: 'negative', icon: <XCircle aria-hidden="true" /> },
+                  } as const;
+                  const cfg = level ? (levelConfig[level as keyof typeof levelConfig] ?? { label: level, variant: 'neutral' as const, icon: <Info aria-hidden="true" /> }) : null;
 
                   return (
                     <div className="space-y-3">
                       {cfg && (
-                        <div className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ${cfg.style}`}>
+                        <Badge variant={cfg.variant}>
                           {cfg.icon}
                           Nivel: {cfg.label}
-                        </div>
+                        </Badge>
                       )}
                       {sources && sources.length > 0 && (
                         <div className="space-y-1">
                           <p className="text-xs text-muted-foreground">Señales detectadas</p>
                           <div className="flex flex-wrap gap-1.5">
                             {sources.map((s, i) => (
-                              <span key={i} className="inline-flex items-center rounded-md bg-surface-muted px-2 py-0.5 text-xs font-mono text-foreground border border-border/50">
-                                {s}
-                              </span>
+                              <Badge key={i} variant="neutral" className="max-w-full font-mono">
+                                <span className="truncate">{s}</span>
+                              </Badge>
                             ))}
                           </div>
                           {level === 'strong' && sources.some(s => s.includes('.com.co')) && (
@@ -2457,16 +2481,16 @@ export function CandidateDetailSheet({
                         </div>
                       )}
                       {level === 'query_only' && (
-                        <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 flex items-start gap-2">
-                          <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />
+                        <div className="rounded-xl border border-destructive/20 bg-destructive/10 px-3 py-2 flex items-start gap-2">
+                          <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" aria-hidden="true" />
                           <p className="text-xs text-destructive">
                             El país solo aparece en la búsqueda, no está confirmado por la fuente.
                           </p>
                         </div>
                       )}
                       {level === 'weak' && (
-                        <div className="rounded-lg border border-warning/20 bg-warning/5 px-3 py-2 flex items-start gap-2">
-                          <AlertTriangle className="h-3.5 w-3.5 text-warning shrink-0 mt-0.5" />
+                        <div className="rounded-xl border border-warning/20 bg-warning/10 px-3 py-2 flex items-start gap-2">
+                          <AlertTriangle className="h-3.5 w-3.5 text-warning shrink-0 mt-0.5" aria-hidden="true" />
                           <p className="text-xs text-warning">
                             Evidencia de país débil. Requiere revisión manual.
                           </p>
@@ -2478,15 +2502,14 @@ export function CandidateDetailSheet({
                     </div>
                   );
                 })()}
-              </SurfaceCard>
+              </DrawerSection>
               </CollapsibleSection>
             )}
 
             {/* Validación de Sitio Web */}
             {!!websiteVerification && (
               <CollapsibleSection title="Validación de Sitio Web" defaultOpen>
-              <SurfaceCard>
-                <SurfaceCardHeader title="Validación de Sitio Web" />
+              <DrawerSection title="Validación de Sitio Web" icon={Globe}>
                 {(() => {
                   const wvStatus = websiteVerification.status as string | undefined;
                   const wvDomain = websiteVerification.domain as string | undefined;
@@ -2496,28 +2519,33 @@ export function CandidateDetailSheet({
 
                   if (wvSkipped) {
                     return (
-                      <p className="text-xs text-muted-foreground italic">
-                        La verificación del sitio web fue omitida para este candidato.
-                      </p>
+                      <EmptyState
+                        variant="plain"
+                        title="La verificación del sitio web fue omitida para este candidato."
+                        className="py-4"
+                      />
                     );
                   }
 
-                  const statusConfig: Record<string, { label: string; style: string; icon: React.ReactNode }> = {
-                    verified: { label: 'Verificado', style: 'bg-success/10 text-success', icon: <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> },
-                    inferred: { label: 'Inferido', style: 'bg-info/10 text-info', icon: <Info className="h-3.5 w-3.5 shrink-0" /> },
-                    mismatch: { label: 'No coincide', style: 'bg-warning/10 text-warning', icon: <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> },
-                    not_found: { label: 'No encontrado', style: 'bg-muted text-muted-foreground', icon: <XCircle className="h-3.5 w-3.5 shrink-0" /> },
-                    error: { label: 'Error', style: 'bg-destructive/10 text-destructive', icon: <XCircle className="h-3.5 w-3.5 shrink-0" /> },
+                  const statusConfig: Record<
+                    string,
+                    { label: string; variant: 'positive' | 'info' | 'warning' | 'neutral' | 'negative'; icon: React.ReactNode }
+                  > = {
+                    verified: { label: 'Verificado', variant: 'positive', icon: <CheckCircle2 aria-hidden="true" /> },
+                    inferred: { label: 'Inferido', variant: 'info', icon: <Info aria-hidden="true" /> },
+                    mismatch: { label: 'No coincide', variant: 'warning', icon: <AlertTriangle aria-hidden="true" /> },
+                    not_found: { label: 'No encontrado', variant: 'neutral', icon: <XCircle aria-hidden="true" /> },
+                    error: { label: 'Error', variant: 'negative', icon: <XCircle aria-hidden="true" /> },
                   };
-                  const cfg = wvStatus ? (statusConfig[wvStatus] ?? { label: wvStatus, style: 'bg-muted text-muted-foreground', icon: <Info className="h-3.5 w-3.5" /> }) : null;
+                  const cfg = wvStatus ? (statusConfig[wvStatus] ?? { label: wvStatus, variant: 'neutral' as const, icon: <Info aria-hidden="true" /> }) : null;
 
                   return (
                     <div className="space-y-3">
                       {cfg && (
-                        <div className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ${cfg.style}`}>
+                        <Badge variant={cfg.variant}>
                           {cfg.icon}
                           {cfg.label}
-                        </div>
+                        </Badge>
                       )}
                       <FieldGrid>
                         {wvDomain && <Field label="Dominio" value={wvDomain} mono />}
@@ -2526,7 +2554,7 @@ export function CandidateDetailSheet({
                           <Field
                             label="HTTP Status"
                             value={
-                              <span className={wvHttpStatus === 200 ? 'text-success font-semibold' : 'text-warning font-semibold'}>
+                              <span className={wvHttpStatus === 200 ? 'text-success font-semibold tabular-nums' : 'text-warning font-semibold tabular-nums'}>
                                 {wvHttpStatus}
                               </span>
                             }
@@ -2536,24 +2564,23 @@ export function CandidateDetailSheet({
                     </div>
                   );
                 })()}
-              </SurfaceCard>
+              </DrawerSection>
               </CollapsibleSection>
             )}
 
             {/* Motivos de Revisión */}
             {!!(scoringMeta?.reasons || scoringMeta?.warnings) && (
               <CollapsibleSection title="Motivos de Revisión" defaultOpen>
-              <SurfaceCard>
-                <SurfaceCardHeader title="Motivos de Revisión del Agente 1" />
+              <DrawerSection title="Motivos de Revisión del Agente 1" icon={ClipboardCheck}>
                 <div className="space-y-3">
                   {Array.isArray(scoringMeta.reasons) && (scoringMeta.reasons as string[]).length > 0 && (
                     <div className="space-y-1.5">
                       <p className="text-xs text-muted-foreground">Razones positivas</p>
-                      <ul className="space-y-1">
+                      <ul className="space-y-1.5">
                         {(scoringMeta.reasons as string[]).map((r, i) => (
-                          <li key={i} className="flex items-start gap-1.5 text-xs text-foreground">
-                            <CheckCircle2 className="h-3.5 w-3.5 text-success mt-0.5 shrink-0" />
-                            <span>{r}</span>
+                          <li key={i} className="flex items-start gap-1.5 text-sm text-foreground">
+                            <CheckCircle2 className="h-3.5 w-3.5 text-success mt-0.5 shrink-0" aria-hidden="true" />
+                            <span className="min-w-0 break-words">{r}</span>
                           </li>
                         ))}
                       </ul>
@@ -2562,11 +2589,11 @@ export function CandidateDetailSheet({
                   {Array.isArray(scoringMeta.warnings) && (scoringMeta.warnings as string[]).length > 0 && (
                     <div className="space-y-1.5">
                       <p className="text-xs text-muted-foreground">Advertencias</p>
-                      <ul className="space-y-1">
+                      <ul className="space-y-1.5">
                         {(scoringMeta.warnings as string[]).map((w, i) => (
-                          <li key={i} className="flex items-start gap-1.5 text-xs text-warning">
-                            <AlertTriangle className="h-3.5 w-3.5 text-warning mt-0.5 shrink-0" />
-                            <span>{w}</span>
+                          <li key={i} className="flex items-start gap-1.5 text-sm text-warning">
+                            <AlertTriangle className="h-3.5 w-3.5 text-warning mt-0.5 shrink-0" aria-hidden="true" />
+                            <span className="min-w-0 break-words">{w}</span>
                           </li>
                         ))}
                       </ul>
@@ -2575,26 +2602,25 @@ export function CandidateDetailSheet({
                   {Array.isArray(scoringMeta.blockers) && (scoringMeta.blockers as string[]).length > 0 && (
                     <div className="space-y-1.5">
                       <p className="text-xs text-muted-foreground">Bloqueadores</p>
-                      <ul className="space-y-1">
+                      <ul className="space-y-1.5">
                         {(scoringMeta.blockers as string[]).map((b, i) => (
-                          <li key={i} className="flex items-start gap-1.5 text-xs text-destructive">
-                            <XCircle className="h-3.5 w-3.5 text-destructive mt-0.5 shrink-0" />
-                            <span>{b}</span>
+                          <li key={i} className="flex items-start gap-1.5 text-sm text-destructive">
+                            <XCircle className="h-3.5 w-3.5 text-destructive mt-0.5 shrink-0" aria-hidden="true" />
+                            <span className="min-w-0 break-words">{b}</span>
                           </li>
                         ))}
                       </ul>
                     </div>
                   )}
                 </div>
-              </SurfaceCard>
+              </DrawerSection>
               </CollapsibleSection>
             )}
 
             {/* Datos de Validación (Claves normalizadas) */}
             {validationMetaSheet && (
               <CollapsibleSection title="Claves Normalizadas">
-              <SurfaceCard>
-                <SurfaceCardHeader title="Datos de la Validación" />
+              <DrawerSection title="Datos de la Validación" icon={Key} tone="neutral">
                 <div className="space-y-3">
                   <FieldGrid>
                     <Field
@@ -2646,14 +2672,14 @@ export function CandidateDetailSheet({
                     </div>
                   )}
                 </div>
-              </SurfaceCard>
+              </DrawerSection>
               </CollapsibleSection>
             )}
 
             {/* Detalle Técnico del Sistema */}
             <CollapsibleSection title="Detalle Técnico">
-            <SurfaceCard>
-              <SurfaceCardHeader title="Detalle Técnico del Sistema" />
+            <div className="space-y-4">
+            <DrawerSection title="Detalle Técnico del Sistema" icon={Settings2} tone="neutral">
               <FieldGrid>
                 <Field label="Candidate ID" value={candidate.id} mono />
                 <Field label="Batch ID" value={candidate.batch_id} mono />
@@ -2672,24 +2698,25 @@ export function CandidateDetailSheet({
               </FieldGrid>
 
               {candidate.review_notes && (
-                <div className="pt-3 border-t border-border/50">
+                <div className="mt-3 border-t border-border/50 pt-3">
                   <p className="text-xs text-muted-foreground mb-1">Notas de revisión</p>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{candidate.review_notes}</p>
+                  <p className="text-sm text-foreground leading-relaxed break-words">{candidate.review_notes}</p>
                 </div>
               )}
-            </SurfaceCard>
+            </DrawerSection>
 
-            <SurfaceCard>
-              <SurfaceCardHeader title="Source Trace Raw JSON" />
+            <DrawerSection title="Source Trace Raw JSON" icon={Database} tone="neutral">
               {(() => {
                 const hasSourceTrace = candidate.source_trace && Object.keys(candidate.source_trace).length > 0;
                 const hasSearchTrace = searchTrace && Object.keys(searchTrace).length > 0;
                 const rawTrace = hasSourceTrace ? candidate.source_trace : hasSearchTrace ? searchTrace : null;
                 if (!rawTrace) {
                   return (
-                    <p className="text-xs text-muted-foreground italic">
-                      No hay trazabilidad de búsqueda disponible para este candidato.
-                    </p>
+                    <EmptyState
+                      variant="plain"
+                      title="No hay trazabilidad de búsqueda disponible para este candidato."
+                      className="py-4"
+                    />
                   );
                 }
                 return (
@@ -2698,7 +2725,8 @@ export function CandidateDetailSheet({
                   </pre>
                 );
               })()}
-            </SurfaceCard>
+            </DrawerSection>
+            </div>
             </CollapsibleSection>
           </TabsContent>
         </Tabs>
@@ -2720,7 +2748,7 @@ export function CandidateDetailSheet({
             <Button
               variant="outline"
               size="sm"
-              className="text-xs"
+              type="button"
               onClick={() => setConfirmDialogData(null)}
               disabled={isApprovingTaxId}
             >
@@ -2728,7 +2756,7 @@ export function CandidateDetailSheet({
             </Button>
             <Button
               size="sm"
-              className="text-xs"
+              type="button"
               onClick={async () => {
                 if (confirmDialogData) {
                   await handleApproveTaxIdentifier(
@@ -2741,7 +2769,7 @@ export function CandidateDetailSheet({
               disabled={isApprovingTaxId}>
               {isApprovingTaxId ? (
                 <>
-                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                  <Loader2 className="animate-spin" aria-hidden="true" />
                   Guardando...
                 </>
               ) : (
@@ -2751,28 +2779,30 @@ export function CandidateDetailSheet({
           </>
         }
       >
-        <div className="space-y-2">
-          {confirmDialogData?.legalName && (
-            <div className="text-xs flex items-center justify-between border-b border-border/50 pb-2">
-              <span className="text-muted-foreground">Razón Social:</span>
-              <span className="font-medium text-foreground">{confirmDialogData.legalName}</span>
+        <div className="space-y-3">
+          <dl className="divide-y divide-border/50 text-sm">
+            {confirmDialogData?.legalName && (
+              <div className="flex items-start justify-between gap-3 py-2 first:pt-0">
+                <dt className="shrink-0 text-xs text-muted-foreground">Razón Social:</dt>
+                <dd className="min-w-0 break-words text-right font-medium text-foreground">{confirmDialogData.legalName}</dd>
+              </div>
+            )}
+            <div className="flex items-start justify-between gap-3 py-2 first:pt-0">
+              <dt className="shrink-0 text-xs text-muted-foreground">Fuente:</dt>
+              <dd className="min-w-0 break-words text-right text-foreground">{confirmDialogData?.sourceName}</dd>
             </div>
-          )}
-          <div className="text-xs flex items-center justify-between border-b border-border/50 pb-2">
-            <span className="text-muted-foreground">Fuente:</span>
-            <span className="text-foreground">{confirmDialogData?.sourceName}</span>
-          </div>
-          {confirmDialogData?.confidence && (
-            <div className="text-xs flex items-center justify-between pb-2">
-              <span className="text-muted-foreground">Confianza:</span>
-              <span className={`font-semibold capitalize ${
-                confirmDialogData.confidence === 'high' ? 'text-success' : 'text-warning'
-              }`}>
-                {confirmDialogData.confidence === 'high' ? 'Alta' : 'Media'}
-              </span>
-            </div>
-          )}
-          <p className="text-xs text-warning bg-warning/10 rounded-md p-2 mt-2 leading-relaxed">
+            {confirmDialogData?.confidence && (
+              <div className="flex items-start justify-between gap-3 py-2">
+                <dt className="shrink-0 text-xs text-muted-foreground">Confianza:</dt>
+                <dd className={`font-semibold capitalize ${
+                  confirmDialogData.confidence === 'high' ? 'text-success' : 'text-warning'
+                }`}>
+                  {confirmDialogData.confidence === 'high' ? 'Alta' : 'Media'}
+                </dd>
+              </div>
+            )}
+          </dl>
+          <p className="rounded-xl border border-warning/20 bg-warning/10 px-3 py-2 text-xs leading-relaxed text-warning">
             * El identificador se guardará localmente en SellUp. No se sincronizará con HubSpot en este momento.
           </p>
         </div>

@@ -19,7 +19,6 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import {} from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import {
@@ -118,6 +117,12 @@ interface DataTableProps<TData> {
   /** Selection: enable checkbox column + floating bulk action bar. */
   enableRowSelection?: boolean;
   bulkActions?: DataTableBulkAction<TData>[];
+  /**
+   * Avisa de cuántas filas hay marcadas cada vez que cambia. Solo informa: la
+   * pantalla lo usa para ceder el sitio a la barra masiva. Pásale una función
+   * estable.
+   */
+  onSelectionCountChange?: (count: number) => void;
 
   /** Right-click context menu per row. */
   contextMenu?: DataTableContextMenuConfig<TData>;
@@ -200,6 +205,7 @@ function DataTableInner<TData>(
     count,
     enableRowSelection = false,
     bulkActions = [],
+    onSelectionCountChange,
     contextMenu,
     stickyHeader = false,
     initialPageSize = 20,
@@ -343,6 +349,10 @@ function DataTableInner<TData>(
 
   const selectedRows = table.getFilteredSelectedRowModel().rows.map((r) => r.original);
   const selectedCount = selectedRows.length;
+
+  React.useEffect(() => {
+    onSelectionCountChange?.(selectedCount);
+  }, [onSelectionCountChange, selectedCount]);
 
   const clearSelection = React.useCallback(() => table.resetRowSelection(), [table]);
 

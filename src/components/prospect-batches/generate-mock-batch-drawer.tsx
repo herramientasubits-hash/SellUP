@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { FlaskConical, Loader2, Globe, Target, Info, PowerOff } from 'lucide-react';
+import { FlaskConical, Loader2, Globe, Target, Info, PowerOff } from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { DrawerSection } from '@/components/shared/drawer-section';
 import { Alert, AlertDescription } from '@/components/ui/alert';

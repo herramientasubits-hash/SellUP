@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Database } from "lucide-react";
+import { Database } from "@/icons";
 
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";

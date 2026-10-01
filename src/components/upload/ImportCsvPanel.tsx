@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { FileSpreadsheet, Upload, Info } from "lucide-react";
+import { FileSpreadsheet, Upload, Info } from "@/icons";
 import { cn } from "@/lib/utils";
 import type {
   UploadFileItem,

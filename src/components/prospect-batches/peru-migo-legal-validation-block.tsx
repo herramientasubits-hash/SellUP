@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { ShieldCheck, AlertTriangle, Clock, XCircle, WifiOff } from 'lucide-react';
+import { ShieldCheck, AlertTriangle, Clock, XCircle, WifiOff } from "@/icons";
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { Badge } from '@/components/ui/badge';
 import type { PeMigoApiEnrichmentBlock, PeMigoLegalValidationStatus } from '@/server/prospect-batches/peru-migo-legal-enrichment';

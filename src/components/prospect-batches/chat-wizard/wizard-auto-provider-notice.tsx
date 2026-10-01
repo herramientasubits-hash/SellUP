@@ -12,7 +12,7 @@
  * Sólo informa: no ejecuta, no reserva y no retira ninguna oferta.
  */
 
-import { Layers } from 'lucide-react';
+import { Layers } from "@/icons";
 import {
   resolveLushaPreExecutionBudgetBlock,
   type WizardBudgetPreflight,

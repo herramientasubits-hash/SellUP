@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { CheckCircle2, XCircle, Clock, WifiOff, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, WifiOff, ShieldCheck } from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Alert } from '@/components/ui/alert';

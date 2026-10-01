@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Building2, Check, Globe, MapPin, PenLine, Sparkles } from 'lucide-react';
+import { Building2, Check, Globe, MapPin, PenLine, Sparkles } from "@/icons";
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';

@@ -15,7 +15,7 @@
 // para poder renderizarse en test con un resumen sintético; el panel asíncrono
 // solo le pasa el dato.
 
-import { ShieldAlert, Info } from 'lucide-react';
+import { ShieldAlert, Info } from "@/icons";
 import { Skeleton } from '@/components/ui/skeleton';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { getPhoneSuppressionNotEvaluableSummary } from '@/modules/contact-enrichment/phone-suppression-monitoring-queries';

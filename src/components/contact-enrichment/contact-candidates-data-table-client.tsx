@@ -1,8 +1,9 @@
 'use client';
 
 import * as React from 'react';
+import { useReportSelectionCount } from "@/components/action-rail";
 import { type ColumnDef } from '@tanstack/react-table';
-import { Link2, Building2, Globe, UserSearch } from 'lucide-react';
+import { Link2, Building2, Globe, UserSearch } from "@/icons";
 
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -193,6 +194,7 @@ export function ContactCandidatesDataTableClient({
   phoneRevealWaterfallEnabled = false,
   phoneRevealWaterfallAuthorized = false,
 }: ContactCandidatesDataTableClientProps) {
+  const reportSelectionCount = useReportSelectionCount();
   // AGENT2A-P0-R2: título, descripción y estado vacío se derivan de la cola. Antes estaban
   // escritos a mano aquí y la tabla se anunciaba como «Candidatos por revisar» incluso bajo
   // la pill «Duplicados».
@@ -387,6 +389,7 @@ export function ContactCandidatesDataTableClient({
   return (
     <>
     <DataTable
+      onSelectionCountChange={reportSelectionCount}
       columns={columns}
       data={filteredCandidates}
       getRowId={(row) => row.id}

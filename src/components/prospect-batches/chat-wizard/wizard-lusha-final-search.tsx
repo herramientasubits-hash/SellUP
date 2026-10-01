@@ -28,7 +28,7 @@ import {
   RotateCcw,
   ArrowRight,
   AlertCircle,
-} from 'lucide-react';
+} from "@/icons";
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { LockedCriteriaRecap } from '@/components/prospect-batches/lusha-preview-drawer';

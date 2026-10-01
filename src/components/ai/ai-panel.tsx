@@ -1,6 +1,6 @@
 "use client";
 
-import { Sparkles, Loader2 } from "lucide-react";
+import { Sparkles, Loader2 } from "@/icons";
 import { cn } from "@/lib/utils";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { EmptyState } from "@/components/feedback/EmptyState";

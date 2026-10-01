@@ -22,7 +22,7 @@ import {
   CheckCircle2,
   ExternalLink,
   GitMerge,
-} from 'lucide-react';
+} from "@/icons";
 import {
   Table,
   TableBody,

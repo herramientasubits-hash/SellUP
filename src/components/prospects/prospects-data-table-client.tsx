@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useReportSelectionCount } from "@/components/action-rail";
 import { useRouter } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
 import {
@@ -16,7 +17,7 @@ import {
   Clock,
   Calendar,
   CheckCircle2,
-} from 'lucide-react';
+} from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -647,6 +648,7 @@ export function ProspectsDataTableClient({
   currentGroupId = '',
   currentRoleKey = '',
 }: ProspectsDataTableClientProps) {
+  const reportSelectionCount = useReportSelectionCount();
   const router = useRouter();
 
   // Attach batch data from the original fetch
@@ -1284,6 +1286,7 @@ export function ProspectsDataTableClient({
       )}
 
       <DataTable
+        onSelectionCountChange={reportSelectionCount}
         ref={dataTableRef}
         columns={columns}
         data={rows}

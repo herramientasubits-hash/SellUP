@@ -14,7 +14,7 @@ import {
   Calendar,
   User,
   Briefcase,
-} from 'lucide-react';
+} from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import type { ComponentProps } from 'react';
 import { Badge } from '@/components/ui/badge';

@@ -1,7 +1,7 @@
 "use client";
 
 import { Toaster as Sonner, type ToasterProps } from "sonner";
-import { CircleCheck, Info, TriangleAlert, OctagonX, Loader2 } from "lucide-react";
+import { CircleCheck, Info, TriangleAlert, OctagonX, Loader2 } from "@/icons";
 
 type ToasterTheme = "light" | "dark" | "system";
 

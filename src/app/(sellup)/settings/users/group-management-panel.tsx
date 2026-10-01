@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Folder, FolderOpen, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
+import { Folder, FolderOpen, ChevronDown, ChevronRight, Loader2 } from "@/icons";
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { LogOut } from 'lucide-react';
+import { LogOut } from "@/icons";
 import { createClient } from '@/lib/supabase/client';
 
 interface LogoutButtonProps {

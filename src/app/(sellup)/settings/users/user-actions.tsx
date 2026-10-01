@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { MoreHorizontal, Check, X, Pause, UserCog, Archive, RotateCcw, Users, Loader2 } from 'lucide-react';
+import { MoreHorizontal, Check, X, Pause, UserCog, Archive, RotateCcw, Users, Loader2 } from "@/icons";
 import {
   DropdownMenu,
   DropdownMenuContent,

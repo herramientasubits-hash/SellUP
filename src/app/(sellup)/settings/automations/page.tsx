@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { Bot, Zap, MousePointerClick, Lightbulb, Brain } from 'lucide-react';
+import { Bot, Zap, MousePointerClick, Lightbulb, Brain } from "@/icons";
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { MetricCard } from '@/components/shared/metric-card';

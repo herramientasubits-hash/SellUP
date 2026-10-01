@@ -12,7 +12,7 @@ import {
   Hash,
   User,
   FileText,
-} from 'lucide-react';
+} from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

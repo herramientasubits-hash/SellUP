@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Loader2, AlertCircle, CheckCircle2, Info } from 'lucide-react';
+import { Loader2, AlertCircle, CheckCircle2, Info } from "@/icons";
 import { toast } from 'sonner';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { AIButton } from '@/components/ai/ai-button';

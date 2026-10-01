@@ -7,7 +7,7 @@
 // Phone numbers are never rendered (see the hito's "no revelar teléfonos"
 // constraint) even when a candidate row carries one.
 
-import { Building2, Calendar, Globe, Info, MapPin, Users, XCircle } from 'lucide-react';
+import { Building2, Calendar, Globe, Info, MapPin, Users, XCircle } from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';

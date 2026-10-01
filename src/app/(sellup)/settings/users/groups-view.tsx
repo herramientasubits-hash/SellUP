@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Users, Folder, FolderOpen, ChevronRight, UserPlus } from 'lucide-react';
+import { Users, Folder, FolderOpen, ChevronRight, UserPlus } from "@/icons";
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';

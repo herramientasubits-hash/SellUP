@@ -31,6 +31,13 @@ interface ActionRailShellProps {
   isBlocked?: boolean;
   /** Nombre accesible de la barra. */
   label?: string;
+  /**
+   * En qué capa flota. `overlay` (por defecto) va por encima del velo de los
+   * paneles, como la barra masiva. `page` la deja con el contenido: un drawer
+   * o un diálogo la cubren, que es lo que necesita una barra cuyos botones
+   * abren ellos mismos el panel y por eso no puede recogerse con `isBlocked`.
+   */
+  layer?: "overlay" | "page";
   className?: string;
 }
 
@@ -69,6 +76,7 @@ export function ActionRailShell({
   persistent,
   isBlocked = false,
   label = "Acciones de la pantalla",
+  layer = "overlay",
   className,
 }: ActionRailShellProps) {
   const isClient = useIsClient();
@@ -77,7 +85,12 @@ export function ActionRailShell({
   if (!contextual && !persistent) return null;
 
   return createPortal(
-    <div className="pointer-events-none fixed bottom-6 left-1/2 z-[60] flex -translate-x-1/2 justify-center">
+    <div
+      className={cn(
+        "pointer-events-none fixed bottom-6 left-1/2 flex -translate-x-1/2 justify-center",
+        layer === "page" ? "z-40" : "z-[60]",
+      )}
+    >
       {isBlocked ? (
         <div aria-hidden className="h-1.5 w-16 rounded-full bg-border shadow-card" />
       ) : (

@@ -1,11 +1,11 @@
-import { type LucideIcon } from "lucide-react";
+import { type LucideIcon } from "@/icons";
 import {
   LayoutDashboard,
   Building2,
   Users,
   BrainCircuit,
   Settings,
-} from "lucide-react";
+} from "@/icons";
 
 /**
  * Visibility requirement for a sidebar module.

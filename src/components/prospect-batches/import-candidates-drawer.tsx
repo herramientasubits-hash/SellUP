@@ -18,7 +18,7 @@ import {
   Filter,
   Settings2,
   Table2,
-} from 'lucide-react';
+} from "@/icons";
 import { SearchableSelect } from '@/components/forms/searchable-select';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { DrawerSection } from '@/components/shared/drawer-section';

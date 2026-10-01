@@ -10,7 +10,7 @@
  * superficie, no la autorización.
  */
 
-import { FlaskConical } from 'lucide-react';
+import { FlaskConical } from "@/icons";
 
 import { Checkbox } from '@/components/ui/checkbox';
 
