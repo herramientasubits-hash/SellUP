@@ -51,6 +51,7 @@ import {
 // de un sector legacy (`12/71` es farmacéuticas bajo Manufacturing, y ningún
 // sector legacy la contiene). Módulo puro: sin env, sin red, sin DB.
 import { isLushaSubIndustryOfMain } from '@/server/prospect-batches/lusha-industry-metadata';
+import { evaluateExternalPlatformGate } from '@/server/agents/prospecting-toolkit/external-platform-blocklist';
 import { LUSHA_PAGE_CURSOR_MAX_PAGE_INDEX } from './lusha-page-cursor';
 import {
   ICP_SIZE_GATE_DEFAULT_THRESHOLD,
@@ -553,7 +554,20 @@ export function normalizeLushaPreviewCompany(
   criteria: LushaPreviewCriteria,
 ): LushaPreviewCompany {
   const issues: string[] = [];
-  const domain = typeof raw.domain === 'string' && raw.domain.trim() ? raw.domain.trim() : null;
+  const rawDomain = typeof raw.domain === 'string' && raw.domain.trim() ? raw.domain.trim() : null;
+  // 🔴 AGENT1-LUSHA-SOCIAL-DOMAIN-1 — un «dominio» que es una red social no es el
+  // sitio de la empresa. Medido en Producción (30-09, Colombia × Tecnología):
+  // Carvajal llegó con `cl.linkedin.com` y esa clave se propagó a todo lo que
+  // decide por dominio: el dedupe de la corrida (dos empresas con dominio de
+  // LinkedIn se habrían fundido en una), el guard de activos, el reclamo global y
+  // la comprobación de HubSpot, que devolvió una coincidencia cualquiera.
+  // Se trata como dominio AUSENTE (`missing_domain`, que no descarta: la empresa
+  // sigue como candidata para revisión) y se deja constancia. Sólo redes
+  // sociales: el resto de la lista de plataformas incluye empresas reales
+  // (HubSpot, Creatio…) cuyo dominio legítimo está en ella.
+  const socialDomain =
+    rawDomain !== null && evaluateExternalPlatformGate(rawDomain).platformType === 'social_network';
+  const domain = socialDomain ? null : rawDomain;
   const country = typeof raw.country === 'string' && raw.country.trim() ? raw.country.trim() : null;
 
   let score = 100;
@@ -562,6 +576,7 @@ export function normalizeLushaPreviewCompany(
     score -= 50;
     issues.push('missing_domain');
   }
+  if (socialDomain) issues.push('domain_is_social_network');
 
   const matchesCountry = countryMatches(raw, criteria);
   if (!matchesCountry) {

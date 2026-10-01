@@ -321,7 +321,7 @@ function criteria(matchKeywords: string[]): LushaPreviewCriteria {
 describe('§ 4 — `industryMatches` es asimétrico', () => {
   it('un padre amplio ya NO coincide con una palabra específica que lo contiene', () => {
     const normalized = normalizeLushaPreviewCompany(
-      { id: 'x', name: 'X', domain: 'x.com', country: 'Colombia', countryIso2: 'CO', industry: 'Manufacturing', employeeCountExact: 700 },
+      { id: 'x', name: 'X', domain: 'empresa-ejemplo.com', country: 'Colombia', countryIso2: 'CO', industry: 'Manufacturing', employeeCountExact: 700 },
       criteria(['Healthcare', 'Pharmaceuticals Manufacturing', 'Medical Equipment']),
     );
     assert.ok(normalized.issues.includes('industry_mismatch'));
@@ -330,7 +330,7 @@ describe('§ 4 — `industryMatches` es asimétrico', () => {
 
   it('la palabra específica SÍ coincide cuando la declarada la contiene', () => {
     const normalized = normalizeLushaPreviewCompany(
-      { id: 'x', name: 'X', domain: 'x.com', country: 'Colombia', countryIso2: 'CO', industry: 'Pharmaceuticals Manufacturing', employeeCountExact: 700 },
+      { id: 'x', name: 'X', domain: 'empresa-ejemplo.com', country: 'Colombia', countryIso2: 'CO', industry: 'Pharmaceuticals Manufacturing', employeeCountExact: 700 },
       criteria(['Healthcare', 'Pharmaceuticals Manufacturing']),
     );
     assert.equal(normalized.issues.includes('industry_mismatch'), false);
