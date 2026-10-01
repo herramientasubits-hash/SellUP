@@ -4,6 +4,7 @@ import * as React from 'react';
 import { type ColumnDef } from '@tanstack/react-table';
 import { Copy, ExternalLink, ArrowRight } from 'lucide-react';
 import { DataTable, DataTableColumnHeader, TruncatedCell, type DataTableContextMenuItem } from '@/components/data-table';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -105,12 +106,11 @@ function SourceTable({ data, columns, openDetail, handleRowReorder, onRowClick }
       initialPageSize={10}
       fillHeight
       emptyState={
-        <div className="flex flex-col items-center justify-center py-12 text-center">
-          <p className="text-sm font-medium text-foreground">Sin resultados</p>
-          <p className="text-xs text-muted-foreground mt-1">
-            Ajusta los filtros para ver fuentes.
-          </p>
-        </div>
+        <EmptyState
+          variant="plain"
+          title="Sin resultados"
+          description="Ajusta los filtros para ver fuentes."
+        />
       }
     />
   );

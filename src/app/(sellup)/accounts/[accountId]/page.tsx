@@ -18,6 +18,8 @@ import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
+import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
+import { Timeline, TimelineItem } from '@/components/data-display';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getAccountById, getAccountAudit, getActiveUsers } from '@/modules/accounts/actions';
 import { getContactsByAccount, getContactsSummary } from '@/modules/contacts/actions';
@@ -71,6 +73,9 @@ function formatShortDate(iso: string): string {
   });
 }
 
+/** Pares etiqueta/valor en rejilla: dos columnas cuando la tarjeta tiene ancho. */
+const DETAIL_GRID = 'grid gap-x-6 gap-y-3 sm:grid-cols-2 md:grid-cols-1 xl:grid-cols-2';
+
 const AUDIT_ICONS: Record<AccountAuditAction, typeof Activity> = {
   account_created: Building2,
   account_updated: Briefcase,
@@ -109,6 +114,9 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
         title={account.name}
         description={account.legal_name ?? undefined}
         backHref="/accounts"
+        breadcrumbs={
+          <Breadcrumbs items={[{ label: 'Empresas', href: '/accounts' }, account.name]} />
+        }
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {isRolledBack && (
@@ -177,7 +185,7 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
             {/* Datos de la cuenta */}
             <SurfaceCard>
               <SurfaceCardHeader title="Datos de la empresa" />
-              <dl className="space-y-3">
+              <dl className={DETAIL_GRID}>
                 {account.website && (
                   <DetailRow icon={Globe} label="Sitio web">
                     <a
@@ -236,7 +244,7 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
             {/* Owner y estado */}
             <SurfaceCard>
               <SurfaceCardHeader title="Asignación y estado" />
-              <dl className="space-y-3">
+              <dl className={DETAIL_GRID}>
                 <DetailRow icon={User} label="Owner">
                   {account.owner?.full_name ?? account.owner?.email ?? (
                     <span className="text-muted-foreground">Sin asignar</span>
@@ -322,35 +330,26 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
               description="Cambios y eventos de auditoría de esta cuenta."
             />
             {auditLog.length === 0 ? (
-              <p className="py-6 text-center text-xs text-muted-foreground">
-                Sin actividad registrada todavía.
-              </p>
+              <EmptyState variant="plain" icon={Activity} title="Sin actividad registrada todavía." />
             ) : (
-              <ol className="space-y-3">
+              <Timeline>
                 {auditLog.map((entry) => {
                   const Icon = AUDIT_ICONS[entry.action_type] ?? Activity;
                   return (
-                    <li key={entry.id} className="flex items-start gap-3">
-                      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-muted">
-                        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-medium text-foreground">
-                          {AUDIT_ACTION_LABELS[entry.action_type]}
-                        </p>
-                        {entry.actor && (
-                          <p className="text-xs text-muted-foreground">
-                            por {entry.actor.full_name ?? entry.actor.email}
-                          </p>
-                        )}
-                        <p className="text-xs text-muted-foreground">
-                          {formatDate(entry.created_at)}
-                        </p>
-                      </div>
-                    </li>
+                    <TimelineItem
+                      key={entry.id}
+                      icon={<Icon />}
+                      title={AUDIT_ACTION_LABELS[entry.action_type]}
+                      time={formatDate(entry.created_at)}
+                      description={
+                        entry.actor
+                          ? `por ${entry.actor.full_name ?? entry.actor.email}`
+                          : undefined
+                      }
+                    />
                   );
                 })}
-              </ol>
+              </Timeline>
             )}
           </SurfaceCard>
         </TabsContent>

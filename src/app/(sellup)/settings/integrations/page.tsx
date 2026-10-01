@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Plug, MessageSquare, HardDrive, Bot, Globe, Search, ExternalLink } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { PageHeader } from '@/components/shared/page-header';
+import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { getAllIntegrations } from '@/modules/integrations/actions';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
@@ -198,6 +199,14 @@ export default async function IntegrationsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
+        breadcrumbs={
+          <Breadcrumbs
+            items={[
+              { label: 'Configuración', href: '/settings' },
+              'Integraciones comerciales',
+            ]}
+          />
+        }
         title="Integraciones comerciales"
         description="Conecta herramientas externas que permiten a SellUp validar, enriquecer y operar información comercial."
         backHref="/settings"

@@ -18,21 +18,30 @@ import * as React from 'react';
 import { Bot, Calendar, ChevronDown, ChevronUp, Info, XCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Spinner } from '@/components/feedback/spinner';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { getContactEnrichmentRunProviderUsage } from '@/modules/contact-enrichment/run-viewer-actions';
 import type { ContactEnrichmentRunProviderUsage } from '@/modules/contact-enrichment/run-viewer-types';
 import type { AccountContactEnrichmentRun } from '@/modules/contact-enrichment/account-run-history-types';
 import { resolveAccountRunInlineDetailContent } from './account-run-inline-detail-content';
 
-export const ACCOUNT_RUN_STATUS_BADGE: Record<string, { label: string; className: string }> = {
-  pending: { label: 'Pendiente', className: 'text-muted-foreground border-border/60 bg-surface-subtle' },
-  resolving: { label: 'Resolviendo', className: 'text-muted-foreground border-border/60 bg-surface-subtle' },
-  ready_to_enrich: { label: 'Listo para enriquecer', className: 'text-primary border-primary/30 bg-primary/10' },
-  enriching: { label: 'Enriqueciendo', className: 'text-primary border-primary/30 bg-primary/10' },
-  ready_for_review: { label: 'Listo para revisión', className: 'text-success border-success/30 bg-success/10' },
-  completed: { label: 'Completado', className: 'text-success border-success/30 bg-success/10' },
-  failed: { label: 'Fallido', className: 'text-destructive border-destructive/30 bg-destructive/10' },
-  superseded: { label: 'Reemplazado', className: 'text-muted-foreground border-border/60 bg-surface-subtle' },
+/** `className` se conserva por compatibilidad con quien lea el mapa; la UI pinta con `variant`. */
+export interface AccountRunStatusBadge {
+  label: string;
+  className: string;
+  variant: 'neutral' | 'brand' | 'positive' | 'negative';
+}
+
+export const ACCOUNT_RUN_STATUS_BADGE: Record<string, AccountRunStatusBadge> = {
+  pending: { label: 'Pendiente', className: 'text-muted-foreground border-border/60 bg-surface-subtle', variant: 'neutral' },
+  resolving: { label: 'Resolviendo', className: 'text-muted-foreground border-border/60 bg-surface-subtle', variant: 'neutral' },
+  ready_to_enrich: { label: 'Listo para enriquecer', className: 'text-primary border-primary/30 bg-primary/10', variant: 'brand' },
+  enriching: { label: 'Enriqueciendo', className: 'text-primary border-primary/30 bg-primary/10', variant: 'brand' },
+  ready_for_review: { label: 'Listo para revisión', className: 'text-success border-success/30 bg-success/10', variant: 'positive' },
+  completed: { label: 'Completado', className: 'text-success border-success/30 bg-success/10', variant: 'positive' },
+  failed: { label: 'Fallido', className: 'text-destructive border-destructive/30 bg-destructive/10', variant: 'negative' },
+  superseded: { label: 'Reemplazado', className: 'text-muted-foreground border-border/60 bg-surface-subtle', variant: 'neutral' },
 };
 
 export const ACCOUNT_RUN_PROVIDER_LABELS: Record<string, string> = {
@@ -62,7 +71,7 @@ export function resolveAccountRunProviderLabel(run: AccountContactEnrichmentRun)
 
 /** Pure — falls back to the 'pending' badge for an unrecognized status
  *  rather than rendering nothing. */
-export function resolveAccountRunStatusBadge(status: string): { label: string; className: string } {
+export function resolveAccountRunStatusBadge(status: string): AccountRunStatusBadge {
   return ACCOUNT_RUN_STATUS_BADGE[status] ?? ACCOUNT_RUN_STATUS_BADGE.pending;
 }
 
@@ -134,7 +143,11 @@ function AccountRunInlineDetail({ run }: { run: AccountContactEnrichmentRun }) {
 
   if (providerUsage === null) {
     return (
-      <p className="border-t border-border/50 pt-3 text-xs text-muted-foreground">Cargando detalle…</p>
+      <p className="flex items-center gap-2 border-t border-border/50 pt-3 text-xs text-muted-foreground">
+        {/* Decorativo: el texto de al lado ya anuncia la espera. */}
+        <Spinner size="xs" label="" aria-hidden="true" />
+        Cargando detalle…
+      </p>
     );
   }
 
@@ -156,7 +169,7 @@ function AccountRunInlineDetail({ run }: { run: AccountContactEnrichmentRun }) {
       <div className="flex items-start gap-2">
         <div
           className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg ${
-            isNegative ? 'bg-destructive/10' : 'bg-muted'
+            isNegative ? 'bg-destructive/10' : 'bg-surface-muted'
           }`}
         >
           {isNegative ? (
@@ -201,7 +214,7 @@ function RunCard({ run }: { run: AccountContactEnrichmentRun }) {
             <Badge variant="neutral">
               {resolveAccountRunProviderLabel(run)}
             </Badge>
-            <Badge variant="outline" className={statusBadge.className}>
+            <Badge variant={statusBadge.variant}>
               {statusBadge.label}
             </Badge>
             {run.attemptOrder != null && (
@@ -215,22 +228,22 @@ function RunCard({ run }: { run: AccountContactEnrichmentRun }) {
           <dl className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
             <div className="flex gap-1">
               <dt>Candidatos:</dt>
-              <dd className="font-medium text-foreground">{run.candidateCount}</dd>
+              <dd className="font-medium tabular-nums text-foreground">{run.candidateCount}</dd>
             </div>
             {run.totalCreditsUsed != null && (
               <div className="flex gap-1">
                 <dt>Créditos:</dt>
-                <dd className="font-medium text-foreground">{run.totalCreditsUsed}</dd>
+                <dd className="font-medium tabular-nums text-foreground">{run.totalCreditsUsed}</dd>
               </div>
             )}
             <div className="flex gap-1">
               <dt>Costo estimado:</dt>
-              <dd className="font-medium text-foreground">US$ {run.estimatedCostUsd.toFixed(4)}</dd>
+              <dd className="font-medium tabular-nums text-foreground">US$ {run.estimatedCostUsd.toFixed(4)}</dd>
             </div>
             {run.realCostUsd != null && (
               <div className="flex gap-1">
                 <dt>Costo real:</dt>
-                <dd className="font-medium text-foreground">US$ {run.realCostUsd.toFixed(4)}</dd>
+                <dd className="font-medium tabular-nums text-foreground">US$ {run.realCostUsd.toFixed(4)}</dd>
               </div>
             )}
           </dl>
@@ -259,8 +272,8 @@ function LegacyRunGroup({ runs }: { runs: AccountContactEnrichmentRun[] }) {
   const [expanded, setExpanded] = React.useState(false);
 
   return (
-    <div className="rounded-lg border border-dashed border-border/60 bg-surface-subtle">
-      <div className="flex items-center justify-between gap-3 px-4 py-3">
+    <div className="rounded-xl border border-dashed border-border/60 bg-surface-subtle">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
         <div className="min-w-0 space-y-0.5">
           <p className="text-xs font-semibold text-foreground">Runs antiguos o reemplazados</p>
           <p className="text-xs text-muted-foreground">
@@ -306,12 +319,11 @@ export function AccountAgentsRunHistory({ runs }: { runs: AccountContactEnrichme
         description="Historial de búsquedas y enriquecimientos ejecutados para esta cuenta. Esta vista es de solo lectura."
       />
       {runs.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 py-8 text-center">
-          <Bot className="h-8 w-8 text-text-muted" aria-hidden />
-          <p className="text-xs text-muted-foreground">
-            Todavía no hay runs de enriquecimiento para esta cuenta.
-          </p>
-        </div>
+        <EmptyState
+          variant="plain"
+          icon={Bot}
+          title="Todavía no hay runs de enriquecimiento para esta cuenta."
+        />
       ) : (
         <div className="space-y-4">
           {legacyRuns.length > 0 && (

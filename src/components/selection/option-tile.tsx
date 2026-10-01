@@ -36,6 +36,8 @@ export function OptionTile({
   return (
     <button
       type="button"
+      role="radio"
+      aria-checked={selected}
       disabled={isDisabled}
       onClick={() => onSelect?.(option.value)}
       className={cn(

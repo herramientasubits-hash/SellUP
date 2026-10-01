@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { ClipboardCheck, UserCheck } from "lucide-react";
 import { TabsNav, type Tab } from "@/components/navigation/tabs-nav";
 import {
   CONTACTS_ROUTE,
@@ -43,8 +44,8 @@ export function ContactsModuleTabsNav({
   // de candidatos generaba ruido visual y forzaba una query extra en el tab
   // por defecto. Las labels quedan simples; el routing por tab no cambia.
   const tabs: Tab[] = [
-    { id: "approved", label: "Contactos aprobados" },
-    { id: "candidates", label: "Candidatos por revisar" },
+    { id: "approved", label: "Contactos aprobados", icon: UserCheck },
+    { id: "candidates", label: "Candidatos por revisar", icon: ClipboardCheck },
   ];
 
   return (
@@ -54,7 +55,6 @@ export function ContactsModuleTabsNav({
       onTabChange={(id) =>
         router.push(TAB_ROUTES[id as ContactsTabId] ?? CONTACTS_ROUTE)
       }
-      className="bg-transparent px-0 py-0"
     />
   );
 }

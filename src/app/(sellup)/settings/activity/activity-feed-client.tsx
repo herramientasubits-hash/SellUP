@@ -12,10 +12,13 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
+import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Input } from '@/components/ui/input';
+import { Timeline, TimelineItem, type TimelineTone } from '@/components/data-display';
+import { Spinner } from '@/components/feedback/spinner';
 import { getPlatformActivity } from '@/modules/system-status/activity-actions';
 import type {
   ActivityViewerContext,
@@ -58,10 +61,10 @@ function displayName(user: { email: string; full_name: string | null } | null): 
 
 // Design Refresh v2: el icono de categoría lleva un tinte sutil por fuente.
 // Así el color señala la categoría sin necesidad del badge uppercase repetido.
-const SOURCE_ICON_TINT: Record<AdminActivitySource, string> = {
-  users: 'bg-primary/10 text-primary',
-  integrations: 'bg-warning/10 text-warning',
-  ai: 'bg-info/10 text-info',
+const SOURCE_TONE: Record<AdminActivitySource, TimelineTone> = {
+  users: 'primary',
+  integrations: 'warning',
+  ai: 'default',
 };
 
 function SourceIcon({ source }: { source: AdminActivitySource }) {
@@ -264,6 +267,14 @@ export function ActivityFeedClient({ context, initialEvents, initialHasMore, emb
     <div className="space-y-6">
       {!embedded && (
         <PageHeader
+          breadcrumbs={
+            <Breadcrumbs
+              items={[
+                { label: 'Configuración', href: '/settings' },
+                'Actividad de la plataforma',
+              ]}
+            />
+          }
           title="Actividad de la plataforma"
           description="Historial de acciones administrativas, integraciones y configuración de IA."
           backHref="/settings"
@@ -323,7 +334,7 @@ export function ActivityFeedClient({ context, initialEvents, initialHasMore, emb
 
         {/* Loading indicator */}
         {isPending && (
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" />
+          <Spinner size="sm" label="Cargando actividad" />
         )}
       </div>
 
@@ -341,26 +352,25 @@ export function ActivityFeedClient({ context, initialEvents, initialHasMore, emb
             }
           />
         ) : (
-          <ul className={`divide-y divide-border/50 transition-opacity duration-200 ${isPending ? 'opacity-60' : ''}`}>
+          <Timeline
+            className={`px-5 py-4 transition-opacity duration-200 ${isPending ? 'opacity-60' : ''}`}
+          >
             {events.map((event) => (
-              <li key={event.id} className="flex items-start gap-3 px-5 py-3.5 transition-colors hover:bg-surface-muted">
-                {/* Source icon — tinte por categoría (reemplaza el badge de fila) */}
-                <div className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${SOURCE_ICON_TINT[event.source]}`}>
-                  <SourceIcon source={event.source} />
-                </div>
-
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="min-w-0 break-words text-sm font-medium text-foreground">{event.label}</span>
-                  </div>
-
-                  {/* Description */}
-                  {event.description && (
-                    <p className="mt-0.5 break-words text-xs leading-relaxed text-muted-foreground">{event.description}</p>
-                  )}
-
-                  {/* Actor / Target */}
-                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+              <TimelineItem
+                key={event.id}
+                tone={SOURCE_TONE[event.source]}
+                icon={<SourceIcon source={event.source} />}
+                title={<span className="break-words">{event.label}</span>}
+                time={formatRelativeTime(event.created_at)}
+                description={
+                  event.description ? (
+                    <span className="break-words">{event.description}</span>
+                  ) : undefined
+                }
+              >
+                {/* Actor / Target */}
+                {(event.actor || event.target) && (
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
                     {event.actor && (
                       <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
                         <span className="font-medium text-muted-foreground">Por:</span>
@@ -379,14 +389,10 @@ export function ActivityFeedClient({ context, initialEvents, initialHasMore, emb
                       </>
                     )}
                   </div>
-                </div>
-
-                <span className="mt-0.5 shrink-0 text-xs tabular-nums text-muted-foreground">
-                  {formatRelativeTime(event.created_at)}
-                </span>
-              </li>
+                )}
+              </TimelineItem>
             ))}
-          </ul>
+          </Timeline>
         )}
 
         {/* Load more */}

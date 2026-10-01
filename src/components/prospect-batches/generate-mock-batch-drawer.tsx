@@ -2,8 +2,10 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { FlaskConical, Loader2, Globe, Target, AlertTriangle, Info } from 'lucide-react';
+import { FlaskConical, Loader2, Globe, Target, Info, PowerOff } from 'lucide-react';
 import { DrawerShell } from '@/components/shared/drawer-shell';
+import { DrawerSection } from '@/components/shared/drawer-section';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -99,10 +101,10 @@ export function GenerateMockBatchDrawer() {
       }
       title="Generar lote de prueba"
       description="Prueba el pipeline completo con datos mock sin consumir ningún proveedor real."
-      icon={<FlaskConical className="h-4 w-4 text-warning" />}
+      icon={<FlaskConical className="h-4 w-4" />}
       size="xl"
       actions={
-        <div className="flex w-full items-center justify-between gap-2">
+        <>
           <Button
             type="button"
             variant="outline"
@@ -126,27 +128,26 @@ export function GenerateMockBatchDrawer() {
             )}
             {loading ? 'Generando…' : 'Generar lote de prueba'}
           </Button>
-        </div>
+        </>
       }
     >
       <form
         id="mock-batch-form"
         onSubmit={handleSubmit}
-        className="space-y-6"
+        className="space-y-4"
       >
         {/* Alerta de seguridad */}
-        <div className="rounded-xl border border-warning/25 bg-warning/15 px-4 py-3">
-          <div className="flex gap-2.5">
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
-            <p className="text-xs text-muted-foreground">
+        <Alert variant="warning" role="note">
+          <AlertDescription className="text-xs">
+            <p>
               Este modo usa datos mock para probar el flujo{' '}
               <strong className="font-medium text-foreground">
                 sin consumir IA, Apollo, Lusha ni Tavily
               </strong>
               . Los candidatos generados no deben convertirse en empresas reales.
             </p>
-          </div>
-        </div>
+          </AlertDescription>
+        </Alert>
 
         {/* Segmentación */}
         <Section icon={Globe} label="Segmentación">
@@ -235,11 +236,12 @@ export function GenerateMockBatchDrawer() {
         </Section>
 
         {/* Qué NO se usa */}
-        <div className="space-y-2">
-          <p className="text-xs font-semibold text-muted-foreground">
-            Proveedores desactivados en modo prueba
-          </p>
-          <div className="flex flex-col gap-1.5">
+        <DrawerSection
+          title="Proveedores desactivados en modo prueba"
+          icon={PowerOff}
+          tone="neutral"
+        >
+          <ul className="space-y-2">
             {[
               'Apollo — discovery desactivado',
               'Lusha — enriquecimiento desactivado',
@@ -247,16 +249,13 @@ export function GenerateMockBatchDrawer() {
               'IA (LLM) — clasificación desactivada',
               'HubSpot — escritura desactivada',
             ].map((label) => (
-              <div
-                key={label}
-                className="flex items-center gap-2.5 rounded-xl border border-border/60 bg-card px-3 py-2"
-              >
-                <Info className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <span className="text-xs text-muted-foreground">{label}</span>
-              </div>
+              <li key={label} className="flex items-center gap-2.5">
+                <Info className="h-3.5 w-3.5 shrink-0 text-text-muted" aria-hidden="true" />
+                <span className="min-w-0 text-xs text-muted-foreground">{label}</span>
+              </li>
             ))}
-          </div>
-        </div>
+          </ul>
+        </DrawerSection>
       </form>
     </DrawerShell>
   );

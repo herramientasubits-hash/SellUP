@@ -34,19 +34,21 @@ import { setPrimaryContact, changeContactStatus, archiveContact } from '@/module
 
 // ── Badge styles ───────────────────────────────────────────────
 
-const STATUS_STYLES: Record<ContactStatus, string> = {
-  active: 'bg-success/10 text-success border-transparent',
-  inactive: 'bg-muted text-muted-foreground border-transparent',
-  left_company: 'bg-warning/10 text-warning border-transparent',
-  do_not_contact: 'bg-destructive/10 text-destructive border-transparent',
-  archived: 'bg-surface-muted text-muted-foreground border-transparent',
+type ContactBadgeVariant = 'positive' | 'neutral' | 'warning' | 'negative' | 'brand';
+
+const STATUS_VARIANT: Record<ContactStatus, ContactBadgeVariant> = {
+  active: 'positive',
+  inactive: 'neutral',
+  left_company: 'warning',
+  do_not_contact: 'negative',
+  archived: 'neutral',
 };
 
-const ROLE_STYLES: Record<string, string> = {
-  decision_maker: 'bg-primary/10 text-primary border-transparent',
-  economic_buyer: 'bg-primary/10 text-primary border-transparent',
-  champion: 'bg-success/10 text-success border-transparent',
-  influencer: 'bg-warning/10 text-warning border-transparent',
+const ROLE_VARIANT: Record<string, ContactBadgeVariant> = {
+  decision_maker: 'brand',
+  economic_buyer: 'brand',
+  champion: 'positive',
+  influencer: 'warning',
 };
 
 // ── Filter option arrays ───────────────────────────────────────
@@ -300,10 +302,7 @@ export function ContactsDataTableClient({
         cell: ({ row }) => {
           const status = row.original.contact_status;
           return (
-            <Badge
-              variant="outline"
-              className={STATUS_STYLES[status]}
-            >
+            <Badge variant={STATUS_VARIANT[status]}>
               {CONTACT_STATUS_LABELS[status]}
             </Badge>
           );
@@ -326,10 +325,7 @@ export function ContactsDataTableClient({
         cell: ({ row }) => {
           const role = row.original.role_in_account;
           return role ? (
-            <Badge
-              variant="outline"
-              className={ROLE_STYLES[role] ?? 'bg-muted text-muted-foreground border-transparent'}
-            >
+            <Badge variant={ROLE_VARIANT[role] ?? 'neutral'}>
               {ROLE_LABELS[role as ContactRole]}
             </Badge>
           ) : (

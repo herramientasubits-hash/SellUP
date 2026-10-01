@@ -2,7 +2,6 @@
 
 import * as React from 'react';
 import {
-  Loader2,
   Building2,
   Brain,
   Users,
@@ -22,6 +21,8 @@ import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DrawerSection } from '@/components/shared/drawer-section';
+import { Timeline, TimelineItem } from '@/components/data-display';
+import { Spinner } from '@/components/feedback/spinner';
 import { getAccountById, getAccountAudit, getActiveUsers } from '@/modules/accounts/actions';
 import { getContactsByAccount, getContactsSummary } from '@/modules/contacts/actions';
 import { getContactEnrichmentRunsByAccountId } from '@/modules/contact-enrichment/account-run-history-actions';
@@ -155,7 +156,7 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
         onOpenChange={(v) => !v && onClose()}
         side="right"
         className="w-full sm:w-[58vw] sm:min-w-[660px] sm:!max-w-[900px]"
-        icon={<Building2 className="h-5 w-5 text-primary" />}
+        icon={<Building2 className="h-4 w-4" />}
         title={data ? data.account.name : 'Cargando cuenta...'}
         description={data ? (data.account.legal_name || undefined) : undefined}
         titleBadge={
@@ -193,7 +194,7 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
       >
         {loading || !data ? (
           <div className="flex items-center justify-center py-20">
-            <Loader2 className="h-6 w-6 animate-spin text-text-muted" />
+            <Spinner label="Cargando cuenta..." />
           </div>
         ) : (
           // Design Refresh v3: tabs alineados con el contenido (antes mx-7 mt-4
@@ -302,7 +303,7 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                             <p className="mb-1 text-xs font-semibold text-muted-foreground">
                               Notas
                             </p>
-                            <p className="text-xs text-muted-foreground leading-relaxed">
+                            <p className="break-words text-xs leading-relaxed text-foreground">
                               {data.account.notes}
                             </p>
                           </div>
@@ -324,38 +325,32 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                       }
                     >
                       {data.auditLog.length === 0 ? (
-                        <div className="flex flex-col items-center gap-2 py-8 text-center">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-surface-muted">
-                            <Activity className="h-4 w-4 text-text-muted" />
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            Sin actividad registrada todavía.
-                          </p>
-                        </div>
+                        <EmptyState
+                          variant="plain"
+                          icon={Activity}
+                          title="Sin actividad registrada todavía."
+                        />
                       ) : (
-                        <ol className="space-y-3">
+                        <Timeline>
                           {data.auditLog.slice(0, 4).map((entry) => {
                             const Icon = AUDIT_ICONS[entry.action_type] ?? Activity;
                             return (
-                              <li key={entry.id} className="flex items-start gap-3">
-                                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-muted">
-                                  <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-xs font-medium text-foreground">
-                                    {AUDIT_ACTION_LABELS[entry.action_type]}
-                                  </p>
-                                  <p className="text-xs text-muted-foreground">
+                              <TimelineItem
+                                key={entry.id}
+                                icon={<Icon />}
+                                title={AUDIT_ACTION_LABELS[entry.action_type]}
+                                description={
+                                  <>
                                     {entry.actor
                                       ? `${entry.actor.full_name ?? entry.actor.email} · `
                                       : ''}
                                     {formatDate(entry.created_at)}
-                                  </p>
-                                </div>
-                              </li>
+                                  </>
+                                }
+                              />
                             );
                           })}
-                        </ol>
+                        </Timeline>
                       )}
                     </DrawerSection>
                   </TabsContent>
@@ -384,35 +379,31 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                   <TabsContent value="actividad">
                     <DrawerSection title="Registro de actividad" icon={Activity} hint="Cambios y eventos de auditoría de esta cuenta.">
                       {data.auditLog.length === 0 ? (
-                        <p className="py-6 text-center text-xs text-muted-foreground">
-                          Sin actividad registrada todavía.
-                        </p>
+                        <EmptyState
+                          variant="plain"
+                          icon={Activity}
+                          title="Sin actividad registrada todavía."
+                        />
                       ) : (
-                        <ol className="space-y-3">
+                        <Timeline>
                           {data.auditLog.map((entry) => {
                             const Icon = AUDIT_ICONS[entry.action_type] ?? Activity;
                             return (
-                              <li key={entry.id} className="flex items-start gap-3">
-                                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-muted">
-                                  <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-xs font-medium text-foreground">
-                                    {AUDIT_ACTION_LABELS[entry.action_type]}
-                                  </p>
-                                  {entry.actor && (
-                                    <p className="text-xs text-muted-foreground">
-                                      por {entry.actor.full_name ?? entry.actor.email}
-                                    </p>
-                                  )}
+                              <TimelineItem
+                                key={entry.id}
+                                icon={<Icon />}
+                                title={AUDIT_ACTION_LABELS[entry.action_type]}
+                                description={formatDate(entry.created_at)}
+                              >
+                                {entry.actor && (
                                   <p className="text-xs text-muted-foreground">
-                                    {formatDate(entry.created_at)}
+                                    por {entry.actor.full_name ?? entry.actor.email}
                                   </p>
-                                </div>
-                              </li>
+                                )}
+                              </TimelineItem>
                             );
                           })}
-                        </ol>
+                        </Timeline>
                       )}
                     </DrawerSection>
                   </TabsContent>

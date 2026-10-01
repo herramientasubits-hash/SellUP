@@ -3,6 +3,7 @@ import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { getAdminBudgetSummary } from '@/modules/budgets/budget-resolution';
 import { getBudgetRulesForAdmin, getBudgetRuleFormOptions } from '@/modules/budgets/rule-queries';
 import { PageHeader } from '@/components/shared/page-header';
+import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { LegacyCompatBanner } from '../legacy-compat-banner';
 import { BudgetSummaryCards } from './budget-summary-cards';
@@ -27,6 +28,15 @@ export default async function BudgetCreditsPage() {
         ctaHref="/settings/providers?tab=consumo"
       />
       <PageHeader
+        breadcrumbs={
+          <Breadcrumbs
+            items={[
+              { label: 'Configuración', href: '/settings' },
+              { label: 'Proveedores y consumo', href: '/settings/providers' },
+              'Créditos y presupuestos',
+            ]}
+          />
+        }
         title="Créditos y presupuestos"
         description="Controla el consumo de herramientas con créditos, costos y reglas por proveedor."
         backHref="/settings"

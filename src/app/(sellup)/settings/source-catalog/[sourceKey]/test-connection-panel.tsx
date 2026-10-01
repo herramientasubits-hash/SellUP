@@ -9,7 +9,6 @@ import { testSourceConnectionAction } from '@/modules/source-catalog/actions';
 import {
   CONNECTION_TEST_STATUS_LABELS,
   CONNECTION_TEST_STRATEGY_LABELS,
-  connectionTestStatusBadgeClass,
 } from '@/modules/source-catalog/labels';
 import type { SourceConnectionTestResult, SourceConnectionTestStatus } from '@/server/source-catalog/connection-test/types';
 
@@ -29,9 +28,21 @@ function StatusIcon({ status }: { status: SourceConnectionTestStatus }) {
   }
 }
 
+const STATUS_BADGE_VARIANT: Record<
+  SourceConnectionTestStatus,
+  'positive' | 'negative' | 'warning' | 'neutral'
+> = {
+  success: 'positive',
+  failed: 'negative',
+  blocked: 'negative',
+  requires_credentials: 'warning',
+  input_required: 'warning',
+  not_supported: 'neutral',
+};
+
 function StatusBadge({ status }: { status: SourceConnectionTestStatus }) {
   return (
-    <Badge variant="outline" className={connectionTestStatusBadgeClass(status)}>
+    <Badge variant={STATUS_BADGE_VARIANT[status]}>
       <StatusIcon status={status} />
       {CONNECTION_TEST_STATUS_LABELS[status]}
     </Badge>

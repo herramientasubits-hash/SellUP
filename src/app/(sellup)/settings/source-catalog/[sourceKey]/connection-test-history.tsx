@@ -1,10 +1,11 @@
-import { CheckCircle2, XCircle, AlertTriangle, Clock } from 'lucide-react';
+import { CheckCircle2, XCircle, AlertTriangle, Clock, History } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
+import { TableShell } from '@/components/data-display';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import {
   CONNECTION_TEST_STATUS_LABELS,
   CONNECTION_TEST_STRATEGY_LABELS,
-  connectionTestStatusBadgeClass,
 } from '@/modules/source-catalog/labels';
 import type {
   SourceConnectionTestHistoryViewModel,
@@ -51,9 +52,21 @@ function StatusIcon({ status }: { status: SourceConnectionTestStatus }) {
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
+const STATUS_BADGE_VARIANT: Record<
+  SourceConnectionTestStatus,
+  'positive' | 'negative' | 'warning' | 'neutral'
+> = {
+  success: 'positive',
+  failed: 'negative',
+  blocked: 'negative',
+  requires_credentials: 'warning',
+  input_required: 'warning',
+  not_supported: 'neutral',
+};
+
 function StatusBadge({ status }: { status: SourceConnectionTestStatus }) {
   return (
-    <Badge variant="outline" className={connectionTestStatusBadgeClass(status)}>
+    <Badge variant={STATUS_BADGE_VARIANT[status]}>
       <StatusIcon status={status} />
       {CONNECTION_TEST_STATUS_LABELS[status]}
     </Badge>
@@ -126,10 +139,9 @@ function LatestTestBlock({ item }: { item: SourceConnectionTestHistoryItem }) {
 
 function HistoryTable({ items }: { items: SourceConnectionTestHistoryItem[] }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[640px] text-sm">
+    <table className="w-full min-w-160 text-sm">
         <thead>
-          <tr className="border-b border-border/50">
+          <tr className="border-b border-border/50 bg-surface-subtle">
             {[
               'Fecha',
               'Resultado',
@@ -143,7 +155,7 @@ function HistoryTable({ items }: { items: SourceConnectionTestHistoryItem[] }) {
               <th
                 key={col}
                 scope="col"
-                className="pb-2 pr-4 text-left text-xs font-semibold text-muted-foreground last:pr-0"
+                className="py-2.5 pr-4 text-left text-xs font-semibold text-muted-foreground"
               >
                 {col}
               </th>
@@ -180,25 +192,20 @@ function HistoryTable({ items }: { items: SourceConnectionTestHistoryItem[] }) {
             </tr>
           ))}
         </tbody>
-      </table>
-    </div>
+    </table>
   );
 }
 
 // ─── Empty state ──────────────────────────────────────────────────────────────
 
-function EmptyState() {
+function NoTestsState() {
   return (
-    <div className="space-y-1 rounded-xl border border-dashed border-border/60 bg-surface-subtle px-4 py-8 text-center">
-      <p className="text-sm font-medium text-foreground">
-        Aún no hay pruebas registradas para esta fuente.
-      </p>
-      <p className="text-sm text-muted-foreground">
-        Ejecuta{' '}
-        <span className="font-medium text-foreground">Probar conexión</span>{' '}
-        para crear el primer registro.
-      </p>
-    </div>
+    <EmptyState
+      variant="plain"
+      icon={History}
+      title="Aún no hay pruebas registradas para esta fuente."
+      description="Ejecuta Probar conexión para crear el primer registro."
+    />
   );
 }
 
@@ -216,22 +223,23 @@ export function ConnectionTestHistory({ history }: Props) {
       {/* Latest test */}
       <SurfaceCard>
         <SurfaceCardHeader title="Última prueba de conexión" />
-        {latest ? <LatestTestBlock item={latest} /> : <EmptyState />}
+        {latest ? <LatestTestBlock item={latest} /> : <NoTestsState />}
       </SurfaceCard>
 
       {/* History table */}
       {totalShown > 0 && (
-        <SurfaceCard>
-          <SurfaceCardHeader
-            title="Historial reciente"
-            actions={
+        <TableShell
+          title={
+            <>
+              Historial reciente
               <Badge variant="neutral" className="tabular-nums">
                 {totalShown} registro{totalShown !== 1 ? 's' : ''}
               </Badge>
-            }
-          />
+            </>
+          }
+        >
           <HistoryTable items={items} />
-        </SurfaceCard>
+        </TableShell>
       )}
     </div>
   );

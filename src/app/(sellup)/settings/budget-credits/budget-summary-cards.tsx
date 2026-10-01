@@ -1,7 +1,7 @@
 'use client';
 
 import { Cpu, Activity, TrendingUp, PackageOpen } from 'lucide-react';
-import { SurfaceCard } from '@/components/shared/surface-card';
+import { MetricCard } from '@/components/shared/metric-card';
 import type { AdminProviderBudgetRow } from '@/modules/budgets';
 import { resolveCostDisplay, toCostTruth } from '@/modules/usage-tracking/cost-display';
 
@@ -55,21 +55,18 @@ export function BudgetSummaryCards({ providers }: Props) {
     titleAttr?: string;
     icon: typeof Cpu;
     color: string;
-    bg: string;
   }[] = [
     {
       label: 'Proveedores en catálogo',
       value: String(totalProviders),
       icon: Cpu,
       color: 'text-primary',
-      bg: 'bg-primary/10',
     },
     {
       label: 'Conectados',
       value: String(connectedProviders.length),
       icon: Activity,
       color: 'text-success',
-      bg: 'bg-success/10',
     },
     {
       label: 'Consumo del mes',
@@ -77,31 +74,25 @@ export function BudgetSummaryCards({ providers }: Props) {
       titleAttr: consumptionDescription,
       icon: TrendingUp,
       color: 'text-warning',
-      bg: 'bg-warning/10',
     },
     {
       label: 'Sin cuota configurada',
       value: String(withoutAllowance),
       icon: PackageOpen,
       color: withoutAllowance > 0 ? 'text-warning' : 'text-muted-foreground',
-      bg: withoutAllowance > 0 ? 'bg-warning/10' : 'bg-surface-subtle',
     },
   ];
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       {cards.map((card) => (
-        <SurfaceCard key={card.label} className="flex items-center gap-4 p-4">
-          <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${card.bg} ${card.color}`}>
-            <card.icon className="h-5 w-5" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs text-muted-foreground">{card.label}</p>
-            <p className="truncate text-lg font-semibold tabular-nums text-foreground" title={card.titleAttr}>
-              {card.value}
-            </p>
-          </div>
-        </SurfaceCard>
+        <MetricCard
+          key={card.label}
+          title={card.label}
+          value={card.value}
+          hint={card.titleAttr}
+          icon={<card.icon className={card.color} aria-hidden="true" />}
+        />
       ))}
     </div>
   );

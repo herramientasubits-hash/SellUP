@@ -101,7 +101,7 @@ export function NotificationBell({
         className={
           variant === "sidebar"
             ? `relative ${sidebarClasses}`
-            : "relative h-8 w-8"
+            : "relative h-8 w-8 rounded-full border-border/70 bg-card text-text-muted hover:bg-surface-muted hover:text-foreground"
         }
       />
 

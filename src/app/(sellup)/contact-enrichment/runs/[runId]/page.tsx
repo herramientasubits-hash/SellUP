@@ -6,6 +6,7 @@
 
 import { notFound } from 'next/navigation';
 import { PageHeader } from '@/components/shared/page-header';
+import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import { ContactEnrichmentRunViewer } from '@/components/contact-enrichment/contact-enrichment-run-viewer';
 import {
   getContactCandidatesByRunId,
@@ -38,6 +39,14 @@ export default async function ContactEnrichmentRunPage({ params }: ContactEnrich
         title="Run de enriquecimiento de contactos"
         description={`${run.companyName || 'Empresa sin nombre'} — vista de solo lectura`}
         backHref="/contact-enrichment"
+        breadcrumbs={
+          <Breadcrumbs
+            items={[
+              { label: 'Enriquecer contactos', href: '/contact-enrichment' },
+              run.companyName || 'Empresa sin nombre',
+            ]}
+          />
+        }
       />
       <ContactEnrichmentRunViewer run={run} candidates={candidates} providerUsage={providerUsage} />
     </div>

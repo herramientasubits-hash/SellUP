@@ -318,9 +318,10 @@ function InfoTooltip({ content }: { content: string | React.ReactNode }) {
           render={
             <button
               type="button"
-              className="text-muted-foreground hover:text-muted-foreground transition-colors cursor-help p-0.5 ml-1 inline-flex items-center align-middle shrink-0"
+              aria-label="Más información"
+              className="ml-1 inline-flex shrink-0 cursor-help items-center rounded-sm p-0.5 align-middle text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
             >
-              <Info className="h-3.5 w-3.5" />
+              <Info className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
           }
         />
@@ -405,13 +406,15 @@ function CollapsibleSection({
   return (
     <div>
       <button
+        type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-muted-foreground transition-colors mb-2"
+        aria-expanded={open}
+        className="mb-2 flex w-full items-center gap-1.5 rounded-sm text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
       >
         {open ? (
-          <ChevronDown className="h-3 w-3" />
+          <ChevronDown className="h-3 w-3" aria-hidden="true" />
         ) : (
-          <ChevronRight className="h-3 w-3" />
+          <ChevronRight className="h-3 w-3" aria-hidden="true" />
         )}
         {title}
       </button>
@@ -1240,14 +1243,14 @@ export function CandidateDetailSheet({
                     const hsSync = candidate.metadata?.hubspot_sync as HubSpotSyncAudit | undefined;
                     if (!hsSync) return null;
 
-                    const statusStyles: Record<string, string> = {
-                      synced: 'bg-success/10 text-success border-success/20',
-                      blocked_duplicate: 'bg-warning/10 text-warning border-warning/20',
-                      blocked_inactive_or_liquidation: 'bg-destructive/10 text-destructive border-destructive/20',
-                      skipped_flag_off: 'bg-muted text-muted-foreground border-transparent',
-                      skipped_rollback: 'bg-muted text-muted-foreground border-transparent',
-                      failed_lookup: 'bg-destructive/10 text-destructive border-destructive/20',
-                      failed_create: 'bg-destructive/10 text-destructive border-destructive/20',
+                    const statusVariants: Record<string, 'positive' | 'warning' | 'negative' | 'neutral'> = {
+                      synced: 'positive',
+                      blocked_duplicate: 'warning',
+                      blocked_inactive_or_liquidation: 'negative',
+                      skipped_flag_off: 'neutral',
+                      skipped_rollback: 'neutral',
+                      failed_lookup: 'negative',
+                      failed_create: 'negative',
                     };
 
                     const statusLabels: Record<string, string> = {
@@ -1260,7 +1263,7 @@ export function CandidateDetailSheet({
                       failed_create: 'Fallo creación',
                     };
 
-                    const style = statusStyles[hsSync.status] || 'bg-muted text-muted-foreground border-transparent';
+                    const variant = statusVariants[hsSync.status] ?? 'neutral';
                     const label = statusLabels[hsSync.status] || hsSync.status;
 
                     return (
@@ -1270,9 +1273,7 @@ export function CandidateDetailSheet({
                             <span className="text-xs font-semibold text-muted-foreground">
                               HubSpot Sync
                             </span>
-                            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${style}`}>
-                              {label}
-                            </span>
+                            <Badge variant={variant}>{label}</Badge>
                           </div>
                           {hsSync.status === 'synced' && hsSync.company_id && (
                             <div className="space-y-1 text-xs pt-1">
@@ -1723,11 +1724,11 @@ export function CandidateDetailSheet({
                 danger: 'bg-destructive/10 text-destructive border-destructive/20',
                 neutral: 'bg-surface-subtle text-muted-foreground border-border/50',
               };
-              const badgeStyle: Record<string, string> = {
-                success: 'bg-success/10 text-success',
-                warning: 'bg-warning/10 text-warning',
-                danger: 'bg-destructive/10 text-destructive',
-                neutral: 'bg-muted text-muted-foreground',
+              const badgeVariant: Record<string, 'positive' | 'warning' | 'negative' | 'neutral'> = {
+                success: 'positive',
+                warning: 'warning',
+                danger: 'negative',
+                neutral: 'neutral',
               };
               return (
                 <CollapsibleSection title="Tamaño ICP">
@@ -1735,7 +1736,7 @@ export function CandidateDetailSheet({
                   <SurfaceCardHeader title="Tamaño ICP" description="Umbral: más de 200 colaboradores" />
                   <div className="space-y-3 mt-1">
                     {/* Badge de estado */}
-                    <Badge className={`border-0 ${badgeStyle[icpState.tone]}`}>
+                    <Badge variant={badgeVariant[icpState.tone] ?? 'neutral'}>
                       {icpState.decision === 'pass'
                         ? 'ICP >200 validado'
                         : icpState.decision === 'needs_validation'
@@ -1981,7 +1982,7 @@ export function CandidateDetailSheet({
                     return (
                       <div className="space-y-3">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <Badge className="border-0 bg-warning/5 text-warning flex items-center gap-1">
+                          <Badge variant="warning">
                             <AlertTriangle className="h-2.5 w-2.5" />
                             {`${getTaxIdLabel(candidate.country_code)} sugerido — requiere revisión`}
                           </Badge>
@@ -2001,11 +2002,10 @@ export function CandidateDetailSheet({
                                 </p>
                               )}
                             </div>
-                            <Badge className={`border-0 shrink-0 ${
-                              taxIdLookup.best_candidate.confidence ==='high'
-                                ?'bg-success/10 text-success dark:text-success'
-                                :'bg-warning/10 text-warning dark:text-warning'
-                            }`}>
+                            <Badge
+                              variant={taxIdLookup.best_candidate.confidence === 'high' ? 'positive' : 'warning'}
+                              className="shrink-0"
+                            >
                               {taxIdLookup.best_candidate.confidence === 'high' ? 'Alta confianza' : 'Confianza media'}
                             </Badge>
                           </div>
@@ -2147,15 +2147,15 @@ export function CandidateDetailSheet({
                 {isAutoValidated ? (
                   <>
                     <Badge
-                      className={`border-0 ${
-                        sellupDupStatus ==='duplicate'
-                          ?'bg-destructive/10 text-destructive'
-                          : sellupDupStatus ==='possible_duplicate'
-                          ?'bg-warning/10 text-warning dark:text-warning'
-                          : sellupDupStatus ==='no_match'
-                          ?'bg-success/10 text-success dark:text-success'
-                          :'bg-muted text-muted-foreground'
-                      }`}
+                      variant={
+                        sellupDupStatus === 'duplicate'
+                          ? 'negative'
+                          : sellupDupStatus === 'possible_duplicate'
+                          ? 'warning'
+                          : sellupDupStatus === 'no_match'
+                          ? 'positive'
+                          : 'neutral'
+                      }
                     >
                       {sellupDupStatus === 'duplicate'
                         ? 'Duplicado SellUp'
@@ -2166,15 +2166,15 @@ export function CandidateDetailSheet({
                         : 'SellUp sin validar'}
                     </Badge>
                     <Badge
-                      className={`border-0 ${
-                        hsDupStatus ==='match'
-                          ?'bg-destructive/10 text-destructive'
-                          : hsDupStatus ==='possible_match'
-                          ?'bg-warning/10 text-warning dark:text-warning'
-                          : hsDupStatus ==='no_match'
-                          ?'bg-success/10 text-success dark:text-success'
-                          :'bg-muted text-muted-foreground'
-                      }`}
+                      variant={
+                        hsDupStatus === 'match'
+                          ? 'negative'
+                          : hsDupStatus === 'possible_match'
+                          ? 'warning'
+                          : hsDupStatus === 'no_match'
+                          ? 'positive'
+                          : 'neutral'
+                      }
                     >
                       {hsDupStatus === 'match'
                         ? 'Duplicado HubSpot'
@@ -2187,16 +2187,18 @@ export function CandidateDetailSheet({
                   </>
                 ) : (
                   <Badge
-                    className={`border-0 ${
-                      {
-                        unchecked:'bg-muted text-muted-foreground',
-                        no_match:'bg-success/10 text-success dark:text-success',
-                        possible_duplicate:'bg-warning/10 text-warning dark:text-warning',
-                        exact_duplicate:'bg-destructive/10 text-destructive',
-                        related_company:'bg-warning/10 dark:text-warning',
-                        insufficient_data:'bg-surface-muted text-muted-foreground',
-                      }[candidate.duplicate_status]
-                    }`}
+                    variant={
+                      (
+                        {
+                          unchecked: 'neutral',
+                          no_match: 'positive',
+                          possible_duplicate: 'warning',
+                          exact_duplicate: 'negative',
+                          related_company: 'warning',
+                          insufficient_data: 'neutral',
+                        } as const
+                      )[candidate.duplicate_status]
+                    }
                   >
                     {DUPLICATE_STATUS_LABELS[candidate.duplicate_status]}
                   </Badge>
@@ -2377,13 +2379,14 @@ export function CandidateDetailSheet({
                       low: 'bg-surface-muted text-muted-foreground border-border/50',
                     };
                     const badgeMap = { critical: 'Crítico', high: 'Alto', medium: 'Medio', low: 'Bajo' };
+                    const badgeVariantMap = { critical: 'negative', high: 'warning', medium: 'warning', low: 'neutral' } as const;
                     return (
                       <div key={i} className={`flex items-start justify-between gap-3 text-xs rounded-lg border p-2.5 ${styleMap[severity]}`}>
-                        <div className="flex items-start gap-2">
-                          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                          <span className="leading-relaxed">{isChileOfficialCandidate ? sanitizeTextForChile(risk) : risk}</span>
+                        <div className="flex min-w-0 items-start gap-2">
+                          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
+                          <span className="min-w-0 break-words leading-relaxed">{isChileOfficialCandidate ? sanitizeTextForChile(risk) : risk}</span>
                         </div>
-                        <Badge className="border-0 uppercase py-0.5 px-1.5 shrink-0 select-none bg-muted text-inherit">
+                        <Badge variant={badgeVariantMap[severity]} className="shrink-0 select-none">
                           {badgeMap[severity]}
                         </Badge>
                       </div>

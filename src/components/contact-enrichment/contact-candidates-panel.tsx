@@ -101,13 +101,13 @@ export async function ContactCandidatesPanel({
       description="Centraliza decisores, sponsors y personas clave vinculadas a cuentas y prospectos."
       tabs={<ContactsModuleTabsNav active={isDuplicateQueue ? 'duplicates' : 'candidates'} />}
       actions={
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <ContactsEnrichmentCTA />
           <CreateContactDrawer accounts={accounts} />
         </div>
       }
       metrics={
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {/* 4O-H3-B-R1 (§ 11): el conteo NO cambia de significado. «Por revisar» sigue contando
               sólo `pending_review`; los duplicados se cuentan en su propia tarjeta, en su propia
               cola. Nunca se suman al mismo número. */}

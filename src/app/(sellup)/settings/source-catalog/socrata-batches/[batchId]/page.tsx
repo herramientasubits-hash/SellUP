@@ -1,7 +1,5 @@
 import { notFound } from 'next/navigation';
-import Link from 'next/link';
 import {
-  ArrowLeft,
   Building2,
   FlaskConical,
   Lock,
@@ -10,10 +8,12 @@ import {
   Globe,
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
+import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { MetricCard } from '@/components/shared/metric-card';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Badge } from '@/components/ui/badge';
+import { TableShell } from '@/components/data-display';
 import { getSocrataPreviewBatchDetail } from '@/modules/source-catalog/socrata-batches-queries';
 import type { SocrataPreviewCandidateItem } from '@/modules/source-catalog/socrata-batches-queries';
 import {
@@ -144,18 +144,20 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
 
   return (
     <div className="space-y-6">
-      {/* Breadcrumb */}
-      <Link
-        href="/settings/source-catalog/socrata-batches"
-        className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" />
-        Lotes Socrata
-      </Link>
-
       <PageHeader
+        breadcrumbs={
+          <Breadcrumbs
+            items={[
+              { label: 'Configuración', href: '/settings' },
+              { label: 'Catálogo de fuentes', href: '/settings/source-catalog' },
+              { label: 'Lotes Socrata', href: '/settings/source-catalog/socrata-batches' },
+              batch.name,
+            ]}
+          />
+        }
         title={batch.name}
         description="Revisión interna de lote estructurado Socrata. Vista de solo lectura."
+        backHref="/settings/source-catalog/socrata-batches"
       />
 
       {/* Read-only notice */}
@@ -216,26 +218,26 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
       {/* Candidate summary cards */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6">
         {[
-          { label: 'Total candidatos', value: batch.summary.total, cls: 'text-foreground' },
+          { label: 'Total candidatos', value: batch.summary.total, tone: 'brand' as const },
           {
             label: 'Necesitan revisión',
             value: batch.summary.needsReview,
-            cls: 'text-warning',
+            tone: 'warning' as const,
           },
           {
             label: 'Descartados',
             value: batch.summary.discarded,
-            cls: 'text-muted-foreground',
+            tone: 'neutral' as const,
           },
           {
             label: 'Rechazados',
             value: batch.summary.rejected,
-            cls: 'text-destructive',
+            tone: 'negative' as const,
           },
           {
             label: 'Convertidos',
             value: batch.summary.converted,
-            cls: 'text-primary',
+            tone: 'brand' as const,
           },
           {
             label: 'Costo estimado',
@@ -243,14 +245,14 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
               batch.summary.totalCostUsd > 0
                 ? `$${batch.summary.totalCostUsd.toFixed(4)}`
                 : '—',
-            cls: 'text-muted-foreground',
+            tone: 'neutral' as const,
           },
         ].map((card) => (
           <MetricCard
             key={card.label}
             title={card.label}
             value={card.value}
-            valueClassName={card.cls}
+            tone={card.tone}
             compact
           />
         ))}
@@ -345,19 +347,20 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
       </SurfaceCard>
 
       {/* Candidates table */}
-      <SurfaceCard noPadding>
-        <div className="border-b border-border/50 px-5 py-4">
-          <p className="text-base font-semibold leading-tight tracking-tight text-foreground">
-            {candidates.length === 0
-              ? 'Sin candidatos en este lote'
-              : `${candidates.length} candidato${candidates.length !== 1 ? 's' : ''}`}
-          </p>
-        </div>
-
-        {candidates.length === 0 ? (
-          <EmptyState icon={Building2} title="Sin candidatos en este lote." className="m-5" />
-        ) : (
-          <div className="overflow-x-auto">
+      <TableShell
+        title={
+          <>
+            Candidatos
+            <Badge variant="neutral" className="tabular-nums">
+              {candidates.length} candidato{candidates.length !== 1 ? 's' : ''}
+            </Badge>
+          </>
+        }
+        empty={candidates.length === 0}
+        emptyState={
+          <EmptyState variant="plain" icon={Building2} title="Sin candidatos en este lote." />
+        }
+      >
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border/50 bg-surface-subtle text-left">
@@ -463,9 +466,7 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
                 ))}
               </tbody>
             </table>
-          </div>
-        )}
-      </SurfaceCard>
+      </TableShell>
 
       {/* Warnings panel — only when candidates have warnings */}
       {candidates.some((c) => c.warnings.length > 0) && (

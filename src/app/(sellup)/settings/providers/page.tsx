@@ -3,6 +3,7 @@ import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { getAdminBudgetSummary } from '@/modules/budgets/budget-resolution';
 import { getBudgetRulesForAdmin } from '@/modules/budgets/rule-queries';
 import { PageHeader } from '@/components/shared/page-header';
+import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { BudgetSummaryCards } from '../budget-credits/budget-summary-cards';
 import { BudgetProvidersTable } from '../budget-credits/budget-providers-table';
@@ -73,6 +74,14 @@ export default async function ProvidersConsumptionPage() {
   return (
     <div className="space-y-6 px-8 py-6">
       <PageHeader
+        breadcrumbs={
+          <Breadcrumbs
+            items={[
+              { label: 'Configuración', href: '/settings' },
+              'Proveedores y consumo',
+            ]}
+          />
+        }
         title="Proveedores y consumo"
         description="Administra proveedores, cuotas, presupuestos, reglas, modelos de IA y trazabilidad de consumo desde un solo lugar."
         backHref="/settings"

@@ -1,14 +1,29 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 
-interface FormSectionProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface FormSectionProps extends React.HTMLAttributes<HTMLDivElement> {
   title?: string;
   description?: string;
+  /** Acciones de la sección, a la derecha del título (un «Editar», un «Restablecer»). */
   actions?: React.ReactNode;
   children: React.ReactNode;
 }
 
+/**
+ * FormSection
+ *
+ * Un bloque de formulario: una card con su título, su descripción y sus
+ * acciones, y debajo los campos separados con el ritmo del sistema. Agrupa
+ * los `Field` que se deciden juntos, para que un formulario largo se lea por
+ * secciones y no como una sola columna de controles.
+ *
+ * @example
+ * <FormSection title="Datos fiscales" description="Se usan para validar la empresa.">
+ *   <Field label="NIT"><Input name="nit" /></Field>
+ *   <Field label="Razón social"><Input name="legalName" /></Field>
+ * </FormSection>
+ */
 export function FormSection({
   title,
   description,
@@ -17,28 +32,20 @@ export function FormSection({
   className,
   ...props
 }: FormSectionProps) {
+  const hasHeader = Boolean(title || description || actions);
+
   return (
-    <Card className={cn("rounded-2xl border-border/60 bg-card shadow-card", className)} {...props}>
-      {(title || description || actions) && (
-        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0 pb-6">
+    <Card data-slot="form-section" className={className} {...props}>
+      {hasHeader && (
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
           <div className="min-w-0 space-y-1">
-            {title && (
-              <CardTitle className="text-base font-semibold tracking-tight text-foreground">
-                {title}
-              </CardTitle>
-            )}
-            {description && (
-              <CardDescription className="text-sm text-muted-foreground">
-                {description}
-              </CardDescription>
-            )}
+            {title && <CardTitle className="text-base font-semibold text-foreground">{title}</CardTitle>}
+            {description && <CardDescription>{description}</CardDescription>}
           </div>
           {actions && <div className="flex items-center gap-2">{actions}</div>}
         </CardHeader>
       )}
-      <CardContent className={cn("space-y-6", (title || description || actions) ? "pt-0" : "pt-6")}>
-        {children}
-      </CardContent>
+      <CardContent className="space-y-6">{children}</CardContent>
     </Card>
   );
 }

@@ -6,11 +6,14 @@ import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card
 import { Badge } from '@/components/ui/badge';
 import type { ClaudeClassificationDisplay } from './claude-classification-display';
 
-const TONE_CLASSES: Record<ClaudeClassificationDisplay['outcomeTone'], string> = {
-  positive: 'bg-primary/10 text-primary',
-  partial: 'bg-warning/15 text-warning',
-  neutral: 'bg-muted text-muted-foreground',
-  error: 'bg-destructive/10 text-destructive',
+const TONE_VARIANT: Record<
+  ClaudeClassificationDisplay['outcomeTone'],
+  'brand' | 'warning' | 'neutral' | 'negative'
+> = {
+  positive: 'brand',
+  partial: 'warning',
+  neutral: 'neutral',
+  error: 'negative',
 };
 
 function hostOf(url: string): string {
@@ -52,7 +55,7 @@ export function ClaudeClassificationBlock({
   const body = (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge className={TONE_CLASSES[display.outcomeTone]}>
+        <Badge variant={TONE_VARIANT[display.outcomeTone]}>
           <Sparkles aria-hidden />
           {display.outcomeLabel}
         </Badge>

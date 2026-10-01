@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import type { ComponentProps } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
 import {
   Dialog,
   DialogContent,
@@ -47,13 +48,13 @@ const STATUS_VARIANT: Record<PipelineStatus, BadgeVariant> = {
   archived: 'neutral',
 };
 
-const SOURCE_STYLES: Record<AccountSource, string> = {
-  manual: 'border-border text-muted-foreground',
-  agent_1: 'bg-primary/10 text-primary border-transparent',
-  hubspot: 'bg-warning/10 text-warning border-transparent',
-  apollo: 'bg-info/10 text-info border-transparent',
-  imported: 'border-border text-muted-foreground',
-  other: 'border-border text-muted-foreground',
+const SOURCE_VARIANT: Record<AccountSource, BadgeVariant> = {
+  manual: 'neutral',
+  agent_1: 'brand',
+  hubspot: 'warning',
+  apollo: 'info',
+  imported: 'neutral',
+  other: 'neutral',
 };
 
 const ACTIVE_STATUSES: { value: PipelineStatus; label: string }[] = [
@@ -125,18 +126,12 @@ export function AccountsTable({ accounts, users }: AccountsTableProps) {
 
   if (accounts.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 px-6 py-16 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-surface-muted">
-          <Building2 className="h-5 w-5 text-text-muted" />
-        </div>
-        <div className="space-y-1">
-          <p className="text-sm font-medium text-foreground">Sin cuentas todavía</p>
-          <p className="max-w-xs text-xs text-muted-foreground mx-auto">
-            Todavía no hay cuentas registradas. Crea una cuenta manualmente o, más adelante,
-            genera prospectos con IA.
-          </p>
-        </div>
-      </div>
+      <EmptyState
+        variant="plain"
+        icon={Building2}
+        title="Sin cuentas todavía"
+        description="Todavía no hay cuentas registradas. Crea una cuenta manualmente o, más adelante, genera prospectos con IA."
+      />
     );
   }
 
@@ -210,10 +205,7 @@ export function AccountsTable({ accounts, users }: AccountsTableProps) {
                 </td>
 
                 <td className="px-5 py-3.5">
-                  <Badge
-                    variant="outline"
-                    className={SOURCE_STYLES[account.source as AccountSource]}
-                  >
+                  <Badge variant={SOURCE_VARIANT[account.source as AccountSource]}>
                     {SOURCE_LABELS[account.source as AccountSource]}
                   </Badge>
                 </td>

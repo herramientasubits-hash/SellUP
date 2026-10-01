@@ -3,7 +3,9 @@
 import * as React from 'react';
 import { Star, Mail, Phone, Users, Crown, Target, Archive } from 'lucide-react';
 import { SurfaceCard } from '@/components/shared/surface-card';
+import { MetricCard } from '@/components/shared/metric-card';
 import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
 import {
   Table,
   TableBody,
@@ -33,12 +35,12 @@ interface ContactsTabProps {
 
 // ── Estilos de estado ─────────────────────────────────────────
 
-const STATUS_STYLES: Record<string, string> = {
-  active: 'bg-success/10 text-success border-transparent',
-  inactive: 'bg-muted text-muted-foreground border-transparent',
-  left_company: 'bg-warning/10 text-warning border-transparent',
-  do_not_contact: 'bg-destructive/10 text-destructive border-transparent',
-  archived: 'bg-surface-muted text-muted-foreground border-transparent',
+const STATUS_VARIANT: Record<string, 'positive' | 'neutral' | 'warning' | 'negative'> = {
+  active: 'positive',
+  inactive: 'neutral',
+  left_company: 'warning',
+  do_not_contact: 'negative',
+  archived: 'neutral',
 };
 
 // ── Componente principal ──────────────────────────────────────
@@ -53,9 +55,9 @@ export function ContactsTab({
   return (
     <div className="space-y-4">
       {/* Header interno + botón */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-base font-semibold text-foreground">Contactos</h2>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold tracking-tight text-foreground">Contactos</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
             Decisores, sponsors y personas clave vinculadas a esta cuenta.
           </p>
@@ -64,16 +66,24 @@ export function ContactsTab({
       </div>
 
       {/* Summary mini-cards */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <SummaryCard icon={Users} label="Total" value={summary.total} color="text-foreground" />
-        <SummaryCard icon={Crown} label="Decisores" value={summary.decision_makers} color="text-primary" />
-        <SummaryCard icon={Target} label="Champions" value={summary.champions} color="text-success" />
-        <SummaryCard icon={Archive} label="Inactivos" value={summary.inactive_or_archived} color="text-muted-foreground" />
+      {/* La pestaña vive tanto en la página como en el drawer de la cuenta: la
+          rejilla responde al ancho de su contenedor, no al de la ventana. */}
+      <div className="@container">
+        <div className="grid grid-cols-2 gap-4 @3xl:grid-cols-4">
+          <MetricCard compact title="Total" value={summary.total} tone="neutral" icon={<Users />} />
+          <MetricCard compact title="Decisores" value={summary.decision_makers} tone="brand" icon={<Crown />} />
+          <MetricCard compact title="Champions" value={summary.champions} tone="positive" icon={<Target />} />
+          <MetricCard compact title="Inactivos" value={summary.inactive_or_archived} tone="neutral" icon={<Archive />} />
+        </div>
       </div>
 
       {/* Tabla de contactos */}
       {contacts.length === 0 ? (
-        <EmptyState />
+        <EmptyState
+          icon={Users}
+          title="Sin contactos todavía"
+          description="Todavía no hay contactos asociados a esta cuenta. Agrega un contacto manualmente o, más adelante, enriquécelo con Apollo o Lusha."
+        />
       ) : (
         <SurfaceCard className="overflow-hidden p-0">
           <Table>
@@ -181,10 +191,7 @@ function ContactRow({
       </TableCell>
 
       <TableCell>
-        <Badge
-          variant="outline"
-          className={STATUS_STYLES[contact.contact_status] ?? ''}
-        >
+        <Badge variant={STATUS_VARIANT[contact.contact_status] ?? 'neutral'}>
           {CONTACT_STATUS_LABELS[contact.contact_status]}
         </Badge>
       </TableCell>
@@ -199,56 +206,5 @@ function ContactRow({
         <ContactRowActions contact={contact} onActionComplete={onActionComplete} />
       </TableCell>
     </TableRow>
-  );
-}
-
-// ── Summary card ──────────────────────────────────────────────
-
-function SummaryCard({
-  icon: Icon,
-  label,
-  value,
-  color,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: number;
-  color: string;
-}) {
-  return (
-    <SurfaceCard className="p-3">
-      <div className="flex items-center gap-2.5">
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-muted">
-          <Icon className={`h-3.5 w-3.5 ${color}`} />
-        </div>
-        <div>
-          <p className="text-lg font-semibold leading-none text-foreground">{value}</p>
-          <p className="mt-0.5 text-xs font-medium text-muted-foreground">
-            {label}
-          </p>
-        </div>
-      </div>
-    </SurfaceCard>
-  );
-}
-
-// ── Estado vacío ──────────────────────────────────────────────
-
-function EmptyState() {
-  return (
-    <SurfaceCard>
-      <div className="flex flex-col items-center gap-3 py-12 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-surface-muted">
-          <Users className="h-5 w-5 text-text-muted" />
-        </div>
-        <div className="max-w-xs space-y-1 mx-auto">
-          <p className="text-sm font-semibold text-foreground">Sin contactos todavía</p>
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            Todavía no hay contactos asociados a esta cuenta. Agrega un contacto manualmente o,
-            más adelante, enriquécelo con Apollo o Lusha.
-          </p>
-        </div>
-      </div>
-    </SurfaceCard>
   );
 }

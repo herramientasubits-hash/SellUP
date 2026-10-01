@@ -165,51 +165,49 @@ export function AccountEditDrawer({
       onOpenChange={(v) => !v && handleClose()}
       title="Editar cuenta"
       description="Modifica los datos de la cuenta. Los cambios quedan registrados en auditoría."
-      icon={<Building2 className="h-4 w-4 text-primary" />}
+      icon={<Building2 className="h-4 w-4" />}
       size="xl"
       actions={
         <>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleClose}
+            disabled={pending}
+          >
+            Cancelar
+          </Button>
           {error && (
-            <p role="alert" className="mr-auto flex-1 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive">
+            <p role="alert" className="min-w-0 flex-1 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive">
               {error}
             </p>
           )}
-          <div className="flex shrink-0 items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleClose}
-              disabled={pending}
-            >
-              Cancelar
-            </Button>
-            <Button
-              type="submit"
-              form="edit-account-form"
-              size="sm"
-              disabled={pending || loading || !form.name.trim()}
-            >
-              {pending ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Guardando…
-                </>
-              ) : (
-                'Guardar cambios'
-              )}
-            </Button>
-          </div>
+          <Button
+            type="submit"
+            form="edit-account-form"
+            size="sm"
+            disabled={pending || loading || !form.name.trim()}
+          >
+            {pending ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Guardando…
+              </>
+            ) : (
+              'Guardar cambios'
+            )}
+          </Button>
         </>
       }
     >
       {/* ── Loading skeleton ── */}
       {loading ? (
-        <div className="space-y-4">
+        <div className="space-y-4" aria-busy="true">
           {Array.from({ length: 3 }).map((_, i) => (
             <div
               key={i}
-              className="space-y-4 rounded-xl border border-border/60 bg-card p-4 shadow-card"
+              className="space-y-4 rounded-2xl border border-border/60 bg-card p-4 shadow-card"
             >
               <div className="flex items-center gap-2.5 border-b border-border/50 pb-3">
                 <Skeleton className="h-8 w-8 rounded-xl" />
@@ -440,7 +438,7 @@ export function AccountEditDrawer({
                   value={form.notes}
                   onChange={(e) => set('notes', e.target.value)}
                   rows={3}
-                  className="pl-8 pt-2 text-sm"
+                  className="pl-8 pt-2"
                 />
               </div>
             </Field>

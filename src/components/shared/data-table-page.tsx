@@ -11,6 +11,8 @@ interface DataTablePageProps {
   actions?: ReactNode;
   /** Optional back link rendered before the title. */
   backHref?: string;
+  /** Migas sobre el título (típicamente `<Breadcrumbs items={…} />`). */
+  breadcrumbs?: ReactNode;
   /**
    * Optional module-level navigation (e.g. pill tabs) rendered directly under
    * the page header, above the metrics row. Stays fixed at the top.
@@ -62,6 +64,7 @@ export function DataTablePage({
   description,
   actions,
   backHref,
+  breadcrumbs,
   tabs,
   metrics,
   children,
@@ -75,6 +78,7 @@ export function DataTablePage({
           description={description}
           actions={actions}
           backHref={backHref}
+          breadcrumbs={breadcrumbs}
         />
       </div>
       {tabs && <div className="shrink-0">{tabs}</div>}

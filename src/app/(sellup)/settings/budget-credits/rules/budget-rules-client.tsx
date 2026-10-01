@@ -2,12 +2,12 @@
 
 import { useState } from 'react';
 import { Plus, Pencil, Power, ShieldAlert, Trash2 } from 'lucide-react';
-import { ChevronLeft } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DataTableBulkActionBar } from '@/components/data-table/data-table-bulk-action-bar';
 import type { DataTableBulkAction } from '@/components/data-table/data-table';
-import Link from 'next/link';
+import { PageHeader } from '@/components/shared/page-header';
+import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import { Button } from '@/components/ui/button';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import {
@@ -900,29 +900,27 @@ export function BudgetRulesClient({ rules, options }: Props) {
   return (
     <>
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <Link
-            href="/settings/providers?tab=consumo"
-            className="mb-2 inline-flex items-center gap-1 rounded-sm text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-          >
-            <ChevronLeft className="h-3 w-3" />
-            Proveedores y consumo
-          </Link>
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">Reglas de presupuesto</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Define límites por proveedor, usuario, grupo, rol o global.
-          </p>
-        </div>
-        <Button
-          size="sm"
-          className="shrink-0"
-          onClick={() => setShowCreate(true)}
-        >
-          <Plus />
-          Nueva regla
-        </Button>
-      </div>
+      <PageHeader
+        className="pb-0"
+        breadcrumbs={
+          <Breadcrumbs
+            items={[
+              { label: 'Configuración', href: '/settings' },
+              { label: 'Proveedores y consumo', href: '/settings/providers?tab=consumo' },
+              'Reglas de presupuesto',
+            ]}
+          />
+        }
+        title="Reglas de presupuesto"
+        description="Define límites por proveedor, usuario, grupo, rol o global."
+        backHref="/settings/providers?tab=consumo"
+        actions={
+          <Button size="sm" onClick={() => setShowCreate(true)}>
+            <Plus />
+            Nueva regla
+          </Button>
+        }
+      />
 
       {/* Table */}
       {rules.length === 0 ? (

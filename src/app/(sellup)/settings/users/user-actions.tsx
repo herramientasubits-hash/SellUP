@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { MoreHorizontal, Check, X, Pause, UserCog, Archive, RotateCcw, Users } from 'lucide-react';
+import { MoreHorizontal, Check, X, Pause, UserCog, Archive, RotateCcw, Users, Loader2 } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,14 +10,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { ModalShell } from '@/components/shared/modal-shell';
+import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { FieldLabel } from '@/components/forms/field';
 import {
   Select,
   SelectContent,
@@ -153,9 +148,9 @@ export function UserActions({ user, roles, activeUsers, groups, triggerMode = 'd
     <>
       {triggerMode === 'dropdown' ? (
         <DropdownMenu>
-          <DropdownMenuTrigger>
-            <div className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-surface-muted">
-              <MoreHorizontal className="h-4 w-4" />
+          <DropdownMenuTrigger aria-label="Acciones del usuario">
+            <div className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground">
+              <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
             </div>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
@@ -302,85 +297,54 @@ export function UserActions({ user, roles, activeUsers, groups, triggerMode = 'd
       )}
 
       {/* Approve Dialog */}
-      <Dialog open={showApproveDialog} onOpenChange={setShowApproveDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Aprobar solicitud</DialogTitle>
-            <DialogDescription>
-              Asigna un rol y jefe directo a {user.full_name ?? user.email}.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-1.5">
-              <p className="text-sm font-medium text-foreground">Rol</p>
-              <Select
-                value={selectedRole || undefined}
-                onValueChange={(v) => setSelectedRole(v || '')}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Seleccionar rol" />
-                </SelectTrigger>
-                <SelectContent>
-                  {roles.map((role) => (
-                    <SelectItem key={role.id} value={role.id}>
-                      {role.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <p className="text-sm font-medium text-foreground">Jefe directo</p>
-              <Select
-                value={selectedManager || undefined}
-                onValueChange={(v) => setSelectedManager(v || '')}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Seleccionar jefe directo" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={SELF_MANAGER_VALUE}>
-                    👤 Soy mi propio jefe
-                  </SelectItem>
-                  {possibleManagers.map((u) => (
-                    <SelectItem key={u.id} value={u.id}>
-                      {u.full_name ?? u.email}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowApproveDialog(false)}>
+      <ModalShell
+        open={showApproveDialog}
+        onOpenChange={setShowApproveDialog}
+        title="Aprobar solicitud"
+        description={<>Asigna un rol y jefe directo a {user.full_name ?? user.email}.</>}
+        actions={
+          <>
+            <Button type="button" variant="outline" onClick={() => setShowApproveDialog(false)}>
               Cancelar
             </Button>
             <Button
+              type="button"
               onClick={handleApprove}
               disabled={!selectedRole || !selectedManager || loading}
             >
+              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
               Aprobar acceso
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <FieldLabel className="block leading-none">Rol</FieldLabel>
+            <Select
+              value={selectedRole || undefined}
+              onValueChange={(v) => setSelectedRole(v || '')}
+            >
+              <SelectTrigger className="w-full" aria-label="Rol">
+                <SelectValue placeholder="Seleccionar rol" />
+              </SelectTrigger>
+              <SelectContent>
+                {roles.map((role) => (
+                  <SelectItem key={role.id} value={role.id}>
+                    {role.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-      {/* Change Manager Dialog */}
-      <Dialog open={showManagerDialog} onOpenChange={setShowManagerDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Cambiar jefe directo</DialogTitle>
-            <DialogDescription>
-              Actualiza el jefe directo de {user.full_name ?? user.email} en el organigrama.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
+          <div className="space-y-1.5">
+            <FieldLabel className="block leading-none">Jefe directo</FieldLabel>
             <Select
               value={selectedManager || undefined}
               onValueChange={(v) => setSelectedManager(v || '')}
             >
-              <SelectTrigger className="w-full">
+              <SelectTrigger className="w-full" aria-label="Jefe directo">
                 <SelectValue placeholder="Seleccionar jefe directo" />
               </SelectTrigger>
               <SelectContent>
@@ -395,209 +359,222 @@ export function UserActions({ user, roles, activeUsers, groups, triggerMode = 'd
               </SelectContent>
             </Select>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowManagerDialog(false)}>
+        </div>
+      </ModalShell>
+
+      {/* Change Manager Dialog */}
+      <ModalShell
+        open={showManagerDialog}
+        onOpenChange={setShowManagerDialog}
+        title="Cambiar jefe directo"
+        description={<>Actualiza el jefe directo de {user.full_name ?? user.email} en el organigrama.</>}
+        actions={
+          <>
+            <Button type="button" variant="outline" onClick={() => setShowManagerDialog(false)}>
               Cancelar
             </Button>
-            <Button onClick={handleManagerChange} disabled={!selectedManager || loading}>
+            <Button type="button" onClick={handleManagerChange} disabled={!selectedManager || loading}>
+              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
               Guardar
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </>
+        }
+      >
+        <Select
+          value={selectedManager || undefined}
+          onValueChange={(v) => setSelectedManager(v || '')}
+        >
+          <SelectTrigger className="w-full" aria-label="Jefe directo">
+            <SelectValue placeholder="Seleccionar jefe directo" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={SELF_MANAGER_VALUE}>
+              👤 Soy mi propio jefe
+            </SelectItem>
+            {possibleManagers.map((u) => (
+              <SelectItem key={u.id} value={u.id}>
+                {u.full_name ?? u.email}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </ModalShell>
 
       {/* Reject Dialog */}
-      <Dialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Rechazar solicitud</DialogTitle>
-            <DialogDescription>
-              ¿Estás seguro de que deseas rechazar la solicitud de {user.full_name ?? user.email}?
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowRejectDialog(false)}>Cancelar</Button>
-            <Button variant="destructive" onClick={handleReject} disabled={loading}>Rechazar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={showRejectDialog}
+        onOpenChange={setShowRejectDialog}
+        variant="destructive"
+        icon={X}
+        title="Rechazar solicitud"
+        description={`¿Estás seguro de que deseas rechazar la solicitud de ${user.full_name ?? user.email}?`}
+        confirmLabel="Rechazar"
+        loading={loading}
+        onConfirm={handleReject}
+      />
 
       {/* Suspend Dialog */}
-      <Dialog open={showSuspendDialog} onOpenChange={setShowSuspendDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Suspender acceso</DialogTitle>
-            <DialogDescription>
-              ¿Estás seguro de que deseas suspender el acceso de {user.full_name ?? user.email}?
-              El usuario no podrá acceder a SellUp hasta que su acceso sea reactivado.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowSuspendDialog(false)}>Cancelar</Button>
-            <Button variant="destructive" onClick={handleSuspend} disabled={loading}>Suspender</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={showSuspendDialog}
+        onOpenChange={setShowSuspendDialog}
+        variant="destructive"
+        icon={Pause}
+        title="Suspender acceso"
+        description={`¿Estás seguro de que deseas suspender el acceso de ${user.full_name ?? user.email}? El usuario no podrá acceder a SellUp hasta que su acceso sea reactivado.`}
+        confirmLabel="Suspender"
+        loading={loading}
+        onConfirm={handleSuspend}
+      />
 
       {/* Reactivate Dialog */}
-      <Dialog open={showReactivateDialog} onOpenChange={setShowReactivateDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Reactivar acceso</DialogTitle>
-            <DialogDescription>
-              ¿Estás seguro de que deseas reactivar el acceso de {user.full_name ?? user.email}?
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowReactivateDialog(false)}>Cancelar</Button>
-            <Button onClick={handleReactivate} disabled={loading}>Reactivar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={showReactivateDialog}
+        onOpenChange={setShowReactivateDialog}
+        icon={RotateCcw}
+        title="Reactivar acceso"
+        description={`¿Estás seguro de que deseas reactivar el acceso de ${user.full_name ?? user.email}?`}
+        confirmLabel="Reactivar"
+        loading={loading}
+        onConfirm={handleReactivate}
+      />
 
       {/* Change Role Dialog */}
-      <Dialog open={showRoleDialog} onOpenChange={setShowRoleDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Cambiar rol</DialogTitle>
-            <DialogDescription>
-              Asigna un nuevo rol a {user.full_name ?? user.email}.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            <Select
-              value={selectedRole || undefined}
-              onValueChange={(v) => setSelectedRole(v || '')}
-            >
-              <SelectTrigger className="w-full">
+      <ModalShell
+        open={showRoleDialog}
+        onOpenChange={setShowRoleDialog}
+        title="Cambiar rol"
+        description={<>Asigna un nuevo rol a {user.full_name ?? user.email}.</>}
+        actions={
+          <>
+            <Button type="button" variant="outline" onClick={() => setShowRoleDialog(false)}>Cancelar</Button>
+            <Button type="button" onClick={handleRoleChange} disabled={!selectedRole || loading}>
+              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+              Guardar
+            </Button>
+          </>
+        }
+      >
+        <Select
+          value={selectedRole || undefined}
+          onValueChange={(v) => setSelectedRole(v || '')}
+        >
+          <SelectTrigger className="w-full" aria-label="Rol">
+            <SelectValue placeholder="Seleccionar rol" />
+          </SelectTrigger>
+          <SelectContent>
+            {roles.map((role) => (
+              <SelectItem key={role.id} value={role.id}>
+                {role.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </ModalShell>
+
+      {/* Archive Dialog */}
+      <ConfirmDialog
+        open={showArchiveDialog}
+        onOpenChange={setShowArchiveDialog}
+        variant="destructive"
+        icon={Archive}
+        title="Archivar usuario"
+        description={`${user.full_name ?? user.email} quedará archivado y no podrá acceder a SellUp. Esta acción es reversible solo por un administrador.`}
+        confirmLabel="Archivar"
+        loading={loading}
+        onConfirm={handleArchive}
+      />
+
+      {/* Assign Group Dialog */}
+      <ModalShell
+        open={showGroupDialog}
+        onOpenChange={setShowGroupDialog}
+        title="Asignar grupo"
+        description={<>Asigna {user.full_name ?? user.email} a un grupo o equipo.</>}
+        actions={
+          <>
+            <Button type="button" variant="outline" onClick={() => setShowGroupDialog(false)}>
+              Cancelar
+            </Button>
+            <Button type="button" onClick={handleGroupChange} disabled={loading}>
+              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+              Guardar
+            </Button>
+          </>
+        }
+      >
+        <Select
+          value={selectedGroup || NO_GROUP_VALUE}
+          onValueChange={(v) => setSelectedGroup(v ?? NO_GROUP_VALUE)}
+        >
+          <SelectTrigger className="w-full" aria-label="Grupo">
+            {/* Provide children to avoid Radix showing raw UUID before SelectItem text registers */}
+            <SelectValue>
+              {!selectedGroup || selectedGroup === NO_GROUP_VALUE
+                ? 'Sin grupo'
+                : formatGroupLabel(selectedGroup, groups)}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NO_GROUP_VALUE}>Sin grupo</SelectItem>
+            {groups.map((g) => (
+              <SelectItem key={g.id} value={g.id}>
+                {formatGroupDisplayName(g)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </ModalShell>
+
+      {/* Activate from Rejected Dialog */}
+      <ModalShell
+        open={showActivateRejectedDialog}
+        onOpenChange={setShowActivateRejectedDialog}
+        title="Activar usuario rechazado"
+        description={<>Asigna un rol a {user.full_name ?? user.email} para activar su acceso.</>}
+        actions={
+          <>
+            <Button type="button" variant="outline" onClick={() => setShowActivateRejectedDialog(false)}>Cancelar</Button>
+            <Button type="button" onClick={handleActivateFromRejected} disabled={!selectedRole || loading}>
+              {loading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Check className="h-4 w-4" />
+              )}
+              Activar acceso
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <FieldLabel className="block leading-none">Rol <span className="text-destructive">*</span></FieldLabel>
+            <Select value={selectedRole || undefined} onValueChange={(v) => setSelectedRole(v || '')}>
+              <SelectTrigger className="w-full" aria-label="Rol">
                 <SelectValue placeholder="Seleccionar rol" />
               </SelectTrigger>
               <SelectContent>
                 {roles.map((role) => (
-                  <SelectItem key={role.id} value={role.id}>
-                    {role.name}
-                  </SelectItem>
+                  <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowRoleDialog(false)}>Cancelar</Button>
-            <Button onClick={handleRoleChange} disabled={!selectedRole || loading}>Guardar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Archive Dialog */}
-      <Dialog open={showArchiveDialog} onOpenChange={setShowArchiveDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Archivar usuario</DialogTitle>
-            <DialogDescription>
-              {user.full_name ?? user.email} quedará archivado y no podrá acceder a SellUp.
-              Esta acción es reversible solo por un administrador.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowArchiveDialog(false)}>Cancelar</Button>
-            <Button variant="destructive" onClick={handleArchive} disabled={loading}>
-              <Archive className="mr-2 h-4 w-4" />
-              Archivar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Assign Group Dialog */}
-      <Dialog open={showGroupDialog} onOpenChange={setShowGroupDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Asignar grupo</DialogTitle>
-            <DialogDescription>
-              Asigna {user.full_name ?? user.email} a un grupo o equipo.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            <Select
-              value={selectedGroup || NO_GROUP_VALUE}
-              onValueChange={(v) => setSelectedGroup(v ?? NO_GROUP_VALUE)}
-            >
-              <SelectTrigger className="w-full">
-                {/* Provide children to avoid Radix showing raw UUID before SelectItem text registers */}
-                <SelectValue>
-                  {!selectedGroup || selectedGroup === NO_GROUP_VALUE
-                    ? 'Sin grupo'
-                    : formatGroupLabel(selectedGroup, groups)}
-                </SelectValue>
+          <div className="space-y-1.5">
+            <FieldLabel className="block leading-none">Jefe directo <span className="text-xs text-muted-foreground">(opcional)</span></FieldLabel>
+            <Select value={selectedManager || undefined} onValueChange={(v) => setSelectedManager(v || '')}>
+              <SelectTrigger className="w-full" aria-label="Jefe directo">
+                <SelectValue placeholder="Sin jefe directo" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={NO_GROUP_VALUE}>Sin grupo</SelectItem>
-                {groups.map((g) => (
-                  <SelectItem key={g.id} value={g.id}>
-                    {formatGroupDisplayName(g)}
-                  </SelectItem>
+                <SelectItem value={SELF_MANAGER_VALUE}>Sin jefe directo</SelectItem>
+                {possibleManagers.map((u) => (
+                  <SelectItem key={u.id} value={u.id}>{u.full_name ?? u.email}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowGroupDialog(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleGroupChange} disabled={loading}>
-              Guardar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Activate from Rejected Dialog */}
-      <Dialog open={showActivateRejectedDialog} onOpenChange={setShowActivateRejectedDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Activar usuario rechazado</DialogTitle>
-            <DialogDescription>
-              Asigna un rol a {user.full_name ?? user.email} para activar su acceso.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-1.5">
-              <p className="text-sm font-medium text-foreground">Rol <span className="text-destructive">*</span></p>
-              <Select value={selectedRole || undefined} onValueChange={(v) => setSelectedRole(v || '')}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Seleccionar rol" />
-                </SelectTrigger>
-                <SelectContent>
-                  {roles.map((role) => (
-                    <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <p className="text-sm font-medium text-foreground">Jefe directo <span className="text-xs text-muted-foreground">(opcional)</span></p>
-              <Select value={selectedManager || undefined} onValueChange={(v) => setSelectedManager(v || '')}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Sin jefe directo" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={SELF_MANAGER_VALUE}>Sin jefe directo</SelectItem>
-                  {possibleManagers.map((u) => (
-                    <SelectItem key={u.id} value={u.id}>{u.full_name ?? u.email}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowActivateRejectedDialog(false)}>Cancelar</Button>
-            <Button onClick={handleActivateFromRejected} disabled={!selectedRole || loading}>
-              <Check className="mr-2 h-4 w-4" />
-              Activar acceso
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </div>
+      </ModalShell>
     </>
   );
 }

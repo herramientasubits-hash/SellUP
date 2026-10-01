@@ -4,7 +4,7 @@ import * as React from 'react';
 import { createPortal } from 'react-dom';
 import { Search, X, Check, type LucideIcon } from 'lucide-react';
 import { DrawerSection } from '@/components/shared/drawer-section';
-import { Label } from '@/components/ui/label';
+import { FieldLabel } from '@/components/forms/field';
 import { cn } from '@/lib/utils';
 import { INDUSTRIES } from '@/modules/accounts/types';
 
@@ -159,6 +159,12 @@ export function Section({
   );
 }
 
+/**
+ * Campo de los drawers de empresa: la etiqueta del sistema (`FieldLabel`)
+ * enlazada por `id` al control. No se usa `Field` de `@/components/forms/field`
+ * porque estos controles traen su propio `id` (o son un `Select`/combobox que
+ * no admite que se le inyecte uno).
+ */
 export function Field({
   id,
   label,
@@ -171,11 +177,15 @@ export function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-1.5">
-      <Label htmlFor={id} className="text-xs font-medium text-muted-foreground">
+    <div className="min-w-0 space-y-1.5">
+      <FieldLabel htmlFor={id} className="block leading-none">
         {label}
-        {required && <span className="ml-0.5 text-destructive">*</span>}
-      </Label>
+        {required && (
+          <span className="ml-1 text-destructive" aria-hidden="true">
+            *
+          </span>
+        )}
+      </FieldLabel>
       {children}
     </div>
   );

@@ -1,19 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { Folder, FolderOpen, ChevronDown, ChevronRight } from 'lucide-react';
+import { Folder, FolderOpen, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { ModalShell } from '@/components/shared/modal-shell';
+import { FieldLabel, FieldDescription } from '@/components/forms/field';
 import {
   Select,
   SelectContent,
@@ -186,67 +179,65 @@ export function GroupManagementPanel({ groups: initialGroups }: GroupManagementP
       )}
 
       {/* Create dialog */}
-      <Dialog open={showDialog} onOpenChange={v => { setShowDialog(v); if (!v) reset(); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Crear grupo organizacional</DialogTitle>
-            <DialogDescription>
-              Define un nuevo grupo o subgrupo. Máximo 3 niveles de profundidad.
-            </DialogDescription>
-          </DialogHeader>
+      <ModalShell
+        open={showDialog}
+        onOpenChange={v => { setShowDialog(v); if (!v) reset(); }}
+        title="Crear grupo organizacional"
+        description="Define un nuevo grupo o subgrupo. Máximo 3 niveles de profundidad."
+        actions={
+          <>
+            <Button type="button" variant="outline" onClick={() => { setShowDialog(false); reset(); }}>
+              Cancelar
+            </Button>
+            <Button type="button" onClick={handleCreate} disabled={!name.trim() || loading}>
+              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+              {loading ? 'Creando...' : 'Crear grupo'}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <FieldLabel htmlFor="gm-name" className="block leading-none">
+              Nombre del grupo <span className="text-destructive">*</span>
+            </FieldLabel>
+            <Input
+              id="gm-name"
+              placeholder="Ej: Colombia, Manufactura, Textiles..."
+              value={name}
+              onChange={e => setName(e.target.value)}
+            />
+          </div>
 
-          <div className="space-y-4 py-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="gm-name">
-                Nombre del grupo <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="gm-name"
-                placeholder="Ej: Colombia, Manufactura, Textiles..."
-                value={name}
-                onChange={e => setName(e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Grupo padre <span className="text-xs text-muted-foreground">(opcional)</span></Label>
-              <Select value={parentId || undefined} onValueChange={v => setParentId(v ?? '')}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Ninguno (grupo raíz)" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NO_PARENT}>Ninguno (grupo raíz)</SelectItem>
-                  {validParents.map(g => (
-                    <SelectItem key={g.id} value={g.id}>
-                      {groupParentLabel(g)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {parentId && parentId !== NO_PARENT && (
-                <p className="text-xs text-muted-foreground">
-                  Nivel: {depthLabel((groups.find(g => g.id === parentId)?.depth ?? 0) + 1)}
-                </p>
-              )}
-            </div>
-
-            {error && (
-              <Alert variant="destructive">
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
+          <div className="space-y-1.5">
+            <FieldLabel className="block leading-none">Grupo padre <span className="text-xs text-muted-foreground">(opcional)</span></FieldLabel>
+            <Select value={parentId || undefined} onValueChange={v => setParentId(v ?? '')}>
+              <SelectTrigger className="w-full" aria-label="Grupo padre">
+                <SelectValue placeholder="Ninguno (grupo raíz)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_PARENT}>Ninguno (grupo raíz)</SelectItem>
+                {validParents.map(g => (
+                  <SelectItem key={g.id} value={g.id}>
+                    {groupParentLabel(g)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {parentId && parentId !== NO_PARENT && (
+              <FieldDescription>
+                Nivel: {depthLabel((groups.find(g => g.id === parentId)?.depth ?? 0) + 1)}
+              </FieldDescription>
             )}
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setShowDialog(false); reset(); }}>
-              Cancelar
-            </Button>
-            <Button onClick={handleCreate} disabled={!name.trim() || loading}>
-              {loading ? 'Creando...' : 'Crear grupo'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+        </div>
+      </ModalShell>
     </div>
   );
 }

@@ -183,41 +183,39 @@ export function CreateContactDrawer({
       }
       title="Nuevo contacto"
       description="Registra un decisor, sponsor o persona clave vinculada a esta cuenta."
-      icon={<User className="h-4 w-4 text-primary" />}
+      icon={<User className="h-4 w-4" />}
       size="xl"
       actions={
         <>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleClose}
+            disabled={pending}
+          >
+            Cancelar
+          </Button>
           {error && (
-            <p role="alert" className="flex-1 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive">
+            <p role="alert" className="min-w-0 flex-1 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive">
               {error}
             </p>
           )}
-          <div className="flex shrink-0 items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleClose}
-              disabled={pending}
-            >
-              Cancelar
-            </Button>
-            <Button
-              type="submit"
-              form="create-contact-form"
-              size="sm"
-              disabled={pending}
-            >
-              {pending ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Guardando…
-                </>
-              ) : (
-                'Guardar contacto'
-              )}
-            </Button>
-          </div>
+          <Button
+            type="submit"
+            form="create-contact-form"
+            size="sm"
+            disabled={pending}
+          >
+            {pending ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Guardando…
+              </>
+            ) : (
+              'Guardar contacto'
+            )}
+          </Button>
         </>
       }
     >
@@ -239,7 +237,7 @@ export function CreateContactDrawer({
           return (
             <Section icon={Building2} label="Cuenta">
               <Field label="Cuenta">
-                <div className="rounded-md border border-border bg-surface-subtle px-3 py-2 text-sm text-foreground">
+                <div className="flex min-h-10 items-center rounded-md border border-border/60 bg-surface-subtle px-3 py-2 text-sm text-foreground">
                   {label}
                 </div>
               </Field>
@@ -465,9 +463,9 @@ export function CreateContactDrawer({
                 type="checkbox"
                 checked={form.is_primary}
                 onChange={(e) => set('is_primary', e.target.checked)}
-                className="h-4 w-4 rounded border-border accent-primary"
+                className="h-4 w-4 rounded-xs border-border accent-primary focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
               />
-              <span className="text-xs font-medium text-muted-foreground">Contacto primario</span>
+              <span className="text-sm font-medium text-foreground">Contacto primario</span>
             </label>
           </Row>
           <Field id="notes" label="Notas">
@@ -479,7 +477,7 @@ export function CreateContactDrawer({
                 value={form.notes}
                 onChange={(e) => set('notes', e.target.value)}
                 rows={3}
-                className="pl-8 pt-2 text-sm"
+                className="pl-8 pt-2"
               />
             </div>
           </Field>
