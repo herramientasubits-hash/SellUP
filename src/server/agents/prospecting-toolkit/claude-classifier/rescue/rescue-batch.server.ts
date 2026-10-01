@@ -9,18 +9,25 @@
  * (evidencia o paso a revisión) y el reclamo de identidad. Nunca aprueba nada.
  */
 
+import { isAgent1ClaudeDomainFinderEnabled } from '@/lib/feature-flags.server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { checkProviderQuotaAvailable } from '@/modules/budgets/budget-resolution';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
 import { sendDispositionToReviewCore } from '@/modules/prospect-discards/send-to-review-core';
 import { claimGlobalIdentitiesForPersistedCandidates } from '@/server/prospect-batches/global-identity-claims-store';
+import { checkCompanyDuplicate } from '../../duplicate-checker';
+import { fetchSafePageHtml } from '../../website-verifier';
 import type { ClassifiableCandidateRow } from '../classification-metadata';
+import { buildLiveClassifyCompanyDeps } from '../classify-company';
+import { findOfficialWebsite } from '../domain-finder';
 import {
+  CLASSIFIER_PAGE_TIMEOUT_MS,
   classifyCompanyLive,
   loadClassifierCatalog,
   resolveActiveAnthropicModel,
 } from '../classify-batch-candidates.server';
 import { CLAUDE_CLASSIFIER_PROVIDER_KEY } from '../types';
+import { DOMAIN_SEARCH_REASON_CODE, type DomainDuplicateCheck } from './domain-search';
 import type { RescueBatchDeps } from './rescue-batch';
 import { RESCUABLE_DISPOSITION_REASON_CODES, type RescuableDispositionRow } from './rescue-dispositions';
 
@@ -93,8 +100,35 @@ async function patchDispositionEvidence(
   return false;
 }
 
+/** SellUp + HubSpot en sólo lectura. Si alguna no se pudo revisar, NO se admite. */
+async function checkDuplicateStrict(
+  input: Parameters<NonNullable<RescueBatchDeps['domainSearch']>['checkDuplicate']>[0],
+): Promise<DomainDuplicateCheck> {
+  const result = await checkCompanyDuplicate(input);
+  if (result.errors?.length) throw new Error(`duplicate_check_errors:${result.errors.join(' | ')}`);
+  if (!result.checkedSources.includes('sellup') || !result.checkedSources.includes('hubspot')) {
+    throw new Error(`duplicate_check_incomplete:${result.checkedSources.join(',')}`);
+  }
+  return { status: result.status, summary: result.summary };
+}
+
+const liveDomainSearch: NonNullable<RescueBatchDeps['domainSearch']> = {
+  findWebsite: (input, active) =>
+    findOfficialWebsite(
+      input,
+      active.model,
+      buildLiveClassifyCompanyDeps(active.apiKey, (website) => fetchSafePageHtml(website, CLASSIFIER_PAGE_TIMEOUT_MS)),
+    ),
+  checkDuplicate: checkDuplicateStrict,
+};
+
 export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatchDeps {
+  const domainSearchEnabled = isAgent1ClaudeDomainFinderEnabled();
+  const reasonCodes = domainSearchEnabled
+    ? [...RESCUABLE_DISPOSITION_REASON_CODES, DOMAIN_SEARCH_REASON_CODE]
+    : [...RESCUABLE_DISPOSITION_REASON_CODES];
   return {
+    ...(domainSearchEnabled ? { domainSearch: liveDomainSearch } : {}),
     resolveActiveModel: resolveActiveAnthropicModel,
     checkQuota: () => checkProviderQuotaAvailable(CLAUDE_CLASSIFIER_PROVIDER_KEY),
     loadCatalog: loadClassifierCatalog,
@@ -113,7 +147,7 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
         .select('id, batch_id, candidate_id, status, name, domain, country_code, industry, reason_code, evidence')
         .eq('batch_id', batchId)
         .eq('status', 'discarded')
-        .in('reason_code', [...RESCUABLE_DISPOSITION_REASON_CODES]);
+        .in('reason_code', reasonCodes);
       if (error) throw new Error(`dispositions_read_failed:${error.message}`);
       return (data ?? []) as RescuableDispositionRow[];
     },

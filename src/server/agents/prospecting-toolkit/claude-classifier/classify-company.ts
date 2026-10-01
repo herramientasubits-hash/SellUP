@@ -93,7 +93,7 @@ export function buildClassifierRequestBody(
   };
 }
 
-function toUsage(totals: AnthropicUsageTotals, model: string): ClassifierUsage {
+export function toUsage(totals: AnthropicUsageTotals, model: string): ClassifierUsage {
   const cost = estimateClassifierCost(totals, model);
   return {
     model,
@@ -256,18 +256,20 @@ export function isOffsiteRedirect(requested: string, finalUrl: string | null): b
 }
 
 /** Claude terminó sin entregar: un turno más, obligándolo a usar el tool (reusa la caché). */
-async function forceSubmission(
+export async function forceSubmission(
   body: AnthropicRequestBody,
   first: AnthropicConversationResult,
-  deps: ClassifyCompanyDeps,
+  deps: Pick<ClassifyCompanyDeps, 'runConversation'>,
+  toolName: string = SUBMIT_TOOL_NAME,
+  instruction: string = `Entrega ahora tu resultado con ${SUBMIT_TOOL_NAME}. Sin fuente, deja el dato en null.`,
 ): Promise<AnthropicConversationResult> {
   const second = await deps.runConversation({
     ...body,
-    tool_choice: { type: 'tool', name: SUBMIT_TOOL_NAME },
+    tool_choice: { type: 'tool', name: toolName },
     messages: [
       ...body.messages,
       { role: 'assistant', content: first.content },
-      { role: 'user', content: `Entrega ahora tu resultado con ${SUBMIT_TOOL_NAME}. Sin fuente, deja el dato en null.` },
+      { role: 'user', content: instruction },
     ],
   });
   return {
