@@ -3,14 +3,14 @@
 import * as React from 'react';
 import Link from 'next/link';
 import {
-  AlertTriangle, CircleSlash, Copy, Check, Database, ExternalLink, KeyRound, Layers, Lightbulb, Lock, Info, Plug,
+  AlertTriangle, CircleSlash, Copy, Check, Database, ExternalLink, KeyRound, Layers, Lightbulb, Info, Plug,
 } from "@/icons";
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { DrawerSection } from '@/components/shared/drawer-section';
-import { EmptyState } from '@/components/ui/empty-state';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   OPERATIONAL_STATUS_LABELS,
@@ -27,17 +27,8 @@ import {
   aiFlowStatusBadgeClass,
   connectionModeBadgeClass,
 } from '@/modules/source-catalog/labels';
-import {
-  BATCH_STATUS_LABELS,
-  batchStatusBadgeClass,
-  formatDatasetLabel,
-  formatShortDate,
-} from '@/modules/source-catalog/socrata-batches-labels';
 import type { SourceViewModel } from '@/modules/source-catalog/queries';
-import type {
-  SocrataPreviewBatchListItem,
-  SocrataPreviewBatchListViewModel,
-} from '@/modules/source-catalog/socrata-batches-queries';
+import type { SocrataPreviewBatchListViewModel } from '@/modules/source-catalog/socrata-batches-queries';
 import type { SourceDetailDrawerData } from '@/modules/source-catalog/actions';
 import { getSourceDetailDrawerDataAction } from '@/modules/source-catalog/actions';
 import {
@@ -51,7 +42,7 @@ import { SourceDryRunPanel } from './[sourceKey]/source-dry-run-panel';
 import { DenuePreviewBatchPanel } from './[sourceKey]/denue-preview-batch-panel';
 import { ChileResDryRunPanel } from './[sourceKey]/chile-res-dry-run-panel';
 import { HnContratacionesAbiertasCard } from '@/components/source-catalog/hn-contrataciones-abiertas-card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { SocrataBatchesTable } from './socrata-batches/socrata-batches-table';
 export type { SocrataPreviewBatchListItem, SocrataPreviewBatchListViewModel } from '@/modules/source-catalog/socrata-batches-queries';
 
 interface SourceDetailDrawerProps {
@@ -335,27 +326,17 @@ export function SourceDetailDrawer({
   );
 
   const batchesBody = (
-    <DrawerSection
-      title="Lotes Socrata"
-      hint="Revisión interna de lotes creados desde RUES. Solo lectura."
-      icon={Layers}
-      tone="neutral"
-      contentClassName="space-y-3"
-    >
-      <div className="flex items-start gap-2 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
-        <Lock aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        <p className="text-xs text-muted-foreground">
-          <span className="font-medium text-foreground">Solo lectura para candidatos.</span>{' '}
-          No permite editar, aprobar, descartar ni sincronizar.
-        </p>
-      </div>
+    <div className="space-y-4">
+      <Alert variant="info">
+        <AlertTitle>Solo consulta</AlertTitle>
+        <AlertDescription className="text-xs">
+          Lotes creados desde RUES para revisar cómo llegan los candidatos. Desde aquí no se editan,
+          aprueban, descartan ni sincronizan. Abre un lote para ver sus candidatos.
+        </AlertDescription>
+      </Alert>
 
-      {batchesCount === 0 ? (
-        <EmptyState variant="plain" icon={Database} title="Aún no hay lotes Socrata creados." />
-      ) : (
-        <SocrataBatchesTable batches={socrataBatches.batches} />
-      )}
-    </DrawerSection>
+      <SocrataBatchesTable batches={socrataBatches.batches} />
+    </div>
   );
 
   return (
@@ -398,9 +379,9 @@ export function SourceDetailDrawer({
             <TabsTrigger value="batches">
               <Layers className="h-4 w-4" /> Lotes
               {batchesCount > 0 && (
-                <span className="ml-1.5 inline-flex items-center justify-center rounded-full border border-border/60 bg-surface-muted px-1.5 text-xs font-semibold tabular-nums text-muted-foreground">
+                <Badge variant="neutral" className="ml-1.5 tabular-nums">
                   {batchesCount}
-                </span>
+                </Badge>
               )}
             </TabsTrigger>
           </TabsList>
@@ -411,68 +392,6 @@ export function SourceDetailDrawer({
         infoContent
       )}
     </DrawerShell>
-  );
-}
-
-function SocrataBatchesTable({ batches }: { batches: SocrataPreviewBatchListItem[] }) {
-  return (
-    <div className="overflow-x-auto rounded-xl border border-border/60">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead scope="col">Nombre</TableHead>
-            <TableHead scope="col">Estado</TableHead>
-            <TableHead scope="col">Dataset</TableHead>
-            <TableHead scope="col" className="text-right">Candidatos</TableHead>
-            <TableHead scope="col">Flags</TableHead>
-            <TableHead scope="col">Fecha</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {batches.map((batch) => (
-            <TableRow key={batch.id}>
-              <TableCell>
-                <span className="font-medium text-foreground">{batch.name}</span>
-                {batch.countryCode && (
-                  <span className="ml-2 text-xs text-muted-foreground">{batch.countryCode}</span>
-                )}
-              </TableCell>
-              <TableCell>
-                <Badge variant="outline" className={batchStatusBadgeClass(batch.status)}>
-                  {BATCH_STATUS_LABELS[batch.status] ?? batch.status}
-                </Badge>
-              </TableCell>
-              <TableCell>
-                <span className="font-mono text-xs text-muted-foreground">{formatDatasetLabel(batch.dataset)}</span>
-              </TableCell>
-              <TableCell className="text-right tabular-nums text-muted-foreground">
-                {batch.candidatesCount}
-                {batch.targetCount ? (
-                  <span className="ml-1 text-xs text-muted-foreground">/ {batch.targetCount}</span>
-                ) : null}
-              </TableCell>
-              <TableCell>
-                <div className="flex flex-wrap gap-1">
-                  {batch.previewMode && (
-                    <Badge variant="brand">Preview</Badge>
-                  )}
-                  {batch.smokeTest && (
-                    <Badge variant="info">Smoke</Badge>
-                  )}
-                  {batch.rollbackLogical && (
-                    <Badge variant="neutral">Rollback</Badge>
-                  )}
-                  {!batch.previewMode && !batch.smokeTest && !batch.rollbackLogical && (
-                    <span className="text-xs text-text-muted">—</span>
-                  )}
-                </div>
-              </TableCell>
-              <TableCell className="text-xs text-muted-foreground">{formatShortDate(batch.createdAt)}</TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
   );
 }
 

@@ -3,25 +3,18 @@
 import * as React from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { DataTable, DataTableColumnHeader } from '@/components/data-table';
-import { StatusBadge, type StatusType } from '@/components/data-display/status-badge';
+import { StatusBadge } from '@/components/data-display/status-badge';
 import { formatAppDateTime } from '@/lib/format-date';
 import {
   CONNECTION_TEST_STATUS_LABELS,
   CONNECTION_TEST_STRATEGY_LABELS,
 } from '@/modules/source-catalog/labels';
 import type { SourceConnectionTestHistoryItem } from '@/modules/source-catalog/history-queries';
-import type { SourceConnectionTestStatus } from '@/server/source-catalog/connection-test/types';
+import { CONNECTION_TEST_STATUS_TONE } from './connection-test-status';
 
 const NO_VALUE = '—';
 
-export const CONNECTION_TEST_STATUS_TONE: Record<SourceConnectionTestStatus, StatusType> = {
-  success: 'active',
-  failed: 'error',
-  blocked: 'error',
-  requires_credentials: 'warning',
-  input_required: 'warning',
-  not_supported: 'neutral',
-};
+export { CONNECTION_TEST_STATUS_TONE };
 
 interface ConnectionTestHistoryTableProps {
   items: SourceConnectionTestHistoryItem[];

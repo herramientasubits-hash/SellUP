@@ -35,21 +35,21 @@ export function WizardApolloTwoRoundPlannedSteps({ maxRounds }: PlannedStepsProp
 
   return (
     <div
-      className="relative z-10 w-full max-w-[300px] space-y-1.5"
+      className="space-y-1.5 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3"
       data-testid="wizard-two-round-planned-steps"
     >
-      <p className="text-xs font-medium text-white/80">
+      <p className="text-xs font-medium text-foreground">
         {APOLLO_TWO_ROUND_PLANNED_STEPS_TITLE}
       </p>
       <ol className="space-y-0.5">
         {steps.map((step) => (
-          <li key={step.phase} className="text-xs text-white/60">
+          <li key={step.phase} className="text-xs text-muted-foreground">
             {step.label}
-            {step.conditional && <span className="text-white/40"> (si hace falta)</span>}
+            {step.conditional && <span className="text-text-muted"> (si hace falta)</span>}
           </li>
         ))}
       </ol>
-      <p className="text-xs text-white/50">{APOLLO_TWO_ROUND_CONDITIONAL_NOTICE}</p>
+      <p className="text-xs text-text-muted">{APOLLO_TWO_ROUND_CONDITIONAL_NOTICE}</p>
     </div>
   );
 }

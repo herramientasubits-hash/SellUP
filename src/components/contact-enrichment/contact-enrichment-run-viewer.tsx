@@ -12,6 +12,7 @@ import { Building2, Calendar, Globe, Info, MapPin, Users, XCircle } from "@/icon
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { IconTile } from '@/components/utility';
 import { getLushaEmptyStateCopy } from './contact-enrichment-empty-state-copy';
 import { classifyLushaRunViewerBranch } from '@/modules/contact-enrichment/run-viewer-branch-classifier';
 import type {
@@ -137,9 +138,7 @@ function LushaOutcomeCard({
     return (
       <SurfaceCard className="space-y-2">
         <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-warning/15">
-            <XCircle className="h-4 w-4 text-warning" aria-hidden />
-          </div>
+          <IconTile icon={<XCircle />} tone="warning" aria-hidden />
           <p className="text-sm font-semibold text-foreground">Lusha no está disponible o no tiene credenciales configuradas</p>
         </div>
         <p className="text-xs text-muted-foreground">No se ejecutó el proveedor y no se crearon candidatos.</p>
@@ -179,18 +178,15 @@ function LushaOutcomeCard({
     return (
       <SurfaceCard className="space-y-3">
         <div className="flex items-start gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-surface-muted">
-            <Info className="h-4 w-4 text-muted-foreground" aria-hidden />
-          </div>
+          <IconTile icon={<Info />} tone="neutral" aria-hidden />
           <div className="min-w-0 space-y-1">
             <p className="text-sm font-semibold text-foreground">{copy.headline}</p>
             <p className="text-xs text-muted-foreground">{copy.detail}</p>
           </div>
         </div>
 
-        <div className="rounded-lg border border-border/50 bg-surface-subtle px-3 py-2">
-          <p className="text-xs text-muted-foreground">{copy.notAnError}</p>
-        </div>
+        {/* Sin caja propia: ya está dentro de la tarjeta del resultado. */}
+        <p className="text-xs text-muted-foreground">{copy.notAnError}</p>
 
         <dl className="space-y-1.5 border-t border-border/50 pt-3 text-xs">
           <div className="flex justify-between gap-3">

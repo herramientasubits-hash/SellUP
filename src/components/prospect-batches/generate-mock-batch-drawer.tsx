@@ -2,7 +2,14 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { FlaskConical, Loader2, Globe, Target, Info, PowerOff } from "@/icons";
+import {
+  FlaskConical,
+  Loader2,
+  Info,
+  PowerOff,
+  Globe,
+  Target,
+} from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { DrawerSection } from '@/components/shared/drawer-section';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -22,7 +29,8 @@ import {
   BATCH_SEARCH_DEPTH_LABELS,
   type BatchSearchDepth,
 } from '@/modules/prospect-batches/types';
-import { Section, Field, Row, getFlagEmoji } from '@/components/accounts/account-form-helpers';
+import { getFlagEmoji } from '@/components/accounts/account-form-helpers';
+import { Field } from '@/components/forms/field';
 
 const DEFAULTS = {
   countryCode: 'CO',
@@ -150,8 +158,8 @@ export function GenerateMockBatchDrawer() {
         </Alert>
 
         {/* Segmentación */}
-        <Section icon={Globe} label="Segmentación">
-          <Row>
+        <DrawerSection title="Segmentación" icon={Globe} contentClassName="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="País" required>
               <Select
                 value={form.countryCode}
@@ -188,12 +196,12 @@ export function GenerateMockBatchDrawer() {
                 </SelectContent>
               </Select>
             </Field>
-          </Row>
-        </Section>
+          </div>
+        </DrawerSection>
 
         {/* Parámetros */}
-        <Section icon={Target} label="Parámetros">
-          <Row>
+        <DrawerSection title="Parámetros" icon={Target} contentClassName="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Cantidad objetivo">
               <Select
                 value={form.targetCount}
@@ -232,8 +240,8 @@ export function GenerateMockBatchDrawer() {
                 </SelectContent>
               </Select>
             </Field>
-          </Row>
-        </Section>
+          </div>
+        </DrawerSection>
 
         {/* Qué NO se usa */}
         <DrawerSection

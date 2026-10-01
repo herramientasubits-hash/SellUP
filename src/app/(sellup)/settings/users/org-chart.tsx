@@ -1,9 +1,12 @@
 'use client';
 
 import { useRef, useState, useCallback } from 'react';
-import { ZoomIn, ZoomOut, Maximize2, Move } from "@/icons";
+import { ZoomIn, ZoomOut, Maximize2, Move, GitBranch } from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
+import { SurfaceCard } from '@/components/shared/surface-card';
+import { UserAvatar } from './user-avatar';
 import type { InternalUser, Role } from '@/modules/access/types';
 
 // ─── Tree building ────────────────────────────────────────────────────────────
@@ -29,11 +32,6 @@ function buildTree(users: InternalUser[]): OrgNode[] {
   return roots;
 }
 
-function getInitials(name: string | null, email: string): string {
-  if (name) return name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
-  return email.slice(0, 2).toUpperCase();
-}
-
 function getRoleName(roleKey: string | null, roles: Role[]): string {
   if (!roleKey) return 'Sin rol';
   return roles.find(r => r.key === roleKey)?.name ?? roleKey;
@@ -44,10 +42,8 @@ function getRoleName(roleKey: string | null, roles: Role[]): string {
 function NodeCard({ user, roles }: { user: InternalUser; roles: Role[] }) {
   return (
     <div className="flex flex-col items-center gap-2">
-      <div className="flex flex-col items-center rounded-xl border border-border/60 bg-card px-4 py-3 shadow-card transition-shadow hover:shadow-drawer w-44">
-        <div className="mb-2 flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
-          {getInitials(user.full_name, user.email)}
-        </div>
+      <SurfaceCard noPadding className="flex w-44 flex-col items-center px-4 py-3">
+        <UserAvatar name={user.full_name} email={user.email} size="xl" className="mb-2" />
         <p className="w-full break-words text-center text-sm font-medium leading-tight text-foreground">
           {user.full_name ?? user.email.split('@')[0]}
         </p>
@@ -57,7 +53,7 @@ function NodeCard({ user, roles }: { user: InternalUser; roles: Role[] }) {
         <Badge variant="brand" className="mt-2 max-w-full">
           <span className="truncate">{getRoleName(user.role_key, roles)}</span>
         </Badge>
-      </div>
+      </SurfaceCard>
     </div>
   );
 }
@@ -77,7 +73,7 @@ function TreeNode({ node, roles }: { node: OrgNode; roles: Role[] }) {
         <div className="flex flex-col items-center">
           {node.children.length > 1 && (
             <div className="relative flex w-full justify-center">
-              <div className="h-px bg-border/60" style={{ width: 'calc(100% - 88px)', marginLeft: '44px', marginRight: '44px' }} />
+              <div className="mx-11 h-px flex-1 bg-border/60" />
             </div>
           )}
           <div className="flex items-start gap-8">
@@ -147,14 +143,16 @@ export function OrgChart({ users, roles }: OrgChartProps) {
 
   if (activeCount === 0) {
     return (
-      <div className="py-16 text-center text-sm text-muted-foreground">
-        No hay usuarios activos en el organigrama.
-      </div>
+      <EmptyState
+        icon={GitBranch}
+        title="El organigrama está vacío"
+        description="Aparecerá cuando haya personas con acceso activo y su jefe directo asignado."
+      />
     );
   }
 
   return (
-    <div className="relative h-full min-h-[400px] select-none rounded-2xl border border-border/60 bg-card p-5 shadow-card">
+    <SurfaceCard className="relative h-full min-h-[400px] select-none p-5">
       {/* Zoom controls */}
       <div className="absolute right-3 top-3 z-10 flex flex-col gap-1">
         <Button
@@ -203,7 +201,7 @@ export function OrgChart({ users, roles }: OrgChartProps) {
       {/* Canvas */}
       <div
         ref={containerRef}
-        className={`h-full w-full overflow-hidden rounded-xl border border-border/60 bg-surface-subtle ${
+        className={`h-full w-full overflow-hidden rounded-xl bg-surface-subtle ${
           isDragging ? 'cursor-grabbing' : 'cursor-grab'
         }`}
         onMouseDown={handleMouseDown}
@@ -230,6 +228,6 @@ export function OrgChart({ users, roles }: OrgChartProps) {
           ) : null}
         </div>
       </div>
-    </div>
+    </SurfaceCard>
   );
 }

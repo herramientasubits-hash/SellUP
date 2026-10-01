@@ -12,7 +12,8 @@
 import { withAppTimeZone } from '@/lib/format-date';
 import * as React from 'react';
 import Link from 'next/link';
-import { AlertTriangle, Info, ShieldCheck, ArrowRightCircle } from "@/icons";
+import { Info, ShieldCheck, ArrowRightCircle } from "@/icons";
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import {
@@ -79,18 +80,17 @@ export function ReviewStatusInfo({ candidate }: ReviewStatusInfoProps) {
       <SurfaceCardHeader title={SECTION_TITLE} description={SECTION_DESCRIPTION} />
 
       {view.needsWarning && (
-        <div className="mt-1 flex items-start gap-2 rounded-lg border border-warning/25 bg-warning/15 p-3 text-warning">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          <div className="min-w-0 space-y-0.5 text-xs leading-relaxed">
-            <p className="font-medium">Este prospecto tiene posible coincidencia. Revisa antes de aprobar.</p>
-            {view.hasHubspotMatch && (
-              <p className="flex items-center gap-1 text-xs">
-                <ShieldCheck className="h-3 w-3 shrink-0" aria-hidden="true" />
-                Coincidencia con una empresa en HubSpot.
-              </p>
-            )}
-          </div>
-        </div>
+        <Alert variant="warning" className="mt-1">
+          <AlertTitle className="text-xs">
+            Este prospecto tiene posible coincidencia. Revisa antes de aprobar.
+          </AlertTitle>
+          {view.hasHubspotMatch && (
+            <AlertDescription className="flex items-center gap-1 text-xs text-current">
+              <ShieldCheck className="h-3 w-3 shrink-0" aria-hidden="true" />
+              Coincidencia con una empresa en HubSpot.
+            </AlertDescription>
+          )}
+        </Alert>
       )}
 
       <div className="mt-2 flex items-start gap-2">

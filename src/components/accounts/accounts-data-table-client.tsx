@@ -2,7 +2,6 @@
 
 import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
-import { useReportSelectionCount } from "@/components/action-rail";
 import { useRouter } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
 import { toast } from 'sonner';
@@ -13,7 +12,6 @@ import {
   Archive,
   Building2,
   ExternalLink,
-  Loader2,
   UserSearch,
   Globe,
   Search,
@@ -24,14 +22,7 @@ import { Button } from '@/components/ui/button';
 import type { ComponentProps } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { ArchiveAccountDialog } from './archive-account-dialog';
 import {
   DataTable,
   DataTableColumnHeader,
@@ -71,13 +62,12 @@ import {
   ScopeFilterDrawerSection,
   type ScopeFilterState,
 } from '@/components/shared/scope-filters-client';
-import { updateAccount, archiveAccount } from '@/modules/accounts/actions';
+import { updateAccount } from '@/modules/accounts/actions';
 import { AccountEditDrawer } from './account-edit-drawer';
 import { AccountDetailSheet } from './account-detail-sheet';
 import { ContactEnrichmentDrawer } from '@/components/contact-enrichment/contact-enrichment-drawer';
 import type { ContactEnrichmentInitialCompany } from '@/components/contact-enrichment/contact-enrichment-drawer';
 import { BulkContactEnrichmentDrawer } from '@/components/contact-enrichment/bulk-contact-enrichment-drawer';
-import { CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS } from '@/modules/contact-enrichment/bulk-enrichment-types';
 
 // ── Styles ─────────────────────────────────────────────────────
 
@@ -181,14 +171,12 @@ export function AccountsDataTableClient({
   scopeFilterOptions,
   emptyActions,
 }: AccountsDataTableClientProps) {
-  const reportSelectionCount = useReportSelectionCount();
   const router = useRouter();
 
   const [detailAccountId, setDetailAccountId] = React.useState<string | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [archivingId, setArchivingId] = React.useState<string | null>(null);
-  const [archiving, setArchiving] = React.useState(false);
   const [enrichCompany, setEnrichCompany] = React.useState<ContactEnrichmentInitialCompany | null>(null);
   const [bulkEnrichOpen, setBulkEnrichOpen] = React.useState(false);
   const [bulkEnrichAccounts, setBulkEnrichAccounts] = React.useState<Row[]>([]);
@@ -261,23 +249,6 @@ export function AccountsDataTableClient({
       toast.error(result.error);
     }
   }, [router]);
-
-  async function handleArchive() {
-    if (!archivingId) return;
-    setArchiving(true);
-    try {
-      const result = await archiveAccount(archivingId);
-      if (result.success) {
-        setArchivingId(null);
-        router.refresh();
-        toast.success('Empresa archivada');
-      } else {
-        toast.error(result.error);
-      }
-    } finally {
-      setArchiving(false);
-    }
-  }
 
   // Los responsables que aparecen en la lista, para el embudo de la columna
   // cuando no hay filtros de alcance (si no, saldrían identificadores).
@@ -564,6 +535,8 @@ export function AccountsDataTableClient({
     () => [
       {
         id: 'view-detail',
+        // Solo tiene sentido sobre una fila: con varias marcadas sale de la barra.
+        scope: ['single'],
         label: 'Ver detalle',
         icon: Eye,
         disabled: (rows) => rows.length !== 1,
@@ -571,6 +544,8 @@ export function AccountsDataTableClient({
       },
       {
         id: 'edit-account',
+        // Solo tiene sentido sobre una fila: con varias marcadas sale de la barra.
+        scope: ['single'],
         label: 'Editar empresa',
         icon: Pencil,
         disabled: (rows) => rows.length !== 1,
@@ -696,7 +671,6 @@ export function AccountsDataTableClient({
           noun="empresas"
           nounGender="f"
           getRowLabel={(row) => row.name}
-          onSelectionCountChange={reportSelectionCount}
           columns={columns}
           data={quick.rows}
           getRowId={(row) => row.id}
@@ -735,33 +709,11 @@ export function AccountsDataTableClient({
         />
       )}
 
-      {/* Archive confirmation dialog */}
-      <Dialog open={!!archivingId} onOpenChange={(v) => !v && setArchivingId(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Archivar empresa</DialogTitle>
-            <DialogDescription>
-              Esta acción retira la empresa del pipeline activo. Solo un administrador puede
-              realizarla y queda registrada en auditoría. ¿Confirmas?
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setArchivingId(null)} disabled={archiving}>
-              Cancelar
-            </Button>
-            <Button variant="destructive" size="sm" onClick={handleArchive} disabled={archiving}>
-              {archiving ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Archivando…
-                </>
-              ) : (
-                'Archivar empresa'
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ArchiveAccountDialog
+        accountId={archivingId}
+        onClose={() => setArchivingId(null)}
+        onArchived={() => router.refresh()}
+      />
 
       {/* Account detail sheet */}
       <AccountDetailSheet

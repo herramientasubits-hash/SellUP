@@ -536,6 +536,8 @@ export function DiscardedProspectsDataTableClient({
     () => [
       {
         id: 'view-detail',
+        // Solo tiene sentido sobre una fila: con varias marcadas sale de la barra.
+        scope: ['single'],
         label: 'Ver detalle',
         icon: Info,
         disabled: (selectedRows) => selectedRows.length !== 1,

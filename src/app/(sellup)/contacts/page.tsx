@@ -1,5 +1,5 @@
 import { Suspense } from 'react';
-import { ScreenActionRail, ScreenActionRailProvider } from "@/components/action-rail";
+import { ListActionRailProvider } from "@/components/action-rail";
 import { DataTablePage } from '@/components/shared/data-table-page';
 import { ListPageSkeleton } from '@/components/shared/list-page-skeleton';
 import { getAllContacts } from '@/modules/contacts/actions';
@@ -7,6 +7,7 @@ import { getAccountsList, getActiveAccountsForPicker } from '@/modules/accounts/
 import { getCommercialScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 import { CreateContactDrawer } from '@/components/contacts/create-contact-drawer';
 import { ContactsDataTableClient } from '@/components/contacts/contacts-data-table-client';
+import { ContactsScreenActions } from '@/components/contacts/contacts-screen-actions';
 import {
   CONTACTOS_MODULE_TITLE,
   CONTACTOS_TAB_DESCRIPTIONS,
@@ -87,18 +88,13 @@ async function ApprovedContactsPanel() {
   // Los indicadores (decisores, champions, primarios) los calcula la tabla sobre
   // estas mismas filas y los ofrece como filtros de un toque.
   return (
-    <ScreenActionRailProvider>
+    <ListActionRailProvider label="Acciones de contactos" gender="m">
       <DataTablePage
         compact
         title={CONTACTOS_MODULE_TITLE}
         description={CONTACTOS_TAB_DESCRIPTIONS.approved}
         tabs={<ContactsModuleTabsNav active="approved" counts={{ approved: contacts.length }} />}
-        actions={
-          <ScreenActionRail label="Acciones de contactos">
-            <ContactsEnrichmentCTA />
-            <CreateContactDrawer accounts={accounts} triggerVariant="outline" />
-          </ScreenActionRail>
-        }
+        actions={<ContactsScreenActions accounts={accounts} />}
       >
         <ContactsDataTableClient
           contacts={contacts}
@@ -112,6 +108,6 @@ async function ApprovedContactsPanel() {
           }
         />
       </DataTablePage>
-    </ScreenActionRailProvider>
+    </ListActionRailProvider>
   );
 }

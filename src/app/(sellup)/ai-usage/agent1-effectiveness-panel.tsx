@@ -6,18 +6,20 @@
 // Streams independently via <Suspense> so its loading/error states never block
 // the rest of the page.
 //
-// Presentación: una pila de secciones (resumen, embudo, prospectos reales,
-// costo por proveedor), cada una en su propia tarjeta. Las cifras van en listas
-// de definiciones sin marco: nunca una caja dentro de otra.
+// Presentación: una pila de secciones (embudo, prospectos reales, costo por
+// proveedor), cada una en su propia tarjeta. Los embudos y los desgloses son
+// `BarList` sin marco (la barra compara, el número informa); los costos van en
+// listas de definiciones. Nunca una caja dentro de otra.
 
 import type { ReactNode } from 'react';
 import { TrendingUp, Lock, Plug } from '@/icons';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { InfoHint } from '@/components/shared/info-hint';
+import { Heading } from '@/components/typography';
+import { BarList } from '@/components/charts/BarList';
 import { StatusBadge, TableShell, type StatusType } from '@/components/data-display';
 import { getAgent1EffectivenessPanel } from '@/modules/agent1-effectiveness';
 import type {
@@ -29,11 +31,15 @@ import type {
   OriginBreakdown,
   RejectionReasonBreakdown,
   ClassificationSourceBreakdown,
-  RecordOrigin,
-  RejectionReason,
 } from '@/modules/agent1-effectiveness';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { formatCount, formatUsd, humanizeKey, providerLabel } from './usage-labels';
+import {
+  funnelItems,
+  originItems,
+  providerBreakdownCostItems,
+  rejectionItems,
+} from './agent1-chart-data';
 
 // ============================================================
 // Format helpers
@@ -46,11 +52,6 @@ function formatNullableUsd(usd: number | null, decimals = 4): string {
   return usd === null ? UNAVAILABLE : formatUsd(usd, decimals);
 }
 
-/** Rate is a 0..1 fraction; render as a percentage with 1 decimal. */
-function formatRate(rate: number | null): string {
-  return rate === null ? UNAVAILABLE : `${(rate * 100).toFixed(1)}%`;
-}
-
 function formatInt(n: number | null): string {
   return n === null ? UNAVAILABLE : formatCount(n);
 }
@@ -58,44 +59,6 @@ function formatInt(n: number | null): string {
 // ============================================================
 // Label maps — lenguaje de negocio, no de base de datos
 // ============================================================
-
-/** Origins EXCLUDED from clean production (everything except 'production'). */
-const NON_PRODUCTION_ORIGINS: ReadonlyArray<Exclude<RecordOrigin, 'production'>> = [
-  'smoke_test',
-  'qa',
-  'historical_cleanup',
-  'import',
-  'synthetic',
-  'unknown',
-];
-
-const RECORD_ORIGIN_LABELS: Record<RecordOrigin, string> = {
-  production: 'Búsquedas reales',
-  smoke_test: 'Pruebas rápidas',
-  qa: 'Pruebas internas',
-  historical_cleanup: 'Limpieza de datos',
-  import: 'Importación',
-  synthetic: 'Datos de ejemplo',
-  unknown: 'Sin identificar',
-};
-
-const REJECTION_REASON_LABELS: Record<RejectionReason, string> = {
-  test_record: 'Registro de prueba',
-  cleanup_record: 'Limpieza de datos',
-  duplicate: 'Duplicado',
-  unknown: 'Sin motivo',
-  outside_icp: 'Fuera del perfil de cliente',
-  existing_account: 'Ya era cuenta',
-  insufficient_data: 'Datos insuficientes',
-  invalid_company: 'Empresa no válida',
-  provider_noise: 'Resultado irrelevante',
-  marketplace_or_directory: 'Marketplace o directorio',
-  geographic_mismatch: 'Otro país o región',
-  industry_mismatch: 'Otra industria',
-  do_not_use: 'No usar',
-  no_longer_relevant: 'Ya no es relevante',
-  other: 'Otro',
-};
 
 /** Human-readable text for each clean-production warning code (never hidden data). */
 const CLEAN_PRODUCTION_WARNING_LABELS: Record<CleanProductionWarning, string> = {
@@ -134,9 +97,10 @@ function CompletenessBadge({ flag }: { flag: Agent1CostCompletenessFlag }) {
 // Building blocks
 // ============================================================
 
-type StatColumns = 3 | 4 | 5 | 6;
+type StatColumns = 2 | 3 | 4 | 5 | 6;
 
 const STAT_COLUMNS: Record<StatColumns, string> = {
+  2: 'sm:grid-cols-2',
   3: 'sm:grid-cols-3',
   4: 'sm:grid-cols-4',
   5: 'sm:grid-cols-3 lg:grid-cols-5',
@@ -155,7 +119,9 @@ function StatGroup({
 }) {
   return (
     <section className="border-t border-border/60 pt-4 first:border-t-0 first:pt-0">
-      <h3 className="mb-3 text-sm font-semibold text-foreground">{title}</h3>
+      <Heading level={6} as="h3" className="mb-3 text-sm">
+        {title}
+      </Heading>
       <dl className={`grid grid-cols-2 gap-x-6 gap-y-4 ${STAT_COLUMNS[columns]}`}>{children}</dl>
     </section>
   );
@@ -170,10 +136,24 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ChipGroup({ title, children }: { title: string; children: ReactNode }) {
+/** Un gráfico con su título, sin marco propio: vive dentro de la tarjeta. */
+function ChartGroup({
+  title,
+  divided = true,
+  children,
+}: {
+  title: string;
+  /** La línea que lo separa del grupo anterior. Sin ella cuando va en una rejilla. */
+  divided?: boolean;
+  children: ReactNode;
+}) {
   return (
-    <section className="border-t border-border/60 pt-4">
-      <h3 className="mb-3 text-sm font-semibold text-foreground">{title}</h3>
+    <section
+      className={divided ? 'min-w-0 border-t border-border/60 pt-4 first:border-t-0 first:pt-0' : 'min-w-0'}
+    >
+      <Heading level={6} as="h3" className="mb-3 text-sm">
+        {title}
+      </Heading>
       {children}
     </section>
   );
@@ -209,6 +189,10 @@ export function Agent1EffectivenessPanelSkeleton() {
 // Provider breakdown table
 // ============================================================
 
+/** Un ranking de una sola fila no compara nada. */
+const MIN_ROWS_TO_RANK = 2;
+const PROVIDER_RANKING_LIMIT = 6;
+
 const PROVIDER_BREAKDOWN_COLUMNS: ReadonlyArray<{ label: string; align: 'left' | 'right' }> = [
   { label: 'Proveedor', align: 'left' },
   { label: 'Qué se pidió', align: 'left' },
@@ -225,155 +209,102 @@ function ProviderBreakdownSection({
 }: {
   rows: Agent1EffectivenessSummary['providerBreakdown'];
 }) {
+  const costItems = providerBreakdownCostItems(rows);
+
   return (
-    <TableShell
-      title="Costo por proveedor"
-      description="Lo que consumieron las búsquedas del Agente 1, por proveedor y tipo de consulta."
-      actions={
-        <InfoHint showLabel>
-          «Sin tarifa» son consultas cuyo costo aún no se conoce; «Gratis», consultas que el
-          proveedor no cobró.
-        </InfoHint>
-      }
-      empty={rows.length === 0}
-      emptyState={
-        <EmptyState
-          variant="plain"
-          icon={Plug}
-          title="Sin consumo de proveedores en este periodo"
-          description="Aparecerá cuando el Agente 1 busque empresas. Prueba con otro periodo o quita el filtro de proveedor."
+    <div className="space-y-6">
+      {costItems.length >= MIN_ROWS_TO_RANK && (
+        <BarList
+          title="Qué consultas costaron más"
+          description="Costo estimado en USD por proveedor y tipo de consulta. «Parcial»: falta alguna tarifa."
+          count={costItems.length}
+          items={costItems}
+          formatValue={(value) => formatUsd(value, 2)}
+          limit={PROVIDER_RANKING_LIMIT}
         />
-      }
-    >
-      <Table>
-        <TableHeader>
-          <TableRow>
-            {PROVIDER_BREAKDOWN_COLUMNS.map((column) => (
-              <TableHead
-                key={column.label}
-                scope="col"
-                className={column.align === 'left' ? 'text-left' : 'text-right'}
-              >
-                {column.label}
-              </TableHead>
-            ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((r) => (
-            <TableRow key={`${r.providerKey}::${r.operationKey}`}>
-              <TableCell className="font-medium text-foreground">{providerLabel(r.providerKey)}</TableCell>
-              <TableCell className="max-w-44 truncate text-muted-foreground" title={humanizeKey(r.operationKey)}>
-                {humanizeKey(r.operationKey)}
-              </TableCell>
-              <TableCell className="text-right tabular-nums text-muted-foreground">
-                {formatCount(r.usageLogsCount)}
-              </TableCell>
-              <TableCell className="text-right tabular-nums text-muted-foreground">
-                {formatCount(r.credits)}
-              </TableCell>
-              <TableCell className="text-right tabular-nums text-muted-foreground">
-                {formatCount(r.resultsReturned)}
-              </TableCell>
-              <TableCell className="text-right tabular-nums text-muted-foreground">
-                {r.estimatedCostUsd === 0 && r.missingCostRows === 0 ? (
-                  <span className="text-text-muted">—</span>
-                ) : (
-                  formatUsd(r.estimatedCostUsd, 2)
-                )}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {r.missingCostRows > 0 ? (
-                  <span className="font-medium text-warning">{formatCount(r.missingCostRows)}</span>
-                ) : (
-                  <span className="text-text-muted">0</span>
-                )}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {r.zeroCostRows > 0 ? (
-                  <span className="text-muted-foreground">{formatCount(r.zeroCostRows)}</span>
-                ) : (
-                  <span className="text-text-muted">0</span>
-                )}
-              </TableCell>
+      )}
+      <TableShell
+        title="Costo por proveedor"
+        description="Lo que consumieron las búsquedas del Agente 1, por proveedor y tipo de consulta."
+        actions={
+          <InfoHint showLabel>
+            «Sin tarifa» son consultas cuyo costo aún no se conoce; «Gratis», consultas que el
+            proveedor no cobró.
+          </InfoHint>
+        }
+        empty={rows.length === 0}
+        emptyState={
+          <EmptyState
+            variant="plain"
+            icon={Plug}
+            title="Sin consumo de proveedores en este periodo"
+            description="Aparecerá cuando el Agente 1 busque empresas. Prueba con otro periodo o quita el filtro de proveedor."
+          />
+        }
+      >
+        <Table>
+          <TableHeader>
+            <TableRow>
+              {PROVIDER_BREAKDOWN_COLUMNS.map((column) => (
+                <TableHead
+                  key={column.label}
+                  scope="col"
+                  className={column.align === 'left' ? 'text-left' : 'text-right'}
+                >
+                  {column.label}
+                </TableHead>
+              ))}
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </TableShell>
+          </TableHeader>
+          <TableBody>
+            {rows.map((r) => (
+              <TableRow key={`${r.providerKey}::${r.operationKey}`}>
+                <TableCell className="font-medium text-foreground">{providerLabel(r.providerKey)}</TableCell>
+                <TableCell className="max-w-44 truncate text-muted-foreground" title={humanizeKey(r.operationKey)}>
+                  {humanizeKey(r.operationKey)}
+                </TableCell>
+                <TableCell className="text-right tabular-nums text-muted-foreground">
+                  {formatCount(r.usageLogsCount)}
+                </TableCell>
+                <TableCell className="text-right tabular-nums text-muted-foreground">
+                  {formatCount(r.credits)}
+                </TableCell>
+                <TableCell className="text-right tabular-nums text-muted-foreground">
+                  {formatCount(r.resultsReturned)}
+                </TableCell>
+                <TableCell className="text-right tabular-nums text-muted-foreground">
+                  {r.estimatedCostUsd === 0 && r.missingCostRows === 0 ? (
+                    <span className="text-text-muted">—</span>
+                  ) : (
+                    formatUsd(r.estimatedCostUsd, 2)
+                  )}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {r.missingCostRows > 0 ? (
+                    <span className="font-medium text-warning">{formatCount(r.missingCostRows)}</span>
+                  ) : (
+                    <span className="text-text-muted">0</span>
+                  )}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {r.zeroCostRows > 0 ? (
+                    <span className="text-muted-foreground">{formatCount(r.zeroCostRows)}</span>
+                  ) : (
+                    <span className="text-text-muted">0</span>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableShell>
+    </div>
   );
 }
 
 // ============================================================
 // Clean-production section (Q3F-5AY.5)
 // ============================================================
-
-/** Small count chip for origin / rejection breakdowns. */
-function BreakdownChip({
-  label,
-  count,
-  tone = 'neutral',
-}: {
-  label: string;
-  count: number;
-  tone?: 'neutral' | 'brand' | 'warn';
-}) {
-  const variant = tone === 'brand' ? 'brand' : tone === 'warn' ? 'warning' : 'neutral';
-  return (
-    <Badge variant={variant}>
-      {label}
-      <span className="font-semibold tabular-nums">{formatCount(count)}</span>
-    </Badge>
-  );
-}
-
-function OriginBreakdownChips({ breakdown }: { breakdown: OriginBreakdown }) {
-  // Production first (brand), then non-production origins with any count.
-  const entries: Array<{ origin: RecordOrigin; count: number }> = [
-    { origin: 'production', count: breakdown.production },
-    ...NON_PRODUCTION_ORIGINS.map((origin) => ({ origin, count: breakdown[origin] })),
-  ];
-  const visible = entries.filter((e) => e.origin === 'production' || e.count > 0);
-
-  return (
-    <>
-      {visible.map(({ origin, count }) => (
-        <BreakdownChip
-          key={origin}
-          label={RECORD_ORIGIN_LABELS[origin]}
-          count={count}
-          tone={origin === 'production' ? 'brand' : origin === 'unknown' ? 'warn' : 'neutral'}
-        />
-      ))}
-    </>
-  );
-}
-
-function RejectionBreakdownChips({ breakdown }: { breakdown: RejectionReasonBreakdown }) {
-  const entries = (Object.entries(breakdown) as Array<[RejectionReason, number]>)
-    .filter(([, count]) => count > 0)
-    .sort((a, b) => b[1] - a[1]);
-
-  if (entries.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        Nadie ha rechazado candidatos con motivo en este periodo.
-      </p>
-    );
-  }
-
-  return (
-    <div className="flex flex-wrap gap-2">
-      {entries.map(([reason, count]) => (
-        <BreakdownChip
-          key={reason}
-          label={REJECTION_REASON_LABELS[reason] ?? humanizeKey(reason)}
-          count={count}
-        />
-      ))}
-    </div>
-  );
-}
 
 function CleanProductionSection({
   cleanProduction,
@@ -406,34 +337,36 @@ function CleanProductionSection({
       />
 
       <div className="space-y-4">
-        <StatGroup title="Candidatos" columns={6}>
-          <Stat label="Reales" value={formatInt(funnel.persistedCandidatesCount)} />
-          <Stat label="Por revisar" value={formatInt(funnel.pendingCandidatesCount)} />
-          <Stat label="Aprobados" value={formatInt(funnel.approvedCandidatesCount)} />
-          <Stat label="Rechazados" value={formatInt(funnel.rejectedCandidatesCount)} />
-          <Stat label="Ya son cuenta" value={formatInt(funnel.convertedAccountsCount)} />
-          <Stat label="Dejados fuera" value={formatInt(excludedFromCleanProductionCount)} />
-        </StatGroup>
+        <ChartGroup title="De candidato real a cuenta">
+          <BarList
+            items={funnelItems(funnel, rates, 'Reales')}
+            formatValue={formatCount}
+            sorted={false}
+          />
+        </ChartGroup>
 
-        <StatGroup title="Qué pasó con ellos" columns={4}>
-          <Stat label="Se aprobó" value={formatRate(rates.approvalRate)} />
-          <Stat label="Se rechazó" value={formatRate(rates.rejectionRate)} />
-          <Stat label="Pasó a cuenta" value={formatRate(rates.conversionRate)} />
+        <StatGroup title="Fuera de estas cifras" columns={2}>
+          <Stat label="Candidatos dejados fuera" value={formatInt(excludedFromCleanProductionCount)} />
           {cleanCostUsd !== null && <Stat label="Costo estimado" value={formatUsd(cleanCostUsd, 2)} />}
         </StatGroup>
 
-        <ChipGroup title="De dónde salieron los candidatos">
-          <div className="flex flex-wrap gap-2">
-            <OriginBreakdownChips breakdown={originBreakdown} />
-            {unknownOriginCount > 0 && originBreakdown.unknown === 0 && (
-              <BreakdownChip label={RECORD_ORIGIN_LABELS.unknown} count={unknownOriginCount} tone="warn" />
-            )}
-          </div>
-        </ChipGroup>
+        <div className="grid gap-x-8 gap-y-4 border-t border-border/60 pt-4 lg:grid-cols-2">
+          <ChartGroup title="De dónde salieron los candidatos" divided={false}>
+            <BarList
+              items={originItems(originBreakdown, unknownOriginCount)}
+              formatValue={formatCount}
+              sorted={false}
+            />
+          </ChartGroup>
 
-        <ChipGroup title="Por qué se rechazaron">
-          <RejectionBreakdownChips breakdown={rejectionReasonBreakdown} />
-        </ChipGroup>
+          <ChartGroup title="Por qué se rechazaron" divided={false}>
+            <BarList
+              items={rejectionItems(rejectionReasonBreakdown)}
+              formatValue={formatCount}
+              emptyLabel="Nadie ha rechazado candidatos con motivo en este periodo."
+            />
+          </ChartGroup>
+        </div>
 
         <NoteList
           title="Ten en cuenta"
@@ -488,14 +421,9 @@ function SummaryBody({ summary }: { summary: Agent1EffectivenessSummary }) {
         />
 
         <div className="space-y-4">
-          <StatGroup title="Candidatos" columns={6}>
-            <Stat label="Lotes" value={formatInt(funnel.batchesCount)} />
-            <Stat label="Guardados" value={formatInt(funnel.persistedCandidatesCount)} />
-            <Stat label="Por revisar" value={formatInt(funnel.pendingCandidatesCount)} />
-            <Stat label="Aprobados" value={formatInt(funnel.approvedCandidatesCount)} />
-            <Stat label="Rechazados" value={formatInt(funnel.rejectedCandidatesCount)} />
-            <Stat label="Ya son cuenta" value={formatInt(funnel.convertedAccountsCount)} />
-          </StatGroup>
+          <ChartGroup title={`De candidato a cuenta · ${formatInt(funnel.batchesCount)} ${funnel.batchesCount === 1 ? 'lote' : 'lotes'}`}>
+            <BarList items={funnelItems(funnel, rates)} formatValue={formatCount} sorted={false} />
+          </ChartGroup>
           {funnel.generatedCandidatesCount !== null && (
             <p className="text-xs text-muted-foreground">
               Los proveedores devolvieron cerca de{' '}
@@ -505,13 +433,6 @@ function SummaryBody({ summary }: { summary: Agent1EffectivenessSummary }) {
               candidatos en total (cifra aproximada).
             </p>
           )}
-
-          <StatGroup title="Qué pasó con los guardados" columns={4}>
-            <Stat label="Se aprobó" value={formatRate(rates.approvalRate)} />
-            <Stat label="Se rechazó" value={formatRate(rates.rejectionRate)} />
-            <Stat label="Pasó a cuenta" value={formatRate(rates.conversionRate)} />
-            <Stat label="Sigue por revisar" value={formatRate(rates.pendingRate)} />
-          </StatGroup>
 
           <StatGroup title="Costo estimado (USD)" columns={5}>
             <Stat label="Total" value={formatUsd(cost.totalProviderCostUsd, 2)} />

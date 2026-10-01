@@ -30,7 +30,7 @@ All UI work must consult and respect these authoritative sources:
 | **Icons** | `src/icons/` | Hugeicons (familia de Thema) con los nombres de siempre. Importar SIEMPRE de `@/icons`, nunca de `lucide-react` |
 | **Base Components** | `src/components/shared/` | PageHeader, SurfaceCard, ModulePlaceholder, NavLink, DrawerShell, DrawerSection, DataTablePage |
 | **UI Library** | `src/components/ui/` | shadcn/ui extensions and custom widgets |
-| **Layout System** | `src/components/layout/` | AppShell, AppHeader, AppSidebar, theme-toggle |
+| **Layout System** | `src/components/layout/` | AppShell, AppHeader, AppSidebar, WorkspaceMenu (tema), AccountMenu, PageShell |
 | **DataTable System** | `src/components/data-table/` | DataTable, DataTableSettingsDrawer, DataTableLoadMore, DataTableBulkActionBar — Foundation § 10 |
 | **Governance Skill** | `.agents/skills/sellup-ui-design-system-guardian/SKILL.md` | Portable reference for any agent |
 

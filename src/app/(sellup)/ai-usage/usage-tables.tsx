@@ -19,6 +19,7 @@ import {
   resolveCreditsTotalsDisplay,
   type CreditsDisplayValue,
 } from '@/modules/usage-tracking/credits-display';
+import { EffectivenessMeter } from './effectiveness-meter';
 import {
   agentLabel,
   formatCount,
@@ -32,8 +33,6 @@ const SECONDS_PER_MINUTE = 60;
 const SECONDS_PER_HOUR = 3600;
 const SECONDS_PER_DAY = 86400;
 const SECONDS_PER_WEEK = 604800;
-const EFFECTIVENESS_GOOD_PCT = 80;
-const EFFECTIVENESS_FAIR_PCT = 50;
 
 const NUMERIC_CELL = 'text-right tabular-nums text-muted-foreground';
 const DASH = <span className="text-text-muted">—</span>;
@@ -76,19 +75,6 @@ function HeaderRow({ columns }: { columns: readonly Column[] }) {
         ))}
       </TableRow>
     </TableHeader>
-  );
-}
-
-function EffectivenessBar({ pct }: { pct: number }) {
-  const color =
-    pct >= EFFECTIVENESS_GOOD_PCT ? 'bg-success' : pct >= EFFECTIVENESS_FAIR_PCT ? 'bg-primary' : 'bg-warning';
-  return (
-    <div className="flex items-center gap-2">
-      <div className="h-1.5 w-20 overflow-hidden rounded-full bg-surface-subtle">
-        <div className={`h-full rounded-full ${color}`} style={{ width: `${Math.min(pct, 100)}%` }} />
-      </div>
-      <span className="text-xs font-medium tabular-nums text-foreground">{pct.toFixed(1)}%</span>
-    </div>
   );
 }
 
@@ -156,13 +142,14 @@ export function AgentUsageSection({ agents }: { agents: AgentStat[] }) {
                   {formatCount(agent.total_results_approved)}
                 </TableCell>
                 <TableCell>
-                  <div className="flex justify-end">
-                    {effectiveness !== null ? (
-                      <EffectivenessBar pct={effectiveness} />
-                    ) : (
-                      <span className="text-xs text-muted-foreground">Sin prospectos aún</span>
-                    )}
-                  </div>
+                  {effectiveness !== null ? (
+                    <EffectivenessMeter
+                      pct={effectiveness}
+                      label={`Efectividad de ${agentLabel(agent.agent_key, agent.agent_name)}`}
+                    />
+                  ) : (
+                    <span className="block text-right text-xs text-muted-foreground">Sin prospectos aún</span>
+                  )}
                 </TableCell>
                 <TableCell className={NUMERIC_CELL}>{formatUsd(agent.total_estimated_cost_usd)}</TableCell>
                 <TableCell className={NUMERIC_CELL}>

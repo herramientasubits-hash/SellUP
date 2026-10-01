@@ -16,6 +16,7 @@ import {
   RecentActivitySection,
   TeamUsageSection,
 } from './usage-tables';
+import { AgentUsageCharts, ProviderUsageCharts, TeamUsageCharts } from './usage-charts';
 import {
   Agent1EffectivenessPanel,
   Agent1EffectivenessPanelSkeleton,
@@ -237,7 +238,8 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
       </section>
 
       <UrlTabs ariaLabel="Secciones de uso de IA" tabs={USAGE_TABS} initialTab={readParam(params.tab)}>
-        <TabsContent value="resumen">
+        <TabsContent value="resumen" className="space-y-6">
+          <AgentUsageCharts agents={agentStats ?? []} />
           <AgentUsageSection agents={agentStats ?? []} />
         </TabsContent>
 
@@ -247,11 +249,13 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
           </Suspense>
         </TabsContent>
 
-        <TabsContent value="proveedores">
+        <TabsContent value="proveedores" className="space-y-6">
+          <ProviderUsageCharts providers={providerStats ?? []} />
           <ProviderUsageSection providers={providerStats ?? []} />
         </TabsContent>
 
-        <TabsContent value="equipo">
+        <TabsContent value="equipo" className="space-y-6">
+          <TeamUsageCharts users={userConsumption ?? []} />
           <TeamUsageSection users={userConsumption} />
         </TabsContent>
 

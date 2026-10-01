@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import { useReportSelectionCount } from "@/components/action-rail";
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
@@ -135,7 +134,6 @@ export function ContactsDataTableClient({
   scopeFilterOptions,
   emptyActions,
 }: ContactsDataTableClientProps) {
-  const reportSelectionCount = useReportSelectionCount();
   const router = useRouter();
   const [detailContactId, setDetailContactId] = React.useState<string | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
@@ -528,6 +526,8 @@ export function ContactsDataTableClient({
     () => [
       {
         id: 'view-detail',
+        // Solo tiene sentido sobre una fila: con varias marcadas sale de la barra.
+        scope: ['single'],
         label: 'Ver detalle',
         icon: Info,
         disabled: (rows) => rows.length !== 1,
@@ -535,6 +535,8 @@ export function ContactsDataTableClient({
       },
       {
         id: 'edit-contact',
+        // Solo tiene sentido sobre una fila: con varias marcadas sale de la barra.
+        scope: ['single'],
         label: 'Editar contacto',
         icon: Pencil,
         disabled: (rows) => rows.length !== 1,
@@ -542,6 +544,8 @@ export function ContactsDataTableClient({
       },
       {
         id: 'go-accounts',
+        // Solo tiene sentido sobre una fila: con varias marcadas sale de la barra.
+        scope: ['single'],
         label: 'Abrir la empresa',
         icon: Building2,
         disabled: (rows) => rows.length !== 1,
@@ -551,6 +555,8 @@ export function ContactsDataTableClient({
       },
       {
         id: 'set-primary',
+        // Solo tiene sentido sobre una fila: con varias marcadas sale de la barra.
+        scope: ['single'],
         label: 'Marcar como primario',
         icon: Star,
         disabled: (rows) => rows.length !== 1 || rows[0].is_primary || rows[0].contact_status !== 'active',
@@ -558,6 +564,8 @@ export function ContactsDataTableClient({
       },
       {
         id: 'archive',
+        // Solo tiene sentido sobre una fila: con varias marcadas sale de la barra.
+        scope: ['single'],
         label: 'Archivar contacto',
         icon: Archive,
         variant: 'destructive',
@@ -648,7 +656,6 @@ export function ContactsDataTableClient({
           tableId="contacts"
           noun="contactos"
           getRowLabel={(row) => row.full_name}
-          onSelectionCountChange={reportSelectionCount}
           columns={columns}
           data={quick.rows}
           getRowId={(row) => row.id}

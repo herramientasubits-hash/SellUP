@@ -7,12 +7,17 @@ import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { railIconButtonClass } from "./rail-button";
+import { useRailIsVertical, useRailPopoutSide } from "./rail-preferences";
+import { RAIL_POPOVER_CLASS } from "./rail-settings-menu";
 
 export interface RailOverflowSubItem {
   id: string;
   label: string;
   icon: React.ReactNode;
   onClick: () => void;
+  tone?: "default" | "danger";
+  /** Explica por qué el ítem no está disponible; con valor, la fila se apaga. */
+  blockedReason?: string | null;
 }
 
 export interface RailOverflowItem {
@@ -31,23 +36,22 @@ export interface RailOverflowItem {
   subItems?: readonly RailOverflowSubItem[];
 }
 
-/** El panel oscuro que despliegan los menús de la barra. */
-const RAIL_POPOVER_CLASS =
-  "rounded-2xl border-nav-foreground/10 bg-nav p-2 text-nav-foreground shadow-rail";
-
 const ROW_CLASS =
-  "group flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nav-foreground/30 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent";
+  "group flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nav-foreground/30 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent";
 
 function RowBody({
   icon,
   label,
   tone = "default",
   hasSubItems = false,
+  hint = null,
 }: {
   icon: React.ReactNode;
   label: string;
   tone?: "default" | "danger";
   hasSubItems?: boolean;
+  /** Por qué está apagada: se lee bajo el rótulo, sin depender del cursor. */
+  hint?: string | null;
 }) {
   return (
     <>
@@ -61,13 +65,16 @@ function RowBody({
       >
         {icon}
       </span>
-      <span
-        className={cn(
-          "text-sm font-semibold tracking-tight",
-          tone === "danger" ? "text-destructive" : "text-nav-foreground",
-        )}
-      >
-        {label}
+      <span className="flex min-w-0 flex-col">
+        <span
+          className={cn(
+            "text-sm font-semibold tracking-tight",
+            tone === "danger" ? "text-destructive" : "text-nav-foreground",
+          )}
+        >
+          {label}
+        </span>
+        {hint && <span className="text-xs font-medium text-nav-foreground/70">{hint}</span>}
       </span>
       {hasSubItems && (
         <ChevronRight className="ml-auto size-4 shrink-0 text-nav-foreground/40" strokeWidth={2} />
@@ -109,6 +116,8 @@ export function RailOverflowMenu({
   onOpenChange?: (open: boolean) => void;
 }) {
   const [open, setOpen] = React.useState(false);
+  const isVertical = useRailIsVertical();
+  const side = useRailPopoutSide();
 
   const handleOpenChange = (nextOpen: boolean) => {
     setOpen(nextOpen);
@@ -131,10 +140,15 @@ export function RailOverflowMenu({
             />
           }
         />
-        <TooltipContent side="top">{label}</TooltipContent>
+        <TooltipContent side={side}>{label}</TooltipContent>
       </Tooltip>
 
-      <PopoverContent align="end" sideOffset={16} className={cn("w-64", RAIL_POPOVER_CLASS)}>
+      <PopoverContent
+        align={isVertical ? "center" : "end"}
+        side={side}
+        sideOffset={16}
+        className={cn("w-64", RAIL_POPOVER_CLASS)}
+      >
         {items.map((item) => {
           const isBlocked = item.blockedReason != null;
           const rowClassName = cn(
@@ -150,25 +164,36 @@ export function RailOverflowMenu({
                     <button
                       type="button"
                       disabled={isBlocked}
-                      title={item.blockedReason ?? undefined}
+                      aria-label={item.label}
                       className={rowClassName}
                     >
-                      <RowBody icon={item.icon} label={item.label} tone={item.tone} hasSubItems />
+                      <RowBody icon={item.icon} label={item.label} tone={item.tone} hint={item.blockedReason} hasSubItems />
                     </button>
                   }
                 />
-                <PopoverContent align="start" sideOffset={8} className={cn("w-56", RAIL_POPOVER_CLASS)}>
+                <PopoverContent
+                  align="start"
+                  side={isVertical ? "left" : "right"}
+                  sideOffset={8}
+                  className={cn("w-56", RAIL_POPOVER_CLASS)}
+                >
                   {item.subItems.map((subItem) => (
                     <button
                       key={subItem.id}
                       type="button"
+                      disabled={subItem.blockedReason != null}
+                      aria-label={subItem.label}
+                      title={subItem.blockedReason ?? undefined}
                       onClick={() => {
                         handleOpenChange(false);
                         subItem.onClick();
                       }}
-                      className={cn(ROW_CLASS, "hover:bg-nav-foreground/5")}
+                      className={cn(
+                        ROW_CLASS,
+                        subItem.tone === "danger" ? "hover:bg-destructive/15" : "hover:bg-nav-foreground/5",
+                      )}
                     >
-                      <RowBody icon={subItem.icon} label={subItem.label} />
+                      <RowBody icon={subItem.icon} label={subItem.label} tone={subItem.tone} hint={subItem.blockedReason} />
                     </button>
                   ))}
                 </PopoverContent>
@@ -181,6 +206,7 @@ export function RailOverflowMenu({
               key={item.id}
               type="button"
               disabled={isBlocked}
+              aria-label={item.label}
               title={item.blockedReason ?? undefined}
               onClick={() => {
                 handleOpenChange(false);
@@ -188,7 +214,7 @@ export function RailOverflowMenu({
               }}
               className={rowClassName}
             >
-              <RowBody icon={item.icon} label={item.label} tone={item.tone} />
+              <RowBody icon={item.icon} label={item.label} tone={item.tone} hint={item.blockedReason} />
             </button>
           );
         })}

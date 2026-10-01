@@ -49,7 +49,7 @@ export function UploadZone({
   label,
   description,
   error,
-  idleText = 'Drag and drop files here or click to browse',
+  idleText = 'Arrastra los archivos aquí o haz clic para elegirlos',
   activeText = 'Drop files here...',
   className,
 }: UploadZoneProps) {
@@ -80,7 +80,7 @@ export function UploadZone({
     }, multiple ? value.length : 0);
 
     if (!validation.isValid) {
-      setLocalError(validation.error || 'Invalid file selection');
+      setLocalError(validation.error || 'La selección de archivos no es válida.');
       return;
     }
 
@@ -196,7 +196,7 @@ export function UploadZone({
                     e.stopPropagation();
                     removeFile(index);
                   }}
-                  aria-label={`Remove ${file.name}`}
+                  aria-label={`Quitar ${file.name}`}
                   className="ml-1 rounded-xs transition-colors hover:text-destructive focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                 >
                   <X className="h-3 w-3" aria-hidden="true" />

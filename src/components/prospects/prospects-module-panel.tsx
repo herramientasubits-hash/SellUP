@@ -1,5 +1,5 @@
 import { Upload } from "@/icons";
-import { ScreenActionRail, ScreenActionRailProvider } from "@/components/action-rail";
+import { ListActionRailProvider } from "@/components/action-rail";
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { DataTablePage } from '@/components/shared/data-table-page';
@@ -12,6 +12,7 @@ import {
   resolveGenerateProspectsUnavailableKind,
 } from '@/components/prospect-batches/generate-ai-batch-experience';
 import { ProspectsDataTableClient } from '@/components/prospects/prospects-data-table-client';
+import { ProspectsScreenActions } from '@/components/prospects/prospects-screen-actions';
 import { ModuleTabsNav } from '@/components/navigation/module-tabs-nav';
 import { DiscardedProspectsPanel } from '@/components/prospects/discarded-prospects-panel';
 import {
@@ -244,34 +245,29 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
   );
 
   // El asistente «Generar con IA», con todo lo que el servidor resolvió para
-  // él. Es UN elemento que se monta en dos sitios: la barra flotante y el vacío
-  // inicial («no hay prospectos por revisar»), para que la acción esté también
-  // donde se la echa en falta.
+  // él. Es UN elemento que se monta en dos sitios: controlado por la barra
+  // flotante (que lo abre sin pintar su botón) y, con su propio botón, en el
+  // vacío inicial («no hay prospectos por revisar»), para que la acción esté
+  // también donde se la echa en falta.
   const generateDrawer = (
     <GenerateAIBatchDrawer experience={experience} unavailableKind={unavailableKind} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} autoProviderCascade={autoProviderCascade} discoveryProvider={wizardDiscoveryProvider} providerOverrideCapability={wizardProviderOverrideCapability} apolloRunModeLimits={apolloRunModeLimits} budgetPreflight={wizardBudgetPreflight} adminTavilyTrialAvailable={adminTavilyTrialAvailable} />
   );
 
   return (
-    <ScreenActionRailProvider>
+    <ListActionRailProvider label="Acciones de prospectos" gender="m">
     <DataTablePage
       compact
       title={EMPRESAS_MODULE_TITLE}
       description={EMPRESAS_TAB_DESCRIPTIONS.prospectos}
       tabs={<ModuleTabsNav active="prospectos" counts={sourceId ? undefined : { prospectos: candidates.length }} />}
       actions={
-        <ScreenActionRail label="Acciones de prospectos">
-          {generateDrawer}
-          <ImportCandidatesDrawer>
-            <Button type="button" variant="outline" size="sm">
-              <Upload aria-hidden="true" />
-              Importar prospectos
-            </Button>
-          </ImportCandidatesDrawer>
-          <CreateCandidateDrawer
-            triggerText="Crear prospecto"
-            triggerVariant="outline"
-          />
-        </ScreenActionRail>
+        // La barra abre los mismos tres paneles desde UNA acción primaria. El
+        // asistente de IA va ya resuelto por el servidor; si no puede
+        // ejecutarse, la opción lo dice en vez de ofrecer «Generar con IA».
+        <ProspectsScreenActions
+          generateDrawer={generateDrawer}
+          isGenerateAvailable={experience !== 'unavailable'}
+        />
       }
     >
       <ProspectsDataTableClient
@@ -297,6 +293,6 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
         }
       />
     </DataTablePage>
-    </ScreenActionRailProvider>
+    </ListActionRailProvider>
   );
 }

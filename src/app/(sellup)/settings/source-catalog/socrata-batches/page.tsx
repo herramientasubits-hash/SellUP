@@ -1,4 +1,5 @@
-import { XCircle, CheckCircle2, FlaskConical, Layers, Lock } from "@/icons";
+import { XCircle, CheckCircle2, FlaskConical, Layers } from "@/icons";
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { SettingsPage } from '@/components/settings/settings-page';
 import { MetricCard } from '@/components/shared/metric-card';
 import { getSocrataPreviewBatches } from '@/modules/source-catalog/socrata-batches-queries';
@@ -21,14 +22,13 @@ export default async function SocrataBatchesPage() {
       actions={<CreateSocrataBatchButton />}
     >
       {/* Qué no hace esta pantalla */}
-      <div className="flex items-start gap-2.5 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
-        <Lock aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          <span className="font-medium text-foreground">Solo consulta.</span>{' '}
+      <Alert variant="info">
+        <AlertTitle>Solo consulta</AlertTitle>
+        <AlertDescription className="text-xs">
           Desde aquí no se aprueban, asignan ni descartan candidatos, y nada se envía a HubSpot. Un lote de prueba
           trae como máximo 3 candidatos.
-        </p>
-      </div>
+        </AlertDescription>
+      </Alert>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard

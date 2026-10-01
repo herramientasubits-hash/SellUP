@@ -26,14 +26,15 @@ import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
 import { detectPromptInjection, normalizeCriteria } from '@/modules/industry-catalog/schema';
 import { executeProspectWizardGenerationAction } from '@/modules/prospect-batches/chat-wizard-execution';
 import { resolveWizardLushaCriteria } from '@/modules/prospect-batches/wizard-lusha-criteria';
-import { Progress } from '@/components/ui/progress';
+import { ChatComposer } from '@/components/chat';
+import { Stepper, type StepperStep } from '@/components/navigation/stepper';
+import { getWizardProgressSteps } from '@/modules/prospect-batches/chat-wizard/wizard-selectors';
 import { WizardMessageList } from './wizard-message-list';
 import { WizardActiveStep } from './wizard-active-step';
 import {
   WizardConversationSummary,
   RestartConfirmation,
 } from './wizard-conversation-summary';
-import { WizardChatComposer } from './wizard-chat-composer';
 import { getComposerMode, getComposerPlaceholder } from './wizard-composer-utils';
 import { useWizardMessageSound } from './use-wizard-message-sound';
 // A1-APOLLO-WIZARD-1 — indicador del proveedor de búsqueda. La resolución es del
@@ -87,9 +88,42 @@ const SUMMARY_STEPS = new Set([
   'error',
 ]);
 
+/** Cómo se llama cada paso en el indicador de progreso. Cortos: caben seis en el panel. */
+const STEP_LABELS: Record<string, string> = {
+  search_type: 'Tipo',
+  country: 'País',
+  industry: 'Industria',
+  subindustries: 'Enfoque',
+  additional_criteria: 'Criterios',
+};
+
+/** Pasos a los que se puede volver tocando el indicador. */
+const STEPPER_EDITABLE_STEPS = new Set<string>([
+  'search_type',
+  'country',
+  'industry',
+  'subindustries',
+  'additional_criteria',
+]);
+
 // ── Main component ────────────────────────────────────────────────────────────
 
+/**
+ * Lo que el contenedor del asistente (la cabecera del panel del agente) puede
+ * pedirle: empezar de nuevo. Pasa por la misma confirmación que el botón
+ * «Comenzar de nuevo» de dentro; no reinicia nada por su cuenta.
+ */
+export type ProspectChatWizardHandle = {
+  requestRestart: () => void;
+};
+
 type ProspectChatWizardProps = {
+  ref?: React.Ref<ProspectChatWizardHandle>;
+  /**
+   * Avisa de si «empezar de nuevo» tiene sentido ahora mismo: no mientras la
+   * generación está en vuelo, que tampoco ofrecía ese botón.
+   */
+  onRestartAvailabilityChange?: (available: boolean) => void;
   catalog: ActiveIndustryCatalog;
   onClose: () => void;
   executionEnabled?: boolean;
@@ -158,6 +192,8 @@ export function ProspectChatWizard({
   apolloRunModeLimits = null,
   budgetPreflight = null,
   adminTavilyTrialAvailable = false,
+  ref,
+  onRestartAvailabilityChange,
 }: ProspectChatWizardProps) {
   const [state, dispatch] = React.useReducer(
     prospectWizardReducer,
@@ -168,6 +204,15 @@ export function ProspectChatWizard({
         defaultRequestedCount: EXPLORATORY_SEARCH_LIMITS.requestedCount.default,
       }),
   );
+
+  React.useImperativeHandle(ref, () => ({
+    requestRestart: () => dispatch({ type: 'REQUEST_RESTART' }),
+  }));
+
+  const canRestart = state.currentStep !== 'submitting' && state.currentStep !== 'welcome';
+  React.useEffect(() => {
+    onRestartAvailabilityChange?.(canRestart);
+  }, [canRestart, onRestartAvailabilityChange]);
 
   // clientRequestId — generated once when entering validated state, reset on restart
   const clientRequestIdRef = React.useRef<string | null>(null);
@@ -777,16 +822,45 @@ export function ProspectChatWizard({
     }
   }
 
-  // ── Progress label ────────────────────────────────────────────────────────
+  // ── Indicador de pasos ────────────────────────────────────────────────────
+  // Los pasos dependen entre sí (el país condiciona las subindustrias, todo
+  // condiciona la revisión), así que el progreso es un `Stepper` y no una barra:
+  // dice dónde estás, qué falta, y deja volver a un paso ya contestado.
 
-  const showProgress =
-    !['welcome', 'validating', 'validated', 'submitting', 'success', 'blocked', 'error'].includes(
-      state.currentStep,
-    );
-  const progressLabel =
-    progress.currentStepIndex > 0
-      ? `Paso ${progress.currentStepIndex} de ${progress.totalSteps}`
-      : null;
+  const progressSteps = React.useMemo(
+    () => getWizardProgressSteps(state.catalogVersion),
+    [state.catalogVersion],
+  );
+  const inReviewPhase = SUMMARY_STEPS.has(state.currentStep);
+  const stepperSteps = React.useMemo<StepperStep[]>(
+    () => [
+      ...progressSteps.map((step) => ({ id: step, label: STEP_LABELS[step] ?? step })),
+      {
+        id: 'review',
+        label: 'Revisión',
+        ...(state.currentStep === 'blocked' || state.currentStep === 'error'
+          ? { status: 'error' as const }
+          : {}),
+      },
+    ],
+    [progressSteps, state.currentStep],
+  );
+  const stepperCurrent =
+    state.currentStep === 'success'
+      ? stepperSteps.length
+      : inReviewPhase
+        ? progressSteps.length
+        : progress.currentStepIndex;
+  const showProgress = state.currentStep !== 'welcome';
+  // Mismo criterio que el «Editar» de cada respuesta: en la revisión se edita
+  // desde el resumen, no saltando de paso.
+  const stepperEditable = !inReviewPhase && !isTyping;
+
+  function handleStepperClick(index: number) {
+    const step = progressSteps[index];
+    if (!step || !STEPPER_EDITABLE_STEPS.has(step) || step === state.currentStep) return;
+    handleEditStep(step as EditableWizardStep);
+  }
 
   const isSummaryPhase = SUMMARY_STEPS.has(state.currentStep);
 
@@ -808,119 +882,133 @@ export function ProspectChatWizard({
   const hideComposer =
     state.currentStep === 'validated' || state.currentStep === 'success';
 
+  // La caja se enfoca sola en cuanto se puede escribir en ella.
+  const composerInputRef = React.useRef<HTMLTextAreaElement>(null);
+  const composerUnlocked = composerMode === 'text_input';
+  React.useEffect(() => {
+    if (!composerUnlocked) return;
+    const id = setTimeout(() => composerInputRef.current?.focus(), 60);
+    return () => clearTimeout(id);
+  }, [composerUnlocked]);
+
   // ── Render ────────────────────────────────────────────────────────────────
+  // Es el cuerpo del panel del agente: el hilo desplaza arriba y la caja de
+  // escribir se queda abajo, como en el `ChatPanel` de Thema.
 
   return (
-    <div className="flex flex-col gap-0 min-h-full">
+    <div className="flex h-full min-h-0 flex-1 flex-col">
       {/* Scrollable conversation body */}
-      <div ref={scrollContainerRef} className="flex flex-col gap-4 pb-6">
-        {/* Encabezado del contenido: progreso + proveedor de búsqueda.
-            Van en el mismo bloque con separación mínima para que el indicador
-            cueste una línea, no un bloque más en el gap-4 de la conversación.
-            El indicador se mantiene visible en todos los pasos: la barra se
-            oculta al validar, que es justo cuando saber el proveedor importa. */}
-        <div className="flex flex-col gap-1.5">
-          {showProgress && progressLabel && (
-            <div className="flex items-center gap-3" aria-hidden>
-              <Progress
-                value={Math.min(100, Math.max(0, progress.percentage))}
-                className="h-1.5 min-w-0 flex-1"
-              />
-              <span className="shrink-0 text-xs font-medium text-muted-foreground tabular-nums">
-                {progressLabel}
-              </span>
-            </div>
-          )}
-
-          <WizardProviderIndicatorRow indicator={providerIndicator} />
-        </div>
-
-        {/* AGENT1-APOLLO-CONTINUATION-WIZARD-WIRING § 2 — una corrida a medias.
-
-            Vive AQUÍ, en la raíz del mago, y no dentro de un paso: mientras el
-            cajón esté abierto hay que poder ver —y seguir— el trabajo
-            pendiente, tanto justo después de la pausa como al reabrir en el
-            primer paso. Colgarlo del panel de éxito lo habría atado a una
-            superficie que se cierra sola y que al reabrir ni siquiera existe.
-
-            No pinta nada cuando no hay trabajo pendiente. */}
-        <WizardApolloContinuationPanel pausedRunSignal={state.executionContinuationPending} />
-
-        {/* Conversation history */}
-        {messages.length > 0 && (
-          <WizardMessageList
-            messages={messages}
-            visibleCount={visibleCount}
-            isTyping={isTyping}
-            currentStep={state.currentStep}
-            onEditStep={handleEditStep}
-          />
-        )}
-
-        {/* Restart confirmation (inline modal) */}
-        {state.restartConfirmationRequired && (
-          <RestartConfirmation dispatch={dispatch} />
-        )}
-
-        {/* Active step input or summary — hidden while messages are still being revealed */}
-        {!state.restartConfirmationRequired && !isTyping && (
-          <div ref={activeStepRef}>
-            {isSummaryPhase ? (
-              <WizardConversationSummary
-                state={state}
-                catalog={catalog}
-                dispatch={summaryDispatch}
-                onClose={onClose}
-                executionEnabled={executionEnabled}
-                onExecute={handleExecute}
-                onEditSearch={handleEditSearch}
-                lushaPreviewEnabled={lushaPreviewEnabled}
-                autoProviderCascade={autoProviderCascade}
-                lushaCriteria={lushaCriteria}
-                providerOverrideCapability={providerOverrideCapability}
-                apolloRunModeLimits={apolloRunModeLimits}
-                budgetPreflight={budgetPreflight}
-                // El coste contra el que se compara es el del proveedor que de
-                // verdad correría: la selección de esta corrida si el
-                // administrador la hizo, y si no, el predeterminado que resolvió
-                // el servidor. Nunca se adivina uno en el cliente.
-                defaultDiscoveryProvider={discoveryProvider}
-                requestedProvider={requestedProvider}
-                onRequestedProviderChange={setRequestedProvider}
-                adminTavilyTrialAvailable={adminTavilyTrialAvailable}
-                onAdminTavilyTrialChange={(checked) => setRequestedProvider(checked ? 'tavily' : undefined)}
-                showApolloTwoRoundStages={willRunApolloTwoRound}
-                twoRoundOutcome={twoRoundOutcome}
-                noNewCandidatesBreakdown={noNewCandidatesBreakdown}
-                persistenceOutcome={persistenceOutcome}
-              />
-            ) : (
-              <WizardActiveStep
-                state={state}
-                dispatch={dispatch}
-                industryOptions={industryOptions}
-                subindustryOptions={subindustryOptions}
-                onCountryChange={handleCountryChange}
-                stepTitleRef={stepTitleRef}
-                criteriaIntention={criteriaIntention}
-                onCriteriaIntentionYes={() => setCriteriaIntention('yes')}
+      <div className="relative min-h-0 flex-1 overflow-y-auto px-4 py-5">
+        <div ref={scrollContainerRef} className="flex flex-col gap-4">
+          {/* Encabezado del contenido: pasos + proveedor de búsqueda. El indicador
+              de proveedor se mantiene visible en todos los pasos: al validar es
+              justo cuando saber el proveedor importa. */}
+          <div className="flex flex-col gap-3">
+            {showProgress && (
+              <Stepper
+                size="sm"
+                steps={stepperSteps}
+                current={stepperCurrent}
+                onStepClick={stepperEditable ? handleStepperClick : undefined}
+                aria-label="Pasos de la búsqueda"
+                data-testid="wizard-stepper"
               />
             )}
+
+            <WizardProviderIndicatorRow indicator={providerIndicator} />
           </div>
-        )}
+
+          {/* AGENT1-APOLLO-CONTINUATION-WIZARD-WIRING § 2 — una corrida a medias.
+
+              Vive AQUÍ, en la raíz del mago, y no dentro de un paso: mientras el
+              panel esté abierto hay que poder ver —y seguir— el trabajo
+              pendiente, tanto justo después de la pausa como al reabrir en el
+              primer paso. Colgarlo del panel de éxito lo habría atado a una
+              superficie que se cierra sola y que al reabrir ni siquiera existe.
+
+              No pinta nada cuando no hay trabajo pendiente. */}
+          <WizardApolloContinuationPanel pausedRunSignal={state.executionContinuationPending} />
+
+          {/* Conversation history */}
+          {messages.length > 0 && (
+            <WizardMessageList
+              messages={messages}
+              visibleCount={visibleCount}
+              isTyping={isTyping}
+              currentStep={state.currentStep}
+              onEditStep={handleEditStep}
+            />
+          )}
+
+          {/* Restart confirmation */}
+          {state.restartConfirmationRequired && (
+            <RestartConfirmation dispatch={dispatch} />
+          )}
+
+          {/* Active step input or summary — hidden while messages are still being revealed */}
+          {!state.restartConfirmationRequired && !isTyping && (
+            <div ref={activeStepRef}>
+              {isSummaryPhase ? (
+                <WizardConversationSummary
+                  state={state}
+                  catalog={catalog}
+                  dispatch={summaryDispatch}
+                  onClose={onClose}
+                  executionEnabled={executionEnabled}
+                  onExecute={handleExecute}
+                  onEditSearch={handleEditSearch}
+                  lushaPreviewEnabled={lushaPreviewEnabled}
+                  autoProviderCascade={autoProviderCascade}
+                  lushaCriteria={lushaCriteria}
+                  providerOverrideCapability={providerOverrideCapability}
+                  apolloRunModeLimits={apolloRunModeLimits}
+                  budgetPreflight={budgetPreflight}
+                  // El coste contra el que se compara es el del proveedor que de
+                  // verdad correría: la selección de esta corrida si el
+                  // administrador la hizo, y si no, el predeterminado que resolvió
+                  // el servidor. Nunca se adivina uno en el cliente.
+                  defaultDiscoveryProvider={discoveryProvider}
+                  requestedProvider={requestedProvider}
+                  onRequestedProviderChange={setRequestedProvider}
+                  adminTavilyTrialAvailable={adminTavilyTrialAvailable}
+                  onAdminTavilyTrialChange={(checked) => setRequestedProvider(checked ? 'tavily' : undefined)}
+                  showApolloTwoRoundStages={willRunApolloTwoRound}
+                  twoRoundOutcome={twoRoundOutcome}
+                  noNewCandidatesBreakdown={noNewCandidatesBreakdown}
+                  persistenceOutcome={persistenceOutcome}
+                />
+              ) : (
+                <WizardActiveStep
+                  state={state}
+                  dispatch={dispatch}
+                  industryOptions={industryOptions}
+                  subindustryOptions={subindustryOptions}
+                  onCountryChange={handleCountryChange}
+                  stepTitleRef={stepTitleRef}
+                  criteriaIntention={criteriaIntention}
+                  onCriteriaIntentionYes={() => setCriteriaIntention('yes')}
+                />
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Sticky composer — spans full width by negating the drawer's px-7 padding.
-          Hidden at the final review step: actions move to the panel footer. */}
+      {/* La caja de escribir de Thema, al pie del panel. Mientras el paso se
+          contesta eligiendo, queda apagada con la pista de qué hacer; se enciende
+          para el criterio adicional. Oculta en la revisión final: ahí las
+          acciones viven en el propio panel. */}
       {!hideComposer && (
-        <div className="sticky bottom-0 -mx-7 mt-auto border-t border-border/50 bg-background px-7 pt-3 pb-4">
-          <WizardChatComposer
-            mode={composerMode}
-            value={criteriaText}
-            placeholder={composerPlaceholder}
-            maxLength={maxCriteriaChars}
+        <div className="shrink-0 px-4 pb-4 pt-2">
+          <ChatComposer
+            compact
+            value={composerUnlocked ? criteriaText : ''}
             onChange={setCriteriaText}
-            onSubmit={handleComposerSubmit}
+            onSend={handleComposerSubmit}
+            placeholder={composerPlaceholder}
+            disabled={!composerUnlocked}
+            maxLength={maxCriteriaChars}
+            inputRef={composerInputRef}
           />
         </div>
       )}

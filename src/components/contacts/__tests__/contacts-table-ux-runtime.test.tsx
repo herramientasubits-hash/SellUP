@@ -231,7 +231,8 @@ describe('Contactos — archivar pide confirmación en un diálogo del sistema',
   async function openArchiveFor(name: string) {
     fireEvent.click(screen.getByRole('button', { name: `Acciones de ${name}` }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Archivar contacto' }));
-    return screen.findByRole('dialog');
+    // `ConfirmDialog` es un diálogo de alerta (pide una decisión antes de seguir).
+    return screen.findByRole('alertdialog');
   }
 
   it('no usa window.confirm y no archiva hasta que se confirma', async () => {
@@ -260,7 +261,7 @@ describe('Contactos — archivar pide confirmación en un diálogo del sistema',
     const dialog = await openArchiveFor('Beto Gil');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancelar' }));
 
-    await waitFor(() => assert.equal(screen.queryByRole('dialog'), null));
+    await waitFor(() => assert.equal(screen.queryByRole('alertdialog'), null));
     assert.deepEqual(archived, []);
   });
 });

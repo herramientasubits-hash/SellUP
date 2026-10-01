@@ -23,6 +23,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { DrawerSection } from '@/components/shared/drawer-section';
+import { SurfaceCard } from '@/components/shared/surface-card';
 import { DetailItem, DetailList } from '@/components/shared/detail-list';
 import { Timeline, TimelineItem } from '@/components/data-display';
 import { getAccountById, getAccountAudit, getActiveUsers } from '@/modules/accounts/actions';
@@ -233,10 +234,8 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
           <div className="space-y-4">
             {/* Lo esencial, antes de las pestañas: quién la lleva, dónde está,
                 cómo se llega a ella y cuánta gente conocemos dentro. */}
-            <section
-              aria-label="Resumen de la empresa"
-              className="rounded-2xl border border-border/60 bg-card p-4 shadow-card"
-            >
+            <section aria-label="Resumen de la empresa">
+              <SurfaceCard className="p-4">
               <DetailList columns={4}>
                 <DetailItem icon={User} label="Responsable" emptyLabel="Sin asignar">
                   {data.account.owner?.full_name ?? data.account.owner?.email}
@@ -260,6 +259,7 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                   <span className="tabular-nums">{data.contacts.length}</span>
                 </DetailItem>
               </DetailList>
+            </SurfaceCard>
             </section>
 
           {/* Design Refresh v3: tabs alineados con el contenido (antes mx-7 mt-4

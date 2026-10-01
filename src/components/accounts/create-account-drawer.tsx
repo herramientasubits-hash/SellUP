@@ -6,12 +6,10 @@ import {
   Plus,
   Loader2,
   Building2,
-  Globe,
-  MapPin,
   Briefcase,
   Hash,
+  MapPin,
   User,
-  FileText,
 } from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Button } from '@/components/ui/button';
@@ -33,18 +31,22 @@ import {
   type TaxIdentifierType,
   type InternalUserOption,
 } from '@/modules/accounts/types';
-import {
-  IndustryCombobox,
-  Section,
-  Field,
-  Row,
-  getFlagEmoji,
-} from './account-form-helpers';
+import { Field } from '@/components/forms/field';
+import { DrawerSection } from '@/components/shared/drawer-section';
+import { SearchableSelect } from '@/components/forms/searchable-select';
+import { getFlagEmoji } from './account-form-helpers';
+import { buildIndustryOptions } from './industry-options';
 
 // ── Drawer principal ──────────────────────────────────────────
 
 interface CreateAccountDrawerProps {
   users: InternalUserOption[];
+  /**
+   * Modo controlado: quien lo monta decide cuándo está abierto (la barra de
+   * acciones de la pantalla) y el drawer no pinta su propio botón.
+   */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 const EMPTY_FORM = {
@@ -62,9 +64,19 @@ const EMPTY_FORM = {
   notes: '',
 };
 
-export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
+export function CreateAccountDrawer({
+  users,
+  open: controlledOpen,
+  onOpenChange,
+}: CreateAccountDrawerProps) {
   const router = useRouter();
-  const [open, setOpen] = React.useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const [internalOpen, setInternalOpen] = React.useState(false);
+  const open = isControlled ? controlledOpen : internalOpen;
+  const setOpen = (next: boolean) => {
+    if (!isControlled) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [form, setForm] = React.useState(EMPTY_FORM);
@@ -125,10 +137,12 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
       open={open}
       onOpenChange={(v) => !v && handleClose()}
       trigger={
-        <Button onClick={() => setOpen(true)} size="sm">
-          <Plus className="h-4 w-4" />
-          Crear empresa
-        </Button>
+        isControlled ? undefined : (
+          <Button onClick={() => setOpen(true)} size="sm">
+            <Plus className="h-4 w-4" />
+            Crear empresa
+          </Button>
+        )
       }
       title="Nueva empresa"
       description="Registra una empresa o prospecto. Podrás enriquecerla con IA más adelante."
@@ -174,8 +188,8 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
         className="space-y-4"
       >
         {/* Identificación */}
-        <Section icon={Building2} label="Identificación">
-          <Field id="name" label="Nombre de empresa / prospecto" required>
+        <DrawerSection title="Identificación" icon={Building2} contentClassName="space-y-4">
+          <Field label="Nombre de empresa / prospecto" required>
             <Input
               id="name"
               placeholder="Ej. Bancolombia, Rappi, Nubank…"
@@ -184,8 +198,8 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
               autoFocus
             />
           </Field>
-          <Row>
-            <Field id="legal_name" label="Razón social">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Razón social">
               <Input
                 id="legal_name"
                 placeholder="Nombre legal registrado"
@@ -193,30 +207,31 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
                 onChange={(e) => set('legal_name', e.target.value)}
               />
             </Field>
-            <Field id="website" label="Sitio web">
-              <div className="relative">
-                <Globe className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
-                <Input
-                  id="website"
-                  type="url"
-                  placeholder="https://ejemplo.com"
-                  value={form.website}
-                  onChange={(e) => set('website', e.target.value)}
-                  className="pl-8"
-                />
-              </div>
+            <Field label="Sitio web">
+              <Input
+                id="website"
+                type="url"
+                placeholder="https://ejemplo.com"
+                value={form.website}
+                onChange={(e) => set('website', e.target.value)}
+              />
             </Field>
-          </Row>
-        </Section>
+          </div>
+        </DrawerSection>
 
         {/* Empresa */}
-        <Section icon={Briefcase} label="Empresa">
-          <Row>
+        <DrawerSection title="Empresa" icon={Briefcase} contentClassName="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Industria">
-              <IndustryCombobox
+              <SearchableSelect
+                options={buildIndustryOptions(form.industry)}
                 value={form.industry}
-                onChange={(v) => set('industry', v)}
-              />
+                onValueChange={(v) => set('industry', v)}
+                placeholder="Seleccionar industria"
+                searchPlaceholder="Buscar industria…"
+                emptyMessage="No hay industrias con ese nombre."
+                compact
+                />
             </Field>
             <Field label="Tamaño de empresa">
               <Select
@@ -235,12 +250,12 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
                 </SelectContent>
               </Select>
             </Field>
-          </Row>
-        </Section>
+          </div>
+        </DrawerSection>
 
         {/* Ubicación */}
-        <Section icon={MapPin} label="Ubicación">
-          <Row>
+        <DrawerSection title="Ubicación" icon={MapPin} contentClassName="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="País">
               <Select
                 value={form.country_code}
@@ -272,7 +287,7 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
                 </SelectContent>
               </Select>
             </Field>
-            <Field id="city" label="Ciudad">
+            <Field label="Ciudad">
               <Input
                 id="city"
                 placeholder="Bogotá, CDMX, São Paulo…"
@@ -280,8 +295,8 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
                 onChange={(e) => set('city', e.target.value)}
               />
             </Field>
-          </Row>
-          <Field id="region" label="Departamento / Estado / Provincia">
+          </div>
+          <Field label="Departamento / Estado / Provincia">
             <Input
               id="region"
               placeholder="Cundinamarca, Jalisco, São Paulo…"
@@ -289,11 +304,11 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
               onChange={(e) => set('region', e.target.value)}
             />
           </Field>
-        </Section>
+        </DrawerSection>
 
         {/* Identificación fiscal */}
-        <Section icon={Hash} label="Identificación fiscal">
-          <Row>
+        <DrawerSection title="Identificación fiscal" icon={Hash} contentClassName="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Tipo de identificador">
               <Select
                 value={form.tax_identifier_type}
@@ -316,7 +331,7 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
                 </SelectContent>
               </Select>
             </Field>
-            <Field id="tax_id_number" label="Número">
+            <Field label="Número">
               <Input
                 id="tax_id_number"
                 placeholder={
@@ -332,11 +347,11 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
                 onChange={(e) => set('tax_identifier', e.target.value)}
               />
             </Field>
-          </Row>
-        </Section>
+          </div>
+        </DrawerSection>
 
         {/* Asignación */}
-        <Section icon={User} label="Asignación">
+        <DrawerSection title="Asignación" icon={User} contentClassName="space-y-4">
           {users.length > 0 && (
             <Field label="Owner / Responsable">
               <Select
@@ -377,20 +392,16 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
               </Select>
             </Field>
           )}
-          <Field id="notes" label="Notas iniciales">
-            <div className="relative">
-              <FileText className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-text-muted" />
-              <Textarea
-                id="notes"
-                placeholder="Contexto, señales de compra, próximos pasos…"
-                value={form.notes}
-                onChange={(e) => set('notes', e.target.value)}
-                rows={3}
-                className="pl-8 pt-2"
-              />
-            </div>
+          <Field label="Notas iniciales">
+            <Textarea
+              id="notes"
+              placeholder="Contexto, señales de compra, próximos pasos…"
+              value={form.notes}
+              onChange={(e) => set('notes', e.target.value)}
+              rows={3}
+            />
           </Field>
-        </Section>
+        </DrawerSection>
       </form>
     </DrawerShell>
   );

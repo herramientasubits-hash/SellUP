@@ -81,7 +81,7 @@ export function FilePreview({
             type="button"
             onClick={onRemove}
             className="ml-1 rounded-xs p-0.5 transition-colors hover:text-destructive focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-            aria-label={`Remove ${name}`}
+            aria-label={`Quitar ${name}`}
           >
             <X className="h-3 w-3" aria-hidden="true" />
           </button>
@@ -123,7 +123,7 @@ export function FilePreview({
             type="button"
             onClick={onRemove}
             className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-surface-muted hover:text-destructive focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-            aria-label={`Remove ${name}`}
+            aria-label={`Quitar ${name}`}
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
@@ -153,7 +153,7 @@ export function FilePreview({
             type="button"
             onClick={onRemove}
             className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-surface-muted hover:text-destructive focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-            aria-label={`Remove ${name}`}
+            aria-label={`Quitar ${name}`}
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>

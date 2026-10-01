@@ -9,21 +9,21 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
-  ShieldCheck,
-  AlertTriangle,
   WifiOff,
   Minus,
 } from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Field } from '@/components/forms/field';
+import { Heading } from '@/components/typography';
 import {
   configureSourceCredentialAction,
   testSourceCredentialConnectionAction,
 } from '@/modules/source-catalog/source-credential-actions';
 import type { SourceConnectionRecord } from '@/modules/source-catalog/queries';
+import { AdminOnlyNotice, PanelSummary, PanelSummaryItem, SourcePanel } from './source-panel-parts';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
@@ -138,10 +138,10 @@ function CredentialForm({ connectionSourceKey, hasCredential, onSuccess }: Crede
 
   return (
     <div className="space-y-3">
-      <div className="space-y-1.5">
-        <Label htmlFor={`cred-token-${connectionSourceKey}`}>
-          {hasCredential ? 'Reemplazar API Key' : 'API Key'}
-        </Label>
+      <Field
+        label={hasCredential ? 'Reemplazar API Key' : 'API Key'}
+        description="Se guarda en Vault. Nunca se muestra ni se registra."
+      >
         <Input
           id={`cred-token-${connectionSourceKey}`}
           type="password"
@@ -152,7 +152,7 @@ function CredentialForm({ connectionSourceKey, hasCredential, onSuccess }: Crede
           disabled={isPending}
           autoComplete="off"
         />
-      </div>
+      </Field>
 
       <Button
         type="button"
@@ -165,16 +165,11 @@ function CredentialForm({ connectionSourceKey, hasCredential, onSuccess }: Crede
       </Button>
 
       {error && (
-        <div className="flex items-start gap-2 rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-xs font-medium text-destructive">
-          <AlertTriangle aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <Alert variant="destructive">
           <span className="min-w-0 break-words">{error}</span>
-        </div>
+        </Alert>
       )}
-      {successMsg && (
-        <div className="rounded-xl border border-success/20 bg-success/10 px-4 py-3 text-xs font-medium text-success">
-          {successMsg}
-        </div>
-      )}
+      {successMsg && <Alert variant="success">{successMsg}</Alert>}
     </div>
   );
 }
@@ -233,23 +228,14 @@ function TestConnectionButton({ connectionSourceKey, disabled, onSuccess }: Test
       </Button>
 
       {result && (
-        <div
-          className={`flex items-start gap-2 rounded-xl border px-4 py-3 text-xs font-medium ${
-            result.ok
-              ? 'border-success/20 bg-success/10 text-success'
-              : 'border-destructive/20 bg-destructive/10 text-destructive'
-          }`}
-        >
-          {result.ok ? (
-            <CheckCircle2 aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          ) : (
-            <XCircle aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          )}
-          <span className="min-w-0 break-words">{result.message}</span>
+        <Alert variant={result.ok ? 'success' : 'destructive'}>
+          <AlertTitle className="break-words">{result.message}</AlertTitle>
           {result.responseTimeMs != null && (
-            <span className="ml-auto shrink-0 tabular-nums">{result.responseTimeMs} ms</span>
+            <AlertDescription className="text-xs tabular-nums">
+              Tiempo de respuesta: {result.responseTimeMs} ms
+            </AlertDescription>
           )}
-        </div>
+        </Alert>
       )}
     </div>
   );
@@ -278,154 +264,108 @@ export function SourceCredentialPanel({ sourceKey, record, isAdmin }: Props) {
 
   if (!requiresCredentials) {
     return (
-      <SurfaceCard>
-        <div className="mb-5 flex items-start gap-3">
-          <span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-inset ring-border/40">
-            <KeyRound className="h-4 w-4" />
-          </span>
-          <SurfaceCardHeader
-            title="Credencial de API"
-            description="Configuración de autenticación para esta fuente."
-            className="mb-0 min-w-0 flex-1 flex-wrap"
-          />
-        </div>
+      <SourcePanel
+        icon={KeyRound}
+        title="Credencial de API"
+        description="Configuración de autenticación para esta fuente."
+      >
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm text-muted-foreground">Requiere credencial:</span>
           <CredentialStatusBadge status="not_required" />
         </div>
-      </SurfaceCard>
+      </SourcePanel>
     );
   }
 
+  const hasLastTest = Boolean(record.last_tested_at || record.last_connection_error);
+
   return (
-    <SurfaceCard>
-      <div className="mb-5 flex items-start gap-3">
-        <span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-inset ring-border/40">
-          <KeyRound className="h-4 w-4" />
-        </span>
-        <SurfaceCardHeader
-          title="Credencial de API"
-          description="Configura y prueba la autenticación para esta fuente estructurada."
-          className="mb-0 min-w-0 flex-1 flex-wrap"
-        />
-      </div>
+    <SourcePanel
+      icon={KeyRound}
+      title="Credencial de API"
+      description="Configura y prueba la autenticación para esta fuente estructurada."
+    >
+      {/* Estado de un vistazo */}
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-4">
+        <div className="min-w-0">
+          <dt className="mb-1 text-xs font-medium text-muted-foreground">Requiere credencial</dt>
+          <dd className="text-foreground">Sí</dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="mb-1 text-xs font-medium text-muted-foreground">Tipo</dt>
+          <dd className="break-words font-mono text-xs text-foreground">
+            {record.auth_type === 'api_key' ? 'API Key' : record.auth_type}
+          </dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="mb-1 text-xs font-medium text-muted-foreground">Credencial</dt>
+          <dd>
+            <CredentialStatusBadge status={credStatus} />
+          </dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="mb-1 text-xs font-medium text-muted-foreground">Conexión</dt>
+          <dd>
+            <ConnectionStatusBadge status={connStatus} />
+          </dd>
+        </div>
+      </dl>
 
-      <div className="space-y-5">
-        {/* Status summary */}
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-4">
-          <div className="min-w-0">
-            <dt className="mb-1 text-xs font-medium text-muted-foreground">
-              Requiere credencial
-            </dt>
-            <dd className="text-foreground">Sí</dd>
-          </div>
-          <div className="min-w-0">
-            <dt className="mb-1 text-xs font-medium text-muted-foreground">
-              Tipo
-            </dt>
-            <dd className="break-words font-mono text-xs text-foreground">
-              {record.auth_type === 'api_key' ? 'API Key' : record.auth_type}
-            </dd>
-          </div>
-          <div className="min-w-0">
-            <dt className="mb-1 text-xs font-medium text-muted-foreground">
-              Credencial
-            </dt>
-            <dd>
-              <CredentialStatusBadge status={credStatus} />
-            </dd>
-          </div>
-          <div className="min-w-0">
-            <dt className="mb-1 text-xs font-medium text-muted-foreground">
-              Conexión
-            </dt>
-            <dd>
-              <ConnectionStatusBadge status={connStatus} />
-            </dd>
-          </div>
-        </dl>
+      {/* Última prueba */}
+      {hasLastTest && (
+        <PanelSummary columns={3}>
+          <PanelSummaryItem label="Última prueba" value={formatDate(record.last_tested_at)} />
+          {record.last_test_response_time_ms != null && (
+            <PanelSummaryItem label="Tiempo de respuesta" value={`${record.last_test_response_time_ms} ms`} />
+          )}
+          {record.last_test_http_status != null && (
+            <PanelSummaryItem label="HTTP status" value={record.last_test_http_status} />
+          )}
+        </PanelSummary>
+      )}
 
-        {/* Last test info */}
-        {(record.last_tested_at || record.last_connection_error) && (
-          <div className="space-y-2 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
-            <div className="flex items-center justify-between gap-4">
-              <span className="text-xs font-semibold text-muted-foreground">
-                Última prueba
-              </span>
-              <span className="text-right text-xs tabular-nums text-foreground">{formatDate(record.last_tested_at)}</span>
-            </div>
-            {record.last_test_response_time_ms != null && (
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-xs text-muted-foreground">Tiempo de respuesta</span>
-                <span className="text-xs font-medium text-foreground tabular-nums">
-                  {record.last_test_response_time_ms} ms
-                </span>
-              </div>
-            )}
-            {record.last_test_http_status != null && (
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-xs text-muted-foreground">HTTP status</span>
-                <span className="text-xs font-medium text-foreground tabular-nums">
-                  {record.last_test_http_status}
-                </span>
-              </div>
-            )}
-            {record.last_connection_error && (
-              <div className="rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2">
-                <p className="text-xs font-medium text-destructive mb-0.5">Último error</p>
-                <p className="text-xs text-destructive break-words">
-                  {record.last_connection_error}
-                </p>
-              </div>
-            )}
-          </div>
-        )}
+      {record.last_connection_error && (
+        <Alert variant="destructive">
+          <AlertTitle>Último error</AlertTitle>
+          <AlertDescription className="break-words text-xs">{record.last_connection_error}</AlertDescription>
+        </Alert>
+      )}
 
-        {/* Admin-only actions */}
-        {isAdmin ? (
-          <div className="space-y-5 border-t border-border/50 pt-5">
-            <div className="space-y-1">
-              <p className="flex items-center gap-1.5 text-sm font-semibold tracking-tight text-foreground">
-                <KeyRound aria-hidden="true" className="h-3.5 w-3.5 text-muted-foreground" />
-                {hasCredential ? 'Reemplazar credencial' : 'Configurar credencial'}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                El token se almacena en Vault. Nunca se muestra ni se registra.
-              </p>
-            </div>
-
+      {/* Acciones, solo para administradores */}
+      {isAdmin ? (
+        <div className="space-y-5 border-t border-border/50 pt-5">
+          <section className="space-y-3">
+            <Heading level={6} as="h3" className="text-sm">
+              {hasCredential ? 'Reemplazar credencial' : 'Configurar credencial'}
+            </Heading>
             <CredentialForm
               connectionSourceKey={record.source_key}
               hasCredential={hasCredential}
               onSuccess={refresh}
             />
+          </section>
 
-            {hasCredential && (
+          {hasCredential && (
+            <section className="space-y-3">
               <div className="space-y-1">
-                <p className="flex items-center gap-1.5 text-sm font-semibold tracking-tight text-foreground">
-                  <ShieldCheck aria-hidden="true" className="h-3.5 w-3.5 text-muted-foreground" />
+                <Heading level={6} as="h3" className="text-sm">
                   Probar autenticación
-                </p>
+                </Heading>
                 <p className="text-xs text-muted-foreground">
                   Verifica que el token guardado en Vault sea válido. No crea candidatos ni lotes.
                 </p>
-                <div className="pt-1">
-                  <TestConnectionButton
-                    connectionSourceKey={record.source_key}
-                    disabled={!canTest}
-                    onSuccess={refresh}
-                  />
-                </div>
               </div>
-            )}
-          </div>
-        ) : (
-          <div className="flex items-start gap-2 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3 text-xs text-muted-foreground">
-            <ShieldCheck aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            Solo administradores pueden configurar credenciales de fuentes.
-          </div>
-        )}
-      </div>
-    </SurfaceCard>
+              <TestConnectionButton
+                connectionSourceKey={record.source_key}
+                disabled={!canTest}
+                onSuccess={refresh}
+              />
+            </section>
+          )}
+        </div>
+      ) : (
+        <AdminOnlyNotice>Solo administradores pueden configurar credenciales de fuentes.</AdminOnlyNotice>
+      )}
+    </SourcePanel>
   );
 }

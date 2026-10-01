@@ -3,6 +3,7 @@
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { useCallback, useId, useMemo, useState } from 'react';
 import { SlidersHorizontal } from '@/icons';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { FilterBar, type ActiveFilter } from '@/components/filters/filter-bar';
@@ -147,12 +148,13 @@ export function UsageFilterBar({ options, values, onChange }: UsageFilterBarProp
             <SlidersHorizontal aria-hidden="true" />
             Más filtros
             {secondaryCount > 0 && (
-              <span
+              <Badge
+                variant="brand"
                 aria-label={`${secondaryCount} aplicado${secondaryCount !== 1 ? 's' : ''}`}
-                className="rounded-full bg-primary/10 px-1.5 text-xs font-semibold tabular-nums text-primary"
+                className="tabular-nums"
               >
                 {secondaryCount}
-              </span>
+              </Badge>
             )}
           </Button>
 

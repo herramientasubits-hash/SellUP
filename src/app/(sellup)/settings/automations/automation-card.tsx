@@ -12,6 +12,7 @@ import {
   type SystemAutomation,
   type AutomationExecutionMode,
 } from '@/modules/automations/types';
+import { Heading } from '@/components/typography';
 
 function ExecutionModeBadge({ mode }: { mode: AutomationExecutionMode }) {
   const variants: Record<AutomationExecutionMode, 'neutral' | 'brand' | 'positive'> = {
@@ -62,7 +63,7 @@ export function AutomationCard({ automation }: { automation: SystemAutomation })
             <ExecutionModeBadge mode={displayMode} />
           </div>
 
-          <h3 className="text-base font-semibold tracking-tight text-foreground">{automation.name}</h3>
+          <Heading level={6} as="h3">{automation.name}</Heading>
 
           {automation.description && (
             <p className="text-xs leading-relaxed text-muted-foreground">

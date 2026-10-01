@@ -27,22 +27,21 @@ import type { ContactEnrichmentRunProviderUsage } from '@/modules/contact-enrich
 import type { AccountContactEnrichmentRun } from '@/modules/contact-enrichment/account-run-history-types';
 import { resolveAccountRunInlineDetailContent } from './account-run-inline-detail-content';
 
-/** `className` se conserva por compatibilidad con quien lea el mapa; la UI pinta con `variant`. */
+/** El estado de un run: su rótulo y la variante de `Badge` con la que se pinta. */
 export interface AccountRunStatusBadge {
   label: string;
-  className: string;
   variant: 'neutral' | 'brand' | 'positive' | 'negative';
 }
 
 export const ACCOUNT_RUN_STATUS_BADGE: Record<string, AccountRunStatusBadge> = {
-  pending: { label: 'Pendiente', className: 'text-muted-foreground border-border/60 bg-surface-subtle', variant: 'neutral' },
-  resolving: { label: 'Resolviendo', className: 'text-muted-foreground border-border/60 bg-surface-subtle', variant: 'neutral' },
-  ready_to_enrich: { label: 'Listo para enriquecer', className: 'text-primary border-primary/30 bg-primary/10', variant: 'brand' },
-  enriching: { label: 'Enriqueciendo', className: 'text-primary border-primary/30 bg-primary/10', variant: 'brand' },
-  ready_for_review: { label: 'Listo para revisión', className: 'text-success border-success/30 bg-success/10', variant: 'positive' },
-  completed: { label: 'Completado', className: 'text-success border-success/30 bg-success/10', variant: 'positive' },
-  failed: { label: 'Fallido', className: 'text-destructive border-destructive/30 bg-destructive/10', variant: 'negative' },
-  superseded: { label: 'Reemplazado', className: 'text-muted-foreground border-border/60 bg-surface-subtle', variant: 'neutral' },
+  pending: { label: 'Pendiente', variant: 'neutral' },
+  resolving: { label: 'Resolviendo', variant: 'neutral' },
+  ready_to_enrich: { label: 'Listo para enriquecer', variant: 'brand' },
+  enriching: { label: 'Enriqueciendo', variant: 'brand' },
+  ready_for_review: { label: 'Listo para revisión', variant: 'positive' },
+  completed: { label: 'Completado', variant: 'positive' },
+  failed: { label: 'Fallido', variant: 'negative' },
+  superseded: { label: 'Reemplazado', variant: 'neutral' },
 };
 
 export const ACCOUNT_RUN_PROVIDER_LABELS: Record<string, string> = {
@@ -146,7 +145,7 @@ function AccountRunInlineDetail({ run }: { run: AccountContactEnrichmentRun }) {
     return (
       <p className="flex items-center gap-2 border-t border-border/50 pt-3 text-xs text-muted-foreground">
         {/* Decorativo: el texto de al lado ya anuncia la espera. */}
-        <Spinner size="xs" label="" aria-hidden="true" />
+        <Spinner decorative size="xs" />
         Cargando detalle…
       </p>
     );
@@ -203,12 +202,17 @@ function AccountRunInlineDetail({ run }: { run: AccountContactEnrichmentRun }) {
   );
 }
 
+/**
+ * Una ejecución como FILA de la lista (no una tarjeta dentro de la tarjeta del
+ * historial): las filas se separan con una divisoria, igual que el resto de
+ * listas del sistema.
+ */
 function RunCard({ run }: { run: AccountContactEnrichmentRun }) {
   const [expanded, setExpanded] = React.useState(false);
   const statusBadge = resolveAccountRunStatusBadge(run.status);
 
   return (
-    <div className="rounded-xl border border-border/60 bg-card px-4 py-3">
+    <li className="py-3 first:pt-0 last:pb-0">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 space-y-1.5">
           <div className="flex flex-wrap items-center gap-2">
@@ -261,8 +265,12 @@ function RunCard({ run }: { run: AccountContactEnrichmentRun }) {
           {expanded ? 'Ocultar detalle' : 'Ver detalle'}
         </Button>
       </div>
-      {expanded && <AccountRunInlineDetail run={run} />}
-    </div>
+      {expanded && (
+        <div className="mt-3">
+          <AccountRunInlineDetail run={run} />
+        </div>
+      )}
+    </li>
   );
 }
 
@@ -273,8 +281,8 @@ function LegacyRunGroup({ runs }: { runs: AccountContactEnrichmentRun[] }) {
   const [expanded, setExpanded] = React.useState(false);
 
   return (
-    <div className="rounded-xl border border-dashed border-border/60 bg-surface-subtle">
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+    <div className="border-t border-border/60 pt-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0 space-y-0.5">
           <p className="text-xs font-semibold text-foreground">Runs antiguos o reemplazados</p>
           <p className="text-xs text-muted-foreground">
@@ -299,11 +307,11 @@ function LegacyRunGroup({ runs }: { runs: AccountContactEnrichmentRun[] }) {
         </div>
       </div>
       {expanded && (
-        <div className="space-y-2 border-t border-border/50 px-4 pb-4 pt-3">
+        <ul className="mt-3 divide-y divide-border/60">
           {runs.map((run) => (
             <RunCard key={run.id} run={run} />
           ))}
-        </div>
+        </ul>
       )}
     </div>
   );
@@ -333,11 +341,11 @@ export function AccountAgentsRunHistory({ runs }: { runs: AccountContactEnrichme
             </p>
           )}
           {primaryRuns.length > 0 ? (
-            <div className="space-y-2">
+            <ul className="divide-y divide-border/60">
               {primaryRuns.map((run) => (
                 <RunCard key={run.id} run={run} />
               ))}
-            </div>
+            </ul>
           ) : (
             <p className="text-xs text-muted-foreground">
               No hay runs recientes — todos los runs de esta cuenta son históricos (ver abajo).

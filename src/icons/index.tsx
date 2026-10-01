@@ -25,6 +25,7 @@ import {
   ArrowLeft02Icon,
   ArrowRight01Icon,
   ArrowRight02Icon,
+  ArrowTurnBackwardIcon,
   ArrowUp01Icon,
   ArrowUp02Icon,
   BankIcon,
@@ -47,6 +48,7 @@ import {
   Clock01Icon,
   CloudIcon,
   Coins01Icon,
+  ComputerIcon,
   Copy01Icon,
   CopyCheckIcon,
   CpuIcon,
@@ -58,6 +60,7 @@ import {
   Database01Icon,
   Delete02Icon,
   Dollar01Icon,
+  DragDropHorizontalIcon,
   DragDropVerticalIcon,
   File01Icon,
   File02Icon,
@@ -85,6 +88,8 @@ import {
   Invoice01Icon,
   Key01Icon,
   Layers01Icon,
+  LayoutBottomIcon,
+  LayoutRightIcon,
   LayoutThreeColumnIcon,
   Link02Icon,
   LinkSquare02Icon,
@@ -96,6 +101,7 @@ import {
   Message02Icon,
   MinusSignIcon,
   Moon02Icon,
+  Minimize01Icon,
   MoreHorizontalIcon,
   Move02Icon,
   Notification03Icon,
@@ -158,6 +164,12 @@ import {
   Xls01Icon,
   ZoomInAreaIcon,
   ZoomOutAreaIcon,
+  AttachmentIcon,
+  FolderAddIcon,
+  MagicWand01Icon,
+  StopIcon,
+  ThumbsDownIcon,
+  ThumbsUpIcon,
 } from "@hugeicons/core-free-icons";
 
 // El spinner conserva el dibujo anterior: es el único icono que gira y su
@@ -166,6 +178,7 @@ export { Loader2 } from "lucide-react";
 export type { LucideIcon, LucideProps } from "lucide-react";
 
 /** Grosor de trazo de la familia en todo el sistema (igual que en Thema). */
+export const CornerDownLeft = createIcon(ArrowTurnBackwardIcon, "CornerDownLeft");
 export const ICON_STROKE_WIDTH = 1.5;
 
 /**
@@ -262,6 +275,7 @@ export const Gauge = createIcon(DashboardSpeed01Icon, "Gauge");
 export const GitBranch = createIcon(GitBranchIcon, "GitBranch");
 export const GitMerge = createIcon(GitMergeIcon, "GitMerge");
 export const Globe = createIcon(Globe02Icon, "Globe");
+export const GripHorizontal = createIcon(DragDropHorizontalIcon, "GripHorizontal");
 export const GripVertical = createIcon(DragDropVerticalIcon, "GripVertical");
 export const HardDrive = createIcon(HardDriveIcon, "HardDrive");
 export const Hash = createIcon(HashtagIcon, "Hash");
@@ -286,16 +300,20 @@ export const Maximize2 = createIcon(ArrowExpand01Icon, "Maximize2");
 export const MessageSquare = createIcon(Message01Icon, "MessageSquare");
 export const MessageSquareText = createIcon(Message02Icon, "MessageSquareText");
 export const Minus = createIcon(MinusSignIcon, "Minus");
+export const Monitor = createIcon(ComputerIcon, "Monitor");
 export const Moon = createIcon(Moon02Icon, "Moon");
+export const Minimize2 = createIcon(Minimize01Icon, "Minimize2");
 export const MoreHorizontal = createIcon(MoreHorizontalIcon, "MoreHorizontal");
 export const MousePointerClick = createIcon(CursorPointer02Icon, "MousePointerClick");
 export const Move = createIcon(Move02Icon, "Move");
 export const Network = createIcon(Structure03Icon, "Network");
 export const OctagonX = createIcon(CancelCircleIcon, "OctagonX");
 export const PackageOpen = createIcon(PackageOpenIcon, "PackageOpen");
+export const PanelBottom = createIcon(LayoutBottomIcon, "PanelBottom");
 export const PanelLeft = createIcon(SidebarLeft01Icon, "PanelLeft");
 export const PanelLeftClose = createIcon(SidebarLeft01Icon, "PanelLeftClose");
 export const PanelLeftOpen = createIcon(SidebarRight01Icon, "PanelLeftOpen");
+export const PanelRight = createIcon(LayoutRightIcon, "PanelRight");
 export const Pause = createIcon(PauseIcon, "Pause");
 export const PauseCircle = createIcon(PauseCircleIcon, "PauseCircle");
 export const PenLine = createIcon(PencilEdit02Icon, "PenLine");
@@ -352,3 +370,10 @@ export const XIcon = createIcon(Cancel01Icon, "XIcon");
 export const Zap = createIcon(FlashIcon, "Zap");
 export const ZoomIn = createIcon(ZoomInAreaIcon, "ZoomIn");
 export const ZoomOut = createIcon(ZoomOutAreaIcon, "ZoomOut");
+// Chat de IA (Thema · chat): adjuntar, detener, útil / no útil, novedad.
+export const Paperclip = createIcon(AttachmentIcon, "Paperclip");
+export const FolderPlus = createIcon(FolderAddIcon, "FolderPlus");
+export const Wand = createIcon(MagicWand01Icon, "Wand");
+export const Square = createIcon(StopIcon, "Square");
+export const ThumbsDown = createIcon(ThumbsDownIcon, "ThumbsDown");
+export const ThumbsUp = createIcon(ThumbsUpIcon, "ThumbsUp");

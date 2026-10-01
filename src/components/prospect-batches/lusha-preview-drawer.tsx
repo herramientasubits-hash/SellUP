@@ -15,7 +15,6 @@
 import * as React from 'react';
 import {
   Search,
-  Loader2,
   Building2,
   Info,
   TriangleAlert,
@@ -29,7 +28,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { FieldLabel } from '@/components/forms/field';
+import { AiAnalyzingState } from '@/components/ai/ai-analyzing-state';
 import {
   Accordion,
   AccordionItem,
@@ -318,9 +318,9 @@ export function LushaPreviewPanel({
               </AccordionTrigger>
               <AccordionContent>
                 <div className="space-y-2 pt-1" data-testid="lusha-preview-advanced">
-                  <Label htmlFor="lusha-preview-search-text" className="text-xs font-medium text-muted-foreground">
+                  <FieldLabel htmlFor="lusha-preview-search-text" className="block text-xs text-muted-foreground">
                     Búsqueda libre
-                  </Label>
+                  </FieldLabel>
                   <Input
                     id="lusha-preview-search-text"
                     value={searchText}
@@ -360,10 +360,7 @@ export function LushaPreviewPanel({
           data-testid="lusha-preview-run"
         >
           {status === 'loading' ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {loadingLabel}
-            </>
+            loadingLabel
           ) : (
             <>
               <Search className="h-3.5 w-3.5" />
@@ -372,6 +369,9 @@ export function LushaPreviewPanel({
           )}
         </Button>
       </div>
+
+      {/* La espera: el estado «la IA está trabajando» del sistema, en una línea. */}
+      {status === 'loading' && <AiAnalyzingState variant="inline" title={loadingLabel} />}
 
       {/* Resultado */}
       {status === 'done' && result && (

@@ -2,17 +2,9 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { MoreHorizontal, Pencil, Tag, Archive, Loader2 } from "@/icons";
+import { MoreHorizontal, Pencil, Tag, Archive } from "@/icons";
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,13 +15,14 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { updateAccount, archiveAccount } from '@/modules/accounts/actions';
+import { updateAccount } from '@/modules/accounts/actions';
 import {
   PIPELINE_STATUS_LABELS,
   type InternalUserOption,
   type PipelineStatus,
 } from '@/modules/accounts/types';
 import { AccountEditDrawer } from './account-edit-drawer';
+import { ArchiveAccountDialog } from './archive-account-dialog';
 
 const ACTIVE_STATUSES: { value: PipelineStatus; label: string }[] = [
   { value: 'new', label: PIPELINE_STATUS_LABELS.new },
@@ -65,7 +58,6 @@ export function AccountDetailActions({
   const router = useRouter();
   const [editOpen, setEditOpen] = React.useState(false);
   const [archiveOpen, setArchiveOpen] = React.useState(false);
-  const [archiving, setArchiving] = React.useState(false);
 
   async function handleStatusChange(status: PipelineStatus) {
     const result = await updateAccount(accountId, { pipeline_status: status });
@@ -78,24 +70,12 @@ export function AccountDetailActions({
     }
   }
 
-  async function handleArchive() {
-    setArchiving(true);
-    try {
-      const result = await archiveAccount(accountId);
-      if (result.success) {
-        setArchiveOpen(false);
-        toast.success('Empresa archivada');
-        if (onArchived) {
-          router.refresh();
-          onArchived();
-        } else {
-          router.push('/accounts');
-        }
-      } else {
-        toast.error(result.error);
-      }
-    } finally {
-      setArchiving(false);
+  function handleArchived() {
+    if (onArchived) {
+      router.refresh();
+      onArchived();
+    } else {
+      router.push('/accounts');
     }
   }
 
@@ -152,42 +132,11 @@ export function AccountDetailActions({
         }}
       />
 
-      <Dialog open={archiveOpen} onOpenChange={setArchiveOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Archivar empresa</DialogTitle>
-            <DialogDescription>
-              Esta acción retira la empresa del pipeline activo. Solo un administrador puede
-              realizarla y queda registrada en auditoría. ¿Confirmas?
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setArchiveOpen(false)}
-              disabled={archiving}
-            >
-              Cancelar
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={handleArchive}
-              disabled={archiving}
-            >
-              {archiving ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Archivando…
-                </>
-              ) : (
-                'Archivar empresa'
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ArchiveAccountDialog
+        accountId={archiveOpen ? accountId : null}
+        onClose={() => setArchiveOpen(false)}
+        onArchived={handleArchived}
+      />
     </>
   );
 }

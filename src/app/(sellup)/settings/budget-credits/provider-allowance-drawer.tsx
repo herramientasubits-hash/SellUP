@@ -7,8 +7,8 @@ import { DrawerSection } from '@/components/shared/drawer-section';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Field } from '@/components/forms/field';
+import { NumberField } from '@/components/forms/number-field';
 import { updateProviderAllowance, useApiQuotaAsPrimary } from '@/modules/budgets';
 import type { AdminProviderBudgetRow } from '@/modules/budgets';
 import { toast } from 'sonner';
@@ -255,51 +255,50 @@ export function ProviderAllowanceDrawer({ provider, open, onClose, onSaved }: Pr
           {isNotApplicable ? (
             <EmptyState title="Este proveedor no aplica configuración de cuota por ahora." />
           ) : (
-            <div className="space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="credits-allowance">
-                  Créditos mensuales del proveedor
-                </Label>
-                <Input
+            <DrawerSection
+              title="Cuota mensual"
+              hint="Lo que tienes contratado con el proveedor cada mes."
+              icon={Coins}
+              contentClassName="space-y-4"
+            >
+              <Field
+                label="Créditos mensuales del proveedor"
+                description="Déjalo vacío si no hay una bolsa de créditos contratada."
+              >
+                <NumberField
                   id="credits-allowance"
-                  type="number"
-                  min="0"
-                  step="1"
+                  min={0}
+                  step={1}
                   placeholder="Ej: 500"
-                  value={credits}
-                  onChange={(e) => setCredits(e.target.value)}
-                  className="tabular-nums"
+                  suffix="créditos"
+                  stepper="none"
+                  value={parseOptionalNumeric(credits)}
+                  onValueChange={(value) => setCredits(value === null ? '' : String(value))}
                 />
-                <p className="text-xs text-muted-foreground">
-                  Dejar vacío para &quot;No configurado&quot;.
-                </p>
-              </div>
+              </Field>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="usd-allowance">
-                  Presupuesto mensual USD
-                </Label>
-                <Input
+              <Field
+                label="Presupuesto mensual en USD"
+                description="Útil para modelos de IA, que se cobran en dólares. Déjalo vacío si no hay un presupuesto definido."
+              >
+                <NumberField
                   id="usd-allowance"
-                  type="number"
-                  min="0"
-                  step="0.01"
+                  min={0}
+                  step={0.01}
                   placeholder="Ej: 50.00"
-                  value={usd}
-                  onChange={(e) => setUsd(e.target.value)}
-                  className="tabular-nums"
+                  prefix="$"
+                  stepper="none"
+                  value={parseOptionalNumeric(usd)}
+                  onValueChange={(value) => setUsd(value === null ? '' : String(value))}
                 />
-                <p className="text-xs text-muted-foreground">
-                  Útil para modelos LLM. Dejar vacío para &quot;No configurado&quot;.
-                </p>
-              </div>
+              </Field>
 
               {error && (
                 <Alert variant="destructive">
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               )}
-            </div>
+            </DrawerSection>
           )}
         </div>
       )}

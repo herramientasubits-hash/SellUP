@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, Plus, AlertCircle } from "@/icons";
+import { Loader2, Plus } from "@/icons";
+import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { createSocrataRuesPreviewBatchAction } from '@/modules/source-catalog/socrata-batches-actions';
 
@@ -42,10 +43,9 @@ export function CreateSocrataBatchButton() {
       </Button>
 
       {errorMsg && (
-        <div role="alert" className="flex max-w-sm items-start gap-2 rounded-xl border border-destructive/20 bg-destructive/10 px-3 py-2">
-          <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-destructive" aria-hidden />
-          <p className="min-w-0 break-words text-xs font-medium text-destructive">{errorMsg}</p>
-        </div>
+        <Alert variant="destructive" className="max-w-sm text-left">
+          <span className="min-w-0 break-words">{errorMsg}</span>
+        </Alert>
       )}
     </div>
   );

@@ -388,22 +388,37 @@ describe('21.A.1 — SubmittingPanel uses approved overlay copy (Hito 16AB.43.22
   });
 });
 
-describe('21.A.2 — SubmittingPanel uses full gradient overlay, not bare spinner (Hito 16AB.43.22)', () => {
+// Ronda «todo de Thema»: la espera dejó de ser un degradado pintado a mano y pasó a
+// ser `AiAnalyzingState`, el estado «la IA está trabajando» del sistema. Lo que estas
+// aserciones protegían —que la espera no sea un spinner suelto y que diga qué pasa—
+// se conserva; lo que fijaban de presentación (tokens del degradado, brillo de
+// espejo, barra) ahora lo pone la pieza y aquí se comprueba que se use la pieza.
+describe('21.A.2 — SubmittingPanel uses the system AI waiting state, not a bare spinner (Hito 16AB.43.22)', () => {
   it('SubmittingPanel does not use a bare Loader2 as primary feedback', () => {
     const src = readComponentSrc();
     const panelStart = src.indexOf('function SubmittingPanel');
     const panelEnd = src.indexOf('\nfunction ', panelStart + 1);
     const panelSrc = panelEnd > panelStart ? src.slice(panelStart, panelEnd) : src.slice(panelStart);
     const hasLoader2Only = panelSrc.includes('Loader2') && !panelSrc.includes('WizardGenerationOverlay');
-    assert.ok(!hasLoader2Only, 'SubmittingPanel uses bare Loader2 without WizardGenerationOverlay — use full gradient overlay');
+    assert.ok(!hasLoader2Only, 'SubmittingPanel uses bare Loader2 without WizardGenerationOverlay — use the AI waiting state');
   });
 
-  it('WizardGenerationOverlay uses su-ai-stop gradient tokens (full gradient background)', () => {
+  it('WizardGenerationOverlay renders AiAnalyzingState (the system AI waiting state)', () => {
     const src = readComponentSrc();
     assert.ok(
-      src.includes('su-ai-stop'),
-      'su-ai-stop gradient tokens not found in WizardGenerationOverlay — must use approved gradient background',
+      src.includes("import { AiAnalyzingState } from '@/components/ai/ai-analyzing-state'"),
+      'AiAnalyzingState is not imported — the generation wait must use the system piece',
     );
+    const overlayStart = src.indexOf('function WizardGenerationOverlay');
+    const overlayEnd = src.indexOf('\nfunction ', overlayStart + 1);
+    const overlaySrc = src.slice(overlayStart, overlayEnd > overlayStart ? overlayEnd : undefined);
+    assert.ok(overlaySrc.includes('<AiAnalyzingState'), 'WizardGenerationOverlay must render <AiAnalyzingState>');
+  });
+
+  it('the wizard panel layer does not hand-paint the AI gradient', () => {
+    const src = readComponentSrc();
+    assert.ok(!src.includes('linear-gradient'), 'hand-written gradient found — the AI gradient lives in the system piece');
+    assert.ok(!src.includes('su-ai-stop'), 'raw su-ai-stop tokens found — use AiAnalyzingState / bg-ai-gradient');
   });
 
   it('WizardGenerationOverlay shows "Generando empresas candidatas" copy', () => {
@@ -422,17 +437,22 @@ describe('21.A.2 — SubmittingPanel uses full gradient overlay, not bare spinne
     );
   });
 
-  it('WizardGenerationOverlay includes a progress indicator', () => {
+  it('WizardGenerationOverlay does not fabricate a progress value', () => {
+    // La ejecución es un único viaje al servidor: el cliente no sabe cuánto falta.
+    // `AiAnalyzingState` sin `progress` se lee como indeterminado; pasarle un número
+    // afirmaría un avance que nadie midió.
     const src = readComponentSrc();
-    const hasProgressBar = src.includes('progress') || src.includes('h-2 w-full rounded-full');
-    assert.ok(hasProgressBar, 'No progress indicator found in WizardGenerationOverlay');
+    const overlayStart = src.indexOf('function WizardGenerationOverlay');
+    const overlayEnd = src.indexOf('\nfunction ', overlayStart + 1);
+    const overlaySrc = src.slice(overlayStart, overlayEnd > overlayStart ? overlayEnd : undefined);
+    assert.ok(!/progress=\{/.test(overlaySrc), 'WizardGenerationOverlay passes a progress value to AiAnalyzingState');
   });
 
-  it('WizardGenerationOverlay includes mirror shine sweep animation (animate-su-mirror-shine)', () => {
+  it('the wizard panel layer does not hand-roll the mirror shine (it comes with AiAnalyzingState)', () => {
     const src = readComponentSrc();
     assert.ok(
-      src.includes('animate-su-mirror-shine'),
-      'animate-su-mirror-shine not found — overlay must include mirror shine effect',
+      !src.includes('animate-su-mirror-shine'),
+      'animate-su-mirror-shine found — the shine is part of AiAnalyzingState, not of the panel',
     );
   });
 });

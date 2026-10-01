@@ -4,8 +4,8 @@ import { cn } from "@/lib/utils";
 
 export interface FieldProps extends React.HTMLAttributes<HTMLDivElement> {
   label?: string;
-  /** Ayuda bajo el control. Se oculta mientras haya `error`. */
-  description?: string;
+  /** Ayuda bajo el control (texto o texto con formato). Se oculta mientras haya `error`. */
+  description?: React.ReactNode;
   /** Mensaje de validación. Sustituye a la descripción y se enlaza al control. */
   error?: string;
   required?: boolean;

@@ -1,8 +1,9 @@
 'use client';
 
 import * as React from 'react';
-import { Sparkles, AlertTriangle, ExternalLink } from "@/icons";
-import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { AlertTriangle, ExternalLink } from "@/icons";
+import { AIPanel } from '@/components/ai/ai-panel';
+import { AiGeneratedBadge } from '@/components/ai/ai-generated-badge';
 import { Badge } from '@/components/ui/badge';
 import type { ClaudeClassificationDisplay } from './claude-classification-display';
 
@@ -55,10 +56,9 @@ export function ClaudeClassificationBlock({
   const body = (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge variant={TONE_VARIANT[display.outcomeTone]}>
-          <Sparkles aria-hidden />
-          {display.outcomeLabel}
-        </Badge>
+        {/* La chispa dice de dónde salió el dato; la etiqueta, qué concluyó. */}
+        <AiGeneratedBadge />
+        <Badge variant={TONE_VARIANT[display.outcomeTone]}>{display.outcomeLabel}</Badge>
         {display.notOperatingCompany && (
           <Badge variant="warning">
             <AlertTriangle aria-hidden />
@@ -119,10 +119,14 @@ export function ClaudeClassificationBlock({
 
   if (embedded) return body;
 
+  // El panel de IA del sistema (`AIPanel` de Thema): lo que viene de un modelo se
+  // reconoce por su contenedor, igual en cualquier pantalla.
   return (
-    <SurfaceCard>
-      <SurfaceCardHeader title="Sugerencia de Claude" />
+    <AIPanel
+      title="Sugerencia de Claude"
+      description="Clasificación propuesta a partir del sitio de la empresa."
+    >
       {body}
-    </SurfaceCard>
+    </AIPanel>
   );
 }

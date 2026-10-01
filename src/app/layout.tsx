@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
-import { Toaster } from "sonner";
+import { ThemaToaster } from "@/components/feedback/thema-toaster";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -26,7 +26,7 @@ export default function RootLayout({
     <html lang="es" suppressHydrationWarning>
       <body className={`${inter.variable} min-h-screen font-sans antialiased`}>
         <Providers>{children}</Providers>
-        <Toaster position="bottom-right" richColors />
+        <ThemaToaster />
       </body>
     </html>
   );

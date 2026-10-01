@@ -1,8 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { cn } from '@/lib/utils';
-import { Sparkles } from "@/icons";
+import { AiAnalyzingState } from '@/components/ai/ai-analyzing-state';
 
 interface ImportLoadingOverlayProps {
   /** Whether the overlay is visible */
@@ -30,11 +29,9 @@ export function ImportLoadingOverlay({
   const [completedSteps, setCompletedSteps] = React.useState<number[]>([]);
 
   React.useEffect(() => {
-    if (!open) {
-      setCurrentStep(0);
-      setCompletedSteps([]);
-      return;
-    }
+    // Quien lo monta lo desmonta al terminar, así que cada importación empieza
+    // en el primer paso sin tener que reiniciar el estado aquí.
+    if (!open) return;
 
     const timers: NodeJS.Timeout[] = [];
     const stepDuration = 1400;
@@ -57,52 +54,20 @@ export function ImportLoadingOverlay({
 
   const progress = ((completedSteps.length + 1) / STEPS.length) * 100;
 
+  const step = STEPS[currentStep];
+
+  // El estado «la IA está trabajando» del sistema (`AiAnalyzingState` de Thema),
+  // sobre un velo que tapa el formulario mientras se importa. El titular cambia
+  // con cada paso y entra con un fundido; quien lo anuncia es la propia pieza.
   return (
-    <div
-      role="status"
-      aria-live="polite"
-      className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-6 p-8 overflow-hidden"
-      style={{
-        background: `linear-gradient(135deg, var(--su-ai-stop-1), var(--su-ai-stop-2), var(--su-ai-stop-3), var(--su-ai-stop-4), var(--su-ai-stop-5))`,
-      }}
-    >
-      {/* Mirror shine sweep */}
-      <div className="pointer-events-none absolute inset-0 -translate-x-full skew-x-[-12deg] su-mirror-shine animate-su-mirror-shine" />
-
-      {/* Sparkle icon */}
-      <div className="animate-su-float relative z-10">
-        <Sparkles className="h-12 w-12 text-white/80" strokeWidth={1.5} />
-      </div>
-
-      {/* Main label */}
-      <div className="relative z-10 space-y-1 text-center">
-        <p className="text-lg font-bold text-white">
-          {STEPS[currentStep].label}
-        </p>
-        {total > 0 && (
-          <p className="text-sm text-white/80">
-            {total} candidato{total !== 1 ? 's' : ''} en proceso
-          </p>
-        )}
-      </div>
-
-      {/* Sub label */}
-      <p className="relative z-10 text-xs text-white/75">
-        {STEPS[currentStep].sub}
-      </p>
-
-      {/* Progress bar */}
-      <div className="relative z-10 w-full max-w-72 space-y-2">
-        <div className="h-2 w-full rounded-full bg-white/20 overflow-hidden">
-          <div
-            className="h-full rounded-full bg-white transition-all duration-700 ease-out"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-        <div className="flex justify-end text-xs font-bold tabular-nums text-white/90">
-          {Math.round(progress)}%
-        </div>
-      </div>
+    <div className="absolute inset-0 z-20 flex items-center justify-center overflow-hidden bg-background/90 p-6 backdrop-blur-sm">
+      <AiAnalyzingState
+        className="w-full max-w-md"
+        title={stepLabel ?? step.label}
+        progress={progress}
+        detail={total > 0 ? `${total} candidato${total !== 1 ? 's' : ''} en proceso` : 'Importando'}
+        caption={step.sub}
+      />
     </div>
   );
 }

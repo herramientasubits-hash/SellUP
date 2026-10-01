@@ -19,18 +19,11 @@
  */
 
 import * as React from 'react';
-import {
-  Search,
-  Loader2,
-  CheckCircle2,
-  Info,
-  Building2,
-  RotateCcw,
-  ArrowRight,
-  AlertCircle,
-} from "@/icons";
+import { Search, RotateCcw, ArrowRight } from "@/icons";
+import { AiAnalyzingState } from '@/components/ai/ai-analyzing-state';
+import { ChatCardView, type ChatCardRow } from '@/components/chat';
 import { Button } from '@/components/ui/button';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { LockedCriteriaRecap } from '@/components/prospect-batches/lusha-preview-drawer';
 import {
   generateLushaPendingReviewBatchAction,
@@ -249,8 +242,7 @@ export function WizardLushaFinalSearch({
       />
 
       <div className="space-y-3">
-        <Alert variant="warning">
-          <Info className="h-4 w-4" />
+        <Alert variant="warning" role={undefined}>
           <AlertDescription className="text-xs" data-testid="lusha-preview-cost-notice">
             {WIZARD_LUSHA_TOPUP_COST_NOTICE}
             {requiredCredits !== null ? ` ${WIZARD_LUSHA_AUTHORIZED_MAX_NOTICE}` : ''}
@@ -261,35 +253,36 @@ export function WizardLushaFinalSearch({
             Tavily. Se muestra sólo cuando el servidor pudo resolver las dos
             cifras: media instantánea no explica nada. */}
         {availableCredits !== null && requiredCredits !== null && (
-          <dl
-            className="divide-y divide-border/50 rounded-xl border border-border/60 bg-card text-sm"
+          <ChatCardView
             data-testid="lusha-budget-preflight"
-          >
-            <DetailRow
-              label="Presupuesto disponible"
-              value={String(availableCredits)}
-              testId="lusha-budget-available"
-            />
-            <DetailRow
-              label="Máximo que puede consumir esta búsqueda"
-              value={String(requiredCredits)}
-              testId="lusha-budget-required"
-            />
-          </dl>
+            card={{
+              kind: 'rows',
+              title: 'Presupuesto de esta búsqueda',
+              rows: [
+                {
+                  key: 'available',
+                  label: 'Presupuesto disponible',
+                  value: String(availableCredits),
+                  testId: 'lusha-budget-available',
+                },
+                {
+                  key: 'required',
+                  label: 'Máximo que puede consumir esta búsqueda',
+                  value: String(requiredCredits),
+                  testId: 'lusha-budget-required',
+                },
+              ],
+            }}
+          />
         )}
 
         {/* Mismo tratamiento visual que el bloqueo previo de Apollo, y el mismo
             redactor: el bloqueo es igual de real, sólo se conoce antes.
             `role="alert"` porque aparece sin que la usuaria haya actuado. */}
         {budgetMessage !== null && (
-          <div
-            className="flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3"
-            role="alert"
-            data-testid="lusha-budget-preflight-notice"
-          >
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden />
+          <Alert variant="destructive" data-testid="lusha-budget-preflight-notice">
             <p className="min-w-0 break-words text-xs leading-relaxed text-destructive">{budgetMessage}</p>
-          </div>
+          </Alert>
         )}
 
         <Button
@@ -300,10 +293,7 @@ export function WizardLushaFinalSearch({
           data-testid="lusha-preview-run"
         >
           {status === 'loading' ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {WIZARD_LUSHA_SEARCH_LOADING_LABEL}
-            </>
+            WIZARD_LUSHA_SEARCH_LOADING_LABEL
           ) : (
             <>
               <Search className="h-3.5 w-3.5" />
@@ -318,43 +308,24 @@ export function WizardLushaFinalSearch({
   );
 }
 
-// ── Rich IA loader (CSS-driven steps — no timers, no effects) ─────────────────
+// ── Espera de la búsqueda (sin temporizadores ni efectos) ─────────────────────
 
+/**
+ * El estado «la IA está trabajando» del sistema (`AiAnalyzingState` de Thema),
+ * con la lista de lo que la búsqueda va haciendo debajo. La lista es un PLAN,
+ * no un progreso medido: por eso no hay barra ni pasos que se marquen solos.
+ */
 function SearchLoader() {
   return (
-    <div
-      className="relative overflow-hidden rounded-xl p-6 animate-su-fade-in"
-      role="status"
-      aria-live="polite"
-      aria-label="Buscando empresas candidatas"
-      data-testid="wizard-lusha-search-loader"
-      style={{
-        background:
-          'linear-gradient(135deg, var(--su-ai-stop-1), var(--su-ai-stop-2), var(--su-ai-stop-3), var(--su-ai-stop-4), var(--su-ai-stop-5))',
-      }}
-    >
-      {/* Mirror shine sweep */}
-      <div className="pointer-events-none absolute inset-0 -translate-x-full skew-x-[-12deg] su-mirror-shine animate-su-mirror-shine" />
-
-      <div className="relative z-10 space-y-4">
-        <div className="flex items-center gap-2 text-white">
-          <Building2 className="h-4 w-4 animate-su-float" aria-hidden />
-          <p className="text-sm font-semibold">Buscando empresas candidatas…</p>
-        </div>
-
-        <ol className="space-y-2">
-          {WIZARD_LUSHA_LOADER_STEPS.map((step, index) => (
-            <li
-              key={step}
-              className="flex items-center gap-2 text-xs text-white/90 animate-su-fade-in"
-              style={{ animationDelay: `${index * 320}ms`, animationFillMode: 'both' }}
-            >
-              <Loader2 className="h-3 w-3 shrink-0 animate-spin text-white/80" aria-hidden />
-              {step}
-            </li>
-          ))}
-        </ol>
-      </div>
+    <div className="space-y-3" data-testid="wizard-lusha-search-loader">
+      <AiAnalyzingState title="Buscando empresas candidatas…" />
+      <ol className="space-y-1 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
+        {WIZARD_LUSHA_LOADER_STEPS.map((step) => (
+          <li key={step} className="text-xs text-muted-foreground">
+            {step}
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }
@@ -394,98 +365,98 @@ function PersistConfirmation({
   const resultsReturnedLabel =
     result.resultsReturned === null ? '—' : String(result.resultsReturned);
 
+  const metricRows: ChatCardRow[] = [
+    {
+      key: 'provider',
+      label: 'Fuente usada',
+      value: WIZARD_LUSHA_PROVIDER_LABEL,
+      testId: 'wizard-lusha-persist-provider',
+    },
+    {
+      key: 'useful',
+      label: 'Enviadas a revisión',
+      value: String(count),
+      testId: 'wizard-lusha-persist-useful',
+    },
+    ...(acceptance !== null
+      ? [
+          {
+            key: 'accepted',
+            label: 'Cuentan hacia tu objetivo',
+            // 🔴 Aceptadas de TODA la corrida (gratis + pago) sobre el objetivo
+            // PEDIDO, nunca filas persistidas y nunca el objetivo solo.
+            value: `${acceptance.acceptedForTargetTotal} de ${acceptance.requestedTarget}`,
+            testId: 'wizard-lusha-persist-accepted',
+          },
+          {
+            key: 'durable-total',
+            label: 'Empresas guardadas en el lote',
+            // 🔴 El universo durable del lote, gratuito incluido: se reporta
+            // JUNTO a lo aceptado, jamás en su lugar (CUT-7 § 10).
+            value: String(acceptance.persistedTotalCandidates),
+            testId: 'wizard-lusha-persist-durable-total',
+          },
+          {
+            key: 'remaining',
+            label: 'Faltan para el objetivo',
+            // 🔴 «no se midió» y «se midió cero» son corridas distintas y el
+            // panel no puede pintarlas igual.
+            value: acceptance.paidAcceptanceMeasured ? String(acceptance.remainingTarget) : 'sin medir',
+            testId: 'wizard-lusha-persist-remaining',
+          },
+        ]
+      : []),
+    {
+      key: 'results-returned',
+      label: 'Empresas devueltas por Lusha',
+      value: resultsReturnedLabel,
+      testId: 'wizard-lusha-persist-results-returned',
+    },
+    {
+      key: 'possible',
+      label: 'Posibles duplicados',
+      value: String(result.possibleDuplicatesCount),
+      testId: 'wizard-lusha-persist-possible',
+    },
+    {
+      key: 'excluded',
+      label: 'Duplicados confirmados excluidos',
+      value: String(result.excludedExactDuplicatesCount),
+      testId: 'wizard-lusha-persist-excluded',
+    },
+    // § P0 — sin denominador estático: el techo de peticiones depende de las
+    // ramas del plan de la macro industria (2, 4 o 6), así que «/ 2» era falso en
+    // cuanto la corrida tenía más de una rama. Lo que sí es un hecho es cuántas
+    // consultó ESTA corrida.
+    {
+      key: 'pages',
+      label: 'Páginas consultadas',
+      value: String(result.pagesRequested),
+      testId: 'wizard-lusha-persist-pages',
+    },
+    {
+      key: 'credits',
+      label: 'Créditos reportados por Lusha',
+      value: creditsLabel,
+      testId: 'wizard-lusha-persist-credits',
+    },
+    { key: 'batch', label: 'Lote', value: shortBatch },
+  ];
+
   return (
     <div className="space-y-4 animate-su-fade-in" data-testid="wizard-lusha-persist-confirmation">
-      <div className="flex items-start gap-3 rounded-xl border border-success/20 bg-success/10 p-4">
-        <CheckCircle2
-          className="mt-0.5 h-5 w-5 shrink-0 text-success"
-          aria-hidden
-        />
-        <div className="min-w-0 space-y-1">
-          <p className="text-sm font-semibold text-success">
-            Empresas candidatas listas para revisión
-          </p>
-          <p className="text-xs leading-relaxed text-success">
-            Encontramos {count} {count === 1 ? 'empresa' : 'empresas'} y las dejamos en
-            Prospectos para que las revises antes de aprobarlas.
-          </p>
-        </div>
-      </div>
+      <Alert variant="success" role={undefined}>
+        <AlertTitle className="text-sm">Empresas candidatas listas para revisión</AlertTitle>
+        <AlertDescription className="text-xs">
+          Encontramos {count} {count === 1 ? 'empresa' : 'empresas'} y las dejamos en
+          Prospectos para que las revises antes de aprobarlas.
+        </AlertDescription>
+      </Alert>
 
-      <dl
-        className="divide-y divide-border/50 rounded-xl border border-border/60 bg-card text-sm"
+      <ChatCardView
         data-testid="wizard-lusha-persist-metrics"
-      >
-        <DetailRow
-          label="Fuente usada"
-          value={WIZARD_LUSHA_PROVIDER_LABEL}
-          testId="wizard-lusha-persist-provider"
-        />
-        <DetailRow
-          label="Enviadas a revisión"
-          value={String(count)}
-          testId="wizard-lusha-persist-useful"
-        />
-        {acceptance !== null ? (
-          <>
-            <DetailRow
-              label="Cuentan hacia tu objetivo"
-              /* 🔴 Aceptadas de TODA la corrida (gratis + pago) sobre el objetivo
-                 PEDIDO, nunca filas persistidas y nunca el objetivo solo. */
-              value={`${acceptance.acceptedForTargetTotal} de ${acceptance.requestedTarget}`}
-              testId="wizard-lusha-persist-accepted"
-            />
-            <DetailRow
-              label="Empresas guardadas en el lote"
-              /* 🔴 El universo durable del lote, gratuito incluido: se reporta
-                 JUNTO a lo aceptado, jamás en su lugar (CUT-7 § 10). */
-              value={String(acceptance.persistedTotalCandidates)}
-              testId="wizard-lusha-persist-durable-total"
-            />
-            <DetailRow
-              label="Faltan para el objetivo"
-              /* 🔴 «no se midió» y «se midió cero» son corridas distintas y el
-                 panel no puede pintarlas igual. */
-              value={
-                acceptance.paidAcceptanceMeasured
-                  ? String(acceptance.remainingTarget)
-                  : 'sin medir'
-              }
-              testId="wizard-lusha-persist-remaining"
-            />
-          </>
-        ) : null}
-        <DetailRow
-          label="Empresas devueltas por Lusha"
-          value={resultsReturnedLabel}
-          testId="wizard-lusha-persist-results-returned"
-        />
-        <DetailRow
-          label="Posibles duplicados"
-          value={String(result.possibleDuplicatesCount)}
-          testId="wizard-lusha-persist-possible"
-        />
-        <DetailRow
-          label="Duplicados confirmados excluidos"
-          value={String(result.excludedExactDuplicatesCount)}
-          testId="wizard-lusha-persist-excluded"
-        />
-        {/* § P0 — sin denominador estático: el techo de peticiones depende de las
-            ramas del plan de la macro industria (2, 4 o 6), así que «/ 2» era
-            falso en cuanto la corrida tenía más de una rama. Lo que sí es un
-            hecho es cuántas consultó ESTA corrida. */}
-        <DetailRow
-          label="Páginas consultadas"
-          value={String(result.pagesRequested)}
-          testId="wizard-lusha-persist-pages"
-        />
-        <DetailRow
-          label="Créditos reportados por Lusha"
-          value={creditsLabel}
-          testId="wizard-lusha-persist-credits"
-        />
-        <DetailRow label="Lote" value={shortBatch} />
-      </dl>
+        card={{ kind: 'rows', title: 'Resultado de la búsqueda', rows: metricRows }}
+      />
 
       <div className="space-y-1 rounded-xl bg-surface-subtle px-4 py-3 leading-relaxed">
         {/* § P0 — misma razón que arriba: «hasta 20 empresas (2 × 10)» describía
@@ -511,38 +482,18 @@ function PersistConfirmation({
           Ver prospectos
           <ArrowRight className="h-3.5 w-3.5" aria-hidden />
         </Button>
-        <button
+        <Button
           type="button"
-          className="mx-auto flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+          variant="ghost"
+          size="xs"
+          className="mx-auto flex text-muted-foreground"
           onClick={onGenerateAnother}
           data-testid="wizard-lusha-generate-another"
         >
-          <RotateCcw className="h-3 w-3" aria-hidden />
+          <RotateCcw aria-hidden />
           Generar otra búsqueda
-        </button>
+        </Button>
       </div>
-    </div>
-  );
-}
-
-function DetailRow({
-  label,
-  value,
-  testId,
-}: {
-  label: string;
-  value: string;
-  testId?: string;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 px-4 py-3">
-      <dt className="min-w-0 text-xs text-muted-foreground">{label}</dt>
-      <dd
-        className="shrink-0 text-sm font-medium tabular-nums text-foreground"
-        {...(testId ? { 'data-testid': testId } : {})}
-      >
-        {value}
-      </dd>
     </div>
   );
 }
@@ -552,26 +503,21 @@ function DetailRow({
 function EmptyResult({ onGenerateAnother }: { onGenerateAnother?: () => void }) {
   return (
     <div className="space-y-4 animate-su-fade-in" data-testid="wizard-lusha-empty">
-      <div className="flex items-start gap-3 rounded-xl border border-warning/25 bg-warning/15 p-4">
-        <Info className="mt-0.5 h-5 w-5 shrink-0 text-warning" aria-hidden />
-        <div className="min-w-0 space-y-1">
-          <p className="text-sm font-semibold text-warning">
-            No encontramos empresas nuevas con estos criterios.
-          </p>
-          <p className="text-xs text-warning">
-            Prueba con otra industria, país o criterio adicional.
-          </p>
-        </div>
-      </div>
-      <button
+      <Alert variant="warning" role={undefined}>
+        <AlertTitle className="text-sm">No encontramos empresas nuevas con estos criterios.</AlertTitle>
+        <AlertDescription className="text-xs">Prueba con otra industria, país o criterio adicional.</AlertDescription>
+      </Alert>
+      <Button
         type="button"
-        className="mx-auto flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+        variant="ghost"
+        size="xs"
+        className="mx-auto flex text-muted-foreground"
         onClick={onGenerateAnother}
         data-testid="wizard-lusha-generate-another"
       >
-        <RotateCcw className="h-3 w-3" aria-hidden />
+        <RotateCcw aria-hidden />
         Generar otra búsqueda
-      </button>
+      </Button>
     </div>
   );
 }
@@ -581,13 +527,10 @@ function EmptyResult({ onGenerateAnother }: { onGenerateAnother?: () => void }) 
 function ErrorResult({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <div className="space-y-4 animate-su-fade-in" data-testid="wizard-lusha-error">
-      <div className="flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/10 p-4">
-        <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" aria-hidden />
-        <div className="min-w-0 space-y-1">
-          <p className="text-sm font-semibold text-destructive">No se pudo completar la búsqueda.</p>
-          <p className="break-words text-xs leading-relaxed text-destructive">{message}</p>
-        </div>
-      </div>
+      <Alert variant="destructive" role={undefined}>
+        <AlertTitle className="text-sm">No se pudo completar la búsqueda.</AlertTitle>
+        <AlertDescription className="break-words text-xs">{message}</AlertDescription>
+      </Alert>
       <Button
         type="button"
         variant="outline"

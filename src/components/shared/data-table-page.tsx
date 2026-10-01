@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "@/icons";
 import { PageHeader } from "@/components/shared/page-header";
+import { ShellBreadcrumbs } from "@/components/layout/shell-header-slot";
 import { cn } from "@/lib/utils";
 
 interface DataTablePageProps {
@@ -59,7 +60,7 @@ interface CompactHeaderProps {
 function CompactHeader({ title, description, actions, backHref, breadcrumbs, tabs }: CompactHeaderProps) {
   return (
     <header data-slot="page-header-compact" className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
-      {breadcrumbs && <div className="basis-full">{breadcrumbs}</div>}
+      {breadcrumbs && <ShellBreadcrumbs className="basis-full">{breadcrumbs}</ShellBreadcrumbs>}
       <div className="flex min-w-0 flex-[1_1_20rem] flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-3">
         <div className="flex shrink-0 items-center gap-2">
           {backHref && (
@@ -135,7 +136,7 @@ export function DataTablePage({
     // falta (cabecera y métricas quedan fijas y la tabla llena el resto); en una
     // baja, la tabla conserva su alto mínimo y lo que se desplaza es la página,
     // en vez de aplastar la tabla a cuatro filas. El hueco inferior que reserva
-    // `ScreenActionRailProvider` queda fuera de esta caja, así que la barra
+    // `ListActionRailProvider` queda fuera de esta caja, así que la barra
     // flotante nunca tapa el pie. El margen negativo deja sitio a las sombras
     // y a los anillos de foco, que una caja con scroll recortaría.
     <div

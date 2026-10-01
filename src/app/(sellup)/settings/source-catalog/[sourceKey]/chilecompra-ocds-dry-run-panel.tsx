@@ -1,20 +1,12 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import {
-  FlaskConical,
-  Loader2,
-  CheckCircle2,
-  XCircle,
-  ShieldCheck,
-  ShieldAlert,
-  ExternalLink,
-  Inbox,
-} from "@/icons";
+import { FlaskConical, Loader2, ShieldCheck, ExternalLink, Inbox } from "@/icons";
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { EmptyState } from '@/components/ui/empty-state';
-import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { Field } from '@/components/forms/field';
+import { NumberField } from '@/components/forms/number-field';
 import {
   runChileCompraOcdsHealthCheckAction,
   runChileCompraOcdsDryRunAction,
@@ -24,6 +16,14 @@ import type {
   ChileCompraOcdsDryRunReport,
 } from '@/server/source-catalog/connectors/chilecompra-ocds/types';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import {
+  AdminOnlyNotice,
+  PanelDisclaimer,
+  PanelSummary,
+  PanelSummaryItem,
+  PanelWarnings,
+  SourcePanel,
+} from './source-panel-parts';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -42,63 +42,44 @@ function formatAmount(amount: number | null, currency: string | null): string {
 function HealthCheckResult({ report }: { report: ChileCompraOcdsHealthCheckReport }) {
   if (report.status !== 'operational') {
     return (
-      <div className="flex items-start gap-2 rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-xs text-destructive">
-        <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <Alert variant="destructive">
         No se pudo consultar la fuente OCDS. {report.error}. No se escribió ningún dato.
-      </div>
+      </Alert>
     );
   }
   return (
-    <div className="space-y-2 rounded-xl border border-success/20 bg-success/10 px-4 py-3">
-      <p className="flex items-center gap-2 text-sm font-medium text-foreground">
-        <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
-        Fuente operativa. {report.totalMonthProcesses ?? 0} procesos en {report.month}/{report.year}.
-      </p>
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-4">
-        <div>
-          <dt className="mb-0.5 text-xs font-medium text-muted-foreground">Total mes</dt>
-          <dd className="tabular-nums text-foreground">{report.totalMonthProcesses ?? '—'}</dd>
-        </div>
-        <div>
-          <dt className="mb-0.5 text-xs font-medium text-muted-foreground">Limit</dt>
-          <dd className="tabular-nums text-foreground">{report.limit}</dd>
-        </div>
-        <div>
-          <dt className="mb-0.5 text-xs font-medium text-muted-foreground">Offset</dt>
-          <dd className="tabular-nums text-foreground">{report.offset}</dd>
-        </div>
-        <div>
-          <dt className="mb-0.5 text-xs font-medium text-muted-foreground">Escrituras</dt>
-          <dd className="tabular-nums text-foreground">{report.writes_performed}</dd>
-        </div>
-      </dl>
-      {report.firstOcids.length > 0 && (
-        <div className="space-y-0.5">
-          <p className="text-xs font-semibold text-foreground">
-            Primeros ocid
-          </p>
-          <ul className="space-y-0.5 font-mono text-xs text-muted-foreground">
-            {report.firstOcids.map((ocid) => (
-              <li key={ocid} className="truncate">{ocid}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-      <p className="text-xs text-muted-foreground">{report.message}</p>
+    <div className="space-y-3">
+      <Alert variant="success">
+        <AlertTitle>
+          Fuente operativa. {report.totalMonthProcesses ?? 0} procesos en {report.month}/{report.year}.
+        </AlertTitle>
+        <AlertDescription className="text-xs">{report.message}</AlertDescription>
+      </Alert>
+      <PanelSummary>
+        <PanelSummaryItem label="Total mes" value={report.totalMonthProcesses ?? '—'} />
+        <PanelSummaryItem label="Limit" value={report.limit} />
+        <PanelSummaryItem label="Offset" value={report.offset} />
+        <PanelSummaryItem label="Escrituras" value={report.writes_performed} />
+        {report.firstOcids.length > 0 && (
+          <PanelSummaryItem
+            wide
+            mono
+            label="Primeros ocid"
+            value={
+              <ul className="space-y-0.5 text-muted-foreground">
+                {report.firstOcids.map((ocid) => (
+                  <li key={ocid} className="truncate">{ocid}</li>
+                ))}
+              </ul>
+            }
+          />
+        )}
+      </PanelSummary>
     </div>
   );
 }
 
 // ─── Dry-run result ──────────────────────────────────────────────────────────────
-
-function SummaryCell({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div>
-      <dt className="mb-0.5 text-xs font-medium text-muted-foreground">{label}</dt>
-      <dd className="text-sm font-medium tabular-nums text-foreground">{value}</dd>
-    </div>
-  );
-}
 
 function DryRunResult({ report }: { report: ChileCompraOcdsDryRunReport }) {
   const s = report.summary;
@@ -110,43 +91,35 @@ function DryRunResult({ report }: { report: ChileCompraOcdsDryRunReport }) {
     return (
       <div className="space-y-3">
         <EmptyState
+          variant="plain"
           icon={Inbox}
-          className="p-6"
           title={
             listedButDetailsFailed
               ? 'Se encontraron procesos, pero no fue posible normalizar los detalles.'
               : 'No se encontraron procesos para el mes consultado.'
           }
         />
-        {report.warnings.map((w, i) => (
-          <p key={i} className="text-xs text-warning">{w}</p>
-        ))}
+        <PanelWarnings warnings={report.warnings} />
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3 sm:grid-cols-5">
-        <SummaryCell label="Muestra" value={s.requested_sample_size} />
-        <SummaryCell label="Listados" value={s.listed_count} />
-        <SummaryCell label="Detalles OK" value={s.details_success} />
-        <SummaryCell label="Detalles fallidos" value={s.details_failed} />
-        <SummaryCell label="Total mes" value={s.total_month_processes ?? '—'} />
-        <SummaryCell label="Adjudicados" value={s.awarded_count} />
-        <SummaryCell label="Proveedores" value={s.suppliers_detected_count} />
-        <SummaryCell label="Compradores únicos" value={s.unique_buyers_count} />
-        <SummaryCell label="Proveedores únicos" value={s.unique_suppliers_count} />
-        <SummaryCell label="Escrituras" value={s.writes_performed} />
-      </dl>
+      <PanelSummary columns={5}>
+        <PanelSummaryItem label="Muestra" value={s.requested_sample_size} />
+        <PanelSummaryItem label="Listados" value={s.listed_count} />
+        <PanelSummaryItem label="Detalles OK" value={s.details_success} />
+        <PanelSummaryItem label="Detalles fallidos" value={s.details_failed} />
+        <PanelSummaryItem label="Total mes" value={s.total_month_processes ?? '—'} />
+        <PanelSummaryItem label="Adjudicados" value={s.awarded_count} />
+        <PanelSummaryItem label="Proveedores" value={s.suppliers_detected_count} />
+        <PanelSummaryItem label="Compradores únicos" value={s.unique_buyers_count} />
+        <PanelSummaryItem label="Proveedores únicos" value={s.unique_suppliers_count} />
+        <PanelSummaryItem label="Escrituras" value={s.writes_performed} />
+      </PanelSummary>
 
-      {report.warnings.length > 0 && (
-        <div className="rounded-xl border border-warning/25 bg-warning/15 px-4 py-3 space-y-0.5">
-          {report.warnings.map((w, i) => (
-            <p key={i} className="text-xs text-warning">{w}</p>
-          ))}
-        </div>
-      )}
+      <PanelWarnings warnings={report.warnings} />
 
       <div className="overflow-x-auto rounded-xl border border-border/60">
         <Table className="min-w-[760px] text-xs">
@@ -255,118 +228,89 @@ export function ChileCompraOcdsDryRunPanel({ isAdmin }: Props) {
   }
 
   return (
-    <SurfaceCard>
-      <div className="mb-5 flex items-start gap-3">
-        <span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-inset ring-border/40">
-          <FlaskConical className="h-4 w-4" />
-        </span>
-        <SurfaceCardHeader
-          title="ChileCompra OCDS — Vista read-only"
-          description="Datos abiertos de compras públicas de Chile (OCDS). Señal B2G — no escribe datos ni genera prospectos."
-          className="mb-0 min-w-0 flex-1 flex-wrap"
-        />
+    <SourcePanel
+      icon={FlaskConical}
+      title="ChileCompra OCDS — Vista read-only"
+      description="Datos abiertos de compras públicas de Chile (OCDS). Señal B2G — no escribe datos ni genera prospectos."
+    >
+      <Alert variant="warning">
+        Fuente pública abierta, sin credenciales. No escribe datos en SellUp ni genera prospectos automáticamente.
+      </Alert>
+
+      {/* Qué mes consultar y cuántos procesos traer */}
+      <div className="flex flex-wrap items-start gap-3">
+        <Field label="Año" className="w-32">
+          <NumberField
+            size="sm"
+            value={year}
+            min={2000}
+            max={2100}
+            onValueChange={(value) => setYear(value ?? 0)}
+          />
+        </Field>
+        <Field label="Mes" className="w-28">
+          <NumberField
+            size="sm"
+            value={month}
+            min={1}
+            max={12}
+            onValueChange={(value) => setMonth(value ?? 0)}
+          />
+        </Field>
+        <Field label="Muestra" description="Máximo 20 procesos." className="w-36">
+          <NumberField
+            size="sm"
+            value={sampleSize}
+            min={1}
+            max={20}
+            onValueChange={(value) => setSampleSize(value ?? 0)}
+          />
+        </Field>
       </div>
 
-      <div className="space-y-4">
-        {/* Advertencia visible */}
-        <div className="flex items-start gap-2 rounded-xl border border-warning/25 bg-warning/15 px-4 py-3 text-xs text-warning">
-          <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          Fuente pública abierta, sin credenciales. No escribe datos en SellUp ni genera prospectos automáticamente.
+      {!isAdmin && (
+        <AdminOnlyNotice>Solo administradores pueden ejecutar verificaciones de fuente.</AdminOnlyNotice>
+      )}
+
+      {isAdmin && (
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={handleHealthCheck} disabled={isPending}>
+            {isPending && runningMode === 'health' ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Verificando…
+              </>
+            ) : (
+              <>
+                <ShieldCheck className="h-3.5 w-3.5" />
+                Verificar fuente
+              </>
+            )}
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={handleDryRun} disabled={isPending}>
+            {isPending && runningMode === 'dryrun' ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Previsualizando…
+              </>
+            ) : (
+              <>
+                <FlaskConical className="h-3.5 w-3.5" />
+                Previsualizar procesos
+              </>
+            )}
+          </Button>
         </div>
+      )}
 
-        {/* Controles año/mes/muestra */}
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="space-y-1.5">
-            <span className="block text-xs font-medium text-foreground">Año</span>
-            <Input
-              type="number"
-              value={year}
-              min={2000}
-              max={2100}
-              onChange={(e) => setYear(Number(e.target.value))}
-              inputSize="sm"
-              className="w-24 tabular-nums"
-            />
-          </label>
-          <label className="space-y-1.5">
-            <span className="block text-xs font-medium text-foreground">Mes</span>
-            <Input
-              type="number"
-              value={month}
-              min={1}
-              max={12}
-              onChange={(e) => setMonth(Number(e.target.value))}
-              inputSize="sm"
-              className="w-20 tabular-nums"
-            />
-          </label>
-          <label className="space-y-1.5">
-            <span className="block text-xs font-medium text-foreground">Muestra (máx 20)</span>
-            <Input
-              type="number"
-              value={sampleSize}
-              min={1}
-              max={20}
-              onChange={(e) => setSampleSize(Number(e.target.value))}
-              inputSize="sm"
-              className="w-24 tabular-nums"
-            />
-          </label>
-        </div>
+      {error && <Alert variant="destructive">{error}</Alert>}
 
-        {!isAdmin && (
-          <div className="flex items-start gap-2 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3 text-xs text-muted-foreground">
-            <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            Solo administradores pueden ejecutar verificaciones de fuente.
-          </div>
-        )}
+      {healthReport && <HealthCheckResult report={healthReport} />}
+      {dryReport && <DryRunResult report={dryReport} />}
 
-        {isAdmin && (
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={handleHealthCheck} disabled={isPending}>
-              {isPending && runningMode === 'health' ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Verificando…
-                </>
-              ) : (
-                <>
-                  <ShieldCheck className="h-3.5 w-3.5" />
-                  Verificar fuente
-                </>
-              )}
-            </Button>
-            <Button type="button" variant="outline" size="sm" onClick={handleDryRun} disabled={isPending}>
-              {isPending && runningMode === 'dryrun' ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Previsualizando…
-                </>
-              ) : (
-                <>
-                  <FlaskConical className="h-3.5 w-3.5" />
-                  Previsualizar procesos
-                </>
-              )}
-            </Button>
-          </div>
-        )}
-
-        {error && (
-          <div className="flex items-start gap-2 rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-xs text-destructive">
-            <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            {error}
-          </div>
-        )}
-
-        {healthReport && <HealthCheckResult report={healthReport} />}
-        {dryReport && <DryRunResult report={dryReport} />}
-
-        <div className="flex items-start gap-1.5 border-t border-border/50 pt-3 text-xs text-muted-foreground">
-          <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          No escribe en Supabase. No crea cuentas, candidatos ni oportunidades. No toca el connector ChileCompra legacy.
-        </div>
-      </div>
-    </SurfaceCard>
+      <PanelDisclaimer>
+        No escribe en Supabase. No crea cuentas, candidatos ni oportunidades. No toca el connector ChileCompra legacy.
+      </PanelDisclaimer>
+    </SourcePanel>
   );
 }

@@ -41,14 +41,20 @@ function SheetContent({
   children,
   side = "right",
   showCloseButton = true,
+  overlayClassName,
+  overlayStyle,
   ...props
 }: SheetPrimitive.Popup.Props & {
   side?: "top" | "right" | "bottom" | "left";
   showCloseButton?: boolean;
+  /** Recorta o reviste el velo (Thema · `SheetContent.overlayClassName`). */
+  overlayClassName?: string;
+  /** Estilo en línea del velo: para moverlo con la misma curva que el panel. */
+  overlayStyle?: React.CSSProperties;
 }) {
   return (
     <SheetPortal>
-      <SheetOverlay />
+      <SheetOverlay className={overlayClassName} style={overlayStyle} />
       <SheetPrimitive.Popup
         data-slot="sheet-content"
         data-side={side}

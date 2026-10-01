@@ -1,21 +1,22 @@
 'use client';
 
-import { useState } from 'react';
-import { Check, Users, Loader2 } from "@/icons";
+import { useMemo, useState } from 'react';
+import { Users, Loader2 } from "@/icons";
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
+import { ListItem, ListItemGroup } from '@/components/data-display';
 import { ModalShell } from '@/components/shared/modal-shell';
 import { EmptyState } from '@/components/ui/empty-state';
 import { assignUsersToGroup } from '@/modules/access/actions';
 import { formatGroupLabel } from '@/modules/access/display-helpers';
 import type { InternalUser, OrganizationGroup } from '@/modules/access/types';
+import { UserAvatar } from './user-avatar';
 
-function getInitials(name: string | null, email: string): string {
-  if (name) return name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
-  return email.slice(0, 2).toUpperCase();
-}
+/** A partir de cuántas personas compensa mostrar el buscador. */
+const SEARCH_MIN_USERS = 7;
 
 interface AssignUsersToGroupDialogProps {
   group: OrganizationGroup;
@@ -33,6 +34,7 @@ export function AssignUsersToGroupDialog({
   onClose,
 }: AssignUsersToGroupDialogProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,6 +45,7 @@ export function AssignUsersToGroupDialog({
 
   const handleClose = () => {
     setSelectedIds([]);
+    setQuery('');
     setError(null);
     onClose();
   };
@@ -63,7 +66,18 @@ export function AssignUsersToGroupDialog({
 
   const groupName = group.name?.trim() || 'Grupo sin nombre';
   const usersAlreadyInGroup = activeUsers.filter(u => u.group_id === group.id);
-  const usersNotInGroup = activeUsers.filter(u => u.group_id !== group.id);
+  const usersNotInGroup = useMemo(
+    () => activeUsers.filter(u => u.group_id !== group.id),
+    [activeUsers, group.id],
+  );
+  const visibleUsers = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return usersNotInGroup;
+    return usersNotInGroup.filter(u =>
+      u.email.toLowerCase().includes(needle) || (u.full_name?.toLowerCase().includes(needle) ?? false),
+    );
+  }, [usersNotInGroup, query]);
+  const showSearch = usersNotInGroup.length >= SEARCH_MIN_USERS;
 
   return (
     <ModalShell
@@ -96,55 +110,62 @@ export function AssignUsersToGroupDialog({
       }
     >
       <div className="space-y-3">
-        <div className="max-h-72 space-y-1.5 overflow-y-auto py-1">
+        {showSearch && (
+          <Input
+            inputSize="sm"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Buscar por nombre o correo…"
+            aria-label="Buscar usuario por nombre o correo"
+          />
+        )}
+
+        <div className="max-h-72 overflow-y-auto p-1">
           {usersNotInGroup.length === 0 ? (
             <EmptyState
               variant="plain"
               icon={Users}
               title="Todos los usuarios activos ya están en este grupo."
             />
+          ) : visibleUsers.length === 0 ? (
+            <EmptyState
+              variant="plain"
+              icon={Users}
+              title="Nadie coincide con tu búsqueda"
+              description="Prueba con otro nombre o correo."
+            />
           ) : (
-            usersNotInGroup.map(user => {
-              const isSelected = selectedIds.includes(user.id);
-              return (
-                <button
-                  key={user.id}
-                  type="button"
-                  onClick={() => toggleUser(user.id)}
-                  aria-pressed={isSelected}
-                  className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 ${
-                    isSelected
-                      ? 'border-primary/40 bg-primary/10'
-                      : 'border-border/60 hover:bg-surface-muted'
-                  }`}
-                >
-                  <div
-                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-xs border-2 transition-colors ${
-                      isSelected ? 'border-primary bg-primary' : 'border-border'
-                    }`}
-                  >
-                    {isSelected && <Check className="h-3 w-3 text-primary-foreground" />}
-                  </div>
-                  <Avatar className="h-7 w-7 shrink-0">
-                    <AvatarFallback className="bg-primary/10 text-xs text-primary">
-                      {getInitials(user.full_name, user.email)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-foreground">
-                      {user.full_name ?? user.email.split('@')[0]}
-                    </p>
-                    <p className="truncate text-xs text-muted-foreground">{user.email}</p>
-                  </div>
-                  {user.group_id && (
-                    <Badge variant="neutral" className="max-w-40 shrink-0">
-                      <span className="truncate">
-                      {formatGroupLabel(user.group_id, allGroups)}</span>
-                    </Badge>
-                  )}
-                </button>
-              );
-            })
+            <ListItemGroup aria-label="Usuarios que puedes agregar">
+              {visibleUsers.map(user => {
+                const isSelected = selectedIds.includes(user.id);
+                return (
+                  <ListItem
+                    key={user.id}
+                    size="sm"
+                    selected={isSelected}
+                    onClick={() => toggleUser(user.id)}
+                    leading={<UserAvatar name={user.full_name} email={user.email} size="sm" />}
+                    title={user.full_name ?? user.email.split('@')[0]}
+                    description={user.email}
+                    meta={
+                      user.group_id ? (
+                        <Badge variant="neutral" className="max-w-40">
+                          <span className="truncate">{formatGroupLabel(user.group_id, allGroups)}</span>
+                        </Badge>
+                      ) : undefined
+                    }
+                    actions={
+                      // Fuera del área pulsable de la fila: un control dentro de otro no vale.
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => toggleUser(user.id)}
+                        aria-label={`Seleccionar a ${user.full_name ?? user.email}`}
+                      />
+                    }
+                  />
+                );
+              })}
+            </ListItemGroup>
           )}
         </div>
 

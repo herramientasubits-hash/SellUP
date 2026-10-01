@@ -1,15 +1,10 @@
 'use client';
 
 import * as React from 'react';
-import {
-  Building2,
-  Users,
-  Sparkles,
-  Loader2,
-  Clock,
-} from "@/icons";
-import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { ChatQuestionCard, ChatThinking, type ChatQuestionOptionDetail } from '@/components/chat';
+import { FieldError } from '@/components/forms/field';
 import { SearchableSelect } from '@/components/forms/searchable-select';
 import { MultiSelect } from '@/components/forms/multi-select';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
@@ -146,9 +141,7 @@ function StepBlockingIssues({ state, step }: { state: ProspectWizardState; step:
   return (
     <div className="space-y-2" role="alert">
       {issues.map((issue) => (
-        <p key={issue.code} className="text-xs font-medium text-destructive">
-          {issue.message}
-        </p>
+        <FieldError key={issue.code}>{issue.message}</FieldError>
       ))}
     </div>
   );
@@ -169,107 +162,38 @@ type SearchTypeStepProps = {
   titleRef: React.RefObject<HTMLHeadingElement | null>;
 };
 
+/** Las formas de búsqueda, como opciones numeradas de la pregunta del agente. */
+const SEARCH_TYPE_OPTIONS: readonly ChatQuestionOptionDetail[] = SEARCH_MODE_DEFINITIONS.map((def) => ({
+  value: def.mode,
+  label: def.label,
+  description: def.description,
+  ...(def.availability === 'coming_soon' ? { hint: 'Próximamente', unavailable: true } : {}),
+}));
+
 function SearchTypeStep({ state, dispatch, titleRef }: SearchTypeStepProps) {
   const comingSoonWarning = state.warnings.find((w) => w.code === 'MODE_COMING_SOON');
 
   return (
     <StepWrapper title="¿Qué tipo de prospectos quieres encontrar?" titleRef={titleRef}>
-      <div
-        className="space-y-3"
-        role="group"
+      {/* Una opción «Próximamente» se puede tocar: el reductor responde con el
+          aviso de abajo en vez de avanzar, que es como explica por qué no sirve. */}
+      <ChatQuestionCard
         aria-label="Tipo de búsqueda de prospectos"
-      >
-        {SEARCH_MODE_DEFINITIONS.map((def) => {
-          const isComingSoon = def.availability === 'coming_soon';
-          const isSelected = state.searchMode === def.mode;
-
-          const Icon =
-            def.mode === 'exploratory'
-              ? Building2
-              : def.mode === 'competitors'
-              ? Users
-              : Sparkles;
-
-          return (
-            <button
-              key={def.mode}
-              type="button"
-              onClick={() =>
-                dispatch({ type: 'SELECT_SEARCH_MODE', mode: def.mode })
-              }
-              aria-disabled={isComingSoon}
-              aria-pressed={isSelected}
-              className={[
-                'flex w-full items-start gap-3 rounded-xl border px-4 py-3.5 text-left transition-colors duration-200 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40',
-                // Design Refresh v13: 'coming_soon' claramente inerte — borde
-                // punteado, fondo muted y SIN hover (antes conservaba el hover
-                // azul de las activas y parecía clickeable).
-                isComingSoon
-                  ? 'cursor-default border-dashed border-border/60 bg-surface-subtle'
-                  : isSelected
-                  ? 'cursor-pointer border-primary bg-primary/5 ring-1 ring-primary/20'
-                  : 'cursor-pointer border-border/60 bg-card hover:border-primary/40 hover:bg-surface-muted',
-              ].join(' ')}
-            >
-              <div
-                className={[
-                  'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors',
-                  isSelected && !isComingSoon
-                    ? 'bg-primary/10'
-                    : isComingSoon
-                    ? 'bg-surface-muted'
-                    : 'bg-muted',
-                ].join(' ')}
-              >
-                <Icon
-                  className={[
-                    'h-4 w-4',
-                    isSelected && !isComingSoon
-                      ? 'text-primary'
-                      : isComingSoon
-                      ? 'text-text-muted'
-                      : 'text-muted-foreground',
-                  ].join(' ')}
-                  aria-hidden
-                />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span
-                    className={[
-                      'text-sm font-semibold',
-                      isComingSoon ? 'text-muted-foreground' : 'text-foreground',
-                    ].join(' ')}
-                  >
-                    {def.label}
-                  </span>
-                  {isComingSoon && (
-                    <Badge variant="neutral">
-                      <Clock aria-hidden />
-                      Próximamente
-                    </Badge>
-                  )}
-                </div>
-                <p
-                  className={[
-                    'mt-0.5 text-xs leading-relaxed text-muted-foreground',
-                  ].join(' ')}
-                >
-                  {def.description}
-                </p>
-              </div>
-            </button>
-          );
-        })}
-      </div>
+        question={{ options: SEARCH_TYPE_OPTIONS }}
+        selected={state.searchMode ?? undefined}
+        active
+        onAnswer={(mode) => {
+          const definition = SEARCH_MODE_DEFINITIONS.find((def) => def.mode === mode);
+          if (definition) dispatch({ type: 'SELECT_SEARCH_MODE', mode: definition.mode });
+        }}
+      />
 
       {comingSoonWarning && (
-        <div
-          role="status"
-          className="rounded-xl border border-warning/25 bg-warning/15 px-3 py-2.5 text-xs leading-relaxed text-warning"
-        >
-          Esta forma de búsqueda estará disponible próximamente. Por ahora puedes buscar empresas por criterios.
-        </div>
+        <Alert variant="warning" role="status">
+          <AlertDescription className="text-xs">
+            Esta forma de búsqueda estará disponible próximamente. Por ahora puedes buscar empresas por criterios.
+          </AlertDescription>
+        </Alert>
       )}
     </StepWrapper>
   );
@@ -457,6 +381,10 @@ function SubindustriesStep({
 // Gate: user first picks YES/NO. YES enables the composer (text_input mode);
 // NO skips directly to summary.
 
+const CRITERIA_YES = 'Sí, quiero agregar';
+const CRITERIA_NO = 'No, continuar';
+const CRITERIA_INTENTION_OPTIONS: readonly string[] = [CRITERIA_YES, CRITERIA_NO];
+
 type AdditionalCriteriaStepProps = {
   state: ProspectWizardState;
   dispatch: React.Dispatch<ProspectWizardAction>;
@@ -497,25 +425,15 @@ function AdditionalCriteriaStep({
 
       <StepBlockingIssues state={state} step="additional_criteria" />
 
-      <div className="flex flex-wrap gap-2">
-        <Button
-          type="button"
-          size="sm"
-          className="flex-1"
-          onClick={onIntentionYes}
-        >
-          Sí, quiero agregar
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="flex-1"
-          onClick={() => dispatch({ type: 'SKIP_ADDITIONAL_CRITERIA' })}
-        >
-          No, continuar
-        </Button>
-      </div>
+      <ChatQuestionCard
+        aria-label="¿Quieres agregar un criterio adicional?"
+        question={{ options: CRITERIA_INTENTION_OPTIONS }}
+        active
+        onAnswer={(answer) => {
+          if (answer === CRITERIA_YES) onIntentionYes();
+          else dispatch({ type: 'SKIP_ADDITIONAL_CRITERIA' });
+        }}
+      />
     </StepWrapper>
   );
 }
@@ -523,16 +441,5 @@ function AdditionalCriteriaStep({
 // ── Validating step ───────────────────────────────────────────────────────────
 
 function ValidatingStep() {
-  return (
-    <div
-      className="flex items-center gap-3 rounded-xl border border-border/60 bg-surface-subtle p-4"
-      role="status"
-      aria-live="polite"
-    >
-      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" aria-hidden />
-      <p className="text-sm text-foreground">
-        Estamos revisando la configuración…
-      </p>
-    </div>
-  );
+  return <ChatThinking label="Estamos revisando la configuración…" />;
 }

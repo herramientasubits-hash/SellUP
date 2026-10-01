@@ -1,11 +1,10 @@
-import { ScreenActionRail, ScreenActionRailProvider } from "@/components/action-rail";
+import { ListActionRailProvider } from "@/components/action-rail";
 import { DataTablePage } from '@/components/shared/data-table-page';
 import {
   CONTACTOS_MODULE_TITLE,
   CONTACTOS_TAB_DESCRIPTIONS,
 } from '@/components/contacts/contacts-module-copy';
-import { CreateContactDrawer } from '@/components/contacts/create-contact-drawer';
-import { ContactsEnrichmentCTA } from '@/components/contact-enrichment/contacts-enrichment-cta';
+import { ContactsScreenActions } from '@/components/contacts/contacts-screen-actions';
 import { ContactsModuleTabsNav } from '@/components/navigation/contacts-module-tabs-nav';
 import { ContactCandidatesDataTableClient } from '@/components/contact-enrichment/contact-candidates-data-table-client';
 import {
@@ -94,7 +93,7 @@ export async function ContactCandidatesPanel({
   // Los indicadores (alta relevancia, con email, con LinkedIn) los calcula la
   // tabla sobre estas mismas filas y los ofrece como filtros de un toque.
   return (
-    <ScreenActionRailProvider>
+    <ListActionRailProvider label="Acciones de contactos" gender="m">
     <DataTablePage
       compact
       title={CONTACTOS_MODULE_TITLE}
@@ -108,12 +107,7 @@ export async function ContactCandidatesPanel({
           counts={isDuplicateQueue ? undefined : { candidates: candidates.length }}
         />
       }
-      actions={
-        <ScreenActionRail label="Acciones de contactos">
-          <ContactsEnrichmentCTA />
-          <CreateContactDrawer accounts={accounts} triggerVariant="outline" />
-        </ScreenActionRail>
-      }
+      actions={<ContactsScreenActions accounts={accounts} />}
     >
       <ContactCandidatesDataTableClient
         candidates={candidates}
@@ -131,6 +125,6 @@ export async function ContactCandidatesPanel({
         phoneRevealWaterfallAuthorized={phoneRevealWaterfallAuthorized}
       />
     </DataTablePage>
-    </ScreenActionRailProvider>
+    </ListActionRailProvider>
   );
 }

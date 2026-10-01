@@ -87,8 +87,6 @@ const RAW_DATE = /\.toLocale(?:Date|Time)String\(/;
  * - `components/charts`: los gráficos pintan con colores ya resueltos.
  * - `components/ui`: los primitivos fijan su propia escala pequeña (11–13px) y
  *   sus capas, igual que en Thema; es el único sitio que importa el headless.
- * - `ai-orb.tsx` / `agent-chat-orb.tsx` / `import-loading-overlay.tsx`: la
- *   identidad de IA es un degradado decorativo propio; no es color de interfaz.
  * - `google-sign-in-button.tsx`: dibuja el logotipo de Google; una marca de
  *   terceros no puede repintarse con los tokens del tema.
  * - tests: fijan cadenas a propósito.
@@ -96,10 +94,7 @@ const RAW_DATE = /\.toLocale(?:Date|Time)String\(/;
 const TESTS = /(__tests__\/|\.test\.(ts|tsx|mts)$)/;
 const EDITORIAL = [/^src\/modules\/auth\/components\/login-brand-panel\.tsx$/];
 const AI_IDENTITY = [
-  /^src\/components\/prospect-batches\/chat-wizard\/ai-orb\.tsx$/,
-  /^src\/components\/agent-chat\/agent-chat-orb\.tsx$/,
   /^src\/modules\/auth\/components\/google-sign-in-button\.tsx$/,
-  /^src\/components\/prospect-batches\/import-loading-overlay\.tsx$/,
 ];
 const ALLOW = {
   headless: [/^src\/components\/ui\//, TESTS],

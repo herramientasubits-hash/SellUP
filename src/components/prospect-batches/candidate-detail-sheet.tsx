@@ -1,9 +1,6 @@
 'use client';
 
-import { formatAppDateTime, formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
-import { useRouter } from 'next/navigation';
-import { Button } from '@/components/ui/button';
 import { getCandidateLinkedInUrl, getCandidateLinkedInDisplay } from '@/modules/prospect-batches/candidate-linkedin-url';
 import {
   resolveLinkedInFieldDisplay,
@@ -13,70 +10,25 @@ import {
 // veredicto y si cuenta hacia el objetivo. El dato ya se persistía; faltaba
 // enseñarlo, y sin él una empresa AMBIGUA se leía como una empresa confirmada.
 import { resolveCandidateSubindustryStatus } from '@/modules/prospect-batches/candidate-subindustry-status-display';
-import {
-  Globe,
-  Link2,
-  ShieldCheck,
-  Building2,
-  MapPin,
-  AlertTriangle,
-  CheckCircle2,
-  XCircle,
-  ArrowRightCircle,
-  Sparkles,
-  Loader2,
-  RefreshCw,
-  Info,
-  Copy,
-  Target,
-  FileText,
-  Search,
-  ClipboardCheck,
-  Lightbulb,
-  Landmark,
-  Users,
-  Tag,
-  FileSearch,
-  Hash,
-  Layers,
-  ShieldAlert,
-  CircleDashed,
-  ListFilter,
-  Key,
-  Settings2,
-  Database,
-} from "@/icons";
-import type { TaxIdentifierLookupMetadata } from '@/server/prospect-batches/tax-identifier-lookup';
+import { ShieldCheck, Building2, MapPin, CheckCircle2, FileText, Tag } from '@/icons';
 import { DrawerShell } from '@/components/shared/drawer-shell';
-import { ModalShell } from '@/components/shared/modal-shell';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { DrawerSection } from '@/components/shared/drawer-section';
+import { DetailItem, DetailList } from '@/components/shared/detail-list';
 import { CollapsibleDrawerSection } from '@/components/shared/collapsible-drawer-section';
 import { CandidateDetailSummary, describePendingEvaluation } from './candidate-detail-summary';
-import { EmptyState } from '@/components/ui/empty-state';
-import { Spinner } from '@/components/feedback/spinner';
 import { Badge } from '@/components/ui/badge';
-import {
-  hasOwnershipUnverifiedFlag,
-  OWNERSHIP_UNVERIFIED_DETAIL,
-  OWNERSHIP_UNVERIFIED_LABEL,
-} from '@/modules/prospect-batches/ownership-review-flag';
-import {
-  IMPORT_REVIEW_FLAG_LABELS,
-  readImportReviewFlags,
-} from '@/modules/prospect-batches/import-review-flags';
+import { CandidateDetailBanners } from './candidate-detail-banners';
 import {
   CANDIDATE_STATUS_LABELS,
-  DUPLICATE_STATUS_LABELS,
   REVIEW_STATUS_LABELS,
   REVIEW_STATUS_STYLES,
-  CRITICAL_REVIEW_FLAG_LABELS,
   STRUCTURED_SOURCE_LABELS,
   VENDOR_CANDIDATE_SOURCE_LABELS,
   isStructuredCandidate,
   parseDuplicateCheck,
   type ProspectCandidateWithReviewer,
   type ReviewStatus,
-  type DuplicateMatch,
 } from '@/modules/prospect-batches/types';
 import type { PeruSunatEnrichmentBlock } from '@/server/prospect-batches/peru-sunat-post-approval-enrichment';
 import { PeruSunatLegalValidationBlock } from './peru-sunat-legal-validation-block';
@@ -84,357 +36,46 @@ import { ClaudeClassificationBlock } from './claude-classification-block';
 import { readClaudeClassificationDisplay } from './claude-classification-display';
 import type { PeMigoApiEnrichmentBlock } from '@/server/prospect-batches/peru-migo-legal-enrichment';
 import { PeruMigoLegalValidationBlock } from './peru-migo-legal-validation-block';
-import { getIcpSizeGateUiState } from './icp-size-gate-ui';
 import { ReviewStatusInfo } from '@/components/prospects/review-status-info';
 import { ProspectReviewActions } from '@/components/prospects/prospect-review-actions';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-
-interface HubSpotSyncAudit {
-  status: string;
-  company_id?: string | null;
-  sent_property_keys?: string[] | null;
-  sent_properties_audit?: Record<string, unknown> | null;
-  skipped_properties?: string[] | null;
-  blocked_reason?: string | null;
-  owner_mapping_status?: string | null;
-  synced_at?: string | null;
-  owner_assigned?: boolean | null;
-  owner_id?: string | null;
-  owner_email?: string | null;
-  account_executive_assigned?: boolean | null;
-  account_executive_property?: string | null;
-  account_executive_value?: string | null;
-  lifecyclestage_sent?: string | null;
-  properties_sent?: Record<string, string> | null;
-  properties_skipped?: string[] | null;
-  warnings?: string[] | null;
-}
-
-interface SheetQualityCheck {
-  has_website?: boolean;
-  has_linkedin?: boolean;
-  import_confidence?: string;
-  has_tax_identifier?: boolean;
-  warnings?: string[];
-  missing_fields?: string[];
-}
-
-interface SheetDuplicateCheck {
-  status?: string;
-  matched_account_id?: string | null;
-  matched_candidate_id?: string | null;
-  matched_name?: string | null;
-  matched_domain?: string | null;
-  matched_website?: string | null;
-  matched_country_code?: string | null;
-  matched_tax_identifier?: string | null;
-  matched_source?: string | null;
-  matched_status?: string | null;
-  matched_by?: string | null;
-  confidence?: number;
-}
-
-interface SheetHubSpotCheck {
-  status?: string;
-  matched_company_id?: string | null;
-  matched_company_name?: string | null;
-  matched_domain?: string | null;
-  matched_website?: string | null;
-  matched_phone?: string | null;
-  matched_country?: string | null;
-  matched_city?: string | null;
-  matched_state?: string | null;
-  matched_address?: string | null;
-  matched_industry?: string | null;
-  matched_macro_industry?: string | null;
-  matched_lifecycle_stage?: string | null;
-  matched_lead_status?: string | null;
-  matched_owner_id?: string | null;
-  matched_number_of_employees?: string | null;
-  matched_description?: string | null;
-  matched_linkedin_url?: string | null;
-  matched_linkedin_bio?: string | null;
-  matched_tax_identifier?: string | null;
-  matched_createdate?: string | null;
-  matched_lastmodifieddate?: string | null;
-  matched_by?: string | null;
-  confidence?: number;
-  hubspot_url?: string | null;
-}
-
-interface SheetNormalizedKeys {
-  normalized_name?: string;
-  normalized_domain?: string | null;
-  normalized_tax_identifier?: string | null;
-  normalized_linkedin_url?: string | null;
-  country_code?: string | null;
-}
-
-interface SheetValidationMetadata {
-  validation_source?: string;
-  sellup_duplicate_check?: SheetDuplicateCheck;
-  hubspot_duplicate_check?: SheetHubSpotCheck;
-  normalized_keys?: SheetNormalizedKeys;
-  quality_check?: SheetQualityCheck;
-  validated_at?: string;
-}
-
-interface SheetImportMetadata {
-  confidence?: string;
-  company_size?: string;
-  source_url?: string;
-  source_evidence?: string;
-  linkedin_url?: string | null;
-}
-
-interface SheetCandidateMetadata {
-  validation?: SheetValidationMetadata;
-  import?: SheetImportMetadata;
-  source_url?: string;
-}
-
-// ── Helpers de presentación ────────────────────────────────────
-
-function val(v: string | null | undefined, fallback = 'Sin dato'): string {
-  if (v === null || v === undefined || v === '') return fallback;
-  return v;
-}
-
-function getFlagEmoji(code: string) {
-  const offset = 0x1f1e6 - 'A'.charCodeAt(0);
-  return [...code.toUpperCase()]
-    .map((c) => String.fromCodePoint(c.charCodeAt(0) + offset))
-    .join('');
-}
-
-function extractDomainFromUrl(url: string | null | undefined): string | null {
-  if (!url) return null;
-  try {
-    const normalized = url.startsWith('http') ? url : `https://${url}`;
-    const { hostname } = new URL(normalized);
-    return hostname.replace(/^www\./, '').toLowerCase();
-  } catch {
-    return null;
-  }
-}
-
-const DIRECTORY_DOMAINS = new Set([
-  'registronit.com',
-  'informacolombia.com',
-  'datacreditoempresas.com.co',
-  'einforma.co',
-  'empresite.eleconomistaamerica.co',
-  'empresite.com',
-  'paginasamarillas.com.co',
-  'procolombia.co',
-  'linkedin.com',
-  'facebook.com',
-  'instagram.com',
-  'x.com',
-  'twitter.com',
-  'google.com',
-  'gmail.com',
-  'youtube.com',
-  'wikipedia.org',
-]);
-
-const DIRECTORY_KEYWORDS = [
-  'paginasamarillas',
-  'paginas-amarillas',
-  'kompass',
-  'opencorporates',
-  'zoominfo',
-  'clutch.co',
-  'crunchbase',
-  'emis.com',
-  'empresite',
-  'registronit',
-  'informacolombia',
-  'datacreditoempresas',
-  'einforma',
-  'datospymes',
-  'directorioempresas',
-  'buscaempresas',
-  'rues.gov',
-  'rues.org',
-  'colombiacompra',
-  'secop',
-  'procolombia',
-  'b2bmarketplace',
-];
-
-function getTaxIdLabel(countryCode: string | null | undefined): string {
-  switch (countryCode?.toUpperCase()) {
-    case 'CO': return 'NIT';
-    case 'MX': return 'RFC';
-    case 'CL': return 'RUT';
-    case 'PE': return 'RUC';
-    case 'EC': return 'RUC';
-    default:   return 'identificador fiscal';
-  }
-}
-
-function isDirectoryOrThirdPartyDomain(url: string | null | undefined): boolean {
-  const domain = extractDomainFromUrl(url);
-  if (!domain) return false;
-  if (DIRECTORY_DOMAINS.has(domain)) return true;
-  if (DIRECTORY_KEYWORDS.some((k) => domain.includes(k))) return true;
-  // Government institutional domains — never a commercial company website
-  if (/\.gov\.co$/.test(domain) || domain === 'gov.co') return true;
-  if (/\.gov\.cl$/.test(domain) || domain === 'gov.cl') return true;
-  return false;
-}
-
-// ── Sub-componentes ────────────────────────────────────────────
-
-function Field({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: React.ReactNode;
-  mono?: boolean;
-}) {
-  return (
-    <div className="min-w-0 space-y-0.5">
-      <dt className="truncate text-xs text-muted-foreground">{label}</dt>
-      <dd className={`text-sm ${mono ? 'font-mono' : ''} text-foreground leading-snug break-words`}>
-        {value}
-      </dd>
-    </div>
-  );
-}
-
-// Pares etiqueta/valor como lista de definiciones: dos columnas que colapsan a
-// una en móvil. Todo `Field` vive dentro de un `FieldGrid`.
-function FieldGrid({ children }: { children: React.ReactNode }) {
-  return <dl className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">{children}</dl>;
-}
-
-function Divider() {
-  return <div className="border-t border-border/50 my-4" />;
-}
-
-function MissingText({ text }: { text: string }) {
-  return <span className="text-text-muted italic">{text}</span>;
-}
-
-function InfoTooltip({ content }: { content: string | React.ReactNode }) {
-  return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <button
-              type="button"
-              aria-label="Más información"
-              className="ml-1 inline-flex shrink-0 cursor-help items-center rounded-sm p-0.5 align-middle text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-            >
-              <Info className="h-3.5 w-3.5" aria-hidden="true" />
-            </button>
-          }
-        />
-        <TooltipContent className="max-w-xs text-xs leading-relaxed bg-popover text-popover-foreground border border-border p-2 rounded shadow-drawer z-[70]">
-          {content}
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  );
-}
-
-function CopyButton({ value }: { value: string }) {
-  const [copied, setCopied] = React.useState(false);
-  const handleCopy = () => {
-    navigator.clipboard.writeText(value);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-  return (
-    <Button
-      variant="ghost"
-      size="xs"
-      className="px-1.5 text-muted-foreground hover:text-muted-foreground ml-1.5 gap-1 shrink-0 inline-flex items-center"
-      onClick={handleCopy}
-      type="button">
-      {copied ? (
-        <span className="text-success font-medium">¡Copiado!</span>
-      ) : (
-        <>
-          <Copy className="h-2.5 w-2.5" />
-          <span>Copiar</span>
-        </>
-      )}
-    </Button>
-  );
-}
-
-function classifyRisk(riskText: string): 'critical' | 'high' | 'medium' | 'low' {
-  const text = riskText.toLowerCase();
-  if (
-    text.includes('liquidación') ||
-    text.includes('liquidation') ||
-    text.includes('quiebra') ||
-    text.includes('inactivo') ||
-    text.includes('demanda') ||
-    text.includes('fraude') ||
-    text.includes('embargo')
-  ) {
-    return 'critical';
-  }
-  if (
-    text.includes('alto') ||
-    text.includes('high') ||
-    text.includes('conflicto') ||
-    text.includes('inconsistencia') ||
-    text.includes('deuda')
-  ) {
-    return 'high';
-  }
-  if (
-    text.includes('medio') ||
-    text.includes('medium') ||
-    text.includes('riesgo') ||
-    text.includes('advertencia') ||
-    text.includes('warning')
-  ) {
-    return 'medium';
-  }
-  return 'low';
-}
-
-const SOURCE_LABELS: Record<string, string> = {
-  sellup: 'SellUp',
-  hubspot: 'HubSpot',
-};
-
-function DuplicateMatchCard({ match }: { match: DuplicateMatch }) {
-  return (
-    <div className="rounded-lg border border-border/60 bg-surface-subtle p-2.5 space-y-1">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-semibold text-foreground">
-          {SOURCE_LABELS[match.source] ?? match.source}
-        </span>
-        {match.confidence !== null && (
-          <span className="text-xs text-muted-foreground tabular-nums">
-            Conf: {match.confidence}%
-          </span>
-        )}
-      </div>
-      {match.matched_name && (
-        <p className="text-sm text-foreground break-words">{match.matched_name}</p>
-      )}
-      {match.matched_domain && (
-        <p className="text-xs text-muted-foreground break-all">{match.matched_domain}</p>
-      )}
-      {match.reason && (
-        <p className="text-xs text-muted-foreground italic break-words">{match.reason}</p>
-      )}
-    </div>
-  );
-}
+import {
+  extractDomainFromUrl,
+  isDirectoryOrThirdPartyDomain,
+  sanitizeTextForChile,
+  type SheetCandidateMetadata,
+} from './candidate-detail-helpers';
+import {
+  CandidateConversionSection,
+  CandidateFitAnalysisSection,
+  CandidateFoundReasonSection,
+  CandidateOpportunitySections,
+  CandidateRecommendedDecisionSection,
+} from './candidate-detail-insight-sections';
+import {
+  CandidateCommercialDataSection,
+  CandidateIcpSizeSection,
+  CandidateOfficialDataSection,
+  CandidatePublicEvidenceSection,
+} from './candidate-detail-company-sections';
+import {
+  CandidateTaxIdConfirmDialog,
+  CandidateTaxIdSection,
+  useCandidateTaxIdLookup,
+} from './candidate-detail-tax-id-section';
+import {
+  CandidateDuplicateMatchesSections,
+  CandidateDuplicateStatusSection,
+} from './candidate-detail-duplicate-sections';
+import {
+  CandidateCountryEvidenceSection,
+  CandidateMissingFieldsSection,
+  CandidateReviewReasonsSection,
+  CandidateRisksSection,
+  CandidateTechnicalDetailSection,
+  CandidateValidationDataSection,
+  CandidateWebsiteVerificationSection,
+} from './candidate-detail-validation-sections';
 
 // ── Componente principal ───────────────────────────────────────
 
@@ -484,38 +125,14 @@ export function CandidateDetailSheet({
   initialDuplicateIntent = false,
   onDuplicateIntentConsumed,
 }: CandidateDetailSheetProps) {
-  const router = useRouter();
 
-  const [isLookingUpTaxId, setIsLookingUpTaxId] = React.useState(false);
-  const [taxIdLookupError, setTaxIdLookupError] = React.useState<string | null>(null);
-  const [taxIdLookupResult, setTaxIdLookupResult] = React.useState<TaxIdentifierLookupMetadata | null>(null);
-
-  const [isApprovingTaxId, setIsApprovingTaxId] = React.useState(false);
-  const [approveTaxIdError, setApproveTaxIdError] = React.useState<string | null>(null);
-
-
-  const [confirmDialogData, setConfirmDialogData] = React.useState<{
-    taxIdentifier: string;
-    sourceName: string;
-    sourceUrl: string | null;
-    legalName?: string | null;
-    confidence?: string;
-  } | null>(null);
-
+  const taxIdLookupState = useCandidateTaxIdLookup(candidate, onCandidateUpdated);
   const [activeTab, setActiveTab] = React.useState<string>('empresa');
-  const [showAllNeeds, setShowAllNeeds] = React.useState(false);
-  const [showAllAngles, setShowAllAngles] = React.useState(false);
 
   // Rationale: resets transient UI state when the selected candidate changes.
   // Depends on a stable primitive (candidate.id); no cascading render risk.
   /* eslint-disable react-hooks/set-state-in-effect */
   React.useEffect(() => {
-    setIsLookingUpTaxId(false);
-    setTaxIdLookupError(null);
-    setTaxIdLookupResult(null);
-    setIsApprovingTaxId(false);
-    setApproveTaxIdError(null);
-    setConfirmDialogData(null);
     // Row menu / context menu / selection bar "Aprobar" or "Descartar" lands
     // directly on Validación so the reviewer sees the status context next to
     // the action.
@@ -524,73 +141,9 @@ export function CandidateDetailSheet({
         ? 'validacion'
         : 'empresa',
     );
-    setShowAllNeeds(false);
-    setShowAllAngles(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [candidate?.id]);
   /* eslint-enable react-hooks/set-state-in-effect */
-
-  const handleLookupTaxIdentifier = async () => {
-    if (!candidate) return;
-    setIsLookingUpTaxId(true);
-    setTaxIdLookupError(null);
-    try {
-      const response = await fetch('/api/prospect-candidates/lookup-tax-identifier', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ candidateId: candidate.id }),
-      });
-      const data = await response.json();
-      if (!response.ok || !data.success) {
-        setTaxIdLookupError(data.message || 'Error al buscar identificador fiscal');
-      } else {
-        setTaxIdLookupResult(data.lookup);
-        router.refresh();
-      }
-    } catch (err) {
-      setTaxIdLookupError(err instanceof Error ? err.message : 'Error de red');
-    } finally {
-      setIsLookingUpTaxId(false);
-    }
-  };
-
-  const handleApproveTaxIdentifier = async (
-    taxIdentifier: string,
-    sourceName: string,
-    sourceUrl: string | null
-  ) => {
-    if (!candidate) return;
-
-    setIsApprovingTaxId(true);
-    setApproveTaxIdError(null);
-    try {
-      const response = await fetch('/api/prospect-candidates/approve-tax-identifier', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          candidateId: candidate.id,
-          taxIdentifier,
-          sourceName,
-          sourceUrl,
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok || !data.success) {
-        setApproveTaxIdError(data.error || 'Error al guardar el identificador fiscal');
-      } else {
-        const updated = data.candidate as ProspectCandidateWithReviewer;
-        if (onCandidateUpdated) {
-          onCandidateUpdated(updated);
-        }
-        setConfirmDialogData(null);
-        router.refresh();
-      }
-    } catch (err) {
-      setApproveTaxIdError(err instanceof Error ? err.message : 'Error de red');
-    } finally {
-      setIsApprovingTaxId(false);
-    }
-  };
 
   // TAREA 4 — Chile website verification check client-side (called unconditionally before early return)
   const isValidChileWebsite = React.useMemo(() => {
@@ -625,9 +178,6 @@ export function CandidateDetailSheet({
   ) : false;
   const dc = candidate ? parseDuplicateCheck(candidate.metadata) : null;
   const enrichment = candidate?.metadata?.enrichment as Record<string, unknown> | undefined;
-  // 16TX.1: tax identifier lookup result — prefer in-memory state (fresh lookup), fallback to persisted metadata
-  const taxIdLookup = candidate ? ((taxIdLookupResult ??
-    (candidate.metadata?.tax_identifier_lookup as TaxIdentifierLookupMetadata | undefined)) ?? null) : null;
   // 16AK.16C: read from enrichment.ai_evaluation (structured path), fallback to legacy top-level
   const aiEval = candidate ? ((enrichment?.ai_evaluation as Record<string, unknown> | undefined)
     ?? (candidate.metadata?.ai_evaluation as Record<string, unknown> | undefined)) : undefined;
@@ -650,7 +200,6 @@ export function CandidateDetailSheet({
     : null;
 
   const flags = candidate ? ((candidate.review_flags as string[] | null) ?? []) : [];
-  const dcSources = dc?.sources_checked ?? [];
   const dcMatches = dc?.matches ?? [];
 
   // AI eval fields
@@ -665,7 +214,6 @@ export function CandidateDetailSheet({
   const risks = (aiEval?.risks as string[] | undefined) ?? [];
   const missingFields = (aiEval?.missing_fields as string[] | undefined) ?? [];
   const aiSummary = (aiEval?.summary as string | undefined) ?? null;
-  const evidenceUsed = (aiEval?.evidence_used as string[] | undefined) ?? [];
   const hasAiEval = fitStatus !== null || fitScore !== null || aiSummary !== null;
 
   // Agent 1 evidence fields — v1.9
@@ -676,20 +224,10 @@ export function CandidateDetailSheet({
   const websiteVerification = candidate?.metadata?.website_verification as Record<string, unknown> | undefined;
   const scoringMeta = candidate?.metadata?.scoring as Record<string, unknown> | undefined;
 
-  const sortedRisks = React.useMemo(() => {
-    if (!risks) return [];
-    const severityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
-    return [...risks].sort((a, b) => {
-      const severityOrderMap: Record<string, number> = severityOrder;
-      return severityOrderMap[classifyRisk(a)] - severityOrderMap[classifyRisk(b)];
-    });
-  }, [risks]);
 
   if (!candidate) return null;
 
   // AI eval skip reason (16AK.16C)
-  const aiEvalStatus = (aiEval?.status as string | undefined) ?? null;
-  const aiEvalSkipReason = (aiEval?.reason as string | undefined) ?? null;
 
   // Enrichment fields — 16AK.13B: structured web sub-object with backward compat
   const webEnrichment = enrichment?.web as Record<string, unknown> | undefined;
@@ -752,7 +290,6 @@ export function CandidateDetailSheet({
       return nli && nli.includes('/company/') ? nli : null;
     })() ??
     null;
-  const hasLinkedinSignal = importMeta?.validation?.quality_check?.has_linkedin === true;
   // v1.16K-R-E: additional fallback from linkedin_enrichment / rich_profile
   const tavilyLinkedinUrl = getCandidateLinkedInUrl(candidate?.metadata);
   const effectiveLinkedinUrl = linkedinUrl ?? (isExternalImport ? importLinkedinUrl : null) ?? tavilyLinkedinUrl;
@@ -768,20 +305,6 @@ export function CandidateDetailSheet({
   const sellupDupStatus = validationMetaSheet?.sellup_duplicate_check?.status;
   const hsDupStatus = validationMetaSheet?.hubspot_duplicate_check?.status;
   const isAutoValidated = isExternalImport && !!validationMetaSheet;
-  const hasDuplicateSignalInValidation =
-    sellupDupStatus === 'duplicate' ||
-    sellupDupStatus === 'possible_duplicate' ||
-    hsDupStatus === 'match' ||
-    hsDupStatus === 'possible_match';
-
-  // Chile official data from source_trace
-  const chileSourceParams = isChileOfficialCandidate
-    ? (candidate.source_trace?.queryParams as Record<string, unknown> | undefined)
-    : null;
-  const chileCapital = chileSourceParams?.capitalAmount as number | null | undefined;
-  const chileCapitalCurrency = (chileSourceParams?.capitalCurrency as string | undefined) ?? 'CLP';
-  const chileIncorporationDate = chileSourceParams?.incorporationDate as string | null | undefined;
-  const chileCompanyType = chileSourceParams?.companyType as string | null | undefined;
 
 
   const publicDescription =
@@ -809,12 +332,6 @@ export function CandidateDetailSheet({
 
   const showAiEvaluation = hasAiEval && hasStrongEvidenceChile;
 
-  const sanitizeTextForChile = (text: string) => {
-    if (!text) return text;
-    return text
-      .replace(/\bRUES\b/g, 'RES Chile')
-      .replace(/sector Tecnología confirmado/gi, 'criterio solicitado Tecnología');
-  };
 
   // Prepara la evidencia pública sumando la web física si es un directorio (caso legacy)
   const displayedPublicEvidence = [...publicEvidenceItems];
@@ -858,20 +375,6 @@ export function CandidateDetailSheet({
     (enrichment?.sector_code as string | undefined) ??
     null;
 
-  const FIT_STATUS_LABELS: Record<string, string> = {
-    high: 'Encaje alto',
-    medium: 'Encaje medio',
-    low: 'Encaje bajo',
-    unknown: 'Evaluación no disponible',
-    high_fit: 'Encaje alto',
-    good_fit: 'Buen encaje',
-    medium_fit: 'Encaje medio',
-    low_fit: 'Encaje bajo',
-    needs_manual_review: 'Requiere revisión humana',
-    insufficient_evidence: 'Evaluación no disponible por falta de evidencia pública confiable',
-    tax_identifier_conflict: 'Evaluación pausada por NIT inconsistente',
-  };
-
   // ── Resumen de cabecera y de las secciones plegables ──────────
   // Una sección plegada no es una fila muda: adelanta lo que contiene.
   const completenessPct =
@@ -891,71 +394,6 @@ export function CandidateDetailSheet({
     hasSize: Boolean(employeeCount),
   });
 
-  const taxIdLabel = getTaxIdLabel(candidate.country_code);
-
-  const officialDataSummary = [
-    candidate.legal_name ?? candidate.name,
-    candidate.tax_identifier
-      ? `${candidate.tax_identifier_type ?? taxIdLabel} ${candidate.tax_identifier}`
-      : 'sin identificador fiscal',
-    [candidate.city, candidate.country ?? candidate.country_code].filter(Boolean).join(', ') || null,
-  ]
-    .filter(Boolean)
-    .join(' · ');
-
-  const commercialSummary = [
-    hasOfficialWebsite && candidate.website
-      ? (candidate.domain ?? extractDomainFromUrl(candidate.website) ?? candidate.website)
-      : 'sin sitio web oficial',
-    effectiveLinkedinUrl ? 'con LinkedIn' : suggestedLinkedinDisplay ? 'LinkedIn sugerido' : 'sin LinkedIn',
-    employeeCountFieldDisplay.value !== null
-      ? `${employeeCountFieldDisplay.value.toLocaleString('es-CO')} empleados`
-      : employeeCount
-        ? `${employeeCount} empleados`
-        : 'sin tamaño',
-  ].join(' · ');
-
-  const hasTaxIdSuggestion = !candidate.tax_identifier && Boolean(taxIdLookup?.best_candidate);
-  const taxIdSummary = candidate.tax_identifier
-    ? `${candidate.tax_identifier} · validado`
-    : isLookingUpTaxId || taxIdLookup?.status === 'searching'
-      ? 'Buscando…'
-      : hasTaxIdSuggestion
-        ? 'Hay uno sugerido: revísalo antes de aprobar'
-        : taxIdLookup?.status === 'failed'
-          ? 'La búsqueda no se pudo completar'
-          : taxIdLookup?.status === 'no_result' || taxIdLookup?.status === 'completed'
-            ? 'No se encontró uno confiable'
-            : 'Sin identificador todavía';
-
-  const riskCounts = sortedRisks.reduce<Record<string, number>>((counts, risk) => {
-    const severity = classifyRisk(risk);
-    return { ...counts, [severity]: (counts[severity] ?? 0) + 1 };
-  }, {});
-  const riskSummary = (
-    [
-      ['critical', 'crítico', 'críticos'],
-      ['high', 'alto', 'altos'],
-      ['medium', 'medio', 'medios'],
-      ['low', 'bajo', 'bajos'],
-    ] as const
-  )
-    .filter(([severity]) => (riskCounts[severity] ?? 0) > 0)
-    .map(([severity, singular, plural]) => `${riskCounts[severity]} ${riskCounts[severity] === 1 ? singular : plural}`)
-    .join(' · ');
-  const hasSeriousRisk = (riskCounts.critical ?? 0) > 0 || (riskCounts.high ?? 0) > 0;
-
-  const SOURCE_TYPE_LABELS: Record<string, string> = {
-    commercial_directory: 'Directorio comercial',
-    public_registry: 'Registro público',
-    chamber_of_commerce: 'Cámara de comercio',
-    directory: 'Directorio',
-    registry: 'Registro',
-    news: 'Noticia / Prensa',
-    social: 'Red social',
-    linkedin_company: 'LinkedIn',
-    official_website: 'Sitio web oficial',
-  };
 
   return (
     <>
@@ -1037,52 +475,7 @@ export function CandidateDetailSheet({
           {/* Tab 1: Empresa */}
           <TabsContent value="empresa" className="flex-1 overflow-y-auto px-7 py-6 min-h-0 space-y-4">
             {/* Banners de advertencia */}
-            {flags.includes('limited_public_data') && (
-              <div className="rounded-xl border border-info/20 bg-info/10 px-4 py-3 text-xs text-info">
-                Datos comerciales públicos limitados. Puedes revisarlo con la información oficial disponible.
-              </div>
-            )}
-            {hasNitConflict && (
-              <div className="rounded-xl border border-warning/20 bg-warning/10 px-4 py-3 text-xs text-warning flex items-start gap-2">
-                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                <span>NIT inconsistente detectado en evidencia web. Verificar datos antes de aprobar.</span>
-              </div>
-            )}
-            {flags.includes('liquidation_signal') && (
-              <div className="rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-xs text-destructive flex items-start gap-2">
-                <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                <span>Esta empresa presenta una señal crítica de liquidación o cese de operaciones.</span>
-              </div>
-            )}
-            {/*
-              🔴 VISIBILIDAD DE OWNERSHIP (opción C) — ámbar, no destructivo, y a
-              propósito: esto NO afirma que el dominio sea incorrecto. Afirma que
-              no se pudo verificar la relación, que es una pregunta sin responder
-              y no un rechazo.
-            */}
-            {hasOwnershipUnverifiedFlag(flags) && (
-              <div
-                data-testid="ownership-unverified-banner"
-                className="rounded-xl border border-warning/20 bg-warning/10 px-4 py-3 text-xs text-warning flex items-start gap-2"
-              >
-                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                <span>
-                  <strong className="font-semibold">{OWNERSHIP_UNVERIFIED_LABEL}.</strong>{' '}
-                  {OWNERSHIP_UNVERIFIED_DETAIL}
-                </span>
-              </div>
-            )}
-            {/* AGENT1-IMPORT-PARITY-3 — avisos de la importación: revisar, no rechazo. */}
-            {readImportReviewFlags(flags).map((flag) => (
-              <div
-                key={flag}
-                data-testid={`import-review-flag-${flag}`}
-                className="rounded-xl border border-warning/20 bg-warning/10 px-4 py-3 text-xs text-warning flex items-start gap-2"
-              >
-                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                <span>{IMPORT_REVIEW_FLAG_LABELS[flag]}</span>
-              </div>
-            ))}
+            <CandidateDetailBanners flags={flags} hasNitConflict={hasNitConflict} />
 
             {/* Resumen: lo que hay evaluado o, si no hay nada, qué falta para evaluarlo */}
             <CandidateDetailSummary
@@ -1102,414 +495,42 @@ export function CandidateDetailSheet({
 
             {/* Por qué fue encontrado */}
             {!!(searchTrace ?? sourceTitle ?? sourceSnippet) && (
-              <DrawerSection title="Por qué fue encontrado" icon={Search}>
-                <div className="space-y-3">
-                  <dl className="space-y-3">
-                    {!!searchTrace?.query_text && (
-                      <div className="min-w-0 space-y-1">
-                        <dt className="text-xs text-muted-foreground">Consulta de búsqueda</dt>
-                        <dd className="text-xs text-foreground leading-snug font-mono break-words bg-surface-subtle rounded-md px-2.5 py-1.5">
-                          {String(searchTrace.query_text)}
-                        </dd>
-                      </div>
-                    )}
-                    {sourceTitle && (
-                      <div className="min-w-0 space-y-0.5">
-                        <dt className="text-xs text-muted-foreground">Título encontrado</dt>
-                        <dd className="text-sm text-foreground leading-snug break-words">{sourceTitle}</dd>
-                      </div>
-                    )}
-                    {sourceSnippet && (
-                      <div className="min-w-0 space-y-0.5">
-                        <dt className="text-xs text-muted-foreground">Fragmento</dt>
-                        <dd className="text-sm text-muted-foreground leading-relaxed italic break-words">&ldquo;{sourceSnippet}&rdquo;</dd>
-                      </div>
-                    )}
-                  </dl>
-                  {!!searchTrace && (
-                    <dl className="grid grid-cols-3 gap-2 border-t border-border/50 pt-3">
-                      {searchTrace.round_number !== undefined && (
-                        <div className="min-w-0 space-y-0.5">
-                          <dt className="text-xs text-muted-foreground">Ronda</dt>
-                          <dd className="text-sm text-foreground tabular-nums">#{String(searchTrace.round_number)}</dd>
-                        </div>
-                      )}
-                      {searchTrace.provider_rank !== undefined && (
-                        <div className="min-w-0 space-y-0.5">
-                          <dt className="text-xs text-muted-foreground">Ranking</dt>
-                          <dd className="text-sm text-foreground tabular-nums">#{String(searchTrace.provider_rank)}</dd>
-                        </div>
-                      )}
-                      {!!searchTrace.query_type && (
-                        <div className="min-w-0 space-y-0.5">
-                          <dt className="text-xs text-muted-foreground">Tipo</dt>
-                          <dd className="text-sm text-foreground capitalize break-words">{String(searchTrace.query_type)}</dd>
-                        </div>
-                      )}
-                    </dl>
-                  )}
-                </div>
-              </DrawerSection>
+              <CandidateFoundReasonSection
+                searchTrace={searchTrace}
+                sourceTitle={sourceTitle}
+                sourceSnippet={sourceSnippet}
+              />
             )}
 
             {/* Decisión recomendada */}
             {!!scoringMeta?.recommended_action && (
-              <DrawerSection title="Decisión recomendada" icon={ClipboardCheck}>
-                {(() => {
-                  const action = scoringMeta.recommended_action as string;
-                  const actionLabels: Record<string, string> = {
-                    review_manually: 'Revisar manualmente',
-                    approve: 'Aprobar',
-                    discard: 'Descartar',
-                    needs_enrichment: 'Enriquecer antes de decidir',
-                  };
-                  const actionVariants: Record<string, 'warning' | 'positive' | 'negative' | 'info'> = {
-                    review_manually: 'warning',
-                    approve: 'positive',
-                    discard: 'negative',
-                    needs_enrichment: 'info',
-                  };
-                  const label = actionLabels[action] ?? action;
-                  const actionVariant = actionVariants[action] ?? 'neutral';
-
-                  const fitScoreVal = candidate.fit_score ?? null;
-                  const confidenceVal = candidate.confidence_score ?? null;
-                  const completenessVal = candidate.data_completeness_score ?? null;
-
-                  let reason = '';
-                  if (action === 'review_manually') {
-                    if (fitScoreVal !== null && fitScoreVal >= 70) {
-                      reason = 'Candidato con buen encaje preliminar. Validar datos faltantes antes de aprobar.';
-                    } else if (fitScoreVal !== null && fitScoreVal >= 50) {
-                      reason = 'Candidato con señales comerciales relevantes. Requiere enriquecimiento antes de aprobar.';
-                    } else {
-                      reason = 'Candidato requiere revisión. Tiene algunas señales útiles, pero aún falta validar encaje comercial, tamaño y datos clave.';
-                    }
-                  } else if (action === 'approve') {
-                    reason = 'El candidato cumple con los criterios de calidad para ser aprobado.';
-                  } else if (action === 'discard') {
-                    reason = 'El candidato no cumple con los criterios mínimos de calidad.';
-                  } else if (action === 'needs_enrichment') {
-                    reason = 'Se necesita información adicional antes de tomar una decisión.';
-                  }
-
-                  return (
-                    <div className="space-y-3">
-                      <Badge variant={actionVariant}>{label}</Badge>
-                      {reason && (
-                        <p className="text-sm text-muted-foreground leading-relaxed">{reason}</p>
-                      )}
-                      {(fitScoreVal !== null || confidenceVal !== null || completenessVal !== null) && (
-                        <dl className="grid grid-cols-3 gap-2 border-t border-border/50 pt-3">
-                          {fitScoreVal !== null && (
-                            <div className="min-w-0 space-y-0.5">
-                              <dt className="text-xs text-muted-foreground">Encaje</dt>
-                              <dd className="text-sm font-semibold text-foreground tabular-nums">{fitScoreVal}/100</dd>
-                            </div>
-                          )}
-                          {confidenceVal !== null && (
-                            <div className="min-w-0 space-y-0.5">
-                              <dt className="text-xs text-muted-foreground">Confianza</dt>
-                              <dd className="text-sm font-semibold text-foreground tabular-nums">{confidenceVal}%</dd>
-                            </div>
-                          )}
-                          {completenessVal !== null && (
-                            <div className="min-w-0 space-y-0.5">
-                              <dt className="text-xs text-muted-foreground">Completitud</dt>
-                              <dd className="text-sm font-semibold text-foreground tabular-nums">{completenessVal}%</dd>
-                            </div>
-                          )}
-                        </dl>
-                      )}
-                    </div>
-                  );
-                })()}
-              </DrawerSection>
+              <CandidateRecommendedDecisionSection candidate={candidate} scoringMeta={scoringMeta} />
             )}
 
             {/* Conversión y HubSpot Sync */}
             {candidate.status === 'converted_to_account' && candidate.converted_account_id && (
-              <DrawerSection title="Conversión a cuenta" icon={ArrowRightCircle}>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className="rounded-xl border border-primary/20 bg-primary/10 px-3 py-2.5 space-y-1">
-                    <div className="flex items-center gap-2">
-                      <ArrowRightCircle className="h-3.5 w-3.5 text-primary shrink-0" aria-hidden="true" />
-                      <span className="text-xs font-semibold text-primary">Creada en SellUp</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground font-mono break-all pt-1">
-                      ID Cuenta: {candidate.converted_account_id}
-                    </p>
-                  </div>
-
-                  {(() => {
-                    const hsSync = candidate.metadata?.hubspot_sync as HubSpotSyncAudit | undefined;
-                    if (!hsSync) return null;
-
-                    const statusVariants: Record<string, 'positive' | 'warning' | 'negative' | 'neutral'> = {
-                      synced: 'positive',
-                      blocked_duplicate: 'warning',
-                      blocked_inactive_or_liquidation: 'negative',
-                      skipped_flag_off: 'neutral',
-                      skipped_rollback: 'neutral',
-                      failed_lookup: 'negative',
-                      failed_create: 'negative',
-                    };
-
-                    const statusLabels: Record<string, string> = {
-                      synced: 'Sincronizado',
-                      blocked_duplicate: 'Bloqueado (Duplicado)',
-                      blocked_inactive_or_liquidation: 'Bloqueado (Inactivo)',
-                      skipped_flag_off: 'Omitido (sincronización desactivada)',
-                      skipped_rollback: 'Omitido (operación revertida)',
-                      failed_lookup: 'Falló la búsqueda',
-                      failed_create: 'Falló la creación',
-                    };
-
-                    const variant = statusVariants[hsSync.status] ?? 'neutral';
-                    const label = statusLabels[hsSync.status] || hsSync.status;
-
-                    return (
-                      <div className="rounded-xl border border-border/60 bg-surface-subtle px-3 py-2.5 space-y-1 flex flex-col justify-between">
-                        <div className="space-y-1.5">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <span className="text-xs font-semibold text-muted-foreground">
-                              Sincronización con HubSpot
-                            </span>
-                            <Badge variant={variant}>{label}</Badge>
-                          </div>
-                          {hsSync.status === 'synced' && hsSync.company_id && (
-                            <dl className="space-y-1 text-xs pt-1">
-                              <div className="flex items-center justify-between gap-2">
-                                <dt className="text-muted-foreground">ID HubSpot:</dt>
-                                <dd className="min-w-0 break-all font-mono font-medium text-foreground">{hsSync.company_id}</dd>
-                              </div>
-                              <div className="flex items-center justify-between gap-2">
-                                <dt className="text-muted-foreground">Responsable:</dt>
-                                <dd className="font-medium text-foreground">
-                                  {hsSync.owner_assigned || hsSync.owner_mapping_status === 'mapped' ? 'Asignado' : 'No asignado'}
-                                </dd>
-                              </div>
-                            </dl>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })()}
-                </div>
-              </DrawerSection>
+              <CandidateConversionSection candidate={candidate} />
             )}
 
             {/* Análisis de Encaje IA */}
             {hasAiEval && showAiEvaluation && (
-              <DrawerSection
-                title="Análisis de encaje"
-                icon={Target}
-                action={
-                  <InfoTooltip content="Evaluación automática basada en información pública. No reemplaza la revisión comercial." />
-                }
-                contentClassName="space-y-3"
-              >
-                {fitReasons.length > 0 && (
-                  <ul className="space-y-1.5">
-                    {fitReasons.slice(0, 4).map((r, i) => (
-                      <li key={i} className="flex items-start gap-1.5 text-sm text-foreground">
-                        <CheckCircle2 className="h-3.5 w-3.5 text-success mt-0.5 shrink-0" aria-hidden="true" />
-                        <span className="min-w-0 break-words">{isChileOfficialCandidate ? sanitizeTextForChile(r) : r}</span>
-                      </li>
-                    ))}
-                    {fitReasons.length > 4 && (
-                      <li className="text-xs text-muted-foreground italic pl-5">
-                        +{fitReasons.length - 4} razones más en detalle
-                      </li>
-                    )}
-                  </ul>
-                )}
-                {(() => {
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  const enrichmentData = candidate.metadata?.enrichment as any;
-                  const recommended = enrichmentData?.sellup_fit?.recommended_next_step;
-                  if (!recommended) return null;
-                  return (
-                    <div className="pt-3 border-t border-border/50 space-y-1">
-                      <p className="text-xs font-semibold text-primary">Siguiente paso recomendado</p>
-                      <p className="text-sm text-foreground font-medium leading-relaxed break-words">{recommended}</p>
-                    </div>
-                  );
-                })()}
-              </DrawerSection>
+              <CandidateFitAnalysisSection
+                candidate={candidate}
+                fitReasons={fitReasons}
+                isChileOfficialCandidate={isChileOfficialCandidate}
+              />
             )}
 
             {/* Oportunidades comerciales */}
-            {hasAiEval && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <DrawerSection title="Necesidades detectadas" icon={Lightbulb}>
-                  {(() => {
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const enrichmentData = candidate.metadata?.enrichment as any;
-                    const needs = enrichmentData?.sellup_fit?.possible_needs as string[] | undefined;
-                    if (!needs || needs.length === 0) return <EmptyState variant="plain" title="Ninguna detectada" className="py-4" />;
-                    const visibleNeeds = showAllNeeds ? needs : needs.slice(0, 3);
-                    return (
-                      <div className="space-y-2">
-                        <ul className="space-y-1.5">
-                          {visibleNeeds.map((n, i) => (
-                            <li key={i} className="flex items-start gap-1.5 text-sm text-foreground">
-                              <CheckCircle2 className="h-3.5 w-3.5 text-success mt-0.5 shrink-0" aria-hidden="true" />
-                              <span className="min-w-0 break-words">{n}</span>
-                            </li>
-                          ))}
-                        </ul>
-                        {needs.length > 3 && (
-                          <Button variant="link" size="xs" className="mt-1 px-0" onClick={() => setShowAllNeeds(!showAllNeeds)} type="button">
-                            {showAllNeeds ? 'Ver menos' : `Ver todas (${needs.length})`}
-                          </Button>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </DrawerSection>
-                <DrawerSection title="Ángulos comerciales" icon={Sparkles}>
-                  {(() => {
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const enrichmentData = candidate.metadata?.enrichment as any;
-                    const angles = enrichmentData?.commercial_angles as string[] | undefined;
-                    if (!angles || angles.length === 0) return <EmptyState variant="plain" title="Ninguno disponible" className="py-4" />;
-                    const visibleAngles = showAllAngles ? angles : angles.slice(0, 3);
-                    return (
-                      <div className="space-y-2">
-                        <ul className="space-y-1.5">
-                          {visibleAngles.map((ang, i) => (
-                            <li key={i} className="flex items-start gap-1.5 text-sm text-foreground font-medium">
-                              <Sparkles className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" aria-hidden="true" />
-                              <span className="min-w-0 break-words">{ang}</span>
-                            </li>
-                          ))}
-                        </ul>
-                        {angles.length > 3 && (
-                          <Button variant="link" size="xs" className="mt-1 px-0" onClick={() => setShowAllAngles(!showAllAngles)} type="button">
-                            {showAllAngles ? 'Ver menos' : `Ver todos (${angles.length})`}
-                          </Button>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </DrawerSection>
-              </div>
-            )}
+            {hasAiEval && <CandidateOpportunitySections key={candidate.id} candidate={candidate} />}
 
             {/* Datos oficiales y legales */}
-            <CollapsibleDrawerSection
-              title="Datos oficiales y legales"
-              icon={Landmark}
-              summary={officialDataSummary}
-              defaultOpen
-            >
-              {isChileOfficialCandidate ? (
-                <FieldGrid>
-                  <Field label="Razón social" value={val(candidate.legal_name ?? candidate.name)} />
-                  <div className="space-y-0.5 min-w-0">
-                    <dt className="text-xs text-muted-foreground">RUT</dt>
-                    <dd className="text-sm text-foreground font-mono leading-snug flex flex-wrap items-center">
-                      {candidate.tax_identifier ? (
-                        <>
-                          <span className="min-w-0 break-all tabular-nums">{candidate.tax_identifier}</span>
-                          <CopyButton value={candidate.tax_identifier} />
-                        </>
-                      ) : (
-                        <MissingText text="Sin dato" />
-                      )}
-                    </dd>
-                  </div>
-                  <Field
-                    label="País"
-                    value={
-                      candidate.country_code ? (
-                        <span className="flex items-center gap-1">
-                          {getFlagEmoji(candidate.country_code)} {val(candidate.country ?? candidate.country_code)}
-                        </span>
-                      ) : (
-                        <MissingText text="Sin dato" />
-                      )
-                    }
-                  />
-                  <Field
-                    label="Ciudad / Región"
-                    value={val(
-                      [candidate.city, candidate.region].filter(Boolean).join(', ') || null,
-                      'Sin dato'
-                    )}
-                  />
-                  {chileCompanyType && (
-                    <Field label="Tipo societario" value={chileCompanyType} />
-                  )}
-                  {chileIncorporationDate && (
-                    <Field
-                      label="Fecha de constitución"
-                      value={formatInAppZone(chileIncorporationDate, {
-                        day: '2-digit',
-                        month: 'short',
-                        year: 'numeric',
-                      }, 'es-CL')}
-                    />
-                  )}
-                  {chileCapital !== null && chileCapital !== undefined && (
-                    <Field
-                      label="Capital CLP"
-                      value={
-                        <span className="font-mono">
-                          ${chileCapital.toLocaleString('es-CL')} {chileCapitalCurrency}
-                        </span>
-                      }
-                    />
-                  )}
-                  <Field label="Fuente oficial" value="Fuente oficial Chile" />
-                </FieldGrid>
-              ) : (
-                <>
-                  <FieldGrid>
-                    <Field label="Razón social" value={val(candidate.legal_name ?? candidate.name)} />
-                    <div className="space-y-0.5 min-w-0">
-                      <dt className="text-xs text-muted-foreground">
-                        {candidate.tax_identifier_type ?? 'Identificador fiscal'}
-                      </dt>
-                      <dd className="text-sm text-foreground font-mono leading-snug flex flex-wrap items-center">
-                        {candidate.tax_identifier ? (
-                          <>
-                            <span className="min-w-0 break-all tabular-nums">{candidate.tax_identifier}</span>
-                            <CopyButton value={candidate.tax_identifier} />
-                          </>
-                        ) : (
-                          <MissingText text="Sin dato" />
-                        )}
-                      </dd>
-                    </div>
-                    <Field
-                      label="País"
-                      value={
-                        candidate.country_code ? (
-                          <span className="flex items-center gap-1">
-                            {getFlagEmoji(candidate.country_code)} {val(candidate.country ?? candidate.country_code)}
-                          </span>
-                        ) : (
-                          <MissingText text="Sin dato" />
-                        )
-                      }
-                    />
-                    <Field
-                      label="Ciudad / Región"
-                      value={val(
-                        [candidate.city, candidate.region].filter(Boolean).join(', ') || null,
-                        'Sin dato'
-                    )}
-                  />
-                  {ciiu && <Field label="CIIU / Código sector" value={ciiu} mono />}
-                  {structuredSourceLabel && (
-                    <Field label="Fuente oficial" value={structuredSourceLabel} />
-                  )}
-                </FieldGrid>
-                </>
-              )}
-            </CollapsibleDrawerSection>
+            <CandidateOfficialDataSection
+              candidate={candidate}
+              isChileOfficialCandidate={isChileOfficialCandidate}
+              ciiu={ciiu}
+              structuredSourceLabel={structuredSourceLabel}
+            />
 
             {/* Estos tres bloques ya son una tarjeta con su propio título:
                 envolverlos en otro rótulo plegable enseñaba el nombre dos veces. */}
@@ -1523,282 +544,28 @@ export function CandidateDetailSheet({
             {isPeCandidate && peMigoBlock && <PeruMigoLegalValidationBlock block={peMigoBlock} />}
 
             {/* Datos comerciales y web — abierta cuando hay algo que mirar */}
-            <CollapsibleDrawerSection
-              title="Datos comerciales y web"
-              icon={Globe}
-              summary={commercialSummary}
-              defaultOpen={hasOfficialWebsite || Boolean(effectiveLinkedinUrl)}
-            >
-              <div className="space-y-3">
-                <FieldGrid>
-                  <Field
-                    label="Sitio web oficial"
-                    value={
-                      hasOfficialWebsite && candidate.website ? (
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <a
-                            href={candidate.website.startsWith('http') ? candidate.website : `https://${candidate.website}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex min-w-0 items-center gap-1 break-all text-primary hover:underline font-medium rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-                          >
-                            <Globe className="h-3 w-3 shrink-0" aria-hidden="true" />
-                            {candidate.domain ?? candidate.website}
-                          </a>
-                          {websiteConfidence && (
-                            <Badge
-                              variant={
-                                websiteConfidence === 'high'
-                                  ? 'positive'
-                                  : websiteConfidence === 'medium'
-                                  ? 'warning'
-                                  : 'neutral'
-                              }
-                            >
-                              {websiteConfidence}
-                            </Badge>
-                          )}
-                        </div>
-                      ) : (
-                        <MissingText text="Sin sitio web oficial" />
-                      )
-                    }
-                  />
-                  <Field
-                    label={
-                      effectiveLinkedinUrl
-                        ? "LinkedIn corporativo"
-                        : suggestedLinkedinDisplay
-                        ? "LinkedIn sugerido"
-                        : (isChileOfficialCandidate && !hasNitConflict && (possibleLinkedInMatches.length > 0 || linkedinConfirmedUrl))
-                        ? "Coincidencias no confirmadas"
-                        : "LinkedIn corporativo"
-                    }
-                    value={
-                      effectiveLinkedinUrl ? (
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <a
-                            href={effectiveLinkedinUrl.startsWith('http') ? effectiveLinkedinUrl : `https://${effectiveLinkedinUrl}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-1 text-primary hover:underline font-medium rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-                          >
-                            <Link2 className="h-3 w-3 shrink-0" aria-hidden="true" />
-                            Ver perfil
-                          </a>
-                          {linkedinConfidence && (
-                            <Badge
-                              variant={
-                                linkedinConfidence === 'high'
-                                  ? 'positive'
-                                  : linkedinConfidence === 'medium'
-                                  ? 'warning'
-                                  : 'neutral'
-                              }
-                            >
-                              {linkedinConfidence}
-                            </Badge>
-                          )}
-                        </div>
-                      ) : suggestedLinkedinDisplay ? (
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <a
-                              href={suggestedLinkedinDisplay.url.startsWith('http') ? suggestedLinkedinDisplay.url : `https://${suggestedLinkedinDisplay.url}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-1 text-warning hover:underline font-medium rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-                            >
-                              <Link2 className="h-3 w-3 shrink-0" aria-hidden="true" />
-                              Ver perfil
-                            </a>
-                          </div>
-                          <p className="text-xs text-muted-foreground italic">Requiere revisión manual</p>
-                        </div>
-                      ) : (isChileOfficialCandidate && !hasNitConflict && (possibleLinkedInMatches.length > 0 || linkedinConfirmedUrl)) ? (
-                        <div className="space-y-1.5">
-                          <p className="text-xs text-muted-foreground italic">No confirmado — requiere revisión</p>
-                          {linkedinConfirmedUrl && (
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <a
-                                href={linkedinConfirmedUrl.startsWith('http') ? linkedinConfirmedUrl : `https://${linkedinConfirmedUrl}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-1 text-muted-foreground hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-                              >
-                                <Link2 className="h-3 w-3 shrink-0" aria-hidden="true" />
-                                Posible perfil
-                              </a>
-                            </div>
-                          )}
-                        </div>
-                      ) : linkedInFieldDisplay.message ? (
-                        // Cada estado dice lo suyo: ausencia del proveedor en gris,
-                        // pérdida interna en ámbar porque es un defecto nuestro.
-                        <div className="space-y-0.5">
-                          <p
-                            className={
-                              linkedInFieldDisplay.kind === 'internal_loss'
-                                ? 'text-xs text-warning'
-                                : 'text-xs text-muted-foreground'
-                            }
-                          >
-                            {linkedInFieldDisplay.message}
-                          </p>
-                          {linkedInFieldDisplay.sourceLabel && (
-                            <p className="text-xs text-muted-foreground">
-                              {linkedInFieldDisplay.sourceLabel}
-                            </p>
-                          )}
-                        </div>
-                      ) : (
-                        <MissingText text="Sin LinkedIn" />
-                      )
-                    }
-                  />
-                  <Field
-                    label="Tamaño / Empleados"
-                    value={
-                      employeeCountFieldDisplay.kind === 'value' &&
-                      employeeCountFieldDisplay.value !== null ? (
-                        <div className="space-y-0.5">
-                          <p className="text-sm font-medium tabular-nums">
-                            {employeeCountFieldDisplay.value.toLocaleString('es-CO')}
-                          </p>
-                          {employeeCountFieldDisplay.sourceLabel && (
-                            <p className="text-xs text-muted-foreground">
-                              {employeeCountFieldDisplay.sourceLabel}
-                            </p>
-                          )}
-                        </div>
-                      ) : employeeCountFieldDisplay.message ? (
-                        <div className="space-y-0.5">
-                          {employeeCountFieldDisplay.value !== null && (
-                            <p className="text-sm font-medium tabular-nums">
-                              {employeeCountFieldDisplay.value.toLocaleString('es-CO')}
-                            </p>
-                          )}
-                          <p
-                            className={
-                              employeeCountFieldDisplay.kind === 'internal_loss'
-                                ? 'text-xs text-warning'
-                                : 'text-xs text-muted-foreground'
-                            }
-                          >
-                            {employeeCountFieldDisplay.message}
-                          </p>
-                          {employeeCountFieldDisplay.sourceLabel && (
-                            <p className="text-xs text-muted-foreground">
-                              {employeeCountFieldDisplay.sourceLabel}
-                            </p>
-                          )}
-                        </div>
-                      ) : (
-                        val(employeeCount ? String(employeeCount) : null, 'Sin dato')
-                      )
-                    }
-                  />
-                  {!isStructured && sourcePrimaryLabel && (
-                    <Field label="Fuente" value={sourcePrimaryLabel} />
-                  )}
-                </FieldGrid>
-
-                {/* Descripción pública */}
-                {!hasNitConflict && publicDescription && (!isChileOfficialCandidate || isDescriptionConfiable) ? (
-                  <div className="space-y-0.5 pt-3 border-t border-border/50">
-                    <p className="text-xs text-muted-foreground">Descripción pública</p>
-                    <p className="text-sm text-foreground leading-relaxed line-clamp-4 break-words">{publicDescription}</p>
-                  </div>
-                ) : null}
-              </div>
-            </CollapsibleDrawerSection>
+            <CandidateCommercialDataSection
+              candidate={candidate}
+              hasOfficialWebsite={hasOfficialWebsite}
+              websiteConfidence={websiteConfidence}
+              effectiveLinkedinUrl={effectiveLinkedinUrl}
+              suggestedLinkedinDisplay={suggestedLinkedinDisplay}
+              linkedinConfirmedUrl={linkedinConfirmedUrl}
+              linkedinConfidence={linkedinConfidence}
+              possibleLinkedInMatches={possibleLinkedInMatches}
+              linkedInFieldDisplay={linkedInFieldDisplay}
+              employeeCountFieldDisplay={employeeCountFieldDisplay}
+              employeeCount={employeeCount}
+              isChileOfficialCandidate={isChileOfficialCandidate}
+              hasNitConflict={hasNitConflict}
+              isStructured={isStructured}
+              sourcePrimaryLabel={sourcePrimaryLabel}
+              publicDescription={publicDescription}
+              isDescriptionConfiable={isDescriptionConfiable}
+            />
 
             {/* Tamaño ICP */}
-            {(() => {
-              const icpState = getIcpSizeGateUiState(
-                candidate.metadata as Record<string, unknown> | null | undefined,
-                candidate.company_size
-              );
-              const toneStyle: Record<string, string> = {
-                success: 'bg-success/10 text-success border-success/20',
-                warning: 'bg-warning/10 text-warning border-warning/20',
-                danger: 'bg-destructive/10 text-destructive border-destructive/20',
-                neutral: 'bg-surface-subtle text-muted-foreground border-border/50',
-              };
-              const badgeVariant: Record<string, 'positive' | 'warning' | 'negative' | 'neutral'> = {
-                success: 'positive',
-                warning: 'warning',
-                danger: 'negative',
-                neutral: 'neutral',
-              };
-              const icpVerdict =
-                icpState.decision === 'pass'
-                  ? 'ICP >200 validado'
-                  : icpState.decision === 'needs_validation'
-                  ? 'Tamaño pendiente de validación'
-                  : icpState.decision === 'block'
-                  ? 'Fuera de ICP por tamaño'
-                  : 'Sin evaluación de tamaño';
-              return (
-                <CollapsibleDrawerSection
-                  title="Tamaño ICP"
-                  hint="Umbral: más de 200 colaboradores"
-                  summary={[icpVerdict, icpState.rangeLabel].filter(Boolean).join(' · ')}
-                  icon={Users}
-                  tone={
-                    icpState.decision === 'block'
-                      ? 'negative'
-                      : icpState.decision === 'needs_validation'
-                      ? 'warning'
-                      : 'brand'
-                  }
-                  // Abierta cuando el tamaño pide una decisión; si pasa o no se midió, plegada.
-                  defaultOpen={icpState.decision === 'block' || icpState.decision === 'needs_validation'}
-                >
-                  <div className="space-y-3">
-                    {/* Badge de estado */}
-                    <Badge variant={badgeVariant[icpState.tone] ?? 'neutral'}>{icpVerdict}</Badge>
-
-                    {/* Detalle */}
-                    {!icpState.decision ? (
-                      <p className="text-xs text-muted-foreground italic">
-                        Este prospecto no tiene una evaluación de tamaño registrada: llegó por una vía que todavía no mide el tamaño. Revísalo a mano antes de decidir.
-                      </p>
-                    ) : (
-                      <div className="space-y-3">
-                        {(icpState.rangeLabel || icpState.reason) && (
-                          <dl className="space-y-3">
-                            {icpState.rangeLabel && (
-                              <div className="min-w-0 space-y-0.5">
-                                <dt className="text-xs text-muted-foreground">Rango detectado</dt>
-                                <dd className="text-sm text-foreground font-medium tabular-nums">{icpState.rangeLabel}</dd>
-                              </div>
-                            )}
-                            {icpState.reason && (
-                              <div className="min-w-0 space-y-0.5">
-                                <dt className="text-xs text-muted-foreground">Motivo</dt>
-                                <dd className="text-sm text-foreground leading-relaxed break-words">{icpState.reason}</dd>
-                              </div>
-                            )}
-                          </dl>
-                        )}
-                        {icpState.requiresHumanReview && (
-                          <div className={`flex items-start gap-2 rounded-xl border px-3 py-2 text-xs ${toneStyle.warning}`}>
-                            <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" aria-hidden="true" />
-                            <span>Requiere validación humana</span>
-                          </div>
-                        )}
-                        {icpState.decision === 'needs_validation' && (
-                          <div className={`rounded-xl border px-3 py-2 text-xs ${toneStyle.warning}`}>
-                            {icpState.description}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </CollapsibleDrawerSection>
-              );
-            })()}
+            <CandidateIcpSizeSection candidate={candidate} />
 
             {/* Subindustria solicitada — FORENSICS-1 § 11.
                 Qué se pidió, qué se demostró, si cuenta hacia el objetivo y por
@@ -1845,16 +612,13 @@ export function CandidateDetailSheet({
                   }
                 >
                   <div className="space-y-3" data-testid="candidate-subindustry-status">
-                    <dl>
-                      <div className="min-w-0 space-y-0.5">
-                        <dt className="text-xs text-muted-foreground">
-                          Subindustria solicitada
-                        </dt>
-                        <dd className="text-sm text-foreground font-medium break-words">
+                    <DetailList columns={2}>
+                      <DetailItem label="Subindustria solicitada">
+                        <span className="font-medium">
                           {subindustryStatus.requestedSubindustry ?? 'Sin subindustria declarada'}
-                        </dd>
-                      </div>
-                    </dl>
+                        </span>
+                      </DetailItem>
+                    </DetailList>
 
                     <div className="flex items-center gap-2 flex-wrap">
                       <Badge
@@ -1875,12 +639,14 @@ export function CandidateDetailSheet({
                     </div>
 
                     {subindustryStatus.notConfirmedMessage && (
-                      <div className="flex items-start gap-2 rounded-xl border border-warning/20 bg-warning/10 px-3 py-2 text-xs text-warning">
-                        <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" aria-hidden />
-                        <span data-testid="candidate-subindustry-not-confirmed">
+                      <Alert variant="warning">
+                        <AlertDescription
+                          className="text-xs leading-relaxed text-current"
+                          data-testid="candidate-subindustry-not-confirmed"
+                        >
                           {subindustryStatus.notConfirmedMessage}
-                        </span>
-                      </div>
+                        </AlertDescription>
+                      </Alert>
                     )}
 
                     {subindustryStatus.reviewReasons.length > 0 && (
@@ -1912,256 +678,16 @@ export function CandidateDetailSheet({
 
             {/* Evidencia pública encontrada */}
             {displayedPublicEvidence.length > 0 && (
-              <CollapsibleDrawerSection
-                title="Evidencia pública"
-                icon={FileSearch}
-                badge={displayedPublicEvidence.length}
-                summary={Array.from(
-                  new Set(
-                    displayedPublicEvidence.map(
-                      (item) => SOURCE_TYPE_LABELS[item.source_type as string] || String(item.source_type),
-                    ),
-                  ),
-                )
-                  .slice(0, 3)
-                  .join(', ')}
-              >
-                <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {displayedPublicEvidence.map((item, idx) => {
-                    const label = SOURCE_TYPE_LABELS[item.source_type as string] || item.source_type;
-                    return (
-                      <li key={idx} className="flex min-w-0 items-center justify-between text-xs rounded-lg border border-border/60 p-2.5 bg-surface-subtle">
-                        <div className="min-w-0 flex-1 pr-2">
-                          <p className="font-semibold text-foreground truncate" title={item.title as string}>
-                            {item.title as string}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                            {label as string} · {item.domain as string}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {item.confidence ? (
-                            <Badge
-                              variant={
-                                item.confidence === 'high'
-                                  ? 'positive'
-                                  : item.confidence === 'medium'
-                                  ? 'warning'
-                                  : 'neutral'
-                              }
-                            >
-                              {item.confidence as string}
-                            </Badge>
-                          ) : null}
-                          <a
-                            href={item.url as string}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            aria-label={`Abrir la fuente «${String(item.title)}» en una pestaña nueva`}
-                            className="rounded-md p-1 text-primary transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-                          >
-                            <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
-                          </a>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </CollapsibleDrawerSection>
+              <CandidatePublicEvidenceSection displayedPublicEvidence={displayedPublicEvidence} />
             )}
 
             {/* Identificador fiscal — estado automático */}
-            <CollapsibleDrawerSection
-              title="Identificador fiscal"
-              hint="Dato legal o tributario consultado en fuentes disponibles. Debe revisarse antes de aprobarlo."
-              summary={taxIdSummary}
-              icon={Hash}
-              tone={hasTaxIdSuggestion ? 'warning' : 'brand'}
-              // Abierta cuando hay una sugerencia esperando tu decisión.
-              defaultOpen={hasTaxIdSuggestion}
-            >
-
-              {candidate.tax_identifier ? (
-                /* Identificador ya existente */
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Badge variant="positive">
-                      <CheckCircle2 aria-hidden="true" />
-                      Identificador validado
-                    </Badge>
-                  </div>
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="min-w-0 break-all font-mono text-sm font-semibold tabular-nums text-foreground">
-                      {candidate.tax_identifier}
-                    </span>
-                    <CopyButton value={candidate.tax_identifier} />
-                  </div>
-                  {taxIdLookup?.selected_candidate && (
-                    <p className="text-xs text-muted-foreground">
-                      Fuente: {taxIdLookup.selected_candidate.source_name}
-                    </p>
-                  )}
-                </div>
-              ) : (
-                /* Sin identificador — flujo automático */
-                (() => {
-                  const isCO = candidate.country_code?.toUpperCase() === 'CO';
-                  const lookupStatus = taxIdLookup?.status;
-                  const hasBestCandidate = !!taxIdLookup?.best_candidate;
-                  const isDuplicateConfirmed =
-                    candidate.duplicate_status === 'exact_duplicate' ||
-                    sellupDupStatus === 'duplicate' ||
-                    hsDupStatus === 'match';
-
-                  /* En búsqueda activa */
-                  if (isLookingUpTaxId || lookupStatus === 'searching') {
-                    return (
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Spinner size="sm" tone="primary" label="Buscando identificador fiscal…" />
-                        <span>Buscando identificador fiscal…</span>
-                        <InfoTooltip content="SellUp está consultando fuentes disponibles para encontrar el identificador fiscal." />
-                      </div>
-                    );
-                  }
-
-                  /* Sugerencia encontrada */
-                  if (hasBestCandidate && taxIdLookup?.best_candidate) {
-                    return (
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <Badge variant="warning">
-                            <AlertTriangle aria-hidden="true" />
-                            {`${getTaxIdLabel(candidate.country_code)} sugerido — requiere revisión`}
-                          </Badge>
-                        </div>
-                        <div className="rounded-xl border border-primary/20 bg-primary/10 p-3.5 space-y-3">
-                          <div className="flex flex-wrap items-start justify-between gap-2">
-                            <div className="min-w-0 space-y-0.5">
-                              <p className="text-xs font-semibold text-primary">
-                                {`${getTaxIdLabel(candidate.country_code)} sugerido`}
-                              </p>
-                              <p className="break-all font-mono text-sm font-bold tabular-nums text-foreground">
-                                {taxIdLookup.best_candidate.tax_identifier}
-                              </p>
-                              {taxIdLookup.best_candidate.legal_name && (
-                                <p className="text-xs text-muted-foreground">
-                                  Razón social: {taxIdLookup.best_candidate.legal_name}
-                                </p>
-                              )}
-                            </div>
-                            <Badge
-                              variant={taxIdLookup.best_candidate.confidence === 'high' ? 'positive' : 'warning'}
-                              className="shrink-0"
-                            >
-                              {taxIdLookup.best_candidate.confidence === 'high' ? 'Alta confianza' : 'Confianza media'}
-                            </Badge>
-                          </div>
-                          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/50 pt-2.5">
-                            <div className="min-w-0 text-xs text-muted-foreground leading-relaxed">
-                              <span>Fuente: {taxIdLookup.best_candidate.source_name}</span>
-                              {taxIdLookup.best_candidate.source_url && (
-                                <a href={taxIdLookup.best_candidate.source_url} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center gap-0.5 rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
-                                  (Ver fuente)
-                                </a>
-                              )}
-                            </div>
-                            <Button
-                              onClick={() => setConfirmDialogData({
-                                taxIdentifier: taxIdLookup.best_candidate!.tax_identifier,
-                                sourceName: taxIdLookup.best_candidate!.source_name,
-                                sourceUrl: taxIdLookup.best_candidate!.source_url,
-                                legalName: taxIdLookup.best_candidate!.legal_name,
-                                confidence: taxIdLookup.best_candidate!.confidence,
-                              })}
-                              size="xs"
-                              type="button">
-                              Usar este {getTaxIdLabel(candidate.country_code)}
-                            </Button>
-                          </div>
-                        </div>
-                        {approveTaxIdError && <p className="text-xs text-destructive">{approveTaxIdError}</p>}
-                      </div>
-                    );
-                  }
-
-                  /* Error en búsqueda */
-                  if (lookupStatus === 'failed') {
-                    return (
-                      <div className="space-y-2">
-                        <p className="text-xs text-muted-foreground">No fue posible completar la búsqueda.</p>
-                        {!isDuplicateConfirmed && isCO && (
-                          <Button
-                            onClick={handleLookupTaxIdentifier}
-                            variant="outline"
-                            size="sm"
-                            type="button"
-                            aria-label="Reintentar búsqueda de identificador fiscal"
-                          >
-                            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-                            Reintentar búsqueda
-                          </Button>
-                        )}
-                        {taxIdLookupError && <p className="text-xs text-destructive">{taxIdLookupError}</p>}
-                      </div>
-                    );
-                  }
-
-                  /* Sin resultado */
-                  if (lookupStatus === 'no_result' || (lookupStatus === 'completed' && !hasBestCandidate)) {
-                    const skipReasonLabels: Record<string, string> = {
-                      no_high_confidence_candidate: 'Sin candidato con confianza suficiente.',
-                      nit_check_digit_invalid: 'Dígito de verificación incorrecto en los candidatos encontrados.',
-                      name_match_too_weak: 'La coincidencia de nombre es demasiado débil.',
-                      critical_risk_present: 'Riesgos críticos detectados en los candidatos.',
-                      no_candidates: 'No se encontraron candidatos.',
-                    };
-                    const skipReason = taxIdLookup?.best_candidate_skip_reason
-                      ? (skipReasonLabels[taxIdLookup.best_candidate_skip_reason] || taxIdLookup.best_candidate_skip_reason)
-                      : null;
-                    return (
-                      <div className="space-y-2">
-                        <p className="text-xs text-muted-foreground">
-                          No encontramos un identificador fiscal confiable.
-                          {skipReason && <span className="italic text-muted-foreground"> Motivo: {skipReason}</span>}
-                        </p>
-                        {!isDuplicateConfirmed && isCO && (
-                          <Button
-                            onClick={handleLookupTaxIdentifier}
-                            variant="outline"
-                            size="sm"
-                            type="button"
-                            aria-label="Reintentar búsqueda de identificador fiscal"
-                          >
-                            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-                            Reintentar búsqueda
-                          </Button>
-                        )}
-                        {taxIdLookupError && <p className="text-xs text-destructive">{taxIdLookupError}</p>}
-                      </div>
-                    );
-                  }
-
-                  /* País no soportado */
-                  if (!isCO) {
-                    return (
-                      <div className="space-y-2">
-                        <p className="text-xs text-muted-foreground italic">
-                          La búsqueda automática todavía no está disponible para este país.
-                        </p>
-                      </div>
-                    );
-                  }
-
-                  /* Estado inicial / pendiente para CO */
-                  return (
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <Info className="h-3.5 w-3.5 shrink-0 text-text-muted" aria-hidden="true" />
-                      <span>Identificador fiscal pendiente de búsqueda automática.</span>
-                    </div>
-                  );
-                })()
-              )}
-            </CollapsibleDrawerSection>
+            <CandidateTaxIdSection
+              candidate={candidate}
+              lookup={taxIdLookupState}
+              sellupDupStatus={sellupDupStatus}
+              hsDupStatus={hsDupStatus}
+            />
 
           </TabsContent>
 
@@ -2184,703 +710,59 @@ export function CandidateDetailSheet({
             />
 
             {/* Estado de Duplicidad */}
-            <DrawerSection
-              title="Verificación de duplicidad"
-              hint="Determina si esta empresa ya existe en los registros internos de SellUp o HubSpot CRM."
-              icon={Layers}
-            >
-              <div className="flex items-center gap-2 flex-wrap">
-                {isAutoValidated ? (
-                  <>
-                    <Badge
-                      variant={
-                        sellupDupStatus === 'duplicate'
-                          ? 'negative'
-                          : sellupDupStatus === 'possible_duplicate'
-                          ? 'warning'
-                          : sellupDupStatus === 'no_match'
-                          ? 'positive'
-                          : 'neutral'
-                      }
-                    >
-                      {sellupDupStatus === 'duplicate'
-                        ? 'Duplicado SellUp'
-                        : sellupDupStatus === 'possible_duplicate'
-                        ? 'Posible duplicado SellUp'
-                        : sellupDupStatus === 'no_match'
-                        ? 'Sin duplicados SellUp'
-                        : 'SellUp sin validar'}
-                    </Badge>
-                    <Badge
-                      variant={
-                        hsDupStatus === 'match'
-                          ? 'negative'
-                          : hsDupStatus === 'possible_match'
-                          ? 'warning'
-                          : hsDupStatus === 'no_match'
-                          ? 'positive'
-                          : 'neutral'
-                      }
-                    >
-                      {hsDupStatus === 'match'
-                        ? 'Duplicado HubSpot'
-                        : hsDupStatus === 'possible_match'
-                        ? 'Posible coincidencia HubSpot'
-                        : hsDupStatus === 'no_match'
-                        ? 'Sin duplicados HubSpot'
-                        : 'HubSpot sin validar'}
-                    </Badge>
-                  </>
-                ) : (
-                  <Badge
-                    variant={
-                      (
-                        {
-                          unchecked: 'neutral',
-                          no_match: 'positive',
-                          possible_duplicate: 'warning',
-                          exact_duplicate: 'negative',
-                          related_company: 'warning',
-                          insufficient_data: 'neutral',
-                        } as const
-                      )[candidate.duplicate_status]
-                    }
-                  >
-                    {DUPLICATE_STATUS_LABELS[candidate.duplicate_status]}
-                  </Badge>
-                )}
-              </div>
-            </DrawerSection>
+            <CandidateDuplicateStatusSection
+              candidate={candidate}
+              isAutoValidated={isAutoValidated}
+              validationMetaSheet={validationMetaSheet}
+            />
 
             {/* Coincidencias de Duplicidad */}
-            {isAutoValidated ? (
-              <div className="space-y-4">
-                {/* Bloque SellUp detail */}
-                {(sellupDupStatus === 'duplicate' || sellupDupStatus === 'possible_duplicate') &&
-                  validationMetaSheet?.sellup_duplicate_check?.matched_name && (
-                  <DrawerSection title="Coincidencia interna en SellUp" icon={Building2} tone="warning">
-                    <FieldGrid>
-                      <Field label="Empresa encontrada" value={val(validationMetaSheet.sellup_duplicate_check.matched_name)} />
-                      <Field
-                        label="Tipo de registro"
-                        value={
-                          validationMetaSheet.sellup_duplicate_check.matched_source === 'account'
-                            ? 'Cuenta (Account)'
-                            : 'Candidato'
-                        }
-                      />
-                      <Field
-                        label="ID interno"
-                        value={val(validationMetaSheet.sellup_duplicate_check.matched_account_id ?? validationMetaSheet.sellup_duplicate_check.matched_candidate_id)}
-                        mono
-                      />
-                      <Field
-                        label="Dominio / web"
-                        value={val(validationMetaSheet.sellup_duplicate_check.matched_domain ?? validationMetaSheet.sellup_duplicate_check.matched_website)}
-                      />
-                      <Field label="Identificador fiscal" value={val(validationMetaSheet.sellup_duplicate_check.matched_tax_identifier)} mono />
-                      <Field
-                        label="Coincidió por"
-                        value={({
-                          tax_identifier: 'NIT/RFC/RUT',
-                          domain: 'Dominio web',
-                          normalized_name_country: 'Nombre + país',
-                          company_name: 'Nombre de empresa',
-                        } as Record<string, string>)[validationMetaSheet.sellup_duplicate_check.matched_by ?? ''] ?? val(validationMetaSheet.sellup_duplicate_check.matched_by)}
-                      />
-                    </FieldGrid>
-                  </DrawerSection>
-                )}
-
-                {/* Bloque HubSpot detail */}
-                {(hsDupStatus === 'match' || hsDupStatus === 'possible_match') &&
-                  validationMetaSheet?.hubspot_duplicate_check?.matched_company_name && (
-                  <DrawerSection title="Coincidencia en HubSpot CRM" icon={Database} tone="warning">
-                    <FieldGrid>
-                      <Field label="Empresa encontrada" value={val(validationMetaSheet.hubspot_duplicate_check.matched_company_name)} />
-                      <Field label="HubSpot Company ID" value={val(validationMetaSheet.hubspot_duplicate_check.matched_company_id)} mono />
-                      <Field
-                        label="Dominio / web"
-                        value={val(validationMetaSheet.hubspot_duplicate_check.matched_domain ?? validationMetaSheet.hubspot_duplicate_check.matched_website)}
-                      />
-                      {validationMetaSheet.hubspot_duplicate_check.matched_phone && (
-                        <Field label="Teléfono" value={validationMetaSheet.hubspot_duplicate_check.matched_phone} />
-                      )}
-                      {validationMetaSheet.hubspot_duplicate_check.matched_lifecycle_stage && (
-                        <Field
-                          label="Lifecycle stage"
-                          value={({
-                            subscriber: 'Suscriptor', lead: 'Lead', marketingqualifiedlead: 'MQL',
-                            salesqualifiedlead: 'SQL', opportunity: 'Oportunidad', customer: 'Cliente',
-                            evangelist: 'Evangelizador', other: 'Otro',
-                          } as Record<string, string>)[validationMetaSheet.hubspot_duplicate_check.matched_lifecycle_stage ?? ''] ?? val(validationMetaSheet.hubspot_duplicate_check.matched_lifecycle_stage)}
-                        />
-                      )}
-                      {validationMetaSheet.hubspot_duplicate_check.matched_tax_identifier && (
-                        <Field label="NIT / Tax ID" value={validationMetaSheet.hubspot_duplicate_check.matched_tax_identifier} mono />
-                      )}
-                    </FieldGrid>
-                    {validationMetaSheet.hubspot_duplicate_check.hubspot_url && (
-                      <div className="pt-3 border-t border-border/50 mt-3 flex">
-                        <a
-                          href={validationMetaSheet.hubspot_duplicate_check.hubspot_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 rounded-sm text-xs font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-                        >
-                          <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
-                          Ver empresa en HubSpot CRM
-                        </a>
-                      </div>
-                    )}
-                  </DrawerSection>
-                )}
-
-                {/* Comparación rápida */}
-                {(sellupDupStatus === 'duplicate' || sellupDupStatus === 'possible_duplicate' ||
-                  hsDupStatus === 'match' || hsDupStatus === 'possible_match') && (() => {
-                  const su = validationMetaSheet?.sellup_duplicate_check;
-                  const hs = validationMetaSheet?.hubspot_duplicate_check;
-                  const hasSellupDetail = !!(su?.matched_name);
-
-                  const matchName = hasSellupDetail ? su?.matched_name : hs?.matched_company_name;
-                  const matchDomain = hasSellupDetail
-                    ? (su?.matched_domain ?? su?.matched_website)
-                    : (hs?.matched_domain ?? hs?.matched_website);
-                  const matchCountry = hasSellupDetail ? su?.matched_country_code : hs?.matched_country;
-                  const matchTaxId = hasSellupDetail ? su?.matched_tax_identifier : hs?.matched_tax_identifier;
-
-                  if (!matchName && !matchDomain) return null;
-
-                  const rows = [
-                    { label: 'Nombre', cv: candidate.name, mv: matchName },
-                    { label: 'Sitio web', cv: candidate.domain ?? candidate.website, mv: matchDomain },
-                    { label: 'País', cv: candidate.country ?? candidate.country_code, mv: matchCountry },
-                    { label: 'Identificador fiscal', cv: candidate.tax_identifier, mv: matchTaxId },
-                  ].filter(r => r.cv || r.mv);
-
-                  if (rows.length === 0) return null;
-                  return (
-                    <DrawerSection title="Comparación rápida" icon={ListFilter} tone="neutral">
-                      <div className="overflow-x-auto rounded-lg border border-border/60">
-                        <Table className="text-xs">
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead scope="col">Campo</TableHead>
-                              <TableHead scope="col">Candidato</TableHead>
-                              <TableHead scope="col">Coincidencia</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {rows.map(({ label: rl, cv, mv }) => (
-                              <TableRow key={rl}>
-                                <TableCell className="text-muted-foreground font-medium">{rl}</TableCell>
-                                <TableCell className="whitespace-normal break-words text-foreground">{cv ?? <span className="text-text-muted italic">Sin dato</span>}</TableCell>
-                                <TableCell className="whitespace-normal break-words text-foreground">{mv ?? <span className="text-text-muted italic">Sin dato</span>}</TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    </DrawerSection>
-                  );
-                })()}
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {dcMatches.length > 0 && (
-                  <DrawerSection
-                    title="Coincidencias encontradas"
-                    icon={Layers}
-                    tone="warning"
-                    badge={dcMatches.length}
-                  >
-                    <div className="space-y-2">
-                      {dcMatches.map((match, i) => (
-                        <DuplicateMatchCard key={i} match={match} />
-                      ))}
-                    </div>
-                  </DrawerSection>
-                )}
-              </div>
-            )}
+            <CandidateDuplicateMatchesSections
+              candidate={candidate}
+              isAutoValidated={isAutoValidated}
+              validationMetaSheet={validationMetaSheet}
+              dcMatches={dcMatches}
+            />
 
             {/* Riesgos e incertidumbres — abierta si hay alguno crítico o alto */}
-            {sortedRisks.length > 0 && (
-              <CollapsibleDrawerSection
-                title="Riesgos e incertidumbres"
-                icon={ShieldAlert}
-                tone={hasSeriousRisk ? 'negative' : 'warning'}
-                badge={sortedRisks.length}
-                summary={riskSummary}
-                defaultOpen={hasSeriousRisk}
-              >
-                <ul className="space-y-2">
-                  {sortedRisks.map((risk, i) => {
-                    const severity = classifyRisk(risk);
-                    const styleMap = {
-                      critical: 'bg-destructive/10 text-destructive border-destructive/20',
-                      high: 'bg-warning/10 text-warning border-warning/20',
-                      medium: 'bg-warning/10 text-warning border-warning/20',
-                      low: 'bg-surface-muted text-muted-foreground border-border/50',
-                    };
-                    const badgeMap = { critical: 'Crítico', high: 'Alto', medium: 'Medio', low: 'Bajo' };
-                    const badgeVariantMap = { critical: 'negative', high: 'warning', medium: 'warning', low: 'neutral' } as const;
-                    return (
-                      <li key={i} className={`flex items-start justify-between gap-3 text-xs rounded-lg border p-2.5 ${styleMap[severity]}`}>
-                        <div className="flex min-w-0 items-start gap-2">
-                          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
-                          <span className="min-w-0 break-words leading-relaxed">{isChileOfficialCandidate ? sanitizeTextForChile(risk) : risk}</span>
-                        </div>
-                        <Badge variant={badgeVariantMap[severity]} className="shrink-0 select-none">
-                          {badgeMap[severity]}
-                        </Badge>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </CollapsibleDrawerSection>
-            )}
+            <CandidateRisksSection risks={risks} isChileOfficialCandidate={isChileOfficialCandidate} />
 
             {/* Datos faltantes (de evaluación IA) */}
             {missingFields.length > 0 && (
-              <CollapsibleDrawerSection
-                title="Datos faltantes"
-                icon={CircleDashed}
-                tone="neutral"
-                badge={missingFields.length}
-                summary={missingFields
-                  .slice(0, 3)
-                  .map((field) => (isChileOfficialCandidate ? sanitizeTextForChile(field) : field))
-                  .join(' · ')}
-              >
-                <ul className="space-y-1.5">
-                  {missingFields.map((field, i) => (
-                    <li key={i} className="flex items-start gap-1.5 text-sm text-muted-foreground">
-                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
-                      <span className="min-w-0 break-words">{isChileOfficialCandidate ? sanitizeTextForChile(field) : field}</span>
-                    </li>
-                  ))}
-                </ul>
-              </CollapsibleDrawerSection>
+              <CandidateMissingFieldsSection
+                missingFields={missingFields}
+                isChileOfficialCandidate={isChileOfficialCandidate}
+              />
             )}
 
             {/* Evidencia de país */}
-            {!!countryEvidence && (
-              <CollapsibleDrawerSection
-                title="Evidencia de país"
-                icon={MapPin}
-                summary={
-                  (
-                    { strong: 'Evidencia fuerte', weak: 'Evidencia débil', query_only: 'Solo aparece en la búsqueda' } as Record<
-                      string,
-                      string
-                    >
-                  )[String(countryEvidence.evidence_level ?? '')] ?? 'Nivel de evidencia sin clasificar'
-                }
-                defaultOpen
-              >
-                {(() => {
-                  const level = countryEvidence.evidence_level as string | undefined;
-                  const sources = countryEvidence.evidence_sources as string[] | undefined;
-                  const warning = countryEvidence.warning as string | undefined;
-
-                  const levelConfig = {
-                    strong: { label: 'Fuerte', variant: 'positive', icon: <CheckCircle2 aria-hidden="true" /> },
-                    weak: { label: 'Débil', variant: 'warning', icon: <AlertTriangle aria-hidden="true" /> },
-                    query_only: { label: 'Solo en query', variant: 'negative', icon: <XCircle aria-hidden="true" /> },
-                  } as const;
-                  const cfg = level ? (levelConfig[level as keyof typeof levelConfig] ?? { label: level, variant: 'neutral' as const, icon: <Info aria-hidden="true" /> }) : null;
-
-                  return (
-                    <div className="space-y-3">
-                      {cfg && (
-                        <Badge variant={cfg.variant}>
-                          {cfg.icon}
-                          Nivel: {cfg.label}
-                        </Badge>
-                      )}
-                      {sources && sources.length > 0 && (
-                        <div className="space-y-1">
-                          <p className="text-xs text-muted-foreground">Señales detectadas</p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {sources.map((s, i) => (
-                              <Badge key={i} variant="neutral" className="max-w-full font-mono">
-                                <span className="truncate">{s}</span>
-                              </Badge>
-                            ))}
-                          </div>
-                          {level === 'strong' && sources.some(s => s.includes('.com.co')) && (
-                            <p className="text-xs text-muted-foreground italic pt-0.5">
-                              El dominio .com.co indica presencia en Colombia.
-                            </p>
-                          )}
-                        </div>
-                      )}
-                      {level === 'query_only' && (
-                        <div className="rounded-xl border border-destructive/20 bg-destructive/10 px-3 py-2 flex items-start gap-2">
-                          <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" aria-hidden="true" />
-                          <p className="text-xs text-destructive">
-                            El país solo aparece en la búsqueda, no está confirmado por la fuente.
-                          </p>
-                        </div>
-                      )}
-                      {level === 'weak' && (
-                        <div className="rounded-xl border border-warning/20 bg-warning/10 px-3 py-2 flex items-start gap-2">
-                          <AlertTriangle className="h-3.5 w-3.5 text-warning shrink-0 mt-0.5" aria-hidden="true" />
-                          <p className="text-xs text-warning">
-                            Evidencia de país débil. Requiere revisión manual.
-                          </p>
-                        </div>
-                      )}
-                      {warning && level !== 'query_only' && level !== 'weak' && (
-                        <p className="text-xs text-muted-foreground italic">{warning}</p>
-                      )}
-                    </div>
-                  );
-                })()}
-              </CollapsibleDrawerSection>
-            )}
+            {!!countryEvidence && <CandidateCountryEvidenceSection countryEvidence={countryEvidence} />}
 
             {/* Validación del sitio web */}
             {!!websiteVerification && (
-              <CollapsibleDrawerSection
-                title="Validación del sitio web"
-                icon={Globe}
-                summary={
-                  websiteVerification.skipped
-                    ? 'Verificación omitida'
-                    : [
-                        (
-                          {
-                            verified: 'Verificado',
-                            inferred: 'Inferido',
-                            mismatch: 'No coincide',
-                            not_found: 'No encontrado',
-                            error: 'Error al verificar',
-                          } as Record<string, string>
-                        )[String(websiteVerification.status ?? '')] ?? null,
-                        (websiteVerification.domain as string | undefined) ?? null,
-                      ]
-                        .filter(Boolean)
-                        .join(' · ') || 'Sin resultado'
-                }
-                defaultOpen
-              >
-                {(() => {
-                  const wvStatus = websiteVerification.status as string | undefined;
-                  const wvDomain = websiteVerification.domain as string | undefined;
-                  const wvConfidence = websiteVerification.confidence as number | undefined;
-                  const wvHttpStatus = websiteVerification.http_status as number | undefined;
-                  const wvSkipped = websiteVerification.skipped as boolean | undefined;
-
-                  if (wvSkipped) {
-                    return (
-                      <EmptyState
-                        variant="plain"
-                        title="La verificación del sitio web fue omitida para este candidato."
-                        className="py-4"
-                      />
-                    );
-                  }
-
-                  const statusConfig: Record<
-                    string,
-                    { label: string; variant: 'positive' | 'info' | 'warning' | 'neutral' | 'negative'; icon: React.ReactNode }
-                  > = {
-                    verified: { label: 'Verificado', variant: 'positive', icon: <CheckCircle2 aria-hidden="true" /> },
-                    inferred: { label: 'Inferido', variant: 'info', icon: <Info aria-hidden="true" /> },
-                    mismatch: { label: 'No coincide', variant: 'warning', icon: <AlertTriangle aria-hidden="true" /> },
-                    not_found: { label: 'No encontrado', variant: 'neutral', icon: <XCircle aria-hidden="true" /> },
-                    error: { label: 'Error', variant: 'negative', icon: <XCircle aria-hidden="true" /> },
-                  };
-                  const cfg = wvStatus ? (statusConfig[wvStatus] ?? { label: wvStatus, variant: 'neutral' as const, icon: <Info aria-hidden="true" /> }) : null;
-
-                  return (
-                    <div className="space-y-3">
-                      {cfg && (
-                        <Badge variant={cfg.variant}>
-                          {cfg.icon}
-                          {cfg.label}
-                        </Badge>
-                      )}
-                      <FieldGrid>
-                        {wvDomain && <Field label="Dominio" value={wvDomain} mono />}
-                        {wvConfidence !== undefined && <Field label="Confianza" value={`${wvConfidence}%`} />}
-                        {wvHttpStatus !== undefined && (
-                          <Field
-                            label="HTTP Status"
-                            value={
-                              <span className={wvHttpStatus === 200 ? 'text-success font-semibold tabular-nums' : 'text-warning font-semibold tabular-nums'}>
-                                {wvHttpStatus}
-                              </span>
-                            }
-                          />
-                        )}
-                      </FieldGrid>
-                    </div>
-                  );
-                })()}
-              </CollapsibleDrawerSection>
+              <CandidateWebsiteVerificationSection websiteVerification={websiteVerification} />
             )}
 
             {/* Motivos de revisión */}
             {!!(scoringMeta?.reasons || scoringMeta?.warnings) && (
-              <CollapsibleDrawerSection
-                title="Motivos de revisión"
-                icon={ClipboardCheck}
-                summary={[
-                  [scoringMeta.reasons, 'a favor'],
-                  [scoringMeta.warnings, 'advertencias'],
-                  [scoringMeta.blockers, 'bloqueadores'],
-                ]
-                  .filter(([list]) => Array.isArray(list) && list.length > 0)
-                  .map(([list, label]) => `${(list as unknown[]).length} ${label as string}`)
-                  .join(' · ')}
-                defaultOpen
-              >
-                <div className="space-y-3">
-                  {Array.isArray(scoringMeta.reasons) && (scoringMeta.reasons as string[]).length > 0 && (
-                    <div className="space-y-1.5">
-                      <p className="text-xs text-muted-foreground">Razones positivas</p>
-                      <ul className="space-y-1.5">
-                        {(scoringMeta.reasons as string[]).map((r, i) => (
-                          <li key={i} className="flex items-start gap-1.5 text-sm text-foreground">
-                            <CheckCircle2 className="h-3.5 w-3.5 text-success mt-0.5 shrink-0" aria-hidden="true" />
-                            <span className="min-w-0 break-words">{r}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {Array.isArray(scoringMeta.warnings) && (scoringMeta.warnings as string[]).length > 0 && (
-                    <div className="space-y-1.5">
-                      <p className="text-xs text-muted-foreground">Advertencias</p>
-                      <ul className="space-y-1.5">
-                        {(scoringMeta.warnings as string[]).map((w, i) => (
-                          <li key={i} className="flex items-start gap-1.5 text-sm text-warning">
-                            <AlertTriangle className="h-3.5 w-3.5 text-warning mt-0.5 shrink-0" aria-hidden="true" />
-                            <span className="min-w-0 break-words">{w}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {Array.isArray(scoringMeta.blockers) && (scoringMeta.blockers as string[]).length > 0 && (
-                    <div className="space-y-1.5">
-                      <p className="text-xs text-muted-foreground">Bloqueadores</p>
-                      <ul className="space-y-1.5">
-                        {(scoringMeta.blockers as string[]).map((b, i) => (
-                          <li key={i} className="flex items-start gap-1.5 text-sm text-destructive">
-                            <XCircle className="h-3.5 w-3.5 text-destructive mt-0.5 shrink-0" aria-hidden="true" />
-                            <span className="min-w-0 break-words">{b}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              </CollapsibleDrawerSection>
+              <CandidateReviewReasonsSection scoringMeta={scoringMeta} />
             )}
 
             {/* Datos de la validación (incluye las claves normalizadas) */}
             {validationMetaSheet && (
-              <CollapsibleDrawerSection
-                title="Datos de la validación"
-                icon={Key}
-                tone="neutral"
-                summary={`Última validación: ${formatAppDateTime(validationMetaSheet.validated_at || candidate.updated_at)}`}
-              >
-                <div className="space-y-3">
-                  <FieldGrid>
-                    <Field
-                      label="Campos faltantes"
-                      value={(() => {
-                        const missing = validationMetaSheet.quality_check?.missing_fields;
-                        if (!missing || missing.length === 0) return 'Ninguno';
-                        const labels: Record<string, string> = {
-                          tax_identifier: 'Identificador fiscal',
-                          linkedin_url: 'LinkedIn',
-                          website: 'Sitio web',
-                          industry: 'Sector/Industria',
-                        };
-                        return missing.map((f) => labels[f] || f).join(', ');
-                      })()}
-                    />
-                    <Field
-                      label="Confianza importada"
-                      value={(() => {
-                        const conf = validationMetaSheet.quality_check?.import_confidence || (candidate.metadata as unknown as SheetCandidateMetadata)?.import?.confidence;
-                        if (!conf) return 'No disponible';
-                        const confMap: Record<string, string> = {
-                          alta: 'Alta', media: 'Media', baja: 'Baja',
-                          high: 'Alta', medium: 'Media', low: 'Baja',
-                        };
-                        return confMap[String(conf).toLowerCase()] || String(conf);
-                      })()}
-                    />
-                    <Field
-                      label="Última validación"
-                      value={formatAppDateTime(validationMetaSheet.validated_at || candidate.updated_at)}
-                    />
-                  </FieldGrid>
-
-                  {validationMetaSheet.normalized_keys && (
-                    <div className="pt-3 border-t border-border/50">
-                      <p className="text-xs font-semibold text-muted-foreground mb-2">Claves normalizadas</p>
-                      <FieldGrid>
-                        {validationMetaSheet.normalized_keys.normalized_name && (
-                          <Field label="Nombre norm." value={validationMetaSheet.normalized_keys.normalized_name} mono />
-                        )}
-                        {validationMetaSheet.normalized_keys.normalized_domain && (
-                          <Field label="Dominio norm." value={validationMetaSheet.normalized_keys.normalized_domain} mono />
-                        )}
-                        {validationMetaSheet.normalized_keys.normalized_tax_identifier && (
-                          <Field label="Tax ID norm." value={validationMetaSheet.normalized_keys.normalized_tax_identifier} mono />
-                        )}
-                      </FieldGrid>
-                    </div>
-                  )}
-                </div>
-              </CollapsibleDrawerSection>
+              <CandidateValidationDataSection
+                candidate={candidate}
+                validationMetaSheet={validationMetaSheet}
+              />
             )}
 
             {/* Detalle técnico: identificadores, fechas y la traza de la búsqueda */}
-            <CollapsibleDrawerSection
-              title="Detalle técnico"
-              icon={Settings2}
-              tone="neutral"
-              summary="Identificadores, fechas y traza de la búsqueda"
-              contentClassName="space-y-4"
-            >
-            <div>
-              <FieldGrid>
-                <Field label="ID del prospecto" value={candidate.id} mono />
-                <Field label="ID del lote" value={candidate.batch_id} mono />
-                <Field label="Fuente primaria" value={val(candidate.source_primary)} mono />
-                <Field label="Creado" value={formatAppDateTime(candidate.created_at)} />
-                <Field label="Actualizado" value={formatAppDateTime(candidate.updated_at)} />
-                {candidate.reviewed_at && (
-                  <Field label="Revisado" value={formatAppDateTime(candidate.reviewed_at)} />
-                )}
-                {candidate.confidence_score !== null && (
-                  <Field label="Puntaje de confianza" value={`${candidate.confidence_score?.toFixed(0)}%`} />
-                )}
-                {candidate.estimated_cost_usd !== null && Number(candidate.estimated_cost_usd) > 0 && (
-                  <Field label="Costo estimado" value={`$${Number(candidate.estimated_cost_usd).toFixed(4)} USD`} mono />
-                )}
-              </FieldGrid>
-
-              {candidate.review_notes && (
-                <div className="mt-3 border-t border-border/50 pt-3">
-                  <p className="text-xs text-muted-foreground mb-1">Notas de revisión</p>
-                  <p className="text-sm text-foreground leading-relaxed break-words">{candidate.review_notes}</p>
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-2 border-t border-border/50 pt-3.5">
-              <p className="text-xs font-semibold text-muted-foreground">Traza de la búsqueda (JSON)</p>
-              {(() => {
-                const hasSourceTrace = candidate.source_trace && Object.keys(candidate.source_trace).length > 0;
-                const hasSearchTrace = searchTrace && Object.keys(searchTrace).length > 0;
-                const rawTrace = hasSourceTrace ? candidate.source_trace : hasSearchTrace ? searchTrace : null;
-                if (!rawTrace) {
-                  return (
-                    <EmptyState
-                      variant="plain"
-                      title="No hay trazabilidad de búsqueda disponible para este candidato."
-                      className="py-4"
-                    />
-                  );
-                }
-                return (
-                  <pre className="text-xs text-muted-foreground overflow-auto max-h-48 leading-relaxed font-mono bg-surface-subtle p-2.5 rounded-lg border border-border/50">
-                    {JSON.stringify(rawTrace, null, 2)}
-                  </pre>
-                );
-              })()}
-            </div>
-            </CollapsibleDrawerSection>
+            <CandidateTechnicalDetailSection candidate={candidate} searchTrace={searchTrace} />
           </TabsContent>
         </Tabs>
       </DrawerShell>
 
-      <ModalShell
-        open={!!confirmDialogData}
-        onOpenChange={(open) => { if (!open) setConfirmDialogData(null); }}
-        title="Confirmar identificador fiscal"
-        description={
-          <span>
-            ¿Estás seguro de que deseas aprobar <span className="font-mono text-foreground font-medium">{confirmDialogData?.taxIdentifier}</span> como el identificador fiscal oficial de este candidato?
-          </span>
-        }
-        showCloseButton={false}
-        className="max-w-md"
-        actions={
-          <>
-            <Button
-              variant="outline"
-              size="sm"
-              type="button"
-              onClick={() => setConfirmDialogData(null)}
-              disabled={isApprovingTaxId}
-            >
-              Cancelar
-            </Button>
-            <Button
-              size="sm"
-              type="button"
-              onClick={async () => {
-                if (confirmDialogData) {
-                  await handleApproveTaxIdentifier(
-                    confirmDialogData.taxIdentifier,
-                    confirmDialogData.sourceName,
-                    confirmDialogData.sourceUrl
-                  );
-                }
-              }}
-              disabled={isApprovingTaxId}>
-              {isApprovingTaxId ? (
-                <>
-                  <Loader2 className="animate-spin" aria-hidden="true" />
-                  Guardando…
-                </>
-              ) : (
-                `Guardar ${getTaxIdLabel(candidate?.country_code)}`
-              )}
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-3">
-          <dl className="divide-y divide-border/50 text-sm">
-            {confirmDialogData?.legalName && (
-              <div className="flex items-start justify-between gap-3 py-2 first:pt-0">
-                <dt className="shrink-0 text-xs text-muted-foreground">Razón social:</dt>
-                <dd className="min-w-0 break-words text-right font-medium text-foreground">{confirmDialogData.legalName}</dd>
-              </div>
-            )}
-            <div className="flex items-start justify-between gap-3 py-2 first:pt-0">
-              <dt className="shrink-0 text-xs text-muted-foreground">Fuente:</dt>
-              <dd className="min-w-0 break-words text-right text-foreground">{confirmDialogData?.sourceName}</dd>
-            </div>
-            {confirmDialogData?.confidence && (
-              <div className="flex items-start justify-between gap-3 py-2">
-                <dt className="shrink-0 text-xs text-muted-foreground">Confianza:</dt>
-                <dd className={`font-semibold capitalize ${
-                  confirmDialogData.confidence === 'high' ? 'text-success' : 'text-warning'
-                }`}>
-                  {confirmDialogData.confidence === 'high' ? 'Alta' : 'Media'}
-                </dd>
-              </div>
-            )}
-          </dl>
-          <p className="rounded-xl border border-warning/20 bg-warning/10 px-3 py-2 text-xs leading-relaxed text-warning">
-            * El identificador se guardará localmente en SellUp. No se sincronizará con HubSpot en este momento.
-          </p>
-        </div>
-      </ModalShell>
+      <CandidateTaxIdConfirmDialog candidate={candidate} lookup={taxIdLookupState} />
     </>
   );
 }

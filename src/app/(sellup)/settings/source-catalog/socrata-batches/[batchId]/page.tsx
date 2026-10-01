@@ -1,16 +1,11 @@
 import { notFound } from 'next/navigation';
-import {
-  Building2,
-  FlaskConical,
-  Lock,
-  RotateCcw,
-  XCircle,
-  Globe,
-} from "@/icons";
+import { Building2, Globe } from "@/icons";
 import { PageHeader } from '@/components/shared/page-header';
 import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { MetricCard } from '@/components/shared/metric-card';
+import { DetailItem, DetailList } from '@/components/shared/detail-list';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Badge } from '@/components/ui/badge';
 import { TableShell } from '@/components/data-display';
@@ -159,58 +154,37 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
         description="Las empresas candidatas de este lote y de dónde salió cada dato. Solo consulta."
       />
 
-      {/* Read-only notice */}
-      <div className="flex items-start gap-2.5 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
-        <Lock aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        <p className="text-xs text-muted-foreground">
-          <span className="font-medium text-foreground">Solo consulta.</span>{' '}
+      {/* Qué es este lote y qué no se puede hacer desde aquí */}
+      <Alert variant="info">
+        <AlertTitle>Solo consulta</AlertTitle>
+        <AlertDescription className="text-xs">
           Puedes revisar los candidatos y de dónde salió cada dato, pero desde aquí no se aprueban,
           no se convierten en empresas ni se envían a HubSpot.
-        </p>
-      </div>
+        </AlertDescription>
+      </Alert>
 
-      {/* Smoke test alert */}
       {batch.smokeTest && (
-        <div className="rounded-xl border border-info/20 bg-info/10 px-4 py-3">
-          <div className="flex items-start gap-2.5">
-            <FlaskConical className="mt-0.5 h-4 w-4 shrink-0 text-info" />
-            <div>
-              <p className="text-sm font-medium text-info">
-                Lote de prueba
-              </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Este lote se creó para probar la fuente. No corresponde a una prospección real.
-              </p>
-            </div>
-          </div>
-        </div>
+        <Alert variant="info">
+          <AlertTitle>Lote de prueba</AlertTitle>
+          <AlertDescription className="text-xs">
+            Este lote se creó para probar la fuente. No corresponde a una prospección real.
+          </AlertDescription>
+        </Alert>
       )}
 
-      {/* Rollback alert */}
       {batch.rollbackLogical && (
-        <div className="rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
-          <div className="flex items-start gap-2.5">
-            <RotateCcw className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-            <div>
-              <p className="text-sm font-medium text-foreground">Lote revertido</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                El lote y sus candidatos fueron marcados como cancelados/descartados
-                mediante rollback lógico. Los datos persisten para trazabilidad pero no son
-                operativos.
-              </p>
-            </div>
-          </div>
-        </div>
+        <Alert variant="warning">
+          <AlertTitle>Lote revertido</AlertTitle>
+          <AlertDescription className="text-xs">
+            El lote y sus candidatos fueron marcados como cancelados/descartados
+            mediante rollback lógico. Los datos persisten para trazabilidad pero no son
+            operativos.
+          </AlertDescription>
+        </Alert>
       )}
 
-      {/* Cancelled alert */}
       {batch.status === 'cancelled' && !batch.rollbackLogical && (
-        <div className="rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
-          <div className="flex items-start gap-2.5">
-            <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">Este lote fue cancelado.</p>
-          </div>
-        </div>
+        <Alert variant="warning">Este lote fue cancelado.</Alert>
       )}
 
       {/* Candidate summary cards */}
@@ -258,90 +232,38 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
 
       {/* Batch summary */}
       <SurfaceCard>
-        <div className="grid grid-cols-2 gap-x-6 gap-y-4 text-sm sm:grid-cols-3 lg:grid-cols-4">
-          <div>
-            <p className="mb-1 text-xs font-medium text-muted-foreground">
-              Estado
-            </p>
+        <SurfaceCardHeader title="Datos del lote" />
+        <DetailList columns={4}>
+          <DetailItem label="Estado">
             <Badge variant="outline" className={batchStatusBadgeClass(batch.status)}>
               {BATCH_STATUS_LABELS[batch.status] ?? batch.status}
             </Badge>
-          </div>
-          <div>
-            <p className="mb-1 text-xs font-medium text-muted-foreground">
-              País
-            </p>
-            <p className="font-medium text-foreground">{batch.countryCode ?? '—'}</p>
-          </div>
-          <div>
-            <p className="mb-1 text-xs font-medium text-muted-foreground">
-              Dataset
-            </p>
-            <p className="font-mono text-xs text-foreground">{formatDatasetLabel(batch.dataset)}</p>
-          </div>
-          <div>
-            <p className="mb-1 text-xs font-medium text-muted-foreground">
-              Objetivo
-            </p>
-            <p className="tabular-nums text-foreground">{batch.targetCount ?? '—'}</p>
-          </div>
-          <div>
-            <p className="mb-1 text-xs font-medium text-muted-foreground">
-              Candidatos cargados
-            </p>
-            <p className="tabular-nums text-foreground">{candidates.length}</p>
-          </div>
-          <div>
-            <p className="mb-1 text-xs font-medium text-muted-foreground">
-              Preview mode
-            </p>
-            <p className="text-foreground">{batch.previewMode ? 'Sí' : 'No'}</p>
-          </div>
-          <div>
-            <p className="mb-1 text-xs font-medium text-muted-foreground">
-              Smoke test
-            </p>
-            <p className="text-foreground">{batch.smokeTest ? 'Sí' : 'No'}</p>
-          </div>
-          <div>
-            <p className="mb-1 text-xs font-medium text-muted-foreground">
-              Rollback lógico
-            </p>
-            <p className="text-foreground">{batch.rollbackLogical ? 'Sí' : 'No'}</p>
-          </div>
-          <div>
-            <p className="mb-1 text-xs font-medium text-muted-foreground">
-              Profundidad
-            </p>
-            <p className="text-foreground">{batch.searchDepth ?? '—'}</p>
-          </div>
-          <div>
-            <p className="mb-1 text-xs font-medium text-muted-foreground">
-              Costo estimado lote
-            </p>
-            <p className="tabular-nums text-foreground">
-              {batch.estimatedCostUsd != null ? `$${batch.estimatedCostUsd.toFixed(4)}` : '—'}
-            </p>
-          </div>
-          <div>
-            <p className="mb-1 text-xs font-medium text-muted-foreground">
-              Fecha creación
-            </p>
-            <p className="text-foreground">{formatShortDate(batch.createdAt)}</p>
-          </div>
-          <div>
-            <p className="mb-1 text-xs font-medium text-muted-foreground">
-              Última actualización
-            </p>
-            <p className="text-foreground">{formatShortDate(batch.updatedAt)}</p>
-          </div>
-          <div>
-            <p className="mb-1 text-xs font-medium text-muted-foreground">
-              ID lote
-            </p>
-            <p className="break-all font-mono text-xs text-muted-foreground">{batch.id}</p>
-          </div>
-        </div>
+          </DetailItem>
+          <DetailItem label="País">{batch.countryCode}</DetailItem>
+          <DetailItem label="Dataset">
+            <span className="font-mono text-xs">{formatDatasetLabel(batch.dataset)}</span>
+          </DetailItem>
+          <DetailItem label="Objetivo">
+            {batch.targetCount != null ? <span className="tabular-nums">{batch.targetCount}</span> : null}
+          </DetailItem>
+          <DetailItem label="Candidatos cargados">
+            <span className="tabular-nums">{candidates.length}</span>
+          </DetailItem>
+          <DetailItem label="Preview mode">{batch.previewMode ? 'Sí' : 'No'}</DetailItem>
+          <DetailItem label="Smoke test">{batch.smokeTest ? 'Sí' : 'No'}</DetailItem>
+          <DetailItem label="Rollback lógico">{batch.rollbackLogical ? 'Sí' : 'No'}</DetailItem>
+          <DetailItem label="Profundidad">{batch.searchDepth}</DetailItem>
+          <DetailItem label="Costo estimado lote">
+            {batch.estimatedCostUsd != null ? (
+              <span className="tabular-nums">{`$${batch.estimatedCostUsd.toFixed(4)}`}</span>
+            ) : null}
+          </DetailItem>
+          <DetailItem label="Fecha creación">{formatShortDate(batch.createdAt)}</DetailItem>
+          <DetailItem label="Última actualización">{formatShortDate(batch.updatedAt)}</DetailItem>
+          <DetailItem label="ID lote">
+            <span className="break-all font-mono text-xs text-muted-foreground">{batch.id}</span>
+          </DetailItem>
+        </DetailList>
       </SurfaceCard>
 
       {/* Candidates table */}
@@ -471,21 +393,23 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
             </Table>
       </TableShell>
 
-      {/* Warnings panel — only when candidates have warnings */}
+      {/* Advertencias — solo cuando algún candidato las trae */}
       {candidates.some((c) => c.warnings.length > 0) && (
-        <SurfaceCard>
-          <SurfaceCardHeader title="Advertencias de candidatos" className="mb-3" />
-          <div className="space-y-2">
-            {candidates
-              .filter((c) => c.warnings.length > 0)
-              .map((c) => (
-                <div key={c.id} className="rounded-lg bg-warning/15 px-3 py-2 text-xs leading-relaxed">
-                  <span className="font-medium text-foreground">{c.name ?? c.id}:</span>{' '}
-                  <span className="text-muted-foreground">{c.warnings.join(' · ')}</span>
-                </div>
-              ))}
-          </div>
-        </SurfaceCard>
+        <Alert variant="warning">
+          <AlertTitle>Advertencias de candidatos</AlertTitle>
+          <AlertDescription className="text-xs">
+            <ul className="space-y-1">
+              {candidates
+                .filter((c) => c.warnings.length > 0)
+                .map((c) => (
+                  <li key={c.id} className="leading-relaxed">
+                    <span className="font-medium text-foreground">{c.name ?? c.id}:</span>{' '}
+                    {c.warnings.join(' · ')}
+                  </li>
+                ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
       )}
     </div>
   );

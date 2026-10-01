@@ -18,8 +18,6 @@ import {
 } from '@tanstack/react-table';
 import {
   AlertTriangle,
-  CheckCircle2,
-  XCircle,
   Pencil,
   ChevronLeft,
   ChevronRight,
@@ -29,10 +27,12 @@ import {
   ChevronDown,
   ChevronUp,
   ExternalLink,
+  Loader2,
 } from "@/icons";
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { FieldLabel } from '@/components/forms/field';
+import { SearchableSelect } from '@/components/forms/searchable-select';
 import { cn } from '@/lib/utils';
 import type {
   ImportClassificationPreviewRow,
@@ -40,7 +40,6 @@ import type {
   ManualClassificationCorrection,
   CatalogVersionState,
 } from '@/modules/prospect-batches/import-classification/import-classification-ui-types';
-import { CLASSIFICATION_STATUS_MAP } from '@/modules/prospect-batches/import-classification/import-classification-ui-types';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { EmptyState } from '@/components/ui/empty-state';
 
@@ -85,424 +84,13 @@ export type ImportClassificationTableProps = {
   ) => Promise<void>;
 };
 
-// ── Country code → display name (subset LATAM + common) ───────────────────────
-
-const COUNTRY_NAMES: Record<string, string> = {
-  AR: 'Argentina', BO: 'Bolivia', BR: 'Brasil', CL: 'Chile',
-  CO: 'Colombia', CR: 'Costa Rica', DO: 'R. Dominicana', EC: 'Ecuador',
-  GT: 'Guatemala', HN: 'Honduras', MX: 'México', NI: 'Nicaragua',
-  PA: 'Panamá', PE: 'Perú', PY: 'Paraguay', SV: 'El Salvador',
-  UY: 'Uruguay', VE: 'Venezuela', US: 'EE.UU.', ES: 'España',
-};
-
-function countryLabel(code: string | null): string {
-  if (!code) return '—';
-  return COUNTRY_NAMES[code.toUpperCase()] ?? code;
-}
-
-// ── Domain extractor ──────────────────────────────────────────────────────────
-
-function extractDomain(url: string | null | undefined): string | null {
-  if (!url) return null;
-  try {
-    const normalized = url.startsWith('http') ? url : `https://${url}`;
-    return new URL(normalized).hostname.replace(/^www\./, '');
-  } catch {
-    return null;
-  }
-}
-
-// ── StatusBadge ───────────────────────────────────────────────────────────────
-
-function StatusBadge({ status }: { status: ImportClassificationPreviewRow['validationStatus'] }) {
-  const config = CLASSIFICATION_STATUS_MAP[status];
-  const variantMap: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
-    success: 'secondary',
-    warning: 'default',
-    destructive: 'destructive',
-    default: 'default',
-    secondary: 'secondary',
-    outline: 'outline',
-  };
-  const iconMap: Record<string, React.ReactNode> = {
-    valid: <CheckCircle2 className="h-3 w-3 text-success" />,
-    normalized: <CheckCircle2 className="h-3 w-3 text-primary" />,
-    warning: <AlertTriangle className="h-3 w-3 text-warning" />,
-    requires_review: <Pencil className="h-3 w-3 text-destructive" />,
-    invalid: <XCircle className="h-3 w-3 text-destructive" />,
-  };
-  return (
-    <Badge variant={variantMap[config.variant] ?? 'secondary'} className="whitespace-nowrap">
-      {iconMap[status]}
-      {config.label}
-    </Badge>
-  );
-}
-
-// ── ClassificationCell ────────────────────────────────────────────────────────
-
-function ClassificationCell({
-  canonicalName,
-  originalValue,
-  matchStatus,
-}: {
-  canonicalName: string | null;
-  originalValue: string | null;
-  matchStatus: string;
-}) {
-  if (!canonicalName && !originalValue) {
-    return <span className="text-xs text-muted-foreground italic">Sin valor</span>;
-  }
-  const isDifferent =
-    canonicalName &&
-    originalValue &&
-    canonicalName.toLowerCase() !== originalValue.toLowerCase();
-  return (
-    <div className="space-y-0.5">
-      <p className="text-xs font-medium text-foreground">{canonicalName ?? originalValue ?? '—'}</p>
-      {isDifferent && (
-        <p className="text-xs text-muted-foreground">
-          Original: <span className="italic">{originalValue}</span>
-        </p>
-      )}
-      {(matchStatus === 'alias_match' || matchStatus === 'normalized_match') && isDifferent && (
-        <p className="text-xs text-primary">Normalizado automáticamente</p>
-      )}
-    </div>
-  );
-}
-
-// ── Warning message translator (classifier emits messages in English) ──────────
-
-function translateWarning(message: string): string {
-  if (/^Industry value is empty or not provided/.test(message))
-    return 'El valor de industria está vacío o no fue proporcionado.';
-
-  const industryNotFound = message.match(/^Industry not found in catalog: "(.+)"\./);
-  if (industryNotFound)
-    return `La industria "${industryNotFound[1]}" no existe en el catálogo actual.`;
-
-  const industryAmbiguous = message.match(/^Ambiguous industry name: "(.+)"\./);
-  if (industryAmbiguous)
-    return `El nombre de industria "${industryAmbiguous[1]}" es ambiguo.`;
-
-  const industryAmbiguousNorm = message.match(/^Ambiguous industry after normalization: "(.+)"\./);
-  if (industryAmbiguousNorm)
-    return `La industria "${industryAmbiguousNorm[1]}" es ambigua tras la normalización.`;
-
-  if (/^Subindustry value is empty or not provided/.test(message))
-    return 'El valor de subindustria está vacío o no fue proporcionado.';
-
-  const subNotFound = message.match(/^Subindustry not found in catalog: "(.+)"\./);
-  if (subNotFound)
-    return `La subindustria "${subNotFound[1]}" no existe en el catálogo actual.`;
-
-  const subWrongIndustry = message.match(/^Subindustry "(.+)" was found in catalog but does not belong/);
-  if (subWrongIndustry)
-    return `La subindustria "${subWrongIndustry[1]}" existe en el catálogo pero no pertenece a la industria detectada.`;
-
-  const subAmbiguousWithin = message.match(/^Ambiguous subindustry "(.+)" — multiple matches within/);
-  if (subAmbiguousWithin)
-    return `La subindustria "${subAmbiguousWithin[1]}" es ambigua — múltiples coincidencias dentro de la industria detectada.`;
-
-  const subAmbiguousAcross = message.match(/^Ambiguous subindustry "(.+)" — multiple matches across/);
-  if (subAmbiguousAcross)
-    return `La subindustria "${subAmbiguousAcross[1]}" es ambigua — múltiples coincidencias en distintas industrias.`;
-
-  const subRecognized = message.match(/^Subindustry "(.+)" recognized; parent industry suggested/);
-  if (subRecognized)
-    return `La subindustria "${subRecognized[1]}" fue reconocida; industria sugerida pero no confirmada.`;
-
-  const subCountryRequired = message.match(/^Subindustry "(.+)" has country restrictions but no country code/);
-  if (subCountryRequired)
-    return `La subindustria "${subCountryRequired[1]}" tiene restricciones por país, pero no se proporcionó código de país.`;
-
-  const subNotApplicable = message.match(/^Subindustry "(.+)" is not applicable to country "(.+)"/);
-  if (subNotApplicable)
-    return `La subindustria "${subNotApplicable[1]}" no aplica para el país "${subNotApplicable[2]}".`;
-
-  return message;
-}
-
-// ── DetailField — labeled field for the expanded detail layout ────────────────
-
-function DetailField({
-  label,
-  value,
-  fullWidth,
-}: {
-  label: string;
-  value: React.ReactNode;
-  fullWidth?: boolean;
-}) {
-  return (
-    <div className={cn('space-y-0.5', fullWidth && 'col-span-full')}>
-      <p className="text-xs font-semibold text-muted-foreground">{label}</p>
-      <div className="text-xs text-foreground">{value}</div>
-    </div>
-  );
-}
-
-// ── ExpandedDetailRow ─────────────────────────────────────────────────────────
-
-function ExpandedDetailRow({
-  row,
-  colSpan,
-  showSubindustry,
-}: {
-  row: ImportClassificationPreviewRow;
-  colSpan: number;
-  showSubindustry: boolean;
-}) {
-  const statusConfig = CLASSIFICATION_STATUS_MAP[row.validationStatus];
-
-  const websiteHref = row.website
-    ? row.website.startsWith('http') ? row.website : `https://${row.website}`
-    : null;
-  const linkedinHref = row.linkedinUrl
-    ? row.linkedinUrl.startsWith('http') ? row.linkedinUrl : `https://${row.linkedinUrl}`
-    : null;
-  const sourceHref = row.sourceUrl
-    ? row.sourceUrl.startsWith('http') ? row.sourceUrl : `https://${row.sourceUrl}`
-    : null;
-
-  const showOriginalValues =
-    (row.industryOriginalValue || (showSubindustry && row.subindustryOriginalValue)) &&
-    (row.correctionSource === 'manual' ||
-      row.industryMatchStatus === 'alias_match' ||
-      row.industryMatchStatus === 'normalized_match' ||
-      row.subindustryMatchStatus === 'alias_match' ||
-      row.subindustryMatchStatus === 'normalized_match');
-
-  const hasInfoBlock =
-    row.description ||
-    row.countryCode ||
-    row.city ||
-    row.website ||
-    row.linkedinUrl ||
-    row.companySize ||
-    row.confidence ||
-    row.notes;
-
-  const hasEvidenceBlock = row.sourceUrl || row.sourceEvidence;
-
-  const hasClassificationBlock =
-    row.industryCanonicalName ||
-    (showSubindustry && row.subindustryCanonicalName) ||
-    showOriginalValues ||
-    (row.warnings && row.warnings.length > 0) ||
-    row.requiresHumanReview;
-
-  return (
-    <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={colSpan} className="p-0 whitespace-normal">
-        <div className="mx-3 mb-3 overflow-hidden rounded-lg border border-border/50 bg-surface-subtle">
-
-          {/* ── Bloque 1: Resumen ──────────────────────────────────────────────── */}
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border/50 bg-surface-subtle px-3 py-2">
-            <span className="text-xs font-semibold text-foreground">{row.companyName}</span>
-            <Badge
-              variant={
-                row.validationStatus === 'valid' || row.validationStatus === 'normalized'
-                  ? 'positive'
-                  : row.validationStatus === 'warning'
-                    ? 'warning'
-                    : 'negative'
-              }
-            >
-              {statusConfig.label}
-            </Badge>
-            {row.industryCanonicalName && (
-              <span className="text-xs text-muted-foreground">
-                {row.industryCanonicalName}
-                {row.subindustryCanonicalName && (
-                  <> · <span className="text-muted-foreground">{row.subindustryCanonicalName}</span></>
-                )}
-              </span>
-            )}
-          </div>
-
-          <div className="space-y-4 p-3">
-
-            {/* ── Bloque 2: Información detectada ─────────────────────────────── */}
-            {hasInfoBlock && (
-              <div className="space-y-2">
-                <p className="text-xs font-semibold text-muted-foreground">
-                  Información detectada
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5">
-                  {row.description && (
-                    <DetailField
-                      label="Descripción"
-                      fullWidth
-                      value={<span className="leading-relaxed">{row.description}</span>}
-                    />
-                  )}
-                  {row.countryCode && (
-                    <DetailField label="País" value={countryLabel(row.countryCode)} />
-                  )}
-                  {row.city && (
-                    <DetailField label="Ciudad" value={row.city} />
-                  )}
-                  {row.companySize && (
-                    <DetailField label="Tamaño" value={row.companySize} />
-                  )}
-                  {row.confidence && (
-                    <DetailField label="Confianza" value={row.confidence} />
-                  )}
-                  {websiteHref && (
-                    <DetailField
-                      label="Sitio web"
-                      value={
-                        <a
-                          href={websiteHref}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex max-w-56 items-center gap-1 truncate rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-                          title={row.website ?? undefined}
-                        >
-                          <ExternalLink className="h-3 w-3 shrink-0" />
-                          {extractDomain(row.website) ?? row.website}
-                        </a>
-                      }
-                    />
-                  )}
-                  {linkedinHref && (
-                    <DetailField
-                      label="LinkedIn"
-                      value={
-                        <a
-                          href={linkedinHref}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex max-w-56 items-center gap-1 truncate rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-                          title={row.linkedinUrl ?? undefined}
-                        >
-                          <ExternalLink className="h-3 w-3 shrink-0" />
-                          {extractDomain(row.linkedinUrl)?.replace('linkedin.com/', 'li/') ?? row.linkedinUrl}
-                        </a>
-                      }
-                    />
-                  )}
-                  {row.notes && (
-                    <DetailField label="Notas" fullWidth value={row.notes} />
-                  )}
-                  {!hasInfoBlock && (
-                    <p className="col-span-full text-xs text-muted-foreground italic">No disponible</p>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* ── Bloque 3: Evidencia ──────────────────────────────────────────── */}
-            {hasEvidenceBlock && (
-              <div className="space-y-2 border-t border-border/50 pt-3">
-                <p className="text-xs font-semibold text-muted-foreground">
-                  Evidencia
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5">
-                  {sourceHref && (
-                    <DetailField
-                      label="URL de evidencia"
-                      value={
-                        <a
-                          href={sourceHref}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex max-w-56 items-center gap-1 truncate rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-                          title={row.sourceUrl ?? undefined}
-                        >
-                          <ExternalLink className="h-3 w-3 shrink-0" />
-                          {extractDomain(row.sourceUrl) ?? row.sourceUrl}
-                        </a>
-                      }
-                    />
-                  )}
-                  {row.sourceEvidence && (
-                    <DetailField label="Fuente / evidencia" value={row.sourceEvidence} />
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* ── Bloque 4: Clasificación ──────────────────────────────────────── */}
-            {hasClassificationBlock && (
-              <div className="space-y-2 border-t border-border/50 pt-3">
-                <p className="text-xs font-semibold text-muted-foreground">
-                  Clasificación
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5">
-                  {row.industryCanonicalName && (
-                    <DetailField label="Industria detectada" value={row.industryCanonicalName} />
-                  )}
-                  {showSubindustry && row.subindustryCanonicalName && (
-                    <DetailField label="Subindustria detectada" value={row.subindustryCanonicalName} />
-                  )}
-                </div>
-
-                {/* Valores originales */}
-                {showOriginalValues && (
-                  <div className="mt-2 rounded-lg bg-surface-muted px-3 py-2 space-y-1">
-                    <p className="text-xs font-semibold text-muted-foreground">
-                      Valores originales
-                    </p>
-                    <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
-                      {row.industryOriginalValue && (
-                        <span>Industria: <em>{row.industryOriginalValue}</em></span>
-                      )}
-                      {showSubindustry && row.subindustryOriginalValue && (
-                        <span>Subindustria: <em>{row.subindustryOriginalValue}</em></span>
-                      )}
-                      {row.correctionSource === 'manual' && (
-                        <span className="text-primary font-medium">— corregido manualmente</span>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Advertencias */}
-                {row.warnings && row.warnings.length > 0 && (
-                  <div className="mt-2 rounded-lg border border-warning/25 bg-warning/15 px-3 py-2 space-y-1.5">
-                    <p className="text-xs font-semibold text-warning">
-                      Advertencias de clasificación
-                    </p>
-                    <ul className="space-y-1">
-                      {row.warnings.map((w, i) => (
-                        <li key={i} className="flex items-start gap-1.5 text-xs text-warning">
-                          <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
-                          <span>{translateWarning(w.message)}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {/* Motivo de revisión requerida */}
-                {row.requiresHumanReview && (
-                  <div className="mt-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 space-y-1">
-                    <p className="text-xs font-semibold text-destructive">
-                      Motivo de revisión requerida
-                    </p>
-                    <p className="text-xs text-destructive leading-relaxed">
-                      Esta fila requiere corrección manual antes de poder importarse.
-                      {row.industryCanonicalId === null &&
-                        ' La industria no pudo clasificarse automáticamente.'}
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Empty state */}
-            {!hasInfoBlock && !hasEvidenceBlock && !hasClassificationBlock && (
-              <p className="text-xs text-muted-foreground italic">No hay información adicional para esta fila.</p>
-            )}
-          </div>
-        </div>
-      </TableCell>
-    </TableRow>
-  );
-}
+import {
+  ClassificationCell,
+  ExpandedDetailRow,
+  StatusBadge,
+  countryLabel,
+  extractDomain,
+} from './import-classification-row-detail';
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -779,25 +367,25 @@ export function ImportClassificationTable({
           const isEditing = editingRowNumber === row.original.rowNumber && !!catalog;
           if (isEditing) {
             return (
-              <div className="min-w-40" onClick={(e) => e.stopPropagation()}>
-                <label className="sr-only" htmlFor={`edit-industry-${row.original.rowNumber}`}>
-                  Industria
-                </label>
-                <select
-                  id={`edit-industry-${row.original.rowNumber}`}
-                  className="h-8 w-full rounded-md border border-input bg-card px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 dark:bg-muted"
+              <div
+                role="group"
+                aria-label="Industria"
+                className="min-w-40"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <SearchableSelect
+                  options={industryOptions}
                   value={editIndustryId}
-                  onChange={(e) => {
-                    setEditIndustryId(e.target.value);
+                  onValueChange={(value) => {
+                    setEditIndustryId(value);
                     setEditSubindustryId('');
                   }}
-                  autoFocus
-                >
-                  <option value="">Seleccionar industria</option>
-                  {industryOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
+                  placeholder="Seleccionar industria"
+                  searchPlaceholder="Buscar industria…"
+                  emptyMessage="No se encontraron industrias."
+                  compact
+                  className="h-8 px-2 text-xs"
+                />
               </div>
             );
           }
@@ -818,39 +406,36 @@ export function ImportClassificationTable({
           if (isEditing) {
             return (
               <div className="min-w-40 space-y-1.5" onClick={(e) => e.stopPropagation()}>
-                <label className="sr-only" htmlFor={`edit-subindustry-${row.original.rowNumber}`}>
-                  Subindustria
-                </label>
-                <select
-                  id={`edit-subindustry-${row.original.rowNumber}`}
-                  className="h-8 w-full rounded-md border border-input bg-card px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-muted"
-                  value={editSubindustryId}
-                  onChange={(e) => setEditSubindustryId(e.target.value)}
-                  disabled={!editIndustryId}
-                >
-                  <option value="">
-                    {editIndustryId ? 'Seleccionar subindustria' : 'Elige industria primero'}
-                  </option>
-                  {subindustryOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
+                <div role="group" aria-label="Subindustria">
+                  <SearchableSelect
+                    options={subindustryOptions}
+                    value={editSubindustryId}
+                    onValueChange={setEditSubindustryId}
+                    placeholder={editIndustryId ? 'Seleccionar subindustria' : 'Elige industria primero'}
+                    searchPlaceholder="Buscar subindustria…"
+                    emptyMessage="No se encontraron subindustrias."
+                    disabled={!editIndustryId}
+                    compact
+                    className="h-8 px-2 text-xs"
+                  />
+                </div>
                 {equivalentRows.length > 0 && (
-                  <label
-                    className="flex items-center gap-1.5 cursor-pointer"
-                    onClick={(e) => e.stopPropagation()}
-                  >
+                  <div className="flex items-center gap-1.5">
                     <Checkbox
+                      id={`edit-equivalent-${row.original.rowNumber}`}
                       checked={editApplyToEquivalent}
                       onCheckedChange={(v) => setEditApplyToEquivalent(!!v)}
                       className="h-3.5 w-3.5 shrink-0"
                       aria-label={`Aplicar también a ${equivalentRows.length} filas equivalentes`}
                     />
-                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                    <FieldLabel
+                      htmlFor={`edit-equivalent-${row.original.rowNumber}`}
+                      className="flex cursor-pointer items-center gap-1 text-xs font-normal text-muted-foreground"
+                    >
                       <Users className="h-3 w-3 shrink-0" />
                       También {equivalentRows.length} equivalente{equivalentRows.length !== 1 ? 's' : ''}
-                    </span>
-                  </label>
+                    </FieldLabel>
+                  </div>
                 )}
               </div>
             );
@@ -906,7 +491,7 @@ export function ImportClassificationTable({
                 >
                   {editSaving ? (
                     <>
-                      <span className="h-3 w-3 animate-spin rounded-full border border-primary-foreground border-t-transparent" />
+                      <Loader2 className="h-3 w-3 animate-spin" />
                       Guardando
                     </>
                   ) : (

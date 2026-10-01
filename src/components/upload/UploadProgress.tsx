@@ -46,7 +46,7 @@ export function UploadProgress({
       aria-valuenow={value}
       aria-valuemin={0}
       aria-valuemax={100}
-      aria-label={label || "Upload progress"}
+      aria-label={label || "Progreso de la carga"}
     >
       <div className="flex items-center justify-between gap-4">
         <div className="flex flex-col min-w-0">
@@ -64,7 +64,7 @@ export function UploadProgress({
               "text-xs text-muted-foreground truncate",
               isError && "text-destructive font-medium"
             )}>
-              {isError ? (error || "An error occurred") : description}
+              {isError ? (error || "Ocurrió un error.") : description}
             </span>
           )}
         </div>

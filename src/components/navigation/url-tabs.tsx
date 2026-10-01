@@ -2,7 +2,7 @@
 
 import * as React from "react";
 
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ThemaTabs } from "@/components/navigation/thema-tabs";
 
 export interface UrlTab {
   id: string;
@@ -30,7 +30,7 @@ function resolveTab(tabs: readonly UrlTab[], candidate: string | undefined): str
 }
 
 /**
- * UrlTabs — las pestañas del sistema (`Tabs`) con la pestaña puesta guardada en
+ * UrlTabs — las pestañas del sistema (`ThemaTabs`, nivel `view`) con la pestaña puesta guardada en
  * la URL, para que un enlace compartido o una recarga abran la misma vista.
  *
  * Cambiar de pestaña es instantáneo: no navega ni vuelve a pedir datos, solo
@@ -63,8 +63,8 @@ export function UrlTabs({
   }
 
   const handleChange = React.useCallback(
-    (value: unknown) => {
-      const next = resolveTab(tabs, typeof value === "string" ? value : undefined);
+    (value: string) => {
+      const next = resolveTab(tabs, value);
       setActive(next);
 
       const url = new URL(window.location.href);
@@ -79,20 +79,17 @@ export function UrlTabs({
   );
 
   return (
-    <Tabs value={active} onValueChange={handleChange} className={className}>
-      <TabsList aria-label={ariaLabel} className="mb-4">
-        {tabs.map((tab) => (
-          <TabsTrigger key={tab.id} value={tab.id}>
-            {tab.label}
-            {tab.count !== undefined && tab.count > 0 && (
-              <span className="rounded-full bg-surface-muted px-1.5 text-xs font-semibold tabular-nums text-muted-foreground">
-                {tab.count}
-              </span>
-            )}
-          </TabsTrigger>
-        ))}
-      </TabsList>
+    <ThemaTabs
+      variant="view"
+      fitContent
+      tabs={tabs.map((tab) => ({ id: tab.id, label: tab.label, badge: tab.count }))}
+      activeTabId={active}
+      onTabChange={handleChange}
+      listLabel={ariaLabel}
+      listClassName="mb-4"
+      className={className}
+    >
       {children}
-    </Tabs>
+    </ThemaTabs>
   );
 }

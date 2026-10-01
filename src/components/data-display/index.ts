@@ -1,4 +1,4 @@
-export { Kanban } from "./kanban";
+export { Kanban, moveKanbanItem } from "./kanban";
 export type { KanbanColumn, KanbanItem, KanbanProps, KanbanTone } from "./kanban";
 export { ListItem, ListItemGroup } from "./list-item";
 export type { ListItemGroupProps, ListItemProps } from "./list-item";

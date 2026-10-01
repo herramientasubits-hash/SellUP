@@ -1,9 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import { toast } from 'sonner';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
+import { Field } from '@/components/forms/field';
 import {
   Select,
   SelectContent,
@@ -27,17 +28,11 @@ export function ActiveConfigForm({ providers, models, activeConfig }: ActiveConf
     activeConfig?.active_model_id ?? ''
   );
   const [saving, setSaving] = useState(false);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const filteredModels = models.filter(m => m.provider_id === selectedProvider && m.is_executable !== false);
 
   const activeModelObj = models.find(m => m.id === activeConfig?.active_model_id);
   const activeModelNonExecutable = activeModelObj?.is_executable === false;
-
-  const showToast = (message: string, type: 'success' | 'error') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 4000);
-  };
 
   const handleSave = async () => {
     if (!selectedProvider || !selectedModel) return;
@@ -45,10 +40,10 @@ export function ActiveConfigForm({ providers, models, activeConfig }: ActiveConf
     const result = await setActiveConfig(selectedProvider, selectedModel);
     setSaving(false);
     if (result.success) {
-      showToast('Configuración guardada correctamente', 'success');
+      toast.success('Configuración guardada correctamente');
       setTimeout(() => window.location.reload(), 1000);
     } else {
-      showToast('Error al guardar: ' + (result.error ?? 'Error desconocido'), 'error');
+      toast.error('Error al guardar: ' + (result.error ?? 'Error desconocido'));
     }
   };
 
@@ -60,8 +55,7 @@ export function ActiveConfigForm({ providers, models, activeConfig }: ActiveConf
         </Alert>
       )}
     <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
-      <div className="min-w-0 flex-1 space-y-1.5">
-        <Label>Proveedor activo</Label>
+      <Field label="Proveedor activo" className="min-w-0 flex-1">
         <Select
           value={selectedProvider} 
           onValueChange={(value) => {
@@ -89,9 +83,8 @@ export function ActiveConfigForm({ providers, models, activeConfig }: ActiveConf
             ))}
           </SelectContent>
         </Select>
-      </div>
-      <div className="min-w-0 flex-1 space-y-1.5">
-        <Label>Modelo base</Label>
+      </Field>
+      <Field label="Modelo base" className="min-w-0 flex-1">
         <Select
           value={selectedModel || ''}
           onValueChange={(value) => setSelectedModel(value || '')}
@@ -119,7 +112,7 @@ export function ActiveConfigForm({ providers, models, activeConfig }: ActiveConf
             )}
           </SelectContent>
         </Select>
-      </div>
+      </Field>
       <Button
         type="button"
         onClick={handleSave}
@@ -128,16 +121,6 @@ export function ActiveConfigForm({ providers, models, activeConfig }: ActiveConf
         {saving ? 'Guardando...' : 'Guardar'}
       </Button>
 
-      {toast && (
-        <div
-          role="status"
-          className={`fixed bottom-8 left-1/2 z-50 -translate-x-1/2 rounded-xl border border-border/60 bg-popover px-4 py-3 text-sm font-medium shadow-drawer ${
-            toast.type === 'success' ? 'text-success' : 'text-destructive'
-          }`}
-        >
-          {toast.message}
-        </div>
-      )}
     </div>
     </div>
   );

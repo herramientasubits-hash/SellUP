@@ -57,7 +57,8 @@ import {
   DataTableLazySentinel,
   DataTableLoadMore,
 } from "./data-table-load-more";
-import { DataTableBulkActionBar, DataTableInlineBulkActions } from "./data-table-bulk-action-bar";
+import { DataListActionRail, useRailSelectionReporter } from "@/components/action-rail";
+import { DataTableInlineBulkActions, useBulkRailActions } from "./data-table-bulk-actions";
 import { DataTableRowReorder } from "./data-table-row-reorder";
 import { DataTableRowActions } from "./data-table-row-actions";
 
@@ -74,7 +75,11 @@ import {
   selectionWord,
 } from "./data-table-utils";
 import { DataTableSelectionHeader } from "./data-table-selection-header";
-import type { DataTableHandle, DataTableProps } from "./data-table-types";
+import type { DataTableBulkAction, DataTableHandle, DataTableProps } from "./data-table-types";
+
+/** Constantes estables: un `[]` nuevo en cada render volvería a pintar la barra. */
+const NO_BULK_ACTIONS: DataTableBulkAction<never>[] = [];
+const NO_ROWS: never[] = [];
 
 export type {
   DataTableBulkAction,
@@ -99,7 +104,7 @@ function DataTableInner<TData>(
     actions,
     count,
     enableRowSelection = false,
-    bulkActions = [],
+    bulkActions = NO_BULK_ACTIONS as DataTableBulkAction<TData>[],
     onSelectionCountChange,
     contextMenu,
     stickyHeader = false,
@@ -342,9 +347,8 @@ function DataTableInner<TData>(
   // Con filtros puestos el total del título es el de lo que se está viendo.
   const displayCount = count === undefined ? null : hasActiveFilters ? totalRows : count;
 
-  const selectedRows = usesCheckbox
-    ? table.getFilteredSelectedRowModel().rows.map((r) => r.original)
-    : [];
+  const selectedRowModel = usesCheckbox ? table.getFilteredSelectedRowModel().rows : (NO_ROWS as Row<TData>[]);
+  const selectedRows = React.useMemo(() => selectedRowModel.map((r) => r.original), [selectedRowModel]);
   const selectedCount = selectedRows.length;
   const reportedSelectionCount = actionsInline ? 0 : selectedCount;
 
@@ -353,6 +357,25 @@ function DataTableInner<TData>(
   }, [onSelectionCountChange, reportedSelectionCount]);
 
   const clearSelection = React.useCallback(() => table.resetRowSelection(), [table]);
+
+  // ── La selección va a LA barra de la pantalla (una sola por pantalla) ────
+  // Con filas marcadas, las acciones masivas sustituyen a las de pantalla en
+  // la barra flotante. Dentro de un `ListActionRailProvider` la tabla solo
+  // informa; fuera de él monta la barra ella misma. Con las acciones «en el
+  // layout» no informa nada: van en la cabecera de la lista.
+  const { railActions, confirmDialog } = useBulkRailActions(bulkActions, selectedRows);
+  const reportSelection = useRailSelectionReporter();
+  const railSelection = React.useMemo(
+    () =>
+      reportedSelectionCount > 0
+        ? { count: reportedSelectionCount, actions: railActions, onClear: clearSelection, gender: nounGender }
+        : null,
+    [reportedSelectionCount, railActions, clearSelection, nounGender],
+  );
+
+  React.useEffect(() => {
+    reportSelection?.(railSelection);
+  }, [reportSelection, railSelection]);
 
   React.useImperativeHandle(ref, () => ({ clearSelection }), [clearSelection]);
 
@@ -662,15 +685,15 @@ function DataTableInner<TData>(
         )}
       </div>
 
-      {usesCheckbox && !actionsInline && (selectedCount > 0 || bulkActions.length > 0) && (
-        <DataTableBulkActionBar
-          selectedCount={selectedCount}
-          selectedRows={selectedRows}
-          actions={bulkActions}
-          onClear={clearSelection}
-          gender={nounGender}
+      {!reportSelection && railSelection && (
+        <DataListActionRail
+          actions={railSelection.actions}
+          selectedCount={railSelection.count}
+          onClearSelection={railSelection.onClear}
+          gender={railSelection.gender}
         />
       )}
+      {!actionsInline && confirmDialog}
     </div>
   );
 }

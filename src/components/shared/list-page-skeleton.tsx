@@ -17,7 +17,7 @@ interface ListPageSkeletonProps {
   withIndicators?: boolean;
   /**
    * Reserva abajo el hueco de la barra flotante de acciones, igual que
-   * `ScreenActionRailProvider`: sin él, la tabla daría un salto al llegar los
+   * `ListActionRailProvider`: sin él, la tabla daría un salto al llegar los
    * datos. Falso en las pantallas que no tienen barra.
    */
   reserveActionRail?: boolean;

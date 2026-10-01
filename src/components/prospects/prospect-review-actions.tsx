@@ -56,7 +56,8 @@ import { useRouter } from 'next/navigation';
 import { CheckCircle2, XCircle, Copy, Sparkles, Clock, ChevronDown, Loader2 } from "@/icons";
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Field, FieldLabel } from '@/components/forms/field';
 import { Textarea } from '@/components/ui/textarea';
 import {
   DropdownMenu,
@@ -360,14 +361,14 @@ export function ProspectReviewActions({
   return (
     <div className="shrink-0 border-t border-border/50 bg-surface-subtle px-7 py-4">
       {confirming ? (
-        <div className="space-y-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
+        <Alert variant="info" className="[&>div]:gap-3">
           <div className="space-y-1">
-            <p className="text-sm font-semibold tracking-tight text-foreground">¿Aprobar y crear empresa?</p>
-            <p className="text-xs leading-relaxed text-muted-foreground">
+            <AlertTitle className="text-foreground">¿Aprobar y crear empresa?</AlertTitle>
+            <AlertDescription className="text-xs leading-relaxed">
               Esto validará el prospecto, creará la empresa en SellUp e intentará sincronizarla con
               HubSpot según la configuración disponible. No se creará oportunidad ni propuesta
               todavía.
-            </p>
+            </AlertDescription>
             {view.hasHubspotMatch ? (
               <p className="text-xs font-medium text-warning">
                 Este prospecto tiene una coincidencia de HubSpot. Al aprobar, SellUp intentará
@@ -401,15 +402,15 @@ export function ProspectReviewActions({
               Cancelar
             </Button>
           </div>
-        </div>
+        </Alert>
       ) : discardConfirming ? (
-        <div className="space-y-3 rounded-xl border border-destructive/20 bg-destructive/5 p-4">
+        <Alert variant="destructive" className="[&>div]:gap-3">
           <div className="space-y-1">
-            <p className="text-sm font-semibold tracking-tight text-foreground">¿Descartar prospecto?</p>
-            <p className="text-xs leading-relaxed text-muted-foreground">
+            <AlertTitle className="text-foreground">¿Descartar prospecto?</AlertTitle>
+            <AlertDescription className="text-xs leading-relaxed">
               Este prospecto saldrá de la revisión y no se creará como empresa en SellUp. Podrás
               conservar trazabilidad del descarte.
-            </p>
+            </AlertDescription>
             <p className="text-xs font-medium text-foreground">
               Selecciona el motivo para conservar trazabilidad del descarte.
             </p>
@@ -419,9 +420,9 @@ export function ProspectReviewActions({
               the drawer stacking bugs of Q3F-5AZ.2C-HF* must not come back). */}
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-muted-foreground" id="discard-reason-label">
+              <FieldLabel className="block text-foreground" id="discard-reason-label">
                 Motivo de descarte
-              </Label>
+              </FieldLabel>
               <div
                 role="group"
                 aria-labelledby="discard-reason-label"
@@ -430,35 +431,41 @@ export function ProspectReviewActions({
                 {DISCARD_REASONS.map((r) => {
                   const selected = discardReasonKey === r.value;
                   return (
-                    <button
+                    <Button
                       key={r.value}
                       type="button"
+                      variant={selected ? 'destructive' : 'outline'}
+                      size="sm"
                       aria-pressed={selected}
                       disabled={discarding}
                       onClick={() => setDiscardReasonKey(r.value)}
-                      className={`rounded-lg border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50 ${
-                        selected
-                          ? 'border-destructive/40 bg-destructive/10'
-                          : 'border-border/60 bg-card hover:bg-surface-muted'
-                      }`}
+                      className="h-auto min-h-8 shrink-0 justify-start whitespace-normal py-1.5 text-left font-medium"
                     >
-                      <span
-                        className={`text-xs leading-snug ${
-                          selected ? 'font-medium text-destructive' : 'text-foreground'
-                        }`}
-                      >
-                        {r.label}
-                      </span>
-                    </button>
+                      {r.label}
+                    </Button>
                   );
                 })}
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="discard-reason-text" className="text-xs font-medium text-muted-foreground">
-                {isOtherDiscardReason ? 'Motivo personalizado' : 'Notas adicionales (opcional)'}
-              </Label>
+            <Field
+              label={isOtherDiscardReason ? 'Motivo personalizado' : 'Notas adicionales (opcional)'}
+              className="text-foreground"
+              error={
+                // Only nag once the reviewer has actually started composing — an
+                // untouched panel shows the neutral instruction above instead.
+                !discardReasonValidation.ok && hasStartedDiscardReason
+                  ? DISCARD_REASON_HINTS[discardReasonValidation.code]
+                  : undefined
+              }
+              description={
+                discardReasonText.length > DISCARD_REASON_MAX_LENGTH - 100 ? (
+                  <span className="tabular-nums">
+                    {discardReasonText.length} / {DISCARD_REASON_MAX_LENGTH} caracteres
+                  </span>
+                ) : undefined
+              }
+            >
               <Textarea
                 id="discard-reason-text"
                 value={discardReasonText}
@@ -472,19 +479,7 @@ export function ProspectReviewActions({
                 }
                 className="min-h-16"
               />
-              {discardReasonText.length > DISCARD_REASON_MAX_LENGTH - 100 && (
-                <p className="text-xs tabular-nums text-muted-foreground">
-                  {discardReasonText.length} / {DISCARD_REASON_MAX_LENGTH} caracteres
-                </p>
-              )}
-              {/* Only nag once the reviewer has actually started composing — an
-                  untouched panel shows the neutral instruction above instead. */}
-              {!discardReasonValidation.ok && hasStartedDiscardReason && (
-                <p className="text-xs font-medium text-destructive">
-                  {DISCARD_REASON_HINTS[discardReasonValidation.code]}
-                </p>
-              )}
-            </div>
+            </Field>
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -514,15 +509,15 @@ export function ProspectReviewActions({
               Cancelar
             </Button>
           </div>
-        </div>
+        </Alert>
       ) : duplicateConfirming ? (
-        <div className="space-y-3 rounded-xl border border-warning/25 bg-warning/5 p-4">
+        <Alert variant="warning" className="[&>div]:gap-3">
           <div className="space-y-1">
-            <p className="text-sm font-semibold tracking-tight text-foreground">¿Marcar prospecto como duplicado?</p>
-            <p className="text-xs leading-relaxed text-muted-foreground">
+            <AlertTitle className="text-foreground">¿Marcar prospecto como duplicado?</AlertTitle>
+            <AlertDescription className="text-xs leading-relaxed">
               Este prospecto saldrá de la revisión como duplicado. No se creará empresa en SellUp ni
               se sincronizará con HubSpot.
-            </p>
+            </AlertDescription>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button
@@ -550,7 +545,7 @@ export function ProspectReviewActions({
               Cancelar
             </Button>
           </div>
-        </div>
+        </Alert>
       ) : (
         <div className="space-y-2">
           {/* La primaria va a la DERECHA, donde termina la lectura; las que

@@ -92,7 +92,7 @@ function StoredOfficialPhoneRow({ phone }: { phone: StoredOfficialPhoneView }) {
     .filter((label): label is string => typeof label === 'string');
 
   return (
-    <li className="flex min-w-0 flex-col gap-1 rounded-lg border border-border/60 bg-surface-subtle px-3 py-2">
+    <li className="flex min-w-0 flex-col gap-1 py-2 first:pt-0 last:pb-0">
       <span className="inline-flex flex-wrap items-center gap-2">
         <a href={`tel:${phone.number}`} className="break-all rounded-sm text-sm font-medium tabular-nums text-foreground hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
           {phone.number}
@@ -187,17 +187,17 @@ export function OfficialContactStoredPhonesDisclosure({
       {open && (
         <div id={panelId} className="space-y-1.5">
           {state.kind === 'loading' && (
-            <p className="rounded-lg border border-border/60 bg-surface-subtle px-3 py-2 text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {OFFICIAL_STORED_PHONES_LOADING_COPY}
             </p>
           )}
           {state.kind === 'error' && (
-            <p className="rounded-lg border border-border/60 bg-surface-subtle px-3 py-2 text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {OFFICIAL_STORED_PHONES_ERROR_COPY}
             </p>
           )}
           {state.kind === 'loaded' && state.phones.length === 0 && (
-            <p className="rounded-lg border border-border/60 bg-surface-subtle px-3 py-2 text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {OFFICIAL_STORED_PHONES_EMPTY_COPY}
             </p>
           )}
@@ -206,7 +206,7 @@ export function OfficialContactStoredPhonesDisclosure({
               <p className="text-xs text-muted-foreground">
                 {getOfficialStoredPhonesHeading(state.phones.length)}
               </p>
-              <ul className="space-y-1.5">
+              <ul className="divide-y divide-border/60">
                 {state.phones.map((phone) => (
                   <StoredOfficialPhoneRow key={phone.id} phone={phone} />
                 ))}

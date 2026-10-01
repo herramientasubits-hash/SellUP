@@ -37,6 +37,12 @@ interface CreateCandidateDrawerProps {
   batchId?: string;
   triggerText?: string;
   triggerVariant?: "default" | "destructive" | "outline" | "secondary" | "ghost" | "link";
+  /**
+   * Modo controlado: quien lo monta decide cuándo está abierto (la barra de
+   * acciones de la pantalla) y el drawer no pinta su propio botón.
+   */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 const EMPTY = {
@@ -58,8 +64,16 @@ export function CreateCandidateDrawer({
   batchId,
   triggerText,
   triggerVariant = 'outline',
+  open: controlledOpen,
+  onOpenChange,
 }: CreateCandidateDrawerProps) {
-  const [open, setOpen] = React.useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const [internalOpen, setInternalOpen] = React.useState(false);
+  const open = isControlled ? controlledOpen : internalOpen;
+  const setOpen = (next: boolean) => {
+    if (!isControlled) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   const [form, setForm] = React.useState({ ...EMPTY });
   const [saving, setSaving] = React.useState(false);
   const [taxIdError, setTaxIdError] = React.useState<string | null>(null);
@@ -175,10 +189,12 @@ export function CreateCandidateDrawer({
       open={open}
       onOpenChange={(v) => (v ? setOpen(true) : handleClose())}
       trigger={
-        <Button onClick={() => setOpen(true)} variant={triggerVariant} size="sm" className="gap-1.5">
-          <Plus className="h-3.5 w-3.5" />
-          {triggerText ?? 'Agregar empresa candidata'}
-        </Button>
+        isControlled ? undefined : (
+          <Button onClick={() => setOpen(true)} variant={triggerVariant} size="sm" className="gap-1.5">
+            <Plus className="h-3.5 w-3.5" />
+            {triggerText ?? 'Agregar empresa candidata'}
+          </Button>
+        )
       }
       title="Nueva empresa candidata"
       description="Agrega una empresa candidata manualmente. Deberá ser aprobada antes de convertirse en prospecto."

@@ -2,10 +2,9 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { RotateCcw, Loader2, AlertTriangle } from "@/icons";
-import { DialogClose } from '@/components/ui/dialog';
-import { ModalShell } from '@/components/shared/modal-shell';
-import { FieldLabel } from '@/components/forms/field';
+import { RotateCcw, AlertTriangle } from '@/icons';
+import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { Field } from '@/components/forms/field';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
@@ -54,63 +53,25 @@ export function RollbackBatchDialog({ batchId, batchName }: RollbackBatchDialogP
   }
 
   return (
-    <ModalShell
+    <ConfirmDialog
       open={open}
-      onOpenChange={(v) => !v && handleClose()}
+      onOpenChange={(v) => (v ? setOpen(true) : handleClose())}
       trigger={
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setOpen(true)}
-        >
+        <Button variant="outline" size="sm">
           <RotateCcw className="h-3.5 w-3.5" />
           Deshacer lote
         </Button>
       }
-      size="md"
-      title={
-        <span className="flex items-center gap-2.5">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-warning/15 text-warning">
-            <AlertTriangle className="h-4 w-4" aria-hidden />
-          </span>
-          Deshacer este lote de candidatos
-        </span>
-      }
+      variant="destructive"
+      icon={AlertTriangle}
+      title="Deshacer este lote de candidatos"
       description="Esta acción revierte la creación del lote en SellUp y conserva el historial para auditoría. Los candidatos quedan descartados y el lote no afecta el flujo de prospección."
-      actions={
-        <>
-          <DialogClose
-            render={
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={loading}
-                onClick={handleClose}
-              />
-            }
-          >
-            Cancelar
-          </DialogClose>
-          <Button
-            variant="destructive-solid"
-            size="sm"
-            disabled={loading}
-            onClick={handleConfirm}
-          >
-            {loading ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <RotateCcw className="h-3.5 w-3.5" />
-            )}
-            {loading ? 'Aplicando...' : 'Confirmar, deshacer lote'}
-          </Button>
-        </>
-      }
+      confirmLabel={loading ? 'Aplicando...' : 'Confirmar, deshacer lote'}
+      loading={loading}
+      onConfirm={handleConfirm}
+      className="sm:max-w-md"
     >
-      <div className="space-y-1.5">
-        <FieldLabel htmlFor="rollback-reason" className="block leading-none">
-          Motivo (opcional)
-        </FieldLabel>
+      <Field label="Motivo (opcional)">
         <Textarea
           id="rollback-reason"
           value={reason}
@@ -120,7 +81,7 @@ export function RollbackBatchDialog({ batchId, batchName }: RollbackBatchDialogP
           rows={3}
           className="resize-none"
         />
-      </div>
-    </ModalShell>
+      </Field>
+    </ConfirmDialog>
   );
 }

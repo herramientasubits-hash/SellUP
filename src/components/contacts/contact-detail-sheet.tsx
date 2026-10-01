@@ -17,12 +17,9 @@ import {
   Sparkles,
   CheckCircle2,
   XCircle,
-  Bot,
-  FileCheck2,
   AlertCircle,
   UserX,
   Pencil,
-  type LucideIcon,
 } from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Badge } from '@/components/ui/badge';
@@ -30,6 +27,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DrawerSection } from '@/components/shared/drawer-section';
 import { DetailItem, DetailList } from '@/components/shared/detail-list';
+import { SurfaceCard } from '@/components/shared/surface-card';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Timeline, TimelineItem } from '@/components/data-display';
 import { getContactById, getContactAudit } from '@/modules/contacts/actions';
@@ -48,6 +46,7 @@ import {
 } from '@/modules/contacts/types';
 import type { AccountWithOwner } from '@/modules/accounts/types';
 import { ContactRowActions } from './contact-row-actions';
+import { ContactTraceabilityPanel, TraceCard, TraceRow } from './contact-traceability-panel';
 import { EditContactDrawer } from './edit-contact-drawer';
 import { ContactHubSpotSyncButton } from './contact-hubspot-sync-button';
 import { ContactHubSpotSyncBadge } from './contact-hubspot-sync-badge';
@@ -315,10 +314,8 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
         <div className="space-y-4">
           {/* Lo esencial, antes de las pestañas: de qué empresa es, qué hace
               allí y qué papel tiene para nosotros. */}
-          <section
-            aria-label="Resumen del contacto"
-            className="rounded-2xl border border-border/60 bg-card p-4 shadow-card"
-          >
+          <section aria-label="Resumen del contacto">
+            <SurfaceCard className="p-4">
             <DetailList columns={4}>
               <DetailItem icon={Building2} label="Empresa" emptyLabel="Sin empresa">
                 {account ? (
@@ -337,6 +334,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                 {contact.seniority ? SENIORITY_LABELS[contact.seniority] : null}
               </DetailItem>
             </DetailList>
+            </SurfaceCard>
           </section>
 
         <Tabs defaultValue="resumen">
@@ -351,8 +349,8 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                 <TabsContent value="resumen" className="space-y-4">
                   <div className="grid gap-4 md:grid-cols-2">
                     <DrawerSection title="Datos de contacto" icon={Mail}>
-                      <dl className="space-y-3">
-                        <DetailRow icon={Mail} label="Email">
+                      <DetailList className="gap-y-3 sm:grid-cols-1">
+                        <DetailItem icon={Mail} label="Email">
                           {contact.email ? (
                             <a href={`mailto:${contact.email}`} className={`break-all ${INLINE_LINK}`}>
                               {contact.email}
@@ -360,20 +358,20 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                           ) : (
                             <span className="text-text-muted">Sin email. Añádelo con «Editar contacto».</span>
                           )}
-                        </DetailRow>
+                        </DetailItem>
                         {contact.mobile_phone && (
-                          <DetailRow icon={Phone} label="Celular">
+                          <DetailItem icon={Phone} label="Celular">
                             <a href={`tel:${contact.mobile_phone}`} className="tabular-nums hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
                               {contact.mobile_phone}
                             </a>
-                          </DetailRow>
+                          </DetailItem>
                         )}
                         {contact.phone && (
-                          <DetailRow icon={Phone} label="Teléfono">
+                          <DetailItem icon={Phone} label="Teléfono">
                             <a href={`tel:${contact.phone}`} className="tabular-nums hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
                               {contact.phone}
                             </a>
-                          </DetailRow>
+                          </DetailItem>
                         )}
                         {/*
                           4O-H4 — «Ver N números más». El CTA existe SÓLO si el
@@ -405,7 +403,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                           }}
                         />
                         {contact.linkedin_url && (
-                          <DetailRow icon={Link2} label="LinkedIn">
+                          <DetailItem icon={Link2} label="LinkedIn">
                             <a
                               href={contact.linkedin_url}
                               target="_blank"
@@ -414,27 +412,29 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                             >
                               {contact.linkedin_url}
                             </a>
-                          </DetailRow>
+                          </DetailItem>
                         )}
-                      </dl>
+                      </DetailList>
                     </DrawerSection>
 
                     {/* Empresa, cargo, rol y seniority ya van en el resumen de
                         arriba: aquí no se repiten. */}
                     <DrawerSection title="Otros datos" icon={Briefcase}>
-                      <dl className="space-y-3">
-                        <DetailRow icon={Briefcase} label="Área">
+                      <DetailList className="gap-y-3 sm:grid-cols-1">
+                        <DetailItem icon={Briefcase} label="Área">
                           {contact.department || <span className="text-text-muted">Sin área</span>}
-                        </DetailRow>
-                        <DetailRow icon={Tag} label="Fuente">
+                        </DetailItem>
+                        <DetailItem icon={Tag} label="Fuente">
                           {CONTACT_SOURCE_LABELS[contact.source]}
-                        </DetailRow>
-                        <DetailRow icon={Tag} label="Creado">
+                        </DetailItem>
+                        <DetailItem icon={Tag} label="Creado">
                           {formatShortDate(contact.created_at)}
-                        </DetailRow>
-                      </dl>
-                      <div className="mt-4 rounded-lg bg-surface-subtle px-3 py-2.5">
-                        <p className="mb-1 text-xs font-semibold text-muted-foreground">
+                        </DetailItem>
+                      </DetailList>
+                      {/* Sin caja propia: las notas son un apartado más de la tarjeta,
+                          separado por una divisoria. */}
+                      <div className="mt-4 border-t border-border/50 pt-3">
+                        <p className="mb-1 text-xs font-medium text-muted-foreground">
                           Notas
                         </p>
                         {contact.notes ? (
@@ -484,7 +484,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
 
                 {/* Enriquecimiento — Calidad y trazabilidad */}
                 <TabsContent value="enriquecimiento">
-                  <ContactTraceabilityPanel contact={contact} />
+                  <ContactTraceabilityTab contact={contact} />
                 </TabsContent>
 
                 {/* HubSpot */}
@@ -508,26 +508,26 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                       />
                     }
                   >
-                    <dl className="space-y-3">
-                      <DetailRow icon={Tag} label="ID en HubSpot">
+                    <DetailList className="gap-y-3 sm:grid-cols-1">
+                      <DetailItem icon={Tag} label="ID en HubSpot">
                         {contact.hubspot_contact_id ? (
                           <span className="break-all font-mono text-xs">{contact.hubspot_contact_id}</span>
                         ) : (
                           <span className="text-muted-foreground">No vinculado</span>
                         )}
-                      </DetailRow>
-                      <DetailRow icon={Tag} label="Estado de sincronización">
+                      </DetailItem>
+                      <DetailItem icon={Tag} label="Estado de sincronización">
                         <HubSpotSyncStatusBadge contact={contact} />
-                      </DetailRow>
+                      </DetailItem>
                       {(() => {
                         const sync = contact.metadata?.hubspot_sync as
                           | Record<string, unknown>
                           | undefined;
                         const syncedAt = sync?.synced_at as string | undefined;
                         return syncedAt ? (
-                          <DetailRow icon={Tag} label="Sincronizado el">
+                          <DetailItem icon={Tag} label="Sincronizado el">
                             {formatDate(syncedAt)}
-                          </DetailRow>
+                          </DetailItem>
                         ) : null;
                       })()}
                       {(() => {
@@ -538,22 +538,22 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                         return (
                           <>
                             {state.attempted_at ? (
-                              <DetailRow icon={Tag} label="Último intento">
+                              <DetailItem icon={Tag} label="Último intento">
                                 {formatDate(state.attempted_at)}
-                              </DetailRow>
+                              </DetailItem>
                             ) : null}
                             {/* CUT-2 — desde cuándo HubSpot está desactualizado, no cuándo se
                                 registró el último cambio: es lo que responde «¿cuánto lleva
                                 esto sin enviarse?». */}
                             {state.stale_since ? (
-                              <DetailRow icon={Tag} label="Pendiente desde">
+                              <DetailItem icon={Tag} label="Pendiente desde">
                                 {formatDate(state.stale_since)}
-                              </DetailRow>
+                              </DetailItem>
                             ) : null}
                           </>
                         );
                       })()}
-                    </dl>
+                    </DetailList>
                     {!contact.email && (
                       <p className="mt-3 text-xs text-muted-foreground">
                         Este contacto no tiene email, requisito para sincronizar con HubSpot.
@@ -666,154 +666,18 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
     </>
   );
 }
-
 // ── Calidad y trazabilidad ────────────────────────────────────────────────────
 
-function TraceCard({
-  icon,
-  title,
-  children,
-}: {
-  icon?: LucideIcon;
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <DrawerSection title={title} icon={icon}>
-      <dl className="space-y-3">{children}</dl>
-    </DrawerSection>
-  );
-}
-
-function TraceRow({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-start gap-2.5">
-      <div className="min-w-0 flex-1">
-        <dt className="text-xs text-muted-foreground">{label}</dt>
-        <dd className="mt-0.5 break-words text-sm text-foreground">{children}</dd>
-      </div>
-    </div>
-  );
-}
-
-function EmptyTrace({ message }: { message: string }) {
-  return (
-    <p className="py-2 text-xs text-text-muted">{message}</p>
-  );
-}
-
-function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
+/**
+ * Pestaña «Origen y calidad». Las tres primeras tarjetas viven en
+ * `contact-traceability-panel.tsx`; la de HubSpot se queda AQUÍ porque el tono
+ * de su check lo decide la misma autoridad que el badge de la pestaña HubSpot.
+ */
+function ContactTraceabilityTab({ contact }: { contact: Contact }) {
   const vm = buildContactTraceabilityViewModel(contact);
 
   return (
-    <div className="grid gap-4 md:grid-cols-2">
-      {/* Card 1 — Origen */}
-      <TraceCard icon={Bot} title="Origen del contacto">
-        <TraceRow label="Origen">
-          <span className="flex items-center gap-1.5">
-            {vm.hasSourceCandidate ? (
-              <Badge variant="brand">
-                {vm.originLabel}
-              </Badge>
-            ) : (
-              <Badge variant="neutral">
-                {vm.originLabel}
-              </Badge>
-            )}
-          </span>
-        </TraceRow>
-        <TraceRow label="Fuente">
-          <Badge variant="neutral">
-            {vm.sourceLabel}
-          </Badge>
-        </TraceRow>
-        {vm.hasSourceCandidate && vm.sourceCandidateId && (
-          <TraceRow label="ID candidato">
-            <span className="break-all font-mono text-xs text-muted-foreground">
-              {vm.sourceCandidateId}
-            </span>
-          </TraceRow>
-        )}
-      </TraceCard>
-
-      {/* Card 2 — Calidad y datos accionables */}
-      <TraceCard icon={Sparkles} title="Calidad y datos accionables">
-        {vm.hasRelevanceData ? (
-          <>
-            <TraceRow label="Relevancia">
-              <RelevanceBadge label={vm.relevanceLabel} />
-            </TraceRow>
-            {vm.relevanceScore !== null && (
-              <TraceRow label="Puntuación">
-                <span className="tabular-nums">{vm.relevanceScore.toFixed(2)}</span>
-              </TraceRow>
-            )}
-          </>
-        ) : (
-          <EmptyTrace message="Sin evaluación de IA registrada" />
-        )}
-        {vm.hasCompletionData ? (
-          <>
-            {vm.completedFields.length > 0 && (
-              <TraceRow label="Datos completados">
-                <span className="flex flex-wrap gap-1">
-                  {vm.completedFields.map((f) => (
-                    <Badge key={f} variant="neutral">
-                      {f}
-                    </Badge>
-                  ))}
-                </span>
-              </TraceRow>
-            )}
-            {vm.hasActionableChannel !== null && (
-              <TraceRow label="Canal accionable">
-                <span className="flex items-center gap-1">
-                  {vm.hasActionableChannel ? (
-                    <CheckCircle2 className="h-3.5 w-3.5 text-success" />
-                  ) : (
-                    <XCircle className="h-3.5 w-3.5 text-text-muted" />
-                  )}
-                  <span>{vm.hasActionableChannel ? 'Sí' : 'No'}</span>
-                </span>
-              </TraceRow>
-            )}
-          </>
-        ) : null}
-      </TraceCard>
-
-      {/* Card 3 — Normalización */}
-      <TraceCard icon={FileCheck2} title="Normalización">
-        {vm.isNormalized ? (
-          <>
-            <TraceRow label="Estado">
-              <span className="flex items-center gap-1">
-                <CheckCircle2 className="h-3.5 w-3.5 text-success" />
-                <span>Normalizado</span>
-              </span>
-            </TraceRow>
-            {vm.normalizedFields.length > 0 && (
-              <TraceRow label="Campos normalizados">
-                <span className="flex flex-wrap gap-1">
-                  {vm.normalizedFields.map((f) => (
-                    <Badge key={f} variant="neutral">
-                      {f}
-                    </Badge>
-                  ))}
-                </span>
-              </TraceRow>
-            )}
-          </>
-        ) : (
-          <EmptyTrace message="Sin normalización registrada" />
-        )}
-      </TraceCard>
-
+    <ContactTraceabilityPanel vm={vm}>
       {/* Card 4 — HubSpot (resumen) */}
       <TraceCard icon={Globe} title="HubSpot">
         {/*
@@ -864,18 +728,8 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
           Para sincronizar o ver el detalle completo, ve a la pestaña HubSpot.
         </p>
       </TraceCard>
-    </div>
+    </ContactTraceabilityPanel>
   );
-}
-
-const RELEVANCE_VARIANT: Record<string, 'positive' | 'warning' | 'neutral'> = {
-  Alta: 'positive',
-  Media: 'warning',
-  Baja: 'neutral',
-};
-
-function RelevanceBadge({ label }: { label: string }) {
-  return <Badge variant={RELEVANCE_VARIANT[label] ?? 'neutral'}>{label}</Badge>;
 }
 
 /**
@@ -888,25 +742,3 @@ function RelevanceBadge({ label }: { label: string }) {
  * que las llamadas de este archivo no cambien.
  */
 const HubSpotSyncStatusBadge = ContactHubSpotSyncBadge;
-
-function DetailRow({
-  icon: Icon,
-  label,
-  children,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  children: React.ReactNode;
-}) {
-  // Design Refresh v6: layout horizontal (label izquierda / valor derecha),
-  // consistente con el drawer de Empresa.
-  return (
-    <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:gap-3">
-      <div className="flex shrink-0 items-center gap-2 min-w-[104px]">
-        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        <dt className="text-xs text-muted-foreground">{label}</dt>
-      </div>
-      <dd className="min-w-0 flex-1 break-words text-sm text-foreground sm:text-right">{children}</dd>
-    </div>
-  );
-}

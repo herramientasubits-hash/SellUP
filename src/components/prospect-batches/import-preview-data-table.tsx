@@ -34,6 +34,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { SurfaceCard } from '@/components/shared/surface-card';
 import {
   DataTableActiveFilters,
   DataTableColumnHeader,
@@ -42,7 +43,8 @@ import {
   multiValueFilter,
 } from '@/components/data-table';
 import type { FilterFn } from '@tanstack/react-table';
-import type { ImportRow, ImportDuplicateResult } from './import-candidates-drawer';
+import type { ImportRow } from '@/modules/prospect-batches/import-candidates-parser';
+import type { ImportDuplicateResult } from './import-candidates-helpers';
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -436,7 +438,7 @@ export function ImportPreviewDataTable({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-border/60 bg-card shadow-card">
+      <SurfaceCard noPadding className="flex h-full min-h-0 flex-col overflow-hidden">
         <DataTableActiveFilters table={table} globalFilter="" onGlobalFilterChange={() => {}} />
         <div className="flex-1 min-h-0 overflow-auto su-table-scroll">
           <Table className="su-table su-table-sticky">
@@ -486,7 +488,7 @@ export function ImportPreviewDataTable({
         </div>
 
         <DataTablePagination table={table} pageSizeOptions={[10, 25, 50, 100]} noun="filas" />
-      </div>
+      </SurfaceCard>
     </div>
   );
 }

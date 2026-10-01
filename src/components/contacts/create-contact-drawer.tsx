@@ -6,13 +6,10 @@ import {
   Plus,
   Loader2,
   User,
-  Mail,
-  Phone,
-  Link2,
   Briefcase,
-  Star,
-  FileText,
   Building2,
+  Mail,
+  Star,
 } from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Button } from '@/components/ui/button';
@@ -36,7 +33,10 @@ import {
   type ContactRole,
   type ContactStatus,
 } from '@/modules/contacts/types';
-import { Section, Field, Row } from '@/components/accounts/account-form-helpers';
+import { Field, FieldLabel } from '@/components/forms/field';
+import { DrawerSection } from '@/components/shared/drawer-section';
+import { PhoneInput } from '@/components/forms/phone-input';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   type AccountOption,
   resolveSelectedAccountLabel,
@@ -242,18 +242,16 @@ export function CreateContactDrawer({
               : found.name
             : (accountLabel ?? 'Cuenta preseleccionada');
           return (
-            <Section icon={Building2} label="Cuenta">
+            <DrawerSection title="Cuenta" icon={Building2} contentClassName="space-y-4">
               <Field label="Cuenta">
-                <div className="flex min-h-10 items-center rounded-md border border-border/60 bg-surface-subtle px-3 py-2 text-sm text-foreground">
-                  {label}
-                </div>
+                <Input value={label} readOnly />
               </Field>
-            </Section>
+            </DrawerSection>
           );
         })() : accounts && accounts.length > 0 ? (
           // Cuenta seleccionable (modo autónomo)
-          <Section icon={Building2} label="Cuenta">
-            <Field label="Cuenta *">
+          <DrawerSection title="Cuenta" icon={Building2} contentClassName="space-y-4">
+            <Field label="Cuenta" required>
               <Select
                 value={form.account_id}
                 onValueChange={(v) => set('account_id', v ?? '')}
@@ -281,13 +279,13 @@ export function CreateContactDrawer({
                 </SelectContent>
               </Select>
             </Field>
-          </Section>
+          </DrawerSection>
         ) : null}
 
         {/* Identidad */}
-        <Section icon={User} label="Identidad">
-          <Row>
-            <Field id="first_name" label="Nombre">
+        <DrawerSection title="Identidad" icon={User} contentClassName="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Nombre">
               <Input
                 id="first_name"
                 placeholder="Juan"
@@ -296,7 +294,7 @@ export function CreateContactDrawer({
                 autoFocus
               />
             </Field>
-            <Field id="last_name" label="Apellido">
+            <Field label="Apellido">
               <Input
                 id="last_name"
                 placeholder="García"
@@ -304,8 +302,8 @@ export function CreateContactDrawer({
                 onChange={(e) => set('last_name', e.target.value)}
               />
             </Field>
-          </Row>
-          <Field id="full_name" label="Nombre completo (opcional si usas los campos anteriores)">
+          </div>
+          <Field label="Nombre completo (opcional si usas los campos anteriores)">
             <Input
               id="full_name"
               placeholder="Se calcula automáticamente"
@@ -313,70 +311,50 @@ export function CreateContactDrawer({
               onChange={(e) => set('full_name', e.target.value)}
             />
           </Field>
-        </Section>
+        </DrawerSection>
 
         {/* Contacto */}
-        <Section icon={Mail} label="Datos de contacto">
-          <Field id="email" label="Email corporativo">
-            <div className="relative">
-              <Mail className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
-              <Input
-                id="email"
-                type="email"
-                placeholder="juan.garcia@empresa.com"
-                value={form.email}
-                onChange={(e) => set('email', e.target.value)}
-                className="pl-8"
-              />
-            </div>
+        <DrawerSection title="Datos de contacto" icon={Mail} contentClassName="space-y-4">
+          <Field label="Email corporativo">
+            <Input
+              id="email"
+              type="email"
+              placeholder="juan.garcia@empresa.com"
+              value={form.email}
+              onChange={(e) => set('email', e.target.value)}
+            />
           </Field>
-          <Row>
-            <Field id="phone" label="Teléfono">
-              <div className="relative">
-                <Phone className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
-                <Input
-                  id="phone"
-                  type="tel"
-                  placeholder="+57 1 234 5678"
-                  value={form.phone}
-                  onChange={(e) => set('phone', e.target.value)}
-                  className="pl-8"
-                />
-              </div>
-            </Field>
-            <Field id="mobile_phone" label="Celular">
-              <div className="relative">
-                <Phone className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
-                <Input
-                  id="mobile_phone"
-                  type="tel"
-                  placeholder="+57 310 123 4567"
-                  value={form.mobile_phone}
-                  onChange={(e) => set('mobile_phone', e.target.value)}
-                  className="pl-8"
-                />
-              </div>
-            </Field>
-          </Row>
-          <Field id="linkedin_url" label="LinkedIn">
-            <div className="relative">
-              <Link2 className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
-              <Input
-                id="linkedin_url"
-                type="url"
-                placeholder="https://linkedin.com/in/juangarcia"
-                value={form.linkedin_url}
-                onChange={(e) => set('linkedin_url', e.target.value)}
-                className="pl-8"
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Teléfono">
+              <PhoneInput
+                id="phone"
+                value={form.phone}
+                onValueChange={(next) => set('phone', next)}
               />
-            </div>
+            </Field>
+            <Field label="Celular">
+              <PhoneInput
+                id="mobile_phone"
+                value={form.mobile_phone}
+                onValueChange={(next) => set('mobile_phone', next)}
+              />
+            </Field>
+          </div>
+          <Field label="LinkedIn">
+            <Input
+              id="linkedin_url"
+              type="url"
+              placeholder="https://linkedin.com/in/juangarcia"
+              value={form.linkedin_url}
+              onChange={(e) => set('linkedin_url', e.target.value)}
+            />
           </Field>
-        </Section>
+        </DrawerSection>
 
         {/* Cargo y función */}
-        <Section icon={Briefcase} label="Cargo y función">
-          <Row>
-            <Field id="job_title" label="Cargo">
+        <DrawerSection title="Cargo y función" icon={Briefcase} contentClassName="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Cargo">
               <Input
                 id="job_title"
                 placeholder="Chief HR Officer"
@@ -401,8 +379,8 @@ export function CreateContactDrawer({
                 </SelectContent>
               </Select>
             </Field>
-          </Row>
-          <Row>
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Seniority">
               <Select
                 value={form.seniority}
@@ -439,12 +417,12 @@ export function CreateContactDrawer({
                 </SelectContent>
               </Select>
             </Field>
-          </Row>
-        </Section>
+          </div>
+        </DrawerSection>
 
         {/* Estado y notas */}
-        <Section icon={Star} label="Estado y prioridad">
-          <Row>
+        <DrawerSection title="Estado y prioridad" icon={Star} contentClassName="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Estado">
               <Select
                 value={form.contact_status}
@@ -464,31 +442,27 @@ export function CreateContactDrawer({
                 </SelectContent>
               </Select>
             </Field>
-            <label htmlFor="is_primary" className="flex cursor-pointer items-center gap-2.5 pt-6">
-              <input
+            <div className="flex items-center gap-2.5 sm:pt-6">
+              <Checkbox
                 id="is_primary"
-                type="checkbox"
                 checked={form.is_primary}
-                onChange={(e) => set('is_primary', e.target.checked)}
-                className="h-4 w-4 rounded-xs border-border accent-primary focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+                onCheckedChange={(checked) => set('is_primary', checked === true)}
               />
-              <span className="text-sm font-medium text-foreground">Contacto primario</span>
-            </label>
-          </Row>
-          <Field id="notes" label="Notas">
-            <div className="relative">
-              <FileText className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-text-muted" />
-              <Textarea
-                id="notes"
-                placeholder="Contexto, señales de interés, último contacto…"
-                value={form.notes}
-                onChange={(e) => set('notes', e.target.value)}
-                rows={3}
-                className="pl-8 pt-2"
-              />
+              <FieldLabel htmlFor="is_primary" className="cursor-pointer">
+                Contacto primario
+              </FieldLabel>
             </div>
+          </div>
+          <Field label="Notas">
+            <Textarea
+              id="notes"
+              placeholder="Contexto, señales de interés, último contacto…"
+              value={form.notes}
+              onChange={(e) => set('notes', e.target.value)}
+              rows={3}
+            />
           </Field>
-        </Section>
+        </DrawerSection>
       </form>
     </DrawerShell>
   );

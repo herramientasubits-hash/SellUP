@@ -10,7 +10,7 @@ export type { DataTableColumnFilterOption, DataTableColumnMeta } from "./data-ta
 export { DataTableActiveFilters } from "./data-table-active-filters";
 export { DataTablePagination } from "./data-table-pagination";
 export { DataTableLazyListSentinel, DataTableLazySentinel, DataTableLoadMore } from "./data-table-load-more";
-export { DataTableBulkActionBar, DataTableInlineBulkActions } from "./data-table-bulk-action-bar";
+export { DataTableInlineBulkActions, useBulkRailActions } from "./data-table-bulk-actions";
 export { DataTableContextMenu, type DataTableContextMenuItem } from "./data-table-context-menu";
 export { DataTableRowActions } from "./data-table-row-actions";
 export { DataTableSelectionHeader } from "./data-table-selection-header";

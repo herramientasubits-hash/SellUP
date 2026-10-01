@@ -21,10 +21,22 @@ const NO_PARENT = '__root__';
 
 interface ActionButtonsProps {
   groups: OrganizationGroup[];
+  /**
+   * Modo controlado: quien lo monta decide cuándo está abierto (la barra de
+   * acciones de la pantalla) y el diálogo no pinta su propio botón.
+   */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function ActionButtons({ groups }: ActionButtonsProps) {
-  const [showGroupDialog, setShowGroupDialog] = useState(false);
+export function ActionButtons({ groups, open: controlledOpen, onOpenChange }: ActionButtonsProps) {
+  const isControlled = controlledOpen !== undefined;
+  const [internalOpen, setInternalOpen] = useState(false);
+  const showGroupDialog = isControlled ? controlledOpen : internalOpen;
+  const setShowGroupDialog = (next: boolean) => {
+    if (!isControlled) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   const [name, setName] = useState('');
   const [parentId, setParentId] = useState('');
   const [loading, setLoading] = useState(false);
@@ -63,14 +75,16 @@ export function ActionButtons({ groups }: ActionButtonsProps) {
 
   return (
     <>
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={() => setShowGroupDialog(true)}
-      >
-        <Plus />
-        Agregar grupo
-      </Button>
+      {!isControlled && (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setShowGroupDialog(true)}
+        >
+          <Plus />
+          Agregar grupo
+        </Button>
+      )}
 
       <ModalShell
         open={showGroupDialog}

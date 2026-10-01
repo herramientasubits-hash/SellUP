@@ -229,9 +229,31 @@ Solo en el panel de marca del login y en la identidad de IA (`su-ai-glow`). No u
 />
 ```
 
-Props: `title` (requerido), `description`, `actions`, `className`.
+Props: `title` (requerido), `description`, `breadcrumbs`, `actions`, `meta`, `backHref`, `width`, `className`.
 
-Aplica: `text-2xl font-bold tracking-tight` para el título (h1 único de la vista). Usa en todas las páginas como primer elemento del contenido.
+El título es un `Heading` (h1 único de la vista, `text-2xl font-bold`). Usa en todas las páginas como primer elemento del contenido. `breadcrumbs` no pinta un renglón sobre el título: se publican en la cabecera del shell (ver abajo). `width` (`narrow` 720 · `normal` 1140 · `wide` 1600 · `full`) acota la cabecera; para acotar la página entera, `PageShell width` (`@/components/layout/page-shell`).
+
+---
+
+### Cabecera y menú del shell
+
+**Ubicación:** `src/components/layout/` — port de Thema `app-shell`.
+
+- **Ruta.** La cabecera pinta «SellUp › sección». Cada pantalla publica sus migas (`PageHeader breadcrumbs`, `DataTablePage breadcrumbs`, `SettingsPage trail`) y la cabecera las añade; lo hace `ShellBreadcrumbs` (`shell-header-slot.tsx`) con un portal, sin desajuste de hidratación. `ShellHeaderSlot` sirve para pintar cualquier otra identidad de pantalla en ese hueco.
+- **Notificaciones.** Popover anclado a la campana (no drawer): «N nuevas», lista, «Marcar leídas» y «Ver todas las notificaciones».
+- **Cuenta** (`AccountMenu`). Identidad y cerrar sesión. El tema y la configuración NO van aquí.
+- **Marca** (`WorkspaceMenu`, en el menú lateral). Tema (Claro / Oscuro / Como el sistema) y la configuración agrupada. No hay botón de tema suelto en la cabecera.
+- **Menú lateral** (`AppSidebar` + `SidebarIconRail`). Secciones plegables con sus vistas (Empresas, Contactos, Configuración); contraído, cada icono despliega sus vistas al pasar el puntero. El árbol sale de `sidebar-nav.ts` y respeta `navAccess`.
+- **Búsqueda** (`GlobalSearch`, ⌘K). Pestañas de alcance, recuento y grupos; los registros (empresas, contactos) se piden al escribir.
+
+### Avisos efímeros (toasts)
+
+Un solo `Toaster`: `ThemaToaster` (`src/components/feedback/thema-toaster.tsx`), montado en `src/app/layout.tsx`. Arriba a la derecha, 76px bajo el borde (libra la cabecera y no tapa la barra de acciones inferior), sobrio (`richColors={false}`), con botón de cerrar e iconos del sistema. Las pantallas solo llaman `toast(...)` de `sonner`; nunca montan otro `Toaster`.
+
+### Confirmaciones y modales
+
+- `ConfirmDialog` (`src/components/shared/confirm-dialog.tsx`) va sobre `AlertDialog`: **sin X y sin cierre por clic afuera**. Foco en Cancelar (o en el campo de `confirmationText`). Tono `destructive`: título en rojo, chip del tono y botón rojo sólido. No se cierra sola al confirmar. `description` es una frase; un error o un `Alert` van en `children`.
+- `ModalShell` (`src/components/shared/modal-shell.tsx`) para formularios cortos: `title`, `description`, `children`, `actions`, `size` (`sm` 384 · `md` 448 · `lg` 512 · `xl` 576). Las pantallas no montan `<Dialog>` a mano.
 
 ---
 
@@ -562,7 +584,7 @@ src/components/data-table/             # La tabla operable (TanStack)
 ├── data-table-row-reorder.tsx        # Arrastre de filas (dnd-kit)
 ├── data-table-row-actions.tsx        # Acciones por fila → RowActionsMenu
 ├── data-table-context-menu.tsx       # Menú de clic derecho
-├── data-table-bulk-action-bar.tsx    # Barra flotante (portal, § 12) + acciones «en el layout»
+├── data-table-bulk-actions.tsx       # `bulkActions` → acciones de la barra flotante (§ 12) + acciones «en el layout»
 ├── use-column-auto-fit.ts            # Reparto del ancho y posición de columnas fijadas
 └── index.ts                          # Barrel exports
 ```
@@ -578,7 +600,7 @@ src/components/data-table/             # La tabla operable (TanStack)
 | `description` | `ReactNode` | — | Subtítulo debajo del título |
 | `count` | `number` | — | Badge numérico junto al título |
 | `actions` | `ReactNode` | — | Botones alineados a la derecha del toolbar |
-| `enableRowSelection` | `boolean` | `false` | Checkbox column + bulk action bar |
+| `enableRowSelection` | `boolean` | `false` | Checkbox column; la selección va a la barra flotante de la pantalla (§ 12) |
 | `bulkActions` | `DataTableBulkAction<T>[]` | `[]` | Acciones masivas |
 | `contextMenu` | `DataTableContextMenuConfig<T>` | — | Right-click menu items |
 | `stickyHeader` | `boolean` | `false` | `thead` sticky en scroll vertical |
@@ -793,9 +815,9 @@ El `DndContext` lleva `id={useId()}` y `accessibility={{ container: document.bod
 
 **Columnas fijadas** — las fijadas desde el panel pasan al principio y se quedan quietas a la izquierda (`position: sticky`) al desplazar la tabla de lado; las de servicio (selección) se quedan quietas con ellas.
 
-#### 10.9.4 Floating bulk action bar (portal pattern)
+#### 10.9.4 La selección en la barra flotante (portal pattern)
 
-`<DataTableBulkActionBar>` se renderiza via `createPortal` a `document.body` (NO dentro de la tabla). Razón técnica: el `transform` del `animate-su-fade-in` del AppShell crea un containing block que rompe `position: fixed` para descendientes. Ver § 12 para el patrón completo.
+Con filas marcadas, las `bulkActions` van a LA barra flotante de la pantalla (`DataListActionRail`, § 12), que se monta via `createPortal` a `document.body` (NO dentro de la tabla). Razón técnica: el `transform` del `animate-su-fade-in` del AppShell crea un containing block que rompe `position: fixed` para descendientes. Ver § 12 para la anatomía y la regla «una sola barra por pantalla».
 
 #### 10.9.5 Configurar tabla (panel, no drawer)
 
@@ -963,52 +985,70 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 ---
 
-## 12. Floating Action Bar — Portal pattern
+## 12. Floating Action Bar — una sola barra por pantalla
 
-### 12.1 Problema
+La barra de acciones flotante es el `action-rail` de Thema (`@/components/action-rail`), no un contenedor con botones dentro. **Regla: una sola barra por pantalla.** Concentra todo lo que se puede hacer y cambia de contenido según lo que haya marcado; nunca conviven una «barra de acciones de pantalla» y una «barra masiva».
 
-`position: fixed` dentro de un contenedor que tiene un `transform` aplicado **no se posiciona respecto al viewport** — se posiciona respecto al contenedor. Esto se llama **containing block**.
+### 12.1 Anatomía
 
-El `<main>` de `AppShell` aplica `animate-su-fade-in` que usa `transform: translateY(...)` durante la animación. Cualquier `position: fixed` dentro de `<main>` queda "atrapado" en ese contenedor.
+```
+┌──────────────────────────────────────────────────────────────┐
+│ ⠿  ⚙ │ ✕ 3 seleccionadas │ ◻ ◻ ◻ ⋯ │        (con selección)  │
+│ ⠿  ⚙ │ ⋯ ◻ ◻ [ + Crear empresa ]            (sin selección)  │
+└──────────────────────────────────────────────────────────────┘
+  asa  ajustes  divisoria   grupo contextual / grupo persistente
+```
 
-**Síntoma:** la barra de acciones masivas se renderiza pero no se queda fija al fondo de la pantalla — se queda al final del contenedor scrollable.
+- **Marco** (`ActionRailShell`): `h-14 rounded-3xl border bg-nav shadow-rail`. Al principio lleva sus propios controles —el **asa de arrastre** (`RailDragHandle`) y el **menú de ajustes** (`RailSettingsMenu`)—, una divisoria y luego los dos grupos.
+- **Ajustes de la barra**: orientación (horizontal / vertical), visibilidad (mantener abierta / ocultar sola) y «Volver a su sitio». Se recuerdan en `localStorage` (`sellup:action-rail:*`) y valen para todas las pantallas, porque para quien la usa es una sola barra. Se leen con `useSyncExternalStore` (sin desajuste de hidratación).
+- **Recogida** es una pastilla de 64×6 que se abre al pasar el cursor, al enfocarla o al tocarla. Se mantiene abierta (`keepOpen`) mientras hay selección o un menú abierto, y se recoge inerte (`isBlocked`) mientras un panel abierto desde ella tiene la pantalla.
+- **Arrastrable**: se suelta en cualquier punto y se recuerda; doble clic en el asa la devuelve a su atraque (abajo al centro, o borde derecho si va de pie).
+- **Botones**: `RailButton` (icono 40×40 `rounded-xl`, etiqueta en tooltip, `tone="danger"`, `blockedReason` que la apaga y lo explica), `RailPrimaryAction` (la ÚNICA acción rellena: icono + etiqueta en `bg-primary`; `variant="ai"` conserva el degradado de IA; de pie queda cuadrada con tooltip), `RailOverflowMenu` («⋯»), `RailSelectionChip` («✕ 3 seleccionadas»), `RailCreateOption` (fila del popover de creación), `ConfirmActionPopover`.
+- **Movimiento**: sin framer-motion. Abrir/recoger y el escalonado de las acciones al cambiar de contexto son utilidades `su-rail-*` / `su-dock-item` de `globals.css` (`transform` + `opacity`), apagadas con `prefers-reduced-motion`.
+- **Móvil** (`useCompactViewport`, < `lg`): la misma pieza en su otra forma, `ActionFab` — un botón flotante que despliega las mismas acciones.
 
-### 12.2 Solución: portal a `document.body`
-
-`createPortal(jsx, document.body)` saca el elemento del árbol DOM actual y lo monta en otro contenedor. Como `document.body` no tiene `transform`, `position: fixed` vuelve a funcionar contra el viewport.
-
-### 12.3 Implementación de referencia
-
-`src/components/data-table/data-table-bulk-action-bar.tsx`:
+### 12.2 Cómo se monta en una pantalla de lista
 
 ```tsx
-'use client';
+// page.tsx (servidor)
+<ListActionRailProvider label="Acciones de empresas" gender="f">
+  <DataTablePage title="Empresas" actions={<AccountsScreenActions users={users} />}>
+    <AccountsDataTableClient accounts={accounts} />
+  </DataTablePage>
+</ListActionRailProvider>
 
-import * as React from 'react';
-import { createPortal } from 'react-dom';
-
-export function DataTableBulkActionBar({ count, onClear, children }: Props) {
-  // mount guard: evita hydration mismatch con SSR
-  const [mounted, setMounted] = React.useState(false);
-  React.useEffect(() => setMounted(true), []);
-
-  if (!mounted) return null;
-
-  return createPortal(
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] ...">
-      {children}
-    </div>,
-    document.body,
-  );
-}
+// accounts-screen-actions.tsx (cliente): declara, no pinta botones
+const actions = React.useMemo<RailActionSpec[]>(() => [
+  { id: 'create', label: 'Crear empresa', icon: <Plus />, scope: ['screen'], primary: true, onSelect: () => setIsCreating(true) },
+], []);
+return (
+  <>
+    <RailScreenActions actions={actions} isBlocked={isCreating} />
+    <CreateAccountDrawer users={users} open={isCreating} onOpenChange={setIsCreating} />
+  </>
+);
 ```
+
+- **`ListActionRailProvider`** monta LA barra (`DataListActionRail`) y reserva su hueco para que no tape el pie de la tabla: `pb-20` tendida, `pr-20` de pie, nada si quien mira la arrastró.
+- **La pantalla** declara `RailActionSpec[]` con `scope: ["screen"]` en `<RailScreenActions>`: `primary` (una sola, cierra la fila), `overflow` (se pliega tras «⋯»), `blockedReason`, `options` (la primaria abre un popover de creación con varias opciones) y `onSelect`. Los drawers que abre se montan **controlados** (`open` / `onOpenChange`).
+- **La tabla** no necesita nada: `DataTable` traduce sus `bulkActions` a acciones de la barra y le cuenta la selección por contexto. `disabled(rows)` → `blockedReason` (con `disabledLabel(rows)` como explicación), `confirm` pregunta antes, `items` es un menú con nombre, `scope: ['single']` saca la acción de la barra cuando hay varias filas marcadas y `countInLabel` añade el recuento («Archivar (3)»).
+- **Sin selección** la barra enseña las acciones de pantalla (plegadas · de a diario · primaria al final). **Con selección** las SUSTITUYE por el recuento y las acciones sobre lo marcado.
+- Con **«Dónde van las acciones» = En el layout** (panel Configurar tabla) la barra sigue con las acciones de pantalla y las de selección van en la cabecera de la lista.
+- Una `DataTable` fuera de un `ListActionRailProvider` monta su propia barra solo mientras tiene filas marcadas.
+
+### 12.3 Por qué va por portal
+
+`position: fixed` dentro de un contenedor con `transform` **no se posiciona respecto al viewport** sino respecto a ese contenedor (containing block). El `<main>` de `AppShell` aplica `animate-su-fade-in`, que usa `transform`. `ActionRailShell` y `ActionFab` se montan con `createPortal(jsx, document.body)`, donde `fixed` vuelve a ser contra la ventana.
 
 ### 12.4 Reglas
 
-- **z-index:** `z-[60]` (drawer es `z-50`). Modal/dialog toma precedencia.
-- **Mount guard:** siempre usar `useState(false) + useEffect(setTrue)` para evitar SSR/hydration mismatch.
-- **Single source of truth:** el estado de selección vive en el `<DataTable>`; el bar solo lo lee y dispara callbacks.
-- **Hide cuando count === 0:** el bar no se monta si no hay selección.
+- **Una sola barra por pantalla.** No montes botones `<Button>` dentro de un contenedor flotante ni una segunda barra para la selección: declara `RailActionSpec` y deja que la barra resuelva modos, orden, escalonado y plegado.
+- **Una sola acción rellena** (la primaria). El resto son iconos con su etiqueta en tooltip.
+- **z-index:** `z-40`: flota sobre la página y por debajo del velo de drawers (`z-50`) y diálogos (`z-[60]`), que la cubren al abrirse.
+- **Cliente solamente:** la barra no se pinta en el servidor (`useSyncExternalStore`), así no hay desajuste de hidratación.
+- **Single source of truth:** la selección vive en el `<DataTable>`; la barra solo la lee y dispara callbacks.
+- **Animaciones:** solo las utilidades `su-rail-*` de `globals.css`; nada de keyframes en el componente.
+- **`DrawerActionRail`** es la misma barra dentro de un drawer (franja del pie, auto-ocultar y pastilla). No lleva asa de arrastre: el panel entra con `transform` y una posición guardada en coordenadas de ventana la dejaría fuera de él.
 
 ### 12.5 Cuándo replicar este patrón
 
@@ -1342,7 +1382,7 @@ Resultado a 1440×900: de 3–4 filas a 8–9 sin desplazar la página. El estad
 </DataTablePage>
 ```
 
-**Alto mínimo de la tabla.** En una pantalla alta la cabecera y las métricas quedan fijas y la tabla llena el resto. En una baja (p. ej. 1440×900 con pestañas y métricas) el alto que quedaba dejaba ver solo unas cuatro filas: ahora la tabla no baja de `min(100%, 32rem)` y lo que se desplaza es la página (`overflow-y-auto` en la propia caja de `DataTablePage`), con la tabla conservando su scroll interno y su cabecera pegada. La caja con scroll es la de `DataTablePage` y no la del shell para que el hueco inferior que reserva `ScreenActionRailProvider` (`pb-20`) quede siempre fuera: la barra flotante nunca tapa el pie de la tabla. El `-mx-3 px-3` deja sitio a sombras y anillos de foco, que una caja con scroll recortaría.
+**Alto mínimo de la tabla.** En una pantalla alta la cabecera y las métricas quedan fijas y la tabla llena el resto. En una baja (p. ej. 1440×900 con pestañas y métricas) el alto que quedaba dejaba ver solo unas cuatro filas: ahora la tabla no baja de `min(100%, 32rem)` y lo que se desplaza es la página (`overflow-y-auto` en la propia caja de `DataTablePage`), con la tabla conservando su scroll interno y su cabecera pegada. La caja con scroll es la de `DataTablePage` y no la del shell para que el hueco que reserva `ListActionRailProvider` (`pb-20` con la barra tendida, `pr-20` de pie) quede siempre fuera: la barra flotante nunca tapa el pie de la tabla. El `-mx-3 px-3` deja sitio a sombras y anillos de foco, que una caja con scroll recortaría.
 
 ### 15.4 Prop `fillHeight` en `<DataTable>`
 
@@ -1375,12 +1415,12 @@ AppShell
 
 ### 15.6 Reglas
 
-- **El `transform` del `animate-su-fade-in` no rompe el layout.** Solo afecta a `position: fixed` descendientes. Como sheets y bulk action bar ya están portaled a `document.body`, no hay conflicto.
+- **El `transform` del `animate-su-fade-in` no rompe el layout.** Solo afecta a `position: fixed` descendientes. Como los sheets y la barra de acciones ya están portaled a `document.body`, no hay conflicto.
 - **`min-h-0` es obligatorio** en todos los niveles de la cadena flex (main → inner div → DataTablePage → área de contenido). Sin él, los hijos no pueden reducir su altura para scrollear.
 - **Padding va en el inner div del AppShell**, no en el `DataTablePage`. El `DataTablePage` no añade padding propio.
-- **El bulk action bar sigue funcionando** porque está portaled a `document.body` (§ 12). Aparece flotante al fondo del viewport independientemente del scroll de la tabla.
+- **La barra de acciones sigue funcionando** porque está portaled a `document.body` (§ 12). Flota sobre la ventana independientemente del scroll de la tabla.
 - **Métricas opcionales.** Si la página no tiene métricas, omitir el prop `metrics`. La tabla se queda con todo el alto disponible.
-- **Drawer de detalle abre encima** sin verse afectado por el scroll interno. El sheet está en `z-50`, el bulk action bar en `z-[60]`.
+- **Drawer de detalle abre encima** sin verse afectado por el scroll interno. El sheet está en `z-50` y la barra de acciones en `z-40`: el drawer la cubre.
 
 ### 15.7 Cuándo NO usar `<DataTablePage>`
 
