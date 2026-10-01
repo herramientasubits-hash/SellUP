@@ -1,45 +1,27 @@
-import { LayoutDashboard } from "@/icons";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModulePlaceholder } from "@/components/shared/module-placeholder";
-import { Kanban, type KanbanColumn } from "@/components/data-display";
+import type { KanbanItem } from "@/components/data-display";
+import { PipelineBoard } from "./pipeline-board";
 
-// Los cuatro macroestados del proceso comercial, como columnas del tablero
-// (Thema, `data-display/Kanban`). Todavía sin cuentas: el módulo está en
-// construcción y cada columna muestra su estado vacío.
-const PIPELINE_COLUMNS: KanbanColumn[] = [
-  { id: "preparacion", title: "Preparación inicial", tone: "default" },
-  { id: "profundizar", title: "Listos para profundizar", tone: "primary" },
-  { id: "inteligencia", title: "Inteligencia lista", tone: "primary" },
-  { id: "contacto", title: "Preparados para contacto", tone: "positive" },
-];
+// El tablero todavía no recibe cuentas: los macroestados del pipeline no están
+// conectados a los datos. Cuando lo estén, basta con cargar aquí las cuentas y
+// pasarlas como `items` (una tarjeta por cuenta, en la columna de su etapa).
+const PIPELINE_ITEMS: readonly KanbanItem[] = [];
 
 export default function PipelinePage() {
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
       <PageHeader
+        className="pb-2"
         title="Pipeline SellUp"
-        description="Vista operativa del avance de cuentas en los macroestados del proceso comercial."
+        description="El avance de tus cuentas por las cuatro etapas del proceso comercial."
       />
 
-      <Kanban
-        columns={PIPELINE_COLUMNS}
-        items={[]}
-        emptyColumnLabel="Sin cuentas todavía"
-      />
+      <PipelineBoard items={PIPELINE_ITEMS} />
 
-      {/* Module placeholder */}
       <ModulePlaceholder
-        icon={LayoutDashboard}
-        module="Pipeline SellUp — Módulo en construcción"
-        description="El Pipeline será la entrada operativa principal del MVP. Aquí vivirá el avance de cuentas a través de los cuatro macroestados del proceso comercial asistido por IA."
-        features={[
-          { label: "Vista kanban por macroestado" },
-          { label: "Tarjetas de cuenta con estado y señales" },
-          { label: "Acceso directo al expediente" },
-          { label: "Filtros por industria, tamaño y estado" },
-          { label: "Indicadores de progreso de agentes IA" },
-          { label: "Acciones rápidas por cuenta" },
-        ]}
+        module="Tablero de pipeline"
+        description="Aún estamos conectando las cuentas aprobadas con este tablero; mientras tanto, síguelas desde Empresas."
       />
     </div>
   );

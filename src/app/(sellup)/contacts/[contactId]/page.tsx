@@ -11,15 +11,25 @@ import {
   Star,
   User,
   Building2,
-  Globe,
+  Calendar,
+  UserSearch,
 } from "@/icons";
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { DetailItem, DetailList } from '@/components/shared/detail-list';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
-import { Timeline, TimelineItem } from '@/components/data-display';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { UrlTabs, type UrlTab } from '@/components/navigation/url-tabs';
+import {
+  StatusBadge,
+  Timeline,
+  TimelineItem,
+  type StatusType,
+  type TimelineTone,
+} from '@/components/data-display';
+import { TabsContent } from '@/components/ui/tabs';
 import { getContactById, getContactAudit } from '@/modules/contacts/actions';
 import { getAccountById } from '@/modules/accounts/actions';
 import {
@@ -33,18 +43,20 @@ import {
 } from '@/modules/contacts/types';
 import { ContactRowActions } from '@/components/contacts/contact-row-actions';
 import { ContactHubSpotSyncBadge } from '@/components/contacts/contact-hubspot-sync-badge';
+import { describeContactAuditDetails } from './audit-details';
 
 interface ContactDetailPageProps {
   params: Promise<{ contactId: string }>;
+  searchParams: Promise<{ tab?: string | string[] }>;
 }
 
 type BadgeTone = 'neutral' | 'brand' | 'warning' | 'positive' | 'negative';
 
-const STATUS_VARIANT: Record<ContactStatus, BadgeTone> = {
-  active: 'positive',
-  inactive: 'neutral',
+const CONTACT_STATUS_TYPE: Record<ContactStatus, StatusType> = {
+  active: 'active',
+  inactive: 'inactive',
   left_company: 'warning',
-  do_not_contact: 'negative',
+  do_not_contact: 'error',
   archived: 'neutral',
 };
 
@@ -55,17 +67,31 @@ const ROLE_VARIANT: Record<string, BadgeTone> = {
   influencer: 'warning',
 };
 
-/** Pares etiqueta/valor en rejilla: dos columnas cuando la tarjeta tiene ancho. */
-const DETAIL_GRID = 'grid gap-x-6 gap-y-3 sm:grid-cols-2 md:grid-cols-1 xl:grid-cols-2';
+const LINK_CLASSES =
+  'rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40';
 
-const AUDIT_LABELS: Record<ContactAuditAction, string> = {
-  contact_created: 'Contacto creado',
-  contact_updated: 'Contacto actualizado',
-  contact_status_changed: 'Estado cambiado',
-  contact_archived: 'Contacto archivado',
-  contact_primary_changed: 'Contacto primario actualizado',
-  contact_role_changed: 'Rol en cuenta actualizado',
+interface AuditPresentation {
+  title: string;
+  tone: TimelineTone;
+}
+
+const AUDIT_PRESENTATION: Record<ContactAuditAction, AuditPresentation> = {
+  contact_created: { title: 'Contacto creado', tone: 'positive' },
+  contact_updated: { title: 'Datos actualizados', tone: 'default' },
+  contact_status_changed: { title: 'Cambio de estado', tone: 'primary' },
+  contact_archived: { title: 'Contacto archivado', tone: 'warning' },
+  contact_primary_changed: { title: 'Cambio de contacto principal', tone: 'info' },
+  contact_role_changed: { title: 'Cambio de rol en la empresa', tone: 'primary' },
 };
+
+const FALLBACK_AUDIT: AuditPresentation = { title: 'Cambio registrado', tone: 'default' };
+
+const TABS: readonly UrlTab[] = [
+  { id: 'resumen', label: 'Resumen' },
+  { id: 'actividad', label: 'Actividad' },
+  { id: 'enriquecimiento', label: 'Enriquecimiento' },
+  { id: 'hubspot', label: 'HubSpot' },
+];
 
 function formatDate(iso: string): string {
   return formatInAppZone(iso, {
@@ -85,8 +111,8 @@ function formatShortDate(iso: string): string {
   }, 'es-CO');
 }
 
-export default async function ContactDetailPage({ params }: ContactDetailPageProps) {
-  const { contactId } = await params;
+export default async function ContactDetailPage({ params, searchParams }: ContactDetailPageProps) {
+  const [{ contactId }, { tab }] = await Promise.all([params, searchParams]);
 
   const contact = await getContactById(contactId);
   if (!contact) notFound();
@@ -96,143 +122,162 @@ export default async function ContactDetailPage({ params }: ContactDetailPagePro
     getAccountById(contact.account_id),
   ]);
 
+  const bestPhone = contact.mobile_phone ?? contact.phone ?? null;
+  const hubspotContact = {
+    hubspot_contact_id: contact.hubspot_contact_id,
+    metadata: contact.metadata as Record<string, unknown> | null,
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
+        className="pb-0"
         title={contact.full_name}
-        description={contact.job_title ?? undefined}
+        description={
+          [contact.job_title, account?.name].filter(Boolean).join(' · ') || undefined
+        }
         backHref="/contacts"
         breadcrumbs={
           <Breadcrumbs items={[{ label: 'Contactos', href: '/contacts' }, contact.full_name]} />
         }
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
+        meta={
+          <>
+            <StatusBadge
+              status={CONTACT_STATUS_TYPE[contact.contact_status]}
+              label={CONTACT_STATUS_LABELS[contact.contact_status]}
+            />
             {contact.is_primary && (
               <Badge variant="warning">
                 <Star className="fill-warning" aria-hidden="true" />
-                Primario
+                Contacto principal
               </Badge>
             )}
-            <Badge variant={STATUS_VARIANT[contact.contact_status]}>
-              {CONTACT_STATUS_LABELS[contact.contact_status]}
-            </Badge>
             {contact.role_in_account && (
               <Badge variant={ROLE_VARIANT[contact.role_in_account] ?? 'neutral'}>
                 {ROLE_LABELS[contact.role_in_account as ContactRole]}
               </Badge>
             )}
-            <ContactRowActions contact={contact} />
-          </div>
+          </>
         }
+        actions={<ContactRowActions contact={contact} />}
       />
 
-      <Tabs defaultValue="resumen">
-        <TabsList className="mb-4">
-          <TabsTrigger value="resumen">Resumen</TabsTrigger>
-          <TabsTrigger value="actividad">Actividad</TabsTrigger>
-          <TabsTrigger value="enriquecimiento">Enriquecimiento</TabsTrigger>
-          <TabsTrigger value="hubspot">HubSpot</TabsTrigger>
-        </TabsList>
+      {/* Lo esencial del contacto, de un vistazo y antes de las pestañas. */}
+      <SurfaceCard className="p-5">
+        <DetailList columns={4} aria-label="Datos clave">
+          <DetailItem icon={Building2} label="Empresa" emptyLabel="Sin empresa">
+            {account && (
+              <Link href={`/accounts/${account.id}`} className={LINK_CLASSES}>
+                {account.name}
+              </Link>
+            )}
+          </DetailItem>
+          <DetailItem icon={Mail} label="Correo" emptyLabel="Sin correo">
+            {contact.email && (
+              <a href={`mailto:${contact.email}`} className={`break-all ${LINK_CLASSES}`}>
+                {contact.email}
+              </a>
+            )}
+          </DetailItem>
+          <DetailItem icon={Phone} label="Teléfono" emptyLabel="Sin teléfono">
+            {bestPhone && (
+              <a href={`tel:${bestPhone}`} className={`tabular-nums ${LINK_CLASSES}`}>
+                {bestPhone}
+              </a>
+            )}
+          </DetailItem>
+          <DetailItem icon={Tag} label="HubSpot">
+            <ContactHubSpotSyncBadge contact={hubspotContact} />
+          </DetailItem>
+        </DetailList>
+      </SurfaceCard>
 
+      <UrlTabs
+        ariaLabel="Secciones del contacto"
+        tabs={TABS}
+        initialTab={typeof tab === 'string' ? tab : undefined}
+      >
         {/* ── Resumen ─────────────────────────────────────────── */}
-        <TabsContent value="resumen" className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            {/* Datos de contacto */}
+        <TabsContent value="resumen">
+          <div className="grid gap-4 lg:grid-cols-2">
             <SurfaceCard>
-              <SurfaceCardHeader title="Datos de contacto" />
-              <dl className={DETAIL_GRID}>
-                {contact.email && (
-                  <DetailRow icon={Mail} label="Email">
-                    <a
-                      href={`mailto:${contact.email}`}
-                      className="rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-                    >
+              <SurfaceCardHeader title="Cómo contactarle" />
+              <DetailList>
+                <DetailItem icon={Mail} label="Correo" emptyLabel="Sin correo">
+                  {contact.email && (
+                    <a href={`mailto:${contact.email}`} className={`break-all ${LINK_CLASSES}`}>
                       {contact.email}
                     </a>
-                  </DetailRow>
-                )}
-                {contact.mobile_phone && (
-                  <DetailRow icon={Phone} label="Celular">
-                    <a href={`tel:${contact.mobile_phone}`} className="rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
+                  )}
+                </DetailItem>
+                <DetailItem icon={Phone} label="Celular" emptyLabel="Sin celular">
+                  {contact.mobile_phone && (
+                    <a href={`tel:${contact.mobile_phone}`} className={`tabular-nums ${LINK_CLASSES}`}>
                       {contact.mobile_phone}
                     </a>
-                  </DetailRow>
-                )}
-                {contact.phone && (
-                  <DetailRow icon={Phone} label="Teléfono">
-                    <a href={`tel:${contact.phone}`} className="rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
+                  )}
+                </DetailItem>
+                <DetailItem icon={Phone} label="Teléfono fijo" emptyLabel="Sin teléfono fijo">
+                  {contact.phone && (
+                    <a href={`tel:${contact.phone}`} className={`tabular-nums ${LINK_CLASSES}`}>
                       {contact.phone}
                     </a>
-                  </DetailRow>
-                )}
-                {contact.linkedin_url && (
-                  <DetailRow icon={Link2} label="LinkedIn">
+                  )}
+                </DetailItem>
+                <DetailItem icon={Link2} label="LinkedIn" emptyLabel="Sin perfil">
+                  {contact.linkedin_url && (
                     <a
                       href={contact.linkedin_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+                      className={`break-all ${LINK_CLASSES}`}
                     >
-                      {contact.linkedin_url}
+                      {contact.linkedin_url.replace(/^https?:\/\/(www\.)?/i, '')}
                     </a>
-                  </DetailRow>
-                )}
-                <DetailRow icon={Building2} label="Cuenta">
-                  {account ? (
-                    <Link href={`/accounts/${account.id}`} className="rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
-                      {account.name}
-                    </Link>
-                  ) : (
-                    <span className="text-muted-foreground">Sin cuenta</span>
                   )}
-                </DetailRow>
-              </dl>
+                </DetailItem>
+              </DetailList>
             </SurfaceCard>
 
-            {/* Cargo y función */}
             <SurfaceCard>
-              <SurfaceCardHeader title="Cargo y función" />
-              <dl className={DETAIL_GRID}>
-                {contact.job_title && (
-                  <DetailRow icon={Briefcase} label="Cargo">
-                    {contact.job_title}
-                  </DetailRow>
-                )}
-                {contact.department && (
-                  <DetailRow icon={Briefcase} label="Área">
-                    {contact.department}
-                  </DetailRow>
-                )}
-                {contact.seniority && (
-                  <DetailRow icon={User} label="Seniority">
-                    {SENIORITY_LABELS[contact.seniority]}
-                  </DetailRow>
-                )}
-                {contact.role_in_account && (
-                  <DetailRow icon={Tag} label="Rol en cuenta">
+              <SurfaceCardHeader title="Su papel en la empresa" />
+              <DetailList>
+                <DetailItem icon={Briefcase} label="Cargo">
+                  {contact.job_title}
+                </DetailItem>
+                <DetailItem icon={Briefcase} label="Área">
+                  {contact.department}
+                </DetailItem>
+                <DetailItem icon={User} label="Nivel">
+                  {contact.seniority ? SENIORITY_LABELS[contact.seniority] : null}
+                </DetailItem>
+                <DetailItem icon={Tag} label="Rol en la venta" emptyLabel="Sin definir">
+                  {contact.role_in_account && (
                     <Badge variant={ROLE_VARIANT[contact.role_in_account] ?? 'neutral'}>
                       {ROLE_LABELS[contact.role_in_account as ContactRole]}
                     </Badge>
-                  </DetailRow>
-                )}
-                <DetailRow icon={Tag} label="Fuente">
+                  )}
+                </DetailItem>
+                <DetailItem icon={Tag} label="Cómo llegó">
                   <Badge variant="neutral">
                     {CONTACT_SOURCE_LABELS[contact.source]}
                   </Badge>
-                </DetailRow>
-                <DetailRow icon={Tag} label="Creado">
+                </DetailItem>
+                <DetailItem icon={Calendar} label="Creado">
                   {formatShortDate(contact.created_at)}
-                </DetailRow>
-              </dl>
+                </DetailItem>
+              </DetailList>
 
-              {contact.notes && (
-                <div className="mt-4 rounded-lg bg-surface-subtle px-3 py-2.5">
-                  <p className="mb-1 text-xs font-semibold text-muted-foreground">
-                    Notas
+              <section className="mt-4 border-t border-border/60 pt-4">
+                <h3 className="mb-1 text-xs font-medium text-muted-foreground">Notas</h3>
+                {contact.notes ? (
+                  <p className="whitespace-pre-line text-sm leading-relaxed text-foreground">{contact.notes}</p>
+                ) : (
+                  <p className="text-sm text-text-muted">
+                    Sin notas. Añádelas con «Editar», en el menú de acciones.
                   </p>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{contact.notes}</p>
-                </div>
-              )}
+                )}
+              </section>
             </SurfaceCard>
           </div>
         </TabsContent>
@@ -241,32 +286,38 @@ export default async function ContactDetailPage({ params }: ContactDetailPagePro
         <TabsContent value="actividad">
           <SurfaceCard>
             <SurfaceCardHeader
-              title="Registro de actividad"
-              description="Cambios y eventos de auditoría de este contacto."
+              title="Historial"
+              description="Quién cambió qué en este contacto, de lo más reciente a lo más antiguo."
             />
             {auditLog.length === 0 ? (
-              <EmptyState variant="plain" icon={Activity} title="Sin actividad registrada todavía." />
+              <EmptyState
+                variant="plain"
+                icon={Activity}
+                title="Aún no hay cambios registrados"
+                description="Cuando alguien cambie su estado, su rol o sus datos, quedará anotado aquí."
+              />
             ) : (
               <Timeline>
-                {auditLog.map((entry) => (
-                  <TimelineItem
-                    key={entry.id}
-                    icon={<Activity />}
-                    title={AUDIT_LABELS[entry.action_type]}
-                    time={formatDate(entry.created_at)}
-                    description={
-                      entry.actor
-                        ? `por ${entry.actor.full_name ?? entry.actor.email}`
-                        : undefined
-                    }
-                  >
-                    {Object.keys(entry.details).length > 0 && (
-                      <p className="break-words text-xs text-muted-foreground">
-                        {JSON.stringify(entry.details)}
-                      </p>
-                    )}
-                  </TimelineItem>
-                ))}
+                {auditLog.map((entry) => {
+                  const presentation = AUDIT_PRESENTATION[entry.action_type] ?? FALLBACK_AUDIT;
+                  const detail = describeContactAuditDetails(entry.action_type, entry.details);
+                  return (
+                    <TimelineItem
+                      key={entry.id}
+                      icon={<Activity />}
+                      tone={presentation.tone}
+                      title={presentation.title}
+                      time={formatDate(entry.created_at)}
+                      description={
+                        entry.actor
+                          ? `Por ${entry.actor.full_name ?? entry.actor.email}`
+                          : undefined
+                      }
+                    >
+                      {detail && <p className="break-words text-xs text-muted-foreground">{detail}</p>}
+                    </TimelineItem>
+                  );
+                })}
               </Timeline>
             )}
           </SurfaceCard>
@@ -275,86 +326,60 @@ export default async function ContactDetailPage({ params }: ContactDetailPagePro
         {/* ── Enriquecimiento ──────────────────────────────────── */}
         <TabsContent value="enriquecimiento">
           <EmptyState
-            icon={Globe}
-            title="Enriquecimiento — Próxima fase"
-            description="Enriquecimiento automático con Apollo y Lusha: email verificado, teléfono directo, cargo actualizado y señales de intención."
+            icon={UserSearch}
+            title="Aquí todavía no hay historial de enriquecimiento"
+            description={
+              account
+                ? 'Para buscar su correo verificado o su teléfono, usa «Enriquecer contactos» desde la ficha de la empresa.'
+                : 'Asocia este contacto a una empresa para poder buscar su correo verificado o su teléfono.'
+            }
+            action={
+              account ? (
+                <Button asChild variant="outline">
+                  <Link href={`/accounts/${account.id}?tab=contactos`}>Ir a {account.name}</Link>
+                </Button>
+              ) : undefined
+            }
           />
         </TabsContent>
 
         {/* ── HubSpot ──────────────────────────────────────────── */}
         <TabsContent value="hubspot">
           <SurfaceCard>
-            <SurfaceCardHeader title="Sincronización HubSpot" />
-            <dl className={DETAIL_GRID}>
-              <DetailRow icon={Tag} label="HubSpot Contact ID">
-                {contact.hubspot_contact_id ? (
-                  <span className="font-mono text-xs">{contact.hubspot_contact_id}</span>
-                ) : (
-                  <span className="text-muted-foreground">No vinculado</span>
-                )}
-              </DetailRow>
-              <DetailRow icon={Tag} label="Estado de sincronización">
+            <SurfaceCardHeader
+              title="Sincronización con HubSpot"
+              description="Si este contacto ya tiene ficha en HubSpot y en qué estado está."
+            />
+            <DetailList>
+              <DetailItem icon={Tag} label="Estado">
                 {/* AGENT2-FINAL-LOCAL-CLOSURE-MICROFIX — antes esto era un badge HARDCODEADO
-                    «Sincronización no activa» (preexistente, 21-05). Ignoraba el estado durable
-                    y contradecía al drawer sobre el mismo contacto: un contacto SÍ sincronizado
-                    seguía leyéndose aquí como si la sync no existiera. Ahora lo dice la misma
-                    autoridad, así que las dos superficies no pueden divergir. */}
-                <ContactHubSpotSyncBadge
-                  contact={{
-                    hubspot_contact_id: contact.hubspot_contact_id,
-                    metadata: contact.metadata as Record<string, unknown> | null,
-                  }}
-                />
-              </DetailRow>
-            </dl>
-            <div className="mt-4 rounded-lg bg-surface-subtle px-3 py-2.5">
-              <p className="mb-1 text-xs font-semibold text-muted-foreground">
-                Propiedades mapeadas
+                    (preexistente, 21-05). Ignoraba el estado durable y contradecía al drawer
+                    sobre el mismo contacto: un contacto SÍ sincronizado seguía leyéndose aquí
+                    como si la sync no existiera. Ahora lo dice la misma autoridad, así que las
+                    dos superficies no pueden divergir. */}
+                <ContactHubSpotSyncBadge contact={hubspotContact} />
+              </DetailItem>
+              <DetailItem icon={Tag} label="Ficha en HubSpot" emptyLabel="Aún no tiene ficha">
+                {contact.hubspot_contact_id && (
+                  <span className="tabular-nums">n.º {contact.hubspot_contact_id}</span>
+                )}
+              </DetailItem>
+            </DetailList>
+            <section className="mt-4 border-t border-border/60 pt-4">
+              <h3 className="mb-1 text-xs font-medium text-muted-foreground">Qué se envía</h3>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                {/* AGENT2-FINAL-LOCAL-CLOSURE-MICROFIX — este párrafo no afirma nada sobre si la
+                    sincronización está activa: eso lo dice el badge de arriba. Lo que sí sigue
+                    siendo cierto es que las 7 propiedades propias de SellUp están pendientes de
+                    crear en el portal. */}
+                Al sincronizar viajan el nombre, el correo, los teléfonos, el cargo, el nivel y
+                el perfil de LinkedIn. Hay 7 campos propios de SellUp que todavía están
+                pendientes de crear en HubSpot.
               </p>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                {/* AGENT2-FINAL-LOCAL-CLOSURE-MICROFIX — se cae «antes de activar la sync»:
-                    afirmaba lo mismo que el badge hardcodeado de arriba, y dejarla haría que el
-                    párrafo contradijera al estado durable que el badge ya dice bien. Lo que sí
-                    sigue siendo cierto —y es todo lo que esta frase puede afirmar— es que las 7
-                    propiedades custom siguen pendientes de crear en el portal. */}
-                Este contacto está preparado para sincronizar con HubSpot Contact. El mapping
-                cubre{' '}
-                <span className="font-medium text-foreground">
-                  firstname, lastname, email, phone, mobilephone, jobtitle, seniority, hs_linkedin_url
-                </span>
-                {' '}y 7 propiedades custom (<span className="font-mono text-xs">sellup_*</span>)
-                pendientes de crear en el portal UBITS.
-              </p>
-            </div>
+            </section>
           </SurfaceCard>
         </TabsContent>
-      </Tabs>
-    </div>
-  );
-}
-
-// ── Componente auxiliar ────────────────────────────────────────
-
-function DetailRow({
-  icon: Icon,
-  label,
-  children,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-start gap-2.5">
-      <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center">
-        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <dt className="text-xs font-semibold text-muted-foreground">
-          {label}
-        </dt>
-        <dd className="mt-0.5 break-words text-sm text-foreground">{children}</dd>
-      </div>
+      </UrlTabs>
     </div>
   );
 }
