@@ -52,12 +52,14 @@ export function DataTableToolbar<TData>({
   return (
     <div
       className={cn(
-        "shrink-0 flex flex-col gap-2 px-6 py-4 border-b border-border/60",
+        "shrink-0 flex flex-col gap-2 px-4 py-4 sm:px-6 border-b border-border/60",
         className,
       )}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
+      {/* En móvil el título ocupa su propia fila y las acciones bajan a la
+          siguiente: así no se recorta con puntos suspensivos. */}
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+        <div className="min-w-full flex-1 sm:min-w-0">
           {/* Thema (TableShell): el título de la lista con su total al lado.
               El contador va fuera del h3 para no alterar el texto del título. */}
           {table.options.meta?.title != null && (
