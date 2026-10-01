@@ -1022,3 +1022,22 @@ export const AGENT1_CLAUDE_RESCUE_FLAG = 'ENABLE_AGENT1_CLAUDE_RESCUE';
 export function isAgent1ClaudeRescueEnabled(): boolean {
   return isEnvFlagEnabled(process.env[AGENT1_CLAUDE_RESCUE_FLAG]);
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// Agente 1 · Claude busca el sitio oficial (AGENT1-CLAUDE-FIND-DOMAIN-1)
+// ════════════════════════════════════════════════════════════════════════════
+
+export const AGENT1_CLAUDE_DOMAIN_FINDER_FLAG = 'ENABLE_AGENT1_CLAUDE_DOMAIN_FINDER';
+
+/**
+ * Dentro del rescate con Claude, ¿se buscan también las empresas descartadas por
+ * NO TENER DOMINIO (Apollo `missing_domain_final`)? Claude busca el sitio oficial;
+ * SellUp lo comprueba (enlaza al mismo LinkedIn o el nombre coincide), revisa
+ * duplicados en SellUp y HubSpot (sólo lectura) y la pasa por los mismos filtros.
+ * NUNCA aprueba nada. Requiere además `ENABLE_AGENT1_CLAUDE_RESCUE`.
+ *
+ * 🔴 Fail-closed y por defecto APAGADA: sólo el token exacto `true` la enciende.
+ */
+export function isAgent1ClaudeDomainFinderEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[AGENT1_CLAUDE_DOMAIN_FINDER_FLAG]);
+}
