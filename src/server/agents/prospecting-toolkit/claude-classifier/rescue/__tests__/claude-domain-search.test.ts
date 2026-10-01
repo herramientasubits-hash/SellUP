@@ -16,6 +16,8 @@ import {
   CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY,
   dispositionDisplayName,
   dispositionLinkedInUrl,
+  nameFromLinkedInSlug,
+  DOMAIN_SEARCH_VERSION,
 } from '../domain-search';
 import { needsDispositionRescue, type RescuableDispositionRow } from '../rescue-dispositions';
 import { rescueBatchWithClaude, type RescueBatchDeps } from '../rescue-batch';
@@ -102,13 +104,32 @@ describe('A. findOfficialWebsite', () => {
     if (out.found) assert.equal(out.verification, 'name_match');
   });
 
-  it('rechaza una URL que NO salió de la búsqueda (inventada)', async () => {
-    const out = await findOfficialWebsite(
+  it('URL fuera de la búsqueda: sólo vale si el sitio enlaza al MISMO LinkedIn', async () => {
+    const linked = await findOfficialWebsite(
       INPUT,
       MODEL,
       finderDeps(conversation('https://sii-group.com', ['https://otra.com/']), page(LINKED_HTML)),
     );
-    assert.deepEqual(out.found ? null : out.reason, 'not_in_search_results');
+    assert.equal(linked.found, true);
+    if (linked.found) assert.equal(linked.inSearchResults, false);
+
+    const html = `<html><head><title>SII Group Colombia</title></head><body><p>${FILLER}</p></body></html>`;
+    const byName = await findOfficialWebsite(
+      INPUT,
+      MODEL,
+      finderDeps(conversation('https://sii-group.com', ['https://otra.com/']), page(html, 'https://sii-group.com/')),
+    );
+    assert.deepEqual(byName.found ? null : [byName.reason, byName.claimedUrl], ['not_in_search_results', 'https://sii-group.com']);
+  });
+
+  it('un subdominio de un resultado cuenta como «salió de la búsqueda»', async () => {
+    const html = `<html><head><title>SII Group Colombia</title></head><body><p>${FILLER}</p></body></html>`;
+    const out = await findOfficialWebsite(
+      INPUT,
+      MODEL,
+      finderDeps(conversation('https://sii-group.com', ['https://careers.sii-group.com/jobs']), page(html, 'https://sii-group.com/')),
+    );
+    assert.equal(out.found && out.inSearchResults, true);
   });
 
   it('rechaza LinkedIn, redes y directorios como «sitio oficial»', async () => {
@@ -211,6 +232,19 @@ describe('B. qué filas entran', () => {
   it('usa el nombre original del proveedor y normaliza el LinkedIn', () => {
     assert.equal(dispositionDisplayName(disposition()), 'SII Group Colombia');
     assert.equal(dispositionDisplayName(disposition({ evidence: {} })), 'colombia sii');
+    // Sin nombre original (lote MX×Tec): el slug de LinkedIn conserva el orden de las palabras.
+    assert.equal(
+      dispositionDisplayName(
+        disposition({
+          name: 'america bbva en technology',
+          evidence: { provider_raw_name: null, linkedin_url: 'linkedin.com/company/bbva-technology-en-america' },
+        }),
+      ),
+      'Bbva Technology En America',
+    );
+    assert.equal(nameFromLinkedInSlug('linkedin.com/company/unam_3'), 'Unam');
+    assert.equal(nameFromLinkedInSlug('linkedin.com/company/prepa-en-línea-sep-286'), 'Prepa En Línea Sep');
+    assert.equal(nameFromLinkedInSlug(null), null);
     assert.equal(dispositionLinkedInUrl(disposition()), 'https://www.linkedin.com/company/sii-group-colombia');
   });
 
@@ -255,6 +289,7 @@ const FOUND = {
   website: 'https://sii-group.com',
   domain: 'sii-group.com',
   verification: 'linkedin_cross_link' as const,
+  inSearchResults: true,
   usage: { model: MODEL, ...USAGE, estimatedCostUsd: 0.013, pricingSource: 'table' as const },
 };
 
@@ -377,6 +412,21 @@ describe('C. rescate de descartadas sin dominio', () => {
     assert.equal((ev[CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY] as { reason: string }).reason, 'identity_not_confirmed');
     assert.equal((ev.claude_rescue as { decision: string }).decision, 'website_not_found');
     assert.equal(needsDispositionRescue({ ...disposition(), evidence: ev }, NOW + 3_600_000, true), false);
+  });
+
+  it('un «no encontrado» de la versión anterior del buscador se reintenta una vez', () => {
+    const old = {
+      ...disposition().evidence,
+      claude_rescue: { decision: 'website_not_found' },
+      [CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY]: { found: false, reason: 'not_in_search_results' },
+    };
+    assert.equal(needsDispositionRescue({ ...disposition(), evidence: old }, NOW, true), true);
+    assert.equal(needsDispositionRescue({ ...disposition(), evidence: old }, NOW, false), false);
+    const current = {
+      ...old,
+      [CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY]: { found: false, reason: 'not_in_search_results', search_version: DOMAIN_SEARCH_VERSION },
+    };
+    assert.equal(needsDispositionRescue({ ...disposition(), evidence: current }, NOW, true), false);
   });
 
   it('error del modelo al buscar ⇒ reintentable', async () => {
