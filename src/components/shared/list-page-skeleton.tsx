@@ -7,8 +7,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 interface ListPageSkeletonProps {
   title: string;
   description?: string;
-  /** Las pestañas reales del módulo: la activa responde al instante. */
+  /** Las pestañas reales de la pantalla, si las tiene: la activa responde al instante. */
   tabs?: ReactNode;
+  /** Las migas de la vista (`<Breadcrumbs items={…} />`), las mismas que traerá la pantalla. */
+  breadcrumbs?: ReactNode;
   /** Qué se está cargando, para el lector de pantalla: «empresas». */
   noun: string;
   /** Cuántas columnas y filas fantasma pintar. */
@@ -41,6 +43,7 @@ export function ListPageSkeleton({
   title,
   description,
   tabs,
+  breadcrumbs,
   noun,
   columns = 6,
   rows = 8,
@@ -50,7 +53,7 @@ export function ListPageSkeleton({
   const columnIndexes = Array.from({ length: columns }, (_, index) => index);
 
   const page = (
-    <DataTablePage compact title={title} description={description} tabs={tabs}>
+    <DataTablePage compact title={title} description={description} tabs={tabs} breadcrumbs={breadcrumbs}>
       <div
         role="status"
         aria-busy="true"

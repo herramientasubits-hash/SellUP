@@ -35,9 +35,10 @@ export interface SidebarNavRoot {
 }
 
 /**
- * Las vistas que hoy viven en la barra de pestañas de cada módulo. El menú las
- * ofrece como atajo; las pestañas de la página siguen ahí. Los rótulos son los
- * mismos de `ModuleTabsNav` y `ContactsModuleTabsNav`.
+ * Las vistas de cada módulo. El menú lateral es la ÚNICA navegación entre
+ * ellas (las páginas ya no llevan pestañas de módulo): en móvil viven en el
+ * cajón. Los rótulos son los del título de cada vista (`EMPRESAS_VIEW_TITLES`,
+ * `CONTACTOS_VIEW_TITLES`).
  */
 const MODULE_VIEWS: Readonly<Record<string, readonly SidebarNavChild[]>> = {
   "/accounts": [
@@ -151,7 +152,7 @@ const SETTINGS_GROUPS: readonly { id: string; label: string; icon: LucideIcon; s
     id: "data",
     label: "Datos e IA",
     icon: Layers,
-    sections: ["providers", "prospecting", "source-catalog", "automations"],
+    sections: ["providers", "prospecting", "automations"],
   },
   { id: "connections", label: "Conexiones", icon: HardDrive, sections: ["integrations", "my-drive"] },
 ];

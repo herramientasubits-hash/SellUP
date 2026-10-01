@@ -11,7 +11,7 @@
  * a ningún proveedor.
  */
 
-import '../../../../../components/settings/__tests__/jsdom-bootstrap';
+import '../../../../components/settings/__tests__/jsdom-bootstrap';
 
 import * as React from 'react';
 import { describe, it, before, afterEach } from 'node:test';

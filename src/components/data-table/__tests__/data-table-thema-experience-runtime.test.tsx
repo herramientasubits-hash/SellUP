@@ -508,16 +508,15 @@ describe('DataTable — dónde van las acciones y cómo se actúa sobre una fila
     calls.length = 0;
   });
 
-  it('«En el layout»: la cabecera se transforma con la selección y lleva las acciones', async () => {
+  it('«En la pantalla» (preferencia global): la cabecera se transforma con la selección y lleva las acciones', async () => {
+    // Ya no se elige por tabla: es la preferencia de la persona.
+    window.localStorage.setItem('sellup:actions-placement', 'inline');
     const reported: number[] = [];
     renderTable({
       enableRowSelection: true,
       bulkActions,
       onSelectionCountChange: (count) => reported.push(count),
     });
-
-    await openConfig();
-    fireEvent.click(screen.getByRole('button', { name: /En el layout/ }));
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar todos (5)' }));
     assert.ok(screen.getByText('5 seleccionadas'));
@@ -580,7 +579,42 @@ describe('DataTable — dónde van las acciones y cómo se actúa sobre una fila
     assert.equal(row.getAttribute('data-state'), 'selected');
   });
 
-  it('no ofrece esas dos preguntas donde no aplican', async () => {
+  it('🔴 filas arrastrables con menú contextual: la fila sigue siendo el disparador, sin <div> entre <tr> y <td>', () => {
+    const reordered: string[][] = [];
+    renderTable({
+      contextMenu,
+      enableRowReorder: true,
+      onRowReorder: (rows) => void reordered.push(rows.map((row) => row.id)),
+    });
+
+    assert.equal(document.querySelector('tbody > div'), null, 'nada entre <tbody> y <tr>');
+    assert.equal(document.querySelector('tr > div'), null, 'nada entre <tr> y <td>');
+    const rows = Array.from(document.querySelectorAll('tbody tr')).filter((row) => / SA/.test(row.textContent ?? ''));
+    assert.equal(rows.length, 5);
+    for (const row of rows) {
+      assert.equal(row.parentElement?.tagName, 'TBODY');
+      assert.ok(Array.from(row.children).every((cell) => cell.tagName === 'TD'));
+      assert.ok(within(row as HTMLElement).getByRole('button', { name: 'Reordenar fila' }), 'cada fila lleva su asa');
+    }
+  });
+
+  it('un valor «inline» guardado por tabla (versión anterior) se ignora: manda la preferencia global', () => {
+    window.localStorage.setItem('sellup:table:companies', JSON.stringify({ actions: 'inline' }));
+    window.localStorage.setItem('sellup:table:empresas', JSON.stringify({ actions: 'inline' }));
+    renderTable({ enableRowSelection: true, bulkActions });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar todos (5)' }));
+    assert.equal(bulkBarCount(), 5, 'la selección sigue yendo a la barra flotante');
+  });
+
+  it('«Configurar tabla» ya no pregunta dónde van las acciones, ni con acciones masivas', async () => {
+    renderTable({ enableRowSelection: true, bulkActions, contextMenu });
+    await openConfig();
+    assert.ok(screen.getByText('Cómo se actúa sobre una fila'));
+    assert.equal(screen.queryByText('Dónde van las acciones'), null);
+    assert.equal(screen.queryByRole('button', { name: /En el layout|En la barra flotante/ }), null);
+  });
+
+  it('no ofrece «cómo se actúa sobre una fila» donde no aplica', async () => {
     renderTable();
     await openConfig();
     assert.equal(screen.queryByText('Dónde van las acciones'), null);

@@ -22,6 +22,7 @@ import {
   getVisibleNavItems,
   type NavAccessContext,
   type NavItem,
+  SOURCE_CATALOG_ROUTE,
 } from "@/config/navigation";
 import { getVisibleSettingsSections } from "@/components/settings/settings-sections";
 import { createClient } from "@/lib/supabase/client";
@@ -37,9 +38,13 @@ const SETTINGS_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
   users: ["roles", "permisos", "equipo"],
   providers: ["apollo", "lusha", "tavily", "claude", "presupuesto", "créditos", "gasto", "tope"],
   integrations: ["hubspot", "slack"],
-  "source-catalog": ["países", "registros"],
   activity: ["historial", "auditoría"],
   "my-drive": ["google", "drive"],
+};
+
+/** Palabras con las que también se busca un módulo. */
+const NAV_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
+  [SOURCE_CATALOG_ROUTE]: ["fuentes", "países", "registros"],
 };
 
 const SEARCH_OBJECTS_HINT = "Registros: tus 200 empresas y 500 contactos más recientes.";
@@ -173,6 +178,7 @@ export function AppHeader({ user, initialUnreadCount = 0, navAccess }: AppHeader
         label: item.title,
         href: item.href,
         icon: item.icon,
+        keywords: NAV_KEYWORDS[item.href],
       })),
       ...getVisibleSettingsSections({ isAdmin, isActive: true }).map((section) => ({
         id: `settings-${section.id}`,

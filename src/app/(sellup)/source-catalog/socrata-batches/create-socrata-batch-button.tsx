@@ -18,7 +18,7 @@ export function CreateSocrataBatchButton() {
       const result = await createSocrataRuesPreviewBatchAction();
       if (result.ok && result.batchId) {
         router.push(
-          `/settings/source-catalog/socrata-batches/${result.batchId}`,
+          `/source-catalog/socrata-batches/${result.batchId}`,
         );
       } else {
         setErrorMsg(result.message ?? 'No se pudo crear el lote. Inténtalo de nuevo.');

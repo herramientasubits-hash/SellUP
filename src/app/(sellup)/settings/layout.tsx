@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react';
 import { isCurrentUserAdmin, getUsersSummary, hasActiveAccess } from '@/modules/access/actions';
 import { getUserDriveConnection } from '@/modules/drive/actions';
-import { getSourceCatalogViewModel } from '@/modules/source-catalog/queries';
 import { SettingsNav } from '@/components/settings/settings-nav';
 import type { SettingsSectionBadge } from '@/components/settings/settings-sections';
 
@@ -30,10 +29,6 @@ export default async function SettingsLayout({ children }: { children: ReactNode
       label: `${summary.pending} pendiente${summary.pending === 1 ? '' : 's'}`,
       tone: 'warning',
     };
-  }
-  if (isAdmin) {
-    const sourceCount = getSourceCatalogViewModel().sources.length;
-    badges['source-catalog'] = { label: `${sourceCount} fuentes`, tone: 'brand' };
   }
   if (isActive) {
     const isDriveConnected = driveConnection?.connection_status === 'connected';

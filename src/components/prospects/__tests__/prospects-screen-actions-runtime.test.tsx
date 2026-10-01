@@ -1,18 +1,24 @@
 /**
  * ProspectsScreenActions — contrato RUNTIME. Las acciones de pantalla de «Por
- * revisar» en la barra flotante: UNA acción primaria que abre un popover de
- * creación con las tres maneras de traer prospectos.
+ * revisar»: la IA a UN clic (el agente de la barra) e «Importar archivo» y
+ * «Crear a mano» como acciones de pantalla, sin repetir la IA.
  *
- * Protege dos cosas que antes garantizaban los tres botones sueltos:
- *   1. Cada opción abre SU panel y solo ese (nunca dos a la vez).
+ * Protege lo mismo que protegía con el popover «Agregar prospectos»:
+ *   1. Cada entrada abre SU panel y solo ese (nunca dos a la vez).
  *   2. Capa 4 del cerco del camino heredado: cuando el servidor resuelve que la
  *      búsqueda con IA no puede ejecutarse, la barra NO ofrece «Generar con IA»
  *      — ofrece «Búsqueda no disponible», que abre la explicación.
+ * Y lo mismo con las acciones «En la pantalla» (cabecera en vez de barra).
  *
  * Los tres paneles se sustituyen por dobles ligeros: aquí no hay acciones de
  * servidor, ni red, ni proveedores.
  */
-import { resetRailPreferences, setCompactViewport } from '@/components/action-rail/__tests__/rail-test-dom';
+import {
+  ACTIONS_PLACEMENT_KEY,
+  resetRailPreferences,
+  setCompactViewport,
+  visibleActionLabels,
+} from '@/components/action-rail/__tests__/rail-test-dom';
 
 import * as React from 'react';
 import { describe, it, before, afterEach, beforeEach, mock } from 'node:test';
@@ -60,11 +66,6 @@ function renderActions(isGenerateAvailable = true) {
 const railState = () => document.querySelector('[data-slot="action-rail"]')?.getAttribute('data-state');
 const openDialogs = () => screen.queryAllByRole('dialog').map((dialog) => dialog.getAttribute('aria-label'));
 
-async function chooseOption(name: RegExp) {
-  fireEvent.click(screen.getByRole('button', { name: 'Agregar prospectos' }));
-  fireEvent.click(await screen.findByRole('button', { name }));
-}
-
 before(async () => {
   ({ render, screen, fireEvent, cleanup } = await import('@testing-library/react'));
   ({ ProspectsScreenActions } = await import('../prospects-screen-actions'));
@@ -77,38 +78,35 @@ afterEach(() => {
   resetRailPreferences();
 });
 
-describe('ProspectsScreenActions — una primaria con tres maneras de agregar', () => {
-  it('la barra ofrece una sola acción y ningún panel está abierto', () => {
+const toolbarLabels = () =>
+  visibleActionLabels(Array.from(screen.getByRole('toolbar').querySelectorAll<HTMLElement>('button')));
+
+describe('ProspectsScreenActions — la IA a un clic y dos acciones de pantalla', () => {
+  it('la barra ofrece importar, crear a mano y el agente de IA; ningún panel está abierto', () => {
     renderActions();
 
-    const actions = Array.from(screen.getByRole('toolbar').querySelectorAll('button'), (button) =>
-      button.getAttribute('aria-label'),
-    ).filter((label) => label && !/Mover barra|Ajustes de la barra/.test(label));
-
-    assert.deepEqual(actions, ['Agregar prospectos']);
+    assert.deepEqual(toolbarLabels(), ['Importar archivo', 'Crear a mano', 'Generar con IA']);
+    assert.equal(screen.getByRole('button', { name: 'Generar con IA' }).getAttribute('data-slot'), 'rail-agent');
     assert.deepEqual(openDialogs(), []);
     assert.equal(screen.queryByText(/sin controlar/), null, 'los tres paneles se montan controlados, sin su botón');
   });
 
-  it('el popover de creación explica las tres opciones', async () => {
+  it('ya no hay «Agregar prospectos»: la IA no se esconde tras un popover ni se repite', () => {
     renderActions();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Agregar prospectos' }));
-
-    assert.ok(await screen.findByRole('button', { name: /Generar con IA/ }));
-    assert.ok(screen.getByRole('button', { name: /Importar archivo/ }));
-    assert.ok(screen.getByRole('button', { name: /Crear a mano/ }));
+    assert.equal(screen.queryByRole('button', { name: 'Agregar prospectos' }), null);
+    assert.equal(screen.getAllByRole('button', { name: /Generar con IA/ }).length, 1);
   });
 
-  for (const [option, panel] of [
-    [/Generar con IA/, 'asistente de IA'],
-    [/Importar archivo/, 'importar'],
-    [/Crear a mano/, 'crear a mano'],
+  for (const [action, panel] of [
+    ['Generar con IA', 'asistente de IA'],
+    ['Importar archivo', 'importar'],
+    ['Crear a mano', 'crear a mano'],
   ] as const) {
-    it(`«${option.source}» abre su panel y solo ese; al cerrarlo la barra vuelve`, async () => {
+    it(`«${action}» abre su panel con UN clic y solo ese; al cerrarlo la barra vuelve`, () => {
       renderActions();
 
-      await chooseOption(option);
+      fireEvent.click(screen.getByRole('button', { name: action }));
 
       assert.deepEqual(openDialogs(), [panel]);
       assert.equal(railState(), 'blocked', 'la barra se recoge mientras el panel tiene la pantalla');
@@ -122,23 +120,56 @@ describe('ProspectsScreenActions — una primaria con tres maneras de agregar', 
 });
 
 describe('ProspectsScreenActions — búsqueda con IA no disponible', () => {
-  it('🔴 la barra no ofrece «Generar con IA»: ofrece «Búsqueda no disponible»', async () => {
+  it('🔴 la barra no ofrece «Generar con IA»: ofrece «Búsqueda no disponible», sin vestirla de IA', () => {
     renderActions(false);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Agregar prospectos' }));
-
-    assert.ok(await screen.findByRole('button', { name: /Búsqueda no disponible/ }));
+    const agent = screen.getByRole('button', { name: 'Búsqueda no disponible' });
+    assert.equal(agent.className.includes('bg-ai-gradient'), false);
+    assert.equal(screen.queryByRole('button', { name: /Generar con IA/ }), null);
     assert.equal(screen.queryByText('Generar con IA'), null);
     // Importar y crear a mano no dependen de la búsqueda: siguen disponibles.
-    assert.ok(screen.getByRole('button', { name: /Importar archivo/ }));
-    assert.ok(screen.getByRole('button', { name: /Crear a mano/ }));
+    assert.ok(screen.getByRole('button', { name: 'Importar archivo' }));
+    assert.ok(screen.getByRole('button', { name: 'Crear a mano' }));
   });
 
-  it('abre el mismo panel del asistente, que es quien explica por qué', async () => {
+  it('abre el mismo panel del asistente, que es quien explica por qué', () => {
     renderActions(false);
 
-    await chooseOption(/Búsqueda no disponible/);
+    fireEvent.click(screen.getByRole('button', { name: 'Búsqueda no disponible' }));
 
+    assert.deepEqual(openDialogs(), ['asistente de IA']);
+  });
+});
+
+describe('ProspectsScreenActions — con las acciones «En la pantalla»', () => {
+  beforeEach(() => window.localStorage.setItem(ACTIONS_PLACEMENT_KEY, 'inline'));
+
+  it('son botones de la cabecera, con la IA al final; no hay barra', () => {
+    renderActions();
+
+    assert.equal(screen.queryByRole('toolbar'), null);
+    assert.deepEqual(
+      screen.getAllByRole('button').map((button) => button.textContent),
+      ['Importar archivo', 'Crear a mano', 'Generar con IA'],
+    );
+  });
+
+  it('cada botón abre su panel y solo ese', () => {
+    renderActions();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Generar con IA' }));
+    assert.deepEqual(openDialogs(), ['asistente de IA']);
+    fireEvent.click(screen.getByRole('button', { name: 'Cerrar asistente de IA' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Importar archivo' }));
+    assert.deepEqual(openDialogs(), ['importar']);
+  });
+
+  it('🔴 sin búsqueda disponible tampoco aquí se ofrece «Generar con IA»', () => {
+    renderActions(false);
+
+    assert.equal(screen.queryByText('Generar con IA'), null);
+    fireEvent.click(screen.getByRole('button', { name: 'Búsqueda no disponible' }));
     assert.deepEqual(openDialogs(), ['asistente de IA']);
   });
 });

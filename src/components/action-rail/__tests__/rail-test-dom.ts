@@ -54,7 +54,11 @@ export function setCompactViewport(isCompact: boolean): void {
 export function resetRailPreferences(): void {
   dom.window.localStorage.clear();
   dom.window.dispatchEvent(new dom.window.Event('sellup-action-rail-change'));
+  dom.window.dispatchEvent(new dom.window.Event('sellup-actions-placement-change'));
 }
+
+/** La preferencia global «Dónde van las acciones». */
+export const ACTIONS_PLACEMENT_KEY = 'sellup:actions-placement';
 
 export const RAIL_KEYS = {
   autoHide: 'sellup:action-rail:auto-hide',

@@ -9,14 +9,13 @@ import { CreateContactDrawer } from '@/components/contacts/create-contact-drawer
 import { ContactsDataTableClient } from '@/components/contacts/contacts-data-table-client';
 import { ContactsScreenActions } from '@/components/contacts/contacts-screen-actions';
 import {
-  CONTACTOS_MODULE_TITLE,
   CONTACTOS_TAB_DESCRIPTIONS,
-} from '@/components/contacts/contacts-module-copy';
-import { ContactsEnrichmentCTA } from '@/components/contact-enrichment/contacts-enrichment-cta';
-import {
-  ContactsModuleTabsNav,
+  CONTACTOS_VIEW_TITLES,
+  contactosViewCrumbs,
   type ContactsTabId,
-} from '@/components/navigation/contacts-module-tabs-nav';
+} from '@/components/contacts/contacts-module-copy';
+import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
+import { ContactsEnrichmentCTA } from '@/components/contact-enrichment/contacts-enrichment-cta';
 import { ContactCandidatesPanel } from '@/components/contact-enrichment/contact-candidates-panel';
 
 interface ContactsPageProps {
@@ -35,16 +34,18 @@ export default async function ContactsPage({ searchParams }: ContactsPageProps) 
     tab === 'candidates' ? 'candidates' : tab === 'duplicates' ? 'duplicates' : 'approved';
 
   // Mientras llegan los datos se ve la pantalla con su forma (cabecera,
-  // pestaña activa, tabla fantasma) en vez de la pantalla anterior congelada.
+  // tabla fantasma) en vez de la pantalla anterior congelada.
   // La `key` hace que el esqueleto vuelva a salir al cambiar de pestaña.
+  const skeletonCrumbs = contactosViewCrumbs(activeTab);
+
   return (
     <Suspense
       key={activeTab}
       fallback={
         <ListPageSkeleton
-          title={CONTACTOS_MODULE_TITLE}
+          title={CONTACTOS_VIEW_TITLES[activeTab]}
           description={CONTACTOS_TAB_DESCRIPTIONS[activeTab]}
-          tabs={<ContactsModuleTabsNav active={activeTab} />}
+          breadcrumbs={skeletonCrumbs ? <Breadcrumbs items={skeletonCrumbs} /> : undefined}
           noun={SKELETON_NOUN[activeTab]}
           columns={7}
         />
@@ -91,9 +92,8 @@ async function ApprovedContactsPanel() {
     <ListActionRailProvider label="Acciones de contactos" gender="m">
       <DataTablePage
         compact
-        title={CONTACTOS_MODULE_TITLE}
+        title={CONTACTOS_VIEW_TITLES.approved}
         description={CONTACTOS_TAB_DESCRIPTIONS.approved}
-        tabs={<ContactsModuleTabsNav active="approved" counts={{ approved: contacts.length }} />}
         actions={<ContactsScreenActions accounts={accounts} />}
       >
         <ContactsDataTableClient

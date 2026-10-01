@@ -115,10 +115,23 @@ describe('useTableConfig', () => {
     render(<ConfigHarness tableId="t1" />);
     assert.equal(screen.getByTestId('order').textContent, 'name,country');
     assert.equal(latest.mode, 'lazy');
-    assert.equal(latest.actions, 'rail');
     assert.equal(latest.rowControl, 'checkbox');
     assert.equal(latest.isDirty, false);
     assert.deepEqual(latest.fixedColumns.map((column) => column.id), ['select']);
+  });
+
+  it('«Dónde van las acciones» ya no es de la tabla: un valor viejo guardado se ignora sin romper', async () => {
+    // Antes se guardaba por tabla; ahora es una preferencia global de la persona.
+    window.localStorage.setItem('sellup:table:t1', JSON.stringify({ mode: 'paged', actions: 'inline' }));
+    render(<ConfigHarness tableId="t1" />);
+    assert.equal(latest.mode, 'paged', 'el resto de lo guardado se respeta');
+    assert.equal('actions' in latest, false);
+    assert.equal('setActions' in latest, false);
+
+    fireEvent.click(screen.getByRole('button', { name: /Configurar la tabla/ }));
+    await screen.findByText('Configurar tabla');
+    assert.equal(screen.queryByText('Dónde van las acciones'), null);
+    assert.equal(screen.queryByRole('button', { name: /En el layout|En la barra flotante/ }), null);
   });
 
   it('una columna con hideable: false no se oculta', () => {

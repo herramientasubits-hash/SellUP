@@ -48,7 +48,7 @@ import { resolveCostDisplay, toCostTruth } from '@/modules/usage-tracking/cost-d
 // pre-backfill state (Persistido 0 / Derivado 182). `force-dynamic` renders per
 // request AND forces every fetch to `no-store` (Next 16 route segment config),
 // guaranteeing the persisted classification is reflected. Matches the repo's
-// convention for live admin surfaces (see settings/source-catalog). No DB write.
+// convention for live admin surfaces (see source-catalog). No DB write.
 export const dynamic = 'force-dynamic';
 
 const RECENT_LOGS_LIMIT = 25;

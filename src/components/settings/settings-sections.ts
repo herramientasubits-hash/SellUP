@@ -1,7 +1,6 @@
 import {
   Activity,
   Bot,
-  Database,
   HardDrive,
   Layers,
   Link2,
@@ -43,7 +42,11 @@ export const SETTINGS_ROOT_HREF = "/settings";
 
 /**
  * Las secciones de Configuración, en el orden en que se leen. Es la única
- * lista: de aquí salen el resumen (`/settings`) y la navegación lateral.
+ * lista: de aquí salen el resumen (`/settings`), la navegación interna
+ * (`SettingsNav`) y los grupos del menú de la marca.
+ *
+ * «Catálogo de fuentes» ya no está aquí: es un módulo propio del menú lateral
+ * (`/source-catalog`).
  */
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   {
@@ -94,14 +97,6 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     href: "/settings/activity",
     icon: Activity,
     access: "active",
-  },
-  {
-    id: "source-catalog",
-    title: "Catálogo de fuentes",
-    description: "Las fuentes de datos por país que usa SellUp: en qué estado están y qué falta para usarlas.",
-    href: "/settings/source-catalog",
-    icon: Database,
-    access: "admin",
   },
   {
     id: "my-drive",

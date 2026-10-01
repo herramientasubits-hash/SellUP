@@ -20,8 +20,20 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical } from "@/icons";
 
-import { TableCell, TableRow } from "@/components/ui/table";
+import { TableCell } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+
+/**
+ * Lo que la fila arrastrable necesita poner en SU `<tr>`: la ref y el
+ * desplazamiento de dnd-kit. Se entregan a quien pinta la fila en vez de
+ * pintarla aquí, para que el `<tr>` siga siendo un único elemento al que el
+ * menú contextual pueda engancharse (sin un `<div>` entre `<tr>` y `<td>`).
+ */
+export interface SortableRowProps {
+  ref: (node: HTMLTableRowElement | null) => void;
+  style: React.CSSProperties;
+  isDragging: boolean;
+}
 
 interface DataTableRowReorderProps<TData> {
   /** Current data in display order. Used to derive sortable item ids. */
@@ -31,9 +43,10 @@ interface DataTableRowReorderProps<TData> {
   /** Called with the new data array after a successful drop. */
   onRowReorder: (newData: TData[]) => void;
   /**
-   * Render function for each row. Receives the row, its index, and the
+   * Render function for each row. Receives the row, its index, the
    * drag-handle props to spread on the grip cell so the user can grab it
-   * to start a drag. Passed as the component's `children` for ergonomics.
+   * to start a drag, and the props for the row's own `<tr>`. Passed as the
+   * component's `children` for ergonomics.
    */
   children: (
     row: TData,
@@ -41,13 +54,14 @@ interface DataTableRowReorderProps<TData> {
     dragHandleProps: React.HTMLAttributes<HTMLButtonElement> & {
       isDragging: boolean;
     },
+    rowProps: SortableRowProps,
   ) => React.ReactNode;
 }
 
 /**
  * Provider for row drag-and-drop. Wrap the table body with this component
- * and pass a `renderRow` function that renders each `<TableRow>` plus the
- * grip cell using the provided `dragHandleProps`.
+ * and pass a `renderRow` function that renders each `<TableRow>` (spreading
+ * `rowProps` on it) plus the grip cell using the provided `dragHandleProps`.
  *
  * The drop indicator is rendered as a 2px line above the target row; the
  * dragged row is kept in place with reduced opacity and a subtle shadow.
@@ -97,7 +111,7 @@ export function DataTableRowReorder<TData>({
       <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
         {data.map((row, index) => (
           <SortableTableRow key={itemIds[index]} id={itemIds[index]}>
-            {(handleProps) => renderRow(row, index, handleProps)}
+            {(handleProps, rowProps) => renderRow(row, index, handleProps, rowProps)}
           </SortableTableRow>
         ))}
       </SortableContext>
@@ -111,14 +125,15 @@ interface SortableTableRowProps {
     handleProps: React.HTMLAttributes<HTMLButtonElement> & {
       isDragging: boolean;
     },
+    rowProps: SortableRowProps,
   ) => React.ReactNode;
 }
 
 /**
- * Wraps a `<TableRow>` with dnd-kit sortable behaviour. The row itself
- * becomes the draggable element (gets the `transform`/`transition`), but
- * the drag *handle* (the grip cell) is rendered by the child via the
- * render prop so clicks on other cells don't trigger a drag.
+ * dnd-kit sortable behaviour for one row. It renders NO element of its own:
+ * the child renders the `<tr>` with `rowProps` (so the row itself is the
+ * draggable element and gets the `transform`/`transition`) and the drag
+ * *handle* (the grip cell), so clicks on other cells don't trigger a drag.
  */
 function SortableTableRow({ id, children }: SortableTableRowProps) {
   const {
@@ -140,18 +155,16 @@ function SortableTableRow({ id, children }: SortableTableRowProps) {
   };
 
   return (
-    <TableRow
-      ref={setNodeRef}
-      style={style}
-      data-state={isDragging ? "dragging" : undefined}
-      className={cn(isDragging && "opacity-60 shadow-card")}
-    >
-      {children({
-        ...(listeners ?? {}),
-        ...(attributes ?? {}),
-        isDragging,
-      })}
-    </TableRow>
+    <>
+      {children(
+        {
+          ...(listeners ?? {}),
+          ...(attributes ?? {}),
+          isDragging,
+        },
+        { ref: setNodeRef, style, isDragging },
+      )}
+    </>
   );
 }
 

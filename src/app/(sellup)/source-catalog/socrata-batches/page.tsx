@@ -1,6 +1,8 @@
 import { XCircle, CheckCircle2, FlaskConical, Layers } from "@/icons";
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { SettingsPage } from '@/components/settings/settings-page';
+import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
+import { PageHeader } from '@/components/shared/page-header';
+import { SOURCE_CATALOG_ROUTE } from '@/config/navigation';
 import { MetricCard } from '@/components/shared/metric-card';
 import { getSocrataPreviewBatches } from '@/modules/source-catalog/socrata-batches-queries';
 import { CreateSocrataBatchButton } from './create-socrata-batch-button';
@@ -15,12 +17,17 @@ export default async function SocrataBatchesPage() {
     await getSocrataPreviewBatches();
 
   return (
-    <SettingsPage
-      title="Lotes de datos abiertos"
-      description="Lotes de empresas candidatas traídas de registros públicos, para revisar cómo llegan antes de usarlos."
-      trail={[{ label: 'Catálogo de fuentes', href: '/settings/source-catalog' }]}
-      actions={<CreateSocrataBatchButton />}
-    >
+    <div className="flex w-full min-w-0 flex-col gap-6">
+      <PageHeader
+        title="Lotes de datos abiertos"
+        description="Lotes de empresas candidatas traídas de registros públicos, para revisar cómo llegan antes de usarlos."
+        breadcrumbs={
+          <Breadcrumbs
+            items={[{ label: 'Catálogo de fuentes', href: SOURCE_CATALOG_ROUTE }, 'Lotes de datos abiertos']}
+          />
+        }
+        actions={<CreateSocrataBatchButton />}
+      />
       {/* Qué no hace esta pantalla */}
       <Alert variant="info">
         <AlertTitle>Solo consulta</AlertTitle>
@@ -58,6 +65,6 @@ export default async function SocrataBatchesPage() {
       </div>
 
       <SocrataBatchesTable batches={batches} />
-    </SettingsPage>
+    </div>
   );
 }

@@ -9,7 +9,7 @@ import { SourceCatalogClient } from './source-catalog-client';
 export const dynamic = 'force-dynamic';
 
 export const metadata = {
-  title: 'Catálogo de fuentes — Configuración',
+  title: 'Catálogo de fuentes',
 };
 
 export default async function SourceCatalogPage() {

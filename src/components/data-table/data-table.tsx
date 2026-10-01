@@ -626,7 +626,7 @@ function DataTableInner<TData>(
                       getRowId={(row, i) => getRowId(row) || String(i)}
                       onRowReorder={handleRowReorder}
                     >
-                      {(row, index, handleProps) => {
+                      {(row, index, handleProps, sortableRowProps) => {
                         const tableRow = rows[index];
                         if (!tableRow) return null;
                         return (
@@ -640,6 +640,7 @@ function DataTableInner<TData>(
                             stickyOffsets={stickyOffsets}
                             lastStickyId={lastStickyId}
                             reorderHandleProps={handleProps}
+                            sortableRowProps={sortableRowProps}
                           />
                         );
                       }}

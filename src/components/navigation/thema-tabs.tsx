@@ -85,8 +85,7 @@ function TabBody({ tab }: { tab: TabItem }) {
  * La ÚNICA tira de pestañas del sistema. Sus dos niveles (`view` y `page`) son
  * los dos únicos tratamientos que existen; todo lo que cambia de vista se
  * construye sobre `ui/tabs`, así que una tira declarada aquí y una declarada a
- * mano con `TabsList` salen idénticas. `TabsNav`, `ModuleTabsNav`,
- * `ContactsModuleTabsNav` y `UrlTabs` son envoltorios finos de esta pieza.
+ * mano con `TabsList` salen idénticas. `TabsNav` y `UrlTabs` son envoltorios finos de esta pieza.
  *
  * @example
  * // Cambia de panel

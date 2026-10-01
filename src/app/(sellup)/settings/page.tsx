@@ -10,7 +10,6 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { isCurrentUserAdmin, getUsersSummary, hasActiveAccess } from "@/modules/access/actions";
 import { getUserDriveConnection } from "@/modules/drive/actions";
-import { getSourceCatalogViewModel } from "@/modules/source-catalog/queries";
 import { Heading } from '@/components/typography';
 
 /**
@@ -34,9 +33,6 @@ export default async function SettingsOverviewPage() {
       pendingCount > 0
         ? { label: `${pendingCount} pendiente${pendingCount === 1 ? '' : 's'}`, tone: 'warning' }
         : undefined,
-    'source-catalog': isAdmin
-      ? { label: `${getSourceCatalogViewModel().sources.length} fuentes`, tone: 'brand' }
-      : undefined,
     'my-drive': driveConnected
       ? { label: 'Conectado', tone: 'positive' }
       : { label: 'Sin conectar', tone: 'neutral' },

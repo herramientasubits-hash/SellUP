@@ -14,11 +14,12 @@ import {
 import { ProspectsDataTableClient } from '@/components/prospects/prospects-data-table-client';
 import { ProspectsScreenActions } from '@/components/prospects/prospects-screen-actions';
 import type { GenerateProspectsAgent } from '@/components/prospects/generate-prospects-agent';
-import { ModuleTabsNav } from '@/components/navigation/module-tabs-nav';
+import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import { DiscardedProspectsPanel } from '@/components/prospects/discarded-prospects-panel';
 import {
-  EMPRESAS_MODULE_TITLE,
   EMPRESAS_TAB_DESCRIPTIONS,
+  EMPRESAS_VIEW_TITLES,
+  empresasViewCrumbs,
 } from '@/components/prospects/empresas-module-copy';
 import { PROSPECTOS_TAB_ROUTE } from '@/config/navigation';
 import {
@@ -184,9 +185,9 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
     <ListActionRailProvider label="Acciones de prospectos" gender="m">
     <DataTablePage
       compact
-      title={EMPRESAS_MODULE_TITLE}
+      title={EMPRESAS_VIEW_TITLES.prospectos}
       description={EMPRESAS_TAB_DESCRIPTIONS.prospectos}
-      tabs={<ModuleTabsNav active="prospectos" counts={sourceId ? undefined : { prospectos: candidates.length }} />}
+      breadcrumbs={<Breadcrumbs items={empresasViewCrumbs('prospectos') ?? []} />}
       actions={
         // La IA está a un clic: es el agente de la barra. Importar y crear a
         // mano son las acciones de pantalla. El asistente va ya resuelto por

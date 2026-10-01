@@ -144,8 +144,8 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
         breadcrumbs={
           <Breadcrumbs
             items={[
-              { label: 'Catálogo de fuentes', href: '/settings/source-catalog' },
-              { label: 'Lotes de datos abiertos', href: '/settings/source-catalog/socrata-batches' },
+              { label: 'Catálogo de fuentes', href: '/source-catalog' },
+              { label: 'Lotes de datos abiertos', href: '/source-catalog/socrata-batches' },
               batch.name,
             ]}
           />

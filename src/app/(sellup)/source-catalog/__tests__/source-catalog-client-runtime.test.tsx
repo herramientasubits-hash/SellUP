@@ -9,7 +9,7 @@
  * Sin red: la acción de detalle del drawer está sustituida.
  */
 
-import '../../../../../components/settings/__tests__/jsdom-bootstrap';
+import '../../../../components/settings/__tests__/jsdom-bootstrap';
 
 import * as React from 'react';
 import { describe, it, before, beforeEach, afterEach, mock } from 'node:test';
@@ -25,7 +25,7 @@ let SourceCatalogClient: (typeof import('../source-catalog-client'))['SourceCata
 
 const h = React.createElement;
 
-mock.module('../../../../../modules/source-catalog/actions', {
+mock.module('../../../../modules/source-catalog/actions', {
   namedExports: {
     getSourceDetailDrawerDataAction: async () => null,
   },

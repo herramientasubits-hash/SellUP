@@ -584,7 +584,7 @@ src/components/data-table/             # La tabla operable (TanStack)
 ├── data-table-row-reorder.tsx        # Arrastre de filas (dnd-kit)
 ├── data-table-row-actions.tsx        # Acciones por fila → RowActionsMenu
 ├── data-table-context-menu.tsx       # Menú de clic derecho
-├── data-table-bulk-actions.tsx       # `bulkActions` → acciones de la barra flotante (§ 12) + acciones «en el layout»
+├── data-table-bulk-actions.tsx       # `bulkActions` → acciones de la barra flotante (§ 12) + acciones en la cabecera de la lista («En la pantalla»)
 ├── use-column-auto-fit.ts            # Reparto del ancho y posición de columnas fijadas
 └── index.ts                          # Barrel exports
 ```
@@ -648,10 +648,11 @@ El botón del engranaje (junto al buscador) abre un **panel anclado** (Popover),
 - **Cómo se ven** — Rejilla / Lista (solo si la pantalla pasa `renderListItem`).
 - **Cómo llegan las filas** — Scroll infinito / Paginación.
 - **Cómo se actúa sobre una fila** — Marcando filas / Menú en cada fila (solo con selección y `contextMenu`). Con «menú» desaparecen las casillas y cada fila lleva su «⋯» con las acciones del menú contextual.
-- **Dónde van las acciones** — En la barra flotante / En el layout (solo con acciones masivas). «En el layout» transforma la cabecera de la lista mientras hay selección («× 3 seleccionadas» + acciones) y no se monta la barra flotante.
 - **Restablecer** y un punto en el botón cuando la configuración no es la de fábrica.
 
-Todo se guarda por tabla en `localStorage` (`sellup:table:<tableId>`) y se lee con `useSyncExternalStore`: el servidor y la hidratación pintan lo de fábrica y lo guardado se aplica después, sin desajuste de hidratación. Lo guardado ilegible se ignora.
+**«Dónde van las acciones» ya NO está en este panel.** Es una preferencia global de la persona (`useActionsPlacement`, § 12.6): se elige una vez en «Personalización» (menú de la marca) o en los ajustes de la barra, y vale para todas las tablas. La tabla la lee sola: con «En la pantalla», la cabecera de la lista se transforma mientras hay selección («× 3 seleccionadas» + acciones, con los mismos bloqueos y confirmaciones) y no se monta la barra flotante. Un valor `actions` guardado por tabla en versiones anteriores se ignora sin romper.
+
+Todo lo demás se guarda por tabla en `localStorage` (`sellup:table:<tableId>`) y se lee con `useSyncExternalStore`: el servidor y la hidratación pintan lo de fábrica y lo guardado se aplica después, sin desajuste de hidratación. Lo guardado ilegible se ignora.
 
 El buscador general ya no se activa desde ajustes: la lupa siempre está en la barra y abre el campo.
 
@@ -799,7 +800,7 @@ Para un filtro que no es una lista (rango de fechas), compón `HeaderSortButton`
 
 #### 10.9.2 Row right-click context menu
 
-`<DataTableContextMenu>` engancha el menú a la **propia fila** (`ContextMenuTrigger asChild` sobre el `<tr>`) cuando el `DataTable` recibe `contextMenu`: nada de `<div>` entre `<tbody>` y `<tr>`, que es HTML inválido y rompía la hidratación. Las mismas acciones alimentan el «Menú en cada fila» (§ 10.5). Anatomía:
+`<DataTableContextMenu>` engancha el menú a la **propia fila** (`ContextMenuTrigger asChild` sobre el `<tr>`) cuando el `DataTable` recibe `contextMenu`: nada de `<div>` entre `<tbody>` y `<tr>`, que es HTML inválido y rompía la hidratación. Vale también con filas arrastrables (`enableRowReorder`): `DataTableRowReorder` no pinta el `<tr>`, le entrega a `DataTableRow` la ref y el desplazamiento de dnd-kit (`sortableRowProps`), así que la fila sigue siendo un único elemento y tampoco queda un `<div>` entre `<tr>` y `<td>`. Las mismas acciones alimentan el «Menú en cada fila» (§ 10.5). Anatomía:
 
 - `min-w-[220px]`, container `p-1.5`, `rounded-xl border border-border/30`.
 - Items con `px-2.5 py-2`, `gap-2.5` y icono `h-4 w-4` — el icono agrandado y el padding mayor dan aire al texto (evita que se vea "circular" / pegado al borde).
@@ -910,7 +911,7 @@ Cuando el detalle de una entidad tiene múltiples sub-áreas (información gener
 ### 11.3 Implementación de referencia
 
 Combinar `DrawerShell` + `Tabs` (Base UI). Ejemplo real en
-`src/app/(sellup)/settings/source-catalog/source-detail-drawer.tsx`:
+`src/app/(sellup)/source-catalog/source-detail-drawer.tsx`:
 
 ```tsx
 import { DrawerShell } from '@/components/shared/drawer-shell';
@@ -1000,12 +1001,13 @@ La barra de acciones flotante es el `action-rail` de Thema (`@/components/action
 ```
 
 - **Marco** (`ActionRailShell`): `h-14 rounded-3xl border bg-nav shadow-rail`. Al principio lleva sus propios controles —el **asa de arrastre** (`RailDragHandle`) y el **menú de ajustes** (`RailSettingsMenu`)—, una divisoria y luego los dos grupos.
-- **Ajustes de la barra**: orientación (horizontal / vertical), visibilidad (mantener abierta / ocultar sola) y «Volver a su sitio». Se recuerdan en `localStorage` (`sellup:action-rail:*`) y valen para todas las pantallas, porque para quien la usa es una sola barra. Se leen con `useSyncExternalStore` (sin desajuste de hidratación).
+- **Ajustes de la barra**: orientación (horizontal / vertical), visibilidad (mantener abierta / ocultar sola), **dónde van las acciones** (En esta barra / En la pantalla — § 12.6) y «Volver a su sitio». Se recuerdan en `localStorage` (`sellup:action-rail:*`) y valen para todas las pantallas, porque para quien la usa es una sola barra. Se leen con `useSyncExternalStore` (sin desajuste de hidratación).
 - **Recogida** es una pastilla de 64×6 que se abre al pasar el cursor, al enfocarla o al tocarla. Se mantiene abierta (`keepOpen`) mientras hay selección o un menú abierto, y se recoge inerte (`isBlocked`) mientras un panel abierto desde ella tiene la pantalla.
 - **Arrastrable**: se suelta en cualquier punto y se recuerda; doble clic en el asa la devuelve a su atraque (abajo al centro, o borde derecho si va de pie).
 - **Botones**: `RailButton` (icono 40×40 `rounded-xl`, etiqueta en tooltip, `tone="danger"`, `blockedReason` que la apaga y lo explica), `RailPrimaryAction` (la ÚNICA acción rellena: icono + etiqueta en `bg-primary`; `variant="ai"` conserva el degradado de IA; de pie queda cuadrada con tooltip), `RailOverflowMenu` («⋯»), `RailSelectionChip` («✕ 3 seleccionadas»), `RailCreateOption` (fila del popover de creación), `ConfirmActionPopover`.
 - **Movimiento**: sin framer-motion. Abrir/recoger y el escalonado de las acciones al cambiar de contexto son utilidades `su-rail-*` / `su-dock-item` de `globals.css` (`transform` + `opacity`), apagadas con `prefers-reduced-motion`.
-- **Móvil** (`useCompactViewport`, < `lg`): la misma pieza en su otra forma, `ActionFab` — un botón flotante que despliega las mismas acciones.
+- **Agente de IA** (`RailAgentProvider` / `rail-agent.ts`): la barra cierra por la derecha, después de la primaria, con el agente de IA de la pantalla — un botón 40×40 con el degradado de IA (`bg-ai-gradient`) y la chispa; su nombre va en el tooltip. Es una segunda principal, a un clic; solo sin selección. De pie es el mismo botón cuadrado.
+- **Móvil** (`useCompactViewport`, < `lg`): la misma pieza en su otra forma, `ActionFab` — un botón flotante que despliega las mismas acciones; el agente de IA es una fila más, con su pastilla en el degradado de IA.
 
 ### 12.2 Cómo se monta en una pantalla de lista
 
@@ -1023,7 +1025,7 @@ const actions = React.useMemo<RailActionSpec[]>(() => [
 ], []);
 return (
   <>
-    <RailScreenActions actions={actions} isBlocked={isCreating} />
+    <RailScreenActions actions={actions} agent={agent} isBlocked={isCreating} />
     <CreateAccountDrawer users={users} open={isCreating} onOpenChange={setIsCreating} />
   </>
 );
@@ -1033,7 +1035,8 @@ return (
 - **La pantalla** declara `RailActionSpec[]` con `scope: ["screen"]` en `<RailScreenActions>`: `primary` (una sola, cierra la fila), `overflow` (se pliega tras «⋯»), `blockedReason`, `options` (la primaria abre un popover de creación con varias opciones) y `onSelect`. Los drawers que abre se montan **controlados** (`open` / `onOpenChange`).
 - **La tabla** no necesita nada: `DataTable` traduce sus `bulkActions` a acciones de la barra y le cuenta la selección por contexto. `disabled(rows)` → `blockedReason` (con `disabledLabel(rows)` como explicación), `confirm` pregunta antes, `items` es un menú con nombre, `scope: ['single']` saca la acción de la barra cuando hay varias filas marcadas y `countInLabel` añade el recuento («Archivar (3)»).
 - **Sin selección** la barra enseña las acciones de pantalla (plegadas · de a diario · primaria al final). **Con selección** las SUSTITUYE por el recuento y las acciones sobre lo marcado.
-- Con **«Dónde van las acciones» = En el layout** (panel Configurar tabla) la barra sigue con las acciones de pantalla y las de selección van en la cabecera de la lista.
+- **El agente de IA** se declara aparte, con `agent` (una `RailActionSpec` con `variant: "ai"`): «Generar con IA» en las tres vistas de Empresas (Empresas, Por revisar, Descartadas) y «Buscar contactos con IA» en Contactos. Usuarios y Configuración no tienen agente. Si la búsqueda con IA no puede ejecutarse, el agente NO se llama «Generar con IA» ni lleva el degradado: se llama «Búsqueda no disponible» (sin `variant`) y abre la explicación.
+- Con **«Dónde van las acciones» = En la pantalla** (§ 12.6) la barra no se monta: `RailScreenActions` pinta las acciones en la cabecera y las de selección van en la cabecera de la lista.
 - Una `DataTable` fuera de un `ListActionRailProvider` monta su propia barra solo mientras tiene filas marcadas.
 
 ### 12.3 Por qué va por portal
@@ -1057,6 +1060,29 @@ Usar portal a `document.body` para CUALQUIER elemento que necesite:
 - Escapar un `transform` ancestor (AppShell, dialogs anidados, animaciones de slide).
 
 **Regla general:** si algo necesita ser "global al viewport" y vive dentro de un contenedor con `transform`, `filter`, `perspective` o `will-change: transform`, portalizar.
+
+---
+
+### 12.6 Dónde van las acciones — preferencia global de la persona
+
+Port de Thema `actionsPlacement`. Quien prefiere la barra la quiere en todas las pantallas, así que **no es de cada tabla**: es UNA preferencia (`useActionsPlacement()` → `"rail" | "inline"`), fuera de React, guardada en `localStorage` (`sellup:actions-placement`) y leída con `useSyncExternalStore` (en el servidor y durante la hidratación manda la barra).
+
+Se cambia en dos sitios, y solo en esos:
+
+- **Ajustes de la barra** → grupo «Dónde van las acciones»: «En esta barra» / «En la pantalla». Pasarlas a la pantalla apaga la barra.
+- **Personalización** (menú de la marca, `PersonalizationMenu`) → «Acciones de la pantalla»: `SegmentedControl` «Barra flotante» / «En la pantalla» + una línea de ayuda. Es la única puerta para volver a encender la barra.
+
+Con **«En la pantalla»**:
+
+- La barra flotante **no se monta**, ni con filas marcadas, ni el botón flotante de móvil. El hueco reservado (`pb-20` / `pr-20`, `ActionRailReserve`) desaparece.
+- `RailScreenActions` pinta las acciones de pantalla en su sitio —el hueco `actions` de `DataTablePage` (también en la banda `compact`) y de `PageHeader`— con `ScreenHeaderActions` (port de Thema): lo plegado en «⋯», lo de a diario como botones `outline`, la principal rellena al final y el agente de IA como `AIButton` cerrando la fila. El reparto lo decide `railScreenTiers`, el mismo de la barra.
+- Las acciones de la selección van en la cabecera de la tabla (§ 10.5).
+- **Mismo conjunto, mismos bloqueos y confirmaciones** en las dos superficies: son las mismas `RailActionSpec` (`blockedReason` apaga y explica; `onSelect` es el mismo) y las mismas `bulkActions`.
+
+```tsx
+// No hace falta nada en la pantalla: la misma declaración vale para las dos superficies.
+<RailScreenActions actions={actions} agent={agent} isBlocked={isOpen} />
+```
 
 ---
 
@@ -1374,10 +1400,18 @@ Internamente:
 - los huecos entre bloques pasan de `gap-5` a `gap-3`;
 - las métricas dejan de ser tarjetas: son **indicadores que filtran** (`useQuickFilter` + `QuickFilterChips` en `@/components/filters/quick-filter-strip`). En pantalla ancha (≥ 1280px) van dentro de la barra de la tabla (`<DataTable actions={…} />`) y no gastan renglón; en estrecha, en su franja (`QuickFilterStrip`) sobre la tabla. Pulsar uno deja en la tabla solo sus filas (`aria-pressed`) y volver a pulsarlo lo quita; el número de cada uno se calcula sobre las mismas filas que pinta la tabla.
 
-Resultado a 1440×900: de 3–4 filas a 8–9 sin desplazar la página. El estado de carga de estas pantallas es `ListPageSkeleton`, que conserva la banda (con la pestaña activa) y pinta una tabla fantasma.
+Resultado a 1440×900: de 3–4 filas a 8–9 sin desplazar la página. El estado de carga de estas pantallas es `ListPageSkeleton`, que conserva la banda (título y migas de la vista) y pinta una tabla fantasma.
+
+Empresas y Contactos **no llevan pestañas de página**: la navegación entre sus vistas vive en el menú lateral (Empresas → Empresas / Por revisar / Descartadas; Contactos → Contactos / Por revisar; en móvil, en el cajón). El título dice la vista (`EMPRESAS_VIEW_TITLES`, `CONTACTOS_VIEW_TITLES`), las migas el módulo («Empresas › Por revisar») y el total vive en el título de la tabla. Las URL no cambiaron.
 
 ```tsx
-<DataTablePage compact title="Empresas" description="…" tabs={<ModuleTabsNav active="empresas" counts={{ empresas: n }} />}>
+<DataTablePage
+  compact
+  title="Por revisar"
+  description="…"
+  breadcrumbs={<Breadcrumbs items={[{ label: "Empresas", href: "/accounts" }, "Por revisar"]} />}
+  actions={<ProspectsScreenActions … />}
+>
   <AccountsDataTableClient … />
 </DataTablePage>
 ```
