@@ -1,4 +1,4 @@
-import { AlertTriangle, RotateCcw, ExternalLink } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 interface RollbackBannerProps {
   metadata: Record<string, unknown>;
@@ -31,17 +31,14 @@ export function RollbackBanner({ metadata, hubspotCompanyId }: RollbackBannerPro
   return (
     <div className="space-y-2">
       {/* Banner principal */}
-      <div className="flex gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3.5">
-        <RotateCcw className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-        <div className="min-w-0 flex-1 space-y-2">
-          <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">
-            Account no operativa · rollback lógico
-          </p>
-          <p className="text-xs text-amber-700/80 dark:text-amber-300/80 leading-relaxed">
-            Esta account fue creada desde un candidato estructurado y luego revertida mediante
-            rollback lógico. Los datos se conservan para auditoría, pero no debe usarse como
-            cuenta activa.
-          </p>
+      <Alert variant="warning">
+        <AlertTitle className="text-sm">Account no operativa · rollback lógico</AlertTitle>
+        <AlertDescription className="text-xs leading-relaxed text-warning">
+          Esta account fue creada desde un candidato estructurado y luego revertida mediante
+          rollback lógico. Los datos se conservan para auditoría, pero no debe usarse como
+          cuenta activa.
+        </AlertDescription>
+        <div className="min-w-0">
 
           {/* Detalles del rollback */}
           <dl className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
@@ -66,24 +63,18 @@ export function RollbackBanner({ metadata, hubspotCompanyId }: RollbackBannerPro
             )}
           </dl>
         </div>
-      </div>
+      </Alert>
 
       {/* Aviso HubSpot */}
       {hubspotCompanyId && (
-        <div className="flex gap-3 rounded-xl border border-orange-500/30 bg-orange-500/10 px-4 py-3">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-orange-600 dark:text-orange-400" />
-          <div className="min-w-0 flex-1">
-            <p className="text-xs font-semibold text-orange-700 dark:text-orange-300">
-              Referencia HubSpot sin rollback
-            </p>
-            <p className="mt-0.5 text-xs text-orange-700/80 dark:text-orange-300/80 leading-relaxed">
-              Esta account tiene referencia HubSpot (
-              <span className="font-mono">{hubspotCompanyId}</span>
-              ). No se realizó rollback en HubSpot — la entrada puede seguir activa allí.
-            </p>
-          </div>
-          <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0 text-orange-500/50" />
-        </div>
+        <Alert variant="warning">
+          <AlertTitle className="text-xs">Referencia HubSpot sin rollback</AlertTitle>
+          <AlertDescription className="text-xs leading-relaxed text-warning">
+            Esta account tiene referencia HubSpot (
+            <span className="font-mono">{hubspotCompanyId}</span>
+            ). No se realizó rollback en HubSpot — la entrada puede seguir activa allí.
+          </AlertDescription>
+        </Alert>
       )}
     </div>
   );
@@ -100,10 +91,10 @@ function RollbackDetail({
 }) {
   return (
     <div className={className}>
-      <dt className="text-[10px] font-semibold uppercase tracking-widest text-amber-700/60 dark:text-amber-400/60">
+      <dt className="text-xs font-semibold text-warning">
         {label}
       </dt>
-      <dd className="mt-0.5 text-xs text-amber-700 dark:text-amber-300">{children}</dd>
+      <dd className="mt-0.5 text-xs text-warning">{children}</dd>
     </div>
   );
 }

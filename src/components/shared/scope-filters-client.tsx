@@ -161,7 +161,7 @@ export function ScopeFiltersClient({
     <div className="flex flex-col gap-2">
       {scopeFilterOptions.roles.length > 1 && (
         <Select value={currentRoleKey || 'all'} onValueChange={onRoleChange}>
-          <SelectTrigger className="h-8 w-full text-xs">
+          <SelectTrigger size="sm" className="w-full">
             <SelectValue placeholder="Rol">{roleTriggerLabel(currentRoleKey)}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -179,7 +179,7 @@ export function ScopeFiltersClient({
 
       {scopeFilterOptions.groups.length > 0 && (
         <Select value={currentGroupId || 'all'} onValueChange={onGroupChange}>
-          <SelectTrigger className="h-8 w-full text-xs">
+          <SelectTrigger size="sm" className="w-full">
             <SelectValue placeholder="Grupo">{groupTriggerLabel(currentGroupId)}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -199,7 +199,7 @@ export function ScopeFiltersClient({
 
       {visibleUsers.length > 0 && (
         <Select value={currentUserId || 'all'} onValueChange={(v) => setParam(userKey, v)}>
-          <SelectTrigger className="h-8 w-full text-xs">
+          <SelectTrigger size="sm" className="w-full">
             <SelectValue placeholder="Usuario">{userTriggerLabel(currentUserId)}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -236,7 +236,7 @@ export function ScopeFiltersInDrawer(props: ScopeFiltersInDrawerProps) {
   if (!props.scopeFilterOptions.showScopeFilters) return null;
   return (
     <div className="space-y-3">
-      <p className="text-[11px] font-semibold tracking-wider uppercase text-foreground">
+      <p className="text-xs font-semibold text-foreground">
         Alcance de equipo
       </p>
       <Suspense>
@@ -331,13 +331,13 @@ export function ScopeFilterDrawerSection({
 
   return (
     <div className="space-y-3">
-      <p className="text-[11px] font-semibold tracking-wider uppercase text-foreground">
+      <p className="text-xs font-semibold text-foreground">
         Alcance de equipo
       </p>
       <div className="flex flex-col gap-2">
         {scopeFilterOptions.roles.length > 1 && (
           <Select value={value.roleKey || 'all'} onValueChange={(v) => onRoleChange(v === 'all' ? null : v)}>
-            <SelectTrigger className="h-8 text-xs w-full">
+            <SelectTrigger size="sm" className="w-full">
               <SelectValue placeholder="Rol">{roleTriggerLabel(value.roleKey)}</SelectValue>
             </SelectTrigger>
             <SelectContent>
@@ -351,7 +351,7 @@ export function ScopeFilterDrawerSection({
 
         {scopeFilterOptions.groups.length > 0 && (
           <Select value={value.groupId || 'all'} onValueChange={(v) => onGroupChange(v === 'all' ? null : v)}>
-            <SelectTrigger className="h-8 text-xs w-full">
+            <SelectTrigger size="sm" className="w-full">
               <SelectValue placeholder="Grupo">{groupTriggerLabel(value.groupId)}</SelectValue>
             </SelectTrigger>
             <SelectContent>
@@ -367,7 +367,7 @@ export function ScopeFilterDrawerSection({
 
         {visibleUsers.length > 0 && (
           <Select value={value.userId || 'all'} onValueChange={(v) => onChange({ ...value, userId: v === 'all' || v === null ? '' : v })}>
-            <SelectTrigger className="h-8 text-xs w-full">
+            <SelectTrigger size="sm" className="w-full">
               <SelectValue placeholder="Usuario responsable">{userTriggerLabel(value.userId)}</SelectValue>
             </SelectTrigger>
             <SelectContent>

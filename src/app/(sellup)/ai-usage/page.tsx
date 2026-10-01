@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { Badge } from '@/components/ui/badge';
 import { MetricCard } from '@/components/shared/metric-card';
 import { FiltersClient } from './filters-client';
 import {
@@ -135,39 +136,42 @@ function periodToDateFrom(period: UsageFilters['period']): string | undefined {
 // ============================================================
 
 function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { label: string; classes: string; dot: string }> = {
-    completed:      { label: 'Completado',  classes: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500', dot: 'bg-emerald-500' },
-    running:        { label: 'En curso',    classes: 'border-su-brand/30 bg-su-brand/10 text-su-brand',         dot: 'bg-su-brand' },
-    failed:         { label: 'Error',       classes: 'border-destructive/30 bg-destructive/10 text-destructive', dot: 'bg-destructive' },
-    cancelled:      { label: 'Cancelado',   classes: 'border-border/40 bg-muted/30 text-muted-foreground/60',   dot: 'bg-muted-foreground/25' },
-    pending:        { label: 'Pendiente',   classes: 'border-amber-500/30 bg-amber-500/10 text-amber-500',       dot: 'bg-amber-500' },
-    success:        { label: 'OK',          classes: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500', dot: 'bg-emerald-500' },
-    error:          { label: 'Error',       classes: 'border-destructive/30 bg-destructive/10 text-destructive', dot: 'bg-destructive' },
-    rate_limited:   { label: 'Rate limit',  classes: 'border-amber-500/30 bg-amber-500/10 text-amber-500',       dot: 'bg-amber-500' },
-    quota_exceeded: { label: 'Cuota',       classes: 'border-destructive/30 bg-destructive/10 text-destructive', dot: 'bg-destructive' },
-    no_new_candidates: { label: 'Sin nuevos', classes: 'border-border/40 bg-muted/30 text-muted-foreground/60', dot: 'bg-muted-foreground/25' },
+  const map: Record<
+    string,
+    { label: string; variant: 'positive' | 'brand' | 'negative' | 'warning' | 'neutral'; dot: string }
+  > = {
+    completed:      { label: 'Completado',  variant: 'positive', dot: 'bg-success' },
+    running:        { label: 'En curso',    variant: 'brand',    dot: 'bg-primary' },
+    failed:         { label: 'Error',       variant: 'negative', dot: 'bg-destructive' },
+    cancelled:      { label: 'Cancelado',   variant: 'neutral',  dot: 'bg-muted-foreground/25' },
+    pending:        { label: 'Pendiente',   variant: 'warning',  dot: 'bg-warning' },
+    success:        { label: 'OK',          variant: 'positive', dot: 'bg-success' },
+    error:          { label: 'Error',       variant: 'negative', dot: 'bg-destructive' },
+    rate_limited:   { label: 'Rate limit',  variant: 'warning',  dot: 'bg-warning' },
+    quota_exceeded: { label: 'Cuota',       variant: 'negative', dot: 'bg-destructive' },
+    no_new_candidates: { label: 'Sin nuevos', variant: 'neutral', dot: 'bg-muted-foreground/25' },
   };
   const cfg = map[status] ?? {
     label: status,
-    classes: 'border-border/40 bg-muted/30 text-muted-foreground/60',
+    variant: 'neutral' as const,
     dot: 'bg-muted-foreground/25',
   };
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium ${cfg.classes}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
+    <Badge variant={cfg.variant}>
+      <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} aria-hidden="true" />
       {cfg.label}
-    </span>
+    </Badge>
   );
 }
 
 function EffectivenessBar({ pct }: { pct: number }) {
-  const color = pct >= 80 ? 'bg-emerald-500' : pct >= 50 ? 'bg-su-brand' : 'bg-amber-500';
+  const color = pct >= 80 ? 'bg-success' : pct >= 50 ? 'bg-primary' : 'bg-warning';
   return (
     <div className="flex items-center gap-2">
-      <div className="h-1.5 w-20 overflow-hidden rounded-full bg-muted/40">
+      <div className="h-1.5 w-20 overflow-hidden rounded-full bg-surface-subtle">
         <div className={`h-full rounded-full ${color}`} style={{ width: `${Math.min(pct, 100)}%` }} />
       </div>
-      <span className="text-xs font-medium text-foreground">{pct.toFixed(1)}%</span>
+      <span className="text-xs font-medium tabular-nums text-foreground">{pct.toFixed(1)}%</span>
     </div>
   );
 }
@@ -179,8 +183,8 @@ function EffectivenessBar({ pct }: { pct: number }) {
 function EmptyState({ message }: { message: string }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 py-8">
-      <Activity className="h-6 w-6 text-muted-foreground/40" />
-      <p className="text-xs text-muted-foreground">{message}</p>
+      <Activity className="h-6 w-6 text-text-muted" />
+      <p className="text-sm text-muted-foreground">{message}</p>
     </div>
   );
 }
@@ -196,13 +200,13 @@ function AgentStatsTable({ agents }: { agents: AgentStat[] }) {
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs">
+      <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-border/40">
+          <tr className="border-b border-border/60">
             {['Agente', 'Ejec.', 'Generados', 'Aprobados', 'Efectividad', 'Costo est.', 'Costo/aprobado'].map((h) => (
               <th
                 key={h}
-                className={`pb-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground ${h === 'Agente' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
+                className={`pb-2.5 text-xs font-semibold text-muted-foreground ${h === 'Agente' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
               >
                 {h}
               </th>
@@ -224,8 +228,8 @@ function AgentStatsTable({ agents }: { agents: AgentStat[] }) {
               <tr key={a.agent_key}>
                 <td className="py-3 pr-4">
                   <div className="flex items-center gap-2">
-                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-su-brand-soft">
-                      <Bot className="h-3.5 w-3.5 text-su-brand" />
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                      <Bot className="h-3.5 w-3.5 text-primary" />
                     </div>
                     <span className="font-medium text-foreground">{agentDisplayName(a)}</span>
                   </div>
@@ -238,17 +242,17 @@ function AgentStatsTable({ agents }: { agents: AgentStat[] }) {
                     {effectiveness !== null ? (
                       <EffectivenessBar pct={effectiveness} />
                     ) : (
-                      <span className="text-muted-foreground/50 text-[10px]">Sin datos</span>
+                      <span className="text-muted-foreground text-xs">Sin datos</span>
                     )}
                   </div>
                 </td>
-                <td className="py-3 pr-4 text-right font-mono text-muted-foreground">
+                <td className="py-3 pr-4 text-right font-mono tabular-nums text-muted-foreground">
                   {formatCost(a.total_estimated_cost_usd, 2)}
                 </td>
-                <td className="py-3 text-right font-mono text-muted-foreground">
+                <td className="py-3 text-right font-mono tabular-nums text-muted-foreground">
                   {costPerApproved !== null
                     ? formatCost(costPerApproved)
-                    : <span className="text-muted-foreground/40">—</span>}
+                    : <span className="text-text-muted">—</span>}
                 </td>
               </tr>
             );
@@ -308,13 +312,13 @@ function ProviderStatsTable({ providers }: { providers: ProviderStat[] }) {
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs">
+      <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-border/40">
+          <tr className="border-b border-border/60">
             {['Proveedor', 'Medición', 'Llamadas', 'Cantidad', 'Resultados', 'Costo est.', 'Último uso'].map((h) => (
               <th
                 key={h}
-                className={`pb-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground ${h === 'Proveedor' || h === 'Medición' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
+                className={`pb-2.5 text-xs font-semibold text-muted-foreground ${h === 'Proveedor' || h === 'Medición' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
               >
                 {h}
               </th>
@@ -326,7 +330,7 @@ function ProviderStatsTable({ providers }: { providers: ProviderStat[] }) {
             <tr key={p.provider_key}>
               <td className="py-3 pr-4">
                 <div className="flex items-center gap-2">
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted/40">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-surface-subtle">
                     <Plug className="h-3.5 w-3.5 text-muted-foreground" />
                   </div>
                   <span className="font-medium text-foreground">
@@ -334,24 +338,24 @@ function ProviderStatsTable({ providers }: { providers: ProviderStat[] }) {
                   </span>
                 </div>
               </td>
-              <td className="py-3 pr-4 text-muted-foreground text-[11px]">
+              <td className="py-3 pr-4 text-muted-foreground text-xs">
                 {providerMeasurementLabel(p)}
               </td>
               <td className="py-3 pr-4 text-right text-muted-foreground">{p.total_calls}</td>
-              <td className="py-3 pr-4 text-right font-mono text-muted-foreground">
+              <td className="py-3 pr-4 text-right font-mono tabular-nums text-muted-foreground">
                 {(() => {
                   const credits = providerMeasurementCredits(p);
                   if (credits) {
                     return <div className="flex justify-end"><CreditsValue display={credits} /></div>;
                   }
                   const tokens = providerMeasurementTokens(p);
-                  return tokens ?? <span className="text-muted-foreground/40">—</span>;
+                  return tokens ?? <span className="text-text-muted">—</span>;
                 })()}
               </td>
               <td className="py-3 pr-4 text-right text-muted-foreground">{p.total_results_returned}</td>
-              <td className="py-3 pr-4 text-right font-mono text-muted-foreground">
+              <td className="py-3 pr-4 text-right font-mono tabular-nums text-muted-foreground">
                 {p.total_estimated_cost_usd === 0 && !p.has_unknown_cost
-                  ? <span className="text-muted-foreground/40">—</span>
+                  ? <span className="text-text-muted">—</span>
                   : (
                     <CostValue
                       display={resolveCostDisplay({
@@ -384,13 +388,13 @@ function RecentLogsTable({ logs }: { logs: ProviderUsageLog[] }) {
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs">
+      <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-border/40">
+          <tr className="border-b border-border/60">
             {['Fecha', 'Proveedor', 'Operación', 'Estado', 'Cred./Tokens', 'Costo est.'].map((h) => (
               <th
                 key={h}
-                className={`pb-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground ${h === 'Fecha' || h === 'Proveedor' || h === 'Operación' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
+                className={`pb-2.5 text-xs font-semibold text-muted-foreground ${h === 'Fecha' || h === 'Proveedor' || h === 'Operación' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
               >
                 {h}
               </th>
@@ -427,7 +431,7 @@ function RecentLogsTable({ logs }: { logs: ProviderUsageLog[] }) {
                 <td className="py-2.5 pr-4 font-medium text-foreground capitalize">
                   {providerDisplayName(log.provider_key)}
                 </td>
-                <td className="py-2.5 pr-4 text-muted-foreground max-w-[180px] truncate">
+                <td className="py-2.5 pr-4 text-muted-foreground max-w-44 truncate" title={log.operation_key}>
                   {log.operation_key.replace(/_/g, ' ')}
                 </td>
                 <td className="py-2.5 pr-4">
@@ -435,13 +439,13 @@ function RecentLogsTable({ logs }: { logs: ProviderUsageLog[] }) {
                     <StatusBadge status={log.status} />
                   </div>
                 </td>
-                <td className="py-2.5 pr-4 text-right font-mono text-muted-foreground">
+                <td className="py-2.5 pr-4 text-right font-mono tabular-nums text-muted-foreground">
                   {quantity}
                 </td>
-                <td className="py-2.5 text-right font-mono text-muted-foreground">
+                <td className="py-2.5 text-right font-mono tabular-nums text-muted-foreground">
                   {Number(log.estimated_cost_usd) > 0
                     ? formatCost(Number(log.estimated_cost_usd))
-                    : <span className="text-muted-foreground/40">—</span>}
+                    : <span className="text-text-muted">—</span>}
                 </td>
               </tr>
             );
@@ -525,7 +529,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
           // Design Refresh v9: valor neutro. El color en un número se reserva
           // para señal semántica real (errores) — el chip de icono ya da contexto.
           accent: 'text-foreground',
-          iconBg: 'bg-su-brand-soft',
+          iconBg: 'bg-primary/10',
         },
         {
           label: 'Ejecuciones de agentes',
@@ -533,7 +537,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
           sub: 'runs registrados',
           icon: Bot,
           accent: 'text-foreground',
-          iconBg: 'bg-muted/40',
+          iconBg: 'bg-surface-subtle',
         },
         {
           label: 'Llamadas a proveedores',
@@ -541,7 +545,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
           sub: `${summary.distinct_providers} proveedor${summary.distinct_providers !== 1 ? 'es' : ''} activo${summary.distinct_providers !== 1 ? 's' : ''}`,
           icon: Zap,
           accent: 'text-foreground',
-          iconBg: 'bg-muted/40',
+          iconBg: 'bg-surface-subtle',
         },
         {
           label: 'Errores',
@@ -553,7 +557,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
             : 'text-muted-foreground',
           iconBg: summary.error_provider_calls + summary.failed_executions > 0
             ? 'bg-destructive/10'
-            : 'bg-muted/40',
+            : 'bg-surface-subtle',
         },
         {
           label: 'Costo promedio / run',
@@ -563,7 +567,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
           sub: 'por ejecución de agente',
           icon: TrendingUp,
           accent: 'text-foreground',
-          iconBg: 'bg-muted/40',
+          iconBg: 'bg-surface-subtle',
         },
         {
           label: 'En curso ahora',
@@ -571,39 +575,39 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
           sub: 'agentes activos',
           icon: CheckCircle2,
           accent: 'text-foreground',
-          iconBg: summary.running_executions > 0 ? 'bg-su-brand-soft' : 'bg-muted/40',
+          iconBg: summary.running_executions > 0 ? 'bg-primary/10' : 'bg-surface-subtle',
         },
       ];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <PageHeader
         title="Uso de IA, costos y efectividad"
         description="Consumo real de agentes y proveedores externos. Datos registrados automáticamente por el Agente 1."
         actions={
           hasData ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold text-emerald-500">
-              <CheckCircle2 className="h-3 w-3" />
+            <Badge variant="positive">
+              <CheckCircle2 aria-hidden="true" />
               Datos reales
-            </span>
+            </Badge>
           ) : undefined
         }
       />
 
       {/* ── Banner contextual ────────────────────────────────── */}
       {isRestricted && (
-        <div className="flex items-start gap-3 rounded-xl border border-border/40 bg-muted/20 px-4 py-3">
+        <div className="flex items-start gap-3 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
           <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-          <p className="text-xs text-muted-foreground leading-relaxed">
+          <p className="text-sm leading-relaxed text-muted-foreground">
             Esta vista requiere permisos de administrador para mostrar datos de consumo.
           </p>
         </div>
       )}
 
       {!isRestricted && !hasData && (
-        <div className="flex items-start gap-3 rounded-xl border border-su-brand/20 bg-su-brand/5 px-4 py-3">
-          <Info className="mt-0.5 h-4 w-4 shrink-0 text-su-brand" />
-          <p className="text-xs text-muted-foreground leading-relaxed">
+        <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+          <p className="text-sm leading-relaxed text-muted-foreground">
             <strong className="text-foreground font-medium">Aún no hay ejecuciones reales registradas.</strong>{' '}
             Los datos aparecerán automáticamente cuando el Agente 1 comience a registrar
             actividad — búsquedas Tavily y ejecuciones de prospectos.
@@ -612,9 +616,9 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
       )}
 
       {hasData && (
-        <div className="flex items-start gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3">
-          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
-          <p className="text-xs text-muted-foreground leading-relaxed">
+        <div className="flex items-start gap-3 rounded-xl border border-success/20 bg-success/5 px-4 py-3">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+          <p className="text-sm leading-relaxed text-muted-foreground">
             Mostrando datos reales desde Supabase.{' '}
             <strong className="text-foreground font-medium">Tavily</strong> se mide por créditos/consultas (no tokens).{' '}
             Los costos son estimados basados en la tarifa configurada.
@@ -637,7 +641,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
               currentGroupId={filters.groupId ?? ''}
             />
             {activeFiltersCount > 0 && (
-              <span className="text-[10px] text-muted-foreground">
+              <span className="text-xs text-muted-foreground">
                 {activeFiltersCount} filtro{activeFiltersCount !== 1 ? 's' : ''} activo{activeFiltersCount !== 1 ? 's' : ''}
               </span>
             )}
@@ -647,7 +651,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
 
       {/* ── Summary cards ────────────────────────────────────── */}
       {!isRestricted && (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {summaryCards.map((card) => (
             <MetricCard
               key={card.label}
@@ -657,7 +661,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
               valueClassName={`font-mono ${card.accent}`}
               iconPosition="top"
               icon={
-                <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${card.iconBg}`}>
+                <div className={`flex h-8 w-8 items-center justify-center rounded-xl ${card.iconBg}`}>
                   <card.icon className={`h-4 w-4 ${card.accent}`} />
                 </div>
               }
@@ -687,8 +691,8 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
             title="Consumo por agente"
             description="Ejecuciones, prospectos generados y aprobados, y costo estimado por agente."
             actions={
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-su-brand-soft">
-                <Bot className="h-4 w-4 text-su-brand" />
+              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10">
+                <Bot className="h-4 w-4 text-primary" />
               </div>
             }
           />
@@ -703,16 +707,16 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
             title="Consumo por proveedor"
             description="Llamadas, créditos o tokens consumidos, y costo estimado por proveedor."
             actions={
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/40">
+              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-surface-subtle">
                 <Plug className="h-4 w-4 text-muted-foreground" />
               </div>
             }
           />
           <ProviderStatsTable providers={providerStats ?? []} />
 
-          <div className="mt-4 flex items-start gap-2 rounded-lg border border-su-brand/20 bg-su-brand/5 px-3 py-2.5">
-            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-su-brand" />
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
+          <div className="mt-4 flex items-start gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2.5">
+            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+            <p className="text-sm leading-relaxed text-muted-foreground">
               <strong className="text-foreground font-medium">Tavily</strong> no consume tokens — se cobra por crédito/consulta.{' '}
               <strong className="text-foreground font-medium">Apollo</strong> y{' '}
               <strong className="text-foreground font-medium">Lusha</strong> se medirán por crédito cuando se integren.
@@ -729,8 +733,8 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
             title="Ejecuciones recientes"
             description="Últimas 25 llamadas a proveedores registradas por el Agente 1."
             actions={
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-su-brand-soft">
-                <Zap className="h-4 w-4 text-su-brand" />
+              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10">
+                <Zap className="h-4 w-4 text-primary" />
               </div>
             }
           />
@@ -745,15 +749,15 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
             title="Consumo por usuario"
             description="Adopción y costo por usuario activo. Los usuarios sin consumo aparecen con cero para visibilizar la no-adopción."
             actions={
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/40">
+              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-surface-subtle">
                 <Users className="h-4 w-4 text-muted-foreground" />
               </div>
             }
           />
           {userConsumption === null || userConsumption.length === 0 ? (
-            <div className="flex items-start gap-2 rounded-lg border border-border/40 bg-muted/20 px-3 py-2.5">
+            <div className="flex items-start gap-2 rounded-xl border border-border/60 bg-surface-subtle px-3 py-2.5">
               <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <p className="text-[11px] text-muted-foreground leading-relaxed">
+              <p className="text-sm leading-relaxed text-muted-foreground">
                 {userConsumption === null
                   ? 'Sin permisos para ver consumo por usuario.'
                   : 'No hay usuarios activos que coincidan con los filtros actuales.'}
@@ -761,13 +765,13 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-xs">
+              <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border/40">
+                  <tr className="border-b border-border/60">
                     {['Usuario', 'Ejecuciones', 'Llamadas', 'Proveedores', 'Costo est.', 'Último uso'].map((h) => (
                       <th
                         key={h}
-                        className={`pb-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground ${h === 'Usuario' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
+                        className={`pb-2.5 text-xs font-semibold text-muted-foreground ${h === 'Usuario' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
                       >
                         {h}
                       </th>
@@ -785,7 +789,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
                               {u.full_name ?? u.email ?? u.triggered_by.slice(0, 8)}
                             </span>
                             {u.full_name && u.email && (
-                              <span className="text-[10px] text-muted-foreground">{u.email}</span>
+                              <span className="text-xs text-muted-foreground">{u.email}</span>
                             )}
                           </div>
                         </td>
@@ -794,11 +798,11 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
                         <td className="py-3 pr-4 text-right text-muted-foreground">
                           {u.providers.length > 0
                             ? u.providers.map(providerDisplayName).join(', ')
-                            : <span className="text-muted-foreground/40">—</span>}
+                            : <span className="text-text-muted">—</span>}
                         </td>
-                        <td className="py-3 pr-4 text-right font-mono text-muted-foreground">
+                        <td className="py-3 pr-4 text-right font-mono tabular-nums text-muted-foreground">
                           {u.estimated_cost_usd === 0 && !u.has_unknown_cost
-                            ? <span className="text-muted-foreground/40">$0.00</span>
+                            ? <span className="text-text-muted">$0.00</span>
                             : (
                               <CostValue
                                 display={resolveCostDisplay({
@@ -826,12 +830,12 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
       {!isRestricted && (
         <SurfaceCard>
           <div className="flex items-start gap-3">
-            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-su-brand-soft">
-              <TrendingUp className="h-4 w-4 text-su-brand" />
+            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+              <TrendingUp className="h-4 w-4 text-primary" />
             </div>
             <div className="space-y-1">
               <p className="text-sm font-semibold text-foreground">Criterio de efectividad</p>
-              <p className="text-xs text-muted-foreground leading-relaxed max-w-2xl">
+              <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
                 La métrica de efectividad real es <strong className="text-foreground font-medium">prospectos aprobados / generados</strong>,
                 no el volumen devuelto por el proveedor.{' '}
                 {(agentStats ?? []).some((a) => a.total_results_generated > 0) ? (

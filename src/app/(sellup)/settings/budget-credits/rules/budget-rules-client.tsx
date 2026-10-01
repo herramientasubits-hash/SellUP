@@ -20,6 +20,17 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { createBudgetRule, updateBudgetRule, toggleBudgetRuleStatus, deleteBudgetRule } from '@/modules/budgets/rule-actions';
 import type { BudgetRuleRow, BudgetRuleFormOptions } from '@/modules/budgets/rule-queries';
 import type { BudgetOnExceed, BudgetPeriodType, BudgetScopeType } from '@/modules/usage-tracking/types';
@@ -165,20 +176,19 @@ export function CreateDrawer({
       }}
       title="Nueva regla de presupuesto"
       description="Define un límite por proveedor, alcance y período."
-      icon={<ShieldAlert className="h-4 w-4 text-su-brand" />}
+      icon={<ShieldAlert className="h-4 w-4 text-primary" />}
       size="md"
       actions={
         <div className="flex w-full items-center justify-end gap-2">
           <Button
             type="button"
             variant="outline"
-            size="sm"
             onClick={() => { onOpenChange(false); reset(); }}
             disabled={loading}
           >
             Cancelar
           </Button>
-          <Button size="sm" onClick={handleSubmit} disabled={!canSubmit}>
+          <Button onClick={handleSubmit} disabled={!canSubmit}>
             {loading ? 'Creando...' : 'Crear regla'}
           </Button>
         </div>
@@ -189,7 +199,7 @@ export function CreateDrawer({
         <FieldWrapper>
           <Label>Proveedor <span className="text-destructive">*</span></Label>
           {defaultProviderKey ? (
-            <div className="flex h-9 w-full items-center rounded-md border border-border/60 bg-muted/30 px-3 text-sm text-muted-foreground">
+            <div className="flex h-10 w-full items-center rounded-md border border-border/60 bg-surface-subtle px-3 text-sm text-muted-foreground">
               {options.providers.find((p) => p.providerKey === defaultProviderKey)?.displayName ?? defaultProviderKey}
             </div>
           ) : (
@@ -322,7 +332,7 @@ export function CreateDrawer({
             />
           </FieldWrapper>
         </div>
-        <p className="text-[11px] text-muted-foreground -mt-1">
+        <p className="text-xs text-muted-foreground -mt-1">
           Al menos uno es obligatorio. Ambos pueden coexistir.
         </p>
 
@@ -352,14 +362,14 @@ export function CreateDrawer({
             placeholder="Contexto adicional..."
             value={form.notes}
             onChange={(e) => set('notes', e.target.value)}
-            className="w-full resize-none text-sm"
+            className="w-full resize-none"
           />
         </FieldWrapper>
 
         {error && (
-          <div className="rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            {error}
-          </div>
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
       </div>
     </DrawerShell>
@@ -436,25 +446,24 @@ export function EditDrawer({
           {' · '}
           <span>{rule.scopeLabel}</span>
           <br />
-          <span className="text-[11px]">
+          <span className="text-xs">
             El proveedor y el alcance no se pueden cambiar. Para modificarlos, desactiva esta regla y crea una nueva.
           </span>
         </>
       }
-      icon={<ShieldAlert className="h-4 w-4 text-su-brand" />}
+      icon={<ShieldAlert className="h-4 w-4 text-primary" />}
       size="md"
       actions={
         <div className="flex w-full items-center justify-end gap-2">
           <Button
             type="button"
             variant="outline"
-            size="sm"
             onClick={() => onOpenChange(false)}
             disabled={loading}
           >
             Cancelar
           </Button>
-          <Button size="sm" onClick={handleSubmit} disabled={!canSubmit}>
+          <Button onClick={handleSubmit} disabled={!canSubmit}>
             {loading ? 'Guardando...' : 'Guardar cambios'}
           </Button>
         </div>
@@ -516,14 +525,14 @@ export function EditDrawer({
             placeholder="Contexto adicional..."
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            className="w-full resize-none text-sm"
+            className="w-full resize-none"
           />
         </FieldWrapper>
 
         {error && (
-          <div className="rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            {error}
-          </div>
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
       </div>
     </DrawerShell>
@@ -610,18 +619,16 @@ function RulesTabTable({ rules, emptyMessage, onEdit, onToggle, onArchive, toggl
 
   if (rules.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-border/50 py-12 text-center">
-        <p className="text-sm text-muted-foreground">{emptyMessage}</p>
-      </div>
+      <EmptyState title={emptyMessage} />
     );
   }
 
   return (
     <>
-      <div className="overflow-x-auto rounded-lg border border-border/40">
+      <div className="overflow-x-auto rounded-xl border border-border/60">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-border/40 bg-muted/20">
+            <tr className="border-b border-border/60 bg-surface-subtle">
               <th className="w-10 px-4 py-3">
                 <Checkbox
                   checked={allSelected ? true : someSelected ? 'indeterminate' : false}
@@ -636,11 +643,11 @@ function RulesTabTable({ rules, emptyMessage, onEdit, onToggle, onArchive, toggl
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-border/30">
+          <tbody className="divide-y divide-border/50">
             {rules.map((rule) => {
               const isSelected = selectedIds.has(rule.id);
               return (
-                <tr key={rule.id} className={`hover:bg-muted/10 transition-colors ${isSelected ? 'bg-muted/20' : ''}`}>
+                <tr key={rule.id} className={`hover:bg-surface-muted transition-colors ${isSelected ? 'bg-surface-subtle' : ''}`}>
                   <td className="w-10 px-4 py-3">
                     <Checkbox
                       checked={isSelected}
@@ -650,25 +657,19 @@ function RulesTabTable({ rules, emptyMessage, onEdit, onToggle, onArchive, toggl
                   </td>
                   <td className="px-4 py-3 font-medium text-foreground">{rule.providerDisplayName}</td>
                   <td className="px-4 py-3">
-                    <span className="inline-flex items-center rounded-full border border-border/40 bg-muted/30 px-2 py-0.5 text-[11px] text-muted-foreground">
+                    <Badge variant="neutral">
                       {rule.scopeLabel}
-                    </span>
+                    </Badge>
                   </td>
-                  <td className="px-4 py-3 text-foreground">{formatLimit(rule.limit_credits, rule.limit_usd)}</td>
-                  <td className="px-4 py-3 text-muted-foreground text-xs">{PERIOD_LABELS[rule.period_type]}</td>
-                  <td className="px-4 py-3 text-muted-foreground text-xs">{ON_EXCEED_LABELS[rule.on_exceed]}</td>
+                  <td className="px-4 py-3 tabular-nums text-foreground">{formatLimit(rule.limit_credits, rule.limit_usd)}</td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">{PERIOD_LABELS[rule.period_type]}</td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">{ON_EXCEED_LABELS[rule.on_exceed]}</td>
                   <td className="px-4 py-3">
-                    <span
-                      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${
-                        rule.is_active
-                          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500'
-                          : 'border-border/40 bg-muted/30 text-muted-foreground'
-                      }`}
-                    >
+                    <Badge variant={rule.is_active ? 'positive' : 'neutral'}>
                       {rule.is_active ? 'Activa' : 'Inactiva'}
-                    </span>
+                    </Badge>
                   </td>
-                  <td className="px-4 py-3 text-[11px] text-muted-foreground">{formatDate(rule.updated_at)}</td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">{formatDate(rule.updated_at)}</td>
                 </tr>
               );
             })}
@@ -729,26 +730,26 @@ export function BudgetRulesTabbedSection({ rules, options }: TabbedSectionProps)
     <>
       <div className="space-y-4">
         {/* Section header */}
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-base font-semibold text-foreground">Reglas de presupuesto</h2>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold tracking-tight text-foreground">Reglas de presupuesto</h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
               Configura alertas por proveedor, operación y alcance. Estas reglas aún no bloquean ejecuciones.
             </p>
           </div>
-          <Button size="sm" className="gap-2 shrink-0" onClick={() => setShowCreate(true)}>
-            <Plus className="h-3.5 w-3.5" />
+          <Button size="sm" className="shrink-0" onClick={() => setShowCreate(true)}>
+            <Plus />
             Crear regla
           </Button>
         </div>
 
         {/* Tabs */}
         <Tabs defaultValue="global">
-          <TabsList className="border border-border/40 bg-muted/30">
+          <TabsList>
             <TabsTrigger value="global">
               Globales
               {globalRules.length > 0 && (
-                <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
                   {globalRules.length}
                 </span>
               )}
@@ -756,7 +757,7 @@ export function BudgetRulesTabbedSection({ rules, options }: TabbedSectionProps)
             <TabsTrigger value="role">
               Por rol
               {roleRules.length > 0 && (
-                <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
                   {roleRules.length}
                 </span>
               )}
@@ -764,7 +765,7 @@ export function BudgetRulesTabbedSection({ rules, options }: TabbedSectionProps)
             <TabsTrigger value="group">
               Por grupo
               {groupRules.length > 0 && (
-                <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
                   {groupRules.length}
                 </span>
               )}
@@ -772,7 +773,7 @@ export function BudgetRulesTabbedSection({ rules, options }: TabbedSectionProps)
             <TabsTrigger value="user">
               Por usuario
               {userRules.length > 0 && (
-                <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
                   {userRules.length}
                 </span>
               )}
@@ -829,36 +830,35 @@ export function BudgetRulesTabbedSection({ rules, options }: TabbedSectionProps)
       <EditDrawer rule={editRule} open={!!editRule} onOpenChange={(v) => { if (!v) setEditRule(null); }} />
 
       {/* Archive confirmation */}
-      {confirmArchive && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-background/80 backdrop-blur-sm"
-            onClick={() => setConfirmArchive(null)}
-          />
-          <div className="relative z-10 w-full max-w-sm rounded-xl border border-border/60 bg-card shadow-lg p-6 space-y-4 mx-4">
-            <div className="space-y-1">
-              <h3 className="text-sm font-semibold text-foreground">¿Eliminar esta regla?</h3>
-              <p className="text-xs text-muted-foreground leading-relaxed">
+      <Dialog open={!!confirmArchive} onOpenChange={(v) => { if (!v) setConfirmArchive(null); }}>
+        {confirmArchive && (
+          <DialogContent className="sm:max-w-sm" showCloseButton={false}>
+            <DialogHeader>
+              <DialogTitle>¿Eliminar esta regla?</DialogTitle>
+              <DialogDescription>
                 La regla de <span className="font-medium text-foreground">{confirmArchive.providerDisplayName}</span>{' '}
                 ({confirmArchive.scopeLabel}) dejará de aplicarse.
-              </p>
-            </div>
-            <div className="flex items-center justify-end gap-2 pt-1">
-              <Button size="sm" variant="outline" onClick={() => setConfirmArchive(null)} disabled={archiving === confirmArchive.id}>
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setConfirmArchive(null)}
+                disabled={archiving === confirmArchive.id}
+              >
                 Cancelar
               </Button>
               <Button
-                size="sm"
-                variant="destructive"
+                variant="destructive-solid"
                 disabled={archiving === confirmArchive.id}
                 onClick={() => handleArchive(confirmArchive)}
               >
                 {archiving === confirmArchive.id ? 'Eliminando...' : 'Eliminar regla'}
               </Button>
-            </div>
-          </div>
-        </div>
-      )}
+            </DialogFooter>
+          </DialogContent>
+        )}
+      </Dialog>
     </>
   );
 }
@@ -904,38 +904,34 @@ export function BudgetRulesClient({ rules, options }: Props) {
         <div>
           <Link
             href="/settings/providers?tab=consumo"
-            className="mb-2 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            className="mb-2 inline-flex items-center gap-1 rounded-sm text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
           >
             <ChevronLeft className="h-3 w-3" />
             Proveedores y consumo
           </Link>
-          <h1 className="text-xl font-semibold text-foreground">Reglas de presupuesto</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">Reglas de presupuesto</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Define límites por proveedor, usuario, grupo, rol o global.
           </p>
         </div>
         <Button
           size="sm"
-          className="gap-2 shrink-0"
+          className="shrink-0"
           onClick={() => setShowCreate(true)}
         >
-          <Plus className="h-3.5 w-3.5" />
+          <Plus />
           Nueva regla
         </Button>
       </div>
 
       {/* Table */}
       {rules.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border/50 py-16 text-center">
-          <p className="text-sm text-muted-foreground">
-            Aún no hay reglas de presupuesto. Crea la primera con el botón Nueva regla.
-          </p>
-        </div>
+        <EmptyState title="Aún no hay reglas de presupuesto. Crea la primera con el botón Nueva regla." />
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-border/40">
+        <div className="overflow-x-auto rounded-xl border border-border/60">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border/40 bg-muted/20">
+              <tr className="border-b border-border/60 bg-surface-subtle">
                 {['Proveedor', 'Alcance', 'Límite', 'Período', 'Acción', 'Estado', 'Actualizado', 'Acciones'].map(
                   (col) => (
                     <th key={col} className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
@@ -945,72 +941,63 @@ export function BudgetRulesClient({ rules, options }: Props) {
                 )}
               </tr>
             </thead>
-            <tbody className="divide-y divide-border/30">
+            <tbody className="divide-y divide-border/50">
               {rules.map((rule) => (
-                <tr key={rule.id} className="hover:bg-muted/10 transition-colors">
+                <tr key={rule.id} className="hover:bg-surface-muted transition-colors">
                   <td className="px-4 py-3 font-medium text-foreground">
                     {rule.providerDisplayName}
                   </td>
                   <td className="px-4 py-3">
-                    <span className="inline-flex items-center rounded-full border border-border/40 bg-muted/30 px-2 py-0.5 text-[11px] text-muted-foreground">
+                    <Badge variant="neutral">
                       {rule.scopeLabel}
-                    </span>
+                    </Badge>
                   </td>
-                  <td className="px-4 py-3 text-foreground">
+                  <td className="px-4 py-3 tabular-nums text-foreground">
                     {formatLimit(rule.limit_credits, rule.limit_usd)}
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground text-xs">
+                  <td className="px-4 py-3 text-xs text-muted-foreground">
                     {PERIOD_LABELS[rule.period_type]}
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground text-xs">
+                  <td className="px-4 py-3 text-xs text-muted-foreground">
                     {ON_EXCEED_LABELS[rule.on_exceed]}
                   </td>
                   <td className="px-4 py-3">
-                    <span
-                      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${
-                        rule.is_active
-                          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500'
-                          : 'border-border/40 bg-muted/30 text-muted-foreground'
-                      }`}
-                    >
+                    <Badge variant={rule.is_active ? 'positive' : 'neutral'}>
                       {rule.is_active ? 'Activa' : 'Inactiva'}
-                    </span>
+                    </Badge>
                   </td>
-                  <td className="px-4 py-3 text-[11px] text-muted-foreground">
+                  <td className="px-4 py-3 text-xs text-muted-foreground">
                     {formatDate(rule.updated_at)}
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <Button
-                        size="sm"
+                        size="xs"
                         variant="ghost"
-                        className="h-7 px-2 text-xs gap-1"
                         onClick={() => setEditRule(rule)}
                       >
-                        <Pencil className="h-3 w-3" />
+                        <Pencil />
                         Editar
                       </Button>
                       {rule.is_active && (
                         <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 px-2 text-xs gap-1 text-destructive/70 hover:text-destructive hover:bg-destructive/10"
+                          size="xs"
+                          variant="destructive"
                           disabled={toggling === rule.id || archiving === rule.id}
                           onClick={() => setConfirmArchive(rule)}
                         >
-                          <Trash2 className="h-3 w-3" />
+                          <Trash2 />
                           Eliminar
                         </Button>
                       )}
                       {!rule.is_active && (
                         <Button
-                          size="sm"
+                          size="xs"
                           variant="ghost"
-                          className="h-7 px-2 text-xs gap-1"
                           disabled={toggling === rule.id}
                           onClick={() => handleToggle(rule)}
                         >
-                          <Power className="h-3 w-3" />
+                          <Power />
                           Activar
                         </Button>
                       )}
@@ -1027,23 +1014,18 @@ export function BudgetRulesClient({ rules, options }: Props) {
       <EditDrawer rule={editRule} open={!!editRule} onOpenChange={(v) => { if (!v) setEditRule(null); }} />
 
       {/* Archive confirmation dialog */}
-      {confirmArchive && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-background/80 backdrop-blur-sm"
-            onClick={() => setConfirmArchive(null)}
-          />
-          <div className="relative z-10 w-full max-w-sm rounded-xl border border-border/60 bg-card shadow-lg p-6 space-y-4 mx-4">
-            <div className="space-y-1">
-              <h3 className="text-sm font-semibold text-foreground">¿Eliminar esta regla?</h3>
-              <p className="text-xs text-muted-foreground leading-relaxed">
+      <Dialog open={!!confirmArchive} onOpenChange={(v) => { if (!v) setConfirmArchive(null); }}>
+        {confirmArchive && (
+          <DialogContent className="sm:max-w-sm" showCloseButton={false}>
+            <DialogHeader>
+              <DialogTitle>¿Eliminar esta regla?</DialogTitle>
+              <DialogDescription>
                 La regla de <span className="font-medium text-foreground">{confirmArchive.providerDisplayName}</span>{' '}
                 ({confirmArchive.scopeLabel}) dejará de aplicarse. No se eliminarán consumos ni evaluaciones históricas.
-              </p>
-            </div>
-            <div className="flex items-center justify-end gap-2 pt-1">
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
               <Button
-                size="sm"
                 variant="outline"
                 onClick={() => setConfirmArchive(null)}
                 disabled={archiving === confirmArchive.id}
@@ -1051,17 +1033,16 @@ export function BudgetRulesClient({ rules, options }: Props) {
                 Cancelar
               </Button>
               <Button
-                size="sm"
-                variant="destructive"
+                variant="destructive-solid"
                 disabled={archiving === confirmArchive.id}
                 onClick={() => handleArchive(confirmArchive)}
               >
                 {archiving === confirmArchive.id ? 'Eliminando...' : 'Eliminar regla'}
               </Button>
-            </div>
-          </div>
-        </div>
-      )}
+            </DialogFooter>
+          </DialogContent>
+        )}
+      </Dialog>
     </>
   );
 }

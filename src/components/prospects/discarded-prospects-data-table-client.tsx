@@ -21,6 +21,7 @@ import { type ColumnDef } from '@tanstack/react-table';
 import { SendHorizonal, Ban, Info, ExternalLink, Building2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
 import { toast } from 'sonner';
 import {
   DataTable,
@@ -196,7 +197,8 @@ export function DiscardedProspectsDataTableClient({
                 e.stopPropagation();
                 setSelected(item);
               }}
-              className="text-left font-semibold text-foreground hover:text-su-brand focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-su-brand rounded transition-colors text-sm"
+              title={item.name}
+              className="max-w-full truncate rounded-sm text-left text-sm font-semibold text-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
             >
               {item.name}
             </button>
@@ -294,7 +296,7 @@ export function DiscardedProspectsDataTableClient({
                 {createdAt ? formatProspectDate(createdAt) : '—'}
               </span>
               {isNew && (
-                <Badge className="border-0 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[9px] font-semibold px-1.5 py-0.5 shrink-0">
+                <Badge className="border-0 bg-success/10 text-success text-xs font-semibold px-1.5 py-0.5 shrink-0">
                   Nuevo
                 </Badge>
               )}
@@ -321,7 +323,7 @@ export function DiscardedProspectsDataTableClient({
         accessorKey: 'disposition',
         header: ({ column }) => <DataTableColumnHeader column={column} title="Motivo" />,
         cell: ({ row }) => (
-          <Badge variant="outline" className="text-[10px] font-medium">
+          <Badge variant="outline" className="max-w-full">
             {DISCARD_DISPOSITION_LABELS[row.original.disposition] ?? 'Otro motivo'}
           </Badge>
         ),
@@ -340,12 +342,12 @@ export function DiscardedProspectsDataTableClient({
         header: ({ column }) => <DataTableColumnHeader column={column} title="Estado" />,
         cell: ({ row }) => (
           <Badge
-            className={
+            variant={
               row.original.status === 'sent_to_review'
-                ? 'border-0 bg-su-brand-soft text-su-brand text-[10px]'
+                ? 'brand'
                 : row.original.sendToReviewBlockedReason
-                  ? 'border-0 bg-orange-500/10 text-orange-600 dark:text-orange-400 text-[10px]'
-                  : 'border-0 bg-muted text-muted-foreground text-[10px]'
+                  ? 'warning'
+                  : 'neutral'
             }
           >
             {row.original.status === 'sent_to_review'
@@ -375,9 +377,10 @@ export function DiscardedProspectsDataTableClient({
           const isPending = pendingItemId === item.itemId;
           return (
             <Button
-              size="sm"
+              type="button"
+              size="xs"
               variant="outline"
-              className="gap-1.5 text-xs"
+              aria-busy={isPending || undefined}
               disabled={!canSendToReview(item) || isPending || bulkPending}
               title={item.sendToReviewBlockedReason ?? undefined}
               onClick={(e) => {
@@ -385,7 +388,7 @@ export function DiscardedProspectsDataTableClient({
                 void handleSendToReview(item);
               }}
             >
-              <SendHorizonal className="h-3 w-3" />
+              <SendHorizonal aria-hidden="true" />
               Enviar a revisión
             </Button>
           );
@@ -535,15 +538,12 @@ export function DiscardedProspectsDataTableClient({
           ) : undefined
         }
         emptyState={
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <div className="mb-3 rounded-full bg-muted/60 p-3">
-              <Building2 className="h-6 w-6 text-muted-foreground/40" />
-            </div>
-            <p className="text-sm font-medium text-foreground">Sin empresas descartadas</p>
-            <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto">
-              Ninguna empresa descartada en el alcance actual.
-            </p>
-          </div>
+          <EmptyState
+            variant="plain"
+            icon={Building2}
+            title="Sin empresas descartadas"
+            description="Ninguna empresa descartada en el alcance actual."
+          />
         }
       />
       <DiscardedProspectDetailSheet

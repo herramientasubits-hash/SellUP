@@ -98,15 +98,15 @@ export const CONNECTION_TEST_STRATEGY_LABELS: Record<SourceConnectionTestStrateg
 export function connectionTestStatusBadgeClass(status: SourceConnectionTestStatus): string {
   switch (status) {
     case 'success':
-      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500';
+      return 'border-success/30 bg-success/10 text-success';
     case 'failed':
     case 'blocked':
       return 'border-destructive/30 bg-destructive/10 text-destructive';
     case 'requires_credentials':
     case 'input_required':
-      return 'border-amber-500/30 bg-amber-500/10 text-amber-500';
+      return 'border-warning/30 bg-warning/10 text-warning';
     case 'not_supported':
-      return 'border-border/40 bg-muted/30 text-muted-foreground';
+      return 'border-border/60 bg-surface-subtle text-muted-foreground';
   }
 }
 
@@ -116,29 +116,29 @@ export function connectionTestStatusBadgeClass(status: SourceConnectionTestStatu
 export function operationalStatusBadgeClass(status: CatalogSourceOperationalStatus): string {
   switch (status) {
     case 'operational_verified':
-      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500';
+      return 'border-success/30 bg-success/10 text-success';
     case 'connection_required':
-      return 'border-amber-500/30 bg-amber-500/10 text-amber-500';
+      return 'border-warning/30 bg-warning/10 text-warning';
     case 'pending_validation':
-      return 'border-su-brand/30 bg-su-brand-soft text-su-brand';
+      return 'border-primary/30 bg-primary/10 text-primary';
     case 'dry_run_validated':
-      return 'border-violet-500/30 bg-violet-500/10 text-violet-600 dark:text-violet-400';
+      return 'border-info/30 bg-info/10 text-info';
     case 'validated':
-      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
+      return 'border-success/30 bg-success/10 text-success';
     case 'partial_snapshot':
-      return 'border-teal-500/30 bg-teal-500/10 text-teal-600 dark:text-teal-400';
+      return 'border-success/30 bg-success/10 text-success';
     case 'manual_signal_only':
-      return 'border-border/40 bg-muted/30 text-muted-foreground';
+      return 'border-border/60 bg-surface-subtle text-muted-foreground';
     case 'validation_only':
-      return 'border-border/40 bg-muted/20 text-muted-foreground/70';
+      return 'border-border/60 bg-surface-subtle text-muted-foreground';
     case 'discarded_paid_or_tos':
       return 'border-destructive/30 bg-destructive/10 text-destructive';
     case 'discarded_low_value':
       return 'border-destructive/20 bg-destructive/5 text-destructive/70';
     case 'mvp_inferred_sector':
-      return 'border-amber-500/30 bg-amber-500/10 text-amber-500';
+      return 'border-warning/30 bg-warning/10 text-warning';
     default:
-      return 'border-border/40 bg-muted/30 text-muted-foreground';
+      return 'border-border/60 bg-surface-subtle text-muted-foreground';
   }
 }
 
@@ -161,25 +161,25 @@ export const SELLUP_USE_LABELS: Record<SellupUse, string> = {
 export function sellupUseBadgeClass(use: SellupUse): string {
   switch (use) {
     case 'discovery':
-      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500';
+      return 'border-success/30 bg-success/10 text-success';
     case 'enrichment':
-      return 'border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400';
+      return 'border-info/30 bg-info/10 text-info';
     case 'legal_validation':
-      return 'border-violet-500/30 bg-violet-500/10 text-violet-600 dark:text-violet-400';
+      return 'border-info/30 bg-info/10 text-info';
     case 'validation_only':
-      return 'border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400';
+      return 'border-destructive/30 bg-destructive/10 text-destructive';
     case 'commercial_signal':
-      return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400';
+      return 'border-warning/30 bg-warning/10 text-warning';
     case 'contextual_signal':
-      return 'border-orange-500/30 bg-orange-500/10 text-orange-600 dark:text-orange-400';
+      return 'border-warning/30 bg-warning/10 text-warning';
     case 'technical_container':
-      return 'border-border/40 bg-muted/30 text-muted-foreground';
+      return 'border-border/60 bg-surface-subtle text-muted-foreground';
     case 'manual_reference':
-      return 'border-border/30 bg-muted/20 text-muted-foreground/70';
+      return 'border-border/50 bg-surface-subtle text-muted-foreground';
     case 'not_for_ai_flow':
       return 'border-destructive/30 bg-destructive/10 text-destructive';
     case 'pending_classification':
-      return 'border-border/40 bg-muted/30 text-muted-foreground';
+      return 'border-border/60 bg-surface-subtle text-muted-foreground';
   }
 }
 
@@ -207,43 +207,43 @@ export const AI_FLOW_STATUS_LABELS: Record<AiFlowStatus, string> = {
 export function aiFlowStatusBadgeClass(status: AiFlowStatus): string {
   switch (status) {
     case 'connected':
-      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500';
+      return 'border-success/30 bg-success/10 text-success';
     case 'connected_post_approval':
-      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500';
+      return 'border-success/30 bg-success/10 text-success';
     case 'eligible_not_connected':
-      return 'border-su-brand/30 bg-su-brand-soft text-su-brand';
+      return 'border-primary/30 bg-primary/10 text-primary';
     case 'partial_pending_data':
-      return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400';
+      return 'border-warning/30 bg-warning/10 text-warning';
     case 'source_guided':
-      return 'border-orange-500/30 bg-orange-500/10 text-orange-600 dark:text-orange-400';
+      return 'border-warning/30 bg-warning/10 text-warning';
     case 'manual_only':
-      return 'border-border/40 bg-muted/30 text-muted-foreground';
+      return 'border-border/60 bg-surface-subtle text-muted-foreground';
     case 'signal_connected_read_only':
-      return 'border-teal-500/30 bg-teal-500/10 text-teal-600 dark:text-teal-400';
+      return 'border-success/30 bg-success/10 text-success';
     case 'snapshot_persisted':
-      return 'border-teal-500/30 bg-teal-500/10 text-teal-600 dark:text-teal-400';
+      return 'border-success/30 bg-success/10 text-success';
     case 'dry_run_validated':
-      return 'border-violet-500/30 bg-violet-500/10 text-violet-600 dark:text-violet-400';
+      return 'border-info/30 bg-info/10 text-info';
     case 'controlled_pilot':
-      return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400';
+      return 'border-warning/30 bg-warning/10 text-warning';
     // Expansión limitada manual: estado positivo pero gated/manual — se usa el
     // mismo acento ámbar (precaución controlada) que el piloto controlado.
     case 'limited_manual_expansion':
-      return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400';
+      return 'border-warning/30 bg-warning/10 text-warning';
     // No conectada / no operativa: fuente clasificada pero sin integración —
     // acento neutro para no sugerir que está lista o conectada.
     case 'pending_integration_design':
-      return 'border-border/40 bg-muted/30 text-muted-foreground';
+      return 'border-border/60 bg-surface-subtle text-muted-foreground';
     // Requiere validación previa (uso/cobertura/legalidad): acento neutro con
     // matiz de precaución, sin implicar operatividad.
     case 'requires_validation':
-      return 'border-border/40 bg-muted/30 text-muted-foreground';
+      return 'border-border/60 bg-surface-subtle text-muted-foreground';
     case 'paused':
       return 'border-destructive/30 bg-destructive/10 text-destructive';
     case 'not_applicable':
-      return 'border-border/30 bg-muted/20 text-muted-foreground/50';
+      return 'border-border/50 bg-surface-subtle text-muted-foreground';
     case 'pending_classification':
-      return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400';
+      return 'border-warning/30 bg-warning/10 text-warning';
   }
 }
 
@@ -266,44 +266,44 @@ export const CONNECTION_MODE_LABELS: Record<ConnectionMode, string> = {
 export function connectionModeBadgeClass(mode: ConnectionMode): string {
   switch (mode) {
     case 'wizard_discovery':
-      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500';
+      return 'border-success/30 bg-success/10 text-success';
     case 'automatic_enrichment':
-      return 'border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400';
+      return 'border-info/30 bg-info/10 text-info';
     case 'source_guided_query':
-      return 'border-orange-500/30 bg-orange-500/10 text-orange-600 dark:text-orange-400';
+      return 'border-warning/30 bg-warning/10 text-warning';
     case 'offline_signal':
-      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500';
+      return 'border-success/30 bg-success/10 text-success';
     case 'credential_configured':
-      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500';
+      return 'border-success/30 bg-success/10 text-success';
     case 'read_only_signal':
-      return 'border-teal-500/30 bg-teal-500/10 text-teal-600 dark:text-teal-400';
+      return 'border-success/30 bg-success/10 text-success';
     case 'read_only_snapshot':
-      return 'border-teal-500/30 bg-teal-500/10 text-teal-600 dark:text-teal-400';
+      return 'border-success/30 bg-success/10 text-success';
     case 'backend_connected':
-      return 'border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400';
+      return 'border-info/30 bg-info/10 text-info';
     case 'not_connected':
-      return 'border-border/40 bg-muted/30 text-muted-foreground';
+      return 'border-border/60 bg-surface-subtle text-muted-foreground';
     case 'not_persisted':
-      return 'border-violet-500/20 bg-violet-500/5 text-violet-600 dark:text-violet-400';
+      return 'border-info/20 bg-info/5 text-info';
     case 'not_applicable':
-      return 'border-border/30 bg-muted/20 text-muted-foreground/50';
+      return 'border-border/50 bg-surface-subtle text-muted-foreground';
   }
 }
 
 export function operationalStatusDotClass(status: CatalogSourceOperationalStatus): string {
   switch (status) {
     case 'operational_verified':
-      return 'bg-emerald-500';
+      return 'bg-success';
     case 'connection_required':
-      return 'bg-amber-500';
+      return 'bg-warning';
     case 'pending_validation':
-      return 'bg-su-brand';
+      return 'bg-primary';
     case 'dry_run_validated':
-      return 'bg-violet-500';
+      return 'bg-info';
     case 'validated':
-      return 'bg-emerald-500';
+      return 'bg-success';
     case 'partial_snapshot':
-      return 'bg-teal-500';
+      return 'bg-success';
     case 'manual_signal_only':
       return 'bg-muted-foreground/25';
     case 'validation_only':
@@ -313,7 +313,7 @@ export function operationalStatusDotClass(status: CatalogSourceOperationalStatus
     case 'discarded_low_value':
       return 'bg-destructive/50';
     case 'mvp_inferred_sector':
-      return 'bg-amber-500';
+      return 'bg-warning';
     default:
       return 'bg-muted-foreground/25';
   }

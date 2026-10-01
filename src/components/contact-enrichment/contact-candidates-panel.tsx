@@ -107,7 +107,7 @@ export async function ContactCandidatesPanel({
         </div>
       }
       metrics={
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           {/* 4O-H3-B-R1 (§ 11): el conteo NO cambia de significado. «Por revisar» sigue contando
               sólo `pending_review`; los duplicados se cuentan en su propia tarjeta, en su propia
               cola. Nunca se suman al mismo número. */}
@@ -117,7 +117,7 @@ export async function ContactCandidatesPanel({
               description="Coinciden con un contacto existente"
               value={total}
               icon={
-                <div className="rounded-lg p-1.5 bg-muted/60">
+                <div className="rounded-lg p-1.5 bg-surface-muted">
                   <CopyCheck className="h-4 w-4 text-muted-foreground" />
                 </div>
               }
@@ -128,8 +128,8 @@ export async function ContactCandidatesPanel({
               description="Candidatos pendientes"
               value={total}
               icon={
-                <div className="rounded-lg p-1.5 bg-amber-500/10">
-                  <Inbox className="h-4 w-4 text-amber-500" />
+                <div className="rounded-lg p-1.5 bg-warning/10">
+                  <Inbox className="h-4 w-4 text-warning" />
                 </div>
               }
             />
@@ -139,8 +139,8 @@ export async function ContactCandidatesPanel({
             description="Mejor encaje detectado"
             value={highRelevance}
             icon={
-              <div className="rounded-lg p-1.5 bg-su-brand-soft">
-                <Sparkles className="h-4 w-4 text-su-brand" />
+              <div className="rounded-lg p-1.5 bg-primary/10">
+                <Sparkles className="h-4 w-4 text-primary" />
               </div>
             }
           />
@@ -149,8 +149,8 @@ export async function ContactCandidatesPanel({
             description="Tienen correo"
             value={withEmail}
             icon={
-              <div className="rounded-lg p-1.5 bg-emerald-500/10">
-                <Mail className="h-4 w-4 text-emerald-500" />
+              <div className="rounded-lg p-1.5 bg-success/10">
+                <Mail className="h-4 w-4 text-success" />
               </div>
             }
           />
@@ -159,8 +159,8 @@ export async function ContactCandidatesPanel({
             description="Tienen perfil"
             value={withLinkedin}
             icon={
-              <div className="rounded-lg p-1.5 bg-blue-500/10">
-                <Link2 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              <div className="rounded-lg p-1.5 bg-info/10">
+                <Link2 className="h-4 w-4 text-info" />
               </div>
             }
           />

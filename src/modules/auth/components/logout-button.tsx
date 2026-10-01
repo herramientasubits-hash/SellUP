@@ -28,7 +28,7 @@ export function LogoutButton({ className }: LogoutButtonProps) {
       disabled={isLoading}
       className={className}
     >
-      <LogOut className="h-4 w-4" />
+      <LogOut className="h-4 w-4" aria-hidden="true" />
       {isLoading ? 'Saliendo...' : 'Cerrar sesión'}
     </button>
   );

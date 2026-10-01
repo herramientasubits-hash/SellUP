@@ -12,13 +12,13 @@ const Toaster = ({ theme = "system", ...props }: ToasterProps & { theme?: Toaste
       className="toaster group"
       icons={{
         success: (
-          <CircleCheck className="size-4 text-emerald-500" />
+          <CircleCheck className="size-4 text-success" />
         ),
         info: (
-          <Info className="size-4 text-sky-500" />
+          <Info className="size-4 text-info" />
         ),
         warning: (
-          <TriangleAlert className="size-4 text-amber-500" />
+          <TriangleAlert className="size-4 text-warning" />
         ),
         error: (
           <OctagonX className="size-4 text-destructive" />
@@ -37,14 +37,14 @@ const Toaster = ({ theme = "system", ...props }: ToasterProps & { theme?: Toaste
       }
       toastOptions={{
         classNames: {
-          toast: "group toast group-[.toaster]:bg-popover group-[.toaster]:text-popover-foreground group-[.toaster]:border-border group-[.toaster]:shadow-lg",
+          toast: "group toast group-[.toaster]:bg-popover group-[.toaster]:text-popover-foreground group-[.toaster]:border-border/60 group-[.toaster]:shadow-drawer group-[.toaster]:rounded-xl",
           description: "group-[.toast]:text-muted-foreground",
           actionButton: "group-[.toast]:bg-su-brand group-[.toast]:text-su-brand-foreground",
           cancelButton: "group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",
-          success: "group-[.toaster]:border-emerald-500/20",
+          success: "group-[.toaster]:border-success/20",
           error: "group-[.toaster]:border-destructive/20",
-          warning: "group-[.toaster]:border-amber-500/20",
-          info: "group-[.toaster]:border-sky-500/20",
+          warning: "group-[.toaster]:border-warning/25",
+          info: "group-[.toaster]:border-info/20",
         },
       }}
       {...props}

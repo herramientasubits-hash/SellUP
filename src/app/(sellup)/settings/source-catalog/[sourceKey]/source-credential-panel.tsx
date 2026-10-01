@@ -13,6 +13,7 @@ import {
   WifiOff,
   Minus,
 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -41,61 +42,62 @@ function formatDate(iso: string | null): string {
 function CredentialStatusBadge({ status }: { status: string }) {
   if (status === 'stored') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
-        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+      <Badge variant="positive">
+        <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-success" />
         Credencial configurada
-      </span>
+      </Badge>
     );
   }
   if (status === 'not_required') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-border/40 bg-muted/30 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-        <Minus className="h-3 w-3" />
+      <Badge variant="neutral">
+        <Minus aria-hidden="true" />
         No requiere credencial
-      </span>
+      </Badge>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
-      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+    <Badge variant="warning">
+      <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-warning" />
       Sin credencial
-    </span>
+    </Badge>
   );
 }
 
 function ConnectionStatusBadge({ status }: { status: string }) {
-  const configs: Record<string, { label: string; icon: React.ReactNode; className: string }> = {
+  const configs: Record<
+    string,
+    { label: string; icon: React.ReactNode; variant: 'positive' | 'negative' | 'neutral' }
+  > = {
     connected: {
       label: 'Conectado',
-      icon: <CheckCircle2 className="h-3.5 w-3.5" />,
-      className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+      icon: <CheckCircle2 aria-hidden="true" />,
+      variant: 'positive',
     },
     error: {
       label: 'Error',
-      icon: <XCircle className="h-3.5 w-3.5" />,
-      className: 'border-destructive/30 bg-destructive/10 text-destructive',
+      icon: <XCircle aria-hidden="true" />,
+      variant: 'negative',
     },
     not_tested: {
       label: 'Sin probar',
-      icon: <Clock className="h-3.5 w-3.5" />,
-      className: 'border-border/40 bg-muted/30 text-muted-foreground',
+      icon: <Clock aria-hidden="true" />,
+      variant: 'neutral',
     },
     not_applicable: {
       label: 'No aplica',
-      icon: <WifiOff className="h-3.5 w-3.5" />,
-      className: 'border-border/40 bg-muted/30 text-muted-foreground',
+      icon: <WifiOff aria-hidden="true" />,
+      variant: 'neutral',
     },
   };
 
   const config = configs[status] ?? configs.not_tested;
 
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${config.className}`}
-    >
+    <Badge variant={config.variant}>
       {config.icon}
       {config.label}
-    </span>
+    </Badge>
   );
 }
 
@@ -136,7 +138,7 @@ function CredentialForm({ connectionSourceKey, hasCredential, onSuccess }: Crede
   return (
     <div className="space-y-3">
       <div className="space-y-1.5">
-        <Label htmlFor={`cred-token-${connectionSourceKey}`} className="text-xs text-muted-foreground">
+        <Label htmlFor={`cred-token-${connectionSourceKey}`}>
           {hasCredential ? 'Reemplazar API Key' : 'API Key'}
         </Label>
         <Input
@@ -145,29 +147,30 @@ function CredentialForm({ connectionSourceKey, hasCredential, onSuccess }: Crede
           placeholder="Pega la API key de la fuente"
           value={token}
           onChange={(e) => setToken(e.target.value)}
-          className="font-mono text-sm"
+          className="font-mono"
           disabled={isPending}
           autoComplete="off"
         />
       </div>
 
       <Button
+        type="button"
         size="sm"
         onClick={handleSubmit}
         disabled={isPending || token.trim().length === 0}
       >
-        {isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+        {isPending && <Loader2 aria-hidden="true" className="animate-spin" />}
         Guardar credencial
       </Button>
 
       {error && (
-        <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          {error}
+        <div className="flex items-start gap-2 rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-xs font-medium text-destructive">
+          <AlertTriangle aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 break-words">{error}</span>
         </div>
       )}
       {successMsg && (
-        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400">
+        <div className="rounded-xl border border-success/20 bg-success/10 px-4 py-3 text-xs font-medium text-success">
           {successMsg}
         </div>
       )}
@@ -212,6 +215,7 @@ function TestConnectionButton({ connectionSourceKey, disabled, onSuccess }: Test
   return (
     <div className="space-y-2">
       <Button
+        type="button"
         variant="outline"
         size="sm"
         onClick={handleTest}
@@ -219,7 +223,7 @@ function TestConnectionButton({ connectionSourceKey, disabled, onSuccess }: Test
       >
         {isPending ? (
           <>
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <Loader2 aria-hidden="true" className="animate-spin" />
             Probando…
           </>
         ) : (
@@ -229,18 +233,18 @@ function TestConnectionButton({ connectionSourceKey, disabled, onSuccess }: Test
 
       {result && (
         <div
-          className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${
+          className={`flex items-start gap-2 rounded-xl border px-4 py-3 text-xs font-medium ${
             result.ok
-              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-              : 'border-destructive/30 bg-destructive/10 text-destructive'
+              ? 'border-success/20 bg-success/10 text-success'
+              : 'border-destructive/20 bg-destructive/10 text-destructive'
           }`}
         >
           {result.ok ? (
-            <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <CheckCircle2 aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           ) : (
-            <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <XCircle aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           )}
-          <span>{result.message}</span>
+          <span className="min-w-0 break-words">{result.message}</span>
           {result.responseTimeMs != null && (
             <span className="ml-auto shrink-0 tabular-nums">{result.responseTimeMs} ms</span>
           )}
@@ -274,11 +278,17 @@ export function SourceCredentialPanel({ sourceKey, record, isAdmin }: Props) {
   if (!requiresCredentials) {
     return (
       <SurfaceCard>
-        <SurfaceCardHeader
-          title="Credencial de API"
-          description="Configuración de autenticación para esta fuente."
-        />
-        <div className="flex items-center gap-2">
+        <div className="mb-5 flex items-start gap-3">
+          <span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-inset ring-border/40">
+            <KeyRound className="h-4 w-4" />
+          </span>
+          <SurfaceCardHeader
+            title="Credencial de API"
+            description="Configuración de autenticación para esta fuente."
+            className="mb-0 min-w-0 flex-1 flex-wrap"
+          />
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm text-muted-foreground">Requiere credencial:</span>
           <CredentialStatusBadge status="not_required" />
         </div>
@@ -288,38 +298,44 @@ export function SourceCredentialPanel({ sourceKey, record, isAdmin }: Props) {
 
   return (
     <SurfaceCard>
-      <SurfaceCardHeader
-        title="Credencial de API"
-        description="Configura y prueba la autenticación para esta fuente estructurada."
-      />
+      <div className="mb-5 flex items-start gap-3">
+        <span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-inset ring-border/40">
+          <KeyRound className="h-4 w-4" />
+        </span>
+        <SurfaceCardHeader
+          title="Credencial de API"
+          description="Configura y prueba la autenticación para esta fuente estructurada."
+          className="mb-0 min-w-0 flex-1 flex-wrap"
+        />
+      </div>
 
       <div className="space-y-5">
         {/* Status summary */}
-        <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4 text-sm">
-          <div>
-            <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-4">
+          <div className="min-w-0">
+            <dt className="mb-1 text-xs font-medium text-muted-foreground">
               Requiere credencial
             </dt>
             <dd className="text-foreground">Sí</dd>
           </div>
-          <div>
-            <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">
+          <div className="min-w-0">
+            <dt className="mb-1 text-xs font-medium text-muted-foreground">
               Tipo
             </dt>
-            <dd className="text-foreground font-mono text-xs">
+            <dd className="break-words font-mono text-xs text-foreground">
               {record.auth_type === 'api_key' ? 'API Key' : record.auth_type}
             </dd>
           </div>
-          <div>
-            <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">
+          <div className="min-w-0">
+            <dt className="mb-1 text-xs font-medium text-muted-foreground">
               Credencial
             </dt>
             <dd>
               <CredentialStatusBadge status={credStatus} />
             </dd>
           </div>
-          <div>
-            <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">
+          <div className="min-w-0">
+            <dt className="mb-1 text-xs font-medium text-muted-foreground">
               Conexión
             </dt>
             <dd>
@@ -330,15 +346,15 @@ export function SourceCredentialPanel({ sourceKey, record, isAdmin }: Props) {
 
         {/* Last test info */}
         {(record.last_tested_at || record.last_connection_error) && (
-          <div className="space-y-2 rounded-lg border border-border/40 bg-muted/20 px-3 py-3">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+          <div className="space-y-2 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-xs font-semibold text-muted-foreground">
                 Última prueba
               </span>
-              <span className="text-xs text-foreground">{formatDate(record.last_tested_at)}</span>
+              <span className="text-right text-xs tabular-nums text-foreground">{formatDate(record.last_tested_at)}</span>
             </div>
             {record.last_test_response_time_ms != null && (
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-4">
                 <span className="text-xs text-muted-foreground">Tiempo de respuesta</span>
                 <span className="text-xs font-medium text-foreground tabular-nums">
                   {record.last_test_response_time_ms} ms
@@ -346,7 +362,7 @@ export function SourceCredentialPanel({ sourceKey, record, isAdmin }: Props) {
               </div>
             )}
             {record.last_test_http_status != null && (
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-4">
                 <span className="text-xs text-muted-foreground">HTTP status</span>
                 <span className="text-xs font-medium text-foreground tabular-nums">
                   {record.last_test_http_status}
@@ -354,9 +370,9 @@ export function SourceCredentialPanel({ sourceKey, record, isAdmin }: Props) {
               </div>
             )}
             {record.last_connection_error && (
-              <div className="rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-2">
-                <p className="text-[11px] font-medium text-destructive mb-0.5">Último error</p>
-                <p className="text-[11px] text-destructive/80 break-words">
+              <div className="rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2">
+                <p className="text-xs font-medium text-destructive mb-0.5">Último error</p>
+                <p className="text-xs text-destructive break-words">
                   {record.last_connection_error}
                 </p>
               </div>
@@ -366,10 +382,10 @@ export function SourceCredentialPanel({ sourceKey, record, isAdmin }: Props) {
 
         {/* Admin-only actions */}
         {isAdmin ? (
-          <div className="space-y-4 border-t border-border/40 pt-4">
+          <div className="space-y-5 border-t border-border/50 pt-5">
             <div className="space-y-1">
-              <p className="text-[0.8125rem] font-semibold text-foreground  flex items-center gap-1.5">
-                <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
+              <p className="flex items-center gap-1.5 text-sm font-semibold tracking-tight text-foreground">
+                <KeyRound aria-hidden="true" className="h-3.5 w-3.5 text-muted-foreground" />
                 {hasCredential ? 'Reemplazar credencial' : 'Configurar credencial'}
               </p>
               <p className="text-xs text-muted-foreground">
@@ -385,8 +401,8 @@ export function SourceCredentialPanel({ sourceKey, record, isAdmin }: Props) {
 
             {hasCredential && (
               <div className="space-y-1">
-                <p className="text-[0.8125rem] font-semibold text-foreground  flex items-center gap-1.5">
-                  <ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />
+                <p className="flex items-center gap-1.5 text-sm font-semibold tracking-tight text-foreground">
+                  <ShieldCheck aria-hidden="true" className="h-3.5 w-3.5 text-muted-foreground" />
                   Probar autenticación
                 </p>
                 <p className="text-xs text-muted-foreground">
@@ -403,8 +419,8 @@ export function SourceCredentialPanel({ sourceKey, record, isAdmin }: Props) {
             )}
           </div>
         ) : (
-          <div className="flex items-start gap-2 rounded-lg border border-border/40 bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground">
-            <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <div className="flex items-start gap-2 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3 text-xs text-muted-foreground">
+            <ShieldCheck aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             Solo administradores pueden configurar credenciales de fuentes.
           </div>
         )}

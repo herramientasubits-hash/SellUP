@@ -3,13 +3,15 @@
 import * as React from 'react';
 import Link from 'next/link';
 import {
-  Copy, Check, Database, ExternalLink, Layers, Lock, Info, Loader2,
+  AlertTriangle, CircleSlash, Copy, Check, Database, ExternalLink, KeyRound, Layers, Lightbulb, Lock, Info, Plug,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { DrawerShell } from '@/components/shared/drawer-shell';
-import { SurfaceCard } from '@/components/shared/surface-card';
+import { DrawerSection } from '@/components/shared/drawer-section';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   OPERATIONAL_STATUS_LABELS,
   AUTOMATION_LEVEL_LABELS,
@@ -110,59 +112,58 @@ export function SourceDetailDrawer({
   const batchesCount = socrataBatches.batches.length;
 
   const infoContent = (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${statusClass}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
+        <Badge variant="outline" className={statusClass}>
+          <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
           {statusLabel}
-        </span>
-        <span className="inline-flex items-center rounded-full border border-border/40 bg-muted/30 px-3 py-1 text-xs font-medium text-muted-foreground">
+        </Badge>
+        <Badge variant="neutral">
           {PRIORITY_LABELS[source.priority]}
-        </span>
-        <span className="inline-flex items-center rounded-full border border-border/40 bg-muted/30 px-3 py-1 text-xs font-medium text-muted-foreground">
+        </Badge>
+        <Badge variant="neutral">
           {TYPE_LABELS[source.type]}
-        </span>
-        <span className="inline-flex items-center rounded-full border border-border/40 bg-muted/30 px-3 py-1 text-xs font-medium text-muted-foreground">
+        </Badge>
+        <Badge variant="neutral">
           Automatización: {AUTOMATION_LEVEL_LABELS[source.automationLevel]}
-        </span>
+        </Badge>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${sellupUseBadgeClass(source.sellupUse)}`}>
+        <Badge variant="outline" className={sellupUseBadgeClass(source.sellupUse)}>
           {SELLUP_USE_LABELS[source.sellupUse]}
-        </span>
-        <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${aiFlowStatusBadgeClass(source.aiFlowStatus)}`}>
+        </Badge>
+        <Badge variant="outline" className={aiFlowStatusBadgeClass(source.aiFlowStatus)}>
           {AI_FLOW_STATUS_LABELS[source.aiFlowStatus]}
-        </span>
-        <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${connectionModeBadgeClass(source.connectionMode)}`}>
+        </Badge>
+        <Badge variant="outline" className={connectionModeBadgeClass(source.connectionMode)}>
           {CONNECTION_MODE_LABELS[source.connectionMode]}
-        </span>
+        </Badge>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <SurfaceCard>
-          <h2 className="text-[0.8125rem] font-semibold text-foreground mb-4">Información general</h2>
+        <DrawerSection title="Información general" icon={Info} tone="brand">
           {/* Design Refresh v6: filas horizontales (label izquierda / valor a la
               derecha) consistentes con los drawers de Empresa y Contacto. */}
-          <dl className="space-y-2.5 text-sm">
+          <dl className="divide-y divide-border/50 text-sm">
             <SourceInfoRow label="Key">
               <span className="font-mono break-all">{source.key}</span>
             </SourceInfoRow>
             <SourceInfoRow label="País">{countryLabels}</SourceInfoRow>
             <SourceInfoRow label="Uso en SellUp">
-              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${sellupUseBadgeClass(source.sellupUse)}`}>
+              <Badge variant="outline" className={sellupUseBadgeClass(source.sellupUse)}>
                 {SELLUP_USE_LABELS[source.sellupUse]}
-              </span>
+              </Badge>
             </SourceInfoRow>
             <SourceInfoRow label="Estado flujo IA">
-              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${aiFlowStatusBadgeClass(source.aiFlowStatus)}`}>
+              <Badge variant="outline" className={aiFlowStatusBadgeClass(source.aiFlowStatus)}>
                 {AI_FLOW_STATUS_LABELS[source.aiFlowStatus]}
-              </span>
+              </Badge>
             </SourceInfoRow>
             <SourceInfoRow label="Conexión">
-              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${connectionModeBadgeClass(source.connectionMode)}`}>
+              <Badge variant="outline" className={connectionModeBadgeClass(source.connectionMode)}>
                 {CONNECTION_MODE_LABELS[source.connectionMode]}
-              </span>
+              </Badge>
             </SourceInfoRow>
             <SourceInfoRow label="Siguiente acción">{source.nextAction}</SourceInfoRow>
             {source.sectors.length > 0 && (
@@ -170,94 +171,89 @@ export function SourceDetailDrawer({
             )}
             {source.url && (
               <SourceInfoRow label="URL">
-                <Link href={source.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-su-brand hover:underline break-all">
+                <Link href={source.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 break-all rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
                   {source.url}
                   <ExternalLink className="h-3 w-3 shrink-0" />
                 </Link>
               </SourceInfoRow>
             )}
           </dl>
-        </SurfaceCard>
+        </DrawerSection>
 
-        <SurfaceCard>
-          <h2 className="text-[0.8125rem] font-semibold text-foreground mb-4">Uso recomendado</h2>
+        <DrawerSection title="Uso recomendado" icon={Lightbulb} tone="brand">
           <p className="text-sm text-muted-foreground leading-relaxed">{source.recommendedUse}</p>
-        </SurfaceCard>
+        </DrawerSection>
 
         {source.limitations.length > 0 && (
-          <SurfaceCard>
-            <h2 className="text-[0.8125rem] font-semibold text-foreground mb-4">Limitaciones</h2>
+          <DrawerSection title="Limitaciones" icon={CircleSlash} tone="neutral">
             <ul className="space-y-2">
               {source.limitations.map((item, i) => (
                 <li key={i} className="flex gap-2 text-sm text-muted-foreground">
-                  <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-border" />
+                  <span aria-hidden="true" className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground" />
                   {item}
                 </li>
               ))}
             </ul>
-          </SurfaceCard>
+          </DrawerSection>
         )}
 
         {source.riskNotes.length > 0 && (
-          <SurfaceCard>
-            <h2 className="text-[0.8125rem] font-semibold text-foreground mb-4">Notas de riesgo</h2>
+          <DrawerSection title="Notas de riesgo" icon={AlertTriangle} tone="warning">
             <ul className="space-y-2">
               {source.riskNotes.map((item, i) => (
-                <li key={i} className="flex gap-2 text-sm text-amber-600 dark:text-amber-400">
-                  <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500/60" />
+                <li key={i} className="flex gap-2 text-sm text-warning">
+                  <span aria-hidden="true" className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-warning" />
                   {item}
                 </li>
               ))}
             </ul>
-          </SurfaceCard>
+          </DrawerSection>
         )}
       </div>
 
       {loading || !drawerData ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        <div className="space-y-4" aria-busy="true">
+          <Skeleton className="h-36 w-full rounded-2xl" />
+          <Skeleton className="h-44 w-full rounded-2xl" />
+          <Skeleton className="h-28 w-full rounded-2xl" />
         </div>
       ) : (
         <>
           {isManualSignalOnly ? (
-            <SurfaceCard>
-              <h2 className="text-[0.8125rem] font-semibold text-foreground mb-2">Estado de integración</h2>
+            <DrawerSection title="Estado de integración" icon={Plug} tone="neutral">
               <p className="text-sm text-muted-foreground leading-relaxed">
                 Esta fuente se conserva como referencia manual. No existe una integración automática aprobada para SellUp.
               </p>
-            </SurfaceCard>
+            </DrawerSection>
           ) : isHnContrataciones ? (
-            <SurfaceCard>
-              <h2 className="text-[0.8125rem] font-semibold text-foreground mb-2">Acceso técnico</h2>
+            <DrawerSection title="Acceso técnico" icon={KeyRound} tone="positive">
               <dl className="space-y-3 text-sm">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <dt className="text-muted-foreground">Credenciales:</dt>
                   <dd>
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
-                      No requeridas
-                    </span>
+                    <Badge variant="positive">No requeridas</Badge>
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+                  <dt className="mb-0.5 text-xs font-medium text-muted-foreground">
                     Publisher institucional
                   </dt>
                   <dd className="text-foreground">ONCAE Honduras</dd>
                 </div>
                 <div>
-                  <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+                  <dt className="mb-0.5 text-xs font-medium text-muted-foreground">
                     Feed técnico consumido por SellUp
                   </dt>
                   <dd className="text-foreground">OCP Data Registry · publicación Honduras ONCAE</dd>
                 </div>
                 <div>
-                  <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+                  <dt className="mb-0.5 text-xs font-medium text-muted-foreground">
                     Formato
                   </dt>
                   <dd className="text-foreground">JSONL.gz / OCDS</dd>
                 </div>
               </dl>
-            </SurfaceCard>
+            </DrawerSection>
           ) : drawerData.connectionRecord ? (
             <SourceCredentialPanel
               sourceKey={source.key}
@@ -265,28 +261,24 @@ export function SourceDetailDrawer({
               isAdmin={drawerData.isAdmin}
             />
           ) : source.type === 'public_dataset' || source.key === 'co_rues' || (source.operationalStatus === 'operational_verified' && !source.url?.includes('api')) ? (
-            <SurfaceCard>
-              <h2 className="text-[0.8125rem] font-semibold text-foreground mb-2">Credencial de API</h2>
+            <DrawerSection title="Credencial de API" icon={KeyRound} tone="neutral">
               <div className="space-y-2">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="text-sm text-muted-foreground">Requiere credencial:</span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-border/40 bg-muted/30 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                    No requiere credencial
-                  </span>
+                  <Badge variant="neutral">No requiere credencial</Badge>
                 </div>
                 <p className="text-xs text-muted-foreground">
                   Esta fuente es de acceso público. La prueba de conexión valida que la API responde correctamente.
                   No crea candidatos ni sincroniza datos.
                 </p>
               </div>
-            </SurfaceCard>
+            </DrawerSection>
           ) : (
-            <SurfaceCard>
-              <h2 className="text-[0.8125rem] font-semibold text-foreground mb-2">Credencial de API</h2>
+            <DrawerSection title="Credencial de API" icon={KeyRound} tone="neutral">
               <p className="text-sm text-muted-foreground">
                 Esta fuente aún no tiene configuración de credencial registrada en el sistema.
               </p>
-            </SurfaceCard>
+            </DrawerSection>
           )}
 
           {isDenue && drawerData.connectionRecord && (
@@ -321,23 +313,20 @@ export function SourceDetailDrawer({
           )}
 
           {isRues && (
-            <div className="flex items-center justify-between rounded-xl border border-border/40 bg-muted/30 px-5 py-3.5">
-              <div className="flex items-center gap-2.5">
-                <Database className="h-4 w-4 shrink-0 text-muted-foreground/60" />
-                <div>
-                  <p className="text-sm font-medium text-foreground">Lotes Socrata</p>
-                  <p className="text-xs text-muted-foreground">
-                    Revisión interna de lotes creados desde esta fuente. Solo lectura — no aprueba ni sincroniza candidatos.
-                  </p>
-                </div>
-              </div>
-              <Link
-                href="/settings/source-catalog/socrata-batches"
-                className="shrink-0 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:border-su-brand/40 hover:bg-su-brand-soft hover:text-su-brand transition-colors"
-              >
-                Ver lotes Socrata
-              </Link>
-            </div>
+            <DrawerSection
+              title="Lotes Socrata"
+              icon={Database}
+              tone="neutral"
+              action={
+                <Button asChild variant="outline" size="sm">
+                  <Link href="/settings/source-catalog/socrata-batches">Ver lotes Socrata</Link>
+                </Button>
+              }
+            >
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Revisión interna de lotes creados desde esta fuente. Solo lectura — no aprueba ni sincroniza candidatos.
+              </p>
+            </DrawerSection>
           )}
         </>
       )}
@@ -345,36 +334,27 @@ export function SourceDetailDrawer({
   );
 
   const batchesBody = (
-    <div className="space-y-4">
-      <SurfaceCard>
-        <div className="flex items-center gap-2.5 mb-2">
-          <Layers className="h-4 w-4 shrink-0 text-muted-foreground/60" />
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-foreground">Lotes Socrata</p>
-            <p className="text-xs text-muted-foreground">Revisión interna de lotes creados desde RUES. Solo lectura.</p>
-          </div>
-        </div>
-      </SurfaceCard>
+    <DrawerSection
+      title="Lotes Socrata"
+      hint="Revisión interna de lotes creados desde RUES. Solo lectura."
+      icon={Layers}
+      tone="neutral"
+      contentClassName="space-y-3"
+    >
+      <div className="flex items-start gap-2 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
+        <Lock aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <p className="text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">Solo lectura para candidatos.</span>{' '}
+          No permite editar, aprobar, descartar ni sincronizar.
+        </p>
+      </div>
 
-      <SurfaceCard noPadding>
-        <div className="flex items-center gap-2.5 px-5 py-2.5 border-b border-border/40 bg-muted/30">
-          <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-          <p className="text-[11px] text-muted-foreground">
-            <span className="font-medium text-foreground/80">Solo lectura para candidatos.</span>{' '}
-            No permite editar, aprobar, descartar ni sincronizar.
-          </p>
-        </div>
-
-        {batchesCount === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-            <Database className="h-7 w-7 text-muted-foreground/30" />
-            <p className="text-sm text-muted-foreground">Aún no hay lotes Socrata creados.</p>
-          </div>
-        ) : (
-          <SocrataBatchesTable batches={socrataBatches.batches} />
-        )}
-      </SurfaceCard>
-    </div>
+      {batchesCount === 0 ? (
+        <EmptyState icon={Database} title="Aún no hay lotes Socrata creados." className="p-8" />
+      ) : (
+        <SocrataBatchesTable batches={socrataBatches.batches} />
+      )}
+    </DrawerSection>
   );
 
   return (
@@ -386,24 +366,24 @@ export function SourceDetailDrawer({
       title={source.name}
       description={source.key}
       icon={
-        <span className={`h-2.5 w-2.5 rounded-full ${dotClass}`} />
+        <span aria-hidden="true" className={`h-2.5 w-2.5 rounded-full ${dotClass}`} />
       }
       actions={
-        <div className="flex items-center justify-between gap-3 w-full">
+        <div className="flex w-full flex-wrap items-center justify-between gap-2">
           <CopyKeyInline sourceKey={source.key} />
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {source.url && (
-              <Button variant="outline" size="sm" className="h-9 rounded-lg" asChild>
+              <Button variant="outline" size="sm" asChild>
                 <a href={source.url} target="_blank" rel="noopener noreferrer">
-                  <ExternalLink className="h-3.5 w-3.5" />
+                  <ExternalLink aria-hidden="true" />
                   Abrir URL
                 </a>
               </Button>
             )}
-            <Button variant="default" size="sm" className="h-9 rounded-lg" asChild>
+            <Button variant="default" size="sm" asChild>
               <Link href={`/settings/source-catalog/${source.key}`}>
                 Ver página completa
-                <ExternalLink className="h-3.5 w-3.5 ml-1" />
+                <ExternalLink aria-hidden="true" />
               </Link>
             </Button>
           </div>
@@ -417,7 +397,7 @@ export function SourceDetailDrawer({
             <TabsTrigger value="batches">
               <Layers className="h-4 w-4" /> Lotes
               {batchesCount > 0 && (
-                <span className="ml-1.5 inline-flex items-center justify-center rounded-full border border-border/40 bg-muted/60 px-1.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
+                <span className="ml-1.5 inline-flex items-center justify-center rounded-full border border-border/60 bg-surface-muted px-1.5 text-xs font-semibold tabular-nums text-muted-foreground">
                   {batchesCount}
                 </span>
               )}
@@ -438,55 +418,55 @@ function SocrataBatchesTable({ batches }: { batches: SocrataPreviewBatchListItem
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-border/40 text-left">
-            <th className="px-5 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Nombre</th>
-            <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Estado</th>
-            <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Dataset</th>
-            <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Candidatos</th>
-            <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Flags</th>
-            <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Fecha</th>
+          <tr className="border-b border-border/50 text-left">
+            <th scope="col" className="whitespace-nowrap px-3 py-2.5 text-xs font-semibold text-muted-foreground">Nombre</th>
+            <th scope="col" className="whitespace-nowrap px-3 py-2.5 text-xs font-semibold text-muted-foreground">Estado</th>
+            <th scope="col" className="whitespace-nowrap px-3 py-2.5 text-xs font-semibold text-muted-foreground">Dataset</th>
+            <th scope="col" className="whitespace-nowrap px-3 py-2.5 text-xs font-semibold text-muted-foreground">Candidatos</th>
+            <th scope="col" className="whitespace-nowrap px-3 py-2.5 text-xs font-semibold text-muted-foreground">Flags</th>
+            <th scope="col" className="whitespace-nowrap px-3 py-2.5 text-xs font-semibold text-muted-foreground">Fecha</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-border/30">
+        <tbody className="divide-y divide-border/50">
           {batches.map((batch) => (
-            <tr key={batch.id} className="transition-colors hover:bg-muted/20">
-              <td className="px-5 py-3">
+            <tr key={batch.id} className="transition-colors hover:bg-surface-muted">
+              <td className="px-3 py-3">
                 <span className="font-medium text-foreground">{batch.name}</span>
                 {batch.countryCode && (
-                  <span className="ml-2 text-[11px] text-muted-foreground/60">{batch.countryCode}</span>
+                  <span className="ml-2 text-xs text-muted-foreground">{batch.countryCode}</span>
                 )}
               </td>
-              <td className="px-4 py-3">
-                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${batchStatusBadgeClass(batch.status)}`}>
+              <td className="px-3 py-3">
+                <Badge variant="outline" className={batchStatusBadgeClass(batch.status)}>
                   {BATCH_STATUS_LABELS[batch.status] ?? batch.status}
-                </span>
+                </Badge>
               </td>
-              <td className="px-4 py-3">
+              <td className="px-3 py-3">
                 <span className="font-mono text-xs text-muted-foreground">{formatDatasetLabel(batch.dataset)}</span>
               </td>
-              <td className="px-4 py-3 tabular-nums text-muted-foreground">
+              <td className="px-3 py-3 tabular-nums text-muted-foreground">
                 {batch.candidatesCount}
                 {batch.targetCount ? (
-                  <span className="ml-1 text-[11px] text-muted-foreground/50">/ {batch.targetCount}</span>
+                  <span className="ml-1 text-xs text-muted-foreground">/ {batch.targetCount}</span>
                 ) : null}
               </td>
-              <td className="px-4 py-3">
+              <td className="px-3 py-3">
                 <div className="flex flex-wrap gap-1">
                   {batch.previewMode && (
-                    <Badge className="border-su-brand/30 bg-su-brand-soft text-su-brand border text-[10px]">Preview</Badge>
+                    <Badge variant="brand">Preview</Badge>
                   )}
                   {batch.smokeTest && (
-                    <Badge className="border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400 border text-[10px]">Smoke</Badge>
+                    <Badge variant="info">Smoke</Badge>
                   )}
                   {batch.rollbackLogical && (
-                    <Badge className="border-border/40 bg-muted/60 text-muted-foreground/60 border text-[10px]">Rollback</Badge>
+                    <Badge variant="neutral">Rollback</Badge>
                   )}
                   {!batch.previewMode && !batch.smokeTest && !batch.rollbackLogical && (
-                    <span className="text-xs text-muted-foreground/40">—</span>
+                    <span className="text-xs text-text-muted">—</span>
                   )}
                 </div>
               </td>
-              <td className="px-4 py-3 text-xs text-muted-foreground">{formatShortDate(batch.createdAt)}</td>
+              <td className="px-3 py-3 text-xs text-muted-foreground">{formatShortDate(batch.createdAt)}</td>
             </tr>
           ))}
         </tbody>
@@ -500,11 +480,11 @@ function SocrataBatchesTable({ batches }: { batches: SocrataPreviewBatchListItem
 // largos como "Siguiente acción" o URL). Consistente con Empresa y Contacto.
 function SourceInfoRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-start gap-3">
-      <dt className="shrink-0 min-w-[116px] pt-0.5 text-[11px] font-medium text-muted-foreground/80">
+    <div className="flex items-start gap-3 py-2 first:pt-0 last:pb-0">
+      <dt className="w-28 shrink-0 pt-0.5 text-xs font-medium text-muted-foreground">
         {label}
       </dt>
-      <dd className="min-w-0 flex-1 text-right text-foreground">{children}</dd>
+      <dd className="min-w-0 flex-1 break-words text-right text-foreground">{children}</dd>
     </div>
   );
 }
@@ -521,17 +501,13 @@ function CopyKeyInline({ sourceKey }: { sourceKey: string }) {
     }
   };
   return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-[0.8rem] font-medium text-foreground transition-colors hover:bg-muted"
-    >
+    <Button type="button" variant="outline" size="sm" onClick={handleCopy}>
       {copied ? (
-        <Check className="h-3.5 w-3.5 text-emerald-500" />
+        <Check aria-hidden="true" className="text-success" />
       ) : (
-        <Copy className="h-3.5 w-3.5" />
+        <Copy aria-hidden="true" />
       )}
       {copied ? 'Copiado' : 'Copiar key'}
-    </button>
+    </Button>
   );
 }

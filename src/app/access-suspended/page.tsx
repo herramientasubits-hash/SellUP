@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { LogOut, Mail, Ban } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { signOut } from '@/modules/auth/actions';
 
 export default async function AccessSuspendedPage() {
@@ -15,33 +16,33 @@ export default async function AccessSuspendedPage() {
 
   return (
     <div className="w-full max-w-md text-center">
-      <div className="mb-6 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-orange-500/10">
-        <Ban className="h-8 w-8 text-orange-500" />
+      <div className="mb-6 inline-flex h-14 w-14 items-center justify-center rounded-xl bg-warning/10">
+        <Ban className="h-7 w-7 text-warning" aria-hidden="true" />
       </div>
 
-      <h1 className="mb-3 text-2xl font-extrabold tracking-tight text-foreground">
+      <h1 className="mb-3 text-2xl font-bold tracking-tight text-foreground">
         Acceso suspended
       </h1>
 
-      <p className="mb-8 text-sm text-muted-foreground leading-relaxed">
+      <p className="mb-8 text-sm leading-relaxed text-muted-foreground">
         Tu acceso a SellUp ha sido temporalmente suspendido. Por favor,
         contacta al administrador del sistema para obtener más información sobre
         el estado de tu cuenta.
       </p>
 
-      <div className="mb-8 flex items-center justify-center gap-2 rounded-xl border border-border/50 bg-card p-4">
-        <Mail className="h-4 w-4 text-muted-foreground" />
-        <span className="text-sm text-foreground">{user.email}</span>
+      <div className="mb-8 flex items-center justify-center gap-2 rounded-xl border border-border/60 bg-card px-4 py-3 shadow-card">
+        <Mail className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <span className="min-w-0 truncate text-sm text-foreground" title={user.email}>{user.email}</span>
       </div>
 
       <form action={signOut}>
-        <button
+        <Button
           type="submit"
-          className="inline-flex items-center justify-center gap-2 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+          variant="outline"
         >
-          <LogOut className="h-4 w-4" />
+          <LogOut className="h-4 w-4" aria-hidden="true" />
           Cerrar sesión
-        </button>
+        </Button>
       </form>
     </div>
   );

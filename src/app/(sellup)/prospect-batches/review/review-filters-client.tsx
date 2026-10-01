@@ -100,22 +100,22 @@ export function ReviewFiltersClient({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="mr-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+      <span className="mr-1 text-xs font-semibold text-muted-foreground">
         Filtrar
       </span>
 
       {/* País */}
       {options.countries.length > 0 && (
         <Select value={currentCountry || 'all'} onValueChange={(v) => setParam('country', v)}>
-          <SelectTrigger className="h-8 w-[172px] text-xs">
+          <SelectTrigger size="sm" className="w-44">
             <SelectValue placeholder="País">{countryTriggerLabel}</SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all" className="text-xs">
+            <SelectItem value="all">
               Todos los países
             </SelectItem>
             {options.countries.map((c) => (
-              <SelectItem key={c.code} value={c.code} className="text-xs">
+              <SelectItem key={c.code} value={c.code}>
                 {countryLabel(c.code)} ({c.count})
               </SelectItem>
             ))}
@@ -126,15 +126,15 @@ export function ReviewFiltersClient({
       {/* Industria */}
       {options.industries.length > 0 && (
         <Select value={currentIndustry || 'all'} onValueChange={(v) => setParam('industry', v)}>
-          <SelectTrigger className="h-8 w-[172px] text-xs">
+          <SelectTrigger size="sm" className="w-44">
             <SelectValue placeholder="Industria">{industryTriggerLabel}</SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all" className="text-xs">
+            <SelectItem value="all">
               Todas las industrias
             </SelectItem>
             {options.industries.map((i) => (
-              <SelectItem key={i.name} value={i.name} className="text-xs">
+              <SelectItem key={i.name} value={i.name}>
                 {i.name} ({i.count})
               </SelectItem>
             ))}
@@ -145,15 +145,15 @@ export function ReviewFiltersClient({
       {/* Lote */}
       {options.batches.length > 0 && (
         <Select value={currentBatch || 'all'} onValueChange={(v) => setParam('batch', v)}>
-          <SelectTrigger className="h-8 w-[200px] text-xs">
+          <SelectTrigger size="sm" className="w-50">
             <SelectValue placeholder="Lote">{batchTriggerLabel}</SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all" className="text-xs">
+            <SelectItem value="all">
               Todos los lotes
             </SelectItem>
             {options.batches.map((b) => (
-              <SelectItem key={b.id} value={b.id} className="text-xs">
+              <SelectItem key={b.id} value={b.id}>
                 {b.label} ({b.count})
               </SelectItem>
             ))}
@@ -167,15 +167,15 @@ export function ReviewFiltersClient({
           value={currentConfidence || 'all'}
           onValueChange={(v) => setParam('confidence', v)}
         >
-          <SelectTrigger className="h-8 w-[188px] text-xs">
+          <SelectTrigger size="sm" className="w-48">
             <SelectValue placeholder="Confianza">{confidenceTriggerLabel}</SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all" className="text-xs">
+            <SelectItem value="all">
               Toda confianza
             </SelectItem>
             {options.confidenceBands.map((b) => (
-              <SelectItem key={b.band} value={b.band} className="text-xs">
+              <SelectItem key={b.band} value={b.band}>
                 {CONFIDENCE_LABELS[b.band]} ({b.count})
               </SelectItem>
             ))}
@@ -186,15 +186,15 @@ export function ReviewFiltersClient({
       {/* Estado de duplicado */}
       {options.duplicateStatuses.length > 0 && (
         <Select value={currentDuplicate || 'all'} onValueChange={(v) => setParam('duplicate', v)}>
-          <SelectTrigger className="h-8 w-[188px] text-xs">
+          <SelectTrigger size="sm" className="w-48">
             <SelectValue placeholder="Duplicado">{duplicateTriggerLabel}</SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all" className="text-xs">
+            <SelectItem value="all">
               Todo estado de duplicado
             </SelectItem>
             {options.duplicateStatuses.map((d) => (
-              <SelectItem key={d.value} value={d.value} className="text-xs">
+              <SelectItem key={d.value} value={d.value}>
                 {duplicateLabel(d.value)} ({d.count})
               </SelectItem>
             ))}

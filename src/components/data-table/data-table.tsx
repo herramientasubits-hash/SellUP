@@ -412,7 +412,7 @@ function DataTableInner<TData>(
     >
       <div
         className={cn(
-          "rounded-xl border border-border/40 bg-card shadow-sm",
+          "rounded-2xl border border-border/60 bg-card shadow-card",
           fillHeight
             ? "flex h-full min-h-0 flex-col overflow-hidden"
             : "overflow-hidden",
@@ -455,7 +455,7 @@ function DataTableInner<TData>(
           >
             <TableHeader>
               {table.getHeaderGroups().map((headerGroup) => (
-                <TableRow key={headerGroup.id} className="hover:bg-transparent border-border/40">
+                <TableRow key={headerGroup.id} className="hover:bg-transparent border-border/60">
                   {enableColumnReorder ? (
                     <DataTableColumnReorder
                       columnOrder={
@@ -508,7 +508,7 @@ function DataTableInner<TData>(
                   <TableRow key={`skeleton-${i}`} className="hover:bg-transparent">
                     {table.getAllColumns().map((col) => (
                       <TableCell key={col.id}>
-                        <div className="su-skeleton h-3.5 w-full rounded" />
+                        <div className="su-skeleton h-3.5 w-full rounded-md" />
                       </TableCell>
                     ))}
                   </TableRow>
@@ -677,9 +677,9 @@ function DataTableRow<TData>({
     <TableRow
       data-state={isSelected ? "selected" : undefined}
       className={cn(
-        "border-border/40 group",
+        "border-border/60 group",
         handleClick && "cursor-pointer",
-        isSelected && "bg-primary/5",
+        isSelected && "bg-primary/[0.07]",
       )}
       onClick={handleClick}
     >

@@ -67,7 +67,7 @@ function WizardGenerationOverlay({
       }}
     >
       {/* Mirror shine sweep */}
-      <div className="pointer-events-none absolute inset-0 -translate-x-full skew-x-[-12deg] bg-[linear-gradient(90deg,transparent_0%,rgba(255,255,255,0.06)_20%,rgba(255,255,255,0.35)_50%,rgba(255,255,255,0.06)_80%,transparent_100%)] animate-su-mirror-shine" />
+      <div className="pointer-events-none absolute inset-0 -translate-x-full skew-x-[-12deg] su-mirror-shine animate-su-mirror-shine" />
 
       {/* Sparkle icon */}
       <div className="animate-su-float relative z-10">
@@ -132,7 +132,7 @@ function WizardPersistenceBreakdown({ rows }: { rows: WizardPersistenceBreakdown
   if (rows.length === 0) return null;
   return (
     <dl
-      className="space-y-2 rounded-xl border border-border bg-card px-5 py-4"
+      className="space-y-2 rounded-xl border border-border/60 bg-card p-4"
       data-testid="wizard-persistence-breakdown"
     >
       {rows.map((row) => (
@@ -151,7 +151,7 @@ function WizardPersistenceBreakdown({ rows }: { rows: WizardPersistenceBreakdown
             </dd>
           </div>
           {row.hint !== null && (
-            <p className="text-[10px] leading-snug text-muted-foreground">{row.hint}</p>
+            <p className="text-xs leading-snug text-muted-foreground">{row.hint}</p>
           )}
         </div>
       ))}
@@ -331,16 +331,16 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
   if (status === 'completed_with_errors') {
     return (
       <div className="space-y-4 animate-su-fade-in" role="alert">
-        <div className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-5 py-4">
+        <div className="flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/10 p-4">
           <AlertCircle
             className="mt-0.5 h-5 w-5 shrink-0 text-destructive"
             aria-hidden
           />
-          <div className="space-y-1">
+          <div className="min-w-0 space-y-1">
             <p className="text-sm font-semibold text-destructive">
               {resultCopy.heading}
             </p>
-            <p className="text-xs text-destructive/80">{resultCopy.body}</p>
+            <p className="text-xs text-destructive">{resultCopy.body}</p>
           </div>
         </div>
         <WizardPersistenceBreakdown rows={persistenceBreakdownRows} />
@@ -388,22 +388,22 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
 
     return (
       <div className="space-y-4 animate-su-fade-in" role="status">
-        <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 dark:border-amber-800/40 dark:bg-amber-900/10">
+        <div className="flex items-start gap-3 rounded-xl border border-warning/25 bg-warning/15 p-4">
           <AlertCircle
-            className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400"
+            className="mt-0.5 h-5 w-5 shrink-0 text-warning"
             aria-hidden
           />
-          <div className="space-y-2">
-            <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+          <div className="min-w-0 flex-1 space-y-2">
+            <p className="text-sm font-semibold text-warning">
               {resultCopy.heading ?? 'No encontramos empresas nuevas con estos criterios.'}
             </p>
-            <p className="text-xs text-amber-600/80 dark:text-amber-400/70">
+            <p className="text-xs text-warning">
               {noNewBody}
             </p>
 
             {breakdownRows.length > 0 && (
               <dl
-                className="mt-1 space-y-1 border-t border-amber-200 pt-2 dark:border-amber-800/40"
+                className="mt-1 space-y-1 border-t border-warning/25 pt-2"
                 data-testid="wizard-no-new-candidates-breakdown"
               >
                 {breakdownRows.map((row) => (
@@ -418,7 +418,7 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
                       </dd>
                     </div>
                     {row.hint !== null && (
-                      <p className="text-[10px] leading-snug text-muted-foreground">{row.hint}</p>
+                      <p className="text-xs leading-snug text-muted-foreground">{row.hint}</p>
                     )}
                   </div>
                 ))}
@@ -426,8 +426,8 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
             )}
           </div>
         </div>
-        <div className="flex gap-2">
-          <Button size="sm" variant="outline" onClick={onEditSearch} className="gap-1.5">
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={onEditSearch}>
             <Pencil className="h-3.5 w-3.5" aria-hidden />
             Editar búsqueda
           </Button>
@@ -463,16 +463,16 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
           al único candidato que contaba hacia el objetivo. El aviso ámbar de más
           abajo pasa a ser el titular de la corrida. */}
       {!isPartialPersistence && (
-        <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4 dark:border-emerald-800/40 dark:bg-emerald-900/10">
+        <div className="flex items-start gap-3 rounded-xl border border-success/20 bg-success/10 p-4">
           <CheckCircle2
-            className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400"
+            className="mt-0.5 h-5 w-5 shrink-0 text-success"
             aria-hidden
           />
           <div className="space-y-1">
-            <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">
+            <p className="text-sm font-semibold text-success">
               {heading}
             </p>
-            <p className="text-xs text-emerald-600/80 dark:text-emerald-400/70">
+            <p className="text-xs text-success">
               {body}
             </p>
           </div>
@@ -484,16 +484,16 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
           que el usuario concluya que el listado está completo y repita la
           búsqueda para «recuperar» el resto. */}
       {isPersistenceFailure && (
-        <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 dark:border-amber-800/40 dark:bg-amber-900/10" role="alert">
+        <div className="flex items-start gap-3 rounded-xl border border-warning/25 bg-warning/15 p-4" role="alert">
           <AlertCircle
-            className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400"
+            className="mt-0.5 h-5 w-5 shrink-0 text-warning"
             aria-hidden
           />
           <div className="space-y-1">
-            <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+            <p className="text-sm font-semibold text-warning">
               {resultCopy.heading}
             </p>
-            <p className="text-xs text-amber-600/80 dark:text-amber-400/70">
+            <p className="text-xs text-warning">
               {resultCopy.body}
             </p>
           </div>
@@ -520,7 +520,7 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
           declaró; sin ninguna de las dos, no se pinta resumen. */}
       {acceptedForTargetRows !== null && (
         <dl
-          className="space-y-2 rounded-xl border border-border bg-card px-5 py-4"
+          className="space-y-2 rounded-xl border border-border/60 bg-card p-4"
           data-testid="wizard-target-summary"
         >
           {acceptedForTargetRows.map((row) => (
@@ -535,7 +535,7 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
                 </dd>
               </div>
               {row.hint !== null && (
-                <p className="text-[10px] leading-snug text-muted-foreground">{row.hint}</p>
+                <p className="text-xs leading-snug text-muted-foreground">{row.hint}</p>
               )}
             </div>
           ))}
@@ -544,7 +544,7 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
 
       {acceptedForTargetRows === null && targetSummary && (
         <dl
-          className="space-y-2 rounded-xl border border-border bg-card px-5 py-4"
+          className="space-y-2 rounded-xl border border-border/60 bg-card p-4"
           data-testid="wizard-target-summary"
         >
           {buildWizardTargetSummary(targetSummary).rows.map((row) => (
@@ -559,7 +559,7 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
                 </dd>
               </div>
               {row.hint !== null && (
-                <p className="text-[10px] leading-snug text-muted-foreground">{row.hint}</p>
+                <p className="text-xs leading-snug text-muted-foreground">{row.hint}</p>
               )}
             </div>
           ))}

@@ -27,6 +27,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { DrawerSection } from '@/components/shared/drawer-section';
 import { getContactById, getContactAudit } from '@/modules/contacts/actions';
 import { buildContactTraceabilityViewModel } from '@/modules/contacts/contact-traceability';
 import { getAccountById } from '@/modules/accounts/actions';
@@ -77,18 +78,18 @@ import {
 } from './contact-detail-load-copy';
 
 const STATUS_STYLES: Record<ContactStatus, string> = {
-  active: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-transparent',
+  active: 'bg-success/10 text-success border-transparent',
   inactive: 'bg-muted text-muted-foreground border-transparent',
-  left_company: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-transparent',
+  left_company: 'bg-warning/10 text-warning border-transparent',
   do_not_contact: 'bg-destructive/10 text-destructive border-transparent',
-  archived: 'bg-muted/60 text-muted-foreground/60 border-transparent',
+  archived: 'bg-surface-muted text-muted-foreground border-transparent',
 };
 
 const ROLE_STYLES: Record<string, string> = {
-  decision_maker: 'bg-su-brand-soft text-su-brand border-transparent',
-  economic_buyer: 'bg-su-brand-soft text-su-brand border-transparent',
-  champion: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-transparent',
-  influencer: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-transparent',
+  decision_maker: 'bg-primary/10 text-primary border-transparent',
+  economic_buyer: 'bg-primary/10 text-primary border-transparent',
+  champion: 'bg-success/10 text-success border-transparent',
+  influencer: 'bg-warning/10 text-warning border-transparent',
 };
 
 const AUDIT_LABELS: Record<ContactAuditAction, string> = {
@@ -212,7 +213,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
       onOpenChange={(v) => !v && onClose()}
       side="right"
       className="w-full sm:w-[70vw] sm:min-w-[700px] sm:!max-w-none"
-      icon={<User className="h-5 w-5 text-su-brand" />}
+      icon={<User className="h-5 w-5 text-primary" />}
       title={
         contact
           ? contact.full_name
@@ -227,20 +228,20 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
           <div className="flex items-center gap-2">
             <Badge
               variant="outline"
-              className={`text-xs ${STATUS_STYLES[contact.contact_status]}`}
+              className={STATUS_STYLES[contact.contact_status]}
             >
               {CONTACT_STATUS_LABELS[contact.contact_status]}
             </Badge>
             {contact.is_primary && (
-              <div className="flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
-                <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+              <Badge variant="warning">
+                <Star className="fill-warning" />
                 Primario
-              </div>
+              </Badge>
             )}
             {contact.role_in_account && (
               <Badge
                 variant="outline"
-                className={`text-xs ${ROLE_STYLES[contact.role_in_account] ?? 'bg-muted text-muted-foreground border-transparent'}`}
+                className={ROLE_STYLES[contact.role_in_account] ?? 'bg-muted text-muted-foreground border-transparent'}
               >
                 {ROLE_LABELS[contact.role_in_account as ContactRole]}
               </Badge>
@@ -265,7 +266,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
             {account && (
               <Link
                 href={`/accounts/${account.id}`}
-                className="text-xs text-su-brand hover:underline"
+                className="text-xs text-primary hover:underline"
               >
                 {account.name}
               </Link>
@@ -283,15 +284,15 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
       */}
       {loading ? (
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/40" />
+          <Loader2 className="h-6 w-6 animate-spin text-text-muted" />
         </div>
       ) : !contact ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
-          <div className="mb-3 rounded-full bg-muted/60 p-3">
+          <div className="mb-3 rounded-full bg-surface-muted p-3">
             {loadOutcome === 'load_error' ? (
-              <AlertCircle className="h-6 w-6 text-destructive/70" />
+              <AlertCircle className="h-6 w-6 text-destructive" />
             ) : (
-              <UserX className="h-6 w-6 text-muted-foreground/40" />
+              <UserX className="h-6 w-6 text-text-muted" />
             )}
           </div>
           <p className="text-sm font-medium text-foreground">
@@ -329,12 +330,11 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                 {/* Resumen */}
                 <TabsContent value="resumen" className="space-y-4">
                   <div className="grid gap-4 md:grid-cols-2">
-                    <SurfaceCard>
-                      <SurfaceCardHeader title="Datos de contacto" />
+                    <DrawerSection title="Datos de contacto" icon={Mail}>
                       <dl className="space-y-3">
                         {contact.email && (
                           <DetailRow icon={Mail} label="Email">
-                            <a href={`mailto:${contact.email}`} className="text-su-brand hover:underline">
+                            <a href={`mailto:${contact.email}`} className="text-primary hover:underline">
                               {contact.email}
                             </a>
                           </DetailRow>
@@ -388,7 +388,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                               href={contact.linkedin_url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="text-su-brand hover:underline"
+                              className="text-primary hover:underline"
                             >
                               {contact.linkedin_url}
                             </a>
@@ -396,18 +396,17 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                         )}
                         <DetailRow icon={Building2} label="Cuenta">
                           {account ? (
-                            <Link href={`/accounts/${account.id}`} className="text-su-brand hover:underline">
+                            <Link href={`/accounts/${account.id}`} className="text-primary hover:underline">
                               {account.name}
                             </Link>
                           ) : (
-                            <span className="text-muted-foreground/50">Sin cuenta</span>
+                            <span className="text-muted-foreground">Sin cuenta</span>
                           )}
                         </DetailRow>
                       </dl>
-                    </SurfaceCard>
+                    </DrawerSection>
 
-                    <SurfaceCard>
-                      <SurfaceCardHeader title="Cargo y función" />
+                    <DrawerSection title="Cargo y función" icon={Briefcase}>
                       <dl className="space-y-3">
                         {contact.job_title && (
                           <DetailRow icon={Briefcase} label="Cargo">{contact.job_title}</DetailRow>
@@ -424,14 +423,14 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                           <DetailRow icon={Tag} label="Rol en cuenta">
                             <Badge
                               variant="outline"
-                              className={`text-[10px] ${ROLE_STYLES[contact.role_in_account] ?? 'bg-muted text-muted-foreground border-transparent'}`}
+                              className={ROLE_STYLES[contact.role_in_account] ?? 'bg-muted text-muted-foreground border-transparent'}
                             >
                               {ROLE_LABELS[contact.role_in_account as ContactRole]}
                             </Badge>
                           </DetailRow>
                         )}
                         <DetailRow icon={Tag} label="Fuente">
-                          <Badge variant="outline" className="text-[10px] bg-muted/40 border-transparent text-muted-foreground">
+                          <Badge variant="neutral">
                             {CONTACT_SOURCE_LABELS[contact.source]}
                           </Badge>
                         </DetailRow>
@@ -440,8 +439,8 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                         </DetailRow>
                       </dl>
                       {contact.notes && (
-                        <div className="mt-4 rounded-lg bg-muted/40 px-3 py-2.5">
-                          <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+                        <div className="mt-4 rounded-lg bg-surface-subtle px-3 py-2.5">
+                          <p className="mb-1 text-xs font-semibold text-muted-foreground">
                             Notas
                           </p>
                           <p className="text-xs text-muted-foreground leading-relaxed">
@@ -449,17 +448,13 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                           </p>
                         </div>
                       )}
-                    </SurfaceCard>
+                    </DrawerSection>
                   </div>
                 </TabsContent>
 
                 {/* Actividad */}
                 <TabsContent value="actividad">
-                  <SurfaceCard>
-                    <SurfaceCardHeader
-                      title="Registro de actividad"
-                      description="Cambios y eventos de auditoría de este contacto."
-                    />
+                  <DrawerSection title="Registro de actividad" icon={Activity} hint="Cambios y eventos de auditoría de este contacto.">
                     {auditLog.length === 0 ? (
                       <p className="py-6 text-center text-xs text-muted-foreground">
                         Sin actividad registrada todavía.
@@ -468,19 +463,19 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                       <ol className="space-y-3">
                         {auditLog.map((entry) => (
                           <li key={entry.id} className="flex items-start gap-3">
-                            <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted/60">
-                              <Activity className="h-3.5 w-3.5 text-muted-foreground/60" />
+                            <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-muted">
+                              <Activity className="h-3.5 w-3.5 text-muted-foreground" />
                             </div>
                             <div className="min-w-0 flex-1">
                               <p className="text-xs font-medium text-foreground">
                                 {AUDIT_LABELS[entry.action_type]}
                               </p>
                               {entry.actor && (
-                                <p className="text-[11px] text-muted-foreground">
+                                <p className="text-xs text-muted-foreground">
                                   por {entry.actor.full_name ?? entry.actor.email}
                                 </p>
                               )}
-                              <p className="text-[11px] text-muted-foreground/50">
+                              <p className="text-xs text-muted-foreground">
                                 {formatDate(entry.created_at)}
                               </p>
                             </div>
@@ -488,7 +483,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                         ))}
                       </ol>
                     )}
-                  </SurfaceCard>
+                  </DrawerSection>
                 </TabsContent>
 
                 {/* Enriquecimiento — Calidad y trazabilidad */}
@@ -520,7 +515,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                         {contact.hubspot_contact_id ? (
                           <span className="font-mono text-xs">{contact.hubspot_contact_id}</span>
                         ) : (
-                          <span className="text-muted-foreground/50">No vinculado</span>
+                          <span className="text-muted-foreground">No vinculado</span>
                         )}
                       </DetailRow>
                       <DetailRow icon={Tag} label="Estado de sincronización">
@@ -562,7 +557,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                       })()}
                     </dl>
                     {!contact.email && (
-                      <p className="mt-3 text-[11px] text-muted-foreground">
+                      <p className="mt-3 text-xs text-muted-foreground">
                         Este contacto no tiene email, requisito para sincronizar con HubSpot.
                       </p>
                     )}
@@ -582,7 +577,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                       );
                       if (!annex) return null;
                       return (
-                        <p className="mt-3 text-[11px] text-muted-foreground">
+                        <p className="mt-3 text-xs text-muted-foreground">
                           {HUBSPOT_AUTO_SYNC_BLOCKED_LABELS[annex.blocked_reason]} (
                           {formatDate(annex.checked_at)}). Puedes sincronizarlo con el botón
                           cuando la conexión esté disponible.
@@ -609,7 +604,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                       );
                       if (!annex) return null;
                       return (
-                        <p className="mt-3 text-[11px] text-muted-foreground">
+                        <p className="mt-3 text-xs text-muted-foreground">
                           No se pudo actualizar automáticamente porque{' '}
                           {HUBSPOT_AUTO_UPDATE_BLOCKED_DETAIL[annex.blocked_reason]} (
                           {formatDate(annex.checked_at)}). El cambio sigue pendiente y se puede
@@ -631,7 +626,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                       if (!hasPendingHubSpotPhoneChange(state)) return null;
                       if (state?.stale_source !== 'privacy') return null;
                       return (
-                        <p className="mt-3 text-[11px] text-muted-foreground">
+                        <p className="mt-3 text-xs text-muted-foreground">
                           Este cambio proviene de una solicitud de privacidad, así que no se envía
                           automáticamente: requiere una acción explícita con el botón.
                         </p>
@@ -643,7 +638,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                       todavía no viaja a HubSpot. Decirlo aquí evita que el badge se lea como una
                       promesa que este corte no cumple.
                     */}
-                    <p className="mt-3 text-[11px] text-muted-foreground">
+                    <p className="mt-3 text-xs text-muted-foreground">
                       «Sincronizado» significa que el contacto existe en HubSpot y está vinculado
                       a SellUp. «Pendiente de actualizar» significa que el teléfono cambió en
                       SellUp después de vincularlo y todavía no se ha enviado: se envía con el
@@ -671,10 +666,9 @@ function TraceCard({
   children: React.ReactNode;
 }) {
   return (
-    <SurfaceCard>
-      <SurfaceCardHeader title={title} />
+    <DrawerSection title={title}>
       <dl className="space-y-3">{children}</dl>
-    </SurfaceCard>
+    </DrawerSection>
   );
 }
 
@@ -688,7 +682,7 @@ function TraceRow({
   return (
     <div className="flex items-start gap-2.5">
       <div className="min-w-0 flex-1">
-        <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+        <dt className="text-xs font-semibold text-muted-foreground">
           {label}
         </dt>
         <dd className="mt-0.5 text-xs text-foreground">{children}</dd>
@@ -699,7 +693,7 @@ function TraceRow({
 
 function EmptyTrace({ message }: { message: string }) {
   return (
-    <p className="py-2 text-xs text-muted-foreground/60 italic">{message}</p>
+    <p className="py-2 text-xs text-muted-foreground italic">{message}</p>
   );
 }
 
@@ -714,16 +708,13 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
           <span className="flex items-center gap-1.5">
             {vm.hasSourceCandidate ? (
               <Badge
-                variant="outline"
-                className="text-[10px] bg-su-brand-soft text-su-brand border-transparent"
-              >
+ variant="brand">
                 {vm.originLabel}
               </Badge>
             ) : (
               <Badge
                 variant="outline"
-                className="text-[10px] bg-muted/40 border-transparent text-muted-foreground"
-              >
+                className="bg-surface-subtle border-transparent text-muted-foreground">
                 {vm.originLabel}
               </Badge>
             )}
@@ -732,14 +723,13 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
         <TraceRow label="Fuente">
           <Badge
             variant="outline"
-            className="text-[10px] bg-muted/40 border-transparent text-muted-foreground"
-          >
+            className="bg-surface-subtle border-transparent text-muted-foreground">
             {vm.sourceLabel}
           </Badge>
         </TraceRow>
         {vm.hasSourceCandidate && vm.sourceCandidateId && (
           <TraceRow label="ID candidato">
-            <span className="font-mono text-[11px] text-muted-foreground">
+            <span className="font-mono text-xs text-muted-foreground">
               {vm.sourceCandidateId}
             </span>
           </TraceRow>
@@ -771,8 +761,7 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
                     <Badge
                       key={f}
                       variant="outline"
-                      className="text-[10px] bg-muted/40 border-transparent text-muted-foreground"
-                    >
+                      className="bg-surface-subtle border-transparent text-muted-foreground">
                       {f}
                     </Badge>
                   ))}
@@ -783,9 +772,9 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
               <TraceRow label="Canal accionable">
                 <span className="flex items-center gap-1">
                   {vm.hasActionableChannel ? (
-                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                    <CheckCircle2 className="h-3.5 w-3.5 text-success" />
                   ) : (
-                    <XCircle className="h-3.5 w-3.5 text-muted-foreground/40" />
+                    <XCircle className="h-3.5 w-3.5 text-text-muted" />
                   )}
                   <span>{vm.hasActionableChannel ? 'Sí' : 'No'}</span>
                 </span>
@@ -801,7 +790,7 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
           <>
             <TraceRow label="Estado">
               <span className="flex items-center gap-1">
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                <CheckCircle2 className="h-3.5 w-3.5 text-success" />
                 <span>Normalizado</span>
               </span>
             </TraceRow>
@@ -812,8 +801,7 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
                     <Badge
                       key={f}
                       variant="outline"
-                      className="text-[10px] bg-muted/40 border-transparent text-muted-foreground"
-                    >
+                      className="bg-surface-subtle border-transparent text-muted-foreground">
                       {f}
                     </Badge>
                   ))}
@@ -837,19 +825,19 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
         <TraceRow label="Estado">
           {vm.hubspotSyncTone === 'synced' ? (
             <span className="flex items-center gap-1">
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+              <CheckCircle2 className="h-3.5 w-3.5 text-success" />
               <span>{vm.hubspotSyncLabel}</span>
             </span>
           ) : (
             <span className="flex items-center gap-1">
-              <XCircle className="h-3.5 w-3.5 text-muted-foreground/40" />
+              <XCircle className="h-3.5 w-3.5 text-text-muted" />
               <span className="text-muted-foreground">{vm.hubspotSyncLabel}</span>
             </span>
           )}
         </TraceRow>
         {vm.hubspotContactId && (
           <TraceRow label="HubSpot Contact ID">
-            <span className="font-mono text-[11px] text-muted-foreground">
+            <span className="font-mono text-xs text-muted-foreground">
               {vm.hubspotContactId}
             </span>
           </TraceRow>
@@ -858,8 +846,7 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
           <TraceRow label="Modo">
             <Badge
               variant="outline"
-              className="text-[10px] bg-muted/40 border-transparent text-muted-foreground"
-            >
+              className="bg-surface-subtle border-transparent text-muted-foreground">
               {vm.hubspotMode === 'created' ? 'Creado en HubSpot' :
                vm.hubspotMode === 'linked_existing' ? 'Vinculado a existente' :
                vm.hubspotMode}
@@ -870,10 +857,10 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
           <TraceRow label="Asociación con empresa">
             <Badge
               variant="outline"
-              className={`text-[10px] border-transparent ${
-                vm.hubspotAssociationStatus === 'associated'
-                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                  : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+              className={`border-transparent ${
+                vm.hubspotAssociationStatus ==='associated'
+                  ?'bg-success/10 text-success dark:text-success'
+                  :'bg-warning/10 text-warning dark:text-warning'
               }`}
             >
               {vm.hubspotAssociationStatus === 'associated' ? 'Asociado' :
@@ -882,7 +869,7 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
             </Badge>
           </TraceRow>
         )}
-        <p className="mt-2 text-[10px] text-muted-foreground/40 italic">
+        <p className="mt-2 text-xs text-text-muted italic">
           Para sincronizar o ver el detalle completo, ve al tab HubSpot.
         </p>
       </TraceCard>
@@ -892,12 +879,12 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
 
 function RelevanceBadge({ label }: { label: string }) {
   const styles: Record<string, string> = {
-    Alta: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-transparent',
-    Media: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-transparent',
-    Baja: 'bg-muted/40 text-muted-foreground border-transparent',
+    Alta: 'bg-success/10 text-success border-transparent',
+    Media: 'bg-warning/10 text-warning border-transparent',
+    Baja: 'bg-surface-subtle text-muted-foreground border-transparent',
   };
   return (
-    <Badge variant="outline" className={`text-[10px] ${styles[label] ?? 'bg-muted/40 text-muted-foreground border-transparent'}`}>
+    <Badge variant="outline" className={styles[label] ?? 'bg-surface-subtle text-muted-foreground border-transparent'}>
       {label}
     </Badge>
   );
@@ -926,14 +913,14 @@ function DetailRow({
   // Design Refresh v6: layout horizontal (label izquierda / valor derecha),
   // consistente con el drawer de Empresa.
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-start gap-3">
       <div className="flex shrink-0 items-center gap-2 min-w-[104px]">
-        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-        <dt className="text-[11px] font-medium text-muted-foreground/80">
+        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <dt className="text-xs font-medium text-muted-foreground">
           {label}
         </dt>
       </div>
-      <dd className="min-w-0 flex-1 text-right text-xs text-foreground">{children}</dd>
+      <dd className="min-w-0 flex-1 break-words text-right text-xs text-foreground">{children}</dd>
     </div>
   );
 }

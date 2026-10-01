@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Link2, Search, Bot, Users, Activity, HardDrive, Database, Layers } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { SurfaceCard } from "@/components/shared/surface-card";
+import { Badge } from "@/components/ui/badge";
 import { isCurrentUserAdmin, getUsersSummary, hasActiveAccess } from "@/modules/access/actions";
 import { getUserDriveConnection } from "@/modules/drive/actions";
 
@@ -79,7 +80,7 @@ export default async function SettingsPage() {
   );
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <PageHeader
         title="Configuración e Integraciones"
         description="Parámetros del sistema, integraciones externas y configuración de agentes."
@@ -97,39 +98,37 @@ export default async function SettingsPage() {
           const CardContent = (
             <div className="flex items-start gap-4">
               <div
-                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors ${
+                className={`flex size-10 shrink-0 items-center justify-center rounded-xl transition-colors ${
                   section.status === 'Funcional'
-                    ? 'bg-su-brand-soft text-su-brand group-hover:bg-su-brand/20'
-                    : 'bg-accent/60 text-muted-foreground/40 group-hover:bg-su-brand/10 group-hover:text-su-brand/60'
+                    ? 'bg-primary/10 text-primary group-hover:bg-primary/15'
+                    : 'bg-surface-muted text-text-muted group-hover:bg-primary/10 group-hover:text-primary'
                 }`}
               >
-                <section.icon className="h-4 w-4" />
+                <section.icon className="size-4" />
               </div>
               <div className="min-w-0 flex-1 space-y-1">
                 <div className="flex items-start justify-between gap-3">
-                  <h2 className="text-sm font-semibold leading-tight text-foreground">
+                  <h2 className="text-base font-semibold leading-tight tracking-tight text-foreground">
                     {section.title}
                   </h2>
                   <div className="flex shrink-0 items-center gap-2">
                     {pendingCount > 0 && (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-amber-500">
+                      <Badge variant="warning">
                         {pendingCount} pendiente{pendingCount > 1 ? 's' : ''}
-                      </span>
+                      </Badge>
                     )}
                     {'badge' in section && section.badge && (
-                      <span className="inline-flex items-center rounded-full border border-su-brand/30 bg-su-brand-soft px-2.5 py-0.5 text-[10px] font-medium text-su-brand">
-                        {section.badge}
-                      </span>
+                      <Badge variant="brand">{section.badge}</Badge>
                     )}
                     {section.status !== 'Funcional' && (
-                      <span className="inline-flex items-center gap-1.5 rounded-full border border-border/40 bg-muted/30 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground/60">
-                        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/25" />
+                      <Badge variant="neutral">
+                        <span className="size-1.5 rounded-full bg-muted-foreground/40" />
                         {section.status}
-                      </span>
+                      </Badge>
                     )}
                   </div>
                 </div>
-                <p className="text-xs leading-relaxed text-muted-foreground">
+                <p className="text-sm leading-relaxed text-muted-foreground">
                   {section.description}
                 </p>
               </div>
@@ -138,8 +137,12 @@ export default async function SettingsPage() {
 
           if (section.href) {
             return (
-              <Link key={section.title} href={section.href}>
-                <SurfaceCard className="group cursor-pointer transition-all hover:border-su-brand/30 hover:shadow-md">
+              <Link
+                key={section.title}
+                href={section.href}
+                className="block rounded-2xl focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+              >
+                <SurfaceCard className="group h-full cursor-pointer hover:border-primary/30 hover:shadow-drawer">
                   {CardContent}
                 </SurfaceCard>
               </Link>
@@ -155,33 +158,30 @@ export default async function SettingsPage() {
 
         {/* Mi Google Drive — visible para todo usuario activo */}
         {isActive && (
-          <Link href="/settings/my-drive">
-            <SurfaceCard className="group cursor-pointer transition-all hover:border-su-brand/30 hover:shadow-md">
+          <Link
+            href="/settings/my-drive"
+            className="block rounded-2xl focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+          >
+            <SurfaceCard className="group h-full cursor-pointer hover:border-primary/30 hover:shadow-drawer">
               <div className="flex items-start gap-4">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-su-brand-soft text-su-brand transition-colors group-hover:bg-su-brand/20">
-                  <HardDrive className="h-4 w-4" />
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
+                  <HardDrive className="size-4" />
                 </div>
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex items-start justify-between gap-3">
-                    <h2 className="text-sm font-semibold leading-tight text-foreground">
+                    <h2 className="text-base font-semibold leading-tight tracking-tight text-foreground">
                       Mi Google Drive
                     </h2>
-                    <span
-                      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${
-                        driveConnected
-                          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500'
-                          : 'border-border/40 bg-muted/30 text-muted-foreground/60'
-                      }`}
-                    >
+                    <Badge variant={driveConnected ? 'positive' : 'neutral'} className="shrink-0">
                       <span
-                        className={`h-1.5 w-1.5 rounded-full ${
-                          driveConnected ? 'bg-emerald-500' : 'bg-muted-foreground/25'
+                        className={`size-1.5 rounded-full ${
+                          driveConnected ? 'bg-success' : 'bg-muted-foreground/40'
                         }`}
                       />
                       {driveConnected ? 'Conectado' : 'No conectado'}
-                    </span>
+                    </Badge>
                   </div>
-                  <p className="text-xs leading-relaxed text-muted-foreground">
+                  <p className="text-sm leading-relaxed text-muted-foreground">
                     Conecta tu Drive para guardar propuestas, business cases y archivos generados por SellUp en tu propio espacio de trabajo.
                   </p>
                 </div>

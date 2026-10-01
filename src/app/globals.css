@@ -51,18 +51,47 @@
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
 
-  /* Radius — escala operativa Design Refresh v1.
-     La escala anterior (sm 10 · md 14 · lg 20 · xl 28 · 2xl 32) inflaba cards y
-     contenedores de datos; con listas/tablas dentro se veían "globo".
-     Nueva escala: sm 6px · md 8px (base) · lg 12px · xl 16px · 2xl 20px · 3xl 24px · 4xl 32px.
-     rounded-full se mantiene para pills, badges y avatares. */
-  --radius-sm: 0.375rem;
-  --radius-md: 0.5rem;
+  /* Radius — escala Thema (tema Azul). Monótona y anclada en el shell:
+     md (10px) es el radio de todo lo que se pulsa (botones, inputs, filas) y
+     2xl (16px) el de paneles y cards. Los pasos intermedios garantizan que una
+     card anidada siempre redondee un poco menos que el panel que la contiene.
+     xs 6 · sm 8 · md 10 · lg 12 · xl 14 · 2xl 16 · 3xl 24 · 4xl 32.
+     rounded-full se mantiene para pills y avatares. */
+  --radius-xs: 0.375rem;
+  --radius-sm: 0.5rem;
+  --radius-md: 0.625rem;
   --radius-lg: 0.75rem;
-  --radius-xl: 1rem;
-  --radius-2xl: 1.25rem;
+  --radius-xl: 0.875rem;
+  --radius-2xl: 1rem;
   --radius-3xl: 1.5rem;
   --radius-4xl: 2rem;
+
+  /* Thema — nombres semánticos del sistema de diseño de referencia.
+     Permiten portar piezas de Thema sin traducir clases
+     (bg-surface, text-text-secondary, bg-tab-track, border-border-strong…). */
+  --color-surface: var(--card);
+  --color-surface-muted: var(--surface-muted);
+  --color-surface-subtle: var(--surface-subtle);
+  --color-tab-track: var(--tab-track);
+  --color-text-primary: var(--foreground);
+  --color-text-secondary: var(--muted-foreground);
+  --color-text-muted: var(--text-muted);
+  --color-border-strong: var(--su-border-strong);
+  --color-brand: var(--su-brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-pressed: var(--brand-pressed);
+  --color-nav: var(--nav);
+  --color-nav-foreground: var(--nav-foreground);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-ai-bg: var(--ai-bg);
+  --color-ai-border: var(--ai-border);
+
+  /* Sombras Thema — teñidas en navy, nunca negro neutro.
+     card: reposo de cualquier superficie · drawer: paneles y diálogos ·
+     rail: barra de acciones flotante (lo único que flota sobre contenido vivo). */
+  --shadow-card: 0 1px 2px rgb(15 23 42 / 0.03), 0 2px 6px rgb(15 23 42 / 0.02);
+  --shadow-drawer: 0 4px 16px rgb(15 23 42 / 0.12), 0 1px 4px rgb(15 23 42 / 0.05);
+  --shadow-rail: 0 8px 30px rgb(15 23 42 / 0.24), 0 2px 8px rgb(15 23 42 / 0.12);
 
   /* SellUp — tokens semánticos de marca */
   --color-su-brand: var(--su-brand);
@@ -97,188 +126,208 @@
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   Light mode — UBITS-aligned palette: cool blue-tinted whites + vibrant brand
-   Source of truth: plantilla-proyectos-shadcn (tokens.css) → oklch converted
+   Light mode — tema "Azul" de Thema (~/Documents/Thema Shadcn, preset `thema`).
+   Valores generados con `themeToCss(findPreset("thema"), "md")`: azul clásico
+   #0C5BEF sobre neutros fríos teñidos con el matiz 222.
+   Lo que NO cambia con el tema, a propósito: positivo, negativo, warning, info
+   y la navegación navy. Son significado, no decoración.
 ───────────────────────────────────────────────────────────────────────────── */
 :root {
-  /* Design Refresh v14: fondos neutros (menos tinte azul). Off-white casi
-     neutro y texto gris neutro; el azul queda solo en su-brand/acentos. */
-  --background: oklch(0.985 0.002 269);
-  --foreground: oklch(0.345 0.008 255);
+  /* Fondo de app — blanco con un punto de azul (#f7faff) */
+  --background: hsl(222 100% 98.5%);
+  --foreground: hsl(222 19% 23%);               /* #303646 títulos */
 
-  /* Cards / surfaces — pure white with cool undertone */
-  --card: oklch(1 0 90);
-  --card-foreground: oklch(0.345 0.008 255);
-  --popover: oklch(1 0 90);
-  --popover-foreground: oklch(0.345 0.008 255);
+  /* Cards / superficies — blanco puro */
+  --card: hsl(0 0% 100%);
+  --card-foreground: hsl(222 19% 23%);
+  --popover: hsl(0 0% 100%);
+  --popover-foreground: hsl(222 19% 23%);
 
-  /* Primary — always mirrors su-brand token */
+  /* Primary — siempre refleja su-brand */
   --primary: var(--su-brand);
   --primary-foreground: var(--su-brand-foreground);
 
-  /* Secondary — gris muy claro neutro */
-  --secondary: oklch(0.955 0.004 267);
-  --secondary-foreground: oklch(0.345 0.008 255);
+  /* Secondary / muted — superficie teñida (#f0f4ff) */
+  --secondary: hsl(222 100% 97%);
+  --secondary-foreground: hsl(222 19% 23%);
+  --muted: hsl(222 100% 97%);
+  --muted-foreground: hsl(222 10% 40%);         /* #5c6270 cuerpo y subtítulos */
 
-  /* Muted — igual que secondary para compat shadcn */
-  --muted: oklch(0.955 0.004 267);
-  --muted-foreground: oklch(0.500 0.007 256);
+  /* Accent — hover teñido de azul, coherente con el fondo */
+  --accent: hsl(222 28% 90%);
+  --accent-foreground: hsl(222 19% 23%);
 
-  /* Accent — gris claro hover neutro */
-  --accent: oklch(0.915 0.005 258);
-  --accent-foreground: oklch(0.345 0.008 255);
+  /* Destructive — negativo Thema (#E9343C) */
+  --destructive: hsl(357 80% 56%);
+  --destructive-foreground: hsl(0 0% 100%);
 
-  /* Destructive — UBITS negative (#e9343c) */
-  --destructive: oklch(0.612 0.216 24);
+  /* Estados semánticos (Alert, indicadores). Mismo verde que emerald-600,
+     para que un chip de tabla y una métrica nunca se lean como dos verdes. */
+  --info: hsl(225 83% 61%);                     /* #4A74EE */
+  --warning: hsl(27 100% 52%);                  /* #FF7B0D */
+  --success: hsl(161.4 93.5% 30.4%);            /* #059669 */
 
-  /* Semantic status colors — used by Alert and status indicators.
-     Mapped to Tailwind utilities via --color-* tokens in @theme inline. */
-  --info: oklch(0.595 0.190 266);
-  --warning: oklch(0.749 0.160 71);
-  --success: oklch(0.571 0.160 142);
+  /* Bordes — #cfd0d3 */
+  --border: hsl(222 4% 82%);
+  --input: hsl(222 4% 82%);
+  --ring: hsl(219 90.4% 49.2%);
 
-  /* Borders — UBITS #d0d2d5 */
-  --border: oklch(0.863 0.005 258);
-  --input: oklch(0.863 0.005 258);
-  --ring: oklch(0.530 0.233 262 / 40%);
+  /* Charts — del primario hacia el espectro frío */
+  --chart-1: hsl(219 90.4% 49.2%);
+  --chart-2: hsl(262 83% 58%);
+  --chart-3: hsl(199 89% 48%);
+  --chart-4: hsl(161.4 93.5% 30.4%);
+  --chart-5: hsl(27 100% 52%);
 
-  /* Charts — gradient from brand through cool spectrum */
-  --chart-1: oklch(0.53 0.233 262);
-  --chart-2: oklch(0.58 0.16 290);
-  --chart-3: oklch(0.62 0.14 230);
-  --chart-4: oklch(0.55 0.12 200);
-  --chart-5: oklch(0.65 0.10 170);
+  /* Radius base — 10px: el radio de todo lo que se pulsa */
+  --radius: 0.625rem;
 
-  /* Radius base — 8px (Design Refresh v1: inputs y botones nítidos) */
-  --radius: 0.5rem;
+  /* Sidebar — riel claro de Thema: superficie de card con borde, ítem activo
+     en primario sobre tinte. (El navy queda disponible como bg-nav.) */
+  --sidebar: hsl(0 0% 100%);
+  --sidebar-foreground: hsl(222 19% 23%);
+  --sidebar-primary: hsl(219 90.4% 49.2%);
+  --sidebar-primary-foreground: hsl(0 0% 100%);
+  --sidebar-accent: hsl(222 100% 97%);
+  --sidebar-accent-foreground: hsl(219 90.4% 49.2%);
+  --sidebar-border: hsl(222 14% 90%);
+  --sidebar-ring: hsl(219 90.4% 49.2% / 40%);
+  --nav: hsl(222 47% 11%);
+  --nav-foreground: hsl(222 12% 98%);
 
-  /* Sidebar — UBITS surface-nav (#111827) — deep navy */
-  --sidebar: oklch(0.210 0.032 265);
-  --sidebar-foreground: oklch(0.985 0.007 269);
-  --sidebar-primary: oklch(0.530 0.233 262);
-  --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.279 0.037 260);
-  --sidebar-accent-foreground: oklch(0.985 0.007 269);
-  --sidebar-border: oklch(0.279 0.037 260);
-  --sidebar-ring: oklch(0.530 0.233 262 / 30%);
+  /* Superficies y texto extra de Thema */
+  --surface-muted: hsl(222 100% 97%);           /* #f0f4ff sección apagada */
+  --surface-subtle: hsl(222 100% 99%);          /* #fafbff hundida, bajo una card */
+  --tab-track: #ebeffa;                         /* pista de pestañas */
+  --text-muted: #989ca4;                        /* hints y placeholders */
+  --brand-hover: #0a4cc8;
+  --brand-pressed: #083da1;
+  --ai-bg: #f1f0ff;
+  --ai-border: #9699fd;
+
+  /* Atmósfera de página — halo radial del primario detrás del contenido */
+  --page-atmosphere: radial-gradient(1400px 1000px at 12% -12%, rgb(12 91 239 / 0.1), transparent 70%);
+  --brand-gradient: linear-gradient(135deg, #4381f6 0%, #0c5bef 52%, #0a49be 100%);
 
   /* SellUp semantic tokens */
-  --su-brand: oklch(0.530 0.233 262);            /* #0c5bef UBITS brand */
-  --su-brand-soft: oklch(0.530 0.233 262 / 8%);
-  --su-brand-foreground: oklch(0.99 0 0);
-  --su-surface: oklch(0.979 0.003 267);          /* gris muy claro neutro */
-  --su-surface-elevated: oklch(1 0 90);
-  --su-border-subtle: oklch(0.915 0.005 258);
-  --su-border-strong: oklch(0.689 0.005 264);
+  --su-brand: hsl(219 90.4% 49.2%);              /* #0C5BEF */
+  --su-brand-soft: hsl(219 90.4% 49.2% / 8%);
+  --su-brand-foreground: hsl(0 0% 100%);
+  --su-surface: hsl(222 100% 99%);
+  --su-surface-elevated: hsl(0 0% 100%);
+  --su-border-subtle: hsl(222 20% 91%);
+  --su-border-strong: hsl(222 6% 62%);           /* #989ca4 */
 
-  /* Accent spectrum — aligned with UBITS semantic states */
-  --su-accent-warm: oklch(0.612 0.216 24);       /* negative */
-  --su-accent-cool: oklch(0.595 0.190 266);      /* info */
-  --su-success: oklch(0.571 0.160 142);          /* positive #328e2c */
-  --su-warning: oklch(0.749 0.160 71);           /* warning #EC9907 */
+  /* Accent spectrum — alineado con los estados */
+  --su-accent-warm: hsl(357 80% 56%);            /* negativo */
+  --su-accent-cool: hsl(225 83% 61%);            /* info */
+  --su-success: hsl(161.4 93.5% 30.4%);          /* positivo #059669 */
+  --su-warning: hsl(27 100% 52%);                /* warning #FF7B0D */
 
-  /* AI gradient — 5 stops 'to right' (azul → violeta → magenta → rosa → naranja) */
+  /* AI gradient — 5 paradas del tema Azul (azul → violeta → magenta → naranja) */
   --su-ai-stop-1: #2d5cf7;
-  --su-ai-stop-2: #7c3aed;
-  --su-ai-stop-3: #c026d3;
-  --su-ai-stop-4: #e11d48;
-  --su-ai-stop-5: #f97316;
+  --su-ai-stop-2: #9b14f5;
+  --su-ai-stop-3: #f2024e;
+  --su-ai-stop-4: #f2024e;
+  --su-ai-stop-5: #ff600a;
   --su-ai-from: var(--su-ai-stop-1);
   --su-ai-to: var(--su-ai-stop-5);
-  --su-ai-surface: rgba(45, 92, 247, 0.1);
-  --su-ai-glow: rgba(45, 92, 247, 0.3);
+  --su-ai-surface: rgb(45 92 247 / 0.1);
+  --su-ai-glow: rgb(45 92 247 / 0.3);
+  --su-ai-send-shadow: 0 2px 8px rgb(45 92 247 / 0.35);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   Dark mode — UBITS-aligned: near-black bg, deep navy cards, bright brand
-   Source of truth: plantilla-proyectos-shadcn (globals.css .dark)
+   Dark mode — tema "Azul" de Thema en oscuro: base navy profunda (#0d1321),
+   cards elevadas (#171f31) y azul más luminoso (#3865F5). Los neutros llevan
+   el matiz 222 con saturación 45: es el navy del tema, no un gris.
 ───────────────────────────────────────────────────────────────────────────── */
 .dark {
-  /* Design Refresh v14: superficies neutras negro/gris (sin tinte azul).
-     Se mantiene la luminosidad de cada capa pero se baja el croma (~0.04 → ~0.005)
-     para quitar el navy. El azul queda solo en su-brand/acentos. */
-  --background: oklch(0.135 0.004 265);
-  --foreground: oklch(0.949 0.002 248);
+  --background: hsl(222 45% 9%);                /* #0d1321 */
+  --foreground: hsl(222 6% 93%);                /* #ecedee */
 
-  /* Cards — gris muy oscuro neutro */
-  --card: oklch(0.205 0.005 266);
-  --card-foreground: oklch(0.949 0.002 248);
-  --popover: oklch(0.255 0.005 258);
-  --popover-foreground: oklch(0.949 0.002 248);
+  --card: hsl(222 36% 14%);                     /* #171f31 */
+  --card-foreground: hsl(222 6% 93%);
+  --popover: hsl(222 37% 17%);
+  --popover-foreground: hsl(222 6% 93%);
 
-  /* Primary — always mirrors su-brand token */
   --primary: var(--su-brand);
   --primary-foreground: var(--su-brand-foreground);
 
-  /* Secondary — gris oscuro neutro */
-  --secondary: oklch(0.265 0.005 260);
-  --secondary-foreground: oklch(0.949 0.002 248);
+  --secondary: hsl(222 31% 19%);                /* #212a3f */
+  --secondary-foreground: hsl(222 6% 93%);
 
-  /* Muted — gris neutro.
-     muted-foreground en 0.72 (Design Refresh v1) para legibilidad del texto
-     secundario sobre fondos oscuros. */
-  --muted: oklch(0.225 0.005 267);
-  --muted-foreground: oklch(0.72 0.006 257);
+  /* muted es la superficie hundida; el texto secundario sube a 64% para que
+     se lea sobre navy. */
+  --muted: hsl(222 47% 11%);
+  --muted-foreground: hsl(222 6% 64%);          /* #9ea1a9 */
 
-  /* Accent — gris hover/active neutro */
-  --accent: oklch(0.315 0.006 265);
-  --accent-foreground: oklch(0.949 0.002 248);
+  --accent: hsl(222 47% 20%);                   /* hover / activo */
+  --accent-foreground: hsl(222 6% 93%);
 
-  /* Destructive — lighter red for dark visibility */
-  --destructive: oklch(0.626 0.193 23);
+  --destructive: hsl(357 72% 55%);
+  --destructive-foreground: hsl(0 0% 100%);
 
-  /* Semantic status colors — dark-mode tuned for legibility */
-  --info: oklch(0.700 0.165 260);
-  --warning: oklch(0.808 0.158 72);
-  --success: oklch(0.720 0.165 142);
+  --info: hsl(225 90% 70%);
+  --warning: hsl(38 94% 58%);
+  --success: hsl(158 64% 52%);
 
-  /* Borders — gris neutro (sin tinte azul); mantienen definición de superficie. */
-  --border: oklch(0.40 0.005 264);
-  --input: oklch(0.40 0.005 263);
-  --ring: oklch(0.564 0.221 266 / 50%);
+  --border: hsl(222 16% 29%);                   /* #3e4556 */
+  --input: hsl(222 16% 29%);
+  --ring: hsl(226 90.4% 59%);
 
-  /* Charts — luminous in dark */
-  --chart-1: oklch(0.564 0.221 266);
-  --chart-2: oklch(0.62 0.18 290);
-  --chart-3: oklch(0.65 0.15 230);
-  --chart-4: oklch(0.60 0.13 200);
-  --chart-5: oklch(0.68 0.11 170);
+  --chart-1: hsl(226 90.4% 59%);
+  --chart-2: hsl(262 83% 68%);
+  --chart-3: hsl(199 89% 58%);
+  --chart-4: hsl(158 64% 52%);
+  --chart-5: hsl(38 94% 58%);
 
-  /* Sidebar — capa más profunda, gris/negro neutro */
-  --sidebar: oklch(0.160 0.004 265);
-  --sidebar-foreground: oklch(0.949 0.002 248);
-  --sidebar-primary: oklch(0.564 0.221 266);
-  --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.265 0.005 260);
-  --sidebar-accent-foreground: oklch(0.949 0.002 248);
-  --sidebar-border: oklch(0.380 0.005 264);
-  --sidebar-ring: oklch(0.564 0.221 266 / 45%);
+  --sidebar: hsl(222 36% 14%);
+  --sidebar-foreground: hsl(222 6% 93%);
+  --sidebar-primary: hsl(226 90.4% 59%);
+  --sidebar-primary-foreground: hsl(0 0% 100%);
+  --sidebar-accent: hsl(222 31% 19%);
+  --sidebar-accent-foreground: hsl(226 90.4% 70%);
+  --sidebar-border: hsl(222 20% 22%);
+  --sidebar-ring: hsl(226 90.4% 59% / 45%);
+  --nav: hsl(222 47% 11%);
+  --nav-foreground: hsl(222 12% 98%);
 
-  /* SellUp semantic tokens */
-  --su-brand: oklch(0.564 0.221 266);            /* #3865f5 UBITS dark brand */
-  --su-brand-soft: oklch(0.564 0.221 266 / 12%);
-  --su-brand-foreground: oklch(0.99 0 0);
-  --su-surface: oklch(0.205 0.005 266);
-  --su-surface-elevated: oklch(0.265 0.005 260);
-  --su-border-subtle: oklch(0.380 0.005 264);
-  --su-border-strong: oklch(0.445 0.006 264);
+  --surface-muted: hsl(222 31% 19%);
+  --surface-subtle: hsl(222 47% 11%);
+  --tab-track: #10141e;
+  --text-muted: #6e727c;
+  --brand-hover: #5f83f7;
+  --brand-pressed: #86a1f9;
+  --ai-bg: #1c1a33;
+  --ai-border: #4c4ca9;
 
-  /* Accent spectrum */
-  --su-accent-warm: oklch(0.626 0.193 23);
-  --su-accent-cool: oklch(0.595 0.190 266);
-  --su-success: oklch(0.620 0.170 142);
-  --su-warning: oklch(0.769 0.165 70);
+  --page-atmosphere: radial-gradient(1400px 1000px at 12% -12%, rgb(56 101 245 / 0.18), transparent 70%);
+  --brand-gradient: linear-gradient(135deg, #7292f8 0%, #3865f5 52%, #0c42ee 100%);
 
-  /* AI gradient — 5 stops (idéntico en dark para consistencia de marca) */
-  --su-ai-stop-1: #2d5cf7;
-  --su-ai-stop-2: #7c3aed;
-  --su-ai-stop-3: #c026d3;
-  --su-ai-stop-4: #e11d48;
-  --su-ai-stop-5: #f97316;
+  --su-brand: hsl(226 90.4% 59%);                /* #3865F5 */
+  --su-brand-soft: hsl(226 90.4% 59% / 14%);
+  --su-brand-foreground: hsl(0 0% 100%);
+  --su-surface: hsl(222 36% 14%);
+  --su-surface-elevated: hsl(222 31% 19%);
+  --su-border-subtle: hsl(222 20% 22%);
+  --su-border-strong: hsl(222 10% 35%);
+
+  --su-accent-warm: hsl(357 72% 55%);
+  --su-accent-cool: hsl(225 90% 70%);
+  --su-success: hsl(158 64% 52%);
+  --su-warning: hsl(38 94% 58%);
+
+  --su-ai-stop-1: #547bf8;
+  --su-ai-stop-2: #ab3bf7;
+  --su-ai-stop-3: #fd2167;
+  --su-ai-stop-4: #fd2167;
+  --su-ai-stop-5: #ff7933;
   --su-ai-from: var(--su-ai-stop-1);
   --su-ai-to: var(--su-ai-stop-5);
-  --su-ai-surface: rgba(45, 92, 247, 0.1);
-  --su-ai-glow: rgba(45, 92, 247, 0.3);
+  --su-ai-surface: rgb(84 123 248 / 0.12);
+  --su-ai-glow: rgb(84 123 248 / 0.3);
+  --su-ai-send-shadow: 0 2px 10px rgb(84 123 248 / 0.4);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -293,25 +342,27 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    font-optical-sizing: auto;
+    font-feature-settings: "cv05", "cv08", "cv11", "ss01";
+    letter-spacing: -0.011em;
   }
   html {
     @apply font-sans;
     scroll-behavior: smooth;
   }
 
-  /* Headings — escala UBITS (alineada con plantilla-proyectos-shadcn) */
-  h1 { @apply text-2xl font-extrabold tracking-tight; }
+  /* Headings — escala Thema */
+  h1 { @apply text-2xl font-bold tracking-tight; }
   h2 { @apply text-xl font-bold tracking-tight; }
-  h3 { @apply text-lg font-bold; }
-  h4 { @apply text-base font-semibold; }
-  h5 { @apply text-sm font-semibold; }
+  h3 { @apply text-lg font-semibold tracking-tight; }
+  h4 { @apply text-base font-semibold tracking-tight; }
+  h5 { @apply text-sm font-semibold tracking-tight; }
   h6 {
-    @apply text-xs font-semibold uppercase tracking-wide text-muted-foreground;
+    @apply text-xs font-semibold text-muted-foreground;
   }
 
-  /* Iconos — stroke más fino, coherente con identidad visual UBITS */
-  svg.lucide,
+  /* Iconos — trazo más fino, como en Thema. El spinner conserva su grosor. */
+  svg.lucide:not(.animate-spin),
   [data-slot] svg,
   button svg,
   a svg {
@@ -404,6 +455,15 @@
   }
   .animate-su-accordion-up {
     animation: su-accordion-up 0.2s var(--ease-out-expo);
+  }
+
+  /* Atmósfera de página — el halo del tema detrás de header y contenido */
+  .page-atmosphere {
+    background-image: var(--page-atmosphere);
+    background-repeat: no-repeat;
+  }
+  .bg-brand-gradient {
+    background-image: var(--brand-gradient);
   }
 
   /* Glass surface utility */
@@ -577,6 +637,18 @@
   .animate-su-mirror-shine {
     animation: su-mirror-shine 2s ease-in-out infinite;
   }
+  /* Brillo de espejo que cruza un esqueleto de carga. Vive aquí para que
+     ningún componente escriba el degradado a mano. */
+  .su-mirror-shine {
+    background-image: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgb(255 255 255 / 0.07) 22%,
+      rgb(255 255 255 / 0.4) 50%,
+      rgb(255 255 255 / 0.07) 78%,
+      transparent 100%
+    );
+  }
   .animate-su-float {
     animation: su-float-up 3s ease-in-out infinite;
   }
@@ -651,8 +723,8 @@
     min-width: 0;
   }
   .su-table thead {
-    background: color-mix(in oklab, var(--muted) 50%, transparent);
-    border-bottom: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+    background: var(--surface-subtle);
+    border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
   }
   .su-table thead th {
     /* Design Refresh v1: header 11px→12px, tracking 0.06→0.04em, altura 40→44px.
@@ -661,12 +733,12 @@
     padding: 0 0.75rem;
     text-align: left;
     vertical-align: middle;
+    /* Thema: cabecera en caja normal, sin mayúsculas ni tracking forzado. */
     font-weight: 600;
     color: var(--muted-foreground);
     white-space: nowrap;
     font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0;
   }
   .su-table tbody tr {
     border-bottom: 1px solid color-mix(in oklab, var(--border) 45%, transparent);
@@ -676,10 +748,10 @@
     border-bottom: 0;
   }
   .su-table tbody tr:hover {
-    background: color-mix(in oklab, var(--muted) 40%, transparent);
+    background: color-mix(in oklab, var(--surface-muted) 70%, transparent);
   }
   .su-table tbody tr[data-state="selected"] {
-    background: color-mix(in oklab, var(--su-brand) 8%, transparent);
+    background: color-mix(in oklab, var(--su-brand) 7%, transparent);
   }
   .su-table tbody td {
     /* Más aire vertical (12px → 14px) para que las filas respiren */
@@ -727,10 +799,15 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: oklch(from var(--foreground) l c h / 12%);
+    background: var(--border);
     border-radius: 999px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: oklch(from var(--foreground) l c h / 20%);
+    background: var(--su-border-strong);
+  }
+  /* Firefox */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
   }
 }

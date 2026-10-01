@@ -366,8 +366,8 @@ export function CandidateSearchMorePhonesCta({
       <p
         className={
           state.tone === 'error'
-            ? 'pt-1 text-[11px] text-destructive'
-            : 'pt-1 text-[11px] text-muted-foreground'
+            ? 'pt-1 text-xs text-destructive'
+            : 'pt-1 text-xs text-muted-foreground'
         }
         role="status"
       >
@@ -393,7 +393,7 @@ export function CandidateSearchMorePhonesCta({
     // plataforma, y cada uno dice cuál de los tres es.
     const blockedCopy = plan.reason ? getSearchMoreDisabledCopy(plan.reason) : null;
     if (!blockedCopy) return null;
-    return <p className="pt-1 text-[11px] text-muted-foreground">{blockedCopy}</p>;
+    return <p className="pt-1 text-xs text-muted-foreground">{blockedCopy}</p>;
   }
 
   const costDisclosure = getSearchMoreCostDisclosure(
@@ -431,7 +431,7 @@ export function CandidateSearchMorePhonesCta({
           un botón se vuelve invisible a la tercera vez que se ve. Dice qué fuente se consulta,
           hasta cuánto puede costar, y que puede cobrarse sin encontrar nada nuevo — que es el
           desenlace más probable. */}
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         {costDisclosure}. {SEARCH_MORE_COST_HONESTY_COPY}
       </p>
     </div>

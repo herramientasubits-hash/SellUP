@@ -23,18 +23,19 @@ export function PageHeader({
   backHref,
 }: PageHeaderProps) {
   return (
-    <div className={cn("flex flex-col gap-4 pb-6", className)}>
+    <header className={cn("flex flex-col gap-3 pb-6", className)}>
       {breadcrumbs && <div>{breadcrumbs}</div>}
       
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="min-w-0 space-y-1">
+      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
+        <div className="min-w-0 space-y-1.5">
           <div className="flex items-center gap-2">
             {backHref && (
               <Link
                 href={backHref}
-                className="text-muted-foreground hover:text-foreground transition-colors"
+                aria-label="Volver"
+                className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
               >
-                <ArrowLeft className="h-5 w-5" />
+                <ArrowLeft className="h-4 w-4" />
               </Link>
             )}
             <h1 className="text-2xl font-bold tracking-tight text-foreground">
@@ -42,24 +43,24 @@ export function PageHeader({
             </h1>
           </div>
           {description && (
-            <p className="text-sm text-muted-foreground leading-snug max-w-3xl">
+            <p className="max-w-3xl text-sm leading-relaxed text-muted-foreground">
               {description}
             </p>
           )}
         </div>
         
         {actions && (
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
             {actions}
           </div>
         )}
       </div>
 
       {meta && (
-        <div className="flex items-center gap-4 text-sm text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
           {meta}
         </div>
       )}
-    </div>
+    </header>
   );
 }

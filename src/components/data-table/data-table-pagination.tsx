@@ -73,18 +73,17 @@ export function DataTablePagination<TData>({
       <div className="flex items-center gap-1">
         <Button
           variant="ghost"
-          size="sm"
-          className="h-7 px-2 text-xs font-medium"
+          size="xs"
+          className="px-2 font-medium"
           onClick={() => table.previousPage()}
-          disabled={!table.getCanPreviousPage()}
-        >
+          disabled={!table.getCanPreviousPage()}>
           <ChevronLeft className="h-3 w-3" />
           Anterior
         </Button>
 
         {pages.map((p, i) =>
           p === "…" ? (
-            <span key={`ellipsis-${i}`} className="px-1 text-muted-foreground/60">
+            <span key={`ellipsis-${i}`} className="px-1 text-muted-foreground">
               …
             </span>
           ) : (
@@ -96,8 +95,8 @@ export function DataTablePagination<TData>({
                 "h-7 w-7 inline-flex items-center justify-center rounded-md text-xs font-medium tabular-nums",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
                 p === pageIndex
-                  ? "bg-foreground text-background"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-surface-muted hover:text-foreground",
               )}
               aria-current={p === pageIndex ? "page" : undefined}
             >
@@ -108,11 +107,10 @@ export function DataTablePagination<TData>({
 
         <Button
           variant="ghost"
-          size="sm"
-          className="h-7 px-2 text-xs font-medium"
+          size="xs"
+          className="px-2 font-medium"
           onClick={() => table.nextPage()}
-          disabled={!table.getCanNextPage()}
-        >
+          disabled={!table.getCanNextPage()}>
           Siguiente
           <ChevronRight className="h-3 w-3" />
         </Button>

@@ -40,11 +40,11 @@ export function AILoader({
       <div className={cn("flex flex-col gap-4 rounded-2xl border su-ai-border bg-card/50 p-6 su-ai-glow", className)} role="status" aria-live="polite">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl su-ai-gradient text-su-brand-foreground shadow-lg">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl su-ai-gradient text-primary-foreground shadow-card">
               <Sparkles className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-sm font-bold">{currentLabel}</p>
+              <p className="text-sm font-semibold">{currentLabel}</p>
               {description && <p className="text-xs text-muted-foreground">{description}</p>}
             </div>
           </div>
@@ -64,7 +64,7 @@ export function AILoader({
                 style={{ width: `${progress}%` }}
               />
             </div>
-            <div className="flex justify-end text-[10px] font-black su-ai-gradient-text uppercase tracking-widest">
+            <div className="flex justify-end text-xs font-bold su-ai-gradient-text">
               {Math.round(progress)}%
             </div>
           </div>
@@ -83,7 +83,7 @@ export function AILoader({
     <div className={cn("flex flex-col gap-4 p-4 rounded-xl border border-dashed border-ai-soft/30 bg-su-ai-surface", className)} role="status" aria-live="polite">
       <div className="flex items-center gap-2">
         <Sparkles className="h-4 w-4 animate-pulse su-ai-gradient-text" />
-        <span className="text-sm font-bold su-ai-gradient-text uppercase tracking-tight">{currentLabel}</span>
+        <span className="text-sm font-semibold su-ai-gradient-text">{currentLabel}</span>
       </div>
       <div className="space-y-2.5">
         <Skeleton className="h-2 w-full rounded-full bg-su-ai-surface" />

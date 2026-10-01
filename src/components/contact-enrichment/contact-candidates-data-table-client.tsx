@@ -5,6 +5,7 @@ import { type ColumnDef } from '@tanstack/react-table';
 import { Link2, Building2, Globe, UserSearch } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
 import { DataTable, DataTableColumnHeader, type DataTableBulkAction } from '@/components/data-table';
 import { ContactsEnrichmentCTA } from '@/components/contact-enrichment/contacts-enrichment-cta';
 import { ContactCandidateDetailSheet } from '@/components/contact-enrichment/contact-candidate-detail-sheet';
@@ -43,9 +44,9 @@ const RELEVANCE_LABELS: Record<ContactRelevanceStatus, string> = {
 // Design Refresh v1: la relevancia se muestra como punto de color + texto
 // plano (sin badge) — máximo un elemento de color fuerte por fila.
 const RELEVANCE_DOTS: Record<ContactRelevanceStatus, string> = {
-  high_relevance: 'bg-emerald-500',
-  medium_relevance: 'bg-su-brand',
-  low_relevance: 'bg-amber-500',
+  high_relevance: 'bg-success',
+  medium_relevance: 'bg-primary',
+  low_relevance: 'bg-warning',
   not_relevant: 'bg-border',
   insufficient_data: 'bg-border',
 };
@@ -83,7 +84,7 @@ function NameCell({ candidate }: { candidate: PendingContactCandidate }) {
           {candidate.full_name || 'Sin nombre'}
         </p>
         {isNew && (
-          <Badge className="border-0 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[9px] font-semibold px-1.5 py-0.5 shrink-0">
+          <Badge className="border-0 bg-success/10 text-success text-xs font-semibold px-1.5 py-0.5 shrink-0">
             Nuevo
           </Badge>
         )}
@@ -97,7 +98,7 @@ function NameCell({ candidate }: { candidate: PendingContactCandidate }) {
             target="_blank"
             rel="noopener noreferrer"
             aria-label="Perfil de LinkedIn"
-            className="shrink-0 text-su-brand transition-colors hover:text-su-brand/70"
+            className="shrink-0 text-primary transition-colors hover:text-primary"
             onClick={(e) => e.stopPropagation()}
           >
             <Link2 className="h-3 w-3" />
@@ -105,7 +106,7 @@ function NameCell({ candidate }: { candidate: PendingContactCandidate }) {
         )}
       </div>
       {secondary && (
-        <p className="truncate text-[11px] text-muted-foreground">{secondary}</p>
+        <p className="truncate text-xs text-muted-foreground">{secondary}</p>
       )}
     </div>
   );
@@ -117,15 +118,15 @@ function RelevanceCell({ candidate }: { candidate: PendingContactCandidate }) {
   const scoreLabel = toPercent(relevance?.score);
 
   if (!status) {
-    return <span className="text-xs text-muted-foreground/60">—</span>;
+    return <span className="text-xs text-muted-foreground">—</span>;
   }
 
   return (
-    <span className="flex w-fit items-center gap-1.5 text-xs text-foreground/85">
+    <span className="flex w-fit items-center gap-1.5 text-xs text-foreground">
       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${RELEVANCE_DOTS[status]}`} />
       {RELEVANCE_LABELS[status] ?? status}
       {scoreLabel && (
-        <span className="tabular-nums text-muted-foreground/80">· {scoreLabel}</span>
+        <span className="tabular-nums text-muted-foreground">· {scoreLabel}</span>
       )}
     </span>
   );
@@ -134,7 +135,7 @@ function RelevanceCell({ candidate }: { candidate: PendingContactCandidate }) {
 function QualityCell({ candidate }: { candidate: PendingContactCandidate }) {
   const qualityLabel = toPercent(candidate.enrichment_metadata?.relevance?.quality_score);
   if (!qualityLabel) {
-    return <span className="text-xs text-muted-foreground/60">—</span>;
+    return <span className="text-xs text-muted-foreground">—</span>;
   }
   return (
     <span className="text-xs text-muted-foreground tabular-nums">{qualityLabel}</span>
@@ -289,11 +290,11 @@ export function ContactCandidatesDataTableClient({
           return (
             <div className="min-w-0 max-w-[200px] space-y-0.5">
               <span className="flex items-center gap-1.5 text-sm text-foreground">
-                <Building2 className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+                <Building2 className="h-3 w-3 shrink-0 text-muted-foreground" />
                 <span className="truncate">{c.company_name ?? 'Sin empresa'}</span>
               </span>
               {c.company_domain && (
-                <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/80">
+                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                   <Globe className="h-2.5 w-2.5 shrink-0" />
                   <span className="truncate max-w-[160px]">{c.company_domain}</span>
                 </span>
@@ -310,7 +311,7 @@ export function ContactCandidatesDataTableClient({
         accessorKey: 'source',
         header: ({ column }) => <DataTableColumnHeader column={column} title="Fuente" />,
         cell: ({ row }) => (
-          <Badge className="border-0 bg-muted text-muted-foreground text-[10px] font-semibold py-0.5">
+          <Badge className="border-0 bg-muted text-muted-foreground py-0.5">
             {SOURCE_LABELS[row.original.source] ?? row.original.source}
           </Badge>
         ),
@@ -409,18 +410,13 @@ export function ContactCandidatesDataTableClient({
       rowClickable
       onRowClick={openDetail}
       emptyState={
-        <div className="flex flex-col items-center justify-center py-12 text-center">
-          <div className="mb-3 rounded-full bg-muted/60 p-3">
-            <UserSearch className="h-6 w-6 text-muted-foreground/40" />
-          </div>
-          <p className="text-sm font-medium text-foreground">{queueCopy.emptyTitle}</p>
-          <p className="mt-1 max-w-sm text-xs text-muted-foreground">{queueCopy.emptyBody}</p>
-          {queueCopy.showEnrichmentCta && (
-            <div className="mt-4">
-              <ContactsEnrichmentCTA />
-            </div>
-          )}
-        </div>
+        <EmptyState
+          icon={UserSearch}
+          title={queueCopy.emptyTitle}
+          description={queueCopy.emptyBody}
+          action={queueCopy.showEnrichmentCta ? <ContactsEnrichmentCTA /> : undefined}
+          variant="plain"
+        />
       }
     />
     <ContactCandidateDetailSheet

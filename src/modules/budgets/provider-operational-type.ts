@@ -30,10 +30,10 @@ export const OPERATIONAL_TYPE_LABEL: Record<ProviderOperationalType, string> = {
 };
 
 export const OPERATIONAL_TYPE_BADGE: Record<ProviderOperationalType, string> = {
-  ia:              'border-su-brand/30 bg-su-brand-soft text-su-brand',
-  busqueda:        'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400',
-  enriquecimiento: 'border-violet-500/30 bg-violet-500/10 text-violet-600 dark:text-violet-400',
-  integracion:     'border-border/40 bg-muted/30 text-muted-foreground',
+  ia:              'border-primary/30 bg-primary/10 text-primary',
+  busqueda:        'border-warning/30 bg-warning/10 text-warning',
+  enriquecimiento: 'border-info/30 bg-info/10 text-info',
+  integracion:     'border-border/60 bg-surface-subtle text-muted-foreground',
 };
 
 // Operational context line per provider (second line in Proveedor cell)

@@ -60,9 +60,9 @@ interface MemberChipProps {
 
 function MemberChip({ user, roles }: MemberChipProps) {
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-border/40 bg-card px-3 py-2">
+    <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-card px-3 py-2">
       <Avatar className="h-7 w-7 shrink-0">
-        <AvatarFallback className="bg-su-brand-soft text-su-brand text-[10px]">
+        <AvatarFallback className="bg-primary/10 text-primary text-xs">
           {getInitials(user.full_name, user.email)}
         </AvatarFallback>
       </Avatar>
@@ -70,7 +70,7 @@ function MemberChip({ user, roles }: MemberChipProps) {
         <p className="truncate text-xs font-medium text-foreground leading-tight">
           {user.full_name ?? user.email.split('@')[0]}
         </p>
-        <p className="truncate text-[10px] text-muted-foreground">
+        <p className="truncate text-xs text-muted-foreground">
           {getRoleName(user.role_key, roles)}
         </p>
       </div>
@@ -94,17 +94,17 @@ function GroupNodeCard({ node, roles, allGroups, allActiveUsers, isAdmin, depth 
   const totalDescendants = countMembers(node);
 
   const depthStyles = [
-    'border-border/60',
-    'border-border/40 ml-4',
-    'border-border/30 ml-8',
+    'rounded-2xl border-border/60 shadow-card',
+    'rounded-xl border-border/60 ml-4',
+    'rounded-xl border-border/50 ml-8',
   ];
 
   return (
-    <div className={`rounded-xl border bg-card ${depthStyles[depth] ?? depthStyles[2]}`}>
+    <div className={`border bg-card ${depthStyles[depth] ?? depthStyles[2]}`}>
       {/* Group header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-border/40">
+      <div className="flex flex-wrap items-center gap-3 border-b border-border/50 px-4 py-3">
         {hasChildren ? (
-          <FolderOpen className="h-4 w-4 shrink-0 text-su-brand" />
+          <FolderOpen className="h-4 w-4 shrink-0 text-primary" />
         ) : (
           <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
         )}
@@ -114,18 +114,17 @@ function GroupNodeCard({ node, roles, allGroups, allActiveUsers, isAdmin, depth 
             <span className="ml-2 text-xs text-muted-foreground">{node.group.description}</span>
           )}
         </div>
-        <Badge variant="outline" className="shrink-0 text-[10px] text-muted-foreground border-border/60">
+        <Badge variant="neutral" className="shrink-0 tabular-nums">
           <Users className="mr-1 h-3 w-3" />
           {totalDescendants}
         </Badge>
         {isAdmin && (
           <Button
-            size="sm"
+            size="xs"
             variant="outline"
-            className="h-7 gap-1.5 text-xs"
             onClick={() => setShowAssignDialog(true)}
           >
-            <UserPlus className="h-3.5 w-3.5" />
+            <UserPlus />
             Agregar usuarios
           </Button>
         )}
@@ -196,9 +195,9 @@ export function GroupsView({ users, groups, roles, isAdmin = false }: GroupsView
   if (groups.length === 0) {
     return (
       <div className="py-16 text-center text-muted-foreground">
-        <Folder className="mx-auto mb-3 h-8 w-8 opacity-30" />
+        <Folder className="mx-auto mb-3 h-8 w-8 opacity-30" aria-hidden />
         <p className="text-sm">No hay grupos organizacionales creados.</p>
-        <p className="text-xs mt-1 opacity-70">Usa &quot;Gestionar grupos&quot; para crear la estructura.</p>
+        <p className="mt-1 text-xs">Usa &quot;Gestionar grupos&quot; para crear la estructura.</p>
       </div>
     );
   }
@@ -219,11 +218,11 @@ export function GroupsView({ users, groups, roles, isAdmin = false }: GroupsView
 
       {/* Ungrouped users */}
       {ungrouped.length > 0 && (
-        <div className="rounded-xl border border-dashed border-border/60 bg-muted/20">
-          <div className="flex items-center gap-3 px-4 py-3 border-b border-border/30">
+        <div className="rounded-2xl border border-dashed border-border/60 bg-surface-subtle">
+          <div className="flex items-center gap-3 px-4 py-3 border-b border-border/50">
             <Users className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm font-semibold text-muted-foreground">Sin grupo asignado</span>
-            <Badge variant="outline" className="ml-auto text-[10px] text-muted-foreground border-border/50">
+            <Badge variant="neutral" className="ml-auto tabular-nums">
               {ungrouped.length}
             </Badge>
           </div>

@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -72,10 +73,9 @@ export function ActionButtons({ groups }: ActionButtonsProps) {
       <Button
         size="sm"
         variant="outline"
-        className="gap-2 h-9 text-xs font-medium"
         onClick={() => setShowGroupDialog(true)}
       >
-        <Plus className="h-3.5 w-3.5" />
+        <Plus />
         Agregar grupo
       </Button>
 
@@ -124,9 +124,9 @@ export function ActionButtons({ groups }: ActionButtonsProps) {
             </div>
 
             {error && (
-              <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive border border-destructive/20">
-                {error}
-              </p>
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
             )}
           </div>
 

@@ -81,15 +81,15 @@ export function ContactHubSpotSyncButton({ contact, onSynced }: ContactHubSpotSy
   // Las dos ramas que SÍ pueden salir a la red sobre un vínculo existente.
   if (action.kind === 'update' || action.kind === 'retry_update') {
     return (
-      <Button variant="outline" size="sm" onClick={handleSync} disabled={pending} className="gap-1.5">
+      <Button type="button" variant="outline" size="sm" onClick={handleSync} disabled={pending} aria-busy={pending}>
         {pending ? (
           <>
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <Loader2 className="animate-spin" aria-hidden="true" />
             Actualizando...
           </>
         ) : (
           <>
-            <RefreshCw className="h-3.5 w-3.5" />
+            <RefreshCw aria-hidden="true" />
             {action.label}
           </>
         )}
@@ -100,8 +100,8 @@ export function ContactHubSpotSyncButton({ contact, onSynced }: ContactHubSpotSy
   // El ÚNICO estado que puede lucir el check verde: paridad OBSERVADA.
   if (action.kind === 'observed_synced') {
     return (
-      <Button variant="outline" size="sm" disabled className="gap-1.5">
-        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+      <Button type="button" variant="outline" size="sm" disabled>
+        <CheckCircle2 className="text-success" aria-hidden="true" />
         {action.label}
       </Button>
     );
@@ -112,13 +112,13 @@ export function ContactHubSpotSyncButton({ contact, onSynced }: ContactHubSpotSy
   if (action.kind === 'linked_no_parity') {
     return (
       <Button
+        type="button"
         variant="outline"
         size="sm"
         disabled
         title={action.detail ?? undefined}
-        className="gap-1.5"
       >
-        <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
+        <Link2 className="text-muted-foreground" aria-hidden="true" />
         {action.label}
       </Button>
     );
@@ -127,28 +127,28 @@ export function ContactHubSpotSyncButton({ contact, onSynced }: ContactHubSpotSy
   if (action.kind === 'no_email') {
     return (
       <Button
+        type="button"
         variant="outline"
         size="sm"
         disabled
         title={action.detail ?? undefined}
-        className="gap-1.5"
       >
-        <RefreshCw className="h-3.5 w-3.5" />
+        <RefreshCw aria-hidden="true" />
         {action.label}
       </Button>
     );
   }
 
   return (
-    <Button variant="outline" size="sm" onClick={handleSync} disabled={pending} className="gap-1.5">
+    <Button type="button" variant="outline" size="sm" onClick={handleSync} disabled={pending} aria-busy={pending}>
       {pending ? (
         <>
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <Loader2 className="animate-spin" aria-hidden="true" />
           Sincronizando...
         </>
       ) : (
         <>
-          <RefreshCw className="h-3.5 w-3.5" />
+          <RefreshCw aria-hidden="true" />
           {action.label}
         </>
       )}

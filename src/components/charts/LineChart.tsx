@@ -46,6 +46,11 @@ export interface LineChartProps {
   onChartReady?: (instance: EChartsInstance) => void;
 }
 
+/** A partir de aquí los marcadores de punto se muestran solo en hover. */
+const MAX_POINTS_WITH_SYMBOLS = 14;
+/** Relleno tenue bajo la línea; el color lo pone el tema (`--chart-1..5`). */
+const AREA_OPACITY = 0.08;
+
 /**
  * LineChart
  *
@@ -105,7 +110,11 @@ export function LineChart({
           name: seriesName,
           smooth: smooth,
           symbol: "circle",
-          symbolSize: 4,
+          symbolSize: 6,
+          // Con muchos puntos los marcadores ensucian la tendencia: solo al pasar el cursor.
+          showSymbol: data.length <= MAX_POINTS_WITH_SYMBOLS,
+          lineStyle: { width: 2 },
+          areaStyle: { opacity: AREA_OPACITY },
         },
       ],
     };
@@ -118,7 +127,7 @@ export function LineChart({
       option={option}
       height={height}
       loading={loading}
-      empty={empty}
+      empty={empty || !data || data.length === 0}
       error={error}
       ariaLabel={ariaLabel ?? title}
       summary={summary}

@@ -106,10 +106,10 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
       }
       title="Nuevo lote manual"
       description="Un lote agrupa empresas candidatas antes de convertirlas en prospectos con expediente propio."
-      icon={<Layers className="h-4 w-4 text-su-brand" />}
+      icon={<Layers className="h-4 w-4" />}
       size="xl"
       actions={
-        <div className="flex w-full items-center justify-end gap-2">
+        <div className="flex w-full items-center justify-between gap-2">
           <Button
             type="button"
             variant="outline"
@@ -139,7 +139,7 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
       <form
         id="create-batch-form"
         onSubmit={handleSubmit}
-        className="space-y-8"
+        className="space-y-6"
       >
         {/* Identificación */}
         <Section icon={Layers} label="Identificación">
@@ -222,7 +222,7 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
                 placeholder="25"
                 disabled={saving}
               />
-              <p className="mt-1 text-xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 Para cuidar calidad y costos, el MVP permite máximo {MVP_MAX_CANDIDATES} empresas candidatas por lote.
               </p>
             </Field>

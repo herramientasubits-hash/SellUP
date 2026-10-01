@@ -62,14 +62,14 @@ export function SurveyMetricCard({
       <Card className={cn("h-full", className)}>
         <CardHeader>
           {title && (
-            <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
+            <CardTitle className="text-sm font-semibold text-muted-foreground">
               {title}
             </CardTitle>
           )}
         </CardHeader>
         <CardContent className="flex flex-col items-center justify-center min-h-[160px]">
           <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
+            <AlertCircle className="h-4 w-4" aria-hidden="true" />
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         </CardContent>
@@ -81,9 +81,9 @@ export function SurveyMetricCard({
     <Card className={cn("h-full flex flex-col overflow-hidden", className)}>
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-4">
-          <div className="space-y-1">
+          <div className="min-w-0 space-y-1">
             {title && (
-              <CardTitle className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80">
+              <CardTitle className="text-sm font-semibold text-muted-foreground">
                 {title}
               </CardTitle>
             )}
@@ -99,7 +99,7 @@ export function SurveyMetricCard({
 
       <CardContent className="flex-1 space-y-4">
         <div className="flex items-baseline flex-wrap gap-x-3 gap-y-1 mt-1">
-          <span className="text-3xl font-bold tracking-tight text-foreground">
+          <span className="text-3xl font-bold tabular-nums tracking-tight text-foreground">
             {value}
           </span>
           {subtitle && (
@@ -124,7 +124,7 @@ export function SurveyMetricCard({
       </CardContent>
 
       {footer && (
-        <CardFooter className="bg-muted/5 border-t border-border/5 text-[11px] text-muted-foreground py-3">
+        <CardFooter className="bg-surface-subtle border-t border-border/50 text-xs text-muted-foreground py-3">
           {footer}
         </CardFooter>
       )}

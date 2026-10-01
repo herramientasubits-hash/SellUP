@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { Bell, CheckCheck, ExternalLink } from "lucide-react";
 import { DrawerShell } from "@/components/shared/drawer-shell";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState as SystemEmptyState } from "@/components/ui/empty-state";
 import type { UserNotification, NotificationFilter } from "@/modules/notifications/types";
 
 interface NotificationDrawerProps {
@@ -47,14 +49,14 @@ function NotificationItem({
       onClick={() => onRead(notification.id, notification.action_url)}
       className={[
         "group relative w-full rounded-lg px-4 py-3 text-left transition-colors",
-        "hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        !notification.is_read && "bg-su-brand-soft/40",
+        "hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40",
+        !notification.is_read && "bg-primary/5",
       ]
         .filter(Boolean)
         .join(" ")}
     >
       {!notification.is_read && (
-        <span className="absolute left-1.5 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-su-brand" />
+        <span className="absolute left-1.5 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-primary" aria-hidden="true" />
       )}
 
       <div className="pl-1.5">
@@ -69,19 +71,19 @@ function NotificationItem({
           >
             {notification.title}
           </span>
-          <span className="shrink-0 text-[11px] text-muted-foreground">
+          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
             {formatRelativeDate(notification.created_at)}
           </span>
         </div>
 
-        <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
+        <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed line-clamp-3">
           {notification.message}
         </p>
 
         {notification.action_label && (
-          <span className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-su-brand group-hover:underline">
+          <span className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary group-hover:underline">
             {notification.action_label}
-            <ExternalLink className="h-3 w-3" />
+            <ExternalLink className="h-3 w-3" aria-hidden="true" />
           </span>
         )}
       </div>
@@ -91,16 +93,15 @@ function NotificationItem({
 
 function EmptyState({ filter }: { filter: NotificationFilter }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-        <Bell className="h-5 w-5 text-muted-foreground" />
-      </div>
-      <p className="text-sm text-muted-foreground">
-        {filter === "unread"
+    <SystemEmptyState
+      icon={Bell}
+      title={
+        filter === "unread"
           ? "No tienes notificaciones sin leer."
-          : "No tienes notificaciones por ahora."}
-      </p>
-    </div>
+          : "No tienes notificaciones por ahora."
+      }
+      className="border-0 bg-transparent p-8 sm:p-12"
+    />
   );
 }
 
@@ -142,22 +143,22 @@ export function NotificationDrawer({
       open={open}
       onOpenChange={(isOpen) => !isOpen && onClose()}
       title="Notificaciones"
-      icon={<Bell className="h-4 w-4 text-su-brand" />}
+      icon={<Bell className="h-4 w-4 text-primary" />}
       size="sm"
     >
       <div className="flex flex-col gap-4">
         {/* Tabs + acción */}
-        <div className="flex items-center justify-between pb-3 border-b border-border/40">
-          <div className="flex gap-0.5 rounded-md bg-muted p-0.5">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/50 pb-3">
+          <div className="flex gap-0.5 rounded-lg bg-tab-track p-0.5">
             {(["unread", "all"] as NotificationFilter[]).map((f) => (
               <button
                 key={f}
                 type="button"
                 onClick={() => onFilterChange(f)}
                 className={[
-                  "rounded px-2.5 py-1 text-xs font-medium transition-colors",
+                  "rounded-md px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40",
                   filter === f
-                    ? "bg-background text-foreground shadow-sm"
+                    ? "bg-card text-primary shadow-card"
                     : "text-muted-foreground hover:text-foreground",
                 ].join(" ")}
               >
@@ -165,7 +166,7 @@ export function NotificationDrawer({
                   <span className="flex items-center gap-1.5">
                     No leídas
                     {hasUnread && (
-                      <span className="flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-su-brand px-1 text-[10px] font-bold text-white">
+                      <span className="flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-primary px-1 text-xs font-semibold tabular-nums text-primary-foreground">
                         {unreadCount}
                       </span>
                     )}
@@ -180,12 +181,12 @@ export function NotificationDrawer({
           {hasUnread && (
             <Button
               variant="ghost"
-              size="sm"
+              size="xs"
               disabled={markingAll}
               onClick={handleMarkAll}
-              className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+              className="text-muted-foreground hover:text-foreground"
             >
-              <CheckCheck className="h-3.5 w-3.5" />
+              <CheckCheck className="h-3.5 w-3.5" aria-hidden="true" />
               Marcar leídas
             </Button>
           )}
@@ -196,7 +197,7 @@ export function NotificationDrawer({
           {loading ? (
             <div className="flex flex-col gap-1">
               {Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="h-16 animate-pulse rounded-lg bg-muted/60" />
+                <Skeleton key={i} className="h-16 rounded-lg" />
               ))}
             </div>
           ) : displayed.length === 0 ? (

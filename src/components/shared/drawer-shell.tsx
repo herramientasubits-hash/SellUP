@@ -55,18 +55,18 @@ export interface DrawerShellProps {
 
 const sideSizeClasses = {
   right: {
-    sm: 'sm:!max-w-sm w-full',  // 384px
-    md: 'sm:!max-w-md w-full',  // 448px
-    lg: 'sm:!max-w-lg w-full',  // 512px
-    xl: 'sm:!max-w-xl w-full',  // 576px
-    workspace: 'sm:!w-[90vw] sm:!max-w-[90vw] w-full max-w-[100vw] overflow-x-hidden',  // ~90% viewport
+    sm: 'sm:!max-w-sm',  // 384px
+    md: 'sm:!max-w-md',  // 448px
+    lg: 'sm:!max-w-lg',  // 512px
+    xl: 'sm:!max-w-xl',  // 576px
+    workspace: 'sm:!w-[90vw] sm:!max-w-[calc(100vw-1.5rem)] overflow-x-hidden',  // ~90% viewport
   },
   left: {
-    sm: 'sm:!max-w-sm w-full',
-    md: 'sm:!max-w-md w-full',
-    lg: 'sm:!max-w-lg w-full',
-    xl: 'sm:!max-w-xl w-full',
-    workspace: 'sm:!w-[90vw] sm:!max-w-[90vw] w-full max-w-[100vw] overflow-x-hidden',
+    sm: 'sm:!max-w-sm',
+    md: 'sm:!max-w-md',
+    lg: 'sm:!max-w-lg',
+    xl: 'sm:!max-w-xl',
+    workspace: 'sm:!w-[90vw] sm:!max-w-[calc(100vw-1.5rem)] overflow-x-hidden',
   },
   top: {
     sm: 'h-[30vh]',
@@ -119,10 +119,10 @@ export function DrawerShell({
         {/* Header — icon + título (+ badge inline) a la izquierda; acciones y
             botón de cierre a la derecha, todo en la misma fila y centrado. */}
         {hasHeader && (
-          <SheetHeader className="shrink-0 border-b border-border/50 bg-muted/20 px-7 pb-5 pt-6">
+          <SheetHeader className="shrink-0 border-b border-border/60 bg-card px-6 py-4">
             <div className="flex items-center gap-3">
               {icon && (
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-su-brand-soft">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-inset ring-primary/15">
                   {icon}
                 </div>
               )}
@@ -136,7 +136,7 @@ export function DrawerShell({
                   {titleBadge && <span className="shrink-0">{titleBadge}</span>}
                 </div>
                 {description && (
-                  <SheetDescription className="text-xs text-muted-foreground/70">
+                  <SheetDescription className="text-xs leading-relaxed text-muted-foreground">
                     {description}
                   </SheetDescription>
                 )}
@@ -167,24 +167,24 @@ export function DrawerShell({
         {/* Scrollable body content */}
         <div className={cn(
           'relative flex-1 min-h-0 flex flex-col',
-          scrollable ? 'overflow-y-auto overflow-x-hidden px-7 py-6 bg-background' : 'overflow-hidden'
+          scrollable ? 'overflow-y-auto overflow-x-hidden px-6 py-5 bg-background [scrollbar-gutter:stable]' : 'overflow-hidden'
         )}>
           {loading ? (
             <div className="flex flex-col gap-4 animate-su-fade-in">
-              <div className="relative overflow-hidden rounded-xl bg-muted/60 p-6">
-                <div className="absolute inset-0 -translate-x-full skew-x-[-12deg] bg-[linear-gradient(90deg,transparent_0%,rgba(255,255,255,0.08)_25%,rgba(255,255,255,0.45)_50%,rgba(255,255,255,0.08)_75%,transparent_100%)] animate-su-mirror-shine" />
+              <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-6">
+                <div className="absolute inset-0 -translate-x-full skew-x-[-12deg] su-mirror-shine animate-su-mirror-shine" />
                 <div className="space-y-3">
-                  <div className="h-4 w-3/4 rounded-md bg-muted" />
-                  <div className="h-3 w-1/2 rounded-md bg-muted" />
+                  <div className="h-4 w-3/4 rounded-md bg-surface-muted dark:bg-secondary" />
+                  <div className="h-3 w-1/2 rounded-md bg-surface-muted dark:bg-secondary" />
                 </div>
               </div>
               <div className="space-y-3">
                 {[1, 2, 3].map((i) => (
-                  <div key={i} className="relative overflow-hidden rounded-lg bg-muted/60 p-4">
-                    <div className="absolute inset-0 -translate-x-full skew-x-[-12deg] bg-[linear-gradient(90deg,transparent_0%,rgba(255,255,255,0.08)_25%,rgba(255,255,255,0.45)_50%,rgba(255,255,255,0.08)_75%,transparent_100%)] animate-su-mirror-shine" style={{ animationDelay: `${i * 0.2}s` }} />
+                  <div key={i} className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-4">
+                    <div className="absolute inset-0 -translate-x-full skew-x-[-12deg] su-mirror-shine animate-su-mirror-shine" style={{ animationDelay: `${i * 0.2}s` }} />
                     <div className="space-y-2">
-                      <div className="h-3 w-full rounded bg-muted" />
-                      <div className="h-3 w-4/5 rounded bg-muted" />
+                      <div className="h-3 w-full rounded-md bg-surface-muted dark:bg-secondary" />
+                      <div className="h-3 w-4/5 rounded-md bg-surface-muted dark:bg-secondary" />
                     </div>
                   </div>
                 ))}
@@ -199,7 +199,7 @@ export function DrawerShell({
         {footer ? (
           footer
         ) : actions ? (
-          <SheetFooter className="shrink-0 flex-row items-center justify-between gap-3 border-t border-border/50 bg-muted/20 px-7 py-4">
+          <SheetFooter className="shrink-0 flex-row items-center justify-between gap-3 border-t border-border/60 bg-card px-6 py-4">
             {actions}
           </SheetFooter>
         ) : null}

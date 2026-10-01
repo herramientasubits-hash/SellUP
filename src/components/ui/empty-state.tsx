@@ -28,6 +28,12 @@ interface EmptyStateProps extends React.HTMLAttributes<HTMLDivElement> {
   description?: string;
   icon?: LucideIcon;
   action?: React.ReactNode;
+  /**
+   * `card` (por defecto): tarjeta punteada, para un vacío que ocupa la página.
+   * `plain`: sin marco ni fondo, para un vacío dentro de una card o una tabla
+   * que ya tiene su propia superficie (nunca una caja dentro de otra).
+   */
+  variant?: "card" | "plain";
 }
 
 function EmptyState({
@@ -35,29 +41,33 @@ function EmptyState({
   description,
   icon: Icon,
   action,
+  variant = "card",
   className,
   ...props
 }: EmptyStateProps) {
   return (
     <Card
       className={cn(
-        "flex flex-col items-center justify-center p-12 text-center border-dashed border-2 bg-muted/30",
+        "flex flex-col items-center justify-center gap-0 text-center shadow-none",
+        variant === "plain"
+          ? "rounded-none border-0 bg-transparent px-6 py-8"
+          : "border-2 border-dashed bg-surface-subtle p-10",
         className,
       )}
       {...props}
     >
       {Icon && (
-        <div className="mb-4 rounded-full bg-muted p-4 text-muted-foreground">
-          <Icon size={32} strokeWidth={1.5} />
+        <div className="mb-4 rounded-full bg-surface-muted p-4 text-text-muted">
+          <Icon size={28} strokeWidth={1.75} />
         </div>
       )}
-      <h3 className="text-lg font-bold text-foreground mb-2">{title}</h3>
+      <h3 className="text-base font-semibold tracking-tight text-foreground mb-1.5">{title}</h3>
       {description && (
-        <p className="text-sm text-muted-foreground max-w-sm mb-6 leading-relaxed">
+        <p className="text-sm text-muted-foreground max-w-sm mb-5 leading-relaxed">
           {description}
         </p>
       )}
-      {action && <div className="mt-2">{action}</div>}
+      {action && <div>{action}</div>}
     </Card>
   );
 }

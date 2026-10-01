@@ -244,7 +244,7 @@ export function LushaPreviewPanel({
           title="Criterios de búsqueda"
           description={criteriaDescription}
         />
-        <div className="space-y-5">
+        <div className="space-y-4">
           <Row>
             <Field label="País" required>
               <Select value={countryCode} onValueChange={(v) => setCountryCode(v ?? '')} disabled={status === 'loading'}>
@@ -310,7 +310,7 @@ export function LushaPreviewPanel({
           {/* Criterio avanzado — searchText (oculto/colapsable + advertencia) */}
           <Accordion>
             <AccordionItem value="advanced" className="border-none">
-              <AccordionTrigger className="py-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground/60 hover:no-underline hover:text-muted-foreground/80">
+              <AccordionTrigger className="py-2 text-xs font-semibold text-muted-foreground hover:no-underline hover:text-muted-foreground">
                 <div className="flex items-center gap-2">
                   <Settings2 className="h-3.5 w-3.5" />
                   Criterio avanzado (opcional)
@@ -534,23 +534,23 @@ function PreviewResult({
       <SurfaceCard elevated>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-sm">
-            <Building2 className="h-4 w-4 text-su-brand" />
+            <Building2 className="h-4 w-4 text-primary" />
             <span className="font-semibold text-foreground">
               {status === 'empty' ? 'Sin resultados' : `${results.length} empresa${results.length !== 1 ? 's' : ''}`}
             </span>
           </div>
-          <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-            <Badge variant="outline" className="rounded-full">
+          <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+            <Badge variant="outline">
               Créditos: {billing.creditsCharged ?? '—'} / máx {billing.expectedMaxCredits}
             </Badge>
-            <Badge variant="outline" className="rounded-full">
+            <Badge variant="outline">
               {requestSummary.sector ?? '—'} · {requestSummary.country ?? '—'}
             </Badge>
           </div>
         </div>
         {providerTraceabilityLabel && (
           <p
-            className="mt-3 text-[11px] text-muted-foreground"
+            className="mt-3 text-xs text-muted-foreground"
             data-testid="lusha-preview-provider-traceability"
           >
             {PROVIDER_TRACEABILITY_PREFIX} <span className="font-medium text-foreground">{providerTraceabilityLabel}</span>
@@ -573,7 +573,7 @@ function PreviewResult({
         </div>
       )}
 
-      <p className="text-[11px] text-muted-foreground/70 leading-relaxed" data-testid="lusha-preview-not-saved">
+      <p className="text-xs text-muted-foreground leading-relaxed" data-testid="lusha-preview-not-saved">
         {LUSHA_PREVIEW_NOT_SAVED_FOOTER}
       </p>
     </div>
@@ -588,25 +588,25 @@ function PreviewCompanyCard({ company }: { company: LushaPreviewCompany }) {
       : '—');
 
   return (
-    <SurfaceCard>
+    <SurfaceCard className="p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <span className="truncate text-sm font-semibold text-foreground">{company.name ?? 'Empresa sin nombre'}</span>
             {company.passesGate ? (
-              <Badge variant="secondary" className="rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+              <Badge variant="positive">
                 <CheckCircle2 className="h-3 w-3" />
                 Pasa
               </Badge>
             ) : (
-              <Badge variant="secondary" className="rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
+              <Badge variant="warning">
                 <TriangleAlert className="h-3 w-3" />
                 No pasa
               </Badge>
             )}
           </div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            <span>{company.domain ?? 'sin dominio'}</span>
+            <span className="min-w-0 break-all">{company.domain ?? 'sin dominio'}</span>
             <span>· {company.country ?? '—'}</span>
             <span>· {company.industry ?? 'industria n/d'}</span>
             <span>· {typeof employees === 'number' ? `${employees} empl.` : `${employees} empl.`}</span>
@@ -615,7 +615,7 @@ function PreviewCompanyCard({ company }: { company: LushaPreviewCompany }) {
                 href={company.linkedinUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-su-brand hover:underline"
+                className="inline-flex items-center gap-1 text-primary hover:underline"
               >
                 LinkedIn
                 <ExternalLink className="h-3 w-3" />
@@ -625,7 +625,7 @@ function PreviewCompanyCard({ company }: { company: LushaPreviewCompany }) {
           {company.issues.length > 0 && (
             <div className="flex flex-wrap gap-1 pt-1">
               {company.issues.map((issue) => (
-                <Badge key={issue} variant="outline" className="rounded-full text-[10px] text-muted-foreground">
+                <Badge key={issue} variant="outline" className="text-muted-foreground">
                   {ISSUE_LABELS[issue] ?? issue}
                 </Badge>
               ))}
@@ -633,8 +633,8 @@ function PreviewCompanyCard({ company }: { company: LushaPreviewCompany }) {
           )}
         </div>
         <div className="shrink-0 text-right">
-          <span className="text-lg font-bold text-foreground">{company.score}</span>
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Score</p>
+          <span className="text-lg font-bold tabular-nums text-foreground">{company.score}</span>
+          <p className="text-xs text-muted-foreground">Score</p>
         </div>
       </div>
     </SurfaceCard>

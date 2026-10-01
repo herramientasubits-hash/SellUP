@@ -75,34 +75,33 @@ const TYPE_CONFIG: Record<AIInsightType, TypeConfig> = {
     icon: Lightbulb,
     label: "Recomendación",
     className:
-      "border-amber-500/20 bg-amber-500/5 text-amber-600 dark:text-amber-400",
-    iconColor: "text-amber-500",
+      "border-warning/20 bg-warning/5 text-warning",
+    iconColor: "text-warning",
   },
   opportunity: {
     icon: Target,
     label: "Oportunidad",
     className:
-      "border-emerald-500/20 bg-emerald-500/5 text-emerald-600 dark:text-emerald-400",
-    iconColor: "text-emerald-500",
+      "border-success/20 bg-success/5 text-success",
+    iconColor: "text-success",
   },
 };
 
 const CONFIDENCE_CONFIG: Record<
   AIConfidence,
-  { label: string; className: string }
+  { label: string; variant: "neutral" | "brand" | "positive" }
 > = {
   low: {
     label: "Confiabilidad Baja",
-    className: "bg-muted text-muted-foreground",
+    variant: "neutral",
   },
   medium: {
     label: "Confiabilidad Media",
-    className: "bg-primary/10 text-primary border-none",
+    variant: "brand",
   },
   high: {
     label: "Confiabilidad Alta",
-    className:
-      "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-none",
+    variant: "positive",
   },
 };
 
@@ -124,26 +123,20 @@ function AIInsightCard({
   return (
     <Card
       className={cn(
-        "overflow-hidden border-border/50 shadow-sm transition-all hover:shadow-md",
+        "overflow-hidden border-border/60 shadow-card",
         className,
       )}
     >
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 bg-muted/5">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 bg-surface-subtle pb-2">
         <div className="flex items-center gap-2">
-          <div className={cn("p-1.5 rounded-md", config.className)}>
-            <Icon className={cn("h-4 w-4", config.iconColor)} />
+          <div className={cn("flex size-8 items-center justify-center rounded-xl", config.className)}>
+            <Icon className={cn("h-4 w-4", config.iconColor)} aria-hidden />
           </div>
-          <span className="text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <span className="text-xs font-semibold text-muted-foreground">
             {config.label}
           </span>
         </div>
-        <Badge
-          variant="outline"
-          className={cn(
-            "text-[10px] font-bold h-5 px-1.5",
-            confidenceData.className,
-          )}
-        >
+        <Badge variant={confidenceData.variant}>
           {confidenceData.label}
         </Badge>
       </CardHeader>
@@ -160,7 +153,7 @@ function AIInsightCard({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
             {evidence && (
               <div className="space-y-1">
-                <span className="text-[11px] font-bold text-muted-foreground uppercase">
+                <span className="text-xs font-semibold text-muted-foreground">
                   Evidencia
                 </span>
                 <p className="text-xs font-medium">{evidence}</p>
@@ -168,7 +161,7 @@ function AIInsightCard({
             )}
             {impact && (
               <div className="space-y-1">
-                <span className="text-[11px] font-bold text-muted-foreground uppercase">
+                <span className="text-xs font-semibold text-muted-foreground">
                   Impacto
                 </span>
                 <p className="text-xs font-medium">{impact}</p>
@@ -178,15 +171,15 @@ function AIInsightCard({
         )}
       </CardContent>
       {actionLabel && (
-        <CardFooter className="pt-2 bg-muted/5">
+        <CardFooter className="bg-surface-subtle pt-2">
           <Button
             variant="ghost"
             size="sm"
             onClick={onAction}
-            className="w-full justify-between text-xs font-semibold hover:bg-primary/5 hover:text-primary transition-colors h-9"
+            className="w-full justify-between hover:bg-primary/5 hover:text-primary"
           >
             {actionLabel}
-            <ArrowRight className="h-3.5 w-3.5 ml-2" />
+            <ArrowRight className="ml-2 h-3.5 w-3.5" aria-hidden />
           </Button>
         </CardFooter>
       )}

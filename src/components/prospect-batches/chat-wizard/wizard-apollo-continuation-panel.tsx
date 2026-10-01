@@ -180,14 +180,14 @@ export function WizardApolloContinuationPanel({
     : APOLLO_CONTINUATION_STATUS_COPY[view.status];
 
   const tone = isFailure
-    ? 'border-amber-200 bg-amber-50 dark:border-amber-800/40 dark:bg-amber-900/10'
+    ? 'border-warning/25 bg-warning/15'
     : isFinished
-      ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-800/40 dark:bg-emerald-900/10'
-      : 'border-border bg-card';
+      ? 'border-success/20 bg-success/10'
+      : 'border-border/60 bg-card';
 
   return (
     <section
-      className={`space-y-2 rounded-xl border px-5 py-4 ${tone}`}
+      className={`space-y-2 rounded-xl border p-4 ${tone}`}
       data-testid="wizard-apollo-continuation"
       data-continuation-status={view.status}
       data-continuation-batch-id={view.batchId}
@@ -196,7 +196,7 @@ export function WizardApolloContinuationPanel({
     >
       <div className="flex items-start gap-3">
         <ContinuationIcon status={view.status} />
-        <div className="space-y-1">
+        <div className="min-w-0 space-y-1">
           <p className="text-sm font-semibold text-foreground">
             {isFinished ? 'Corrida completada' : APOLLO_CONTINUATION_PANEL_TITLE}
           </p>
@@ -210,13 +210,13 @@ export function WizardApolloContinuationPanel({
       </div>
 
       {!isFinished && !isFailure && (
-        <p className="text-[10px] leading-snug text-muted-foreground">
+        <p className="text-xs leading-snug text-muted-foreground">
           {APOLLO_CONTINUATION_IN_SESSION_NOTE}
         </p>
       )}
       {!isFinished && (
         <p
-          className="text-[10px] leading-snug text-muted-foreground"
+          className="text-xs leading-snug text-muted-foreground"
           data-testid="wizard-apollo-continuation-browser-note"
         >
           {APOLLO_CONTINUATION_BROWSER_CLOSED_NOTE}
@@ -230,7 +230,7 @@ function ContinuationIcon({ status }: { status: ApolloContinuationUiStatus }) {
   if (status === 'finished') {
     return (
       <CheckCircle2
-        className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400"
+        className="mt-0.5 h-5 w-5 shrink-0 text-success"
         aria-hidden
       />
     );
@@ -238,13 +238,13 @@ function ContinuationIcon({ status }: { status: ApolloContinuationUiStatus }) {
   if (status === 'failed') {
     return (
       <AlertCircle
-        className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400"
+        className="mt-0.5 h-5 w-5 shrink-0 text-warning"
         aria-hidden
       />
     );
   }
   if (status === 'processing') {
-    return <Loader2 className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-su-brand" aria-hidden />;
+    return <Loader2 className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-primary" aria-hidden />;
   }
   return <PauseCircle className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />;
 }

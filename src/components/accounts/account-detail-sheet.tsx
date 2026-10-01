@@ -17,9 +17,11 @@ import {
   Briefcase,
 } from 'lucide-react';
 import { DrawerShell } from '@/components/shared/drawer-shell';
+import type { ComponentProps } from 'react';
 import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { DrawerSection } from '@/components/shared/drawer-section';
 import { getAccountById, getAccountAudit, getActiveUsers } from '@/modules/accounts/actions';
 import { getContactsByAccount, getContactsSummary } from '@/modules/contacts/actions';
 import { getContactEnrichmentRunsByAccountId } from '@/modules/contact-enrichment/account-run-history-actions';
@@ -47,12 +49,14 @@ import type { PeruSunatEnrichmentBlock } from '@/server/prospect-batches/peru-su
 import { PeruMigoLegalValidationBlock } from '@/components/prospect-batches/peru-migo-legal-validation-block';
 import type { PeMigoApiEnrichmentBlock } from '@/server/prospect-batches/peru-migo-legal-enrichment';
 
-const STATUS_STYLES: Record<PipelineStatus, string> = {
-  new: 'bg-muted text-muted-foreground border-transparent',
-  ready_for_research: 'bg-su-brand-soft text-su-brand border-transparent',
-  research_in_progress: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-transparent',
-  ready_for_outreach: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-transparent',
-  archived: 'bg-muted/60 text-muted-foreground/60 border-transparent',
+type BadgeVariant = NonNullable<ComponentProps<typeof Badge>['variant']>;
+
+const STATUS_VARIANT: Record<PipelineStatus, BadgeVariant> = {
+  new: 'neutral',
+  ready_for_research: 'brand',
+  research_in_progress: 'warning',
+  ready_for_outreach: 'positive',
+  archived: 'neutral',
 };
 
 const AUDIT_ICONS: Partial<Record<AccountAuditAction, React.ComponentType<{ className?: string }>>> = {
@@ -151,14 +155,13 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
         onOpenChange={(v) => !v && onClose()}
         side="right"
         className="w-full sm:w-[58vw] sm:min-w-[660px] sm:!max-w-[900px]"
-        icon={<Building2 className="h-5 w-5 text-su-brand" />}
+        icon={<Building2 className="h-5 w-5 text-primary" />}
         title={data ? data.account.name : 'Cargando cuenta...'}
         description={data ? (data.account.legal_name || undefined) : undefined}
         titleBadge={
           data ? (
             <Badge
-              variant="outline"
-              className={`text-xs ${STATUS_STYLES[data.account.pipeline_status]}`}
+              variant={STATUS_VARIANT[data.account.pipeline_status]}
             >
               {PIPELINE_STATUS_LABELS[data.account.pipeline_status]}
             </Badge>
@@ -190,7 +193,7 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
       >
         {loading || !data ? (
           <div className="flex items-center justify-center py-20">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/40" />
+            <Loader2 className="h-6 w-6 animate-spin text-text-muted" />
           </div>
         ) : (
           // Design Refresh v3: tabs alineados con el contenido (antes mx-7 mt-4
@@ -224,8 +227,7 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                       return peMigoBlock ? <PeruMigoLegalValidationBlock block={peMigoBlock} /> : null;
                     })()}
                     <div className="grid gap-4 md:grid-cols-2">
-                      <SurfaceCard>
-                        <SurfaceCardHeader title="Datos de la empresa" />
+                      <DrawerSection title="Datos de la empresa" icon={Building2}>
                         {/* Design Refresh v4: todos los campos siempre visibles
                             (— si faltan) para una ficha consistente y menos vacía. */}
                         <dl className="space-y-3">
@@ -235,7 +237,7 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                                 href={data.account.website}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-su-brand hover:underline"
+                                className="text-primary hover:underline"
                               >
                                 {data.account.domain ?? data.account.website}
                               </a>
@@ -263,7 +265,7 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                               : <EmptyValue />}
                           </DetailRow>
                           <DetailRow icon={Tag} label="Fuente">
-                            <Badge variant="outline" className="text-[10px]">
+                            <Badge variant="outline">
                               {SOURCE_LABELS[data.account.source as AccountSource]}
                             </Badge>
                           </DetailRow>
@@ -271,21 +273,18 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                             {formatShortDate(data.account.created_at)}
                           </DetailRow>
                         </dl>
-                      </SurfaceCard>
+                      </DrawerSection>
 
-                      <SurfaceCard>
-                        <SurfaceCardHeader title="Asignación y estado" />
+                      <DrawerSection title="Asignación y estado" icon={User}>
                         <dl className="space-y-3">
                           <DetailRow icon={User} label="Owner">
                             {data.account.owner?.full_name ??
                               data.account.owner?.email ?? <EmptyValue>Sin asignar</EmptyValue>}
                           </DetailRow>
                           <DetailRow icon={Tag} label="Estado pipeline">
-                            <span
-                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_STYLES[data.account.pipeline_status]}`}
-                            >
+                            <Badge variant={STATUS_VARIANT[data.account.pipeline_status]}>
                               {PIPELINE_STATUS_LABELS[data.account.pipeline_status]}
-                            </span>
+                            </Badge>
                           </DetailRow>
                           <DetailRow icon={Users} label="Contactos">
                             {data.contacts.length > 0
@@ -299,8 +298,8 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                           </DetailRow>
                         </dl>
                         {data.account.notes && (
-                          <div className="mt-4 rounded-lg bg-muted/40 px-3 py-2.5">
-                            <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                          <div className="mt-4 rounded-lg bg-surface-subtle px-3 py-2.5">
+                            <p className="mb-1 text-xs font-semibold text-muted-foreground">
                               Notas
                             </p>
                             <p className="text-xs text-muted-foreground leading-relaxed">
@@ -308,26 +307,26 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                             </p>
                           </div>
                         )}
-                      </SurfaceCard>
+                      </DrawerSection>
                     </div>
 
                     {/* Actividad reciente — llena el Resumen y da contexto sin
                         cambiar de tab. Usa el mismo auditLog del tab Actividad. */}
-                    <SurfaceCard>
-                      <SurfaceCardHeader
-                        title="Actividad reciente"
-                        actions={
-                          data.auditLog.length > 3 ? (
-                            <span className="text-[11px] text-muted-foreground/70">
-                              {data.auditLog.length} eventos
-                            </span>
-                          ) : undefined
-                        }
-                      />
+                    <DrawerSection
+                      title="Actividad reciente"
+                      icon={Activity}
+                      action={
+                        data.auditLog.length > 3 ? (
+                          <span className="text-xs text-muted-foreground">
+                            {data.auditLog.length} eventos
+                          </span>
+                        ) : undefined
+                      }
+                    >
                       {data.auditLog.length === 0 ? (
                         <div className="flex flex-col items-center gap-2 py-8 text-center">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted/50">
-                            <Activity className="h-4 w-4 text-muted-foreground/40" />
+                          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-surface-muted">
+                            <Activity className="h-4 w-4 text-text-muted" />
                           </div>
                           <p className="text-xs text-muted-foreground">
                             Sin actividad registrada todavía.
@@ -339,14 +338,14 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                             const Icon = AUDIT_ICONS[entry.action_type] ?? Activity;
                             return (
                               <li key={entry.id} className="flex items-start gap-3">
-                                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted/60">
-                                  <Icon className="h-3.5 w-3.5 text-muted-foreground/70" />
+                                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-muted">
+                                  <Icon className="h-3.5 w-3.5 text-muted-foreground" />
                                 </div>
                                 <div className="min-w-0 flex-1">
                                   <p className="text-xs font-medium text-foreground">
                                     {AUDIT_ACTION_LABELS[entry.action_type]}
                                   </p>
-                                  <p className="text-[11px] text-muted-foreground/70">
+                                  <p className="text-xs text-muted-foreground">
                                     {entry.actor
                                       ? `${entry.actor.full_name ?? entry.actor.email} · `
                                       : ''}
@@ -358,7 +357,7 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                           })}
                         </ol>
                       )}
-                    </SurfaceCard>
+                    </DrawerSection>
                   </TabsContent>
 
                   {/* Contactos */}
@@ -374,30 +373,16 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
 
                   {/* Inteligencia */}
                   <TabsContent value="inteligencia">
-                    <SurfaceCard>
-                      <div className="flex flex-col items-center gap-3 py-10 text-center">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted/60">
-                          <Brain className="h-5 w-5 text-muted-foreground/40" />
-                        </div>
-                        <div className="max-w-sm space-y-1">
-                          <p className="text-sm font-semibold text-foreground">
-                            Inteligencia comercial — Próxima fase
-                          </p>
-                          <p className="text-xs text-muted-foreground leading-relaxed">
-                            Árbol empresarial, señales de negocio y análisis de competidores.
-                          </p>
-                        </div>
-                      </div>
-                    </SurfaceCard>
+                    <EmptyState
+                      icon={Brain}
+                      title="Inteligencia comercial — Próxima fase"
+                      description="Árbol empresarial, señales de negocio y análisis de competidores."
+                    />
                   </TabsContent>
 
                   {/* Actividad */}
                   <TabsContent value="actividad">
-                    <SurfaceCard>
-                      <SurfaceCardHeader
-                        title="Registro de actividad"
-                        description="Cambios y eventos de auditoría de esta cuenta."
-                      />
+                    <DrawerSection title="Registro de actividad" icon={Activity} hint="Cambios y eventos de auditoría de esta cuenta.">
                       {data.auditLog.length === 0 ? (
                         <p className="py-6 text-center text-xs text-muted-foreground">
                           Sin actividad registrada todavía.
@@ -408,19 +393,19 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                             const Icon = AUDIT_ICONS[entry.action_type] ?? Activity;
                             return (
                               <li key={entry.id} className="flex items-start gap-3">
-                                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted/60">
-                                  <Icon className="h-3.5 w-3.5 text-muted-foreground/60" />
+                                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-muted">
+                                  <Icon className="h-3.5 w-3.5 text-muted-foreground" />
                                 </div>
                                 <div className="min-w-0 flex-1">
                                   <p className="text-xs font-medium text-foreground">
                                     {AUDIT_ACTION_LABELS[entry.action_type]}
                                   </p>
                                   {entry.actor && (
-                                    <p className="text-[11px] text-muted-foreground">
+                                    <p className="text-xs text-muted-foreground">
                                       por {entry.actor.full_name ?? entry.actor.email}
                                     </p>
                                   )}
-                                  <p className="text-[11px] text-muted-foreground/50">
+                                  <p className="text-xs text-muted-foreground">
                                     {formatDate(entry.created_at)}
                                   </p>
                                 </div>
@@ -429,7 +414,7 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                           })}
                         </ol>
                       )}
-                    </SurfaceCard>
+                    </DrawerSection>
                   </TabsContent>
 
                   {/* Agentes */}
@@ -463,19 +448,19 @@ function DetailRow({
   // la derecha) para una lectura más tabular y ordenada; contraste del label
   // subido de /50 a /70.
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-start gap-3">
       <div className="flex shrink-0 items-center gap-2 min-w-[104px]">
-        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-        <dt className="text-[11px] font-medium text-muted-foreground/80">
+        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <dt className="text-xs font-medium text-muted-foreground">
           {label}
         </dt>
       </div>
-      <dd className="min-w-0 flex-1 text-right text-xs text-foreground">{children}</dd>
+      <dd className="min-w-0 flex-1 break-words text-right text-xs text-foreground">{children}</dd>
     </div>
   );
 }
 
 /** Valor vacío consistente para campos sin dato (— o texto custom). */
 function EmptyValue({ children }: { children?: React.ReactNode }) {
-  return <span className="text-muted-foreground/40">{children ?? '—'}</span>;
+  return <span className="text-text-muted">{children ?? '—'}</span>;
 }

@@ -250,11 +250,11 @@ export function WizardConversationSummary({
 function ValidatingPanel() {
   return (
     <div
-      className="flex items-center gap-3 rounded-xl bg-muted/40 px-5 py-4"
+      className="flex items-center gap-3 rounded-xl bg-surface-subtle p-4"
       role="status"
       aria-live="polite"
     >
-      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-su-brand" aria-hidden />
+      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" aria-hidden />
       <p className="text-sm text-foreground">Verificando disponibilidad de generación…</p>
     </div>
   );
@@ -517,23 +517,23 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
   return (
     <div className="space-y-4 animate-su-fade-in" role="status">
       {/* Banner A — validation (positive). */}
-      <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4 dark:border-emerald-800/40 dark:bg-emerald-900/10">
+      <div className="flex items-start gap-3 rounded-xl border border-success/20 bg-success/10 p-4">
         <CheckCircle2
-          className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400"
+          className="mt-0.5 h-5 w-5 shrink-0 text-success"
           aria-hidden
         />
         <div className="space-y-1">
-          <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">
+          <p className="text-sm font-semibold text-success">
             La configuración es válida.
           </p>
-          <p className="text-xs text-emerald-600/80 dark:text-emerald-400/70">
+          <p className="text-xs text-success">
             {validBody}
           </p>
         </div>
       </div>
 
       {executionError && (
-        <div className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3">
+        <div className="flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden />
           {/* 🔴 CUT-6B § 4 — el bloque de error tiene DOS lecturas posibles y sólo
               una cambia. Sin aporte durable se pinta el MISMO árbol de antes de
@@ -567,7 +567,7 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
           antes. `role="alert"` porque aparece sin que la usuaria haya actuado. */}
       {preExecutionBudgetMessage !== null && (
         <div
-          className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3"
+          className="flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3"
           role="alert"
           data-testid="wizard-budget-preflight-notice"
         >
@@ -683,7 +683,7 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
           <Button
             type="button"
             size="sm"
-            className="w-full gap-1.5"
+            className="w-full"
             onClick={onExecute}
           >
             <Sparkles className="h-3.5 w-3.5" aria-hidden />
@@ -699,7 +699,7 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
           type="button"
           variant="outline"
           size="sm"
-          className="w-full gap-1.5"
+          className="w-full"
           onClick={onEditSearch}
         >
           <Pencil className="h-3.5 w-3.5" aria-hidden />
@@ -707,7 +707,7 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
         </Button>
         <button
           type="button"
-          className="mx-auto flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          className="mx-auto flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
           onClick={() => dispatch({ type: 'REQUEST_RESTART' })}
         >
           <RotateCcw className="h-3 w-3" aria-hidden />
@@ -757,17 +757,17 @@ function DiscoveryUnavailableNotice({ reason }: DiscoveryUnavailableNoticeProps)
   const copy = DISCOVERY_UNAVAILABLE_COPY[reason];
   return (
     <div
-      className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 dark:border-amber-800/40 dark:bg-amber-900/10"
+      className="flex items-start gap-3 rounded-xl border border-warning/25 bg-warning/15 p-4"
       role="alert"
       data-testid="wizard-discovery-unavailable-notice"
     >
       <AlertTriangle
-        className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400"
+        className="mt-0.5 h-5 w-5 shrink-0 text-warning"
         aria-hidden
       />
       <div className="space-y-1">
-        <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">{copy.title}</p>
-        <p className="text-xs text-amber-600/80 dark:text-amber-400/70">{copy.detail}</p>
+        <p className="text-sm font-semibold text-warning">{copy.title}</p>
+        <p className="text-xs text-warning">{copy.detail}</p>
       </div>
     </div>
   );
@@ -784,13 +784,13 @@ type BlockedPanelProps = {
 function BlockedPanel({ state, dispatch }: BlockedPanelProps) {
   return (
     <div className="space-y-3 animate-su-fade-in" role="alert">
-      <div className="flex items-start gap-2.5 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3.5">
+      <div className="flex items-start gap-2.5 rounded-xl border border-destructive/20 bg-destructive/10 p-4">
         <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden />
         <div className="space-y-1">
           <p className="text-sm font-semibold text-destructive">
             La búsqueda tiene problemas que deben corregirse.
           </p>
-          <p className="text-xs text-destructive/80">
+          <p className="text-xs text-destructive">
             Revisa los errores y edita los campos indicados.
           </p>
         </div>
@@ -806,8 +806,8 @@ function BlockedPanel({ state, dispatch }: BlockedPanelProps) {
             <Button
               type="button"
               variant="ghost"
-              size="sm"
-              className="h-auto shrink-0 px-2 py-0.5 text-xs text-destructive hover:bg-destructive/10"
+              size="xs"
+              className="shrink-0 text-destructive hover:bg-destructive/10"
               onClick={() =>
                 dispatch({
                   type: 'EDIT_STEP',
@@ -825,7 +825,7 @@ function BlockedPanel({ state, dispatch }: BlockedPanelProps) {
         type="button"
         variant="ghost"
         size="sm"
-        className="w-full gap-1.5 text-muted-foreground"
+        className="w-full text-muted-foreground"
         onClick={() => dispatch({ type: 'REQUEST_RESTART' })}
       >
         <RotateCcw className="h-3.5 w-3.5" aria-hidden />
@@ -860,7 +860,7 @@ function SubindustrySelectionRecap({
   );
 
   return (
-    <div className="rounded-lg border border-border bg-card px-4 py-3 space-y-1.5">
+    <div className="space-y-1.5 rounded-xl border border-border/60 bg-card px-4 py-3">
       <div className="flex items-baseline justify-between gap-3">
         <span className="text-xs font-medium text-muted-foreground">
           {WIZARD_SUBINDUSTRY_RECAP_LABEL}
@@ -880,7 +880,7 @@ function SubindustrySelectionRecap({
             </li>
           ))}
           {recap.unresolvedIds.map((id) => (
-            <li key={id} className="flex gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+            <li key={id} className="flex gap-1.5 text-xs text-warning">
               <span aria-hidden>•</span>
               <span>Subindustria no reconocida en el catálogo ({id})</span>
             </li>
@@ -926,11 +926,11 @@ function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
 
   return (
     <div className="space-y-4 animate-su-fade-in">
-      <h3 className="text-sm font-semibold text-foreground">
+      <h3 className="text-base font-semibold tracking-tight text-foreground">
         Resumen de la búsqueda
       </h3>
 
-      <div className="rounded-xl border border-border bg-card divide-y divide-border/60">
+      <div className="divide-y divide-border/50 rounded-xl border border-border/60 bg-card">
         <SummaryRow
           label="Tipo de búsqueda"
           value="Empresas por criterios"
@@ -973,7 +973,7 @@ function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
         <SubindustrySelectionRecap state={state} catalog={catalog} />
       )}
 
-      <div className="rounded-lg bg-muted/40 px-4 py-3">
+      <div className="rounded-lg bg-surface-subtle px-4 py-3">
         <p className="text-xs text-muted-foreground leading-relaxed">
           <span className="font-medium text-foreground">Cantidad:</span> SellUp determinará cuántas empresas entregar según calidad, disponibilidad y criterios de búsqueda.
         </p>
@@ -983,7 +983,7 @@ function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
         <div
           key={w.code}
           role="status"
-          className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-700 dark:border-amber-800/40 dark:bg-amber-900/10 dark:text-amber-400"
+          className="flex items-start gap-2 rounded-lg border border-warning/25 bg-warning/15 px-3 py-2.5 text-xs text-warning"
         >
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
           <span>{w.message}</span>
@@ -995,7 +995,7 @@ function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
           type="button"
           variant="ghost"
           size="sm"
-          className="w-full gap-1.5 text-muted-foreground"
+          className="w-full text-muted-foreground"
           onClick={() => dispatch({ type: 'REQUEST_RESTART' })}
         >
           <RotateCcw className="h-3.5 w-3.5" aria-hidden />
@@ -1034,7 +1034,7 @@ function SummaryRow({ label, value, onEdit, wrap = false }: SummaryRowProps) {
           type="button"
           onClick={onEdit}
           aria-label={`Editar ${label}`}
-          className="flex shrink-0 items-center gap-1 self-center text-xs text-muted-foreground transition-colors hover:text-foreground"
+          className="flex shrink-0 items-center gap-1 self-center rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
         >
           <Pencil className="h-3 w-3" aria-hidden />
           Editar
@@ -1056,7 +1056,7 @@ export function RestartConfirmation({ dispatch }: RestartConfirmationProps) {
       role="dialog"
       aria-modal="true"
       aria-label="Confirmar reinicio"
-      className="rounded-xl border border-border bg-card p-5 shadow-md space-y-4 animate-su-scale-in"
+      className="rounded-2xl border border-border/60 bg-card p-5 shadow-drawer space-y-4 animate-su-scale-in"
     >
       <div>
         <p className="text-sm font-semibold text-foreground">

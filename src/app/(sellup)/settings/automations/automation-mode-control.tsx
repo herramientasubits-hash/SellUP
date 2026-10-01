@@ -92,19 +92,19 @@ export function AutomationModeControl({
         disabled={isPending}
       >
         <SelectTrigger
-          className="h-8 w-[140px] text-xs"
-          aria-label={`Modo de ejecución para ${automationName}`}
-        >
+          size="sm"
+          className="w-36"
+          aria-label={`Modo de ejecución para ${automationName}`}>
           <SelectValue>{EXECUTION_MODE_LABELS[mode]}</SelectValue>
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="manual" className="text-xs">
+          <SelectItem value="manual">
             Manual
           </SelectItem>
-          <SelectItem value="suggested" className="text-xs">
+          <SelectItem value="suggested">
             Sugerido
           </SelectItem>
-          <SelectItem value="automatic" className="text-xs">
+          <SelectItem value="automatic">
             Automático
           </SelectItem>
         </SelectContent>
@@ -114,11 +114,11 @@ export function AutomationModeControl({
       <Dialog open={showConfirm} onOpenChange={setShowConfirm}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base">
-              <AlertTriangle className="h-4 w-4 text-amber-500" />
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
               Activar modo automático
             </DialogTitle>
-            <DialogDescription className="text-sm leading-relaxed">
+            <DialogDescription className="leading-relaxed">
               Al activar el modo <strong>Automático</strong> en{' '}
               <strong>&ldquo;{automationName}&rdquo;</strong>, SellUp ejecutará esta
               acción automáticamente cuando se cumpla el evento correspondiente,
@@ -126,21 +126,17 @@ export function AutomationModeControl({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs text-amber-600 dark:text-amber-400">
+          <div className="rounded-xl border border-warning/25 bg-warning/15 px-4 py-3 text-xs leading-relaxed text-warning">
             Asegúrate de que los proveedores requeridos por esta automatización
             estén correctamente configurados y conectados antes de activar el modo
             automático.
           </div>
 
           <DialogFooter className="gap-2">
-            <Button variant="outline" size="sm" onClick={cancelAutomatic}>
+            <Button type="button" variant="outline" size="sm" onClick={cancelAutomatic}>
               Cancelar
             </Button>
-            <Button
-              size="sm"
-              className="bg-su-brand text-su-brand-foreground hover:bg-su-brand/90"
-              onClick={confirmAutomatic}
-            >
+            <Button type="button" size="sm" onClick={confirmAutomatic}>
               Activar automático
             </Button>
           </DialogFooter>
@@ -150,10 +146,8 @@ export function AutomationModeControl({
       {/* Toast */}
       {toast && (
         <div
-          className={`fixed bottom-8 left-1/2 z-50 -translate-x-1/2 rounded-lg border bg-card px-4 py-3 shadow-lg ${
-            toast.type === 'success'
-              ? 'border-emerald-500/50 text-emerald-700 dark:text-emerald-400'
-              : 'border-destructive/50 text-destructive'
+          className={`fixed bottom-8 left-1/2 z-50 -translate-x-1/2 rounded-xl border border-border/60 bg-popover px-4 py-3 text-sm font-medium shadow-drawer ${
+            toast.type === 'success' ? 'text-success' : 'text-destructive'
           }`}
         >
           {toast.message}

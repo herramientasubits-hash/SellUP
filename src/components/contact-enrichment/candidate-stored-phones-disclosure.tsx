@@ -82,13 +82,13 @@ function StoredPhoneRow({ phone }: { phone: StoredCandidatePhoneView }) {
     <li className="flex flex-col gap-1 py-2">
       <span className="inline-flex flex-wrap items-center gap-2">
         <span className="break-all text-sm text-foreground">{phone.number}</span>
-        <Badge className="border-0 bg-su-brand-soft text-su-brand text-[10px] font-semibold">
+        <Badge variant="brand">
           {typeLabel}
         </Badge>
       </span>
       {sourceLabels.length > 0 && (
-        <p className="text-[11px] text-muted-foreground">
-          <span className="uppercase tracking-wide text-muted-foreground/70">
+        <p className="text-xs text-muted-foreground">
+          <span className="text-muted-foreground">
             {STORED_PHONES_SOURCES_LABEL}:
           </span>{' '}
           <span className="text-foreground">
@@ -161,7 +161,7 @@ export function CandidateStoredPhonesDisclosure({
         onClick={handleToggle}
         aria-expanded={open}
         aria-controls={panelId}
-        className="h-auto gap-1.5 px-0 text-[11px] font-medium text-su-brand hover:bg-transparent hover:underline"
+        className="h-auto gap-1.5 px-0 text-xs font-medium text-primary hover:bg-transparent hover:underline"
       >
         <Phone className="h-3 w-3" />
         {open ? STORED_PHONES_COLLAPSE_LABEL : getStoredPhonesCtaLabel(additionalCount)}
@@ -169,25 +169,25 @@ export function CandidateStoredPhonesDisclosure({
       </Button>
 
       {open && (
-        <div id={panelId} className="rounded-md border border-border/60 bg-muted/30 px-3 py-1">
+        <div id={panelId} className="rounded-md border border-border/60 bg-surface-subtle px-3 py-1">
           {state.kind === 'loading' && (
-            <p className="py-2 text-[11px] text-muted-foreground">
+            <p className="py-2 text-xs text-muted-foreground">
               {STORED_PHONES_LOADING_COPY}
             </p>
           )}
           {state.kind === 'error' && (
-            <p className="py-2 text-[11px] text-muted-foreground">
+            <p className="py-2 text-xs text-muted-foreground">
               {STORED_PHONES_ERROR_COPY}
             </p>
           )}
           {state.kind === 'loaded' && state.phones.length === 0 && (
-            <p className="py-2 text-[11px] text-muted-foreground">
+            <p className="py-2 text-xs text-muted-foreground">
               {STORED_PHONES_EMPTY_COPY}
             </p>
           )}
           {state.kind === 'loaded' && state.phones.length > 0 && (
             <>
-              <p className="pt-2 text-[11px] uppercase tracking-wide text-muted-foreground/70">
+              <p className="pt-2 text-xs text-muted-foreground">
                 {getStoredPhonesHeading(state.phones.length)}
               </p>
               <ul className="divide-y divide-border/50">

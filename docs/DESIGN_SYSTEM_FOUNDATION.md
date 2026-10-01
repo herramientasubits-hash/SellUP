@@ -1,4 +1,4 @@
-# SellUp Design System Foundation v0.1
+# SellUp Design System Foundation v0.2 — tema Azul de Thema
 
 > Fuente visual vigente para SellUp. Este documento define los principios, tokens, tipografía, componentes base y reglas que gobiernan toda la interfaz de la plataforma.
 
@@ -32,94 +32,99 @@ El sistema no es un documento de aspiraciones: cada token está implementado en 
 
 Todos los tokens están definidos en `src/app/globals.css` como CSS custom properties bajo `:root` (light) y `.dark` (dark).
 
+> **Tema vigente: «Azul» de Thema** (v0.2, 2026-09-30). Los valores salen del preset `thema` del sistema de
+> diseño Thema (`~/Documents/Thema Shadcn`), generados con `themeToCss(findPreset("thema"), "md")`: azul clásico
+> `#0C5BEF` sobre neutros fríos teñidos con el matiz 222. La guía de traducción pantalla por pantalla está en
+> [`THEMA_AZUL_MIGRATION.md`](./THEMA_AZUL_MIGRATION.md) y las reglas se verifican con
+> `node scripts/check-design-system.mjs` (debe dar 0 hallazgos).
+
 ### 3.1 Backgrounds y superficies
 
 | Token CSS | Tailwind | Uso |
 |---|---|---|
-| `--background` | `bg-background` | Fondo base de toda la app |
-| `--card` | `bg-card` | Superficie de cards y paneles de contenido |
-| `--sidebar` | `bg-sidebar` | Superficie del sidebar y header |
-| `--muted` | `bg-muted` | Zonas atenuadas, fondos de inputs |
-| `--su-surface` | `bg-su-surface` | Alias semántico para `--card` |
-| `--su-surface-elevated` | `bg-su-surface-elevated` | Superficie elevada sobre card |
+| `--background` | `bg-background` | Fondo base de la app: blanco con un punto de azul (`#f7faff`) |
+| `--card` | `bg-card`, `bg-surface` | Superficie de cards y paneles de contenido |
+| `--surface-muted` | `bg-surface-muted` | Sección apagada / hover de fila (`#f0f4ff`) |
+| `--surface-subtle` | `bg-surface-subtle` | Superficie hundida bajo una card: cabecera de tabla, pie de métrica |
+| `--tab-track` | `bg-tab-track` | Pista de pestañas |
+| `--popover` | `bg-popover` | Menús, popovers, drawers y diálogos |
+| `--sidebar` | `bg-sidebar` | Riel lateral: superficie **clara** con borde (no un bloque navy) |
+| `--nav` | `bg-nav`, `text-nav-foreground` | Navy de navegación; hoy lo usa la barra de acciones flotante |
+| `--muted` | `bg-muted` | Compatibilidad shadcn; preferir `surface-muted` / `surface-subtle` |
+| `--su-surface` / `--su-surface-elevated` | `bg-su-surface…` | Alias heredados |
 
-**Regla de capas (dark mode, de más oscuro a más claro):**
+El contenedor de página lleva además `page-atmosphere`: un halo radial del primario detrás del contenido.
+
+**Regla de capas (dark, de más oscuro a más claro):**
 ```
-background (#070d1a) → sidebar/header → card → su-surface-elevated → popover
+background (#0d1321) → surface-subtle → card (#171f31) → popover → surface-muted (#212a3f)
 ```
 
 ### 3.2 Texto
 
 | Token CSS | Tailwind | Uso |
 |---|---|---|
-| `--foreground` | `text-foreground` | Texto principal — alta prioridad |
-| `--muted-foreground` | `text-muted-foreground` | Texto secundario, labels, descripciones |
-| `--card-foreground` | `text-card-foreground` | Texto dentro de cards |
+| `--foreground` | `text-foreground`, `text-text-primary` | Títulos y texto principal |
+| `--muted-foreground` | `text-muted-foreground`, `text-text-secondary` | Cuerpo, subtítulos, labels |
+| `--text-muted` | `text-text-muted` | Hints, placeholders, iconos inactivos |
+| `--primary-foreground` | `text-primary-foreground` | Texto sobre primario. **Nunca `text-white`.** |
 
-**Jerarquía de opacidad recomendada para texto:**
-- Primario: `text-foreground` (100%)
-- Secundario: `text-muted-foreground` (~55%)
-- Terciario/metadata: `text-muted-foreground/60` (~35%)
+No se atenúa el texto con opacidad (`text-muted-foreground/60`): se elige el nivel.
 
 ### 3.3 Borders
 
 | Token CSS | Tailwind | Uso |
 |---|---|---|
-| `--border` | `border-border` | Borde estándar entre superficies |
-| `--su-border-subtle` | `border-su-border-subtle` | Borde muy suave, separadores internos |
-| `--su-border-strong` | `border-su-border-strong` | Borde con mayor contraste |
+| `--border` | `border-border/60` | Borde de card y de panel (siempre al 60 %) |
+| `--border` | `border-border/50` | Divisoria interna |
+| `--su-border-strong` | `border-border-strong` | Borde con mayor contraste |
 | `--input` | `border-input` | Borde de campos de formulario |
 
 ### 3.4 Brand / Primary
 
 | Token CSS | Tailwind | Uso |
 |---|---|---|
-| `--primary` | `bg-primary`, `text-primary` | Color primario (azul vibrante en light, azul brillante en dark) |
-| `--primary-foreground` | `text-primary-foreground` | Texto sobre primary |
-| `--su-brand` | `text-su-brand`, `bg-su-brand` | Acento azul UBITS light `oklch(0.530 0.233 262)` ≈ `#0c5bef` |
-| `--su-brand` (dark) | `text-su-brand`, `bg-su-brand` | Acento azul UBITS dark `oklch(0.564 0.221 266)` ≈ `#3865f5` |
-| `--su-brand-soft` | `bg-su-brand-soft` | Fondo tintado del acento (8–12% opacidad) |
-| `--su-brand-foreground` | `text-su-brand-foreground` | Texto sobre brand sólido |
+| `--primary` (= `--su-brand`) | `bg-primary`, `text-primary` | Azul del tema: `#0C5BEF` en claro, `#3865F5` en oscuro |
+| `--brand-hover` / `--brand-pressed` | `bg-brand-hover`, `bg-brand-pressed` | Estados del botón primario |
+| `--su-brand-soft` | `bg-primary/10` | Tinte del primario (chips de icono, ítem activo) |
+| `--brand-gradient` | `bg-brand-gradient` | Solo la marca del producto |
 
-**Paleta de referencia (alineada con `plantilla-proyectos-shadcn` / UBITS):**
+**Paleta del tema Azul:**
 
-| Rol | Light (HEX) | Dark (HEX) |
+| Rol | Light | Dark |
 |---|---|---|
-| Brand | `#0c5bef` | `#3865f5` |
-| Brand hover | `#1e4abf` | — |
-| Brand pressed | `#223a91` | — |
-| Background | `#f8faff` | `#020617` |
-| Surface (card) | `#ffffff` | `#0f172a` |
-| Surface muted | `#ebf1ff` | `#1e293b` |
-| Surface subtle | `#f5f8ff` | — |
-| Surface nav (sidebar) | `#111827` | `#0f172a` |
-| Text primary | `#303a47` | `#edeeef` |
-| Text secondary | `#5c646f` | `#8d9299` |
-| Text muted | `#979ba3` | — |
-| Border | `#d0d2d5` | `#3d4555` |
-| Border strong | `#979ba3` | `#4f5561` |
-| Positive | `#328e2c` | — |
-| Negative | `#e9343c` | — |
-| Warning | `#EC9907` | `#f59e0b` |
-| Info | `#4a74ee` | — |
-| AI gradient | `#2d5cf7` → `#e11d48` | `#2d5cf7` → `#e11d48` |
-
-El token `--su-brand` es el acento visual central de SellUp. Se usa en:
-- Logo "Up"
-- Indicadores de nav activo
-- Iconos de módulo en placeholders
-- Bordes superiores de feature cards
+| Brand | `#0C5BEF` | `#3865F5` |
+| Brand hover / pressed | `#0a4cc8` / `#083da1` | `#5f83f7` / `#86a1f9` |
+| Background | `#f7faff` | `#0d1321` |
+| Surface (card) | `#ffffff` | `#171f31` |
+| Surface muted | `#f0f4ff` | `#212a3f` |
+| Surface subtle | `#fafbff` | `#0f1729` |
+| Tab track | `#ebeffa` | `#10141e` |
+| Nav | `#0f1729` | `#0f1729` |
+| Text primary | `#303646` | `#ecedee` |
+| Text secondary | `#5c6270` | `#9ea1a9` |
+| Text muted | `#989ca4` | `#6e727c` |
+| Border | `#cfd0d3` | `#3e4556` |
+| Positive | `#059669` | más luminoso |
+| Negative | `#E9343C` | más luminoso |
+| Warning | `#FF7B0D` | más luminoso |
+| Info | `#4A74EE` | más luminoso |
+| AI gradient | `#2d5cf7` → `#9b14f5` → `#f2024e` → `#ff600a` | versión luminosa |
 
 ### 3.5 Estados semánticos
 
-| Propósito | Token / clase recomendada |
-|---|---|
-| Éxito | `text-emerald-500`, `bg-emerald-500/10` |
-| Advertencia | `text-amber-500`, `bg-amber-500/10` |
-| Error / Destructivo | `text-destructive`, `bg-destructive/10` |
-| Info | `text-su-brand`, `bg-su-brand-soft` |
+Positivo, negativo, warning e info **no cambian con el tema**: son significado, no decoración.
 
-Los estados de éxito, advertencia e info no tienen token CSS propio en v0.1. Se definen aquí como convención de clase para mantener coherencia antes de formalizar tokens adicionales.
+| Propósito | Texto | Tinte | Borde | `Badge` |
+|---|---|---|---|---|
+| Éxito | `text-success` | `bg-success/10` | `border-success/20` | `variant="positive"` |
+| Advertencia | `text-warning` | `bg-warning/15` | `border-warning/25` | `variant="warning"` |
+| Error / destructivo | `text-destructive` | `bg-destructive/10` | `border-destructive/20` | `variant="negative"` |
+| Info | `text-info` | `bg-info/10` | `border-info/20` | `variant="info"` |
+| Neutro | `text-muted-foreground` | `bg-muted/60` | `border-border/50` | `variant="neutral"` |
+| Marca | `text-primary` | `bg-primary/10` | `border-primary/20` | `variant="brand"` |
+
+**Prohibida la paleta cruda de Tailwind** (`text-emerald-500`, `bg-amber-500/10`, `text-red-600`…) y cualquier color literal.
 
 ---
 
@@ -127,46 +132,46 @@ Los estados de éxito, advertencia e info no tienen token CSS propio en v0.1. Se
 
 ### Estrategia
 
-SellUp usa **Inter** como única familia tipográfica (`--font-sans`), tanto para body como para headings. Esta decisión está alineada con la plantilla de referencia UBITS / shadcn:
-
-- Inter es altamente legible en interfaces de datos.
-- Una sola familia evita la mezcla de fuentes que añade complejidad sin beneficio real.
-- El carácter expresivo en login se logra mediante **escala, peso y opacidad**, no cambiando de fuente.
-
-**Anteriormente:** se usaba `Plus Jakarta Sans` para headings e `Inter` para body. Esta mezcla se eliminó en favor de Inter como fuente única (alineado con `plantilla-proyectos-shadcn`).
+SellUp usa **Inter** como única familia tipográfica (`--font-sans`), tanto para body como para headings, con
+`letter-spacing: -0.011em` y los rasgos `cv05 cv08 cv11 ss01` (igual que Thema).
 
 ### Escala de headings (h1–h6)
 
-Definida en `globals.css` (`@layer base`) y aplicada automáticamente a los elementos HTML:
+Definida en `globals.css` (`@layer base`):
 
-| Elemento | Token | Uso típico |
+| Elemento | Clases | Uso típico |
 |---|---|---|
-| `h1` | `text-2xl font-extrabold tracking-tight` | Título principal de página (vía `PageHeader`) |
+| `h1` | `text-2xl font-bold tracking-tight` | Título de página (vía `PageHeader`) |
 | `h2` | `text-xl font-bold tracking-tight` | Título de sección principal |
-| `h3` | `text-lg font-bold` | Subtítulo de bloque |
-| `h4` | `text-base font-semibold` | Títulos dentro de cards (vía `SurfaceCardHeader`) |
-| `h5` | `text-sm font-semibold` | Sub-encabezados |
-| `h6` | `text-xs font-semibold uppercase tracking-wide text-muted-foreground` | Eyebrow / overline |
+| `h3` | `text-lg font-semibold tracking-tight` | Subtítulo de bloque |
+| `h4` | `text-base font-semibold tracking-tight` | Título de card (vía `SurfaceCardHeader`) |
+| `h5` | `text-sm font-semibold tracking-tight` | Sub-encabezado |
+| `h6` | `text-xs font-semibold text-muted-foreground` | Rótulo de grupo |
 
 ### Jerarquía de uso
 
-| Nivel | Clase recomendada | Uso |
+| Nivel | Clase | Uso |
 |---|---|---|
-| Page title | `text-2xl font-extrabold tracking-tight` | Título principal de cada página (vía `PageHeader`) |
-| Section title | `text-base font-semibold` | Títulos dentro de cards (vía `SurfaceCardHeader`) |
-| Card title | `text-sm font-semibold leading-none` | Encabezados de sub-secciones |
-| Body | `text-sm` | Texto de contenido general |
+| Page title | `text-2xl font-bold tracking-tight` | Uno por vista, vía `PageHeader` |
+| Section / card title | `text-base font-semibold tracking-tight` | Títulos dentro de cards |
+| Sub-sección | `text-sm font-semibold` | Encabezados dentro de un drawer |
+| Body | `text-sm` | Contenido general |
 | Caption / metadata | `text-xs text-muted-foreground` | Fechas, IDs, labels secundarios |
-| Overline | `text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60` | Labels de sección en sidebar, categorías |
+| Rótulo de grupo | `text-xs font-semibold text-muted-foreground` | En caja normal |
+
+Reglas:
+- **Sin tamaños fijados** (`text-[11px]`, `text-[13px]`): solo la escala. El mínimo es `text-xs`.
+- **Sin overlines en MAYÚSCULAS con tracking**: Thema rotula en caja normal.
+- Peso máximo `font-bold`; nada de `font-black` / `font-extrabold`.
+- Números en `tabular-nums`.
 
 ### Iconos
 
-SellUp aplica `stroke-width: 1.75` a los íconos `lucide-react` y SVGs dentro de botones / links. Esto alinea el grosor visual con la identidad UBITS (más fino que el default `2` de lucide) sin necesidad de setearlo manualmente en cada componente.
+`stroke-width: 1.75` en los iconos `lucide-react` (más fino que el `2` por defecto). El spinner conserva su grosor.
 
 ### Regla login vs. app interna
 
-- **Login:** usa la misma fuente Inter. El brand panel del login puede usar `font-extrabold` con escalas grandes (`text-[2.4rem]` a `text-[1.85rem]`) y `tracking-tight` agresivo para crear impacto editorial.
-- **App interna:** mantiene la escala de headings más funcional. h1 = `font-extrabold` (peso fuerte, alineado con referencia), h2/h3 = `font-bold`, h4 en adelante = `font-semibold`. El foco está en la legibilidad operativa.
+El panel de marca del login es la única excepción editorial (escalas grandes, glows). La app interna sigue la escala.
 
 ---
 
@@ -174,39 +179,39 @@ SellUp aplica `stroke-width: 1.75` a los íconos `lucide-react` y SVGs dentro de
 
 ### Radios
 
-Escala operativa **Design Refresh v1** (Julio 2026): `sm 6 · md 8 (base) · lg 12 · xl 16 · 2xl 20 · 3xl 24 · 4xl 32`.
+Escala **Thema**, monótona y anclada en el shell: `xs 6 · sm 8 · md 10 (base) · lg 12 · xl 14 · 2xl 16 · 3xl 24`.
+Una card anidada siempre redondea un poco menos que el panel que la contiene.
 
-> La escala anterior (`sm 10 · md 14 · lg 20 · xl 28 · 2xl 32`) inflaba cards y contenedores de datos; con listas y tablas dentro se veían "globo". La escala nueva mantiene la nitidez operativa. `rounded-full` sigue reservado para pills, badges y avatares.
-
-| Uso | Token / clase | Valor |
+| Clase | Valor | Uso |
 |---|---|---|
-| Base (`--radius`) | `0.5rem` | 8px |
-| Componentes pequeños (badges, pills, avatares) | `rounded-full` | 9999px |
-| Inputs, botones | `rounded-md` | 8px |
-| Botones pill, chips, toggles, dropdowns | `rounded-lg` | 12px |
-| Cards, paneles | `rounded-xl` | 16px |
-| Modal, sheet | `rounded-2xl` | 20px |
+| `rounded-xs` | 6px | Checkboxes, marcas de 20px |
+| `rounded-sm` | 8px | Chips, avatares cuadrados, botones `xs` |
+| `rounded-md` | 10px | **Todo lo que se pulsa**: botones, inputs, filas de menú, badges |
+| `rounded-lg` | 12px | Tiles, filas de lista, celdas |
+| `rounded-xl` | 14px | Cards dentro de un panel, chips de icono |
+| `rounded-2xl` | 16px | Cards de página, paneles, drawers, diálogos |
+| `rounded-3xl` | 24px | Barra de acciones flotante |
+| `rounded-full` | — | Avatares, puntos de estado, contadores |
+
+Prohibidos los radios arbitrarios (`rounded-[…px]`).
 
 ### Sombras
 
-SellUp usa sombras mínimas. El sistema de profundidad se comunica principalmente a través de **diferencias de color de superficie**, no de sombras.
+Tres sombras, teñidas en navy (nunca negro neutro):
 
-| Uso | Clase |
+| Clase | Uso |
 |---|---|
-| Card estándar | Sin sombra (borde define el límite) |
-| Card elevada / hover | `shadow-sm` |
-| Dropdown, popover | `shadow-md` (shadcn/ui por defecto) |
-| Modal | `shadow-lg` |
+| `shadow-card` | Reposo de cualquier superficie: card, métrica, tabla, pestaña activa |
+| `shadow-drawer` | Lo que flota sobre la página: drawers, diálogos, popovers, menús |
+| `shadow-rail` | La barra de acciones flotante (lo único que flota sobre contenido vivo) |
 
-**Prohibido:** `shadow-xl`, `shadow-2xl`, box-shadows custom hardcodeados.
+Una card estática no reacciona al puntero: solo se eleva (`hover:shadow-drawer`) si es pulsable.
+
+**Prohibido:** `shadow-sm/md/lg/xl/2xl` sueltas y `shadow-[…]` arbitrarias.
 
 ### Glows y halos
 
-Solo permitidos en:
-- Panel de marca del login (contexto editorial).
-- Indicadores de estado activo muy puntuales.
-
-No usar en la app interna.
+Solo en el panel de marca del login y en la identidad de IA (`su-ai-glow`). No usar en la app interna.
 
 ---
 
@@ -226,7 +231,7 @@ No usar en la app interna.
 
 Props: `title` (requerido), `description`, `actions`, `className`.
 
-Aplica: `text-2xl font-semibold tracking-tight` para el título. Usa en todas las páginas como primer elemento del contenido.
+Aplica: `text-2xl font-bold tracking-tight` para el título (h1 único de la vista). Usa en todas las páginas como primer elemento del contenido.
 
 ---
 
@@ -245,7 +250,7 @@ Aplica: `text-2xl font-semibold tracking-tight` para el título. Usa en todas la
 </SurfaceCard>
 ```
 
-Props de `SurfaceCard`: `elevated` (añade `shadow-sm`), `noPadding` (para tablas o contenidos custom).
+Props de `SurfaceCard`: `elevated` (añade `shadow-drawer`), `noPadding` (para tablas o contenidos custom). Reposo: `rounded-2xl border-border/60 bg-card shadow-card`, padding 24px.
 
 ---
 
@@ -314,8 +319,8 @@ Posición del icono (`iconPosition`):
   description="Con conexión operativa confirmada"
   value={12}
   icon={
-    <div className="rounded-lg p-1.5 bg-emerald-500/10">
-      <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+    <div className="rounded-lg p-1.5 bg-success/10">
+      <CheckCircle2 className="h-4 w-4 text-success" />
     </div>
   }
 />
@@ -352,7 +357,7 @@ Variantes soportadas: `loading` (skeleton interno), `error` (mensaje + título).
 Reglas:
 - Usar `MetricCard` en lugar de `<SurfaceCard>` con markup manual para KPIs. Toda card de métricas de la plataforma debe pasar por este componente.
 - En grillas grandes (`grid-cols-6`, `grid-cols-5`) el gap debe ser `gap-3` o `gap-4`.
-- `valueClassName` permite tintar el value (ej. `text-emerald-600` para métricas positivas) y agregar `font-mono` cuando aplique.
+- `valueClassName` permite tintar el value (ej. `text-success` para métricas positivas) y agregar `font-mono` cuando aplique.
 - El título debe llegar en title-case desde la página (no transformarlo dentro del componente).
 - El estilo del `icon` (tamaño, color, fondo) viene desde el consumidor — el componente solo define el slot.
 
@@ -785,8 +790,8 @@ El footer cambia según `loadMode`:
 
 - **Máximo un badge de color por fila.** El badge de color se reserva para la señal más importante de la fila (típicamente el estado/salud). Las demás categorías van como **texto plano** (`text-muted-foreground`) o, si necesitan señal ligera, un **punto de color + texto** (`h-1.5 w-1.5 rounded-full` + label). Varias columnas de badges de colores distintos en la misma fila convierten el color en ruido y le quitan semántica.
 - **Un valor por defecto no es un badge.** Un estado que es idéntico en todas las filas de la vista (p. ej. "Por revisar" en el tab de candidatos) va como texto plano, no como badge repetido.
-- **Celdas de máximo 2 líneas.** Evitar apilar 3+ microlíneas de `text-[10px]` (nombre + email + LinkedIn + teléfono). Mover lo secundario a iconos o al detalle en el drawer/side panel.
-- **Microtexto mínimo `text-[11px]`** en celdas de datos; reservar `text-[10px]` para overlines y badges de conteo.
+- **Celdas de máximo 2 líneas.** Evitar apilar 3+ microlíneas de `text-xs` (nombre + email + LinkedIn + teléfono). Mover lo secundario a iconos o al detalle en el drawer/side panel.
+- **Microtexto mínimo `text-xs`** en celdas de datos y en badges de conteo. No hay tamaños por debajo de 12px.
 
 ### 10.11.1 Prohibiciones
 
@@ -874,7 +879,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
       <TabsTrigger value="batches">
         Lotes
         {batchesCount > 0 && (
-          <span className="ml-1.5 inline-flex items-center justify-center rounded-full border border-border/40 bg-muted/60 px-1.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
+          <span className="ml-1.5 inline-flex items-center justify-center rounded-full border border-border/60 bg-surface-muted px-1.5 text-xs font-semibold tabular-nums text-muted-foreground">
             {batchesCount}
           </span>
         )}
@@ -890,7 +895,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 - **Variante de tabs:** siempre `variant="segmented"` dentro de un drawer (estándar de facto: los 4 drawers de detalle —fuente, cuenta, contacto, candidato— lo usan). `default` (con fondo `bg-muted`) se reserva para settings y formularios.
 - **Tab por defecto:** el que tenga el contenido más crítico / informativo. Para una entidad con info + relación, `Información` va primero.
-- **Badge de conteo:** incluir en el trigger cuando aplique (`Lotes 5`, `Actividad 12`). Estilo: `rounded-full border border-border/40 bg-muted/60 px-1.5 text-[10px] font-semibold tabular-nums text-muted-foreground`.
+- **Badge de conteo:** incluir en el trigger cuando aplique (`Lotes 5`, `Actividad 12`). Estilo: `rounded-full border border-border/60 bg-surface-muted px-1.5 text-xs font-semibold tabular-nums text-muted-foreground`.
 - **Tabs opcionales:** si la entidad solo tiene `Información` (sin datos relacionados), omitir el wrapper `Tabs` y renderizar el contenido directo. No forzar un único tab "decorativo".
 - **Ancho del drawer:** para detail views con tablas usar un ancho acotado con tope — p. ej. `sm:w-[58vw] sm:min-w-[660px] sm:!max-w-[900px]` — para evitar un lienzo vacío en pantallas anchas; `sm:w-[480px]` o `sm:w-[560px]` para detail views simples. Evitar `!w-[90vw]` salvo que el contenido lo justifique.
 - **Footer del drawer:** acciones de copia (Copiar key/ID) y enlaces externos (Abrir URL). **Nunca** un "Abrir página completa".

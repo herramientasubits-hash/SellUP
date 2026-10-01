@@ -12,6 +12,10 @@ import {
   XCircle,
   Info,
   Settings2,
+  Globe,
+  Hash,
+  Database,
+  Building2,
 } from 'lucide-react';
 import { ExploratorySearchFormV2 } from '@/components/prospect-batches/exploratory-search-form-v2';
 import { ProspectChatWizard } from '@/components/prospect-batches/chat-wizard';
@@ -27,6 +31,7 @@ import type { WizardProviderOverrideCapability } from '@/modules/prospect-batche
 import type { ApolloRunModeLimits } from '@/components/prospect-batches/chat-wizard/wizard-run-provider-copy';
 import type { WizardBudgetPreflight } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-preflight';
 import { DrawerShell } from '@/components/shared/drawer-shell';
+import { DrawerSection } from '@/components/shared/drawer-section';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { Button } from '@/components/ui/button';
 import { AIButton } from '@/components/ai/ai-button';
@@ -93,8 +98,8 @@ const WARNING_LABELS: Record<string, string> = {
 };
 
 const PREFLIGHT_STATUS_ICONS = {
-  success: <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />,
-  warning: <TriangleAlert className="h-3.5 w-3.5 text-amber-500" />,
+  success: <CheckCircle2 className="h-3.5 w-3.5 text-success" />,
+  warning: <TriangleAlert className="h-3.5 w-3.5 text-warning" />,
   error: <XCircle className="h-3.5 w-3.5 text-destructive" />,
   skipped: <Info className="h-3.5 w-3.5 text-muted-foreground" />,
 };
@@ -124,14 +129,14 @@ function ThinkingStepsDisplay({ steps, isTyping }: { steps: string[]; isTyping: 
   return (
     <div className="space-y-2 animate-su-fade-in">
       {steps.map((msg, i) => (
-        <div key={i} className="flex items-start gap-2 text-xs text-muted-foreground/80 animate-su-fade-in">
-          <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0 text-su-brand" />
+        <div key={i} className="flex items-start gap-2 text-xs text-muted-foreground animate-su-fade-in">
+          <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0 text-primary" />
           <span className="leading-relaxed">{msg}</span>
         </div>
       ))}
       {isTyping && (
-        <div className="flex items-start gap-2 text-xs text-muted-foreground/60 animate-su-fade-in">
-          <Loader2 className="h-3.5 w-3.5 mt-0.5 shrink-0 animate-spin text-su-brand/60" />
+        <div className="flex items-start gap-2 text-xs text-muted-foreground animate-su-fade-in">
+          <Loader2 className="h-3.5 w-3.5 mt-0.5 shrink-0 animate-spin text-primary" />
           <span className="leading-relaxed flex items-center gap-0.5">
             Pensando
             <span className="animate-pulse">…</span>
@@ -480,7 +485,7 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
           <Button
             variant="outline"
             size="sm"
-            className="gap-2 text-xs"
+            className="gap-2"
             onClick={() => updateDrawer('open', true)}
           >
             <AlertCircle className="h-3.5 w-3.5 text-muted-foreground" />
@@ -489,7 +494,7 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
         }
         title="Búsqueda de empresas no disponible"
         description="La generación de empresas candidatas no puede ejecutarse en este momento."
-        icon={<AlertCircle className="h-4 w-4 text-muted-foreground" />}
+        icon={<AlertCircle className="h-4 w-4" />}
         size="xl"
       >
         <Alert>
@@ -506,7 +511,7 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
             <Button
               variant="outline"
               size="sm"
-              className="gap-2 text-xs"
+              className="gap-2"
               onClick={() => router.refresh()}
             >
               Intentar de nuevo
@@ -534,7 +539,7 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
         }
         title="Generar empresas candidatas con IA"
         description="Responde unas preguntas y te ayudaré a configurar la búsqueda."
-        icon={<Sparkles className="h-4 w-4 text-su-brand" />}
+        icon={<Sparkles className="h-4 w-4" />}
         size="xl"
       >
         <ProspectChatWizard
@@ -566,7 +571,7 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
         }
         title="Generar empresas candidatas con IA"
         description="Configura los criterios de búsqueda para explorar el catálogo de industrias."
-        icon={<Sparkles className="h-4 w-4 text-su-brand" />}
+        icon={<Sparkles className="h-4 w-4" />}
         size="xl"
       >
         <ExploratorySearchFormV2 catalog={catalog} onClose={handleClose} />
@@ -594,7 +599,7 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
       }
       title="Generar empresas candidatas con IA"
       description="El agente consulta las fuentes configuradas para el país y usa HubSpot para detectar duplicados."
-      icon={<Sparkles className="h-4 w-4 text-su-brand" />}
+      icon={<Sparkles className="h-4 w-4" />}
       size="xl"
       footer={
         <DrawerFooter
@@ -616,7 +621,7 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
         /* ── Resultado de generación ── */
         <div ref={resultPanelRef}>
           {progressSteps.length > 0 && (
-            <div className="mb-4 pb-4 border-b border-border/30">
+            <div className="mb-4 border-b border-border/50 pb-4">
               <ThinkingStepsDisplay steps={progressSteps} isTyping={false} />
             </div>
           )}
@@ -642,14 +647,14 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
         <form
           id="generate-ai-batch-form"
           onSubmit={handleSubmit}
-          className="space-y-8"
+          className="space-y-4"
         >
           {/* Segmentación */}
-          <SurfaceCard>
-            <SurfaceCardHeader
-              title="Segmentación"
-              description="Define el país y la industria para la búsqueda."
-            />
+          <DrawerSection
+            title="Segmentación"
+            icon={Globe}
+            hint="Define el país y la industria para la búsqueda."
+          >
             <Row>
               <Field label="País" required>
                 <Select
@@ -688,15 +693,15 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
                 </Select>
               </Field>
             </Row>
-          </SurfaceCard>
+          </DrawerSection>
 
           {/* Cantidad */}
           {drawer.advancedOpen ? (
-            <SurfaceCard>
-              <SurfaceCardHeader
-                title="Cantidad"
-                description="Control cuántas empresas se intentan encontrar."
-              />
+            <DrawerSection
+              title="Cantidad"
+              icon={Hash}
+              hint="Control cuántas empresas se intentan encontrar."
+            >
               <Field label="Cantidad de empresas">
                 <Select
                   value={form.targetCount}
@@ -718,12 +723,9 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
                   La cantidad debe estar entre 10 y 25. SellUp intentará encontrar hasta esta cantidad. La cantidad final puede variar según calidad y duplicados.
                 </p>
               </Field>
-            </SurfaceCard>
+            </DrawerSection>
           ) : (
-            <SurfaceCard>
-              <SurfaceCardHeader
-                title="Cantidad"
-              />
+            <DrawerSection title="Cantidad" icon={Hash}>
               <p className="text-xs text-muted-foreground leading-relaxed">
                 {form.countryCode === 'CO' ? (
                   "SellUp buscará hasta 5 empresas útiles para revisión. Si encuentra registros duplicados, liquidados, inactivos o sin datos mínimos, los omitirá automáticamente."
@@ -733,7 +735,7 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
                   "SellUp buscará hasta 10 empresas útiles para revisión. Si encuentra duplicadas, liquidadas o no viables, las omitirá automáticamente y podrá hacer hasta 2 intentos de búsqueda."
                 )}
               </p>
-            </SurfaceCard>
+            </DrawerSection>
           )}
 
           {/* Fuentes automáticas */}
@@ -816,7 +818,7 @@ function DrawerFooter({
 }: DrawerFooterProps) {
   if (showPreflightResult) {
     return (
-      <div className="shrink-0 border-t border-border/50 px-7 py-4">
+      <div className="shrink-0 border-t border-border/60 bg-card px-6 py-4">
         <div className="flex w-full flex-col gap-3">
           <ResultFooterMessage
             usefulCandidatesCount={usefulCandidatesCount}
@@ -842,26 +844,26 @@ function DrawerFooter({
   }
 
   return (
-    <div className="shrink-0 border-t border-border/50 px-7 py-4">
+    <div className="shrink-0 border-t border-border/60 bg-card px-6 py-4">
       <div className="flex w-full items-center justify-between gap-3">
-        {generating && progressMsg ? (
-          <p className="mr-auto flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Loader2 className="h-3 w-3 animate-spin animate-su-pulse" />
-            {progressMsg}
-          </p>
-        ) : (
-          <div />
-        )}
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-3">
           <Button
             type="button"
-            variant="ghost"
+            variant="outline"
             size="sm"
             onClick={onClose}
             disabled={generating}
           >
             Cancelar
           </Button>
+          {generating && progressMsg && (
+            <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin animate-su-pulse" />
+              <span className="truncate">{progressMsg}</span>
+            </p>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
           <AIButton
             form="generate-ai-batch-form"
             type="submit"
@@ -892,7 +894,7 @@ function ResultFooterMessage({
 }: ResultFooterMessageProps) {
   if (usefulCandidatesCount === 0) {
     return (
-      <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium leading-relaxed">
+      <p className="text-xs text-warning font-medium leading-relaxed">
         No se encontraron empresas útiles para revisión. SellUp omitió registros por liquidación, inactividad, duplicidad o datos mínimos insuficientes.
       </p>
     );
@@ -900,7 +902,7 @@ function ResultFooterMessage({
 
   if (sourceStrategy === 'official_source_satisfied') {
     return (
-      <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+      <p className="text-xs text-muted-foreground leading-relaxed">
         SellUp encontró {structuredBatchResult?.candidatesWritten ?? 10} empresas útiles en fuente oficial. Se omitieron {structuredBatchResult?.candidatesSkipped ?? 0} registros no viables.
       </p>
     );
@@ -908,7 +910,7 @@ function ResultFooterMessage({
 
   if (sourceStrategy === 'official_plus_commercial') {
     return (
-      <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+      <p className="text-xs text-muted-foreground leading-relaxed">
         SellUp encontró {structuredBatchResult?.candidatesWritten ?? 0} empresas útiles en fuente oficial y completó con fuente comercial.
       </p>
     );
@@ -916,7 +918,7 @@ function ResultFooterMessage({
 
   if (sourceStrategy === 'commercial_fallback') {
     return (
-      <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+      <p className="text-xs text-muted-foreground leading-relaxed">
         No se encontraron empresas útiles con los criterios actuales. Intenta otra industria o país.
       </p>
     );
@@ -924,7 +926,7 @@ function ResultFooterMessage({
 
   if (structuredBatchResult && !structuredBatchResult.ok && isAutoModeAllPagesScanned(structuredBatchResult)) {
     return (
-      <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+      <p className="text-xs text-muted-foreground leading-relaxed">
         SellUp encontró {structuredBatchResult?.candidatesWritten ?? 0} empresas útiles. Se detuvo después de 2 intentos para controlar costos.
       </p>
     );
@@ -932,7 +934,7 @@ function ResultFooterMessage({
 
   if (structuredBatchResult?.ok && structuredBatchResult.batchId) {
     return (
-      <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+      <p className="text-xs text-muted-foreground leading-relaxed">
         SellUp creó candidatas desde fuente oficial y Apollo. Puedes revisarlas por separado.
       </p>
     );
@@ -966,7 +968,6 @@ function ResultFooterActions({
             size="sm"
             variant="outline"
             onClick={() => onNavigate(generatedBatchId)}
-            className="gap-1.5 text-muted-foreground"
           >
             Ver prospectos para auditoría
             <ChevronRight className="h-3.5 w-3.5" />
@@ -977,7 +978,6 @@ function ResultFooterActions({
             size="sm"
             variant="outline"
             onClick={() => onNavigate(structuredBatchResult.batchId!)}
-            className="gap-1.5 text-muted-foreground"
           >
             Ver prospectos oficiales
             <ChevronRight className="h-3.5 w-3.5" />
@@ -1007,7 +1007,6 @@ function ResultFooterActions({
           size="sm"
           variant="outline"
           onClick={onGoToBatch}
-          className="gap-1.5 text-muted-foreground"
         >
           Ver complemento comercial
           <ChevronRight className="h-3.5 w-3.5" />
@@ -1031,7 +1030,6 @@ function ResultFooterActions({
           size="sm"
           variant="outline"
           onClick={onGoToBatch}
-          className="gap-1.5 text-muted-foreground"
         >
           Ver también desde Apollo
           <ChevronRight className="h-3.5 w-3.5" />
@@ -1069,21 +1067,21 @@ type SourcesInfoProps = {
 
 function SourcesInfo({ sources, hasCountry }: SourcesInfoProps) {
   return (
-    <SurfaceCard>
-      <SurfaceCardHeader
-        title="Fuentes que usará el agente"
-        description={hasCountry ? undefined : "Las fuentes se configuran automáticamente al seleccionar el país."}
-      />
+    <DrawerSection
+      title="Fuentes que usará el agente"
+      icon={Database}
+      hint={hasCountry ? undefined : "Las fuentes se configuran automáticamente al seleccionar el país."}
+    >
       <div className="flex flex-wrap gap-2">
         {sources.map((src) => (
-          <Badge key={src.label} variant="secondary" className="rounded-full px-3 py-1 text-xs">
-            <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-500" />
+          <Badge key={src.label} variant="secondary" className="h-auto whitespace-normal py-1">
+            <CheckCircle2 className="h-3 w-3 shrink-0 text-success" />
             <span className="font-medium">{src.label}</span>
             <span className="text-muted-foreground">· {src.desc}</span>
           </Badge>
         ))}
       </div>
-    </SurfaceCard>
+    </DrawerSection>
   );
 }
 
@@ -1116,14 +1114,14 @@ function AdvancedOptionsSection({
       onValueChange={() => onToggle()}
     >
       <AccordionItem value="advanced" className="border-none">
-        <AccordionTrigger className="py-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground/60 hover:no-underline hover:text-muted-foreground/80">
+        <AccordionTrigger className="py-2 text-xs font-semibold text-muted-foreground hover:no-underline hover:text-muted-foreground">
           <div className="flex items-center gap-2">
             <Settings2 className="h-3.5 w-3.5" />
             Opciones avanzadas
           </div>
         </AccordionTrigger>
         <AccordionContent>
-          <SurfaceCard elevated className="mt-2">
+          <div className="mt-2 rounded-xl border border-border/60 bg-surface-subtle p-4">
             <Alert variant="warning" className="mb-4">
               <TriangleAlert className="h-4 w-4" />
               <AlertDescription className="text-xs">
@@ -1142,12 +1140,12 @@ function AdvancedOptionsSection({
                   onValueChange={(v) => onFormChange('targetCount', v ?? '10')}
                   disabled={generating}
                 >
-                  <SelectTrigger className="w-full h-9 text-sm">
+                  <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {[10, 15, 20, 25].map((n) => (
-                      <SelectItem key={n} value={String(n)} className="text-sm">
+                      <SelectItem key={n} value={String(n)}>
                         {n} empresas
                       </SelectItem>
                     ))}
@@ -1165,12 +1163,12 @@ function AdvancedOptionsSection({
                   onValueChange={(v) => onFormChange('advSearchDepth', (v ?? 'standard') as BatchSearchDepth)}
                   disabled={generating}
                 >
-                  <SelectTrigger className="w-full h-9 text-sm">
+                  <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {(['basic', 'standard'] as BatchSearchDepth[]).map((key) => (
-                      <SelectItem key={key} value={key} className="text-sm">
+                      <SelectItem key={key} value={key}>
                         {BATCH_SEARCH_DEPTH_LABELS[key]}
                       </SelectItem>
                     ))}
@@ -1188,7 +1186,7 @@ function AdvancedOptionsSection({
                     if (!isColombiaAuto && !isChilePreview) onFormChange('advStructuredSourcePreflight', e.target.checked);
                   }}
                   disabled={generating || isColombiaAuto || isChilePreview}
-                  className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border border-border accent-su-brand disabled:cursor-not-allowed"
+                  className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded-xs border border-border accent-primary focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 disabled:cursor-not-allowed"
                 />
                 <Label htmlFor="adv-structured-source-preflight" className="cursor-pointer space-y-0.5">
                   <span className="text-sm font-medium text-foreground">
@@ -1222,7 +1220,7 @@ function AdvancedOptionsSection({
                     if (!isColombiaAuto && !isChilePreview) onFormChange('advCreateStructuredSourceBatch', e.target.checked);
                   }}
                   disabled={generating || isColombiaAuto || isChilePreview}
-                  className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border border-border accent-su-brand disabled:cursor-not-allowed"
+                  className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded-xs border border-border accent-primary focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 disabled:cursor-not-allowed"
                 />
                 <Label htmlFor="adv-create-structured-source-batch" className="cursor-pointer space-y-0.5">
                   <span className="text-sm font-medium text-foreground">
@@ -1253,12 +1251,12 @@ function AdvancedOptionsSection({
                   }
                   disabled={generating}
                 >
-                  <SelectTrigger className="w-full h-9 text-sm">
+                  <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {Array.from({ length: STRUCTURED_PAGE_MAX }, (_, i) => i + 1).map((p) => (
-                      <SelectItem key={p} value={String(p)} className="text-sm">
+                      <SelectItem key={p} value={String(p)}>
                         Página {p}
                       </SelectItem>
                     ))}
@@ -1269,7 +1267,7 @@ function AdvancedOptionsSection({
                 </p>
               </div>
             </div>
-          </SurfaceCard>
+          </div>
         </AccordionContent>
       </AccordionItem>
     </Accordion>
@@ -1307,18 +1305,18 @@ function GenerationResultPanel({
   return (
     <div className="space-y-4 animate-su-fade-in">
       {/* Título */}
-      <SurfaceCard elevated>
+      <SurfaceCard className="p-4">
         <div className="flex items-center gap-3">
           {usefulCandidatesCount > 0 ? (
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/10">
-              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-success/10">
+              <CheckCircle2 className="h-4 w-4 text-success" />
             </div>
           ) : (
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500/10">
-              <TriangleAlert className="h-4 w-4 text-amber-500" />
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-warning/15">
+              <TriangleAlert className="h-4 w-4 text-warning" />
             </div>
           )}
-          <div>
+          <div className="min-w-0">
             <h3 className="text-sm font-semibold text-foreground">
               {usefulCandidatesCount > 0 ? 'Generación completada' : 'Generación finalizada'}
             </h3>
@@ -1349,24 +1347,24 @@ function GenerationResultPanel({
 
       {/* Lote Apollo — oculto si fuente oficial satisfizo completamente, Colombia o Chile */}
       {sourceStrategy !== 'official_source_satisfied' && countryCode !== 'CO' && countryCode !== 'CL' && (
-        <SurfaceCard>
-          <SurfaceCardHeader
-            title={sourceStrategy === 'official_plus_commercial'
-              ? 'Complemento comercial (Apollo)'
-              : sourceStrategy === 'commercial_fallback'
-              ? 'Fuente alternativa (Apollo)'
-              : 'Empresas generadas (Apollo)'}
-          />
+        <DrawerSection
+          title={sourceStrategy === 'official_plus_commercial'
+            ? 'Complemento comercial (Apollo)'
+            : sourceStrategy === 'commercial_fallback'
+            ? 'Fuente alternativa (Apollo)'
+            : 'Empresas generadas (Apollo)'}
+          icon={Building2}
+        >
           <div className="space-y-3">
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Estado:</span>
               {usefulCandidatesCount > 0 ? (
-                <Badge variant="secondary" className="rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                <Badge variant="positive">
                   <CheckCircle2 className="h-3 w-3" />
                   Creado
                 </Badge>
               ) : (
-                <Badge variant="secondary" className="rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                <Badge variant="warning">
                   <TriangleAlert className="h-3 w-3" />
                   Sin candidatas útiles
                 </Badge>
@@ -1375,7 +1373,7 @@ function GenerationResultPanel({
             {apolloBatchId && (
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Batch ID:</span>
-                <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono text-foreground">
+                <code className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
                   {apolloBatchId.slice(0, 8)}…
                 </code>
               </div>
@@ -1383,15 +1381,15 @@ function GenerationResultPanel({
             <div className="grid grid-cols-2 gap-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Candidatos útiles:</span>
-                <span className="font-semibold text-foreground">{usefulCandidatesCount}</span>
+                <span className="font-semibold tabular-nums text-foreground">{usefulCandidatesCount}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Omitidos:</span>
-                <span className="font-semibold text-foreground">{omittedCandidatesCount}</span>
+                <span className="font-semibold tabular-nums text-foreground">{omittedCandidatesCount}</span>
               </div>
             </div>
           </div>
-        </SurfaceCard>
+        </DrawerSection>
       )}
 
       {/* Lote fuente oficial (si se intentó) */}
@@ -1399,16 +1397,16 @@ function GenerationResultPanel({
         const nothingToWrite = isStructuredSourceNothingToWrite(structuredBatch);
         const isSocrataTimeout = isSocrataTimeoutError(structuredBatch);
         const dotClass = structuredBatch.ok || structuredBatch.status === 'official_source_success'
-          ? 'bg-emerald-500'
+          ? 'bg-success'
           : structuredBatch.status === 'official_source_error'
             ? 'bg-destructive'
-            : 'bg-amber-500';
+            : 'bg-warning';
 
         return (
-          <SurfaceCard>
-            <div className="flex items-center gap-2 mb-3">
+          <SurfaceCard className="p-4">
+            <div className="mb-3 flex items-center gap-2">
               <div className={`h-2 w-2 rounded-full ${dotClass}`} />
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
+              <span className="text-xs font-semibold text-muted-foreground">
                 Fuente oficial procesada
               </span>
             </div>
@@ -1431,7 +1429,7 @@ function GenerationResultPanel({
                   <div className="space-y-2 text-sm">
                     <div className="flex items-center justify-between">
                       <span className="text-muted-foreground">Estado:</span>
-                      <Badge variant="secondary" className="rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                      <Badge variant="positive">
                         <CheckCircle2 className="h-3 w-3" />
                         Creado · Revisión humana pendiente
                       </Badge>
@@ -1445,7 +1443,7 @@ function GenerationResultPanel({
                     {structuredBatch.batchId && (
                       <div className="flex items-center justify-between">
                         <span className="text-muted-foreground">Batch ID:</span>
-                        <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono text-foreground">
+                        <code className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
                           {structuredBatch.batchId.slice(0, 8)}…
                         </code>
                       </div>
@@ -1550,7 +1548,7 @@ function GenerationResultPanel({
 
       {/* Preflight informativo (solo si no hubo lote estructurado) */}
       {!structuredBatch && result && (
-        <SurfaceCard>
+        <SurfaceCard className="p-4">
           <SurfaceCardHeader
             title="Preflight Fuente Oficial"
             actions={

@@ -183,12 +183,12 @@ export function CreateContactDrawer({
       }
       title="Nuevo contacto"
       description="Registra un decisor, sponsor o persona clave vinculada a esta cuenta."
-      icon={<User className="h-4 w-4 text-su-brand" />}
+      icon={<User className="h-4 w-4 text-primary" />}
       size="xl"
       actions={
         <>
           {error && (
-            <p className="flex-1 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
+            <p role="alert" className="flex-1 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive">
               {error}
             </p>
           )}
@@ -224,7 +224,7 @@ export function CreateContactDrawer({
       <form
         id="create-contact-form"
         onSubmit={handleSubmit}
-        className="space-y-8"
+        className="space-y-4"
       >
         {/* Cuenta */}
         {accountId ? (() => {
@@ -239,7 +239,7 @@ export function CreateContactDrawer({
           return (
             <Section icon={Building2} label="Cuenta">
               <Field label="Cuenta">
-                <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
+                <div className="rounded-md border border-border bg-surface-subtle px-3 py-2 text-sm text-foreground">
                   {label}
                 </div>
               </Field>
@@ -314,7 +314,7 @@ export function CreateContactDrawer({
         <Section icon={Mail} label="Datos de contacto">
           <Field id="email" label="Email corporativo">
             <div className="relative">
-              <Mail className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/40" />
+              <Mail className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
               <Input
                 id="email"
                 type="email"
@@ -328,7 +328,7 @@ export function CreateContactDrawer({
           <Row>
             <Field id="phone" label="Teléfono">
               <div className="relative">
-                <Phone className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/40" />
+                <Phone className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
                 <Input
                   id="phone"
                   type="tel"
@@ -341,7 +341,7 @@ export function CreateContactDrawer({
             </Field>
             <Field id="mobile_phone" label="Celular">
               <div className="relative">
-                <Phone className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/40" />
+                <Phone className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
                 <Input
                   id="mobile_phone"
                   type="tel"
@@ -355,7 +355,7 @@ export function CreateContactDrawer({
           </Row>
           <Field id="linkedin_url" label="LinkedIn">
             <div className="relative">
-              <Link2 className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/40" />
+              <Link2 className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
               <Input
                 id="linkedin_url"
                 type="url"
@@ -465,14 +465,14 @@ export function CreateContactDrawer({
                 type="checkbox"
                 checked={form.is_primary}
                 onChange={(e) => set('is_primary', e.target.checked)}
-                className="h-4 w-4 rounded border-border accent-[hsl(var(--su-brand))]"
+                className="h-4 w-4 rounded border-border accent-primary"
               />
-              <span className="text-xs font-medium text-foreground/70">Contacto primario</span>
+              <span className="text-xs font-medium text-muted-foreground">Contacto primario</span>
             </label>
           </Row>
           <Field id="notes" label="Notas">
             <div className="relative">
-              <FileText className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground/40" />
+              <FileText className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-text-muted" />
               <Textarea
                 id="notes"
                 placeholder="Contexto, señales de interés, último contacto…"

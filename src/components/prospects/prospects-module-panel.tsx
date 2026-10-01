@@ -239,8 +239,8 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
         <div className="flex flex-wrap items-center gap-2">
           <GenerateAIBatchDrawer experience={experience} unavailableKind={unavailableKind} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} autoProviderCascade={autoProviderCascade} discoveryProvider={wizardDiscoveryProvider} providerOverrideCapability={wizardProviderOverrideCapability} apolloRunModeLimits={apolloRunModeLimits} budgetPreflight={wizardBudgetPreflight} adminTavilyTrialAvailable={adminTavilyTrialAvailable} />
           <ImportCandidatesDrawer>
-            <Button variant="outline" size="sm" className="gap-2 text-xs">
-              <Upload className="h-3.5 w-3.5" />
+            <Button type="button" variant="outline" size="sm">
+              <Upload aria-hidden="true" />
               Importar prospectos
             </Button>
           </ImportCandidatesDrawer>
@@ -252,14 +252,14 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
       }
       metrics={
         !sourceId ? (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <MetricCard
               title="Pendientes de revisión"
               description="Esperando primera evaluación"
               value={kpis.needsReview}
               icon={
-                <div className="rounded-lg p-1.5 bg-su-brand-soft">
-                  <Building2 className="h-4 w-4 text-su-brand" />
+                <div className="rounded-xl bg-primary/10 p-1.5">
+                  <Building2 className="h-4 w-4 text-primary" />
                 </div>
               }
             />
@@ -268,8 +268,8 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
               description="Candidatos sin señales bloqueantes"
               value={kpis.readyForApproval}
               icon={
-                <div className="rounded-lg p-1.5 bg-emerald-500/10">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                <div className="rounded-xl bg-success/10 p-1.5">
+                  <CheckCircle2 className="h-4 w-4 text-success" />
                 </div>
               }
             />
@@ -278,8 +278,8 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
               description="Coincidencias detectadas"
               value={kpis.possibleDuplicates}
               icon={
-                <div className="rounded-lg p-1.5 bg-orange-500/10">
-                  <GitMerge className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                <div className="rounded-xl bg-warning/15 p-1.5">
+                  <GitMerge className="h-4 w-4 text-warning" />
                 </div>
               }
             />
@@ -288,8 +288,8 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
               description="Últimos 7 días"
               value={kpis.importedRecently}
               icon={
-                <div className="rounded-lg p-1.5 bg-blue-500/10">
-                  <Upload className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                <div className="rounded-xl bg-info/10 p-1.5">
+                  <Upload className="h-4 w-4 text-info" />
                 </div>
               }
             />

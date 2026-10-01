@@ -31,7 +31,7 @@ export function Field({
           <label
             htmlFor={id}
             className={cn(
-              "text-sm font-bold text-foreground leading-none",
+              "text-sm font-medium text-foreground leading-none",
               disabled && "opacity-70 cursor-not-allowed"
             )}
           >
@@ -67,7 +67,7 @@ export function Field({
       {description && !error && (
         <p
           id={descriptionId}
-          className="text-sm text-muted-foreground leading-relaxed"
+          className="text-xs text-muted-foreground leading-relaxed"
         >
           {description}
         </p>
@@ -76,7 +76,7 @@ export function Field({
       {error && (
         <p
           id={errorId}
-          className="text-sm font-medium text-destructive animate-in fade-in slide-in-from-top-1 duration-200"
+          className="text-xs font-medium text-destructive animate-in fade-in slide-in-from-top-1 duration-200"
         >
           {error}
         </p>
@@ -91,7 +91,7 @@ export function FieldLabel({
   ...props
 }: React.LabelHTMLAttributes<HTMLLabelElement>) {
   return (
-    <label className={cn("text-sm font-bold text-foreground", className)} {...props}>
+    <label className={cn("text-sm font-medium text-foreground", className)} {...props}>
       {children}
     </label>
   );
@@ -103,7 +103,7 @@ export function FieldDescription({
   ...props
 }: React.HTMLAttributes<HTMLParagraphElement>) {
   return (
-    <p className={cn("text-sm text-muted-foreground", className)} {...props}>
+    <p className={cn("text-xs text-muted-foreground", className)} {...props}>
       {children}
     </p>
   );
@@ -115,7 +115,7 @@ export function FieldError({
   ...props
 }: React.HTMLAttributes<HTMLParagraphElement>) {
   return (
-    <p className={cn("text-sm font-medium text-destructive", className)} {...props}>
+    <p className={cn("text-xs font-medium text-destructive", className)} {...props}>
       {children}
     </p>
   );

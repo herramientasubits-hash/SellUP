@@ -51,7 +51,7 @@ export function DataTableToolbar<TData>({
   return (
     <div
       className={cn(
-        "shrink-0 flex flex-col gap-2 px-5 py-4 border-b border-border/40",
+        "shrink-0 flex flex-col gap-2 px-5 py-4 border-b border-border/60",
         className,
       )}
     >
@@ -88,7 +88,8 @@ export function DataTableToolbar<TData>({
                       if (!globalFilter) setSearchOpen(false);
                     }}
                     placeholder="Buscar..."
-                    className="h-8 pl-7 pr-2 text-xs"
+                    inputSize="sm"
+                    className="pl-7 pr-2"
                   />
                 </div>
               ) : (

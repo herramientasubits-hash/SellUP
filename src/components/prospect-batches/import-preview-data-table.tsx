@@ -32,6 +32,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import {
   DataTableColumnHeader,
@@ -45,18 +46,18 @@ function DuplicateBadge({ status }: { status?: ImportDuplicateResult['duplicate_
   if (!status || status === 'no_match') return null;
   if (status === 'exact_duplicate') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-orange-500/10 px-2 py-0.5 text-[10px] font-semibold text-orange-600 dark:text-orange-400">
-        <GitMerge className="h-2.5 w-2.5" />
-        Duplicado exacto
-      </span>
+      <Badge variant="warning">
+          <GitMerge />
+          Duplicado exacto
+        </Badge>
     );
   }
   if (status === 'possible_duplicate') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
-        <GitMerge className="h-2.5 w-2.5" />
-        Posible duplicado
-      </span>
+      <Badge variant="warning">
+          <GitMerge />
+          Posible duplicado
+        </Badge>
     );
   }
   return null;
@@ -64,9 +65,7 @@ function DuplicateBadge({ status }: { status?: ImportDuplicateResult['duplicate_
 
 function DefaultBadge({ label }: { label: string }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-su-brand-soft px-2 py-0.5 text-[10px] font-medium text-su-brand">
-      {label}
-    </span>
+    <Badge variant="brand">{label}</Badge>
   );
 }
 
@@ -130,7 +129,7 @@ export function ImportPreviewDataTable({
       accessorFn: (row) => row.index + 1,
       header: '#',
       cell: ({ getValue }) => (
-        <span className="tabular-nums text-muted-foreground text-center block">
+        <span className="block text-center tabular-nums text-muted-foreground">
           {getValue() as number}
         </span>
       ),
@@ -149,12 +148,12 @@ export function ImportPreviewDataTable({
       cell: ({ row }) => {
         const r = row.original;
         return (
-          <div className="flex flex-col gap-0.5 min-w-0 max-w-[200px]">
+          <div className="flex flex-col gap-0.5 min-w-0 max-w-52">
             <p className="font-semibold text-foreground truncate" title={r.raw.company_name}>
-              {r.raw.company_name || <span className="text-muted-foreground/60 italic">Sin nombre</span>}
+              {r.raw.company_name || <span className="text-muted-foreground italic">Sin nombre</span>}
             </p>
             {r.raw.description && (
-              <p className="text-[10px] text-muted-foreground/80 truncate" title={r.raw.description}>
+              <p className="text-xs text-muted-foreground truncate" title={r.raw.description}>
                 {r.raw.description}
               </p>
             )}
@@ -177,7 +176,7 @@ export function ImportPreviewDataTable({
           <div className="flex flex-col gap-0.5">
             <p className="text-foreground font-medium">
               {r.resolved_country_code ?? r.raw.country_code ?? r.raw.country ?? (
-                <span className="text-muted-foreground/60 italic">—</span>
+                <span className="text-muted-foreground italic">—</span>
               )}
             </p>
             {r.country_from_default && <DefaultBadge label="por defecto" />}
@@ -198,8 +197,8 @@ export function ImportPreviewDataTable({
         const r = row.original;
         return (
           <div className="flex flex-col gap-0.5">
-            <p className="text-foreground truncate max-w-[120px]" title={r.raw.industry}>
-              {r.raw.industry ?? <span className="text-muted-foreground/60 italic">—</span>}
+            <p className="text-foreground truncate max-w-30" title={r.raw.industry}>
+              {r.raw.industry ?? <span className="text-muted-foreground italic">—</span>}
             </p>
             {r.industry_from_default && <DefaultBadge label="por defecto" />}
           </div>
@@ -217,7 +216,7 @@ export function ImportPreviewDataTable({
       ),
       cell: ({ row }) => {
         const r = row.original;
-        if (!r.raw.website) return <span className="text-muted-foreground/60 italic">—</span>;
+        if (!r.raw.website) return <span className="text-muted-foreground italic">—</span>;
         const display = r.raw.website.replace(/^(https?:\/\/)?(www\.)?/, '');
         const href = r.raw.website.startsWith('http') ? r.raw.website : `https://${r.raw.website}`;
         return (
@@ -225,7 +224,7 @@ export function ImportPreviewDataTable({
             href={href}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-su-brand hover:underline truncate max-w-[130px] font-medium"
+            className="inline-flex items-center gap-1 text-primary hover:underline truncate max-w-32 font-medium"
             title={r.raw.website}
             onClick={(e) => e.stopPropagation()}
           >
@@ -246,7 +245,7 @@ export function ImportPreviewDataTable({
       cell: ({ row }) => {
         const r = row.original;
         if (!r.raw.linkedin_url || r.raw.linkedin_url.toLowerCase() === 'no encontrado') {
-          return <span className="text-muted-foreground/60 italic">No encontrado</span>;
+          return <span className="text-muted-foreground italic">No encontrado</span>;
         }
         const display = r.raw.linkedin_url.replace(/^(https?:\/\/)?(www\.)?linkedin\.com\//, '');
         const href = r.raw.linkedin_url.startsWith('http') ? r.raw.linkedin_url : `https://${r.raw.linkedin_url}`;
@@ -255,7 +254,7 @@ export function ImportPreviewDataTable({
             href={href}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-su-brand hover:underline truncate max-w-[130px] font-medium"
+            className="inline-flex items-center gap-1 text-primary hover:underline truncate max-w-32 font-medium"
             title={r.raw.linkedin_url}
             onClick={(e) => e.stopPropagation()}
           >
@@ -275,17 +274,21 @@ export function ImportPreviewDataTable({
       ),
       cell: ({ row }) => {
         const r = row.original;
-        if (!r.raw.confidence) return <span className="text-muted-foreground/60 italic">—</span>;
+        if (!r.raw.confidence) return <span className="text-muted-foreground italic">—</span>;
         return (
-          <span className={cn(
-            "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold",
-            r.raw.confidence.toLowerCase() === 'alta' && "bg-emerald-500/10 text-emerald-500",
-            r.raw.confidence.toLowerCase() === 'media' && "bg-amber-500/10 text-amber-500",
-            r.raw.confidence.toLowerCase() === 'baja' && "bg-destructive/10 text-destructive",
-            !['alta', 'media', 'baja'].includes(r.raw.confidence.toLowerCase()) && "bg-muted text-muted-foreground",
-          )}>
+          <Badge
+            variant={
+              r.raw.confidence.toLowerCase() === 'alta'
+                ? 'positive'
+                : r.raw.confidence.toLowerCase() === 'media'
+                  ? 'warning'
+                  : r.raw.confidence.toLowerCase() === 'baja'
+                    ? 'negative'
+                    : 'neutral'
+            }
+          >
             {r.raw.confidence}
-          </span>
+          </Badge>
         );
       },
       size: 100,
@@ -312,22 +315,22 @@ export function ImportPreviewDataTable({
         return (
           <div className="flex flex-col gap-1 items-start">
             {r.status === 'error' && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-semibold text-destructive">
-                <XCircle className="h-2.5 w-2.5" />
+              <Badge variant="negative">
+                <XCircle />
                 Error
-              </span>
+              </Badge>
             )}
             {r.status === 'warning' && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
-                <AlertTriangle className="h-2.5 w-2.5" />
+              <Badge variant="warning" className="h-auto whitespace-normal py-0.5">
+                <AlertTriangle />
                 Importable con advertencias
-              </span>
+              </Badge>
             )}
             {r.status === 'valid' && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-                <CheckCircle2 className="h-2.5 w-2.5" />
+              <Badge variant="positive">
+                <CheckCircle2 />
                 Importable
-              </span>
+              </Badge>
             )}
             {dup && dup.duplicate_status !== 'no_match' && (
               <DuplicateBadge status={dup.duplicate_status} />
@@ -356,7 +359,7 @@ export function ImportPreviewDataTable({
       cell: ({ row }) => {
         const r = row.original;
         return (
-          <div className="space-y-1 text-[11px] leading-relaxed max-w-[300px]">
+          <div className="space-y-1 text-xs leading-relaxed max-w-75">
             {r.errors.map((e) => (
               <div key={e} className="flex items-start gap-1 text-destructive font-medium">
                 <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-destructive" />
@@ -364,13 +367,13 @@ export function ImportPreviewDataTable({
               </div>
             ))}
             {r.warnings.map((w) => (
-              <div key={w} className="flex items-start gap-1 text-amber-600 dark:text-amber-400">
-                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-amber-500" />
-                <span className="truncate max-w-[240px]" title={w}>{w}</span>
+              <div key={w} className="flex items-start gap-1 text-warning">
+                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-warning" />
+                <span className="truncate max-w-60" title={w}>{w}</span>
               </div>
             ))}
             {r.raw.notes && (
-              <div className="text-muted-foreground/80 truncate max-w-[260px]" title={r.raw.notes}>
+              <div className="text-muted-foreground truncate max-w-64" title={r.raw.notes}>
                 <span className="font-semibold">Notas:</span> {r.raw.notes}
               </div>
             )}
@@ -392,7 +395,7 @@ export function ImportPreviewDataTable({
           checked={table.getIsAllPageRowsSelected()}
           onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
           aria-label="Seleccionar todas las filas"
-          className="translate-y-[1px]"
+          
         />
       ),
       cell: ({ row }) => (
@@ -401,7 +404,7 @@ export function ImportPreviewDataTable({
           onCheckedChange={(value) => row.toggleSelected(!!value)}
           disabled={row.original.status === 'error'}
           aria-label="Seleccionar fila"
-          className="translate-y-[1px]"
+          
         />
       ),
       size: 40,
@@ -433,12 +436,12 @@ export function ImportPreviewDataTable({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border/40 bg-card shadow-sm">
+      <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-border/60 bg-card shadow-card">
         <div className="flex-1 min-h-0 overflow-auto su-table-scroll">
           <Table className="su-table su-table-sticky">
             <TableHeader>
               {table.getHeaderGroups().map((headerGroup) => (
-                <TableRow key={headerGroup.id} className="hover:bg-transparent border-border/40">
+                <TableRow key={headerGroup.id} className="border-border/60 hover:bg-transparent">
                   {headerGroup.headers.map((header) => (
                     <TableHead
                       key={header.id}
@@ -459,7 +462,7 @@ export function ImportPreviewDataTable({
                     key={row.id}
                     data-state={row.getIsSelected() ? 'selected' : undefined}
                     className={cn(
-                      'border-border/20 last:border-0',
+                      'border-border/50 last:border-0',
                       row.original.status === 'error' && 'opacity-50',
                     )}
                   >

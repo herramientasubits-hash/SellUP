@@ -123,14 +123,14 @@ function StatusBadge({ status }: { status: ImportClassificationPreviewRow['valid
     outline: 'outline',
   };
   const iconMap: Record<string, React.ReactNode> = {
-    valid: <CheckCircle2 className="h-3 w-3 text-emerald-500" />,
-    normalized: <CheckCircle2 className="h-3 w-3 text-su-brand" />,
-    warning: <AlertTriangle className="h-3 w-3 text-amber-500" />,
+    valid: <CheckCircle2 className="h-3 w-3 text-success" />,
+    normalized: <CheckCircle2 className="h-3 w-3 text-primary" />,
+    warning: <AlertTriangle className="h-3 w-3 text-warning" />,
     requires_review: <Pencil className="h-3 w-3 text-destructive" />,
     invalid: <XCircle className="h-3 w-3 text-destructive" />,
   };
   return (
-    <Badge variant={variantMap[config.variant] ?? 'secondary'} className="gap-1 text-[10px] font-medium whitespace-nowrap">
+    <Badge variant={variantMap[config.variant] ?? 'secondary'} className="whitespace-nowrap">
       {iconMap[status]}
       {config.label}
     </Badge>
@@ -159,12 +159,12 @@ function ClassificationCell({
     <div className="space-y-0.5">
       <p className="text-xs font-medium text-foreground">{canonicalName ?? originalValue ?? '—'}</p>
       {isDifferent && (
-        <p className="text-[10px] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           Original: <span className="italic">{originalValue}</span>
         </p>
       )}
       {(matchStatus === 'alias_match' || matchStatus === 'normalized_match') && isDifferent && (
-        <p className="text-[10px] text-su-brand">Normalizado automáticamente</p>
+        <p className="text-xs text-primary">Normalizado automáticamente</p>
       )}
     </div>
   );
@@ -235,7 +235,7 @@ function DetailField({
 }) {
   return (
     <div className={cn('space-y-0.5', fullWidth && 'col-span-full')}>
-      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">{label}</p>
+      <p className="text-xs font-semibold text-muted-foreground">{label}</p>
       <div className="text-xs text-foreground">{value}</div>
     </div>
   );
@@ -294,37 +294,38 @@ function ExpandedDetailRow({
   return (
     <tr>
       <td colSpan={colSpan} className="px-0 pb-0 pt-0">
-        <div className="mx-3 mb-3 overflow-hidden rounded-lg border border-border/30 bg-muted/20">
+        <div className="mx-3 mb-3 overflow-hidden rounded-lg border border-border/50 bg-surface-subtle">
 
           {/* ── Bloque 1: Resumen ──────────────────────────────────────────────── */}
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border/20 bg-muted/30 px-3 py-2">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border/50 bg-surface-subtle px-3 py-2">
             <span className="text-xs font-semibold text-foreground">{row.companyName}</span>
-            <span className={cn(
-              'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
-              row.validationStatus === 'valid' || row.validationStatus === 'normalized'
-                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                : row.validationStatus === 'warning'
-                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                  : 'bg-destructive/10 text-destructive',
-            )}>
+            <Badge
+              variant={
+                row.validationStatus === 'valid' || row.validationStatus === 'normalized'
+                  ? 'positive'
+                  : row.validationStatus === 'warning'
+                    ? 'warning'
+                    : 'negative'
+              }
+            >
               {statusConfig.label}
-            </span>
+            </Badge>
             {row.industryCanonicalName && (
-              <span className="text-[10px] text-muted-foreground">
+              <span className="text-xs text-muted-foreground">
                 {row.industryCanonicalName}
                 {row.subindustryCanonicalName && (
-                  <> · <span className="text-muted-foreground/80">{row.subindustryCanonicalName}</span></>
+                  <> · <span className="text-muted-foreground">{row.subindustryCanonicalName}</span></>
                 )}
               </span>
             )}
           </div>
 
-          <div className="p-3 space-y-4">
+          <div className="space-y-4 p-3">
 
             {/* ── Bloque 2: Información detectada ─────────────────────────────── */}
             {hasInfoBlock && (
               <div className="space-y-2">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+                <p className="text-xs font-semibold text-muted-foreground">
                   Información detectada
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5">
@@ -355,7 +356,7 @@ function ExpandedDetailRow({
                           href={websiteHref}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-su-brand hover:underline max-w-[220px] truncate"
+                          className="inline-flex max-w-56 items-center gap-1 truncate rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                           title={row.website ?? undefined}
                         >
                           <ExternalLink className="h-3 w-3 shrink-0" />
@@ -372,7 +373,7 @@ function ExpandedDetailRow({
                           href={linkedinHref}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-su-brand hover:underline max-w-[220px] truncate"
+                          className="inline-flex max-w-56 items-center gap-1 truncate rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                           title={row.linkedinUrl ?? undefined}
                         >
                           <ExternalLink className="h-3 w-3 shrink-0" />
@@ -393,8 +394,8 @@ function ExpandedDetailRow({
 
             {/* ── Bloque 3: Evidencia ──────────────────────────────────────────── */}
             {hasEvidenceBlock && (
-              <div className="space-y-2 border-t border-border/20 pt-3">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+              <div className="space-y-2 border-t border-border/50 pt-3">
+                <p className="text-xs font-semibold text-muted-foreground">
                   Evidencia
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5">
@@ -406,7 +407,7 @@ function ExpandedDetailRow({
                           href={sourceHref}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-su-brand hover:underline max-w-[220px] truncate"
+                          className="inline-flex max-w-56 items-center gap-1 truncate rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                           title={row.sourceUrl ?? undefined}
                         >
                           <ExternalLink className="h-3 w-3 shrink-0" />
@@ -424,8 +425,8 @@ function ExpandedDetailRow({
 
             {/* ── Bloque 4: Clasificación ──────────────────────────────────────── */}
             {hasClassificationBlock && (
-              <div className="space-y-2 border-t border-border/20 pt-3">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+              <div className="space-y-2 border-t border-border/50 pt-3">
+                <p className="text-xs font-semibold text-muted-foreground">
                   Clasificación
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5">
@@ -439,8 +440,8 @@ function ExpandedDetailRow({
 
                 {/* Valores originales */}
                 {showOriginalValues && (
-                  <div className="mt-2 rounded-md bg-muted/40 px-3 py-2 space-y-1">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                  <div className="mt-2 rounded-lg bg-surface-muted px-3 py-2 space-y-1">
+                    <p className="text-xs font-semibold text-muted-foreground">
                       Valores originales
                     </p>
                     <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
@@ -451,7 +452,7 @@ function ExpandedDetailRow({
                         <span>Subindustria: <em>{row.subindustryOriginalValue}</em></span>
                       )}
                       {row.correctionSource === 'manual' && (
-                        <span className="text-su-brand font-medium">— corregido manualmente</span>
+                        <span className="text-primary font-medium">— corregido manualmente</span>
                       )}
                     </div>
                   </div>
@@ -459,13 +460,13 @@ function ExpandedDetailRow({
 
                 {/* Advertencias */}
                 {row.warnings && row.warnings.length > 0 && (
-                  <div className="mt-2 rounded-md border border-amber-500/20 bg-amber-500/8 px-3 py-2 space-y-1.5">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-amber-600 dark:text-amber-400">
+                  <div className="mt-2 rounded-lg border border-warning/25 bg-warning/15 px-3 py-2 space-y-1.5">
+                    <p className="text-xs font-semibold text-warning">
                       Advertencias de clasificación
                     </p>
                     <ul className="space-y-1">
                       {row.warnings.map((w, i) => (
-                        <li key={i} className="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-300">
+                        <li key={i} className="flex items-start gap-1.5 text-xs text-warning">
                           <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
                           <span>{translateWarning(w.message)}</span>
                         </li>
@@ -476,8 +477,8 @@ function ExpandedDetailRow({
 
                 {/* Motivo de revisión requerida */}
                 {row.requiresHumanReview && (
-                  <div className="mt-2 rounded-md border border-destructive/20 bg-destructive/8 px-3 py-2 space-y-1">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-destructive/80">
+                  <div className="mt-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 space-y-1">
+                    <p className="text-xs font-semibold text-destructive">
                       Motivo de revisión requerida
                     </p>
                     <p className="text-xs text-destructive leading-relaxed">
@@ -688,7 +689,7 @@ export function ImportClassificationTable({
         accessorKey: 'companyName',
         header: 'Empresa',
         cell: ({ row }) => (
-          <span className="text-xs font-medium text-foreground block max-w-[160px] truncate" title={row.original.companyName}>
+          <span className="text-xs font-medium text-foreground block max-w-40 truncate" title={row.original.companyName}>
             {row.original.companyName}
           </span>
         ),
@@ -715,7 +716,7 @@ export function ImportClassificationTable({
               href={href}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-su-brand hover:underline max-w-[120px] truncate"
+              className="inline-flex max-w-30 items-center gap-1 truncate rounded-sm text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
               title={domain}
               onClick={(e) => e.stopPropagation()}
             >
@@ -738,7 +739,7 @@ export function ImportClassificationTable({
               href={href}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-su-brand hover:underline max-w-[120px] truncate"
+              className="inline-flex max-w-30 items-center gap-1 truncate rounded-sm text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
               title={row.original.linkedinUrl}
               onClick={(e) => e.stopPropagation()}
             >
@@ -776,13 +777,13 @@ export function ImportClassificationTable({
           const isEditing = editingRowNumber === row.original.rowNumber && !!catalog;
           if (isEditing) {
             return (
-              <div className="min-w-[160px]" onClick={(e) => e.stopPropagation()}>
+              <div className="min-w-40" onClick={(e) => e.stopPropagation()}>
                 <label className="sr-only" htmlFor={`edit-industry-${row.original.rowNumber}`}>
                   Industria
                 </label>
                 <select
                   id={`edit-industry-${row.original.rowNumber}`}
-                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-su-brand/60"
+                  className="h-8 w-full rounded-md border border-input bg-card px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 dark:bg-muted"
                   value={editIndustryId}
                   onChange={(e) => {
                     setEditIndustryId(e.target.value);
@@ -814,13 +815,13 @@ export function ImportClassificationTable({
           const isEditing = editingRowNumber === row.original.rowNumber && !!catalog;
           if (isEditing) {
             return (
-              <div className="min-w-[160px] space-y-1.5" onClick={(e) => e.stopPropagation()}>
+              <div className="min-w-40 space-y-1.5" onClick={(e) => e.stopPropagation()}>
                 <label className="sr-only" htmlFor={`edit-subindustry-${row.original.rowNumber}`}>
                   Subindustria
                 </label>
                 <select
                   id={`edit-subindustry-${row.original.rowNumber}`}
-                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-su-brand/60 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="h-8 w-full rounded-md border border-input bg-card px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-muted"
                   value={editSubindustryId}
                   onChange={(e) => setEditSubindustryId(e.target.value)}
                   disabled={!editIndustryId}
@@ -843,7 +844,7 @@ export function ImportClassificationTable({
                       className="h-3.5 w-3.5 shrink-0"
                       aria-label={`Aplicar también a ${equivalentRows.length} filas equivalentes`}
                     />
-                    <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                    <span className="text-xs text-muted-foreground flex items-center gap-1">
                       <Users className="h-3 w-3 shrink-0" />
                       También {equivalentRows.length} equivalente{equivalentRows.length !== 1 ? 's' : ''}
                     </span>
@@ -872,9 +873,9 @@ export function ImportClassificationTable({
           const isEditing = editingRowNumber === row.original.rowNumber;
           if (isEditing && editError) {
             return (
-              <div className="flex items-start gap-1 max-w-[120px]" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-start gap-1 max-w-30" onClick={(e) => e.stopPropagation()}>
                 <AlertTriangle className="h-3 w-3 text-destructive shrink-0 mt-0.5" />
-                <span className="text-[10px] text-destructive leading-tight">{editError}</span>
+                <span className="text-xs text-destructive leading-tight">{editError}</span>
               </div>
             );
           }
@@ -896,15 +897,14 @@ export function ImportClassificationTable({
               >
                 <Button
                   type="button"
-                  size="sm"
+                  size="xs"
                   onClick={handleSaveEdit}
                   disabled={editSaving || !editIndustryId}
-                  className="h-7 gap-1 text-[10px] bg-su-brand text-white hover:bg-su-brand/90"
                   aria-label="Guardar corrección"
                 >
                   {editSaving ? (
                     <>
-                      <span className="h-3 w-3 animate-spin rounded-full border border-white border-t-transparent" />
+                      <span className="h-3 w-3 animate-spin rounded-full border border-primary-foreground border-t-transparent" />
                       Guardando
                     </>
                   ) : (
@@ -917,10 +917,9 @@ export function ImportClassificationTable({
                 <Button
                   type="button"
                   variant="ghost"
-                  size="sm"
+                  size="xs"
                   onClick={cancelEditing}
                   disabled={editSaving}
-                  className="h-7 gap-1 text-[10px]"
                   aria-label="Cancelar corrección"
                 >
                   <X className="h-3 w-3" />
@@ -935,9 +934,9 @@ export function ImportClassificationTable({
               <Button
                 type="button"
                 variant="ghost"
-                size="sm"
+                size="xs"
                 onClick={() => toggleDetail(row.original.rowNumber)}
-                className="h-7 gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+                className="text-muted-foreground hover:text-foreground"
                 aria-label={isExpanded ? `Cerrar detalles de ${row.original.companyName}` : `Ver detalles de ${row.original.companyName}`}
                 aria-expanded={isExpanded}
               >
@@ -952,9 +951,9 @@ export function ImportClassificationTable({
                 <Button
                   type="button"
                   variant="ghost"
-                  size="sm"
+                  size="xs"
                   onClick={() => startEditing(row.original)}
-                  className="h-7 gap-1 text-[10px] text-su-brand hover:text-su-brand"
+                  className="text-primary hover:text-primary"
                   aria-label={`Corregir clasificación de ${row.original.companyName}`}
                 >
                   <Pencil className="h-3 w-3" />
@@ -1010,7 +1009,7 @@ export function ImportClassificationTable({
         <table className="w-full text-xs">
           <thead>
             {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id} className="border-b border-border/30 bg-muted/30">
+              <tr key={headerGroup.id} className="border-b border-border/50 bg-surface-subtle">
                 {headerGroup.headers.map((header, idx) => (
                   <th
                     key={header.id}
@@ -1030,7 +1029,7 @@ export function ImportClassificationTable({
               </tr>
             ))}
           </thead>
-          <tbody className="divide-y divide-border/20">
+          <tbody className="divide-y divide-border/50">
             {table.getRowModel().rows.length === 0 ? (
               <tr>
                 <td colSpan={visibleColumns.length} className="px-3 py-8 text-center text-muted-foreground">
@@ -1047,10 +1046,10 @@ export function ImportClassificationTable({
                     <tr
                       className={cn(
                         'transition-colors',
-                        isEditing && 'bg-su-brand-soft/20 ring-1 ring-inset ring-su-brand/30',
-                        !isEditing && isSelected && 'bg-su-brand-soft/30 hover:bg-su-brand-soft/50 cursor-pointer',
-                        !isEditing && !isSelected && 'hover:bg-muted/20 opacity-60 cursor-pointer',
-                        !isEditing && row.original.requiresHumanReview && isSelected && 'bg-destructive/5 hover:bg-destructive/10',
+                        isEditing && 'bg-primary/10 ring-1 ring-inset ring-primary/30',
+                        !isEditing && isSelected && 'cursor-pointer bg-primary/10',
+                        !isEditing && !isSelected && 'cursor-pointer opacity-60 hover:bg-surface-muted',
+                        !isEditing && row.original.requiresHumanReview && isSelected && 'bg-destructive/10',
                       )}
                       onClick={() => {
                         if (isEditing) return;
@@ -1079,7 +1078,7 @@ export function ImportClassificationTable({
 
       {/* Pagination */}
       {table.getPageCount() > 1 && (
-        <div className="flex items-center justify-between px-3 py-2 border-t border-border/20 text-[10px] text-muted-foreground">
+        <div className="flex items-center justify-between border-t border-border/50 px-3 py-2 text-xs text-muted-foreground">
           <span>
             Página {table.getState().pagination.pageIndex + 1} de {table.getPageCount()}
           </span>
@@ -1087,20 +1086,20 @@ export function ImportClassificationTable({
             <Button
               type="button"
               variant="ghost"
-              size="sm"
+              size="icon-sm"
               onClick={() => table.previousPage()}
               disabled={!table.getCanPreviousPage()}
-              className="h-6 w-6 p-0"
+              aria-label="Página anterior"
             >
               <ChevronLeft className="h-3 w-3" />
             </Button>
             <Button
               type="button"
               variant="ghost"
-              size="sm"
+              size="icon-sm"
               onClick={() => table.nextPage()}
               disabled={!table.getCanNextPage()}
-              className="h-6 w-6 p-0"
+              aria-label="Página siguiente"
             >
               <ChevronRight className="h-3 w-3" />
             </Button>

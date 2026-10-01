@@ -2,6 +2,8 @@
 
 import { useRef, useState, useCallback } from 'react';
 import { ZoomIn, ZoomOut, Maximize2, Move } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import type { InternalUser, Role } from '@/modules/access/types';
 
 // ─── Tree building ────────────────────────────────────────────────────────────
@@ -42,19 +44,19 @@ function getRoleName(roleKey: string | null, roles: Role[]): string {
 function NodeCard({ user, roles }: { user: InternalUser; roles: Role[] }) {
   return (
     <div className="flex flex-col items-center gap-2">
-      <div className="flex flex-col items-center rounded-2xl border border-border/60 bg-card px-4 py-3 shadow-sm transition-shadow hover:shadow-md w-44">
-        <div className="mb-2 flex h-11 w-11 items-center justify-center rounded-full bg-su-brand-soft text-sm font-semibold text-su-brand">
+      <div className="flex flex-col items-center rounded-xl border border-border/60 bg-card px-4 py-3 shadow-card transition-shadow hover:shadow-drawer w-44">
+        <div className="mb-2 flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
           {getInitials(user.full_name, user.email)}
         </div>
-        <p className="text-center text-[13px] font-medium text-foreground leading-tight">
+        <p className="w-full break-words text-center text-sm font-medium leading-tight text-foreground">
           {user.full_name ?? user.email.split('@')[0]}
         </p>
-        <p className="mt-0.5 w-full truncate text-center text-[10px] text-muted-foreground">
+        <p className="mt-0.5 w-full truncate text-center text-xs text-muted-foreground" title={user.email}>
           {user.email}
         </p>
-        <span className="mt-2 inline-flex items-center rounded-full border border-su-brand/20 bg-su-brand-soft px-2 py-0.5 text-[10px] font-medium text-su-brand">
-          {getRoleName(user.role_key, roles)}
-        </span>
+        <Badge variant="brand" className="mt-2 max-w-full">
+          <span className="truncate">{getRoleName(user.role_key, roles)}</span>
+        </Badge>
       </div>
     </div>
   );
@@ -145,54 +147,63 @@ export function OrgChart({ users, roles }: OrgChartProps) {
 
   if (activeCount === 0) {
     return (
-      <div className="py-16 text-center text-muted-foreground">
+      <div className="py-16 text-center text-sm text-muted-foreground">
         No hay usuarios activos en el organigrama.
       </div>
     );
   }
 
   return (
-    <div className="relative h-full min-h-[400px] select-none rounded-2xl border border-border/50 bg-card p-5 shadow-[0_1px_3px_0_rgb(0_0_0/0.03),0_1px_2px_-1px_rgb(0_0_0/0.03)]">
+    <div className="relative h-full min-h-[400px] select-none rounded-2xl border border-border/60 bg-card p-5 shadow-card">
       {/* Zoom controls */}
       <div className="absolute right-3 top-3 z-10 flex flex-col gap-1">
-        <button
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-sm"
           onClick={zoomIn}
-          className="flex h-8 w-8 items-center justify-center rounded-lg border border-border/60 bg-card text-muted-foreground shadow-sm hover:text-foreground hover:border-border transition-colors"
           title="Acercar"
+          aria-label="Acercar"
         >
-          <ZoomIn className="h-3.5 w-3.5" />
-        </button>
-        <button
+          <ZoomIn />
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-sm"
           onClick={zoomOut}
-          className="flex h-8 w-8 items-center justify-center rounded-lg border border-border/60 bg-card text-muted-foreground shadow-sm hover:text-foreground hover:border-border transition-colors"
           title="Alejar"
+          aria-label="Alejar"
         >
-          <ZoomOut className="h-3.5 w-3.5" />
-        </button>
-        <button
+          <ZoomOut />
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-sm"
           onClick={reset}
-          className="flex h-8 w-8 items-center justify-center rounded-lg border border-border/60 bg-card text-muted-foreground shadow-sm hover:text-foreground hover:border-border transition-colors"
           title="Restablecer vista"
+          aria-label="Restablecer vista"
         >
-          <Maximize2 className="h-3.5 w-3.5" />
-        </button>
+          <Maximize2 />
+        </Button>
       </div>
 
       {/* Drag hint */}
-      <div className="absolute left-3 top-3 z-10 flex items-center gap-1.5 rounded-md border border-border/40 bg-card/80 px-2 py-1 text-[10px] text-muted-foreground backdrop-blur-sm">
+      <div className="absolute left-3 top-3 z-10 flex items-center gap-1.5 rounded-md border border-border/60 bg-card/80 px-2 py-1 text-xs text-muted-foreground backdrop-blur-sm">
         <Move className="h-3 w-3" />
         Arrastra para navegar · Rueda para zoom
       </div>
 
       {/* Scale indicator */}
-      <div className="absolute bottom-3 right-3 z-10 rounded-md border border-border/40 bg-card/80 px-2 py-1 text-[10px] text-muted-foreground backdrop-blur-sm">
+      <div className="absolute bottom-3 right-3 z-10 rounded-md border border-border/60 bg-card/80 px-2 py-1 text-xs text-muted-foreground backdrop-blur-sm">
         {Math.round(scale * 100)}%
       </div>
 
       {/* Canvas */}
       <div
         ref={containerRef}
-        className={`h-full w-full overflow-hidden rounded-xl border border-border/40 bg-muted/10 ${
+        className={`h-full w-full overflow-hidden rounded-xl border border-border/60 bg-surface-subtle ${
           isDragging ? 'cursor-grabbing' : 'cursor-grab'
         }`}
         onMouseDown={handleMouseDown}

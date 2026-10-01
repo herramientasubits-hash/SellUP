@@ -27,8 +27,8 @@ export function AIButton({
     outline: "outline",
   };
 
-  const sizeMap: Record<string, "default" | "sm" | "lg"> = {
-    xs: "sm",
+  const sizeMap: Record<string, "default" | "xs" | "sm" | "lg"> = {
+    xs: "xs",
     sm: "sm",
     md: "default",
     lg: "lg",
@@ -48,24 +48,20 @@ export function AIButton({
         onClick={onClick}
         aria-busy={loading}
         className={cn(
-          "relative overflow-hidden transition-all duration-300 font-bold rounded-full",
-          isPrimary && !disabled && "su-ai-gradient text-su-brand-foreground border-0 shadow-none ring-0 hover:opacity-90 active:scale-95",
-          isOutline && !disabled && "su-ai-border hover:opacity-80 active:scale-95",
-          size === "xs" && "h-7 px-3 text-[10px] gap-1",
-          size === "sm" && "h-8 px-4 text-xs gap-1.5",
-          size === "md" && "h-10 px-6 text-sm gap-2",
-          size === "lg" && "h-12 px-8 text-base gap-2.5"
+          "relative overflow-hidden rounded-full font-semibold transition-all duration-300",
+          isPrimary && !disabled && "su-ai-gradient text-primary-foreground border-0 shadow-none ring-0 hover:opacity-90 active:scale-95",
+          isOutline && !disabled && "su-ai-border hover:opacity-80 active:scale-95"
         )}
       >
         {loading ? (
           <div className="flex items-center gap-2">
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
             <span>{label || children || "Generando..."}</span>
           </div>
         ) : (
           <div className="flex items-center gap-2">
             <span className={cn(
-              isPrimary ? "text-su-brand-foreground" : "su-ai-gradient-text",
+              isPrimary ? "text-primary-foreground" : "su-ai-gradient-text",
             )}>
               {LeftIcon ? (
                 <LeftIcon className={cn(
@@ -79,7 +75,7 @@ export function AIButton({
                 )} />
               )}
             </span>
-            <span className={cn(isPrimary && "text-su-brand-foreground")}>
+            <span className={cn(isPrimary && "text-primary-foreground")}>
               {label || children}
             </span>
             {RightIcon && (
@@ -92,7 +88,7 @@ export function AIButton({
         )}
       </Button>
       {helperText && (
-        <p className="px-1 text-[11px] text-muted-foreground opacity-80 italic">
+        <p className="px-1 text-xs text-muted-foreground">
           {helperText}
         </p>
       )}

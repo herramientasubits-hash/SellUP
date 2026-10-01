@@ -41,7 +41,7 @@ const sizeClasses = {
   sm: 'sm:!max-w-sm w-full',  // 384px
   md: 'sm:!max-w-md w-full',  // 448px
   lg: 'sm:!max-w-lg w-full',  // 512px
-  xl: 'sm:!max-w-xl w-full',  // 576px;
+  xl: 'sm:!max-w-xl w-full',  // 576px
 };
 
 export function ModalShell({
@@ -71,7 +71,7 @@ export function ModalShell({
           </DialogHeader>
         )}
 
-        <div className="py-2">
+        <div className="py-1">
           {children}
         </div>
 

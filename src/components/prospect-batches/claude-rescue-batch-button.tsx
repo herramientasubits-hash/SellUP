@@ -72,27 +72,27 @@ export function ClaudeRescueBatchButton({ batchId }: { batchId: string }) {
     <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
       <DialogTrigger
         render={
-          <Button variant="outline" size="sm" onClick={() => setOpen(true)} className="gap-1.5 text-xs text-muted-foreground">
+          <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
             <Sparkles className="h-3.5 w-3.5" />
             Completar con Claude
           </Button>
         }
       />
-      <DialogContent className="sm:max-w-[440px]">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader className="pt-2">
-          <DialogTitle className="text-base font-semibold">¿Completar este lote con Claude?</DialogTitle>
-          <DialogDescription className="text-xs text-muted-foreground">
+          <DialogTitle>¿Completar este lote con Claude?</DialogTitle>
+          <DialogDescription>
             Es el mismo rescate que corre solo al terminar cada búsqueda. Sirve para lo que quedó pendiente.
           </DialogDescription>
         </DialogHeader>
-        <div className="py-2">
-          <ul className="list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+        <div>
+          <ul className="list-disc space-y-1 pl-4 text-sm text-muted-foreground">
             <li>Si Claude completa los datos y la empresa cumple, queda en Candidatos por revisar.</li>
             <li>Si Claude demuestra con fuente que no cumple, pasa a Descartadas con el motivo.</li>
             <li>Nada se aprueba solo. Costo aproximado: US$0,035 por empresa.</li>
           </ul>
         </div>
-        <DialogFooter className="mt-2">
+        <DialogFooter>
           <DialogClose render={<Button variant="outline" size="sm" disabled={loading} onClick={handleClose} />}>
             Cancelar
           </DialogClose>

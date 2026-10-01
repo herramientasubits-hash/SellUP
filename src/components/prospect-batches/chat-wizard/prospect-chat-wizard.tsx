@@ -823,7 +823,7 @@ export function ProspectChatWizard({
             <div className="flex items-center gap-3" aria-hidden>
               <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
                 <div
-                  className="h-full rounded-full bg-su-brand transition-all duration-500"
+                  className="h-full rounded-full bg-primary transition-all duration-500"
                   style={{ width: `${progress.percentage}%` }}
                 />
               </div>
@@ -914,7 +914,7 @@ export function ProspectChatWizard({
       {/* Sticky composer — spans full width by negating the drawer's px-7 padding.
           Hidden at the final review step: actions move to the panel footer. */}
       {!hideComposer && (
-        <div className="sticky bottom-0 -mx-7 px-7 pt-3 pb-4 bg-background border-t border-border/30 mt-auto">
+        <div className="sticky bottom-0 -mx-7 px-7 pt-3 pb-4 bg-background border-t border-border/50 mt-auto">
           <WizardChatComposer
             mode={composerMode}
             value={criteriaText}

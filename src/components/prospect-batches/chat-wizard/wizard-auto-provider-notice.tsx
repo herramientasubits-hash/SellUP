@@ -40,15 +40,15 @@ export function WizardAutoProviderNotice({
 
   return (
     <div
-      className="flex items-start gap-3 rounded-xl border border-border bg-su-brand-soft px-4 py-3"
+      className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3"
       data-testid="wizard-auto-provider-notice"
     >
-      <Layers className="mt-0.5 h-4 w-4 shrink-0 text-su-brand" aria-hidden />
-      <div className="flex flex-col gap-1">
+      <Layers className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
+      <div className="flex min-w-0 flex-col gap-1">
         <p className="text-sm font-semibold text-foreground">{AUTO_PROVIDER_NOTICE_TITLE}</p>
         <p className="text-xs text-muted-foreground">{AUTO_PROVIDER_NOTICE_BODY}</p>
         {lushaBackupBlocked && (
-          <p className="text-xs text-amber-500" data-testid="wizard-auto-provider-lusha-blocked">
+          <p className="text-xs text-warning" data-testid="wizard-auto-provider-lusha-blocked">
             {AUTO_PROVIDER_NOTICE_LUSHA_UNAVAILABLE}
           </p>
         )}

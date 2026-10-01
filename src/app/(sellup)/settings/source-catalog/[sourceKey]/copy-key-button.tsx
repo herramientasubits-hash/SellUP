@@ -18,8 +18,8 @@ export function CopyKeyButton({ sourceKey }: { sourceKey: string }) {
   };
 
   return (
-    <Button variant="outline" size="sm" onClick={handleCopy}>
-      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+    <Button type="button" variant="outline" size="sm" onClick={handleCopy}>
+      {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
       {copied ? 'Copiado' : 'Copiar key'}
     </Button>
   );

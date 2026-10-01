@@ -122,37 +122,35 @@ export function DataTableColumnPopover<TData, TValue>({
       <PopoverContent
         align="start"
         sideOffset={6}
-        className="w-72 p-0 rounded-xl border border-border/40 shadow-lg"
+        className="w-72 p-0 rounded-xl border border-border/60 shadow-drawer"
       >
         {title && (
-          <div className="px-5 pt-3.5 pb-1.5 text-[10px] font-semibold tracking-wider uppercase text-muted-foreground">
+          <div className="px-5 pt-3.5 pb-1.5 text-xs font-semibold text-muted-foreground">
             {title}
           </div>
         )}
 
         {sortable && !disableSort && (
           <>
-            <div className="px-5 pt-2.5 pb-1 text-[10px] font-semibold tracking-wider uppercase text-muted-foreground">
+            <div className="px-5 pt-2.5 pb-1 text-xs font-semibold text-muted-foreground">
               Ordenar
             </div>
             <div className="px-4 pb-2.5 flex items-center gap-1.5">
               <Button
                 variant={sortDirection === "asc" ? "default" : "outline"}
-                size="sm"
-                className="flex-1 h-7 rounded-lg text-xs"
+                size="xs"
+                className="flex-1"
                 onClick={() => column.toggleSorting(false)}
-                aria-pressed={sortDirection === "asc"}
-              >
+                aria-pressed={sortDirection === "asc"}>
                 <ArrowUp className="h-3 w-3" />
                 Asc
               </Button>
               <Button
                 variant={sortDirection === "desc" ? "default" : "outline"}
-                size="sm"
-                className="flex-1 h-7 rounded-lg text-xs"
+                size="xs"
+                className="flex-1"
                 onClick={() => column.toggleSorting(true)}
-                aria-pressed={sortDirection === "desc"}
-              >
+                aria-pressed={sortDirection === "desc"}>
                 <ArrowDown className="h-3 w-3" />
                 Desc
               </Button>
@@ -163,7 +161,7 @@ export function DataTableColumnPopover<TData, TValue>({
         {filterable && !disableFilter && allOptions.length > 0 && (
           <>
             {sortable && !disableSort && <Separator className="mx-4" />}
-            <div className="px-5 pt-2.5 pb-1 text-[10px] font-semibold tracking-wider uppercase text-muted-foreground">
+            <div className="px-5 pt-2.5 pb-1 text-xs font-semibold text-muted-foreground">
               Buscar
             </div>
             {!disableSearch && (
@@ -173,16 +171,17 @@ export function DataTableColumnPopover<TData, TValue>({
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Buscar..."
-                  className="h-7 pl-7 text-xs"
+                  inputSize="sm"
+                  className="pl-7"
                 />
               </div>
             )}
-            <div className="px-5 pt-1.5 pb-1 text-[10px] font-semibold tracking-wider uppercase text-muted-foreground">
+            <div className="px-5 pt-1.5 pb-1 text-xs font-semibold text-muted-foreground">
               Filtrar
             </div>
             <div className="max-h-56 overflow-y-auto px-4 pb-3">
               {filteredOptions.length === 0 ? (
-                <p className="text-[11px] text-muted-foreground py-2 px-1">Sin opciones.</p>
+                <p className="text-xs text-muted-foreground py-2 px-1">Sin opciones.</p>
               ) : (
                 <ul className="space-y-0.5">
                   {filteredOptions.map((opt) => {
@@ -192,7 +191,7 @@ export function DataTableColumnPopover<TData, TValue>({
                         <label
                           className={cn(
                             "flex items-center gap-2.5 px-2 py-1.5 rounded-md text-xs cursor-pointer",
-                            "hover:bg-muted/60",
+                            "hover:bg-surface-muted",
                           )}
                         >
                           <Checkbox
@@ -201,7 +200,7 @@ export function DataTableColumnPopover<TData, TValue>({
                           />
                           <span className="flex-1 truncate text-foreground">{opt.label}</span>
                           {typeof opt.count === "number" && (
-                            <span className="text-[10px] text-muted-foreground tabular-nums">
+                            <span className="text-xs text-muted-foreground tabular-nums">
                               {opt.count}
                             </span>
                           )}
@@ -221,10 +220,9 @@ export function DataTableColumnPopover<TData, TValue>({
             <div className="px-4 py-2.5">
               <Button
                 variant="ghost"
-                size="sm"
-                className="w-full h-7 text-xs justify-center text-muted-foreground"
-                onClick={clearAll}
-              >
+                size="xs"
+                className="w-full justify-center text-muted-foreground"
+                onClick={clearAll}>
                 <X className="h-3 w-3" />
                 Limpiar filtros
               </Button>

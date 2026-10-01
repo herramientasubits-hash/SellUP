@@ -2,7 +2,8 @@
 
 import * as React from 'react';
 import { createPortal } from 'react-dom';
-import { Search, X, Check } from 'lucide-react';
+import { Search, X, Check, type LucideIcon } from 'lucide-react';
+import { DrawerSection } from '@/components/shared/drawer-section';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { INDUSTRIES } from '@/modules/accounts/types';
@@ -78,7 +79,7 @@ export function IndustryCombobox({
               width: rect.width,
               zIndex: 9999,
             }}
-            className="rounded-xl border border-border bg-popover shadow-lg"
+            className="rounded-xl border border-border bg-popover shadow-drawer"
           >
             <div className="max-h-52 overflow-y-auto py-1">
               {filtered.map((ind) => (
@@ -86,8 +87,8 @@ export function IndustryCombobox({
                   key={ind}
                   type="button"
                   className={cn(
-                    'flex w-full items-center gap-2.5 px-3 py-2 text-sm transition-colors hover:bg-accent',
-                    value === ind && 'bg-su-brand-soft text-su-brand font-medium',
+                    'flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors hover:bg-surface-muted',
+                    value === ind && 'bg-primary/10 text-primary font-medium',
                   )}
                   onMouseDown={(e) => {
                     e.preventDefault();
@@ -108,13 +109,13 @@ export function IndustryCombobox({
 
   return (
     <div ref={wrapperRef} className="relative">
-      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/40" />
+      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
       <input
         ref={inputRef}
         className={cn(
-          'h-8 w-full rounded-lg border border-input bg-transparent py-1 pl-8 pr-7 text-sm outline-none',
-          'placeholder:text-muted-foreground/60 transition-colors',
-          'focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30',
+          'h-10 w-full rounded-md border border-input bg-card py-1 pl-8 pr-8 text-sm outline-none dark:bg-muted',
+          'placeholder:text-muted-foreground transition-colors',
+          'focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40',
         )}
         placeholder={value || 'Buscar industria…'}
         value={displayValue}
@@ -130,7 +131,8 @@ export function IndustryCombobox({
         <button
           type="button"
           tabIndex={-1}
-          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/40 transition-colors hover:text-foreground"
+          aria-label="Limpiar industria"
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-sm text-text-muted transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
           onMouseDown={clear}
         >
           <X className="h-3.5 w-3.5" />
@@ -142,25 +144,18 @@ export function IndustryCombobox({
 }
 
 export function Section({
-  icon: Icon,
+  icon,
   label,
   children,
 }: {
-  icon?: React.ComponentType<{ className?: string }>;
+  icon?: LucideIcon;
   label: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        {Icon && <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40" />}
-        <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/50">
-          {label}
-        </span>
-        <div className="h-px flex-1 bg-border/40" />
-      </div>
-      <div className="space-y-4">{children}</div>
-    </div>
+    <DrawerSection title={label} icon={icon} contentClassName="space-y-4">
+      {children}
+    </DrawerSection>
   );
 }
 
@@ -177,9 +172,9 @@ export function Field({
 }) {
   return (
     <div className="space-y-1.5">
-      <Label htmlFor={id} className="text-xs font-medium text-foreground/70">
+      <Label htmlFor={id} className="text-xs font-medium text-muted-foreground">
         {label}
-        {required && <span className="ml-0.5 text-destructive/80">*</span>}
+        {required && <span className="ml-0.5 text-destructive">*</span>}
       </Label>
       {children}
     </div>
@@ -187,7 +182,7 @@ export function Field({
 }
 
 export function Row({ children }: { children: React.ReactNode }) {
-  return <div className="grid grid-cols-2 gap-4">{children}</div>;
+  return <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">{children}</div>;
 }
 
 export function getFlagEmoji(code: string): string {

@@ -30,13 +30,13 @@ export default async function LoginPage({
       <LoginBrandPanel />
 
       {/* Panel derecho — login */}
-      <div className="relative flex flex-1 flex-col items-center justify-center px-6 py-12 lg:py-16">
+      <div className="relative flex flex-1 flex-col items-center justify-center px-4 py-12 sm:px-6 lg:py-16">
         {/* Resplandor ambiental detrás de la card — solo desktop */}
         <div
           className="pointer-events-none absolute inset-0 hidden lg:block"
           style={{
             background:
-              'radial-gradient(ellipse 65% 55% at 50% 50%, rgba(91,127,255,0.05) 0%, transparent 75%)',
+              'radial-gradient(ellipse 65% 55% at 50% 50%, color-mix(in srgb, var(--su-brand) 6%, transparent) 0%, transparent 75%)',
           }}
         />
         <LoginAccessCard errorMessage={errorMessage}>

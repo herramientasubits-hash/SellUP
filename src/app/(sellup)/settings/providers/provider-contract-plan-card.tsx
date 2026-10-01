@@ -11,19 +11,21 @@
  * Sólo lectura. La vista llega armada desde el servidor (admin).
  */
 
-import { AlertTriangle } from 'lucide-react';
+import { ReceiptText } from 'lucide-react';
+import { DrawerSection } from '@/components/shared/drawer-section';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import type { ProviderContractPlanView } from '@/modules/budgets/provider-contract-plan';
 
 function Row({ label, value, testId }: { label: string; value: React.ReactNode; testId?: string }) {
   return (
     <div
-      className="flex items-start justify-between gap-4 py-2 border-b border-border/30 last:border-0"
+      className="flex items-start justify-between gap-4 border-b border-border/50 py-2 last:border-0 first:pt-0 last:pb-0"
       data-testid={testId}
     >
-      <span className="text-[11px] uppercase tracking-wide text-muted-foreground/60 font-medium shrink-0 pt-0.5">
+      <span className="shrink-0 pt-0.5 text-xs font-medium text-muted-foreground">
         {label}
       </span>
-      <span className="text-xs text-foreground text-right">{value}</span>
+      <span className="min-w-0 text-right text-xs tabular-nums text-foreground">{value}</span>
     </div>
   );
 }
@@ -70,11 +72,8 @@ export function renewalLabel(plan: ProviderContractPlanView): string {
 
 export function ProviderContractPlanCard({ plan }: { plan: ProviderContractPlanView }) {
   return (
-    <div className="space-y-2" data-testid="provider-contract-plan">
-      <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60 px-1">
-        Plan contratado
-      </p>
-      <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3 space-y-0">
+    <div className="space-y-3" data-testid="provider-contract-plan">
+      <DrawerSection title="Plan contratado" icon={ReceiptText} tone="neutral">
         <Row label="Facturación" value="Anual" />
         <Row label="Créditos del plan" value={`${credits(plan.annualCredits)} / año`} />
         <Row label="Costo del plan" value={`${usd(plan.annualUsd)} USD / año`} />
@@ -85,7 +84,7 @@ export function ProviderContractPlanCard({ plan }: { plan: ProviderContractPlanV
             <span>
               {usd(plan.contractUsdPerCredit, 5)} USD
               {plan.activeUsdPerCredit !== null && plan.activeUsdPerCreditEffectiveFrom && (
-                <span className="block text-[11px] text-muted-foreground">
+                <span className="block text-xs text-muted-foreground">
                   Vigente en costos desde {formatDay(plan.activeUsdPerCreditEffectiveFrom)}
                 </span>
               )}
@@ -108,7 +107,7 @@ export function ProviderContractPlanCard({ plan }: { plan: ProviderContractPlanV
                   </span>
                 )}
                 {plan.creditsRemainingSyncedAt && (
-                  <span className="block text-[11px] text-muted-foreground">
+                  <span className="block text-xs text-muted-foreground">
                     Sincronizado el {formatSynced(plan.creditsRemainingSyncedAt)}
                   </span>
                 )}
@@ -121,23 +120,18 @@ export function ProviderContractPlanCard({ plan }: { plan: ProviderContractPlanV
           value={renewalLabel(plan)}
           testId="provider-contract-plan-renewal"
         />
-      </div>
+      </DrawerSection>
       {!plan.pricingMatchesContract && (
-        <div
-          className="flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2"
-          role="alert"
+        <Alert
+          variant="warning"
           data-testid="provider-contract-plan-price-mismatch"
         >
-          <AlertTriangle
-            className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400"
-            aria-hidden
-          />
-          <p className="text-[11px] text-amber-600 dark:text-amber-400">
+          <AlertDescription className="text-warning">
             {plan.activeUsdPerCredit === null
               ? 'No hay precio activo en la tabla de costos: los costos estimados de este proveedor quedan sin calcular.'
               : `La tabla de costos usa ${usd(plan.activeUsdPerCredit, 5)} USD por crédito, distinto del contrato: los costos estimados no coinciden con lo que se paga.`}
-          </p>
-        </div>
+          </AlertDescription>
+        </Alert>
       )}
     </div>
   );

@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Eye, EyeOff, Loader2, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Alert } from '@/components/ui/alert';
 import {
   Dialog,
   DialogContent,
@@ -72,16 +73,16 @@ export function GoogleCSEConnectModal({ open, onOpenChange }: ConnectModalProps)
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="">Conectar Google Custom Search</DialogTitle>
+          <DialogTitle>Conectar Google Custom Search</DialogTitle>
           <DialogDescription>
-            Las credenciales se almacenarán de forma segura en Vault y permitirán
-            que el Agente 1 realice búsquedas web a través de Google CSE.
+            Las credenciales se almacenarán de forma segura en Vault y permitirán que el Agente 1
+            realice búsquedas web a través de Google CSE.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
           {/* API Key */}
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <Label htmlFor="gcse-api-key">API Key de Google Cloud</Label>
             <div className="relative">
               <Input
@@ -90,31 +91,32 @@ export function GoogleCSEConnectModal({ open, onOpenChange }: ConnectModalProps)
                 placeholder="AIza••••••••••••••••••••••••••••••••••"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                className="pr-10 font-mono text-sm"
+                className="pr-10 font-mono"
                 disabled={isPending}
                 autoComplete="off"
               />
-              <button
+              <Button
                 type="button"
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                variant="ghost"
+                size="icon-xs"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 onClick={() => setShowKey((v) => !v)}
-                tabIndex={-1}
                 aria-label={showKey ? 'Ocultar API Key' : 'Mostrar API Key'}
               >
-                {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
+                {showKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </Button>
             </div>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Obtén tu API Key en{' '}
-              <span className="font-medium text-foreground">console.cloud.google.com</span>{' '}
-              → Credenciales. Habilita{' '}
-              <code className="rounded bg-muted px-1 py-0.5 text-[10px]">Custom Search API</code>{' '}
-              antes de usar.
+              <span className="font-medium text-foreground">console.cloud.google.com</span> →
+              Credenciales. Habilita{' '}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">Custom Search API</code> antes
+              de usar.
             </p>
           </div>
 
           {/* Search Engine ID / CX */}
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <Label htmlFor="gcse-cx">Search Engine ID (cx)</Label>
             <Input
               id="gcse-cx"
@@ -122,40 +124,28 @@ export function GoogleCSEConnectModal({ open, onOpenChange }: ConnectModalProps)
               placeholder="67c93085cfde84a6d"
               value={cx}
               onChange={(e) => setCx(e.target.value)}
-              className="font-mono text-sm"
+              className="font-mono"
               disabled={isPending}
               autoComplete="off"
             />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Encuéntralo en{' '}
-              <span className="font-medium text-foreground">programmablesearchengine.google.com</span>{' '}
+              <span className="font-medium text-foreground">
+                programmablesearchengine.google.com
+              </span>{' '}
               → Panel de control → ID del motor de búsqueda.
             </p>
           </div>
 
           {/* Quota note */}
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
-            <div className="flex items-start gap-2">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-              <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
-                El plan gratuito incluye <strong>100 consultas/día</strong>. El botón
-                &ldquo;Probar conexión&rdquo; consume 1 consulta de tu cuota diaria.
-              </p>
-            </div>
-          </div>
+          <Alert variant="warning">
+            El plan gratuito incluye <strong>100 consultas/día</strong>. El botón &ldquo;Probar
+            conexión&rdquo; consume 1 consulta de tu cuota diaria.
+          </Alert>
 
-          {error && (
-            <p className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              {error}
-            </p>
-          )}
+          {error && <Alert variant="destructive">{error}</Alert>}
 
-          {successMsg && (
-            <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400">
-              {successMsg}
-            </p>
-          )}
+          {successMsg && <Alert variant="success">{successMsg}</Alert>}
         </div>
 
         <DialogFooter>
@@ -163,7 +153,7 @@ export function GoogleCSEConnectModal({ open, onOpenChange }: ConnectModalProps)
             Cancelar
           </Button>
           <Button onClick={handleSubmit} disabled={isPending || !canSubmit}>
-            {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {isPending && <Loader2 className="animate-spin" />}
             Guardar credenciales
           </Button>
         </DialogFooter>
@@ -224,16 +214,16 @@ export function GoogleCSEUpdateModal({ open, onOpenChange, cx_masked }: UpdateMo
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="">Actualizar credenciales de Google CSE</DialogTitle>
+          <DialogTitle>Actualizar credenciales de Google CSE</DialogTitle>
           <DialogDescription>
-            Las nuevas credenciales reemplazarán a las anteriores. Después de
-            actualizar, deberás probar nuevamente la conexión.
+            Las nuevas credenciales reemplazarán a las anteriores. Después de actualizar, deberás
+            probar nuevamente la conexión.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
           {/* API Key */}
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <Label htmlFor="gcse-new-api-key">Nueva API Key de Google Cloud</Label>
             <div className="relative">
               <Input
@@ -242,24 +232,25 @@ export function GoogleCSEUpdateModal({ open, onOpenChange, cx_masked }: UpdateMo
                 placeholder="AIza••••••••••••••••••••••••••••••••••"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                className="pr-10 font-mono text-sm"
+                className="pr-10 font-mono"
                 disabled={isPending}
                 autoComplete="off"
               />
-              <button
+              <Button
                 type="button"
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                variant="ghost"
+                size="icon-xs"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 onClick={() => setShowKey((v) => !v)}
-                tabIndex={-1}
                 aria-label={showKey ? 'Ocultar API Key' : 'Mostrar API Key'}
               >
-                {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
+                {showKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </Button>
             </div>
           </div>
 
           {/* CX */}
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <Label htmlFor="gcse-new-cx">Nuevo Search Engine ID (cx)</Label>
             <Input
               id="gcse-new-cx"
@@ -267,32 +258,21 @@ export function GoogleCSEUpdateModal({ open, onOpenChange, cx_masked }: UpdateMo
               placeholder={cx_masked ?? '67c93085cfde84a6d'}
               value={cx}
               onChange={(e) => setCx(e.target.value)}
-              className="font-mono text-sm"
+              className="font-mono"
               disabled={isPending}
               autoComplete="off"
             />
             {cx_masked && (
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 CX actual:{' '}
-                <code className="rounded bg-muted px-1 py-0.5 text-[10px] font-mono">
-                  {cx_masked}
-                </code>
+                <code className="rounded bg-muted px-1 py-0.5 text-xs font-mono">{cx_masked}</code>
               </p>
             )}
           </div>
 
-          {error && (
-            <p className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              {error}
-            </p>
-          )}
+          {error && <Alert variant="destructive">{error}</Alert>}
 
-          {successMsg && (
-            <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400">
-              {successMsg}
-            </p>
-          )}
+          {successMsg && <Alert variant="success">{successMsg}</Alert>}
         </div>
 
         <DialogFooter>
@@ -300,7 +280,7 @@ export function GoogleCSEUpdateModal({ open, onOpenChange, cx_masked }: UpdateMo
             Cancelar
           </Button>
           <Button onClick={handleSubmit} disabled={isPending || !canSubmit}>
-            {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {isPending && <Loader2 className="animate-spin" />}
             Actualizar credenciales
           </Button>
         </DialogFooter>
@@ -321,7 +301,10 @@ interface TestConnectionProps {
 export function GoogleCSETestConnectionButton({ disabled }: TestConnectionProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [result, setResult] = useState<{ success: boolean; message?: string } | null>(null);
+  const [result, setResult] = useState<{
+    success: boolean;
+    message?: string;
+  } | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
 
   function handleConfirm() {
@@ -337,17 +320,17 @@ export function GoogleCSETestConnectionButton({ disabled }: TestConnectionProps)
 
   if (showConfirm) {
     return (
-      <div className="space-y-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+      <div className="space-y-3 rounded-xl border border-warning/25 bg-warning/15 p-3">
         <div className="flex items-start gap-2">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-          <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
-            Esta acción consumirá <strong>1 consulta</strong> de tu cuota diaria de Google CSE
-            (100 gratuitas/día). ¿Deseas continuar?
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" />
+          <p className="text-xs leading-relaxed text-warning">
+            Esta acción consumirá <strong>1 consulta</strong> de tu cuota diaria de Google CSE (100
+            gratuitas/día). ¿Deseas continuar?
           </p>
         </div>
         <div className="flex gap-2">
           <Button size="sm" onClick={handleConfirm} disabled={isPending}>
-            {isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+            {isPending && <Loader2 className="animate-spin" />}
             Sí, probar conexión
           </Button>
           <Button
@@ -370,20 +353,14 @@ export function GoogleCSETestConnectionButton({ disabled }: TestConnectionProps)
         onClick={() => setShowConfirm(true)}
         disabled={isPending || disabled}
       >
-        {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+        {isPending && <Loader2 className="animate-spin" />}
         Probar conexión
       </Button>
 
       {result && (
-        <p
-          className={`rounded-lg border px-3 py-2 text-xs ${
-            result.success
-              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-              : 'border-destructive/30 bg-destructive/10 text-destructive'
-          }`}
-        >
+        <Alert variant={result.success ? 'success' : 'destructive'}>
           {result.message ?? (result.success ? 'Conexión exitosa.' : 'Error de conexión.')}
-        </p>
+        </Alert>
       )}
     </div>
   );
@@ -427,27 +404,22 @@ export function GoogleCSEDisconnectDialog({ open, onOpenChange }: DisconnectDial
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle className="">Desconectar Google Custom Search</DialogTitle>
+          <DialogTitle>Desconectar Google Custom Search</DialogTitle>
           <DialogDescription>
-            SellUp eliminará ambas credenciales almacenadas (API Key y Search Engine ID).
-            El Agente 1 dejará de usar Google CSE como proveedor de búsqueda.
-            Puedes volver a conectarlo en cualquier momento.
+            SellUp eliminará ambas credenciales almacenadas (API Key y Search Engine ID). El Agente
+            1 dejará de usar Google CSE como proveedor de búsqueda. Puedes volver a conectarlo en
+            cualquier momento.
           </DialogDescription>
         </DialogHeader>
 
-        {error && (
-          <p className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-            {error}
-          </p>
-        )}
+        {error && <Alert variant="destructive">{error}</Alert>}
 
         <DialogFooter>
           <Button variant="outline" onClick={handleClose} disabled={isPending}>
             Cancelar
           </Button>
-          <Button variant="destructive" onClick={handleDisconnect} disabled={isPending}>
-            {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          <Button variant="destructive-solid" onClick={handleDisconnect} disabled={isPending}>
+            {isPending && <Loader2 className="animate-spin" />}
             Desconectar
           </Button>
         </DialogFooter>
@@ -480,11 +452,7 @@ export function GoogleCSEActionsPanel({ hasCredential, cx_masked }: GoogleCSEAct
           <Button variant="outline" onClick={() => setUpdateOpen(true)}>
             Actualizar credenciales
           </Button>
-          <Button
-            variant="ghost"
-            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-            onClick={() => setDisconnectOpen(true)}
-          >
+          <Button variant="destructive" onClick={() => setDisconnectOpen(true)}>
             Desconectar
           </Button>
         </>

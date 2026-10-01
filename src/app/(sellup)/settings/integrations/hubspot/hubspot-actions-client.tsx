@@ -2,8 +2,9 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { Eye, EyeOff, Loader2, AlertTriangle } from 'lucide-react';
+import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Alert } from '@/components/ui/alert';
 import {
   Dialog,
   DialogContent,
@@ -68,15 +69,15 @@ export function HubSpotConnectModal({ open, onOpenChange }: ConnectModalProps) {
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="">Conectar HubSpot</DialogTitle>
+          <DialogTitle>Conectar HubSpot</DialogTitle>
           <DialogDescription>
-            Ingresa el access token de una Private App de HubSpot. Esta credencial
-            se almacenará de forma segura y no volverá a mostrarse.
+            Ingresa el access token de una Private App de HubSpot. Esta credencial se almacenará de
+            forma segura y no volverá a mostrarse.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <Label htmlFor="hs-token">Access token</Label>
             <div className="relative">
               <Input
@@ -85,52 +86,37 @@ export function HubSpotConnectModal({ open, onOpenChange }: ConnectModalProps) {
                 placeholder="pat-xx-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
-                className="pr-10 font-mono text-sm"
+                className="pr-10 font-mono"
                 disabled={isPending}
                 autoComplete="off"
               />
-              <button
+              <Button
                 type="button"
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                variant="ghost"
+                size="icon-xs"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 onClick={() => setShowToken((v) => !v)}
-                tabIndex={-1}
                 aria-label={showToken ? 'Ocultar token' : 'Mostrar token'}
               >
-                {showToken ? (
-                  <EyeOff className="h-4 w-4" />
-                ) : (
-                  <Eye className="h-4 w-4" />
-                )}
-              </button>
+                {showToken ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </Button>
             </div>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Genera tu token en HubSpot → Configuración → Integraciones → Private Apps.
             </p>
           </div>
 
-          {error && (
-            <p className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              {error}
-            </p>
-          )}
+          {error && <Alert variant="destructive">{error}</Alert>}
 
-          {successMsg && (
-            <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400">
-              {successMsg}
-            </p>
-          )}
+          {successMsg && <Alert variant="success">{successMsg}</Alert>}
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={handleClose} disabled={isPending}>
             Cancelar
           </Button>
-          <Button
-            onClick={handleSubmit}
-            disabled={isPending || token.trim().length < 10}
-          >
-            {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          <Button onClick={handleSubmit} disabled={isPending || token.trim().length < 10}>
+            {isPending && <Loader2 className="animate-spin" />}
             Guardar y probar conexión
           </Button>
         </DialogFooter>
@@ -186,15 +172,15 @@ export function HubSpotUpdateModal({ open, onOpenChange }: UpdateModalProps) {
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="">Actualizar credencial de HubSpot</DialogTitle>
+          <DialogTitle>Actualizar credencial de HubSpot</DialogTitle>
           <DialogDescription>
-            La nueva credencial reemplazará a la anterior. Después de actualizarla,
-            deberás probar nuevamente la conexión.
+            La nueva credencial reemplazará a la anterior. Después de actualizarla, deberás probar
+            nuevamente la conexión.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <Label htmlFor="hs-new-token">Nuevo access token</Label>
             <div className="relative">
               <Input
@@ -203,49 +189,34 @@ export function HubSpotUpdateModal({ open, onOpenChange }: UpdateModalProps) {
                 placeholder="pat-xx-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
-                className="pr-10 font-mono text-sm"
+                className="pr-10 font-mono"
                 disabled={isPending}
                 autoComplete="off"
               />
-              <button
+              <Button
                 type="button"
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                variant="ghost"
+                size="icon-xs"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 onClick={() => setShowToken((v) => !v)}
-                tabIndex={-1}
                 aria-label={showToken ? 'Ocultar token' : 'Mostrar token'}
               >
-                {showToken ? (
-                  <EyeOff className="h-4 w-4" />
-                ) : (
-                  <Eye className="h-4 w-4" />
-                )}
-              </button>
+                {showToken ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </Button>
             </div>
           </div>
 
-          {error && (
-            <p className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              {error}
-            </p>
-          )}
+          {error && <Alert variant="destructive">{error}</Alert>}
 
-          {successMsg && (
-            <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400">
-              {successMsg}
-            </p>
-          )}
+          {successMsg && <Alert variant="success">{successMsg}</Alert>}
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={handleClose} disabled={isPending}>
             Cancelar
           </Button>
-          <Button
-            onClick={handleSubmit}
-            disabled={isPending || token.trim().length < 10}
-          >
-            {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          <Button onClick={handleSubmit} disabled={isPending || token.trim().length < 10}>
+            {isPending && <Loader2 className="animate-spin" />}
             Actualizar credencial
           </Button>
         </DialogFooter>
@@ -265,7 +236,10 @@ interface TestConnectionProps {
 export function HubSpotTestConnectionButton({ disabled }: TestConnectionProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [result, setResult] = useState<{ success: boolean; message?: string } | null>(null);
+  const [result, setResult] = useState<{
+    success: boolean;
+    message?: string;
+  } | null>(null);
 
   function handleTest() {
     setResult(null);
@@ -279,25 +253,15 @@ export function HubSpotTestConnectionButton({ disabled }: TestConnectionProps) {
 
   return (
     <div className="space-y-2">
-      <Button
-        variant="outline"
-        onClick={handleTest}
-        disabled={isPending || disabled}
-      >
-        {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+      <Button variant="outline" onClick={handleTest} disabled={isPending || disabled}>
+        {isPending && <Loader2 className="animate-spin" />}
         Probar conexión
       </Button>
 
       {result && (
-        <p
-          className={`rounded-lg border px-3 py-2 text-xs ${
-            result.success
-              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-              : 'border-destructive/30 bg-destructive/10 text-destructive'
-          }`}
-        >
+        <Alert variant={result.success ? 'success' : 'destructive'}>
           {result.message ?? (result.success ? 'Conexión exitosa.' : 'Error de conexión.')}
-        </p>
+        </Alert>
       )}
     </div>
   );
@@ -341,30 +305,21 @@ export function HubSpotDisconnectDialog({ open, onOpenChange }: DisconnectDialog
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle className="">Desconectar HubSpot</DialogTitle>
+          <DialogTitle>Desconectar HubSpot</DialogTitle>
           <DialogDescription>
-            SellUp dejará de considerar HubSpot disponible. Podrás volver a conectarlo
-            en cualquier momento ingresando una nueva credencial.
+            SellUp dejará de considerar HubSpot disponible. Podrás volver a conectarlo en cualquier
+            momento ingresando una nueva credencial.
           </DialogDescription>
         </DialogHeader>
 
-        {error && (
-          <p className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-            {error}
-          </p>
-        )}
+        {error && <Alert variant="destructive">{error}</Alert>}
 
         <DialogFooter>
           <Button variant="outline" onClick={handleClose} disabled={isPending}>
             Cancelar
           </Button>
-          <Button
-            variant="destructive"
-            onClick={handleDisconnect}
-            disabled={isPending}
-          >
-            {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          <Button variant="destructive-solid" onClick={handleDisconnect} disabled={isPending}>
+            {isPending && <Loader2 className="animate-spin" />}
             Desconectar
           </Button>
         </DialogFooter>
@@ -381,9 +336,7 @@ interface HubSpotActionsPanelProps {
   hasCredential: boolean;
 }
 
-export function HubSpotActionsPanel({
-  hasCredential,
-}: HubSpotActionsPanelProps) {
+export function HubSpotActionsPanel({ hasCredential }: HubSpotActionsPanelProps) {
   const [connectOpen, setConnectOpen] = useState(false);
   const [updateOpen, setUpdateOpen] = useState(false);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
@@ -391,20 +344,14 @@ export function HubSpotActionsPanel({
   return (
     <div className="flex flex-wrap items-center gap-2">
       {!hasCredential ? (
-        <Button onClick={() => setConnectOpen(true)}>
-          Conectar HubSpot
-        </Button>
+        <Button onClick={() => setConnectOpen(true)}>Conectar HubSpot</Button>
       ) : (
         <>
           <HubSpotTestConnectionButton />
           <Button variant="outline" onClick={() => setUpdateOpen(true)}>
             Actualizar credencial
           </Button>
-          <Button
-            variant="ghost"
-            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-            onClick={() => setDisconnectOpen(true)}
-          >
+          <Button variant="destructive" onClick={() => setDisconnectOpen(true)}>
             Desconectar
           </Button>
         </>

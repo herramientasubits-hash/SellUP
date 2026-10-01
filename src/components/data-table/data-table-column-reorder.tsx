@@ -164,7 +164,7 @@ export function DataTableDragHandle({ className }: { className?: string }) {
     <span
       aria-hidden
       className={cn(
-        "inline-flex h-3 w-3 text-muted-foreground/40",
+        "inline-flex h-3 w-3 text-text-muted",
         className,
       )}
     >

@@ -33,12 +33,14 @@ export function PreapprovalCancelButton({ preapprovalId, email }: PreapprovalCan
   return (
     <>
       <Button
+        type="button"
         variant="ghost"
-        size="sm"
-        className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+        size="icon-sm"
+        className="text-muted-foreground hover:text-destructive"
+        aria-label="Cancelar preautorización"
         onClick={() => setOpen(true)}
       >
-        <X className="h-4 w-4" />
+        <X />
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>

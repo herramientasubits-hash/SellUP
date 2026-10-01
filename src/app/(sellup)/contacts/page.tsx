@@ -55,19 +55,19 @@ export default async function ContactsPage({ searchParams }: ContactsPageProps) 
       description="Centraliza decisores, sponsors y personas clave vinculadas a cuentas y prospectos."
       tabs={<ContactsModuleTabsNav active="approved" />}
       actions={
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <ContactsEnrichmentCTA />
           <CreateContactDrawer accounts={accounts} />
         </div>
       }
       metrics={
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <MetricCard
             title="Total"
             description="Contactos registrados"
             value={total}
             icon={
-              <div className="rounded-lg p-1.5 bg-muted/60">
+              <div className="rounded-xl p-2 bg-surface-muted">
                 <Users className="h-4 w-4 text-foreground" />
               </div>
             }
@@ -77,8 +77,8 @@ export default async function ContactsPage({ searchParams }: ContactsPageProps) 
             description="Decision makers"
             value={decisionMakers}
             icon={
-              <div className="rounded-lg p-1.5 bg-su-brand-soft">
-                <Crown className="h-4 w-4 text-su-brand" />
+              <div className="rounded-xl p-2 bg-primary/10">
+                <Crown className="h-4 w-4 text-primary" />
               </div>
             }
           />
@@ -87,8 +87,8 @@ export default async function ContactsPage({ searchParams }: ContactsPageProps) 
             description="Contactos clave"
             value={champions}
             icon={
-              <div className="rounded-lg p-1.5 bg-emerald-500/10">
-                <Target className="h-4 w-4 text-emerald-500" />
+              <div className="rounded-xl p-2 bg-success/10">
+                <Target className="h-4 w-4 text-success" />
               </div>
             }
           />
@@ -97,8 +97,8 @@ export default async function ContactsPage({ searchParams }: ContactsPageProps) 
             description="Primer contacto por cuenta"
             value={primary}
             icon={
-              <div className="rounded-lg p-1.5 bg-amber-500/10">
-                <Star className="h-4 w-4 text-amber-500" />
+              <div className="rounded-xl p-2 bg-warning/15">
+                <Star className="h-4 w-4 text-warning" />
               </div>
             }
           />

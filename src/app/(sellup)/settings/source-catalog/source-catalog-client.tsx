@@ -4,6 +4,8 @@ import * as React from 'react';
 import { type ColumnDef } from '@tanstack/react-table';
 import { Copy, ExternalLink, ArrowRight } from 'lucide-react';
 import { DataTable, DataTableColumnHeader, TruncatedCell, type DataTableContextMenuItem } from '@/components/data-table';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import type { SourceCatalogViewModel, SourceViewModel, SourceStatusOverrides } from '@/modules/source-catalog/queries';
 import type { SourceConnectionLatestViewModel } from '@/modules/source-catalog/history-queries';
@@ -35,12 +37,10 @@ type Row = SourceViewModel & {
 
 function StatusBadge({ status }: { status: SourceViewModel['operationalStatus'] }) {
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium whitespace-nowrap ${operationalStatusBadgeClass(status)}`}
-    >
-      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${operationalStatusDotClass(status)}`} />
+    <Badge variant="outline" className={operationalStatusBadgeClass(status)}>
+      <span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${operationalStatusDotClass(status)}`} />
       {OPERATIONAL_STATUS_LABELS[status]}
-    </span>
+    </Badge>
   );
 }
 
@@ -165,11 +165,11 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
               type="button"
               onClick={() => openDetail(row.original)}
               title={row.original.name}
-              className="block w-full truncate text-sm font-medium text-foreground hover:text-su-brand transition-colors text-left"
+              className="block w-full truncate rounded-sm text-left text-sm font-medium text-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
             >
               {row.original.name}
             </button>
-            <p className="truncate font-mono text-[10px] text-muted-foreground">{row.original.key}</p>
+            <p className="truncate font-mono text-xs text-muted-foreground">{row.original.key}</p>
           </div>
         ),
         size: 260,
@@ -330,15 +330,16 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
           // "Conectar" es la única acción con estilo primario porque inicia una
           // conexión real; el resto son enlaces ghost que abren el detalle
           // (solo lectura). Ninguna dispara una conexión.
-          const className =
-            action.kind === 'connect'
-              ? 'inline-flex items-center gap-1 rounded-md border border-su-brand/30 bg-su-brand-soft px-2.5 py-1 text-xs font-medium text-su-brand hover:bg-su-brand hover:text-white transition-colors whitespace-nowrap'
-              : 'inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap';
           return (
-            <button type="button" onClick={() => openDetail(row.original)} className={className}>
+            <Button
+              type="button"
+              size="xs"
+              variant={action.kind === 'connect' ? 'default' : 'ghost'}
+              onClick={() => openDetail(row.original)}
+            >
               {action.label}
-              <ArrowRight className="h-3 w-3" />
-            </button>
+              <ArrowRight aria-hidden="true" />
+            </Button>
           );
         },
         size: 120,
@@ -367,19 +368,19 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
         <TabsList variant="segmented" className="mx-7 mt-1 mb-4">
           <TabsTrigger value="operativas">
             Operativas IA
-            <span className="ml-1.5 inline-flex items-center justify-center rounded-full border border-border/40 bg-muted/60 px-1.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
+            <span className="ml-1.5 inline-flex items-center justify-center rounded-full border border-border/60 bg-surface-muted px-1.5 text-xs font-semibold tabular-nums text-muted-foreground">
               {tabCounts.operativas}
             </span>
           </TabsTrigger>
           <TabsTrigger value="manuales">
             Señales manuales
-            <span className="ml-1.5 inline-flex items-center justify-center rounded-full border border-border/40 bg-muted/60 px-1.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
+            <span className="ml-1.5 inline-flex items-center justify-center rounded-full border border-border/60 bg-surface-muted px-1.5 text-xs font-semibold tabular-nums text-muted-foreground">
               {tabCounts.manuales}
             </span>
           </TabsTrigger>
           <TabsTrigger value="todas">
             Todas
-            <span className="ml-1.5 inline-flex items-center justify-center rounded-full border border-border/40 bg-muted/60 px-1.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
+            <span className="ml-1.5 inline-flex items-center justify-center rounded-full border border-border/60 bg-surface-muted px-1.5 text-xs font-semibold tabular-nums text-muted-foreground">
               {tabCounts.todas}
             </span>
           </TabsTrigger>

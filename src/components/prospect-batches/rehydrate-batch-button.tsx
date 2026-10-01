@@ -71,7 +71,6 @@ export function RehydrateBatchButton({ batchId }: RehydrateBatchButtonProps) {
             variant="outline"
             size="sm"
             onClick={() => setOpen(true)}
-            className="gap-1.5 text-xs text-muted-foreground"
           >
             <RefreshCcw className="h-3.5 w-3.5" />
             Recalcular datos
@@ -79,18 +78,18 @@ export function RehydrateBatchButton({ batchId }: RehydrateBatchButtonProps) {
         }
       />
 
-      <DialogContent className="sm:max-w-[420px]">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader className="pt-2">
-          <DialogTitle className="text-base font-semibold">
+          <DialogTitle>
             ¿Reprocesar enrichment de candidatos?
           </DialogTitle>
-          <DialogDescription className="text-xs text-muted-foreground">
+          <DialogDescription>
             Esto recalculará sector, flags de revisión y completitud de los candidatos existentes en este lote.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="py-2 space-y-1.5">
-          <ul className="list-disc pl-4 space-y-1 text-xs text-muted-foreground">
+        <div>
+          <ul className="list-disc space-y-1 pl-4 text-sm text-muted-foreground">
             <li>No toca HubSpot ni crea empresas.</li>
             <li>No cambia estados comerciales ni de revisión.</li>
             <li>No modifica cuentas ni conversiones.</li>
@@ -98,7 +97,7 @@ export function RehydrateBatchButton({ batchId }: RehydrateBatchButtonProps) {
           </ul>
         </div>
 
-        <DialogFooter className="mt-2">
+        <DialogFooter>
           <DialogClose
             render={
               <Button

@@ -19,6 +19,7 @@ import type {
   SicopCoverageSourceReason,
   SicopSourceCoverageSummary,
 } from '@/server/services/cr-sicop-source-coverage-summary';
+import { Landmark, type LucideIcon } from 'lucide-react';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 
 // ---------------------------------------------------------------------------
@@ -79,25 +80,55 @@ export function formatSicopYears(years: readonly number[]): string {
 
 function FieldRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-baseline justify-between gap-4 py-1.5 border-b border-border/30 last:border-0">
-      <dt className="text-xs text-muted-foreground shrink-0">{label}</dt>
-      <dd className="text-xs font-medium text-foreground text-right tabular-nums">{value}</dd>
+    <div className="grid grid-cols-2 items-baseline gap-x-4 py-2">
+      <dt className="min-w-0 text-xs text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 break-words text-right text-xs font-medium tabular-nums text-foreground">{value}</dd>
     </div>
   );
 }
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
+function CoverageCardHeader({
+  icon: Icon,
+  title,
+  description,
+  actions,
+}: {
+  icon: LucideIcon;
+  title: string;
+  description?: string;
+  actions?: React.ReactNode;
+}) {
   return (
-    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2 mt-4 first:mt-0">
-      {children}
-    </p>
+    <div className="mb-5 flex items-start gap-3">
+      <span
+        aria-hidden="true"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-inset ring-border/40"
+      >
+        <Icon className="h-4 w-4" />
+      </span>
+      <SurfaceCardHeader
+        title={title}
+        description={description}
+        actions={actions}
+        className="mb-0 min-w-0 flex-1 flex-wrap"
+      />
+    </div>
+  );
+}
+
+function FieldGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <h3 className="mb-1 text-sm font-semibold tracking-tight text-foreground">{title}</h3>
+      <dl className="divide-y divide-border/50">{children}</dl>
+    </section>
   );
 }
 
 function LimitationRow({ children }: { children: React.ReactNode }) {
   return (
     <li className="flex gap-2 text-xs text-muted-foreground">
-      <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-border" />
+      <span aria-hidden="true" className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground" />
       {children}
     </li>
   );
@@ -116,8 +147,8 @@ export function CrSicopCoverageCard({ summary, error }: CrSicopCoverageCardProps
   if (error || !summary) {
     return (
       <SurfaceCard>
-        <SurfaceCardHeader title="Cobertura SICOP Costa Rica" />
-        <p className="text-sm text-muted-foreground">
+        <CoverageCardHeader icon={Landmark} title="Cobertura SICOP Costa Rica" />
+        <p className="rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           No se pudo cargar el resumen de cobertura. Verifique la configuración del servicio.
         </p>
       </SurfaceCard>
@@ -128,118 +159,112 @@ export function CrSicopCoverageCard({ summary, error }: CrSicopCoverageCardProps
 
   return (
     <SurfaceCard>
-      <SurfaceCardHeader title="Cobertura SICOP Costa Rica" />
+      <CoverageCardHeader icon={Landmark} title="Cobertura SICOP Costa Rica" />
 
-      {/* Señal tipo */}
-      <div className="mb-4 rounded-lg border border-border/40 bg-muted/30 px-4 py-3">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">
-          Tipo de señal
-        </p>
-        <p className="text-sm font-medium text-foreground">Procurement B2G</p>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          Identifica empresas costarricenses que aparecen como proveedoras en compras públicas. Señal comercial de priorización.
-        </p>
+      <div className="space-y-5">
+        {/* Señal tipo */}
+        <div className="rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
+          <h3 className="mb-1 text-sm font-semibold tracking-tight text-foreground">Tipo de señal</h3>
+          <p className="text-sm font-medium text-foreground">Procurement B2G</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Identifica empresas costarricenses que aparecen como proveedoras en compras públicas. Señal comercial de priorización.
+          </p>
+        </div>
+
+        <FieldGroup title="Carga piloto">
+          <FieldRow
+            label="Proveedores cargados"
+            value={formatSicopLoadedRows(summary.loadedRows)}
+          />
+          <FieldRow
+            label="Estado de cobertura"
+            value={formatSicopCoverageStatus(summary.coverageStatus)}
+          />
+          <FieldRow
+            label="Tipo de señal"
+            value="Señal procurement / B2G"
+          />
+          <FieldRow
+            label="Fuente del indicador"
+            value={formatSicopCoverageSource(summary.coverageSource)}
+          />
+        </FieldGroup>
+
+        <FieldGroup title="Dataset piloto">
+          <FieldRow
+            label="Dataset"
+            value={SICOP_PILOT_BREAKDOWN.dataset}
+          />
+          <FieldRow
+            label="Año cargado"
+            value={formatSicopYears(SICOP_PILOT_BREAKDOWN.years)}
+          />
+          <FieldRow
+            label="Filas procesadas"
+            value={SICOP_PILOT_BREAKDOWN.processedRows.toLocaleString('es-CR')}
+          />
+          <FieldRow
+            label="Filas totales en dataset"
+            value={SICOP_PILOT_BREAKDOWN.sourceFileRows.toLocaleString('es-CR')}
+          />
+          <FieldRow
+            label="Identificadores válidos"
+            value={`${SICOP_PILOT_BREAKDOWN.validIdentifiers}`}
+          />
+          <FieldRow
+            label="Omitidos (no empresa)"
+            value={`${SICOP_PILOT_BREAKDOWN.skippedNonCompany}`}
+          />
+        </FieldGroup>
+
+        <FieldGroup title="Clasificación">
+          <FieldRow
+            label="CIIU oficial"
+            value="No disponible — no se inventa"
+          />
+          <FieldRow
+            label="Fuente fiscal / tributaria"
+            value="No — no es fuente fiscal"
+          />
+          <FieldRow
+            label="Fuente legal / registral"
+            value="No — no es fuente legal"
+          />
+          <FieldRow
+            label="Valida cédula jurídica"
+            value="No — no reemplaza Hacienda CR"
+          />
+        </FieldGroup>
+
+        {/* Limitaciones explícitas */}
+        <div>
+          <h3 className="mb-2 text-sm font-semibold tracking-tight text-foreground">Limitaciones</h3>
+          <ul className="space-y-1.5">
+            <LimitationRow>No representa el universo completo de SICOP.</LimitationRow>
+            <LimitationRow>Solo usa una muestra de 1.000 filas del dataset Ofertas 2024.</LimitationRow>
+            <LimitationRow>No es snapshot completo — muestra piloto controlada.</LimitationRow>
+            <LimitationRow>No es fuente legal ni tributaria.</LimitationRow>
+            <LimitationRow>No valida cédula jurídica.</LimitationRow>
+            <LimitationRow>No reemplaza Hacienda Costa Rica.</LimitationRow>
+            <LimitationRow>No contiene CIIU oficial.</LimitationRow>
+          </ul>
+        </div>
+
+        {/* Estado operativo */}
+        <div className="rounded-xl border border-warning/25 bg-warning/15 px-4 py-3">
+          <h3 className="mb-1 text-sm font-semibold tracking-tight text-foreground">Estado operativo</h3>
+          <p className="text-xs text-muted-foreground">
+            Hay piloto local disponible con 160 proveedores. Se requiere carga amplia y operativización
+            para marcarla como fuente conectada. No existe post-approval Costa Rica activo.
+          </p>
+        </div>
+
+        {sourceReasonLabel && (
+          <p className="border-t border-border/50 pt-3 text-xs text-muted-foreground">
+            Motivo: {sourceReasonLabel}
+          </p>
+        )}
       </div>
-
-      <dl className="divide-y divide-border/20">
-        <SectionTitle>Carga piloto</SectionTitle>
-
-        <FieldRow
-          label="Proveedores cargados"
-          value={formatSicopLoadedRows(summary.loadedRows)}
-        />
-        <FieldRow
-          label="Estado de cobertura"
-          value={formatSicopCoverageStatus(summary.coverageStatus)}
-        />
-        <FieldRow
-          label="Tipo de señal"
-          value="Señal procurement / B2G"
-        />
-        <FieldRow
-          label="Fuente del indicador"
-          value={formatSicopCoverageSource(summary.coverageSource)}
-        />
-
-        <SectionTitle>Dataset piloto</SectionTitle>
-
-        <FieldRow
-          label="Dataset"
-          value={SICOP_PILOT_BREAKDOWN.dataset}
-        />
-        <FieldRow
-          label="Año cargado"
-          value={formatSicopYears(SICOP_PILOT_BREAKDOWN.years)}
-        />
-        <FieldRow
-          label="Filas procesadas"
-          value={SICOP_PILOT_BREAKDOWN.processedRows.toLocaleString('es-CR')}
-        />
-        <FieldRow
-          label="Filas totales en dataset"
-          value={SICOP_PILOT_BREAKDOWN.sourceFileRows.toLocaleString('es-CR')}
-        />
-        <FieldRow
-          label="Identificadores válidos"
-          value={`${SICOP_PILOT_BREAKDOWN.validIdentifiers}`}
-        />
-        <FieldRow
-          label="Omitidos (no empresa)"
-          value={`${SICOP_PILOT_BREAKDOWN.skippedNonCompany}`}
-        />
-
-        <SectionTitle>Clasificación</SectionTitle>
-
-        <FieldRow
-          label="CIIU oficial"
-          value="No disponible — no se inventa"
-        />
-        <FieldRow
-          label="Fuente fiscal / tributaria"
-          value="No — no es fuente fiscal"
-        />
-        <FieldRow
-          label="Fuente legal / registral"
-          value="No — no es fuente legal"
-        />
-        <FieldRow
-          label="Valida cédula jurídica"
-          value="No — no reemplaza Hacienda CR"
-        />
-      </dl>
-
-      {/* Limitaciones explícitas */}
-      <div className="mt-4">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
-          Limitaciones
-        </p>
-        <ul className="space-y-1.5">
-          <LimitationRow>No representa el universo completo de SICOP.</LimitationRow>
-          <LimitationRow>Solo usa una muestra de 1.000 filas del dataset Ofertas 2024.</LimitationRow>
-          <LimitationRow>No es snapshot completo — muestra piloto controlada.</LimitationRow>
-          <LimitationRow>No es fuente legal ni tributaria.</LimitationRow>
-          <LimitationRow>No valida cédula jurídica.</LimitationRow>
-          <LimitationRow>No reemplaza Hacienda Costa Rica.</LimitationRow>
-          <LimitationRow>No contiene CIIU oficial.</LimitationRow>
-        </ul>
-      </div>
-
-      {/* Estado operativo */}
-      <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-amber-600 dark:text-amber-400 mb-1">
-          Estado operativo
-        </p>
-        <p className="text-xs text-muted-foreground">
-          Hay piloto local disponible con 160 proveedores. Se requiere carga amplia y operativización
-          para marcarla como fuente conectada. No existe post-approval Costa Rica activo.
-        </p>
-      </div>
-
-      {sourceReasonLabel && (
-        <p className="mt-3 text-[11px] text-muted-foreground/60">
-          Motivo: {sourceReasonLabel}
-        </p>
-      )}
     </SurfaceCard>
   );
 }

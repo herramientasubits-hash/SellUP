@@ -50,8 +50,8 @@ export const MEASUREMENT_STATUS_DESCRIPTION: Record<MeasurementStatus, string> =
 };
 
 export const MEASUREMENT_STATUS_BADGE: Record<MeasurementStatus, { className: string }> = {
-  active:       { className: 'border-su-brand/30 bg-su-brand-soft text-su-brand' },
-  connected:    { className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
-  prepared:     { className: 'border-border/40 bg-muted/30 text-muted-foreground' },
-  not_measured: { className: 'border-border/30 bg-muted/20 text-muted-foreground/60' },
+  active:       { className: 'border-primary/30 bg-primary/10 text-primary' },
+  connected:    { className: 'border-success/30 bg-success/10 text-success' },
+  prepared:     { className: 'border-border/60 bg-surface-subtle text-muted-foreground' },
+  not_measured: { className: 'border-border/50 bg-surface-subtle text-muted-foreground' },
 };

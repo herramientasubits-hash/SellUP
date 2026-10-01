@@ -87,11 +87,11 @@ export function MultiSelect({
             aria-expanded={open}
             disabled={disabled}
             className={cn(
-              "flex h-auto min-h-11 w-full items-center justify-between rounded-xl border-input bg-card px-4 py-2 text-sm text-foreground ring-offset-background focus:outline-none focus:ring-2 focus:ring-su-brand/30 focus:border-su-brand disabled:cursor-not-allowed disabled:opacity-50 transition-all",
+              "h-auto min-h-10 w-full justify-between bg-card px-3 py-1.5 text-foreground font-normal dark:bg-muted",
               className
             )}
           >
-            <div className="flex flex-wrap gap-1">
+            <div className="flex min-w-0 flex-wrap gap-1 text-left">
               {value.length > 0 ? (
                 value.map((val) => {
                   const option = options.find((o) => o.value === val);
@@ -99,13 +99,12 @@ export function MultiSelect({
                     <Badge
                       key={val}
                       variant="secondary"
-                      className="flex items-center gap-1 pr-1 pl-2 h-6 border-border/50 text-[12px] font-normal"
-                    >
+                      className="flex items-center gap-1 pr-1 pl-2 h-6 border-border/50">
                       {option?.label}
                       <div
                         role="button"
                         tabIndex={0}
-                        className="ml-1 rounded-full outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+                        className="ml-1 cursor-pointer rounded-xs outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                         aria-label={`Remover ${option?.label}`}
                         title={`Remover ${option?.label}`}
                         onKeyDown={(e) => {
@@ -132,14 +131,14 @@ export function MultiSelect({
                 <span className="text-muted-foreground">{placeholder}</span>
               )}
             </div>
-            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           </Button>
         }
       />
       {/* Use --anchor-width (Base UI variable) to match trigger width, capped at available space */}
       <PopoverContent
         className={cn(
-          "w-(--anchor-width) max-w-(--available-width) p-0 rounded-xl border shadow-md",
+          "w-(--anchor-width) max-w-(--available-width) p-0 rounded-xl border border-border/60 shadow-drawer",
           contentClassName,
         )}
       >
@@ -168,7 +167,7 @@ export function MultiSelect({
                   {option.description && (
                     <span
                       className={cn(
-                        "text-[11px] text-muted-foreground leading-tight mt-0.5",
+                        "text-xs text-muted-foreground leading-tight mt-0.5",
                         compact && "line-clamp-1",
                       )}
                     >

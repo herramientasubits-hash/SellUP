@@ -8,6 +8,7 @@ import {
   Loader2,
   Clock,
 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { SearchableSelect } from '@/components/forms/searchable-select';
 import { MultiSelect } from '@/components/forms/multi-select';
@@ -128,7 +129,7 @@ function StepWrapper({ title, children, titleRef }: StepWrapperProps) {
       <h3
         ref={titleRef}
         tabIndex={-1}
-        className="text-sm font-semibold text-foreground focus:outline-none"
+        className="text-base font-semibold tracking-tight text-foreground focus:outline-none"
       >
         {title}
       </h3>
@@ -199,24 +200,24 @@ function SearchTypeStep({ state, dispatch, titleRef }: SearchTypeStepProps) {
               aria-disabled={isComingSoon}
               aria-pressed={isSelected}
               className={[
-                'flex w-full items-start gap-3 rounded-xl border px-4 py-3.5 text-left transition-all',
+                'flex w-full items-start gap-3 rounded-xl border px-4 py-3.5 text-left transition-all focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40',
                 // Design Refresh v13: 'coming_soon' claramente inerte — borde
                 // punteado, fondo muted y SIN hover (antes conservaba el hover
                 // azul de las activas y parecía clickeable).
                 isComingSoon
-                  ? 'cursor-default border-dashed border-border/70 bg-muted/20'
+                  ? 'cursor-default border-dashed border-border/60 bg-surface-subtle'
                   : isSelected
-                  ? 'cursor-pointer border-su-brand bg-su-brand-soft/40 shadow-sm'
-                  : 'cursor-pointer border-border bg-card hover:border-su-brand/40 hover:bg-muted/40',
+                  ? 'cursor-pointer border-primary bg-primary/5'
+                  : 'cursor-pointer border-border/60 bg-card hover:border-primary/40 hover:bg-surface-muted',
               ].join(' ')}
             >
               <div
                 className={[
                   'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
                   isSelected && !isComingSoon
-                    ? 'bg-su-brand-soft'
+                    ? 'bg-primary/10'
                     : isComingSoon
-                    ? 'bg-muted/50'
+                    ? 'bg-surface-muted'
                     : 'bg-muted',
                 ].join(' ')}
               >
@@ -224,9 +225,9 @@ function SearchTypeStep({ state, dispatch, titleRef }: SearchTypeStepProps) {
                   className={[
                     'h-4 w-4',
                     isSelected && !isComingSoon
-                      ? 'text-su-brand'
+                      ? 'text-primary'
                       : isComingSoon
-                      ? 'text-muted-foreground/40'
+                      ? 'text-text-muted'
                       : 'text-muted-foreground',
                   ].join(' ')}
                   aria-hidden
@@ -243,16 +244,15 @@ function SearchTypeStep({ state, dispatch, titleRef }: SearchTypeStepProps) {
                     {def.label}
                   </span>
                   {isComingSoon && (
-                    <span className="flex items-center gap-1 rounded-full border border-border/60 bg-muted/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">
-                      <Clock className="h-2.5 w-2.5" aria-hidden />
+                    <Badge variant="neutral">
+                      <Clock aria-hidden />
                       Próximamente
-                    </span>
+                    </Badge>
                   )}
                 </div>
                 <p
                   className={[
-                    'mt-0.5 text-xs leading-relaxed',
-                    isComingSoon ? 'text-muted-foreground/60' : 'text-muted-foreground',
+                    'mt-0.5 text-xs leading-relaxed text-muted-foreground',
                   ].join(' ')}
                 >
                   {def.description}
@@ -266,7 +266,7 @@ function SearchTypeStep({ state, dispatch, titleRef }: SearchTypeStepProps) {
       {comingSoonWarning && (
         <div
           role="status"
-          className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-700 dark:border-amber-800/40 dark:bg-amber-900/10 dark:text-amber-400"
+          className="rounded-lg border border-warning/25 bg-warning/15 px-3 py-2.5 text-xs text-warning"
         >
           Esta forma de búsqueda estará disponible próximamente. Por ahora puedes buscar empresas por criterios.
         </div>
@@ -525,11 +525,11 @@ function AdditionalCriteriaStep({
 function ValidatingStep() {
   return (
     <div
-      className="flex items-center gap-3 rounded-xl bg-muted/40 px-5 py-4"
+      className="flex items-center gap-3 rounded-xl bg-surface-subtle p-4"
       role="status"
       aria-live="polite"
     >
-      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-su-brand" aria-hidden />
+      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" aria-hidden />
       <p className="text-sm text-foreground">
         Estamos revisando la configuración…
       </p>

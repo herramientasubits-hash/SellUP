@@ -25,14 +25,14 @@ import type { AccountContactEnrichmentRun } from '@/modules/contact-enrichment/a
 import { resolveAccountRunInlineDetailContent } from './account-run-inline-detail-content';
 
 export const ACCOUNT_RUN_STATUS_BADGE: Record<string, { label: string; className: string }> = {
-  pending: { label: 'Pendiente', className: 'text-muted-foreground border-border bg-muted/30' },
-  resolving: { label: 'Resolviendo', className: 'text-muted-foreground border-border bg-muted/30' },
-  ready_to_enrich: { label: 'Listo para enriquecer', className: 'text-su-brand border-su-brand/30 bg-su-brand-soft' },
-  enriching: { label: 'Enriqueciendo', className: 'text-su-brand border-su-brand/30 bg-su-brand-soft' },
-  ready_for_review: { label: 'Listo para revisión', className: 'text-emerald-600 border-emerald-500/30 bg-emerald-500/10' },
-  completed: { label: 'Completado', className: 'text-emerald-600 border-emerald-500/30 bg-emerald-500/10' },
+  pending: { label: 'Pendiente', className: 'text-muted-foreground border-border/60 bg-surface-subtle' },
+  resolving: { label: 'Resolviendo', className: 'text-muted-foreground border-border/60 bg-surface-subtle' },
+  ready_to_enrich: { label: 'Listo para enriquecer', className: 'text-primary border-primary/30 bg-primary/10' },
+  enriching: { label: 'Enriqueciendo', className: 'text-primary border-primary/30 bg-primary/10' },
+  ready_for_review: { label: 'Listo para revisión', className: 'text-success border-success/30 bg-success/10' },
+  completed: { label: 'Completado', className: 'text-success border-success/30 bg-success/10' },
   failed: { label: 'Fallido', className: 'text-destructive border-destructive/30 bg-destructive/10' },
-  superseded: { label: 'Reemplazado', className: 'text-muted-foreground border-border bg-muted/30' },
+  superseded: { label: 'Reemplazado', className: 'text-muted-foreground border-border/60 bg-surface-subtle' },
 };
 
 export const ACCOUNT_RUN_PROVIDER_LABELS: Record<string, string> = {
@@ -126,7 +126,7 @@ function AccountRunInlineDetail({ run }: { run: AccountContactEnrichmentRun }) {
 
   if (loadFailed) {
     return (
-      <p className="border-t border-border/50 pt-3 text-[11px] text-muted-foreground">
+      <p className="border-t border-border/50 pt-3 text-xs text-muted-foreground">
         No se pudo cargar el detalle adicional de este run.
       </p>
     );
@@ -134,7 +134,7 @@ function AccountRunInlineDetail({ run }: { run: AccountContactEnrichmentRun }) {
 
   if (providerUsage === null) {
     return (
-      <p className="border-t border-border/50 pt-3 text-[11px] text-muted-foreground">Cargando detalle…</p>
+      <p className="border-t border-border/50 pt-3 text-xs text-muted-foreground">Cargando detalle…</p>
     );
   }
 
@@ -155,7 +155,7 @@ function AccountRunInlineDetail({ run }: { run: AccountContactEnrichmentRun }) {
     <div className="space-y-3 border-t border-border/50 pt-3">
       <div className="flex items-start gap-2">
         <div
-          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${
+          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg ${
             isNegative ? 'bg-destructive/10' : 'bg-muted'
           }`}
         >
@@ -167,12 +167,12 @@ function AccountRunInlineDetail({ run }: { run: AccountContactEnrichmentRun }) {
         </div>
         <div className="space-y-0.5">
           <p className="text-xs font-semibold text-foreground">{content.headline}</p>
-          <p className="text-[11px] text-muted-foreground">{content.detail}</p>
+          <p className="text-xs text-muted-foreground">{content.detail}</p>
         </div>
       </div>
 
       {content.kind === 'lusha_empty_after_filtering' && (
-        <dl className="ml-8 space-y-1 text-[11px]">
+        <dl className="ml-8 space-y-1 text-xs">
           <div className="flex justify-between gap-3">
             <dt className="text-muted-foreground">Resultados brutos</dt>
             <dd className="font-medium text-foreground">{content.rawResultsCount ?? 0}</dd>
@@ -194,25 +194,25 @@ function RunCard({ run }: { run: AccountContactEnrichmentRun }) {
   const statusBadge = resolveAccountRunStatusBadge(run.status);
 
   return (
-    <div className="rounded-lg border border-border/50 bg-card px-4 py-3">
+    <div className="rounded-xl border border-border/60 bg-card px-4 py-3">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 space-y-1.5">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline" className="text-[10px] border-border bg-muted/30 text-muted-foreground">
+            <Badge variant="neutral">
               {resolveAccountRunProviderLabel(run)}
             </Badge>
-            <Badge variant="outline" className={`text-[10px] ${statusBadge.className}`}>
+            <Badge variant="outline" className={statusBadge.className}>
               {statusBadge.label}
             </Badge>
             {run.attemptOrder != null && (
-              <span className="text-[11px] text-muted-foreground">Intento {run.attemptOrder}</span>
+              <span className="text-xs text-muted-foreground">Intento {run.attemptOrder}</span>
             )}
           </div>
-          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Calendar className="h-3 w-3" aria-hidden />
             {formatContactEnrichmentRunDateTime(run.createdAt)}
           </div>
-          <dl className="flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-muted-foreground">
+          <dl className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
             <div className="flex gap-1">
               <dt>Candidatos:</dt>
               <dd className="font-medium text-foreground">{run.candidateCount}</dd>
@@ -238,10 +238,10 @@ function RunCard({ run }: { run: AccountContactEnrichmentRun }) {
         <Button
           type="button"
           variant="ghost"
-          size="sm"
+          size="xs"
           onClick={() => setExpanded((current) => !current)}
           aria-expanded={expanded}
-          className="h-7 shrink-0 gap-1 px-2 text-xs font-medium text-su-brand hover:text-su-brand"
+          className="shrink-0 text-primary hover:text-primary"
         >
           {expanded ? <ChevronUp className="h-3.5 w-3.5" aria-hidden /> : <ChevronDown className="h-3.5 w-3.5" aria-hidden />}
           {expanded ? 'Ocultar detalle' : 'Ver detalle'}
@@ -259,25 +259,25 @@ function LegacyRunGroup({ runs }: { runs: AccountContactEnrichmentRun[] }) {
   const [expanded, setExpanded] = React.useState(false);
 
   return (
-    <div className="rounded-lg border border-dashed border-border/60 bg-muted/10">
+    <div className="rounded-lg border border-dashed border-border/60 bg-surface-subtle">
       <div className="flex items-center justify-between gap-3 px-4 py-3">
         <div className="min-w-0 space-y-0.5">
           <p className="text-xs font-semibold text-foreground">Runs antiguos o reemplazados</p>
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             Ejecuciones históricas de versiones anteriores del flujo. Se conservan para trazabilidad.
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Badge variant="outline" className="text-[10px] border-border bg-muted/30 text-muted-foreground">
+          <Badge variant="neutral">
             {runs.length} {runs.length === 1 ? 'run' : 'runs'}
           </Badge>
           <Button
             type="button"
             variant="ghost"
-            size="sm"
+            size="xs"
             onClick={() => setExpanded((current) => !current)}
             aria-expanded={expanded}
-            className="h-7 shrink-0 gap-1 px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+            className="shrink-0 text-muted-foreground hover:text-foreground"
           >
             {expanded ? <ChevronUp className="h-3.5 w-3.5" aria-hidden /> : <ChevronDown className="h-3.5 w-3.5" aria-hidden />}
             {expanded ? 'Ocultar' : 'Ver'}
@@ -307,7 +307,7 @@ export function AccountAgentsRunHistory({ runs }: { runs: AccountContactEnrichme
       />
       {runs.length === 0 ? (
         <div className="flex flex-col items-center gap-2 py-8 text-center">
-          <Bot className="h-8 w-8 text-muted-foreground/30" aria-hidden />
+          <Bot className="h-8 w-8 text-text-muted" aria-hidden />
           <p className="text-xs text-muted-foreground">
             Todavía no hay runs de enriquecimiento para esta cuenta.
           </p>
@@ -315,7 +315,7 @@ export function AccountAgentsRunHistory({ runs }: { runs: AccountContactEnrichme
       ) : (
         <div className="space-y-4">
           {legacyRuns.length > 0 && (
-            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
+            <p className="text-xs font-medium text-muted-foreground">
               Runs recientes
             </p>
           )}

@@ -56,7 +56,7 @@ export function DataTableSettingsDrawer<TData>({
         showCloseButton={false}
         className="flex flex-col gap-0 overflow-hidden sm:!max-w-md w-full p-0"
       >
-        <div className="flex items-start justify-between px-6 pt-5 pb-4 border-b border-border/50 bg-muted/20">
+        <div className="flex items-start justify-between px-6 pt-5 pb-4 border-b border-border/50 bg-surface-subtle">
           <div className="space-y-1 pr-4">
             <SheetTitle className="text-base font-semibold text-foreground">
               {title}
@@ -138,7 +138,7 @@ export function DataTableSettingsDrawer<TData>({
                       <label
                         className={cn(
                           "flex items-center gap-2 px-2 py-1.5 rounded-md text-xs cursor-pointer",
-                          "hover:bg-muted/60",
+                          "hover:bg-surface-muted",
                         )}
                       >
                         <Checkbox
@@ -156,12 +156,11 @@ export function DataTableSettingsDrawer<TData>({
           </SettingGroup>
         </div>
 
-        <div className="px-6 py-3 bg-muted/30 border-t border-border/50 flex justify-end">
+        <div className="px-6 py-3 bg-surface-subtle border-t border-border/50 flex justify-end">
           <Button
             size="sm"
-            className="h-9 px-5 rounded-lg"
-            onClick={() => onOpenChange(false)}
-          >
+            className="px-5"
+            onClick={() => onOpenChange(false)}>
             Aplicar
           </Button>
         </div>
@@ -188,16 +187,16 @@ function SettingGroup({
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-2 min-w-0">
           {icon && (
-            <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-md bg-muted/60 text-muted-foreground shrink-0">
+            <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-md bg-surface-muted text-muted-foreground shrink-0">
               {icon}
             </span>
           )}
           <div className="space-y-0.5 min-w-0">
-            <p className="text-[11px] font-semibold tracking-wider uppercase text-foreground">
+            <p className="text-xs font-semibold text-foreground">
               {label}
             </p>
             {description && (
-              <p className="text-[11px] text-muted-foreground leading-snug">
+              <p className="text-xs text-muted-foreground leading-snug">
                 {description}
               </p>
             )}
@@ -222,7 +221,7 @@ function SegmentedControl<T extends string,>({
   return (
     <div
       role="radiogroup"
-      className="inline-flex w-full p-0.5 rounded-full bg-muted/60 border border-border/40"
+      className="inline-flex w-full p-0.5 rounded-full bg-surface-muted border border-border/60"
     >
       {options.map((opt) => {
         const selected = opt.value === value;
@@ -235,10 +234,10 @@ function SegmentedControl<T extends string,>({
             aria-checked={selected}
             onClick={() => onChange(opt.value)}
             className={cn(
-              "flex-1 inline-flex items-center justify-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium transition-colors",
+              "flex-1 inline-flex items-center justify-center gap-1.5 h-7 px-3 rounded-full text-xs font-medium transition-colors",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
               selected
-                ? "bg-primary text-primary-foreground shadow-sm"
+                ? "bg-primary text-primary-foreground shadow-card"
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
@@ -264,7 +263,7 @@ export function DataTableSettingsTrigger({
   return (
     <TooltipIconButton
       variant="outline"
-      icon={<span className="text-[10px] font-semibold tracking-wider">Ajustes</span>}
+      icon={<span className="text-xs font-semibold tracking-wider">Ajustes</span>}
       label={label}
       onClick={onClick}
     />

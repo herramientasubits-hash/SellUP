@@ -61,30 +61,30 @@ export function BudgetSummaryCards({ providers }: Props) {
       label: 'Proveedores en catálogo',
       value: String(totalProviders),
       icon: Cpu,
-      color: 'text-su-brand',
-      bg: 'bg-su-brand-soft',
+      color: 'text-primary',
+      bg: 'bg-primary/10',
     },
     {
       label: 'Conectados',
       value: String(connectedProviders.length),
       icon: Activity,
-      color: 'text-emerald-500',
-      bg: 'bg-emerald-500/10',
+      color: 'text-success',
+      bg: 'bg-success/10',
     },
     {
       label: 'Consumo del mes',
       value: consumptionLabel,
       titleAttr: consumptionDescription,
       icon: TrendingUp,
-      color: 'text-amber-500',
-      bg: 'bg-amber-500/10',
+      color: 'text-warning',
+      bg: 'bg-warning/10',
     },
     {
       label: 'Sin cuota configurada',
       value: String(withoutAllowance),
       icon: PackageOpen,
-      color: withoutAllowance > 0 ? 'text-amber-500' : 'text-muted-foreground',
-      bg: withoutAllowance > 0 ? 'bg-amber-500/10' : 'bg-muted/30',
+      color: withoutAllowance > 0 ? 'text-warning' : 'text-muted-foreground',
+      bg: withoutAllowance > 0 ? 'bg-warning/10' : 'bg-surface-subtle',
     },
   ];
 
@@ -97,7 +97,7 @@ export function BudgetSummaryCards({ providers }: Props) {
           </div>
           <div className="min-w-0">
             <p className="text-xs text-muted-foreground">{card.label}</p>
-            <p className="truncate text-lg font-semibold text-foreground" title={card.titleAttr}>
+            <p className="truncate text-lg font-semibold tabular-nums text-foreground" title={card.titleAttr}>
               {card.value}
             </p>
           </div>
