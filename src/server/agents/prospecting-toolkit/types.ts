@@ -711,6 +711,12 @@ export type CandidateWriterInput = {
    * When undefined, all eligible candidates are persisted (legacy behavior).
    */
   targetPersistibleCandidates?: number | null;
+  /**
+   * AGENT1-DELIVERY-CAP-1 — máximo de empresas que UNA escritura entrega a un
+   * vendedor (`resolveMaxDeliveredCandidates`). Completas primero. Lo que no cabe
+   * no se persiste ni se reclama. Ausente/`null` ⇒ sin tope (X6.13).
+   */
+  maxDeliveredCandidates?: number | null;
 };
 
 export type CandidateWriterSkipped = {

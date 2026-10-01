@@ -153,6 +153,7 @@ import {
   type LushaRunAcceptanceFacts,
   type SurvivorCompletenessInput,
 } from './lusha-run-acceptance-truth';
+import { applyDeliveryCap, resolveMaxDeliveredCandidates } from '@/modules/prospect-batches/delivery-cap';
 import {
   LUSHA_RUN_MAX_RAW_RESULTS,
   decideLushaProviderRequest,
@@ -2746,6 +2747,11 @@ export interface LushaMultiBranchExecution {
     /** `true` ⇒ la lectura degradó y la cobertura es MENOR, nunca mayor. */
     degraded: boolean;
   } | null;
+  /**
+   * AGENT1-DELIVERY-CAP-1 — tope de ENTREGA por vendedor. `undefined` ⇒ se lee
+   * del entorno (`resolveMaxDeliveredCandidates`); `null` ⇒ sin tope.
+   */
+  maxDeliveredCandidates?: number | null;
 }
 
 /** Sum credits fail-safe: null stays null unless a page reported a number. */
@@ -3755,6 +3761,38 @@ export async function persistLushaPendingReviewBatch(
     batch_identity_seed_degraded: execution?.batchIdentitySeed?.degraded === true,
   };
 
+  // 🔴 AGENT1-DELIVERY-CAP-1 — un vendedor recibe como MÁXIMO el tope por
+  // vendedor, COMPLETAS PRIMERO. Va aquí, después de la admisión por identidad y
+  // ANTES de derivar cualquier conteo, por la misma razón que la retirada de
+  // duplicados de arriba: todo lo que se calcula después (aceptación, hueco,
+  // filas escritas, fallos de escritura) tiene que describir el conjunto que de
+  // verdad se va a escribir. Lo recortado no se persiste y por tanto no reclama
+  // la empresa: queda libre para otro vendedor. NO es `targetOverflowDiscarded`
+  // (el tope de aceptación dentro de una página, retirado por X6.13 y que sigue
+  // en cero por contrato).
+  // Nunca por debajo del objetivo (misma regla que el escritor de Apollo).
+  const deliveryCap =
+    execution?.maxDeliveredCandidates === undefined
+      ? resolveMaxDeliveredCandidates(undefined, targetGap)
+      : execution.maxDeliveredCandidates === null
+        ? null
+        : Math.max(Math.trunc(execution.maxDeliveredCandidates), targetGap);
+  const deliveryCapFacts: LushaRunAcceptanceFacts = {
+    requestedSubindustries: execution?.requestedSubindustries ?? [],
+  };
+  const deliveryCapResult = applyDeliveryCap(
+    useful,
+    deliveryCap,
+    (entry) =>
+      evaluateLushaSurvivorCompleteness(toLushaSurvivorCompletenessInput(entry), deliveryCapFacts) ===
+      'complete',
+  );
+  if (deliveryCapResult.applied) {
+    useful.splice(0, useful.length, ...deliveryCapResult.delivered);
+    batchIdentitySeedTelemetry.delivery_cap = deliveryCap as number;
+    batchIdentitySeedTelemetry.delivery_capped_count = deliveryCapResult.capped.length;
+  }
+
   // 🔴 X5.1 — la costura única, evaluada sobre los supervivientes ya admitidos.
   // La metadata del lote (pre-inserción) y la fila de uso (post-inserción) leen
   // de AQUÍ; ninguna vuelve a escribir su propia expresión.
@@ -4007,7 +4045,7 @@ export async function persistLushaPendingReviewBatch(
     };
   }
 
-  const batchRow = buildLushaPendingReviewBatchRow(
+  const baseBatchRow = buildLushaPendingReviewBatchRow(
     input,
     actor,
     firstSearch as LushaPreviewResult,
@@ -4028,6 +4066,21 @@ export async function persistLushaPendingReviewBatch(
       multiBranchTelemetry: runTelemetry,
     },
   );
+  // AGENT1-DELIVERY-CAP-1 — el recorte se declara EN el lote: sin esto la
+  // metadata diría «14 revisables encontradas, 10 útiles» sin explicar las 4.
+  const batchRow = deliveryCapResult.applied
+    ? {
+        ...baseBatchRow,
+        metadata: {
+          ...baseBatchRow.metadata,
+          delivery_cap: {
+            cap: deliveryCap,
+            delivered_count: deliveryCapResult.delivered.length,
+            capped_count: deliveryCapResult.capped.length,
+          },
+        },
+      }
+    : baseBatchRow;
   // Q3F-5BB.11D — additively stamp the OBSERVATIONAL routing metadata on the
   // batch (provider_routing + a single primary Lusha provider_attempt built from
   // the real counters). Only when a routing observation was supplied; otherwise
