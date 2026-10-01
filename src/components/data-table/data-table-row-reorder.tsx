@@ -80,11 +80,16 @@ export function DataTableRowReorder<TData>({
     onRowReorder(arrayMove(data, oldIndex, newIndex));
   };
 
+  const dndId = React.useId();
+
   return (
     <DndContext
       sensors={sensors}
       collisionDetection={closestCenter}
       onDragEnd={handleDragEnd}
+      // Id estable entre servidor y cliente: sin él, dnd-kit numera sus
+      // regiones de anuncio con un contador y la hidratación no coincide.
+      id={dndId}
     >
       <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
         {data.map((row, index) => (

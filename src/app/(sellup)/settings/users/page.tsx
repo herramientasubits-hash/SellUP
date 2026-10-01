@@ -10,6 +10,7 @@ import {
 import { UsersSettingsClient } from './users-settings-client';
 import { AddUserDrawer } from './add-user-drawer';
 import { ActionButtons } from './action-buttons';
+import { ScreenActionRail, ScreenActionRailProvider } from '@/components/action-rail';
 
 export default async function UsersManagementPage() {
   const isAdmin = await isCurrentUserAdmin();
@@ -28,7 +29,8 @@ export default async function UsersManagementPage() {
   const rejectedUsers  = users.filter(u => u.access_status === 'rejected');
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <ScreenActionRailProvider>
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="flex items-start justify-between gap-4 shrink-0 px-8 pt-6 pb-2">
         <PageHeader
           title="Usuarios y acceso"
@@ -36,10 +38,10 @@ export default async function UsersManagementPage() {
           backHref="/settings"
         />
         {isAdmin && (
-          <div className="flex items-center gap-2">
+          <ScreenActionRail label="Acciones de usuarios">
             <ActionButtons groups={groups} />
             <AddUserDrawer roles={roles} activeUsers={activeUsers} groups={groups} />
-          </div>
+          </ScreenActionRail>
         )}
       </div>
 
@@ -59,5 +61,6 @@ export default async function UsersManagementPage() {
         </div>
       </div>
     </div>
+    </ScreenActionRailProvider>
   );
 }

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useReportSelectionCount } from '@/components/action-rail';
 import { X, Pause, RotateCcw, Archive, UserX, Layers, Loader2 } from "@/icons";
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -196,6 +197,11 @@ export function SelectableUsersList({
   users, roles, allUsers, activeUsers, groups, mode, isAdmin,
 }: SelectableUsersListProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  // La barra de acciones de la pantalla se aparta mientras haya selección.
+  const reportSelectionCount = useReportSelectionCount();
+  useEffect(() => {
+    reportSelectionCount(isAdmin ? selectedIds.length : 0);
+  }, [reportSelectionCount, selectedIds.length, isAdmin]);
   const [activeAction, setActiveAction] = useState<BulkActionDef | null>(null);
   const [groupId, setGroupId] = useState<string>('');
   const [loading, setLoading] = useState(false);

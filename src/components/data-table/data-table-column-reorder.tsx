@@ -80,8 +80,17 @@ export function DataTableColumnReorder({
     onOrderChange(next);
   };
 
+  const dndId = React.useId();
+
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragEnd={handleDragEnd}
+      // Id estable entre servidor y cliente: sin él, dnd-kit numera sus
+      // regiones de anuncio con un contador y la hidratación no coincide.
+      id={dndId}
+    >
       <SortableContext items={sortableColumns} strategy={horizontalListSortingStrategy}>
         {columnOrder.map((id) => (
           <React.Fragment key={id}>{children(id)}</React.Fragment>
