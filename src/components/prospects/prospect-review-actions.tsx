@@ -582,11 +582,11 @@ export function ProspectReviewActions({
 
             {/* Remaining future actions collapsed into a small menu. */}
             <DropdownMenu>
-              <DropdownMenuTrigger>
-                <Button variant="ghost" size="sm">
+              <DropdownMenuTrigger
+                render={<Button variant="ghost" size="sm" />}
+              >
                   Más acciones
                   <ChevronDown aria-hidden="true" />
-                </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="min-w-56">
                 {/* Q3F-5AZ.2G-2 — "Marcar duplicado" is enabled for an eligible

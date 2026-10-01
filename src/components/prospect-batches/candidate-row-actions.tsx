@@ -342,14 +342,14 @@ export function CandidateRowActions({
     <>
       <TooltipProvider>
         <DropdownMenu>
-          <DropdownMenuTrigger>
-            <Button variant="ghost" size="icon-xs" disabled={loading} aria-label={`Acciones para ${candidate.name}`}>
+          <DropdownMenuTrigger
+            render={<Button variant="ghost" size="icon-xs" disabled={loading} aria-label={`Acciones para ${candidate.name}`} />}
+          >
               {loading ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
                 <MoreHorizontal className="h-3.5 w-3.5" />
               )}
-            </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {/* Marcar revisado — solo candidatos estructurados en needs_manual_review */}
