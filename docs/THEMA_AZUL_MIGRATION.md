@@ -28,6 +28,29 @@ aplica **pantalla por pantalla** para que el resto del producto se lea como el m
 
 Componentes nuevos: `@/components/shared/drawer-section` (`DrawerSection`).
 
+## 1 bis. Componentes de Thema disponibles en SellUp
+
+Thema no se instala como paquete (usa Tailwind 3 + Radix + framer-motion; SellUp, Tailwind 4 + Base UI).
+Sus componentes están **portados**: mismo nombre, mismas props y misma anatomía. Antes de escribir marcado a
+mano, busca aquí.
+
+| Familia | Import | Piezas |
+|---|---|---|
+| Shell | `@/components/layout` | `AppShell` (menú lateral desplegable + cabecera con migas, búsqueda ⌘K, avisos, tema y cuenta) |
+| Iconos | `@/icons` | Los iconos por su nombre de siempre (`Building2`, `Users`…), dibujados con Hugeicons. **Nunca** `lucide-react` directo |
+| Tipografía | `@/components/typography` | `Heading`, `Text` |
+| Página | `@/components/shared/*` | `PageHeader` (con `breadcrumbs`), `DataTablePage`, `SurfaceCard`, `SectionHeader` |
+| Navegación | `@/components/navigation/*` | `Breadcrumbs`, `Stepper`, `TabsNav` (pestañas de página con icono y contador) |
+| Datos | `@/components/data-display` | `StatusBadge`, `TableShell`, `Timeline`, `ListItem`/`ListItemGroup`, `Kanban` |
+| Tablas operables | `@/components/data-table` | `DataTable` (título + total, búsqueda, ajustes, selección, barra masiva) |
+| Métricas y avisos | `@/components/shared/*` | `MetricCard` (acento, chip, píldora de variación, `hint`, `chart`), `DeltaPill`, `AttentionStrip` + `AttentionAction` |
+| Filtros | `@/components/filters/*` | `FilterChips` (chips con contador), `FilterBar` |
+| Búsqueda | `@/components/search` | `GlobalSearch` (⌘K) |
+| Acciones | `@/components/action-rail` | `DataListActionRail`, `DrawerActionRail`, `RailButton`, `ActionFab` |
+| Ventanas | `@/components/shared/*` | `DrawerShell`, `DrawerSection`, `ModalShell`, `ConfirmDialog` |
+| Formularios | `@/components/forms/*` | `Field`, `FieldLabel`, `FieldDescription`, `FieldError`, `FormSection`, `SearchableSelect`, `MultiSelect` |
+| Estados | `@/components/ui/*`, `@/components/feedback/*` | `EmptyState` (`variant="plain"`), `Skeleton`, `Spinner`, `Alert` |
+
 ## 2. Escala de radios (monótona)
 
 | Clase | px | Para |
@@ -142,7 +165,7 @@ Revisar en claro y oscuro, y a 375px.
 ### Qué comprueba el verificador
 
 `scripts/check-design-system.mjs` (portado de Thema) falla si encuentra: otra librería de interfaz o un
-primitivo headless fuera de `src/components/ui`; un color literal; paleta cruda de Tailwind; un tamaño de
+primitivo headless fuera de `src/components/ui`; un icono importado de la librería en vez de `@/icons`; un color literal; paleta cruda de Tailwind; un tamaño de
 letra, un z-index, una sombra o un radio arbitrarios; un rótulo en MAYÚSCULAS con tracking; `font-black` /
 `font-extrabold`; clases `*-su-brand`; texto atenuado con opacidad; `text-white` a mano; o un
 `Button` / `Input` / `SelectTrigger` / `Badge` con radio, alto o tipografía sobrescritos por `className`.

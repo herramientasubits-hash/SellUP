@@ -22,10 +22,10 @@ function Row({ label, value, testId }: { label: string; value: React.ReactNode; 
       className="flex items-start justify-between gap-4 border-b border-border/50 py-2 last:border-0 first:pt-0 last:pb-0"
       data-testid={testId}
     >
-      <span className="shrink-0 pt-0.5 text-xs font-medium text-muted-foreground">
+      <dt className="shrink-0 pt-0.5 text-xs text-muted-foreground">
         {label}
-      </span>
-      <span className="min-w-0 text-right text-xs tabular-nums text-foreground">{value}</span>
+      </dt>
+      <dd className="min-w-0 break-words text-right text-sm tabular-nums text-foreground">{value}</dd>
     </div>
   );
 }
@@ -74,6 +74,7 @@ export function ProviderContractPlanCard({ plan }: { plan: ProviderContractPlanV
   return (
     <div className="space-y-3" data-testid="provider-contract-plan">
       <DrawerSection title="Plan contratado" icon={ReceiptText} tone="neutral">
+        <dl>
         <Row label="Facturación" value="Anual" />
         <Row label="Créditos del plan" value={`${credits(plan.annualCredits)} / año`} />
         <Row label="Costo del plan" value={`${usd(plan.annualUsd)} USD / año`} />
@@ -120,6 +121,7 @@ export function ProviderContractPlanCard({ plan }: { plan: ProviderContractPlanV
           value={renewalLabel(plan)}
           testId="provider-contract-plan-renewal"
         />
+        </dl>
       </DrawerSection>
       {!plan.pricingMatchesContract && (
         <Alert

@@ -26,6 +26,8 @@ All UI work must consult and respect these authoritative sources:
 | **Design-system check** | `scripts/check-design-system.mjs` | `node scripts/check-design-system.mjs` — debe dar 0 hallazgos |
 | **Design System Foundation v0.2** | `docs/DESIGN_SYSTEM_FOUNDATION.md` | Official specification (15 sections: principles, tokens, typography, radius/shadows, components, Light/Dark, rules, DataTable, Drawer con Tabs, Floating Bar, Lazy Load, Page Recipe, Scroll interno de tabla) |
 | **CSS Tokens** | `src/app/globals.css` | Implemented custom properties and animations |
+| **Thema components (ported)** | `src/components/{typography,data-display,navigation,action-rail,filters,search,forms,feedback}` | Catálogo en `docs/THEMA_AZUL_MIGRATION.md` § 1 bis |
+| **Icons** | `src/icons/` | Hugeicons (familia de Thema) con los nombres de siempre. Importar SIEMPRE de `@/icons`, nunca de `lucide-react` |
 | **Base Components** | `src/components/shared/` | PageHeader, SurfaceCard, ModulePlaceholder, NavLink, DrawerShell, DrawerSection, DataTablePage |
 | **UI Library** | `src/components/ui/` | shadcn/ui extensions and custom widgets |
 | **Layout System** | `src/components/layout/` | AppShell, AppHeader, AppSidebar, theme-toggle |
@@ -159,6 +161,8 @@ All three layers must be consistent. If divergence occurs, Design System Foundat
 
 - Hardcode colors (`#5b7eff`, `rgb(91, 126, 255)`)
 - Introduce new font families
+- Import icons from `lucide-react` or `@hugeicons/*` directly (use `@/icons`)
+- Hand-roll a piece that Thema already provides (`StatusBadge`, `TableShell`, `Timeline`, `Stepper`, `FilterChips`, `AttentionStrip`, `DrawerSection`…)
 - Use `shadow-xl`, `shadow-2xl`, or arbitrary `shadow-[…]`
 - Use the raw Tailwind palette (`bg-emerald-500/10`, `text-amber-600`) — use `success` / `warning` / `destructive` / `info` tokens or `Badge` variants
 - Fix font sizes (`text-[11px]`) or write UPPERCASE overlines with tracking

@@ -64,14 +64,14 @@ function QuotaSourceSection({
   return (
     <DrawerSection title="Fuente de cuota" icon={Coins} contentClassName="space-y-2.5">
       <div className="space-y-0.5">
-        <p className="text-xs font-medium text-foreground">Fuente actual: {sourceLabel}</p>
+        <p className="text-sm font-medium text-foreground">Fuente actual: {sourceLabel}</p>
         <p className="text-xs text-muted-foreground">{sourceDescription}</p>
       </div>
 
       {/* Manual con dato externo disponible → ofrecer usar API */}
       {source === 'manual' && hasExternalData && isSyncable && (
         <div className="pt-1 space-y-1">
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs tabular-nums text-muted-foreground">
             Dato API disponible como referencia ({provider.creditsRemainingExternal?.toLocaleString()} cr restantes).
           </p>
           <Button
@@ -197,13 +197,14 @@ export function ProviderAllowanceDrawer({ provider, open, onClose, onSaved }: Pr
       size="md"
       title={`Editar cuota — ${provider?.displayName ?? provider?.providerKey ?? ''}`}
       description="Configura la bolsa mensual contratada con el proveedor."
-      icon={<Wallet className="h-4 w-4 text-primary" />}
+      icon={<Wallet className="h-4 w-4" />}
       actions={
         <>
-          <Button variant="outline" onClick={onClose} disabled={isPending}>
+          <Button type="button" variant="outline" onClick={onClose} disabled={isPending}>
             Cancelar
           </Button>
           <Button
+            type="button"
             onClick={handleSave}
             disabled={isPending || isNotApplicable}
           >
@@ -267,6 +268,7 @@ export function ProviderAllowanceDrawer({ provider, open, onClose, onSaved }: Pr
                   placeholder="Ej: 500"
                   value={credits}
                   onChange={(e) => setCredits(e.target.value)}
+                  className="tabular-nums"
                 />
                 <p className="text-xs text-muted-foreground">
                   Dejar vacío para &quot;No configurado&quot;.
@@ -285,6 +287,7 @@ export function ProviderAllowanceDrawer({ provider, open, onClose, onSaved }: Pr
                   placeholder="Ej: 50.00"
                   value={usd}
                   onChange={(e) => setUsd(e.target.value)}
+                  className="tabular-nums"
                 />
                 <p className="text-xs text-muted-foreground">
                   Útil para modelos LLM. Dejar vacío para &quot;No configurado&quot;.
