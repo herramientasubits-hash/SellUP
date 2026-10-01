@@ -65,7 +65,7 @@ describe('cableado', () => {
     const resolvers = buildColombiaOfficialSourceResolvers();
     assert.ok(Array.isArray(resolvers));
     for (const resolver of resolvers) {
-      assert.ok(['CO', 'DO', 'AR', 'EC', 'GT', 'HN', 'PE', 'PY', 'UY'].includes(resolver.countryCode), resolver.countryCode);
+      assert.ok(['CO', 'DO', 'AR', 'EC', 'GT', 'HN', 'PE', 'PY', 'UY', 'US'].includes(resolver.countryCode), resolver.countryCode);
     }
   });
 
@@ -93,6 +93,14 @@ describe('cableado', () => {
     const wiring = read('src/server/prospect-batches/official-source-resolvers.ts');
     assert.match(wiring, /countryCode: 'UY',\s*sourceKey: 'uy_rupe_registry',\s*taxIdentifierType: 'RUT',\s*validTaxId: \/\^\\d\{12\}\$\//);
     assert.match(wiring, /buildSnapshotNameQuery\(snapshotClient, 'uy_rupe_registry', 'UY'\)/);
+  });
+
+  it('el factory construye Estados Unidos (EIN): la SEC primero y, detrás, el IRS', () => {
+    const wiring = read('src/server/prospect-batches/official-source-resolvers.ts');
+    assert.match(
+      wiring,
+      /createFallbackOfficialSourceResolver\(\s*createSnapshotNameOfficialSourceResolver\(\{\s*countryCode: 'US',\s*sourceKey: 'us_sec_edgar_registry',\s*taxIdentifierType: 'EIN',[\s\S]*?buildSnapshotNameQuery\(snapshotClient, 'us_sec_edgar_registry', 'US'\),\s*\}\),\s*createSnapshotNameOfficialSourceResolver\(\{\s*countryCode: 'US',\s*sourceKey: 'us_irs_eo_registry',\s*taxIdentifierType: 'EIN',[\s\S]*?buildSnapshotNameQuery\(snapshotClient, 'us_irs_eo_registry', 'US'\),/,
+    );
   });
 
   it('el resolvedor genérico es puro y la lectura no escribe', () => {
