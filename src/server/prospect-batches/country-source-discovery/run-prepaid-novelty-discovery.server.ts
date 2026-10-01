@@ -215,6 +215,7 @@ export type PrePaidNoveltyDiscoveryDeps = {
 const PRODUCTION_DEPS: PrePaidNoveltyDiscoveryDeps = {
   runGate: runProductionPrePaidNoveltyGate,
   persist: persistCountrySourceCandidates,
+  recordUnverified: persistDiscardedDispositionRows,
 };
 
 export async function runPrePaidNoveltyDiscovery(
@@ -390,8 +391,8 @@ export async function runPrePaidNoveltyDiscovery(
       : { batchId: canonicalBatchId, writtenCount: 0, skippedCount: 0, failed: false };
 
   const discardsBatchId = persistence.batchId ?? canonicalBatchId;
-  if (withoutDomain.length > 0 && discardsBatchId) {
-    const recorded = await (deps.recordUnverified ?? persistDiscardedDispositionRows)(
+  if (withoutDomain.length > 0 && discardsBatchId && deps.recordUnverified) {
+    const recorded = await deps.recordUnverified(
       buildUnverifiedFreeDispositionRows({
         batchId: discardsBatchId,
         countryCode: input.countryCode,
