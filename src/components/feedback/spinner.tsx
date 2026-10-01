@@ -28,6 +28,11 @@ export interface SpinnerProps
     VariantProps<typeof spinnerVariants> {
   /** Texto para lectores de pantalla. Por defecto, «Cargando…». */
   label?: string;
+  /**
+   * Solo el dibujo, sin `role="status"` ni texto oculto: para un bloque que ya
+   * anuncia su propio estado (un aviso «Validando…», una fila que carga).
+   */
+  decorative?: boolean;
 }
 
 /**
@@ -44,11 +49,19 @@ export interface SpinnerProps
  * <Spinner size="sm" label="Cargando contactos" />
  * <Spinner tone="primary" />
  */
-export function Spinner({ size, tone, label = DEFAULT_LABEL, className, ...props }: SpinnerProps) {
+export function Spinner({
+  size,
+  tone,
+  label = DEFAULT_LABEL,
+  decorative = false,
+  className,
+  ...props
+}: SpinnerProps) {
   return (
     <span
-      role="status"
-      aria-live="polite"
+      role={decorative ? undefined : "status"}
+      aria-live={decorative ? undefined : "polite"}
+      aria-hidden={decorative ? true : undefined}
       data-slot="spinner"
       className={cn(spinnerVariants({ size, tone }), className)}
       {...props}
@@ -62,7 +75,7 @@ export function Spinner({ size, tone, label = DEFAULT_LABEL, className, ...props
         <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2.5" className="opacity-20" />
         <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
       </svg>
-      <span className="sr-only">{label}</span>
+      {!decorative && <span className="sr-only">{label}</span>}
     </span>
   );
 }
