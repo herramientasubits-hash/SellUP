@@ -6300,3 +6300,14 @@ jobs:
       # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
       - name: Run Agent 1 Tavily v2 tests
         run: npm run test:a1-tavily-v2
+
+      # UI-THEMA - el sistema de diseno Thema (tema Azul) en SellUp: el
+      # verificador exige 0 hallazgos (colores, letra, sombras, radios, iconos
+      # o tablas hechos a mano), y los componentes portados (MetricCard,
+      # AttentionStrip, TableShell, Kanban, Stepper, FilterChips, barra de
+      # acciones, Field, iconos) conservan su anatomia. Incluye el formato de
+      # fechas con zona fija, que evita el desajuste de hidratacion.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Thema design system tests
+        run: npm run test:ui-thema
