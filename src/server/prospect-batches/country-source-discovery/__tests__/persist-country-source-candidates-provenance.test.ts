@@ -160,6 +160,31 @@ describe('AGENT1-COUNTRY-SOURCE-PERSISTENCE-CONTRACT-1 — caller co_siis real',
     assert.ok((inserted.review_flags as string[]).includes('missing_website'));
   });
 
+  it('una fuente que SÍ publica web (DENUE) la guarda: website, dominio y sin missing_website', async () => {
+    const stats = freshStats();
+    await persistCountrySourceCandidates(makeFakeSupabase(stats), {
+      companies: [
+        syntheticCompany({
+          recordIdentityKey: 'denue:12345',
+          legalName: 'AT&T COMUNICACIONES DIGITALES S. DE R.L. DE C.V.',
+          countryCode: 'MX',
+          domain: 'att.com.mx',
+          industryCode: '517312',
+        }),
+      ],
+      countryCode: 'MX',
+      countryName: 'México',
+      macroIndustryKey: 'technology',
+      requestedByUserId: 'user-synthetic-1',
+    });
+
+    const inserted = stats.candidateInserts[0];
+    assert.equal(inserted.website, 'https://att.com.mx');
+    assert.equal(inserted.domain, 'att.com.mx');
+    assert.equal((inserted.review_flags as string[]).includes('missing_website'), false);
+    assert.equal((inserted.metadata as Record<string, unknown>).website_available, true);
+  });
+
   it('el metadata del LOTE conserva discovery_layer y macro_industry_key sin ambigüedad', async () => {
     const stats = freshStats();
     await persistCountrySourceCandidates(makeFakeSupabase(stats), {
