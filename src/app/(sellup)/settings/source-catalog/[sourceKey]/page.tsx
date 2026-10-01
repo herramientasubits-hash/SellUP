@@ -2,7 +2,9 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { Database, ExternalLink } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
-import { SurfaceCard } from '@/components/shared/surface-card';
+import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   getSourceCatalogViewModel,
   getSourceConnectionRecord,
@@ -116,68 +118,59 @@ export default async function SourceDetailPage({ params }: Props) {
       : 'Global';
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <PageHeader
         title={source.name}
         description={source.key}
         backHref="/settings/source-catalog"
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <CopyKeyButton sourceKey={source.key} />
             {source.url && (
-              <Link
-                href={source.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-surface-muted"
-              >
-                <ExternalLink className="h-3.5 w-3.5" />
-                Abrir URL
-              </Link>
+              <Button asChild variant="outline" size="sm">
+                <Link href={source.url} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink aria-hidden="true" />
+                  Abrir URL
+                </Link>
+              </Button>
             )}
           </div>
         }
       />
 
       {/* Status badge */}
-      <div className="flex items-center gap-3">
-        <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${statusClass}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="outline" className={statusClass}>
+          <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
           {statusLabel}
-        </span>
-        <span className="inline-flex items-center rounded-full border border-border/60 bg-surface-subtle px-3 py-1 text-xs font-medium text-muted-foreground">
-          {PRIORITY_LABELS[source.priority]}
-        </span>
-        <span className="inline-flex items-center rounded-full border border-border/60 bg-surface-subtle px-3 py-1 text-xs font-medium text-muted-foreground">
-          {TYPE_LABELS[source.type]}
-        </span>
-        <span className="inline-flex items-center rounded-full border border-border/60 bg-surface-subtle px-3 py-1 text-xs font-medium text-muted-foreground">
+        </Badge>
+        <Badge variant="neutral">{PRIORITY_LABELS[source.priority]}</Badge>
+        <Badge variant="neutral">{TYPE_LABELS[source.type]}</Badge>
+        <Badge variant="neutral">
           Automatización: {AUTOMATION_LEVEL_LABELS[source.automationLevel]}
-        </span>
+        </Badge>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
         {/* Info general */}
         <SurfaceCard>
-          <h2 className="text-sm font-semibold text-foreground  mb-4">
-            Información general
-          </h2>
+          <SurfaceCardHeader title="Información general" />
           <dl className="space-y-3 text-sm">
             <div>
-              <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
+              <dt className="mb-0.5 text-xs font-medium text-muted-foreground">
                 Key
               </dt>
-              <dd className="font-mono text-foreground">{source.key}</dd>
+              <dd className="break-all font-mono text-foreground">{source.key}</dd>
             </div>
             <div>
-              <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
+              <dt className="mb-0.5 text-xs font-medium text-muted-foreground">
                 País
               </dt>
               <dd className="text-foreground">{countryLabels}</dd>
             </div>
             {source.sectors.length > 0 && (
               <div>
-                <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
+                <dt className="mb-0.5 text-xs font-medium text-muted-foreground">
                   Sectores
                 </dt>
                 <dd className="text-foreground">{source.sectors.join(', ')}</dd>
@@ -185,7 +178,7 @@ export default async function SourceDetailPage({ params }: Props) {
             )}
             {source.url && (
               <div>
-                <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
+                <dt className="mb-0.5 text-xs font-medium text-muted-foreground">
                   URL
                 </dt>
                 <dd>
@@ -193,10 +186,10 @@ export default async function SourceDetailPage({ params }: Props) {
                     href={source.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-primary hover:underline break-all"
+                    className="inline-flex items-center gap-1 break-all rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                   >
                     {source.url}
-                    <ExternalLink className="h-3 w-3 shrink-0" />
+                    <ExternalLink aria-hidden="true" className="h-3 w-3 shrink-0" />
                   </Link>
                 </dd>
               </div>
@@ -206,9 +199,7 @@ export default async function SourceDetailPage({ params }: Props) {
 
         {/* Uso recomendado */}
         <SurfaceCard>
-          <h2 className="text-sm font-semibold text-foreground  mb-4">
-            Uso recomendado
-          </h2>
+          <SurfaceCardHeader title="Uso recomendado" />
           <p className="text-sm text-muted-foreground leading-relaxed">
             {source.recommendedUse}
           </p>
@@ -217,13 +208,11 @@ export default async function SourceDetailPage({ params }: Props) {
         {/* Limitaciones */}
         {source.limitations.length > 0 && (
           <SurfaceCard>
-            <h2 className="text-sm font-semibold text-foreground  mb-4">
-              Limitaciones
-            </h2>
+            <SurfaceCardHeader title="Limitaciones" />
             <ul className="space-y-2">
               {source.limitations.map((item, i) => (
                 <li key={i} className="flex gap-2 text-sm text-muted-foreground">
-                  <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-border" />
+                  <span aria-hidden="true" className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground" />
                   {item}
                 </li>
               ))}
@@ -234,13 +223,11 @@ export default async function SourceDetailPage({ params }: Props) {
         {/* Riesgos */}
         {source.riskNotes.length > 0 && (
           <SurfaceCard>
-            <h2 className="text-sm font-semibold text-foreground  mb-4">
-              Notas de riesgo
-            </h2>
+            <SurfaceCardHeader title="Notas de riesgo" />
             <ul className="space-y-2">
               {source.riskNotes.map((item, i) => (
                 <li key={i} className="flex gap-2 text-sm text-warning">
-                  <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-warning/60" />
+                  <span aria-hidden="true" className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-warning" />
                   {item}
                 </li>
               ))}
@@ -254,41 +241,35 @@ export default async function SourceDetailPage({ params }: Props) {
         <BrReceitaCnpjStatusCard />
       ) : isManualSignalOnly ? (
         <SurfaceCard>
-          <h2 className="text-sm font-semibold text-foreground mb-2">
-            Estado de integración
-          </h2>
+          <SurfaceCardHeader title="Estado de integración" />
           <p className="text-sm text-muted-foreground leading-relaxed">
             Esta fuente se conserva como referencia manual. No existe una integración automática aprobada para SellUp.
           </p>
         </SurfaceCard>
       ) : isHnContrataciones ? (
         <SurfaceCard>
-          <h2 className="text-sm font-semibold text-foreground mb-2">
-            Acceso técnico
-          </h2>
+          <SurfaceCardHeader title="Acceso técnico" />
           <dl className="space-y-3 text-sm">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <dt className="text-muted-foreground">Credenciales:</dt>
               <dd>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/10 px-2.5 py-0.5 text-xs font-medium text-success">
-                  No requeridas
-                </span>
+                <Badge variant="positive">No requeridas</Badge>
               </dd>
             </div>
             <div>
-              <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
+              <dt className="mb-0.5 text-xs font-medium text-muted-foreground">
                 Publisher institucional
               </dt>
               <dd className="text-foreground">ONCAE Honduras</dd>
             </div>
             <div>
-              <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
+              <dt className="mb-0.5 text-xs font-medium text-muted-foreground">
                 Feed técnico consumido por SellUp
               </dt>
               <dd className="text-foreground">OCP Data Registry · publicación Honduras ONCAE</dd>
             </div>
             <div>
-              <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
+              <dt className="mb-0.5 text-xs font-medium text-muted-foreground">
                 Formato
               </dt>
               <dd className="text-foreground">JSONL.gz / OCDS</dd>
@@ -303,15 +284,11 @@ export default async function SourceDetailPage({ params }: Props) {
         />
       ) : source.type === 'public_dataset' || source.key === 'co_rues' || (source.operationalStatus === 'operational_verified' && !source.url?.includes('api')) ? (
         <SurfaceCard>
-          <h2 className="text-sm font-semibold text-foreground  mb-2">
-            Credencial de API
-          </h2>
+          <SurfaceCardHeader title="Credencial de API" />
           <div className="space-y-2">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm text-muted-foreground">Requiere credencial:</span>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-surface-subtle px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
-                No requiere credencial
-              </span>
+              <Badge variant="neutral">No requiere credencial</Badge>
             </div>
             <p className="text-xs text-muted-foreground">
               Esta fuente es de acceso público. La prueba de conexión valida que la API responde correctamente.
@@ -321,9 +298,7 @@ export default async function SourceDetailPage({ params }: Props) {
         </SurfaceCard>
       ) : (
         <SurfaceCard>
-          <h2 className="text-sm font-semibold text-foreground  mb-2">
-            Credencial de API
-          </h2>
+          <SurfaceCardHeader title="Credencial de API" />
           <p className="text-sm text-muted-foreground">
             Esta fuente aún no tiene configuración de credencial registrada en el sistema.
           </p>
@@ -421,23 +396,25 @@ export default async function SourceDetailPage({ params }: Props) {
 
       {/* Lotes Socrata — solo co_rues */}
       {source.key === 'co_rues' && (
-        <div className="flex items-center justify-between rounded-xl border border-border/60 bg-surface-subtle px-5 py-3.5">
-          <div className="flex items-center gap-2.5">
-            <Database className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <div>
-              <p className="text-sm font-medium text-foreground">Lotes Socrata</p>
-              <p className="text-xs text-muted-foreground">
+        <SurfaceCard className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+          <div className="flex min-w-0 items-start gap-3">
+            <span
+              aria-hidden="true"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-inset ring-border/40"
+            >
+              <Database className="h-4 w-4" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold tracking-tight text-foreground">Lotes Socrata</p>
+              <p className="text-xs leading-relaxed text-muted-foreground">
                 Revisión interna de lotes creados desde esta fuente. Solo lectura — no aprueba ni sincroniza candidatos.
               </p>
             </div>
           </div>
-          <Link
-            href="/settings/source-catalog/socrata-batches"
-            className="shrink-0 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary transition-colors"
-          >
-            Ver lotes Socrata
-          </Link>
-        </div>
+          <Button asChild variant="outline" size="sm" className="shrink-0">
+            <Link href="/settings/source-catalog/socrata-batches">Ver lotes Socrata</Link>
+          </Button>
+        </SurfaceCard>
       )}
     </div>
   );

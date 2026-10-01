@@ -1512,7 +1512,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
           {/* Defaults del lote */}
           {(selectedCountryCode || selectedIndustry || selectedSubindustryId) && (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/20 bg-primary/10 px-4 py-2.5">
-              <p className="text-xs font-semibold text-primary/70 mr-1">
+              <p className="text-xs font-semibold text-primary mr-1">
                 Criterios de importación:
               </p>
               {selectedCountryCode && (

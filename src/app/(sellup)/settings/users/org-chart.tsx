@@ -44,7 +44,7 @@ function getRoleName(roleKey: string | null, roles: Role[]): string {
 function NodeCard({ user, roles }: { user: InternalUser; roles: Role[] }) {
   return (
     <div className="flex flex-col items-center gap-2">
-      <div className="flex flex-col items-center rounded-2xl border border-border/60 bg-card px-4 py-3 shadow-card transition-shadow hover:shadow-drawer w-44">
+      <div className="flex flex-col items-center rounded-xl border border-border/60 bg-card px-4 py-3 shadow-card transition-shadow hover:shadow-drawer w-44">
         <div className="mb-2 flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
           {getInitials(user.full_name, user.email)}
         </div>

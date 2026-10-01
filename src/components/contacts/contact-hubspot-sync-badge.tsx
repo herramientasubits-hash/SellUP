@@ -23,8 +23,18 @@ import {
 export const HUBSPOT_SYNC_TONE_CLASSES: Readonly<Record<HubSpotSyncPresentationTone, string>> = {
   synced: 'bg-success/10 text-success',
   neutral: 'bg-surface-subtle text-muted-foreground',
-  pending: 'bg-warning/10 text-warning',
+  pending: 'bg-warning/15 text-warning',
   error: 'bg-destructive/10 text-destructive',
+};
+
+/** Tono → variante semántica del `Badge` del sistema (color, borde y contraste en claro y oscuro). */
+const HUBSPOT_SYNC_TONE_VARIANT: Readonly<
+  Record<HubSpotSyncPresentationTone, 'positive' | 'neutral' | 'warning' | 'negative'>
+> = {
+  synced: 'positive',
+  neutral: 'neutral',
+  pending: 'warning',
+  error: 'negative',
 };
 
 export function ContactHubSpotSyncBadge({
@@ -38,12 +48,5 @@ export function ContactHubSpotSyncBadge({
     baselineSource: readHubSpotSyncBaselineSource(metadata),
     hubspotContactId: contact.hubspot_contact_id,
   });
-  return (
-    <Badge
-      variant="outline"
-      className={`border-transparent ${HUBSPOT_SYNC_TONE_CLASSES[tone]}`}
-    >
-      {label}
-    </Badge>
-  );
+  return <Badge variant={HUBSPOT_SYNC_TONE_VARIANT[tone]}>{label}</Badge>;
 }

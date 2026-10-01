@@ -221,12 +221,12 @@ export function AIControls({ type, item, models, activeConfig }: AIControlsProps
     return (
       <>
         <Button
+          type="button"
           variant="outline"
           size="sm"
           onClick={() => setShowPricingDialog(true)}
-          className="gap-2"
         >
-          <Plus className="h-4 w-4" />
+          <Plus aria-hidden="true" />
           Nueva tarifa
         </Button>
 
@@ -239,7 +239,7 @@ export function AIControls({ type, item, models, activeConfig }: AIControlsProps
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
-              <div className="grid gap-2">
+              <div className="space-y-1.5">
                 <Label htmlFor="input-cost">Costo input (por millón tokens)</Label>
                 <Input
                   id="input-cost"
@@ -250,7 +250,7 @@ export function AIControls({ type, item, models, activeConfig }: AIControlsProps
                   onChange={(e) => setInputCost(e.target.value)}
                 />
               </div>
-              <div className="grid gap-2">
+              <div className="space-y-1.5">
                 <Label htmlFor="output-cost">Costo output (por millón tokens)</Label>
                 <Input
                   id="output-cost"
@@ -263,10 +263,10 @@ export function AIControls({ type, item, models, activeConfig }: AIControlsProps
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setShowPricingDialog(false)}>
+              <Button type="button" variant="outline" onClick={() => setShowPricingDialog(false)}>
                 Cancelar
               </Button>
-              <Button onClick={handleAddPricing} disabled={loading || !inputCost || !outputCost}>
+              <Button type="button" onClick={handleAddPricing} disabled={loading || !inputCost || !outputCost}>
                 Guardar tarifa
               </Button>
             </DialogFooter>
@@ -279,9 +279,12 @@ export function AIControls({ type, item, models, activeConfig }: AIControlsProps
   return (
     <>
       <DropdownMenu>
-        <DropdownMenuTrigger>
-          <div className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md hover:bg-surface-muted">
-            <MoreHorizontal className="h-4 w-4" />
+        <DropdownMenuTrigger
+          aria-label="Abrir acciones"
+          className="rounded-md focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+        >
+          <div className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground">
+            <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
           </div>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
@@ -300,7 +303,12 @@ export function AIControls({ type, item, models, activeConfig }: AIControlsProps
                     onClick={handleTestConnection} 
                     disabled={testingConnection}
                   >
-                    <div className="mr-2 h-4 w-4 animate-spin">⟳</div>
+                    <div
+                      className={`mr-2 flex h-4 w-4 items-center justify-center ${testingConnection ? 'animate-spin' : ''}`}
+                      aria-hidden="true"
+                    >
+                      ⟳
+                    </div>
                     {testingConnection ? 'Probando...' : 'Probar conexión'}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
@@ -313,7 +321,9 @@ export function AIControls({ type, item, models, activeConfig }: AIControlsProps
                       onClick={handleSyncAnthropicModels}
                       disabled={syncingModels}
                     >
-                      <div className="mr-2 h-4 w-4">↻</div>
+                      <div className="mr-2 flex h-4 w-4 items-center justify-center" aria-hidden="true">
+                        ↻
+                      </div>
                       {syncingModels ? 'Sincronizando...' : 'Actualizar modelos disponibles'}
                     </DropdownMenuItem>
                   )}
@@ -401,10 +411,10 @@ export function AIControls({ type, item, models, activeConfig }: AIControlsProps
             </Select>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowActiveDialog(false)}>
+            <Button type="button" variant="outline" onClick={() => setShowActiveDialog(false)}>
               Cancelar
             </Button>
-            <Button onClick={handleSetActive} disabled={!selectedModelId || loading}>
+            <Button type="button" onClick={handleSetActive} disabled={!selectedModelId || loading}>
               Guardar configuración
             </Button>
           </DialogFooter>
@@ -421,7 +431,7 @@ export function AIControls({ type, item, models, activeConfig }: AIControlsProps
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
+            <div className="space-y-1.5">
               <Label htmlFor="input-cost">Costo input (por millón tokens)</Label>
               <Input
                 id="input-cost"
@@ -432,7 +442,7 @@ export function AIControls({ type, item, models, activeConfig }: AIControlsProps
                 onChange={(e) => setInputCost(e.target.value)}
               />
             </div>
-            <div className="grid gap-2">
+            <div className="space-y-1.5">
               <Label htmlFor="output-cost">Costo output (por millón tokens)</Label>
               <Input
                 id="output-cost"
@@ -445,10 +455,10 @@ export function AIControls({ type, item, models, activeConfig }: AIControlsProps
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowPricingDialog(false)}>
+            <Button type="button" variant="outline" onClick={() => setShowPricingDialog(false)}>
               Cancelar
             </Button>
-            <Button onClick={handleAddPricing} disabled={loading || !inputCost || !outputCost}>
+            <Button type="button" onClick={handleAddPricing} disabled={loading || !inputCost || !outputCost}>
               Guardar tarifa
             </Button>
           </DialogFooter>
@@ -465,7 +475,7 @@ export function AIControls({ type, item, models, activeConfig }: AIControlsProps
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
+            <div className="space-y-1.5">
               <Label htmlFor="api-key">API Key</Label>
               <div className="relative">
                 <Input
@@ -479,21 +489,26 @@ export function AIControls({ type, item, models, activeConfig }: AIControlsProps
                 <button
                   type="button"
                   onClick={() => setShowApiKey(!showApiKey)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label={showApiKey ? 'Ocultar API key' : 'Mostrar API key'}
+                  className="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                 >
-                  {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  {showApiKey ? (
+                    <EyeOff className="h-4 w-4" aria-hidden="true" />
+                  ) : (
+                    <Eye className="h-4 w-4" aria-hidden="true" />
+                  )}
                 </button>
               </div>
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs leading-relaxed text-muted-foreground">
               La clave se cifrará y almacenará de forma segura en Supabase Vault.
             </p>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setShowConnectDialog(false); setApiKey(''); }}>
+            <Button type="button" variant="outline" onClick={() => { setShowConnectDialog(false); setApiKey(''); }}>
               Cancelar
             </Button>
-            <Button onClick={handleConnect} disabled={!apiKey || loading}>
+            <Button type="button" onClick={handleConnect} disabled={!apiKey || loading}>
               Guardar credencial
             </Button>
           </DialogFooter>
@@ -510,7 +525,7 @@ export function AIControls({ type, item, models, activeConfig }: AIControlsProps
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
+            <div className="space-y-1.5">
               <Label htmlFor="update-api-key">Nueva API Key</Label>
               <div className="relative">
                 <Input
@@ -524,18 +539,23 @@ export function AIControls({ type, item, models, activeConfig }: AIControlsProps
                 <button
                   type="button"
                   onClick={() => setShowApiKey(!showApiKey)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label={showApiKey ? 'Ocultar API key' : 'Mostrar API key'}
+                  className="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                 >
-                  {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  {showApiKey ? (
+                    <EyeOff className="h-4 w-4" aria-hidden="true" />
+                  ) : (
+                    <Eye className="h-4 w-4" aria-hidden="true" />
+                  )}
                 </button>
               </div>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setShowUpdateDialog(false); setApiKey(''); }}>
+            <Button type="button" variant="outline" onClick={() => { setShowUpdateDialog(false); setApiKey(''); }}>
               Cancelar
             </Button>
-            <Button onClick={handleUpdateCredential} disabled={!apiKey || loading}>
+            <Button type="button" onClick={handleUpdateCredential} disabled={!apiKey || loading}>
               Actualizar y probar
             </Button>
           </DialogFooter>
@@ -552,15 +572,15 @@ export function AIControls({ type, item, models, activeConfig }: AIControlsProps
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm leading-relaxed text-muted-foreground">
               Esta acción no se puede deshacer. Si deseas volver a conectar el proveedor, tendrás que ingresar una nueva API key.
             </p>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDisconnectDialog(false)}>
+            <Button type="button" variant="outline" onClick={() => setShowDisconnectDialog(false)}>
               Cancelar
             </Button>
-            <Button variant="destructive" onClick={handleDisconnect} disabled={loading}>
+            <Button type="button" variant="destructive-solid" onClick={handleDisconnect} disabled={loading}>
               Desconectar proveedor
             </Button>
           </DialogFooter>
@@ -569,11 +589,11 @@ export function AIControls({ type, item, models, activeConfig }: AIControlsProps
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed bottom-8 left-1/2 -translate-x-1/2 transform px-4 py-3 rounded-xl shadow-drawer border z-50 bg-card ${
-          toast.type === 'success'
-            ? 'border-success/50 text-success dark:text-success'
-            : 'border-destructive/50 text-destructive'
-        }`}>
+        <div
+          className={`fixed bottom-8 left-1/2 z-50 -translate-x-1/2 transform rounded-xl border border-border/60 bg-popover px-4 py-3 text-sm font-medium shadow-drawer ${
+            toast.type === 'success' ? 'text-success' : 'text-destructive'
+          }`}
+        >
           {toast.message}
         </div>
       )}

@@ -14,6 +14,7 @@ import type {
   RdCoverageSourceReason,
   RdSourceCoverageSummary,
 } from '@/server/services/rd-source-coverage-summary';
+import { Building2, type LucideIcon } from 'lucide-react';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 
 // ---------------------------------------------------------------------------
@@ -49,18 +50,48 @@ export function formatRdCoverageStatus(status: 'complete_snapshot' | 'partial_sn
 
 function FieldRow({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="flex items-baseline justify-between gap-4 py-1.5 border-b border-border/50 last:border-0">
-      <dt className="text-xs text-muted-foreground shrink-0">{label}</dt>
-      <dd className="text-xs font-medium text-foreground text-right tabular-nums">{value}</dd>
+    <div className="grid grid-cols-2 items-baseline gap-x-4 py-2">
+      <dt className="min-w-0 text-xs text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 break-words text-right text-xs font-medium tabular-nums text-foreground">{value}</dd>
     </div>
   );
 }
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
+function CoverageCardHeader({
+  icon: Icon,
+  title,
+  description,
+  actions,
+}: {
+  icon: LucideIcon;
+  title: string;
+  description?: string;
+  actions?: React.ReactNode;
+}) {
   return (
-    <p className="text-xs font-semibold text-muted-foreground mb-2 mt-4 first:mt-0">
-      {children}
-    </p>
+    <div className="mb-5 flex items-start gap-3">
+      <span
+        aria-hidden="true"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-inset ring-border/40"
+      >
+        <Icon className="h-4 w-4" />
+      </span>
+      <SurfaceCardHeader
+        title={title}
+        description={description}
+        actions={actions}
+        className="mb-0 min-w-0 flex-1 flex-wrap"
+      />
+    </div>
+  );
+}
+
+function FieldGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <h3 className="mb-1 text-sm font-semibold tracking-tight text-foreground">{title}</h3>
+      <dl className="divide-y divide-border/50">{children}</dl>
+    </section>
   );
 }
 
@@ -77,8 +108,8 @@ export function RdCoverageCard({ summary, error }: RdCoverageCardProps) {
   if (error || !summary) {
     return (
       <SurfaceCard>
-        <SurfaceCardHeader title="Cobertura DGII República Dominicana" />
-        <p className="text-sm text-muted-foreground">
+        <CoverageCardHeader icon={Building2} title="Cobertura DGII República Dominicana" />
+        <p className="rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           No se pudo cargar el resumen de cobertura. Verifique la configuración del servicio.
         </p>
       </SurfaceCard>
@@ -90,63 +121,63 @@ export function RdCoverageCard({ summary, error }: RdCoverageCardProps) {
 
   return (
     <SurfaceCard>
-      <SurfaceCardHeader title="Cobertura DGII República Dominicana" />
+      <CoverageCardHeader icon={Building2} title="Cobertura DGII República Dominicana" />
 
-      <dl className="divide-y divide-border/20">
-        <SectionTitle>Padrón RNC cargado</SectionTitle>
+      <div className="space-y-5">
+        <FieldGroup title="Padrón RNC cargado">
+          <FieldRow
+            label="RNC jurídicos cargados"
+            value={`${formatRdLoadedRnc(summary.loadedRnc)} empresas`}
+          />
+          <FieldRow
+            label="Cobertura snapshot"
+            value={formatRdCoverageStatus(summary.coverageStatus)}
+          />
+          <FieldRow
+            label="Fuente del indicador"
+            value={sourceLabel}
+          />
+        </FieldGroup>
 
-        <FieldRow
-          label="RNC jurídicos cargados"
-          value={`${formatRdLoadedRnc(summary.loadedRnc)} empresas`}
-        />
-        <FieldRow
-          label="Cobertura snapshot"
-          value={formatRdCoverageStatus(summary.coverageStatus)}
-        />
-        <FieldRow
-          label="Fuente del indicador"
-          value={sourceLabel}
-        />
+        <FieldGroup title="Identificadores fuera de scope">
+          <FieldRow
+            label="Cédulas/personas físicas persistidas"
+            value="0"
+          />
+          <FieldRow
+            label="Cédulas descartadas (fuera de scope)"
+            value={formatRdOutOfScope(summary.outOfScopeIdentifiers)}
+          />
+        </FieldGroup>
 
-        <SectionTitle>Identificadores fuera de scope</SectionTitle>
+        <FieldGroup title="Clasificación económica">
+          <FieldRow
+            label="Actividad económica"
+            value="Texto libre DGII"
+          />
+          <FieldRow
+            label="CIIU oficial"
+            value="No disponible para MVP"
+          />
+        </FieldGroup>
 
-        <FieldRow
-          label="Cédulas/personas físicas persistidas"
-          value="0"
-        />
-        <FieldRow
-          label="Cédulas descartadas (fuera de scope)"
-          value={formatRdOutOfScope(summary.outOfScopeIdentifiers)}
-        />
+        <FieldGroup title="Notas">
+          <FieldRow
+            label="Incluye personas físicas"
+            value="No — solo RNC jurídicos (9 dígitos)"
+          />
+          <FieldRow
+            label="Sector oficial"
+            value="No disponible — usar actividad económica texto libre"
+          />
+        </FieldGroup>
 
-        <SectionTitle>Clasificación económica</SectionTitle>
-
-        <FieldRow
-          label="Actividad económica"
-          value="Texto libre DGII"
-        />
-        <FieldRow
-          label="CIIU oficial"
-          value="No disponible para MVP"
-        />
-
-        <SectionTitle>Notas</SectionTitle>
-
-        <FieldRow
-          label="Incluye personas físicas"
-          value="No — solo RNC jurídicos (9 dígitos)"
-        />
-        <FieldRow
-          label="Sector oficial"
-          value="No disponible — usar actividad económica texto libre"
-        />
-      </dl>
-
-      {sourceReasonLabel && (
-        <p className="mt-3 text-xs text-muted-foreground">
-          Motivo: {sourceReasonLabel}
-        </p>
-      )}
+        {sourceReasonLabel && (
+          <p className="border-t border-border/50 pt-3 text-xs text-muted-foreground">
+            Motivo: {sourceReasonLabel}
+          </p>
+        )}
+      </div>
     </SurfaceCard>
   );
 }

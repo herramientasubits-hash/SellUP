@@ -526,7 +526,7 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
           <p className="text-sm font-semibold text-success">
             La configuración es válida.
           </p>
-          <p className="text-xs text-success/80">
+          <p className="text-xs text-success">
             {validBody}
           </p>
         </div>
@@ -767,7 +767,7 @@ function DiscoveryUnavailableNotice({ reason }: DiscoveryUnavailableNoticeProps)
       />
       <div className="space-y-1">
         <p className="text-sm font-semibold text-warning">{copy.title}</p>
-        <p className="text-xs text-warning/80">{copy.detail}</p>
+        <p className="text-xs text-warning">{copy.detail}</p>
       </div>
     </div>
   );
@@ -790,7 +790,7 @@ function BlockedPanel({ state, dispatch }: BlockedPanelProps) {
           <p className="text-sm font-semibold text-destructive">
             La búsqueda tiene problemas que deben corregirse.
           </p>
-          <p className="text-xs text-destructive/80">
+          <p className="text-xs text-destructive">
             Revisa los errores y edita los campos indicados.
           </p>
         </div>

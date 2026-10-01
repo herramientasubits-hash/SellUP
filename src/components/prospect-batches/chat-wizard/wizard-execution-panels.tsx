@@ -340,7 +340,7 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
             <p className="text-sm font-semibold text-destructive">
               {resultCopy.heading}
             </p>
-            <p className="text-xs text-destructive/80">{resultCopy.body}</p>
+            <p className="text-xs text-destructive">{resultCopy.body}</p>
           </div>
         </div>
         <WizardPersistenceBreakdown rows={persistenceBreakdownRows} />
@@ -397,7 +397,7 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
             <p className="text-sm font-semibold text-warning">
               {resultCopy.heading ?? 'No encontramos empresas nuevas con estos criterios.'}
             </p>
-            <p className="text-xs text-warning/80">
+            <p className="text-xs text-warning">
               {noNewBody}
             </p>
 
@@ -472,7 +472,7 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
             <p className="text-sm font-semibold text-success">
               {heading}
             </p>
-            <p className="text-xs text-success/80">
+            <p className="text-xs text-success">
               {body}
             </p>
           </div>
@@ -493,7 +493,7 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
             <p className="text-sm font-semibold text-warning">
               {resultCopy.heading}
             </p>
-            <p className="text-xs text-warning/80">
+            <p className="text-xs text-warning">
               {resultCopy.body}
             </p>
           </div>

@@ -62,9 +62,9 @@ function ConnectionStatusBlock({ status }: { status: string }) {
   const Icon = cfg.icon;
 
   return (
-    <div className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${cfg.bg} ${cfg.border}`}>
-      <Icon className={`h-4 w-4 flex-shrink-0 ${cfg.color}`} />
-      <span className={`text-sm font-medium ${cfg.color}`}>{cfg.label}</span>
+    <div className={`flex min-w-0 items-center gap-2 rounded-lg border px-3 py-2 ${cfg.bg} ${cfg.border}`}>
+      <Icon className={`h-4 w-4 shrink-0 ${cfg.color}`} aria-hidden="true" />
+      <span className={`truncate text-sm font-medium ${cfg.color}`}>{cfg.label}</span>
     </div>
   );
 }
@@ -87,7 +87,7 @@ export default async function MyDrivePage({ searchParams }: PageProps) {
   const credStatus = conn?.credentials_status ?? 'missing';
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <PageHeader
         title="Mi Google Drive"
         description="Conecta tu Drive para guardar y organizar los archivos que SellUp genere en tu espacio de trabajo."
@@ -96,17 +96,17 @@ export default async function MyDrivePage({ searchParams }: PageProps) {
 
       {/* Banner de éxito */}
       {justConnected && (
-        <div className="flex items-center gap-2 rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">
-          <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+        <div className="flex items-start gap-2 rounded-xl border border-success/20 bg-success/10 px-4 py-3 text-sm text-success">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           Google Drive conectado correctamente. La carpeta SellUp está lista en tu Drive.
         </div>
       )}
 
       {/* Banner de error */}
       {errorParam && (
-        <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-          {errorParam}
+        <div className="flex items-start gap-2 rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <span className="min-w-0 break-words">{errorParam}</span>
         </div>
       )}
 
@@ -119,15 +119,15 @@ export default async function MyDrivePage({ searchParams }: PageProps) {
 
         <div className="space-y-4">
           {/* Status block */}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="min-w-0 space-y-1.5">
               <p className="text-xs font-semibold text-muted-foreground">
                 Estado
               </p>
               <ConnectionStatusBlock status={status} />
             </div>
 
-            <div className="space-y-1">
+            <div className="min-w-0 space-y-1.5">
               <p className="text-xs font-semibold text-muted-foreground">
                 Credenciales
               </p>
@@ -139,9 +139,10 @@ export default async function MyDrivePage({ searchParams }: PageProps) {
                 }`}
               >
                 <span
-                  className={`h-2 w-2 rounded-full ${
-                    credStatus === 'stored' ? 'bg-success' : 'bg-muted-foreground/40'
+                  className={`h-2 w-2 shrink-0 rounded-full ${
+                    credStatus === 'stored' ? 'bg-success' : 'bg-muted-foreground'
                   }`}
+                  aria-hidden="true"
                 />
                 <span className="text-sm font-medium text-foreground">
                   {credStatus === 'stored' ? 'Almacenadas' : 'Sin configurar'}
@@ -152,16 +153,16 @@ export default async function MyDrivePage({ searchParams }: PageProps) {
 
           {/* Carpeta raíz */}
           {conn?.drive_folder_id && (
-            <div className="space-y-1">
+            <div className="min-w-0 space-y-1.5">
               <p className="text-xs font-semibold text-muted-foreground">
                 Carpeta raíz en Drive
               </p>
-              <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-surface-subtle px-3 py-2">
-                <FolderOpen className="h-4 w-4 text-primary flex-shrink-0" />
-                <span className="text-sm font-medium text-foreground">
+              <div className="flex min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-surface-subtle px-3 py-2">
+                <FolderOpen className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                <span className="min-w-0 truncate text-sm font-medium text-foreground">
                   {conn.drive_folder_name ?? 'SellUp'}
                 </span>
-                <span className="ml-auto font-mono text-xs text-muted-foreground hidden sm:block">
+                <span className="ml-auto hidden shrink-0 font-mono text-xs text-muted-foreground sm:block">
                   {conn.drive_folder_id.slice(0, 12)}…
                 </span>
               </div>
@@ -169,31 +170,31 @@ export default async function MyDrivePage({ searchParams }: PageProps) {
           )}
 
           {/* Fechas */}
-          <div className="grid gap-3 sm:grid-cols-2 border-t border-border/60 pt-4">
+          <div className="grid gap-4 border-t border-border/50 pt-4 sm:grid-cols-2">
             <div className="space-y-0.5">
               <p className="text-xs font-semibold text-muted-foreground">
                 Última conexión
               </p>
-              <p className="text-sm text-foreground">{formatDate(conn?.connected_at)}</p>
+              <p className="text-sm tabular-nums text-foreground">{formatDate(conn?.connected_at)}</p>
             </div>
             <div className="space-y-0.5">
               <p className="text-xs font-semibold text-muted-foreground">
                 Última prueba
               </p>
-              <p className="text-sm text-foreground">{formatDate(conn?.last_tested_at)}</p>
+              <p className="text-sm tabular-nums text-foreground">{formatDate(conn?.last_tested_at)}</p>
             </div>
           </div>
 
           {/* Error message if any */}
           {conn?.last_connection_error && status === 'error' && (
-            <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2">
+            <div className="rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2">
               <p className="text-xs text-muted-foreground">Último error:</p>
-              <p className="text-sm text-destructive">{conn.last_connection_error}</p>
+              <p className="break-words text-sm text-destructive">{conn.last_connection_error}</p>
             </div>
           )}
 
           {/* Acciones */}
-          <div className="border-t border-border/60 pt-4">
+          <div className="border-t border-border/50 pt-4">
             <DriveActionsPanel
               connectionStatus={status}
               folderId={conn?.drive_folder_id ?? null}
@@ -215,14 +216,14 @@ export default async function MyDrivePage({ searchParams }: PageProps) {
             'Modificar archivos que SellUp haya creado previamente.',
           ].map((item) => (
             <li key={item} className="flex items-start gap-2 text-sm text-muted-foreground">
-              <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0 text-success" />
-              {item}
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />
+              <span className="min-w-0">{item}</span>
             </li>
           ))}
         </ul>
-        <div className="mt-4 border-t border-border/60 pt-4">
-          <p className="text-xs text-muted-foreground">
-            SellUp usa el scope <code className="text-xs bg-muted px-1 rounded">drive.file</code>,
+        <div className="mt-4 border-t border-border/50 pt-4">
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            SellUp usa el scope <code className="rounded-sm bg-muted px-1 text-xs">drive.file</code>,
             que solo permite acceder a archivos creados por esta aplicación.
             SellUp no puede leer, modificar ni eliminar otros archivos de tu Drive.
           </p>

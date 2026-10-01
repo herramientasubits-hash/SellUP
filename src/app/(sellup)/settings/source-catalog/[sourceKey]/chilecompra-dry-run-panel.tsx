@@ -15,6 +15,7 @@ import {
   Search,
   Building2,
 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { runChileCompraDryRunAction } from '@/modules/source-catalog/source-credential-actions';
@@ -28,7 +29,7 @@ function HealthCheckView({
   healthCheck: NonNullable<SafeChileCompraDryRunReport['healthCheck']>;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-success/30 bg-success/10 px-3 py-2.5">
+    <div className="flex items-center gap-3 rounded-xl border border-success/20 bg-success/10 px-4 py-3">
       <Zap className="h-4 w-4 text-success shrink-0" />
       <div className="text-xs">
         <p className="font-medium text-success">
@@ -57,25 +58,23 @@ function CompraAgilItemsView({
   if (items.length === 0) return null;
   return (
     <div className="space-y-1.5">
-      <p className="text-xs font-semibold text-muted-foreground">
+      <p className="text-xs font-semibold text-foreground">
         Procesos Compra Ágil ({items.length})
       </p>
-      <div className="rounded-lg border border-border/60 divide-y divide-border/30 overflow-hidden">
+      <div className="divide-y divide-border/50 overflow-hidden rounded-xl border border-border/60">
         {items.map((item, i) => (
           <div key={i} className="px-3 py-2 text-xs">
             <div className="flex items-start justify-between gap-2">
-              <span className="font-medium text-foreground line-clamp-2">{item.titulo}</span>
-              <span className="shrink-0 rounded-full border border-border/60 bg-surface-subtle px-1.5 py-0.5 text-xs font-medium text-muted-foreground tabular-nums">
+              <span className="line-clamp-2 min-w-0 font-medium text-foreground" title={item.titulo ?? undefined}>{item.titulo}</span>
+              <Badge variant="neutral" className="tabular-nums">
                 {item.suppliersExtracted} prov.
-              </span>
+              </Badge>
             </div>
-            <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-muted-foreground">
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
               {item.organismo && <span>{item.organismo}</span>}
               {item.region && <span>· {item.region}</span>}
               {item.estado && (
-                <span className="rounded-full border border-border/60 bg-surface-subtle px-1.5 py-0.5 text-xs">
-                  {item.estado}
-                </span>
+                <Badge variant="neutral">{item.estado}</Badge>
               )}
               <span className="font-mono text-xs">{item.codigo}</span>
             </div>
@@ -96,10 +95,10 @@ function AcceptedSamplesTable({
   if (items.length === 0) return null;
   return (
     <div className="space-y-1.5">
-      <p className="text-xs font-semibold text-muted-foreground">
+      <p className="text-xs font-semibold text-foreground">
         Proveedores aceptados ICP ({items.length})
       </p>
-      <div className="rounded-lg border border-border/60 divide-y divide-border/30 overflow-hidden">
+      <div className="divide-y divide-border/50 overflow-hidden rounded-xl border border-border/60">
         {items.map((item, i) => (
           <div key={i} className="px-3 py-2 text-xs">
             <span className="font-medium text-foreground">{item.name ?? '—'}</span>
@@ -112,9 +111,9 @@ function AcceptedSamplesTable({
               </span>
             )}
             {item.icpMatch && item.icpMatchKeyword && (
-              <span className="ml-2 rounded-full border border-success/30 bg-success/10 px-1.5 py-0.5 text-xs font-medium text-success">
+              <Badge variant="positive" className="ml-2 align-middle">
                 ICP: {item.icpMatchKeyword}
-              </span>
+              </Badge>
             )}
             <p className="text-success mt-0.5">{item.qualityReason}</p>
           </div>
@@ -132,10 +131,10 @@ function LowPrioritySamplesTable({
   if (items.length === 0) return null;
   return (
     <div className="space-y-1.5">
-      <p className="text-xs font-semibold text-muted-foreground">
+      <p className="text-xs font-semibold text-foreground">
         Baja prioridad ({items.length})
       </p>
-      <div className="rounded-lg border border-border/60 divide-y divide-border/30 overflow-hidden">
+      <div className="divide-y divide-border/50 overflow-hidden rounded-xl border border-border/60">
         {items.map((item, i) => (
           <div key={i} className="px-3 py-2 text-xs">
             <span className="font-medium text-foreground">{item.name ?? '—'}</span>
@@ -157,23 +156,19 @@ function SupplierLookupsView({
   if (lookups.length === 0) return null;
   return (
     <div className="space-y-1.5">
-      <p className="text-xs font-semibold text-muted-foreground">
+      <p className="text-xs font-semibold text-foreground">
         Lookup por RUT ({lookups.length})
       </p>
-      <div className="rounded-lg border border-border/60 divide-y divide-border/30 overflow-hidden">
+      <div className="divide-y divide-border/50 overflow-hidden rounded-xl border border-border/60">
         {lookups.map((item, i) => (
           <div key={i} className="px-3 py-2 text-xs">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Search className="h-3 w-3 text-muted-foreground shrink-0" />
               <span className="font-mono text-muted-foreground">{item.rutFormatted}</span>
               {item.found ? (
-                <span className="rounded-full border border-success/30 bg-success/10 px-1.5 py-0.5 text-xs font-medium text-success">
-                  encontrado
-                </span>
+                <Badge variant="positive">encontrado</Badge>
               ) : (
-                <span className="rounded-full border border-border/60 bg-surface-subtle px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
-                  no encontrado
-                </span>
+                <Badge variant="neutral">no encontrado</Badge>
               )}
             </div>
             {item.found && item.supplierName && (
@@ -181,7 +176,7 @@ function SupplierLookupsView({
             )}
             {item.found && item.supplierCode && (
               <p className="text-muted-foreground mt-0.5">
-                Código: <span className="font-mono">{item.supplierCode}</span>
+                Código: <span className="break-all font-mono">{item.supplierCode}</span>
                 {item.ordersCount !== undefined && (
                   <> · Órdenes: <span className="tabular-nums">{item.ordersCount}</span></>
                 )}
@@ -200,10 +195,10 @@ function SupplierLookupsView({
 function SummaryRow({ label, value }: { label: string; value: string | number }) {
   return (
     <div>
-      <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
+      <dt className="mb-0.5 text-xs font-medium text-muted-foreground">
         {label}
       </dt>
-      <dd className="text-sm font-medium text-foreground tabular-nums">{value}</dd>
+      <dd className="break-words text-sm font-medium tabular-nums text-foreground">{value}</dd>
     </div>
   );
 }
@@ -225,7 +220,7 @@ function ChileCompraReportView({ report }: { report: SafeChileCompraDryRunReport
       {report.dryRunMode === 'compra_agil_discovery' && (
         <>
           {s.normalizedCount > 0 && (
-            <dl className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3 sm:grid-cols-4">
               <SummaryRow label="Procesos CA" value={s.recordsRead} />
               <SummaryRow label="Proveedores" value={s.normalizedCount} />
               <SummaryRow label="Aceptados ICP" value={s.acceptedDraftsCount} />
@@ -257,7 +252,7 @@ function ChileCompraReportView({ report }: { report: SafeChileCompraDryRunReport
       </div>
 
       {report.qualitySummary.credentialInstructions && (
-        <div className="rounded-lg border border-primary/20 bg-primary/10 px-3 py-2.5 space-y-1">
+        <div className="rounded-xl border border-primary/20 bg-primary/10 px-4 py-3 space-y-1">
           <p className="text-xs font-medium text-primary">Instrucciones de ticket ChileCompra</p>
           <p className="text-xs text-muted-foreground">
             {report.qualitySummary.credentialInstructions}
@@ -266,7 +261,7 @@ function ChileCompraReportView({ report }: { report: SafeChileCompraDryRunReport
       )}
 
       {report.warnings.length > 0 && (
-        <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 space-y-0.5">
+        <div className="rounded-xl border border-warning/25 bg-warning/15 px-4 py-3 space-y-0.5">
           {report.warnings.map((w, i) => (
             <p key={i} className="text-xs text-warning">{w}</p>
           ))}
@@ -278,7 +273,7 @@ function ChileCompraReportView({ report }: { report: SafeChileCompraDryRunReport
           <button
             type="button"
             onClick={() => setShowSamples((v) => !v)}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            className="flex items-center gap-1.5 rounded-md text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
           >
             {showSamples ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
             {showSamples ? 'Ocultar muestras' : `Ver muestras (${s.acceptedDraftsCount + s.lowPriorityCount})`}
@@ -292,7 +287,7 @@ function ChileCompraReportView({ report }: { report: SafeChileCompraDryRunReport
         </div>
       )}
 
-      <div className="flex items-center justify-between text-xs text-muted-foreground border-t border-border/60 pt-2">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-border/50 pt-3 text-xs text-muted-foreground">
         <span>
           Ejecutado:{' '}
           {new Intl.DateTimeFormat('es-CL', {
@@ -303,7 +298,7 @@ function ChileCompraReportView({ report }: { report: SafeChileCompraDryRunReport
             minute: '2-digit',
           }).format(new Date(report.executedAt))}
         </span>
-        <span className="font-mono">
+        <span className="break-all font-mono">
           {report.sourceKey} · {report.dryRunMode}
         </span>
       </div>
@@ -337,10 +332,16 @@ export function ChileCompraDryRunPanel({ isAdmin }: Props) {
 
   return (
     <SurfaceCard>
-      <SurfaceCardHeader
-        title="Dry-run ChileCompra"
-        description="Valida el ticket y detecta proveedores B2G activos en Mercado Público."
-      />
+      <div className="mb-5 flex items-start gap-3">
+        <span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-inset ring-border/40">
+          <FlaskConical className="h-4 w-4" />
+        </span>
+        <SurfaceCardHeader
+          title="Dry-run ChileCompra"
+          description="Valida el ticket y detecta proveedores B2G activos en Mercado Público."
+          className="mb-0 min-w-0 flex-1 flex-wrap"
+        />
+      </div>
 
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">
@@ -350,7 +351,7 @@ export function ChileCompraDryRunPanel({ isAdmin }: Props) {
           pública activa.
         </p>
 
-        <div className="space-y-1.5 rounded-lg border border-border/60 bg-surface-subtle px-3 py-2.5 text-xs text-muted-foreground">
+        <div className="space-y-1.5 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3 text-xs text-muted-foreground">
           <p className="flex items-start gap-1.5">
             <Zap className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
             <span>
@@ -379,14 +380,14 @@ export function ChileCompraDryRunPanel({ isAdmin }: Props) {
         </div>
 
         {!isAdmin && (
-          <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-surface-subtle px-3 py-2.5 text-xs text-muted-foreground">
+          <div className="flex items-start gap-2 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3 text-xs text-muted-foreground">
             <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             Solo administradores pueden ejecutar dry-runs de fuente.
           </div>
         )}
 
         {isAdmin && (
-          <Button variant="outline" size="sm" onClick={handleRun} disabled={isPending}>
+          <Button type="button" variant="outline" size="sm" onClick={handleRun} disabled={isPending}>
             {isPending ? (
               <>
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -402,7 +403,7 @@ export function ChileCompraDryRunPanel({ isAdmin }: Props) {
         )}
 
         {error && (
-          <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          <div className="flex items-start gap-2 rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-xs text-destructive">
             <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             {error}
           </div>
@@ -412,14 +413,14 @@ export function ChileCompraDryRunPanel({ isAdmin }: Props) {
           <div className="space-y-3">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4 text-success" />
-              <span className="text-sm font-medium text-foreground">Dry-run completado</span>
+              <span className="text-sm font-semibold tracking-tight text-foreground">Dry-run completado</span>
             </div>
             <ChileCompraReportView report={report} />
           </div>
         )}
 
-        <div className="flex items-center gap-1.5 border-t border-border/60 pt-3 text-xs text-muted-foreground">
-          <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
+        <div className="flex items-start gap-1.5 border-t border-border/50 pt-3 text-xs text-muted-foreground">
+          <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           No escribe en Supabase. No crea candidatos. No crea lotes. No sincroniza HubSpot.
         </div>
       </div>

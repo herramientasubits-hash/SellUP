@@ -1081,7 +1081,7 @@ export function CandidateDetailSheet({
 
             {/* AI Summary */}
             {aiSummary && (
-              <div className="rounded-2xl border border-border/50 bg-card p-4 space-y-2">
+              <div className="rounded-xl border border-border/50 bg-card p-4 space-y-2">
                 <SectionHeader>Resumen del Negocio (IA)</SectionHeader>
                 <p className="text-xs text-muted-foreground leading-relaxed italic">
                   &ldquo;{isChileOfficialCandidate ? sanitizeTextForChile(aiSummary) : aiSummary}&rdquo;
@@ -1091,7 +1091,7 @@ export function CandidateDetailSheet({
 
             {/* Por qué fue encontrado */}
             {!!(searchTrace ?? sourceTitle ?? sourceSnippet) && (
-              <div className="rounded-2xl border border-border/50 bg-card p-4 space-y-3">
+              <div className="rounded-xl border border-border/50 bg-card p-4 space-y-3">
                 <div className="flex items-center gap-1.5">
                   <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
                   <SectionHeader>Por qué fue encontrado</SectionHeader>
@@ -1145,7 +1145,7 @@ export function CandidateDetailSheet({
 
             {/* Decisión recomendada */}
             {!!scoringMeta?.recommended_action && (
-              <div className="rounded-2xl border border-border/50 bg-card p-4 space-y-3">
+              <div className="rounded-xl border border-border/50 bg-card p-4 space-y-3">
                 <SectionHeader>Decisión recomendada</SectionHeader>
                 {(() => {
                   const action = scoringMeta.recommended_action as string;
@@ -1223,7 +1223,7 @@ export function CandidateDetailSheet({
 
             {/* Conversión y HubSpot Sync */}
             {candidate.status === 'converted_to_account' && candidate.converted_account_id && (
-              <div className="rounded-2xl border border-border/50 bg-card p-4 space-y-3">
+              <div className="rounded-xl border border-border/50 bg-card p-4 space-y-3">
                 <SectionHeader>Conversión a Cuenta</SectionHeader>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="rounded-lg border border-primary/20 bg-primary/10 px-3 py-2.5 space-y-1">
@@ -1298,7 +1298,7 @@ export function CandidateDetailSheet({
 
             {/* Análisis de Encaje IA */}
             {hasAiEval && showAiEvaluation && (
-              <div className="rounded-2xl border border-border/50 bg-card p-4 space-y-3">
+              <div className="rounded-xl border border-border/50 bg-card p-4 space-y-3">
                 <div className="flex items-center gap-1">
                   <SectionHeader>Análisis de Encaje</SectionHeader>
                   <InfoTooltip content="Evaluación automática basada en información pública. No reemplaza la revisión comercial." />
@@ -1336,7 +1336,7 @@ export function CandidateDetailSheet({
             {/* Oportunidades comerciales */}
             {hasAiEval && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="rounded-2xl border border-border/50 bg-card p-4 space-y-3">
+                <div className="rounded-xl border border-border/50 bg-card p-4 space-y-3">
                   <SectionHeader>Necesidades Detectadas</SectionHeader>
                   {(() => {
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1363,7 +1363,7 @@ export function CandidateDetailSheet({
                     );
                   })()}
                 </div>
-                <div className="rounded-2xl border border-border/50 bg-card p-4 space-y-3">
+                <div className="rounded-xl border border-border/50 bg-card p-4 space-y-3">
                   <SectionHeader>Ángulos Comerciales</SectionHeader>
                   {(() => {
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1981,7 +1981,7 @@ export function CandidateDetailSheet({
                     return (
                       <div className="space-y-3">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <Badge className="border-0 bg-warning/5 text-warning/70 flex items-center gap-1">
+                          <Badge className="border-0 bg-warning/5 text-warning flex items-center gap-1">
                             <AlertTriangle className="h-2.5 w-2.5" />
                             {`${getTaxIdLabel(candidate.country_code)} sugerido — requiere revisión`}
                           </Badge>
@@ -2210,7 +2210,7 @@ export function CandidateDetailSheet({
                 {/* Bloque SellUp detail */}
                 {(sellupDupStatus === 'duplicate' || sellupDupStatus === 'possible_duplicate') &&
                   validationMetaSheet?.sellup_duplicate_check?.matched_name && (
-                  <div className="rounded-2xl border border-border/50 bg-card p-4 space-y-3">
+                  <div className="rounded-xl border border-border/50 bg-card p-4 space-y-3">
                     <p className="text-xs font-semibold text-muted-foreground">
                       Coincidencia interna en SellUp
                     </p>
@@ -2250,7 +2250,7 @@ export function CandidateDetailSheet({
                 {/* Bloque HubSpot detail */}
                 {(hsDupStatus === 'match' || hsDupStatus === 'possible_match') &&
                   validationMetaSheet?.hubspot_duplicate_check?.matched_company_name && (
-                  <div className="rounded-2xl border border-border/50 bg-card p-4 space-y-3">
+                  <div className="rounded-xl border border-border/50 bg-card p-4 space-y-3">
                     <p className="text-xs font-semibold text-muted-foreground">
                       Coincidencia en HubSpot CRM
                     </p>
@@ -2319,7 +2319,7 @@ export function CandidateDetailSheet({
 
                   if (rows.length === 0) return null;
                   return (
-                    <div className="rounded-2xl border border-border/50 bg-card p-4 space-y-2">
+                    <div className="rounded-xl border border-border/50 bg-card p-4 space-y-2">
                       <p className="text-xs font-semibold text-muted-foreground">Comparación rápida</p>
                       <div className="overflow-x-auto rounded-lg border border-border/60">
                         <table className="w-full text-xs">
@@ -2348,7 +2348,7 @@ export function CandidateDetailSheet({
             ) : (
               <div className="space-y-4">
                 {dcMatches.length > 0 && (
-                  <div className="rounded-2xl border border-border/50 bg-card p-4 space-y-3">
+                  <div className="rounded-xl border border-border/50 bg-card p-4 space-y-3">
                     <p className="text-xs font-semibold text-muted-foreground">
                       Coincidencias encontradas
                     </p>
@@ -2383,7 +2383,7 @@ export function CandidateDetailSheet({
                           <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
                           <span className="leading-relaxed">{isChileOfficialCandidate ? sanitizeTextForChile(risk) : risk}</span>
                         </div>
-                        <Badge className="border-0 uppercase py-0.5 px-1.5 shrink-0 select-none bg-black/5 dark:bg-white/5 text-inherit">
+                        <Badge className="border-0 uppercase py-0.5 px-1.5 shrink-0 select-none bg-muted text-inherit">
                           {badgeMap[severity]}
                         </Badge>
                       </div>
@@ -2402,7 +2402,7 @@ export function CandidateDetailSheet({
                 <ul className="space-y-1.5">
                   {missingFields.map((field, i) => (
                     <li key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <AlertTriangle className="h-3 w-3 shrink-0 text-warning/70" />
+                      <AlertTriangle className="h-3 w-3 shrink-0 text-warning" />
                       <span>{isChileOfficialCandidate ? sanitizeTextForChile(field) : field}</span>
                     </li>
                   ))}

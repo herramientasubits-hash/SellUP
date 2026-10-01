@@ -41,7 +41,7 @@ export default async function AccessArchivedPage() {
         revisará tu solicitud.
       </p>
 
-      <div className="mb-8 flex items-center justify-center gap-2 rounded-2xl border border-border/60 bg-card px-4 py-3 shadow-card">
+      <div className="mb-8 flex items-center justify-center gap-2 rounded-xl border border-border/60 bg-card px-4 py-3 shadow-card">
         <span className="min-w-0 truncate text-sm text-foreground" title={user.email}>{user.email}</span>
       </div>
 

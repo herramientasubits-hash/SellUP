@@ -65,8 +65,8 @@ describe('resolveIdentityDisplay', () => {
   });
 
   it('cada tono tiene estilo definido con tokens del sistema', () => {
-    assert.ok(IDENTITY_TONE_STYLES.consistent.includes('emerald'));
-    assert.ok(IDENTITY_TONE_STYLES.mismatch.includes('amber'));
+    assert.ok(IDENTITY_TONE_STYLES.consistent.includes('success'));
+    assert.ok(IDENTITY_TONE_STYLES.mismatch.includes('warning'));
     assert.ok(IDENTITY_TONE_STYLES.unverified.includes('muted'));
   });
 });

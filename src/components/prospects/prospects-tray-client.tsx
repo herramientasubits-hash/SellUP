@@ -15,6 +15,8 @@ import {
   Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
+import { SurfaceCard } from '@/components/shared/surface-card';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import {
@@ -250,15 +252,18 @@ export function ProspectsTrayClient({
     <div className="flex flex-1 min-h-0 flex-col gap-6">
       {/* Banner de operación reciente (sourceId activo) */}
       {isSourceFiltered && (
-        <div className="shrink-0 flex flex-col gap-2.5 rounded-xl border border-primary/20 bg-primary/10 px-4 py-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5">
+        <div
+          className="flex shrink-0 flex-col gap-3 rounded-2xl border border-primary/20 bg-primary/10 px-4 py-3"
+          aria-live="polite"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+            <div className="flex min-w-0 items-center gap-2.5">
               {batchStats && (batchStats.pending > 0 || batchStats.enriching > 0) ? (
-                <Loader2 className="h-4 w-4 shrink-0 text-primary animate-spin" />
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" aria-hidden="true" />
               ) : (
-                <Sparkles className="h-4 w-4 shrink-0 text-primary" />
+                <Sparkles className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
               )}
-              <p className="text-xs font-medium text-primary">
+              <p className="min-w-0 text-sm font-medium text-primary">
                 {batchStats ? (
                   (batchStats.pending > 0 || batchStats.enriching > 0) ? (
                     `Importación completada. Estamos completando la información de ${batchStats.pending + batchStats.enriching} prospecto${batchStats.pending + batchStats.enriching !== 1 ? 's' : ''}...`
@@ -270,12 +275,8 @@ export function ProspectsTrayClient({
                 )}
               </p>
             </div>
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={clearAllFilters}
-              className="shrink-0 gap-1.5 px-2.5 text-primary hover:bg-primary/10 hover:text-primary">
-              <X className="h-3 w-3" />
+            <Button type="button" variant="link" size="xs" onClick={clearAllFilters} className="shrink-0">
+              <X aria-hidden="true" />
               Ver todos los prospectos
             </Button>
           </div>
@@ -283,13 +284,13 @@ export function ProspectsTrayClient({
             <div className="space-y-1.5">
               <Progress
                 value={batchStats.total > 0 ? ((batchStats.completed + batchStats.failed) / batchStats.total) * 100 : 0}
-                className="h-1.5 bg-primary/10"
+                className="h-1.5"
               />
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>
+              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                <span className="tabular-nums">
                   {batchStats.completed + batchStats.failed} de {batchStats.total} procesados
                 </span>
-                <span className="tabular-nums font-medium text-primary/70">
+                <span className="tabular-nums font-medium text-primary">
                   {batchStats.total > 0 ? Math.round(((batchStats.completed + batchStats.failed) / batchStats.total) * 100) : 0}%
                 </span>
               </div>
@@ -299,28 +300,32 @@ export function ProspectsTrayClient({
       )}
 
       {/* Barra de filtros */}
-      <div className="shrink-0 flex flex-col gap-4 rounded-2xl border border-border/60 bg-card p-4 sm:flex-row sm:items-center">
+      <SurfaceCard className="flex shrink-0 flex-col gap-3 p-4 lg:flex-row lg:items-center">
         {/* Input de búsqueda */}
-        <div className="relative flex-1">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+        <div className="relative min-w-0 flex-1">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden="true"
+          />
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Buscar por nombre de empresa..."
+            aria-label="Buscar por nombre de empresa"
             className="pl-9"
           />
         </div>
 
         {/* Contenedor de selects */}
-        <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-2">
+        <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 sm:flex sm:flex-wrap sm:items-center">
           {/* Select de Estado */}
           <Select value={activeStatus} onValueChange={(val) => updateFilter('status', val)}>
-            <SelectTrigger className="w-full sm:w-[155px] text-xs bg-surface-subtle border-border/50">
+            <SelectTrigger className="w-full sm:w-44" aria-label="Estado">
               <SelectValue placeholder="Estado" />
             </SelectTrigger>
             <SelectContent>
               {STATUS_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                <SelectItem key={opt.value} value={opt.value}>
                   {opt.label}
                 </SelectItem>
               ))}
@@ -329,13 +334,13 @@ export function ProspectsTrayClient({
 
           {/* Select de País */}
           <Select value={activeCountry} onValueChange={(val) => updateFilter('country', val)}>
-            <SelectTrigger className="w-full sm:w-[130px] text-xs bg-surface-subtle border-border/50">
+            <SelectTrigger className="w-full sm:w-44" aria-label="País">
               <SelectValue placeholder="Todos los países" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all" className="text-xs">Todos los países</SelectItem>
+              <SelectItem value="all">Todos los países</SelectItem>
               {LATAM_COUNTRIES.map((c) => (
-                <SelectItem key={c.code} value={c.code} className="text-xs">
+                <SelectItem key={c.code} value={c.code}>
                   {c.name}
                 </SelectItem>
               ))}
@@ -344,13 +349,13 @@ export function ProspectsTrayClient({
 
           {/* Select de Sector */}
           <Select value={activeIndustry} onValueChange={(val) => updateFilter('industry', val)}>
-            <SelectTrigger className="w-full sm:w-[150px] text-xs bg-surface-subtle border-border/50">
+            <SelectTrigger className="w-full sm:w-44" aria-label="Sector">
               <SelectValue placeholder="Todos los sectores" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all" className="text-xs">Todos los sectores</SelectItem>
+              <SelectItem value="all">Todos los sectores</SelectItem>
               {INDUSTRIES.map((ind) => (
-                <SelectItem key={ind} value={ind} className="text-xs">
+                <SelectItem key={ind} value={ind}>
                   {ind}
                 </SelectItem>
               ))}
@@ -359,13 +364,13 @@ export function ProspectsTrayClient({
 
           {/* Select de Origen */}
           <Select value={activeOrigin} onValueChange={(val) => updateFilter('source', val)}>
-            <SelectTrigger className="w-full sm:w-[145px] text-xs bg-surface-subtle border-border/50">
+            <SelectTrigger className="w-full sm:w-44" aria-label="Origen">
               <SelectValue placeholder="Todos los orígenes" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all" className="text-xs">Todos los orígenes</SelectItem>
+              <SelectItem value="all">Todos los orígenes</SelectItem>
               {ORIGIN_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                <SelectItem key={opt.value} value={opt.value}>
                   {opt.label}
                 </SelectItem>
               ))}
@@ -375,83 +380,70 @@ export function ProspectsTrayClient({
 
         {/* Limpiar filtros */}
         {(isFilteredOnly || isSourceFiltered) && (
-          <Button
-            variant="ghost"
-            onClick={clearAllFilters}
-            size="sm" className="px-3 text-xs text-muted-foreground hover:text-foreground shrink-0 border border-border/50 sm:border-0 hover:bg-surface-muted">
+          <Button type="button" variant="ghost" size="sm" onClick={clearAllFilters} className="shrink-0">
+            <X aria-hidden="true" />
             Limpiar filtros
           </Button>
         )}
-      </div>
+      </SurfaceCard>
 
       {/* Tabla y estado vacío */}
       {candidates.length === 0 ? (
         isFilteredOnly || isSourceFiltered ? (
           /* Estado vacío por filtros */
-          <div className="flex flex-col items-center justify-center py-16 text-center border border-dashed rounded-2xl bg-card border-border/60">
-            <div className="mb-3 rounded-full bg-surface-muted p-3">
-              <Filter className="h-6 w-6 text-muted-foreground" />
-            </div>
-            <p className="text-sm font-semibold text-foreground">No se encontraron prospectos</p>
-            <p className="mt-1 text-xs text-muted-foreground max-w-xs">
-              {isSourceFiltered
+          <EmptyState
+            icon={Filter}
+            title="No se encontraron prospectos"
+            description={
+              isSourceFiltered
                 ? 'No se encontraron prospectos nuevos en esta operación. Puede que todos fueran omitidos por duplicidad, calidad o datos insuficientes.'
-                : 'Intenta ajustando los filtros o el término de búsqueda para ver más resultados.'}
-            </p>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={clearAllFilters}
-              className="mt-4 gap-1.5 text-xs"
-            >
-              Ver todos los prospectos
-            </Button>
-          </div>
+                : 'Intenta ajustando los filtros o el término de búsqueda para ver más resultados.'
+            }
+            action={
+              <Button type="button" variant="outline" size="sm" onClick={clearAllFilters}>
+                Ver todos los prospectos
+              </Button>
+            }
+          />
         ) : (
           /* Estado vacío total — sin prospectos en el sistema */
-          <div className="flex flex-col items-center justify-center py-16 text-center border border-dashed rounded-2xl bg-card border-border/60">
-            <div className="mb-4 rounded-full bg-surface-muted p-3">
-              <Building2 className="h-8 w-8 text-text-muted" />
-            </div>
-            <h3 className="text-sm font-semibold text-foreground">Todavía no hay prospectos para revisar</h3>
-            <p className="mt-1 text-xs text-muted-foreground leading-relaxed max-w-sm">
-              Genera empresas con IA, importa una lista o crea un prospecto manualmente.
-            </p>
-            <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-              <ImportCandidatesDrawer>
-                <Button variant="outline" size="sm" className="gap-1.5">
-                  <Upload className="h-3.5 w-3.5" />
-                  Importar prospectos
-                </Button>
-              </ImportCandidatesDrawer>
-              <CreateCandidateDrawer />
-            </div>
-          </div>
+          <EmptyState
+            icon={Building2}
+            title="Todavía no hay prospectos para revisar"
+            description="Genera empresas con IA, importa una lista o crea un prospecto manualmente."
+            action={
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <ImportCandidatesDrawer>
+                  <Button type="button" variant="outline" size="sm">
+                    <Upload aria-hidden="true" />
+                    Importar prospectos
+                  </Button>
+                </ImportCandidatesDrawer>
+                <CreateCandidateDrawer />
+              </div>
+            }
+          />
         )
       ) : (
         /* Listado de prospectos */
-        <div className="flex-1 min-h-0 flex flex-col rounded-2xl border border-border/50 bg-card overflow-hidden">
-          <div className="shrink-0 flex items-center justify-between border-b border-border/60 px-5 py-3.5 bg-muted/[0.08]">
-            <p className="text-xs font-semibold text-foreground">
+        <SurfaceCard noPadding className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border/50 bg-surface-subtle px-5 py-3">
+            <p className="text-sm font-semibold tabular-nums text-foreground">
               Mostrando {startRow} - {endRow} de {total} prospectos
             </p>
             <div className="flex items-center gap-3">
               <Popover>
                 <PopoverTrigger
                   render={
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      className="gap-1.5 px-2.5 text-muted-foreground hover:text-foreground"
-                      aria-label="Guía de revisión">
-                      <Info className="h-3.5 w-3.5" />
+                    <Button type="button" variant="ghost" size="xs" aria-label="Guía de revisión">
+                      <Info aria-hidden="true" />
                       <span className="hidden sm:inline">Guía de revisión</span>
                     </Button>
                   }
                 />
-                <PopoverContent className="w-80 p-4" align="end">
+                <PopoverContent className="w-80 max-w-[calc(100vw-2rem)] p-4" align="end">
                   <div className="space-y-2 text-xs text-foreground">
-                    <p className="font-semibold text-sm border-b pb-1.5 mb-1.5">Antes de aprobar revisa:</p>
+                    <p className="mb-2 border-b border-border/50 pb-2 text-sm font-semibold tracking-tight">Antes de aprobar revisa:</p>
                     <ul className="list-disc pl-4 space-y-1.5 leading-relaxed text-muted-foreground">
                       <li>Identidad y actividad de la empresa</li>
                       <li>Identificador fiscal, cuando esté disponible</li>
@@ -462,9 +454,8 @@ export function ProspectsTrayClient({
                 </PopoverContent>
               </Popover>
 
-              <div className="flex items-center gap-1 border-l pl-3 border-border/60">
-                <Search className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-xs text-muted-foreground font-mono uppercase">
+              <div className="flex items-center border-l border-border/50 pl-3">
+                <span className="text-xs tabular-nums text-muted-foreground">
                   Página {page} de {totalPages || 1}
                 </span>
               </div>
@@ -475,18 +466,22 @@ export function ProspectsTrayClient({
 
           {/* Paginación */}
           {totalPages > 1 && (
-            <div className="shrink-0 flex items-center justify-between border-t border-border/60 px-5 py-3.5 bg-muted/[0.04]">
-              <span className="text-xs text-muted-foreground">
+            <nav
+              aria-label="Paginación de prospectos"
+              className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border/50 bg-surface-subtle px-5 py-3"
+            >
+              <span className="text-xs tabular-nums text-muted-foreground">
                 Página {page} de {totalPages}
               </span>
               <div className="flex items-center gap-1.5">
                 <Button
+                  type="button"
                   variant="outline"
                   size="sm"
                   onClick={() => handlePageChange(page - 1)}
                   disabled={page === 1}
-                  className="gap-1 text-xs px-2.5 hover:bg-surface-muted">
-                  <ChevronLeft className="h-3.5 w-3.5" />
+                >
+                  <ChevronLeft aria-hidden="true" />
                   Anterior
                 </Button>
                 
@@ -503,44 +498,49 @@ export function ProspectsTrayClient({
                     return (
                       <Button
                         key={pageNum}
+                        type="button"
                         variant={page === pageNum ? 'default' : 'outline'}
                         size="icon-sm"
                         aria-label={`Página ${pageNum}`}
                         aria-current={page === pageNum ? 'page' : undefined}
                         onClick={() => handlePageChange(pageNum)}
-                        className="text-xs tabular-nums"
+                        className="tabular-nums"
                       >
                         {pageNum}
                       </Button>
                     );
                   })}
                   {totalPages > 5 && page + 2 < totalPages && (
-                    <span className="text-xs text-muted-foreground px-1 select-none">…</span>
+                    <span className="select-none px-1 text-xs text-muted-foreground" aria-hidden="true">…</span>
                   )}
                   {totalPages > 5 && page + 2 < totalPages && (
                     <Button
+                      type="button"
                       variant="outline"
-                      size="sm"
+                      size="icon-sm"
+                      aria-label={`Página ${totalPages}`}
                       onClick={() => handlePageChange(totalPages)}
-                      className="w-8 text-xs p-0 hover:bg-surface-muted">
+                      className="tabular-nums"
+                    >
                       {totalPages}
                     </Button>
                   )}
                 </div>
 
                 <Button
+                  type="button"
                   variant="outline"
                   size="sm"
                   onClick={() => handlePageChange(page + 1)}
                   disabled={page === totalPages}
-                  className="gap-1 text-xs px-2.5 hover:bg-surface-muted">
+                >
                   Siguiente
-                  <ChevronRight className="h-3.5 w-3.5" />
+                  <ChevronRight aria-hidden="true" />
                 </Button>
               </div>
-            </div>
+            </nav>
           )}
-        </div>
+        </SurfaceCard>
       )}
     </div>
   );

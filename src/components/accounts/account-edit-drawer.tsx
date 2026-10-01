@@ -209,7 +209,7 @@ export function AccountEditDrawer({
           {Array.from({ length: 3 }).map((_, i) => (
             <div
               key={i}
-              className="space-y-4 rounded-2xl border border-border/60 bg-card p-4 shadow-card"
+              className="space-y-4 rounded-xl border border-border/60 bg-card p-4 shadow-card"
             >
               <div className="flex items-center gap-2.5 border-b border-border/50 pb-3">
                 <Skeleton className="h-8 w-8 rounded-xl" />

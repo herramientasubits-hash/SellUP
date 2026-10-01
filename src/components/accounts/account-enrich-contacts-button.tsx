@@ -38,13 +38,8 @@ export function AccountEnrichContactsButton({
 
   return (
     <>
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={handleClick}
-        className="gap-1.5"
-      >
-        <UserSearch className="h-3.5 w-3.5" />
+      <Button type="button" size="sm" variant="outline" onClick={handleClick}>
+        <UserSearch aria-hidden="true" />
         Enriquecer contactos
       </Button>
 

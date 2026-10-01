@@ -3,6 +3,7 @@ import { Search, Sparkles, Database, CircleDashed, CheckCircle2, Clock } from 'l
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { MetricCard } from '@/components/shared/metric-card';
+import { Badge } from '@/components/ui/badge';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
 import {
   getAllProspectingProviders,
@@ -68,22 +69,20 @@ function StaticProviderCard({ provider }: { provider: ProspectingProvider }) {
         title={provider.name}
         description={provider.description ?? undefined}
         actions={
-          <span
-            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${lifecycle.className}`}
-          >
-            <span className={`h-1.5 w-1.5 rounded-full ${lifecycle.dotClass}`} />
+          <Badge variant="outline" className={lifecycle.className}>
+            <span className={`h-1.5 w-1.5 rounded-full ${lifecycle.dotClass}`} aria-hidden="true" />
             {lifecycle.label}
-          </span>
+          </Badge>
         }
       />
 
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/60 text-muted-foreground">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-surface-muted text-muted-foreground">
             {provider.provider_type === 'enrichment' ? (
-              <Sparkles className="h-4 w-4" />
+              <Sparkles className="h-4 w-4" aria-hidden="true" />
             ) : (
-              <Search className="h-4 w-4" />
+              <Search className="h-4 w-4" aria-hidden="true" />
             )}
           </div>
           <span className="text-xs text-muted-foreground">
@@ -91,7 +90,7 @@ function StaticProviderCard({ provider }: { provider: ProspectingProvider }) {
           </span>
         </div>
 
-        <span className="text-xs font-medium text-muted-foreground cursor-default select-none">
+        <span className="cursor-default select-none text-xs font-medium text-muted-foreground">
           Conexión pendiente de definición
         </span>
       </div>
@@ -131,7 +130,7 @@ export default async function ProspectingPage() {
     : 'No definido';
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <PageHeader
         title="Prospección y enriquecimiento"
         description="Administra los proveedores externos que SellUp usa para generar y enriquecer prospectos."
@@ -139,18 +138,18 @@ export default async function ProspectingPage() {
       />
 
       {/* Resumen */}
-      <div>
-        <p className="text-xs font-semibold text-muted-foreground mb-3">
+      <section className="space-y-3">
+        <h2 className="text-base font-semibold tracking-tight text-foreground">
           Resumen
-        </p>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        </h2>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <MetricCard
             title="Proveedores contemplados"
             description="Fuentes identificadas para discovery"
             value={stats.total}
             icon={
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Database className="h-4 w-4" />
+                <Database className="h-4 w-4" aria-hidden="true" />
               </div>
             }
           />
@@ -161,7 +160,7 @@ export default async function ProspectingPage() {
             valueClassName="text-primary"
             icon={
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <CheckCircle2 className="h-4 w-4" />
+                <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
               </div>
             }
           />
@@ -171,7 +170,7 @@ export default async function ProspectingPage() {
             value={stats.total - stats.prepared}
             icon={
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                <Clock className="h-4 w-4" />
+                <Clock className="h-4 w-4" aria-hidden="true" />
               </div>
             }
           />
@@ -192,18 +191,18 @@ export default async function ProspectingPage() {
                     : 'bg-muted text-muted-foreground'
                 }`}
               >
-                <CircleDashed className="h-4 w-4" />
+                <CircleDashed className="h-4 w-4" aria-hidden="true" />
               </div>
             }
           />
         </div>
-      </div>
+      </section>
 
       {/* Proveedores */}
-      <div>
-        <p className="text-xs font-semibold text-muted-foreground mb-3">
+      <section className="space-y-3">
+        <h2 className="text-base font-semibold tracking-tight text-foreground">
           Proveedores
-        </p>
+        </h2>
         <div className="grid gap-4 md:grid-cols-2">
           {/* Apollo — tarjeta interactiva con conexión real */}
           {apolloProvider && (
@@ -226,7 +225,7 @@ export default async function ProspectingPage() {
             <StaticProviderCard key={provider.id} provider={provider} />
           ))}
         </div>
-      </div>
+      </section>
     </div>
   );
 }

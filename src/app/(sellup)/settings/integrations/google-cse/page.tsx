@@ -101,7 +101,7 @@ export default async function GoogleCSEIntegrationPage() {
             <p className="text-sm font-semibold text-destructive ">
               Proveedor no disponible — Google Custom Search JSON API
             </p>
-            <p className="mt-1 text-xs text-destructive/80 leading-relaxed">
+            <p className="mt-1 text-xs text-destructive leading-relaxed">
               Google Custom Search JSON API no está disponible para este proyecto de Google Cloud (
               <code className="rounded-sm bg-destructive/10 px-1 py-0.5 text-xs font-mono">
                 PERMISSION_DENIED

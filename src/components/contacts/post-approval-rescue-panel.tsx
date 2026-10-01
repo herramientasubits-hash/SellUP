@@ -138,30 +138,29 @@ export function OfficialContactRescuePanel({
   if (!view) return null;
   const { recovery, lushaContinuation, searchMore } = view;
   if (!recovery.available && !lushaContinuation.available && !searchMore.available) {
-    return notice ? <p className="text-xs text-foreground">{notice}</p> : null;
+    return notice ? <p className="text-xs font-medium text-foreground" aria-live="polite">{notice}</p> : null;
   }
 
   const anyBusy = busy !== null;
 
   return (
-    <div className="space-y-2.5">
+    <div className="space-y-3">
       {recovery.available && (
         <div className="space-y-1.5">
           <Button
             type="button"
             size="xs"
             variant="outline"
-            className="gap-1.5"
             disabled={anyBusy}
             onClick={() => void run('recovery')}>
             {busy === 'recovery' ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+              <Loader2 className="animate-spin" aria-hidden />
             ) : (
-              <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+              <RefreshCw aria-hidden />
             )}
             {busy === 'recovery' ? RESCUE_RECOVERY_BUSY_LABEL : RESCUE_RECOVERY_LABEL}
           </Button>
-          <p className="text-xs text-muted-foreground">{RESCUE_RECOVERY_HELPER}</p>
+          <p className="text-xs leading-relaxed text-muted-foreground">{RESCUE_RECOVERY_HELPER}</p>
         </div>
       )}
 
@@ -173,7 +172,7 @@ export function OfficialContactRescuePanel({
             lushaContinuation.maxCredits,
             lushaContinuation.requiresIdentitySearch,
           )}
-          icon={<PhoneCall className="h-3.5 w-3.5" aria-hidden />}
+          icon={<PhoneCall aria-hidden />}
           busy={busy === 'lusha'}
           anyBusy={anyBusy}
           armed={confirming === 'lusha'}
@@ -188,7 +187,7 @@ export function OfficialContactRescuePanel({
           label={RESCUE_SEARCH_MORE_LABEL}
           busyLabel={RESCUE_SEARCH_MORE_BUSY_LABEL}
           helper={rescueSearchMoreHelperText(searchMore.maxCredits)}
-          icon={<Search className="h-3.5 w-3.5" aria-hidden />}
+          icon={<Search aria-hidden />}
           busy={busy === 'searchMore'}
           anyBusy={anyBusy}
           armed={confirming === 'searchMore'}
@@ -198,7 +197,7 @@ export function OfficialContactRescuePanel({
         />
       )}
 
-      {notice && <p className="text-xs text-foreground">{notice}</p>}
+      {notice && <p className="text-xs font-medium text-foreground" aria-live="polite">{notice}</p>}
     </div>
   );
 }
@@ -237,19 +236,10 @@ function PaidRescueAction({
     <div className="space-y-1.5">
       {armed ? (
         <div className="flex flex-wrap items-center gap-2">
-          <Button
- type="button"
- size="xs"
- disabled={anyBusy}
- onClick={onConfirm}>
+          <Button type="button" size="xs" disabled={anyBusy} onClick={onConfirm}>
             {RESCUE_CONFIRM_LABEL}
           </Button>
-          <Button
- type="button"
- size="xs"
- variant="ghost"
- disabled={anyBusy}
- onClick={onCancel}>
+          <Button type="button" size="xs" variant="ghost" disabled={anyBusy} onClick={onCancel}>
             {RESCUE_CANCEL_LABEL}
           </Button>
         </div>
@@ -258,14 +248,13 @@ function PaidRescueAction({
           type="button"
           size="xs"
           variant="outline"
-          className="gap-1.5"
           disabled={anyBusy}
           onClick={onArm}>
-          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : icon}
+          {busy ? <Loader2 className="animate-spin" aria-hidden /> : icon}
           {busy ? busyLabel : label}
         </Button>
       )}
-      <p className="text-xs text-muted-foreground">{helper}</p>
+      <p className="text-xs leading-relaxed text-muted-foreground">{helper}</p>
     </div>
   );
 }

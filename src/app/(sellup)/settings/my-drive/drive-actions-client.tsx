@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
@@ -64,10 +64,10 @@ export function DriveActionsPanel({ connectionStatus, folderId }: DriveActionsPa
       {/* Feedback message */}
       {message && (
         <p
-          className={`text-sm rounded-lg border px-3 py-2 ${
+          className={`rounded-lg border px-3 py-2 text-sm ${
             message.type === 'success'
-              ? 'border-success/30 bg-success/10 text-success dark:text-success'
-              : 'border-destructive/30 bg-destructive/10 text-destructive'
+              ? 'border-success/20 bg-success/10 text-success'
+              : 'border-destructive/20 bg-destructive/10 text-destructive'
           }`}
         >
           {message.text}
@@ -79,11 +79,11 @@ export function DriveActionsPanel({ connectionStatus, folderId }: DriveActionsPa
         <div className="flex flex-wrap gap-2">
           {/* Probar conexión */}
           <Button
+            type="button"
             variant="outline"
             size="sm"
             onClick={handleTest}
             disabled={testing}
-            className="text-xs"
           >
             {testing ? 'Probando...' : 'Probar conexión'}
           </Button>
@@ -94,20 +94,23 @@ export function DriveActionsPanel({ connectionStatus, folderId }: DriveActionsPa
               href={driveUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium shadow-card transition-colors hover:bg-surface-muted hover:text-foreground"
+              className={buttonVariants({ variant: 'outline', size: 'sm' })}
             >
               Abrir carpeta SellUp ↗
             </a>
           )}
 
           {/* Desconectar — con diálogo de confirmación */}
-          <button
-            className="inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-destructive disabled:pointer-events-none disabled:opacity-50"
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground hover:text-destructive"
             disabled={disconnecting}
             onClick={() => setConfirmOpen(true)}
           >
             {disconnecting ? 'Desconectando...' : 'Desconectar Drive'}
-          </button>
+          </Button>
 
           <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
             <DialogContent>
@@ -119,11 +122,12 @@ export function DriveActionsPanel({ connectionStatus, folderId }: DriveActionsPa
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter>
-                <Button variant="outline" size="sm" onClick={() => setConfirmOpen(false)}>
+                <Button type="button" variant="outline" size="sm" onClick={() => setConfirmOpen(false)}>
                   Cancelar
                 </Button>
                 <Button
-                  variant="destructive"
+                  type="button"
+                  variant="destructive-solid"
                   size="sm"
                   onClick={handleDisconnect}
                   disabled={disconnecting}
@@ -137,7 +141,7 @@ export function DriveActionsPanel({ connectionStatus, folderId }: DriveActionsPa
       ) : (
         <a
           href="/api/integrations/google-drive/oauth/start"
-          className="inline-flex items-center rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-brand-hover"
+          className={buttonVariants({ size: 'sm' })}
         >
           Conectar Google Drive
         </a>

@@ -1,5 +1,6 @@
 import { CheckCircle2, XCircle, AlertTriangle, Clock } from 'lucide-react';
-import { SurfaceCard } from '@/components/shared/surface-card';
+import { Badge } from '@/components/ui/badge';
+import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import {
   CONNECTION_TEST_STATUS_LABELS,
   CONNECTION_TEST_STRATEGY_LABELS,
@@ -52,12 +53,10 @@ function StatusIcon({ status }: { status: SourceConnectionTestStatus }) {
 
 function StatusBadge({ status }: { status: SourceConnectionTestStatus }) {
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap ${connectionTestStatusBadgeClass(status)}`}
-    >
+    <Badge variant="outline" className={connectionTestStatusBadgeClass(status)}>
       <StatusIcon status={status} />
       {CONNECTION_TEST_STATUS_LABELS[status]}
-    </span>
+    </Badge>
   );
 }
 
@@ -65,11 +64,11 @@ function StatusBadge({ status }: { status: SourceConnectionTestStatus }) {
 
 function MetaRow({ label, value }: { label: string; value: string }) {
   return (
-    <div>
-      <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
+    <div className="min-w-0">
+      <dt className="mb-0.5 text-xs font-medium text-muted-foreground">
         {label}
       </dt>
-      <dd className="text-sm text-foreground">{value}</dd>
+      <dd className="break-words text-sm tabular-nums text-foreground">{value}</dd>
     </div>
   );
 }
@@ -79,14 +78,14 @@ function MetaRow({ label, value }: { label: string; value: string }) {
 function LatestTestBlock({ item }: { item: SourceConnectionTestHistoryItem }) {
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <span className="text-xs font-semibold text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium text-muted-foreground">
           Resultado
         </span>
         <StatusBadge status={item.status} />
       </div>
 
-      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3 sm:grid-cols-3">
         <MetaRow
           label="Estrategia"
           value={CONNECTION_TEST_STRATEGY_LABELS[item.strategy]}
@@ -112,7 +111,7 @@ function LatestTestBlock({ item }: { item: SourceConnectionTestHistoryItem }) {
         />
         {item.recommendation && (
           <div className="col-span-2 sm:col-span-3">
-            <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
+            <dt className="mb-0.5 text-xs font-medium text-muted-foreground">
               Recomendación
             </dt>
             <dd className="text-sm text-muted-foreground">{item.recommendation}</dd>
@@ -130,7 +129,7 @@ function HistoryTable({ items }: { items: SourceConnectionTestHistoryItem[] }) {
     <div className="overflow-x-auto">
       <table className="w-full min-w-[640px] text-sm">
         <thead>
-          <tr className="border-b border-border/60">
+          <tr className="border-b border-border/50">
             {[
               'Fecha',
               'Resultado',
@@ -143,6 +142,7 @@ function HistoryTable({ items }: { items: SourceConnectionTestHistoryItem[] }) {
             ].map((col) => (
               <th
                 key={col}
+                scope="col"
                 className="pb-2 pr-4 text-left text-xs font-semibold text-muted-foreground last:pr-0"
               >
                 {col}
@@ -152,7 +152,7 @@ function HistoryTable({ items }: { items: SourceConnectionTestHistoryItem[] }) {
         </thead>
         <tbody>
           {items.map((item) => (
-            <tr key={item.id} className="border-b border-border/50 last:border-0">
+            <tr key={item.id} className="border-b border-border/50 transition-colors last:border-0 hover:bg-surface-muted">
               <td className="py-2.5 pr-4 text-xs text-muted-foreground whitespace-nowrap">
                 {formatDateTime(item.checkedAt)}
               </td>
@@ -162,10 +162,10 @@ function HistoryTable({ items }: { items: SourceConnectionTestHistoryItem[] }) {
               <td className="py-2.5 pr-4 text-xs text-muted-foreground whitespace-nowrap">
                 {CONNECTION_TEST_STRATEGY_LABELS[item.strategy]}
               </td>
-              <td className="py-2.5 pr-4 text-xs text-foreground font-mono">
+              <td className="py-2.5 pr-4 font-mono text-xs tabular-nums text-foreground">
                 {dash(item.httpStatus)}
               </td>
-              <td className="py-2.5 pr-4 text-xs text-foreground whitespace-nowrap">
+              <td className="whitespace-nowrap py-2.5 pr-4 text-xs tabular-nums text-foreground">
                 {item.responseTimeMs !== null ? `${item.responseTimeMs} ms` : '—'}
               </td>
               <td className="py-2.5 pr-4 text-xs font-mono text-muted-foreground">
@@ -174,7 +174,7 @@ function HistoryTable({ items }: { items: SourceConnectionTestHistoryItem[] }) {
               <td className="py-2.5 pr-4 text-xs text-muted-foreground whitespace-nowrap">
                 {dash(item.testedByEmailSnapshot)}
               </td>
-              <td className="py-2.5 text-xs text-muted-foreground">
+              <td className="py-2.5 text-xs text-muted-foreground" title={item.recommendation ?? undefined}>
                 {truncate(item.recommendation)}
               </td>
             </tr>
@@ -189,7 +189,7 @@ function HistoryTable({ items }: { items: SourceConnectionTestHistoryItem[] }) {
 
 function EmptyState() {
   return (
-    <div className="py-6 text-center space-y-1">
+    <div className="space-y-1 rounded-xl border border-dashed border-border/60 bg-surface-subtle px-4 py-8 text-center">
       <p className="text-sm font-medium text-foreground">
         Aún no hay pruebas registradas para esta fuente.
       </p>
@@ -215,23 +215,21 @@ export function ConnectionTestHistory({ history }: Props) {
     <div className="space-y-4">
       {/* Latest test */}
       <SurfaceCard>
-        <h2 className="text-sm font-semibold text-foreground  mb-4">
-          Última prueba de conexión
-        </h2>
+        <SurfaceCardHeader title="Última prueba de conexión" />
         {latest ? <LatestTestBlock item={latest} /> : <EmptyState />}
       </SurfaceCard>
 
       {/* History table */}
       {totalShown > 0 && (
         <SurfaceCard>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold text-foreground ">
-              Historial reciente
-            </h2>
-            <span className="text-xs text-muted-foreground">
-              {totalShown} registro{totalShown !== 1 ? 's' : ''}
-            </span>
-          </div>
+          <SurfaceCardHeader
+            title="Historial reciente"
+            actions={
+              <Badge variant="neutral" className="tabular-nums">
+                {totalShown} registro{totalShown !== 1 ? 's' : ''}
+              </Badge>
+            }
+          />
           <HistoryTable items={items} />
         </SurfaceCard>
       )}

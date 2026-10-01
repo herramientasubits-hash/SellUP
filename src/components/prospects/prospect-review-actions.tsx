@@ -358,10 +358,10 @@ export function ProspectReviewActions({
   return (
     <div className="shrink-0 border-t border-border/50 bg-surface-subtle px-7 py-4">
       {confirming ? (
-        <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 space-y-3">
+        <div className="space-y-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
           <div className="space-y-1">
-            <p className="text-sm font-medium text-foreground">¿Aprobar y crear empresa?</p>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm font-semibold tracking-tight text-foreground">¿Aprobar y crear empresa?</p>
+            <p className="text-xs leading-relaxed text-muted-foreground">
               Esto validará el prospecto, creará la empresa en SellUp e intentará sincronizarla con
               HubSpot según la configuración disponible. No se creará oportunidad ni propuesta
               todavía.
@@ -381,14 +381,11 @@ export function ProspectReviewActions({
             )}
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button
- size="sm"
- onClick={doApprove}
- disabled={approving}>
+            <Button type="button" size="sm" onClick={doApprove} disabled={approving} aria-busy={approving}>
               {approving ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <Loader2 className="animate-spin" aria-hidden="true" />
               ) : (
-                <CheckCircle2 className="h-3.5 w-3.5" />
+                <CheckCircle2 aria-hidden="true" />
               )}
               Confirmar aprobación
             </Button>
@@ -404,10 +401,10 @@ export function ProspectReviewActions({
           </div>
         </div>
       ) : discardConfirming ? (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 space-y-3">
+        <div className="space-y-3 rounded-xl border border-destructive/20 bg-destructive/5 p-4">
           <div className="space-y-1">
-            <p className="text-sm font-medium text-foreground">¿Descartar prospecto?</p>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm font-semibold tracking-tight text-foreground">¿Descartar prospecto?</p>
+            <p className="text-xs leading-relaxed text-muted-foreground">
               Este prospecto saldrá de la revisión y no se creará como empresa en SellUp. Podrás
               conservar trazabilidad del descarte.
             </p>
@@ -437,10 +434,10 @@ export function ProspectReviewActions({
                       aria-pressed={selected}
                       disabled={discarding}
                       onClick={() => setDiscardReasonKey(r.value)}
-                      className={`rounded-xl border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40 disabled:cursor-not-allowed disabled:opacity-60 ${
+                      className={`rounded-lg border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50 ${
                         selected
-                          ? 'border-destructive bg-destructive/10'
-                          : 'border-border/50 bg-card hover:bg-surface-muted'
+                          ? 'border-destructive/40 bg-destructive/10'
+                          : 'border-border/60 bg-card hover:bg-surface-muted'
                       }`}
                     >
                       <span
@@ -471,10 +468,10 @@ export function ProspectReviewActions({
                 placeholder={
                   isOtherDiscardReason ? 'Describe el motivo…' : 'Contexto adicional opcional…'
                 }
-                className="min-h-[64px] text-xs"
+                className="min-h-16"
               />
               {discardReasonText.length > DISCARD_REASON_MAX_LENGTH - 100 && (
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs tabular-nums text-muted-foreground">
                   {discardReasonText.length} / {DISCARD_REASON_MAX_LENGTH} caracteres
                 </p>
               )}
@@ -490,16 +487,18 @@ export function ProspectReviewActions({
 
           <div className="flex flex-wrap gap-2">
             <Button
-              variant="destructive"
+              type="button"
+              variant="destructive-solid"
               size="sm"
+              aria-busy={discarding}
               onClick={doDiscard}
               disabled={discarding || !discardReasonValidation.ok}
               title={discardReasonValidation.ok ? undefined : 'Selecciona un motivo de descarte'}
             >
               {discarding ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <Loader2 className="animate-spin" aria-hidden="true" />
               ) : (
-                <XCircle className="h-3.5 w-3.5" />
+                <XCircle aria-hidden="true" />
               )}
               Confirmar descarte
             </Button>
@@ -515,25 +514,27 @@ export function ProspectReviewActions({
           </div>
         </div>
       ) : duplicateConfirming ? (
-        <div className="rounded-xl border border-warning/30 bg-warning/5 p-3 space-y-3">
+        <div className="space-y-3 rounded-xl border border-warning/25 bg-warning/5 p-4">
           <div className="space-y-1">
-            <p className="text-sm font-medium text-foreground">¿Marcar prospecto como duplicado?</p>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm font-semibold tracking-tight text-foreground">¿Marcar prospecto como duplicado?</p>
+            <p className="text-xs leading-relaxed text-muted-foreground">
               Este prospecto saldrá de la revisión como duplicado. No se creará empresa en SellUp ni
               se sincronizará con HubSpot.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button
+              type="button"
               size="sm"
+              variant="warning"
               onClick={doMarkDuplicate}
               disabled={markingDuplicate}
-              variant="warning"
+              aria-busy={markingDuplicate}
             >
               {markingDuplicate ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <Loader2 className="animate-spin" aria-hidden="true" />
               ) : (
-                <Copy className="h-3.5 w-3.5" />
+                <Copy aria-hidden="true" />
               )}
               Confirmar duplicado
             </Button>
@@ -553,12 +554,13 @@ export function ProspectReviewActions({
           <div className="flex flex-wrap items-center gap-2">
             {/* Primary — the only enabled action, and only when eligible. */}
             <Button
+              type="button"
               size="sm"
               onClick={() => setConfirming(true)}
               disabled={!view.canApprove}
               title={view.canApprove ? undefined : 'No disponible para este candidato'}
-              className="disabled:cursor-not-allowed disabled:opacity-60">
-              <CheckCircle2 className="h-3.5 w-3.5" />
+            >
+              <CheckCircle2 aria-hidden="true" />
               Aprobar
             </Button>
 
@@ -567,23 +569,23 @@ export function ProspectReviewActions({
                 arms the inline discard confirmation; it never discards directly.
                 Disabled (with the future-action hint) otherwise. */}
             <Button
-              variant="outline"
+              type="button"
+              variant="destructive"
               size="sm"
               onClick={() => setDiscardConfirming(true)}
               disabled={!view.canDiscard}
               title={view.canDiscard ? undefined : FUTURE_ACTION_HINT}
-              className="text-destructive disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <DISCARD_ACTION.icon className="h-3.5 w-3.5" />
+              <DISCARD_ACTION.icon aria-hidden="true" />
               {DISCARD_ACTION.label}
             </Button>
 
             {/* Remaining future actions collapsed into a small menu. */}
             <DropdownMenu>
               <DropdownMenuTrigger>
-                <Button variant="ghost" size="sm" className="text-muted-foreground">
+                <Button variant="ghost" size="sm">
                   Más acciones
-                  <ChevronDown className="h-3.5 w-3.5" />
+                  <ChevronDown aria-hidden="true" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="min-w-56">
@@ -614,7 +616,7 @@ export function ProspectReviewActions({
             </DropdownMenu>
           </div>
 
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs leading-relaxed text-muted-foreground">
             Puedes aprobar, descartar o marcar como duplicado este prospecto. Las demás acciones se
             habilitarán en próximos hitos.
           </p>

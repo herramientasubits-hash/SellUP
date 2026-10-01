@@ -16,8 +16,9 @@ aplica **pantalla por pantalla** para que el resto del producto se lea como el m
 |---|---|
 | Fondo de app | blanco azulado `#f7faff` + halo radial (`page-atmosphere`) |
 | Card / `SurfaceCard` / `MetricCard` / DataTable | `rounded-2xl border-border/60 bg-card shadow-card` |
-| Botón | `rounded-md` (10px), alto 40 (`sm` 32, `xs` 28). `destructive` es un tinte; el rojo sólido es `destructive-solid` (solo confirmación final) |
-| Input / Select / Textarea | alto 40, `rounded-md`, `bg-card` (oscuro: `bg-muted`) |
+| Botón | `rounded-md` (10px), alto 40 (`sm` 32, `xs` 28; iconos `icon` / `icon-sm` / `icon-xs`). `destructive` es un tinte; el rojo sólido es `destructive-solid` (solo confirmación final). Sólidos de estado: `success`, `warning` |
+| Input / Select / Textarea | alto 40, `rounded-md`, `bg-card` (oscuro: `bg-muted`). Compactos: `<Input inputSize="sm">`, `<SelectTrigger size="sm">` (32px, para barras de filtros) |
+| EmptyState | tarjeta punteada; `variant="plain"` sin marco para usarlo dentro de una card o tabla |
 | Drawer (`Sheet`, `DrawerShell`) | flota a 12px de los bordes, `rounded-2xl`, `shadow-drawer`, entra deslizando su ancho completo |
 | Diálogo | `rounded-2xl`, `shadow-drawer`, velo tenue con desenfoque de 2px, pie `bg-muted/40` |
 | Pestañas | pista `bg-tab-track`; activa = superficie elevada + texto primario. `segmented` = activa rellena de primario |
@@ -130,9 +131,22 @@ Una card anidada siempre redondea menos que la que la contiene. No hay radios ar
 ## 7. Cierre
 
 ```bash
+node scripts/check-design-system.mjs   # 0 hallazgos
 npm run lint
 npm run typecheck
 npm run build
 ```
 
 Revisar en claro y oscuro, y a 375px.
+
+### Qué comprueba el verificador
+
+`scripts/check-design-system.mjs` (portado de Thema) falla si encuentra: otra librería de interfaz o un
+primitivo headless fuera de `src/components/ui`; un color literal; paleta cruda de Tailwind; un tamaño de
+letra, un z-index, una sombra o un radio arbitrarios; un rótulo en MAYÚSCULAS con tracking; `font-black` /
+`font-extrabold`; clases `*-su-brand`; texto atenuado con opacidad; `text-white` a mano; o un
+`Button` / `Input` / `SelectTrigger` / `Badge` con radio, alto o tipografía sobrescritos por `className`.
+
+Las excepciones se declaran en el propio script (`ALLOW`), cada una con su motivo: el panel de marca del
+login, la identidad de IA (orbes y velos de carga), el logotipo de Google, los gráficos y dos archivos cuya
+cadena de clases está fijada por una prueba.

@@ -35,7 +35,7 @@ export default async function SourceCatalogPage() {
       description="Consulta el estado, cobertura y prioridad de las fuentes de datos usadas por SellUp para discovery, inventario, validación y señales comerciales."
       backHref="/settings"
       metrics={
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6">
           <MetricCard
             title="Total fuentes"
             description="Fuentes registradas en el catálogo"

@@ -98,7 +98,7 @@ function NameCell({ candidate }: { candidate: PendingContactCandidate }) {
             target="_blank"
             rel="noopener noreferrer"
             aria-label="Perfil de LinkedIn"
-            className="shrink-0 text-primary transition-colors hover:text-primary/70"
+            className="shrink-0 text-primary transition-colors hover:text-primary"
             onClick={(e) => e.stopPropagation()}
           >
             <Link2 className="h-3 w-3" />
@@ -415,7 +415,7 @@ export function ContactCandidatesDataTableClient({
           title={queueCopy.emptyTitle}
           description={queueCopy.emptyBody}
           action={queueCopy.showEnrichmentCta ? <ContactsEnrichmentCTA /> : undefined}
-          className="border-0 bg-transparent p-8"
+          variant="plain"
         />
       }
     />

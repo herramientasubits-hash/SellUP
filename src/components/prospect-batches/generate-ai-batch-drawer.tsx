@@ -136,7 +136,7 @@ function ThinkingStepsDisplay({ steps, isTyping }: { steps: string[]; isTyping: 
       ))}
       {isTyping && (
         <div className="flex items-start gap-2 text-xs text-muted-foreground animate-su-fade-in">
-          <Loader2 className="h-3.5 w-3.5 mt-0.5 shrink-0 animate-spin text-primary/60" />
+          <Loader2 className="h-3.5 w-3.5 mt-0.5 shrink-0 animate-spin text-primary" />
           <span className="leading-relaxed flex items-center gap-0.5">
             Pensando
             <span className="animate-pulse">…</span>

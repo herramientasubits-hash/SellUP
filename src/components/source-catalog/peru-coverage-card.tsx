@@ -13,6 +13,7 @@ import type {
   CoverageSourceReason,
   PeruSourceCoverageSummary,
 } from '@/server/services/peru-source-coverage-summary';
+import { Building2, type LucideIcon } from 'lucide-react';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 
 // ---------------------------------------------------------------------------
@@ -65,9 +66,9 @@ export function formatActiveHabidoDetail(activeHabidoRows: number, auditedActive
 
 function FieldRow({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="flex items-baseline justify-between gap-4 py-1.5 border-b border-border/50 last:border-0">
-      <dt className="text-xs text-muted-foreground shrink-0">{label}</dt>
-      <dd className="text-xs font-medium text-foreground text-right tabular-nums">{value}</dd>
+    <div className="grid grid-cols-2 items-baseline gap-x-4 py-2">
+      <dt className="min-w-0 text-xs text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 break-words text-right text-xs font-medium tabular-nums text-foreground">{value}</dd>
     </div>
   );
 }
@@ -82,10 +83,10 @@ function CoverageMetric({
   detail: string;
 }) {
   return (
-    <div className="py-2 border-b border-border/50">
-      <div className="flex items-baseline justify-between gap-4">
-        <dt className="text-xs text-muted-foreground shrink-0">{label}</dt>
-        <dd className="text-xs font-medium text-foreground text-right tabular-nums">
+    <div className="py-2">
+      <div className="grid grid-cols-2 items-baseline gap-x-4">
+        <dt className="min-w-0 text-xs text-muted-foreground">{label}</dt>
+        <dd className="min-w-0 break-words text-right text-xs font-medium tabular-nums text-foreground">
           {formatCoveragePercent(percent)}
         </dd>
       </div>
@@ -94,10 +95,39 @@ function CoverageMetric({
   );
 }
 
+function CoverageCardHeader({
+  icon: Icon,
+  title,
+  description,
+  actions,
+}: {
+  icon: LucideIcon;
+  title: string;
+  description?: string;
+  actions?: React.ReactNode;
+}) {
+  return (
+    <div className="mb-5 flex items-start gap-3">
+      <span
+        aria-hidden="true"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-inset ring-border/40"
+      >
+        <Icon className="h-4 w-4" />
+      </span>
+      <SurfaceCardHeader
+        title={title}
+        description={description}
+        actions={actions}
+        className="mb-0 min-w-0 flex-1 flex-wrap"
+      />
+    </div>
+  );
+}
+
 function GuardrailItem({ text }: { text: string }) {
   return (
     <li className="flex gap-2 text-xs text-muted-foreground">
-      <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-warning/50" />
+      <span aria-hidden="true" className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-warning" />
       {text}
     </li>
   );
@@ -115,8 +145,8 @@ export function PeruCoverageCard({ summary, error }: Props) {
   if (error || !summary) {
     return (
       <SurfaceCard>
-        <SurfaceCardHeader title="Cobertura Perú — SUNAT + Migo" />
-        <p className="text-sm text-muted-foreground">
+        <CoverageCardHeader icon={Building2} title="Cobertura Perú — SUNAT + Migo" />
+        <p className="rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           No fue posible cargar la cobertura Perú en este momento.
         </p>
       </SurfaceCard>
@@ -128,21 +158,22 @@ export function PeruCoverageCard({ summary, error }: Props) {
 
   return (
     <SurfaceCard>
-      <SurfaceCardHeader
+      <CoverageCardHeader
+        icon={Building2}
         title="Cobertura Perú — SUNAT + Migo"
         description="Indicador de solo lectura. Los datos se actualizan al cargar el próximo lote SUNAT."
       />
 
-      <div className="space-y-6">
+      <div className="space-y-5">
         {/* SUNAT block */}
         <section aria-labelledby="peru-sunat-heading">
           <h3
             id="peru-sunat-heading"
-            className="text-xs font-semibold text-muted-foreground mb-3"
+            className="mb-1 text-sm font-semibold tracking-tight text-foreground"
           >
             SUNAT Padrón Reducido
           </h3>
-          <dl className="divide-y divide-border/20">
+          <dl className="divide-y divide-border/50">
             <FieldRow label="Filas cargadas" value={formatLoadedRows(sunat.loadedRows)} />
             <CoverageMetric
               label="Cobertura snapshot RUC-20"
@@ -174,11 +205,11 @@ export function PeruCoverageCard({ summary, error }: Props) {
         <section aria-labelledby="peru-migo-heading">
           <h3
             id="peru-migo-heading"
-            className="text-xs font-semibold text-muted-foreground mb-3"
+            className="mb-1 text-sm font-semibold tracking-tight text-foreground"
           >
             Migo API Perú
           </h3>
-          <dl className="divide-y divide-border/20">
+          <dl className="divide-y divide-border/50">
             <FieldRow label="Rol" value="Validación legal complementaria" />
             <FieldRow label="Configuración" value={migoLabel} />
           </dl>
@@ -188,7 +219,7 @@ export function PeruCoverageCard({ summary, error }: Props) {
         <section aria-labelledby="peru-guardrails-heading">
           <h3
             id="peru-guardrails-heading"
-            className="text-xs font-semibold text-muted-foreground mb-3"
+            className="mb-2 text-sm font-semibold tracking-tight text-foreground"
           >
             Guardrails
           </h3>

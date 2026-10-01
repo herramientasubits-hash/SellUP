@@ -62,13 +62,13 @@ export async function DiscardedProspectsPanel({ params }: DiscardedProspectsPane
       description="Empresas que el pipeline descartó automáticamente o que quedaron fuera de evaluación. Revísalas y envíalas de vuelta sin volver a buscar."
       tabs={<ModuleTabsNav active="descartadas" discardedCount={total} />}
       metrics={
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <MetricCard
             title="Descartadas en tu alcance"
             description="Total visible con tu alcance comercial"
             value={total}
             icon={
-              <div className="rounded-lg p-1.5 bg-primary/10">
+              <div className="rounded-xl bg-primary/10 p-1.5">
                 <Building2 className="h-4 w-4 text-primary" />
               </div>
             }
@@ -78,7 +78,7 @@ export async function DiscardedProspectsPanel({ params }: DiscardedProspectsPane
             description="Descartadas en el día"
             value={newToday}
             icon={
-              <div className="rounded-lg p-1.5 bg-success/10">
+              <div className="rounded-xl bg-success/10 p-1.5">
                 <Sparkles className="h-4 w-4 text-success" />
               </div>
             }
@@ -88,7 +88,7 @@ export async function DiscardedProspectsPanel({ params }: DiscardedProspectsPane
             description="Sin decisión humana"
             value={autoDiscarded}
             icon={
-              <div className="rounded-lg p-1.5 bg-surface-muted">
+              <div className="rounded-xl bg-surface-muted p-1.5">
                 <Ban className="h-4 w-4 text-muted-foreground" />
               </div>
             }
@@ -98,7 +98,7 @@ export async function DiscardedProspectsPanel({ params }: DiscardedProspectsPane
             description="Decisión humana en revisión"
             value={manualDiscards}
             icon={
-              <div className="rounded-lg p-1.5 bg-warning/10">
+              <div className="rounded-xl bg-warning/15 p-1.5">
                 <UserRoundX className="h-4 w-4 text-warning" />
               </div>
             }

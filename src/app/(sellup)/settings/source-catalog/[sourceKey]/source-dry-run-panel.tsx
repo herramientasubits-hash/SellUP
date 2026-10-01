@@ -20,10 +20,10 @@ import type { SafeDryRunReport } from '@/modules/source-catalog/source-credentia
 function SummaryRow({ label, value }: { label: string; value: string | number }) {
   return (
     <div>
-      <dt className="text-xs font-semibold text-muted-foreground mb-0.5">
+      <dt className="mb-0.5 text-xs font-medium text-muted-foreground">
         {label}
       </dt>
-      <dd className="text-sm font-medium text-foreground tabular-nums">{value}</dd>
+      <dd className="break-words text-sm font-medium tabular-nums text-foreground">{value}</dd>
     </div>
   );
 }
@@ -34,10 +34,10 @@ function SampleItemsTable({ items }: { items: SafeDryRunReport['sampleItems'] })
   if (items.length === 0) return null;
   return (
     <div className="space-y-1.5">
-      <p className="text-xs font-semibold text-muted-foreground">
+      <p className="text-xs font-semibold text-foreground">
         Muestra aceptados ({items.length})
       </p>
-      <div className="rounded-lg border border-border/60 divide-y divide-border/30 overflow-hidden">
+      <div className="divide-y divide-border/50 overflow-hidden rounded-xl border border-border/60">
         {items.map((item, i) => (
           <div key={i} className="px-3 py-2 text-xs">
             <span className="font-medium text-foreground">{item.name ?? '—'}</span>
@@ -59,10 +59,10 @@ function FilteredSamplesTable({ items }: { items: SafeDryRunReport['filteredSamp
   if (items.length === 0) return null;
   return (
     <div className="space-y-1.5">
-      <p className="text-xs font-semibold text-muted-foreground">
+      <p className="text-xs font-semibold text-foreground">
         Muestra filtrados ({items.length})
       </p>
-      <div className="rounded-lg border border-border/60 divide-y divide-border/30 overflow-hidden">
+      <div className="divide-y divide-border/50 overflow-hidden rounded-xl border border-border/60">
         {items.map((item, i) => (
           <div key={i} className="px-3 py-2 text-xs">
             <span className="font-medium text-foreground">{item.name ?? '—'}</span>
@@ -86,7 +86,7 @@ function DryRunReportView({ report }: { report: SafeDryRunReport }) {
   return (
     <div className="space-y-4">
       {/* Summary grid */}
-      <dl className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3 sm:grid-cols-4">
         <SummaryRow label="Leídos" value={s.recordsRead} />
         <SummaryRow label="Normalizados" value={s.normalizedCount} />
         <SummaryRow label="Aceptados" value={s.acceptedDraftsCount} />
@@ -99,7 +99,7 @@ function DryRunReportView({ report }: { report: SafeDryRunReport }) {
 
       {/* Warnings */}
       {report.warnings.length > 0 && (
-        <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 space-y-0.5">
+        <div className="rounded-xl border border-warning/25 bg-warning/15 px-4 py-3 space-y-0.5">
           {report.warnings.map((w, i) => (
             <p key={i} className="text-xs text-warning">{w}</p>
           ))}
@@ -112,7 +112,7 @@ function DryRunReportView({ report }: { report: SafeDryRunReport }) {
           <button
             type="button"
             onClick={() => setShowSamples((v) => !v)}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            className="flex items-center gap-1.5 rounded-md text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
           >
             {showSamples ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
             {showSamples ? 'Ocultar muestras' : 'Ver muestras'}
@@ -127,14 +127,14 @@ function DryRunReportView({ report }: { report: SafeDryRunReport }) {
       )}
 
       {/* Timestamp + connection source */}
-      <div className="flex items-center justify-between text-xs text-muted-foreground border-t border-border/60 pt-2">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-border/50 pt-3 text-xs text-muted-foreground">
         <span>
           Ejecutado: {new Intl.DateTimeFormat('es-CO', {
             day: '2-digit', month: 'short', year: 'numeric',
             hour: '2-digit', minute: '2-digit',
           }).format(new Date(report.executedAt))}
         </span>
-        <span className="font-mono">{report.sourceKey} · {report.countryCode}</span>
+        <span className="break-all font-mono">{report.sourceKey} · {report.countryCode}</span>
       </div>
     </div>
   );
@@ -171,10 +171,16 @@ export function SourceDryRunPanel({ sourceKey, hasStoredCredential, isAdmin }: P
 
   return (
     <SurfaceCard>
-      <SurfaceCardHeader
-        title="Dry-run de fuente"
-        description="Prueba controlada usando la credencial guardada. No crea candidatos ni lotes."
-      />
+      <div className="mb-5 flex items-start gap-3">
+        <span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-inset ring-border/40">
+          <FlaskConical className="h-4 w-4" />
+        </span>
+        <SurfaceCardHeader
+          title="Dry-run de fuente"
+          description="Prueba controlada usando la credencial guardada. No crea candidatos ni lotes."
+          className="mb-0 min-w-0 flex-1 flex-wrap"
+        />
+      </div>
 
       <div className="space-y-4">
         {/* Description */}
@@ -185,14 +191,14 @@ export function SourceDryRunPanel({ sourceKey, hasStoredCredential, isAdmin }: P
 
         {/* Guard states */}
         {!isAdmin && (
-          <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-surface-subtle px-3 py-2.5 text-xs text-muted-foreground">
+          <div className="flex items-start gap-2 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3 text-xs text-muted-foreground">
             <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             Solo administradores pueden ejecutar dry-runs de fuente.
           </div>
         )}
 
         {isAdmin && !hasStoredCredential && (
-          <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2.5 text-xs text-warning">
+          <div className="flex items-start gap-2 rounded-xl border border-warning/25 bg-warning/15 px-4 py-3 text-xs text-warning">
             <FlaskConical className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             Configura y verifica la credencial de API antes de ejecutar el dry-run.
           </div>
@@ -201,6 +207,7 @@ export function SourceDryRunPanel({ sourceKey, hasStoredCredential, isAdmin }: P
         {/* Action */}
         {canRun && (
           <Button
+            type="button"
             variant="outline"
             size="sm"
             onClick={handleRun}
@@ -222,7 +229,7 @@ export function SourceDryRunPanel({ sourceKey, hasStoredCredential, isAdmin }: P
 
         {/* Error */}
         {error && (
-          <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          <div className="flex items-start gap-2 rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-xs text-destructive">
             <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             {error}
           </div>
@@ -233,15 +240,15 @@ export function SourceDryRunPanel({ sourceKey, hasStoredCredential, isAdmin }: P
           <div className="space-y-3">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4 text-success" />
-              <span className="text-sm font-medium text-foreground">Dry-run completado</span>
+              <span className="text-sm font-semibold tracking-tight text-foreground">Dry-run completado</span>
             </div>
             <DryRunReportView report={report} />
           </div>
         )}
 
         {/* Disclaimer */}
-        <div className="flex items-center gap-1.5 border-t border-border/60 pt-3 text-xs text-muted-foreground">
-          <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
+        <div className="flex items-start gap-1.5 border-t border-border/50 pt-3 text-xs text-muted-foreground">
+          <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           No escribe en Supabase. No crea candidatos. El token nunca se muestra ni se registra.
         </div>
       </div>

@@ -30,7 +30,7 @@ export default async function AccessPendingPage() {
         acceso sea aprobado.
       </p>
 
-      <div className="mb-8 flex items-center justify-center gap-2 rounded-2xl border border-border/60 bg-card px-4 py-3 shadow-card">
+      <div className="mb-8 flex items-center justify-center gap-2 rounded-xl border border-border/60 bg-card px-4 py-3 shadow-card">
         <Mail className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         <span className="min-w-0 truncate text-sm text-foreground" title={user.email}>{user.email}</span>
       </div>

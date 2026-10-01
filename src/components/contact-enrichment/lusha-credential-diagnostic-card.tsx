@@ -451,7 +451,7 @@ export function LushaCredentialDiagnosticCard() {
               </div>
             )}
             {safeDetails.rpcErrorMessage && (
-              <p className="text-xs text-destructive/80 break-words">
+              <p className="text-xs text-destructive break-words">
                 {safeDetails.rpcErrorMessage}
               </p>
             )}
@@ -511,7 +511,7 @@ export function LushaCredentialDiagnosticCard() {
               </div>
             )}
             {safeDetails.exceptionMessage && (
-              <p className="text-xs text-destructive/80 break-words">{safeDetails.exceptionMessage}</p>
+              <p className="text-xs text-destructive break-words">{safeDetails.exceptionMessage}</p>
             )}
           </div>
         </>

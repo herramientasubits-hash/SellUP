@@ -1,9 +1,11 @@
 import Link from 'next/link';
 import { Database, XCircle, CheckCircle2, FlaskConical, Layers, Lock } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
-import { SurfaceCard } from '@/components/shared/surface-card';
+import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { MetricCard } from '@/components/shared/metric-card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
 import { getSocrataPreviewBatches } from '@/modules/source-catalog/socrata-batches-queries';
 import {
   BATCH_STATUS_LABELS,
@@ -53,7 +55,7 @@ export default async function SocrataBatchesPage() {
   ];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <PageHeader
         title="Lotes Socrata"
         description="Vista de revisión interna para lotes creados desde fuentes estructuradas. No aprueba, no asigna y no sincroniza con HubSpot."
@@ -61,8 +63,8 @@ export default async function SocrataBatchesPage() {
       />
 
       {/* Read-only warning */}
-      <div className="flex items-center gap-2.5 rounded-xl border border-border/60 bg-surface-subtle px-5 py-3.5">
-        <Lock className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <div className="flex items-start gap-2.5 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
+        <Lock aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <p className="text-xs text-muted-foreground">
           <span className="font-medium text-foreground">Solo lectura para candidatos.</span>{' '}
           No permite editar, aprobar, descartar ni sincronizar candidatos existentes.
@@ -70,15 +72,13 @@ export default async function SocrataBatchesPage() {
       </div>
 
       {/* Create batch — admin only */}
-      <div className="rounded-2xl border border-border/60 bg-card px-5 py-4">
-        <p className="mb-3 text-sm font-semibold text-foreground">
-          Crear lote de prueba
-        </p>
+      <SurfaceCard>
+        <SurfaceCardHeader title="Crear lote de prueba" className="mb-3" />
         <CreateSocrataBatchButton />
-      </div>
+      </SurfaceCard>
 
       {/* Metrics */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           title="Total lotes"
           description="Lotes creados en el sistema"
@@ -123,8 +123,8 @@ export default async function SocrataBatchesPage() {
 
       {/* Batches table */}
       <SurfaceCard noPadding>
-        <div className="border-b border-border/60 px-5 py-3.5">
-          <p className="text-sm font-semibold text-foreground">
+        <div className="border-b border-border/50 px-5 py-4">
+          <p className="text-base font-semibold leading-tight tracking-tight text-foreground">
             {batches.length === 0
               ? 'Aún no hay lotes Socrata creados.'
               : `Lotes Socrata · ${batches.length} lote${batches.length !== 1 ? 's' : ''}`}
@@ -132,42 +132,39 @@ export default async function SocrataBatchesPage() {
         </div>
 
         {batches.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-            <Database className="h-8 w-8 text-text-muted" />
-            <p className="text-sm text-muted-foreground">Aún no hay lotes Socrata creados.</p>
-          </div>
+          <EmptyState icon={Database} title="Aún no hay lotes Socrata creados." className="m-5" />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border/60 text-left">
-                  <th className="px-5 py-3 text-xs font-semibold text-muted-foreground">
+                <tr className="border-b border-border/50 bg-surface-subtle text-left">
+                  <th scope="col" className="whitespace-nowrap px-5 py-3 text-xs font-semibold text-muted-foreground">
                     Nombre
                   </th>
-                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground">
+                  <th scope="col" className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-muted-foreground">
                     Estado
                   </th>
-                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground">
+                  <th scope="col" className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-muted-foreground">
                     Dataset
                   </th>
-                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground">
+                  <th scope="col" className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-muted-foreground">
                     Candidatos
                   </th>
-                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground">
+                  <th scope="col" className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-muted-foreground">
                     Preview
                   </th>
-                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground">
+                  <th scope="col" className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-muted-foreground">
                     Smoke / Rollback
                   </th>
-                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground">
+                  <th scope="col" className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-muted-foreground">
                     Fecha
                   </th>
-                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground">
+                  <th scope="col" className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-muted-foreground">
                     &nbsp;
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border/30">
+              <tbody className="divide-y divide-border/50">
                 {batches.map((batch) => (
                   <tr
                     key={batch.id}
@@ -182,11 +179,9 @@ export default async function SocrataBatchesPage() {
                       )}
                     </td>
                     <td className="px-4 py-3.5">
-                      <span
-                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${batchStatusBadgeClass(batch.status)}`}
-                      >
+                      <Badge variant="outline" className={batchStatusBadgeClass(batch.status)}>
                         {BATCH_STATUS_LABELS[batch.status] ?? batch.status}
-                      </span>
+                      </Badge>
                     </td>
                     <td className="px-4 py-3.5">
                       <span className="font-mono text-xs text-muted-foreground">
@@ -231,12 +226,11 @@ export default async function SocrataBatchesPage() {
                       {formatShortDate(batch.createdAt)}
                     </td>
                     <td className="px-4 py-3.5">
-                      <Link
-                        href={`/settings/source-catalog/socrata-batches/${batch.id}`}
-                        className="rounded-md px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
-                      >
-                        Ver detalle
-                      </Link>
+                      <Button asChild variant="ghost" size="xs">
+                        <Link href={`/settings/source-catalog/socrata-batches/${batch.id}`}>
+                          Ver detalle
+                        </Link>
+                      </Button>
                     </td>
                   </tr>
                 ))}

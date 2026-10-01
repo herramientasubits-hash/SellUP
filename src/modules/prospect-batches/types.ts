@@ -558,13 +558,13 @@ export const REVIEW_STATUS_LABELS: Record<ReviewStatus, string> = {
 };
 
 export const REVIEW_STATUS_STYLES: Record<ReviewStatus, string> = {
-  needs_manual_review: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-  ready_for_approval: 'bg-su-brand-soft text-su-brand',
-  approved: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-  rejected: 'bg-muted/60 text-muted-foreground/60',
-  blocked_duplicate: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
+  needs_manual_review: 'bg-warning/10 text-warning',
+  ready_for_approval: 'bg-primary/10 text-primary',
+  approved: 'bg-success/10 text-success',
+  rejected: 'bg-surface-muted text-muted-foreground',
+  blocked_duplicate: 'bg-warning/10 text-warning',
   blocked_customer: 'bg-destructive/10 text-destructive',
-  synced_to_hubspot: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+  synced_to_hubspot: 'bg-success/10 text-success',
 };
 
 export const CRITICAL_REVIEW_FLAG_LABELS: Partial<Record<string, string>> = {

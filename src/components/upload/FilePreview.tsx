@@ -135,7 +135,7 @@ export function FilePreview({
   // Default: Card variant
   return (
     <div className={cn(
-      "flex flex-col p-4 rounded-2xl border bg-card border-border/60 shadow-card transition-all",
+      "flex flex-col p-4 rounded-xl border bg-card border-border/60 shadow-card transition-all",
       hasError && "border-destructive/20 ring-1 ring-destructive/20",
       !disabled && !hasError && "hover:border-primary/30",
       disabled && "opacity-50 grayscale-[0.5]",

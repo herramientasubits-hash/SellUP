@@ -61,7 +61,7 @@ export function HubSpotCompanyMatchReviewBanner({
         &raquo;
         {pendingMatch.domain ? ` (${pendingMatch.domain})` : ''}
       </AlertTitle>
-      <AlertDescription className="text-xs leading-relaxed text-warning/80">
+      <AlertDescription className="text-xs leading-relaxed text-warning">
         Coincidencia por {pendingMatch.matchMethod}, confianza {pendingMatch.confidence}%.
         &iquest;Es la misma empresa?
       </AlertDescription>

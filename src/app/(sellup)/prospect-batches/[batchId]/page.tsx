@@ -608,7 +608,7 @@ export default async function BatchDetailPage({ params }: Props) {
         POR QUÉ el clasificador de calidad las señala.
       */}
       {qualityFlaggedCandidates.length > 0 && (
-        <details className="group rounded-2xl border border-border/60 bg-card p-4">
+        <details className="group rounded-xl border border-border/60 bg-card p-4">
           <summary className="flex cursor-pointer items-center justify-between rounded-md text-xs font-semibold text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
             <span className="flex items-center gap-2">
               <span>Empresas señaladas por calidad ({qualityFlaggedCandidates.length})</span>

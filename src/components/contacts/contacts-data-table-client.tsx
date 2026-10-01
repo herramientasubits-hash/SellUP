@@ -509,7 +509,7 @@ export function ContactsDataTableClient({
             icon={Info}
             title="Sin contactos todavía"
             description="Crea contactos manualmente desde una cuenta o agrégales aquí vinculándolos a una cuenta."
-            className="border-0 bg-transparent p-8"
+            variant="plain"
           />
         }
       />

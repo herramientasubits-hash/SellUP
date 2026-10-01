@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { SurfaceCard } from '@/components/shared/surface-card';
+import { Badge } from '@/components/ui/badge';
 import { AutomationModeControl } from './automation-mode-control';
 import {
   EXECUTION_MODE_LABELS,
@@ -12,31 +13,29 @@ import {
 } from '@/modules/automations/types';
 
 function ExecutionModeBadge({ mode }: { mode: AutomationExecutionMode }) {
-  const styles: Record<AutomationExecutionMode, string> = {
-    manual: 'border-border/60 bg-surface-subtle text-muted-foreground',
-    suggested: 'border-primary/30 bg-primary/10 text-primary',
-    automatic: 'border-success/30 bg-success/10 text-success',
+  const variants: Record<AutomationExecutionMode, 'neutral' | 'brand' | 'positive'> = {
+    manual: 'neutral',
+    suggested: 'brand',
+    automatic: 'positive',
   };
   const dotStyles: Record<AutomationExecutionMode, string> = {
-    manual: 'bg-muted-foreground/40',
+    manual: 'bg-muted-foreground',
     suggested: 'bg-primary',
     automatic: 'bg-success',
   };
 
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${styles[mode]}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${dotStyles[mode]}`} />
+    <Badge variant={variants[mode]}>
+      <span className={`h-1.5 w-1.5 rounded-full ${dotStyles[mode]}`} aria-hidden="true" />
       {EXECUTION_MODE_LABELS[mode]}
-    </span>
+    </Badge>
   );
 }
 
 function DependencyTag({ label, active }: { label: string; active: boolean }) {
   if (!active) return null;
   return (
-    <span className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-surface-subtle px-1.5 py-0.5 text-xs text-muted-foreground">
-      {label}
-    </span>
+    <Badge variant="neutral">{label}</Badge>
   );
 }
 
@@ -62,7 +61,7 @@ export function AutomationCard({ automation }: { automation: SystemAutomation })
             <ExecutionModeBadge mode={displayMode} />
           </div>
 
-          <h3 className="text-sm font-semibold text-foreground">{automation.name}</h3>
+          <h3 className="text-base font-semibold tracking-tight text-foreground">{automation.name}</h3>
 
           {automation.description && (
             <p className="text-xs leading-relaxed text-muted-foreground">
@@ -70,11 +69,11 @@ export function AutomationCard({ automation }: { automation: SystemAutomation })
             </p>
           )}
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             <span className="text-xs text-muted-foreground">
               Trigger:
             </span>
-            <code className="rounded bg-surface-subtle px-1.5 py-0.5 text-xs text-muted-foreground">
+            <code className="min-w-0 break-all rounded-sm bg-surface-subtle px-1.5 py-0.5 text-xs text-muted-foreground">
               {automation.trigger_key}
             </code>
           </div>
@@ -96,7 +95,7 @@ export function AutomationCard({ automation }: { automation: SystemAutomation })
         </div>
 
         {/* Control */}
-        <div className="flex shrink-0 flex-col items-end gap-1.5">
+        <div className="flex shrink-0 flex-col items-start gap-1.5 sm:items-end">
           <AutomationModeControl
             automationId={automation.id}
             automationName={automation.name}
@@ -104,7 +103,7 @@ export function AutomationCard({ automation }: { automation: SystemAutomation })
             onModeChange={setDisplayMode}
           />
           {automation.updated_at && (
-            <span className="text-xs text-muted-foreground">
+            <span className="text-xs tabular-nums text-muted-foreground">
               Actualizado{' '}
               {new Date(automation.updated_at).toLocaleDateString('es-ES', {
                 day: '2-digit',

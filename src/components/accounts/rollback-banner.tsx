@@ -33,7 +33,7 @@ export function RollbackBanner({ metadata, hubspotCompanyId }: RollbackBannerPro
       {/* Banner principal */}
       <Alert variant="warning">
         <AlertTitle className="text-sm">Account no operativa · rollback lógico</AlertTitle>
-        <AlertDescription className="text-xs leading-relaxed text-warning/80">
+        <AlertDescription className="text-xs leading-relaxed text-warning">
           Esta account fue creada desde un candidato estructurado y luego revertida mediante
           rollback lógico. Los datos se conservan para auditoría, pero no debe usarse como
           cuenta activa.
@@ -69,7 +69,7 @@ export function RollbackBanner({ metadata, hubspotCompanyId }: RollbackBannerPro
       {hubspotCompanyId && (
         <Alert variant="warning">
           <AlertTitle className="text-xs">Referencia HubSpot sin rollback</AlertTitle>
-          <AlertDescription className="text-xs leading-relaxed text-warning/80">
+          <AlertDescription className="text-xs leading-relaxed text-warning">
             Esta account tiene referencia HubSpot (
             <span className="font-mono">{hubspotCompanyId}</span>
             ). No se realizó rollback en HubSpot — la entrada puede seguir activa allí.
@@ -91,7 +91,7 @@ function RollbackDetail({
 }) {
   return (
     <div className={className}>
-      <dt className="text-xs font-semibold text-warning/80">
+      <dt className="text-xs font-semibold text-warning">
         {label}
       </dt>
       <dd className="mt-0.5 text-xs text-warning">{children}</dd>

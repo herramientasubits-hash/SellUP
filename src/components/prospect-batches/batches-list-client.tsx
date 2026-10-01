@@ -55,7 +55,8 @@ function EmptyState() {
       icon={Layers}
       title="Sin lotes todavía"
       description="Todavía no hay lotes de prospectos. Crea un lote manualmente o, más adelante, genera prospectos con IA."
-      className="m-4 border-0 bg-transparent py-16"
+      variant="plain"
+      className="py-16"
     />
   );
 }

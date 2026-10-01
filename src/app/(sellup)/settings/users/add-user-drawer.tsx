@@ -127,7 +127,7 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
     >
       <div className="space-y-4">
         {/* Identity preview */}
-        <div className="flex items-center gap-4 rounded-2xl border border-border/60 bg-surface-subtle px-4 py-3">
+        <div className="flex items-center gap-4 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
           <Avatar className="h-12 w-12 shrink-0">
             <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">
               {previewInitials}

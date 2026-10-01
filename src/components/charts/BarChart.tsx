@@ -48,6 +48,11 @@ export interface BarChartProps {
   onChartReady?: (instance: EChartsInstance) => void;
 }
 
+/** Grosor máximo de barra: con pocas categorías no se vuelven bloques. */
+const BAR_MAX_WIDTH = 36;
+/** Radio del extremo libre de la barra (escala Thema: 6px). El color viene del tema (`--chart-1..5`). */
+const BAR_RADIUS = 6;
+
 /**
  * BarChart
  *
@@ -108,6 +113,8 @@ export function BarChart({
             type: "bar",
             name: seriesName,
             stack: stacked ? "total" : undefined,
+            barMaxWidth: BAR_MAX_WIDTH,
+            itemStyle: { borderRadius: [0, BAR_RADIUS, BAR_RADIUS, 0] },
           },
         ],
       };
@@ -122,6 +129,8 @@ export function BarChart({
             type: "bar",
             name: seriesName,
             stack: stacked ? "total" : undefined,
+            barMaxWidth: BAR_MAX_WIDTH,
+            itemStyle: { borderRadius: [BAR_RADIUS, BAR_RADIUS, 0, 0] },
           },
         ],
       };
@@ -135,7 +144,7 @@ export function BarChart({
       option={option}
       height={height}
       loading={loading}
-      empty={empty}
+      empty={empty || !data || data.length === 0}
       error={error}
       ariaLabel={ariaLabel ?? title}
       summary={summary}

@@ -567,7 +567,7 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
             icon={Building2}
             title="Sin cuentas todavía"
             description="Crea una cuenta manualmente o, más adelante, genera prospectos con IA."
-            className="border-0 bg-transparent p-8"
+            variant="plain"
           />
         }
       />

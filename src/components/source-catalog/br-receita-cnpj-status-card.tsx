@@ -20,7 +20,8 @@
  * Hito: BR-SOURCE-8-UI
  */
 
-import { CheckCircle2, Lock } from 'lucide-react';
+import { CheckCircle2, Lock, ShieldCheck, type LucideIcon } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 
 export const BR_RECEITA_CNPJ_SOURCE_KEY = 'br_receita_dados_abertos';
@@ -123,34 +124,64 @@ export function isBrReceitaLiveGenerationEnabled(): boolean {
   return false;
 }
 
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function CoverageCardHeader({
+  icon: Icon,
+  title,
+  description,
+  actions,
+}: {
+  icon: LucideIcon;
+  title: string;
+  description?: string;
+  actions?: React.ReactNode;
+}) {
+  return (
+    <div className="mb-5 flex items-start gap-3">
+      <span
+        aria-hidden="true"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-inset ring-border/40"
+      >
+        <Icon className="h-4 w-4" />
+      </span>
+      <SurfaceCardHeader
+        title={title}
+        description={description}
+        actions={actions}
+        className="mb-0 min-w-0 flex-1 flex-wrap"
+      />
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function BrReceitaCnpjStatusCard() {
   return (
     <SurfaceCard>
-      <SurfaceCardHeader
+      <CoverageCardHeader
+        icon={ShieldCheck}
         title="Estado técnico — Brasil · Receita CNPJ"
         description="Preparación técnica / dry-run local listo. La fuente aún no importa, no escribe en Supabase y no alimenta el runtime de prospección."
       />
 
-      <div className="mb-4 rounded-md border border-border/50 bg-surface-subtle px-3 py-2.5">
-        <p className="text-xs font-semibold text-muted-foreground">
-          Reconciliación de clave
-        </p>
-        <dl className="mt-2 grid gap-2 sm:grid-cols-2">
-          <div>
+      <div className="mb-5 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
+        <h3 className="text-sm font-semibold tracking-tight text-foreground">Reconciliación de clave</h3>
+        <dl className="mt-2 grid gap-3 sm:grid-cols-2">
+          <div className="min-w-0">
             <dt className="text-xs text-muted-foreground">
               Clave de catálogo existente
             </dt>
-            <dd className="font-mono text-xs text-foreground">
+            <dd className="break-all font-mono text-xs text-foreground">
               {BR_RECEITA_REGISTRY_SOURCE_KEY}
             </dd>
           </div>
-          <div>
+          <div className="min-w-0">
             <dt className="text-xs text-muted-foreground">
               Clave técnica canónica
             </dt>
-            <dd className="font-mono text-xs text-foreground">
+            <dd className="break-all font-mono text-xs text-foreground">
               {BR_RECEITA_CANONICAL_TECHNICAL_SOURCE_KEY}
             </dd>
           </div>
@@ -164,15 +195,13 @@ export function BrReceitaCnpjStatusCard() {
         {BR_RECEITA_READY_ITEMS.map((item) => (
           <div
             key={item.label}
-            className="flex items-start gap-2.5 rounded-md border border-success/20 bg-success/[0.06] px-3 py-2.5"
+            className="flex items-start gap-2.5 rounded-lg border border-success/20 bg-success/10 px-3 py-2.5"
           >
-            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+            <CheckCircle2 aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-success" />
             <div className="min-w-0">
-              <dt className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <dt className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
                 {item.label}
-                <span className="inline-flex items-center rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
-                  Listo
-                </span>
+                <Badge variant="positive">Listo</Badge>
               </dt>
               <dd className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
                 {item.detail}
@@ -184,15 +213,13 @@ export function BrReceitaCnpjStatusCard() {
         {BR_RECEITA_BLOCKED_ITEMS.map((item) => (
           <div
             key={item.label}
-            className="flex items-start gap-2.5 rounded-md border border-border/50 bg-surface-subtle px-3 py-2.5"
+            className="flex items-start gap-2.5 rounded-lg border border-border/60 bg-surface-subtle px-3 py-2.5"
           >
-            <Lock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+            <Lock aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
             <div className="min-w-0">
-              <dt className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <dt className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
                 {item.label}
-                <span className="inline-flex items-center rounded-full border border-border/50 bg-surface-subtle px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                  Bloqueado
-                </span>
+                <Badge variant="neutral">Bloqueado</Badge>
               </dt>
               <dd className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
                 {item.detail}
@@ -202,7 +229,7 @@ export function BrReceitaCnpjStatusCard() {
         ))}
       </dl>
 
-      <p className="mt-4 rounded-md border border-warning/20 bg-warning/[0.06] px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
+      <p className="mt-5 rounded-xl border border-warning/25 bg-warning/15 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
         Esta fuente está preparada técnicamente para validaciones locales y
         dry-run, pero todavía no ejecuta importaciones, no escribe en Supabase y
         no alimenta el runtime de prospección. La importación, el runtime, la

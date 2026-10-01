@@ -4,6 +4,8 @@ import * as React from 'react';
 import { type ColumnDef } from '@tanstack/react-table';
 import { Copy, ExternalLink, ArrowRight } from 'lucide-react';
 import { DataTable, DataTableColumnHeader, TruncatedCell, type DataTableContextMenuItem } from '@/components/data-table';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import type { SourceCatalogViewModel, SourceViewModel, SourceStatusOverrides } from '@/modules/source-catalog/queries';
 import type { SourceConnectionLatestViewModel } from '@/modules/source-catalog/history-queries';
@@ -35,12 +37,10 @@ type Row = SourceViewModel & {
 
 function StatusBadge({ status }: { status: SourceViewModel['operationalStatus'] }) {
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap ${operationalStatusBadgeClass(status)}`}
-    >
-      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${operationalStatusDotClass(status)}`} />
+    <Badge variant="outline" className={operationalStatusBadgeClass(status)}>
+      <span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${operationalStatusDotClass(status)}`} />
       {OPERATIONAL_STATUS_LABELS[status]}
-    </span>
+    </Badge>
   );
 }
 
@@ -165,7 +165,7 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
               type="button"
               onClick={() => openDetail(row.original)}
               title={row.original.name}
-              className="block w-full truncate text-sm font-medium text-foreground hover:text-primary transition-colors text-left"
+              className="block w-full truncate rounded-sm text-left text-sm font-medium text-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
             >
               {row.original.name}
             </button>
@@ -330,15 +330,16 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
           // "Conectar" es la única acción con estilo primario porque inicia una
           // conexión real; el resto son enlaces ghost que abren el detalle
           // (solo lectura). Ninguna dispara una conexión.
-          const className =
-            action.kind === 'connect'
-              ? 'inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary hover:text-primary-foreground transition-colors whitespace-nowrap'
-              : 'inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap';
           return (
-            <button type="button" onClick={() => openDetail(row.original)} className={className}>
+            <Button
+              type="button"
+              size="xs"
+              variant={action.kind === 'connect' ? 'default' : 'ghost'}
+              onClick={() => openDetail(row.original)}
+            >
               {action.label}
-              <ArrowRight className="h-3 w-3" />
-            </button>
+              <ArrowRight aria-hidden="true" />
+            </Button>
           );
         },
         size: 120,

@@ -19,6 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -261,29 +262,27 @@ export function ApolloProviderCard({ connection: initialConnection, description 
           title="Apollo.io"
           description={description ?? undefined}
           actions={
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${status.badgeClass}`}
-            >
-              <span className={`h-1.5 w-1.5 rounded-full ${status.dotClass}`} />
+            <Badge variant="outline" className={status.badgeClass}>
+              <span className={`h-1.5 w-1.5 rounded-full ${status.dotClass}`} aria-hidden="true" />
               {status.label}
-            </span>
+            </Badge>
           }
         />
 
         {/* Tipo de proveedor */}
-        <div className="flex items-center gap-2 mb-4">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/60 text-muted-foreground">
-            <Search className="h-4 w-4" />
+        <div className="mb-4 flex min-w-0 items-center gap-2">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-surface-muted text-muted-foreground">
+            <Search className="h-4 w-4" aria-hidden="true" />
           </div>
-          <span className="text-xs text-muted-foreground">
+          <span className="min-w-0 text-xs text-muted-foreground">
             Enriquecimiento empresarial · discovery experimental
           </span>
         </div>
 
         {/* Error message */}
         {connection?.connection_status === 'error' && connection.last_connection_error && (
-          <div className="mb-4 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2">
-            <p className="text-xs text-destructive line-clamp-2">
+          <div className="mb-4 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2">
+            <p className="line-clamp-2 break-words text-xs text-destructive">
               {connection.last_connection_error}
             </p>
           </div>
@@ -291,7 +290,7 @@ export function ApolloProviderCard({ connection: initialConnection, description 
 
         {/* Última prueba */}
         {connection?.last_tested_at && (
-          <p className="mb-4 text-xs text-muted-foreground">
+          <p className="mb-4 text-xs tabular-nums text-muted-foreground">
             Última prueba:{' '}
             {new Date(connection.last_tested_at).toLocaleString('es-ES', {
               day: 'numeric',
@@ -306,41 +305,43 @@ export function ApolloProviderCard({ connection: initialConnection, description 
         <div className="flex flex-wrap gap-2">
           {!configured ? (
             <Button
- size="sm"
- onClick={() => openDialog('connect')}
- disabled={isPending}>
+              type="button"
+              size="sm"
+              onClick={() => openDialog('connect')}
+              disabled={isPending}
+            >
               Conectar Apollo
             </Button>
           ) : (
             <>
               <Button
+                type="button"
                 size="sm"
                 variant="outline"
                 onClick={handleTestConnection}
                 disabled={isPending}
-                className="gap-1.5"
               >
-                <RefreshCw className={`h-3.5 w-3.5 ${isPending ? 'animate-spin' : ''}`} />
+                <RefreshCw className={isPending ? 'animate-spin' : undefined} aria-hidden="true" />
                 Probar conexión
               </Button>
               <Button
+                type="button"
                 size="sm"
                 variant="outline"
                 onClick={() => openDialog('update')}
                 disabled={isPending}
-                className="gap-1.5"
               >
-                <KeyRound className="h-3.5 w-3.5" />
+                <KeyRound aria-hidden="true" />
                 Actualizar API Key
               </Button>
               <Button
+                type="button"
                 size="sm"
-                variant="outline"
+                variant="destructive"
                 onClick={handleDisconnect}
                 disabled={isPending}
-                className="gap-1.5 text-destructive hover:text-destructive hover:border-destructive/40"
               >
-                <Unplug className="h-3.5 w-3.5" />
+                <Unplug aria-hidden="true" />
                 Desconectar
               </Button>
             </>
@@ -351,10 +352,8 @@ export function ApolloProviderCard({ connection: initialConnection, description 
       {/* Toast */}
       {toast && (
         <div
-          className={`fixed bottom-6 right-6 z-50 max-w-sm rounded-2xl border px-4 py-3 shadow-drawer animate-su-slide-in ${
-            toast.type === 'success'
-              ? 'border-success/30 bg-card text-success'
-              : 'border-destructive/30 bg-card text-destructive'
+          className={`fixed bottom-6 right-6 z-50 max-w-sm rounded-xl border border-border/60 bg-popover px-4 py-3 shadow-drawer animate-su-slide-in ${
+            toast.type === 'success' ? 'text-success' : 'text-destructive'
           }`}
         >
           <p className="text-sm font-medium">{toast.message}</p>
@@ -377,7 +376,7 @@ export function ApolloProviderCard({ connection: initialConnection, description 
 
           <div className="space-y-3 py-2">
             <div className="space-y-1.5">
-              <Label htmlFor="apollo-api-key" className="text-sm font-medium">
+              <Label htmlFor="apollo-api-key">
                 API Key
               </Label>
               <Input
@@ -388,24 +387,26 @@ export function ApolloProviderCard({ connection: initialConnection, description 
                 onChange={(e) => setApiKeyInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSaveCredential()}
                 autoComplete="off"
-                className="font-mono text-sm"
+                className="font-mono"
               />
             </div>
 
-            <p className="text-xs text-muted-foreground leading-relaxed">
+            <p className="text-xs leading-relaxed text-muted-foreground">
               El acceso a endpoints específicos y el consumo de créditos dependen del
               plan de Apollo configurado para esta API Key.
             </p>
           </div>
 
           <DialogFooter>
-            <Button variant="outline" size="sm" onClick={closeDialog} disabled={isPending}>
+            <Button type="button" variant="outline" size="sm" onClick={closeDialog} disabled={isPending}>
               Cancelar
             </Button>
             <Button
- size="sm"
- onClick={handleSaveCredential}
- disabled={isPending || apiKeyInput.trim().length < 10}>
+              type="button"
+              size="sm"
+              onClick={handleSaveCredential}
+              disabled={isPending || apiKeyInput.trim().length < 10}
+            >
               {isPending ? 'Guardando...' : 'Guardar credencial'}
             </Button>
           </DialogFooter>

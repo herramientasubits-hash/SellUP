@@ -280,7 +280,8 @@ function EmptyState() {
       icon={Building2}
       title="Sin empresas candidatas"
       description={'Usa el botón "Agregar empresa candidata" para comenzar.'}
-      className="m-4 border-0 bg-transparent py-16"
+      variant="plain"
+      className="py-16"
     />
   );
 }

@@ -53,7 +53,7 @@ export function AIPanel({
             <EmptyState
               title="Sin insights disponibles"
               description="No se han detectado patrones o recomendaciones relevantes en este momento."
-              className="bg-transparent border-none shadow-none"
+              variant="plain"
             />
           )
         ) : (

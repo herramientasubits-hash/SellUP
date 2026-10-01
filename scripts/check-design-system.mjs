@@ -124,7 +124,7 @@ function walk(dir, out = []) {
     if (st.isDirectory()) {
       if (name === "node_modules" || name === ".next") continue;
       walk(full, out);
-    } else if (/\.(tsx|css)$/.test(name)) out.push(full);
+    } else if (/\.(tsx|ts|css)$/.test(name) && !name.endsWith(".d.ts")) out.push(full);
   }
   return out;
 }
@@ -146,11 +146,13 @@ function changedFiles() {
 
 const rel = (f) => relative(ROOT, f).split(sep).join("/");
 const targets = CHANGED_ONLY
-  ? changedFiles().filter((f) => /^src\/.*\.(tsx|css)$/.test(f)).map((f) => join(ROOT, f))
+  ? changedFiles().filter((f) => /^src\/.*\.(tsx|ts|css)$/.test(f)).map((f) => join(ROOT, f))
   : walk(join(ROOT, "src"));
 
 for (const full of targets) {
   const file = rel(full);
+  // Solo UI: los .ts de servidor, agentes y datos no llevan clases de estilo.
+  if (file.endsWith(".ts") && !/^src\/(components|app|modules|config|lib)\//.test(file)) continue;
   let text;
   try {
     text = readFileSync(full, "utf8");

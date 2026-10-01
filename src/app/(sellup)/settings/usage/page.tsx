@@ -4,6 +4,7 @@ import { PageHeader } from '@/components/shared/page-header';
 import { LegacyCompatBanner } from '../legacy-compat-banner';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { MetricCard } from '@/components/shared/metric-card';
+import { Badge } from '@/components/ui/badge';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { getUsageSummary, getRecentUsageActivity } from '@/modules/usage-tracking/actions';
 import type { AgentRun, ProviderUsageLog, ResultQualityEvent } from '@/modules/usage-tracking/types';
@@ -57,10 +58,10 @@ function StatusBadge({ status }: { status: string }) {
     dot: 'bg-muted-foreground/25',
   };
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${config.classes}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${config.dot}`} />
+    <Badge variant="outline" className={config.classes}>
+      <span className={`h-1.5 w-1.5 rounded-full ${config.dot}`} aria-hidden="true" />
       {config.label}
-    </span>
+    </Badge>
   );
 }
 
@@ -77,9 +78,9 @@ function EventTypeBadge({ type }: { type: string }) {
     contact_invalid:      'bg-destructive/10 text-destructive',
   };
   return (
-    <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${map[type] ?? 'bg-surface-subtle text-muted-foreground'}`}>
+    <Badge variant="outline" className={`border-transparent ${map[type] ?? 'bg-surface-subtle text-muted-foreground'}`}>
       {type.replace(/_/g, ' ')}
-    </span>
+    </Badge>
   );
 }
 
@@ -89,19 +90,19 @@ function EventTypeBadge({ type }: { type: string }) {
 
 function AgentRunsTable({ runs }: { runs: AgentRun[] }) {
   if (runs.length === 0) {
-    return <p className="text-xs text-muted-foreground py-4 text-center">Sin ejecuciones de agentes todavía.</p>;
+    return <p className="rounded-lg bg-surface-subtle px-4 py-6 text-center text-xs text-muted-foreground">Sin ejecuciones de agentes todavía.</p>;
   }
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs">
+      <table className="w-full text-xs tabular-nums">
         <thead>
           <tr className="border-b border-border/60">
             {['Agente', 'Estado', 'Generados', 'Aprobados', 'Costo est.', 'Hace'].map((h, i) => (
-              <th key={h} className={`pb-2 text-xs font-semibold text-muted-foreground ${i < 2 ? 'text-left' : 'text-right'} pr-4 last:pr-0`}>{h}</th>
+              <th key={h} className={`pb-2 text-xs font-semibold text-muted-foreground ${i < 2 ? 'text-left' : 'text-right'} whitespace-nowrap pr-4 last:pr-0`}>{h}</th>
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-border/20">
+        <tbody className="divide-y divide-border/50">
           {runs.map((run) => (
             <tr key={run.id}>
               <td className="py-2.5 pr-4 font-medium text-foreground">{run.agent_name ?? run.agent_key}</td>
@@ -120,22 +121,22 @@ function AgentRunsTable({ runs }: { runs: AgentRun[] }) {
 
 function ProviderLogsTable({ logs }: { logs: ProviderUsageLog[] }) {
   if (logs.length === 0) {
-    return <p className="text-xs text-muted-foreground py-4 text-center">Sin llamadas a proveedores todavía.</p>;
+    return <p className="rounded-lg bg-surface-subtle px-4 py-6 text-center text-xs text-muted-foreground">Sin llamadas a proveedores todavía.</p>;
   }
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs">
+      <table className="w-full text-xs tabular-nums">
         <thead>
           <tr className="border-b border-border/60">
             {['Proveedor', 'Operación', 'Estado', 'Resultados', 'Costo est.', 'Hace'].map((h, i) => (
-              <th key={h} className={`pb-2 text-xs font-semibold text-muted-foreground ${i < 3 ? 'text-left' : 'text-right'} pr-4 last:pr-0`}>{h}</th>
+              <th key={h} className={`pb-2 text-xs font-semibold text-muted-foreground ${i < 3 ? 'text-left' : 'text-right'} whitespace-nowrap pr-4 last:pr-0`}>{h}</th>
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-border/20">
+        <tbody className="divide-y divide-border/50">
           {logs.map((log) => (
             <tr key={log.id}>
-              <td className="py-2.5 pr-4 font-medium text-foreground capitalize">{log.provider_key}</td>
+              <td className="py-2.5 pr-4 font-medium capitalize text-foreground">{log.provider_key}</td>
               <td className="py-2.5 pr-4 text-muted-foreground">{log.operation_key.replace(/_/g, ' ')}</td>
               <td className="py-2.5 pr-4"><StatusBadge status={log.status} /></td>
               <td className="py-2.5 pr-4 text-right text-muted-foreground">{log.results_returned}</td>
@@ -159,25 +160,25 @@ function ProviderLogsTable({ logs }: { logs: ProviderUsageLog[] }) {
 
 function QualityEventsTable({ events }: { events: ResultQualityEvent[] }) {
   if (events.length === 0) {
-    return <p className="text-xs text-muted-foreground py-4 text-center">Sin eventos de calidad todavía.</p>;
+    return <p className="rounded-lg bg-surface-subtle px-4 py-6 text-center text-xs text-muted-foreground">Sin eventos de calidad todavía.</p>;
   }
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs">
+      <table className="w-full text-xs tabular-nums">
         <thead>
           <tr className="border-b border-border/60">
             {['Tipo', 'Evento', 'Fuente', 'Notas', 'Hace'].map((h, i) => (
-              <th key={h} className={`pb-2 text-xs font-semibold text-muted-foreground ${i < 4 ? 'text-left' : 'text-right'} pr-4 last:pr-0`}>{h}</th>
+              <th key={h} className={`pb-2 text-xs font-semibold text-muted-foreground ${i < 4 ? 'text-left' : 'text-right'} whitespace-nowrap pr-4 last:pr-0`}>{h}</th>
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-border/20">
+        <tbody className="divide-y divide-border/50">
           {events.map((ev) => (
             <tr key={ev.id}>
               <td className="py-2.5 pr-4 text-muted-foreground capitalize">{ev.result_type}</td>
               <td className="py-2.5 pr-4"><EventTypeBadge type={ev.event_type} /></td>
               <td className="py-2.5 pr-4 text-muted-foreground">{ev.source_key ?? '—'}</td>
-              <td className="py-2.5 pr-4 text-muted-foreground max-w-[200px] truncate">{ev.notes ?? '—'}</td>
+              <td className="py-2.5 pr-4 max-w-52 truncate text-muted-foreground" title={ev.notes ?? undefined}>{ev.notes ?? '—'}</td>
               <td className="py-2.5 text-right text-muted-foreground">{formatRelativeTime(ev.created_at)}</td>
             </tr>
           ))}
@@ -194,22 +195,22 @@ function QualityEventsTable({ events }: { events: ResultQualityEvent[] }) {
 function MockAgentsTable({ agents }: { agents: MockAgentStat[] }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs">
+      <table className="w-full text-xs tabular-nums">
         <thead>
           <tr className="border-b border-border/60">
             {['Agente', 'Estado', 'Ejec.', 'Generados', 'Aprobados', 'Efectividad', 'Costo est.', 'Costo / aprobado'].map((h, i) => (
-              <th key={h} className={`pb-2 text-xs font-semibold text-muted-foreground ${i < 2 ? 'text-left' : 'text-right'} pr-4 last:pr-0`}>{h}</th>
+              <th key={h} className={`pb-2 text-xs font-semibold text-muted-foreground ${i < 2 ? 'text-left' : 'text-right'} whitespace-nowrap pr-4 last:pr-0`}>{h}</th>
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-border/20">
+        <tbody className="divide-y divide-border/50">
           {agents.map((a) => (
             <tr key={a.key}>
               <td className="py-2.5 pr-4 font-medium text-foreground">{a.name}</td>
               <td className="py-2.5 pr-4"><StatusBadge status={a.status} /></td>
               <td className="py-2.5 pr-4 text-right text-muted-foreground">{a.executions}</td>
               <td className="py-2.5 pr-4 text-right text-muted-foreground">{a.resultsGenerated}</td>
-              <td className="py-2.5 pr-4 text-right text-foreground font-medium">{a.resultsApproved}</td>
+              <td className="py-2.5 pr-4 text-right font-medium text-foreground">{a.resultsApproved}</td>
               <td className="py-2.5 pr-4 text-right text-muted-foreground">{a.effectivenessRate.toFixed(1)}%</td>
               <td className="py-2.5 pr-4 text-right font-mono text-muted-foreground">{formatCost(a.estimatedCostUsd, 2)}</td>
               <td className="py-2.5 text-right font-mono text-muted-foreground">{formatCost(a.avgCostPerApproved)}</td>
@@ -224,22 +225,22 @@ function MockAgentsTable({ agents }: { agents: MockAgentStat[] }) {
 function MockProvidersTable({ providers }: { providers: MockProviderStat[] }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs">
+      <table className="w-full text-xs tabular-nums">
         <thead>
           <tr className="border-b border-border/60">
             {['Proveedor', 'Operación', 'Llamadas', 'Devueltos', 'Útiles', 'Efectividad', 'Costo est.', 'Costo / útil'].map((h, i) => (
-              <th key={h} className={`pb-2 text-xs font-semibold text-muted-foreground ${i < 2 ? 'text-left' : 'text-right'} pr-4 last:pr-0`}>{h}</th>
+              <th key={h} className={`pb-2 text-xs font-semibold text-muted-foreground ${i < 2 ? 'text-left' : 'text-right'} whitespace-nowrap pr-4 last:pr-0`}>{h}</th>
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-border/20">
+        <tbody className="divide-y divide-border/50">
           {providers.map((p) => (
             <tr key={p.key}>
               <td className="py-2.5 pr-4 font-medium text-foreground">{p.name}</td>
               <td className="py-2.5 pr-4 text-muted-foreground">{p.operation}</td>
               <td className="py-2.5 pr-4 text-right text-muted-foreground">{p.calls}</td>
               <td className="py-2.5 pr-4 text-right text-muted-foreground">{p.resultsReturned}</td>
-              <td className="py-2.5 pr-4 text-right text-foreground font-medium">{p.usefulResults}</td>
+              <td className="py-2.5 pr-4 text-right font-medium text-foreground">{p.usefulResults}</td>
               <td className="py-2.5 pr-4 text-right text-muted-foreground">{p.effectivenessRate.toFixed(1)}%</td>
               <td className="py-2.5 pr-4 text-right font-mono text-muted-foreground">
                 {p.estimatedCostUsd === 0 ? <span className="text-text-muted">—</span> : formatCost(p.estimatedCostUsd, 2)}
@@ -260,20 +261,18 @@ function MockActivityTable({ items }: { items: MockActivityItem[] }) {
     agent: 'Agente', provider: 'Proveedor', quality: 'Calidad',
   };
   return (
-    <div className="divide-y divide-border/20">
+    <div className="divide-y divide-border/50">
       {items.map((item) => (
-        <div key={item.id} className="flex items-center gap-3 py-2.5">
-          <span className="w-20 shrink-0 text-xs text-muted-foreground">{item.relativeTime}</span>
-          <span className="rounded bg-surface-subtle px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
-            {typeLabel[item.type]}
-          </span>
-          <div className="flex min-w-0 flex-1 items-center gap-1.5 truncate">
-            <span className="font-medium text-foreground">{item.providerOrAgent}</span>
-            <span className="text-text-muted">·</span>
+        <div key={item.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5 text-xs">
+          <span className="w-20 shrink-0 tabular-nums text-muted-foreground">{item.relativeTime}</span>
+          <Badge variant="neutral">{typeLabel[item.type]}</Badge>
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            <span className="shrink-0 font-medium text-foreground">{item.providerOrAgent}</span>
+            <span className="text-text-muted" aria-hidden="true">·</span>
             <span className="truncate text-muted-foreground">{item.operation}</span>
           </div>
           <StatusBadge status={item.status} />
-          <span className="w-20 shrink-0 text-right font-mono text-xs text-muted-foreground">
+          <span className="w-20 shrink-0 text-right font-mono tabular-nums text-muted-foreground">
             {item.estimatedCostUsd > 0 ? formatCost(item.estimatedCostUsd, 2) : '—'}
           </span>
         </div>
@@ -324,7 +323,7 @@ export default async function UsagePage() {
   ];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <LegacyCompatBanner
         message="Esta vista sigue disponible como base interna. La lectura operativa principal de proveedores y consumo vive en Proveedores y consumo."
         ctaLabel="Ir a Proveedores y consumo"
@@ -335,26 +334,26 @@ export default async function UsagePage() {
         description="Foundation operativa para monitorear ejecuciones de agentes, llamadas a proveedores y calidad de resultados."
         backHref="/settings"
         actions={isEmpty ? (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-warning/30 bg-warning/10 px-2.5 py-1 text-xs font-semibold text-warning">
-            <FlaskConical className="h-3 w-3" />
+          <Badge variant="warning">
+            <FlaskConical aria-hidden="true" />
             Datos demo
-          </span>
+          </Badge>
         ) : undefined}
       />
 
       {/* ── Aviso contextual ─────────────────────────────────── */}
-      <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
-        <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-        <p className="text-xs text-muted-foreground leading-relaxed">
+      <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/10 px-4 py-3">
+        <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+        <p className="min-w-0 text-xs leading-relaxed text-muted-foreground">
           {isEmpty ? (
             <>
               La BD aún no tiene ejecuciones registradas.{' '}
-              <strong className="text-foreground font-medium">Los datos que ves son ilustrativos</strong>{' '}
+              <strong className="font-medium text-foreground">Los datos que ves son ilustrativos</strong>{' '}
               y desaparecerán automáticamente cuando los agentes comiencen a registrar actividad en producción.
             </>
           ) : (
             <>
-              Esta vista es la <strong className="text-foreground font-medium">foundation operativa</strong>.
+              Esta vista es la <strong className="font-medium text-foreground">foundation operativa</strong>.
               Los dashboards avanzados se construirán cuando existan datos históricos suficientes.
             </>
           )}
@@ -362,7 +361,7 @@ export default async function UsagePage() {
       </div>
 
       {/* ── Summary cards ────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
         {summaryCards.map((card) => (
           <MetricCard
             key={card.label}
@@ -373,7 +372,7 @@ export default async function UsagePage() {
             iconPosition="top"
             icon={
               <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${card.bg}`}>
-                <card.icon className={`h-4 w-4 ${card.accent}`} />
+                <card.icon className={`h-4 w-4 ${card.accent}`} aria-hidden="true" />
               </div>
             }
           />
@@ -387,7 +386,7 @@ export default async function UsagePage() {
             <SurfaceCardHeader
               title="Efectividad por agente"
               description="Ejecuciones, costo y tasa de aprobación por agente — datos ilustrativos."
-              actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10"><Bot className="h-4 w-4 text-primary" /></div>}
+              actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10"><Bot className="h-4 w-4 text-primary" aria-hidden="true" /></div>}
             />
             <MockAgentsTable agents={MOCK_AGENTS} />
           </SurfaceCard>
@@ -396,7 +395,7 @@ export default async function UsagePage() {
             <SurfaceCardHeader
               title="Efectividad por proveedor"
               description="Llamadas, resultados útiles y costo por proveedor — datos ilustrativos."
-              actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface-subtle"><Plug className="h-4 w-4 text-muted-foreground" /></div>}
+              actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface-subtle"><Plug className="h-4 w-4 text-muted-foreground" aria-hidden="true" /></div>}
             />
             <MockProvidersTable providers={MOCK_PROVIDERS} />
           </SurfaceCard>
@@ -405,7 +404,7 @@ export default async function UsagePage() {
             <SurfaceCardHeader
               title="Actividad reciente"
               description="Últimas ejecuciones de agentes y llamadas a proveedores — datos ilustrativos."
-              actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10"><TrendingUp className="h-4 w-4 text-primary" /></div>}
+              actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10"><TrendingUp className="h-4 w-4 text-primary" aria-hidden="true" /></div>}
             />
             <MockActivityTable items={MOCK_ACTIVITY} />
           </SurfaceCard>
@@ -420,7 +419,7 @@ export default async function UsagePage() {
               <SurfaceCardHeader
                 title="Ejecuciones de agentes"
                 description={`Últimas ${activity.agent_runs.length} ejecuciones`}
-                actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10"><Bot className="h-4 w-4 text-primary" /></div>}
+                actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10"><Bot className="h-4 w-4 text-primary" aria-hidden="true" /></div>}
               />
               <AgentRunsTable runs={activity.agent_runs} />
             </SurfaceCard>
@@ -430,7 +429,7 @@ export default async function UsagePage() {
               <SurfaceCardHeader
                 title="Llamadas a proveedores"
                 description={`Últimas ${activity.provider_logs.length} llamadas`}
-                actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10"><Plug className="h-4 w-4 text-primary" /></div>}
+                actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10"><Plug className="h-4 w-4 text-primary" aria-hidden="true" /></div>}
               />
               <ProviderLogsTable logs={activity.provider_logs} />
             </SurfaceCard>
@@ -440,7 +439,7 @@ export default async function UsagePage() {
               <SurfaceCardHeader
                 title="Eventos de calidad de resultados"
                 description={`Últimos ${activity.quality_events.length} eventos`}
-                actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10"><Star className="h-4 w-4 text-primary" /></div>}
+                actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10"><Star className="h-4 w-4 text-primary" aria-hidden="true" /></div>}
               />
               <QualityEventsTable events={activity.quality_events} />
             </SurfaceCard>
@@ -449,14 +448,14 @@ export default async function UsagePage() {
       )}
 
       {/* ── Estado de configuración de precios ──────────────── */}
-      <SurfaceCard>
+      <SurfaceCard className="bg-surface-subtle shadow-none">
         <div className="flex items-start gap-3">
-          <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-          <div className="space-y-1">
-            <p className="text-xs font-medium text-foreground">Configuración de costos por proveedor</p>
-            <p className="text-xs text-muted-foreground">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+          <div className="min-w-0 space-y-1">
+            <p className="text-xs font-semibold text-foreground">Configuración de costos por proveedor</p>
+            <p className="text-xs leading-relaxed text-muted-foreground">
               Los costos dependen de{' '}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">provider_pricing_config</code>.{' '}
+              <code className="rounded-sm bg-muted px-1 py-0.5 text-xs">provider_pricing_config</code>.{' '}
               Apollo y Lusha ya cuentan con costo estimado por crédito según los contratos vigentes.
               Otros proveedores (Anthropic, OpenAI) pueden requerir configuración adicional según el modelo activo.
             </p>

@@ -28,6 +28,12 @@ interface EmptyStateProps extends React.HTMLAttributes<HTMLDivElement> {
   description?: string;
   icon?: LucideIcon;
   action?: React.ReactNode;
+  /**
+   * `card` (por defecto): tarjeta punteada, para un vacío que ocupa la página.
+   * `plain`: sin marco ni fondo, para un vacío dentro de una card o una tabla
+   * que ya tiene su propia superficie (nunca una caja dentro de otra).
+   */
+  variant?: "card" | "plain";
 }
 
 function EmptyState({
@@ -35,13 +41,17 @@ function EmptyState({
   description,
   icon: Icon,
   action,
+  variant = "card",
   className,
   ...props
 }: EmptyStateProps) {
   return (
     <Card
       className={cn(
-        "flex flex-col items-center justify-center gap-0 p-10 text-center border-dashed border-2 bg-surface-subtle shadow-none",
+        "flex flex-col items-center justify-center gap-0 text-center shadow-none",
+        variant === "plain"
+          ? "rounded-none border-0 bg-transparent px-6 py-8"
+          : "border-2 border-dashed bg-surface-subtle p-10",
         className,
       )}
       {...props}

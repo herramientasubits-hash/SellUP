@@ -405,7 +405,7 @@ function PersistConfirmation({
           <p className="text-sm font-semibold text-success">
             Empresas candidatas listas para revisión
           </p>
-          <p className="text-xs text-success/80">
+          <p className="text-xs text-success">
             Encontramos {count} {count === 1 ? 'empresa' : 'empresas'} y las dejamos en
             Prospectos para que las revises antes de aprobarlas.
           </p>
@@ -558,7 +558,7 @@ function EmptyResult({ onGenerateAnother }: { onGenerateAnother?: () => void }) 
           <p className="text-sm font-semibold text-warning">
             No encontramos empresas nuevas con estos criterios.
           </p>
-          <p className="text-xs text-warning/80">
+          <p className="text-xs text-warning">
             Prueba con otra industria, país o criterio adicional.
           </p>
         </div>
@@ -585,7 +585,7 @@ function ErrorResult({ message, onRetry }: { message: string; onRetry: () => voi
         <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" aria-hidden />
         <div className="space-y-1">
           <p className="text-sm font-semibold text-destructive">No se pudo completar la búsqueda.</p>
-          <p className="text-xs text-destructive/80">{message}</p>
+          <p className="text-xs text-destructive">{message}</p>
         </div>
       </div>
       <Button

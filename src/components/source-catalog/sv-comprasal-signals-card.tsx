@@ -19,6 +19,8 @@
  */
 
 import type { SvComprasalSignalsSummary } from '@/server/services/sv-comprasal-signals-summary';
+import { Landmark, type LucideIcon } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 
 // ─── Pure display helpers (exported for unit tests) ──────────────────────────
@@ -62,25 +64,55 @@ export function isSvAutoMatchingEnabled(summary: SvComprasalSignalsSummary): boo
 
 function FieldRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-baseline justify-between gap-4 py-1.5 border-b border-border/50 last:border-0">
-      <dt className="text-xs text-muted-foreground shrink-0">{label}</dt>
-      <dd className="text-xs font-medium text-foreground text-right tabular-nums">{value}</dd>
+    <div className="grid grid-cols-2 items-baseline gap-x-4 py-2">
+      <dt className="min-w-0 text-xs text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 break-words text-right text-xs font-medium tabular-nums text-foreground">{value}</dd>
     </div>
   );
 }
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
+function CoverageCardHeader({
+  icon: Icon,
+  title,
+  description,
+  actions,
+}: {
+  icon: LucideIcon;
+  title: string;
+  description?: string;
+  actions?: React.ReactNode;
+}) {
   return (
-    <p className="text-xs font-semibold text-muted-foreground mb-2 mt-4 first:mt-0">
-      {children}
-    </p>
+    <div className="mb-5 flex items-start gap-3">
+      <span
+        aria-hidden="true"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-inset ring-border/40"
+      >
+        <Icon className="h-4 w-4" />
+      </span>
+      <SurfaceCardHeader
+        title={title}
+        description={description}
+        actions={actions}
+        className="mb-0 min-w-0 flex-1 flex-wrap"
+      />
+    </div>
+  );
+}
+
+function FieldGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <h3 className="mb-1 text-sm font-semibold tracking-tight text-foreground">{title}</h3>
+      <dl className="divide-y divide-border/50">{children}</dl>
+    </section>
   );
 }
 
 function LimitationRow({ children }: { children: React.ReactNode }) {
   return (
     <li className="flex gap-2 text-xs text-muted-foreground">
-      <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-border" />
+      <span aria-hidden="true" className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground" />
       {children}
     </li>
   );
@@ -97,8 +129,8 @@ export function SvComprasalSignalsCard({ summary, error }: SvComprasalSignalsCar
   if (error || !summary) {
     return (
       <SurfaceCard>
-        <SurfaceCardHeader title="Señales COMPRASAL El Salvador" />
-        <p className="text-sm text-muted-foreground">
+        <CoverageCardHeader icon={Landmark} title="Señales COMPRASAL El Salvador" />
+        <p className="rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           No se pudo cargar el resumen de señales. Verifique la configuración del servicio.
         </p>
       </SurfaceCard>
@@ -109,112 +141,100 @@ export function SvComprasalSignalsCard({ summary, error }: SvComprasalSignalsCar
 
   return (
     <SurfaceCard>
-      <SurfaceCardHeader title="Señales COMPRASAL El Salvador" />
+      <CoverageCardHeader icon={Landmark} title="Señales COMPRASAL El Salvador" />
 
-      {/* Tipo de señal */}
-      <div className="mb-4 rounded-lg border border-border/60 bg-surface-subtle px-4 py-3">
-        <p className="text-xs font-semibold text-muted-foreground mb-2">
-          Tipo de señal
-        </p>
-        <div className="flex flex-wrap gap-1.5 mb-2">
-          <span className="inline-flex items-center rounded-full border border-warning/30 bg-warning/10 px-2.5 py-0.5 text-xs font-medium text-warning">
-            Señal débil
-          </span>
-          <span className="inline-flex items-center rounded-full border border-border/60 bg-surface-subtle px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
-            Solo nombre
-          </span>
-          <span className="inline-flex items-center rounded-full border border-border/60 bg-surface-subtle px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
-            Revisión humana requerida
-          </span>
+      <div className="space-y-5">
+        {/* Tipo de señal */}
+        <div className="rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
+          <h3 className="mb-2 text-sm font-semibold tracking-tight text-foreground">Tipo de señal</h3>
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            <Badge variant="warning">Señal débil</Badge>
+            <Badge variant="neutral">Solo nombre</Badge>
+            <Badge variant="neutral">Revisión humana requerida</Badge>
+          </div>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            COMPRASAL aporta señales comerciales B2G de proveedores adjudicados en compras públicas
+            de El Salvador, pero no expone NIT ni NRC. Estas señales requieren revisión humana
+            antes de asociarse a una cuenta.
+          </p>
         </div>
-        <p className="text-xs text-muted-foreground leading-relaxed">
-          COMPRASAL aporta señales comerciales B2G de proveedores adjudicados en compras públicas
-          de El Salvador, pero no expone NIT ni NRC. Estas señales requieren revisión humana
-          antes de asociarse a una cuenta.
-        </p>
+
+        {/* Métricas de señales */}
+        <FieldGroup title="Señales persistidas">
+          <FieldRow
+            label="Total de señales"
+            value={formatSvTotalSignals(summary.totalSignals)}
+          />
+          <FieldRow
+            label="Años cubiertos"
+            value={formatSvSourceYears(summary.sourceYears)}
+          />
+          <FieldRow
+            label="Última importación"
+            value={formatSvLatestImportedAt(summary.latestImportedAt)}
+          />
+          <FieldRow
+            label="País"
+            value="El Salvador (SV)"
+          />
+          <FieldRow
+            label="Tipo de señal"
+            value="Procurement B2G"
+          />
+          <FieldRow
+            label="Fuente del indicador"
+            value={summary.dataSource === 'live_database' ? 'base de datos en vivo' : 'fallback auditado'}
+          />
+        </FieldGroup>
+
+        <FieldGroup title="Clasificación de señal">
+          <FieldRow label="Fuerza de señal" value="Débil — solo por nombre (weak_name_only)" />
+          <FieldRow label="Modo de matching" value="Revisión manual requerida (name_only_review_required)" />
+          <FieldRow label="Revisión humana" value="Sí — obligatoria antes de asociar" />
+          <FieldRow label="Fuente fiscal / tributaria" value="No — no es fuente fiscal" />
+          <FieldRow label="Valida NIT El Salvador" value="No — no expone NIT" />
+          <FieldRow label="Valida NRC El Salvador" value="No — no expone NRC" />
+          <FieldRow label="Reemplaza Ministerio de Hacienda" value="No" />
+          <FieldRow label="Reemplaza CNR / Registro de Comercio" value="No" />
+          <FieldRow label="Post-approval conectado" value="No — no conectada a flujos automáticos" />
+          <FieldRow label="Matching automático" value="No — requiere revisión humana" />
+        </FieldGroup>
+
+        {/* Limitaciones */}
+        <div>
+          <h3 className="mb-2 text-sm font-semibold tracking-tight text-foreground">Limitaciones</h3>
+          <ul className="space-y-1.5">
+            <LimitationRow>No valida NIT ni NRC. No expone identificadores fiscales públicos.</LimitationRow>
+            <LimitationRow>No reemplaza Ministerio de Hacienda El Salvador.</LimitationRow>
+            <LimitationRow>No reemplaza CNR / Registro de Comercio de El Salvador.</LimitationRow>
+            <LimitationRow>No es fuente legal ni tributaria.</LimitationRow>
+            <LimitationRow>No conectada a post-approval automático.</LimitationRow>
+            <LimitationRow>No permite matching automático por nombre.</LimitationRow>
+            <LimitationRow>Usar como contexto comercial, no como validación legal ni fiscal.</LimitationRow>
+          </ul>
+        </div>
+
+        {/* Estado operativo */}
+        <div className="rounded-xl border border-warning/25 bg-warning/15 px-4 py-3">
+          <h3 className="mb-1 text-sm font-semibold tracking-tight text-foreground">Estado operativo</h3>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            {hasSignals
+              ? `${summary.totalSignals} señales comerciales B2G persistidas en Source Company Signals. `
+              : 'Sin señales persistidas aún. '}
+            No conectada a post-approval automático. La fuente permanece en{' '}
+            <span className="font-medium">eligible_not_connected</span>{' '}
+            hasta que se operativice un flujo de enriquecimiento con revisión humana.
+            {' '}No es fuente legal. No es fuente fiscal. No valida NIT. No valida NRC.
+            {' '}No reemplaza Ministerio de Hacienda El Salvador ni CNR.
+          </p>
+        </div>
+
+        {summary.dataSourceReason && (
+          <p className="border-t border-border/50 pt-3 text-xs text-muted-foreground">
+            Motivo: lectura dinámica no disponible
+          </p>
+        )}
       </div>
-
-      {/* Métricas de señales */}
-      <dl className="divide-y divide-border/20">
-        <SectionTitle>Señales persistidas</SectionTitle>
-
-        <FieldRow
-          label="Total de señales"
-          value={formatSvTotalSignals(summary.totalSignals)}
-        />
-        <FieldRow
-          label="Años cubiertos"
-          value={formatSvSourceYears(summary.sourceYears)}
-        />
-        <FieldRow
-          label="Última importación"
-          value={formatSvLatestImportedAt(summary.latestImportedAt)}
-        />
-        <FieldRow
-          label="País"
-          value="El Salvador (SV)"
-        />
-        <FieldRow
-          label="Tipo de señal"
-          value="Procurement B2G"
-        />
-        <FieldRow
-          label="Fuente del indicador"
-          value={summary.dataSource === 'live_database' ? 'base de datos en vivo' : 'fallback auditado'}
-        />
-
-        <SectionTitle>Clasificación de señal</SectionTitle>
-
-        <FieldRow label="Fuerza de señal" value="Débil — solo por nombre (weak_name_only)" />
-        <FieldRow label="Modo de matching" value="Revisión manual requerida (name_only_review_required)" />
-        <FieldRow label="Revisión humana" value="Sí — obligatoria antes de asociar" />
-        <FieldRow label="Fuente fiscal / tributaria" value="No — no es fuente fiscal" />
-        <FieldRow label="Valida NIT El Salvador" value="No — no expone NIT" />
-        <FieldRow label="Valida NRC El Salvador" value="No — no expone NRC" />
-        <FieldRow label="Reemplaza Ministerio de Hacienda" value="No" />
-        <FieldRow label="Reemplaza CNR / Registro de Comercio" value="No" />
-        <FieldRow label="Post-approval conectado" value="No — no conectada a flujos automáticos" />
-        <FieldRow label="Matching automático" value="No — requiere revisión humana" />
-      </dl>
-
-      {/* Limitaciones */}
-      <div className="mt-4">
-        <p className="text-xs font-semibold text-muted-foreground mb-2">
-          Limitaciones
-        </p>
-        <ul className="space-y-1.5">
-          <LimitationRow>No valida NIT ni NRC. No expone identificadores fiscales públicos.</LimitationRow>
-          <LimitationRow>No reemplaza Ministerio de Hacienda El Salvador.</LimitationRow>
-          <LimitationRow>No reemplaza CNR / Registro de Comercio de El Salvador.</LimitationRow>
-          <LimitationRow>No es fuente legal ni tributaria.</LimitationRow>
-          <LimitationRow>No conectada a post-approval automático.</LimitationRow>
-          <LimitationRow>No permite matching automático por nombre.</LimitationRow>
-          <LimitationRow>Usar como contexto comercial, no como validación legal ni fiscal.</LimitationRow>
-        </ul>
-      </div>
-
-      {/* Estado operativo */}
-      <div className="mt-4 rounded-lg border border-warning/20 bg-warning/5 px-4 py-3">
-        <p className="text-xs font-semibold text-warning mb-1">
-          Estado operativo
-        </p>
-        <p className="text-xs text-muted-foreground leading-relaxed">
-          {hasSignals
-            ? `${summary.totalSignals} señales comerciales B2G persistidas en Source Company Signals. `
-            : 'Sin señales persistidas aún. '}
-          No conectada a post-approval automático. La fuente permanece en{' '}
-          <span className="font-medium">eligible_not_connected</span>{' '}
-          hasta que se operativice un flujo de enriquecimiento con revisión humana.
-          {' '}No es fuente legal. No es fuente fiscal. No valida NIT. No valida NRC.
-          {' '}No reemplaza Ministerio de Hacienda El Salvador ni CNR.
-        </p>
-      </div>
-
-      {summary.dataSourceReason && (
-        <p className="mt-3 text-xs text-muted-foreground">
-          Motivo: lectura dinámica no disponible
-        </p>
-      )}
     </SurfaceCard>
   );
 }

@@ -150,7 +150,7 @@ function IntegrationCard({ integration }: { integration: IntegrationWithConnecti
               : isAvailable && conn?.connection_status === 'connected'
                 ? 'bg-primary/10 text-primary group-hover:bg-primary/15'
                 : isAvailable
-                  ? 'bg-primary/5 text-primary/80 group-hover:bg-primary/10'
+                  ? 'bg-primary/5 text-primary group-hover:bg-primary/10'
                   : 'bg-surface-muted text-text-muted'
           }`}
         >
