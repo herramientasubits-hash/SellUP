@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useReportSelectionCount } from "@/components/action-rail";
 import { useRouter } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
 import { toast } from 'sonner';
@@ -125,6 +126,7 @@ interface AccountsDataTableClientProps {
 }
 
 export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }: AccountsDataTableClientProps) {
+  const reportSelectionCount = useReportSelectionCount();
   const router = useRouter();
 
   const [detailAccountId, setDetailAccountId] = React.useState<string | null>(null);
@@ -536,6 +538,7 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
   return (
     <>
       <DataTable
+        onSelectionCountChange={reportSelectionCount}
         columns={columns}
         data={filteredAccounts}
         getRowId={(row) => row.id}

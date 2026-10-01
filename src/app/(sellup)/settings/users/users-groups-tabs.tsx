@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
-import { LayoutList, GitBranch } from "@/icons";
+import { LayoutList, GitBranch, Users, UserCheck, Clock, UserPlus, PauseCircle, UserX, type LucideIcon } from "@/icons";
+import { FilterChips } from '@/components/filters/filter-chips';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -39,13 +40,13 @@ interface GroupsTabProps {
   onGroupFilterChange?: (g: string | null) => void;
 }
 
-const USER_FILTERS: { id: UserFilter; label: string }[] = [
-  { id: 'all',         label: 'Todos' },
-  { id: 'active',      label: 'Activos' },
-  { id: 'pending',     label: 'Pendientes' },
-  { id: 'preapproved', label: 'Preautorizados' },
-  { id: 'suspended',   label: 'Suspendidos' },
-  { id: 'rejected',    label: 'Rechazados' },
+const USER_FILTERS: { id: UserFilter; label: string; icon: LucideIcon }[] = [
+  { id: 'all',         label: 'Todos',          icon: Users },
+  { id: 'active',      label: 'Activos',        icon: UserCheck },
+  { id: 'pending',     label: 'Pendientes',     icon: Clock },
+  { id: 'preapproved', label: 'Preautorizados', icon: UserPlus },
+  { id: 'suspended',   label: 'Suspendidos',    icon: PauseCircle },
+  { id: 'rejected',    label: 'Rechazados',     icon: UserX },
 ];
 
 function getInitials(name: string | null, email: string): string {
@@ -169,33 +170,24 @@ export function UsersTab({
     <div className="flex flex-col flex-1 min-h-0 space-y-4">
       {/* Filter bar + view toggle */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-1 rounded-xl bg-tab-track p-1" role="group" aria-label="Filtrar usuarios">
-          {USER_FILTERS.map(f => (
-            <button
-              key={f.id}
-              type="button"
-              aria-pressed={filter === f.id}
-              onClick={() => {
-                setFilter(f.id);
-                onFilterChange?.(f.id);
-              }}
-              className={cn(
-                'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40',
-                filter === f.id
-                  ? 'bg-card text-foreground shadow-card'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {f.label}
-              <span className={cn(
-                'ml-1.5 rounded-full px-1.5 py-0.5 text-xs tabular-nums',
-                filter === f.id ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground',
-              )}>
-                {filterCounts[f.id]}
-              </span>
-            </button>
-          ))}
-        </div>
+        {/* Thema: fila de chips con contador encima de la lista. Mismo estado y
+            mismos conteos que antes; solo cambia la pieza que los pinta. */}
+        <FilterChips
+          ariaLabel="Filtrar usuarios"
+          value={filter}
+          onChange={(value) => {
+            const next = value as UserFilter;
+            setFilter(next);
+            onFilterChange?.(next);
+          }}
+          options={USER_FILTERS.map((f) => ({
+            value: f.id,
+            label: f.label,
+            count: filterCounts[f.id],
+            icon: f.icon,
+          }))}
+          className="min-w-0 flex-1"
+        />
 
         {showViewToggle && (
           <div className="flex items-center gap-1 rounded-lg bg-tab-track p-1" role="group" aria-label="Vista">

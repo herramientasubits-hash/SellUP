@@ -1,4 +1,5 @@
 import { Building2, Globe, TrendingUp, Search } from "@/icons";
+import { ScreenActionRail, ScreenActionRailProvider } from "@/components/action-rail";
 import { DataTablePage } from '@/components/shared/data-table-page';
 import { MetricCard } from '@/components/shared/metric-card';
 import { CreateAccountDrawer } from '@/components/accounts/create-account-drawer';
@@ -37,11 +38,16 @@ export default async function AccountsPage({ searchParams }: PageProps) {
   ]);
 
   return (
+    <ScreenActionRailProvider>
     <DataTablePage
       title="Empresas"
       description="Centraliza empresas, prospectos y cuentas comerciales con su expediente vivo."
       tabs={<ModuleTabsNav active="empresas" />}
-      actions={<CreateAccountDrawer users={users} />}
+      actions={
+        <ScreenActionRail label="Acciones de empresas">
+          <CreateAccountDrawer users={users} />
+        </ScreenActionRail>
+      }
       metrics={
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <MetricCard
@@ -89,5 +95,6 @@ export default async function AccountsPage({ searchParams }: PageProps) {
     >
       <AccountsDataTableClient accounts={accounts} users={users} scopeFilterOptions={scopeFilterOptions} />
     </DataTablePage>
+    </ScreenActionRailProvider>
   );
 }

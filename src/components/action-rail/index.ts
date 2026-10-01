@@ -24,3 +24,8 @@ export {
   railScreenTiers,
   selectionLabel,
 } from "./rail-actions";
+export {
+  ScreenActionRail,
+  ScreenActionRailProvider,
+  useReportSelectionCount,
+} from "./screen-action-rail";

@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useReportSelectionCount } from "@/components/action-rail";
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
@@ -86,6 +87,7 @@ export function ContactsDataTableClient({
   accountOwners,
   scopeFilterOptions,
 }: ContactsDataTableClientProps) {
+  const reportSelectionCount = useReportSelectionCount();
   const router = useRouter();
   const [detailContactId, setDetailContactId] = React.useState<string | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
@@ -477,6 +479,7 @@ export function ContactsDataTableClient({
   return (
     <>
       <DataTable
+        onSelectionCountChange={reportSelectionCount}
         columns={columns}
         data={filteredContacts}
         getRowId={(row) => row.id}
