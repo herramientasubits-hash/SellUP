@@ -68,6 +68,12 @@ describe('regla del NIF de sociedad', () => {
     assert.equal(normalizeSpainCompanyNif('28993984T'), null);
     assert.equal(normalizeSpainCompanyNif(null), null);
   });
+
+  it('el control también puede ser una LETRA (organismos públicos: FNMT, Patrimonio del Estado)', () => {
+    assert.equal(normalizeSpainCompanyNif('Q2826004J'), 'Q2826004J');
+    assert.equal(normalizeSpainCompanyNif('S2826002D'), 'S2826002D');
+    assert.equal(normalizeSpainCompanyNif('Q2826004K'), null);
+  });
 });
 
 describe('adjudicatarias de la PLACSP', () => {
@@ -77,6 +83,7 @@ describe('adjudicatarias de la PLACSP', () => {
       party('NIF', '24839482B', 'GARCIA PEREZ JUAN') +
       party('OTROS', 'A04011284', 'EMPRESA EXTRANJERA') +
       party('NIF', 'A58710741', 'NIF MAL ESCRITO S.A.') +
+      party('NIF', 'A58710740', '   ') +
       party('NIF', 'B62537774', 'Produccions de Gastronomia, S.L.U.');
     assert.deepEqual(extractPlacspWinners(xml), [
       { nif: 'B10383917', name: 'GLOBALEX GESTION&SERVICIOS S.L' },
