@@ -14,7 +14,7 @@ import {
   type CompanyClassificationResult,
 } from '../types';
 import type { SendToReviewOrigin } from '@/modules/prospect-discards/send-to-review-core';
-import { isDomainSearchCandidate } from './domain-search';
+import { isDomainSearchCandidate, websiteNotFoundWithOlderSearch } from './domain-search';
 import type { RescueDecision } from './rescue-decision';
 import {
   buildLinkedInEnrichmentFromClaude,
@@ -64,6 +64,7 @@ export function needsDispositionRescue(
     ? (RESCUABLE_DISPOSITION_REASON_CODES as readonly string[]).includes(row.reason_code ?? '')
     : domainSearchEnabled && isDomainSearchCandidate(row);
   if (!rescuable) return false;
+  if (!row.domain && websiteNotFoundWithOlderSearch(row.evidence)) return true;
   return rescueStillPending(row.evidence?.[CLAUDE_RESCUE_METADATA_KEY], nowMs, row.evidence?.claude_classification);
 }
 
