@@ -47,8 +47,8 @@ import {
   SelectContent,
   SelectItem,
 } from '@/components/ui/select';
-import { SurfaceCard } from '@/components/shared/surface-card';
 import { DrawerSection } from '@/components/shared/drawer-section';
+import { cn } from '@/lib/utils';
 import {
   getReviewableContactCandidateById,
   getDuplicateCandidateMergeOffer,
@@ -415,7 +415,7 @@ interface ContactCandidateDetailSheetProps {
 
 /**
  * Side panel de revisión humana de un candidato del Agente 2A. Reutiliza el
- * shell compartido `DrawerShell` + `SurfaceCard`, el mismo patrón que el detalle
+ * shell compartido `DrawerShell` + `DrawerSection`, el mismo patrón que el detalle
  * de Cuentas/Prospectos (fetch por id con loading, `null` ⇒ "no disponible").
  * Hito 17A.4B: incluye aprobar (crea contacto oficial en `contacts`) y rechazar
  * (marca `discarded` con motivo). NO escribe en HubSpot ni ejecuta Apollo.
@@ -2110,8 +2110,8 @@ export function ContactCandidateDetailSheet({
       icon={<UserSearch className="h-5 w-5 text-primary" />}
       title={
         candidate ? (
-          <div className="flex items-center justify-between gap-4 mr-6">
-            <span className="truncate">{candidate.full_name || 'Sin nombre'}</span>
+          <div className="flex min-w-0 items-center justify-between gap-3">
+            <span className="min-w-0 truncate">{candidate.full_name || 'Sin nombre'}</span>
             <div className="flex items-center gap-1.5 shrink-0">
               {/* Parity with Agent 1's "Nuevo": independent of workflow status,
                   same calendar-day (America/Bogota) freshness check. */}
@@ -2156,7 +2156,7 @@ export function ContactCandidateDetailSheet({
         candidate && candidate.status !== 'duplicate' ? (
           !showRejectForm ? (
             <>
-              <p className="flex-1 text-xs text-muted-foreground">
+              <p className="min-w-0 flex-1 text-xs leading-relaxed text-muted-foreground">
                 {waterfallBlocksApproval
                   ? PHONE_REVEAL_WATERFALL_APPROVE_BLOCKED_COPY
                   : candidate.account_id
@@ -2165,7 +2165,7 @@ export function ContactCandidateDetailSheet({
                       ? 'Al aprobar, SellUp creará o vinculará la cuenta automáticamente.'
                       : 'Sin cuenta SellUp asociada: no se puede aprobar.'}
               </p>
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                 <Button
                   type="button"
                   variant="outline"
@@ -2211,10 +2211,10 @@ export function ContactCandidateDetailSheet({
             </>
           ) : (
             <>
-              <p className="flex-1 text-xs text-muted-foreground">
+              <p className="min-w-0 flex-1 text-xs leading-relaxed text-muted-foreground">
                 Indica el motivo del rechazo.
               </p>
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                 <Button
                   type="button"
                   variant="outline"
@@ -2280,10 +2280,10 @@ export function ContactCandidateDetailSheet({
               ofrece la fusión; sin ella lo dice con claridad y NO ofrece ningún CTA. No expone
               internals: ni ids, ni nombres de columnas, ni evidencia cruda. */}
           {candidate.status === 'duplicate' ? (
-            <SurfaceCard>
+            <div className="rounded-xl border border-info/20 bg-info/10 px-4 py-3">
               <div className="flex items-start gap-2.5">
-                <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                <div className="space-y-2.5">
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-info" />
+                <div className="min-w-0 flex-1 space-y-2.5">
                   <p className="text-sm font-medium text-foreground">
                     Este candidato coincide con un contacto existente.
                   </p>
@@ -2326,12 +2326,12 @@ export function ContactCandidateDetailSheet({
                   )}
                 </div>
               </div>
-            </SurfaceCard>
+            </div>
           ) : null}
 
           {/* 1. Información principal */}
             <DrawerSection icon={User} title="Información principal">
-            <dl className="space-y-3">
+            <dl className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
               <DetailRow icon={User} label="Nombre completo">
                 {candidate.full_name || <Fallback />}
               </DetailRow>
@@ -2357,7 +2357,7 @@ export function ContactCandidateDetailSheet({
 
           {/* 2. Canales de contacto */}
             <DrawerSection icon={Phone} title="Canales de contacto">
-            <dl className="space-y-3">
+            <dl className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
               <DetailRow icon={Mail} label="Email">
                 {candidate.email || <Fallback />}
               </DetailRow>
@@ -2375,20 +2375,16 @@ export function ContactCandidateDetailSheet({
                   <Fallback />
                 )}
               </DetailRow>
-              <DetailRow icon={Phone} label="Teléfono">
+              <DetailRow icon={Phone} label="Teléfono" className="sm:col-span-2">
                 <div className="space-y-2">
                   {hasPhone ? (
                     <span className="inline-flex flex-wrap items-center gap-2">
-                      <span className="break-all">{phoneNumber}</span>
+                      <span className="break-all tabular-nums">{phoneNumber}</span>
                       <Badge variant="brand">
                         {phoneTypeLabel}
                       </Badge>
                       {phoneSourceLabel && (
-                        <Badge
-                          variant="outline"
-                          className="text-muted-foreground">
-                          {phoneSourceLabel}
-                        </Badge>
+                        <Badge variant="neutral">{phoneSourceLabel}</Badge>
                       )}
                     </span>
                   ) : (
@@ -2461,8 +2457,8 @@ export function ContactCandidateDetailSheet({
                     </p>
                   )}
                   {phoneRevealInFlight && (
-                    <div className="space-y-1">
-                      <span className="inline-flex items-center gap-1.5">
+                    <div className="space-y-1.5 rounded-lg border border-warning/25 bg-warning/15 p-3">
+                      <span className="inline-flex flex-wrap items-center gap-1.5">
                         <Badge variant="warning">
                           <Loader2 className="mr-1 h-3 w-3 animate-spin" />
                           Revelación en proceso
@@ -2864,7 +2860,7 @@ export function ContactCandidateDetailSheet({
                   {waterfallActive && waterfallAudit && (
                     <div className="space-y-1">
                       {waterfallLushaRunning ? (
-                        <span className="inline-flex items-center gap-1.5">
+                        <span className="inline-flex flex-wrap items-center gap-1.5">
                           <Badge variant="warning">
                             <Loader2 className="mr-1 h-3 w-3 animate-spin" />
                             Lusha
@@ -2922,10 +2918,11 @@ export function ContactCandidateDetailSheet({
           {waterfallActive && waterfallAudit && (
               <DrawerSection
                 icon={PhoneCall}
+                tone="neutral"
                 title="Revelación de teléfono por proveedor"
                 hint="Trazabilidad de la última revelación autorizada: qué intentó cada proveedor y cuánto costó cada consulta."
               >
-              <dl className="space-y-3">
+              <dl className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
                 <DetailRow icon={PhoneCall} label="Apollo">
                   <span className="flex flex-col gap-0.5">
                     <span>
@@ -3003,7 +3000,7 @@ export function ContactCandidateDetailSheet({
               title="Evaluación del candidato"
               hint="Veredicto del filtro de relevancia del Agente de contactos."
             >
-            <dl className="space-y-3">
+            <dl className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
               <DetailRow icon={Gauge} label="Relevancia">
                 {relevance?.status ? (
                   <span className="inline-flex flex-wrap items-center gap-2">
@@ -3038,12 +3035,10 @@ export function ContactCandidateDetailSheet({
                 )}
               </DetailRow>
               {matchedKeywords.length > 0 && (
-                <DetailRow icon={Tag} label="Señales detectadas">
+                <DetailRow icon={Tag} label="Señales detectadas" className="sm:col-span-2">
                   <span className="flex flex-wrap gap-1">
                     {matchedKeywords.map((kw) => (
-                      <Badge
- key={kw}
- variant="outline">
+                      <Badge key={kw} variant="outline">
                         {kw}
                       </Badge>
                     ))}
@@ -3107,11 +3102,11 @@ export function ContactCandidateDetailSheet({
 
           {/* 3b. Consistencia con la empresa (Hito 17A.9G) */}
           {showConsistencyWarning && companyConsistency && (
-            <div className="rounded-xl border border-dashed border-warning/40 bg-warning/5 px-4 py-3">
+            <div className="rounded-xl border border-warning/25 bg-warning/15 px-4 py-3">
               <div className="flex items-start gap-2.5">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-                <div className="space-y-1">
-                  <p className="text-xs font-medium text-foreground">
+                <div className="min-w-0 flex-1 space-y-1">
+                  <p className="text-sm font-medium text-foreground">
                     {companyConsistency.status === 'possible_related_domain'
                       ? 'Posible empresa relacionada'
                       : 'Revisar pertenencia a empresa'}
@@ -3122,7 +3117,7 @@ export function ContactCandidateDetailSheet({
                   {companyConsistency.email_domain &&
                     companyConsistency.expected_domain &&
                     companyConsistency.email_domain !== companyConsistency.expected_domain && (
-                      <p className="text-xs text-muted-foreground tabular-nums">
+                      <p className="break-words text-xs text-muted-foreground tabular-nums">
                         Correo: @{companyConsistency.email_domain} · Empresa: {companyConsistency.expected_domain}
                       </p>
                     )}
@@ -3132,8 +3127,8 @@ export function ContactCandidateDetailSheet({
           )}
 
           {/* 4. Trazabilidad */}
-            <DrawerSection icon={Hash} title="Trazabilidad">
-            <dl className="space-y-3">
+            <DrawerSection icon={Hash} tone="neutral" title="Trazabilidad">
+            <dl className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
               <DetailRow icon={Hash} label="Candidate ID">
                 <span className="font-mono text-xs break-all">{candidate.id}</span>
               </DetailRow>
@@ -3157,7 +3152,7 @@ export function ContactCandidateDetailSheet({
                 </DetailRow>
               )}
               {apolloAttempt && (
-                <DetailRow icon={UserSearch} label="Intento de búsqueda Apollo">
+                <DetailRow icon={UserSearch} label="Intento de búsqueda Apollo" className="sm:col-span-2">
                   <span className="text-xs">{apolloAttempt}</span>
                 </DetailRow>
               )}
@@ -3203,17 +3198,16 @@ export function ContactCandidateDetailSheet({
                     onChange={(e) => setOtherComment(e.target.value)}
                     rows={3}
                     placeholder="Comentario opcional…"
-                    className="text-sm"
                   />
                 )}
               </div>
             </DrawerSection>
           ) : !candidate.account_id && candidate.hubspot_company_id ? (
-            <div className="rounded-xl border border-dashed border-primary/30 bg-primary/5 px-4 py-3">
+            <div className="rounded-xl border border-primary/20 bg-primary/10 px-4 py-3">
               <div className="flex items-start gap-2.5">
                 <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                <div className="space-y-1">
-                  <p className="text-xs font-medium text-foreground">
+                <div className="min-w-0 flex-1 space-y-1">
+                  <p className="text-sm font-medium text-foreground">
                     Empresa vinculada vía HubSpot
                   </p>
                   <p className="text-xs text-muted-foreground leading-relaxed">
@@ -3224,11 +3218,11 @@ export function ContactCandidateDetailSheet({
               </div>
             </div>
           ) : !candidate.account_id ? (
-            <div className="rounded-xl border border-dashed border-warning/40 bg-warning/5 px-4 py-3">
+            <div className="rounded-xl border border-warning/25 bg-warning/15 px-4 py-3">
               <div className="flex items-start gap-2.5">
                 <Info className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-                <div className="space-y-1">
-                  <p className="text-xs font-medium text-foreground">
+                <div className="min-w-0 flex-1 space-y-1">
+                  <p className="text-sm font-medium text-foreground">
                     Sin cuenta SellUp asociada
                   </p>
                   <p className="text-xs text-muted-foreground leading-relaxed">
@@ -3239,11 +3233,11 @@ export function ContactCandidateDetailSheet({
               </div>
             </div>
           ) : (
-            <div className="rounded-xl border border-dashed border-border/60 bg-surface-subtle px-4 py-3">
+            <div className="rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
               <div className="flex items-start gap-2.5">
                 <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                <div className="space-y-1">
-                  <p className="text-xs font-medium text-foreground">Revisión humana</p>
+                <div className="min-w-0 flex-1 space-y-1">
+                  <p className="text-sm font-medium text-foreground">Revisión humana</p>
                   <p className="text-xs text-muted-foreground leading-relaxed">
                     Aprueba para crear el contacto oficial en SellUp, o recházalo indicando un
                     motivo.
@@ -3303,7 +3297,6 @@ export function ContactCandidateDetailSheet({
               rows={3}
               placeholder="Describe brevemente qué verificaste antes de continuar."
               disabled={busy}
-              className="text-sm"
             />
           </div>
           {overrideValidationError && (
@@ -3361,7 +3354,7 @@ export function ContactCandidateDetailSheet({
               : ', con el mismo perfil de LinkedIn.'}
           </DialogDescription>
         </DialogHeader>
-        <div className="rounded-xl border border-dashed border-border/60 bg-surface-subtle px-4 py-3">
+        <div className="rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
           <div className="flex items-start gap-2.5">
             <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
             <p className="text-xs text-muted-foreground leading-relaxed">
@@ -3461,22 +3454,23 @@ function Fallback() {
 function DetailRow({
   icon: Icon,
   label,
+  className,
   children,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
+  /** Solo layout: cuántas columnas ocupa el par dentro de la rejilla del `dl`. */
+  className?: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start gap-2.5">
+    <div className={cn('flex min-w-0 items-start gap-2.5', className)}>
       <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center">
         <Icon className="h-3.5 w-3.5 text-muted-foreground" />
       </div>
       <div className="min-w-0 flex-1">
-        <dt className="text-xs font-semibold text-muted-foreground">
-          {label}
-        </dt>
-        <dd className="mt-0.5 text-xs text-foreground">{children}</dd>
+        <dt className="text-xs text-muted-foreground">{label}</dt>
+        <dd className="mt-0.5 break-words text-sm text-foreground">{children}</dd>
       </div>
     </div>
   );

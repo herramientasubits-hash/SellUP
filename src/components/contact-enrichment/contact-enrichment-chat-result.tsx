@@ -25,23 +25,13 @@ import {
 export function SourceBadge({ source }: { source: 'sellup' | 'hubspot' | 'manual' }) {
   if (source === 'manual') {
     return (
-      <Badge
-        variant="outline"
-        className="border-muted-foreground/30 text-muted-foreground bg-surface-subtle"
-      >
+      <Badge variant="neutral">
         Manual
       </Badge>
     );
   }
   return (
-    <Badge
-      variant="outline"
-      className={
-        source === 'sellup'
-          ? 'border-primary/30 text-primary bg-primary/10'
-          : 'border-warning/30 text-warning bg-warning/10'
-      }
-    >
+    <Badge variant={source === 'sellup' ? 'brand' : 'warning'}>
       {source === 'sellup' ? 'SellUp' : 'HubSpot'}
     </Badge>
   );
@@ -137,33 +127,27 @@ export function RunResultSnapshot({
       </div>
 
       <dl className="space-y-2 text-sm">
-        <div className="flex justify-between">
+        <div className="flex justify-between gap-3">
           <dt className="text-muted-foreground">Estado</dt>
           <dd>
             {provider === 'lusha' && lushaResult?.status === 'missing_api_key' ? (
-              <Badge
- variant="warning">
+              <Badge variant="warning">
                 Sin credenciales
               </Badge>
             ) : provider === 'lusha' && lushaResult?.status === 'disabled' ? (
-              <Badge
-                variant="outline"
-                className="text-muted-foreground border-border/60 bg-surface-subtle">
+              <Badge variant="neutral">
                 Desactivado
               </Badge>
             ) : provider === 'lusha' && lushaCompanyContextError ? (
-              <Badge
- variant="warning">
+              <Badge variant="warning">
                 Sin contexto de empresa
               </Badge>
             ) : provider === 'lusha' && lushaResult?.status === 'provider_error' ? (
-              <Badge
- variant="negative">
+              <Badge variant="negative">
                 Error del proveedor
               </Badge>
             ) : (
-              <Badge
- variant="positive">
+              <Badge variant="positive">
                 {apolloResult?.status === 'ready_for_review' || lushaResult?.status === 'ready_for_review' || lushaResult?.providerStatus === 'success'
                   ? 'Listo para revisión'
                   : apolloResult?.status === 'completed' || lushaResult?.status === 'completed'
@@ -174,14 +158,14 @@ export function RunResultSnapshot({
           </dd>
         </div>
         {candidate && (
-          <div className="flex justify-between">
+          <div className="flex justify-between gap-3">
             <dt className="text-muted-foreground">Empresa</dt>
-            <dd className="font-medium text-foreground">{candidate.name}</dd>
+            <dd className="text-right font-medium tabular-nums text-foreground">{candidate.name}</dd>
           </div>
         )}
-        <div className="flex justify-between">
+        <div className="flex justify-between gap-3">
           <dt className="text-muted-foreground">Candidatos</dt>
-          <dd className="font-medium text-foreground">
+          <dd className="text-right font-medium tabular-nums text-foreground">
             {lushaResult
               ? lushaResult.candidatesCreated
               : apolloResult
@@ -189,7 +173,7 @@ export function RunResultSnapshot({
                 : runResult.candidatesCount}
           </dd>
         </div>
-        <div className="flex justify-between">
+        <div className="flex justify-between gap-3">
           <dt className="text-muted-foreground">Run ID</dt>
           <dd className="max-w-[180px] truncate font-mono text-xs text-muted-foreground">
             {runResult.runId}
@@ -201,9 +185,9 @@ export function RunResultSnapshot({
         <div className="space-y-3 border-t border-border/50 pt-3">
           <p className="text-xs font-medium text-foreground">Contactos existentes detectados</p>
           <dl className="space-y-1.5 text-xs">
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">SellUp</dt>
-              <dd className="font-medium text-foreground">
+              <dd className="text-right font-medium tabular-nums text-foreground">
                 {sellup?.status === 'skipped' ? (
                   <span className="text-muted-foreground">omitido — {sellup.reason}</span>
                 ) : sellup?.status === 'error' ? (
@@ -213,9 +197,9 @@ export function RunResultSnapshot({
                 )}
               </dd>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">HubSpot</dt>
-              <dd className="font-medium text-foreground">
+              <dd className="text-right font-medium tabular-nums text-foreground">
                 {hubspot?.status === 'skipped' ? (
                   <span className="text-muted-foreground">
                     omitido{hubspot.reason ? ` — ${hubspot.reason}` : ''}
@@ -228,9 +212,9 @@ export function RunResultSnapshot({
               </dd>
             </div>
             {/* Total para deduplicación — siempre visible, incluido 0 (Hito 17A.2B) */}
-            <div className="flex justify-between border-t border-border/50 pt-1.5">
+            <div className="flex justify-between gap-3 border-t border-border/50 pt-1.5">
               <dt className="text-muted-foreground">Total para deduplicación</dt>
-              <dd className="font-semibold text-foreground">
+              <dd className="text-right font-semibold tabular-nums text-foreground">
                 {combined?.totalExistingContacts ?? 0}
               </dd>
             </div>
@@ -244,21 +228,21 @@ export function RunResultSnapshot({
                 <p className="text-xs font-medium text-muted-foreground">Contactos incompletos</p>
                 <dl className="space-y-1 text-xs">
                   {combined.incompleteContacts.missingEmail > 0 && (
-                    <div className="flex justify-between">
+                    <div className="flex justify-between gap-3">
                       <dt className="text-muted-foreground">Sin email</dt>
-                      <dd className="text-warning">{combined.incompleteContacts.missingEmail}</dd>
+                      <dd className="text-right tabular-nums text-warning">{combined.incompleteContacts.missingEmail}</dd>
                     </div>
                   )}
                   {combined.incompleteContacts.missingPhone > 0 && (
-                    <div className="flex justify-between">
+                    <div className="flex justify-between gap-3">
                       <dt className="text-muted-foreground">Sin teléfono</dt>
-                      <dd className="text-warning">{combined.incompleteContacts.missingPhone}</dd>
+                      <dd className="text-right tabular-nums text-warning">{combined.incompleteContacts.missingPhone}</dd>
                     </div>
                   )}
                   {combined.incompleteContacts.missingLinkedin > 0 && (
-                    <div className="flex justify-between">
+                    <div className="flex justify-between gap-3">
                       <dt className="text-muted-foreground">Sin LinkedIn</dt>
-                      <dd className="text-warning">
+                      <dd className="text-right tabular-nums text-warning">
                         {combined.incompleteContacts.missingLinkedin}
                       </dd>
                     </div>
@@ -336,22 +320,22 @@ function LushaEmptyState({ result }: { result: LushaEnrichmentUiResult }) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-border/50 bg-card px-3 py-2">
+      <div className="rounded-lg border border-border/50 bg-card px-3 py-2">
         <p className="text-xs text-muted-foreground">{copy.notAnError}</p>
       </div>
 
       <dl className="space-y-1.5 border-t border-border/50 pt-3 text-xs">
-        <div className="flex justify-between">
+        <div className="flex justify-between gap-3">
           <dt className="text-muted-foreground">Resultados brutos</dt>
-          <dd className="font-medium text-foreground">{result.rawResultsCount}</dd>
+          <dd className="text-right font-medium tabular-nums text-foreground">{result.rawResultsCount}</dd>
         </div>
-        <div className="flex justify-between">
+        <div className="flex justify-between gap-3">
           <dt className="text-muted-foreground">Créditos usados</dt>
-          <dd className="font-medium text-foreground">{result.creditsUsed ?? 0}</dd>
+          <dd className="text-right font-medium tabular-nums text-foreground">{result.creditsUsed ?? 0}</dd>
         </div>
-        <div className="flex justify-between">
+        <div className="flex justify-between gap-3">
           <dt className="text-muted-foreground">Reveal de teléfono</dt>
-          <dd className="font-medium text-foreground">no ejecutado</dd>
+          <dd className="text-right font-medium tabular-nums text-foreground">no ejecutado</dd>
         </div>
       </dl>
     </div>
@@ -381,28 +365,28 @@ export function ApolloPreflightCard({ provider }: { provider?: ContactEnrichment
       {isLusha ? (
         <>
           <dl className="space-y-1.5 text-xs">
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground font-medium">Búsqueda / enriquecimiento Lusha</dt>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">Máximo de intentos</dt>
-              <dd className="font-medium text-foreground">3</dd>
+              <dd className="text-right font-medium tabular-nums text-foreground">3</dd>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">Máximo de resultados a evaluar</dt>
-              <dd className="font-medium text-foreground">15</dd>
+              <dd className="text-right font-medium tabular-nums text-foreground">15</dd>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">Email corporativo</dt>
-              <dd className="font-medium text-foreground">habilitado si está disponible</dd>
+              <dd className="text-right font-medium tabular-nums text-foreground">habilitado si está disponible</dd>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">Teléfono</dt>
-              <dd className="font-medium text-foreground">deshabilitado en esta fase</dd>
+              <dd className="text-right font-medium tabular-nums text-foreground">deshabilitado en esta fase</dd>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">Reveal automático de teléfono</dt>
-              <dd className="font-medium text-foreground">no disponible</dd>
+              <dd className="text-right font-medium tabular-nums text-foreground">no disponible</dd>
             </div>
           </dl>
           <p className="border-t border-border/50 pt-2 text-xs text-muted-foreground">
@@ -414,41 +398,41 @@ export function ApolloPreflightCard({ provider }: { provider?: ContactEnrichment
       ) : (
         <>
           <dl className="space-y-1.5 text-xs">
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground font-medium">Búsqueda Apollo</dt>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">Máximo de intentos</dt>
-              <dd className="font-medium text-foreground">{g.maxSearchAttempts}</dd>
+              <dd className="text-right font-medium tabular-nums text-foreground">{g.maxSearchAttempts}</dd>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">Máximo de resultados a evaluar</dt>
-              <dd className="font-medium text-foreground">{g.maxSearchResultsPerRun}</dd>
+              <dd className="text-right font-medium tabular-nums text-foreground">{g.maxSearchResultsPerRun}</dd>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">Créditos máximos de búsqueda</dt>
-              <dd className="font-medium text-foreground">
+              <dd className="text-right font-medium tabular-nums text-foreground">
                 {g.maxEstimatedSearchCreditsPerRun === 0
                   ? 'sin costo'
                   : `${g.maxEstimatedSearchCreditsPerRun} créditos`}
               </dd>
             </div>
-            <div className="flex justify-between border-t border-border/50 pt-1.5 mt-1">
+            <div className="flex justify-between gap-3 border-t border-border/50 pt-1.5 mt-1">
               <dt className="text-muted-foreground font-medium">Completion de perfiles</dt>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">Máximo de perfiles a completar</dt>
-              <dd className="font-medium text-foreground">{g.maxCompletionCandidates}</dd>
+              <dd className="text-right font-medium tabular-nums text-foreground">{g.maxCompletionCandidates}</dd>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">Créditos máximos estimados de completion</dt>
-              <dd className="font-medium text-foreground">{g.maxCompletionCreditsPerRun}</dd>
+              <dd className="text-right font-medium tabular-nums text-foreground">{g.maxCompletionCreditsPerRun}</dd>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">Teléfono (de búsqueda)</dt>
-              <dd className="font-medium text-foreground">se conserva si Apollo lo entrega</dd>
+              <dd className="text-right font-medium tabular-nums text-foreground">se conserva si Apollo lo entrega</dd>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">Reveal automático de teléfono</dt>
               <dd className="text-muted-foreground">
                 ~{g.phoneRevealCredits} créditos —{' '}
@@ -508,7 +492,7 @@ function ApolloEmptyState({ result, runId, accountId, onCreateManualContact }: A
         </div>
       </div>
 
-      <div className="rounded-xl border border-border/50 bg-card px-3 py-2">
+      <div className="rounded-lg border border-border/50 bg-card px-3 py-2">
         <p className="text-xs text-muted-foreground">{copy.notAnError}</p>
       </div>
 
@@ -520,7 +504,7 @@ function ApolloEmptyState({ result, runId, accountId, onCreateManualContact }: A
         <ul className="space-y-1.5">
           {copy.tips.map((tip) => (
             <li key={tip} className="flex items-start gap-2 text-xs text-muted-foreground">
-              <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/40" aria-hidden />
+              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-border-strong" aria-hidden />
               {tip}
             </li>
           ))}
@@ -572,41 +556,41 @@ function ApolloResultSummary({ result, runId, accountId, companyName, companyDom
     <div className="space-y-3 border-t border-border/50 pt-3">
       <p className="text-xs font-medium text-foreground">Resultado de Apollo</p>
       <dl className="space-y-1.5 text-xs">
-        <div className="flex justify-between">
+        <div className="flex justify-between gap-3">
           <dt className="text-muted-foreground">Perfiles encontrados</dt>
-          <dd className="font-medium text-foreground">{result.rawResultsCount}</dd>
+          <dd className="text-right font-medium tabular-nums text-foreground">{result.rawResultsCount}</dd>
         </div>
-        <div className="flex justify-between">
+        <div className="flex justify-between gap-3">
           <dt className="text-muted-foreground">Filtrados por relevancia/calidad</dt>
           <dd className={result.rejectedByRelevance > 0 ? 'text-warning' : 'text-foreground'}>
             {result.rejectedByRelevance}
           </dd>
         </div>
-        <div className="flex justify-between">
+        <div className="flex justify-between gap-3">
           <dt className="text-muted-foreground">Intentos de completar datos</dt>
-          <dd className="font-medium text-foreground">{result.completionAttempted}</dd>
+          <dd className="text-right font-medium tabular-nums text-foreground">{result.completionAttempted}</dd>
         </div>
-        <div className="flex justify-between">
+        <div className="flex justify-between gap-3">
           <dt className="text-muted-foreground">Candidatos con datos accionables</dt>
-          <dd className="font-medium text-foreground">{result.actionableContactsCount}</dd>
+          <dd className="text-right font-medium tabular-nums text-foreground">{result.actionableContactsCount}</dd>
         </div>
-        <div className="flex justify-between">
+        <div className="flex justify-between gap-3">
           <dt className="text-muted-foreground">Candidatos listos para revisión</dt>
-          <dd className="font-semibold text-foreground">{result.candidatesCreated}</dd>
+          <dd className="text-right font-semibold tabular-nums text-foreground">{result.candidatesCreated}</dd>
         </div>
-        <div className="flex justify-between">
+        <div className="flex justify-between gap-3">
           <dt className="text-muted-foreground">Duplicados omitidos</dt>
-          <dd className="font-medium text-foreground">{result.duplicatesSkipped}</dd>
+          <dd className="text-right font-medium tabular-nums text-foreground">{result.duplicatesSkipped}</dd>
         </div>
         {result.possibleDuplicates > 0 && (
-          <div className="flex justify-between">
+          <div className="flex justify-between gap-3">
             <dt className="text-muted-foreground">Posibles duplicados</dt>
-            <dd className="text-warning">{result.possibleDuplicates}</dd>
+            <dd className="text-right tabular-nums text-warning">{result.possibleDuplicates}</dd>
           </div>
         )}
-        <div className="flex justify-between border-t border-border/50 pt-1.5">
+        <div className="flex justify-between gap-3 border-t border-border/50 pt-1.5">
           <dt className="text-muted-foreground">Estado final</dt>
-          <dd className="font-medium text-foreground">
+          <dd className="text-right font-medium tabular-nums text-foreground">
             {result.status === 'ready_for_review' ? 'Listo para revisión' : 'Completado'}
           </dd>
         </div>
@@ -631,29 +615,29 @@ function ApolloResultSummary({ result, runId, accountId, companyName, companyDom
         <div className="space-y-1.5 border-t border-border/50 pt-2">
           <p className="text-xs font-medium text-muted-foreground">Créditos de completion</p>
           <dl className="space-y-1 text-xs">
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">Email/básico</dt>
-              <dd className="font-medium text-foreground">
+              <dd className="text-right font-medium tabular-nums text-foreground">
                 {result.costGuardrail.actual_credits_email}
               </dd>
             </div>
             {result.costGuardrail.phone_completion_enabled && (
-              <div className="flex justify-between">
+              <div className="flex justify-between gap-3">
                 <dt className="text-muted-foreground">Teléfono</dt>
-                <dd className="font-medium text-foreground">
+                <dd className="text-right font-medium tabular-nums text-foreground">
                   {result.costGuardrail.actual_credits_phone}
                 </dd>
               </div>
             )}
             {!result.costGuardrail.phone_completion_enabled && (
-              <div className="flex justify-between">
+              <div className="flex justify-between gap-3">
                 <dt className="text-muted-foreground">Reveal automático de teléfono</dt>
                 <dd className="text-muted-foreground">no ejecutado</dd>
               </div>
             )}
-            <div className="flex justify-between border-t border-border/50 pt-1">
+            <div className="flex justify-between gap-3 border-t border-border/50 pt-1">
               <dt className="text-muted-foreground">Total</dt>
-              <dd className="font-semibold text-foreground">
+              <dd className="text-right font-semibold tabular-nums text-foreground">
                 {result.costGuardrail.actual_credits_total === 0 && result.completionAttempted === 0
                   ? 'sin créditos de completion'
                   : `${result.costGuardrail.actual_credits_total} créditos`}
@@ -680,20 +664,20 @@ function ApolloResultSummary({ result, runId, accountId, companyName, companyDom
         <div className="space-y-1.5 border-t border-border/50 pt-2">
           <p className="text-xs font-medium text-muted-foreground">Búsqueda Apollo</p>
           <dl className="space-y-1 text-xs">
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">Resultados evaluados</dt>
-              <dd className="font-medium text-foreground">{result.rawResultsCount}</dd>
+              <dd className="text-right font-medium tabular-nums text-foreground">{result.rawResultsCount}</dd>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">Créditos de búsqueda</dt>
-              <dd className="font-medium text-foreground">
+              <dd className="text-right font-medium tabular-nums text-foreground">
                 {result.searchGuardrail.estimated_search_credits === 0
                   ? 'sin costo'
                   : `${result.searchGuardrail.estimated_search_credits} créditos`}
               </dd>
             </div>
             {result.searchGuardrail.stopped_early_reason && (
-              <div className="flex justify-between">
+              <div className="flex justify-between gap-3">
                 <dt className="text-muted-foreground">Motivo de corte</dt>
                 <dd className="text-muted-foreground">
                   {result.searchGuardrail.stopped_early_reason === 'target_reviewable_reached'

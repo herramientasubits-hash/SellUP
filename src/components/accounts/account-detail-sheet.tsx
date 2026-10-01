@@ -238,7 +238,7 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                                 href={data.account.website}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-primary hover:underline"
+                                className="break-all rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                               >
                                 {data.account.domain ?? data.account.website}
                               </a>
@@ -262,7 +262,7 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                             label={data.account.tax_identifier_type ?? 'ID fiscal'}
                           >
                             {data.account.tax_identifier
-                              ? <span className="font-mono text-xs">{data.account.tax_identifier}</span>
+                              ? <span className="break-all font-mono text-xs tabular-nums">{data.account.tax_identifier}</span>
                               : <EmptyValue />}
                           </DetailRow>
                           <DetailRow icon={Tag} label="Fuente">
@@ -289,12 +289,12 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                           </DetailRow>
                           <DetailRow icon={Users} label="Contactos">
                             {data.contacts.length > 0
-                              ? `${data.contacts.length}`
+                              ? <span className="tabular-nums">{`${data.contacts.length}`}</span>
                               : <EmptyValue />}
                           </DetailRow>
                           <DetailRow icon={Globe} label="HubSpot ID">
                             {data.account.hubspot_company_id
-                              ? <span className="font-mono text-xs">{data.account.hubspot_company_id}</span>
+                              ? <span className="break-all font-mono text-xs tabular-nums">{data.account.hubspot_company_id}</span>
                               : <EmptyValue />}
                           </DetailRow>
                         </dl>
@@ -303,7 +303,7 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                             <p className="mb-1 text-xs font-semibold text-muted-foreground">
                               Notas
                             </p>
-                            <p className="break-words text-xs leading-relaxed text-foreground">
+                            <p className="break-words text-sm leading-relaxed text-foreground">
                               {data.account.notes}
                             </p>
                           </div>
@@ -318,7 +318,7 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                       icon={Activity}
                       action={
                         data.auditLog.length > 3 ? (
-                          <span className="text-xs text-muted-foreground">
+                          <span className="text-xs tabular-nums text-muted-foreground">
                             {data.auditLog.length} eventos
                           </span>
                         ) : undefined
@@ -439,14 +439,12 @@ function DetailRow({
   // la derecha) para una lectura más tabular y ordenada; contraste del label
   // subido de /50 a /70.
   return (
-    <div className="flex items-start gap-3">
+    <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:gap-3">
       <div className="flex shrink-0 items-center gap-2 min-w-[104px]">
         <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        <dt className="text-xs font-medium text-muted-foreground">
-          {label}
-        </dt>
+        <dt className="text-xs text-muted-foreground">{label}</dt>
       </div>
-      <dd className="min-w-0 flex-1 break-words text-right text-xs text-foreground">{children}</dd>
+      <dd className="min-w-0 flex-1 break-words text-sm text-foreground sm:text-right">{children}</dd>
     </div>
   );
 }
