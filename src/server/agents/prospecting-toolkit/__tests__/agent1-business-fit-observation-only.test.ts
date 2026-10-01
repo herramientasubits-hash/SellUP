@@ -448,10 +448,19 @@ describe('BF-OBS § 6 · objetivo mínimo y topes de consumo, intactos', () => {
     );
     // El anclaje POSITIVO primero: si el enunciado desapareciera, la guarda de
     // abajo se quedaría verde sin haber comprobado nada.
-    assert.ok(code.includes('const toPersist = capOrdered'), 'el enunciado sigue existiendo');
+    assert.ok(code.includes('const toPersist ='), 'el enunciado sigue existiendo');
+    // AGENT1-DELIVERY-CAP-1 (opción B de la dueña, 2026-10-01) — el ÚNICO recorte
+    // permitido es el de ENTREGA por vendedor (`deliveryCap`, ausente por
+    // defecto), nunca uno por OBJETIVO: sin la variable se persiste la lista
+    // entera, como fijó X6.13.
     assert.ok(
-      /const toPersist = capOrdered;/.test(code),
-      '🔴 se persiste la lista ENTERA: ningún `.slice(` por objetivo',
+      /const toPersist =\s*deliveryCap !== null && capOrdered\.length > deliveryCap\s*\?\s*capOrdered\.slice\(0, deliveryCap\)\s*:\s*capOrdered;/.test(code),
+      '🔴 sin tope de entrega se persiste la lista ENTERA',
+    );
+    assert.ok(
+      !/capOrdered\.slice\(0,\s*targetCap/.test(code) &&
+        !/slice\(0,\s*input\.targetPersistibleCandidates/.test(code),
+      '🔴 ningún `.slice(` por objetivo',
     );
   });
 

@@ -2245,7 +2245,21 @@ export async function writeProspectingCandidates(
    * leen, y retirarla obligaría a tocar consumidores ajenos a este corte. Cero
    * es además la afirmación correcta: ninguna empresa se queda fuera por cupo.
    */
-  const toPersist = capOrdered;
+  // 🔴 AGENT1-DELIVERY-CAP-1 — el ÚNICO recorte que sobrevive a X6.13, y es de
+  // ENTREGA, no de objetivo: un vendedor recibe como máximo
+  // `maxDeliveredCandidates` empresas (por defecto sin tope). `capOrdered` ya
+  // viene COMPLETAS PRIMERO, así que recortar la cola nunca deja fuera a una
+  // completa por una incompleta. Lo recortado no se persiste y por tanto NO
+  // reclama la empresa: queda libre para otro vendedor. Nunca baja del objetivo.
+  const deliveryCap =
+    input.maxDeliveredCandidates != null && Number.isFinite(input.maxDeliveredCandidates)
+      ? Math.max(Math.trunc(input.maxDeliveredCandidates), targetCap ?? 0)
+      : null;
+  const toPersist =
+    deliveryCap !== null && capOrdered.length > deliveryCap
+      ? capOrdered.slice(0, deliveryCap)
+      : capOrdered;
+  precisionGate.targetCapCount = capOrdered.length - toPersist.length;
 
   // ── Active Duplicate Guard: prefetch active candidates (v1.13.1) ───────────
   // Fetches existing active candidates once before the write loop to avoid
@@ -4183,6 +4197,9 @@ export async function writeProspectingCandidates(
           eligible_before_cap: eligibleBeforeCap,
           persisted_after_cap: createdCandidateIds.length,
           capped_count: precisionGate.targetCapCount,
+          // AGENT1-DELIVERY-CAP-1 — el tope de ENTREGA (distinto del objetivo).
+          delivery_cap: deliveryCap,
+          delivery_capped_count: precisionGate.targetCapCount,
         }
       : undefined;
 

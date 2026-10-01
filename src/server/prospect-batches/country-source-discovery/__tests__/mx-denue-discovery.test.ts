@@ -153,6 +153,42 @@ describe('buildMxDenueDiscoveryAdapter', () => {
     assert.deepEqual(result.companies.map((c) => c.recordIdentityKey), ['denue:1']);
   });
 
+  it('intercala las actividades: Tecnología no se llena sólo con telecomunicaciones (517)', async () => {
+    // Cada actividad del plan devuelve SUS filas; antes la primera (517) llenaba el
+    // objetivo entero. Hoy se toma una de cada actividad por turno.
+    const byRama: Record<string, DenueEstablishment[]> = {
+      '5112': [est('S1', { activityCode: '511210' }), est('S2', { activityCode: '511210' })],
+      '517': [est('T1', { activityCode: '517311' }), est('T2', { activityCode: '517312' }), est('T3', { activityCode: '517311' })],
+      '518': [],
+      '519': [],
+      '5415': [est('C1', { activityCode: '541510' })],
+    };
+    const reads: MxDenueDiscoveryReads = {
+      async readEstablishments({ filter, estrato }) {
+        if (estrato !== '7') return [];
+        const key = filter.rama !== '0' ? filter.rama : filter.subsector;
+        return byRama[key] ?? [];
+      },
+    };
+    const result = await buildMxDenueDiscoveryAdapter(reads)({ countryCode: 'MX', macroIndustryKey: 'technology', limit: 3 });
+    assert.deepEqual(
+      result.companies.map((company) => company.industryCode),
+      ['511210', '517311', '541510'],
+    );
+  });
+
+  it('una empresa = una fila también por nombre comercial (MEGACABLE y su razón social completa)', async () => {
+    const { reads } = fakeReads({
+      '7': [
+        est('M1', { name: 'MEGACABLE', legalName: 'MEGACABLE', activityCode: '517311' }),
+        est('M2', { name: 'MEGACABLE', legalName: 'MEGACABLE COMUNICACIONES DE MEXICO S.A. DE C.V.', activityCode: '517311' }),
+        est('X1', { name: 'AXTEL', legalName: 'AXTEL S.A.B. DE C.V.', activityCode: '517311' }),
+      ],
+    });
+    const result = await buildMxDenueDiscoveryAdapter(reads)({ countryCode: 'MX', macroIndustryKey: 'technology', limit: 10 });
+    assert.deepEqual(result.companies.map((company) => company.legalName), ['MEGACABLE', 'AXTEL S.A.B. DE C.V.']);
+  });
+
   it('una macro sin plan no consulta; límite 0 tampoco; techo 200', async () => {
     const { reads, calls } = fakeReads({ '7': [est('1')] });
     const adapter = buildMxDenueDiscoveryAdapter(reads);
@@ -168,6 +204,13 @@ describe('buildMxDenueDiscoveryAdapter', () => {
     assert.equal(denueWebsiteToDomain(''), null);
     assert.equal(denueWebsiteToDomain('NO TIENE'), null);
     assert.equal(denueWebsiteToDomain(null), null);
+  });
+
+  it('dominio: una web tecleada mal en DENUE no se convierte en un dominio falso', () => {
+    assert.equal(denueWebsiteToDomain('htpsalincebpo.netecc'), null);
+    assert.equal(denueWebsiteToDomain('WWW.EMPRESA.COM.MX'), 'empresa.com.mx');
+    assert.equal(denueWebsiteToDomain('bibliotecamexico.gob.mx'), 'bibliotecamexico.gob.mx');
+    assert.equal(denueWebsiteToDomain('BLUETAB.NET'), 'bluetab.net');
   });
 });
 

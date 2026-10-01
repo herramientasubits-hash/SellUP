@@ -94,6 +94,7 @@ import {
   type ProviderSeenProvider,
 } from '@/modules/prospect-batches/provider-seen/provider-seen-identity';
 import { persistCountrySourceCandidates } from './persist-country-source-candidates';
+import { applyDeliveryCap, resolveMaxDeliveredCandidates } from '@/modules/prospect-batches/delivery-cap';
 
 export type PrePaidNoveltyDiscoveryInput = {
   /**
@@ -193,6 +194,11 @@ export type PrePaidNoveltyDiscoveryOutcome = {
 export type PrePaidNoveltyDiscoveryDeps = {
   runGate: typeof runProductionPrePaidNoveltyGate;
   persist: typeof persistCountrySourceCandidates;
+  /**
+   * AGENT1-DELIVERY-CAP-1 — inyectable para pruebas. `undefined` ⇒ se lee del
+   * entorno (`resolveMaxDeliveredCandidates`); `null` ⇒ sin tope.
+   */
+  maxDeliveredCandidates?: number | null;
 };
 
 const PRODUCTION_DEPS: PrePaidNoveltyDiscoveryDeps = {
@@ -334,8 +340,21 @@ export async function runPrePaidNoveltyDiscovery(
     ? await input.resolveBatchId().catch(() => null)
     : null;
 
+  // 🔴 AGENT1-DELIVERY-CAP-1 — la capa gratuita también entrega como MÁXIMO el
+  // tope por vendedor. Medido en Producción (01-10, México × Tecnología y ×
+  // Salud): DENUE dejó 20 filas para un objetivo de 5. Nunca baja del objetivo
+  // (el resolutor lo garantiza), así que la aritmética del hueco no cambia.
+  // Ausente el tope ⇒ todo, como antes.
+  const deliveredFree = applyDeliveryCap(
+    gate.acceptedCompanies,
+    deps.maxDeliveredCandidates === undefined
+      ? resolveMaxDeliveredCandidates(undefined, input.requestedTarget)
+      : deps.maxDeliveredCandidates,
+    () => true,
+  ).delivered;
+
   const persistence = await deps.persist(client, {
-    companies: gate.acceptedCompanies,
+    companies: deliveredFree,
     countryCode: input.countryCode,
     countryName: input.countryName,
     macroIndustryKey: input.macroIndustryKey ?? '',
