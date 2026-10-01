@@ -161,13 +161,18 @@ function makeFakeAdminClient(inserted: Record<string, unknown>[]): SupabaseClien
 
 type Completeness = { failed_conditions?: string[]; counts_toward_target?: boolean };
 
-async function writeWithProvider(provider: string) {
+async function writeWithProvider(
+  provider: string,
+  candidate: { name: string; domain: string; snippet: string } = {
+    name: 'Nexen', domain: 'nexen.com.co', snippet: 'Software empresarial Colombia',
+  },
+) {
   const candidates = [
     makeCandidate({
-      name: 'Nexen',
-      website: 'https://nexen.com.co',
-      domain: 'nexen.com.co',
-      sourceSnippet: 'Software empresarial Colombia',
+      name: candidate.name,
+      website: `https://${candidate.domain}`,
+      domain: candidate.domain,
+      sourceSnippet: candidate.snippet,
     }),
   ];
   const pipelineOutput = makePipelineOutput(candidates);
@@ -253,5 +258,27 @@ describe('writer — filas de Tavily con target_completeness', () => {
     assert.equal(result.candidatesCreated, 1);
     const metadata = inserted[0]?.metadata as Record<string, unknown>;
     assert.equal(metadata?.target_completeness, undefined);
+  });
+});
+
+describe('AGENT1-LINKEDIN-OPTIONAL-INSTITUTIONS-1 — el writer no exige LinkedIn a una entidad pública', () => {
+  it('alcaldía .gov.co: target_completeness sin linkedin_status y con el motivo', async () => {
+    const { result, inserted } = await writeWithProvider('tavily', {
+      name: 'Alcaldía de Ibagué', domain: 'ibague.gov.co', snippet: 'Alcaldía Municipal de Ibagué, Tolima, Colombia',
+    });
+    assert.equal(result.candidatesCreated, 1);
+    const completeness = (inserted[0]?.metadata as Record<string, unknown>)?.target_completeness as Record<string, unknown>;
+    assert.ok(completeness);
+    assert.equal((completeness.failed_conditions as string[]).includes('linkedin_status'), false);
+    assert.ok((completeness.failed_conditions as string[]).includes('employee_count_status'), 'el tamaño se sigue exigiendo');
+    assert.equal(completeness.linkedin_required, false);
+    assert.equal(completeness.linkedin_requirement_reason, 'public_or_education_domain');
+  });
+
+  it('empresa comercial: el LinkedIn sigue siendo condición', async () => {
+    const { inserted } = await writeWithProvider('tavily');
+    const completeness = (inserted[0]?.metadata as Record<string, unknown>)?.target_completeness as Record<string, unknown>;
+    assert.ok((completeness.failed_conditions as string[]).includes('linkedin_status'));
+    assert.equal(completeness.linkedin_required, true);
   });
 });

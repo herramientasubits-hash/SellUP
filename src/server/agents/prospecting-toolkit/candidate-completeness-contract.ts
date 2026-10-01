@@ -144,6 +144,13 @@ export type CandidateTargetEligibilityInput = {
    */
   icpSizeConfirmedAboveThreshold?: boolean;
   linkedinStatus: CompanyFieldMappingStatus;
+  /**
+   * AGENT1-LINKEDIN-OPTIONAL-INSTITUTIONS-1 — `false` sólo para organizaciones
+   * que son cliente y no suelen tener LinkedIn (Estado, educación, ONG,
+   * gremios); ver `linkedin-requirement.ts`. Ausente ⇒ obligatorio, el
+   * comportamiento histórico exacto. No toca ninguna otra condición.
+   */
+  linkedinRequired?: boolean;
   /** Valor tal como se persiste en `prospect_candidates.duplicate_status`. */
   duplicateStatus: string | null;
   ownershipGate: GateVerdict;
@@ -314,7 +321,7 @@ export function evaluateCandidateTargetEligibility(
     employee_count_status:
       input.employeeCountStatus === 'confirmed' ||
       input.icpSizeConfirmedAboveThreshold === true,
-    linkedin_status: input.linkedinStatus === 'confirmed',
+    linkedin_status: input.linkedinRequired === false || input.linkedinStatus === 'confirmed',
     duplicate_status: input.duplicateStatus === REQUIRED_DUPLICATE_STATUS,
     ownership_gate: input.ownershipGate === 'pass',
     quality_gate: input.qualityGate === 'pass',
@@ -742,6 +749,8 @@ export function evaluateCandidateSubindustryTargetEligibility(input: {
   /** SIZE-EVIDENCE-PARITY-1 — ver `CandidateTargetEligibilityInput`. */
   icpSizeConfirmedAboveThreshold?: boolean;
   linkedinStatus: CompanyFieldMappingStatus;
+  /** AGENT1-LINKEDIN-OPTIONAL-INSTITUTIONS-1 — ver `CandidateTargetEligibilityInput`. */
+  linkedinRequired?: boolean;
   duplicateStatus: string | null;
   ownershipGate: GateVerdict;
   qualityGate: GateVerdict;
@@ -771,6 +780,7 @@ export function evaluateCandidateSubindustryTargetEligibility(input: {
     employeeCountStatus: input.employeeCountStatus,
     icpSizeConfirmedAboveThreshold: input.icpSizeConfirmedAboveThreshold,
     linkedinStatus: input.linkedinStatus,
+    linkedinRequired: input.linkedinRequired,
     duplicateStatus: input.duplicateStatus,
     ownershipGate: input.ownershipGate,
     qualityGate: input.qualityGate,
