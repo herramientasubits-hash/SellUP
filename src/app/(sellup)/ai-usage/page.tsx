@@ -12,9 +12,11 @@ import {
   Users,
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
-import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { SurfaceCard } from '@/components/shared/surface-card';
 import { Badge } from '@/components/ui/badge';
 import { MetricCard } from '@/components/shared/metric-card';
+import { EmptyState as EmptyStateBase } from '@/components/ui/empty-state';
+import { TableShell } from '@/components/data-display';
 import { FiltersClient } from './filters-client';
 import {
   Agent1EffectivenessPanel,
@@ -182,10 +184,7 @@ function EffectivenessBar({ pct }: { pct: number }) {
 
 function EmptyState({ message }: { message: string }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 py-8">
-      <Activity className="h-6 w-6 text-text-muted" />
-      <p className="text-sm text-muted-foreground">{message}</p>
-    </div>
+    <EmptyStateBase variant="plain" icon={Activity} title={message} />
   );
 }
 
@@ -199,14 +198,14 @@ function AgentStatsTable({ agents }: { agents: AgentStat[] }) {
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+    <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-border/60">
+          <tr className="border-b border-border/60 bg-surface-subtle">
             {['Agente', 'Ejec.', 'Generados', 'Aprobados', 'Efectividad', 'Costo est.', 'Costo/aprobado'].map((h) => (
               <th
                 key={h}
-                className={`pb-2.5 text-xs font-semibold text-muted-foreground ${h === 'Agente' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
+                scope="col"
+                className={`py-2.5 text-xs font-semibold text-muted-foreground ${h === 'Agente' ? 'text-left' : 'text-right'} pr-4`}
               >
                 {h}
               </th>
@@ -258,8 +257,7 @@ function AgentStatsTable({ agents }: { agents: AgentStat[] }) {
             );
           })}
         </tbody>
-      </table>
-    </div>
+    </table>
   );
 }
 
@@ -311,14 +309,14 @@ function ProviderStatsTable({ providers }: { providers: ProviderStat[] }) {
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+    <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-border/60">
+          <tr className="border-b border-border/60 bg-surface-subtle">
             {['Proveedor', 'Medición', 'Llamadas', 'Cantidad', 'Resultados', 'Costo est.', 'Último uso'].map((h) => (
               <th
                 key={h}
-                className={`pb-2.5 text-xs font-semibold text-muted-foreground ${h === 'Proveedor' || h === 'Medición' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
+                scope="col"
+                className={`py-2.5 text-xs font-semibold text-muted-foreground ${h === 'Proveedor' || h === 'Medición' ? 'text-left' : 'text-right'} pr-4`}
               >
                 {h}
               </th>
@@ -372,8 +370,7 @@ function ProviderStatsTable({ providers }: { providers: ProviderStat[] }) {
             </tr>
           ))}
         </tbody>
-      </table>
-    </div>
+    </table>
   );
 }
 
@@ -387,14 +384,14 @@ function RecentLogsTable({ logs }: { logs: ProviderUsageLog[] }) {
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+    <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-border/60">
+          <tr className="border-b border-border/60 bg-surface-subtle">
             {['Fecha', 'Proveedor', 'Operación', 'Estado', 'Cred./Tokens', 'Costo est.'].map((h) => (
               <th
                 key={h}
-                className={`pb-2.5 text-xs font-semibold text-muted-foreground ${h === 'Fecha' || h === 'Proveedor' || h === 'Operación' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
+                scope="col"
+                className={`py-2.5 text-xs font-semibold text-muted-foreground ${h === 'Fecha' || h === 'Proveedor' || h === 'Operación' ? 'text-left' : 'text-right'} pr-4`}
               >
                 {h}
               </th>
@@ -451,8 +448,7 @@ function RecentLogsTable({ logs }: { logs: ProviderUsageLog[] }) {
             );
           })}
         </tbody>
-      </table>
-    </div>
+    </table>
   );
 }
 
@@ -529,7 +525,6 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
           // Design Refresh v9: valor neutro. El color en un número se reserva
           // para señal semántica real (errores) — el chip de icono ya da contexto.
           accent: 'text-foreground',
-          iconBg: 'bg-primary/10',
         },
         {
           label: 'Ejecuciones de agentes',
@@ -537,7 +532,6 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
           sub: 'runs registrados',
           icon: Bot,
           accent: 'text-foreground',
-          iconBg: 'bg-surface-subtle',
         },
         {
           label: 'Llamadas a proveedores',
@@ -545,7 +539,6 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
           sub: `${summary.distinct_providers} proveedor${summary.distinct_providers !== 1 ? 'es' : ''} activo${summary.distinct_providers !== 1 ? 's' : ''}`,
           icon: Zap,
           accent: 'text-foreground',
-          iconBg: 'bg-surface-subtle',
         },
         {
           label: 'Errores',
@@ -555,9 +548,6 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
           accent: summary.error_provider_calls + summary.failed_executions > 0
             ? 'text-destructive'
             : 'text-muted-foreground',
-          iconBg: summary.error_provider_calls + summary.failed_executions > 0
-            ? 'bg-destructive/10'
-            : 'bg-surface-subtle',
         },
         {
           label: 'Costo promedio / run',
@@ -567,7 +557,6 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
           sub: 'por ejecución de agente',
           icon: TrendingUp,
           accent: 'text-foreground',
-          iconBg: 'bg-surface-subtle',
         },
         {
           label: 'En curso ahora',
@@ -575,7 +564,6 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
           sub: 'agentes activos',
           icon: CheckCircle2,
           accent: 'text-foreground',
-          iconBg: summary.running_executions > 0 ? 'bg-primary/10' : 'bg-surface-subtle',
         },
       ];
 
@@ -658,13 +646,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
               title={card.label}
               description={card.sub}
               value={card.value}
-              valueClassName={`font-mono ${card.accent}`}
-              iconPosition="top"
-              icon={
-                <div className={`flex h-8 w-8 items-center justify-center rounded-xl ${card.iconBg}`}>
-                  <card.icon className={`h-4 w-4 ${card.accent}`} />
-                </div>
-              }
+              icon={<card.icon className={card.accent} aria-hidden="true" />}
             />
           ))}
         </div>
@@ -686,92 +668,71 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
 
       {/* ── Sección 1: Consumo por agente ───────────────────── */}
       {!isRestricted && (
-        <SurfaceCard>
-          <SurfaceCardHeader
-            title="Consumo por agente"
-            description="Ejecuciones, prospectos generados y aprobados, y costo estimado por agente."
-            actions={
-              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10">
-                <Bot className="h-4 w-4 text-primary" />
-              </div>
-            }
-          />
+        <TableShell
+          title="Consumo por agente"
+          description="Ejecuciones, prospectos generados y aprobados, y costo estimado por agente."
+        >
           <AgentStatsTable agents={agentStats ?? []} />
-        </SurfaceCard>
+        </TableShell>
       )}
 
       {/* ── Sección 2: Consumo por proveedor ────────────────── */}
       {!isRestricted && (
-        <SurfaceCard>
-          <SurfaceCardHeader
-            title="Consumo por proveedor"
-            description="Llamadas, créditos o tokens consumidos, y costo estimado por proveedor."
-            actions={
-              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-surface-subtle">
-                <Plug className="h-4 w-4 text-muted-foreground" />
-              </div>
-            }
-          />
+        <TableShell
+          title="Consumo por proveedor"
+          description="Llamadas, créditos o tokens consumidos, y costo estimado por proveedor."
+          footer={
+            <div className="flex items-start gap-2">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                <strong className="text-foreground font-medium">Tavily</strong> no consume tokens — se cobra por crédito/consulta.{' '}
+                <strong className="text-foreground font-medium">Apollo</strong> y{' '}
+                <strong className="text-foreground font-medium">Lusha</strong> se medirán por crédito cuando se integren.
+                Los costos son estimados; el costo real depende de conciliación de factura.
+              </p>
+            </div>
+          }
+        >
           <ProviderStatsTable providers={providerStats ?? []} />
-
-          <div className="mt-4 flex items-start gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2.5">
-            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
-            <p className="text-sm leading-relaxed text-muted-foreground">
-              <strong className="text-foreground font-medium">Tavily</strong> no consume tokens — se cobra por crédito/consulta.{' '}
-              <strong className="text-foreground font-medium">Apollo</strong> y{' '}
-              <strong className="text-foreground font-medium">Lusha</strong> se medirán por crédito cuando se integren.
-              Los costos son estimados; el costo real depende de conciliación de factura.
-            </p>
-          </div>
-        </SurfaceCard>
+        </TableShell>
       )}
 
       {/* ── Sección 3: Ejecuciones recientes ────────────────── */}
       {!isRestricted && (
-        <SurfaceCard>
-          <SurfaceCardHeader
-            title="Ejecuciones recientes"
-            description="Últimas 25 llamadas a proveedores registradas por el Agente 1."
-            actions={
-              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10">
-                <Zap className="h-4 w-4 text-primary" />
-              </div>
-            }
-          />
+        <TableShell
+          title="Ejecuciones recientes"
+          description="Últimas 25 llamadas a proveedores registradas por el Agente 1."
+        >
           <RecentLogsTable logs={recentLogs ?? []} />
-        </SurfaceCard>
+        </TableShell>
       )}
 
       {/* ── Sección 4: Consumo por usuario ──────────────────── */}
       {!isRestricted && (
-        <SurfaceCard>
-          <SurfaceCardHeader
-            title="Consumo por usuario"
-            description="Adopción y costo por usuario activo. Los usuarios sin consumo aparecen con cero para visibilizar la no-adopción."
-            actions={
-              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-surface-subtle">
-                <Users className="h-4 w-4 text-muted-foreground" />
-              </div>
-            }
-          />
-          {userConsumption === null || userConsumption.length === 0 ? (
-            <div className="flex items-start gap-2 rounded-xl border border-border/60 bg-surface-subtle px-3 py-2.5">
-              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <p className="text-sm leading-relaxed text-muted-foreground">
-                {userConsumption === null
+        <TableShell
+          title="Consumo por usuario"
+          description="Adopción y costo por usuario activo. Los usuarios sin consumo aparecen con cero para visibilizar la no-adopción."
+          empty={userConsumption === null || userConsumption.length === 0}
+          emptyState={
+            <EmptyStateBase
+              variant="plain"
+              icon={Users}
+              title={
+                userConsumption === null
                   ? 'Sin permisos para ver consumo por usuario.'
-                  : 'No hay usuarios activos que coincidan con los filtros actuales.'}
-              </p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
+                  : 'No hay usuarios activos que coincidan con los filtros actuales.'
+              }
+            />
+          }
+        >
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border/60">
+                  <tr className="border-b border-border/60 bg-surface-subtle">
                     {['Usuario', 'Ejecuciones', 'Llamadas', 'Proveedores', 'Costo est.', 'Último uso'].map((h) => (
                       <th
                         key={h}
-                        className={`pb-2.5 text-xs font-semibold text-muted-foreground ${h === 'Usuario' ? 'text-left' : 'text-right'} pr-4 last:pr-0`}
+                        scope="col"
+                className={`py-2.5 text-xs font-semibold text-muted-foreground ${h === 'Usuario' ? 'text-left' : 'text-right'} pr-4`}
                       >
                         {h}
                       </th>
@@ -779,10 +740,10 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/40">
-                  {userConsumption.map((u) => {
+                  {(userConsumption ?? []).map((u) => {
                     const hasActivity = u.executions + u.provider_calls > 0;
                     return (
-                      <tr key={u.triggered_by} className={hasActivity ? '' : 'opacity-60'}>
+                      <tr key={u.triggered_by} className={hasActivity ? undefined : 'opacity-60'}>
                         <td className="py-3 pr-4">
                           <div className="flex flex-col">
                             <span className="font-medium text-foreground">
@@ -821,9 +782,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
                   })}
                 </tbody>
               </table>
-            </div>
-          )}
-        </SurfaceCard>
+        </TableShell>
       )}
 
       {/* ── Sección 5: Nota de efectividad ──────────────────── */}

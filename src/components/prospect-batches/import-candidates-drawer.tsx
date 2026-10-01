@@ -10,18 +10,23 @@ import {
   Loader2,
   FileText,
   ArrowLeft,
-  GitMerge,
   Info,
   Copy,
   Search,
   ArrowRight,
-  AlertTriangle,
   RefreshCw,
   Filter,
+  Settings2,
+  Table2,
 } from 'lucide-react';
 import { SearchableSelect } from '@/components/forms/searchable-select';
 import { DrawerShell } from '@/components/shared/drawer-shell';
-import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { DrawerSection } from '@/components/shared/drawer-section';
+import { SurfaceCard } from '@/components/shared/surface-card';
+import { FieldLabel, FieldDescription } from '@/components/forms/field';
+import { Stepper } from '@/components/navigation/stepper';
+import { OptionTile } from '@/components/selection/option-tile';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
@@ -107,6 +112,19 @@ function computeHasMappingConflict(mappings: ImportColumnMapping[]): boolean {
   }
   return (counts.get('industry') ?? 0) > 1 || (counts.get('subindustry') ?? 0) > 1;
 }
+
+/** Los pasos del flujo, en el orden en que el drawer los recorre. */
+const IMPORT_STEPS = [
+  { id: 'file', label: 'Archivo' },
+  { id: 'columns', label: 'Columnas' },
+  { id: 'classification', label: 'Clasificación' },
+  { id: 'review', label: 'Revisión' },
+] as const;
+
+const FILE_METHOD_OPTIONS = [
+  { value: 'paste', label: 'Pegar tabla', icon: ClipboardPaste },
+  { value: 'file', label: 'Subir archivo', icon: FileText },
+];
 
 interface ImportCandidatesDrawerProps {
   children: React.ReactNode;
@@ -867,6 +885,19 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
     { value: 'requires_review', label: 'Requieren revisión', count: classificationSummary?.requiresReview ?? 0 },
   ];
 
+  // Paso del `Stepper`: se DERIVA del estado que ya existe (`step` +
+  // `needsMappingResolution`), no añade estado propio.
+  const stepperCurrent =
+    step === 'input'
+      ? 0
+      : step === 'classification'
+        ? needsMappingResolution
+          ? 1
+          : 2
+        : step === 'preview'
+          ? 3
+          : IMPORT_STEPS.length;
+
   return (
     <DrawerShell
       open={open}
@@ -901,10 +932,10 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
         step === 'success'
           ? <CheckCircle2 className="h-4 w-4 text-success" />
           : step === 'classification'
-          ? <Search className="h-4 w-4 text-primary" />
+          ? <Search className="h-4 w-4" />
           : step === 'preview'
-          ? <FileText className="h-4 w-4 text-primary" />
-          : <Upload className="h-4 w-4 text-primary" />
+          ? <FileText className="h-4 w-4" />
+          : <Upload className="h-4 w-4" />
       }
       className={cn(
         "transition-all duration-300",
@@ -914,10 +945,10 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
       )}
       footer={
         step === 'success' ? null : (
-          <div className="shrink-0 border-t border-border/50 px-7 py-4">
+          <div className="shrink-0 border-t border-border/60 bg-card px-6 py-4">
             {step === 'input' && (
-              <div className="flex items-center justify-end gap-2">
-                <Button type="button" variant="ghost" size="sm" onClick={handleClose} className="text-xs">
+              <div className="flex items-center justify-between gap-3">
+                <Button type="button" variant="outline" size="sm" onClick={handleClose}>
                   Cancelar
                 </Button>
                 <Button
@@ -925,7 +956,6 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                   onClick={handleBuildPreview}
                   disabled={!hasInput || loadingPreview}
                   size="sm"
-                  className="gap-2 text-xs"
                 >
                   {loadingPreview ? (
                     <>
@@ -940,94 +970,93 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
             )}
 
             {step === 'classification' && needsMappingResolution && (
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <p className="text-xs text-muted-foreground flex-1">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <Button type="button" variant="outline" size="sm" onClick={() => setStep('input')}>
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  Volver
+                </Button>
+                <p className="min-w-0 flex-1 text-xs text-muted-foreground">
                   Corrige el mapeo de columnas y luego reclasifica.
                 </p>
-                <div className="flex items-center gap-2 justify-end shrink-0">
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setStep('input')} className="text-xs">
-                    <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
-                    Volver
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={handleBuildClassification}
-                    disabled={loadingClassification || computeHasMappingConflict(columnMappings)}
-                    size="sm"
-                    className="gap-2 text-xs font-semibold">
-                    {loadingClassification ? (
-                      <>
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        Clasificando…
-                      </>
-                    ) : (
-                      <>
-                        Reclasificar
-                        <ArrowRight className="h-3.5 w-3.5" />
-                      </>
-                    )}
-                  </Button>
-                </div>
+                <Button
+                  type="button"
+                  onClick={handleBuildClassification}
+                  disabled={loadingClassification || computeHasMappingConflict(columnMappings)}
+                  size="sm"
+                >
+                  {loadingClassification ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Clasificando…
+                    </>
+                  ) : (
+                    <>
+                      Reclasificar
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </>
+                  )}
+                </Button>
               </div>
             )}
 
             {step === 'classification' && !needsMappingResolution && !loadingClassification && classificationSummary && (
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div className="text-left flex-1 space-y-1">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <Button type="button" variant="outline" size="sm" onClick={() => setStep('input')}>
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  Volver
+                </Button>
+                <div className="min-w-0 flex-1 space-y-1 text-left">
                   {classificationSelectedIds.size === 0 && (
-                    <p className="text-xs text-muted-foreground font-medium">
+                    <p className="text-xs font-medium text-muted-foreground">
                       Selecciona al menos una fila para importar.
                     </p>
                   )}
                   {classificationSelectedIds.size > 0 && selectedBlockingCount > 0 && (
-                    <p className="text-xs text-destructive font-medium">
+                    <p className="text-xs font-medium text-destructive">
                       Corrige o deselecciona {selectedBlockingCount} fila{selectedBlockingCount !== 1 ? 's' : ''} para continuar.
                     </p>
                   )}
                   {classificationSelectedIds.size > 0 && selectedBlockingCount === 0 && (
-                    <p className="text-xs text-success font-medium">
+                    <p className="text-xs font-medium text-success">
                       {classificationSelectedIds.size} fila{classificationSelectedIds.size !== 1 ? 's' : ''} seleccionada{classificationSelectedIds.size !== 1 ? 's' : ''} listas para importar.
                     </p>
                   )}
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs tabular-nums text-muted-foreground">
                     Seleccionadas: {classificationSelectedIds.size} de {classificationRows.length}
                   </p>
                 </div>
-                <div className="flex items-center gap-2 justify-end shrink-0">
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setStep('input')} className="text-xs">
-                    <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
-                    Volver
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={handleConfirmWithClassification}
-                    disabled={confirming || !canImportSelected}
-                    size="sm"
-                    className="gap-2 text-xs font-semibold"
-                  >
-                    {confirming ? (
-                      <>
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        Importando y validando…
-                      </>
-                    ) : (
-                      `Importar ${classificationSelectedIds.size} candidato${classificationSelectedIds.size !== 1 ? 's' : ''}`
-                    )}
-                  </Button>
-                </div>
+                <Button
+                  type="button"
+                  onClick={handleConfirmWithClassification}
+                  disabled={confirming || !canImportSelected}
+                  size="sm"
+                >
+                  {confirming ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Importando y validando…
+                    </>
+                  ) : (
+                    `Importar ${classificationSelectedIds.size} candidato${classificationSelectedIds.size !== 1 ? 's' : ''}`
+                  )}
+                </Button>
               </div>
             )}
 
             {step === 'preview' && preview && (
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div className="text-left flex-1 space-y-1">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <Button type="button" variant="outline" size="sm" onClick={() => setStep('input')}>
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  Volver
+                </Button>
+                <div className="min-w-0 flex-1 space-y-1 text-left">
                   {selectedRows.length > 0 && (
-                    <p className="text-xs text-primary font-medium">
+                    <p className="text-xs font-medium text-primary">
                       {selectedRows.length} fila{selectedRows.length !== 1 ? 's' : ''} seleccionada{selectedRows.length !== 1 ? 's' : ''} para importar.
                     </p>
                   )}
                   {preview.errors > 0 && (
-                    <p className="text-xs text-destructive font-medium">
+                    <p className="text-xs font-medium text-destructive">
                       {preview.errors} {preview.errors === 1 ? 'fila' : 'filas'} con errores no {preview.errors === 1 ? 'será importada' : 'serán importadas'}.
                     </p>
                   )}
@@ -1035,31 +1064,24 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                     SellUp validará duplicidad y calidad básica. No creará cuentas ni sincronizará con HubSpot hasta que apruebes candidatos.
                   </p>
                 </div>
-                <div className="flex items-center gap-2 justify-end shrink-0">
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setStep('input')} className="text-xs">
-                    <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
-                    Volver
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={handleConfirm}
-                    disabled={
-                      confirming ||
-                      selectedRows.filter((r) => r.status !== 'error').length === 0
-                    }
-                    size="sm"
-                    className="gap-2 text-xs font-semibold"
-                  >
-                    {confirming ? (
-                      <>
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        Importando y validando…
-                      </>
-                    ) : (
-                      `Importar y validar ${selectedRows.filter((r) => r.status !== 'error').length} candidatos`
-                    )}
-                  </Button>
-                </div>
+                <Button
+                  type="button"
+                  onClick={handleConfirm}
+                  disabled={
+                    confirming ||
+                    selectedRows.filter((r) => r.status !== 'error').length === 0
+                  }
+                  size="sm"
+                >
+                  {confirming ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Importando y validando…
+                    </>
+                  ) : (
+                    `Importar y validar ${selectedRows.filter((r) => r.status !== 'error').length} candidatos`
+                  )}
+                </Button>
               </div>
             )}
           </div>
@@ -1074,17 +1096,26 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
         />
       )}
 
+      {/* Progreso del flujo: archivo → columnas → clasificación → revisión */}
+      {step !== 'success' && !confirming && (
+        <Stepper
+          steps={IMPORT_STEPS}
+          current={stepperCurrent}
+          size="sm"
+          className="mb-5 shrink-0"
+        />
+      )}
+
       {/* ── Step: input ───────────────────────────────────── */}
       {step === 'input' && !confirming && (
-        <div className="space-y-5">
-          <SurfaceCard>
-            <SurfaceCardHeader title="Configuración de importación" />
-            <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-4">
+          <DrawerSection title="Configuración de importación" icon={Settings2}>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {/* País de referencia */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-foreground">
+              <div className="min-w-0 space-y-1.5">
+                <FieldLabel className="block leading-none">
                   País de referencia <span className="text-destructive">*</span>
-                </label>
+                </FieldLabel>
                 <Select value={selectedCountryCode} onValueChange={handleCountryChange}>
                   <SelectTrigger className="!w-full">
                     <SelectValue placeholder="País" />
@@ -1097,39 +1128,45 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">
+                <FieldDescription>
                   Se usará en filas que no incluyan país.
-                </p>
+                </FieldDescription>
               </div>
 
               {/* Industria por defecto */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-foreground">
+              <div className="min-w-0 space-y-1.5">
+                <FieldLabel className="block leading-none">
                   Industria por defecto
-                </label>
+                </FieldLabel>
                 {catalogLoading ? (
-                  <div className="flex items-center gap-2 h-11 rounded-xl border border-input bg-surface-subtle px-4">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                  <div
+                    role="status"
+                    className="flex h-10 items-center gap-2 rounded-md border border-input bg-surface-subtle px-3"
+                  >
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" aria-hidden="true" />
                     <span className="text-xs text-muted-foreground">Cargando catálogo…</span>
                   </div>
                 ) : catalogError ? (
                   <div className="space-y-1">
-                    <div className="flex items-center gap-2 h-11 rounded-xl border border-destructive/50 bg-destructive/5 px-4">
-                      <XCircle className="h-3.5 w-3.5 text-destructive shrink-0" />
-                      <span className="text-xs text-destructive truncate">No pudimos cargar el catálogo.</span>
+                    <div
+                      role="alert"
+                      className="flex h-10 items-center gap-2 rounded-md border border-destructive/20 bg-destructive/10 px-3"
+                    >
+                      <XCircle className="h-3.5 w-3.5 shrink-0 text-destructive" aria-hidden="true" />
+                      <span className="truncate text-xs text-destructive">No pudimos cargar el catálogo.</span>
                     </div>
                     <button
                       type="button"
                       onClick={loadCatalog}
-                      className="flex items-center gap-1 text-xs text-primary hover:underline"
+                      className="flex items-center gap-1 rounded-sm text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                     >
                       <RefreshCw className="h-3 w-3" />
                       Reintentar
                     </button>
                   </div>
                 ) : catalogData && catalogData.industries.length === 0 ? (
-                  <div className="flex items-center gap-2 h-11 rounded-xl border border-input bg-surface-subtle px-4">
-                    <span className="text-xs text-muted-foreground">No hay un catálogo publicado disponible.</span>
+                  <div className="flex h-10 items-center gap-2 rounded-md border border-input bg-surface-subtle px-3">
+                    <span className="truncate text-xs text-muted-foreground">No hay un catálogo publicado disponible.</span>
                   </div>
                 ) : (
                   <SearchableSelect
@@ -1142,20 +1179,20 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                     disabled={!catalogData || catalogLoading}
                   />
                 )}
-                <p className="text-xs text-muted-foreground">
+                <FieldDescription>
                   Se usará únicamente en filas que no incluyan industria.
-                </p>
+                </FieldDescription>
               </div>
 
               {/* Subindustria por defecto — sólo si el catálogo publica subindustrias */}
               {subindustriesEnabled && (
-              <div className="space-y-1.5 col-span-2">
-                <label className="text-xs font-medium text-foreground">
+              <div className="min-w-0 space-y-1.5 sm:col-span-2">
+                <FieldLabel className="block leading-none">
                   Subindustria por defecto{' '}
                   <span className="font-normal text-muted-foreground">(opcional)</span>
-                </label>
+                </FieldLabel>
                 {subindustryCountryWarning && (
-                  <p className="text-xs text-warning">
+                  <p role="status" className="text-xs font-medium text-warning">
                     La subindustria seleccionada no está disponible para el nuevo país y fue eliminada.
                   </p>
                 )}
@@ -1177,104 +1214,98 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                     !!catalogError
                   }
                 />
-                <p className="text-xs text-muted-foreground">
+                <FieldDescription>
                   Opcional. Se usará únicamente en filas que no incluyan subindustria.
-                </p>
+                </FieldDescription>
               </div>
               )}
             </div>
-          </SurfaceCard>
+          </DrawerSection>
 
-          {/* Selector de método */}
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => setFileMethod('paste')}
-              className={`flex flex-col items-center gap-1.5 rounded-xl border px-3 py-3 text-xs font-medium transition-colors ${
-                fileMethod === 'paste'
-                  ? 'border-primary bg-primary/10 text-primary'
-                  : 'border-border/60 bg-surface-subtle text-muted-foreground hover:border-border hover:bg-surface-muted'
-              }`}
-            >
-              <ClipboardPaste className="h-4 w-4" />
-              Pegar tabla
-            </button>
-            <button
-              type="button"
-              onClick={() => setFileMethod('file')}
-              className={`flex flex-col items-center gap-1.5 rounded-xl border px-3 py-3 text-xs font-medium transition-colors ${
-                fileMethod === 'file'
-                  ? 'border-primary bg-primary/10 text-primary'
-                  : 'border-border/60 bg-surface-subtle text-muted-foreground hover:border-border hover:bg-surface-muted'
-              }`}
-            >
-              <FileText className="h-4 w-4" />
-              Subir archivo
-            </button>
-          </div>
-
-          {/* Input: pegar tabla */}
-          {fileMethod === 'paste' && (
-            <div className="space-y-2">
-              <p className="text-xs font-medium text-foreground">
-                Pega el contenido copiado desde Google Sheets o Excel
-              </p>
-              <Textarea
-                placeholder={`Empresa\tPaís\tSector\tSitio web\nAcme Learning Chile\tChile\tEducación\thttps://acme.cl`}
-                className="min-h-[180px] font-mono text-xs resize-none"
-                value={pasteText}
-                onChange={(e) => setPasteText(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Acepta separadores tab, coma, punto y coma o tablas Markdown (incluso si vienen con texto explicativo alrededor). La primera fila válida será interpretada como encabezados.
-                Si el archivo no trae país o industria, SellUp usará los valores seleccionados arriba.
-              </p>
+          <DrawerSection
+            title="Datos a importar"
+            icon={Table2}
+            hint="Pega una tabla o sube un archivo."
+            contentClassName="space-y-4"
+          >
+            {/* Selector de método */}
+            <div role="radiogroup" aria-label="Método de carga" className="grid grid-cols-2 gap-2">
+              {FILE_METHOD_OPTIONS.map((option) => (
+                <OptionTile
+                  key={option.value}
+                  option={option}
+                  compact
+                  selected={fileMethod === option.value}
+                  onSelect={(value) => setFileMethod(value as FileMethod)}
+                />
+              ))}
             </div>
-          )}
 
-          {/* Input: subir archivo */}
-          {fileMethod === 'file' && (
-            <div className="space-y-3">
-              <p className="text-xs font-medium text-foreground">
-                Sube un archivo CSV o Excel (.xlsx)
-              </p>
-              <div
-                className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border/60 bg-surface-subtle px-6 py-10 text-center cursor-pointer hover:border-border hover:bg-surface-muted transition-colors"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <div className="rounded-full bg-primary/10 p-2.5">
-                  <Upload className="h-5 w-5 text-primary" />
-                </div>
-                {fileName ? (
-                  <>
-                    <p className="text-sm font-semibold text-foreground">{fileName}</p>
-                    <p className="text-xs text-muted-foreground">Clic para cambiar archivo</p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-sm font-semibold text-foreground">Clic para seleccionar</p>
-                    <p className="text-xs text-muted-foreground">
-                      Archivos .csv o .xlsx · máx. 2 MB · 500 filas
-                    </p>
-                  </>
-                )}
+            {/* Input: pegar tabla */}
+            {fileMethod === 'paste' && (
+              <div className="space-y-1.5">
+                <FieldLabel htmlFor="import-paste-text" className="block leading-none">
+                  Pega el contenido copiado desde Google Sheets o Excel
+                </FieldLabel>
+                <Textarea
+                  id="import-paste-text"
+                  placeholder={`Empresa\tPaís\tSector\tSitio web\nAcme Learning Chile\tChile\tEducación\thttps://acme.cl`}
+                  className="min-h-44 resize-none font-mono text-xs"
+                  value={pasteText}
+                  onChange={(e) => setPasteText(e.target.value)}
+                />
+                <FieldDescription>
+                  Acepta separadores tab, coma, punto y coma o tablas Markdown (incluso si vienen con texto explicativo alrededor). La primera fila válida será interpretada como encabezados.
+                  Si el archivo no trae país o industria, SellUp usará los valores seleccionados arriba.
+                </FieldDescription>
               </div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                className="hidden"
-                onChange={handleFileChange}
-              />
-              <p className="text-xs text-muted-foreground">
-                La primera fila debe contener los encabezados. Los archivos .xlsm no son soportados.
-              </p>
-            </div>
-          )}
+            )}
+
+            {/* Input: subir archivo */}
+            {fileMethod === 'file' && (
+              <div className="space-y-1.5">
+                <p className="text-sm font-medium leading-none text-foreground">
+                  Sube un archivo CSV o Excel (.xlsx)
+                </p>
+                <button
+                  type="button"
+                  className="flex w-full cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border/60 bg-surface-subtle px-6 py-10 text-center transition-colors hover:border-border hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <span className="rounded-full bg-primary/10 p-2.5">
+                    <Upload className="h-5 w-5 text-primary" aria-hidden="true" />
+                  </span>
+                  {fileName ? (
+                    <>
+                      <span className="block max-w-full truncate text-sm font-semibold text-foreground" title={fileName}>{fileName}</span>
+                      <span className="block text-xs text-muted-foreground">Clic para cambiar archivo</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="block text-sm font-semibold text-foreground">Clic para seleccionar</span>
+                      <span className="block text-xs text-muted-foreground">
+                        Archivos .csv o .xlsx · máx. 2 MB · 500 filas
+                      </span>
+                    </>
+                  )}
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  className="hidden"
+                  onChange={handleFileChange}
+                />
+                <FieldDescription>
+                  La primera fila debe contener los encabezados. Los archivos .xlsm no son soportados.
+                </FieldDescription>
+              </div>
+            )}
+          </DrawerSection>
 
           <Accordion value={showGuide ? ['guide'] : []} onValueChange={(v) => setShowGuide(v.includes('guide'))}>
             <AccordionItem value="guide">
-              <AccordionTrigger className="text-xs font-semibold text-foreground px-0 py-2">
+              <AccordionTrigger className="px-0 py-2 text-xs font-semibold text-foreground">
                 <div className="flex items-center gap-2">
                   <Info className="h-4 w-4 text-primary" />
                   Ver guía del contrato oficial de importación
@@ -1285,7 +1316,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                   SellUp tiene un <strong>contrato oficial de columnas</strong> en español. Puedes copiar tablas desde Excel, Google Sheets, o directamente desde los chats con <strong>Claude, Gemini o ChatGPT</strong>. El parser resolverá automáticamente los siguientes campos:
                 </p>
 
-                <div className="max-h-[220px] overflow-y-auto rounded-xl border border-border/50 bg-card">
+                <div className="max-h-56 overflow-auto rounded-xl border border-border/60 bg-card">
                   <table className="w-full text-xs border-collapse">
                     <thead>
                       <tr className="border-b border-border/50 bg-surface-subtle text-muted-foreground font-semibold">
@@ -1295,19 +1326,19 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                         <th className="px-2 py-1.5 text-left">Ejemplo / Aliases</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-border/20">
+                    <tbody className="divide-y divide-border/50">
                       {EXTERNAL_IMPORT_CONTRACT.map((col) => (
                         <tr key={col.field} className="hover:bg-surface-muted">
-                          <td className="px-2 py-1.5 font-bold text-foreground whitespace-nowrap">
+                          <td className="px-2 py-1.5 font-semibold text-foreground whitespace-nowrap">
                             {col.officialHeader}
                           </td>
                           <td className="px-2 py-1.5 text-center">
                             {col.required ? (
-                              <span className="text-xs font-semibold text-destructive uppercase">Requerido</span>
+                              <Badge variant="negative">Requerido</Badge>
                             ) : col.recommended ? (
-                              <span className="text-xs font-semibold text-primary uppercase">Recomendado</span>
+                              <Badge variant="brand">Recomendado</Badge>
                             ) : (
-                              <span className="text-xs text-muted-foreground">Opcional</span>
+                              <Badge variant="neutral">Opcional</Badge>
                             )}
                           </td>
                           <td className="px-2 py-1.5 text-muted-foreground leading-normal">
@@ -1315,7 +1346,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                           </td>
                           <td className="px-2 py-1.5 text-muted-foreground leading-normal">
                             <span className="italic block text-foreground mb-0.5">Ej: {col.example}</span>
-                            <span className="text-xs text-muted-foreground block truncate max-w-[150px]" title={col.aliases.join(', ')}>
+                            <span className="block max-w-40 truncate text-xs text-muted-foreground" title={col.aliases.join(', ')}>
                               Aliases: {col.aliases.join(', ')}
                             </span>
                           </td>
@@ -1326,7 +1357,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                 </div>
 
                 <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/10 p-3">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-xs font-semibold text-primary">
                       Ejemplo de tabla copiable
                     </span>
@@ -1341,12 +1372,12 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                         navigator.clipboard.writeText(exampleText);
                         toast.success('Ejemplo copiado en formato TSV al portapapeles');
                       }}
-                      className="gap-1 px-2 text-primary hover:text-primary hover:bg-primary/10">
+                      >
                       <Copy className="h-3 w-3" />
                       Copiar ejemplo
                     </Button>
                   </div>
-                  <pre className="overflow-x-auto text-xs font-mono bg-card p-2 rounded border border-border/50 text-muted-foreground">
+                  <pre className="overflow-x-auto rounded-md border border-border/50 bg-card p-2 font-mono text-xs text-muted-foreground">
                     {EXTERNAL_IMPORT_CONTRACT.map(c => c.officialHeader).join('\t')}{'\n'}
                     {EXTERNAL_IMPORT_CONTRACT.map(c => c.example).join('\t')}
                   </pre>
@@ -1359,7 +1390,6 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
           </Accordion>
 
           <Alert variant="info">
-            <Info className="h-4 w-4" />
             <AlertDescription className="text-xs">
               Puedes copiar desde Google Sheets/Excel o subir un archivo CSV/XLSX.
             </AlertDescription>
@@ -1370,25 +1400,25 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
       {/* ── Step: classification — loading skeleton ────────── */}
       {step === 'classification' && loadingClassification && (
         <div className="flex flex-col flex-1 min-h-0 gap-4">
-          <div className="animate-pulse space-y-3">
+          <div className="space-y-3" aria-hidden="true">
             {/* Banner skeleton */}
-            <div className="h-14 rounded-xl bg-surface-muted" />
+            <Skeleton className="h-14 rounded-xl" />
             {/* Stat cards skeleton */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="h-20 rounded-xl bg-surface-subtle" />
+                <Skeleton key={i} className="h-20 rounded-xl" />
               ))}
             </div>
             {/* Filter tabs skeleton */}
             <div className="flex gap-2">
               {[1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className="h-7 w-20 rounded-lg bg-surface-subtle" />
+                <Skeleton key={i} className="h-7 w-20 rounded-md" />
               ))}
             </div>
             {/* Table skeleton */}
-            <div className="h-64 rounded-xl bg-surface-subtle" />
+            <Skeleton className="h-64 rounded-2xl" />
           </div>
-          <p className="text-center text-xs text-muted-foreground animate-pulse">
+          <p role="status" className="text-center text-xs text-muted-foreground">
             Clasificando industrias y subindustrias…
           </p>
         </div>
@@ -1398,7 +1428,6 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
       {step === 'classification' && needsMappingResolution && (
         <div className="flex flex-col flex-1 min-h-0 gap-4">
           <Alert variant="warning">
-            <AlertTriangle className="h-4 w-4" />
             <AlertDescription className="text-xs">
               SellUp detectó columnas con mapeo ambiguo. Revisa y corrige los campos conflictivos antes de clasificar.
               {computeHasMappingConflict(columnMappings) && (
@@ -1421,13 +1450,12 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
           {/* Catalog version changed banner */}
           {catalogVersionChanged && (
             <Alert variant="destructive">
-              <AlertTriangle className="h-4 w-4" />
               <AlertDescription className="text-xs">
                 El catálogo de industrias fue actualizado mientras revisabas las correcciones.
                 La importación está bloqueada. Haz clic en{' '}
                 <button
                   type="button"
-                  className="underline font-semibold"
+                  className="rounded-sm font-semibold underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                   onClick={() => {
                     setCatalogVersionChanged(false);
                     void handleBuildClassification();
@@ -1443,7 +1471,6 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
           {/* Classification error banner */}
           {classificationError && (
             <Alert variant="destructive">
-              <XCircle className="h-4 w-4" />
               <AlertDescription className="text-xs">{classificationError}</AlertDescription>
             </Alert>
           )}
@@ -1458,24 +1485,25 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
 
           {/* ── Filter tabs + selection counter — fuera de la tabla ── */}
           <div className="flex flex-wrap items-center gap-1.5">
-            <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <Filter className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
             {classificationFilterOptions.map((opt) => (
               <button
                 key={opt.value}
                 type="button"
                 onClick={() => setFilterStatus(opt.value)}
+                aria-pressed={filterStatus === opt.value}
                 className={cn(
-                  'rounded-lg px-2.5 py-1 text-xs font-medium transition-colors',
+                  'rounded-md px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40',
                   filterStatus === opt.value
                     ? 'bg-primary text-primary-foreground'
-                    : 'bg-surface-muted text-muted-foreground hover:bg-surface-muted',
+                    : 'bg-surface-muted text-muted-foreground hover:text-foreground',
                 )}
               >
                 {opt.label}
                 <span className="ml-1 tabular-nums opacity-70">({opt.count})</span>
               </button>
             ))}
-            <span className="ml-auto text-xs text-muted-foreground">
+            <span className="ml-auto text-xs tabular-nums text-muted-foreground">
               Seleccionadas: <strong className="text-foreground">{classificationSelectedIds.size}</strong> de {classificationRows.length}
             </span>
           </div>
@@ -1503,7 +1531,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
           <button
             type="button"
             onClick={() => setStep('input')}
-            className="mb-1 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            className="mb-1 inline-flex items-center gap-1 self-start rounded-sm text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
           >
             <ArrowLeft className="h-3 w-3" />
             Volver a la configuración
@@ -1537,12 +1565,12 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
           <div className="flex flex-wrap gap-2">
             {[
               { label: 'Filas detectadas', value: preview.total, color: 'text-foreground', bg: 'bg-surface-muted' },
-              { label: 'Importables', value: preview.valid + preview.warnings_only, color: 'text-primary font-bold', bg: 'bg-primary/10' },
+              { label: 'Importables', value: preview.valid + preview.warnings_only, color: 'text-primary', bg: 'bg-primary/10' },
               { label: 'Sin observaciones', value: preview.valid, color: 'text-success', bg: 'bg-success/10' },
               { label: 'Con advertencias', value: preview.warnings_only, color: 'text-warning', bg: 'bg-warning/10' },
               { label: 'Con errores', value: preview.errors, color: 'text-destructive', bg: 'bg-destructive/10' },
             ].map((card) => (
-              <div key={card.label} className={`rounded-xl ${card.bg} px-3 py-2.5 flex-1 min-w-[100px] sm:min-w-[120px]`}>
+              <div key={card.label} className={`rounded-xl ${card.bg} px-3 py-2.5 flex-1 min-w-24 sm:min-w-28`}>
                 <p className="text-xs font-semibold text-muted-foreground">
                   {card.label}
                 </p>
@@ -1555,7 +1583,6 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
 
           {(exactDuplicateCount > 0 || possibleDuplicateCount > 0) && (
             <Alert variant="warning">
-              <GitMerge className="h-4 w-4" />
               <AlertDescription className="text-xs space-y-0.5">
                 {exactDuplicateCount > 0 && (
                   <p>
@@ -1621,7 +1648,6 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
 
           {preview.errors === preview.total && (
             <Alert variant="destructive">
-              <XCircle className="h-4 w-4" />
               <AlertDescription className="text-xs">
                 Todas las filas tienen errores bloqueantes. Corrige los datos y vuelve a intentarlo.
               </AlertDescription>

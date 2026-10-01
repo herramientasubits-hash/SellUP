@@ -10,8 +10,10 @@ import {
   Ban,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Alert } from '@/components/ui/alert';
 import { PageHeader } from '@/components/shared/page-header';
+import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { getGoogleCSEIntegration } from '@/modules/integrations/actions';
@@ -89,6 +91,15 @@ export default async function GoogleCSEIntegrationPage() {
   return (
     <div className="space-y-6">
       <PageHeader
+        breadcrumbs={
+          <Breadcrumbs
+            items={[
+              { label: 'Configuración', href: '/settings' },
+              { label: 'Integraciones comerciales', href: '/settings/integrations' },
+              'Google Custom Search',
+            ]}
+          />
+        }
         title="Google Custom Search"
         description="Proveedor de búsqueda web alternativo que usa Google Custom Search Engine. Complementa a Tavily con cobertura de resultados de Google para el Agente 1."
         backHref="/settings/integrations"
@@ -197,14 +208,11 @@ export default async function GoogleCSEIntegrationPage() {
               )}
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center py-6 text-center">
-              <div className="mb-3 flex size-10 items-center justify-center rounded-xl bg-surface-subtle">
-                <Search className="size-5 text-muted-foreground" />
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Prueba la conexión para ver el resultado.
-              </p>
-            </div>
+            <EmptyState
+              variant="plain"
+              icon={Search}
+              title="Prueba la conexión para ver el resultado."
+            />
           )}
         </SurfaceCard>
       </div>

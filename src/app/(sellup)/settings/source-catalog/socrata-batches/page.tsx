@@ -1,11 +1,13 @@
 import Link from 'next/link';
 import { Database, XCircle, CheckCircle2, FlaskConical, Layers, Lock } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
+import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { MetricCard } from '@/components/shared/metric-card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
+import { TableShell } from '@/components/data-display';
 import { getSocrataPreviewBatches } from '@/modules/source-catalog/socrata-batches-queries';
 import {
   BATCH_STATUS_LABELS,
@@ -57,6 +59,15 @@ export default async function SocrataBatchesPage() {
   return (
     <div className="space-y-6">
       <PageHeader
+        breadcrumbs={
+          <Breadcrumbs
+            items={[
+              { label: 'Configuración', href: '/settings' },
+              { label: 'Catálogo de fuentes', href: '/settings/source-catalog' },
+              'Lotes Socrata',
+            ]}
+          />
+        }
         title="Lotes Socrata"
         description="Vista de revisión interna para lotes creados desde fuentes estructuradas. No aprueba, no asigna y no sincroniza con HubSpot."
         backHref="/settings/source-catalog"
@@ -83,58 +94,43 @@ export default async function SocrataBatchesPage() {
           title="Total lotes"
           description="Lotes creados en el sistema"
           value={totalCount}
-          icon={
-            <div className="rounded-lg p-1.5 bg-primary/10">
-              <Layers className="h-4 w-4 text-primary" />
-            </div>
-          }
+          icon={<Layers className="text-primary" aria-hidden="true" />}
         />
         <MetricCard
           title="Listos para revisión"
           description="Esperando aprobación"
           value={readyForReview}
-          icon={
-            <div className="rounded-lg p-1.5 bg-warning/10">
-              <CheckCircle2 className="h-4 w-4 text-warning" />
-            </div>
-          }
+          icon={<CheckCircle2 className="text-warning" aria-hidden="true" />}
         />
         <MetricCard
           title="Cancelados"
           description="Lotes descartados"
           value={cancelled}
-          icon={
-            <div className="rounded-lg p-1.5 bg-surface-muted">
-              <XCircle className="h-4 w-4 text-muted-foreground" />
-            </div>
-          }
+          icon={<XCircle className="text-muted-foreground" aria-hidden="true" />}
         />
         <MetricCard
           title="Smoke tests"
           description="Pruebas automáticas ejecutadas"
           value={smokeTests}
-          icon={
-            <div className="rounded-lg p-1.5 bg-info/10">
-              <FlaskConical className="h-4 w-4 text-info" />
-            </div>
-          }
+          icon={<FlaskConical className="text-info" aria-hidden="true" />}
         />
       </div>
 
       {/* Batches table */}
-      <SurfaceCard noPadding>
-        <div className="border-b border-border/50 px-5 py-4">
-          <p className="text-base font-semibold leading-tight tracking-tight text-foreground">
-            {batches.length === 0
-              ? 'Aún no hay lotes Socrata creados.'
-              : `Lotes Socrata · ${batches.length} lote${batches.length !== 1 ? 's' : ''}`}
-          </p>
-        </div>
-
-        {batches.length === 0 ? (
-          <EmptyState icon={Database} title="Aún no hay lotes Socrata creados." className="m-5" />
-        ) : (
-          <div className="overflow-x-auto">
+      <TableShell
+        title={
+          <>
+            Lotes Socrata
+            <Badge variant="neutral" className="tabular-nums">
+              {batches.length} lote{batches.length !== 1 ? 's' : ''}
+            </Badge>
+          </>
+        }
+        empty={batches.length === 0}
+        emptyState={
+          <EmptyState variant="plain" icon={Database} title="Aún no hay lotes Socrata creados." />
+        }
+      >
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border/50 bg-surface-subtle text-left">
@@ -236,9 +232,7 @@ export default async function SocrataBatchesPage() {
                 ))}
               </tbody>
             </table>
-          </div>
-        )}
-      </SurfaceCard>
+      </TableShell>
     </div>
   );
 }

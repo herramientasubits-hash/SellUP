@@ -3,7 +3,6 @@
 import * as React from 'react';
 import Link from 'next/link';
 import {
-  Loader2,
   Mail,
   Phone,
   Link2,
@@ -21,13 +20,16 @@ import {
   FileCheck2,
   AlertCircle,
   UserX,
+  type LucideIcon,
 } from 'lucide-react';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { DrawerSection } from '@/components/shared/drawer-section';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Timeline, TimelineItem } from '@/components/data-display';
+import { Spinner } from '@/components/feedback/spinner';
 import { getContactById, getContactAudit } from '@/modules/contacts/actions';
 import { buildContactTraceabilityViewModel } from '@/modules/contacts/contact-traceability';
 import { getAccountById } from '@/modules/accounts/actions';
@@ -213,7 +215,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
       onOpenChange={(v) => !v && onClose()}
       side="right"
       className="w-full sm:w-[70vw] sm:min-w-[700px] sm:!max-w-none"
-      icon={<User className="h-5 w-5 text-primary" />}
+      icon={<User className="h-4 w-4" />}
       title={
         contact
           ? contact.full_name
@@ -284,40 +286,38 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
       */}
       {loading ? (
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="h-6 w-6 animate-spin text-text-muted" />
+          <Spinner />
         </div>
       ) : !contact ? (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <div className="mb-3 rounded-full bg-surface-muted p-3">
-            {loadOutcome === 'load_error' ? (
-              <AlertCircle className="h-6 w-6 text-destructive" />
-            ) : (
-              <UserX className="h-6 w-6 text-text-muted" />
-            )}
-          </div>
-          <p className="text-sm font-medium text-foreground">
-            {loadOutcome === 'load_error'
+        <EmptyState
+          variant="plain"
+          className="py-20"
+          icon={loadOutcome === 'load_error' ? AlertCircle : UserX}
+          title={
+            loadOutcome === 'load_error'
               ? CONTACT_DETAIL_LOAD_ERROR_TITLE_COPY
-              : CONTACT_DETAIL_NOT_FOUND_TITLE_COPY}
-          </p>
-          <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-            {loadOutcome === 'load_error'
+              : CONTACT_DETAIL_NOT_FOUND_TITLE_COPY
+          }
+          description={
+            loadOutcome === 'load_error'
               ? CONTACT_DETAIL_LOAD_ERROR_BODY_COPY
-              : CONTACT_DETAIL_NOT_FOUND_BODY_COPY}
-          </p>
-          {/* Reintentar sólo tiene sentido ante un fallo: si el contacto no está, insistir
-              no lo va a traer. */}
-          {loadOutcome === 'load_error' && contactId && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-4"
-              onClick={() => loadData(contactId)}
-            >
-              {CONTACT_DETAIL_RETRY_COPY}
-            </Button>
-          )}
-        </div>
+              : CONTACT_DETAIL_NOT_FOUND_BODY_COPY
+          }
+          // Reintentar sólo tiene sentido ante un fallo: si el contacto no está, insistir
+          // no lo va a traer.
+          action={
+            loadOutcome === 'load_error' && contactId ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => loadData(contactId)}
+              >
+                {CONTACT_DETAIL_RETRY_COPY}
+              </Button>
+            ) : undefined
+          }
+        />
       ) : (
         <Tabs defaultValue="resumen">
                 <TabsList variant="segmented" className="mb-2">
@@ -443,7 +443,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                           <p className="mb-1 text-xs font-semibold text-muted-foreground">
                             Notas
                           </p>
-                          <p className="text-xs text-muted-foreground leading-relaxed">
+                          <p className="break-words text-xs leading-relaxed text-foreground">
                             {contact.notes}
                           </p>
                         </div>
@@ -456,32 +456,28 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                 <TabsContent value="actividad">
                   <DrawerSection title="Registro de actividad" icon={Activity} hint="Cambios y eventos de auditoría de este contacto.">
                     {auditLog.length === 0 ? (
-                      <p className="py-6 text-center text-xs text-muted-foreground">
-                        Sin actividad registrada todavía.
-                      </p>
+                      <EmptyState
+                        variant="plain"
+                        icon={Activity}
+                        title="Sin actividad registrada todavía."
+                      />
                     ) : (
-                      <ol className="space-y-3">
+                      <Timeline>
                         {auditLog.map((entry) => (
-                          <li key={entry.id} className="flex items-start gap-3">
-                            <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-muted">
-                              <Activity className="h-3.5 w-3.5 text-muted-foreground" />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="text-xs font-medium text-foreground">
-                                {AUDIT_LABELS[entry.action_type]}
-                              </p>
-                              {entry.actor && (
-                                <p className="text-xs text-muted-foreground">
-                                  por {entry.actor.full_name ?? entry.actor.email}
-                                </p>
-                              )}
+                          <TimelineItem
+                            key={entry.id}
+                            icon={<Activity />}
+                            title={AUDIT_LABELS[entry.action_type]}
+                            description={formatDate(entry.created_at)}
+                          >
+                            {entry.actor && (
                               <p className="text-xs text-muted-foreground">
-                                {formatDate(entry.created_at)}
+                                por {entry.actor.full_name ?? entry.actor.email}
                               </p>
-                            </div>
-                          </li>
+                            )}
+                          </TimelineItem>
                         ))}
-                      </ol>
+                      </Timeline>
                     )}
                   </DrawerSection>
                 </TabsContent>
@@ -493,13 +489,14 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
 
                 {/* HubSpot */}
                 <TabsContent value="hubspot">
-                  <SurfaceCard>
-                    <div className="flex items-start justify-between gap-4">
-                      <SurfaceCardHeader title="Sincronización HubSpot" />
-                      {/* AGENT2-FINAL-LOCAL-CLOSURE-MICROFIX: cero deducción aquí. El botón
-                          consulta `resolveHubSpotSyncAction`, la misma autoridad que el badge de
-                          abajo usa para el copy, así que la tarjeta ya no puede mostrar un
-                          «Sincronizado» verde junto a un «Vinculado a HubSpot» neutro. */}
+                  {/* AGENT2-FINAL-LOCAL-CLOSURE-MICROFIX: cero deducción aquí. El botón
+                      consulta `resolveHubSpotSyncAction`, la misma autoridad que el badge de
+                      abajo usa para el copy, así que la tarjeta ya no puede mostrar un
+                      «Sincronizado» verde junto a un «Vinculado a HubSpot» neutro. */}
+                  <DrawerSection
+                    title="Sincronización HubSpot"
+                    icon={Globe}
+                    action={
                       <ContactHubSpotSyncButton
                         contact={{
                           id: contact.id,
@@ -509,7 +506,8 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                         }}
                         onSynced={() => loadData(contact.id)}
                       />
-                    </div>
+                    }
+                  >
                     <dl className="space-y-3">
                       <DetailRow icon={Tag} label="HubSpot Contact ID">
                         {contact.hubspot_contact_id ? (
@@ -647,7 +645,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                       privacidad NUNCA se envía solo. Otros campos no se actualizan en HubSpot en
                       esta versión.
                     </p>
-                  </SurfaceCard>
+                  </DrawerSection>
                 </TabsContent>
               </Tabs>
             )}
@@ -658,15 +656,16 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
 // ── Calidad y trazabilidad ────────────────────────────────────────────────────
 
 function TraceCard({
+  icon,
   title,
   children,
 }: {
-  icon?: React.ComponentType<{ className?: string }>;
+  icon?: LucideIcon;
   title: string;
   children: React.ReactNode;
 }) {
   return (
-    <DrawerSection title={title}>
+    <DrawerSection title={title} icon={icon}>
       <dl className="space-y-3">{children}</dl>
     </DrawerSection>
   );
@@ -693,7 +692,7 @@ function TraceRow({
 
 function EmptyTrace({ message }: { message: string }) {
   return (
-    <p className="py-2 text-xs text-muted-foreground italic">{message}</p>
+    <p className="py-2 text-xs text-text-muted">{message}</p>
   );
 }
 
@@ -707,14 +706,12 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
         <TraceRow label="Origen">
           <span className="flex items-center gap-1.5">
             {vm.hasSourceCandidate ? (
-              <Badge
- variant="brand">
+              <Badge variant="brand">
                 {vm.originLabel}
               </Badge>
             ) : (
               <Badge
-                variant="outline"
-                className="bg-surface-subtle border-transparent text-muted-foreground">
+                variant="neutral">
                 {vm.originLabel}
               </Badge>
             )}
@@ -722,8 +719,7 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
         </TraceRow>
         <TraceRow label="Fuente">
           <Badge
-            variant="outline"
-            className="bg-surface-subtle border-transparent text-muted-foreground">
+            variant="neutral">
             {vm.sourceLabel}
           </Badge>
         </TraceRow>
@@ -760,8 +756,7 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
                   {vm.completedFields.map((f) => (
                     <Badge
                       key={f}
-                      variant="outline"
-                      className="bg-surface-subtle border-transparent text-muted-foreground">
+                      variant="neutral">
                       {f}
                     </Badge>
                   ))}
@@ -800,8 +795,7 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
                   {vm.normalizedFields.map((f) => (
                     <Badge
                       key={f}
-                      variant="outline"
-                      className="bg-surface-subtle border-transparent text-muted-foreground">
+                      variant="neutral">
                       {f}
                     </Badge>
                   ))}
@@ -845,8 +839,7 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
         {vm.hubspotMode && (
           <TraceRow label="Modo">
             <Badge
-              variant="outline"
-              className="bg-surface-subtle border-transparent text-muted-foreground">
+              variant="neutral">
               {vm.hubspotMode === 'created' ? 'Creado en HubSpot' :
                vm.hubspotMode === 'linked_existing' ? 'Vinculado a existente' :
                vm.hubspotMode}
@@ -855,21 +848,14 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
         )}
         {vm.hubspotAssociationStatus && (
           <TraceRow label="Asociación con empresa">
-            <Badge
-              variant="outline"
-              className={`border-transparent ${
-                vm.hubspotAssociationStatus ==='associated'
-                  ?'bg-success/10 text-success dark:text-success'
-                  :'bg-warning/10 text-warning dark:text-warning'
-              }`}
-            >
+            <Badge variant={vm.hubspotAssociationStatus === 'associated' ? 'positive' : 'warning'}>
               {vm.hubspotAssociationStatus === 'associated' ? 'Asociado' :
                vm.hubspotAssociationStatus === 'failed' ? 'Falló' :
                vm.hubspotAssociationStatus}
             </Badge>
           </TraceRow>
         )}
-        <p className="mt-2 text-xs text-text-muted italic">
+        <p className="mt-2 text-xs text-text-muted">
           Para sincronizar o ver el detalle completo, ve al tab HubSpot.
         </p>
       </TraceCard>
@@ -877,17 +863,14 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
   );
 }
 
+const RELEVANCE_VARIANT: Record<string, 'positive' | 'warning' | 'neutral'> = {
+  Alta: 'positive',
+  Media: 'warning',
+  Baja: 'neutral',
+};
+
 function RelevanceBadge({ label }: { label: string }) {
-  const styles: Record<string, string> = {
-    Alta: 'bg-success/10 text-success border-transparent',
-    Media: 'bg-warning/10 text-warning border-transparent',
-    Baja: 'bg-surface-subtle text-muted-foreground border-transparent',
-  };
-  return (
-    <Badge variant="outline" className={styles[label] ?? 'bg-surface-subtle text-muted-foreground border-transparent'}>
-      {label}
-    </Badge>
-  );
+  return <Badge variant={RELEVANCE_VARIANT[label] ?? 'neutral'}>{label}</Badge>;
 }
 
 /**

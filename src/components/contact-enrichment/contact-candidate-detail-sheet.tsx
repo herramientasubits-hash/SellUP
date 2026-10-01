@@ -273,12 +273,15 @@ const RELEVANCE_LABELS: Record<ContactRelevanceStatus, string> = {
   insufficient_data: 'Datos insuficientes',
 };
 
-const RELEVANCE_STYLES: Record<ContactRelevanceStatus, string> = {
-  high_relevance: 'bg-success/10 text-success',
-  medium_relevance: 'bg-primary/10 text-primary',
-  low_relevance: 'bg-warning/10 text-warning',
-  not_relevant: 'bg-muted text-muted-foreground',
-  insufficient_data: 'bg-muted text-muted-foreground',
+const RELEVANCE_VARIANT: Record<
+  ContactRelevanceStatus,
+  'positive' | 'brand' | 'warning' | 'neutral'
+> = {
+  high_relevance: 'positive',
+  medium_relevance: 'brand',
+  low_relevance: 'warning',
+  not_relevant: 'neutral',
+  insufficient_data: 'neutral',
 };
 
 const DUPLICATE_LABELS: Record<ContactDuplicateStatus, string> = {
@@ -3004,9 +3007,7 @@ export function ContactCandidateDetailSheet({
               <DetailRow icon={Gauge} label="Relevancia">
                 {relevance?.status ? (
                   <span className="inline-flex flex-wrap items-center gap-2">
-                    <Badge
-                      className={`${RELEVANCE_STYLES[relevance.status]} border-0`}
-                    >
+                    <Badge variant={RELEVANCE_VARIANT[relevance.status] ?? 'neutral'}>
                       {RELEVANCE_LABELS[relevance.status] ?? relevance.status}
                     </Badge>
                     {relevanceScore && (

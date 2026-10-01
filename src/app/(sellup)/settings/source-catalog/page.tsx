@@ -1,4 +1,5 @@
 import { DataTablePage } from '@/components/shared/data-table-page';
+import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import { MetricCard } from '@/components/shared/metric-card';
 import {
   getSourceCatalogViewModel,
@@ -34,6 +35,14 @@ export default async function SourceCatalogPage() {
       title="Catálogo de fuentes"
       description="Consulta el estado, cobertura y prioridad de las fuentes de datos usadas por SellUp para discovery, inventario, validación y señales comerciales."
       backHref="/settings"
+      breadcrumbs={
+        <Breadcrumbs
+          items={[
+            { label: 'Configuración', href: '/settings' },
+            { label: 'Catálogo de fuentes', active: true },
+          ]}
+        />
+      }
       metrics={
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6">
           <MetricCard

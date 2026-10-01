@@ -1,7 +1,6 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import {
-  ArrowLeft,
   Building2,
   CheckCircle2,
   XCircle,
@@ -16,6 +15,7 @@ import {
   Info,
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
+import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { MetricCard } from '@/components/shared/metric-card';
 import { Badge } from '@/components/ui/badge';
@@ -197,19 +197,12 @@ export default async function BatchDetailPage({ params }: Props) {
 
   return (
     <div className="space-y-6">
-      {/* Breadcrumb */}
-      <div>
-        <Link
-          href="/prospects"
-          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Prospectos
-        </Link>
-      </div>
-
       {/* Header */}
       <PageHeader
+        breadcrumbs={
+          <Breadcrumbs items={[{ label: 'Prospectos', href: '/prospects' }, pageTitle]} />
+        }
+        backHref="/prospects"
         title={pageTitle}
         description={pageSubtitle}
         actions={
@@ -612,9 +605,7 @@ export default async function BatchDetailPage({ params }: Props) {
           <summary className="flex cursor-pointer items-center justify-between rounded-md text-xs font-semibold text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
             <span className="flex items-center gap-2">
               <span>Empresas señaladas por calidad ({qualityFlaggedCandidates.length})</span>
-              <span className="rounded-full bg-warning/15 px-2 py-0.5 text-xs font-normal text-warning">
-                Inactivas, disueltas, duplicadas o sin NIT
-              </span>
+              <Badge variant="warning">Inactivas, disueltas, duplicadas o sin NIT</Badge>
             </span>
           </summary>
           <p className="mt-2 text-xs text-muted-foreground">

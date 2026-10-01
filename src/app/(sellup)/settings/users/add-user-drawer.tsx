@@ -1,10 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { UserPlus, Mail, CheckCircle2, XCircle, ChevronDown, User, KeyRound, Network } from 'lucide-react';
+import { UserPlus, Mail, CheckCircle2, XCircle, ChevronDown, User, KeyRound, Network, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { FieldLabel, FieldError } from '@/components/forms/field';
 import { Textarea } from '@/components/ui/textarea';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { DrawerSection } from '@/components/shared/drawer-section';
@@ -105,31 +105,37 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
       }
       title="Agregar usuario"
       description="Preautoriza un correo @ubits.co. El acceso se activa en el primer inicio de sesión con Google."
-      icon={<User className="h-4 w-4 text-primary" />}
+      icon={<User className="h-4 w-4" />}
       size="lg"
       actions={
-        <div className="flex items-center gap-3 ml-auto">
+        <>
           <Button
+            type="button"
             variant="outline"
             onClick={() => { setOpen(false); reset(); }}
           >
             Cancelar
           </Button>
           <Button
+            type="button"
             onClick={handleSubmit}
             disabled={!emailValid || !roleId || loading}
           >
-            <UserPlus className="h-4 w-4" />
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <UserPlus className="h-4 w-4" />
+            )}
             {loading ? 'Preautorizando...' : 'Preautorizar'}
           </Button>
-        </div>
+        </>
       }
     >
       <div className="space-y-4">
         {/* Identity preview */}
         <div className="flex items-center gap-4 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
           <Avatar className="h-12 w-12 shrink-0">
-            <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">
+            <AvatarFallback className="bg-primary/10 text-sm font-semibold text-primary">
               {previewInitials}
             </AvatarFallback>
           </Avatar>
@@ -153,9 +159,9 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
 
           {/* Email */}
           <div className="space-y-1.5">
-            <Label htmlFor="au-email" className="text-sm">
+            <FieldLabel htmlFor="au-email" className="block leading-none">
               Correo corporativo <span className="text-destructive">*</span>
-            </Label>
+            </FieldLabel>
             <div className="relative">
               <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
               <Input
@@ -164,13 +170,9 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
                 placeholder="nombre.apellido@ubits.co"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                className={`pl-9 pr-9 ${
-                  emailTouched
-                    ? emailValid
-                      ? 'border-success/60 focus-visible:ring-success/30'
-                      : 'border-destructive/60 focus-visible:ring-destructive/30'
-                    : ''
-                }`}
+                aria-invalid={emailTouched && !emailValid ? true : undefined}
+                aria-describedby={emailTouched && !emailValid ? 'au-email-error' : undefined}
+                className="pl-9 pr-9"
               />
               {emailTouched && (
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
@@ -182,15 +184,15 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
               )}
             </div>
             {emailTouched && !emailValid && (
-              <p className="text-xs font-medium text-destructive">Debe terminar en @ubits.co</p>
+              <FieldError id="au-email-error">Debe terminar en @ubits.co</FieldError>
             )}
           </div>
 
           {/* Name */}
           <div className="space-y-1.5">
-            <Label htmlFor="au-name" className="text-sm">
+            <FieldLabel htmlFor="au-name" className="block leading-none">
               Nombre completo <span className="text-xs text-muted-foreground">(opcional)</span>
-            </Label>
+            </FieldLabel>
             <div className="relative">
               <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
               <Input
@@ -209,9 +211,9 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
 
           {/* Role */}
           <div className="space-y-1.5">
-            <Label className="text-sm">
+            <FieldLabel className="block leading-none">
               Rol base <span className="text-destructive">*</span>
-            </Label>
+            </FieldLabel>
             <Select value={roleId || undefined} onValueChange={v => setRoleId(v ?? '')}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Seleccionar rol" />
@@ -233,9 +235,9 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
 
           {/* Manager */}
           <div className="space-y-1.5">
-            <Label className="text-sm">
+            <FieldLabel className="block leading-none">
               Líder inmediato <span className="text-xs text-muted-foreground">(opcional)</span>
-            </Label>
+            </FieldLabel>
             <Select value={managerId || undefined} onValueChange={v => setManagerId(v ?? '')}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Sin líder asignado" />
@@ -256,7 +258,7 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
                     {getInitials(selectedManager.full_name ?? '', selectedManager.email)}
                   </AvatarFallback>
                 </Avatar>
-                <span className="text-xs text-foreground">{selectedManager.full_name ?? selectedManager.email}</span>
+                <span className="min-w-0 truncate text-xs text-foreground">{selectedManager.full_name ?? selectedManager.email}</span>
               </div>
             )}
           </div>
@@ -266,9 +268,9 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
         <DrawerSection title="Organización" icon={Network} contentClassName="space-y-4">
 
           <div className="space-y-1.5">
-            <Label className="text-sm">
+            <FieldLabel className="block leading-none">
               Grupo <span className="text-xs text-muted-foreground">(opcional)</span>
-            </Label>
+            </FieldLabel>
             <Select value={groupId || undefined} onValueChange={v => setGroupId(v ?? '')}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Sin grupo asignado" />
@@ -293,16 +295,16 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
 
           {/* Notes */}
           <div className="space-y-1.5">
-            <Label htmlFor="au-notes" className="text-sm">
+            <FieldLabel htmlFor="au-notes" className="block leading-none">
               Notas internas <span className="text-xs text-muted-foreground">(opcional)</span>
-            </Label>
+            </FieldLabel>
             <Textarea
               id="au-notes"
               placeholder="Contexto de la preautorización, área, fecha de ingreso..."
               rows={3}
               value={notes}
               onChange={e => setNotes(e.target.value)}
-              className="resize-none text-sm"
+              className="resize-none"
             />
           </div>
         </DrawerSection>

@@ -5,6 +5,7 @@ import { Search, SlidersHorizontal } from "lucide-react";
 import type { Table } from "@tanstack/react-table";
 
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { TooltipIconButton } from "@/components/ui/tooltip-icon-button";
 
@@ -51,19 +52,28 @@ export function DataTableToolbar<TData>({
   return (
     <div
       className={cn(
-        "shrink-0 flex flex-col gap-2 px-5 py-4 border-b border-border/60",
+        "shrink-0 flex flex-col gap-2 px-6 py-4 border-b border-border/60",
         className,
       )}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          {table.options.meta?.title !== undefined && (
-            <h3 className="text-lg font-bold text-foreground leading-tight">
-              {table.options.meta.title as React.ReactNode}
-            </h3>
+          {/* Thema (TableShell): el título de la lista con su total al lado.
+              El contador va fuera del h3 para no alterar el texto del título. */}
+          {table.options.meta?.title != null && (
+            <div className="flex min-w-0 items-center gap-2">
+              <h3 className="truncate text-base font-semibold leading-tight tracking-tight text-foreground">
+                {table.options.meta.title as React.ReactNode}
+              </h3>
+              {typeof table.options.meta.count === "number" && (
+                <Badge variant="neutral" aria-hidden className="tabular-nums">
+                  {table.options.meta.count.toLocaleString("es-CO")}
+                </Badge>
+              )}
+            </div>
           )}
-          {table.options.meta?.description !== undefined && (
-            <p className="text-sm text-muted-foreground mt-0.5 max-w-2xl">
+          {table.options.meta?.description != null && (
+            <p className="mt-0.5 max-w-2xl text-sm text-muted-foreground">
               {table.options.meta.description as React.ReactNode}
             </p>
           )}

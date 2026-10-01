@@ -3,14 +3,7 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { cancelPreapproval } from '@/modules/access/actions';
 
 interface PreapprovalCancelButtonProps {
@@ -43,23 +36,17 @@ export function PreapprovalCancelButton({ preapprovalId, email }: PreapprovalCan
         <X />
       </Button>
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Cancelar preautorización</DialogTitle>
-            <DialogDescription>
-              ¿Cancelar la preautorización de <strong>{email}</strong>? Esta persona no podrá
-              ingresar automáticamente. Podrás preautorizarla de nuevo cuando quieras.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
-            <Button variant="destructive" onClick={handleCancel} disabled={loading}>
-              {loading ? 'Cancelando...' : 'Confirmar cancelación'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={open}
+        onOpenChange={setOpen}
+        variant="destructive"
+        icon={X}
+        title="Cancelar preautorización"
+        description={`¿Cancelar la preautorización de ${email}? Esta persona no podrá ingresar automáticamente. Podrás preautorizarla de nuevo cuando quieras.`}
+        confirmLabel={loading ? 'Cancelando...' : 'Confirmar cancelación'}
+        loading={loading}
+        onConfirm={handleCancel}
+      />
     </>
   );
 }

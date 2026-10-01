@@ -2,23 +2,14 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { Menu, LogOut, Settings } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { ChevronDown, ChevronRight, LogOut, PanelLeft, Settings } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
-import { Button } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
+import { GlobalSearch, type SearchNavigateItem } from "@/components/search";
 import { NotificationBell } from "@/components/notifications/notification-bell";
-import {
-  Sheet,
-  SheetContent,
-  SheetTrigger,
-} from "@/components/ui/sheet";
-import { MobileNavLink } from "@/components/layout/app-sidebar";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { BrandMark, MobileNavLink } from "@/components/layout/app-sidebar";
 import {
   mainNavItems,
   getVisibleNavItems,
@@ -42,10 +33,56 @@ interface AppHeaderProps {
   navAccess: NavAccessContext;
 }
 
+/**
+ * Las secciones de Configuración también son destinos de la búsqueda: son
+ * justo a lo que se llega una vez al mes y de lo que no se recuerda la ruta.
+ */
+const SETTINGS_DESTINATIONS: readonly (SearchNavigateItem & { adminOnly: boolean })[] = [
+  { id: "settings-users", label: "Usuarios y acceso", href: "/settings/users", section: "Configuración", keywords: ["roles", "permisos", "equipo"], adminOnly: true },
+  { id: "settings-providers", label: "Proveedores y consumo", href: "/settings/providers", section: "Configuración", keywords: ["apollo", "lusha", "tavily", "claude"], adminOnly: true },
+  { id: "settings-budget", label: "Presupuesto y créditos", href: "/settings/budget-credits", section: "Configuración", keywords: ["gasto", "tope"], adminOnly: true },
+  { id: "settings-automations", label: "Automatizaciones", href: "/settings/automations", section: "Configuración", adminOnly: true },
+  { id: "settings-integrations", label: "Integraciones comerciales", href: "/settings/integrations", section: "Configuración", keywords: ["hubspot", "slack"], adminOnly: true },
+  { id: "settings-prospecting", label: "Prospección y enriquecimiento", href: "/settings/prospecting", section: "Configuración", adminOnly: true },
+  { id: "settings-sources", label: "Catálogo de fuentes", href: "/settings/source-catalog", section: "Configuración", keywords: ["países", "registros"], adminOnly: true },
+  { id: "settings-activity", label: "Actividad de la plataforma", href: "/settings/activity", section: "Configuración", keywords: ["historial", "auditoría"], adminOnly: false },
+  { id: "settings-drive", label: "Mi Google Drive", href: "/settings/my-drive", section: "Configuración", adminOnly: false },
+];
+
+/** Cómo se nombra el rol en el chip de la cuenta. */
+function roleLabel({ isAdmin, roleKey }: NavAccessContext): string {
+  if (isAdmin) return "Administrador";
+  if (!roleKey) return "Miembro";
+  return roleKey.charAt(0).toUpperCase() + roleKey.slice(1).replace(/_/g, " ");
+}
+
+/**
+ * Cabecera del shell — anatomía de Thema (`app-shell/AppHeader`).
+ *
+ * Esta franja es para lo transversal: dónde estás (migas), los avisos, el tema
+ * y la cuenta. No repite el título de la pantalla: ese es el `PageHeader`.
+ */
 export function AppHeader({ user, initialUnreadCount = 0, navAccess }: AppHeaderProps) {
   const router = useRouter();
+  const pathname = usePathname();
 
   const visibleNavItems = getVisibleNavItems(mainNavItems, navAccess);
+  const current = mainNavItems.find(
+    (item) => pathname === item.href || pathname.startsWith(item.href + "/"),
+  );
+
+  const searchDestinations = React.useMemo<SearchNavigateItem[]>(
+    () => [
+      ...visibleNavItems.map((item) => ({
+        id: item.href,
+        label: item.title,
+        href: item.href,
+        icon: item.icon,
+      })),
+      ...SETTINGS_DESTINATIONS.filter((item) => !item.adminOnly || navAccess.isAdmin),
+    ],
+    [visibleNavItems, navAccess.isAdmin],
+  );
 
   const displayName =
     (user.user_metadata?.full_name as string | undefined) ??
@@ -67,161 +104,110 @@ export function AppHeader({ user, initialUnreadCount = 0, navAccess }: AppHeader
   };
 
   return (
-    <header className="sticky top-0 z-40 flex h-14 w-full items-center justify-between border-b border-border/60 bg-background/80 su-glass px-4 sm:px-6">
-      {/* Mobile brand — visible only on small screens (sidebar is hidden on mobile) */}
-      <Link
-        href="/pipeline"
-        className="flex items-center gap-2 select-none md:hidden"
-        aria-label="SellUp"
-      >
-        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-gradient text-xs font-bold text-primary-foreground shadow-card">
-          S
-        </span>
-        <span className="text-base font-bold tracking-tight">
-          <span className="text-foreground">Sell</span>
-          <span className="text-primary">Up</span>
-        </span>
-      </Link>
+    <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/60 px-4 sm:gap-3 sm:px-6">
+      {/* Menú en móvil: ahí el lateral es un cajón */}
+      <Sheet>
+        <SheetTrigger
+          render={
+            <button
+              type="button"
+              aria-label="Abrir menú"
+              className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-card text-text-muted transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 md:hidden"
+            >
+              <PanelLeft className="size-4" />
+            </button>
+          }
+        />
+        <SheetContent side="left" className="flex w-64 flex-col gap-0 bg-sidebar p-3 pt-4">
+          <div className="mb-4 px-2">
+            <BrandMark />
+          </div>
+          <nav aria-label="Navegación principal" className="flex flex-1 flex-col gap-1 overflow-y-auto">
+            <p className="px-2 pb-1 text-xs font-semibold text-text-muted">Navegación</p>
+            {visibleNavItems.map((item) => (
+              <MobileNavLink key={item.href} item={item} />
+            ))}
+          </nav>
+        </SheetContent>
+      </Sheet>
 
-      {/* El header solo existe en móvil (en escritorio el riel lo reemplaza):
-          marca a la izquierda, acciones transversales a la derecha. */}
-      {/* Actions */}
-      <div className="flex items-center gap-1.5">
-        {/* Mobile menu */}
-        <Sheet>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <SheetTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="md:hidden"
-                      aria-label="Abrir menú"
-                    >
-                      <Menu className="h-4 w-4" />
-                    </Button>
-                  }
-                />
-              }
-            />
-            <TooltipContent side="bottom">Abrir menú</TooltipContent>
-          </Tooltip>
-          <SheetContent
-            side="left"
-            className="flex w-72 flex-col gap-0 bg-sidebar p-0 text-sidebar-foreground"
-          >
-            {/* Brand */}
-            <div className="flex h-16 shrink-0 items-center gap-2.5 border-b border-sidebar-border px-5">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-gradient text-base font-bold text-primary-foreground shadow-card">
-                S
-              </span>
-              <div className="flex min-w-0 flex-col leading-none">
-                <span className="text-base font-bold tracking-tight">
-                  <span className="text-sidebar-foreground">Sell</span>
-                  <span className="text-primary">Up</span>
-                </span>
-                <span className="mt-1 text-xs font-medium text-muted-foreground">
-                  Inteligencia Comercial
-                </span>
-              </div>
-            </div>
+      {/* Migas: ubican, y ubicar es transversal */}
+      <nav aria-label="Ruta" className="flex min-w-0 items-center gap-1.5 overflow-hidden text-sm">
+        <Link
+          href="/pipeline"
+          className="shrink-0 rounded-sm text-text-muted transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+        >
+          SellUp
+        </Link>
+        {current && (
+          <>
+            <ChevronRight aria-hidden className="size-3.5 shrink-0 text-text-muted" />
+            <span aria-current="page" className="truncate font-semibold text-foreground">
+              {current.title}
+            </span>
+          </>
+        )}
+      </nav>
 
-            {/* Nav */}
-            <nav className="flex-1 overflow-y-auto px-2.5 py-5">
-              <p className="mb-2 px-3 text-xs font-semibold text-muted-foreground">
-                Navegación
-              </p>
-              <div className="flex flex-col gap-0.5">
-                {visibleNavItems.map((item) => (
-                  <MobileNavLink key={item.href} item={item} />
-                ))}
-              </div>
-            </nav>
-
-            {/* User card — bottom of mobile menu */}
-            <div className="shrink-0 border-t border-sidebar-border p-2.5">
-              <div className="flex items-center gap-2.5 rounded-xl bg-surface-muted p-2">
-                <Avatar
-                  size="lg"
-                  className="shrink-0"
-                >
-                  <AvatarImage src={avatarUrl} alt={displayName} />
-                  <AvatarFallback className="bg-primary text-xs font-semibold text-primary-foreground">
-                    {initials}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex min-w-0 flex-1 flex-col items-start">
-                  <span className="w-full truncate text-sm font-semibold text-sidebar-foreground">
-                    {displayName}
-                  </span>
-                  <span className="w-full truncate text-xs text-muted-foreground">
-                    {user.email}
-                  </span>
-                </div>
-              </div>
-              <div className="mt-1.5 flex gap-1">
-                <button
-                  onClick={() => router.push("/settings")}
-                  className="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2.5 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground"
-                >
-                  <Settings className="h-3.5 w-3.5" />
-                  Configuración
-                </button>
-                <button
-                  onClick={handleSignOut}
-                  className="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2.5 py-2 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
-                >
-                  <LogOut className="h-3.5 w-3.5" />
-                  Salir
-                </button>
-              </div>
-            </div>
-          </SheetContent>
-        </Sheet>
-
+      {/* Acciones transversales */}
+      <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
+        <GlobalSearch navigate={searchDestinations} placeholder="Buscar…" />
         <NotificationBell initialUnreadCount={initialUnreadCount} />
-
         <ThemeToggle />
 
-        {/* Mobile-only avatar — quick access to dropdown menu */}
         <DropdownMenu>
-          <DropdownMenuTrigger className="ml-0.5 inline-flex cursor-pointer rounded-full p-0 transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden">
-            <Avatar className="h-8 w-8">
-              <AvatarImage src={avatarUrl} alt={displayName} />
+          <DropdownMenuTrigger
+            aria-label={`Cuenta de ${displayName}`}
+            className="group flex items-center gap-2 rounded-full border border-border/70 bg-card py-1 pl-1 pr-1 text-left transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 data-[popup-open]:bg-surface-muted sm:pr-2.5"
+          >
+            <Avatar className="size-7">
+              <AvatarImage src={avatarUrl} alt="" />
               <AvatarFallback className="bg-primary text-xs font-semibold text-primary-foreground">
                 {initials}
               </AvatarFallback>
             </Avatar>
+            <span className="hidden min-w-0 flex-col gap-0.5 sm:flex">
+              <span className="max-w-40 truncate text-xs font-semibold leading-tight text-foreground">
+                {displayName}
+              </span>
+              <span className="inline-flex h-4 w-fit items-center rounded-full bg-primary/10 px-1.5 text-xs font-semibold leading-none text-primary">
+                {roleLabel(navAccess)}
+              </span>
+            </span>
+            <ChevronDown aria-hidden className="hidden size-3.5 shrink-0 text-text-muted sm:block" />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-60">
+          <DropdownMenuContent align="end" sideOffset={10} className="w-64">
             <DropdownMenuGroup>
-              <DropdownMenuLabel>
-                <div className="flex flex-col gap-1">
-                  <span className="text-sm font-semibold text-foreground leading-tight">
-                    {displayName}
-                  </span>
-                  <span className="text-xs text-muted-foreground font-normal">
-                    {user.email}
-                  </span>
+              <DropdownMenuLabel className="p-0">
+                <div className="flex items-center gap-2.5 rounded-lg bg-surface-muted px-2.5 py-2.5">
+                  <Avatar size="lg" className="shrink-0">
+                    <AvatarImage src={avatarUrl} alt="" />
+                    <AvatarFallback className="bg-primary text-xs font-semibold text-primary-foreground">
+                      {initials}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-sm font-semibold leading-tight text-foreground">
+                      {displayName}
+                    </span>
+                    <span className="truncate text-xs font-normal text-muted-foreground">
+                      {user.email}
+                    </span>
+                  </div>
                 </div>
               </DropdownMenuLabel>
             </DropdownMenuGroup>
+            {navAccess.isAdmin && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem className="cursor-pointer" onClick={() => router.push("/settings")}>
+                  <Settings className="h-4 w-4" />
+                  Configuración
+                </DropdownMenuItem>
+              </>
+            )}
             <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="cursor-pointer"
-              onClick={() => router.push("/settings")}
-            >
-              <Settings className="h-4 w-4" />
-              Configuración
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="cursor-pointer"
-              variant="destructive"
-              onClick={handleSignOut}
-            >
+            <DropdownMenuItem className="cursor-pointer" variant="destructive" onClick={handleSignOut}>
               <LogOut className="h-4 w-4" />
               Cerrar sesión
             </DropdownMenuItem>

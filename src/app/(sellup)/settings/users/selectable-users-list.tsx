@@ -1,19 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { X, Pause, RotateCcw, Archive, UserX, Layers } from 'lucide-react';
+import { X, Pause, RotateCcw, Archive, UserX, Layers, Loader2 } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { ModalShell } from '@/components/shared/modal-shell';
+import { FieldLabel } from '@/components/forms/field';
 import {
   Select,
   SelectContent,
@@ -391,18 +385,32 @@ export function SelectableUsersList({
 
       {/* Bulk action confirmation dialog */}
       {activeAction && (
-        <Dialog open onOpenChange={closeDialog}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{activeAction.confirmTitle(selectedIds.length)}</DialogTitle>
-              <DialogDescription>{activeAction.confirmDesc(selectedIds.length)}</DialogDescription>
-            </DialogHeader>
-
+        <ModalShell
+          open
+          onOpenChange={closeDialog}
+          title={activeAction.confirmTitle(selectedIds.length)}
+          description={activeAction.confirmDesc(selectedIds.length)}
+          actions={
+            <>
+              <Button type="button" variant="outline" onClick={closeDialog} disabled={loading}>Cancelar</Button>
+              <Button
+                type="button"
+                variant={activeAction.variant === 'destructive' ? 'destructive' : 'default'}
+                onClick={executeBulkAction}
+                disabled={loading}
+              >
+                {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+                {loading ? 'Procesando...' : activeAction.label}
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-4">
             {activeAction.requiresGroup && (
-              <div className="space-y-1.5 py-2">
-                <p className="text-sm font-medium text-foreground">Grupo organizacional</p>
+              <div className="space-y-1.5">
+                <FieldLabel className="block leading-none">Grupo organizacional</FieldLabel>
                 <Select value={groupId || undefined} onValueChange={v => setGroupId(v ?? '')}>
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger className="w-full" aria-label="Grupo organizacional">
                     <SelectValue placeholder="Sin grupo (desasignar)" />
                   </SelectTrigger>
                   <SelectContent>
@@ -422,19 +430,8 @@ export function SelectableUsersList({
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             )}
-
-            <DialogFooter>
-              <Button variant="outline" onClick={closeDialog} disabled={loading}>Cancelar</Button>
-              <Button
-                variant={activeAction.variant === 'destructive' ? 'destructive' : 'default'}
-                onClick={executeBulkAction}
-                disabled={loading}
-              >
-                {loading ? 'Procesando...' : activeAction.label}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+          </div>
+        </ModalShell>
       )}
     </div>
   );

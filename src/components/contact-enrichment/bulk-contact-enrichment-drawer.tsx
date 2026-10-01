@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { MetricCard } from '@/components/shared/metric-card';
+import { Spinner } from '@/components/feedback/spinner';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { DrawerShell } from '@/components/shared/drawer-shell';
@@ -346,7 +348,7 @@ export function BulkContactEnrichmentDrawer({
                     </div>
                     <div className="shrink-0 mt-0.5">
                       {state === 'checking_eligibility' && (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                        <Spinner size="xs" label="Comprobando elegibilidad" />
                       )}
                       {eligible && (
                         <Badge variant="positive">
@@ -376,7 +378,7 @@ export function BulkContactEnrichmentDrawer({
         {/* Summary stats */}
         {!tooManyAccounts && eligibility && (
           <>
-            <div className="grid grid-cols-3 gap-2.5">
+            <div className="grid gap-3 sm:grid-cols-3">
               <StatCard label="Seleccionadas" value={eligibility.selectedCount} />
               <StatCard
                 label="Elegibles"
@@ -442,7 +444,7 @@ export function BulkContactEnrichmentDrawer({
 
         {/* Disclaimer */}
         {!tooManyAccounts && state !== 'error' && !isDone && !isUnknown && (
-          <div className="rounded-md bg-surface-muted px-3 py-2.5">
+          <div className="rounded-lg bg-surface-subtle px-3 py-2.5">
             <p className="text-xs text-muted-foreground">
               Este proceso{' '}
               <strong className="text-foreground">no crea contactos oficiales</strong> ni
@@ -555,26 +557,17 @@ function StatCard({
   value: number;
   variant?: 'default' | 'success' | 'warn';
 }) {
-  const valueClass =
-    variant === 'success'
-      ? 'text-success'
-      : variant === 'warn' && value > 0
-        ? 'text-warning'
-        : 'text-foreground';
+  const tone =
+    variant === 'success' ? 'positive' : variant === 'warn' && value > 0 ? 'warning' : 'neutral';
 
-  return (
-    <div className="rounded-lg bg-surface-subtle px-2 py-2.5 text-center">
-      <p className={`text-lg font-semibold ${valueClass}`}>{value}</p>
-      <p className="text-xs text-muted-foreground">{label}</p>
-    </div>
-  );
+  return <MetricCard compact title={label} value={value} tone={tone} />;
 }
 
 function SummaryRow({ label, value }: { label: string; value: number }) {
   return (
     <>
       <dt className="text-muted-foreground">{label}</dt>
-      <dd className="font-medium text-foreground">{value}</dd>
+      <dd className="font-medium tabular-nums text-foreground">{value}</dd>
     </>
   );
 }

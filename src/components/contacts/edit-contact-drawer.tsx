@@ -124,36 +124,34 @@ export function EditContactDrawer({ contact, open, onClose }: EditContactDrawerP
       onOpenChange={(v) => !v && onClose()}
       title="Editar contacto"
       description={contact.full_name}
-      icon={<User className="h-4 w-4 text-primary" />}
+      icon={<User className="h-4 w-4" />}
       size="xl"
       actions={
         <>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onClose}
+            disabled={pending}
+          >
+            Cancelar
+          </Button>
           {error && (
-            <p role="alert" className="flex-1 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive">
+            <p role="alert" className="min-w-0 flex-1 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive">
               {error}
             </p>
           )}
-          <div className="flex shrink-0 items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={onClose}
-              disabled={pending}
-            >
-              Cancelar
-            </Button>
-            <Button type="submit" form="edit-contact-form" size="sm" disabled={pending}>
-              {pending ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Guardando…
-                </>
-              ) : (
-                'Guardar cambios'
-              )}
-            </Button>
-          </div>
+          <Button type="submit" form="edit-contact-form" size="sm" disabled={pending}>
+            {pending ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Guardando…
+              </>
+            ) : (
+              'Guardar cambios'
+            )}
+          </Button>
         </>
       }
     >
@@ -347,9 +345,9 @@ export function EditContactDrawer({ contact, open, onClose }: EditContactDrawerP
                 type="checkbox"
                 checked={form.is_primary}
                 onChange={(e) => set('is_primary', e.target.checked)}
-                className="h-4 w-4 rounded border-border accent-primary"
+                className="h-4 w-4 rounded-xs border-border accent-primary focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
               />
-              <span className="text-xs font-medium text-muted-foreground">Contacto primario</span>
+              <span className="text-sm font-medium text-foreground">Contacto primario</span>
             </label>
           </Row>
           <Field id="edit_notes" label="Notas">
@@ -361,7 +359,7 @@ export function EditContactDrawer({ contact, open, onClose }: EditContactDrawerP
                 value={form.notes}
                 onChange={(e) => set('notes', e.target.value)}
                 rows={3}
-                className="pl-8 pt-2 text-sm"
+                className="pl-8 pt-2"
               />
             </div>
           </Field>

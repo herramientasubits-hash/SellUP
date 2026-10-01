@@ -61,7 +61,8 @@ export function NavLink({ item, mode = "full" }: NavLinkProps) {
       href={item.href}
       aria-current={isActive ? "page" : undefined}
       className={cn(
-        "group relative flex items-center gap-3 rounded-md py-2.5 pl-3.5 pr-3 text-sm font-medium transition-colors duration-200",
+        "group relative flex h-9 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition-colors duration-200",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
         isActive
           ? "bg-sidebar-accent font-semibold text-primary"
           : "text-muted-foreground hover:bg-background hover:text-foreground",
@@ -69,10 +70,11 @@ export function NavLink({ item, mode = "full" }: NavLinkProps) {
     >
       <item.icon
         className={cn(
-          "size-[18px] shrink-0",
+          "size-4 shrink-0",
+          isActive ? "text-primary" : "text-text-muted group-hover:text-foreground",
         )}
       />
-      <span className="flex-1 truncate">{item.title}</span>
+      <span className="min-w-0 flex-1 truncate">{item.title}</span>
     </Link>
   );
 }
@@ -89,13 +91,13 @@ export function MobileNavLink({ item }: NavLinkProps) {
           href={item.href}
           aria-current={isActive ? "page" : undefined}
           className={cn(
-            "relative flex items-center gap-3 rounded-md px-3.5 py-2.5 text-sm font-medium transition-colors duration-200",
+            "relative flex h-9 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition-colors duration-200",
             isActive
               ? "bg-sidebar-accent font-semibold text-primary"
               : "text-muted-foreground hover:bg-background hover:text-foreground",
           )}
         >
-          <item.icon className="h-[18px] w-[18px] shrink-0" />
+          <item.icon className="size-4 shrink-0" />
           {item.title}
         </Link>
       }

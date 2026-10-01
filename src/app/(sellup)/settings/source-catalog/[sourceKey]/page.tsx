@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { Database, ExternalLink } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
+import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -120,6 +121,15 @@ export default async function SourceDetailPage({ params }: Props) {
   return (
     <div className="space-y-6">
       <PageHeader
+        breadcrumbs={
+          <Breadcrumbs
+            items={[
+              { label: 'Configuración', href: '/settings' },
+              { label: 'Catálogo de fuentes', href: '/settings/source-catalog' },
+              source.name,
+            ]}
+          />
+        }
         title={source.name}
         description={source.key}
         backHref="/settings/source-catalog"

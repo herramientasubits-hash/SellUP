@@ -152,16 +152,18 @@ export function BatchesListClient({ batches }: BatchesListClientProps) {
     <div className="overflow-x-auto">
       {technicalCount > 0 && (
         <div className="flex items-center justify-end border-b border-border/50 px-4 py-2">
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="xs"
+            aria-pressed={showTechnical}
             onClick={() => setShowTechnical((v) => !v)}
-            className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
           >
-            <FlaskConical className="h-3 w-3" />
+            <FlaskConical aria-hidden="true" />
             {showTechnical
               ? 'Ocultar lotes técnicos'
               : `Mostrar lotes técnicos (${technicalCount})`}
-          </button>
+          </Button>
         </div>
       )}
       <table className="w-full text-sm">
@@ -182,17 +184,19 @@ export function BatchesListClient({ batches }: BatchesListClientProps) {
         <tbody>
           {visibleBatches.length === 0 ? (
             <tr>
-              <td colSpan={11} className="py-12 text-center text-xs text-muted-foreground">
-                No hay lotes productivos todavía.{' '}
-                {technicalCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setShowTechnical(true)}
-                    className="rounded-sm underline hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-                  >
-                    Ver lotes técnicos ({technicalCount})
-                  </button>
-                )}
+              <td colSpan={11}>
+                <SharedEmptyState
+                  variant="plain"
+                  icon={Layers}
+                  title="No hay lotes productivos todavía."
+                  action={
+                    technicalCount > 0 ? (
+                      <Button type="button" variant="outline" size="sm" onClick={() => setShowTechnical(true)}>
+                        Ver lotes técnicos ({technicalCount})
+                      </Button>
+                    ) : undefined
+                  }
+                />
               </td>
             </tr>
           ) : null}
@@ -205,7 +209,7 @@ export function BatchesListClient({ batches }: BatchesListClientProps) {
               <td className="px-4 py-3">
                 <Link
                   href={`/prospect-batches/${batch.id}`}
-                  className="font-medium text-foreground hover:text-primary hover:underline"
+                  className="rounded-sm font-medium text-foreground hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                 >
                   {batch.name}
                 </Link>

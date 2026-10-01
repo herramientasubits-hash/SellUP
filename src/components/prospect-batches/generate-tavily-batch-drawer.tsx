@@ -2,8 +2,10 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Sparkles, Loader2, Globe, AlertCircle, CheckCircle2, Brain } from 'lucide-react';
+import { Sparkles, Loader2, Globe, CheckCircle2, Brain, Workflow } from 'lucide-react';
 import { DrawerShell } from '@/components/shared/drawer-shell';
+import { DrawerSection } from '@/components/shared/drawer-section';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { AIButton } from '@/components/ai/ai-button';
 import {
@@ -100,39 +102,40 @@ export function GenerateTavilyBatchDrawer() {
       size="xl"
       actions={
         <>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleClose}
+            disabled={generating}
+          >
+            Cancelar
+          </Button>
           {generating && progressMsg && (
-            <p className="mr-auto flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              {progressMsg}
+            <p
+              role="status"
+              className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-muted-foreground"
+            >
+              <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden="true" />
+              <span className="min-w-0 truncate" title={progressMsg}>{progressMsg}</span>
             </p>
           )}
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleClose}
-              disabled={generating}
-            >
-              Cancelar
-            </Button>
-            <AIButton
-              form="generate-tavily-batch-form"
-              type="submit"
-              size="sm"
-              disabled={!canSubmit}
-              loading={generating}
-            >
-              {generating ? 'Buscando…' : 'Buscar empresas'}
-            </AIButton>
-          </div>
+          <AIButton
+            form="generate-tavily-batch-form"
+            type="submit"
+            size="sm"
+            disabled={!canSubmit}
+            loading={generating}
+          >
+            {generating ? 'Buscando…' : 'Buscar empresas'}
+          </AIButton>
         </>
       }
     >
       <form
         id="generate-tavily-batch-form"
         onSubmit={handleSubmit}
-        className="space-y-6"
+        className="space-y-4"
       >
         {/* Segmentación */}
         <Section icon={Globe} label="Segmentación">
@@ -177,24 +180,20 @@ export function GenerateTavilyBatchDrawer() {
         </Section>
 
         {/* Info nota */}
-        <div className="rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
-          <div className="flex gap-2.5">
-            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
-            <p className="text-xs text-muted-foreground">
+        <Alert variant="warning" role="note">
+          <AlertDescription className="text-xs">
+            <p>
               Los candidatos no se aprueban automáticamente. La cantidad final puede variar según la disponibilidad y calidad de resultados.
               <span className="mt-1 block">
                 Ninguna empresa se crea en SellUp sin revisión humana.
               </span>
             </p>
-          </div>
-        </div>
+          </AlertDescription>
+        </Alert>
 
         {/* Fuentes */}
-        <div className="space-y-2">
-          <p className="text-xs font-semibold text-muted-foreground">
-            Cómo funciona
-          </p>
-          <div className="flex flex-col gap-1.5">
+        <DrawerSection title="Cómo funciona" icon={Workflow} tone="neutral">
+          <ul className="space-y-3">
             {[
               {
                 icon: Globe,
@@ -212,18 +211,16 @@ export function GenerateTavilyBatchDrawer() {
                 desc: 'Detecta si ya existen en SellUp o HubSpot',
               },
             ].map((src) => (
-              <div
-                key={src.label}
-                className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 rounded-xl border border-border/60 bg-card px-3 py-2"
-              >
-                <src.icon className="h-3.5 w-3.5 shrink-0 text-primary" />
-                <span className="text-xs font-medium text-foreground">{src.label}</span>
-                <span className="text-xs text-muted-foreground" aria-hidden="true">·</span>
-                <span className="min-w-0 text-xs text-muted-foreground">{src.desc}</span>
-              </div>
+              <li key={src.label} className="flex items-start gap-2.5">
+                <src.icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-foreground">{src.label}</p>
+                  <p className="text-xs text-muted-foreground">{src.desc}</p>
+                </div>
+              </li>
             ))}
-          </div>
-        </div>
+          </ul>
+        </DrawerSection>
       </form>
     </DrawerShell>
   );

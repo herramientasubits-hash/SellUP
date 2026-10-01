@@ -3,6 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { Star, Mail, Phone } from 'lucide-react';
+import { EmptyState } from '@/components/ui/empty-state';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -24,19 +25,21 @@ import type { ContactListItem } from '@/modules/contacts/actions';
 import { ContactRowActions } from './contact-row-actions';
 import { ContactDetailSheet } from './contact-detail-sheet';
 
-const STATUS_STYLES: Record<ContactStatus, string> = {
-  active: 'bg-success/10 text-success border-transparent',
-  inactive: 'bg-muted text-muted-foreground border-transparent',
-  left_company: 'bg-warning/10 text-warning border-transparent',
-  do_not_contact: 'bg-destructive/10 text-destructive border-transparent',
-  archived: 'bg-surface-muted text-muted-foreground border-transparent',
+type ContactBadgeVariant = 'positive' | 'neutral' | 'warning' | 'negative' | 'brand';
+
+const STATUS_VARIANT: Record<ContactStatus, ContactBadgeVariant> = {
+  active: 'positive',
+  inactive: 'neutral',
+  left_company: 'warning',
+  do_not_contact: 'negative',
+  archived: 'neutral',
 };
 
-const ROLE_STYLES: Record<string, string> = {
-  decision_maker: 'bg-primary/10 text-primary border-transparent',
-  economic_buyer: 'bg-primary/10 text-primary border-transparent',
-  champion: 'bg-success/10 text-success border-transparent',
-  influencer: 'bg-warning/10 text-warning border-transparent',
+const ROLE_VARIANT: Record<string, ContactBadgeVariant> = {
+  decision_maker: 'brand',
+  economic_buyer: 'brand',
+  champion: 'positive',
+  influencer: 'warning',
 };
 
 interface ContactsTableClientProps {
@@ -54,20 +57,11 @@ export function ContactsTableClient({ contacts }: ContactsTableClientProps) {
 
   if (contacts.length === 0) {
     return (
-      <SurfaceCard>
-        <div className="flex flex-col items-center gap-3 py-14 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-surface-muted">
-            <Star className="h-5 w-5 text-text-muted" />
-          </div>
-          <div className="max-w-xs space-y-1 mx-auto">
-            <p className="text-sm font-semibold text-foreground">Sin contactos todavía</p>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Todavía no hay contactos registrados. Crea contactos manualmente desde una cuenta
-              o agrégalos aquí vinculándolos a una cuenta.
-            </p>
-          </div>
-        </div>
-      </SurfaceCard>
+      <EmptyState
+        icon={Star}
+        title="Sin contactos todavía"
+        description="Todavía no hay contactos registrados. Crea contactos manualmente desde una cuenta o agrégalos aquí vinculándolos a una cuenta."
+      />
     );
   }
 
@@ -160,10 +154,7 @@ export function ContactsTableClient({ contacts }: ContactsTableClientProps) {
 
                 {/* Estado */}
                 <TableCell>
-                  <Badge
-                    variant="outline"
-                    className={STATUS_STYLES[contact.contact_status]}
-                  >
+                  <Badge variant={STATUS_VARIANT[contact.contact_status]}>
                     {CONTACT_STATUS_LABELS[contact.contact_status]}
                   </Badge>
                 </TableCell>
@@ -171,10 +162,7 @@ export function ContactsTableClient({ contacts }: ContactsTableClientProps) {
                 {/* Rol */}
                 <TableCell>
                   {contact.role_in_account ? (
-                    <Badge
-                      variant="outline"
-                      className={ROLE_STYLES[contact.role_in_account] ?? 'bg-muted text-muted-foreground border-transparent'}
-                    >
+                    <Badge variant={ROLE_VARIANT[contact.role_in_account] ?? 'neutral'}>
                       {ROLE_LABELS[contact.role_in_account as ContactRole]}
                     </Badge>
                   ) : (

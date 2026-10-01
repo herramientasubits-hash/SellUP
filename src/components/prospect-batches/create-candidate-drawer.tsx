@@ -185,7 +185,7 @@ export function CreateCandidateDrawer({
       icon={<Building2 className="h-4 w-4" />}
       size="xl"
       actions={
-        <div className="flex w-full items-center justify-between gap-2">
+        <>
           <Button
             type="button"
             variant="outline"
@@ -209,7 +209,7 @@ export function CreateCandidateDrawer({
             )}
             Agregar candidato
           </Button>
-        </div>
+        </>
       }
     >
       <form
@@ -269,7 +269,7 @@ export function CreateCandidateDrawer({
                 </SelectContent>
               </Select>
             </Field>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Ciudad">
                 <Input
                   value={form.city}
@@ -292,7 +292,7 @@ export function CreateCandidateDrawer({
 
         {/* Perfil de empresa */}
         <DrawerSection title="Perfil de empresa" icon={Briefcase} hint="Industria y tamaño de la empresa.">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Industria">
               <Select
                 value={form.industry}
@@ -348,7 +348,7 @@ export function CreateCandidateDrawer({
           return (
             <DrawerSection title="Identificador fiscal" icon={FileText} hint={hasCountry && rule ? `Tipo: ${rule.label}` : undefined}>
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label="Tipo">
                     <Select
                       value={form.tax_identifier_type}
@@ -374,7 +374,7 @@ export function CreateCandidateDrawer({
                       onBlur={handleTaxIdBlur}
                       placeholder={rule?.placeholder ?? 'Seleccione un país'}
                       disabled={isDisabled || saving}
-                      className={taxIdError ? 'border-destructive focus-visible:ring-destructive' : ''}
+                      aria-invalid={taxIdError ? true : undefined}
                     />
                   </Field>
                 </div>

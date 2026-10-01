@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { Archive, Building2, ClipboardCheck } from "lucide-react";
 import { TabsNav, type Tab } from "@/components/navigation/tabs-nav";
 import {
   ACCOUNTS_ROUTE,
@@ -50,9 +51,9 @@ export function ModuleTabsNav({ active, discardedCount }: ModuleTabsNavProps) {
   const router = useRouter();
 
   const tabs: Tab[] = [
-    { id: "empresas", label: "Prospectos aprobados" },
-    { id: "prospectos", label: "Candidatos por revisar" },
-    { id: "descartadas", label: "Descartadas", count: discardedCount },
+    { id: "empresas", label: "Prospectos aprobados", icon: Building2 },
+    { id: "prospectos", label: "Candidatos por revisar", icon: ClipboardCheck },
+    { id: "descartadas", label: "Descartadas", icon: Archive, count: discardedCount },
   ];
 
   return (
@@ -60,7 +61,6 @@ export function ModuleTabsNav({ active, discardedCount }: ModuleTabsNavProps) {
       tabs={tabs}
       activeTabId={active}
       onTabChange={(id) => router.push(TAB_ROUTES[id as ModuleTabId] ?? TAB_ROUTES.empresas)}
-      className="bg-transparent px-0 py-0"
     />
   );
 }

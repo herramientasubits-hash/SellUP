@@ -7,6 +7,8 @@ import { DrawerShell } from "@/components/shared/drawer-shell";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState as SystemEmptyState } from "@/components/ui/empty-state";
+import { ListItem, ListItemGroup } from "@/components/data-display";
+import { cn } from "@/lib/utils";
 import type { UserNotification, NotificationFilter } from "@/modules/notifications/types";
 
 interface NotificationDrawerProps {
@@ -43,51 +45,46 @@ function NotificationItem({
   notification: UserNotification;
   onRead: (id: string, url: string | null) => void;
 }) {
+  const isUnread = !notification.is_read;
+
+  // `ListItem` recorta título y descripción a una línea; una notificación
+  // necesita su mensaje completo, así que ambos envuelven dentro de la fila.
   return (
-    <button
-      type="button"
+    <ListItem
       onClick={() => onRead(notification.id, notification.action_url)}
-      className={[
-        "group relative w-full rounded-lg px-4 py-3 text-left transition-colors",
-        "hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40",
-        !notification.is_read && "bg-primary/5",
-      ]
-        .filter(Boolean)
-        .join(" ")}
-    >
-      {!notification.is_read && (
-        <span className="absolute left-1.5 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-primary" aria-hidden="true" />
-      )}
-
-      <div className="pl-1.5">
-        <div className="flex items-start justify-between gap-2">
-          <span
-            className={[
-              "text-sm leading-snug",
-              notification.is_read
-                ? "font-normal text-foreground"
-                : "font-semibold text-foreground",
-            ].join(" ")}
-          >
-            {notification.title}
-          </span>
-          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-            {formatRelativeDate(notification.created_at)}
-          </span>
-        </div>
-
-        <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed line-clamp-3">
-          {notification.message}
-        </p>
-
-        {notification.action_label && (
-          <span className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary group-hover:underline">
-            {notification.action_label}
-            <ExternalLink className="h-3 w-3" aria-hidden="true" />
-          </span>
-        )}
-      </div>
-    </button>
+      className={cn("items-start", isUnread && "bg-primary/5")}
+      leading={
+        <span
+          aria-hidden="true"
+          className={cn(
+            "mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full",
+            isUnread ? "bg-primary" : "bg-transparent",
+          )}
+        />
+      }
+      title={
+        <span
+          className={cn(
+            "block whitespace-normal break-words leading-snug",
+            isUnread ? "font-semibold" : "font-normal",
+          )}
+        >
+          {notification.title}
+        </span>
+      }
+      description={
+        <span className="block whitespace-normal">
+          <span className="line-clamp-3 break-words leading-relaxed">{notification.message}</span>
+          {notification.action_label && (
+            <span className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary group-hover/list-item:underline">
+              {notification.action_label}
+              <ExternalLink className="h-3 w-3" aria-hidden="true" />
+            </span>
+          )}
+        </span>
+      }
+      meta={formatRelativeDate(notification.created_at)}
+    />
   );
 }
 
@@ -100,7 +97,7 @@ function EmptyState({ filter }: { filter: NotificationFilter }) {
           ? "No tienes notificaciones sin leer."
           : "No tienes notificaciones por ahora."
       }
-      className="border-0 bg-transparent p-8 sm:p-12"
+      variant="plain"
     />
   );
 }
@@ -143,7 +140,7 @@ export function NotificationDrawer({
       open={open}
       onOpenChange={(isOpen) => !isOpen && onClose()}
       title="Notificaciones"
-      icon={<Bell className="h-4 w-4 text-primary" />}
+      icon={<Bell className="h-4 w-4" />}
       size="sm"
     >
       <div className="flex flex-col gap-4">
@@ -155,6 +152,7 @@ export function NotificationDrawer({
                 key={f}
                 type="button"
                 onClick={() => onFilterChange(f)}
+                aria-pressed={filter === f}
                 className={[
                   "rounded-md px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40",
                   filter === f
@@ -166,7 +164,7 @@ export function NotificationDrawer({
                   <span className="flex items-center gap-1.5">
                     No leídas
                     {hasUnread && (
-                      <span className="flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-primary px-1 text-xs font-semibold tabular-nums text-primary-foreground">
+                      <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-xs font-semibold tabular-nums text-primary-foreground">
                         {unreadCount}
                       </span>
                     )}
@@ -184,7 +182,6 @@ export function NotificationDrawer({
               size="xs"
               disabled={markingAll}
               onClick={handleMarkAll}
-              className="text-muted-foreground hover:text-foreground"
             >
               <CheckCheck className="h-3.5 w-3.5" aria-hidden="true" />
               Marcar leídas
@@ -195,7 +192,7 @@ export function NotificationDrawer({
         {/* Lista */}
         <div>
           {loading ? (
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-2" aria-busy="true">
               {Array.from({ length: 3 }).map((_, i) => (
                 <Skeleton key={i} className="h-16 rounded-lg" />
               ))}
@@ -203,11 +200,11 @@ export function NotificationDrawer({
           ) : displayed.length === 0 ? (
             <EmptyState filter={filter} />
           ) : (
-            <div className="flex flex-col gap-0.5">
+            <ListItemGroup>
               {displayed.map((n) => (
                 <NotificationItem key={n.id} notification={n} onRead={handleRead} />
               ))}
-            </div>
+            </ListItemGroup>
           )}
         </div>
       </div>

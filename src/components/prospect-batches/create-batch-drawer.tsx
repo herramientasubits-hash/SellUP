@@ -23,6 +23,7 @@ import {
   type BatchSearchDepth,
 } from '@/modules/prospect-batches/types';
 import { Section, Field, Row, getFlagEmoji } from '@/components/accounts/account-form-helpers';
+import { Field as FormField } from '@/components/forms/field';
 
 interface CreateBatchDrawerProps {
   users: InternalUserOption[];
@@ -109,7 +110,7 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
       icon={<Layers className="h-4 w-4" />}
       size="xl"
       actions={
-        <div className="flex w-full items-center justify-between gap-2">
+        <>
           <Button
             type="button"
             variant="outline"
@@ -133,17 +134,17 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
             )}
             Guardar lote
           </Button>
-        </div>
+        </>
       }
     >
       <form
         id="create-batch-form"
         onSubmit={handleSubmit}
-        className="space-y-6"
+        className="space-y-4"
       >
         {/* Identificación */}
         <Section icon={Layers} label="Identificación">
-          <Field label="Nombre del lote" required>
+          <FormField label="Nombre del lote" required>
             <Input
               value={form.name}
               onChange={(e) => set('name', e.target.value)}
@@ -151,8 +152,8 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
               disabled={saving}
               autoFocus
             />
-          </Field>
-          <Field label="Descripción">
+          </FormField>
+          <FormField label="Descripción">
             <Textarea
               value={form.description}
               onChange={(e) => set('description', e.target.value)}
@@ -160,7 +161,7 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
               rows={3}
               disabled={saving}
             />
-          </Field>
+          </FormField>
         </Section>
 
         {/* Segmentación */}
@@ -206,7 +207,10 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
         {/* Parámetros */}
         <Section icon={Target} label="Parámetros">
           <Row>
-            <Field label="Cantidad objetivo">
+            <FormField
+              label="Cantidad objetivo"
+              description={`Para cuidar calidad y costos, el MVP permite máximo ${MVP_MAX_CANDIDATES} empresas candidatas por lote.`}
+            >
               <Input
                 type="number"
                 min={1}
@@ -222,10 +226,7 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
                 placeholder="25"
                 disabled={saving}
               />
-              <p className="text-xs text-muted-foreground">
-                Para cuidar calidad y costos, el MVP permite máximo {MVP_MAX_CANDIDATES} empresas candidatas por lote.
-              </p>
-            </Field>
+            </FormField>
             <Field label="Profundidad de búsqueda">
               <Select
                 value={form.search_depth}

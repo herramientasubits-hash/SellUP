@@ -16,6 +16,8 @@ import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
+import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
+import { Timeline, TimelineItem } from '@/components/data-display';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getContactById, getContactAudit } from '@/modules/contacts/actions';
 import { getAccountById } from '@/modules/accounts/actions';
@@ -51,6 +53,9 @@ const ROLE_VARIANT: Record<string, BadgeTone> = {
   champion: 'positive',
   influencer: 'warning',
 };
+
+/** Pares etiqueta/valor en rejilla: dos columnas cuando la tarjeta tiene ancho. */
+const DETAIL_GRID = 'grid gap-x-6 gap-y-3 sm:grid-cols-2 md:grid-cols-1 xl:grid-cols-2';
 
 const AUDIT_LABELS: Record<ContactAuditAction, string> = {
   contact_created: 'Contacto creado',
@@ -96,6 +101,9 @@ export default async function ContactDetailPage({ params }: ContactDetailPagePro
         title={contact.full_name}
         description={contact.job_title ?? undefined}
         backHref="/contacts"
+        breadcrumbs={
+          <Breadcrumbs items={[{ label: 'Contactos', href: '/contacts' }, contact.full_name]} />
+        }
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {contact.is_primary && (
@@ -131,7 +139,7 @@ export default async function ContactDetailPage({ params }: ContactDetailPagePro
             {/* Datos de contacto */}
             <SurfaceCard>
               <SurfaceCardHeader title="Datos de contacto" />
-              <dl className="space-y-3">
+              <dl className={DETAIL_GRID}>
                 {contact.email && (
                   <DetailRow icon={Mail} label="Email">
                     <a
@@ -183,7 +191,7 @@ export default async function ContactDetailPage({ params }: ContactDetailPagePro
             {/* Cargo y función */}
             <SurfaceCard>
               <SurfaceCardHeader title="Cargo y función" />
-              <dl className="space-y-3">
+              <dl className={DETAIL_GRID}>
                 {contact.job_title && (
                   <DetailRow icon={Briefcase} label="Cargo">
                     {contact.job_title}
@@ -236,37 +244,29 @@ export default async function ContactDetailPage({ params }: ContactDetailPagePro
               description="Cambios y eventos de auditoría de este contacto."
             />
             {auditLog.length === 0 ? (
-              <p className="py-6 text-center text-xs text-muted-foreground">
-                Sin actividad registrada todavía.
-              </p>
+              <EmptyState variant="plain" icon={Activity} title="Sin actividad registrada todavía." />
             ) : (
-              <ol className="space-y-3">
+              <Timeline>
                 {auditLog.map((entry) => (
-                  <li key={entry.id} className="flex items-start gap-3">
-                    <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-muted">
-                      <Activity className="h-3.5 w-3.5 text-muted-foreground" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs font-medium text-foreground">
-                        {AUDIT_LABELS[entry.action_type]}
+                  <TimelineItem
+                    key={entry.id}
+                    icon={<Activity />}
+                    title={AUDIT_LABELS[entry.action_type]}
+                    time={formatDate(entry.created_at)}
+                    description={
+                      entry.actor
+                        ? `por ${entry.actor.full_name ?? entry.actor.email}`
+                        : undefined
+                    }
+                  >
+                    {Object.keys(entry.details).length > 0 && (
+                      <p className="break-words text-xs text-muted-foreground">
+                        {JSON.stringify(entry.details)}
                       </p>
-                      {entry.actor && (
-                        <p className="text-xs text-muted-foreground">
-                          por {entry.actor.full_name ?? entry.actor.email}
-                        </p>
-                      )}
-                      {Object.keys(entry.details).length > 0 && (
-                        <p className="break-words text-xs text-muted-foreground">
-                          {JSON.stringify(entry.details)}
-                        </p>
-                      )}
-                      <p className="text-xs text-muted-foreground">
-                        {formatDate(entry.created_at)}
-                      </p>
-                    </div>
-                  </li>
+                    )}
+                  </TimelineItem>
                 ))}
-              </ol>
+              </Timeline>
             )}
           </SurfaceCard>
         </TabsContent>
@@ -284,7 +284,7 @@ export default async function ContactDetailPage({ params }: ContactDetailPagePro
         <TabsContent value="hubspot">
           <SurfaceCard>
             <SurfaceCardHeader title="Sincronización HubSpot" />
-            <dl className="space-y-3">
+            <dl className={DETAIL_GRID}>
               <DetailRow icon={Tag} label="HubSpot Contact ID">
                 {contact.hubspot_contact_id ? (
                   <span className="font-mono text-xs">{contact.hubspot_contact_id}</span>

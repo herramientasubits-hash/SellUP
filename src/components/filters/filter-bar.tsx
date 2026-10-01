@@ -25,6 +25,30 @@ export type FilterBarProps = {
   className?: string;
 };
 
+/**
+ * FilterBar
+ *
+ * La barra que va encima de una lista: a la izquierda la búsqueda y los
+ * filtros, a la derecha las acciones de la lista, todo sobre una sola card.
+ * Debajo, fuera de la card, los filtros puestos como etiquetas que se quitan
+ * de una en una y un «Limpiar filtros» que solo aparece cuando hay algo que
+ * limpiar.
+ *
+ * No guarda estado: la pantalla es dueña de la búsqueda y de los filtros, y
+ * la barra solo los pinta. `filters` y `actions` son ranuras: ahí van los
+ * `Select` compactos (`<SelectTrigger size="sm">`) y los botones de la lista.
+ *
+ * @example
+ * <FilterBar
+ *   searchValue={query}
+ *   onSearchChange={setQuery}
+ *   searchPlaceholder="Buscar cuenta…"
+ *   filters={<CountrySelect value={country} onChange={setCountry} />}
+ *   actions={<Button size="sm">Exportar</Button>}
+ *   activeFilters={[{ id: "country", label: "País", value: "Colombia", onRemove: () => setCountry(null) }]}
+ *   onClearFilters={clearAll}
+ * />
+ */
 export function FilterBar({
   searchValue,
   onSearchChange,
@@ -39,7 +63,7 @@ export function FilterBar({
 
   return (
     <div className={cn("flex flex-col gap-4", className)}>
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 rounded-xl border border-border/60 bg-card p-4 shadow-card">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 rounded-2xl border border-border/60 bg-card p-5 shadow-card">
         <div className="flex flex-1 flex-col md:flex-row md:items-center gap-4">
           {onSearchChange && (
             <div className="relative w-full md:w-64">

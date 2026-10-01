@@ -30,7 +30,7 @@ export function ThemeToggle({ variant = "default" }: ThemeToggleProps) {
   const baseClass =
     variant === "sidebar"
       ? "rounded-md text-text-muted hover:bg-surface-muted hover:text-foreground"
-      : "text-muted-foreground hover:bg-surface-muted hover:text-foreground";
+      : "rounded-full border border-border/70 bg-card text-text-muted hover:bg-surface-muted hover:text-foreground";
 
   if (!mounted) {
     return (

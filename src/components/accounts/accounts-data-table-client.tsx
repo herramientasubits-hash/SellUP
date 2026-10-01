@@ -67,13 +67,13 @@ const STATUS_VARIANT: Record<PipelineStatus, BadgeVariant> = {
   archived: 'neutral',
 };
 
-const SOURCE_STYLES: Record<AccountSource, string> = {
-  manual: 'border-border text-muted-foreground',
-  agent_1: 'bg-primary/10 text-primary border-transparent',
-  hubspot: 'bg-warning/10 text-warning border-transparent',
-  apollo: 'bg-info/10 text-info border-transparent',
-  imported: 'border-border text-muted-foreground',
-  other: 'border-border text-muted-foreground',
+const SOURCE_VARIANT: Record<AccountSource, BadgeVariant> = {
+  manual: 'neutral',
+  agent_1: 'brand',
+  hubspot: 'warning',
+  apollo: 'info',
+  imported: 'neutral',
+  other: 'neutral',
 };
 
 // ── Filter options ─────────────────────────────────────────────
@@ -361,10 +361,7 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
         cell: ({ row }) => {
           const source = row.original.source as AccountSource;
           return (
-            <Badge
-              variant="outline"
-              className={SOURCE_STYLES[source]}
-            >
+            <Badge variant={SOURCE_VARIANT[source]}>
               {SOURCE_LABELS[source]}
             </Badge>
           );

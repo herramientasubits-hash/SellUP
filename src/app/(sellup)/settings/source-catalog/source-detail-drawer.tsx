@@ -350,7 +350,7 @@ export function SourceDetailDrawer({
       </div>
 
       {batchesCount === 0 ? (
-        <EmptyState icon={Database} title="Aún no hay lotes Socrata creados." className="p-8" />
+        <EmptyState variant="plain" icon={Database} title="Aún no hay lotes Socrata creados." />
       ) : (
         <SocrataBatchesTable batches={socrataBatches.batches} />
       )}

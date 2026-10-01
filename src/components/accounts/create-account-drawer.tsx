@@ -132,41 +132,39 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
       }
       title="Nueva empresa"
       description="Registra una empresa o prospecto. Podrás enriquecerla con IA más adelante."
-      icon={<Building2 className="h-4 w-4 text-primary" />}
+      icon={<Building2 className="h-4 w-4" />}
       size="xl"
       actions={
         <>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleClose}
+            disabled={pending}
+          >
+            Cancelar
+          </Button>
           {error && (
-            <p role="alert" className="flex-1 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive">
+            <p role="alert" className="min-w-0 flex-1 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive">
               {error}
             </p>
           )}
-          <div className="flex shrink-0 items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleClose}
-              disabled={pending}
-            >
-              Cancelar
-            </Button>
-            <Button
-              type="submit"
-              form="create-account-form"
-              size="sm"
-              disabled={pending || !form.name.trim()}
-            >
-              {pending ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Guardando…
-                </>
-              ) : (
-                'Guardar empresa'
-              )}
-            </Button>
-          </div>
+          <Button
+            type="submit"
+            form="create-account-form"
+            size="sm"
+            disabled={pending || !form.name.trim()}
+          >
+            {pending ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Guardando…
+              </>
+            ) : (
+              'Guardar empresa'
+            )}
+          </Button>
         </>
       }
     >
@@ -388,7 +386,7 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
                 value={form.notes}
                 onChange={(e) => set('notes', e.target.value)}
                 rows={3}
-                className="pl-8 pt-2 text-sm"
+                className="pl-8 pt-2"
               />
             </div>
           </Field>

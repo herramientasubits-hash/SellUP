@@ -1,19 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { Check, Users } from 'lucide-react';
+import { Check, Users, Loader2 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { ModalShell } from '@/components/shared/modal-shell';
+import { EmptyState } from '@/components/ui/empty-state';
 import { assignUsersToGroup } from '@/modules/access/actions';
 import { formatGroupLabel } from '@/modules/access/display-helpers';
 import type { InternalUser, OrganizationGroup } from '@/modules/access/types';
@@ -72,23 +66,43 @@ export function AssignUsersToGroupDialog({
   const usersNotInGroup = activeUsers.filter(u => u.group_id !== group.id);
 
   return (
-    <Dialog open={open} onOpenChange={v => { if (!v) handleClose(); }}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Agregar usuarios a {groupName}</DialogTitle>
-          <DialogDescription>
-            Selecciona uno o varios usuarios activos para asignarlos a este grupo.
-            {usersAlreadyInGroup.length > 0 && (
-              <> {usersAlreadyInGroup.length} usuario{usersAlreadyInGroup.length > 1 ? 's' : ''} ya {usersAlreadyInGroup.length > 1 ? 'están' : 'está'} en este grupo.</>
+    <ModalShell
+      open={open}
+      onOpenChange={v => { if (!v) handleClose(); }}
+      size="lg"
+      title={<>Agregar usuarios a {groupName}</>}
+      description={
+        <>
+          Selecciona uno o varios usuarios activos para asignarlos a este grupo.
+          {usersAlreadyInGroup.length > 0 && (
+            <> {usersAlreadyInGroup.length} usuario{usersAlreadyInGroup.length > 1 ? 's' : ''} ya {usersAlreadyInGroup.length > 1 ? 'están' : 'está'} en este grupo.</>
+          )}
+        </>
+      }
+      actions={
+        <>
+          <Button type="button" variant="outline" onClick={handleClose} disabled={loading}>
+            Cancelar
+          </Button>
+          <Button type="button" onClick={handleSave} disabled={!selectedIds.length || loading}>
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Users className="h-4 w-4" />
             )}
-          </DialogDescription>
-        </DialogHeader>
-
+            {loading ? 'Asignando...' : `Asignar${selectedIds.length > 0 ? ` (${selectedIds.length})` : ''}`}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
         <div className="max-h-72 space-y-1.5 overflow-y-auto py-1">
           {usersNotInGroup.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              Todos los usuarios activos ya están en este grupo.
-            </p>
+            <EmptyState
+              variant="plain"
+              icon={Users}
+              title="Todos los usuarios activos ya están en este grupo."
+            />
           ) : (
             usersNotInGroup.map(user => {
               const isSelected = selectedIds.includes(user.id);
@@ -101,7 +115,7 @@ export function AssignUsersToGroupDialog({
                   className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 ${
                     isSelected
                       ? 'border-primary/40 bg-primary/10'
-                      : 'border-border/50 hover:bg-surface-muted'
+                      : 'border-border/60 hover:bg-surface-muted'
                   }`}
                 >
                   <div
@@ -112,7 +126,7 @@ export function AssignUsersToGroupDialog({
                     {isSelected && <Check className="h-3 w-3 text-primary-foreground" />}
                   </div>
                   <Avatar className="h-7 w-7 shrink-0">
-                    <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                    <AvatarFallback className="bg-primary/10 text-xs text-primary">
                       {getInitials(user.full_name, user.email)}
                     </AvatarFallback>
                   </Avatar>
@@ -123,7 +137,7 @@ export function AssignUsersToGroupDialog({
                     <p className="truncate text-xs text-muted-foreground">{user.email}</p>
                   </div>
                   {user.group_id && (
-                    <Badge variant="neutral" className="max-w-[10rem] shrink-0">
+                    <Badge variant="neutral" className="max-w-40 shrink-0">
                       <span className="truncate">
                       {formatGroupLabel(user.group_id, allGroups)}</span>
                     </Badge>
@@ -135,7 +149,7 @@ export function AssignUsersToGroupDialog({
         </div>
 
         {selectedIds.length > 0 && (
-          <p className="text-center text-xs text-muted-foreground">
+          <p className="text-center text-xs tabular-nums text-muted-foreground">
             {selectedIds.length} usuario{selectedIds.length > 1 ? 's' : ''} seleccionado{selectedIds.length > 1 ? 's' : ''}
           </p>
         )}
@@ -146,16 +160,7 @@ export function AssignUsersToGroupDialog({
           </Alert>
         )}
 
-        <DialogFooter>
-          <Button variant="outline" onClick={handleClose} disabled={loading}>
-            Cancelar
-          </Button>
-          <Button onClick={handleSave} disabled={!selectedIds.length || loading}>
-            <Users className="mr-2 h-4 w-4" />
-            {loading ? 'Asignando...' : `Asignar${selectedIds.length > 0 ? ` (${selectedIds.length})` : ''}`}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </ModalShell>
   );
 }
