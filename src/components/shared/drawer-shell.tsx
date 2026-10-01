@@ -199,7 +199,7 @@ export function DrawerShell({
         {footer ? (
           footer
         ) : actions ? (
-          <SheetFooter className="shrink-0 flex-row items-center justify-between gap-3 border-t border-border/60 bg-card px-6 py-4">
+          <SheetFooter className="shrink-0 flex-row flex-wrap items-center justify-between gap-3 border-t border-border/60 bg-card px-6 py-4">
             {actions}
           </SheetFooter>
         ) : null}
