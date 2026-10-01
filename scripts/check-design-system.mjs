@@ -28,6 +28,10 @@
  *                        `<tr>`, `<th>`, `<td>`) en un `.tsx`: se pinta con `Table`, `TableHeader`,
  *                        `TableBody`, `TableRow`, `TableHead`, `TableCell` de `@/components/ui/table`
  *                        (y `TableShell` de `@/components/data-display` si la lista lleva título).
+ *  15. fecha-sin-zona  — una fecha pintada con `toLocaleDateString(` / `toLocaleTimeString(`: usan la
+ *                        zona de quien pinta, y servidor (UTC) y navegador escriben días distintos
+ *                        (error de hidratación #418). Se formatea con `formatInAppZone`,
+ *                        `formatAppDate`, `formatAppDateTime` o `formatAppTime` de `@/lib/format-date`.
  *
  * Una excepción se declara en ALLOW, con su motivo; nunca apagando la regla en el archivo.
  * Guía de traducción: docs/THEMA_AZUL_MIGRATION.md
@@ -71,6 +75,8 @@ const CONTROL_HEIGHT = /(?<![\w:\[-])!?h-(?:5|6|7|8|9|10|11|12|14)(?![\w./-])/;
 const BADGE_TYPE = /(?<![\w:\[-])(?:text-(?:xs|sm)|font-(?:medium|semibold|bold)|rounded-(?:full|sm|lg))(?![\w/-])/;
 /** Etiqueta de tabla HTML nativa (apertura o cierre), en JSX. */
 const RAW_TABLE = /<\/?(?:table|thead|tbody|tfoot|tr|th|td)(?=[\s>\/])/;
+/** Fecha u hora formateada con la zona de quien la pinta (servidor ≠ navegador). */
+const RAW_DATE = /\.toLocale(?:Date|Time)String\(/;
 
 /**
  * Dónde sí puede vivir cada excepción, y por qué.
@@ -116,6 +122,21 @@ const ALLOW = {
   // react-day-picker (que ya es un `<table>`); `data-table/` monta la tabla operable de TanStack
   // (la cabecera reordenable necesita su propio `<th>` con ref y estilos de arrastre).
   table: [/^src\/components\/ui\/(table|calendar)\.tsx$/, /^src\/components\/data-table\//, TESTS],
+  // `lib/format-date.ts` ES la pieza que fija la zona. `ui/calendar.tsx` y `components/date/` son el
+  // selector de fechas: trabajan a propósito con el día local de quien elige. `app/api/` y los
+  // `actions.ts` de `modules/` corren solo en servidor y escriben nombres de lote que se guardan,
+  // no texto que se hidrata. `prospect-date-utils.ts` y `provider-contract-plan-card.tsx` ya pasan
+  // un `timeZone` explícito (Bogotá; y UTC para un día de calendario sin hora).
+  date: [
+    /^src\/lib\/format-date\.ts$/,
+    /^src\/components\/ui\/calendar\.tsx$/,
+    /^src\/components\/date\//,
+    /^src\/app\/api\//,
+    /^src\/modules\/.*\/actions\.ts$/,
+    /^src\/modules\/prospect-batches\/prospect-date-utils\.ts$/,
+    /^src\/app\/\(sellup\)\/settings\/providers\/provider-contract-plan-card\.tsx$/,
+    TESTS,
+  ],
 };
 
 /**
@@ -191,6 +212,7 @@ for (const full of targets) {
     if (!allowed(file, ALLOW.legacyBrand) && LEGACY_BRAND.test(line)) add(file, n, "marca-heredada", `Clase heredada (${line.match(LEGACY_BRAND)[0]}). Usa bg-primary / text-primary / bg-primary/10.`);
     if (!allowed(file, ALLOW.faded) && FADED_TEXT.test(line)) add(file, n, "texto-atenuado", "Texto atenuado con opacidad. Elige el nivel: text-foreground, text-muted-foreground o text-text-muted.");
     if (!allowed(file, ALLOW.white) && RAW_WHITE.test(line) && !/su-ai-/.test(line)) add(file, n, "blanco-a-mano", "text-white a mano. Sobre primario usa text-primary-foreground; para un sólido de estado, la variante del Button.");
+    if (!allowed(file, ALLOW.date) && RAW_DATE.test(line)) add(file, n, "fecha-sin-zona", `Fecha sin zona fija (${line.match(RAW_DATE)[0]}…). Usa formatInAppZone / formatAppDate / formatAppDateTime de @/lib/format-date.`);
     if (file.endsWith(".tsx") && !allowed(file, ALLOW.table) && RAW_TABLE.test(line)) add(file, n, "tabla-a-mano", `Tabla escrita a mano (${line.match(RAW_TABLE)[0]}>). Usa Table, TableHeader, TableBody, TableRow, TableHead y TableCell de @/components/ui/table.`);
   });
 

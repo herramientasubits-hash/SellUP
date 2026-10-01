@@ -15,6 +15,7 @@
 // para poder renderizarse en test con un resumen sintético; el panel asíncrono
 // solo le pasa el dato.
 
+import { formatInAppZone } from '@/lib/format-date';
 import { ShieldAlert, Info } from "@/icons";
 import { Skeleton } from '@/components/ui/skeleton';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
@@ -30,12 +31,12 @@ function formatDateTime(isoDate: string | null): string {
   if (!isoDate) return 'Sin eventos';
   const parsed = new Date(isoDate);
   if (Number.isNaN(parsed.getTime())) return 'Sin eventos';
-  return parsed.toLocaleDateString('es-ES', {
+  return formatInAppZone(parsed, {
     day: 'numeric',
     month: 'short',
     hour: '2-digit',
     minute: '2-digit',
-  });
+  }, 'es-ES');
 }
 
 function Figure({

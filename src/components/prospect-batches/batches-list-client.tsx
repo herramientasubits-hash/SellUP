@@ -1,5 +1,6 @@
 'use client';
 
+import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -38,11 +39,11 @@ const STATUS_VARIANTS: Record<
 };
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('es-CO', {
+  return formatInAppZone(iso, {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  });
+  }, 'es-CO');
 }
 
 function getFlagEmoji(code: string) {

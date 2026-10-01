@@ -11,6 +11,7 @@
  * Sólo lectura. La vista llega armada desde el servidor (admin).
  */
 
+import { formatInAppZone } from '@/lib/format-date';
 import { ReceiptText } from "@/icons";
 import { DrawerSection } from '@/components/shared/drawer-section';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -45,7 +46,7 @@ function formatDay(value: string): string {
 }
 
 function formatSynced(value: string): string {
-  return new Date(value).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' });
+  return formatInAppZone(value, { day: 'numeric', month: 'short' }, 'es-CO');
 }
 
 /**

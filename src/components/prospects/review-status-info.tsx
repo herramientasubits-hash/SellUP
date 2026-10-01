@@ -9,6 +9,7 @@
 // available regardless of which tab is open. This block is pure information:
 // no buttons, no writes.
 
+import { withAppTimeZone } from '@/lib/format-date';
 import * as React from 'react';
 import Link from 'next/link';
 import { AlertTriangle, Info, ShieldCheck, ArrowRightCircle } from "@/icons";
@@ -50,7 +51,7 @@ export function ReviewStatusInfo({ candidate }: ReviewStatusInfoProps) {
           <p className="text-xs text-muted-foreground leading-relaxed">{view.terminal.description}</p>
           {candidate.status === 'approved' && candidate.reviewedAt && (
             <p className="text-xs text-muted-foreground">
-              Aprobado el {new Date(candidate.reviewedAt).toLocaleString('es-CO')}
+              Aprobado el {new Date(candidate.reviewedAt).toLocaleString('es-CO', withAppTimeZone())}
             </p>
           )}
           {/* Q3F-5AZ.2E-1 — converted prospects link straight to their empresa. */}

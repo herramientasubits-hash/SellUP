@@ -1,3 +1,4 @@
+import { formatInAppZone } from '@/lib/format-date';
 import { Suspense } from 'react';
 import {
   Bot,
@@ -104,16 +105,16 @@ function formatRelativeTime(isoDate: string | null): string {
   if (diff < 3600) return `Hace ${Math.floor(diff / 60)} min`;
   if (diff < 86400) return `Hace ${Math.floor(diff / 3600)} h`;
   if (diff < 604800) return `Hace ${Math.floor(diff / 86400)} días`;
-  return new Date(isoDate).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+  return formatInAppZone(isoDate, { day: 'numeric', month: 'short' }, 'es-ES');
 }
 
 function formatDate(isoDate: string): string {
-  return new Date(isoDate).toLocaleDateString('es-ES', {
+  return formatInAppZone(isoDate, {
     day: 'numeric',
     month: 'short',
     hour: '2-digit',
     minute: '2-digit',
-  });
+  }, 'es-ES');
 }
 
 /**

@@ -1,3 +1,4 @@
+import { withAppTimeZone } from '@/lib/format-date';
 import { redirect } from 'next/navigation';
 import { CheckCircle2, XCircle, WifiOff, Clock, FolderOpen, AlertTriangle } from "@/icons";
 import { PageHeader } from '@/components/shared/page-header';
@@ -8,13 +9,13 @@ import { DriveActionsPanel } from './drive-actions-client';
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return '—';
-  return new Intl.DateTimeFormat('es-CO', {
+  return new Intl.DateTimeFormat('es-CO', withAppTimeZone({
     day: '2-digit',
     month: 'short',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  }).format(new Date(iso));
+  })).format(new Date(iso));
 }
 
 function ConnectionStatusBlock({ status }: { status: string }) {

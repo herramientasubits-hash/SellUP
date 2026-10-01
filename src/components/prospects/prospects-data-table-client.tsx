@@ -1,5 +1,6 @@
 'use client';
 
+import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
 import { useReportSelectionCount } from "@/components/action-rail";
 import { useRouter } from 'next/navigation';
@@ -164,10 +165,10 @@ function getCandidateOriginLabel(candidate: Row): string {
   if (batch.source === 'manual') return 'Creación manual';
   if (batch.source === 'external_import') {
     if (batch.created_at) {
-      const date = new Date(batch.created_at).toLocaleDateString('es-CO', {
+      const date = formatInAppZone(batch.created_at, {
         day: '2-digit',
         month: 'short',
-      });
+      }, 'es-CO');
       return `Importado el ${date}`;
     }
     return 'Importación externa';

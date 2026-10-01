@@ -1,5 +1,6 @@
 'use client';
 
+import { formatInAppZone } from '@/lib/format-date';
 import { useEffect, useState } from 'react';
 import { useReportSelectionCount } from '@/components/action-rail';
 import { X, Pause, RotateCcw, Archive, UserX, Layers, Loader2 } from "@/icons";
@@ -45,9 +46,9 @@ function getGroupLabel(groupId: string | null, groups: OrganizationGroup[]): str
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return '-';
-  return new Date(dateStr).toLocaleDateString('es-CO', {
+  return formatInAppZone(dateStr, {
     day: 'numeric', month: 'short', year: 'numeric',
-  });
+  }, 'es-CO');
 }
 
 function getStatusBadge(status: string) {

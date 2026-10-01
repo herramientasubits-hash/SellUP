@@ -1,5 +1,6 @@
 'use client';
 
+import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
@@ -346,13 +347,13 @@ const UNAVAILABLE = 'No disponible';
 
 function formatDate(iso: string | null): string {
   if (!iso) return UNAVAILABLE;
-  return new Date(iso).toLocaleDateString('es-CO', {
+  return formatInAppZone(iso, {
     day: '2-digit',
     month: 'long',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  });
+  }, 'es-CO');
 }
 
 /** Convierte un score 0–1 (o 0–100) en porcentaje legible; null si no hay dato. */

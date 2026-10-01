@@ -1,5 +1,6 @@
 'use client';
 
+import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
 import { useReportSelectionCount } from "@/components/action-rail";
 import { type ColumnDef } from '@tanstack/react-table';
@@ -56,11 +57,11 @@ const RELEVANCE_DOTS: Record<ContactRelevanceStatus, string> = {
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr);
-  return d.toLocaleDateString('es-CO', {
+  return formatInAppZone(d, {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  });
+  }, 'es-CO');
 }
 
 /** Convierte un score 0–1 en porcentaje legible; null si no hay dato. */

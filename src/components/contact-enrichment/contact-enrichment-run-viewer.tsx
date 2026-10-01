@@ -7,6 +7,7 @@
 // Phone numbers are never rendered (see the hito's "no revelar teléfonos"
 // constraint) even when a candidate row carries one.
 
+import { withAppTimeZone } from '@/lib/format-date';
 import { Building2, Calendar, Globe, Info, MapPin, Users, XCircle } from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -41,13 +42,13 @@ const CANDIDATE_STATUS_BADGE: Record<ContactEnrichmentRunCandidate['status'], { 
 
 function formatDateTime(iso: string): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleString('es-CO', {
+  return new Date(iso).toLocaleString('es-CO', withAppTimeZone({
     day: '2-digit',
     month: 'short',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  });
+  }));
 }
 
 // ── Run header ────────────────────────────────────────────────────────────

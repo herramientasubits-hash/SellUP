@@ -1,3 +1,4 @@
+import { formatInAppZone } from '@/lib/format-date';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -116,7 +117,7 @@ export default async function BatchDetailPage({ params }: Props) {
       : batch.name;
 
   const chileSubtitle = isStructuredChile
-    ? `Fuente oficial Chile · RES · ${new Date(batch.created_at).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' })}`
+    ? `Fuente oficial Chile · RES · ${formatInAppZone(batch.created_at, { day: '2-digit', month: 'short', year: 'numeric' }, 'es-CL')}`
     : null;
 
   const pageSubtitle = (isStructuredOfficial || isApolloCandidateBatch)

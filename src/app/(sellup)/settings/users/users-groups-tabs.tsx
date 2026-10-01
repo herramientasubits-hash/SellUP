@@ -1,5 +1,6 @@
 'use client';
 
+import { formatInAppZone } from '@/lib/format-date';
 import { useState, useMemo, useEffect } from 'react';
 import { LayoutList, GitBranch, Users, UserCheck, Clock, UserPlus, PauseCircle, UserX, type LucideIcon } from "@/icons";
 import { FilterChips } from '@/components/filters/filter-chips';
@@ -56,7 +57,7 @@ function getInitials(name: string | null, email: string): string {
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return '-';
-  return new Date(dateStr).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' });
+  return formatInAppZone(dateStr, { day: 'numeric', month: 'short', year: 'numeric' }, 'es-CO');
 }
 
 // ─── UserList (passes correct mode to SelectableUsersList) ───────────────────

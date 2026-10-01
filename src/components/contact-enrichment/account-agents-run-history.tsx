@@ -14,6 +14,7 @@
 // exists for direct access/debugging, it is just no longer the primary
 // action from this tab.
 
+import { withAppTimeZone } from '@/lib/format-date';
 import * as React from 'react';
 import { Bot, Calendar, ChevronDown, ChevronUp, Info, XCircle } from "@/icons";
 import { Badge } from '@/components/ui/badge';
@@ -52,13 +53,13 @@ export const ACCOUNT_RUN_PROVIDER_LABELS: Record<string, string> = {
 /** Pure — exported for unit tests (see account-agents-run-history.test.ts). */
 export function formatContactEnrichmentRunDateTime(iso: string): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleString('es-CO', {
+  return new Date(iso).toLocaleString('es-CO', withAppTimeZone({
     day: '2-digit',
     month: 'short',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  });
+  }));
 }
 
 /** Pure — prefers providersUsed[0] (what actually ran) over intendedProvider

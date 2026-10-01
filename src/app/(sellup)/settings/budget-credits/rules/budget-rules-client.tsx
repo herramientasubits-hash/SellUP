@@ -1,5 +1,6 @@
 'use client';
 
+import { formatInAppZone } from '@/lib/format-date';
 import { useState } from 'react';
 import { Plus, Pencil, Power, ShieldAlert, Trash2 } from "@/icons";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -66,7 +67,7 @@ function formatLimit(credits: number | null, usd: number | null): string {
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('es-CO', { dateStyle: 'short' });
+  return formatInAppZone(iso, { dateStyle: 'short' }, 'es-CO');
 }
 
 // ─── Shared form fields ───────────────────────────────────────────────────────

@@ -1,3 +1,4 @@
+import { formatInAppZone } from '@/lib/format-date';
 import { BrainCircuit, CheckCircle, Settings, DollarSign, Clock } from "@/icons";
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { MetricCard } from '@/components/shared/metric-card';
@@ -22,11 +23,11 @@ function formatCurrency(amount: number, currency: string = 'USD'): string {
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return '-';
-  return new Date(dateStr).toLocaleDateString('es-CO', {
+  return formatInAppZone(dateStr, {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
-  });
+  }, 'es-CO');
 }
 
 type BadgeTone = 'positive' | 'neutral' | 'warning' | 'negative';

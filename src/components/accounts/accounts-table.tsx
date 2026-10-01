@@ -1,5 +1,6 @@
 'use client';
 
+import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { Building2, MoreHorizontal, Eye, Pencil, Tag, Archive, Loader2 } from "@/icons";
@@ -66,11 +67,11 @@ const ACTIVE_STATUSES: { value: PipelineStatus; label: string }[] = [
 ];
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('es-CO', {
+  return formatInAppZone(iso, {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  });
+  }, 'es-CO');
 }
 
 function getFlagEmoji(countryCode: string): string {

@@ -1,3 +1,4 @@
+import { formatInAppZone } from '@/lib/format-date';
 import { redirect } from 'next/navigation';
 import { Bot, Plug, Info, FlaskConical, DollarSign, Zap, CheckCircle2 } from "@/icons";
 import { PageHeader } from '@/components/shared/page-header';
@@ -32,7 +33,7 @@ function formatRelativeTime(isoDate: string): string {
   if (diff < 3600) return `Hace ${Math.floor(diff / 60)} min`;
   if (diff < 86400) return `Hace ${Math.floor(diff / 3600)} h`;
   if (diff < 604800) return `Hace ${Math.floor(diff / 86400)} días`;
-  return new Date(isoDate).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+  return formatInAppZone(isoDate, { day: 'numeric', month: 'short' }, 'es-ES');
 }
 
 function formatCost(usd: number, decimals = 4): string {

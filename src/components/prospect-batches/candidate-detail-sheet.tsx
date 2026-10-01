@@ -1,5 +1,6 @@
 'use client';
 
+import { formatInAppZone, withAppTimeZone } from '@/lib/format-date';
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -1445,11 +1446,11 @@ export function CandidateDetailSheet({
                   {chileIncorporationDate && (
                     <Field
                       label="Fecha de constitución"
-                      value={new Date(chileIncorporationDate).toLocaleDateString('es-CL', {
+                      value={formatInAppZone(chileIncorporationDate, {
                         day: '2-digit',
                         month: 'short',
                         year: 'numeric',
-                      })}
+                      }, 'es-CL')}
                     />
                   )}
                   {chileCapital !== null && chileCapital !== undefined && (
@@ -2652,7 +2653,7 @@ export function CandidateDetailSheet({
                     />
                     <Field
                       label="Última validación"
-                      value={new Date(validationMetaSheet.validated_at || candidate.updated_at).toLocaleString('es-CO')}
+                      value={new Date(validationMetaSheet.validated_at || candidate.updated_at).toLocaleString('es-CO', withAppTimeZone())}
                     />
                   </FieldGrid>
 
@@ -2685,10 +2686,10 @@ export function CandidateDetailSheet({
                 <Field label="Candidate ID" value={candidate.id} mono />
                 <Field label="Batch ID" value={candidate.batch_id} mono />
                 <Field label="Fuente primaria" value={val(candidate.source_primary)} mono />
-                <Field label="Creado" value={new Date(candidate.created_at).toLocaleString('es-CO')} />
-                <Field label="Actualizado" value={new Date(candidate.updated_at).toLocaleString('es-CO')} />
+                <Field label="Creado" value={new Date(candidate.created_at).toLocaleString('es-CO', withAppTimeZone())} />
+                <Field label="Actualizado" value={new Date(candidate.updated_at).toLocaleString('es-CO', withAppTimeZone())} />
                 {candidate.reviewed_at && (
-                  <Field label="Revisado" value={new Date(candidate.reviewed_at).toLocaleString('es-CO')} />
+                  <Field label="Revisado" value={new Date(candidate.reviewed_at).toLocaleString('es-CO', withAppTimeZone())} />
                 )}
                 {candidate.confidence_score !== null && (
                   <Field label="Puntaje Confianza" value={`${candidate.confidence_score?.toFixed(0)}%`} />

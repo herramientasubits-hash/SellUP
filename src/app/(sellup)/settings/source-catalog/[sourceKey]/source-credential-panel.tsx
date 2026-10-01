@@ -1,5 +1,6 @@
 'use client';
 
+import { withAppTimeZone } from '@/lib/format-date';
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
@@ -28,13 +29,13 @@ import type { SourceConnectionRecord } from '@/modules/source-catalog/queries';
 
 function formatDate(iso: string | null): string {
   if (!iso) return '—';
-  return new Intl.DateTimeFormat('es-CO', {
+  return new Intl.DateTimeFormat('es-CO', withAppTimeZone({
     day: '2-digit',
     month: 'short',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  }).format(new Date(iso));
+  })).format(new Date(iso));
 }
 
 // ─── Status badges ────────────────────────────────────────────────────────────

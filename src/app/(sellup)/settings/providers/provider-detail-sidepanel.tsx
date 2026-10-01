@@ -1,5 +1,6 @@
 'use client';
 
+import { withAppTimeZone } from '@/lib/format-date';
 import { useState, useEffect, useCallback, useTransition, useRef, useMemo } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import Link from 'next/link';
@@ -214,19 +215,19 @@ function formatAllowance(credits: number | null, usd: number | null): string {
 }
 
 function formatDateShort(iso: string): string {
-  return new Date(iso).toLocaleString('es-CO', {
+  return new Date(iso).toLocaleString('es-CO', withAppTimeZone({
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  });
+  }));
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString('es-CO', {
+  return new Date(iso).toLocaleString('es-CO', withAppTimeZone({
     dateStyle: 'medium',
     timeStyle: 'short',
-  });
+  }));
 }
 
 // ── Info row ──────────────────────────────────────────────────────────────────

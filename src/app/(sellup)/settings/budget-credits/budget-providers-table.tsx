@@ -1,5 +1,6 @@
 'use client';
 
+import { withAppTimeZone } from '@/lib/format-date';
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { MoreHorizontal, RefreshCw, Settings, Activity, BarChart2, DollarSign, ScrollText, Eye, X } from "@/icons";
@@ -54,12 +55,12 @@ interface Props {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function formatDateShort(iso: string): string {
-  return new Date(iso).toLocaleString('es-CO', {
+  return new Date(iso).toLocaleString('es-CO', withAppTimeZone({
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  });
+  }));
 }
 
 // ── Attention badge derivation ────────────────────────────────────────────────
@@ -229,10 +230,10 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], pro
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   }
 
-  const resolvedDate = new Date(resolvedAt).toLocaleString('es-CO', {
+  const resolvedDate = new Date(resolvedAt).toLocaleString('es-CO', withAppTimeZone({
     dateStyle: 'medium',
     timeStyle: 'short',
-  });
+  }));
 
   const selectedRows = providers.filter((p) => selectedKeys.has(p.providerKey));
   const allSelected = providers.length > 0 && selectedKeys.size === providers.length;

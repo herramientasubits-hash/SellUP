@@ -174,8 +174,20 @@ letra, un z-index, una sombra o un radio arbitrarios; un rótulo en MAYÚSCULAS 
 o una tabla HTML escrita a mano en un `.tsx` (regla `tabla-a-mano`: `<table>`, `<thead>`, `<tbody>`,
 `<tfoot>`, `<tr>`, `<th>`, `<td>`; se usan las piezas de `@/components/ui/table`).
 
+También falla con la regla `fecha-sin-zona`: un `toLocaleDateString(` o `toLocaleTimeString(` en un
+`.tsx` / `.ts` de UI. Sin `timeZone`, la fecha se escribe en la zona de quien la pinta: el servidor (UTC)
+y el navegador (Bogotá) dan días distintos para el mismo instante cerca de la medianoche y React rechaza
+la hidratación (error #418). Toda fecha u hora que se pinta sale de `@/lib/format-date`
+(`formatInAppZone`, `formatAppDate`, `formatAppDateTime`, `formatAppTime`), que fija `America/Bogota`;
+donde se conserva un `toLocaleString` o un `Intl.DateTimeFormat`, las opciones pasan por `withAppTimeZone`.
+
 Las excepciones se declaran en el propio script (`ALLOW`), cada una con su motivo: el panel de marca del
 login, la identidad de IA (orbes y velos de carga), el logotipo de Google, los gráficos y dos archivos cuya
 cadena de clases está fijada por una prueba. Para `tabla-a-mano` se admiten solo `ui/table.tsx` (es la
 pieza), `ui/calendar.tsx` (rejilla de react-day-picker) y `src/components/data-table/` (la tabla operable de
 TanStack, cuya cabecera reordenable necesita su propio `<th>`).
+Para `fecha-sin-zona` se admiten `src/lib/format-date.ts` (es la pieza), `ui/calendar.tsx` y
+`src/components/date/` (el selector de fechas trabaja a propósito con el día local de quien elige),
+`src/app/api/` y los `actions.ts` de `src/modules/` (solo servidor: nombres de lote que se guardan, no
+texto que se hidrata), y `prospect-date-utils.ts` y `provider-contract-plan-card.tsx`, que ya pasan un
+`timeZone` explícito.
