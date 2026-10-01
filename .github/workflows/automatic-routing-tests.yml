@@ -6266,6 +6266,14 @@ jobs:
       - name: Run Agent 1 Apollo exclusion same industry tests
         run: npm run test:a1-apollo-exclusion-same-industry
 
+      # AGENT1-LUSHA-SOCIAL-DOMAIN-1 - un dominio que es una red social (p. ej.
+      # `cl.linkedin.com`) no es el sitio de la empresa: se trata como dominio
+      # ausente, con constancia, sin descartar la empresa.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 Lusha social domain tests
+        run: npm run test:a1-lusha-social-domain
+
       # AGENT1-TAVILY-V2-1 - Tavily compite con Apollo y Lusha: consultas desde
       # el catalogo de 12 macro industrias (rotacion por lote, pais e idioma),
       # universidades/gobierno/gremios pasan el filtro y los directorios no,
