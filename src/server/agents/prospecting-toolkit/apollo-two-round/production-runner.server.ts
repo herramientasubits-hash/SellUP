@@ -144,6 +144,7 @@ import {
 import { enrichApolloOrganization } from '@/server/integrations/apollo-client';
 import { loadActiveApolloOrganizationEnrichmentPricing } from '@/modules/usage-tracking/provider-pricing';
 import { writeProspectingCandidates } from '../candidate-writer';
+import { resolveMaxDeliveredCandidates } from '@/modules/prospect-batches/delivery-cap';
 import type { CandidatePersistenceOutcome } from '../prospect-candidate-persistence-readiness';
 // AGENT1-APOLLO-SHARED-INTAKE-ADOPTION-1 — adoption of the existing,
 // provider-neutral official-source intake seam (see the module docstring for
@@ -3404,6 +3405,8 @@ export async function runApolloTwoRoundWizardDiscovery(
       source: 'agent_1',
       dryRun: false,
       existingBatchId: input.reservedBatchId,
+      // AGENT1-DELIVERY-CAP-1 — tope de ENTREGA por vendedor (env; ausente ⇒ sin tope).
+      maxDeliveredCandidates: resolveMaxDeliveredCandidates(),
       extraBatchMetadata: {
         ...(input.extraBatchMetadata ?? {}),
         apollo_discovery_modality: 'two_round_adaptive',

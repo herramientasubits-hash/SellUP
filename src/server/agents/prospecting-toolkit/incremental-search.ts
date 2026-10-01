@@ -31,6 +31,7 @@ import { createClient as createAdminClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { runProspectingPipeline } from './prospecting-pipeline';
 import { writeProspectingCandidates, type LinkedInSearchOverride } from './candidate-writer';
+import { resolveMaxDeliveredCandidates } from '@/modules/prospect-batches/delivery-cap';
 import type { LinkedInSearchConfig } from './linkedin-company-search';
 import { createTavilyLinkedInSearchProvider } from './linkedin-company-search-tavily';
 import { createLinkedInUsageLoggerFn } from './tavily-usage-logging';
@@ -1526,6 +1527,8 @@ export async function runIncrementalProspectingSearch(
         source: 'agent_1',
         dryRun: false,
         targetPersistibleCandidates: targetPersistibleCandidates,
+        // AGENT1-DELIVERY-CAP-1 — tope de ENTREGA por vendedor (env; ausente ⇒ sin tope).
+        maxDeliveredCandidates: resolveMaxDeliveredCandidates(),
         extraBatchMetadata: {
           // Q3F-5BB.11E — ADITIVO: caller-provided metadata (p.ej. provider_routing)
           // se esparce PRIMERO para que cualquier clave de diagnóstico interna del
