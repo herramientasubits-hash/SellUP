@@ -6,8 +6,8 @@
  * que va primero en toda corrida; Apollo y Lusha completan lo que falte. Opción
  * C: la corrida termina con Tavily si deja al menos tantas empresas para revisar
  * (no duplicadas ni descartadas) como el objetivo; si no, Apollo completa en la
- * misma corrida. Cualquier tropiezo de Tavily (créditos del mes, presupuesto,
- * error) ⇒ Apollo como siempre: la corrida nunca falla por Tavily.
+ * misma corrida. Cualquier tropiezo de Tavily (cuota en Proveedores, error) ⇒
+ * Apollo como siempre: la corrida nunca falla por Tavily.
  * Sin Supabase real. Sin proveedores. Sin LLM.
  */
 import { describe, it, beforeEach, afterEach } from 'node:test';
@@ -122,7 +122,7 @@ function tavilyFirstDeps(opts: {
     // El modo automático resuelve Apollo; Tavily-first entra antes.
     resolveProvider: () => 'apollo_organizations',
     resolveTavilyFirst: () => true,
-    checkTavilyMonthlyCredits: async () => ({ status: 'available', usedCredits: 0, cap: 1000, remaining: 1000 }),
+    checkTavilyProviderQuota: async () => ({ status: 'available', providerCreditsAvailable: 1000 }),
     countReviewableCandidates: async () => opts.reviewable,
     reserveBudget: async () => { calls.reserve++; return { status: 'reserved', reservationId: 'res-tf', creditsReserved: 20 }; },
     confirmBudget: async () => { calls.confirm++; return { status: 'confirmed' as const }; },
@@ -160,8 +160,8 @@ describe('Tavily primero (AGENT1-TAVILY-FIRST-1)', () => {
     assert.equal(calls.tavily, 1);
     assert.equal(calls.apollo, 0, 'Apollo no se paga si Tavily ya dejó suficientes para revisar');
     assert.equal(calls.lusha, 0, 'Lusha tampoco');
-    assert.equal(calls.reserve, 1, 'Tavily usa la reserva del piloto como siempre (sin atajos de presupuesto)');
-    assert.equal(calls.confirm, 1, 'y se liquida con lo consumido');
+    assert.equal(calls.reserve, 0, 'Tavily se rige por Proveedores: no usa el pool del piloto');
+    assert.equal(calls.confirm, 0);
     assert.ok(result.ok && result.tavilyFirst?.outcome === 'satisfied');
   });
 
@@ -180,32 +180,19 @@ describe('Tavily primero (AGENT1-TAVILY-FIRST-1)', () => {
     assert.ok(result.ok && result.tavilyFirst?.outcome === 'apollo_completed');
   });
 
-  it('créditos gratis del mes agotados ⇒ Apollo directo, sin error', async () => {
+  it('cuota de Tavily en Proveedores agotada ⇒ Apollo directo, sin error', async () => {
     const calls = newCalls();
     const result = await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
       reviewable: 9, calls,
-      overrides: { checkTavilyMonthlyCredits: async () => ({ status: 'exhausted', usedCredits: 1000, cap: 1000, remaining: 0 }) },
-    }));
-    assert.ok(result.ok, JSON.stringify(result));
-    assert.equal(calls.tavily, 0);
-    assert.equal(calls.reserve, 0);
-    assert.equal(calls.apollo, 1);
-    assert.ok(result.ok && result.tavilyFirst?.outcome === 'skipped' && result.tavilyFirst.skipReason === 'monthly_free_credits_exhausted');
-  });
-
-  it('presupuesto piloto bloqueado ⇒ Apollo directo (no se fuerza ni se rodea el gate)', async () => {
-    const calls = newCalls();
-    const result = await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
-      reviewable: 9, calls,
-      overrides: { reserveBudget: async () => { calls.reserve++; return { status: 'blocked', reason: 'period_exhausted' } as never; } },
+      overrides: { checkTavilyProviderQuota: async () => ({ status: 'blocked', providerCreditsAvailable: 0 }) },
     }));
     assert.ok(result.ok, JSON.stringify(result));
     assert.equal(calls.tavily, 0);
     assert.equal(calls.apollo, 1);
-    assert.ok(result.ok && result.tavilyFirst?.outcome === 'skipped' && result.tavilyFirst.skipReason === 'pilot_budget_blocked');
+    assert.ok(result.ok && result.tavilyFirst?.outcome === 'skipped' && result.tavilyFirst.skipReason === 'provider_quota_exhausted');
   });
 
-  it('Tavily falla ⇒ se liquida la reserva y Apollo sigue; la corrida no falla', async () => {
+  it('Tavily falla ⇒ Apollo sigue; la corrida no falla', async () => {
     const calls = newCalls();
     const result = await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
       reviewable: 9, calls,
@@ -213,7 +200,6 @@ describe('Tavily primero (AGENT1-TAVILY-FIRST-1)', () => {
     }));
     assert.ok(result.ok, JSON.stringify(result));
     assert.equal(calls.apollo, 1);
-    assert.equal(calls.confirm, 1);
     assert.ok(result.ok && result.tavilyFirst?.outcome === 'failed');
   });
 

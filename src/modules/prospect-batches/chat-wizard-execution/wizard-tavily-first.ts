@@ -15,17 +15,17 @@
  * `accepted_for_target` no cambia: sigue diciendo la verdad medida.
  *
  * Nunca falla una corrida: cualquier tropiezo de Tavily ⇒ Apollo como siempre.
+ * Sin reglas propias: Tavily se rige por su configuración en Proveedores
+ * (AGENT1-TAVILY-PROVIDER-CONFIG-1), como Apollo y Lusha.
  */
-
-import type { TavilyMonthlyCreditsVerdict } from '@/server/agents/prospecting-toolkit/tavily-monthly-credits';
 
 /** Rondas del tramo de Tavily: deja tiempo a Apollo dentro de los 300 s. */
 export const TAVILY_FIRST_MAX_ROUNDS = 2;
 
 export type TavilyFirstSkipReason =
-  | 'monthly_free_credits_exhausted'
-  | 'tavily_not_configured'
-  | 'pilot_budget_blocked';
+  /** La cuota de Tavily en Proveedores no alcanza (la maneja la dueña a mano). */
+  | 'provider_quota_exhausted'
+  | 'tavily_not_configured';
 
 export type TavilyFirstOutcome =
   /** Tavily dejó suficientes para revisar: Apollo y Lusha no corrieron. */
@@ -39,11 +39,11 @@ export type TavilyFirstOutcome =
 
 export function resolveTavilyFirstPrecheck(input: {
   tavilyConfigured: boolean;
-  monthly: TavilyMonthlyCreditsVerdict | null;
+  quota: { status: 'available' | 'blocked' } | null;
 }): TavilyFirstSkipReason | null {
   if (!input.tavilyConfigured) return 'tavily_not_configured';
-  // `null` = no se pudo leer: no bloquea (con el plan gratis Tavily no cobra al agotarse).
-  if (input.monthly?.status === 'exhausted') return 'monthly_free_credits_exhausted';
+  // `null` = no se pudo leer: no bloquea, como no bloquea un proveedor sin cuota configurada.
+  if (input.quota?.status === 'blocked') return 'provider_quota_exhausted';
   return null;
 }
 

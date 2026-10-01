@@ -74,13 +74,6 @@ import {
   type TavilyFirstOutcome,
   type WriterTruthLike,
 } from './wizard-tavily-first';
-import {
-  TAVILY_MONTHLY_CREDIT_CAP_ENV,
-  evaluateTavilyMonthlyCredits,
-  readTavilyCreditsUsedThisMonth,
-  resolveTavilyMonthlyCreditCap,
-  type TavilyMonthlyCreditsVerdict,
-} from '@/server/agents/prospecting-toolkit/tavily-monthly-credits';
 // A1-APOLLO-WIZARD-1 — preflight de Apollo. Antes, con Apollo seleccionado y
 // sin credencial, la ejecución reservaba presupuesto y lote y sólo entonces el
 // provider devolvía `skipped`; como la reconciliación es conservadora, eso
@@ -284,11 +277,14 @@ export type WizardExecutionDeps = {
   resolveCatalog: (input: CatalogResolutionInput) => Promise<CatalogResolutionOutput>;
   checkTavilyAvailability: () => Promise<boolean>;
   /**
-   * AGENT1-TAVILY-FREE-CREDITS-1 — ¿alcanzan los créditos gratis de Tavily del
-   * mes para el peor caso de esta corrida? `null` = no se pudo leer (no bloquea:
-   * con el plan gratis, Tavily rechaza sin cobrar cuando se agotan).
+   * AGENT1-TAVILY-PROVIDER-CONFIG-1 — Tavily se rige por su configuración en
+   * Proveedores (`tool_catalog` + `provider_usage_logs`), como Apollo: sin la
+   * reserva del piloto. Decisión de la dueña (01-10). Sin dep ⇒ comportamiento
+   * previo (reserva del piloto).
    */
-  checkTavilyMonthlyCredits?: (runMaxCredits: number) => Promise<TavilyMonthlyCreditsVerdict | null>;
+  checkTavilyProviderQuota?: (input: {
+    estimatedCredits: number;
+  }) => Promise<ApolloProviderQuotaGateResult>;
   /**
    * AGENT1-TAVILY-FIRST-1 — ¿corre Tavily antes de Apollo? Sin dep ⇒ no (el
    * comportamiento de siempre). En Producción: bandera + modo automático.
@@ -583,19 +579,16 @@ export async function executeProspectWizardGenerationAction(
         .not('status', 'in', '(duplicate,discarded)');
       return error || count === null ? null : count;
     },
-    // AGENT1-TAVILY-FREE-CREDITS-1 — sólo lectura, con el cliente de servicio
-    // (la RLS de `provider_usage_logs` no debe recortar el total del mes).
-    checkTavilyMonthlyCredits: async (runMaxCredits) => {
-      const nowMs = Date.now();
-      const usedCredits = await readTavilyCreditsUsedThisMonth(
-        budgetClient as unknown as SupabaseClient,
-        nowMs,
-      );
-      return evaluateTavilyMonthlyCredits({
-        usedCredits,
-        cap: resolveTavilyMonthlyCreditCap(process.env[TAVILY_MONTHLY_CREDIT_CAP_ENV]),
-        runMaxCredits,
-      });
+    // AGENT1-TAVILY-PROVIDER-CONFIG-1 — la MISMA cuota de Proveedores que Apollo.
+    checkTavilyProviderQuota: async () => {
+      const quota = await checkProviderQuotaAvailable('tavily');
+      if (!quota.allowed) {
+        return {
+          status: 'blocked',
+          providerCreditsAvailable: quota.providerCreditsAvailable ?? 0,
+        };
+      }
+      return { status: 'available', providerCreditsAvailable: quota.providerCreditsAvailable };
     },
 
     // A1-APOLLO-WIZARD-1 — preflight real. Ninguna comprobación llama a Apollo
@@ -1800,22 +1793,24 @@ export async function executeProspectWizardGeneration(
   let creditsReserved: number;
   let budgetWasNew = false;
 
-  // AGENT1-TAVILY-FREE-CREDITS-1 — Tavily vive de los créditos gratis del mes
-  // (decisión de la dueña, 01-10). Si no alcanzan para el peor caso de esta
-  // corrida, no se empieza a pagar: se sella lo que trajo la capa gratuita.
-  if (discoveryProvider === 'tavily' && deps.checkTavilyMonthlyCredits) {
-    const monthly = await deps.checkTavilyMonthlyCredits(requestedCredits).catch(() => null);
-    if (monthly?.status === 'exhausted') {
+  // AGENT1-TAVILY-PROVIDER-CONFIG-1 — Tavily se rige por su configuración en
+  // Proveedores, igual que Apollo (decisión de la dueña, 01-10): sin la reserva
+  // del pool del piloto. Sin la dep inyectada, el comportamiento previo.
+  const isTavilyProviderQuotaGate =
+    discoveryProvider === 'tavily' && deps.checkTavilyProviderQuota !== undefined;
+  if (isTavilyProviderQuotaGate) {
+    const quotaResult = await deps.checkTavilyProviderQuota!({ estimatedCredits: requestedCredits });
+    if (quotaResult.status === 'blocked') {
       await sealFreeContributionBatch();
       return {
         ok: false,
         code: 'BUDGET_EXCEEDED',
-        message: `Se usaron los créditos gratis de Tavily de este mes (${monthly.usedCredits} de ${monthly.cap}). Vuelven el 1 del próximo mes.`,
+        message: 'La cuota disponible del proveedor de búsqueda (Tavily) se agotó.',
         retryable: false,
         runProvider: runProviderOutcome,
         budgetExceeded: {
-          reason: monthly.remaining <= 0 ? 'exhausted' : 'insufficient_for_run',
-          availableCredits: monthly.remaining,
+          reason: quotaResult.providerCreditsAvailable <= 0 ? 'exhausted' : 'insufficient_for_run',
+          availableCredits: quotaResult.providerCreditsAvailable,
           requiredCredits: requestedCredits,
         },
         ...describeFreeContribution(),
@@ -1861,6 +1856,10 @@ export async function executeProspectWizardGeneration(
     }
 
     // Nada que reservar: la cuota es del proveedor, no del pool del piloto.
+    reservationId = null;
+    creditsReserved = requestedCredits;
+  } else if (isTavilyProviderQuotaGate) {
+    // AGENT1-TAVILY-PROVIDER-CONFIG-1 — igual que Apollo: nada que reservar.
     reservationId = null;
     creditsReserved = requestedCredits;
   } else {
@@ -2083,21 +2082,16 @@ export async function executeProspectWizardGeneration(
   let tavilyFirstResult: IncrementalSearchOutput | null = null;
   if (discoveryProvider === 'apollo_organizations' && deps.resolveTavilyFirst?.() === true) {
     const tavilyMaxCredits = estimateCreditsForProvider('tavily');
-    const monthly = deps.checkTavilyMonthlyCredits
-      ? await deps.checkTavilyMonthlyCredits(tavilyMaxCredits).catch(() => null)
+    const quota = deps.checkTavilyProviderQuota
+      ? await deps.checkTavilyProviderQuota({ estimatedCredits: tavilyMaxCredits }).catch(() => null)
       : null;
     const tavilyConfigured = await deps.checkTavilyAvailability().catch(() => false);
-    const skipReason = resolveTavilyFirstPrecheck({ tavilyConfigured, monthly });
-    const tavilyReservation = skipReason
-      ? null
-      : await deps
-          .reserveBudget({ userId, clientRequestId: req.clientRequestId, requestedCredits: tavilyMaxCredits })
-          .catch(() => null);
+    const skipReason = resolveTavilyFirstPrecheck({ tavilyConfigured, quota });
     if (skipReason) {
       tavilyFirstOutcome = { outcome: 'skipped', skipReason };
-    } else if (!tavilyReservation || tavilyReservation.status !== 'reserved') {
-      tavilyFirstOutcome = { outcome: 'skipped', skipReason: 'pilot_budget_blocked' };
     } else {
+      // AGENT1-TAVILY-PROVIDER-CONFIG-1 — sin reserva del piloto: Tavily se rige
+      // por su configuración en Proveedores, como Apollo.
       try {
         tavilyFirstResult = await deps.runTavilyPipeline({
           resolved,
@@ -2109,34 +2103,6 @@ export async function executeProspectWizardGeneration(
       } catch {
         tavilyFirstOutcome = { outcome: 'failed' };
       }
-      // Se liquida SIEMPRE lo que Tavily consumió, haya o no seguido Apollo.
-      const reservedTavily = tavilyReservation.creditsReserved;
-      const reconciled = deps.reconcileRunSpend
-        ? await deps
-            .reconcileRunSpend({
-              batchId: reservedBatchId,
-              correlation: withResolvedIds(runCorrelation, { batchId: reservedBatchId }),
-              discoveryProvider: 'tavily',
-              estimatedCredits: tavilyMaxCredits,
-              reservedCredits: reservedTavily,
-            })
-            .catch(() => null)
-        : null;
-      let tavilyToConfirm = reservedTavily;
-      if (reconciled) {
-        tavilyToConfirm = reconciled.creditsToConfirm;
-      } else {
-        const consumed = await deps.readConsumedCredits(reservedBatchId).catch(() => null);
-        tavilyToConfirm = consumed !== null && consumed > 0 ? consumed : reservedTavily;
-      }
-      await deps
-        .confirmBudget({
-          reservationId: tavilyReservation.reservationId,
-          actualCreditsConsumed: tavilyToConfirm,
-          batchId: reservedBatchId,
-          creditsReserved: reservedTavily,
-        })
-        .catch(() => undefined);
 
       if (tavilyFirstResult) {
         const reviewable = deps.countReviewableCandidates
