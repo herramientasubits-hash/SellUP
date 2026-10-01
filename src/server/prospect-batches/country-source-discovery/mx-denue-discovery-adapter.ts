@@ -65,6 +65,18 @@ export type MxDenueDiscoveryReads = {
   }) => Promise<readonly DenueEstablishment[]>;
 };
 
+/**
+ * Terminaciones de dominio aceptadas. SOURCES-MX-DENUE-MIX-WEB-DEDUPE-1: DENUE trae
+ * webs tecleadas a mano («HTPS ALINCEBPO.NET ECC» acababa como
+ * «htpsalincebpo.netecc»). Un dominio equivocado es peor que ninguno: se guardaría
+ * en la ficha y decidiría duplicados. Lo que no termine en una de éstas se descarta.
+ */
+const DENUE_ACCEPTED_TLDS = new Set([
+  'com', 'net', 'org', 'mx', 'edu', 'gob', 'info', 'biz', 'io', 'co', 'tv', 'us',
+  'app', 'tech', 'cloud', 'online', 'global', 'digital', 'group', 'solutions',
+  'services', 'company', 'store', 'site', 'ai', 'dev', 'lat', 'es',
+]);
+
 /** Sitio web DENUE («WWW.EMPRESA.COM.MX», «empresa.mx/…») → dominio, o `null`. */
 export function denueWebsiteToDomain(website: string | null | undefined): string | null {
   if (typeof website !== 'string') return null;
@@ -74,7 +86,9 @@ export function denueWebsiteToDomain(website: string | null | undefined): string
     .replace(/^https?:\/\//, '')
     .replace(/^www\./, '')
     .split(/[/?#\s]/)[0];
-  return /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(host) ? host : null;
+  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(host)) return null;
+  const tld = host.slice(host.lastIndexOf('.') + 1);
+  return DENUE_ACCEPTED_TLDS.has(tld) ? host : null;
 }
 
 /** «…, Guadalajara, JALISCO» → { city, region }. */
@@ -112,6 +126,16 @@ function toCompany(row: DenueEstablishment, macroIndustryKey: string): CountrySo
   };
 }
 
+/** Intercala listas: el primero de cada una, luego el segundo de cada una… */
+function* interleave<T>(lists: readonly (readonly T[])[]): Generator<T> {
+  const longest = Math.max(0, ...lists.map((list) => list.length));
+  for (let i = 0; i < longest; i++) {
+    for (const list of lists) {
+      if (i < list.length) yield list[i];
+    }
+  }
+}
+
 /** Construye el adapter de descubrimiento de México. Nunca lanza. */
 export function buildMxDenueDiscoveryAdapter(reads: MxDenueDiscoveryReads): CountrySourceAdapter {
   return async (criteria: CountrySourceCriteria): Promise<CountrySourceDiscoveryResult> => {
@@ -133,19 +157,27 @@ export function buildMxDenueDiscoveryAdapter(reads: MxDenueDiscoveryReads): Coun
       const pages = await Promise.all(
         filters.map((filter) => reads.readEstablishments({ filter, estrato, limit: MX_DENUE_PAGE_SIZE })),
       );
-      for (const page of pages) {
-        recordsRead += page.length;
-        for (const row of page) {
-          if (companies.length >= limit) break;
-          // La tabla de HOY manda: un filtro amplio nunca cuela otra macro.
-          if (resolveScianMacro(row.activityCode) !== criteria.macroIndustryKey) continue;
-          const company = toCompany(row, criteria.macroIndustryKey);
-          if (company === null) continue;
-          const identity = company.normalizedLegalName ?? company.legalName ?? row.id;
-          if (seen.has(identity)) continue;
-          seen.add(identity);
-          companies.push(company);
-        }
+      for (const page of pages) recordsRead += page.length;
+      // SOURCES-MX-DENUE-MIX-WEB-DEDUPE-1 — se intercalan las páginas (una fila de
+      // cada actividad por turno). Antes se recorrían en orden y la primera
+      // actividad (517 telecomunicaciones en Tecnología) llenaba sola el objetivo:
+      // nunca aparecía software ni servicios de TI.
+      for (const row of interleave(pages)) {
+        if (companies.length >= limit) break;
+        // La tabla de HOY manda: un filtro amplio nunca cuela otra macro.
+        if (resolveScianMacro(row.activityCode) !== criteria.macroIndustryKey) continue;
+        const company = toCompany(row, criteria.macroIndustryKey);
+        if (company === null) continue;
+        // Una empresa = una fila: se agrupan sus sucursales por el núcleo de la
+        // razón social Y por el del nombre comercial («MEGACABLE» y «MEGACABLE
+        // COMUNICACIONES DE MEXICO» comparten nombre comercial).
+        const keys = [
+          company.normalizedLegalName ?? company.legalName ?? row.id,
+          normalizeCompanyNameCore(row.name, MEXICO_LEGAL_FORMS),
+        ].filter((key) => key.length > 0);
+        if (keys.some((key) => seen.has(key))) continue;
+        for (const key of keys) seen.add(key);
+        companies.push(company);
       }
     }
 
