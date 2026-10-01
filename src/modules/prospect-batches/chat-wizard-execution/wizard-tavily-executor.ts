@@ -56,6 +56,11 @@ export type WizardTavilyInput = {
    * aceptadas (Prod 30-09: ff1ba9f2, 1e9fd646, 26f57743).
    */
   resolveExtraBatchMetadata?: ResolveExtraBatchMetadata | null;
+  /**
+   * AGENT1-TAVILY-FIRST-1 — rondas del tramo de Tavily cuando corre ANTES de
+   * Apollo (deja tiempo a Apollo). Ausente ⇒ `WIZARD_ADAPTIVE_MAX_ROUNDS`.
+   */
+  maxRounds?: number;
 };
 
 export type WizardTavilyRunner = (input: WizardTavilyInput) => Promise<IncrementalSearchOutput>;
@@ -81,7 +86,7 @@ export async function runWizardTavilySearch(
     additionalCriteria: input.resolved.additionalCriteria,
     webSearchProvider: 'tavily',
     targetInternal: WIZARD_TAVILY_TARGET_INTERNAL,
-    maxRounds: WIZARD_ADAPTIVE_MAX_ROUNDS,
+    maxRounds: input.maxRounds ?? WIZARD_ADAPTIVE_MAX_ROUNDS,
     maxTotalRawToEvaluate: WIZARD_TAVILY_MAX_TOTAL_RAW_TO_EVALUATE,
     targetPersistibleCandidates: WIZARD_TARGET_PERSISTIBLE_CANDIDATES,
     existingBatchId: input.reservedBatchId,

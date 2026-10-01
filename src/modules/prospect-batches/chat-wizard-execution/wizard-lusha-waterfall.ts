@@ -50,7 +50,9 @@ export type LushaWaterfallSkipReason =
    * AGENT1-TAVILY-TRIAL-1 — corrida de prueba de Tavily pedida por un admin: la
    * pierna no se abre para que la medida sea de Tavily solo.
    */
-  | 'admin_tavily_trial_run';
+  | 'admin_tavily_trial_run'
+  /** AGENT1-TAVILY-FIRST-1 — Tavily ya dejó suficientes empresas para revisar. */
+  | 'tavily_first_reviewable_met';
 
 export type LushaWaterfallDecision =
   | { readonly run: false; readonly reason: LushaWaterfallSkipReason }
