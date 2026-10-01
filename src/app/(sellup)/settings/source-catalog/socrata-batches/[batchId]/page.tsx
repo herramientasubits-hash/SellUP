@@ -149,25 +149,23 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
         breadcrumbs={
           <Breadcrumbs
             items={[
-              { label: 'Configuración', href: '/settings' },
               { label: 'Catálogo de fuentes', href: '/settings/source-catalog' },
-              { label: 'Lotes Socrata', href: '/settings/source-catalog/socrata-batches' },
+              { label: 'Lotes de datos abiertos', href: '/settings/source-catalog/socrata-batches' },
               batch.name,
             ]}
           />
         }
         title={batch.name}
-        description="Revisión interna de lote estructurado Socrata. Vista de solo lectura."
-        backHref="/settings/source-catalog/socrata-batches"
+        description="Las empresas candidatas de este lote y de dónde salió cada dato. Solo consulta."
       />
 
       {/* Read-only notice */}
       <div className="flex items-start gap-2.5 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
         <Lock aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <p className="text-xs text-muted-foreground">
-          <span className="font-medium text-foreground">Modo revisión estructurada.</span>{' '}
-          Puedes consultar los candidatos y su trazabilidad, pero no aprobarlos, convertirlos
-          ni sincronizarlos con HubSpot desde esta vista.
+          <span className="font-medium text-foreground">Solo consulta.</span>{' '}
+          Puedes revisar los candidatos y de dónde salió cada dato, pero desde aquí no se aprueban,
+          no se convierten en empresas ni se envían a HubSpot.
         </p>
       </div>
 
@@ -178,11 +176,10 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
             <FlaskConical className="mt-0.5 h-4 w-4 shrink-0 text-info" />
             <div>
               <p className="text-sm font-medium text-info">
-                Lote de smoke test
+                Lote de prueba
               </p>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                Este lote fue creado durante una prueba controlada del pipeline Socrata y no
-                corresponde a una operación de prospección real.
+                Este lote se creó para probar la fuente. No corresponde a una prospección real.
               </p>
             </div>
           </div>
@@ -195,7 +192,7 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
           <div className="flex items-start gap-2.5">
             <RotateCcw className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
             <div>
-              <p className="text-sm font-medium text-foreground">Rollback lógico aplicado</p>
+              <p className="text-sm font-medium text-foreground">Lote revertido</p>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 El lote y sus candidatos fueron marcados como cancelados/descartados
                 mediante rollback lógico. Los datos persisten para trazabilidad pero no son
@@ -359,7 +356,12 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
         }
         empty={candidates.length === 0}
         emptyState={
-          <EmptyState variant="plain" icon={Building2} title="Sin candidatos en este lote." />
+          <EmptyState
+            variant="plain"
+            icon={Building2}
+            title="Este lote no trajo candidatos"
+            description="Crea otro lote de prueba desde la lista de lotes para volver a intentarlo."
+          />
         }
       >
             <Table>
@@ -384,13 +386,13 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
                     HubSpot
                   </TableHead>
                   <TableHead scope="col">
-                    Estado revisión
+                    Revisión
                   </TableHead>
                   <TableHead scope="col">
                     Duplicado
                   </TableHead>
                   <TableHead scope="col">
-                    Flags
+                    Avisos
                   </TableHead>
                   <TableHead scope="col">
                     Fuente

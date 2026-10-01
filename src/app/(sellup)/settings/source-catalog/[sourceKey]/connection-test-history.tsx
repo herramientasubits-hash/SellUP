@@ -1,7 +1,6 @@
 import { CheckCircle2, XCircle, AlertTriangle, Clock, History } from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
-import { TableShell } from '@/components/data-display';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import {
   CONNECTION_TEST_STATUS_LABELS,
@@ -12,26 +11,14 @@ import type {
   SourceConnectionTestHistoryItem,
 } from '@/modules/source-catalog/history-queries';
 import type { SourceConnectionTestStatus } from '@/server/source-catalog/connection-test/types';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { formatAppDateTime } from '@/lib/format-date';
+import { ConnectionTestHistoryTable } from './connection-test-history-table';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatDateTime(iso: string, style: 'short' | 'medium' = 'short'): string {
-  return new Intl.DateTimeFormat('es-CO', {
-    dateStyle: 'short',
-    timeStyle: style,
-    timeZone: 'America/Bogota',
-  }).format(new Date(iso));
-}
 
 function dash(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === '') return '—';
   return String(value);
-}
-
-function truncate(text: string | null, maxLen = 60): string {
-  if (!text) return '—';
-  return text.length > maxLen ? text.slice(0, maxLen) + '…' : text;
 }
 
 // ─── Status icon ──────────────────────────────────────────────────────────────
@@ -101,11 +88,11 @@ function LatestTestBlock({ item }: { item: SourceConnectionTestHistoryItem }) {
 
       <dl className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3 sm:grid-cols-3">
         <MetaRow
-          label="Estrategia"
+          label="Tipo de prueba"
           value={CONNECTION_TEST_STRATEGY_LABELS[item.strategy]}
         />
         <MetaRow
-          label="HTTP status"
+          label="Código de respuesta"
           value={item.httpStatus !== null ? String(item.httpStatus) : '—'}
         />
         <MetaRow
@@ -120,8 +107,8 @@ function LatestTestBlock({ item }: { item: SourceConnectionTestHistoryItem }) {
           value={dash(item.testedByEmailSnapshot)}
         />
         <MetaRow
-          label="Fecha / hora"
-          value={formatDateTime(item.checkedAt, 'medium')}
+          label="Cuándo"
+          value={formatAppDateTime(item.checkedAt)}
         />
         {item.recommendation && (
           <div className="col-span-2 sm:col-span-3">
@@ -136,66 +123,6 @@ function LatestTestBlock({ item }: { item: SourceConnectionTestHistoryItem }) {
   );
 }
 
-// ─── History table ────────────────────────────────────────────────────────────
-
-function HistoryTable({ items }: { items: SourceConnectionTestHistoryItem[] }) {
-  return (
-    <Table className="min-w-160">
-        <TableHeader>
-          <TableRow>
-            {[
-              'Fecha',
-              'Resultado',
-              'Estrategia',
-              'HTTP',
-              'Tiempo',
-              'Código',
-              'Probado por',
-              'Recomendación',
-            ].map((col) => (
-              <TableHead
-                key={col}
-                scope="col"
-              >
-                {col}
-              </TableHead>
-            ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {items.map((item) => (
-            <TableRow key={item.id}>
-              <TableCell className="text-xs text-muted-foreground">
-                {formatDateTime(item.checkedAt)}
-              </TableCell>
-              <TableCell>
-                <StatusBadge status={item.status} />
-              </TableCell>
-              <TableCell className="text-xs text-muted-foreground">
-                {CONNECTION_TEST_STRATEGY_LABELS[item.strategy]}
-              </TableCell>
-              <TableCell className="font-mono text-xs tabular-nums text-foreground">
-                {dash(item.httpStatus)}
-              </TableCell>
-              <TableCell className="text-xs tabular-nums text-foreground">
-                {item.responseTimeMs !== null ? `${item.responseTimeMs} ms` : '—'}
-              </TableCell>
-              <TableCell className="text-xs font-mono text-muted-foreground">
-                {item.errorCode === 'OK' ? '—' : item.errorCode}
-              </TableCell>
-              <TableCell className="text-xs text-muted-foreground">
-                {dash(item.testedByEmailSnapshot)}
-              </TableCell>
-              <TableCell className="text-xs text-muted-foreground" title={item.recommendation ?? undefined}>
-                {truncate(item.recommendation)}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-    </Table>
-  );
-}
-
 // ─── Empty state ──────────────────────────────────────────────────────────────
 
 function NoTestsState() {
@@ -203,8 +130,8 @@ function NoTestsState() {
     <EmptyState
       variant="plain"
       icon={History}
-      title="Aún no hay pruebas registradas para esta fuente."
-      description="Ejecuta Probar conexión para crear el primer registro."
+      title="Esta fuente aún no se ha probado"
+      description="Usa «Probar conexión» para comprobar que responde. El resultado quedará guardado aquí."
     />
   );
 }
@@ -226,21 +153,8 @@ export function ConnectionTestHistory({ history }: Props) {
         {latest ? <LatestTestBlock item={latest} /> : <NoTestsState />}
       </SurfaceCard>
 
-      {/* History table */}
-      {totalShown > 0 && (
-        <TableShell
-          title={
-            <>
-              Historial reciente
-              <Badge variant="neutral" className="tabular-nums">
-                {totalShown} registro{totalShown !== 1 ? 's' : ''}
-              </Badge>
-            </>
-          }
-        >
-          <HistoryTable items={items} />
-        </TableShell>
-      )}
+      {/* Historial: una lista que se recorre, se ordena y se filtra */}
+      {totalShown > 0 && <ConnectionTestHistoryTable items={items} />}
     </div>
   );
 }

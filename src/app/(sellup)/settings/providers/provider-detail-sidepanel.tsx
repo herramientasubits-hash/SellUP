@@ -1731,6 +1731,8 @@ function TabConsumo({
         accessorKey: 'operationKey',
         header: () => <>Operación</>,
         enableSorting: false,
+        // Desglose en el orden de la consulta: sin orden ni embudo propios.
+        meta: { label: 'Operación', disableFilter: true, disableSort: true },
         size: 220,
         cell: ({ row }) => (
           <span className="block text-foreground leading-snug">
@@ -1743,6 +1745,8 @@ function TabConsumo({
         accessorKey: 'totalCalls',
         header: () => <div className="text-right">Operaciones</div>,
         enableSorting: false,
+        // Desglose en el orden de la consulta: sin orden ni embudo propios.
+        meta: { label: 'Operaciones', disableFilter: true, disableSort: true },
         size: 110,
         cell: ({ row }) => (
           <div className="text-right text-foreground whitespace-nowrap">
@@ -1755,6 +1759,8 @@ function TabConsumo({
         accessorKey: 'totalCredits',
         header: () => <div className="text-right">Créditos</div>,
         enableSorting: false,
+        // Desglose en el orden de la consulta: sin orden ni embudo propios.
+        meta: { label: 'Créditos', disableFilter: true, disableSort: true },
         size: 110,
         cell: ({ row }) => (
           <div className="flex justify-end text-foreground whitespace-nowrap">
@@ -1767,6 +1773,8 @@ function TabConsumo({
         accessorKey: 'creditsPercentage',
         header: () => <div className="text-right">% consumo</div>,
         enableSorting: false,
+        // Desglose en el orden de la consulta: sin orden ni embudo propios.
+        meta: { label: '% del consumo', disableFilter: true, disableSort: true },
         size: 100,
         cell: ({ row }) => (
           <div className="text-right text-muted-foreground whitespace-nowrap">
@@ -1779,6 +1787,8 @@ function TabConsumo({
         accessorKey: 'totalCostUsd',
         header: () => <div className="text-right">Costo estimado</div>,
         enableSorting: false,
+        // Desglose en el orden de la consulta: sin orden ni embudo propios.
+        meta: { label: 'Costo estimado', disableFilter: true, disableSort: true },
         size: 120,
         cell: ({ row }) => (
           <div className="text-right text-muted-foreground whitespace-nowrap">
@@ -1809,6 +1819,8 @@ function TabConsumo({
         id: 'user',
         header: () => <>Usuario</>,
         enableSorting: false,
+        // Desglose en el orden de la consulta: sin orden ni embudo propios.
+        meta: { label: 'Usuario', disableFilter: true, disableSort: true },
         size: 220,
         cell: ({ row }) => {
           const { primary, secondary } = userConsumptionIdentity(row.original);
@@ -1827,6 +1839,8 @@ function TabConsumo({
         accessorKey: 'totalCalls',
         header: () => <div className="text-right">Operaciones</div>,
         enableSorting: false,
+        // Desglose en el orden de la consulta: sin orden ni embudo propios.
+        meta: { label: 'Operaciones', disableFilter: true, disableSort: true },
         size: 110,
         cell: ({ row }) => (
           <div className="text-right text-foreground whitespace-nowrap">
@@ -1839,6 +1853,8 @@ function TabConsumo({
         accessorKey: 'totalCredits',
         header: () => <div className="text-right">Créditos</div>,
         enableSorting: false,
+        // Desglose en el orden de la consulta: sin orden ni embudo propios.
+        meta: { label: 'Créditos', disableFilter: true, disableSort: true },
         size: 110,
         cell: ({ row }) => (
           <div className="flex justify-end text-foreground whitespace-nowrap">
@@ -1851,6 +1867,8 @@ function TabConsumo({
         accessorKey: 'totalCostUsd',
         header: () => <div className="text-right">Costo estimado</div>,
         enableSorting: false,
+        // Desglose en el orden de la consulta: sin orden ni embudo propios.
+        meta: { label: 'Costo estimado', disableFilter: true, disableSort: true },
         size: 120,
         cell: ({ row }) => (
           <div className="text-right text-muted-foreground whitespace-nowrap">
@@ -1873,6 +1891,8 @@ function TabConsumo({
         accessorKey: 'lastActivityAt',
         header: () => <div className="text-right">Última actividad</div>,
         enableSorting: false,
+        // Desglose en el orden de la consulta: sin orden ni embudo propios.
+        meta: { label: 'Última actividad', disableFilter: true, disableSort: true },
         size: 130,
         cell: ({ row }) => (
           <div className="text-right text-muted-foreground whitespace-nowrap">

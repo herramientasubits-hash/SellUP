@@ -1,12 +1,14 @@
-import { withAppTimeZone } from '@/lib/format-date';
 import { redirect } from 'next/navigation';
-import { CheckCircle2, XCircle, Clock, WifiOff, ShieldCheck } from "@/icons";
 import { Badge } from '@/components/ui/badge';
-import { EmptyState } from '@/components/ui/empty-state';
 import { Alert } from '@/components/ui/alert';
-import { PageHeader } from '@/components/shared/page-header';
-import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
-import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { SettingsPage, TechnicalDetails } from '@/components/settings/settings-page';
+import {
+  IntegrationCapabilities,
+  IntegrationStatusCard,
+  TechnicalRow,
+  type CapabilityState,
+  type IntegrationCapability,
+} from '@/components/settings/integration-overview';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { getHubSpotIntegration } from '@/modules/integrations/actions';
 import { HubSpotActionsPanel } from './hubspot-actions-client';
@@ -18,229 +20,46 @@ import {
   type HubSpotContactSyncReadiness,
 } from '@/server/integrations/hubspot-contact-sync';
 
-function formatDate(iso: string | null): string {
-  if (!iso) return '—';
-  return new Intl.DateTimeFormat('es-CO', withAppTimeZone({
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })).format(new Date(iso));
-}
+/** El resumen de si ya se pueden enviar contactos a HubSpot, sin nombres de permisos. */
+const CONTACT_SYNC_SUMMARY: Record<
+  HubSpotContactSyncReadiness['status'],
+  { label: string; description: string; variant: 'success' | 'warning' | 'default' }
+> = {
+  ready: {
+    label: 'Listo para enviar contactos a HubSpot',
+    description: 'SellUp puede crear contactos en HubSpot y asociarlos con sus empresas.',
+    variant: 'success',
+  },
+  not_connected: {
+    label: 'HubSpot no está conectado',
+    description: 'Conecta HubSpot antes de enviar contactos.',
+    variant: 'default',
+  },
+  missing_credentials: {
+    label: 'Falta la credencial',
+    description: 'Guarda la credencial de HubSpot para continuar.',
+    variant: 'warning',
+  },
+  missing_vault_secret: {
+    label: 'Hay que guardar la credencial de nuevo',
+    description: 'La conexión existe, pero la credencial no quedó bien guardada. Usa «Actualizar credencial».',
+    variant: 'warning',
+  },
+  missing_scopes: {
+    label: 'A la conexión le faltan permisos',
+    description:
+      'En HubSpot, da a la aplicación de SellUp los permisos marcados abajo como «Falta permiso» y vuelve a probar la conexión.',
+    variant: 'warning',
+  },
+};
 
-function ConnectionStatusBlock({ connectionStatus }: { connectionStatus: string | undefined }) {
-  const status = connectionStatus ?? 'not_tested';
+const MISSING_PERMISSION_HINT =
+  'Añade este permiso a la aplicación de SellUp en HubSpot. El nombre exacto está en «Detalles técnicos».';
 
-  const map: Record<
-    string,
-    {
-      label: string;
-      icon: React.ComponentType<{ className?: string }>;
-      variant: 'positive' | 'negative' | 'warning' | 'neutral';
-    }
-  > = {
-    connected: {
-      label: 'Conectado',
-      icon: CheckCircle2,
-      variant: 'positive',
-    },
-    error: {
-      label: 'Error de conexión',
-      icon: XCircle,
-      variant: 'negative',
-    },
-    disconnected: {
-      label: 'Desconectado',
-      icon: WifiOff,
-      variant: 'warning',
-    },
-    not_tested: {
-      label: 'Sin probar',
-      icon: Clock,
-      variant: 'neutral',
-    },
-  };
-
-  const config = map[status] ?? map.not_tested;
-  const Icon = config.icon;
-
-  return (
-    <Badge variant={config.variant}>
-      <Icon />
-      {config.label}
-    </Badge>
-  );
-}
-
-function ScopeRow({ label, active }: { label: string; active: boolean }) {
-  return (
-    <div className="flex items-center justify-between py-2.5 border-b border-border/60 last:border-b-0">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      {active ? (
-        <Badge variant="positive">
-          <span className="size-1.5 rounded-full bg-success" />
-          Activo
-        </Badge>
-      ) : (
-        <Badge variant="warning">
-          <span className="size-1.5 rounded-full bg-warning" />
-          Falta permiso
-        </Badge>
-      )}
-    </div>
-  );
-}
-
-function ScopeReadinessCard({ scopes }: { scopes: string[] | undefined }) {
-  if (!scopes) return null;
-
-  const readiness = computeHubSpotScopeReadiness(scopes);
-
-  return (
-    <SurfaceCard>
-      <SurfaceCardHeader
-        title="Permisos HubSpot"
-        description="Scopes de acceso requeridos para operaciones de CRM en SellUp."
-      />
-      <div>
-        <ScopeRow label="Lectura de empresas" active={readiness.canReadCompanies} />
-        <ScopeRow label="Escritura de empresas" active={readiness.canWriteCompanies} />
-        <div className="pt-3">
-          {!readiness.canWriteCompanies ? (
-            <div className="rounded-lg border border-warning/25 bg-warning/15 px-3 py-2.5">
-              <p className="text-xs text-warning leading-relaxed">
-                Para crear empresas automáticamente en HubSpot, la Private App debe incluir el scope{' '}
-                <code className="font-mono font-semibold">crm.objects.companies.write</code>.
-                Actualiza el token en HubSpot y vuelve a probar la conexión.
-              </p>
-            </div>
-          ) : (
-            <div className="rounded-lg border border-border/60 bg-surface-subtle px-3 py-2.5">
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                SellUp tiene permisos para crear companies en HubSpot. La escritura seguirá
-                desactivada hasta habilitar la automatización correspondiente.
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
-    </SurfaceCard>
-  );
-}
-
-function ReadinessCheckRow({ label, ok, hint }: { label: string; ok: boolean; hint?: string }) {
-  return (
-    <div className="flex items-start justify-between gap-3 py-2.5 border-b border-border/60 last:border-b-0">
-      <div className="flex-1 min-w-0">
-        <span className="text-xs text-muted-foreground">{label}</span>
-        {hint && !ok && <p className="mt-0.5 text-xs text-warning leading-relaxed">{hint}</p>}
-      </div>
-      {ok ? (
-        <Badge variant="positive" className="shrink-0">
-          <span className="size-1.5 rounded-full bg-success" />
-          Listo
-        </Badge>
-      ) : (
-        <Badge variant="warning" className="shrink-0">
-          <span className="size-1.5 rounded-full bg-warning" />
-          Falta
-        </Badge>
-      )}
-    </div>
-  );
-}
-
-function ContactSyncReadinessCard({ readiness }: { readiness: HubSpotContactSyncReadiness }) {
-  const { ok, status, checks, missingScopes } = readiness;
-
-  const summaryConfig: Record<
-    typeof status,
-    { label: string; description: string; variant: 'success' | 'warning' | 'default' }
-  > = {
-    ready: {
-      label: 'Listo para sincronizar contactos',
-      description: 'SellUp puede crear contactos en HubSpot y asociarlos con empresas existentes.',
-      variant: 'success',
-    },
-    not_connected: {
-      label: 'HubSpot no está conectado',
-      description: 'Conecta HubSpot antes de sincronizar contactos.',
-      variant: 'default',
-    },
-    missing_credentials: {
-      label: 'Faltan credenciales',
-      description: 'Guarda el Private App Access Token de HubSpot para continuar.',
-      variant: 'warning',
-    },
-    missing_vault_secret: {
-      label: 'Falta vincular la credencial segura',
-      description:
-        'La conexión existe, pero SellUp no tiene asociado el secreto del token en Vault. Guarda nuevamente el token.',
-      variant: 'warning',
-    },
-    missing_scopes: {
-      label: 'Faltan permisos en la Private App',
-      description: `Agrega los siguientes scopes al Private App de HubSpot: ${missingScopes.join(', ')}.`,
-      variant: 'warning',
-    },
-  };
-
-  const summary = summaryConfig[status];
-
-  return (
-    <SurfaceCard>
-      <SurfaceCardHeader
-        title="Estado para sincronización de contactos"
-        description="Verifica que HubSpot esté listo para crear y asociar contactos desde SellUp."
-      />
-      <div className="space-y-4">
-        <Alert variant={summary.variant}>
-          <p className="text-sm font-semibold">{summary.label}</p>
-          <p className="text-xs leading-relaxed">{summary.description}</p>
-        </Alert>
-
-        <div>
-          <ReadinessCheckRow label="Conexión activa" ok={checks.integrationConnected} />
-          <ReadinessCheckRow label="Credenciales almacenadas" ok={checks.credentialsStored} />
-          <ReadinessCheckRow
-            label="Token vinculado en Vault"
-            ok={checks.vaultSecretLinked}
-            hint="Guarda nuevamente el token en el panel de Acciones."
-          />
-          <ReadinessCheckRow
-            label="Permiso para leer contactos"
-            ok={checks.contactsRead}
-            hint="Agrega crm.objects.contacts.read al Private App de HubSpot."
-          />
-          <ReadinessCheckRow
-            label="Permiso para crear contactos"
-            ok={checks.contactsWrite}
-            hint="Agrega crm.objects.contacts.write al Private App de HubSpot."
-          />
-          <ReadinessCheckRow
-            label="Permiso para leer empresas"
-            ok={checks.companiesRead}
-            hint="Agrega crm.objects.companies.read al Private App de HubSpot."
-          />
-          <ReadinessCheckRow
-            label="Permiso para asociar con empresas"
-            ok={checks.companiesWrite}
-            hint="Agrega crm.objects.companies.write al Private App de HubSpot."
-          />
-        </div>
-      </div>
-    </SurfaceCard>
-  );
-}
-
-function MetaRow({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex items-start justify-between gap-4 py-2.5 border-b border-border/60 last:border-b-0">
-      <span className="text-xs text-muted-foreground shrink-0">{label}</span>
-      <span className="text-xs font-medium text-foreground text-right">{value}</span>
-    </div>
-  );
+/** Sin permisos leídos todavía no se afirma que falten: queda «Por comprobar». */
+function capabilityState(ok: boolean, permissionsKnown: boolean): CapabilityState {
+  if (!permissionsKnown) return 'pending';
+  return ok ? 'ready' : 'missing';
 }
 
 export default async function HubSpotIntegrationPage() {
@@ -264,144 +83,119 @@ export default async function HubSpotIntegrationPage() {
     : null;
   const contactSyncReadiness = computeHubSpotContactSyncReadiness(connectionRow);
 
+  const scopes = metadata?.scopes ?? [];
+  const companyReadiness = metadata?.scopes ? computeHubSpotScopeReadiness(metadata.scopes) : null;
+  const { checks, missingScopes, status: contactSyncStatus } = contactSyncReadiness;
+  const contactSyncSummary = CONTACT_SYNC_SUMMARY[contactSyncStatus];
+
+  // Los permisos se leen al probar la conexión: antes de eso no se conocen.
+  const permissionsKnown = hasCredential && Array.isArray(metadata?.scopes);
+  const capabilities: IntegrationCapability[] = [
+    {
+      label: 'Consultar empresas',
+      state: capabilityState(checks.companiesRead, permissionsKnown),
+      hint: MISSING_PERMISSION_HINT,
+    },
+    {
+      label: 'Crear empresas y asociarles contactos',
+      state: capabilityState(checks.companiesWrite, permissionsKnown),
+      hint: MISSING_PERMISSION_HINT,
+    },
+    {
+      label: 'Consultar contactos',
+      state: capabilityState(checks.contactsRead, permissionsKnown),
+      hint: MISSING_PERMISSION_HINT,
+    },
+    {
+      label: 'Crear contactos',
+      state: capabilityState(checks.contactsWrite, permissionsKnown),
+      hint: MISSING_PERMISSION_HINT,
+    },
+  ];
+
   return (
-    <div className="space-y-6">
-      <PageHeader
-        breadcrumbs={
-          <Breadcrumbs
-            items={[
-              { label: 'Configuración', href: '/settings' },
-              { label: 'Integraciones comerciales', href: '/settings/integrations' },
-              'HubSpot',
-            ]}
-          />
-        }
-        title="HubSpot"
-        description="Administra la conexión comercial principal de SellUp para validar información de cuentas y preparar futuras sincronizaciones controladas."
-        backHref="/settings/integrations"
-      />
+    <SettingsPage
+      title="HubSpot"
+      description="El CRM del equipo. SellUp lo consulta para no duplicar empresas y, cuando lo autorices, le envía empresas y contactos."
+      trail={[{ label: 'Integraciones comerciales', href: '/settings/integrations' }]}
+    >
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        <IntegrationStatusCard
+          name="HubSpot"
+          hasCredential={hasCredential}
+          connectionStatus={conn?.connection_status}
+          lastTestedAt={conn?.last_tested_at}
+          lastError={conn?.last_connection_error}
+        >
+          <HubSpotActionsPanel hasCredential={hasCredential} />
+        </IntegrationStatusCard>
 
-      {/* Estado de conexión + acciones */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        {/* Estado */}
-        <SurfaceCard>
-          <SurfaceCardHeader
-            title="Estado de la integración"
-            description="Estado actual de credencial y conexión con HubSpot."
-          />
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">Credencial</span>
-              {hasCredential ? (
-                <Badge variant="positive">
-                  <span className="size-1.5 rounded-full bg-success" />
-                  Almacenada
-                </Badge>
-              ) : (
-                <Badge variant="neutral">
-                  <span className="size-1.5 rounded-full bg-muted-foreground/40" />
-                  No configurada
-                </Badge>
-              )}
-            </div>
-
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">Conexión</span>
-              <ConnectionStatusBlock connectionStatus={conn?.connection_status} />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">Última prueba</span>
-              <span className="text-xs font-medium text-foreground">
-                {formatDate(conn?.last_tested_at ?? null)}
-              </span>
-            </div>
-
-            {conn?.last_connection_error && (
-              <Alert variant="destructive">
-                <p className="text-xs font-medium">Último error</p>
-                <p className="text-xs">{conn.last_connection_error}</p>
-              </Alert>
-            )}
-          </div>
-        </SurfaceCard>
-
-        {/* Información del portal (disponible si está conectado) */}
-        <SurfaceCard>
-          <SurfaceCardHeader
-            title="Información del portal"
-            description="Datos recuperados del portal de HubSpot al probar la conexión."
-          />
-          {metadata?.hub_id ? (
-            <div>
-              <MetaRow label="Hub ID" value={metadata.hub_id} />
-              {metadata.app_id && <MetaRow label="App ID" value={metadata.app_id} />}
-              <MetaRow
-                label="Scopes detectados"
-                value={
-                  metadata.scopes && metadata.scopes.length > 0
-                    ? `${metadata.scopes.length} scope${metadata.scopes.length !== 1 ? 's' : ''}`
-                    : '—'
-                }
-              />
-              {metadata.scopes && metadata.scopes.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1">
-                  {metadata.scopes.slice(0, 8).map((scope) => (
-                    <Badge key={scope} variant="neutral">
-                      {scope}
-                    </Badge>
-                  ))}
-                  {metadata.scopes.length > 8 && (
-                    <Badge variant="neutral">+{metadata.scopes.length - 8} más</Badge>
-                  )}
-                </div>
-              )}
-            </div>
-          ) : (
-            <EmptyState
-              variant="plain"
-              icon={ShieldCheck}
-              title="Prueba la conexión para ver la información del portal."
-            />
-          )}
-        </SurfaceCard>
+        <IntegrationCapabilities
+          name="HubSpot"
+          description="Depende de los permisos que tenga la conexión. Tener el permiso no envía nada por sí solo: cada envío se autoriza aparte."
+          capabilities={capabilities}
+        >
+          <Alert variant={contactSyncSummary.variant}>
+            <p className="text-sm font-semibold">{contactSyncSummary.label}</p>
+            <p className="text-xs leading-relaxed">{contactSyncSummary.description}</p>
+          </Alert>
+        </IntegrationCapabilities>
       </div>
 
-      {/* Permisos HubSpot (companies legacy) */}
-      <ScopeReadinessCard scopes={metadata?.scopes} />
-
-      {/* Readiness para sincronización de contactos */}
-      <ContactSyncReadinessCard readiness={contactSyncReadiness} />
-
-      {/* Panel de acciones */}
-      <SurfaceCard>
-        <SurfaceCardHeader
-          title="Acciones"
-          description={
-            hasCredential
-              ? 'Prueba la conexión, actualiza la credencial o desconecta HubSpot.'
-              : 'Ingresa tu Private App Access Token para conectar HubSpot.'
-          }
-        />
-        <HubSpotActionsPanel hasCredential={hasCredential} />
-      </SurfaceCard>
-
-      {/* Nota de seguridad */}
-      <SurfaceCard elevated>
-        <div className="flex items-start gap-3">
-          <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />
+      <TechnicalDetails summary="Identificadores de la cuenta de HubSpot, permisos concedidos y comprobaciones internas. Útil para soporte.">
+        {metadata?.hub_id ? (
           <div>
-            <p className="text-sm font-semibold text-foreground ">
-              Almacenamiento seguro de credenciales
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
-              Tu access token se almacena de forma segura y exclusiva en el servidor. Nunca se
-              expone en el navegador ni se registra en logs. SellUp solo lo usa para validar
-              conexiones y preparar consultas futuras.
-            </p>
+            <TechnicalRow label="Identificador de la cuenta (Hub ID)">{metadata.hub_id}</TechnicalRow>
+            {metadata.app_id && <TechnicalRow label="Identificador de la aplicación (App ID)">{metadata.app_id}</TechnicalRow>}
+            <TechnicalRow label="Credencial guardada">{checks.credentialsStored ? 'Sí' : 'No'}</TechnicalRow>
+            <TechnicalRow label="Credencial vinculada al almacén seguro">
+              {checks.vaultSecretLinked ? 'Sí' : 'No — guarda la credencial de nuevo'}
+            </TechnicalRow>
           </div>
-        </div>
-      </SurfaceCard>
-    </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Prueba la conexión para ver los datos de la cuenta de HubSpot.
+          </p>
+        )}
+
+        {missingScopes.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs font-semibold text-foreground">Permisos que faltan</p>
+            <div className="flex flex-wrap gap-1">
+              {missingScopes.map((scope) => (
+                <Badge key={scope} variant="warning" className="font-mono">
+                  {scope}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {companyReadiness && companyReadiness.missingWriteScopes.length > 0 && (
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Para crear empresas, la aplicación de SellUp en HubSpot necesita{' '}
+            <code className="font-mono font-semibold text-foreground">
+              {companyReadiness.missingWriteScopes.join(', ')}
+            </code>
+            .
+          </p>
+        )}
+
+        {scopes.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs font-semibold text-foreground">
+              Permisos concedidos ({scopes.length})
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {scopes.map((scope) => (
+                <Badge key={scope} variant="neutral" className="font-mono">
+                  {scope}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+      </TechnicalDetails>
+    </SettingsPage>
   );
 }

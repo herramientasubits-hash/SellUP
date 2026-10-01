@@ -7,7 +7,9 @@ import { DataTable, DataTableColumnHeader, TruncatedCell, type DataTableContextM
 import { EmptyState } from '@/components/ui/empty-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { DataTablePage } from '@/components/shared/data-table-page';
+import { FilterChips } from '@/components/filters/filter-chips';
 import type { SourceCatalogViewModel, SourceViewModel, SourceStatusOverrides } from '@/modules/source-catalog/queries';
 import type { SourceConnectionLatestViewModel } from '@/modules/source-catalog/history-queries';
 import type { SocrataPreviewBatchListViewModel } from '@/modules/source-catalog/socrata-batches-queries';
@@ -35,6 +37,44 @@ type Row = SourceViewModel & {
   latest?: SourceConnectionLatestViewModel;
 };
 
+type OperationalStatus = SourceViewModel['operationalStatus'];
+type StatusFilter = OperationalStatus | 'all';
+
+const ALL_STATUSES: StatusFilter = 'all';
+
+/** Cómo se llama cada vista de alcance, sin jerga. */
+const SCOPE_TABS: readonly { id: TabId; label: string; description: string }[] = [
+  { id: 'operativas', label: 'Usadas por la IA', description: 'Fuentes que la IA puede consultar al buscar empresas.' },
+  { id: 'manuales', label: 'De consulta manual', description: 'Fuentes que sirven de referencia y se revisan a mano.' },
+  { id: 'todas', label: 'Todas', description: 'Todas las fuentes del catálogo.' },
+];
+
+/**
+ * Nombres cortos para los filtros rápidos por estado: caben enteros en un chip.
+ * Un estado sin nombre corto usa el de la columna.
+ */
+const STATUS_CHIP_LABELS: Partial<Record<OperationalStatus, string>> = {
+  operational_verified: 'Verificadas',
+  connection_required: 'Por conectar',
+  pending_validation: 'Por validar',
+  manual_signal_only: 'Señal manual',
+  validation_only: 'Solo validación',
+};
+
+/** El orden en que se leen los estados: primero lo que funciona, luego lo que pide trabajo. */
+const STATUS_CHIP_ORDER: readonly OperationalStatus[] = [
+  'operational_verified',
+  'connection_required',
+  'pending_validation',
+  'manual_signal_only',
+  'validation_only',
+];
+
+function statusRank(status: OperationalStatus): number {
+  const index = STATUS_CHIP_ORDER.indexOf(status);
+  return index === -1 ? STATUS_CHIP_ORDER.length : index;
+}
+
 
 function StatusBadge({ status }: { status: SourceViewModel['operationalStatus'] }) {
   return (
@@ -45,11 +85,14 @@ function StatusBadge({ status }: { status: SourceViewModel['operationalStatus'] 
   );
 }
 
-function SourceTable({ data, columns, openDetail, handleRowReorder, onRowClick }: {
+function SourceTable({ data, title, description, hasQuickFilter, columns, openDetail, onRowClick }: {
   data: Row[];
+  title: string;
+  description: string;
+  /** Hay un filtro rápido por estado puesto: el vacío lo dice. */
+  hasQuickFilter: boolean;
   columns: ColumnDef<Row, unknown>[];
   openDetail: (source: SourceViewModel) => void;
-  handleRowReorder: (next: Row[]) => void;
   onRowClick: (row: Row) => void;
 }) {
   const contextMenu = React.useMemo(
@@ -64,7 +107,7 @@ function SourceTable({ data, columns, openDetail, handleRowReorder, onRowClick }
           },
           {
             id: 'copy-key',
-            label: 'Copiar key',
+            label: 'Copiar identificador',
             icon: Copy,
             onClick: () => {
               navigator.clipboard.writeText(row.key).catch(() => {});
@@ -75,7 +118,7 @@ function SourceTable({ data, columns, openDetail, handleRowReorder, onRowClick }
           const url = row.url;
           items.push({
             id: 'open-url',
-            label: 'Abrir URL',
+            label: 'Abrir sitio de la fuente',
             icon: ExternalLink,
             separator: true,
             onClick: () => {
@@ -98,13 +141,11 @@ function SourceTable({ data, columns, openDetail, handleRowReorder, onRowClick }
       columns={columns}
       data={data}
       getRowId={(row) => row.key}
-      title="Listado de fuentes"
-      description="Fuentes catalogadas para flujo IA."
+      title={title}
+      description={description}
       count={data.length}
       contextMenu={contextMenu}
       enableColumnReorder
-      enableRowReorder
-      onRowReorder={handleRowReorder}
       rowClickable
       onRowClick={onRowClick}
       initialPageSize={10}
@@ -112,8 +153,12 @@ function SourceTable({ data, columns, openDetail, handleRowReorder, onRowClick }
       emptyState={
         <EmptyState
           variant="plain"
-          title="Sin resultados"
-          description="Ajusta los filtros para ver fuentes."
+          title="Ninguna fuente coincide"
+          description={
+            hasQuickFilter
+              ? 'No hay fuentes en ese estado dentro de esta vista. Elige «Todas» o cambia de vista.'
+              : 'Quita algún filtro de las columnas o cambia de vista para ver más fuentes.'
+          }
         />
       }
     />
@@ -125,6 +170,7 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
   const [detailSource, setDetailSource] = React.useState<SourceViewModel | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
   const [activeTab, setActiveTab] = React.useState<TabId>('operativas');
+  const [statusFilter, setStatusFilter] = React.useState<StatusFilter>(ALL_STATUSES);
 
   const serverData = React.useMemo(
     () => sources.map((s) => {
@@ -139,20 +185,48 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
     }),
     [sources, latestTests, statusOverrides],
   );
-  const [data, setData] = React.useState<Row[]>([]);
+  // Lo que hay en la vista elegida, antes del filtro rápido: de aquí salen los
+  // contadores de los chips, que no deben cambiar al pulsar el propio chip.
+  const scopedData = React.useMemo(() => filterTab(serverData, activeTab), [serverData, activeTab]);
 
-  React.useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setData(filterTab(serverData, activeTab));
-  }, [serverData, activeTab]);
+  // Las filas de la tabla: la vista, más el filtro rápido si hay uno puesto.
+  // (Antes las filas se podían arrastrar, pero ese orden no se guardaba y se
+  // perdía al recargar; ahora la lista se ordena desde sus columnas.)
+  const data = React.useMemo(
+    () =>
+      statusFilter === ALL_STATUSES
+        ? scopedData
+        : scopedData.filter((row) => row.operationalStatus === statusFilter),
+    [scopedData, statusFilter],
+  );
+
+  const statusChips = React.useMemo(() => {
+    const counts = new Map<OperationalStatus, number>();
+    for (const row of scopedData) {
+      counts.set(row.operationalStatus, (counts.get(row.operationalStatus) ?? 0) + 1);
+    }
+    const statuses = Array.from(counts.keys()).sort(
+      (a, b) => statusRank(a) - statusRank(b) || (counts.get(b) ?? 0) - (counts.get(a) ?? 0),
+    );
+    return [
+      { value: ALL_STATUSES as string, label: 'Todas', count: scopedData.length },
+      ...statuses.map((status) => ({
+        value: status as string,
+        label: STATUS_CHIP_LABELS[status] ?? OPERATIONAL_STATUS_LABELS[status],
+        count: counts.get(status) ?? 0,
+      })),
+    ];
+  }, [scopedData]);
+
+  const handleTabChange = React.useCallback((value: unknown) => {
+    setActiveTab(value as TabId);
+    // El estado elegido puede no existir en la otra vista: se vuelve a «Todas».
+    setStatusFilter(ALL_STATUSES);
+  }, []);
 
   const openDetail = React.useCallback((source: SourceViewModel) => {
     setDetailSource(source);
     setDetailOpen(true);
-  }, []);
-
-  const handleRowReorder = React.useCallback((next: Row[]) => {
-    setData(next);
   }, []);
 
   const columns: ColumnDef<Row, unknown>[] = React.useMemo(
@@ -173,7 +247,6 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
             >
               {row.original.name}
             </button>
-            <p className="truncate font-mono text-xs text-muted-foreground">{row.original.key}</p>
           </div>
         ),
         size: 260,
@@ -216,6 +289,47 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
         },
       },
       {
+        id: 'operationalStatus',
+        accessorKey: 'operationalStatus',
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Estado" />
+        ),
+        cell: ({ row }) => <StatusBadge status={row.original.operationalStatus} />,
+        size: 150,
+        minSize: 120,
+        filterFn: 'arrIncludesSome',
+        meta: {
+          label: 'Estado',
+          popoverTitle: 'Estado',
+          filterOptions: filters.operationalStatuses.map((s) => ({
+            label: OPERATIONAL_STATUS_LABELS[s],
+            value: s,
+          })),
+        },
+      },
+      {
+        id: 'nextAction',
+        accessorKey: 'nextAction',
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Siguiente acción" />
+        ),
+        cell: ({ row }) => (
+          // Se lee entera: es lo que hay que hacer con la fuente. Ancho propio
+          // y hasta tres renglones, en vez de una línea cortada.
+          <span
+            className="block min-w-64 whitespace-normal text-sm leading-snug text-muted-foreground line-clamp-3"
+            title={row.original.nextAction}
+          >
+            {row.original.nextAction}
+          </span>
+        ),
+        size: 340,
+        minSize: 260,
+        enableColumnFilter: false,
+        enableSorting: false,
+        meta: { label: 'Siguiente acción', disableFilter: true, disableSort: true },
+      },
+      {
         id: 'sellupUse',
         accessorKey: 'sellupUse',
         header: ({ column }) => (
@@ -243,7 +357,7 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
         id: 'aiFlowStatus',
         accessorKey: 'aiFlowStatus',
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Estado flujo IA" />
+          <DataTableColumnHeader column={column} title="Uso por la IA" />
         ),
         cell: ({ row }) => (
           <span className="whitespace-nowrap text-xs text-muted-foreground">
@@ -253,8 +367,8 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
         size: 170,
         minSize: 140,
         meta: {
-          label: 'Estado flujo IA',
-          popoverTitle: 'Estado flujo IA',
+          label: 'Uso por la IA',
+          popoverTitle: 'Uso por la IA',
           filterOptions: Object.entries(AI_FLOW_STATUS_LABELS).map(([value, label]) => ({
             label,
             value,
@@ -280,45 +394,6 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
           filterOptions: Object.entries(CONNECTION_MODE_LABELS).map(([value, label]) => ({
             label,
             value,
-          })),
-        },
-      },
-      {
-        id: 'nextAction',
-        accessorKey: 'nextAction',
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Siguiente acción" />
-        ),
-        cell: ({ row }) => (
-          <span
-            className="text-xs text-muted-foreground whitespace-normal line-clamp-2"
-            title={row.original.nextAction}
-          >
-            {row.original.nextAction}
-          </span>
-        ),
-        size: 260,
-        minSize: 200,
-        enableColumnFilter: false,
-        enableSorting: false,
-        meta: { label: 'Siguiente acción' },
-      },
-      {
-        id: 'operationalStatus',
-        accessorKey: 'operationalStatus',
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Estado fuente" />
-        ),
-        cell: ({ row }) => <StatusBadge status={row.original.operationalStatus} />,
-        size: 150,
-        minSize: 120,
-        filterFn: 'arrIncludesSome',
-        meta: {
-          label: 'Estado fuente',
-          popoverTitle: 'Estado fuente',
-          filterOptions: filters.operationalStatuses.map((s) => ({
-            label: OPERATIONAL_STATUS_LABELS[s],
-            value: s,
           })),
         },
       },
@@ -351,7 +426,7 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
         minSize: 100,
         enableColumnFilter: false,
         enableSorting: false,
-        meta: { label: 'Acción' },
+        meta: { label: 'Acción', disableFilter: true, disableSort: true },
       },
     ],
     [filters, openDetail],
@@ -363,44 +438,49 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
     todas: serverData.length,
   }), [serverData]);
 
+  const activeScope = SCOPE_TABS.find((tab) => tab.id === activeTab) ?? SCOPE_TABS[0];
+
   return (
     <>
-      <Tabs
-        value={activeTab}
-        onValueChange={(v) => setActiveTab(v as TabId)}
-        className="w-full flex-1 min-h-0"
-      >
-        <TabsList variant="segmented" className="mx-7 mt-1 mb-4">
-          <TabsTrigger value="operativas">
-            Operativas IA
-            <span className="ml-1.5 inline-flex items-center justify-center rounded-full border border-border/60 bg-surface-muted px-1.5 text-xs font-semibold tabular-nums text-muted-foreground">
-              {tabCounts.operativas}
-            </span>
-          </TabsTrigger>
-          <TabsTrigger value="manuales">
-            Señales manuales
-            <span className="ml-1.5 inline-flex items-center justify-center rounded-full border border-border/60 bg-surface-muted px-1.5 text-xs font-semibold tabular-nums text-muted-foreground">
-              {tabCounts.manuales}
-            </span>
-          </TabsTrigger>
-          <TabsTrigger value="todas">
-            Todas
-            <span className="ml-1.5 inline-flex items-center justify-center rounded-full border border-border/60 bg-surface-muted px-1.5 text-xs font-semibold tabular-nums text-muted-foreground">
-              {tabCounts.todas}
-            </span>
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value={activeTab} className="mt-0">
-          <SourceTable
-            data={data}
-            columns={columns}
-            openDetail={openDetail}
-            handleRowReorder={handleRowReorder}
-            onRowClick={(row) => openDetail(row)}
+      <DataTablePage
+        title="Catálogo de fuentes"
+        description="Las fuentes de datos por país que usa SellUp: en qué estado están y qué falta para poder usarlas."
+        tabs={
+          // Solo la lista de pestañas: la tabla de abajo es una y cambia de datos.
+          <Tabs value={activeTab} onValueChange={handleTabChange}>
+            <TabsList aria-label="Qué fuentes ver">
+              {SCOPE_TABS.map((tab) => (
+                <TabsTrigger key={tab.id} value={tab.id}>
+                  {tab.label}
+                  <span className="rounded-full bg-surface-muted px-1.5 text-xs font-semibold tabular-nums text-muted-foreground">
+                    {tabCounts[tab.id]}
+                  </span>
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        }
+        metrics={
+          // Los conteos por estado son a la vez el filtro rápido de la tabla.
+          <FilterChips
+            wrap
+            ariaLabel="Filtrar fuentes por estado"
+            value={statusFilter}
+            onChange={(value) => setStatusFilter(value as StatusFilter)}
+            options={statusChips}
           />
-        </TabsContent>
-      </Tabs>
+        }
+      >
+        <SourceTable
+          data={data}
+          title={activeScope.label}
+          description={activeScope.description}
+          hasQuickFilter={statusFilter !== ALL_STATUSES}
+          columns={columns}
+          openDetail={openDetail}
+          onRowClick={(row) => openDetail(row)}
+        />
+      </DataTablePage>
 
       <SourceDetailDrawer
         source={detailSource}

@@ -1,8 +1,7 @@
 'use client';
 
 import { useSearchParams, useRouter } from 'next/navigation';
-import { UserPlus, UserCheck, UserX, Pause, Clock, Layers } from "@/icons";
-import { SurfaceCard } from '@/components/shared/surface-card';
+import { UserCheck, Layers } from "@/icons";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { UsersTab, GroupsTab } from './users-groups-tabs';
 import type { InternalUser, Role, UserPreapproval, OrganizationGroup } from '@/modules/access/types';
@@ -13,57 +12,10 @@ interface UsersSettingsClientProps {
   users: InternalUser[];
   roles: Role[];
   activeUsers: InternalUser[];
-  pendingUsers: InternalUser[];
-  suspendedUsers: InternalUser[];
-  rejectedUsers: InternalUser[];
   preapprovals: UserPreapproval[];
   groups: OrganizationGroup[];
   isAdmin: boolean;
 }
-
-const SUMMARY_CARDS: {
-  key: UserFilter | 'groups';
-  label: string;
-  icon: React.ReactNode;
-  colorClass: string;
-}[] = [
-  {
-    key: 'pending',
-    label: 'Pendientes',
-    icon: <UserPlus className="h-4 w-4 text-warning" />,
-    colorClass: 'bg-warning/10',
-  },
-  {
-    key: 'preapproved',
-    label: 'Preautorizados',
-    icon: <Clock className="h-4 w-4 text-primary" />,
-    colorClass: 'bg-primary/10',
-  },
-  {
-    key: 'active',
-    label: 'Activos',
-    icon: <UserCheck className="h-4 w-4 text-success" />,
-    colorClass: 'bg-success/10',
-  },
-  {
-    key: 'suspended',
-    label: 'Suspendidos',
-    icon: <Pause className="h-4 w-4 text-warning" />,
-    colorClass: 'bg-warning/10',
-  },
-  {
-    key: 'rejected',
-    label: 'Rechazados',
-    icon: <UserX className="h-4 w-4 text-destructive" />,
-    colorClass: 'bg-destructive/10',
-  },
-  {
-    key: 'groups',
-    label: 'Grupos',
-    icon: <Layers className="h-4 w-4 text-primary" />,
-    colorClass: 'bg-primary/10',
-  },
-];
 
 function buildUrl(searchParams: URLSearchParams, tab: string, filter?: UserFilter) {
   const params = new URLSearchParams(searchParams.toString());
@@ -77,8 +29,7 @@ function buildUrl(searchParams: URLSearchParams, tab: string, filter?: UserFilte
 }
 
 export function UsersSettingsClient({
-  users, roles, activeUsers, pendingUsers, suspendedUsers, rejectedUsers,
-  preapprovals, groups, isAdmin,
+  users, roles, activeUsers, preapprovals, groups, isAdmin,
 }: UsersSettingsClientProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -86,88 +37,56 @@ export function UsersSettingsClient({
   const activeTab = searchParams.get('tab') ?? 'usuarios';
   const activeFilter = (searchParams.get('filter') as UserFilter) ?? 'active';
 
-  const counts: Record<string, number> = {
-    pending: pendingUsers.length,
-    preapproved: preapprovals.length,
-    active: activeUsers.length,
-    suspended: suspendedUsers.length,
-    rejected: rejectedUsers.length,
-    groups: groups.length,
-  };
-
   function navigate(tab: string, filter?: UserFilter) {
     router.push(buildUrl(searchParams, tab, filter));
   }
 
   return (
-    <div className="flex flex-col h-full min-h-0 overflow-hidden">
-      {/* Summary cards */}
-      <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 shrink-0">
-        {SUMMARY_CARDS.map(card => (
-          <SurfaceCard
-            key={card.key}
-            className="cursor-pointer transition-colors hover:border-primary/30"
-            onClick={() => {
-              if (card.key === 'groups') {
-                router.push(buildUrl(searchParams, 'grupos'));
-              } else {
-                router.push(buildUrl(searchParams, 'usuarios', card.key as UserFilter));
-              }
-            }}
-          >
-            <div className="flex min-w-0 items-center gap-3">
-              <div className={`flex h-9 w-9 items-center justify-center rounded-xl ${card.colorClass}`}>
-                {card.icon}
-              </div>
-              <div>
-                <p className="text-lg font-semibold tabular-nums text-foreground">{counts[card.key] ?? 0}</p>
-                <p className="text-xs text-muted-foreground">{card.label}</p>
-              </div>
-            </div>
-          </SurfaceCard>
-        ))}
-      </div>
+    // Usuarios | Grupos. Los conteos por estado viven en la fila de chips de
+    // la pestaña «Usuarios»; aquí solo se dice cuántos grupos hay.
+    <Tabs
+      value={activeTab}
+      onValueChange={(v) => navigate(v, v === 'usuarios' ? activeFilter : undefined)}
+      className="gap-4"
+    >
+      <TabsList aria-label="Usuarios o grupos" className="shrink-0">
+        <TabsTrigger value="usuarios" className="gap-2">
+          <UserCheck className="h-4 w-4" />
+          Usuarios
+        </TabsTrigger>
+        <TabsTrigger value="grupos" className="gap-2">
+          <Layers className="h-4 w-4" />
+          Grupos
+          {groups.length > 0 && (
+            <span className="rounded-full bg-surface-muted px-1.5 text-xs font-semibold tabular-nums text-muted-foreground">
+              {groups.length}
+            </span>
+          )}
+        </TabsTrigger>
+      </TabsList>
 
-      {/* Main tabs: Usuarios | Grupos */}
-      <Tabs
-        value={activeTab}
-        onValueChange={(v) => navigate(v, v === 'usuarios' ? activeFilter : undefined)}
-        className="flex flex-col flex-1 min-h-0 mt-6"
-      >
-        <TabsList className="h-auto shrink-0 flex-wrap gap-1">
-          <TabsTrigger value="usuarios" className="gap-2">
-            <UserCheck className="h-4 w-4" />
-            Usuarios
-          </TabsTrigger>
-          <TabsTrigger value="grupos" className="gap-2">
-            <Layers className="h-4 w-4" />
-            Grupos
-          </TabsTrigger>
-        </TabsList>
+      <TabsContent value="usuarios">
+        <UsersTab
+          users={users}
+          roles={roles}
+          allUsers={users}
+          activeUsers={activeUsers}
+          groups={groups}
+          preapprovals={preapprovals}
+          isAdmin={isAdmin}
+          initialFilter={activeFilter}
+          onFilterChange={(f) => navigate('usuarios', f)}
+        />
+      </TabsContent>
 
-        <TabsContent value="usuarios" className="flex-1 min-h-0 mt-2 flex flex-col overflow-hidden">
-          <UsersTab
-            users={users}
-            roles={roles}
-            allUsers={users}
-            activeUsers={activeUsers}
-            groups={groups}
-            preapprovals={preapprovals}
-            isAdmin={isAdmin}
-            initialFilter={activeFilter}
-            onFilterChange={(f) => navigate('usuarios', f)}
-          />
-        </TabsContent>
-
-        <TabsContent value="grupos" className="flex-1 min-h-0 mt-2 flex flex-col overflow-hidden">
-          <GroupsTab
-            users={users}
-            groups={groups}
-            roles={roles}
-            isAdmin={isAdmin}
-          />
-        </TabsContent>
-      </Tabs>
-    </div>
+      <TabsContent value="grupos">
+        <GroupsTab
+          users={users}
+          groups={groups}
+          roles={roles}
+          isAdmin={isAdmin}
+        />
+      </TabsContent>
+    </Tabs>
   );
 }

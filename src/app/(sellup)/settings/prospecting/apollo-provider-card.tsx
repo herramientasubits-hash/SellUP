@@ -1,6 +1,6 @@
 'use client';
 
-import { withAppTimeZone } from '@/lib/format-date';
+import { formatAppDateTime } from '@/lib/format-date';
 import { useState, useTransition } from 'react';
 import {
   Search,
@@ -247,7 +247,7 @@ export function ApolloProviderCard({ connection: initialConnection, description 
         );
         showToast('Apollo.io desconectado correctamente.', 'success');
       } else {
-        showToast(result.error ?? 'Error al desconectar.', 'error');
+        showToast(result.error ?? 'No se pudo desconectar. Inténtalo de nuevo.', 'error');
       }
     });
   }
@@ -276,7 +276,7 @@ export function ApolloProviderCard({ connection: initialConnection, description 
             <Search className="h-4 w-4" aria-hidden="true" />
           </div>
           <span className="min-w-0 text-xs text-muted-foreground">
-            Enriquecimiento empresarial · discovery experimental
+            Completa datos de empresas · búsqueda de empresas en pruebas
           </span>
         </div>
 
@@ -293,12 +293,7 @@ export function ApolloProviderCard({ connection: initialConnection, description 
         {connection?.last_tested_at && (
           <p className="mb-4 text-xs tabular-nums text-muted-foreground">
             Última prueba:{' '}
-            {new Date(connection.last_tested_at).toLocaleString('es-ES', withAppTimeZone({
-              day: 'numeric',
-              month: 'short',
-              hour: '2-digit',
-              minute: '2-digit',
-            }))}
+            {formatAppDateTime(connection.last_tested_at)}
           </p>
         )}
 
@@ -318,7 +313,6 @@ export function ApolloProviderCard({ connection: initialConnection, description 
               <Button
                 type="button"
                 size="sm"
-                variant="outline"
                 onClick={handleTestConnection}
                 disabled={isPending}
               >
@@ -369,9 +363,9 @@ export function ApolloProviderCard({ connection: initialConnection, description 
               {dialogMode === 'connect' ? 'Conectar Apollo.io' : 'Actualizar API Key'}
             </DialogTitle>
             <DialogDescription>
-              La API Key se almacenará de forma segura. Apollo complementa datos de empresas
-              ya identificadas y opera como fallback experimental de discovery; no es el motor
-              principal recomendado para lotes masivos.
+              La clave se guarda cifrada en el servidor. Apollo completa datos de empresas que ya
+              se encontraron y, de forma experimental, ayuda a buscar empresas nuevas; no está
+              pensado para lotes muy grandes.
             </DialogDescription>
           </DialogHeader>
 
@@ -393,8 +387,7 @@ export function ApolloProviderCard({ connection: initialConnection, description 
             </div>
 
             <p className="text-xs leading-relaxed text-muted-foreground">
-              El acceso a endpoints específicos y el consumo de créditos dependen del
-              plan de Apollo configurado para esta API Key.
+              Qué se puede consultar y cuántos créditos se gastan depende del plan de Apollo al que pertenece esta clave.
             </p>
           </div>
 

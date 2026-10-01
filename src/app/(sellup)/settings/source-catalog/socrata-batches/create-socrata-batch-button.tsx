@@ -20,18 +20,13 @@ export function CreateSocrataBatchButton() {
           `/settings/source-catalog/socrata-batches/${result.batchId}`,
         );
       } else {
-        setErrorMsg(result.message ?? 'Error desconocido al crear el lote.');
+        setErrorMsg(result.message ?? 'No se pudo crear el lote. Inténtalo de nuevo.');
       }
     });
   }
 
   return (
-    <div className="flex flex-col items-start gap-3">
-      <p className="text-sm leading-relaxed text-muted-foreground">
-        Crea hasta 3 candidatos en modo preview. No aprueba, no asigna y no
-        sincroniza con HubSpot.
-      </p>
-
+    <div className="flex flex-col items-end gap-2">
       <Button type="button" size="sm" onClick={handleClick} disabled={isPending}>
         {isPending ? (
           <>
@@ -41,14 +36,14 @@ export function CreateSocrataBatchButton() {
         ) : (
           <>
             <Plus aria-hidden />
-            Crear lote RUES de prueba
+            Crear lote de prueba
           </>
         )}
       </Button>
 
       {errorMsg && (
-        <div className="flex w-full items-start gap-2 rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3">
-          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" aria-hidden />
+        <div role="alert" className="flex max-w-sm items-start gap-2 rounded-xl border border-destructive/20 bg-destructive/10 px-3 py-2">
+          <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-destructive" aria-hidden />
           <p className="min-w-0 break-words text-xs font-medium text-destructive">{errorMsg}</p>
         </div>
       )}

@@ -221,7 +221,7 @@ export function SlackTestConnectionButton() {
 
   return (
     <div className="space-y-2">
-      <Button variant="outline" onClick={handleTest} disabled={isPending}>
+      <Button onClick={handleTest} disabled={isPending}>
         {isPending && <Loader2 className="animate-spin" />}
         Probar conexión
       </Button>

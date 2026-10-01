@@ -85,14 +85,12 @@ export default async function MyDrivePage({ searchParams }: PageProps) {
   const conn = await getUserDriveConnection();
 
   const status = conn?.connection_status ?? 'not_connected';
-  const credStatus = conn?.credentials_status ?? 'missing';
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Mi Google Drive"
         description="Conecta tu Drive para guardar y organizar los archivos que SellUp genere en tu espacio de trabajo."
-        backHref="/settings"
       />
 
       {/* Banner de éxito */}
@@ -115,56 +113,26 @@ export default async function MyDrivePage({ searchParams }: PageProps) {
       <SurfaceCard>
         <SurfaceCardHeader
           title="Estado de la conexión"
-          description="Estado actual de tu Google Drive personal en SellUp."
+          description="Cada persona conecta su propio Drive. Esta conexión es solo tuya."
         />
 
         <div className="space-y-4">
-          {/* Status block */}
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="min-w-0 space-y-1.5">
-              <p className="text-xs font-semibold text-muted-foreground">
-                Estado
-              </p>
-              <ConnectionStatusBlock status={status} />
-            </div>
-
-            <div className="min-w-0 space-y-1.5">
-              <p className="text-xs font-semibold text-muted-foreground">
-                Credenciales
-              </p>
-              <div
-                className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${
-                  credStatus === 'stored'
-                    ? 'border-success/20 bg-success/10'
-                    : 'border-border/60 bg-surface-subtle'
-                }`}
-              >
-                <span
-                  className={`h-2 w-2 shrink-0 rounded-full ${
-                    credStatus === 'stored' ? 'bg-success' : 'bg-muted-foreground'
-                  }`}
-                  aria-hidden="true"
-                />
-                <span className="text-sm font-medium text-foreground">
-                  {credStatus === 'stored' ? 'Almacenadas' : 'Sin configurar'}
-                </span>
-              </div>
-            </div>
+          {/* Estado: una sola respuesta a «¿funciona?» */}
+          <div className="min-w-0 space-y-1.5">
+            <p className="text-xs font-semibold text-muted-foreground">Estado</p>
+            <ConnectionStatusBlock status={status} />
           </div>
 
           {/* Carpeta raíz */}
           {conn?.drive_folder_id && (
             <div className="min-w-0 space-y-1.5">
               <p className="text-xs font-semibold text-muted-foreground">
-                Carpeta raíz en Drive
+                Carpeta en tu Drive
               </p>
               <div className="flex min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-surface-subtle px-3 py-2">
                 <FolderOpen className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
                 <span className="min-w-0 truncate text-sm font-medium text-foreground">
                   {conn.drive_folder_name ?? 'SellUp'}
-                </span>
-                <span className="ml-auto hidden shrink-0 font-mono text-xs text-muted-foreground sm:block">
-                  {conn.drive_folder_id.slice(0, 12)}…
                 </span>
               </div>
             </div>
@@ -212,9 +180,9 @@ export default async function MyDrivePage({ searchParams }: PageProps) {
         />
         <ul className="space-y-2">
           {[
-            'Crear una carpeta raíz "SellUp" en tu Drive.',
-            'Crear archivos dentro de esa carpeta (propuestas, business cases, reportes).',
-            'Modificar archivos que SellUp haya creado previamente.',
+            'Crear una carpeta «SellUp» en tu Drive.',
+            'Guardar ahí lo que genere: propuestas, casos de negocio e informes.',
+            'Actualizar los archivos que él mismo creó.',
           ].map((item) => (
             <li key={item} className="flex items-start gap-2 text-sm text-muted-foreground">
               <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />
@@ -224,9 +192,8 @@ export default async function MyDrivePage({ searchParams }: PageProps) {
         </ul>
         <div className="mt-4 border-t border-border/50 pt-4">
           <p className="text-xs leading-relaxed text-muted-foreground">
-            SellUp usa el scope <code className="rounded-sm bg-muted px-1 text-xs">drive.file</code>,
-            que solo permite acceder a archivos creados por esta aplicación.
-            SellUp no puede leer, modificar ni eliminar otros archivos de tu Drive.
+            SellUp solo puede ver y cambiar los archivos que él mismo crea. No puede leer, modificar ni
+            borrar nada más de tu Drive.
           </p>
         </div>
       </SurfaceCard>

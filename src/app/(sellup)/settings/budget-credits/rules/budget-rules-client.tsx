@@ -3,12 +3,17 @@
 import { formatInAppZone } from '@/lib/format-date';
 import { useState } from 'react';
 import { Plus, Pencil, Power, ShieldAlert, Trash2 } from "@/icons";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Checkbox } from '@/components/ui/checkbox';
-import { DataTableBulkActionBar } from '@/components/data-table/data-table-bulk-action-bar';
-import type { DataTableBulkAction } from '@/components/data-table/data-table';
-import { PageHeader } from '@/components/shared/page-header';
-import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
+import type { ColumnDef } from '@tanstack/react-table';
+import {
+  DataTable,
+  DataTableColumnHeader,
+  DataTableRowActions,
+  type DataTableBulkAction,
+  type DataTableContextMenuItem,
+} from '@/components/data-table';
+import { StatusBadge } from '@/components/data-display/status-badge';
+import { SettingsPage } from '@/components/settings/settings-page';
+import { LegacyCompatBanner } from '../../legacy-compat-banner';
 import { Button } from '@/components/ui/button';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import {
@@ -35,7 +40,6 @@ import {
 import { createBudgetRule, updateBudgetRule, toggleBudgetRuleStatus, deleteBudgetRule } from '@/modules/budgets/rule-actions';
 import type { BudgetRuleRow, BudgetRuleFormOptions } from '@/modules/budgets/rule-queries';
 import type { BudgetOnExceed, BudgetPeriodType, BudgetScopeType } from '@/modules/usage-tracking/types';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 // ─── Display helpers ──────────────────────────────────────────────────────────
 
@@ -61,8 +65,8 @@ const SCOPE_LABELS: Record<BudgetScopeType, string> = {
 
 function formatLimit(credits: number | null, usd: number | null): string {
   const parts: string[] = [];
-  if (credits != null && credits > 0) parts.push(`${credits.toLocaleString()} cr`);
-  if (usd != null && usd > 0) parts.push(`$${usd.toFixed(2)}`);
+  if (credits != null && credits > 0) parts.push(`${credits.toLocaleString('es-CO')} ${credits === 1 ? 'crédito' : 'créditos'}`);
+  if (usd != null && usd > 0) parts.push(`$${usd.toFixed(2)} USD`);
   return parts.join(' · ') || '—';
 }
 
@@ -541,36 +545,59 @@ export function EditDrawer({
   );
 }
 
-// ─── Rules tab table (with checkbox + bulk actions) ───────────────────────────
+// ─── Rules table ──────────────────────────────────────────────────────────────
 
-interface RulesTabTableProps {
+interface RulesDataTableProps {
   rules: BudgetRuleRow[];
-  emptyMessage: string;
+  onCreate: () => void;
   onEdit: (rule: BudgetRuleRow) => void;
   onToggle: (rule: BudgetRuleRow) => Promise<void>;
+  /** Pide confirmación antes de eliminar: no borra por sí sola. */
   onArchive: (rule: BudgetRuleRow) => void;
-  togglingId: string | null;
+  busyId: string | null;
+  /** Dónde va «Crear regla»: como acción de la lista o en la cabecera de la pantalla. */
+  showCreateAction?: boolean;
 }
 
-function RulesTabTable({ rules, emptyMessage, onEdit, onToggle, onArchive, togglingId }: RulesTabTableProps) {
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+/** El tope que manda para ordenar: dólares si los hay, si no créditos. */
+function limitSortValue(rule: BudgetRuleRow): number {
+  if (rule.limit_usd != null && rule.limit_usd > 0) return rule.limit_usd;
+  return rule.limit_credits ?? 0;
+}
 
-  const selectedRows = rules.filter((r) => selectedIds.has(r.id));
-  const allSelected = rules.length > 0 && selectedIds.size === rules.length;
-  const someSelected = selectedIds.size > 0 && !allSelected;
-
-  function toggleAll() {
-    setSelectedIds(allSelected ? new Set() : new Set(rules.map((r) => r.id)));
-  }
-
-  function toggleRow(id: string) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
+/**
+ * Las reglas de presupuesto en una sola lista: se filtra por proveedor, alcance,
+ * período, acción y estado desde el embudo de cada columna, y se ordena por
+ * límite o fecha. Sustituye a las cuatro pestañas por alcance.
+ */
+function RulesDataTable({
+  rules,
+  onCreate,
+  onEdit,
+  onToggle,
+  onArchive,
+  busyId,
+  showCreateAction = false,
+}: RulesDataTableProps) {
+  const rowMenuItems = (rule: BudgetRuleRow): DataTableContextMenuItem[] => [
+    { id: 'edit', label: 'Editar', icon: Pencil, onClick: () => onEdit(rule) },
+    {
+      id: 'toggle',
+      label: rule.is_active ? 'Desactivar' : 'Activar',
+      icon: Power,
+      disabled: busyId === rule.id,
+      onClick: () => onToggle(rule),
+    },
+    {
+      id: 'delete',
+      label: 'Eliminar',
+      icon: Trash2,
+      variant: 'destructive',
+      separator: true,
+      disabled: busyId === rule.id,
+      onClick: () => onArchive(rule),
+    },
+  ];
 
   const bulkActions: DataTableBulkAction<BudgetRuleRow>[] = [
     {
@@ -578,29 +605,30 @@ function RulesTabTable({ rules, emptyMessage, onEdit, onToggle, onArchive, toggl
       label: 'Editar',
       icon: Pencil,
       disabled: (rows) => rows.length !== 1,
+      disabledLabel: (rows) => (rows.length !== 1 ? 'Marca una sola regla' : undefined),
       onClick: (rows) => { if (rows.length === 1) onEdit(rows[0]); },
     },
     {
       id: 'activar',
-      label: 'Activar seleccionadas',
+      label: 'Activar',
       icon: Power,
       disabled: (rows) => rows.every((r) => r.is_active),
+      disabledLabel: (rows) => (rows.every((r) => r.is_active) ? 'Ya están activas' : undefined),
       onClick: async (rows) => {
         for (const r of rows.filter((r) => !r.is_active)) {
           await onToggle(r);
         }
-        setSelectedIds(new Set());
       },
     },
     {
       id: 'desactivar',
-      label: 'Desactivar seleccionadas',
+      label: 'Desactivar',
       disabled: (rows) => rows.every((r) => !r.is_active),
+      disabledLabel: (rows) => (rows.every((r) => !r.is_active) ? 'Ya están inactivas' : undefined),
       onClick: async (rows) => {
         for (const r of rows.filter((r) => r.is_active)) {
           await onToggle(r);
         }
-        setSelectedIds(new Set());
       },
     },
     {
@@ -609,99 +637,214 @@ function RulesTabTable({ rules, emptyMessage, onEdit, onToggle, onArchive, toggl
       icon: Trash2,
       variant: 'destructive',
       disabled: (rows) => rows.length !== 1,
-      confirm: {
-        title: '¿Eliminar esta regla?',
-        description: (rows) =>
-          `La regla de ${rows[0]?.providerDisplayName ?? 'este proveedor'} (${rows[0]?.scopeLabel ?? ''}) dejará de aplicarse.`,
-        confirmLabel: 'Eliminar regla',
-      },
+      disabledLabel: (rows) => (rows.length !== 1 ? 'Las reglas se eliminan de una en una' : undefined),
+      // La confirmación la pide `onArchive` (un solo diálogo, no dos).
       onClick: (rows) => { if (rows.length === 1) onArchive(rows[0]); },
     },
   ];
 
-  if (rules.length === 0) {
-    return (
-      <EmptyState title={emptyMessage} />
-    );
-  }
+  const unique = <T extends string>(values: T[]) => Array.from(new Set(values));
+
+  const columns: ColumnDef<BudgetRuleRow, unknown>[] = [
+    {
+      id: 'provider',
+      accessorKey: 'providerDisplayName',
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Proveedor" />,
+      cell: ({ row }) => (
+        <span className="whitespace-nowrap text-sm font-medium text-foreground">
+          {row.original.providerDisplayName}
+        </span>
+      ),
+      size: 180,
+      enableHiding: false,
+      meta: {
+        label: 'Proveedor',
+        filterOptions: unique(rules.map((r) => r.providerDisplayName))
+          .sort((a, b) => a.localeCompare(b, 'es'))
+          .map((name) => ({ label: name, value: name })),
+      },
+    },
+    {
+      id: 'scope',
+      accessorKey: 'scope_type',
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Alcance" />,
+      cell: ({ row }) => (
+        <div className="flex min-w-0 items-center gap-2">
+          <Badge variant="neutral">{SCOPE_LABELS[row.original.scope_type]}</Badge>
+          {row.original.scope_type !== 'global' && (
+            <span className="truncate text-sm text-muted-foreground" title={row.original.scopeLabel}>
+              {row.original.scopeLabel}
+            </span>
+          )}
+        </div>
+      ),
+      size: 220,
+      meta: {
+        label: 'Alcance',
+        filterOptions: unique(rules.map((r) => r.scope_type)).map((scope) => ({
+          label: SCOPE_LABELS[scope],
+          value: scope,
+        })),
+      },
+    },
+    {
+      id: 'limit',
+      accessorFn: limitSortValue,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Límite" />,
+      cell: ({ row }) => (
+        <span className="whitespace-nowrap text-sm tabular-nums text-foreground">
+          {formatLimit(row.original.limit_credits, row.original.limit_usd)}
+        </span>
+      ),
+      sortDescFirst: true,
+      size: 150,
+      meta: { label: 'Límite', disableFilter: true },
+    },
+    {
+      id: 'period',
+      accessorKey: 'period_type',
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Período" />,
+      cell: ({ row }) => (
+        <span className="whitespace-nowrap text-sm text-muted-foreground">
+          {PERIOD_LABELS[row.original.period_type]}
+        </span>
+      ),
+      size: 130,
+      meta: {
+        label: 'Período',
+        filterOptions: unique(rules.map((r) => r.period_type)).map((period) => ({
+          label: PERIOD_LABELS[period],
+          value: period,
+        })),
+      },
+    },
+    {
+      id: 'onExceed',
+      accessorKey: 'on_exceed',
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Al superar el límite" />,
+      cell: ({ row }) => (
+        <span className="whitespace-nowrap text-sm text-muted-foreground">
+          {ON_EXCEED_LABELS[row.original.on_exceed]}
+        </span>
+      ),
+      size: 180,
+      meta: {
+        label: 'Al superar el límite',
+        filterOptions: unique(rules.map((r) => r.on_exceed)).map((action) => ({
+          label: ON_EXCEED_LABELS[action],
+          value: action,
+        })),
+      },
+    },
+    {
+      id: 'status',
+      accessorFn: (rule) => (rule.is_active ? 'active' : 'inactive'),
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Estado" />,
+      cell: ({ row }) => (
+        <StatusBadge
+          status={row.original.is_active ? 'active' : 'inactive'}
+          label={row.original.is_active ? 'Activa' : 'Inactiva'}
+        />
+      ),
+      size: 120,
+      meta: {
+        label: 'Estado',
+        filterOptions: [
+          { label: 'Activa', value: 'active' },
+          { label: 'Inactiva', value: 'inactive' },
+        ],
+      },
+    },
+    {
+      id: 'updatedAt',
+      accessorKey: 'updated_at',
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Actualizada" />,
+      cell: ({ row }) => (
+        <span className="whitespace-nowrap text-sm text-muted-foreground">
+          {formatDate(row.original.updated_at)}
+        </span>
+      ),
+      sortDescFirst: true,
+      size: 130,
+      meta: { label: 'Actualizada', disableFilter: true },
+    },
+    {
+      id: 'actions',
+      header: () => <span className="sr-only">Acciones</span>,
+      cell: ({ row }) => (
+        <div className="flex justify-end" onClick={(event) => event.stopPropagation()}>
+          <DataTableRowActions
+            items={rowMenuItems(row.original)}
+            rowLabel={`la regla de ${row.original.providerDisplayName}`}
+          />
+        </div>
+      ),
+      size: 56,
+      enableSorting: false,
+      enableHiding: false,
+      enableColumnFilter: false,
+      meta: { label: 'Acciones', disableFilter: true, disableSort: true },
+    },
+  ];
 
   return (
-    <>
-      <div className="overflow-x-auto rounded-xl border border-border/60">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-10">
-                <Checkbox
-                  checked={allSelected ? true : someSelected ? 'indeterminate' : false}
-                  onCheckedChange={toggleAll}
-                  aria-label="Seleccionar todas las reglas"
-                />
-              </TableHead>
-              {['Proveedor', 'Alcance', 'Límite', 'Período', 'Acción', 'Estado', 'Actualizado'].map((col) => (
-                <TableHead key={col} className={col === 'Límite' ? 'text-right' : undefined}>
-                  {col}
-                </TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rules.map((rule) => {
-              const isSelected = selectedIds.has(rule.id);
-              return (
-                <TableRow key={rule.id} data-state={isSelected ? 'selected' : undefined}>
-                  <TableCell className="w-10">
-                    <Checkbox
-                      checked={isSelected}
-                      onCheckedChange={() => toggleRow(rule.id)}
-                      aria-label={`Seleccionar regla de ${rule.providerDisplayName}`}
-                    />
-                  </TableCell>
-                  <TableCell className="font-medium text-foreground">{rule.providerDisplayName}</TableCell>
-                  <TableCell>
-                    <Badge variant="neutral">
-                      {rule.scopeLabel}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-foreground">{formatLimit(rule.limit_credits, rule.limit_usd)}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{PERIOD_LABELS[rule.period_type]}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{ON_EXCEED_LABELS[rule.on_exceed]}</TableCell>
-                  <TableCell>
-                    <Badge variant={rule.is_active ? 'positive' : 'neutral'}>
-                      {rule.is_active ? 'Activa' : 'Inactiva'}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{formatDate(rule.updated_at)}</TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </div>
-
-      <DataTableBulkActionBar
-        selectedCount={selectedIds.size}
-        selectedRows={selectedRows}
-        actions={bulkActions}
-        onClear={() => setSelectedIds(new Set())}
-      />
-    </>
+    <DataTable
+      tableId="settings-budget-rules"
+      noun="reglas"
+      nounGender="f"
+      title="Reglas de presupuesto"
+      description="Por ahora las reglas solo avisan: no detienen ninguna operación."
+      count={rules.length}
+      columns={columns}
+      data={rules}
+      getRowId={(rule) => rule.id}
+      getRowLabel={(rule) => `la regla de ${rule.providerDisplayName}`}
+      enableRowSelection
+      bulkActions={bulkActions}
+      contextMenu={{ items: rowMenuItems }}
+      actions={
+        showCreateAction ? (
+          <Button size="sm" variant="outline" onClick={onCreate}>
+            <Plus />
+            Crear regla
+          </Button>
+        ) : undefined
+      }
+      emptyState={
+        <EmptyState
+          variant="plain"
+          icon={ShieldAlert}
+          title="Todavía no hay reglas de presupuesto"
+          description="Crea una regla para recibir un aviso cuando un proveedor, un grupo o una persona se acerque a su tope de gasto."
+          action={
+            <Button size="sm" variant="outline" onClick={onCreate}>
+              <Plus />
+              Crear regla
+            </Button>
+          }
+        />
+      }
+    />
   );
 }
 
-// ─── Tabbed section (embedded in main budget-credits page) ────────────────────
+// ─── Estado compartido de la gestión de reglas ────────────────────────────────
 
-interface TabbedSectionProps {
+interface RulesWorkspaceProps {
   rules: BudgetRuleRow[];
   options: BudgetRuleFormOptions;
+  showCreate: boolean;
+  onShowCreateChange: (open: boolean) => void;
+  showCreateAction?: boolean;
 }
 
-export function BudgetRulesTabbedSection({ rules, options }: TabbedSectionProps) {
-  const [showCreate, setShowCreate] = useState(false);
+/** La lista de reglas con sus paneles de crear/editar y la confirmación de borrado. */
+function RulesWorkspace({ rules, options, showCreate, onShowCreateChange, showCreateAction }: RulesWorkspaceProps) {
   const [editRule, setEditRule] = useState<BudgetRuleRow | null>(null);
   const [toggling, setToggling] = useState<string | null>(null);
   const [confirmArchive, setConfirmArchive] = useState<BudgetRuleRow | null>(null);
   const [archiving, setArchiving] = useState<string | null>(null);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
 
   async function handleToggle(rule: BudgetRuleRow) {
     setToggling(rule.id);
@@ -712,9 +855,10 @@ export function BudgetRulesTabbedSection({ rules, options }: TabbedSectionProps)
 
   async function handleArchive(rule: BudgetRuleRow) {
     setArchiving(rule.id);
+    setArchiveError(null);
     const result = await deleteBudgetRule(rule.id);
     if (!result.success) {
-      alert(result.error ?? 'Error al eliminar la regla.');
+      setArchiveError(result.error ?? 'No se pudo eliminar la regla. Inténtalo de nuevo.');
       setArchiving(null);
       return;
     }
@@ -723,115 +867,22 @@ export function BudgetRulesTabbedSection({ rules, options }: TabbedSectionProps)
     window.location.reload();
   }
 
-  const globalRules = rules.filter((r) => r.scope_type === 'global');
-  const roleRules   = rules.filter((r) => r.scope_type === 'role');
-  const groupRules  = rules.filter((r) => r.scope_type === 'group');
-  const userRules   = rules.filter((r) => r.scope_type === 'user');
-
   return (
     <>
-      <div className="space-y-4">
-        {/* Section header */}
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <h2 className="text-base font-semibold tracking-tight text-foreground">Reglas de presupuesto</h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Configura alertas por proveedor, operación y alcance. Estas reglas aún no bloquean ejecuciones.
-            </p>
-          </div>
-          <Button size="sm" className="shrink-0" onClick={() => setShowCreate(true)}>
-            <Plus />
-            Crear regla
-          </Button>
-        </div>
+      <RulesDataTable
+        rules={rules}
+        onCreate={() => onShowCreateChange(true)}
+        onEdit={setEditRule}
+        onToggle={handleToggle}
+        onArchive={(rule) => { setArchiveError(null); setConfirmArchive(rule); }}
+        busyId={toggling ?? archiving}
+        showCreateAction={showCreateAction}
+      />
 
-        {/* Tabs */}
-        <Tabs defaultValue="global">
-          <TabsList>
-            <TabsTrigger value="global">
-              Globales
-              {globalRules.length > 0 && (
-                <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
-                  {globalRules.length}
-                </span>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="role">
-              Por rol
-              {roleRules.length > 0 && (
-                <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
-                  {roleRules.length}
-                </span>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="group">
-              Por grupo
-              {groupRules.length > 0 && (
-                <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
-                  {groupRules.length}
-                </span>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="user">
-              Por usuario
-              {userRules.length > 0 && (
-                <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
-                  {userRules.length}
-                </span>
-              )}
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="global" className="mt-4">
-            <RulesTabTable
-              rules={globalRules}
-              emptyMessage="No hay reglas globales configuradas."
-              onEdit={setEditRule}
-              onToggle={handleToggle}
-              onArchive={setConfirmArchive}
-              togglingId={toggling}
-            />
-          </TabsContent>
-
-          <TabsContent value="role" className="mt-4">
-            <RulesTabTable
-              rules={roleRules}
-              emptyMessage="No hay reglas por rol configuradas."
-              onEdit={setEditRule}
-              onToggle={handleToggle}
-              onArchive={setConfirmArchive}
-              togglingId={toggling}
-            />
-          </TabsContent>
-
-          <TabsContent value="group" className="mt-4">
-            <RulesTabTable
-              rules={groupRules}
-              emptyMessage="No hay reglas por grupo configuradas."
-              onEdit={setEditRule}
-              onToggle={handleToggle}
-              onArchive={setConfirmArchive}
-              togglingId={toggling}
-            />
-          </TabsContent>
-
-          <TabsContent value="user" className="mt-4">
-            <RulesTabTable
-              rules={userRules}
-              emptyMessage="No hay reglas por usuario configuradas."
-              onEdit={setEditRule}
-              onToggle={handleToggle}
-              onArchive={setConfirmArchive}
-              togglingId={toggling}
-            />
-          </TabsContent>
-        </Tabs>
-      </div>
-
-      <CreateDrawer options={options} open={showCreate} onOpenChange={setShowCreate} />
+      <CreateDrawer options={options} open={showCreate} onOpenChange={onShowCreateChange} />
       <EditDrawer rule={editRule} open={!!editRule} onOpenChange={(v) => { if (!v) setEditRule(null); }} />
 
-      {/* Archive confirmation */}
+      {/* Confirmación de borrado */}
       <Dialog open={!!confirmArchive} onOpenChange={(v) => { if (!v) setConfirmArchive(null); }}>
         {confirmArchive && (
           <DialogContent className="sm:max-w-sm" showCloseButton={false}>
@@ -839,9 +890,14 @@ export function BudgetRulesTabbedSection({ rules, options }: TabbedSectionProps)
               <DialogTitle>¿Eliminar esta regla?</DialogTitle>
               <DialogDescription>
                 La regla de <span className="font-medium text-foreground">{confirmArchive.providerDisplayName}</span>{' '}
-                ({confirmArchive.scopeLabel}) dejará de aplicarse.
+                ({confirmArchive.scopeLabel}) dejará de aplicarse. El consumo y los avisos ya registrados se conservan.
               </DialogDescription>
             </DialogHeader>
+            {archiveError && (
+              <Alert variant="destructive">
+                <AlertDescription>{archiveError}</AlertDescription>
+              </Alert>
+            )}
             <DialogFooter>
               <Button
                 variant="outline"
@@ -862,6 +918,31 @@ export function BudgetRulesTabbedSection({ rules, options }: TabbedSectionProps)
         )}
       </Dialog>
     </>
+  );
+}
+
+// ─── Section (embedded in the budget-credits page) ────────────────────────────
+
+interface TabbedSectionProps {
+  rules: BudgetRuleRow[];
+  options: BudgetRuleFormOptions;
+}
+
+/**
+ * Las reglas dentro de otra pantalla. Conserva el nombre por compatibilidad:
+ * ya no hay pestañas por alcance, el alcance se filtra desde su columna.
+ */
+export function BudgetRulesTabbedSection({ rules, options }: TabbedSectionProps) {
+  const [showCreate, setShowCreate] = useState(false);
+
+  return (
+    <RulesWorkspace
+      rules={rules}
+      options={options}
+      showCreate={showCreate}
+      onShowCreateChange={setShowCreate}
+      showCreateAction
+    />
   );
 }
 
@@ -874,175 +955,30 @@ interface Props {
 
 export function BudgetRulesClient({ rules, options }: Props) {
   const [showCreate, setShowCreate] = useState(false);
-  const [editRule, setEditRule] = useState<BudgetRuleRow | null>(null);
-  const [toggling, setToggling] = useState<string | null>(null);
-  const [confirmArchive, setConfirmArchive] = useState<BudgetRuleRow | null>(null);
-  const [archiving, setArchiving] = useState<string | null>(null);
-
-  async function handleToggle(rule: BudgetRuleRow) {
-    setToggling(rule.id);
-    await toggleBudgetRuleStatus(rule.id, !rule.is_active);
-    setToggling(null);
-    window.location.reload();
-  }
-
-  async function handleArchive(rule: BudgetRuleRow) {
-    setArchiving(rule.id);
-    const result = await deleteBudgetRule(rule.id);
-    if (!result.success) {
-      alert(result.error ?? 'Error al eliminar la regla.');
-      setArchiving(null);
-      return;
-    }
-    setArchiving(null);
-    setConfirmArchive(null);
-    window.location.reload();
-  }
 
   return (
-    <>
-      {/* Header */}
-      <PageHeader
-        className="pb-0"
-        breadcrumbs={
-          <Breadcrumbs
-            items={[
-              { label: 'Configuración', href: '/settings' },
-              { label: 'Proveedores y consumo', href: '/settings/providers?tab=consumo' },
-              'Reglas de presupuesto',
-            ]}
-          />
-        }
-        title="Reglas de presupuesto"
-        description="Define límites por proveedor, usuario, grupo, rol o global."
-        backHref="/settings/providers?tab=consumo"
-        actions={
-          <Button size="sm" onClick={() => setShowCreate(true)}>
-            <Plus />
-            Nueva regla
-          </Button>
-        }
+    <SettingsPage
+      title="Reglas de presupuesto"
+      description="Fija un tope de gasto por proveedor para toda la empresa, un rol, un grupo o una persona."
+      trail={[{ label: 'Proveedores y consumo', href: '/settings/providers' }]}
+      actions={
+        <Button size="sm" onClick={() => setShowCreate(true)}>
+          <Plus />
+          Nueva regla
+        </Button>
+      }
+    >
+      <LegacyCompatBanner
+        message="También puedes gestionar las reglas de cada proveedor desde su detalle, en Proveedores y consumo."
+        ctaLabel="Ir a Proveedores y consumo"
+        ctaHref="/settings/providers"
       />
-
-      {/* Table */}
-      {rules.length === 0 ? (
-        <EmptyState title="Aún no hay reglas de presupuesto. Crea la primera con el botón Nueva regla." />
-      ) : (
-        <div className="overflow-x-auto rounded-xl border border-border/60">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                {['Proveedor', 'Alcance', 'Límite', 'Período', 'Acción', 'Estado', 'Actualizado', 'Acciones'].map(
-                  (col) => (
-                    <TableHead key={col} className={col === 'Límite' ? 'text-right' : undefined}>
-                      {col}
-                    </TableHead>
-                  ),
-                )}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rules.map((rule) => (
-                <TableRow key={rule.id}>
-                  <TableCell className="font-medium text-foreground">
-                    {rule.providerDisplayName}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="neutral">
-                      {rule.scopeLabel}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-foreground">
-                    {formatLimit(rule.limit_credits, rule.limit_usd)}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {PERIOD_LABELS[rule.period_type]}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {ON_EXCEED_LABELS[rule.on_exceed]}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={rule.is_active ? 'positive' : 'neutral'}>
-                      {rule.is_active ? 'Activa' : 'Inactiva'}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {formatDate(rule.updated_at)}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button
-                        size="xs"
-                        variant="ghost"
-                        onClick={() => setEditRule(rule)}
-                      >
-                        <Pencil />
-                        Editar
-                      </Button>
-                      {rule.is_active && (
-                        <Button
-                          size="xs"
-                          variant="destructive"
-                          disabled={toggling === rule.id || archiving === rule.id}
-                          onClick={() => setConfirmArchive(rule)}
-                        >
-                          <Trash2 />
-                          Eliminar
-                        </Button>
-                      )}
-                      {!rule.is_active && (
-                        <Button
-                          size="xs"
-                          variant="ghost"
-                          disabled={toggling === rule.id}
-                          onClick={() => handleToggle(rule)}
-                        >
-                          <Power />
-                          Activar
-                        </Button>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-
-      <CreateDrawer options={options} open={showCreate} onOpenChange={setShowCreate} />
-      <EditDrawer rule={editRule} open={!!editRule} onOpenChange={(v) => { if (!v) setEditRule(null); }} />
-
-      {/* Archive confirmation dialog */}
-      <Dialog open={!!confirmArchive} onOpenChange={(v) => { if (!v) setConfirmArchive(null); }}>
-        {confirmArchive && (
-          <DialogContent className="sm:max-w-sm" showCloseButton={false}>
-            <DialogHeader>
-              <DialogTitle>¿Eliminar esta regla?</DialogTitle>
-              <DialogDescription>
-                La regla de <span className="font-medium text-foreground">{confirmArchive.providerDisplayName}</span>{' '}
-                ({confirmArchive.scopeLabel}) dejará de aplicarse. No se eliminarán consumos ni evaluaciones históricas.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => setConfirmArchive(null)}
-                disabled={archiving === confirmArchive.id}
-              >
-                Cancelar
-              </Button>
-              <Button
-                variant="destructive-solid"
-                disabled={archiving === confirmArchive.id}
-                onClick={() => handleArchive(confirmArchive)}
-              >
-                {archiving === confirmArchive.id ? 'Eliminando...' : 'Eliminar regla'}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        )}
-      </Dialog>
-    </>
+      <RulesWorkspace
+        rules={rules}
+        options={options}
+        showCreate={showCreate}
+        onShowCreateChange={setShowCreate}
+      />
+    </SettingsPage>
   );
 }

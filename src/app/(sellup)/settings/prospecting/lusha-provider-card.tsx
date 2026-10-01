@@ -1,6 +1,6 @@
 'use client';
 
-import { withAppTimeZone } from '@/lib/format-date';
+import { formatAppDateTime } from '@/lib/format-date';
 import { useState, useTransition } from 'react';
 import {
   Sparkles,
@@ -247,7 +247,7 @@ export function LushaProviderCard({ connection: initialConnection, description }
         );
         showToast('Lusha desconectado correctamente.', 'success');
       } else {
-        showToast(result.error ?? 'Error al desconectar.', 'error');
+        showToast(result.error ?? 'No se pudo desconectar. Inténtalo de nuevo.', 'error');
       }
     });
   }
@@ -293,12 +293,7 @@ export function LushaProviderCard({ connection: initialConnection, description }
         {connection?.last_tested_at && (
           <p className="mb-4 text-xs tabular-nums text-muted-foreground">
             Última prueba:{' '}
-            {new Date(connection.last_tested_at).toLocaleString('es-ES', withAppTimeZone({
-              day: 'numeric',
-              month: 'short',
-              hour: '2-digit',
-              minute: '2-digit',
-            }))}
+            {formatAppDateTime(connection.last_tested_at)}
           </p>
         )}
 
@@ -318,7 +313,6 @@ export function LushaProviderCard({ connection: initialConnection, description }
               <Button
                 type="button"
                 size="sm"
-                variant="outline"
                 onClick={handleTestConnection}
                 disabled={isPending}
               >
@@ -369,9 +363,8 @@ export function LushaProviderCard({ connection: initialConnection, description }
               {dialogMode === 'connect' ? 'Conectar Lusha' : 'Actualizar API Key'}
             </DialogTitle>
             <DialogDescription>
-              La API Key se almacenará de forma segura y permitirá que SellUp use Lusha
-              como proveedor de enriquecimiento y datos comerciales cuando los flujos
-              operativos lo requieran.
+              La clave se guarda cifrada en el servidor. Con ella SellUp usa Lusha para
+              encontrar empresas y completar sus datos.
             </DialogDescription>
           </DialogHeader>
 

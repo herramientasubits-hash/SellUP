@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { PageHeader } from '@/components/shared/page-header';
+import { SettingsPage } from '@/components/settings/settings-page';
 import {
   getAllUsers,
   getAllRoles,
@@ -24,43 +24,30 @@ export default async function UsersManagementPage() {
   ]);
 
   const activeUsers    = users.filter(u => u.access_status === 'active');
-  const pendingUsers   = users.filter(u => u.access_status === 'pending_approval');
-  const suspendedUsers = users.filter(u => u.access_status === 'suspended');
-  const rejectedUsers  = users.filter(u => u.access_status === 'rejected');
 
   return (
     <ScreenActionRailProvider>
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="flex items-start justify-between gap-4 shrink-0 px-8 pt-6 pb-2">
-        <PageHeader
-          title="Usuarios y acceso"
-          description="Gestionar solicitudes, roles, jerarquía y estados de acceso de SellUp."
-          backHref="/settings"
-        />
-        {isAdmin && (
+      {/* El hueco inferior deja sitio a la barra flotante de acciones. */}
+      <SettingsPage
+        title="Usuarios y acceso"
+        description="Aprueba solicitudes y gestiona roles, grupos y accesos del equipo."
+        className="pb-24"
+        actions={
           <ScreenActionRail label="Acciones de usuarios">
             <ActionButtons groups={groups} />
             <AddUserDrawer roles={roles} activeUsers={activeUsers} groups={groups} />
           </ScreenActionRail>
-        )}
-      </div>
-
-      <div className="flex-1 min-h-0 px-8 pb-4 overflow-hidden">
-        <div className="h-full">
-          <UsersSettingsClient
-            users={users}
-            roles={roles}
-            activeUsers={activeUsers}
-            pendingUsers={pendingUsers}
-            suspendedUsers={suspendedUsers}
-            rejectedUsers={rejectedUsers}
-            preapprovals={preapprovals}
-            groups={groups}
-            isAdmin={isAdmin}
-          />
-        </div>
-      </div>
-    </div>
+        }
+      >
+        <UsersSettingsClient
+          users={users}
+          roles={roles}
+          activeUsers={activeUsers}
+          preapprovals={preapprovals}
+          groups={groups}
+          isAdmin={isAdmin}
+        />
+      </SettingsPage>
     </ScreenActionRailProvider>
   );
 }
