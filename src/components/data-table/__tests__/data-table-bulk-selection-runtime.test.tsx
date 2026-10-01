@@ -118,10 +118,10 @@ describe('DataTable — clearSelection ref hides the bulk action bar', () => {
       />,
     );
 
-    assert.equal(screen.queryByText('Seleccionados'), null, 'bar hidden with no selection');
+    assert.equal(screen.queryByText(/^seleccionad[oa]s?$/), null, 'bar hidden with no selection');
 
     selectAllRows();
-    assert.ok(screen.getByText('Seleccionados'), 'bar appears once rows are selected');
+    assert.ok(screen.getByText(/^seleccionad[oa]s?$/), 'bar appears once rows are selected');
 
     assert.ok(ref.current, 'DataTableHandle must be attached to the ref');
     React.act(() => {
@@ -129,7 +129,7 @@ describe('DataTable — clearSelection ref hides the bulk action bar', () => {
     });
 
     assert.equal(
-      screen.queryByText('Seleccionados'),
+      screen.queryByText(/^seleccionad[oa]s?$/),
       null,
       'bar must hide once selection is cleared via the ref — this is the mechanism ' +
         'ProspectsDataTableClient uses so opening the side panel never leaves the ' +

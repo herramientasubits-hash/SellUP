@@ -1,9 +1,9 @@
 import { redirect } from 'next/navigation';
-import { Search, Sparkles, Database, CircleDashed, CheckCircle2, Clock } from "@/icons";
-import { PageHeader } from '@/components/shared/page-header';
+import { Search, Sparkles, CheckCircle2 } from "@/icons";
+import { SettingsPage, TechnicalDetails } from '@/components/settings/settings-page';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
-import { MetricCard } from '@/components/shared/metric-card';
 import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
 import {
   getAllProspectingProviders,
@@ -31,13 +31,13 @@ function lifecycleLabel(status: LifecycleStatus): { label: string; className: st
   switch (status) {
     case 'prepared':
       return {
-        label: 'Preparado para futura conexión',
+        label: 'Listo para conectar',
         className: 'border-primary/30 bg-primary/10 text-primary',
         dotClass: 'bg-primary',
       };
     case 'planned':
       return {
-        label: 'Contemplado',
+        label: 'En estudio',
         className: 'border-border/60 bg-surface-subtle text-muted-foreground',
         dotClass: 'bg-muted-foreground/30',
       };
@@ -91,7 +91,7 @@ function StaticProviderCard({ provider }: { provider: ProspectingProvider }) {
         </div>
 
         <span className="cursor-default select-none text-xs font-medium text-muted-foreground">
-          Conexión pendiente de definición
+          Aún no se puede conectar
         </span>
       </div>
     </SurfaceCard>
@@ -124,108 +124,68 @@ export default async function ProspectingPage() {
     lushaConnection?.connection_status === 'connected' ? 'Lusha' : null,
   ].filter(Boolean) as string[];
 
-  const activeProviderLabel = activeProviderNames.length === 1 ? 'Proveedor activo' : 'Proveedores activos';
-  const activeProviderValue = activeProviderNames.length > 0
-    ? activeProviderNames.join(' + ')
-    : 'No definido';
+  const activeProviderLabel = 'En uso';
+  const connectableCount = (apolloProvider ? 1 : 0) + (lushaProvider ? 1 : 0);
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Prospección y enriquecimiento"
-        description="Administra los proveedores externos que SellUp usa para generar y enriquecer prospectos."
-        backHref="/settings"
-      />
+    <SettingsPage
+      title="Prospección y enriquecimiento"
+      description="Los proveedores con los que SellUp encuentra empresas y completa sus datos."
+    >
+      {/* Qué está en uso ahora, en una línea */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
+        <span className="text-sm text-muted-foreground">{activeProviderLabel}:</span>
+        {activeProviderNames.length > 0 ? (
+          activeProviderNames.map((name) => (
+            <Badge key={name} variant="positive">
+              <CheckCircle2 aria-hidden="true" />
+              {name}
+            </Badge>
+          ))
+        ) : (
+          <span className="text-sm font-medium text-foreground">
+            Ninguno todavía. Conecta uno de los proveedores de abajo para empezar a prospectar.
+          </span>
+        )}
+      </div>
 
-      {/* Resumen */}
-      <section className="space-y-3">
-        <h2 className="text-base font-semibold tracking-tight text-foreground">
-          Resumen
-        </h2>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <MetricCard
-            title="Proveedores contemplados"
-            description="Fuentes identificadas para discovery"
-            value={stats.total}
-            icon={
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Database className="h-4 w-4" aria-hidden="true" />
-              </div>
-            }
-          />
-          <MetricCard
-            title="Preparados para conexión"
-            description="Listos para habilitar"
-            value={stats.prepared}
-            valueClassName="text-primary"
-            icon={
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-              </div>
-            }
-          />
-          <MetricCard
-            title="Aún sin evaluar"
-            description="Pendientes de evaluación"
-            value={stats.total - stats.prepared}
-            icon={
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                <Clock className="h-4 w-4" aria-hidden="true" />
-              </div>
-            }
-          />
-          <MetricCard
-            title={activeProviderLabel}
-            description="Proveedor activo actual"
-            value={activeProviderValue}
-            valueClassName={
-              activeProviderNames.length > 0
-                ? 'text-success text-lg'
-                : 'text-muted-foreground text-base'
-            }
-            icon={
-              <div
-                className={`flex h-8 w-8 items-center justify-center rounded-lg ${
-                  activeProviderNames.length > 0
-                    ? 'bg-success/10 text-success'
-                    : 'bg-muted text-muted-foreground'
-                }`}
-              >
-                <CircleDashed className="h-4 w-4" aria-hidden="true" />
-              </div>
-            }
-          />
-        </div>
-      </section>
-
-      {/* Proveedores */}
-      <section className="space-y-3">
-        <h2 className="text-base font-semibold tracking-tight text-foreground">
-          Proveedores
-        </h2>
-        <div className="grid gap-4 md:grid-cols-2">
-          {/* Apollo — tarjeta interactiva con conexión real */}
+      {/* Los que se pueden conectar hoy */}
+      {connectableCount === 0 ? (
+        <EmptyState
+          icon={Search}
+          title="No hay proveedores para conectar"
+          description="Cuando se habilite un proveedor de prospección para tu organización aparecerá aquí."
+        />
+      ) : (
+        <div className="grid items-start gap-4 md:grid-cols-2">
           {apolloProvider && (
             <ApolloProviderCard
               connection={apolloConnection}
               description={apolloProvider.description}
             />
           )}
-
-          {/* Lusha — tarjeta interactiva con conexión real */}
           {lushaProvider && (
             <LushaProviderCard
               connection={lushaConnection}
               description={lushaProvider.description}
             />
           )}
-
-          {/* Futuros proveedores — tarjetas estáticas */}
-          {otherProviders.map((provider) => (
-            <StaticProviderCard key={provider.id} provider={provider} />
-          ))}
         </div>
-      </section>
-    </div>
+      )}
+
+      {/* Los que todavía no: fuera de la vista principal */}
+      {otherProviders.length > 0 && (
+        <TechnicalDetails
+          title={`Otros proveedores en estudio (${otherProviders.length})`}
+          summary={`De ${stats.total} proveedores evaluados, ${stats.prepared} están listos para conectarse. Estos aún no se pueden usar.`}
+        >
+          <div className="grid gap-4 md:grid-cols-2">
+            {otherProviders.map((provider) => (
+              <StaticProviderCard key={provider.id} provider={provider} />
+            ))}
+          </div>
+        </TechnicalDetails>
+      )}
+    </SettingsPage>
   );
 }

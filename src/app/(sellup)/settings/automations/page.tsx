@@ -24,8 +24,8 @@ export default async function AutomationsPage() {
 
   const summaryCards = [
     {
-      label: 'Configuradas',
-      description: 'Total de automatizaciones',
+      label: 'Automatizaciones',
+      description: 'En total',
       value: summary.total,
       icon: Bot,
       color: 'text-primary',
@@ -33,7 +33,7 @@ export default async function AutomationsPage() {
     },
     {
       label: 'Automáticas',
-      description: 'Ejecutadas sin intervención',
+      description: 'SellUp actúa solo',
       value: summary.automatic,
       icon: Zap,
       color: 'text-success',
@@ -41,7 +41,7 @@ export default async function AutomationsPage() {
     },
     {
       label: 'Sugeridas',
-      description: 'Con sugerencia de IA',
+      description: 'SellUp propone, tú decides',
       value: summary.suggested,
       icon: Lightbulb,
       color: 'text-primary',
@@ -49,7 +49,7 @@ export default async function AutomationsPage() {
     },
     {
       label: 'Manuales',
-      description: 'Requieren acción humana',
+      description: 'Las haces tú',
       value: summary.manual,
       icon: MousePointerClick,
       color: 'text-muted-foreground',
@@ -61,9 +61,18 @@ export default async function AutomationsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Automatizaciones"
-        description="Controla cómo SellUp responde ante eventos clave del flujo comercial, definiendo qué acciones son manuales, sugeridas o automáticas."
-        backHref="/settings"
+        description="Decide qué hace SellUp por su cuenta, qué sugiere y qué espera a que lo hagas tú."
       />
+
+      {/* Lo primero que hay que saber: aquí se decide, todavía no se ejecuta */}
+      <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
+        <Brain className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
+        <p className="min-w-0 text-sm leading-relaxed text-muted-foreground">
+          <span className="font-semibold text-foreground">Aquí eliges cómo quieres que actúe SellUp.</span>{' '}
+          Poner algo en <strong className="font-semibold text-foreground">Automático</strong> todavía no lanza
+          ninguna acción: deja guardada tu preferencia para cuando cada automatización esté disponible.
+        </p>
+      </div>
 
       {/* Resumen */}
       <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
@@ -86,8 +95,8 @@ export default async function AutomationsPage() {
       {/* Leyenda de modos */}
       <SurfaceCard>
         <SurfaceCardHeader
-          title="Modos de ejecución"
-          description="Cómo SellUp interpreta cada configuración"
+          title="Qué significa cada modo"
+          description="Los tres niveles entre hacerlo tú y que SellUp lo haga solo"
         />
         <div className="grid gap-3 sm:grid-cols-3">
           {(
@@ -136,15 +145,15 @@ export default async function AutomationsPage() {
       <section className="space-y-4">
         <SurfaceCardHeader
           className="mb-0"
-          title="Automatizaciones configurables"
-          description="Ajusta el comportamiento de SellUp para cada evento operativo"
+          title="Tus automatizaciones"
+          description="Elige el modo de cada una"
         />
 
         {automations.length === 0 ? (
           <EmptyState
             icon={Bot}
-            title="Sin automatizaciones registradas"
-            description="Las automatizaciones aparecerán aquí cuando sean configuradas en el sistema."
+            title="Todavía no hay automatizaciones"
+            description="Cuando SellUp tenga una acción que se pueda automatizar aparecerá aquí para que elijas su modo."
           />
         ) : (
           <div className="space-y-4">
@@ -154,27 +163,6 @@ export default async function AutomationsPage() {
           </div>
         )}
       </section>
-
-      {/* Nota informativa */}
-      <SurfaceCard className="bg-surface-subtle shadow-none">
-        <div className="flex items-start gap-3">
-          <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-            <Brain className="h-3 w-3 text-primary" aria-hidden="true" />
-          </div>
-          <div className="min-w-0 space-y-1">
-            <p className="text-xs font-semibold text-foreground">
-              Esta sección configura comportamiento, no ejecuta flujos
-            </p>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Los ajustes realizados aquí serán consultados por los módulos operativos de
-              SellUp (Pipeline, Cuentas, agentes de IA) cuando estén disponibles.
-              Cambiar el modo a{' '}
-              <strong>Automático</strong> no ejecuta nada todavía — prepara la
-              configuración para cuando los flujos reales sean implementados.
-            </p>
-          </div>
-        </div>
-      </SurfaceCard>
     </div>
   );
 }

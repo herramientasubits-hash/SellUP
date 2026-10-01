@@ -6311,3 +6311,12 @@ jobs:
       # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
       - name: Run Thema design system tests
         run: npm run test:ui-thema
+
+      # UI-EXPERIENCE - la experiencia de las pantallas: tabla de Thema (filtro
+      # por columna, Configurar tabla, menu de seleccion), filtros rapidos,
+      # pestanas con contador, drawers reorganizados, Configuracion con
+      # navegacion propia y Uso de IA en pestanas.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run UI experience tests
+        run: npm run test:ui-experience

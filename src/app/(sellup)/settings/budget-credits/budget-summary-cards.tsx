@@ -29,16 +29,27 @@ export function BudgetSummaryCards({ providers }: Props) {
       ? resolveCostDisplay({
           valueUsd: totalUsd,
           costTruth: toCostTruth(consumptionHasUnknownCost),
-          formatUsd: (v) => `$${v.toFixed(2)} USD`,
+          formatUsd: (v) => `$${v.toFixed(2)}`,
         })
       : null;
 
-  const consumptionLabel = [
-    totalCredits > 0 ? `${totalCredits.toLocaleString()} cr` : null,
-    usdDisplay?.label ?? null,
-  ]
-    .filter(Boolean)
-    .join(' · ') || '—';
+  // Valor principal + subtítulo, cada uno en su renglón: los dólares mandan
+  // (los créditos de proveedores distintos no se suman entre sí con sentido) y
+  // los créditos acompañan debajo.
+  const creditsLabel =
+    totalCredits > 0
+      ? `${totalCredits.toLocaleString('es-CO')} ${totalCredits === 1 ? 'crédito' : 'créditos'}`
+      : null;
+  const consumption: { value: string; unit?: string; detail?: string } = usdDisplay
+    ? {
+        value: usdDisplay.label,
+        // «Costo desconocido» no es una cifra: no lleva unidad.
+        unit: usdDisplay.label.startsWith('$') ? 'USD' : undefined,
+        detail: creditsLabel ?? undefined,
+      }
+    : creditsLabel
+      ? { value: totalCredits.toLocaleString('es-CO'), unit: totalCredits === 1 ? 'crédito' : 'créditos' }
+      : { value: '—', detail: 'Sin consumo registrado' };
   const consumptionDescription = usdDisplay?.description ?? undefined;
 
   // Sin cuota: connected/active providers that should have allowance but don't
@@ -52,32 +63,39 @@ export function BudgetSummaryCards({ providers }: Props) {
   const cards: {
     label: string;
     value: string;
+    unit?: string;
+    detail?: string;
     titleAttr?: string;
     icon: typeof Cpu;
     color: string;
   }[] = [
     {
-      label: 'Proveedores en catálogo',
+      label: 'Proveedores',
       value: String(totalProviders),
+      detail: 'En el catálogo',
       icon: Cpu,
       color: 'text-primary',
     },
     {
       label: 'Conectados',
       value: String(connectedProviders.length),
+      detail: `de ${totalProviders}`,
       icon: Activity,
       color: 'text-success',
     },
     {
       label: 'Consumo del mes',
-      value: consumptionLabel,
+      value: consumption.value,
+      unit: consumption.unit,
+      detail: consumption.detail,
       titleAttr: consumptionDescription,
       icon: TrendingUp,
       color: 'text-warning',
     },
     {
-      label: 'Sin cuota configurada',
+      label: 'Sin cuota',
       value: String(withoutAllowance),
+      detail: withoutAllowance > 0 ? 'Conectados sin tope mensual' : 'Todos tienen tope mensual',
       icon: PackageOpen,
       color: withoutAllowance > 0 ? 'text-warning' : 'text-muted-foreground',
     },
@@ -90,7 +108,10 @@ export function BudgetSummaryCards({ providers }: Props) {
           key={card.label}
           title={card.label}
           value={card.value}
+          subtitle={card.unit}
+          description={card.detail}
           hint={card.titleAttr}
+          valueClassName="whitespace-nowrap"
           icon={<card.icon className={card.color} aria-hidden="true" />}
         />
       ))}

@@ -8,8 +8,8 @@ import {
   Cpu,
   ChevronRight,
 } from "@/icons";
-import { PageHeader } from '@/components/shared/page-header';
-import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
+import { SettingsPage, TechnicalDetails } from '@/components/settings/settings-page';
+import { TechnicalRow } from '@/components/settings/integration-overview';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { MetricCard } from '@/components/shared/metric-card';
 import { Badge } from '@/components/ui/badge';
@@ -43,9 +43,9 @@ const CONNECTION_DOT: Record<ConnectionTone, string> = {
 const CONNECTION_STATUS: Record<string, { label: string; variant: ConnectionTone }> = {
   connected: { label: 'Conectado', variant: 'positive' },
   not_tested: { label: 'Sin probar', variant: 'warning' },
-  error: { label: 'Error', variant: 'negative' },
+  error: { label: 'Con error', variant: 'negative' },
   disconnected: { label: 'Desconectado', variant: 'neutral' },
-  not_configured: { label: 'Sin configurar', variant: 'neutral' },
+  not_configured: { label: 'Sin conectar', variant: 'neutral' },
 };
 
 function ConnectionBadge({ status }: { status: string }) {
@@ -103,414 +103,269 @@ export default async function SystemStatusPage() {
   const attentionRisks = risks.filter((r) => r.severity === 'attention');
   const pendingRisks = risks.filter((r) => r.severity === 'pending');
 
-  return (
-    <div className="space-y-6">
-      <PageHeader
-        breadcrumbs={
-          <Breadcrumbs
-            items={[
-              { label: 'Configuración', href: '/settings' },
-              'Estado y auditoría',
-            ]}
-          />
-        }
-        title="Estado y auditoría"
-        description="Consulta la salud operativa de la configuración de SellUp y revisa los cambios administrativos más recientes."
-        backHref="/settings"
-      />
+  const sortedRisks = [...attentionRisks, ...pendingRisks];
 
-      {/* ── Bloque 1: Resumen ejecutivo ──────────────────────── */}
+  // Una fila por conexión: qué es, si funciona y dónde se arregla.
+  const connections: ConnectionRow[] = [
+    {
+      name: 'HubSpot',
+      purpose: 'CRM del equipo',
+      href: '/settings/integrations/hubspot',
+      ...health.hubspot,
+    },
+    {
+      name: 'Slack',
+      purpose: 'Canal y avisos del equipo',
+      href: '/settings/integrations/slack',
+      ...health.slack,
+    },
+    {
+      name: 'Apollo',
+      purpose: 'Búsqueda de empresas y contactos',
+      href: '/settings/prospecting',
+      ...health.apollo,
+    },
+    {
+      name: 'Lusha',
+      purpose: 'Búsqueda de empresas y contactos',
+      href: '/settings/prospecting',
+      ...health.lusha,
+    },
+    {
+      name: 'Samu IA',
+      purpose: 'Reuniones y transcripciones',
+      href: '/settings/integrations/samu',
+      ...health.samu,
+    },
+  ];
+
+  return (
+    <SettingsPage
+      title="Estado y auditoría"
+      description="Qué funciona, qué pide atención y dónde arreglarlo."
+    >
+      {/* ── Resumen ───────────────────────────────────────────── */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
-          title="Componentes OK"
-          description="configurados y activos"
+          title="Funcionando"
+          description="Conexiones y ajustes en orden"
           value={summary.configured_components}
           tone="positive"
         />
         <MetricCard
-          title="Con alertas"
-          description="requieren atención"
+          title="Con problemas"
+          description="Piden atención"
           value={summary.components_with_issues}
           tone={summary.components_with_issues > 0 ? 'negative' : 'neutral'}
         />
         <MetricCard
-          title="Automáticas"
-          description="automatizaciones en auto"
+          title="Automatizaciones"
+          description="Funcionan sin intervención"
           value={summary.automatic_automations}
         />
         <MetricCard
-          title="Acceso pendiente"
-          description="solicitudes esperando"
+          title="Solicitudes de acceso"
+          description="Esperan tu respuesta"
           value={summary.pending_access_requests}
           tone={summary.pending_access_requests > 0 ? 'warning' : 'neutral'}
         />
       </div>
 
-      {/* ── Bloque 2: Estado de conexiones ───────────────────── */}
-      <section className="space-y-4">
-        <h2 className="text-base font-semibold tracking-tight text-foreground">
-          Estado de conexiones y configuraciones
+      {/* ── Qué pide atención: lo primero que hay que leer ───── */}
+      <section className="space-y-3" aria-labelledby="status-risks">
+        <h2 id="status-risks" className="text-base font-semibold tracking-tight text-foreground">
+          Qué pide tu atención
         </h2>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          {/* IA */}
-          <SurfaceCard>
-            <SurfaceCardHeader
-              title="Proveedores de IA"
-              description={
-                health.active_ai?.provider_name
-                  ? `Activo: ${health.active_ai.provider_name} · ${health.active_ai.model_name ?? 'sin modelo'}`
-                  : 'Sin configuración activa seleccionada'
-              }
-              actions={
-                <Link
-                  href="/settings/ai"
-                  aria-label="Ir a Proveedores de IA"
-                  className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-                >
-                  <ChevronRight className="h-4 w-4" aria-hidden="true" />
-                </Link>
-              }
-            />
-
-            {health.ai_providers.length === 0 ? (
-              <p className="text-xs text-muted-foreground">
-                No se encontraron proveedores.
-              </p>
-            ) : (
-              <ListItemGroup>
-                {health.ai_providers.map((provider) => (
-                  <ListItem
-                    key={provider.key}
-                    size="sm"
-                    leading={
-                      <Cpu className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                    }
-                    title={provider.name}
-                    actions={
-                      <>
-                        {provider.is_active_provider && <Badge variant="brand">activo</Badge>}
-                        <ConnectionBadge status={provider.connection_status} />
-                      </>
-                    }
-                  />
-                ))}
-              </ListItemGroup>
-            )}
-          </SurfaceCard>
-
-          {/* HubSpot */}
-          <SurfaceCard>
-            <SurfaceCardHeader
-              title="HubSpot CRM"
-              description="Integración comercial"
-              actions={
-                <Link
-                  href="/settings/integrations/hubspot"
-                  aria-label="Ir a HubSpot CRM"
-                  className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-                >
-                  <ChevronRight className="h-4 w-4" aria-hidden="true" />
-                </Link>
-              }
-            />
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-xs text-muted-foreground">Credencial</span>
-                <span
-                  className={`text-xs font-medium ${
-                    health.hubspot.credentials_status === 'stored'
-                      ? 'text-success'
-                      : 'text-muted-foreground'
-                  }`}
-                >
-                  {health.hubspot.credentials_status === 'stored' ? 'Guardada' : 'No configurada'}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-xs text-muted-foreground">Conexión</span>
-                <ConnectionBadge status={health.hubspot.connection_status} />
-              </div>
-              {health.hubspot.hub_id && (
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-xs text-muted-foreground">Hub ID</span>
-                  <span className="truncate font-mono text-xs font-medium tabular-nums text-foreground">
-                    {health.hubspot.hub_id}
-                  </span>
-                </div>
-              )}
-              {health.hubspot.last_tested_at && (
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-xs text-muted-foreground">Última prueba</span>
-                  <span className="text-xs text-muted-foreground">
-                    {formatRelativeTime(health.hubspot.last_tested_at)}
-                  </span>
-                </div>
-              )}
-              {health.hubspot.last_connection_error && (
-                <div className="rounded-lg border border-destructive/20 bg-destructive/10 px-2.5 py-1.5">
-                  <p className="line-clamp-2 break-words text-xs text-destructive">
-                    {health.hubspot.last_connection_error}
-                  </p>
-                </div>
-              )}
-            </div>
-          </SurfaceCard>
-
-          {/* Apollo.io */}
-          <SurfaceCard>
-            <SurfaceCardHeader
-              title="Apollo.io"
-              description="Prospección y enriquecimiento"
-              actions={
-                <Link
-                  href="/settings/prospecting"
-                  aria-label="Ir a Apollo.io"
-                  className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-                >
-                  <ChevronRight className="h-4 w-4" aria-hidden="true" />
-                </Link>
-              }
-            />
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-xs text-muted-foreground">Credencial</span>
-                <span
-                  className={`text-xs font-medium ${
-                    health.apollo.credentials_status === 'stored'
-                      ? 'text-success'
-                      : 'text-muted-foreground'
-                  }`}
-                >
-                  {health.apollo.credentials_status === 'stored' ? 'Guardada' : 'No configurada'}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-xs text-muted-foreground">Conexión</span>
-                <ConnectionBadge status={health.apollo.connection_status} />
-              </div>
-              {health.apollo.last_tested_at && (
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-xs text-muted-foreground">Última prueba</span>
-                  <span className="text-xs text-muted-foreground">
-                    {formatRelativeTime(health.apollo.last_tested_at)}
-                  </span>
-                </div>
-              )}
-              {health.apollo.last_connection_error && (
-                <div className="rounded-lg border border-destructive/20 bg-destructive/10 px-2.5 py-1.5">
-                  <p className="line-clamp-2 break-words text-xs text-destructive">
-                    {health.apollo.last_connection_error}
-                  </p>
-                </div>
-              )}
-            </div>
-          </SurfaceCard>
-
-          {/* Lusha */}
-          <SurfaceCard>
-            <SurfaceCardHeader
-              title="Lusha"
-              description="Prospección y enriquecimiento"
-              actions={
-                <Link
-                  href="/settings/prospecting"
-                  aria-label="Ir a Lusha"
-                  className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-                >
-                  <ChevronRight className="h-4 w-4" aria-hidden="true" />
-                </Link>
-              }
-            />
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-xs text-muted-foreground">Credencial</span>
-                <span
-                  className={`text-xs font-medium ${
-                    health.lusha.credentials_status === 'stored'
-                      ? 'text-success'
-                      : 'text-muted-foreground'
-                  }`}
-                >
-                  {health.lusha.credentials_status === 'stored' ? 'Guardada' : 'No configurada'}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-xs text-muted-foreground">Conexión</span>
-                <ConnectionBadge status={health.lusha.connection_status} />
-              </div>
-              {health.lusha.last_tested_at && (
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-xs text-muted-foreground">Última prueba</span>
-                  <span className="text-xs text-muted-foreground">
-                    {formatRelativeTime(health.lusha.last_tested_at)}
-                  </span>
-                </div>
-              )}
-              {health.lusha.last_connection_error && (
-                <div className="rounded-lg border border-destructive/20 bg-destructive/10 px-2.5 py-1.5">
-                  <p className="line-clamp-2 break-words text-xs text-destructive">
-                    {health.lusha.last_connection_error}
-                  </p>
-                </div>
-              )}
-            </div>
-          </SurfaceCard>
-
-          {/* Samu IA */}
-          <SurfaceCard>
-            <SurfaceCardHeader
-              title="Samu IA"
-              description="Integración de reuniones y transcripciones"
-              actions={
-                <Link
-                  href="/settings/integrations/samu"
-                  aria-label="Ir a Samu IA"
-                  className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-                >
-                  <ChevronRight className="h-4 w-4" aria-hidden="true" />
-                </Link>
-              }
-            />
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-xs text-muted-foreground">Credencial</span>
-                <span
-                  className={`text-xs font-medium ${
-                    health.samu.credentials_status === 'stored'
-                      ? 'text-success'
-                      : 'text-muted-foreground'
-                  }`}
-                >
-                  {health.samu.credentials_status === 'stored' ? 'Guardada' : 'No configurada'}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-xs text-muted-foreground">Conexión</span>
-                <ConnectionBadge status={health.samu.connection_status} />
-              </div>
-              {health.samu.user_count != null && (
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-xs text-muted-foreground">Usuarios en entorno</span>
-                  <span className="text-xs font-medium tabular-nums text-foreground">
-                    {health.samu.user_count}
-                  </span>
-                </div>
-              )}
-              {health.samu.last_tested_at && (
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-xs text-muted-foreground">Última prueba</span>
-                  <span className="text-xs text-muted-foreground">
-                    {formatRelativeTime(health.samu.last_tested_at)}
-                  </span>
-                </div>
-              )}
-              {health.samu.last_connection_error && (
-                <div className="rounded-lg border border-destructive/20 bg-destructive/10 px-2.5 py-1.5">
-                  <p className="line-clamp-2 break-words text-xs text-destructive">
-                    {health.samu.last_connection_error}
-                  </p>
-                </div>
-              )}
-            </div>
-          </SurfaceCard>
-
-          {/* Automatizaciones */}
-          <SurfaceCard>
-            <SurfaceCardHeader
-              title="Automatizaciones"
-              description="Configuración de modos de ejecución"
-              actions={
-                <Link
-                  href="/settings/automations"
-                  aria-label="Ir a Automatizaciones"
-                  className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-                >
-                  <ChevronRight className="h-4 w-4" aria-hidden="true" />
-                </Link>
-              }
-            />
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-xs text-muted-foreground">Total configuradas</span>
-                <span className="text-xs font-medium tabular-nums text-foreground">
-                  {health.automations.total}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                {[
-                  {
-                    label: 'Automático',
-                    count: health.automations.automatic,
-                    color: 'text-success border-success/30 bg-success/10',
-                  },
-                  {
-                    label: 'Sugerido',
-                    count: health.automations.suggested,
-                    color: 'text-warning border-warning/30 bg-warning/10',
-                  },
-                  {
-                    label: 'Manual',
-                    count: health.automations.manual,
-                    color: 'text-muted-foreground border-border/60 bg-surface-subtle',
-                  },
-                ].map((item) => (
-                  <div
-                    key={item.label}
-                    className={`min-w-0 flex-1 rounded-lg border px-2 py-2 text-center ${item.color}`}
-                  >
-                    <p className="text-lg font-semibold tabular-nums">{item.count}</p>
-                    <p className="truncate text-xs">{item.label}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </SurfaceCard>
-        </div>
-      </section>
-
-      {/* ── Bloque 3: Riesgos y pendientes ───────────────────── */}
-      <section className="space-y-4">
-        <h2 className="text-base font-semibold tracking-tight text-foreground">
-          Pendientes y alertas administrativas
-        </h2>
-
-        {risks.length === 0 ? (
+        {sortedRisks.length === 0 ? (
           <SurfaceCard>
             <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-success/10">
-                <CheckCircle2 className="h-4 w-4 text-success" aria-hidden="true" />
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-success/10">
+                <CheckCircle2 className="size-4 text-success" aria-hidden="true" />
               </div>
               <div className="min-w-0">
-                <p className="text-sm font-medium text-foreground">
-                  Sin alertas ni pendientes detectados
-                </p>
+                <p className="text-sm font-medium text-foreground">Todo en orden</p>
                 <p className="text-xs text-muted-foreground">
-                  La configuración activa no presenta ningún riesgo identificable.
+                  No hay conexiones caídas ni solicitudes esperando.
                 </p>
               </div>
             </div>
           </SurfaceCard>
         ) : (
           <ListItemGroup>
-            {[...attentionRisks, ...pendingRisks].map((risk) => (
+            {sortedRisks.map((risk) => (
               <RiskItem key={risk.id} risk={risk} />
             ))}
           </ListItemGroup>
         )}
       </section>
-    </div>
+
+      {/* ── Conexiones ───────────────────────────────────────── */}
+      <section className="space-y-3" aria-labelledby="status-connections">
+        <h2 id="status-connections" className="text-base font-semibold tracking-tight text-foreground">
+          Conexiones
+        </h2>
+        <ListItemGroup>
+          {connections.map((connection) => (
+            <ConnectionItem key={connection.name} connection={connection} />
+          ))}
+        </ListItemGroup>
+      </section>
+
+      <div className="grid items-start gap-4 md:grid-cols-2">
+        {/* IA */}
+        <SurfaceCard>
+          <SurfaceCardHeader
+            title="Inteligencia artificial"
+            description={
+              health.active_ai?.provider_name
+                ? `En uso: ${health.active_ai.provider_name}${health.active_ai.model_name ? ` · ${health.active_ai.model_name}` : ''}`
+                : 'Todavía no se ha elegido qué proveedor de IA usar'
+            }
+            actions={<SectionLink href="/settings/providers" label="Ir a Proveedores y consumo" />}
+          />
+
+          {health.ai_providers.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No hay proveedores de IA. Añade uno desde Proveedores y consumo.
+            </p>
+          ) : (
+            <ListItemGroup>
+              {health.ai_providers.map((provider) => (
+                <ListItem
+                  key={provider.key}
+                  size="sm"
+                  leading={
+                    <Cpu className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  }
+                  title={provider.name}
+                  actions={
+                    <>
+                      {provider.is_active_provider && <Badge variant="brand">En uso</Badge>}
+                      <ConnectionBadge status={provider.connection_status} />
+                    </>
+                  }
+                />
+              ))}
+            </ListItemGroup>
+          )}
+        </SurfaceCard>
+
+        {/* Automatizaciones */}
+        <SurfaceCard>
+          <SurfaceCardHeader
+            title="Automatizaciones"
+            description={`${health.automations.total} en total: cuántas actúan solas, cuántas sugieren y cuántas esperan a que las hagas tú.`}
+            actions={<SectionLink href="/settings/automations" label="Ir a Automatizaciones" />}
+          />
+
+          <div className="flex items-stretch gap-2">
+            {[
+              {
+                label: 'Automáticas',
+                count: health.automations.automatic,
+                color: 'text-success border-success/30 bg-success/10',
+              },
+              {
+                label: 'Sugeridas',
+                count: health.automations.suggested,
+                color: 'text-warning border-warning/30 bg-warning/10',
+              },
+              {
+                label: 'Manuales',
+                count: health.automations.manual,
+                color: 'text-muted-foreground border-border/60 bg-surface-subtle',
+              },
+            ].map((item) => (
+              <div
+                key={item.label}
+                className={`min-w-0 flex-1 rounded-lg border px-2 py-2 text-center ${item.color}`}
+              >
+                <p className="text-lg font-semibold tabular-nums">{item.count}</p>
+                <p className="truncate text-xs">{item.label}</p>
+              </div>
+            ))}
+          </div>
+        </SurfaceCard>
+      </div>
+
+      {/* ── Lo que solo le sirve a soporte ───────────────────── */}
+      <TechnicalDetails summary="Identificadores y estado interno de cada conexión. Útil para soporte.">
+        <div>
+          {health.hubspot.hub_id && (
+            <TechnicalRow label="HubSpot · identificador de la cuenta (Hub ID)">{health.hubspot.hub_id}</TechnicalRow>
+          )}
+          {connections.map((connection) => (
+            <TechnicalRow key={connection.name} label={`${connection.name} · credencial / conexión`}>
+              {connection.credentials_status} / {connection.connection_status}
+            </TechnicalRow>
+          ))}
+          {health.samu.user_count != null && (
+            <TechnicalRow label="Samu IA · personas en la cuenta">{health.samu.user_count}</TechnicalRow>
+          )}
+        </div>
+      </TechnicalDetails>
+    </SettingsPage>
   );
 }
 
 // ============================================================
-// Sub-componente RiskItem
+// Sub-componentes
 // ============================================================
+
+interface ConnectionRow {
+  name: string;
+  /** Para qué sirve, en dos o tres palabras. */
+  purpose: string;
+  href: string;
+  credentials_status: string;
+  connection_status: string;
+  last_tested_at?: string | null;
+  last_connection_error?: string | null;
+}
+
+function SectionLink({ href, label }: { href: string; label: string }) {
+  return (
+    <Link
+      href={href}
+      aria-label={label}
+      className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+    >
+      <ChevronRight className="size-4" aria-hidden="true" />
+    </Link>
+  );
+}
+
+/** Una conexión en una fila: sin credencial es «Sin conectar», diga lo que diga el estado. */
+function ConnectionItem({ connection }: { connection: ConnectionRow }) {
+  const status = connection.credentials_status === 'stored' ? connection.connection_status : 'not_configured';
+  const tested = connection.last_tested_at
+    ? `Probada ${formatRelativeTime(connection.last_tested_at).toLowerCase()}`
+    : 'Sin probar todavía';
+
+  return (
+    <ListItem
+      href={connection.href}
+      title={connection.name}
+      description={
+        connection.last_connection_error ? (
+          <span className="line-clamp-2 whitespace-normal break-words text-destructive">
+            {connection.last_connection_error}
+          </span>
+        ) : (
+          `${connection.purpose} · ${tested}`
+        )
+      }
+      meta={<ConnectionBadge status={status} />}
+      actions={
+        <ChevronRight
+          className="size-3.5 text-text-muted transition-colors group-hover/list-item:text-primary"
+          aria-hidden="true"
+        />
+      }
+    />
+  );
+}
 
 function RiskItem({ risk }: { risk: AdminRisk }) {
   const iconMap: Record<RiskSeverity, React.ReactNode> = {

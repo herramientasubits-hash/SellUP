@@ -5,19 +5,20 @@
 // batch_id; NOT agent_runs). No provider calls, no writes, no client state.
 // Streams independently via <Suspense> so its loading/error states never block
 // the rest of the page.
+//
+// Presentación: una pila de secciones (resumen, embudo, prospectos reales,
+// costo por proveedor), cada una en su propia tarjeta. Las cifras van en listas
+// de definiciones sin marco: nunca una caja dentro de otra.
 
-import {
-  TrendingUp,
-  Info,
-  AlertTriangle,
-  CheckCircle2,
-  Plug,
-  Sparkles,
-  Filter,
-} from "@/icons";
+import type { ReactNode } from 'react';
+import { TrendingUp, Lock, Plug } from '@/icons';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { InfoHint } from '@/components/shared/info-hint';
+import { StatusBadge, TableShell, type StatusType } from '@/components/data-display';
 import { getAgent1EffectivenessPanel } from '@/modules/agent1-effectiveness';
 import type {
   Agent1EffectivenessFilters,
@@ -32,20 +33,15 @@ import type {
   RejectionReason,
 } from '@/modules/agent1-effectiveness';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { formatCount, formatUsd, humanizeKey, providerLabel } from './usage-labels';
 
 // ============================================================
-// Format helpers (local — mirror the /ai-usage conventions)
+// Format helpers
 // ============================================================
 
-const UNAVAILABLE = 'No disponible';
+const UNAVAILABLE = 'Sin dato';
 
-function formatUsd(usd: number, decimals = 2): string {
-  if (usd === 0) return '$0.00';
-  if (usd < 0.001) return `$${usd.toFixed(6)}`;
-  return `$${usd.toFixed(decimals)}`;
-}
-
-/** Per-outcome cost: null → "No disponible" (never fake a divide-by-zero). */
+/** Per-outcome cost: null → "Sin dato" (never fake a divide-by-zero). */
 function formatNullableUsd(usd: number | null, decimals = 4): string {
   return usd === null ? UNAVAILABLE : formatUsd(usd, decimals);
 }
@@ -56,25 +52,11 @@ function formatRate(rate: number | null): string {
 }
 
 function formatInt(n: number | null): string {
-  return n === null ? UNAVAILABLE : n.toLocaleString('es-ES');
-}
-
-const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
-  tavily: 'Tavily',
-  anthropic: 'Anthropic (Claude)',
-  openai: 'OpenAI',
-  apollo: 'Apollo',
-  lusha: 'Lusha',
-  hubspot: 'HubSpot',
-  samu_ia: 'Samu IA',
-};
-
-function providerDisplayName(providerKey: string): string {
-  return PROVIDER_DISPLAY_NAMES[providerKey] ?? providerKey;
+  return n === null ? UNAVAILABLE : formatCount(n);
 }
 
 // ============================================================
-// Clean-production label maps (Q3F-5AY.5)
+// Label maps — lenguaje de negocio, no de base de datos
 // ============================================================
 
 /** Origins EXCLUDED from clean production (everything except 'production'). */
@@ -88,183 +70,138 @@ const NON_PRODUCTION_ORIGINS: ReadonlyArray<Exclude<RecordOrigin, 'production'>>
 ];
 
 const RECORD_ORIGIN_LABELS: Record<RecordOrigin, string> = {
-  production: 'Producción',
-  smoke_test: 'Smoke test',
-  qa: 'QA',
-  historical_cleanup: 'Limpieza histórica',
+  production: 'Búsquedas reales',
+  smoke_test: 'Pruebas rápidas',
+  qa: 'Pruebas internas',
+  historical_cleanup: 'Limpieza de datos',
   import: 'Importación',
-  synthetic: 'Sintético',
-  unknown: 'Desconocido',
+  synthetic: 'Datos de ejemplo',
+  unknown: 'Sin identificar',
 };
 
 const REJECTION_REASON_LABELS: Record<RejectionReason, string> = {
   test_record: 'Registro de prueba',
-  cleanup_record: 'Registro de limpieza',
+  cleanup_record: 'Limpieza de datos',
   duplicate: 'Duplicado',
-  unknown: 'Desconocido',
-  outside_icp: 'Fuera de ICP',
-  existing_account: 'Cuenta existente',
+  unknown: 'Sin motivo',
+  outside_icp: 'Fuera del perfil de cliente',
+  existing_account: 'Ya era cuenta',
   insufficient_data: 'Datos insuficientes',
-  invalid_company: 'Empresa inválida',
-  provider_noise: 'Ruido de proveedor',
+  invalid_company: 'Empresa no válida',
+  provider_noise: 'Resultado irrelevante',
   marketplace_or_directory: 'Marketplace o directorio',
-  geographic_mismatch: 'Desajuste geográfico',
-  industry_mismatch: 'Desajuste de industria',
+  geographic_mismatch: 'Otro país o región',
+  industry_mismatch: 'Otra industria',
   do_not_use: 'No usar',
-  no_longer_relevant: 'Ya no relevante',
+  no_longer_relevant: 'Ya no es relevante',
   other: 'Otro',
 };
 
 /** Human-readable text for each clean-production warning code (never hidden data). */
 const CLEAN_PRODUCTION_WARNING_LABELS: Record<CleanProductionWarning, string> = {
   unknown_origin_present:
-    'Hay candidatos con origen desconocido; se excluyen de producción limpia por defecto.',
+    'Hay candidatos sin origen identificado; no se cuentan como prospectos reales.',
   high_unknown_discarded_share:
-    'Proporción alta de candidatos con origen desconocido: la producción limpia puede subrepresentar el corpus real.',
+    'Muchos candidatos no tienen origen identificado: estas cifras pueden quedarse cortas.',
   clean_cost_attribution_is_batch_level:
-    'Costo limpio no disponible: la atribución actual de costo es a nivel de lote.',
+    'El costo se registra por lote completo, así que no se puede separar el de los prospectos reales.',
 };
 
 // ============================================================
-// Completeness flag → badge config (non-alarmist)
+// Completeness flag → status (non-alarmist)
 // ============================================================
 
-const COMPLETENESS_CONFIG: Record<
-  Agent1CostCompletenessFlag,
-  { label: string; variant: 'positive' | 'warning' | 'neutral'; Icon: typeof CheckCircle2 }
-> = {
-  complete: {
-    label: 'Costo completo',
-    variant: 'positive',
-    Icon: CheckCircle2,
-  },
+const COMPLETENESS_CONFIG: Record<Agent1CostCompletenessFlag, { label: string; status: StatusType }> = {
+  complete: { label: 'Costo completo', status: 'completed' },
   partial_missing_llm_cost: {
-    label: 'Costo parcial · falta LLM',
-    variant: 'warning',
-    Icon: AlertTriangle,
+    label: 'Costo parcial · falta el del modelo de IA',
+    status: 'warning',
   },
   partial_missing_provider_pricing: {
-    label: 'Costo parcial · falta pricing',
-    variant: 'warning',
-    Icon: AlertTriangle,
+    label: 'Costo parcial · falta la tarifa de un proveedor',
+    status: 'warning',
   },
-  partial_missing_candidate_outcomes: {
-    label: 'Funnel parcial',
-    variant: 'warning',
-    Icon: AlertTriangle,
-  },
-  unknown: {
-    label: 'Datos insuficientes',
-    variant: 'neutral',
-    Icon: Info,
-  },
+  partial_missing_candidate_outcomes: { label: 'Embudo incompleto', status: 'warning' },
+  unknown: { label: 'Datos insuficientes', status: 'neutral' },
 };
 
 function CompletenessBadge({ flag }: { flag: Agent1CostCompletenessFlag }) {
   const cfg = COMPLETENESS_CONFIG[flag] ?? COMPLETENESS_CONFIG.unknown;
-  const { Icon } = cfg;
-  return (
-    <Badge variant={cfg.variant}>
-      <Icon aria-hidden="true" />
-      {cfg.label}
-    </Badge>
-  );
+  return <StatusBadge status={cfg.status} label={cfg.label} />;
 }
 
 // ============================================================
-// Small building blocks
+// Building blocks
 // ============================================================
 
-function StatCell({
-  label,
-  value,
-  mono = false,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
-  return (
-    <div className="rounded-lg border border-border/60 bg-surface-subtle px-3 py-2.5">
-      <p className="text-xs font-medium text-muted-foreground">
-        {label}
-      </p>
-      <p className={`mt-1 text-sm font-semibold text-foreground ${mono ? 'font-mono' : ''}`}>
-        {value}
-      </p>
-    </div>
-  );
-}
+type StatColumns = 3 | 4 | 5 | 6;
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="mb-2 text-xs font-semibold text-muted-foreground">
-      {children}
-    </p>
-  );
-}
+const STAT_COLUMNS: Record<StatColumns, string> = {
+  3: 'sm:grid-cols-3',
+  4: 'sm:grid-cols-4',
+  5: 'sm:grid-cols-3 lg:grid-cols-5',
+  6: 'sm:grid-cols-3 lg:grid-cols-6',
+};
 
-// ============================================================
-// Shell wrapper (shared chrome across all states)
-// ============================================================
-
-function PanelShell({ children }: { children: React.ReactNode }) {
-  return (
-    <SurfaceCard>
-      <SurfaceCardHeader
-        title="Efectividad Agente 1"
-        description="Lotes de prospectos, tasas de conversión y costo por resultado. Fuente: prospect_batches → prospect_candidates → provider_usage_logs (no agent_runs)."
-        actions={
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10">
-            <TrendingUp className="h-4 w-4 text-primary" />
-          </div>
-        }
-      />
-      {children}
-    </SurfaceCard>
-  );
-}
-
-// ============================================================
-// States
-// ============================================================
-
-function PanelMessage({
-  tone,
+/** Un grupo de cifras con su título: lista de definiciones, sin marco propio. */
+function StatGroup({
+  title,
+  columns,
   children,
 }: {
-  tone: 'info' | 'error';
-  children: React.ReactNode;
+  title: string;
+  columns: StatColumns;
+  children: ReactNode;
 }) {
-  const classes =
-    tone === 'error'
-      ? 'border-destructive/20 bg-destructive/5'
-      : 'border-border/60 bg-surface-subtle';
-  const Icon = tone === 'error' ? AlertTriangle : Info;
-  const iconColor = tone === 'error' ? 'text-destructive' : 'text-muted-foreground';
   return (
-    <div
-      role={tone === 'error' ? 'alert' : undefined}
-      className={`flex items-start gap-3 rounded-xl border px-4 py-3 ${classes}`}
-    >
-      <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${iconColor}`} aria-hidden="true" />
-      <p className="text-sm leading-relaxed text-muted-foreground">{children}</p>
+    <section className="border-t border-border/60 pt-4 first:border-t-0 first:pt-0">
+      <h3 className="mb-3 text-sm font-semibold text-foreground">{title}</h3>
+      <dl className={`grid grid-cols-2 gap-x-6 gap-y-4 ${STAT_COLUMNS[columns]}`}>{children}</dl>
+    </section>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
+      <dd className="mt-1 text-base font-semibold tabular-nums text-foreground">{value}</dd>
     </div>
+  );
+}
+
+function ChipGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="border-t border-border/60 pt-4">
+      <h3 className="mb-3 text-sm font-semibold text-foreground">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+function NoteList({ title, notes }: { title: string; notes: readonly string[] }) {
+  if (notes.length === 0) return null;
+  return (
+    <Alert variant="warning" role="note">
+      <AlertTitle>{title}</AlertTitle>
+      <AlertDescription>
+        <ul className="list-disc space-y-1 pl-4">
+          {notes.map((note) => (
+            <li key={note}>{note}</li>
+          ))}
+        </ul>
+      </AlertDescription>
+    </Alert>
   );
 }
 
 export function Agent1EffectivenessPanelSkeleton() {
   return (
-    <PanelShell>
-      <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-16 rounded-lg" />
-          ))}
-        </div>
-        <Skeleton className="h-24 rounded-lg" />
-      </div>
-    </PanelShell>
+    <div className="space-y-4" aria-busy="true">
+      <Skeleton className="h-6 w-64" />
+      <Skeleton className="h-56 rounded-2xl" />
+      <Skeleton className="h-56 rounded-2xl" />
+    </div>
   );
 }
 
@@ -272,71 +209,89 @@ export function Agent1EffectivenessPanelSkeleton() {
 // Provider breakdown table
 // ============================================================
 
-function ProviderBreakdownTable({
+const PROVIDER_BREAKDOWN_COLUMNS: ReadonlyArray<{ label: string; align: 'left' | 'right' }> = [
+  { label: 'Proveedor', align: 'left' },
+  { label: 'Qué se pidió', align: 'left' },
+  { label: 'Consultas', align: 'right' },
+  { label: 'Créditos', align: 'right' },
+  { label: 'Resultados', align: 'right' },
+  { label: 'Costo estimado', align: 'right' },
+  { label: 'Sin tarifa', align: 'right' },
+  { label: 'Gratis', align: 'right' },
+];
+
+function ProviderBreakdownSection({
   rows,
 }: {
   rows: Agent1EffectivenessSummary['providerBreakdown'];
 }) {
-  if (rows.length === 0) {
-    return (
-      <PanelMessage tone="info">
-        No hay registros de uso de proveedores atribuibles a los lotes del Agente 1 en este alcance.
-      </PanelMessage>
-    );
-  }
-
   return (
-    <div className="overflow-x-auto rounded-xl border border-border/60">
+    <TableShell
+      title="Costo por proveedor"
+      description="Lo que consumieron las búsquedas del Agente 1, por proveedor y tipo de consulta."
+      actions={
+        <InfoHint showLabel>
+          «Sin tarifa» son consultas cuyo costo aún no se conoce; «Gratis», consultas que el
+          proveedor no cobró.
+        </InfoHint>
+      }
+      empty={rows.length === 0}
+      emptyState={
+        <EmptyState
+          variant="plain"
+          icon={Plug}
+          title="Sin consumo de proveedores en este periodo"
+          description="Aparecerá cuando el Agente 1 busque empresas. Prueba con otro periodo o quita el filtro de proveedor."
+        />
+      }
+    >
       <Table>
         <TableHeader>
           <TableRow>
-            {['Proveedor', 'Operación', 'Logs', 'Créditos', 'Resultados', 'Costo est.', 'Sin costo', 'Costo 0'].map(
-              (h) => (
-                <TableHead key={h} className={h === 'Proveedor' || h === 'Operación' ? 'text-left' : 'text-right'}>
-                  {h}
-                </TableHead>
-              ),
-            )}
+            {PROVIDER_BREAKDOWN_COLUMNS.map((column) => (
+              <TableHead
+                key={column.label}
+                scope="col"
+                className={column.align === 'left' ? 'text-left' : 'text-right'}
+              >
+                {column.label}
+              </TableHead>
+            ))}
           </TableRow>
         </TableHeader>
         <TableBody>
           {rows.map((r) => (
             <TableRow key={`${r.providerKey}::${r.operationKey}`}>
-              <TableCell>
-                <div className="flex items-center gap-2">
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-surface-subtle">
-                    <Plug className="h-3.5 w-3.5 text-muted-foreground" />
-                  </div>
-                  <span className="font-medium text-foreground">
-                    {providerDisplayName(r.providerKey)}
-                  </span>
-                </div>
+              <TableCell className="font-medium text-foreground">{providerLabel(r.providerKey)}</TableCell>
+              <TableCell className="max-w-44 truncate text-muted-foreground" title={humanizeKey(r.operationKey)}>
+                {humanizeKey(r.operationKey)}
               </TableCell>
-              <TableCell className="text-muted-foreground max-w-44 truncate" title={r.operationKey}>
-                {r.operationKey.replace(/_/g, ' ')}
+              <TableCell className="text-right tabular-nums text-muted-foreground">
+                {formatCount(r.usageLogsCount)}
               </TableCell>
-              <TableCell className="text-right text-muted-foreground">{r.usageLogsCount}</TableCell>
-              <TableCell className="text-right font-mono tabular-nums text-muted-foreground">
-                {r.credits.toLocaleString('es-ES')}
+              <TableCell className="text-right tabular-nums text-muted-foreground">
+                {formatCount(r.credits)}
               </TableCell>
-              <TableCell className="text-right text-muted-foreground">{r.resultsReturned}</TableCell>
-              <TableCell className="text-right font-mono tabular-nums text-muted-foreground">
+              <TableCell className="text-right tabular-nums text-muted-foreground">
+                {formatCount(r.resultsReturned)}
+              </TableCell>
+              <TableCell className="text-right tabular-nums text-muted-foreground">
                 {r.estimatedCostUsd === 0 && r.missingCostRows === 0 ? (
                   <span className="text-text-muted">—</span>
                 ) : (
                   formatUsd(r.estimatedCostUsd, 2)
                 )}
               </TableCell>
-              <TableCell className="text-right">
+              <TableCell className="text-right tabular-nums">
                 {r.missingCostRows > 0 ? (
-                  <span className="font-mono text-warning">{r.missingCostRows}</span>
+                  <span className="font-medium text-warning">{formatCount(r.missingCostRows)}</span>
                 ) : (
                   <span className="text-text-muted">0</span>
                 )}
               </TableCell>
-              <TableCell className="text-right">
+              <TableCell className="text-right tabular-nums">
                 {r.zeroCostRows > 0 ? (
-                  <span className="font-mono tabular-nums text-muted-foreground">{r.zeroCostRows}</span>
+                  <span className="text-muted-foreground">{formatCount(r.zeroCostRows)}</span>
                 ) : (
                   <span className="text-text-muted">0</span>
                 )}
@@ -345,7 +300,7 @@ function ProviderBreakdownTable({
           ))}
         </TableBody>
       </Table>
-    </div>
+    </TableShell>
   );
 }
 
@@ -367,7 +322,7 @@ function BreakdownChip({
   return (
     <Badge variant={variant}>
       {label}
-      <span className="font-mono font-semibold tabular-nums">{count.toLocaleString('es-ES')}</span>
+      <span className="font-semibold tabular-nums">{formatCount(count)}</span>
     </Badge>
   );
 }
@@ -380,16 +335,8 @@ function OriginBreakdownChips({ breakdown }: { breakdown: OriginBreakdown }) {
   ];
   const visible = entries.filter((e) => e.origin === 'production' || e.count > 0);
 
-  if (visible.length === 0) {
-    return (
-      <p className="text-xs text-muted-foreground">
-        Sin candidatos clasificados en este alcance.
-      </p>
-    );
-  }
-
   return (
-    <div className="flex flex-wrap gap-2">
+    <>
       {visible.map(({ origin, count }) => (
         <BreakdownChip
           key={origin}
@@ -398,7 +345,7 @@ function OriginBreakdownChips({ breakdown }: { breakdown: OriginBreakdown }) {
           tone={origin === 'production' ? 'brand' : origin === 'unknown' ? 'warn' : 'neutral'}
         />
       ))}
-    </div>
+    </>
   );
 }
 
@@ -409,8 +356,8 @@ function RejectionBreakdownChips({ breakdown }: { breakdown: RejectionReasonBrea
 
   if (entries.length === 0) {
     return (
-      <p className="text-xs text-muted-foreground">
-        Sin motivos de rechazo clasificados en este alcance.
+      <p className="text-sm text-muted-foreground">
+        Nadie ha rechazado candidatos con motivo en este periodo.
       </p>
     );
   }
@@ -420,7 +367,7 @@ function RejectionBreakdownChips({ breakdown }: { breakdown: RejectionReasonBrea
       {entries.map(([reason, count]) => (
         <BreakdownChip
           key={reason}
-          label={REJECTION_REASON_LABELS[reason] ?? reason}
+          label={REJECTION_REASON_LABELS[reason] ?? humanizeKey(reason)}
           count={count}
         />
       ))}
@@ -445,104 +392,60 @@ function CleanProductionSection({
     cleanProduction;
 
   return (
-    <div className="space-y-5 rounded-xl border border-primary/20 bg-primary/5 p-4">
-      {/* Header + scope badge */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-primary/10">
-            <Sparkles className="h-3.5 w-3.5 text-primary" />
+    <SurfaceCard>
+      <SurfaceCardHeader
+        title="Solo prospectos reales"
+        description="Las mismas cifras sin pruebas, importaciones ni limpiezas de datos: lo que de verdad buscó tu equipo."
+        actions={
+          <InfoHint label="Cómo se separan">
+            Cada candidato lleva anotado de dónde salió. En {formatCount(classificationSourceBreakdown.persisted)}{' '}
+            ese origen quedó guardado al crearlo y en{' '}
+            {formatCount(classificationSourceBreakdown.derived_runtime)} se dedujo al consultar.
+          </InfoHint>
+        }
+      />
+
+      <div className="space-y-4">
+        <StatGroup title="Candidatos" columns={6}>
+          <Stat label="Reales" value={formatInt(funnel.persistedCandidatesCount)} />
+          <Stat label="Por revisar" value={formatInt(funnel.pendingCandidatesCount)} />
+          <Stat label="Aprobados" value={formatInt(funnel.approvedCandidatesCount)} />
+          <Stat label="Rechazados" value={formatInt(funnel.rejectedCandidatesCount)} />
+          <Stat label="Ya son cuenta" value={formatInt(funnel.convertedAccountsCount)} />
+          <Stat label="Dejados fuera" value={formatInt(excludedFromCleanProductionCount)} />
+        </StatGroup>
+
+        <StatGroup title="Qué pasó con ellos" columns={4}>
+          <Stat label="Se aprobó" value={formatRate(rates.approvalRate)} />
+          <Stat label="Se rechazó" value={formatRate(rates.rejectionRate)} />
+          <Stat label="Pasó a cuenta" value={formatRate(rates.conversionRate)} />
+          {cleanCostUsd !== null && <Stat label="Costo estimado" value={formatUsd(cleanCostUsd, 2)} />}
+        </StatGroup>
+
+        <ChipGroup title="De dónde salieron los candidatos">
+          <div className="flex flex-wrap gap-2">
+            <OriginBreakdownChips breakdown={originBreakdown} />
+            {unknownOriginCount > 0 && originBreakdown.unknown === 0 && (
+              <BreakdownChip label={RECORD_ORIGIN_LABELS.unknown} count={unknownOriginCount} tone="warn" />
+            )}
           </div>
-          <div>
-            <p className="text-sm font-semibold text-foreground">Producción limpia</p>
-            <p className="text-xs text-muted-foreground">
-              Solo candidatos de origen productivo real.
-            </p>
-          </div>
-        </div>
-        <Badge variant="neutral">
-          <Filter aria-hidden="true" />
-          Excluye QA, smoke, cleanup e import
-        </Badge>
-      </div>
+        </ChipGroup>
 
-      {/* Clean funnel */}
-      <div>
-        <SectionLabel>Funnel limpio</SectionLabel>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-          <StatCell label="Candidatos limpios" value={formatInt(funnel.persistedCandidatesCount)} mono />
-          <StatCell label="Pendientes" value={formatInt(funnel.pendingCandidatesCount)} mono />
-          <StatCell label="Aprobados" value={formatInt(funnel.approvedCandidatesCount)} mono />
-          <StatCell label="Rechazados" value={formatInt(funnel.rejectedCandidatesCount)} mono />
-          <StatCell label="Convertidos" value={formatInt(funnel.convertedAccountsCount)} mono />
-          <StatCell label="Excluidos" value={formatInt(excludedFromCleanProductionCount)} mono />
-        </div>
-      </div>
+        <ChipGroup title="Por qué se rechazaron">
+          <RejectionBreakdownChips breakdown={rejectionReasonBreakdown} />
+        </ChipGroup>
 
-      {/* Clean rates */}
-      <div>
-        <SectionLabel>Tasas limpias (sobre candidatos limpios)</SectionLabel>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-          <StatCell label="Aprobación limpia" value={formatRate(rates.approvalRate)} mono />
-          <StatCell label="Rechazo limpio" value={formatRate(rates.rejectionRate)} mono />
-          <StatCell label="Conversión limpia" value={formatRate(rates.conversionRate)} mono />
-        </div>
+        <NoteList
+          title="Ten en cuenta"
+          notes={[
+            ...(cleanCostUsd === null && !classificationWarnings.includes('clean_cost_attribution_is_batch_level')
+              ? [CLEAN_PRODUCTION_WARNING_LABELS.clean_cost_attribution_is_batch_level]
+              : []),
+            ...classificationWarnings.map((code) => CLEAN_PRODUCTION_WARNING_LABELS[code] ?? code),
+          ]}
+        />
       </div>
-
-      {/* Clean cost caveat */}
-      <div>
-        <SectionLabel>Costo limpio (USD)</SectionLabel>
-        {cleanCostUsd === null ? (
-          <PanelMessage tone="info">
-            Costo limpio no disponible: la atribución actual de costo es a nivel de lote.
-          </PanelMessage>
-        ) : (
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-            <StatCell label="Costo limpio" value={formatUsd(cleanCostUsd, 2)} mono />
-          </div>
-        )}
-      </div>
-
-      {/* Origin breakdown */}
-      <div>
-        <SectionLabel>Desglose por origen</SectionLabel>
-        <OriginBreakdownChips breakdown={originBreakdown} />
-      </div>
-
-      {/* Rejection reason breakdown */}
-      <div>
-        <SectionLabel>Motivos de rechazo</SectionLabel>
-        <RejectionBreakdownChips breakdown={rejectionReasonBreakdown} />
-      </div>
-
-      {/* Classification source breakdown */}
-      <div>
-        <SectionLabel>Fuente de clasificación</SectionLabel>
-        <div className="flex flex-wrap gap-2">
-          <BreakdownChip label="Persistido" count={classificationSourceBreakdown.persisted} />
-          <BreakdownChip
-            label="Derivado en runtime"
-            count={classificationSourceBreakdown.derived_runtime}
-          />
-          {unknownOriginCount > 0 && (
-            <BreakdownChip label="Origen desconocido" count={unknownOriginCount} tone="warn" />
-          )}
-        </div>
-      </div>
-
-      {/* Classification warnings */}
-      {classificationWarnings.length > 0 && (
-        <div className="space-y-1.5 rounded-xl border border-warning/25 bg-warning/5 px-4 py-3">
-          {classificationWarnings.map((code) => (
-            <div key={code} className="flex items-start gap-2">
-              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                {CLEAN_PRODUCTION_WARNING_LABELS[code] ?? code}
-              </p>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+    </SurfaceCard>
   );
 }
 
@@ -567,74 +470,58 @@ function SummaryBody({ summary }: { summary: Agent1EffectivenessSummary }) {
 
   return (
     <div className="space-y-6">
-      {/* Completeness + warnings */}
-      <div className="flex flex-wrap items-center gap-2">
-        <CompletenessBadge flag={costCompletenessFlag} />
-        {funnel.generatedCandidatesCount !== null && (
-          <span className="text-xs text-muted-foreground">
-            {formatInt(funnel.generatedCandidatesCount)} candidatos generados (best-effort)
-          </span>
-        )}
-      </div>
+      <NoteList title="Ten en cuenta" notes={warnings} />
 
-      {warnings.length > 0 && (
-        <div className="space-y-1.5 rounded-xl border border-warning/25 bg-warning/5 px-4 py-3">
-          {warnings.map((w, i) => (
-            <div key={i} className="flex items-start gap-2">
-              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
-              <p className="text-xs leading-relaxed text-muted-foreground">{w}</p>
+      <SurfaceCard>
+        <SurfaceCardHeader
+          title="Embudo de prospectos"
+          description="Todo lo que generó el Agente 1 en el periodo, de candidato a cuenta."
+          actions={
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <CompletenessBadge flag={costCompletenessFlag} />
+              <InfoHint>
+                Se cuentan los lotes de prospectos del periodo, qué pasó con cada candidato y lo
+                que costaron sus consultas. Aquí solo aplican los filtros de periodo y proveedor.
+              </InfoHint>
             </div>
-          ))}
-        </div>
-      )}
+          }
+        />
 
-      {/* Funnel */}
-      <div>
-        <SectionLabel>Funnel · histórico total</SectionLabel>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-          <StatCell label="Lotes" value={formatInt(funnel.batchesCount)} mono />
-          <StatCell label="Persistidos" value={formatInt(funnel.persistedCandidatesCount)} mono />
-          <StatCell label="Pendientes" value={formatInt(funnel.pendingCandidatesCount)} mono />
-          <StatCell label="Aprobados" value={formatInt(funnel.approvedCandidatesCount)} mono />
-          <StatCell label="Rechazados" value={formatInt(funnel.rejectedCandidatesCount)} mono />
-          <StatCell label="Convertidos" value={formatInt(funnel.convertedAccountsCount)} mono />
-        </div>
-      </div>
+        <div className="space-y-4">
+          <StatGroup title="Candidatos" columns={6}>
+            <Stat label="Lotes" value={formatInt(funnel.batchesCount)} />
+            <Stat label="Guardados" value={formatInt(funnel.persistedCandidatesCount)} />
+            <Stat label="Por revisar" value={formatInt(funnel.pendingCandidatesCount)} />
+            <Stat label="Aprobados" value={formatInt(funnel.approvedCandidatesCount)} />
+            <Stat label="Rechazados" value={formatInt(funnel.rejectedCandidatesCount)} />
+            <Stat label="Ya son cuenta" value={formatInt(funnel.convertedAccountsCount)} />
+          </StatGroup>
+          {funnel.generatedCandidatesCount !== null && (
+            <p className="text-xs text-muted-foreground">
+              Los proveedores devolvieron cerca de{' '}
+              <span className="font-medium tabular-nums text-foreground">
+                {formatInt(funnel.generatedCandidatesCount)}
+              </span>{' '}
+              candidatos en total (cifra aproximada).
+            </p>
+          )}
 
-      {/* Rates */}
-      <div>
-        <SectionLabel>Tasas (sobre candidatos persistidos)</SectionLabel>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <StatCell label="Aprobación" value={formatRate(rates.approvalRate)} mono />
-          <StatCell label="Rechazo" value={formatRate(rates.rejectionRate)} mono />
-          <StatCell label="Conversión" value={formatRate(rates.conversionRate)} mono />
-          <StatCell label="Pendientes" value={formatRate(rates.pendingRate)} mono />
-        </div>
-      </div>
+          <StatGroup title="Qué pasó con los guardados" columns={4}>
+            <Stat label="Se aprobó" value={formatRate(rates.approvalRate)} />
+            <Stat label="Se rechazó" value={formatRate(rates.rejectionRate)} />
+            <Stat label="Pasó a cuenta" value={formatRate(rates.conversionRate)} />
+            <Stat label="Sigue por revisar" value={formatRate(rates.pendingRate)} />
+          </StatGroup>
 
-      {/* Cost */}
-      <div>
-        <SectionLabel>Costo histórico total (USD)</SectionLabel>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
-          <StatCell label="Costo total" value={formatUsd(cost.totalProviderCostUsd, 2)} mono />
-          <StatCell label="Créditos" value={formatInt(cost.totalProviderCredits)} mono />
-          <StatCell
-            label="Costo / persistido"
-            value={formatNullableUsd(cost.costPerPersistedCandidate)}
-            mono
-          />
-          <StatCell
-            label="Costo / aprobado"
-            value={formatNullableUsd(cost.costPerApprovedCandidate)}
-            mono
-          />
-          <StatCell
-            label="Costo / cuenta"
-            value={formatNullableUsd(cost.costPerConvertedAccount)}
-            mono
-          />
+          <StatGroup title="Costo estimado (USD)" columns={5}>
+            <Stat label="Total" value={formatUsd(cost.totalProviderCostUsd, 2)} />
+            <Stat label="Créditos" value={formatInt(cost.totalProviderCredits)} />
+            <Stat label="Por guardado" value={formatNullableUsd(cost.costPerPersistedCandidate)} />
+            <Stat label="Por aprobado" value={formatNullableUsd(cost.costPerApprovedCandidate)} />
+            <Stat label="Por cuenta" value={formatNullableUsd(cost.costPerConvertedAccount)} />
+          </StatGroup>
         </div>
-      </div>
+      </SurfaceCard>
 
       {/* Clean production (Q3F-5AY.5) */}
       <CleanProductionSection
@@ -645,11 +532,7 @@ function SummaryBody({ summary }: { summary: Agent1EffectivenessSummary }) {
         classificationWarnings={classificationWarnings}
       />
 
-      {/* Provider breakdown */}
-      <div>
-        <SectionLabel>Desglose por proveedor</SectionLabel>
-        <ProviderBreakdownTable rows={providerBreakdown} />
-      </div>
+      <ProviderBreakdownSection rows={providerBreakdown} />
     </div>
   );
 }
@@ -667,36 +550,33 @@ export async function Agent1EffectivenessPanel({
 
   if (result.status === 'restricted') {
     return (
-      <PanelShell>
-        <PanelMessage tone="info">
-          Esta vista requiere permisos de administrador para mostrar la efectividad del Agente 1.
-        </PanelMessage>
-      </PanelShell>
+      <EmptyState
+        icon={Lock}
+        title="No tienes acceso a la efectividad del Agente 1"
+        description="Estas cifras solo las ve quien administra SellUp."
+      />
     );
   }
 
   if (result.status === 'error') {
     return (
-      <PanelShell>
-        <PanelMessage tone="error">
-          No se pudo calcular la efectividad del Agente 1 en este momento. Inténtalo de nuevo más tarde.
-        </PanelMessage>
-      </PanelShell>
+      <Alert variant="destructive">
+        <AlertTitle>No se pudo calcular la efectividad del Agente 1</AlertTitle>
+        <AlertDescription>Vuelve a cargar la página en unos minutos.</AlertDescription>
+      </Alert>
     );
   }
 
   const { summary } = result;
-  const hasData = summary.funnel.batchesCount > 0;
+  if (summary.funnel.batchesCount === 0) {
+    return (
+      <EmptyState
+        icon={TrendingUp}
+        title="El Agente 1 no generó prospectos en este periodo"
+        description="Elige un periodo más amplio o quita el filtro de proveedor. Las cifras aparecen en cuanto se cree un lote de prospectos."
+      />
+    );
+  }
 
-  return (
-    <PanelShell>
-      {hasData ? (
-        <SummaryBody summary={summary} />
-      ) : (
-        <PanelMessage tone="info">
-          No hay datos suficientes para calcular efectividad del Agente 1 en este rango.
-        </PanelMessage>
-      )}
-    </PanelShell>
-  );
+  return <SummaryBody summary={summary} />;
 }

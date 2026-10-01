@@ -90,7 +90,7 @@ function makeSummary(
   };
 }
 
-const CARD_TITLE = 'Supresiones no evaluables';
+const CARD_TITLE = 'Verificaciones de privacidad incompletas';
 
 before(async () => {
   ({ render, screen, cleanup } = await import('@testing-library/react'));
@@ -116,11 +116,11 @@ describe('FIX 5 UI — estado vacío', () => {
     assert.ok(screen.getByText(CARD_TITLE));
     assert.ok(
       screen.getByText(
-        /no pudo verificar tombstone porque faltaba Apollo person id o account id/i,
+        /no pudo comprobar si un teléfono estaba marcado como borrado/i,
       ),
     );
     assert.ok(
-      screen.getByText(/No se usa matching por nombre\/email\/teléfono/i),
+      screen.getByText(/Nunca se compara por nombre, correo ni teléfono/i),
       'la tarjeta debe declarar que no hay matching difuso',
     );
   });
@@ -130,7 +130,7 @@ describe('FIX 5 UI — estado vacío', () => {
 
     assert.ok(screen.getByText('Últimas 24 h'));
     assert.ok(screen.getByText('Últimos 7 días'));
-    assert.ok(screen.getByText('Sin eventos'));
+    assert.ok(screen.getByText('Sin casos'));
     // Siete cifras en cero: 24 h, 7 d, tres fases y dos motivos. La octava
     // casilla es el último evento, que es una fecha, no un conteo.
     assert.equal(screen.getAllByText('0').length, 7);
@@ -139,8 +139,8 @@ describe('FIX 5 UI — estado vacío', () => {
   it('no muestra el aviso de truncamiento ni el de fase desconocida', () => {
     render(<PhoneSuppressionNotEvaluableCard summary={makeSummary()} />);
 
-    assert.equal(screen.queryByText(/alcanzó el tope de filas/i), null);
-    assert.equal(screen.queryByText(/sin fase reconocible/i), null);
+    assert.equal(screen.queryByText(/más casos de los que se pueden contar/i), null);
+    assert.equal(screen.queryByText(/sin momento reconocible/i), null);
   });
 });
 
@@ -168,11 +168,11 @@ describe('FIX 5 UI — conteos agregados', () => {
     assert.ok(screen.getByText('11'), 'total 7 d');
     assert.ok(screen.getByText('7'), 'fase start');
     assert.ok(screen.getByText('9'), 'sin person id');
-    assert.ok(screen.getByText('Fase webhook (7 d)'));
-    assert.ok(screen.getByText('Fase recovery (7 d)'));
-    assert.ok(screen.getByText('Sin Apollo person id'));
-    assert.ok(screen.getByText('Sin account id'));
-    assert.ok(screen.getByText(/sin fase reconocible/i));
+    assert.ok(screen.getByText('Al recibir la respuesta'));
+    assert.ok(screen.getByText('Al recuperar pendientes'));
+    assert.ok(screen.getByText('Identificador de la persona'));
+    assert.ok(screen.getByText('Identificador de la empresa'));
+    assert.ok(screen.getByText(/sin momento reconocible/i));
   });
 
   it('declara cuando la lectura quedó truncada', () => {
@@ -182,7 +182,7 @@ describe('FIX 5 UI — conteos agregados', () => {
       />,
     );
 
-    assert.ok(screen.getByText(/alcanzó el tope de filas/i));
+    assert.ok(screen.getByText(/más casos de los que se pueden contar/i));
     assert.ok(screen.getByText(/un mínimo, no el total/i));
   });
 });
@@ -193,7 +193,7 @@ describe('FIX 5 UI — sin permisos', () => {
   it('null muestra "sin permisos", nunca un cero', () => {
     render(<PhoneSuppressionNotEvaluableCard summary={null} />);
 
-    assert.ok(screen.getByText(/Sin permisos para ver el monitoreo de supresiones/i));
+    assert.ok(screen.getByText(/No tienes permiso para ver estas verificaciones/i));
     assert.equal(screen.queryByText('Últimas 24 h'), null);
     assert.equal(screen.queryAllByText('0').length, 0);
   });

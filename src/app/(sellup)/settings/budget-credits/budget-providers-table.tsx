@@ -1,26 +1,24 @@
 'use client';
 
-import { withAppTimeZone } from '@/lib/format-date';
-import { useEffect, useMemo, useState, useTransition } from 'react';
+import { formatAppDateTime, formatInAppZone } from '@/lib/format-date';
+import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
+import type { ColumnDef } from '@tanstack/react-table';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
-import { MoreHorizontal, RefreshCw, Settings, Activity, BarChart2, DollarSign, ScrollText, Eye, X } from "@/icons";
+import { RefreshCw, Settings, Activity, BarChart2, DollarSign, ScrollText, Eye, X, Layers } from "@/icons";
 import type { AdminProviderBudgetRow } from '@/modules/budgets';
 import { syncProviderQuota } from '@/modules/budgets';
-import { deriveConsumedDisplay } from './budget-display';
-import { DataTableBulkActionBar } from '@/components/data-table/data-table-bulk-action-bar';
-import type { DataTableBulkAction } from '@/components/data-table/data-table';
+import { deriveConsumedCell, deriveConsumedDisplay } from './budget-display';
+import {
+  DataTable,
+  DataTableColumnHeader,
+  DataTableRowActions,
+  type DataTableBulkAction,
+  type DataTableContextMenuItem,
+} from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import { EmptyState } from '@/components/ui/empty-state';
 import { toast } from 'sonner';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import {
   MEASUREMENT_STATUS_LABEL,
   MEASUREMENT_STATUS_BADGE,
@@ -30,6 +28,7 @@ import {
   getProviderOperationalType,
   OPERATIONAL_TYPE_LABEL,
   OPERATIONAL_TYPE_BADGE,
+  type ProviderOperationalType,
 } from '@/modules/budgets/provider-operational-type';
 import { ProviderAllowanceDrawer } from './provider-allowance-drawer';
 import {
@@ -42,7 +41,6 @@ import {
   resolveProviderWorkspaceUrlState,
   buildProviderWorkspaceParams,
 } from './provider-workspace-url-state';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 interface Props {
   providers: AdminProviderBudgetRow[];
@@ -55,13 +53,20 @@ interface Props {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function formatDateShort(iso: string): string {
-  return new Date(iso).toLocaleString('es-CO', withAppTimeZone({
+  return formatInAppZone(iso, {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  }));
+  });
 }
+
+/** Cuándo se trajo por última vez la cuota del proveedor (o se revisó su presupuesto). */
+function lastUpdatedAt(row: AdminProviderBudgetRow): string | null {
+  return row.quotaSyncedAt ?? row.latestBudgetCheckLog?.createdAt ?? null;
+}
+
+const providerName = (row: AdminProviderBudgetRow) => row.displayName ?? row.providerKey;
 
 // ── Attention badge derivation ────────────────────────────────────────────────
 
@@ -79,9 +84,24 @@ function deriveAttention(row: AdminProviderBudgetRow): AttentionLevel {
 }
 
 const ATTENTION_BADGE: Record<Exclude<AttentionLevel, 'none'>, { label: string; variant: 'warning' | 'negative' }> = {
-  quota_required: { label: 'Cuota requerida', variant: 'warning' },
-  warning:        { label: 'Advertencia',      variant: 'warning' },
-  exceeded:       { label: 'Excedido',         variant: 'negative' },
+  quota_required: { label: 'Falta la cuota', variant: 'warning' },
+  warning:        { label: 'Queda poco',     variant: 'warning' },
+  exceeded:       { label: 'Cuota agotada',  variant: 'negative' },
+};
+
+const ATTENTION_FILTER_LABEL: Record<AttentionLevel, string> = {
+  none: 'Sin alerta',
+  quota_required: ATTENTION_BADGE.quota_required.label,
+  warning: ATTENTION_BADGE.warning.label,
+  exceeded: ATTENTION_BADGE.exceeded.label,
+};
+
+/** De más urgente a menos: así ordena la columna «Alerta». */
+const ATTENTION_RANK: Record<AttentionLevel, number> = {
+  exceeded: 3,
+  quota_required: 2,
+  warning: 1,
+  none: 0,
 };
 
 // ── Consumed display ──────────────────────────────────────────────────────────
@@ -159,17 +179,12 @@ function SelectionReviewPanel({
             <span title={totalConsumed.description}>{totalConsumed.label}</span>
           </div>
         )}
-        <p className="text-xs text-muted-foreground leading-relaxed pt-1">
-          Las acciones masivas se conectarán progresivamente. Por ahora puedes revisar la selección y abrir proveedores individuales.
-        </p>
       </div>
     </div>
   );
 }
 
 // ── Main table ─────────────────────────────────────────────────────────────────
-
-const LIGHT_TABLE_COLUMNS = ['Proveedor', 'Tipo', 'Estado', 'Consumo del mes', 'Alerta', 'Última sync', 'Acciones'];
 
 const SYNC_CAPABLE_PROVIDERS = new Set(['tavily', 'lusha', 'apollo', 'anthropic']);
 
@@ -178,8 +193,8 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], pro
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
-  const [reviewOpen, setReviewOpen] = useState(false);
+  // Las filas que se están revisando: se fijan al pulsar «Revisar selección».
+  const [reviewRows, setReviewRows] = useState<AdminProviderBudgetRow[] | null>(null);
   const [editingProvider, setEditingProvider] = useState<AdminProviderBudgetRow | null>(null);
   const [syncingKeys, setSyncingKeys] = useState<Set<string>>(new Set());
   const [, startTransition] = useTransition();
@@ -230,27 +245,12 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], pro
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   }
 
-  const resolvedDate = new Date(resolvedAt).toLocaleString('es-CO', withAppTimeZone({
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }));
+  const resolvedDate = formatAppDateTime(resolvedAt);
 
-  const selectedRows = providers.filter((p) => selectedKeys.has(p.providerKey));
-  const allSelected = providers.length > 0 && selectedKeys.size === providers.length;
-  const someSelected = selectedKeys.size > 0 && !allSelected;
-
-  function toggleAll() {
-    setSelectedKeys(allSelected ? new Set() : new Set(providers.map((p) => p.providerKey)));
-  }
-
-  function toggleRow(key: string) {
-    setSelectedKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }
+  // Sin filas marcadas no hay nada que revisar.
+  const handleSelectionCount = useCallback((count: number) => {
+    if (count === 0) setReviewRows(null);
+  }, []);
 
   function handleAllowanceSaved() {
     startTransition(() => { window.location.reload(); });
@@ -266,16 +266,16 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], pro
         if (result.success) {
           toast.success(
             result.skippedAllowance
-              ? `${row.displayName ?? row.providerKey}: dato externo actualizado (cuota manual preservada)`
-              : `${row.displayName ?? row.providerKey}: cuota sincronizada`,
+              ? `${providerName(row)}: consumo actualizado (se conserva la cuota que fijaste a mano)`
+              : `${providerName(row)}: cuota actualizada`,
           );
         } else {
-          toast.error(`${row.displayName ?? row.providerKey}: ${result.error ?? 'No se pudo sincronizar'}`);
+          toast.error(`${providerName(row)}: ${result.error ?? 'no se pudo actualizar la cuota'}`);
         }
       }
       window.location.reload();
     } catch {
-      toast.error('No se pudo sincronizar');
+      toast.error('No se pudo actualizar la cuota. Inténtalo de nuevo.');
     } finally {
       setSyncingKeys(new Set());
     }
@@ -286,13 +286,14 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], pro
       id: 'revisar',
       label: 'Revisar selección',
       icon: Eye,
-      onClick: () => { setReviewOpen((v) => !v); },
+      onClick: (rows) => { setReviewRows((current) => (current ? null : rows)); },
     },
     {
       id: 'ver',
       label: 'Ver proveedor',
       icon: Activity,
       disabled: (rows) => rows.length !== 1,
+      disabledLabel: (rows) => (rows.length !== 1 ? 'Marca un solo proveedor' : undefined),
       onClick: (rows) => { if (rows.length === 1) openSidepanel(rows[0]); },
     },
     {
@@ -300,186 +301,207 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], pro
       label: 'Editar cuota',
       icon: Settings,
       disabled: (rows) => rows.length !== 1 || rows[0].measurementStatus === 'not_measured',
+      disabledLabel: (rows) =>
+        rows.length !== 1
+          ? 'Marca un solo proveedor'
+          : rows[0].measurementStatus === 'not_measured'
+            ? 'El consumo de este proveedor no se mide desde SellUp'
+            : undefined,
       onClick: (rows) => { if (rows.length === 1) setEditingProvider(rows[0]); },
     },
     {
       id: 'sync',
-      label: syncingKeys.size > 0 ? 'Sincronizando…' : 'Sync',
+      label: syncingKeys.size > 0 ? 'Actualizando…' : 'Actualizar cuota',
       icon: RefreshCw,
       loading: syncingKeys.size > 0,
       disabled: (rows) => rows.every((r) => !SYNC_CAPABLE_PROVIDERS.has(r.providerKey)),
+      disabledLabel: (rows) =>
+        rows.every((r) => !SYNC_CAPABLE_PROVIDERS.has(r.providerKey))
+          ? 'Estos proveedores no informan su cuota'
+          : undefined,
       onClick: (rows) => { void handleSyncRows(rows); },
     },
   ];
 
-  if (providers.length === 0) {
-    return (
-      <EmptyState
-        title="Aún no hay reglas de presupuesto configuradas. Este panel ya puede mostrar consumo registrado por proveedor."
-        className="m-4 border-0"
-      />
-    );
-  }
+  const rowMenuItems = (row: AdminProviderBudgetRow): DataTableContextMenuItem[] => {
+    const items: DataTableContextMenuItem[] = [
+      { id: 'resumen', label: 'Ver resumen', icon: Activity, onClick: () => openSidepanel(row, 'resumen') },
+      { id: 'consumo', label: 'Ver consumo', icon: BarChart2, onClick: () => openSidepanel(row, 'consumo') },
+      { id: 'presupuesto', label: 'Presupuesto y reglas', icon: DollarSign, onClick: () => openSidepanel(row, 'presupuesto') },
+      { id: 'logs', label: 'Ver historial de uso', icon: ScrollText, onClick: () => openSidepanel(row, 'logs') },
+      { id: 'configuracion', label: 'Ver configuración', icon: Settings, onClick: () => openSidepanel(row, 'configuracion') },
+    ];
+    if (row.measurementStatus !== 'not_measured') {
+      items.push({
+        id: 'cuota',
+        label: 'Configurar cuota',
+        icon: Settings,
+        separator: true,
+        onClick: () => setEditingProvider(row),
+      });
+    }
+    return items;
+  };
+
+  const typeOptions = Array.from(new Set(providers.map((p) => getProviderOperationalType(p.providerKey))))
+    .map((type) => ({ label: OPERATIONAL_TYPE_LABEL[type], value: type }));
+  const statusOptions = Array.from(new Set(providers.map((p) => p.measurementStatus)))
+    .map((status) => ({ label: MEASUREMENT_STATUS_LABEL[status], value: status }));
+  const attentionOptions = Array.from(new Set(providers.map(deriveAttention)))
+    .sort((a, b) => ATTENTION_RANK[b] - ATTENTION_RANK[a])
+    .map((level) => ({ label: ATTENTION_FILTER_LABEL[level], value: level }));
+
+  const columns: ColumnDef<AdminProviderBudgetRow, unknown>[] = [
+    {
+      id: 'provider',
+      accessorFn: providerName,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Proveedor" />,
+      cell: ({ row }) => (
+        <button
+          type="button"
+          onClick={(event) => { event.stopPropagation(); openSidepanel(row.original); }}
+          className="rounded-sm text-left text-sm font-medium whitespace-nowrap text-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+        >
+          {providerName(row.original)}
+        </button>
+      ),
+      size: 200,
+      enableHiding: false,
+      meta: { label: 'Proveedor', disableFilter: true },
+    },
+    {
+      id: 'type',
+      accessorFn: (row): ProviderOperationalType => getProviderOperationalType(row.providerKey),
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Tipo" />,
+      // Categoría en texto plano: el color queda para Estado y Alerta.
+      cell: ({ getValue }) => (
+        <span className="whitespace-nowrap text-sm text-muted-foreground">
+          {OPERATIONAL_TYPE_LABEL[getValue<ProviderOperationalType>()]}
+        </span>
+      ),
+      size: 150,
+      meta: { label: 'Tipo', filterOptions: typeOptions },
+    },
+    {
+      id: 'status',
+      accessorKey: 'measurementStatus',
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Estado" />,
+      cell: ({ row }) => {
+        const ms = row.original.measurementStatus;
+        return (
+          <Badge variant="outline" className={MEASUREMENT_STATUS_BADGE[ms].className}>
+            {MEASUREMENT_STATUS_LABEL[ms]}
+          </Badge>
+        );
+      },
+      size: 180,
+      meta: { label: 'Estado', filterOptions: statusOptions },
+    },
+    {
+      id: 'consumed',
+      // Se ordena por lo gastado en dólares y, a igualdad, por créditos. Lo
+      // que no se mide va al final.
+      accessorFn: (row) =>
+        row.measurementStatus === 'active' ? row.consumedUsd * 1_000_000 + row.consumedCredits : -1,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Consumo del mes" />,
+      cell: ({ row }) => {
+        const consumed = deriveConsumedCell(row.original, row.original.measurementStatus === 'active');
+        return (
+          <div className="whitespace-nowrap tabular-nums" title={consumed.description}>
+            <p className="text-sm font-medium text-foreground">{consumed.primary}</p>
+            {consumed.secondary && <p className="text-xs text-muted-foreground">{consumed.secondary}</p>}
+          </div>
+        );
+      },
+      size: 170,
+      sortDescFirst: true,
+      meta: { label: 'Consumo del mes', disableFilter: true },
+    },
+    {
+      id: 'attention',
+      accessorFn: (row): AttentionLevel => deriveAttention(row),
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Alerta" />,
+      cell: ({ getValue }) => {
+        const attention = getValue<AttentionLevel>();
+        return attention !== 'none' ? (
+          <Badge variant={ATTENTION_BADGE[attention].variant}>{ATTENTION_BADGE[attention].label}</Badge>
+        ) : (
+          <span className="text-xs text-text-muted">—</span>
+        );
+      },
+      sortingFn: (a, b, columnId) =>
+        ATTENTION_RANK[a.getValue<AttentionLevel>(columnId)] - ATTENTION_RANK[b.getValue<AttentionLevel>(columnId)],
+      sortDescFirst: true,
+      size: 150,
+      meta: { label: 'Alerta', filterOptions: attentionOptions },
+    },
+    {
+      id: 'updatedAt',
+      accessorFn: (row) => lastUpdatedAt(row) ?? '',
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Última actualización" />,
+      cell: ({ row }) => {
+        const iso = lastUpdatedAt(row.original);
+        return (
+          <span className="whitespace-nowrap text-sm text-muted-foreground">
+            {iso ? formatDateShort(iso) : <span className="text-text-muted">Nunca</span>}
+          </span>
+        );
+      },
+      sortDescFirst: true,
+      size: 170,
+      meta: { label: 'Última actualización', disableFilter: true },
+    },
+    {
+      id: 'actions',
+      header: () => <span className="sr-only">Acciones</span>,
+      cell: ({ row }) => (
+        // Abrir el menú no debe contar como clic en la fila.
+        <div className="flex justify-end" onClick={(event) => event.stopPropagation()}>
+          <DataTableRowActions items={rowMenuItems(row.original)} rowLabel={providerName(row.original)} />
+        </div>
+      ),
+      size: 56,
+      enableSorting: false,
+      enableHiding: false,
+      enableColumnFilter: false,
+      meta: { label: 'Acciones', disableFilter: true, disableSort: true },
+    },
+  ];
 
   return (
     <>
       <div className="space-y-3">
-        <div className="overflow-x-auto rounded-xl border border-border/60">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-10">
-                  <Checkbox
-                    checked={allSelected ? true : someSelected ? 'indeterminate' : false}
-                    onCheckedChange={toggleAll}
-                    aria-label="Seleccionar todos los proveedores"
-                  />
-                </TableHead>
-                {LIGHT_TABLE_COLUMNS.map((col) => (
-                  <TableHead key={col}>
-                    {col}
-                  </TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {providers.map((row) => {
-                const ms = row.measurementStatus;
-                const msBadge = MEASUREMENT_STATUS_BADGE[ms];
-                const opType = getProviderOperationalType(row.providerKey);
-                const isSelected = selectedKeys.has(row.providerKey);
-                const attention = deriveAttention(row);
-                const consumed = deriveConsumed(row, ms);
+        <DataTable
+          tableId="settings-providers"
+          noun="proveedores"
+          nounGender="m"
+          title="Proveedores"
+          description={`Consumo del mes en curso · Actualizado ${resolvedDate}`}
+          count={providers.length}
+          columns={columns}
+          data={providers}
+          getRowId={(row) => row.providerKey}
+          getRowLabel={providerName}
+          enableRowSelection
+          bulkActions={bulkActions}
+          onSelectionCountChange={handleSelectionCount}
+          contextMenu={{ items: rowMenuItems }}
+          rowClickable
+          onRowClick={(row) => openSidepanel(row)}
+          emptyState={
+            <EmptyState
+              variant="plain"
+              icon={Layers}
+              title="Todavía no hay proveedores"
+              description="Cuando conectes un proveedor de datos o de IA aparecerá aquí con su consumo del mes."
+            />
+          }
+        />
 
-                const syncedAt = row.quotaSyncedAt
-                  ? formatDateShort(row.quotaSyncedAt)
-                  : row.latestBudgetCheckLog?.createdAt
-                    ? formatDateShort(row.latestBudgetCheckLog.createdAt)
-                    : null;
-
-                return (
-                  <TableRow
-                    key={row.providerKey}
-                    data-state={isSelected ? 'selected' : undefined}
-                  >
-                    {/* Checkbox — selecting does NOT open sidepanel */}
-                    <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
-                      <Checkbox
-                        checked={isSelected}
-                        onCheckedChange={() => toggleRow(row.providerKey)}
-                        aria-label={`Seleccionar ${row.displayName ?? row.providerKey}`}
-                      />
-                    </TableCell>
-
-                    {/* Proveedor — name click opens sidepanel */}
-                    <TableCell>
-                      <div className="space-y-0.5">
-                        <button
-                          type="button"
-                          onClick={() => openSidepanel(row)}
-                          className="font-medium text-foreground rounded-sm text-left whitespace-nowrap transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-                        >
-                          {row.displayName ?? row.providerKey}
-                        </button>
-                      </div>
-                    </TableCell>
-
-                    {/* Tipo — texto plano (categoría); el badge de color queda
-                        para Estado y Alerta (Design Refresh v10) */}
-                    <TableCell className="text-xs text-muted-foreground">
-                      {OPERATIONAL_TYPE_LABEL[opType]}
-                    </TableCell>
-
-                    {/* Estado */}
-                    <TableCell>
-                      <Badge variant="outline" className={msBadge.className}>
-                        {MEASUREMENT_STATUS_LABEL[ms]}
-                      </Badge>
-                    </TableCell>
-
-                    {/* Consumo del mes */}
-                    <TableCell className="text-xs tabular-nums text-foreground" title={consumed.description}>
-                      {consumed.label}
-                    </TableCell>
-
-                    {/* Alerta */}
-                    <TableCell>
-                      {attention !== 'none' ? (
-                        <Badge variant={ATTENTION_BADGE[attention].variant}>
-                          {ATTENTION_BADGE[attention].label}
-                        </Badge>
-                      ) : (
-                        <span className="text-xs text-text-muted">—</span>
-                      )}
-                    </TableCell>
-
-                    {/* Última sync */}
-                    <TableCell className="text-xs text-muted-foreground">
-                      {syncedAt ?? <span className="text-text-muted">—</span>}
-                    </TableCell>
-
-                    {/* Acciones */}
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger className="inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
-                          <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
-                          <span className="sr-only">Acciones</span>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-52">
-                          <DropdownMenuItem onClick={() => openSidepanel(row, 'resumen')}>
-                            <Activity className="mr-2 h-3.5 w-3.5" />
-                            Ver resumen
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => openSidepanel(row, 'consumo')}>
-                            <BarChart2 className="mr-2 h-3.5 w-3.5" />
-                            Ver consumo
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => openSidepanel(row, 'presupuesto')}>
-                            <DollarSign className="mr-2 h-3.5 w-3.5" />
-                            Presupuesto y reglas
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => openSidepanel(row, 'logs')}>
-                            <ScrollText className="mr-2 h-3.5 w-3.5" />
-                            Ver logs
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => openSidepanel(row, 'configuracion')}>
-                            <Settings className="mr-2 h-3.5 w-3.5" />
-                            Ver configuración
-                          </DropdownMenuItem>
-                          {row.measurementStatus !== 'not_measured' && (
-                            <>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => setEditingProvider(row)}>
-                                <Settings className="mr-2 h-3.5 w-3.5" />
-                                Configurar cuota
-                              </DropdownMenuItem>
-                            </>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
-
-        {reviewOpen && selectedRows.length > 0 && (
-          <SelectionReviewPanel rows={selectedRows} onClose={() => setReviewOpen(false)} />
+        {reviewRows && reviewRows.length > 0 && (
+          <SelectionReviewPanel rows={reviewRows} onClose={() => setReviewRows(null)} />
         )}
-
-        <p className="px-1 text-xs text-muted-foreground">
-          Datos del período mensual actual · Actualizado {resolvedDate}
-        </p>
       </div>
-
-      <DataTableBulkActionBar
-        selectedCount={selectedKeys.size}
-        selectedRows={selectedRows}
-        actions={bulkActions}
-        onClear={() => { setSelectedKeys(new Set()); setReviewOpen(false); }}
-      />
 
       <ProviderDetailSidepanel
         provider={sidepanelProvider}

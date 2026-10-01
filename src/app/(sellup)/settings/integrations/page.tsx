@@ -1,8 +1,8 @@
 import Link from 'next/link';
-import { Plug, MessageSquare, HardDrive, Bot, Globe, Search, ExternalLink } from "@/icons";
+import { Plug, MessageSquare, HardDrive, Bot, Globe, Search, ArrowRight } from "@/icons";
 import { Badge } from '@/components/ui/badge';
-import { PageHeader } from '@/components/shared/page-header';
-import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
+import { SettingsPage } from '@/components/settings/settings-page';
+import { EmptyState } from '@/components/ui/empty-state';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { getAllIntegrations } from '@/modules/integrations/actions';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
@@ -21,12 +21,12 @@ const INTEGRATION_META: Record<
   hubspot: {
     icon: Plug,
     href: '/settings/integrations/hubspot',
-    cta: 'Administrar conexión',
+    cta: 'Ver conexión',
   },
   slack: {
     icon: MessageSquare,
     href: '/settings/integrations/slack',
-    cta: 'Administrar conexión',
+    cta: 'Ver conexión',
   },
   google_drive: {
     icon: HardDrive,
@@ -39,17 +39,17 @@ const INTEGRATION_META: Record<
   samu_ia: {
     icon: Bot,
     href: '/settings/integrations/samu',
-    cta: 'Administrar conexión',
+    cta: 'Ver conexión',
   },
   tavily: {
     icon: Globe,
     href: '/settings/integrations/tavily',
-    cta: 'Administrar conexión',
+    cta: 'Ver conexión',
   },
   google_cse: {
     icon: Search,
     href: '/settings/integrations/google-cse',
-    cta: 'Administrar conexión',
+    cta: 'Ver conexión',
   },
 };
 
@@ -75,7 +75,7 @@ function ConnectionStatusBadge({
     return (
       <Badge variant="neutral">
         <span className="size-1.5 rounded-full bg-muted-foreground/40" />
-        No configurado
+        Sin conectar
       </Badge>
     );
   }
@@ -93,7 +93,7 @@ function ConnectionStatusBadge({
     return (
       <Badge variant="negative">
         <span className="size-1.5 rounded-full bg-destructive" />
-        Error
+        Con error
       </Badge>
     );
   }
@@ -158,16 +158,14 @@ function IntegrationCard({ integration }: { integration: IntegrationWithConnecti
           <Icon className="size-4" />
         </div>
         {(isAvailable || isPersonal) && meta?.href && (
-          <span className="flex items-center gap-1 text-xs font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+          // Siempre a la vista: en pantalla táctil no hay «pasar el puntero».
+          <span className="flex items-center gap-1 text-xs font-medium text-primary">
             {meta.cta}
-            <ExternalLink className="size-3" />
+            <ArrowRight aria-hidden className="size-3" />
           </span>
         )}
         {isAvailable && !meta?.href && (
-          <div className="flex-1 ml-3 space-y-2">
-            <div className="h-1.5 w-3/4 rounded-full su-skeleton" />
-            <div className="h-1.5 w-1/2 rounded-full su-skeleton" />
-          </div>
+          <span className="text-xs text-muted-foreground">Todavía no se configura desde aquí</span>
         )}
       </div>
     </>
@@ -197,26 +195,23 @@ export default async function IntegrationsPage() {
   const integrations = allIntegrations.filter((i) => i.integration_key !== 'google_drive');
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        breadcrumbs={
-          <Breadcrumbs
-            items={[
-              { label: 'Configuración', href: '/settings' },
-              'Integraciones comerciales',
-            ]}
-          />
-        }
-        title="Integraciones comerciales"
-        description="Conecta herramientas externas que permiten a SellUp validar, enriquecer y operar información comercial."
-        backHref="/settings"
-      />
-
-      <div className="grid gap-4 md:grid-cols-2">
-        {integrations.map((integration) => (
-          <IntegrationCard key={integration.id} integration={integration} />
-        ))}
-      </div>
-    </div>
+    <SettingsPage
+      title="Integraciones comerciales"
+      description="Las herramientas externas con las que trabaja SellUp. Entra a cada una para ver si funciona y probar su conexión."
+    >
+      {integrations.length === 0 ? (
+        <EmptyState
+          icon={Plug}
+          title="No hay integraciones disponibles"
+          description="Cuando se habilite una herramienta para tu organización aparecerá aquí."
+        />
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2">
+          {integrations.map((integration) => (
+            <IntegrationCard key={integration.id} integration={integration} />
+          ))}
+        </div>
+      )}
+    </SettingsPage>
   );
 }

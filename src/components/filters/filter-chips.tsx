@@ -27,6 +27,12 @@ export interface FilterChipsProps {
   title?: string;
   /** Qué significa el filtro puesto; comparte renglón con el título. */
   hint?: string;
+  /**
+   * Los chips que no caben pasan a la línea siguiente en vez de desplazarse en
+   * horizontal. Para filas que deben verse enteras de un vistazo (p. ej. los
+   * estados de una lista) en una columna estrecha.
+   */
+  wrap?: boolean;
   className?: string;
 }
 
@@ -71,6 +77,7 @@ export function FilterChips({
   ariaLabel,
   title,
   hint,
+  wrap = false,
   className,
 }: FilterChipsProps) {
   return (
@@ -84,13 +91,18 @@ export function FilterChips({
       <div
         role="radiogroup"
         aria-label={ariaLabel}
-        className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-1 [scrollbar-width:thin]"
+        className={cn(
+          "flex",
+          wrap
+            ? "flex-wrap gap-2"
+            : "-mx-1 gap-3 overflow-x-auto px-1 pb-1 [scrollbar-width:thin]",
+        )}
       >
         {options.map((option) => (
           <OptionTile
             key={option.value}
             compact
-            className="min-w-44 flex-1"
+            className={wrap ? "w-auto min-w-36 flex-none" : "min-w-44 flex-1"}
             option={{
               value: option.value,
               label: option.label,

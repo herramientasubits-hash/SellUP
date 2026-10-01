@@ -1,4 +1,3 @@
-import { formatInAppZone } from '@/lib/format-date';
 import { redirect } from 'next/navigation';
 import { Bot, Plug, Info, FlaskConical, DollarSign, Zap, CheckCircle2 } from "@/icons";
 import { PageHeader } from '@/components/shared/page-header';
@@ -11,7 +10,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { TableShell, Timeline, TimelineItem, type TimelineTone } from '@/components/data-display';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { getUsageSummary, getRecentUsageActivity } from '@/modules/usage-tracking/actions';
-import type { AgentRun, ProviderUsageLog, ResultQualityEvent } from '@/modules/usage-tracking/types';
+import { AgentRunsTable, ProviderLogsTable, QualityEventsTable } from './usage-activity-tables';
 import { resolveCostDisplay, toCostTruth } from '@/modules/usage-tracking/cost-display';
 import { CostValue } from '@/components/shared/cost-value';
 import {
@@ -26,15 +25,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 // ============================================================
 // Helpers
 // ============================================================
-
-function formatRelativeTime(isoDate: string): string {
-  const diff = Math.floor((Date.now() - new Date(isoDate).getTime()) / 1000);
-  if (diff < 60) return 'Hace un momento';
-  if (diff < 3600) return `Hace ${Math.floor(diff / 60)} min`;
-  if (diff < 86400) return `Hace ${Math.floor(diff / 3600)} h`;
-  if (diff < 604800) return `Hace ${Math.floor(diff / 86400)} días`;
-  return formatInAppZone(isoDate, { day: 'numeric', month: 'short' }, 'es-ES');
-}
 
 function formatCost(usd: number, decimals = 4): string {
   if (usd === 0) return '$0.00';
@@ -58,10 +48,10 @@ const STATUS_BADGE: Record<string, { label: string; variant: BadgeTone }> = {
   failed:         { label: 'Error',       variant: 'negative' },
   cancelled:      { label: 'Cancelado',   variant: 'neutral' },
   pending:        { label: 'Pendiente',   variant: 'warning' },
-  success:        { label: 'OK',          variant: 'positive' },
+  success:        { label: 'Correcta',    variant: 'positive' },
   error:          { label: 'Error',       variant: 'negative' },
-  rate_limited:   { label: 'Rate limit',  variant: 'warning' },
-  quota_exceeded: { label: 'Cuota',       variant: 'negative' },
+  rate_limited:   { label: 'Demasiadas seguidas', variant: 'warning' },
+  quota_exceeded: { label: 'Cuota agotada', variant: 'negative' },
   active:         { label: 'Activo',      variant: 'positive' },
   idle:           { label: 'Inactivo',    variant: 'neutral' },
   planned:        { label: 'Planificado', variant: 'warning' },
@@ -73,26 +63,6 @@ function StatusBadge({ status }: { status: string }) {
     <Badge variant={config.variant}>
       <span className={`h-1.5 w-1.5 rounded-full ${BADGE_DOT[config.variant]}`} aria-hidden="true" />
       {config.label}
-    </Badge>
-  );
-}
-
-const EVENT_TYPE_VARIANT: Record<string, BadgeTone> = {
-  generated:            'brand',
-  normalized:           'neutral',
-  duplicate_detected:   'warning',
-  discarded:            'negative',
-  approved:             'positive',
-  converted_to_account: 'positive',
-  sent_to_hubspot:      'brand',
-  contact_useful:       'positive',
-  contact_invalid:      'negative',
-};
-
-function EventTypeBadge({ type }: { type: string }) {
-  return (
-    <Badge variant={EVENT_TYPE_VARIANT[type] ?? 'neutral'}>
-      {type.replace(/_/g, ' ')}
     </Badge>
   );
 }
@@ -149,89 +119,6 @@ function UsageTable({ title, description, count, columns, leftAligned, emptyLabe
         <TableBody>{children}</TableBody>
       </Table>
     </TableShell>
-  );
-}
-
-// ============================================================
-// Tablas — datos reales
-// ============================================================
-
-function AgentRunsTable({ runs }: { runs: AgentRun[] }) {
-  return (
-    <UsageTable
-      title="Ejecuciones de agentes"
-      description={`Últimas ${runs.length} ejecuciones`}
-      count={runs.length}
-      columns={['Agente', 'Estado', 'Generados', 'Aprobados', 'Costo est.', 'Hace']}
-      leftAligned={2}
-      emptyLabel="Sin ejecuciones de agentes todavía."
-    >
-      {runs.map((run) => (
-        <TableRow key={run.id}>
-          <TableCell className="font-medium text-foreground">{run.agent_name ?? run.agent_key}</TableCell>
-          <TableCell><StatusBadge status={run.status} /></TableCell>
-          <TableCell className="text-right text-muted-foreground">{run.results_generated}</TableCell>
-          <TableCell className="text-right text-muted-foreground">{run.results_approved}</TableCell>
-          <TableCell className="text-right font-mono text-muted-foreground">{formatCost(Number(run.estimated_cost_usd), 2)}</TableCell>
-          <TableCell className="text-right text-muted-foreground">{run.created_at ? formatRelativeTime(run.created_at) : '—'}</TableCell>
-        </TableRow>
-      ))}
-    </UsageTable>
-  );
-}
-
-function ProviderLogsTable({ logs }: { logs: ProviderUsageLog[] }) {
-  return (
-    <UsageTable
-      title="Llamadas a proveedores"
-      description={`Últimas ${logs.length} llamadas`}
-      count={logs.length}
-      columns={['Proveedor', 'Operación', 'Estado', 'Resultados', 'Costo est.', 'Hace']}
-      leftAligned={3}
-      emptyLabel="Sin llamadas a proveedores todavía."
-    >
-      {logs.map((log) => (
-        <TableRow key={log.id}>
-          <TableCell className="font-medium capitalize text-foreground">{log.provider_key}</TableCell>
-          <TableCell className="text-muted-foreground">{log.operation_key.replace(/_/g, ' ')}</TableCell>
-          <TableCell><StatusBadge status={log.status} /></TableCell>
-          <TableCell className="text-right text-muted-foreground">{log.results_returned}</TableCell>
-          <TableCell className="text-right font-mono text-muted-foreground">
-            <CostValue
-              display={resolveCostDisplay({
-                valueUsd: log.estimated_cost_usd ?? 0,
-                costTruth: toCostTruth(log.estimated_cost_usd == null),
-                formatUsd: (v) => formatCost(v, 2),
-              })}
-            />
-          </TableCell>
-          <TableCell className="text-right text-muted-foreground">{formatRelativeTime(log.created_at)}</TableCell>
-        </TableRow>
-      ))}
-    </UsageTable>
-  );
-}
-
-function QualityEventsTable({ events }: { events: ResultQualityEvent[] }) {
-  return (
-    <UsageTable
-      title="Eventos de calidad de resultados"
-      description={`Últimos ${events.length} eventos`}
-      count={events.length}
-      columns={['Tipo', 'Evento', 'Fuente', 'Notas', 'Hace']}
-      leftAligned={4}
-      emptyLabel="Sin eventos de calidad todavía."
-    >
-      {events.map((ev) => (
-        <TableRow key={ev.id}>
-          <TableCell className="text-muted-foreground capitalize">{ev.result_type}</TableCell>
-          <TableCell><EventTypeBadge type={ev.event_type} /></TableCell>
-          <TableCell className="text-muted-foreground">{ev.source_key ?? '—'}</TableCell>
-          <TableCell className="max-w-52 truncate text-muted-foreground" title={ev.notes ?? undefined}>{ev.notes ?? '—'}</TableCell>
-          <TableCell className="text-right text-muted-foreground">{formatRelativeTime(ev.created_at)}</TableCell>
-        </TableRow>
-      ))}
-    </UsageTable>
   );
 }
 
@@ -366,7 +253,7 @@ export default async function UsagePage() {
   return (
     <div className="space-y-6">
       <LegacyCompatBanner
-        message="Esta vista sigue disponible como base interna. La lectura operativa principal de proveedores y consumo vive en Proveedores y consumo."
+        message="El consumo de cada proveedor se revisa ahora en Proveedores y consumo. Esta vista se conserva para ver el detalle de la actividad."
         ctaLabel="Ir a Proveedores y consumo"
         ctaHref="/settings/providers?tab=consumo"
       />
@@ -374,18 +261,17 @@ export default async function UsagePage() {
         breadcrumbs={
           <Breadcrumbs
             items={[
-              { label: 'Configuración', href: '/settings' },
+              { label: 'Proveedores y consumo', href: '/settings/providers' },
               'Uso, costos y efectividad',
             ]}
           />
         }
         title="Uso, costos y efectividad"
-        description="Foundation operativa para monitorear ejecuciones de agentes, llamadas a proveedores y calidad de resultados."
-        backHref="/settings"
+        description="Qué hicieron los agentes, qué se consultó a los proveedores y qué pasó con cada resultado."
         actions={isEmpty ? (
           <Badge variant="warning">
             <FlaskConical aria-hidden="true" />
-            Datos demo
+            Datos de ejemplo
           </Badge>
         ) : undefined}
       />
@@ -396,14 +282,14 @@ export default async function UsagePage() {
         <p className="min-w-0 text-xs leading-relaxed text-muted-foreground">
           {isEmpty ? (
             <>
-              La BD aún no tiene ejecuciones registradas.{' '}
+              Todavía no hay actividad registrada.{' '}
               <strong className="font-medium text-foreground">Los datos que ves son ilustrativos</strong>{' '}
-              y desaparecerán automáticamente cuando los agentes comiencen a registrar actividad en producción.
+              y desaparecerán en cuanto los agentes empiecen a trabajar.
             </>
           ) : (
             <>
-              Esta vista es la <strong className="font-medium text-foreground">foundation operativa</strong>.
-              Los dashboards avanzados se construirán cuando existan datos históricos suficientes.
+              Aquí ves <strong className="font-medium text-foreground">la actividad más reciente</strong>.
+              Los análisis por período llegarán cuando haya suficiente historial.
             </>
           )}
         </p>
@@ -453,12 +339,11 @@ export default async function UsagePage() {
         <div className="flex items-start gap-3">
           <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
           <div className="min-w-0 space-y-1">
-            <p className="text-xs font-semibold text-foreground">Configuración de costos por proveedor</p>
+            <p className="text-xs font-semibold text-foreground">De dónde salen los costos</p>
             <p className="text-xs leading-relaxed text-muted-foreground">
-              Los costos dependen de{' '}
-              <code className="rounded-sm bg-muted px-1 py-0.5 text-xs">provider_pricing_config</code>.{' '}
-              Apollo y Lusha ya cuentan con costo estimado por crédito según los contratos vigentes.
-              Otros proveedores (Anthropic, OpenAI) pueden requerir configuración adicional según el modelo activo.
+              Los costos son estimados a partir del precio configurado para cada proveedor. Apollo y Lusha
+              ya tienen su precio por crédito según el contrato vigente; los proveedores de IA pueden
+              necesitar que se configure el precio del modelo en uso.
             </p>
           </div>
         </div>

@@ -1,10 +1,11 @@
 'use client';
 
 import { formatInAppZone } from '@/lib/format-date';
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { LayoutList, GitBranch, Users, UserCheck, Clock, UserPlus, PauseCircle, UserX, type LucideIcon } from "@/icons";
 import { FilterChips } from '@/components/filters/filter-chips';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { SurfaceCard } from '@/components/shared/surface-card';
@@ -60,30 +61,43 @@ function formatDate(dateStr: string | null): string {
   return formatInAppZone(dateStr, { day: 'numeric', month: 'short', year: 'numeric' }, 'es-CO');
 }
 
-// ─── UserList (passes correct mode to SelectableUsersList) ───────────────────
+// ─── ViewToggle ───────────────────────────────────────────────────────────────
 
-interface UserListProps {
-  users: InternalUser[];
-  roles: Role[];
-  allUsers: InternalUser[];
-  activeUsers: InternalUser[];
-  groups: OrganizationGroup[];
-  filter: UserFilter;
-  isAdmin: boolean;
+interface ViewToggleProps {
+  value: 'list' | 'org';
+  onChange: (value: 'list' | 'org') => void;
+  className?: string;
 }
 
-function UserList({ users, roles, allUsers, activeUsers, groups, filter, isAdmin }: UserListProps) {
-  const mode: SelectableListMode = filter === 'all' ? 'all' : filter as Exclude<SelectableListMode, 'all'>;
+const VIEW_OPTIONS = [
+  { id: 'list', label: 'Lista', icon: LayoutList },
+  { id: 'org', label: 'Organigrama', icon: GitBranch },
+] as const;
+
+/** Lista u organigrama: dos formas de ver a las mismas personas o grupos. */
+function ViewToggle({ value, onChange, className }: ViewToggleProps) {
   return (
-    <SelectableUsersList
-      users={users}
-      roles={roles}
-      allUsers={allUsers}
-      activeUsers={activeUsers}
-      groups={groups}
-      mode={mode}
-      isAdmin={isAdmin}
-    />
+    <div
+      className={cn('flex w-fit items-center gap-1 rounded-lg bg-tab-track p-1', className)}
+      role="group"
+      aria-label="Vista"
+    >
+      {VIEW_OPTIONS.map((option) => (
+        <button
+          key={option.id}
+          type="button"
+          aria-pressed={value === option.id}
+          onClick={() => onChange(option.id)}
+          className={cn(
+            'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40',
+            value === option.id ? 'bg-card text-foreground shadow-card' : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          <option.icon className="h-3.5 w-3.5" />
+          {option.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -108,7 +122,7 @@ function PreapprovalCard({ preapproval, isAdmin }: PreapprovalCardProps) {
             {preapproval.full_name ?? 'Sin nombre registrado'}
           </span>
           <Badge variant="brand" className="shrink-0">
-            Esperando primer login
+            Aún no ha entrado
           </Badge>
         </div>
         <div className="truncate text-xs text-muted-foreground">{preapproval.email}</div>
@@ -120,7 +134,7 @@ function PreapprovalCard({ preapproval, isAdmin }: PreapprovalCardProps) {
         {preapproval.manager_name ?? 'Sin jefe'}
       </div>
       <div className="hidden min-w-[140px] text-xs text-muted-foreground md:block">
-        Preautorizado: {formatDate(preapproval.created_at)}
+        Preautorizado el {formatDate(preapproval.created_at)}
       </div>
       {isAdmin && (
         <PreapprovalCancelButton preapprovalId={preapproval.id} email={preapproval.email} />
@@ -162,103 +176,74 @@ export function UsersTab({
     rejected:    users.filter(u => u.access_status === 'rejected').length,
   }), [users, preapprovals]);
 
-  const showOrgChart = (filter === 'active' || filter === 'all') && viewMode === 'org';
+  const canShowOrgChart = filter === 'active' || filter === 'all';
   const showPreapprovedList = filter === 'preapproved';
-  const showUserList = viewMode === 'list' && !showPreapprovedList;
-  const showViewToggle = filter === 'active' || filter === 'all';
+  const showOrgChart = canShowOrgChart && viewMode === 'org';
+  const showUserList = !showPreapprovedList && !showOrgChart;
+  const listMode: SelectableListMode =
+    filter === 'preapproved' ? 'all' : filter;
+  const listTitle = USER_FILTERS.find((f) => f.id === filter)?.label ?? 'Usuarios';
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 space-y-4">
-      {/* Filter bar + view toggle */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        {/* Thema: fila de chips con contador encima de la lista. Mismo estado y
-            mismos conteos que antes; solo cambia la pieza que los pinta. */}
-        <FilterChips
-          ariaLabel="Filtrar usuarios"
-          value={filter}
-          onChange={(value) => {
-            const next = value as UserFilter;
-            setFilter(next);
-            onFilterChange?.(next);
-          }}
-          options={USER_FILTERS.map((f) => ({
-            value: f.id,
-            label: f.label,
-            count: filterCounts[f.id],
-            icon: f.icon,
-          }))}
-          className="min-w-0 flex-1"
-        />
+    <div className="flex flex-col gap-4">
+      {/* Una sola fila de estados: cada chip filtra la lista y dice cuántos hay.
+          Envuelve a la línea siguiente en vez de salirse por la derecha. */}
+      <FilterChips
+        wrap
+        ariaLabel="Filtrar usuarios por estado"
+        value={filter}
+        onChange={(value) => {
+          const next = value as UserFilter;
+          setFilter(next);
+          onFilterChange?.(next);
+        }}
+        options={USER_FILTERS.map((f) => ({
+          value: f.id,
+          label: f.label,
+          count: filterCounts[f.id],
+          icon: f.icon,
+        }))}
+      />
 
-        {showViewToggle && (
-          <div className="flex items-center gap-1 rounded-lg bg-tab-track p-1" role="group" aria-label="Vista">
-            <button
-              type="button"
-              aria-pressed={viewMode === 'list'}
-              onClick={() => setViewMode('list')}
-              className={cn(
-                'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40',
-                viewMode === 'list' ? 'bg-card text-foreground shadow-card' : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <LayoutList className="h-3.5 w-3.5" />
-              Lista
-            </button>
-            <button
-              type="button"
-              aria-pressed={viewMode === 'org'}
-              onClick={() => setViewMode('org')}
-              className={cn(
-                'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40',
-                viewMode === 'org' ? 'bg-card text-foreground shadow-card' : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <GitBranch className="h-3.5 w-3.5" />
-              Organigrama
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Preapproved list */}
-      {showPreapprovedList && (
-        <div className="flex-1 min-h-0 overflow-y-auto space-y-2">
-          {preapprovals.length === 0 ? (
-            <div className="py-12 text-center text-sm text-muted-foreground">
-              No hay preautorizaciones pendientes.
-            </div>
-          ) : (
-            preapprovals.map(p => <PreapprovalCard key={p.id} preapproval={p} isAdmin={isAdmin} />)
-          )}
-        </div>
+      {canShowOrgChart && (
+        <ViewToggle value={viewMode} onChange={setViewMode} className="self-end" />
       )}
 
-      {/* Org chart */}
-      {showOrgChart && viewMode === 'org' && (
-        <div className="flex-1 min-h-0 overflow-hidden">
+      {/* Preautorizados: personas con acceso concedido que aún no han entrado */}
+      {showPreapprovedList && (
+        preapprovals.length === 0 ? (
+          <EmptyState
+            icon={UserPlus}
+            title="No hay nadie preautorizado"
+            description="Con «Agregar usuario» puedes dejar aprobado el acceso de alguien antes de que entre por primera vez."
+          />
+        ) : (
+          <div className="space-y-2">
+            {preapprovals.map(p => <PreapprovalCard key={p.id} preapproval={p} isAdmin={isAdmin} />)}
+          </div>
+        )
+      )}
+
+      {showOrgChart && (
+        <div className="h-128 min-h-0 overflow-hidden">
           <OrgChart users={users} roles={roles} />
         </div>
       )}
 
-      {/* User list */}
       {showUserList && (
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          {filteredUsers.length === 0 ? (
-            <div className="py-12 text-center text-sm text-muted-foreground">
-              No hay usuarios en esta categoría.
-            </div>
-          ) : (
-            <UserList
-              users={filteredUsers}
-              roles={roles}
-              allUsers={allUsers}
-              activeUsers={activeUsers}
-              groups={groups}
-              filter={filter}
-              isAdmin={isAdmin}
-            />
-          )}
-        </div>
+        <SelectableUsersList
+          // Al cambiar de estado cambian las acciones en lote: la tabla empieza
+          // de cero para no arrastrar una selección de otra vista.
+          key={listMode}
+          users={filteredUsers}
+          roles={roles}
+          allUsers={allUsers}
+          activeUsers={activeUsers}
+          groups={groups}
+          mode={listMode}
+          isAdmin={isAdmin}
+          title={listTitle}
+        />
       )}
     </div>
   );
@@ -277,47 +262,22 @@ export function GroupsTab({ users, groups, roles, isAdmin = false }: GroupsTabPr
   const activeUsers = useMemo(() => users.filter(u => u.access_status === 'active'), [users]);
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 space-y-4">
+    <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-sm text-muted-foreground">
           {groups.length} {groups.length === 1 ? 'grupo' : 'grupos'}
         </span>
-        <div className="flex items-center gap-1 rounded-lg bg-tab-track p-1" role="group" aria-label="Vista">
-          <button
-            type="button"
-            aria-pressed={viewMode === 'list'}
-            onClick={() => setViewMode('list')}
-            className={cn(
-              'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40',
-              viewMode === 'list' ? 'bg-card text-foreground shadow-card' : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            <LayoutList className="h-3.5 w-3.5" />
-            Lista
-          </button>
-          <button
-            type="button"
-            aria-pressed={viewMode === 'org'}
-            onClick={() => setViewMode('org')}
-            className={cn(
-              'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40',
-              viewMode === 'org' ? 'bg-card text-foreground shadow-card' : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            <GitBranch className="h-3.5 w-3.5" />
-            Organigrama
-          </button>
-        </div>
+        <ViewToggle value={viewMode} onChange={setViewMode} />
       </div>
 
       {viewMode === 'list' && (
-        <SurfaceCard className="flex-1">
+        <SurfaceCard>
           <GroupManagementPanel groups={groups} />
         </SurfaceCard>
       )}
 
       {viewMode === 'org' && (
-        <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-border/60 bg-card">
+        <div className="h-128 min-h-0 overflow-y-auto rounded-2xl border border-border/60 bg-card">
           <GroupsView users={activeUsers} groups={groups} roles={roles} isAdmin={isAdmin} />
         </div>
       )}

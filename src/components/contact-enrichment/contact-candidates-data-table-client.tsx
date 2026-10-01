@@ -4,11 +4,28 @@ import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
 import { useReportSelectionCount } from "@/components/action-rail";
 import { type ColumnDef } from '@tanstack/react-table';
-import { Link2, Building2, Globe, UserSearch } from "@/icons";
+import { Link2, Building2, Mail, Sparkles, UserSearch } from "@/icons";
 
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
-import { DataTable, DataTableColumnHeader, type DataTableBulkAction } from '@/components/data-table';
+import {
+  DataTable,
+  DataTableColumnHeader,
+  type DataTableBulkAction,
+  type DataTableHandle,
+  type DataTableListRowState,
+} from '@/components/data-table';
+import { ListItem } from '@/components/data-display/list-item';
+import {
+  QuickFilterChips,
+  QuickFilterEmptyState,
+  QuickFilterStrip,
+  useQuickFilter,
+  useWideViewport,
+  type QuickFilterDefinition,
+} from '@/components/filters/quick-filter-strip';
+import { EmptyCell, ExternalIconLink, RowTitleButton } from '@/components/shared/table-cells';
 import { ContactsEnrichmentCTA } from '@/components/contact-enrichment/contacts-enrichment-cta';
 import { ContactCandidateDetailSheet } from '@/components/contact-enrichment/contact-candidate-detail-sheet';
 import type {
@@ -53,6 +70,40 @@ const RELEVANCE_DOTS: Record<ContactRelevanceStatus, string> = {
   insufficient_data: 'bg-border',
 };
 
+// ── Indicadores que filtran ─────────────────────────────────────
+// Eran tarjetas de métricas en la cabecera. Ahora son botones: pulsar uno deja
+// en la tabla solo esos candidatos, y el número es exactamente lo que se ve.
+const CANDIDATE_QUICK_FILTERS: readonly QuickFilterDefinition<PendingContactCandidate>[] = [
+  {
+    id: 'high_relevance',
+    label: 'Alta relevancia',
+    icon: Sparkles,
+    tone: 'brand',
+    predicate: (candidate) => candidate.enrichment_metadata?.relevance?.status === 'high_relevance',
+  },
+  {
+    id: 'with_email',
+    label: 'Con email',
+    icon: Mail,
+    tone: 'positive',
+    predicate: (candidate) => Boolean(candidate.email),
+  },
+  {
+    id: 'with_linkedin',
+    label: 'Con LinkedIn',
+    icon: Link2,
+    tone: 'neutral',
+    predicate: (candidate) => Boolean(candidate.linkedin_url),
+  },
+];
+
+const EMPTY_SCOPE_FILTER: ScopeFilterState = { userId: '', groupId: '', roleKey: '' };
+
+/** El estado del flujo, en texto: todas las filas de una cola comparten el suyo. */
+function workflowStatusLabel(candidate: PendingContactCandidate): string {
+  return candidate.status === 'duplicate' ? 'Duplicado' : 'Por revisar';
+}
+
 // ── Helpers ─────────────────────────────────────────────────────
 
 function formatDate(dateStr: string): string {
@@ -73,42 +124,44 @@ function toPercent(score: number | undefined): string | null {
 
 // ── Cells ───────────────────────────────────────────────────────
 
-function NameCell({ candidate }: { candidate: PendingContactCandidate }) {
-  // Design Refresh v1: 2 líneas máximo. LinkedIn pasa a icono junto al nombre;
-  // el canal secundario (email > teléfono) va en una sola línea legible.
-  // El detalle completo vive en el side panel del candidato.
-  const secondary = candidate.email ?? candidate.phone ?? null;
+function NameCell({
+  candidate,
+  onOpen,
+}: {
+  candidate: PendingContactCandidate;
+  onOpen: (candidate: PendingContactCandidate) => void;
+}) {
+  // Una sola línea: el nombre abre el detalle y a su lado van, como iconos, el
+  // correo y LinkedIn. El detalle completo vive en el panel del candidato.
+  const name = candidate.full_name || 'Sin nombre';
   const isNew = candidate.created_at ? isCandidateCreatedToday(candidate.created_at) : false;
   return (
-    <div className="min-w-0 max-w-[260px] space-y-0.5">
-      <div className="flex items-center gap-1.5">
-        <p className="truncate text-sm font-semibold text-foreground">
-          {candidate.full_name || 'Sin nombre'}
-        </p>
-        {isNew && (
-          <Badge className="border-0 bg-success/10 text-success text-xs font-semibold px-1.5 py-0.5 shrink-0">
-            Nuevo
-          </Badge>
-        )}
-        {candidate.linkedin_url && (
-          <a
-            href={
-              candidate.linkedin_url.startsWith('http')
-                ? candidate.linkedin_url
-                : `https://${candidate.linkedin_url}`
-            }
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="Perfil de LinkedIn"
-            className="shrink-0 rounded-sm text-primary transition-colors hover:text-primary/80 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <Link2 className="h-3 w-3" />
-          </a>
-        )}
-      </div>
-      {secondary && (
-        <p className="truncate text-xs text-muted-foreground">{secondary}</p>
+    <div className="flex min-w-0 items-center gap-1.5">
+      <RowTitleButton onClick={() => onOpen(candidate)} title={name}>
+        {name}
+      </RowTitleButton>
+      {isNew && (
+        <Badge className="border-0 bg-success/10 text-success text-xs font-semibold px-1.5 py-0.5 shrink-0">
+          Nuevo
+        </Badge>
+      )}
+      {candidate.email && (
+        <a
+          href={`mailto:${candidate.email}`}
+          aria-label={`Escribir a ${name} (${candidate.email})`}
+          title={candidate.email}
+          onClick={(e) => e.stopPropagation()}
+          className="inline-flex size-5 shrink-0 items-center justify-center rounded-md text-text-muted outline-none transition-colors hover:bg-surface-muted hover:text-primary focus-visible:ring-3 focus-visible:ring-ring/40"
+        >
+          <Mail aria-hidden className="size-3.5" />
+        </a>
+      )}
+      {candidate.linkedin_url && (
+        <ExternalIconLink
+          href={candidate.linkedin_url}
+          icon={Link2}
+          label={`Abrir el LinkedIn de ${name}`}
+        />
       )}
     </div>
   );
@@ -120,7 +173,7 @@ function RelevanceCell({ candidate }: { candidate: PendingContactCandidate }) {
   const scoreLabel = toPercent(relevance?.score);
 
   if (!status) {
-    return <span className="text-xs text-muted-foreground">—</span>;
+    return <EmptyCell label="Sin relevancia calculada" />;
   }
 
   return (
@@ -137,7 +190,7 @@ function RelevanceCell({ candidate }: { candidate: PendingContactCandidate }) {
 function QualityCell({ candidate }: { candidate: PendingContactCandidate }) {
   const qualityLabel = toPercent(candidate.enrichment_metadata?.relevance?.quality_score);
   if (!qualityLabel) {
-    return <span className="text-xs text-muted-foreground">—</span>;
+    return <EmptyCell label="Sin calidad calculada" />;
   }
   return (
     <span className="text-xs text-muted-foreground tabular-nums">{qualityLabel}</span>
@@ -206,11 +259,8 @@ export function ContactCandidatesDataTableClient({
   const [detailId, setDetailId] = React.useState<string | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
 
-  const [scopeFilter, setScopeFilter] = React.useState<ScopeFilterState>({
-    userId: '',
-    groupId: '',
-    roleKey: '',
-  });
+  const [scopeFilter, setScopeFilter] = React.useState<ScopeFilterState>(EMPTY_SCOPE_FILTER);
+  const dataTableRef = React.useRef<DataTableHandle>(null);
 
   const filteredCandidates = React.useMemo(() => {
     if (!scopeFilterOptions?.showScopeFilters || !accountOwners) return candidates;
@@ -246,6 +296,25 @@ export function ContactCandidatesDataTableClient({
     setDetailOpen(true);
   }, []);
 
+  const quick = useQuickFilter(filteredCandidates, CANDIDATE_QUICK_FILTERS);
+  const toggleQuickFilter = React.useCallback(
+    (id: string) => {
+      // Cambiar de indicador cambia la lista: lo marcado deja de tener sentido.
+      dataTableRef.current?.clearSelection();
+      quick.toggle(id);
+    },
+    [quick],
+  );
+  // En pantalla ancha los indicadores van dentro de la barra de la tabla (no
+  // gastan un renglón); en estrecha, en su franja encima.
+  const isWide = useWideViewport();
+  const quickFilterGroup = {
+    label: 'Indicadores de candidatos',
+    options: quick.options,
+    value: quick.activeId,
+    onToggle: toggleQuickFilter,
+  };
+
   const bulkActions = React.useMemo<DataTableBulkAction<PendingContactCandidate>[]>(
     () => [
       {
@@ -265,24 +334,28 @@ export function ContactCandidatesDataTableClient({
         id: 'full_name',
         accessorKey: 'full_name',
         header: ({ column }) => <DataTableColumnHeader column={column} title="Nombre" />,
-        cell: ({ row }) => <NameCell candidate={row.original} />,
-        size: 260,
-        minSize: 200,
+        cell: ({ row }) => <NameCell candidate={row.original} onOpen={openDetail} />,
+        size: 220,
+        minSize: 180,
         enableHiding: false,
-        meta: { label: 'Nombre', popoverTitle: 'Nombre' },
+        // Texto libre: se ordena y se busca, no se filtra por valores.
+        meta: { label: 'Nombre', popoverTitle: 'Nombre', disableFilter: true },
       },
       {
         id: 'title',
         accessorKey: 'title',
         header: ({ column }) => <DataTableColumnHeader column={column} title="Cargo" />,
-        cell: ({ row }) => (
-          <span className="line-clamp-2 max-w-[200px] text-xs text-muted-foreground" title={row.original.title ?? undefined}>
-            {row.original.title ?? 'Sin cargo'}
-          </span>
-        ),
-        size: 180,
+        cell: ({ row }) =>
+          row.original.title ? (
+            <span className="block truncate text-xs text-muted-foreground" title={row.original.title}>
+              {row.original.title}
+            </span>
+          ) : (
+            <EmptyCell label="Sin cargo" />
+          ),
+        size: 170,
         minSize: 140,
-        meta: { label: 'Cargo', popoverTitle: 'Cargo' },
+        meta: { label: 'Cargo', popoverTitle: 'Cargo', disableFilter: true },
       },
       {
         id: 'company',
@@ -290,35 +363,33 @@ export function ContactCandidatesDataTableClient({
         header: ({ column }) => <DataTableColumnHeader column={column} title="Empresa" />,
         cell: ({ row }) => {
           const c = row.original;
+          if (!c.company_name) return <EmptyCell label="Sin empresa" />;
           return (
-            <div className="min-w-0 max-w-[200px] space-y-0.5">
-              <span className="flex items-center gap-1.5 text-sm text-foreground">
-                <Building2 className="h-3 w-3 shrink-0 text-muted-foreground" />
-                <span className="truncate">{c.company_name ?? 'Sin empresa'}</span>
-              </span>
-              {c.company_domain && (
-                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                  <Globe className="h-2.5 w-2.5 shrink-0" />
-                  <span className="max-w-[160px] truncate" title={c.company_domain}>{c.company_domain}</span>
-                </span>
-              )}
-            </div>
+            <span
+              className="flex min-w-0 items-center gap-1.5 text-xs text-foreground"
+              title={c.company_domain ? `${c.company_name} · ${c.company_domain}` : c.company_name}
+            >
+              <Building2 aria-hidden className="h-3 w-3 shrink-0 text-muted-foreground" />
+              <span className="truncate">{c.company_name}</span>
+            </span>
           );
         },
-        size: 200,
+        size: 180,
         minSize: 150,
+        // Enumerable: el embudo ofrece las empresas que aparecen en la cola.
         meta: { label: 'Empresa', popoverTitle: 'Empresa' },
       },
       {
         id: 'source',
         accessorKey: 'source',
         header: ({ column }) => <DataTableColumnHeader column={column} title="Fuente" />,
+        // Dato de procedencia, no una señal: en texto, sin chip.
         cell: ({ row }) => (
-          <Badge variant="neutral">
+          <span className="block truncate text-xs text-muted-foreground">
             {SOURCE_LABELS[row.original.source] ?? row.original.source}
-          </Badge>
+          </span>
         ),
-        size: 100,
+        size: 90,
         minSize: 80,
         filterFn: 'arrIncludesSome',
         meta: {
@@ -352,7 +423,7 @@ export function ContactCandidatesDataTableClient({
         accessorFn: (row) => row.enrichment_metadata?.relevance?.quality_score ?? 0,
         header: ({ column }) => <DataTableColumnHeader column={column} title="Calidad" />,
         cell: ({ row }) => <QualityCell candidate={row.original} />,
-        size: 100,
+        size: 90,
         minSize: 80,
         enableColumnFilter: false,
         meta: { label: 'Calidad', popoverTitle: 'Calidad', disableFilter: true },
@@ -361,11 +432,11 @@ export function ContactCandidatesDataTableClient({
         id: 'status',
         accessorKey: 'status',
         header: ({ column }) => <DataTableColumnHeader column={column} title="Estado" />,
-        cell: () => (
-          // Todas las filas de este tab comparten estado — texto plano, sin badge
-          <span className="text-xs text-muted-foreground">Por revisar</span>
+        cell: ({ row }) => (
+          // Todas las filas de una cola comparten estado — texto plano, sin badge
+          <span className="text-xs text-muted-foreground">{workflowStatusLabel(row.original)}</span>
         ),
-        size: 120,
+        size: 110,
         minSize: 100,
         enableColumnFilter: false,
         meta: { label: 'Estado', popoverTitle: 'Estado', disableFilter: true },
@@ -374,55 +445,140 @@ export function ContactCandidatesDataTableClient({
         id: 'created_at',
         accessorKey: 'created_at',
         header: ({ column }) => <DataTableColumnHeader column={column} title="Creado" />,
-        cell: ({ row }) => (
-          <span className="text-xs text-muted-foreground whitespace-nowrap">
-            {row.original.created_at ? formatDate(row.original.created_at) : '—'}
-          </span>
-        ),
-        size: 130,
+        cell: ({ row }) =>
+          row.original.created_at ? (
+            <span className="text-xs text-muted-foreground whitespace-nowrap">
+              {formatDate(row.original.created_at)}
+            </span>
+          ) : (
+            <EmptyCell label="Sin fecha" />
+          ),
+        size: 120,
         minSize: 110,
-        meta: { label: 'Creado', popoverTitle: 'Fecha de creación' },
+        // Fecha: solo se ordena.
+        meta: { label: 'Creado', popoverTitle: 'Fecha de creación', disableFilter: true },
       },
     ],
-    [],
+    [openDetail],
   );
+
+  // ── Vista de lista ────────────────────────────────────────────
+  const renderListItem = React.useCallback(
+    (row: PendingContactCandidate, state: DataTableListRowState) => {
+      const relevance = row.enrichment_metadata?.relevance?.status;
+      return (
+        <ListItem
+          selected={state.selected}
+          leading={state.checkbox}
+          title={
+            <RowTitleButton onClick={() => openDetail(row)}>{row.full_name || 'Sin nombre'}</RowTitleButton>
+          }
+          description={
+            [row.title, row.company_name, row.email ?? row.phone].filter(Boolean).join(' · ') ||
+            'Sin cargo, empresa ni datos de contacto'
+          }
+          meta={
+            relevance ? (
+              <span className="flex items-center gap-1.5 text-xs text-foreground">
+                <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${RELEVANCE_DOTS[relevance]}`} />
+                Relevancia {(RELEVANCE_LABELS[relevance] ?? relevance).toLowerCase()}
+              </span>
+            ) : (
+              workflowStatusLabel(row)
+            )
+          }
+          actions={state.menu}
+        />
+      );
+    },
+    [openDetail],
+  );
+
+  // ── Vacíos: cada uno dice por qué no hay filas y qué hacer ────
+  // Sin `emptyState`, la tabla pone su propio aviso de «nada coincide con
+  // estos filtros» junto a los chips, que ya traen «Limpiar todo».
+  let emptyState: React.ReactNode;
+  if (candidates.length === 0) {
+    emptyState = (
+      <EmptyState
+        icon={UserSearch}
+        title={queueCopy.emptyTitle}
+        description={queueCopy.emptyBody}
+        action={queueCopy.showEnrichmentCta ? <ContactsEnrichmentCTA /> : undefined}
+        variant="plain"
+      />
+    );
+  } else if (filteredCandidates.length === 0) {
+    emptyState = (
+      <EmptyState
+        variant="plain"
+        icon={UserSearch}
+        title="Ningún candidato en este alcance"
+        description="El usuario, grupo o rol elegido no tiene candidatos en sus empresas."
+        action={
+          <Button type="button" variant="outline" size="sm" onClick={() => setScopeFilter(EMPTY_SCOPE_FILTER)}>
+            Quitar filtros de alcance
+          </Button>
+        }
+      />
+    );
+  } else if (quick.rows.length === 0 && quick.activeLabel) {
+    emptyState = (
+      <QuickFilterEmptyState
+        icon={UserSearch}
+        filterLabel={quick.activeLabel}
+        noun="candidatos"
+        onClear={quick.clear}
+      />
+    );
+  }
 
   return (
     <>
-    <DataTable
-      onSelectionCountChange={reportSelectionCount}
-      columns={columns}
-      data={filteredCandidates}
-      getRowId={(row) => row.id}
-      title={queueCopy.title}
-      description={queueCopy.description}
-      count={filteredCandidates.length}
-      settingsExtraSections={
-        scopeFilterOptions?.showScopeFilters ? (
-          <ScopeFilterDrawerSection
-            scopeFilterOptions={scopeFilterOptions}
-            value={scopeFilter}
-            onChange={setScopeFilter}
-          />
-        ) : undefined
-      }
-      enableRowSelection
-      bulkActions={bulkActions}
-      enableColumnReorder
-      initialPageSize={20}
-      fillHeight
-      rowClickable
-      onRowClick={openDetail}
-      emptyState={
-        <EmptyState
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      {candidates.length > 0 && !isWide && (
+        <QuickFilterStrip
+          {...quickFilterGroup}
           icon={UserSearch}
-          title={queueCopy.emptyTitle}
-          description={queueCopy.emptyBody}
-          action={queueCopy.showEnrichmentCta ? <ContactsEnrichmentCTA /> : undefined}
-          variant="plain"
+          total={quick.total}
+          noun={queue === 'duplicates' ? ['candidato duplicado', 'candidatos duplicados'] : ['candidato por revisar', 'candidatos por revisar']}
+          className="shrink-0"
         />
-      }
-    />
+      )}
+
+      <DataTable
+        ref={dataTableRef}
+        tableId="contact-candidates"
+        noun="candidatos"
+        getRowLabel={(row) => row.full_name ?? 'candidato'}
+        onSelectionCountChange={reportSelectionCount}
+        columns={columns}
+        data={quick.rows}
+        getRowId={(row) => row.id}
+        // La descripción de la cola la dice la cabecera de la página: aquí no se repite.
+        title={quick.activeLabel ? `${queueCopy.title} · ${quick.activeLabel}` : queueCopy.title}
+        count={quick.rows.length}
+        actions={candidates.length > 0 && isWide ? <QuickFilterChips {...quickFilterGroup} /> : undefined}
+        settingsExtraSections={
+          scopeFilterOptions?.showScopeFilters ? (
+            <ScopeFilterDrawerSection
+              scopeFilterOptions={scopeFilterOptions}
+              value={scopeFilter}
+              onChange={setScopeFilter}
+            />
+          ) : undefined
+        }
+        enableRowSelection
+        bulkActions={bulkActions}
+        enableColumnReorder
+        initialPageSize={20}
+        fillHeight
+        rowClickable
+        onRowClick={openDetail}
+        renderListItem={renderListItem}
+        emptyState={emptyState}
+      />
+    </div>
     <ContactCandidateDetailSheet
       candidateId={detailId}
       open={detailOpen}

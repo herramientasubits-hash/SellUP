@@ -1,9 +1,8 @@
-import { Building2, CheckCircle2, GitMerge, Upload } from "@/icons";
+import { Upload } from "@/icons";
 import { ScreenActionRail, ScreenActionRailProvider } from "@/components/action-rail";
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { DataTablePage } from '@/components/shared/data-table-page';
-import { MetricCard } from '@/components/shared/metric-card';
 import { Button } from '@/components/ui/button';
 import { CreateCandidateDrawer } from '@/components/prospect-batches/create-candidate-drawer';
 import { ImportCandidatesDrawer } from '@/components/prospect-batches/import-candidates-drawer';
@@ -15,10 +14,13 @@ import {
 import { ProspectsDataTableClient } from '@/components/prospects/prospects-data-table-client';
 import { ModuleTabsNav } from '@/components/navigation/module-tabs-nav';
 import { DiscardedProspectsPanel } from '@/components/prospects/discarded-prospects-panel';
+import {
+  EMPRESAS_MODULE_TITLE,
+  EMPRESAS_TAB_DESCRIPTIONS,
+} from '@/components/prospects/empresas-module-copy';
 import { PROSPECTOS_TAB_ROUTE } from '@/config/navigation';
 import {
   getGlobalCandidatesList,
-  getGlobalProspectsKPIs,
   requireActiveUser,
   getProspectBatchById,
 } from '@/modules/prospect-batches/actions';
@@ -212,34 +214,53 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
     resolveScopeOwnerFilter(params.userId, params.groupId),
   ]);
 
-  const [kpis, listResult] = await Promise.all([
-    sourceId
-      ? Promise.resolve({ needsReview: 0, readyForApproval: 0, possibleDuplicates: 0, importedRecently: 0 })
-      : getGlobalProspectsKPIs(),
-    getGlobalCandidatesList({
-      search: params.search,
-      country: params.country,
-      industry: params.industry,
-      source: params.source,
-      statuses,
-      limit: 2000,
-      offset: 0,
-      ...(sourceId ? { batchId: sourceId } : {}),
-      ...(ownerUserIds !== null ? { ownerUserIds } : {}),
-    }),
-  ]);
+  // Los indicadores de la cabecera ya no se cuentan aparte en el servidor: la
+  // tabla los calcula sobre estas mismas filas y los ofrece como filtros de un
+  // toque, así el número de cada uno es exactamente lo que deja ver al pulsarlo.
+  const listResult = await getGlobalCandidatesList({
+    search: params.search,
+    country: params.country,
+    industry: params.industry,
+    source: params.source,
+    statuses,
+    limit: 2000,
+    offset: 0,
+    ...(sourceId ? { batchId: sourceId } : {}),
+    ...(ownerUserIds !== null ? { ownerUserIds } : {}),
+  });
 
   const { candidates } = listResult;
+
+  // La lista puede llegar ya filtrada por la URL: un vacío así no significa
+  // que no haya prospectos, y la tabla lo explica de otra manera.
+  const hasUrlFilters = Boolean(
+    params.search ||
+      params.country ||
+      params.industry ||
+      params.source ||
+      params.status ||
+      params.userId ||
+      params.groupId,
+  );
+
+  // El asistente «Generar con IA», con todo lo que el servidor resolvió para
+  // él. Es UN elemento que se monta en dos sitios: la barra flotante y el vacío
+  // inicial («no hay prospectos por revisar»), para que la acción esté también
+  // donde se la echa en falta.
+  const generateDrawer = (
+    <GenerateAIBatchDrawer experience={experience} unavailableKind={unavailableKind} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} autoProviderCascade={autoProviderCascade} discoveryProvider={wizardDiscoveryProvider} providerOverrideCapability={wizardProviderOverrideCapability} apolloRunModeLimits={apolloRunModeLimits} budgetPreflight={wizardBudgetPreflight} adminTavilyTrialAvailable={adminTavilyTrialAvailable} />
+  );
 
   return (
     <ScreenActionRailProvider>
     <DataTablePage
-      title="Prospectos"
-      description="Genera, importa y revisa empresas candidatas antes de convertirlas en cuentas listas para trabajar."
-      tabs={<ModuleTabsNav active="prospectos" />}
+      compact
+      title={EMPRESAS_MODULE_TITLE}
+      description={EMPRESAS_TAB_DESCRIPTIONS.prospectos}
+      tabs={<ModuleTabsNav active="prospectos" counts={sourceId ? undefined : { prospectos: candidates.length }} />}
       actions={
         <ScreenActionRail label="Acciones de prospectos">
-          <GenerateAIBatchDrawer experience={experience} unavailableKind={unavailableKind} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} autoProviderCascade={autoProviderCascade} discoveryProvider={wizardDiscoveryProvider} providerOverrideCapability={wizardProviderOverrideCapability} apolloRunModeLimits={apolloRunModeLimits} budgetPreflight={wizardBudgetPreflight} adminTavilyTrialAvailable={adminTavilyTrialAvailable} />
+          {generateDrawer}
           <ImportCandidatesDrawer>
             <Button type="button" variant="outline" size="sm">
               <Upload aria-hidden="true" />
@@ -252,52 +273,6 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
           />
         </ScreenActionRail>
       }
-      metrics={
-        !sourceId ? (
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <MetricCard
-              title="Pendientes de revisión"
-              description="Esperando primera evaluación"
-              value={kpis.needsReview}
-              icon={
-                <div className="rounded-xl bg-primary/10 p-1.5">
-                  <Building2 className="h-4 w-4 text-primary" />
-                </div>
-              }
-            />
-            <MetricCard
-              title="Sin bloqueos detectados"
-              description="Candidatos sin señales bloqueantes"
-              value={kpis.readyForApproval}
-              icon={
-                <div className="rounded-xl bg-success/10 p-1.5">
-                  <CheckCircle2 className="h-4 w-4 text-success" />
-                </div>
-              }
-            />
-            <MetricCard
-              title="Posibles duplicados"
-              description="Coincidencias detectadas"
-              value={kpis.possibleDuplicates}
-              icon={
-                <div className="rounded-xl bg-warning/15 p-1.5">
-                  <GitMerge className="h-4 w-4 text-warning" />
-                </div>
-              }
-            />
-            <MetricCard
-              title="Importados recientemente"
-              description="Últimos 7 días"
-              value={kpis.importedRecently}
-              icon={
-                <div className="rounded-xl bg-info/10 p-1.5">
-                  <Upload className="h-4 w-4 text-info" />
-                </div>
-              }
-            />
-          </div>
-        ) : null
-      }
     >
       <ProspectsDataTableClient
         candidates={candidates as ProspectCandidateWithReviewer[]}
@@ -307,6 +282,19 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
         currentUserId={params.userId ?? ''}
         currentGroupId={params.groupId ?? ''}
         currentRoleKey={params.roleKey ?? ''}
+        hasUrlFilters={hasUrlFilters}
+        emptyActions={
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {generateDrawer}
+            <ImportCandidatesDrawer>
+              <Button type="button" variant="outline" size="sm">
+                <Upload aria-hidden="true" />
+                Importar un archivo
+              </Button>
+            </ImportCandidatesDrawer>
+            <CreateCandidateDrawer triggerText="Crear prospecto" triggerVariant="outline" />
+          </div>
+        }
       />
     </DataTablePage>
     </ScreenActionRailProvider>

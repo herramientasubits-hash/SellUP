@@ -1,37 +1,69 @@
-import { Building2, Globe, TrendingUp, Search } from "@/icons";
+import { Suspense } from 'react';
+import Link from 'next/link';
+import { ClipboardCheck } from "@/icons";
 import { ScreenActionRail, ScreenActionRailProvider } from "@/components/action-rail";
 import { DataTablePage } from '@/components/shared/data-table-page';
-import { MetricCard } from '@/components/shared/metric-card';
+import { ListPageSkeleton } from '@/components/shared/list-page-skeleton';
+import { buttonVariants } from '@/components/ui/button';
 import { CreateAccountDrawer } from '@/components/accounts/create-account-drawer';
 import { AccountsDataTableClient } from '@/components/accounts/accounts-data-table-client';
-import { ModuleTabsNav } from '@/components/navigation/module-tabs-nav';
+import { ModuleTabsNav, type ModuleTabId } from '@/components/navigation/module-tabs-nav';
 import {
   ProspectsModulePanel,
   type ProspectsPanelSearchParams,
 } from '@/components/prospects/prospects-module-panel';
 import {
-  getAccountsSummary,
-  getAccountsList,
-  getActiveUsers,
-} from '@/modules/accounts/actions';
+  EMPRESAS_MODULE_TITLE,
+  EMPRESAS_TAB_DESCRIPTIONS,
+} from '@/components/prospects/empresas-module-copy';
+import { PROSPECTOS_TAB_ROUTE } from '@/config/navigation';
+import { getAccountsList, getActiveUsers } from '@/modules/accounts/actions';
 import { getCommercialScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 
 interface PageProps {
   searchParams: Promise<{ tab?: string } & ProspectsPanelSearchParams>;
 }
 
-export default async function AccountsPage({ searchParams }: PageProps) {
-  // "Empresas" is the single module entry point and hosts the pill switcher
-  // (Empresas / Prospectos). Prospectos lives here as an internal tab — when
-  // `?tab=prospectos` is present we render its server panel in place, keeping
-  // the user inside the module instead of navigating to a separate route.
-  const { tab, ...prospectsParams } = await searchParams;
-  if (tab === 'prospectos') {
-    return <ProspectsModulePanel params={prospectsParams} />;
-  }
+const SKELETON_NOUN: Record<ModuleTabId, string> = {
+  empresas: 'empresas',
+  prospectos: 'empresas por revisar',
+  descartadas: 'empresas descartadas',
+};
 
-  const [summary, accounts, users, scopeFilterOptions] = await Promise.all([
-    getAccountsSummary(),
+export default async function AccountsPage({ searchParams }: PageProps) {
+  // «Empresas» es la única entrada del módulo y aloja sus tres pestañas
+  // (Empresas / Por revisar / Descartadas). «Por revisar» y «Descartadas» viven
+  // aquí como pestañas internas: con `?tab=prospectos` se pinta su panel de
+  // servidor en el sitio, sin salir del módulo ni cambiar de ruta.
+  const { tab, ...prospectsParams } = await searchParams;
+  const activeTab: ModuleTabId =
+    tab !== 'prospectos' ? 'empresas' : prospectsParams.view === 'descartadas' ? 'descartadas' : 'prospectos';
+
+  // Mientras llegan los datos se ve la pantalla con su forma (cabecera,
+  // pestaña activa, tabla fantasma) en vez de la pantalla anterior congelada.
+  // La `key` hace que el esqueleto vuelva a salir al cambiar de pestaña.
+  return (
+    <Suspense
+      key={activeTab}
+      fallback={
+        <ListPageSkeleton
+          title={EMPRESAS_MODULE_TITLE}
+          description={EMPRESAS_TAB_DESCRIPTIONS[activeTab]}
+          tabs={<ModuleTabsNav active={activeTab} />}
+          noun={SKELETON_NOUN[activeTab]}
+          columns={activeTab === 'empresas' ? 7 : 6}
+          // «Descartadas» no tiene barra flotante de acciones.
+          reserveActionRail={activeTab !== 'descartadas'}
+        />
+      }
+    >
+      {activeTab === 'empresas' ? <AccountsPanel /> : <ProspectsModulePanel params={prospectsParams} />}
+    </Suspense>
+  );
+}
+
+async function AccountsPanel() {
+  const [accounts, users, scopeFilterOptions] = await Promise.all([
     getAccountsList(),
     getActiveUsers(),
     getCommercialScopeFilterOptions(),
@@ -39,62 +71,35 @@ export default async function AccountsPage({ searchParams }: PageProps) {
 
   return (
     <ScreenActionRailProvider>
-    <DataTablePage
-      title="Empresas"
-      description="Centraliza empresas, prospectos y cuentas comerciales con su expediente vivo."
-      tabs={<ModuleTabsNav active="empresas" />}
-      actions={
-        <ScreenActionRail label="Acciones de empresas">
-          <CreateAccountDrawer users={users} />
-        </ScreenActionRail>
-      }
-      metrics={
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <MetricCard
-            title="Total empresas"
-            description="Empresas en el sistema"
-            value={summary.total}
-            icon={
-              <div className="rounded-xl p-2 bg-primary/10">
-                <Building2 className="h-4 w-4 text-primary" />
-              </div>
-            }
-          />
-          <MetricCard
-            title="Nuevas"
-            description="Recientes"
-            value={summary.new}
-            icon={
-              <div className="rounded-xl p-2 bg-surface-muted">
-                <TrendingUp className="h-4 w-4 text-muted-foreground" />
-              </div>
-            }
-          />
-          <MetricCard
-            title="Listas para investigar"
-            description="Pendientes de research"
-            value={summary.ready_for_research}
-            icon={
-              <div className="rounded-xl p-2 bg-primary/10">
-                <Search className="h-4 w-4 text-primary" />
-              </div>
-            }
-          />
-          <MetricCard
-            title="Listas para contacto"
-            description="Aptas para outreach"
-            value={summary.ready_for_outreach}
-            icon={
-              <div className="rounded-xl p-2 bg-success/10">
-                <Globe className="h-4 w-4 text-success" />
-              </div>
-            }
-          />
-        </div>
-      }
-    >
-      <AccountsDataTableClient accounts={accounts} users={users} scopeFilterOptions={scopeFilterOptions} />
-    </DataTablePage>
+      <DataTablePage
+        compact
+        title={EMPRESAS_MODULE_TITLE}
+        description={EMPRESAS_TAB_DESCRIPTIONS.empresas}
+        tabs={<ModuleTabsNav active="empresas" counts={{ empresas: accounts.length }} />}
+        actions={
+          <ScreenActionRail label="Acciones de empresas">
+            <CreateAccountDrawer users={users} />
+          </ScreenActionRail>
+        }
+      >
+        <AccountsDataTableClient
+          accounts={accounts}
+          users={users}
+          scopeFilterOptions={scopeFilterOptions}
+          emptyActions={
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <Link
+                href={PROSPECTOS_TAB_ROUTE}
+                className={buttonVariants({ variant: 'outline', size: 'sm' })}
+              >
+                <ClipboardCheck aria-hidden="true" />
+                Revisar prospectos
+              </Link>
+              <CreateAccountDrawer users={users} />
+            </div>
+          }
+        />
+      </DataTablePage>
     </ScreenActionRailProvider>
   );
 }

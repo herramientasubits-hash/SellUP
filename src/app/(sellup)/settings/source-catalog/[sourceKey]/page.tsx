@@ -124,15 +124,13 @@ export default async function SourceDetailPage({ params }: Props) {
         breadcrumbs={
           <Breadcrumbs
             items={[
-              { label: 'Configuración', href: '/settings' },
               { label: 'Catálogo de fuentes', href: '/settings/source-catalog' },
               source.name,
             ]}
           />
         }
         title={source.name}
-        description={source.key}
-        backHref="/settings/source-catalog"
+        description={`Fuente de datos · ${countryLabels}`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <CopyKeyButton sourceKey={source.key} />
@@ -140,7 +138,7 @@ export default async function SourceDetailPage({ params }: Props) {
               <Button asChild variant="outline" size="sm">
                 <Link href={source.url} target="_blank" rel="noopener noreferrer">
                   <ExternalLink aria-hidden="true" />
-                  Abrir URL
+                  Abrir sitio de la fuente
                 </Link>
               </Button>
             )}
@@ -168,7 +166,7 @@ export default async function SourceDetailPage({ params }: Props) {
           <dl className="space-y-3 text-sm">
             <div>
               <dt className="mb-0.5 text-xs font-medium text-muted-foreground">
-                Key
+                Identificador interno
               </dt>
               <dd className="break-all font-mono text-foreground">{source.key}</dd>
             </div>
@@ -251,9 +249,9 @@ export default async function SourceDetailPage({ params }: Props) {
         <BrReceitaCnpjStatusCard />
       ) : isManualSignalOnly ? (
         <SurfaceCard>
-          <SurfaceCardHeader title="Estado de integración" />
+          <SurfaceCardHeader title="Cómo se usa esta fuente" />
           <p className="text-sm text-muted-foreground leading-relaxed">
-            Esta fuente se conserva como referencia manual. No existe una integración automática aprobada para SellUp.
+            Esta fuente se consulta a mano, como referencia. SellUp no la lee automáticamente.
           </p>
         </SurfaceCard>
       ) : isHnContrataciones ? (
@@ -301,8 +299,8 @@ export default async function SourceDetailPage({ params }: Props) {
               <Badge variant="neutral">No requiere credencial</Badge>
             </div>
             <p className="text-xs text-muted-foreground">
-              Esta fuente es de acceso público. La prueba de conexión valida que la API responde correctamente.
-              No crea candidatos ni sincroniza datos.
+              Esta fuente es de acceso público. La prueba de conexión solo comprueba que responde:
+              no trae empresas ni guarda datos.
             </p>
           </div>
         </SurfaceCard>
@@ -310,7 +308,7 @@ export default async function SourceDetailPage({ params }: Props) {
         <SurfaceCard>
           <SurfaceCardHeader title="Credencial de API" />
           <p className="text-sm text-muted-foreground">
-            Esta fuente aún no tiene configuración de credencial registrada en el sistema.
+            Todavía no se ha configurado una credencial para esta fuente.
           </p>
         </SurfaceCard>
       )}
@@ -415,14 +413,14 @@ export default async function SourceDetailPage({ params }: Props) {
               <Database className="h-4 w-4" />
             </span>
             <div className="min-w-0">
-              <p className="text-sm font-semibold tracking-tight text-foreground">Lotes Socrata</p>
+              <p className="text-sm font-semibold tracking-tight text-foreground">Lotes de datos abiertos</p>
               <p className="text-xs leading-relaxed text-muted-foreground">
-                Revisión interna de lotes creados desde esta fuente. Solo lectura — no aprueba ni sincroniza candidatos.
+                Los lotes de empresas candidatas traídos de esta fuente. Solo consulta: desde ahí no se aprueba ni se envía nada.
               </p>
             </div>
           </div>
           <Button asChild variant="outline" size="sm" className="shrink-0">
-            <Link href="/settings/source-catalog/socrata-batches">Ver lotes Socrata</Link>
+            <Link href="/settings/source-catalog/socrata-batches">Ver lotes</Link>
           </Button>
         </SurfaceCard>
       )}

@@ -17,12 +17,21 @@ interface AccountEnrichContactsButtonProps {
    * so that two side panels never appear simultaneously.
    */
   onRequestOpen?: (company: ContactEnrichmentInitialCompany) => void;
+  /**
+   * Peso del botón. `outline` (por defecto) cuando acompaña a otras acciones;
+   * `default` cuando es LA acción del panel en el que vive.
+   */
+  variant?: 'outline' | 'default';
+  /** Texto del botón. Por defecto, «Enriquecer contactos». */
+  label?: string;
 }
 
 export function AccountEnrichContactsButton({
   preloadedCompany,
   disabled,
   onRequestOpen,
+  variant = 'outline',
+  label = 'Enriquecer contactos',
 }: AccountEnrichContactsButtonProps) {
   const [open, setOpen] = React.useState(false);
 
@@ -38,9 +47,9 @@ export function AccountEnrichContactsButton({
 
   return (
     <>
-      <Button type="button" size="sm" variant="outline" onClick={handleClick}>
+      <Button type="button" size="sm" variant={variant} onClick={handleClick}>
         <UserSearch aria-hidden="true" />
-        Enriquecer contactos
+        {label}
       </Button>
 
       {!onRequestOpen && (

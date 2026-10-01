@@ -1,375 +1,256 @@
 'use client';
 
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useId, useMemo, useState } from 'react';
+import { SlidersHorizontal } from '@/icons';
+import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import type { FilterGroup, FilterOptions, FilterUser } from '@/modules/ai-usage/queries';
+import { FilterBar, type ActiveFilter } from '@/components/filters/filter-bar';
+import type { FilterOptions } from '@/modules/ai-usage/queries';
+import { agentLabel, providerLabel, statusLabel } from './usage-labels';
+import {
+  ALL_VALUE,
+  FILTER_NAMES,
+  PERIOD_OPTIONS,
+  applyFilterChange,
+  clearedFilters,
+  countSecondaryFilters,
+  describeActiveFilters,
+  toQueryString,
+  userLabel,
+  visibleUsers,
+  type UsageFilterKey,
+  type UsageFilterValues,
+} from './usage-filters-core';
 
-const PERIOD_OPTIONS = [
-  { value: 'all', label: 'Todo el período' },
-  { value: '7d', label: 'Últimos 7 días' },
-  { value: '30d', label: 'Últimos 30 días' },
-  { value: 'current_month', label: 'Mes actual' },
-] as const;
-
-const PROVIDER_DISPLAY: Record<string, string> = {
-  tavily: 'Tavily',
-  anthropic: 'Anthropic (Claude)',
-  openai: 'OpenAI',
-  apollo: 'Apollo',
-  lusha: 'Lusha',
-  hubspot: 'HubSpot',
-  samu_ia: 'Samu IA',
-};
-
-const AGENT_DISPLAY: Record<string, string> = {
-  prospect_generation: 'Generación de prospectos',
-  account_intelligence: 'Inteligencia de cuenta',
-  commercial_speech: 'Speech comercial',
-  post_meeting_followup: 'Seguimiento post-reunión',
-};
-
-function labelProvider(key: string) {
-  return PROVIDER_DISPLAY[key] ?? key;
-}
-
-function labelAgent(key: string, name: string | null) {
-  return AGENT_DISPLAY[key] ?? name ?? key;
-}
-
-function labelUser(u: FilterUser) {
-  if (u.full_name && u.email) return `${u.full_name} (${u.email})`;
-  return u.full_name ?? u.email ?? u.id.slice(0, 8);
-}
-
-function labelStatus(key: string) {
-  return key.replace(/_/g, ' ');
-}
-
-// Per-level indentation for the Grupo dropdown so nesting reads like the
-// "Usuarios y grupos" screen. Step grows with tree depth (root = 0).
+// Sangría por nivel del desplegable de grupos, para que la jerarquía se lea
+// igual que en «Usuarios y grupos» (raíz = 0).
 const GROUP_INDENT_STEP_PX = 16;
 
-// Resolve the selected group plus every descendant from the real hierarchy
-// (organization_groups, max 3 levels). Selecting a parent therefore scopes to
-// the whole subtree — matching the server-side resolution.
-function descendantGroupIds(rootId: string, groups: FilterGroup[]): Set<string> {
-  const childrenByParent = new Map<string, string[]>();
-  for (const g of groups) {
-    if (!g.parent_group_id) continue;
-    const arr = childrenByParent.get(g.parent_group_id) ?? [];
-    arr.push(g.id);
-    childrenByParent.set(g.parent_group_id, arr);
-  }
+const SELECT_WIDTH = 'w-full sm:w-44';
 
-  const result = new Set<string>();
-  const stack = [rootId];
-  while (stack.length > 0) {
-    const id = stack.pop()!;
-    if (result.has(id)) continue;
-    result.add(id);
-    for (const childId of childrenByParent.get(id) ?? []) stack.push(childId);
-  }
-  return result;
+interface SelectOption {
+  value: string;
+  label: string;
+  indent?: number;
+}
+
+interface UsageSelectProps {
+  filterKey: UsageFilterKey;
+  value: string;
+  /** Texto de «sin filtrar»: «Todos los proveedores». */
+  allLabel: string;
+  options: readonly SelectOption[];
+  /** El valor puesto ya no existe (enlace viejo): qué decir en su lugar. */
+  missingLabel: string;
+  onChange: (key: UsageFilterKey, value: string | null) => void;
+}
+
+function UsageSelect({ filterKey, value, allLabel, options, missingLabel, onChange }: UsageSelectProps) {
+  // Base UI pinta el valor crudo si no encuentra etiqueta; se resuelve aquí para
+  // que nunca asome un identificador.
+  const triggerLabel = (current: string) => {
+    if (!current || current === ALL_VALUE) return allLabel;
+    return options.find((option) => option.value === current)?.label ?? missingLabel;
+  };
+
+  return (
+    <Select value={value || ALL_VALUE} onValueChange={(next) => onChange(filterKey, next as string | null)}>
+      <SelectTrigger size="sm" className={SELECT_WIDTH} aria-label={FILTER_NAMES[filterKey]}>
+        <SelectValue placeholder={FILTER_NAMES[filterKey]}>{triggerLabel}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={ALL_VALUE}>{allLabel}</SelectItem>
+        {options.map((option) => (
+          <SelectItem key={option.value} value={option.value}>
+            {option.indent ? (
+              <span style={{ paddingLeft: `${option.indent * GROUP_INDENT_STEP_PX}px` }}>{option.label}</span>
+            ) : (
+              option.label
+            )}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+interface UsageFilterBarProps {
+  options: FilterOptions;
+  values: UsageFilterValues;
+  /** Recibe los filtros ya resueltos (con las combinaciones imposibles quitadas). */
+  onChange: (next: UsageFilterValues) => void;
+}
+
+/**
+ * La barra de filtros de /ai-usage (FilterBar de Thema): el periodo siempre a
+ * la vista, el resto detrás de «Más filtros» con su contador, y debajo esos
+ * filtros como etiquetas que se quitan de una en una. «Limpiar filtros» quita
+ * las etiquetas y respeta el periodo, que tiene su propio control.
+ *
+ * No toca la URL: pinta `values` y avisa con `onChange`.
+ */
+export function UsageFilterBar({ options, values, onChange }: UsageFilterBarProps) {
+  const secondaryCount = countSecondaryFilters(values);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const panelId = useId();
+
+  const change = useCallback(
+    (key: UsageFilterKey, value: string | null) => {
+      onChange(applyFilterChange(values, key, value, options));
+    },
+    [onChange, values, options],
+  );
+
+  const activeFilters: ActiveFilter[] = useMemo(
+    () =>
+      // El periodo ya se lee en su propio control: las etiquetas son para lo
+      // que queda escondido tras «Más filtros».
+      describeActiveFilters(values, options)
+        .filter((filter) => filter.key !== 'period')
+        .map((filter) => ({
+          id: filter.key,
+          label: filter.label,
+          value: filter.value,
+          onRemove: () => change(filter.key, null),
+        })),
+    [values, options, change],
+  );
+
+  const users = useMemo(() => visibleUsers(values, options), [values, options]);
+
+  const periodOptions = PERIOD_OPTIONS.filter((option) => option.value !== ALL_VALUE);
+
+  return (
+    <FilterBar
+      activeFilters={activeFilters}
+      onClearFilters={() => onChange({ ...clearedFilters(), period: values.period })}
+      filters={
+        <>
+          <UsageSelect
+            filterKey="period"
+            value={values.period}
+            allLabel={PERIOD_OPTIONS[0].label}
+            options={periodOptions}
+            missingLabel="Periodo no válido"
+            onChange={change}
+          />
+
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            aria-expanded={isExpanded}
+            aria-controls={panelId}
+            onClick={() => setIsExpanded((current) => !current)}
+          >
+            <SlidersHorizontal aria-hidden="true" />
+            Más filtros
+            {secondaryCount > 0 && (
+              <span
+                aria-label={`${secondaryCount} aplicado${secondaryCount !== 1 ? 's' : ''}`}
+                className="rounded-full bg-primary/10 px-1.5 text-xs font-semibold tabular-nums text-primary"
+              >
+                {secondaryCount}
+              </span>
+            )}
+          </Button>
+
+          {isExpanded && (
+            <div id={panelId} role="group" aria-label="Más filtros" className="contents">
+              {options.providers.length > 0 && (
+                <UsageSelect
+                  filterKey="provider"
+                  value={values.provider}
+                  allLabel="Todos los proveedores"
+                  options={options.providers.map((key) => ({ value: key, label: providerLabel(key) }))}
+                  missingLabel="Proveedor no encontrado"
+                  onChange={change}
+                />
+              )}
+              {options.agents.length > 0 && (
+                <UsageSelect
+                  filterKey="agent"
+                  value={values.agent}
+                  allLabel="Todos los agentes"
+                  options={options.agents.map((agent) => ({
+                    value: agent.key,
+                    label: agentLabel(agent.key, agent.name),
+                  }))}
+                  missingLabel="Agente no encontrado"
+                  onChange={change}
+                />
+              )}
+              {options.statuses.length > 0 && (
+                <UsageSelect
+                  filterKey="status"
+                  value={values.status}
+                  allLabel="Todos los estados"
+                  options={options.statuses.map((status) => ({ value: status, label: statusLabel(status) }))}
+                  missingLabel="Estado no encontrado"
+                  onChange={change}
+                />
+              )}
+              {options.roles.length > 0 && (
+                <UsageSelect
+                  filterKey="role"
+                  value={values.role}
+                  allLabel="Todos los roles"
+                  options={options.roles.map((role) => ({ value: role.key, label: role.label }))}
+                  missingLabel="Rol no encontrado"
+                  onChange={change}
+                />
+              )}
+              {options.groups.length > 0 && (
+                <UsageSelect
+                  filterKey="groupId"
+                  value={values.groupId}
+                  allLabel="Todos los grupos"
+                  options={options.groups.map((group) => ({
+                    value: group.id,
+                    label: group.name,
+                    indent: group.depth,
+                  }))}
+                  missingLabel="Grupo no encontrado"
+                  onChange={change}
+                />
+              )}
+              {options.users.length > 0 && (
+                <UsageSelect
+                  filterKey="user"
+                  value={values.user}
+                  allLabel="Todas las personas"
+                  options={users.map((user) => ({ value: user.id, label: userLabel(user) }))}
+                  missingLabel="Persona no encontrada"
+                  onChange={change}
+                />
+              )}
+            </div>
+          )}
+        </>
+      }
+    />
+  );
 }
 
 interface FiltersClientProps {
   options: FilterOptions;
-  currentPeriod: string;
-  currentProvider: string;
-  currentAgent: string;
-  currentStatus: string;
-  currentUser: string;
-  currentRole: string;
-  currentGroupId: string;
+  values: UsageFilterValues;
 }
 
-export function FiltersClient({
-  options,
-  currentPeriod,
-  currentProvider,
-  currentAgent,
-  currentStatus,
-  currentUser,
-  currentRole,
-  currentGroupId,
-}: FiltersClientProps) {
+/** Conecta la barra con la URL: los filtros siguen viviendo en los query params. */
+export function FiltersClient({ options, values }: FiltersClientProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const setParam = useCallback(
-    (key: string, value: string | null) => {
-      const params = new URLSearchParams(searchParams.toString());
-      if (!value || value === '' || value === 'all') {
-        params.delete(key);
-      } else {
-        params.set(key, value);
-      }
-      router.push(`${pathname}?${params.toString()}`);
+  const handleChange = useCallback(
+    (next: UsageFilterValues) => {
+      const query = toQueryString(searchParams.toString(), next);
+      router.push(query ? `${pathname}?${query}` : pathname);
     },
     [router, pathname, searchParams],
   );
 
-  // Scope of the currently selected group (the group + its descendants).
-  const groupScope = useMemo(
-    () => (currentGroupId ? descendantGroupIds(currentGroupId, options.groups) : null),
-    [currentGroupId, options.groups],
-  );
-
-  // Changing the role may invalidate the selected user: if the user no longer
-  // matches the role, clear it to avoid an impossible combination.
-  const onRoleChange = useCallback(
-    (value: string | null) => {
-      const params = new URLSearchParams(searchParams.toString());
-      if (!value || value === 'all') {
-        params.delete('role');
-      } else {
-        params.set('role', value);
-        const selected = options.users.find((u) => u.id === currentUser);
-        if (selected && selected.role_key !== value) params.delete('user');
-      }
-      router.push(`${pathname}?${params.toString()}`);
-    },
-    [router, pathname, searchParams, options.users, currentUser],
-  );
-
-  // Changing the group may invalidate the selected user: if the user is not in
-  // the new group scope (group + descendants), clear it.
-  const onGroupChange = useCallback(
-    (value: string | null) => {
-      const params = new URLSearchParams(searchParams.toString());
-      if (!value || value === 'all') {
-        params.delete('groupId');
-      } else {
-        params.set('groupId', value);
-        const scope = descendantGroupIds(value, options.groups);
-        const selected = options.users.find((u) => u.id === currentUser);
-        if (selected && (!selected.group_id || !scope.has(selected.group_id))) {
-          params.delete('user');
-        }
-      }
-      router.push(`${pathname}?${params.toString()}`);
-    },
-    [router, pathname, searchParams, options.users, options.groups, currentUser],
-  );
-
-  // Usuario dropdown is scoped to the selected role and/or group so the filters
-  // always express a possible combination (intersection).
-  const visibleUsers = useMemo(() => {
-    return options.users.filter((u) => {
-      if (currentRole && u.role_key !== currentRole) return false;
-      if (groupScope && (!u.group_id || !groupScope.has(u.group_id))) return false;
-      return true;
-    });
-  }, [options.users, currentRole, groupScope]);
-
-  // Lookup maps so each trigger renders a human-readable label for its selected
-  // value. Base UI's <SelectValue> falls back to the raw value (a UUID) when no
-  // label can be resolved, so every dropdown resolves its own label here and
-  // never leaks an id to the user.
-  const groupName = useMemo(
-    () => new Map(options.groups.map((g) => [g.id, g.name])),
-    [options.groups],
-  );
-  const userById = useMemo(
-    () => new Map(options.users.map((u) => [u.id, u])),
-    [options.users],
-  );
-  const roleLabelByKey = useMemo(
-    () => new Map(options.roles.map((r) => [r.key, r.label])),
-    [options.roles],
-  );
-  const agentNameByKey = useMemo(
-    () => new Map(options.agents.map((a) => [a.key, a.name])),
-    [options.agents],
-  );
-
-  // Trigger label resolvers: 'all'/empty → "Todos…"; known value → its label;
-  // an unknown selected id (stale URL param) → an explicit "no encontrado"
-  // message instead of a raw UUID.
-  const groupTriggerLabel = (value: string) => {
-    if (!value || value === 'all') return 'Todos los grupos';
-    return groupName.get(value) ?? 'Grupo no encontrado';
-  };
-  const userTriggerLabel = (value: string) => {
-    if (!value || value === 'all') return 'Todos los usuarios';
-    const u = userById.get(value);
-    return u ? labelUser(u) : 'Usuario no encontrado';
-  };
-  const roleTriggerLabel = (value: string) => {
-    if (!value || value === 'all') return 'Todos los roles';
-    return roleLabelByKey.get(value) ?? 'Rol no encontrado';
-  };
-  const periodTriggerLabel = (value: string) =>
-    PERIOD_OPTIONS.find((o) => o.value === value)?.label ?? 'Todo el período';
-  const providerTriggerLabel = (value: string) =>
-    !value || value === 'all' ? 'Todos los proveedores' : labelProvider(value);
-  const agentTriggerLabel = (value: string) =>
-    !value || value === 'all'
-      ? 'Todos los agentes'
-      : labelAgent(value, agentNameByKey.get(value) ?? null);
-  const statusTriggerLabel = (value: string) =>
-    !value || value === 'all' ? 'Todos los estados' : labelStatus(value);
-
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="mr-1 text-xs font-semibold text-muted-foreground">
-        Filtrar
-      </span>
-
-      {/* Período */}
-      <Select
-        value={currentPeriod || 'all'}
-        onValueChange={(v) => setParam('period', v)}
-      >
-        <SelectTrigger size="sm" className="w-44">
-          <SelectValue placeholder="Período">{periodTriggerLabel}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          {PERIOD_OPTIONS.map((o) => (
-            <SelectItem key={o.value} value={o.value}>
-              {o.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-
-      {/* Proveedor */}
-      {options.providers.length > 0 && (
-        <Select
-          value={currentProvider || 'all'}
-          onValueChange={(v) => setParam('provider', v)}
-        >
-          <SelectTrigger size="sm" className="w-44">
-            <SelectValue placeholder="Proveedor">{providerTriggerLabel}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">
-              Todos los proveedores
-            </SelectItem>
-            {options.providers.map((p) => (
-              <SelectItem key={p} value={p}>
-                {labelProvider(p)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
-
-      {/* Agente */}
-      {options.agents.length > 0 && (
-        <Select
-          value={currentAgent || 'all'}
-          onValueChange={(v) => setParam('agent', v)}
-        >
-          <SelectTrigger size="sm" className="w-44">
-            <SelectValue placeholder="Agente">{agentTriggerLabel}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">
-              Todos los agentes
-            </SelectItem>
-            {options.agents.map((a) => (
-              <SelectItem key={a.key} value={a.key}>
-                {labelAgent(a.key, a.name)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
-
-      {/* Estado */}
-      {options.statuses.length > 0 && (
-        <Select
-          value={currentStatus || 'all'}
-          onValueChange={(v) => setParam('status', v)}
-        >
-          <SelectTrigger size="sm" className="w-44">
-            <SelectValue placeholder="Estado" className="capitalize">
-              {statusTriggerLabel}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">
-              Todos los estados
-            </SelectItem>
-            {options.statuses.map((s) => (
-              <SelectItem key={s} value={s} className="capitalize">
-                {s.replace(/_/g, ' ')}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
-
-      {/* Rol (perfil del usuario) */}
-      {options.roles.length > 0 && (
-        <Select value={currentRole || 'all'} onValueChange={onRoleChange}>
-          <SelectTrigger size="sm" className="w-44">
-            <SelectValue placeholder="Rol">{roleTriggerLabel}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">
-              Todos los roles
-            </SelectItem>
-            {options.roles.map((r) => (
-              <SelectItem key={r.key} value={r.key}>
-                {r.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
-
-      {/* Grupo (estructura organizacional real) */}
-      {options.groups.length > 0 && (
-        <Select value={currentGroupId || 'all'} onValueChange={onGroupChange}>
-          <SelectTrigger size="sm" className="w-44">
-            <SelectValue placeholder="Grupo">{groupTriggerLabel}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">
-              Todos los grupos
-            </SelectItem>
-            {options.groups.map((g) => (
-              <SelectItem key={g.id} value={g.id}>
-                <span style={{ paddingLeft: `${g.depth * GROUP_INDENT_STEP_PX}px` }}>
-                  {g.name}
-                </span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
-
-      {/* Usuario */}
-      {options.users.length > 0 ? (
-        <Select
-          value={currentUser || 'all'}
-          onValueChange={(v) => setParam('user', v)}
-        >
-          <SelectTrigger size="sm" className="w-44">
-            <SelectValue placeholder="Usuario">{userTriggerLabel}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">
-              Todos los usuarios
-            </SelectItem>
-            {visibleUsers.map((u) => (
-              <SelectItem key={u.id} value={u.id}>
-                {labelUser(u)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      ) : (
-        <Select disabled value="none">
-          <SelectTrigger size="sm" className="w-44">
-            <SelectValue placeholder="Sin usuarios" />
-          </SelectTrigger>
-        </Select>
-      )}
-    </div>
-  );
+  return <UsageFilterBar options={options} values={values} onChange={handleChange} />;
 }

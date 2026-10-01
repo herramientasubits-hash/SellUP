@@ -53,6 +53,12 @@ interface CreateContactDrawerProps {
   onOpenChange?: (open: boolean) => void;
   metadata?: Record<string, unknown>;
   onSuccess?: (id: string, fullName: string) => void;
+  /**
+   * Peso del botón que abre el drawer. `default` (primario) cuando es LA
+   * acción de la pantalla; `outline` cuando acompaña a otra primaria, para
+   * que la barra no tenga dos.
+   */
+  triggerVariant?: 'default' | 'outline';
 }
 
 const EMPTY_FORM = {
@@ -81,6 +87,7 @@ export function CreateContactDrawer({
   onOpenChange: controlledOnOpenChange,
   metadata,
   onSuccess,
+  triggerVariant = 'default',
 }: CreateContactDrawerProps) {
   const router = useRouter();
   const isControlled = controlledOpen !== undefined;
@@ -175,9 +182,9 @@ export function CreateContactDrawer({
       onOpenChange={(v) => !v && handleClose()}
       trigger={
         !isControlled ? (
-          <Button onClick={() => setInternalOpen(true)} size="sm">
+          <Button onClick={() => setInternalOpen(true)} size="sm" variant={triggerVariant}>
             <Plus className="h-4 w-4" />
-            Agregar contacto
+            Crear contacto
           </Button>
         ) : undefined
       }

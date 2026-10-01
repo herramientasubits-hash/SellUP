@@ -19,7 +19,9 @@
 // No opportunity/proposal is created; no bulk approve.
 //
 // UX2 reorders the presentation so the zone reads as a hierarchy instead of a
-// flat row of equal-weight buttons:
+// flat row of equal-weight buttons. UX-EMPRESAS-CONTACTOS then moves the
+// primary to the RIGHT end of the row (Descartar and "Más acciones" stay on the
+// left) — placement only; eligibility, wrappers and confirmations are untouched:
 //   - Aprobar        → primary, enabled only when the candidate is eligible.
 //   - Descartar      → secondary/destructive. Q3F-5AZ.2G-1 ENABLES it for an
 //                       eligible (needs_review, clean-production) candidate;
@@ -551,19 +553,10 @@ export function ProspectReviewActions({
         </div>
       ) : (
         <div className="space-y-2">
+          {/* La primaria va a la DERECHA, donde termina la lectura; las que
+              sacan al prospecto de la revisión, a la izquierda. El orden del
+              DOM sigue al visual, así que el tabulador llega a «Aprobar» al final. */}
           <div className="flex flex-wrap items-center gap-2">
-            {/* Primary — the only enabled action, and only when eligible. */}
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => setConfirming(true)}
-              disabled={!view.canApprove}
-              title={view.canApprove ? undefined : 'No disponible para este candidato'}
-            >
-              <CheckCircle2 aria-hidden="true" />
-              Aprobar
-            </Button>
-
             {/* Secondary/destructive — Q3F-5AZ.2G-1 enables Descartar for an
                 eligible (needs_review, clean-production) candidate. Clicking it
                 arms the inline discard confirmation; it never discards directly.
@@ -614,11 +607,24 @@ export function ProspectReviewActions({
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
+
+            {/* Primary — enabled only when eligible. `ml-auto` la mantiene a la
+                derecha también cuando la fila se parte en pantalla estrecha. */}
+            <Button
+              type="button"
+              size="sm"
+              className="ml-auto"
+              onClick={() => setConfirming(true)}
+              disabled={!view.canApprove}
+              title={view.canApprove ? undefined : 'No disponible para este candidato'}
+            >
+              <CheckCircle2 aria-hidden="true" />
+              Aprobar
+            </Button>
           </div>
 
           <p className="text-xs leading-relaxed text-muted-foreground">
-            Puedes aprobar, descartar o marcar como duplicado este prospecto. Las demás acciones se
-            habilitarán en próximos hitos.
+            Puedes aprobar, descartar o marcar como duplicado este prospecto.
           </p>
         </div>
       )}

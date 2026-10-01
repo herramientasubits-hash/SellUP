@@ -253,14 +253,14 @@ export function HubSpotTestConnectionButton({ disabled }: TestConnectionProps) {
 
   return (
     <div className="space-y-2">
-      <Button variant="outline" onClick={handleTest} disabled={isPending || disabled}>
+      <Button onClick={handleTest} disabled={isPending || disabled}>
         {isPending && <Loader2 className="animate-spin" />}
         Probar conexión
       </Button>
 
       {result && (
         <Alert variant={result.success ? 'success' : 'destructive'}>
-          {result.message ?? (result.success ? 'Conexión exitosa.' : 'Error de conexión.')}
+          {result.message ?? (result.success ? 'La conexión funciona.' : 'No se pudo conectar. Revisa la credencial e inténtalo de nuevo.')}
         </Alert>
       )}
     </div>
@@ -342,7 +342,7 @@ export function HubSpotActionsPanel({ hasCredential }: HubSpotActionsPanelProps)
   const [disconnectOpen, setDisconnectOpen] = useState(false);
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-start gap-2">
       {!hasCredential ? (
         <Button onClick={() => setConnectOpen(true)}>Conectar HubSpot</Button>
       ) : (

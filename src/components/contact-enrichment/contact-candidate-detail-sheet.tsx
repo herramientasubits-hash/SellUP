@@ -49,6 +49,7 @@ import {
   SelectItem,
 } from '@/components/ui/select';
 import { DrawerSection } from '@/components/shared/drawer-section';
+import { DetailItem, DetailList } from '@/components/shared/detail-list';
 import { cn } from '@/lib/utils';
 import {
   getReviewableContactCandidateById,
@@ -2330,6 +2331,38 @@ export function ContactCandidateDetailSheet({
             </div>
           ) : null}
 
+          {/* Lo que decide, antes que nada: qué tan bien encaja, qué tan fiable es
+              el dato y si ya lo teníamos. Estaba dos secciones más abajo, tras
+              todo el bloque de teléfonos. */}
+          <section
+            aria-label="Resumen del candidato"
+            className="rounded-2xl border border-border/60 bg-card p-4 shadow-card"
+          >
+            <DetailList columns={4}>
+              <DetailItem icon={Gauge} label="Relevancia" emptyLabel="Sin calcular">
+                {relevance?.status ? (
+                  <span className="inline-flex flex-wrap items-center gap-2">
+                    <Badge variant={RELEVANCE_VARIANT[relevance.status] ?? 'neutral'}>
+                      {RELEVANCE_LABELS[relevance.status] ?? relevance.status}
+                    </Badge>
+                    {relevanceScore && (
+                      <span className="text-xs text-muted-foreground tabular-nums">{relevanceScore}</span>
+                    )}
+                  </span>
+                ) : null}
+              </DetailItem>
+              <DetailItem icon={ShieldCheck} label="Calidad del dato" emptyLabel="Sin calcular">
+                {qualityScore ? <span className="tabular-nums">{qualityScore}</span> : null}
+              </DetailItem>
+              <DetailItem icon={Gauge} label="Confianza" emptyLabel="Sin calcular">
+                {confidenceLabel ? <span className="tabular-nums">{confidenceLabel}</span> : null}
+              </DetailItem>
+              <DetailItem icon={Copy} label="Duplicidad">
+                {DUPLICATE_LABELS[candidate.duplicate_status] ?? candidate.duplicate_status}
+              </DetailItem>
+            </DetailList>
+          </section>
+
           {/* 1. Información principal */}
             <DrawerSection icon={User} title="Información principal">
             <dl className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
@@ -2342,7 +2375,7 @@ export function ContactCandidateDetailSheet({
               <DetailRow icon={Building2} label="Empresa">
                 {candidate.company_name || <Fallback />}
               </DetailRow>
-              <DetailRow icon={Globe} label="Dominio empresa">
+              <DetailRow icon={Globe} label="Dominio de la empresa">
                 {candidate.company_domain || <Fallback />}
               </DetailRow>
               <DetailRow icon={Tag} label={CANDIDATE_SOURCE_LABEL}>
@@ -2995,59 +3028,24 @@ export function ContactCandidateDetailSheet({
             </DrawerSection>
           )}
 
-          {/* 3. Evaluación del candidato */}
+          {/* 3. Señales de la evaluación — relevancia, calidad, confianza y
+              duplicidad subieron al resumen de arriba; aquí queda el porqué. */}
+          {matchedKeywords.length > 0 && (
             <DrawerSection
               icon={Gauge}
-              title="Evaluación del candidato"
-              hint="Veredicto del filtro de relevancia del Agente de contactos."
+              title="Señales detectadas"
+              hint="Lo que el filtro de relevancia encontró en el perfil para puntuarlo."
+              badge={matchedKeywords.length}
             >
-            <dl className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-              <DetailRow icon={Gauge} label="Relevancia">
-                {relevance?.status ? (
-                  <span className="inline-flex flex-wrap items-center gap-2">
-                    <Badge variant={RELEVANCE_VARIANT[relevance.status] ?? 'neutral'}>
-                      {RELEVANCE_LABELS[relevance.status] ?? relevance.status}
-                    </Badge>
-                    {relevanceScore && (
-                      <span className="text-xs text-muted-foreground tabular-nums">
-                        Score {relevanceScore}
-                      </span>
-                    )}
-                  </span>
-                ) : (
-                  <Fallback />
-                )}
-              </DetailRow>
-              <DetailRow icon={ShieldCheck} label="Calidad">
-                {qualityScore ? (
-                  <span className="tabular-nums">{qualityScore}</span>
-                ) : (
-                  <Fallback />
-                )}
-              </DetailRow>
-              <DetailRow icon={Copy} label="Estado de duplicado">
-                {DUPLICATE_LABELS[candidate.duplicate_status] ?? candidate.duplicate_status}
-              </DetailRow>
-              <DetailRow icon={Gauge} label="Confianza">
-                {confidenceLabel ? (
-                  <span className="tabular-nums">{confidenceLabel}</span>
-                ) : (
-                  <Fallback />
-                )}
-              </DetailRow>
-              {matchedKeywords.length > 0 && (
-                <DetailRow icon={Tag} label="Señales detectadas" className="sm:col-span-2">
-                  <span className="flex flex-wrap gap-1">
-                    {matchedKeywords.map((kw) => (
-                      <Badge key={kw} variant="outline">
-                        {kw}
-                      </Badge>
-                    ))}
-                  </span>
-                </DetailRow>
-              )}
-            </dl>
-          </DrawerSection>
+              <ul className="flex flex-wrap gap-1">
+                {matchedKeywords.map((kw) => (
+                  <li key={kw}>
+                    <Badge variant="outline">{kw}</Badge>
+                  </li>
+                ))}
+              </ul>
+            </DrawerSection>
+          )}
 
           {/* 3a. Consistencia de identidad (Hito 17B.4W.6) — observacional */}
             <DrawerSection
@@ -3130,10 +3128,12 @@ export function ContactCandidateDetailSheet({
           {/* 4. Trazabilidad */}
             <DrawerSection icon={Hash} tone="neutral" title="Trazabilidad">
             <dl className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-              <DetailRow icon={Hash} label="Candidate ID">
+              <DetailRow icon={Hash} label="ID del candidato">
                 <span className="font-mono text-xs break-all">{candidate.id}</span>
               </DetailRow>
-              <DetailRow icon={Hash} label="Enrichment run ID">
+              {/* «Ejecución», no «búsqueda»: con el desglose del waterfall a la
+                  vista, esa palabra se leería como un crédito de búsqueda. */}
+              <DetailRow icon={Hash} label="ID de la ejecución">
                 {candidate.enrichment_run_id ? (
                   <span className="font-mono text-xs break-all">
                     {candidate.enrichment_run_id}
@@ -3158,12 +3158,12 @@ export function ContactCandidateDetailSheet({
                 </DetailRow>
               )}
               {candidate.account_id && (
-                <DetailRow icon={Building2} label="SellUp Account ID">
+                <DetailRow icon={Building2} label="ID de la empresa en SellUp">
                   <span className="font-mono text-xs break-all">{candidate.account_id}</span>
                 </DetailRow>
               )}
               {candidate.hubspot_company_id && (
-                <DetailRow icon={Globe} label="HubSpot Company ID">
+                <DetailRow icon={Globe} label="ID de la empresa en HubSpot">
                   <span className="font-mono text-xs break-all">
                     {candidate.hubspot_company_id}
                   </span>

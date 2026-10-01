@@ -21,9 +21,10 @@ import type { ComponentProps } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
 import { DrawerSection } from '@/components/shared/drawer-section';
+import { DetailItem, DetailList } from '@/components/shared/detail-list';
 import { Timeline, TimelineItem } from '@/components/data-display';
-import { Spinner } from '@/components/feedback/spinner';
 import { getAccountById, getAccountAudit, getActiveUsers } from '@/modules/accounts/actions';
 import { getContactsByAccount, getContactsSummary } from '@/modules/contacts/actions';
 import { getContactEnrichmentRunsByAccountId } from '@/modules/contact-enrichment/account-run-history-actions';
@@ -111,14 +112,21 @@ interface SheetData {
 export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }: AccountDetailSheetProps) {
   const [data, setData] = React.useState<SheetData | null>(null);
   const [loading, setLoading] = React.useState(false);
+  // Antes, si la empresa no se podía leer, el panel se quedaba girando para
+  // siempre. Ahora lo dice y ofrece reintentar.
+  const [loadFailed, setLoadFailed] = React.useState(false);
   const [contactSheetId, setContactSheetId] = React.useState<string | null>(null);
   const [contactSheetOpen, setContactSheetOpen] = React.useState(false);
 
   const loadData = React.useCallback(async (id: string) => {
     setLoading(true);
+    setLoadFailed(false);
     try {
       const account = await getAccountById(id);
-      if (!account) return;
+      if (!account) {
+        setLoadFailed(true);
+        return;
+      }
       const [auditLog, contacts, contactsSummary, users, contactEnrichmentRuns] = await Promise.all([
         getAccountAudit(id),
         getContactsByAccount(id),
@@ -127,6 +135,8 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
         getContactEnrichmentRunsByAccountId(id),
       ]);
       setData({ account, auditLog, contacts, contactsSummary, users, contactEnrichmentRuns });
+    } catch {
+      setLoadFailed(true);
     } finally {
       setLoading(false);
     }
@@ -141,7 +151,10 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
       })();
       return () => { cancelled = true; };
     } else if (!open) {
-      queueMicrotask(() => setData(null));
+      queueMicrotask(() => {
+        setData(null);
+        setLoadFailed(false);
+      });
     }
   }, [open, accountId, loadData]);
 
@@ -158,7 +171,7 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
         side="right"
         className="w-full sm:w-[58vw] sm:min-w-[660px] sm:!max-w-[900px]"
         icon={<Building2 className="h-4 w-4" />}
-        title={data ? data.account.name : 'Cargando cuenta...'}
+        title={data ? data.account.name : loadFailed ? 'Empresa no disponible' : 'Cargando empresa…'}
         description={data ? (data.account.legal_name || undefined) : undefined}
         titleBadge={
           data ? (
@@ -169,10 +182,22 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
             </Badge>
           ) : undefined
         }
-        headerActions={
+        loading={loading && !data}
+        // Pie: lo secundario (editar, cambiar estado, archivar) a la izquierda y
+        // la acción principal del panel a la derecha.
+        actions={
           data ? (
             <>
+              <AccountDetailActions
+                accountId={data.account.id}
+                currentStatus={data.account.pipeline_status}
+                users={data.users}
+                onChanged={() => loadData(data.account.id)}
+                onArchived={onClose}
+              />
               <AccountEnrichContactsButton
+                variant="default"
+                label="Buscar contactos"
                 preloadedCompany={{
                   name: data.account.name,
                   domain: data.account.domain,
@@ -184,22 +209,61 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                 disabled={data.account.pipeline_status === 'archived'}
                 onRequestOpen={onRequestEnrich}
               />
-              <AccountDetailActions
-                accountId={data.account.id}
-                currentStatus={data.account.pipeline_status}
-                users={data.users}
-              />
             </>
           ) : undefined
         }
       >
-        {loading || !data ? (
-          <div className="flex items-center justify-center py-20">
-            <Spinner label="Cargando cuenta..." />
-          </div>
+        {!data ? (
+          loadFailed ? (
+            <EmptyState
+              variant="plain"
+              icon={Building2}
+              title="No pudimos cargar esta empresa"
+              description="Puede que ya no exista o que no tengas acceso a ella. Si crees que es un error, inténtalo de nuevo."
+              action={
+                accountId ? (
+                  <Button type="button" variant="outline" size="sm" onClick={() => loadData(accountId)}>
+                    Reintentar
+                  </Button>
+                ) : undefined
+              }
+            />
+          ) : null
         ) : (
-          // Design Refresh v3: tabs alineados con el contenido (antes mx-7 mt-4
-          // sumaban al px-7 del cuerpo del drawer y quedaban indentados 28px más).
+          <div className="space-y-4">
+            {/* Lo esencial, antes de las pestañas: quién la lleva, dónde está,
+                cómo se llega a ella y cuánta gente conocemos dentro. */}
+            <section
+              aria-label="Resumen de la empresa"
+              className="rounded-2xl border border-border/60 bg-card p-4 shadow-card"
+            >
+              <DetailList columns={4}>
+                <DetailItem icon={User} label="Responsable" emptyLabel="Sin asignar">
+                  {data.account.owner?.full_name ?? data.account.owner?.email}
+                </DetailItem>
+                <DetailItem icon={MapPin} label="Ubicación" emptyLabel="Sin ubicación">
+                  {[data.account.city, data.account.region, data.account.country].filter(Boolean).join(', ')}
+                </DetailItem>
+                <DetailItem icon={Globe} label="Sitio web" emptyLabel="Sin sitio web">
+                  {data.account.website ? (
+                    <a
+                      href={data.account.website}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="break-all rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+                    >
+                      {data.account.domain ?? data.account.website}
+                    </a>
+                  ) : null}
+                </DetailItem>
+                <DetailItem icon={Users} label="Contactos">
+                  <span className="tabular-nums">{data.contacts.length}</span>
+                </DetailItem>
+              </DetailList>
+            </section>
+
+          {/* Design Refresh v3: tabs alineados con el contenido (antes mx-7 mt-4
+              sumaban al px-7 del cuerpo del drawer y quedaban indentados 28px más). */}
           <Tabs defaultValue="resumen">
                   <TabsList variant="segmented" className="mb-2">
                     <TabsTrigger value="resumen"><Building2 className="h-4 w-4" /> Resumen</TabsTrigger>
@@ -229,29 +293,10 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                       return peMigoBlock ? <PeruMigoLegalValidationBlock block={peMigoBlock} /> : null;
                     })()}
                     <div className="grid gap-4 md:grid-cols-2">
+                      {/* Sitio web, ubicación, responsable y contactos ya van en
+                          el resumen de arriba: aquí no se repiten. */}
                       <DrawerSection title="Datos de la empresa" icon={Building2}>
-                        {/* Design Refresh v4: todos los campos siempre visibles
-                            (— si faltan) para una ficha consistente y menos vacía. */}
                         <dl className="space-y-3">
-                          <DetailRow icon={Globe} label="Sitio web">
-                            {data.account.website ? (
-                              <a
-                                href={data.account.website}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="break-all rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-                              >
-                                {data.account.domain ?? data.account.website}
-                              </a>
-                            ) : (
-                              <EmptyValue />
-                            )}
-                          </DetailRow>
-                          <DetailRow icon={MapPin} label="Ubicación">
-                            {[data.account.city, data.account.region, data.account.country]
-                              .filter(Boolean)
-                              .join(', ') || <EmptyValue />}
-                          </DetailRow>
                           <DetailRow icon={Briefcase} label="Industria">
                             {data.account.industry || <EmptyValue />}
                           </DetailRow>
@@ -267,9 +312,12 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                               : <EmptyValue />}
                           </DetailRow>
                           <DetailRow icon={Tag} label="Fuente">
-                            <Badge variant="outline">
-                              {SOURCE_LABELS[data.account.source as AccountSource]}
-                            </Badge>
+                            {SOURCE_LABELS[data.account.source as AccountSource]}
+                          </DetailRow>
+                          <DetailRow icon={Globe} label="ID en HubSpot">
+                            {data.account.hubspot_company_id
+                              ? <span className="break-all font-mono text-xs tabular-nums">{data.account.hubspot_company_id}</span>
+                              : <EmptyValue>Sin sincronizar</EmptyValue>}
                           </DetailRow>
                           <DetailRow icon={Calendar} label="Creada">
                             {formatShortDate(data.account.created_at)}
@@ -277,37 +325,15 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                         </dl>
                       </DrawerSection>
 
-                      <DrawerSection title="Asignación y estado" icon={User}>
-                        <dl className="space-y-3">
-                          <DetailRow icon={User} label="Owner">
-                            {data.account.owner?.full_name ??
-                              data.account.owner?.email ?? <EmptyValue>Sin asignar</EmptyValue>}
-                          </DetailRow>
-                          <DetailRow icon={Tag} label="Estado pipeline">
-                            <Badge variant={STATUS_VARIANT[data.account.pipeline_status]}>
-                              {PIPELINE_STATUS_LABELS[data.account.pipeline_status]}
-                            </Badge>
-                          </DetailRow>
-                          <DetailRow icon={Users} label="Contactos">
-                            {data.contacts.length > 0
-                              ? <span className="tabular-nums">{`${data.contacts.length}`}</span>
-                              : <EmptyValue />}
-                          </DetailRow>
-                          <DetailRow icon={Globe} label="HubSpot ID">
-                            {data.account.hubspot_company_id
-                              ? <span className="break-all font-mono text-xs tabular-nums">{data.account.hubspot_company_id}</span>
-                              : <EmptyValue />}
-                          </DetailRow>
-                        </dl>
-                        {data.account.notes && (
-                          <div className="mt-4 rounded-lg bg-surface-subtle px-3 py-2.5">
-                            <p className="mb-1 text-xs font-semibold text-muted-foreground">
-                              Notas
-                            </p>
-                            <p className="break-words text-sm leading-relaxed text-foreground">
-                              {data.account.notes}
-                            </p>
-                          </div>
+                      <DrawerSection title="Notas" icon={Tag}>
+                        {data.account.notes ? (
+                          <p className="break-words text-sm leading-relaxed text-foreground">
+                            {data.account.notes}
+                          </p>
+                        ) : (
+                          <p className="text-sm leading-relaxed text-muted-foreground">
+                            Sin notas todavía. Añádelas con «Editar empresa», en el menú de acciones del pie.
+                          </p>
                         )}
                       </DrawerSection>
                     </div>
@@ -329,7 +355,8 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                         <EmptyState
                           variant="plain"
                           icon={Activity}
-                          title="Sin actividad registrada todavía."
+                          title="Sin actividad todavía"
+                          description="Los cambios de estado, de responsable y las ediciones de esta empresa aparecerán aquí."
                         />
                       ) : (
                         <Timeline>
@@ -371,19 +398,20 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                   <TabsContent value="inteligencia">
                     <EmptyState
                       icon={Brain}
-                      title="Inteligencia comercial — Próxima fase"
-                      description="Árbol empresarial, señales de negocio y análisis de competidores."
+                      title="Todavía no hay inteligencia comercial"
+                      description="Aquí verás el árbol empresarial, las señales de negocio y los competidores de esta empresa cuando estén disponibles."
                     />
                   </TabsContent>
 
                   {/* Actividad */}
                   <TabsContent value="actividad">
-                    <DrawerSection title="Registro de actividad" icon={Activity} hint="Cambios y eventos de auditoría de esta cuenta.">
+                    <DrawerSection title="Registro de actividad" icon={Activity} hint="Cambios y eventos de auditoría de esta empresa.">
                       {data.auditLog.length === 0 ? (
                         <EmptyState
                           variant="plain"
                           icon={Activity}
-                          title="Sin actividad registrada todavía."
+                          title="Sin actividad todavía"
+                          description="Los cambios de estado, de responsable y las ediciones de esta empresa aparecerán aquí."
                         />
                       ) : (
                         <Timeline>
@@ -414,7 +442,8 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                     <AccountAgentsRunHistory runs={data.contactEnrichmentRuns} />
                   </TabsContent>
                 </Tabs>
-              )}
+          </div>
+        )}
       </DrawerShell>
 
       {/* Nested contact detail sheet */}

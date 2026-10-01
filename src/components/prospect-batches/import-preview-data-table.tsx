@@ -35,9 +35,13 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import {
+  DataTableActiveFilters,
   DataTableColumnHeader,
   DataTablePagination,
+  DataTableSelectionHeader,
+  multiValueFilter,
 } from '@/components/data-table';
+import type { FilterFn } from '@tanstack/react-table';
 import type { ImportRow, ImportDuplicateResult } from './import-candidates-drawer';
 
 // ── Helpers ────────────────────────────────────────────────────
@@ -162,7 +166,8 @@ export function ImportPreviewDataTable({
       },
       size: 200,
       minSize: 180,
-      meta: { label: 'Empresa', popoverTitle: 'Empresa' },
+      // Texto libre: se ordena, no se filtra por valores.
+      meta: { label: 'Empresa', popoverTitle: 'Empresa', disableFilter: true },
     },
     {
       id: 'country',
@@ -234,7 +239,7 @@ export function ImportPreviewDataTable({
         );
       },
       size: 150,
-      meta: { label: 'Website', popoverTitle: 'Website' },
+      meta: { label: 'Website', popoverTitle: 'Website', disableFilter: true },
     },
     {
       id: 'linkedin_url',
@@ -264,7 +269,7 @@ export function ImportPreviewDataTable({
         );
       },
       size: 150,
-      meta: { label: 'LinkedIn', popoverTitle: 'LinkedIn' },
+      meta: { label: 'LinkedIn', popoverTitle: 'LinkedIn', disableFilter: true },
     },
     {
       id: 'confidence',
@@ -390,14 +395,8 @@ export function ImportPreviewDataTable({
   const allColumns = React.useMemo<ColumnDef<ImportRow, unknown>[]>(() => {
     const selectCol: ColumnDef<ImportRow, unknown> = {
       id: 'select',
-      header: ({ table }) => (
-        <Checkbox
-          checked={table.getIsAllPageRowsSelected()}
-          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-          aria-label="Seleccionar todas las filas"
-          
-        />
-      ),
+      // Thema: menú «esta página / todos» en la cabecera de selección.
+      header: ({ table }) => <DataTableSelectionHeader table={table} paged />,
       cell: ({ row }) => (
         <Checkbox
           checked={row.getIsSelected()}
@@ -418,6 +417,7 @@ export function ImportPreviewDataTable({
   const table = useReactTable({
     data: rows,
     columns: allColumns,
+    defaultColumn: { filterFn: multiValueFilter as FilterFn<ImportRow> },
     state: { sorting, columnFilters, columnVisibility, rowSelection },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
@@ -437,6 +437,7 @@ export function ImportPreviewDataTable({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-border/60 bg-card shadow-card">
+        <DataTableActiveFilters table={table} globalFilter="" onGlobalFilterChange={() => {}} />
         <div className="flex-1 min-h-0 overflow-auto su-table-scroll">
           <Table className="su-table su-table-sticky">
             <TableHeader>
@@ -484,7 +485,7 @@ export function ImportPreviewDataTable({
           </Table>
         </div>
 
-        <DataTablePagination table={table} pageSizeOptions={[10, 25, 50, 100]} />
+        <DataTablePagination table={table} pageSizeOptions={[10, 25, 50, 100]} noun="filas" />
       </div>
     </div>
   );

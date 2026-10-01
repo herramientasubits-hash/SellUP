@@ -30,3 +30,39 @@ export function deriveConsumedDisplay(
 
   return { label: parts.join(' · ') || '—', description: usdDisplay?.description ?? undefined };
 }
+
+export interface ConsumedCell {
+  /** El dato principal, en una sola línea. */
+  primary: string;
+  /** El dato de apoyo, debajo y apagado. */
+  secondary?: string;
+  description?: string;
+}
+
+/**
+ * El consumo del mes partido en valor principal + subtítulo, para que una
+ * celda no tenga que romper «17 cr · $24.03» en dos renglones a su suerte.
+ * Manda lo que se cuenta en créditos; el costo en dólares acompaña. Un
+ * proveedor cuyo consumo no se mide desde SellUp no afirma «0»: queda en «—».
+ */
+export function deriveConsumedCell(
+  row: { consumedCredits: number; consumedUsd: number; hasUnknownCost: boolean },
+  isMeasured: boolean,
+): ConsumedCell {
+  if (!isMeasured) return { primary: '—' };
+  const usd = deriveConsumedDisplay(null, row.consumedUsd, row.hasUnknownCost);
+  const hasUsd = usd.label !== '—';
+  const credits =
+    row.consumedCredits > 0
+      ? `${row.consumedCredits.toLocaleString('es-CO')} ${row.consumedCredits === 1 ? 'crédito' : 'créditos'}`
+      : null;
+
+  // «Costo desconocido» no es una cifra: no lleva unidad.
+  const usdLabel = usd.label.startsWith('$') ? `${usd.label} USD` : usd.label;
+
+  if (credits) {
+    return { primary: credits, secondary: hasUsd ? usdLabel : undefined, description: usd.description };
+  }
+  if (hasUsd) return { primary: usdLabel, description: usd.description };
+  return { primary: 'Sin consumo' };
+}

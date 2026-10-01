@@ -261,7 +261,7 @@ export function SamuTestConnectionButton({ disabled }: TestConnectionProps) {
 
   return (
     <div className="space-y-2">
-      <Button variant="outline" onClick={handleTest} disabled={isPending || disabled}>
+      <Button onClick={handleTest} disabled={isPending || disabled}>
         {isPending && <Loader2 className="animate-spin" />}
         Probar conexión
       </Button>

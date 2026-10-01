@@ -13,7 +13,6 @@ import {
   ChevronRight,
 } from "@/icons";
 import { PageHeader } from '@/components/shared/page-header';
-import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -264,21 +263,19 @@ export function ActivityFeedClient({ context, initialEvents, initialHasMore, emb
   const showUserSelector =
     context.isAdmin || context.isManager;
 
+  // De quién es la actividad que se ve: va en la cabecera, antes de leer la lista.
+  const scopeNote = context.isAdmin
+    ? 'Ves la actividad de toda la plataforma.'
+    : context.isManager
+      ? 'Ves la actividad de tu equipo.'
+      : 'Ves tu propia actividad.';
+
   return (
     <div className="space-y-6">
       {!embedded && (
         <PageHeader
-          breadcrumbs={
-            <Breadcrumbs
-              items={[
-                { label: 'Configuración', href: '/settings' },
-                'Actividad de la plataforma',
-              ]}
-            />
-          }
           title="Actividad de la plataforma"
-          description="Historial de acciones administrativas, integraciones y configuración de IA."
-          backHref="/settings"
+          description={`Quién hizo qué y cuándo. ${scopeNote}`}
         />
       )}
       {embedded && (
@@ -345,11 +342,11 @@ export function ActivityFeedClient({ context, initialEvents, initialHasMore, emb
           <EmptyState
             variant="plain"
             icon={Activity}
-            title="Sin eventos registrados"
+            title={search ? 'Nada coincide con tu búsqueda' : 'No hay actividad con estos filtros'}
             description={
               search
-                ? 'Intenta con otros términos de búsqueda.'
-                : 'No hay actividad disponible para los filtros seleccionados.'
+                ? 'Prueba con otra palabra o borra la búsqueda.'
+                : 'Elige «Todo» o cambia de persona para ver más actividad.'
             }
           />
         ) : (
@@ -410,19 +407,13 @@ export function ActivityFeedClient({ context, initialEvents, initialHasMore, emb
               {isLoadingMore ? (
                 <Loader2 className="animate-spin" aria-hidden="true" />
               ) : null}
-              {isLoadingMore ? 'Cargando…' : 'Cargar más eventos'}
+              {isLoadingMore ? 'Cargando…' : 'Ver actividad anterior'}
             </Button>
           </div>
         )}
       </SurfaceCard>
 
-      <p className="text-xs text-muted-foreground">
-        {context.isAdmin
-          ? 'Vista de administrador — actividad de toda la plataforma.'
-          : context.isManager
-          ? 'Vista de líder — actividad de tu equipo según el organigrama.'
-          : 'Mostrando tu actividad en la plataforma.'}
-      </p>
+      {embedded && <p className="text-xs text-muted-foreground">{scopeNote}</p>}
     </div>
   );
 }

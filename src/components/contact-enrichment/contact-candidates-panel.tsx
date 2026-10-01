@@ -1,7 +1,9 @@
-import { Inbox, Sparkles, Mail, Link2, CopyCheck } from "@/icons";
 import { ScreenActionRail, ScreenActionRailProvider } from "@/components/action-rail";
 import { DataTablePage } from '@/components/shared/data-table-page';
-import { MetricCard } from '@/components/shared/metric-card';
+import {
+  CONTACTOS_MODULE_TITLE,
+  CONTACTOS_TAB_DESCRIPTIONS,
+} from '@/components/contacts/contacts-module-copy';
 import { CreateContactDrawer } from '@/components/contacts/create-contact-drawer';
 import { ContactsEnrichmentCTA } from '@/components/contact-enrichment/contacts-enrichment-cta';
 import { ContactsModuleTabsNav } from '@/components/navigation/contacts-module-tabs-nav';
@@ -89,84 +91,28 @@ export async function ContactCandidatesPanel({
     accountsList.filter((a) => a.owner_id).map((a) => [a.id, a.owner_id!]),
   );
 
-  const total = candidates.length;
-  const highRelevance = candidates.filter(
-    (c) => c.enrichment_metadata?.relevance?.status === 'high_relevance',
-  ).length;
-  const withEmail = candidates.filter((c) => !!c.email).length;
-  const withLinkedin = candidates.filter((c) => !!c.linkedin_url).length;
-
+  // Los indicadores (alta relevancia, con email, con LinkedIn) los calcula la
+  // tabla sobre estas mismas filas y los ofrece como filtros de un toque.
   return (
     <ScreenActionRailProvider>
     <DataTablePage
-      title="Contactos"
-      description="Centraliza decisores, sponsors y personas clave vinculadas a cuentas y prospectos."
-      tabs={<ContactsModuleTabsNav active={isDuplicateQueue ? 'duplicates' : 'candidates'} />}
+      compact
+      title={CONTACTOS_MODULE_TITLE}
+      description={CONTACTOS_TAB_DESCRIPTIONS[isDuplicateQueue ? 'duplicates' : 'candidates']}
+      tabs={
+        // 4O-H3-B-R1 (§ 11): el contador de «Por revisar» sólo cuenta `pending_review`. En la
+        // cola de duplicados no se pinta: esos candidatos se cuentan en su propia tabla y
+        // nunca se suman al mismo número.
+        <ContactsModuleTabsNav
+          active={isDuplicateQueue ? 'duplicates' : 'candidates'}
+          counts={isDuplicateQueue ? undefined : { candidates: candidates.length }}
+        />
+      }
       actions={
         <ScreenActionRail label="Acciones de contactos">
           <ContactsEnrichmentCTA />
-          <CreateContactDrawer accounts={accounts} />
+          <CreateContactDrawer accounts={accounts} triggerVariant="outline" />
         </ScreenActionRail>
-      }
-      metrics={
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {/* 4O-H3-B-R1 (§ 11): el conteo NO cambia de significado. «Por revisar» sigue contando
-              sólo `pending_review`; los duplicados se cuentan en su propia tarjeta, en su propia
-              cola. Nunca se suman al mismo número. */}
-          {isDuplicateQueue ? (
-            <MetricCard
-              title="Duplicados"
-              description="Coinciden con un contacto existente"
-              value={total}
-              icon={
-                <div className="rounded-lg p-1.5 bg-surface-muted">
-                  <CopyCheck className="h-4 w-4 text-muted-foreground" />
-                </div>
-              }
-            />
-          ) : (
-            <MetricCard
-              title="Por revisar"
-              description="Candidatos pendientes"
-              value={total}
-              icon={
-                <div className="rounded-lg p-1.5 bg-warning/10">
-                  <Inbox className="h-4 w-4 text-warning" />
-                </div>
-              }
-            />
-          )}
-          <MetricCard
-            title="Alta relevancia"
-            description="Mejor encaje detectado"
-            value={highRelevance}
-            icon={
-              <div className="rounded-lg p-1.5 bg-primary/10">
-                <Sparkles className="h-4 w-4 text-primary" />
-              </div>
-            }
-          />
-          <MetricCard
-            title="Con email"
-            description="Tienen correo"
-            value={withEmail}
-            icon={
-              <div className="rounded-lg p-1.5 bg-success/10">
-                <Mail className="h-4 w-4 text-success" />
-              </div>
-            }
-          />
-          <MetricCard
-            title="Con LinkedIn"
-            description="Tienen perfil"
-            value={withLinkedin}
-            icon={
-              <div className="rounded-lg p-1.5 bg-info/10">
-                <Link2 className="h-4 w-4 text-info" />
-              </div>
-            }
-          />
-        </div>
       }
     >
       <ContactCandidatesDataTableClient

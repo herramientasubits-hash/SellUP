@@ -113,7 +113,7 @@ When in doubt, consult these files in order:
    shadcn/ui components and extensions (Tabs, Popover, Checkbox, Switch, SegmentedControl, etc.).
 
 5. **`src/components/data-table/`**  
-   Unified data table system (DataTable, DataTableSettingsDrawer, DataTableLoadMore, DataTableBulkActionBar, etc.).
+   Unified data table system (DataTable, DataTableColumnHeader, DataTableActiveFilters, DataTableLoadMore, DataTableBulkActionBar, etc.; panel «Configurar tabla» = TableConfigButton de data-display).
 
 6. **`src/components/layout/`**  
    AppShell, AppHeader, AppSidebar, theme-toggle.

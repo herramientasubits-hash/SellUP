@@ -1,6 +1,5 @@
 'use client';
 
-import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
 import { useReportSelectionCount } from "@/components/action-rail";
 import { useRouter } from 'next/navigation';
@@ -15,26 +14,11 @@ import {
   X,
   Info,
   Loader2,
-  Clock,
-  Calendar,
   CheckCircle2,
 } from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
-import {
-  Tooltip,
-  TooltipTrigger,
-  TooltipContent,
-  TooltipProvider,
-} from '@/components/ui/tooltip';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 
 import { Progress } from '@/components/ui/progress';
 import { formatProspectDate, isProspectCreatedToday, isProspectCreatedWithinDateRange } from '@/modules/prospect-batches/prospect-date-utils';
@@ -48,7 +32,34 @@ import {
   type DataTableContextMenuItem,
   type DataTableBulkAction,
   type DataTableHandle,
+  type DataTableListRowState,
 } from '@/components/data-table';
+import { ListItem } from '@/components/data-display/list-item';
+import {
+  QuickFilterChips,
+  QuickFilterEmptyState,
+  QuickFilterStrip,
+  useQuickFilter,
+  useWideViewport,
+  type QuickFilterDefinition,
+} from '@/components/filters/quick-filter-strip';
+import {
+  CountryCell,
+  EmptyCell,
+  ExternalIconLink,
+  RowTitleButton,
+  countryName,
+} from '@/components/shared/table-cells';
+import {
+  DuplicateCheckCell,
+  ProspectStatusBadge,
+  QualityCell,
+  StatusCell,
+  getDisplayStatusKey,
+  getFitEvaluation,
+  type ProspectRow,
+} from '@/components/prospects/prospect-table-cells';
+import { buildProspectQuickFilters } from '@/components/prospects/prospect-quick-filters';
 import { CandidateRowActions } from '@/components/prospect-batches/candidate-row-actions';
 import { CandidateDetailSheet } from '@/components/prospect-batches/candidate-detail-sheet';
 import { getCandidateLinkedInUrl } from '@/modules/prospect-batches/candidate-linkedin-url';
@@ -65,12 +76,9 @@ import {
 import {
   LATAM_COUNTRIES,
   INDUSTRIES,
-  CANDIDATE_STATUS_LABELS,
   VENDOR_STRUCTURED_SOURCE_LABELS,
   isStructuredCandidate,
-  parseDuplicateCheck,
   type ProspectCandidateWithReviewer,
-  type CandidateStatus,
 } from '@/modules/prospect-batches/types';
 import { createClient } from '@/lib/supabase/client';
 import { PROSPECTOS_TAB_ROUTE } from '@/config/navigation';
@@ -79,23 +87,9 @@ import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filte
 
 // ── Derived types ──────────────────────────────────────────────
 
-interface CandidateWithBatch extends ProspectCandidateWithReviewer {
-  batch?: { name: string; source: string; created_at: string } | null;
-}
-
-type Row = CandidateWithBatch;
+type Row = ProspectRow;
 
 // ── Constants ──────────────────────────────────────────────────
-
-const ORIGIN_OPTIONS = [
-  { value: 'manual', label: 'Creación manual' },
-  { value: 'external_import', label: 'Importación externa' },
-  { value: 'agent_1', label: 'Generado por IA' },
-  { value: 'socrata_colombia', label: 'RUES Colombia' },
-  { value: 'datos_gob_cl', label: 'Oficial Chile' },
-  { value: 'denue_mexico', label: 'DENUE México' },
-  { value: 'apollo', label: 'Apollo' },
-];
 
 const DUPLICATE_STATUS_OPTIONS = [
   { value: 'no_match', label: 'Sin coincidencias' },
@@ -106,47 +100,9 @@ const DUPLICATE_STATUS_OPTIONS = [
   { value: 'insufficient_data', label: 'Datos insuficientes' },
 ];
 
-const STATUS_STYLES: Record<CandidateStatus, string> = {
-  generated: 'bg-muted text-muted-foreground',
-  normalized: 'bg-muted text-muted-foreground',
-  needs_review: 'bg-warning/15 text-warning',
-  approved: 'bg-success/10 text-success',
-  discarded: 'bg-surface-muted text-muted-foreground',
-  duplicate: 'bg-warning/15 text-warning',
-  converted_to_account: 'bg-primary/10 text-primary',
-};
-
-const FIT_STATUS_LABELS: Record<string, string> = {
-  high: 'Encaje alto',
-  medium: 'Encaje medio',
-  low: 'Encaje bajo',
-  unknown: 'Evaluación no disponible',
-  high_fit: 'Encaje alto',
-  good_fit: 'Buen encaje',
-  medium_fit: 'Encaje medio',
-  low_fit: 'Encaje bajo',
-  needs_manual_review: 'Requiere revisión humana',
-  insufficient_evidence: 'Evaluación no disponible por falta de evidencia pública confiable',
-  tax_identifier_conflict: 'Evaluación pausada por NIT inconsistente',
-};
-
-const COUNTRY_LABELS: Record<string, string> = Object.fromEntries(
-  LATAM_COUNTRIES.map((c) => [c.code, c.name])
-);
+const NO_QUICK_FILTERS: QuickFilterDefinition<Row>[] = [];
 
 // ── Helpers ────────────────────────────────────────────────────
-
-function getNestedValue(obj: unknown, path: string[]): unknown {
-  let current: unknown = obj;
-  for (const key of path) {
-    if (current && typeof current === 'object' && !Array.isArray(current)) {
-      current = (current as Record<string, unknown>)[key];
-    } else {
-      return undefined;
-    }
-  }
-  return current;
-}
 
 function extractDomainFromUrl(url: string | null | undefined): string | null {
   if (!url) return null;
@@ -159,66 +115,27 @@ function extractDomainFromUrl(url: string | null | undefined): string | null {
   }
 }
 
-function getCandidateOriginLabel(candidate: Row): string {
-  const batch = candidate.batch;
-  if (!batch) return 'Creación manual';
-  if (batch.source === 'manual') return 'Creación manual';
-  if (batch.source === 'external_import') {
-    if (batch.created_at) {
-      const date = formatInAppZone(batch.created_at, {
-        day: '2-digit',
-        month: 'short',
-      }, 'es-CO');
-      return `Importado el ${date}`;
-    }
-    return 'Importación externa';
+function getSectorDescription(candidate: Row): string | null {
+  return (
+    candidate.industry ??
+    ((candidate.metadata?.enrichment as Record<string, unknown> | undefined)?.sector_description as
+      | string
+      | undefined) ??
+    null
+  );
+}
+
+/** El nombre de la fuente oficial de la que viene el candidato, si viene de una. */
+function getOfficialSourceLabel(candidate: Row): string | null {
+  const isChileOfficialCandidate =
+    candidate.source_primary === 'datos_gob_cl' ||
+    candidate.country_code === 'CL' ||
+    (candidate.source_primary as string) === 'cl_res';
+  if (isChileOfficialCandidate) return 'Fuente oficial Chile';
+  if (isStructuredCandidate(candidate)) {
+    return VENDOR_STRUCTURED_SOURCE_LABELS[candidate.source_primary ?? ''] ?? 'Fuente oficial';
   }
-  if (batch.source === 'agent_1') return 'Generado por IA';
-  const sourceLabels: Record<string, string> = {
-    socrata_colombia: 'RUES Colombia',
-    datos_gob_cl: 'Oficial Chile',
-    denue_mexico: 'DENUE México',
-    apollo: 'Apollo',
-  };
-  return sourceLabels[batch.source] ?? batch.name ?? 'Origen desconocido';
-}
-
-function getSourceOriginValue(candidate: Row): string {
-  return candidate.batch?.source ?? 'manual';
-}
-
-function getDisplayStatus(candidate: Row): string {
-  const enrichment = (candidate.metadata?.enrichment as Record<string, unknown>) || {};
-  const enrichmentStatus = enrichment.status as string | undefined;
-  const validationMeta = (candidate.metadata as unknown as { validation?: Record<string, unknown> })?.validation;
-  const hasDuplicate =
-    candidate.duplicate_status === 'possible_duplicate' ||
-    candidate.duplicate_status === 'exact_duplicate';
-
-  if (enrichmentStatus === 'pending') return 'Enriquecimiento pendiente';
-  if (enrichmentStatus === 'enriching') return 'Enriqueciendo...';
-  if (enrichmentStatus === 'failed') return 'Enriquecimiento fallido';
-
-  if (validationMeta && !hasDuplicate) return 'Validado para revisión';
-  if (candidate.status === 'needs_review' || candidate.status === 'generated' || candidate.status === 'normalized') return 'Necesita revisión';
-  return CANDIDATE_STATUS_LABELS[candidate.status] ?? candidate.status;
-}
-
-function getDisplayStatusStyle(candidate: Row): string {
-  const enrichment = (candidate.metadata?.enrichment as Record<string, unknown>) || {};
-  const enrichmentStatus = enrichment.status as string | undefined;
-  const validationMeta = (candidate.metadata as unknown as { validation?: Record<string, unknown> })?.validation;
-  const hasDuplicate =
-    candidate.duplicate_status === 'possible_duplicate' ||
-    candidate.duplicate_status === 'exact_duplicate';
-
-  if (enrichmentStatus === 'pending') return 'bg-muted text-muted-foreground';
-  if (enrichmentStatus === 'enriching') return 'bg-primary/10 text-primary';
-  if (enrichmentStatus === 'failed') return 'bg-destructive/10 text-destructive';
-
-  if (validationMeta && !hasDuplicate) return 'bg-success/10 text-success';
-  if (candidate.status === 'needs_review' || candidate.status === 'generated' || candidate.status === 'normalized') return 'bg-warning/15 text-warning';
-  return STATUS_STYLES[candidate.status] ?? 'bg-muted text-muted-foreground';
+  return null;
 }
 
 // AGENT1-CUT4-C — la política de entradas de fila vive AHORA en
@@ -245,21 +162,6 @@ function isMarkDuplicateEligible(candidate: Row): boolean {
   }).canOfferMarkDuplicate;
 }
 
-function getDisplayStatusKey(candidate: Row): string {
-  const enrichment = (candidate.metadata?.enrichment as Record<string, unknown>) || {};
-  const enrichmentStatus = enrichment.status as string | undefined;
-  const validationMeta = (candidate.metadata as unknown as { validation?: Record<string, unknown> })?.validation;
-  const hasDuplicate =
-    candidate.duplicate_status === 'possible_duplicate' ||
-    candidate.duplicate_status === 'exact_duplicate';
-
-  if (enrichmentStatus === 'pending') return 'enrichment_pending';
-  if (enrichmentStatus === 'enriching') return 'enriching';
-  if (enrichmentStatus === 'failed') return 'enrichment_failed';
-  if (validationMeta && !hasDuplicate) return 'validated';
-  return candidate.status;
-}
-
 // ── Date range filter ──────────────────────────────────────────
 // AGENT1-DISCARDED-TAB-PARITY-1 — <DateRangeColumnHeader> y su tipo de filtro
 // vivían aquí como privados de este archivo. Se movieron sin cambios a
@@ -267,6 +169,7 @@ function getDisplayStatusKey(candidate: Row): string {
 // renderice EXACTAMENTE el mismo encabezado de "Fecha".
 
 // ── Sub-components ─────────────────────────────────────────────
+// Las celdas de calidad, duplicidad y estado viven en `prospect-table-cells.tsx`.
 
 function getSourceBanner(sourceBatchType: string | undefined): string {
   if (!sourceBatchType) return 'Mostrando prospectos de la operación reciente';
@@ -279,355 +182,6 @@ function getSourceBanner(sourceBatchType: string | undefined): string {
   return 'Mostrando prospectos de la operación reciente';
 }
 
-function DuplicateCheckCell({ candidate }: { candidate: Row }) {
-  const [detailOpen, setDetailOpen] = React.useState(false);
-
-  const dc = parseDuplicateCheck(candidate.metadata);
-  const matches = dc?.matches ?? [];
-  const valObj = (candidate.metadata as unknown as {
-    validation?: {
-      sellup_duplicate_check?: { status?: string; matched_name?: string | null };
-      hubspot_duplicate_check?: { status?: string; matched_company_name?: string | null };
-    };
-  })?.validation;
-
-  let sellupStatus = valObj?.sellup_duplicate_check?.status;
-  let hsStatus = valObj?.hubspot_duplicate_check?.status;
-
-  if (!valObj && dc) {
-    const sources = dc.sources_checked ?? [];
-    sellupStatus = sources.includes('sellup') ? 'no_match' : undefined;
-    hsStatus = sources.includes('hubspot') ? 'no_match' : undefined;
-
-    for (const m of matches) {
-      if (m.source === 'sellup') {
-        sellupStatus = m.status === 'exact_duplicate' || m.status === 'duplicate' ? 'duplicate' : 'possible_duplicate';
-      } else if (m.source === 'hubspot') {
-        hsStatus = m.status === 'match' || m.status === 'exact_duplicate' || m.status === 'duplicate' ? 'match' : 'possible_match';
-      }
-    }
-  }
-
-  if (!sellupStatus && !hsStatus) {
-    if (candidate.duplicate_status === 'exact_duplicate') {
-      sellupStatus = 'duplicate';
-    } else if (candidate.duplicate_status === 'possible_duplicate' || candidate.duplicate_status === 'related_company') {
-      sellupStatus = 'possible_duplicate';
-    } else if (candidate.duplicate_status === 'no_match') {
-      sellupStatus = 'no_match';
-      hsStatus = 'no_match';
-    }
-  }
-
-  // Design Refresh v1: badge solo cuando hay alerta real de duplicidad.
-  // El caso común ("Sin coincidencias") va como texto plano — un badge verde
-  // por fila convertía la columna en ruido permanente.
-  let primaryDupLabel = 'Sin verificar';
-  let primaryDupStyle: 'negative' | 'warning' | null = null;
-
-  if (sellupStatus === 'duplicate' || hsStatus === 'match') {
-    primaryDupLabel = 'Duplicado confirmado';
-    primaryDupStyle = 'negative';
-  } else if (sellupStatus === 'possible_duplicate' || hsStatus === 'possible_match') {
-    primaryDupLabel = 'Posible duplicado';
-    primaryDupStyle = 'warning';
-  } else if (sellupStatus === 'no_match' || hsStatus === 'no_match') {
-    primaryDupLabel = 'Sin coincidencias';
-  }
-
-  let sellupTooltipLabel = 'SellUp: sin verificar';
-  if (sellupStatus === 'duplicate') sellupTooltipLabel = 'SellUp: duplicado confirmado';
-  else if (sellupStatus === 'possible_duplicate') sellupTooltipLabel = 'SellUp: posible duplicado';
-  else if (sellupStatus === 'no_match') sellupTooltipLabel = 'SellUp: sin coincidencias';
-
-  let hsTooltipLabel = 'HubSpot: sin verificar';
-  if (hsStatus === 'match') hsTooltipLabel = 'HubSpot: duplicado confirmado';
-  else if (hsStatus === 'possible_match') hsTooltipLabel = 'HubSpot: posible duplicado';
-  else if (hsStatus === 'no_match') hsTooltipLabel = 'HubSpot: sin coincidencias';
-  else if (hsStatus === 'error') hsTooltipLabel = 'HubSpot: error de verificación';
-  else if (hsStatus === 'not_configured') hsTooltipLabel = 'HubSpot: no configurado';
-
-  return (
-    <div className="flex flex-col gap-1 w-fit">
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger render={
-            primaryDupStyle ? (
-              <Badge variant={primaryDupStyle} className="cursor-help">
-                {primaryDupLabel}
-              </Badge>
-            ) : (
-              <span className="w-fit cursor-help text-xs text-muted-foreground">
-                {primaryDupLabel}
-              </span>
-            )
-          } />
-          <TooltipContent className="space-y-1 rounded-lg border border-border/60 bg-popover p-3 text-xs leading-relaxed text-popover-foreground shadow-drawer z-[70]">
-            <p className="mb-1.5 border-b border-border/50 pb-1.5 text-xs font-semibold text-foreground">Detalle de Duplicidad</p>
-            <p>{sellupTooltipLabel}</p>
-            <p>{hsTooltipLabel}</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-
-      {matches.length > 0 && (
-        <button
-          type="button"
-          onClick={() => setDetailOpen(true)}
-          className="rounded-sm text-left text-xs font-medium text-warning underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-        >
-          {matches.length === 1 ? '1 coincidencia' : `${matches.length} coincidencias`}
-        </button>
-      )}
-
-      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Coincidencias de duplicidad</DialogTitle>
-            <DialogDescription>
-              {candidate.name} · {primaryDupLabel}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3">
-            {dc?.summary && (
-              <p className="text-sm leading-relaxed text-muted-foreground">{dc.summary}</p>
-            )}
-            {matches.length > 0 ? (
-              <ul className="max-h-60 space-y-2 overflow-y-auto pr-1">
-                {matches.map((match, i) => (
-                  <li key={i} className="space-y-1 rounded-lg border border-border/60 bg-surface-subtle p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-semibold text-foreground">
-                        {match.source === 'sellup' ? 'SellUp' : match.source === 'hubspot' ? 'HubSpot' : match.source}
-                      </span>
-                      {match.confidence !== null && (
-                        <span className="text-xs text-muted-foreground tabular-nums">
-                          Conf: {match.confidence}%
-                        </span>
-                      )}
-                    </div>
-                    {match.matched_name && (
-                      <p className="break-words text-sm font-medium text-foreground">{match.matched_name}</p>
-                    )}
-                    {match.matched_domain && (
-                      <p className="break-all text-xs text-muted-foreground">{match.matched_domain}</p>
-                    )}
-                    {match.matched_website && (
-                      <a
-                        href={match.matched_website.startsWith('http') ? match.matched_website : `https://${match.matched_website}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block break-all rounded-sm text-xs font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-                      >
-                        {match.matched_website}
-                      </a>
-                    )}
-                    {match.reason && (
-                      <p className="text-xs italic leading-relaxed text-muted-foreground">{match.reason}</p>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-muted-foreground">Sin detalle de duplicidad disponible.</p>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-function QualityCell({ candidate }: { candidate: Row }) {
-  const isChileOfficialCandidate =
-    candidate.source_primary === 'datos_gob_cl' ||
-    candidate.country_code === 'CL' ||
-    (candidate.source_primary as string) === 'cl_res';
-
-  const missingFields: string[] = [];
-  const validationMeta = (candidate.metadata as unknown as {
-    validation?: {
-      quality_check?: { missing_fields?: string[]; import_confidence?: string };
-    };
-  })?.validation;
-
-  if (validationMeta?.quality_check?.missing_fields) {
-    missingFields.push(...validationMeta.quality_check.missing_fields);
-  } else {
-    if (!candidate.website) missingFields.push('website');
-    const linkedinUrl = getNestedValue(candidate.metadata, ['enrichment', 'web', 'linkedin_company', 'url'])
-      || getNestedValue(candidate.metadata, ['enrichment', 'linkedin_url'])
-      || getNestedValue(candidate.metadata, ['enrichment', 'linkedin'])
-      || getNestedValue(candidate.metadata, ['external', 'linkedin_url'])
-      || getNestedValue(candidate.metadata, ['import', 'linkedin_url'])
-      // Q3F-5BB.7D: also recognize the canonical helper paths (linkedin_enrichment
-      // .company_url + Lusha's flat metadata.linkedin_url). Purely additive.
-      || getCandidateLinkedInUrl(candidate.metadata);
-    if (!linkedinUrl) missingFields.push('linkedin_url');
-    if (!candidate.tax_identifier) missingFields.push('tax_identifier');
-    if (!candidate.industry && !(candidate.metadata?.enrichment as Record<string, unknown> | undefined)?.sector_description) missingFields.push('industry');
-  }
-
-  // Design Refresh v1: la celda dejó de usar badge — un punto de color + texto
-  // plano reduce el ruido (máx. un badge de color por fila: el de Estado).
-  let completenessText = 'Información completa';
-  let completenessDot = 'bg-success';
-  if (missingFields.length > 0) {
-    if (missingFields.length >= 3 && !candidate.website && !candidate.tax_identifier) {
-      completenessText = 'Sin evidencia';
-      completenessDot = 'bg-border';
-    } else {
-      completenessText = `${missingFields.length} ${missingFields.length === 1 ? 'dato pendiente' : 'datos pendientes'}`;
-      completenessDot = 'bg-warning';
-    }
-  }
-
-  let confidenceText = 'Confianza media';
-  const rawConfidence = validationMeta?.quality_check?.import_confidence
-    || getNestedValue(candidate.metadata, ['import', 'confidence'])
-    || getNestedValue(candidate.metadata, ['validation', 'quality_check', 'confidence']);
-
-  if (rawConfidence) {
-    const confLower = String(rawConfidence).toLowerCase();
-    if (confLower === 'alta' || confLower === 'high') confidenceText = 'Confianza alta';
-    else if (confLower === 'media' || confLower === 'medium') confidenceText = 'Confianza media';
-    else if (confLower === 'baja' || confLower === 'low') confidenceText = 'Confianza baja';
-  } else if (isChileOfficialCandidate || isStructuredCandidate(candidate)) {
-    confidenceText = 'Confianza alta';
-  }
-
-  let fiscalText = 'Sin identificador';
-  let fiscalStatusKey: 'validated' | 'to_review' | 'none' = 'none';
-  if (candidate.tax_identifier) {
-    fiscalText = 'Fiscal validado';
-    fiscalStatusKey = 'validated';
-  } else {
-    const lookup = (candidate.metadata as Record<string, unknown>)?.tax_identifier_lookup as Record<string, unknown> | undefined;
-    const bestCandidate = lookup?.best_candidate as Record<string, unknown> | undefined;
-    if (bestCandidate?.tax_identifier) {
-      fiscalText = 'Fiscal por revisar';
-      fiscalStatusKey = 'to_review';
-    }
-  }
-
-  return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger render={
-          <div className="flex flex-col gap-1 w-fit cursor-help">
-            <span className="flex items-center gap-1.5 text-xs text-foreground">
-              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${completenessDot}`} aria-hidden="true" />
-              {completenessText}
-            </span>
-            <span className="text-xs leading-tight text-muted-foreground">
-              {confidenceText}
-              {fiscalStatusKey !== 'none' && ` · ${fiscalText}`}
-            </span>
-          </div>
-        } />
-        <TooltipContent className="max-w-xs space-y-1.5 rounded-lg border border-border/60 bg-popover p-3 text-xs leading-relaxed text-popover-foreground shadow-drawer z-[70]">
-          <p className="mb-1.5 border-b border-border/50 pb-1.5 text-xs font-semibold text-foreground">Detalle de Calidad</p>
-          <ul className="space-y-1 text-muted-foreground">
-            <li className="flex items-center gap-1.5">
-              <span className={candidate.website ? 'text-success' : 'text-warning'}>
-                {candidate.website ? '✓' : '✗'}
-              </span>
-              <span>Sitio web: {candidate.website ? 'Presente' : 'Pendiente'}</span>
-            </li>
-            <li className="flex items-center gap-1.5">
-              <span className={!missingFields.includes('linkedin_url') ? 'text-success' : 'text-warning'}>
-                {!missingFields.includes('linkedin_url') ? '✓' : '✗'}
-              </span>
-              <span>LinkedIn: {!missingFields.includes('linkedin_url') ? 'Presente' : 'Pendiente'}</span>
-            </li>
-            <li className="flex items-center gap-1.5">
-              <span className={candidate.tax_identifier ? 'text-success' : fiscalStatusKey === 'to_review' ? 'text-warning' : 'text-muted-foreground'}>
-                {candidate.tax_identifier ? '✓' : fiscalStatusKey === 'to_review' ? '?' : '✗'}
-              </span>
-              <span>Identificador fiscal: {candidate.tax_identifier ? `Presente (${candidate.tax_identifier_type || 'NIT'})` : fiscalStatusKey === 'to_review' ? 'Sugerido por revisar' : 'No disponible'}</span>
-            </li>
-            <li className="mt-1.5 flex items-center gap-1.5 border-t border-border/50 pt-1.5">
-              <span className="font-medium">Nivel de confianza:</span>
-              <span className="text-foreground capitalize">{confidenceText.split(' ')[1]}</span>
-            </li>
-          </ul>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  );
-}
-
-function StatusCell({ candidate }: { candidate: Row }) {
-  const statusLabel = getDisplayStatus(candidate);
-  const statusStyle = getDisplayStatusStyle(candidate);
-  const enrichment = (candidate.metadata?.enrichment as Record<string, unknown>) || {};
-  const enrichmentStatus = enrichment.status as string | undefined;
-  const enrichmentError = enrichment.error_message as string | undefined;
-
-  const badgeNode = (
-    <Badge
-      variant="outline"
-      className={`border-transparent ${statusStyle} ${enrichmentStatus === 'enriching' ? 'animate-pulse' : ''}`}
-    >
-      {statusLabel}
-    </Badge>
-  );
-
-  const statusBadgeWithTooltip = enrichmentStatus === 'failed' ? (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger render={badgeNode} />
-        <TooltipContent className="max-w-xs rounded-lg border-0 bg-destructive p-3 text-xs leading-relaxed text-destructive-foreground shadow-drawer z-[70]">
-          <p className="mb-1.5 border-b border-destructive-foreground/20 pb-1.5 text-xs font-semibold">Detalle del Error</p>
-          <p>{enrichmentError || 'Error desconocido durante el enriquecimiento con IA.'}</p>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  ) : badgeNode;
-
-  const fitStatusValue = candidate.commercial_fit_status
-    || getNestedValue(candidate.metadata, ['enrichment', 'ai_evaluation', 'fit_status'])
-    || getNestedValue(candidate.metadata, ['ai_evaluation', 'fit_status'])
-    || null;
-  const fitStatus = typeof fitStatusValue === 'string' ? fitStatusValue : null;
-  const fitScore = candidate.fit_score ?? null;
-
-  const hasEvaluation = fitScore !== null || (fitStatus && ['high', 'medium', 'low', 'high_fit', 'good_fit', 'medium_fit', 'low_fit'].includes(fitStatus));
-
-  let evalText = 'Sin evaluación IA';
-  if (hasEvaluation) {
-    const fitLabel = fitStatus ? (FIT_STATUS_LABELS[fitStatus] ?? fitStatus) : '';
-    if (fitScore !== null) {
-      evalText = `IA ${fitScore}/100${fitLabel ? ` · ${fitLabel}` : ''}`;
-    } else {
-      evalText = `IA · ${fitLabel}`;
-    }
-  } else if (fitStatus === 'insufficient_evidence') {
-    evalText = 'Evidencia insuficiente';
-  } else if (fitStatus === 'tax_identifier_conflict') {
-    evalText = 'Evaluación pausada';
-  }
-
-  return (
-    <div className="flex flex-col gap-1 w-fit">
-      {statusBadgeWithTooltip}
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger render={
-            <span className="cursor-help text-xs text-muted-foreground transition-colors hover:text-foreground">
-              {evalText}
-            </span>
-          } />
-          <TooltipContent className="max-w-xs rounded-lg border border-border/60 bg-popover p-3 text-xs leading-relaxed text-popover-foreground shadow-drawer z-[70]">
-            Evaluación automática basada en la información pública disponible. No reemplaza la revisión comercial.
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    </div>
-  );
-}
-
 // ── Main Component ─────────────────────────────────────────────
 
 interface ProspectsDataTableClientProps {
@@ -638,6 +192,17 @@ interface ProspectsDataTableClientProps {
   currentUserId?: string;
   currentGroupId?: string;
   currentRoleKey?: string;
+  /**
+   * Lo que se ofrece cuando no hay nada por revisar (generar con IA, importar,
+   * crear a mano). Lo arma el panel de servidor, que es el que tiene los drawers.
+   */
+  emptyActions?: React.ReactNode;
+  /**
+   * Cierto si la lista llega ya filtrada por la URL (búsqueda, país, sector,
+   * origen, estado o alcance): un vacío así no es «no hay prospectos», es «no
+   * hay prospectos con estos filtros».
+   */
+  hasUrlFilters?: boolean;
 }
 
 export function ProspectsDataTableClient({
@@ -648,6 +213,8 @@ export function ProspectsDataTableClient({
   currentUserId = '',
   currentGroupId = '',
   currentRoleKey = '',
+  emptyActions,
+  hasUrlFilters = false,
 }: ProspectsDataTableClientProps) {
   const reportSelectionCount = useReportSelectionCount();
   const router = useRouter();
@@ -680,6 +247,24 @@ export function ProspectsDataTableClient({
   // selectedCount > 0). Because selection is cleared on OPEN rather than on
   // close, it also never reappears once the drawer is dismissed.
   const dataTableRef = React.useRef<DataTableHandle>(null);
+
+  // Los indicadores no aplican a la vista de una operación concreta
+  // (`sourceId`): ahí manda el aviso de la operación. El «ahora» se fija al
+  // montar para que el recuento no cambie de un render a otro.
+  const [mountedAt] = React.useState(() => Date.now());
+  const quickFilterDefinitions = React.useMemo(
+    () => (sourceId ? NO_QUICK_FILTERS : buildProspectQuickFilters(mountedAt)),
+    [sourceId, mountedAt],
+  );
+  const quick = useQuickFilter(rows, quickFilterDefinitions);
+  const toggleQuickFilter = React.useCallback(
+    (id: string) => {
+      // Cambiar de indicador cambia la lista: lo marcado deja de tener sentido.
+      dataTableRef.current?.clearSelection();
+      quick.toggle(id);
+    },
+    [quick],
+  );
 
   const openCandidateDetail = React.useCallback(
     (
@@ -799,68 +384,44 @@ export function ProspectsDataTableClient({
         ),
         cell: ({ row }) => {
           const c = row.original;
-          const isChileOfficialCandidate =
-            c.source_primary === 'datos_gob_cl' ||
-            c.country_code === 'CL' ||
-            (c.source_primary as string) === 'cl_res';
-          // El país ya tiene columna propia — aquí solo ciudad para no duplicar señal
-          const location = c.city ?? null;
+          // Una sola línea: el nombre abre el detalle y a su lado van, como
+          // iconos, la fuente oficial y los enlaces que salen de SellUp. La
+          // ciudad y el dominio escrito se leen en el detalle y en la vista de
+          // lista.
           const domain = c.website ? extractDomainFromUrl(c.website) : null;
           // Q3F-5BB.7D: surface the corporate LinkedIn (incl. Lusha's flat
           // metadata.linkedin_url) when present, from the canonical helper.
           const companyLinkedInUrl = getCandidateLinkedInUrl(c.metadata);
+          const officialSource = getOfficialSourceLabel(c);
 
           return (
-            <div className="min-w-0 max-w-56 space-y-1">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => openCandidateDetail(c)}
-                  title={c.name}
-                  className="line-clamp-2 rounded-sm text-left text-sm font-semibold text-foreground transition-colors hover:text-primary focus-visible:text-primary focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+            <div className="flex min-w-0 items-center gap-1">
+              <RowTitleButton onClick={() => openCandidateDetail(c)} title={c.name}>
+                {c.name}
+              </RowTitleButton>
+              {officialSource && (
+                <span
+                  role="img"
+                  aria-label={officialSource}
+                  title={officialSource}
+                  className="flex size-5 shrink-0 items-center justify-center text-primary"
                 >
-                  {c.name}
-                </button>
-                {isChileOfficialCandidate ? (
-                  <Badge variant="brand">
-                    <ShieldCheck aria-hidden="true" />
-                    Fuente oficial Chile
-                  </Badge>
-                ) : isStructuredCandidate(c) ? (
-                  <Badge variant="brand">
-                    <ShieldCheck aria-hidden="true" />
-                    {VENDOR_STRUCTURED_SOURCE_LABELS[c.source_primary ?? ''] ?? 'Fuente oficial'}
-                  </Badge>
-                ) : null}
-              </div>
-              {location && (
-                <p className="text-xs text-muted-foreground leading-tight">{location}</p>
+                  <ShieldCheck aria-hidden="true" className="size-3.5" />
+                </span>
               )}
               {c.website && (
-                <a
-                  href={c.website.startsWith('http') ? c.website : `https://${c.website}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex max-w-full items-center gap-1 rounded-sm text-xs font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <Globe className="h-3 w-3 shrink-0" aria-hidden="true" />
-                  <span className="max-w-40 truncate">{domain ?? c.website}</span>
-                  <ExternalLink className="h-2.5 w-2.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                </a>
+                <ExternalIconLink
+                  href={c.website}
+                  icon={Globe}
+                  label={`Abrir el sitio web de ${c.name}${domain ? ` (${domain})` : ''}`}
+                />
               )}
               {companyLinkedInUrl && (
-                <a
+                <ExternalIconLink
                   href={companyLinkedInUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex max-w-full items-center gap-1 rounded-sm text-xs font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <Link2 className="h-3 w-3 shrink-0" aria-hidden="true" />
-                  <span className="max-w-40 truncate">LinkedIn</span>
-                  <ExternalLink className="h-2.5 w-2.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                </a>
+                  icon={Link2}
+                  label={`Abrir el LinkedIn de ${c.name}`}
+                />
               )}
             </div>
           );
@@ -868,7 +429,8 @@ export function ProspectsDataTableClient({
         size: 220,
         minSize: 180,
         enableHiding: false,
-        meta: { label: 'Empresa', popoverTitle: 'Empresa' },
+        // Texto libre: se ordena y se busca, no se filtra por valores.
+        meta: { label: 'Empresa', popoverTitle: 'Empresa', disableFilter: true },
       },
       {
         id: 'country_code',
@@ -876,13 +438,9 @@ export function ProspectsDataTableClient({
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="País" />
         ),
-        cell: ({ row }) => (
-          <span className="truncate text-sm text-muted-foreground">
-            {row.original.country_code ? (COUNTRY_LABELS[row.original.country_code] ?? row.original.country_code) : '—'}
-          </span>
-        ),
-        size: 110,
-        minSize: 80,
+        cell: ({ row }) => <CountryCell code={row.original.country_code} />,
+        size: 130,
+        minSize: 110,
         filterFn: 'arrIncludesSome',
         meta: {
           label: 'País',
@@ -900,18 +458,16 @@ export function ProspectsDataTableClient({
           <DataTableColumnHeader column={column} title="Sector" />
         ),
         cell: ({ row }) => {
-          const sectorDescription =
-            row.original.industry ??
-            ((row.original.metadata?.enrichment as Record<string, unknown> | undefined)
-              ?.sector_description as string | undefined) ??
-            null;
-          return (
-            <span className="truncate text-xs text-muted-foreground">
-              {sectorDescription ?? 'Sin sector'}
+          const sectorDescription = getSectorDescription(row.original);
+          return sectorDescription ? (
+            <span className="block truncate text-xs text-muted-foreground" title={sectorDescription}>
+              {sectorDescription}
             </span>
+          ) : (
+            <EmptyCell label="Sin sector" />
           );
         },
-        size: 150,
+        size: 140,
         minSize: 120,
         filterFn: 'arrIncludesSome',
         meta: {
@@ -934,9 +490,13 @@ export function ProspectsDataTableClient({
           const isNew = c.created_at ? isProspectCreatedToday(c.created_at) : false;
           return (
             <div className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground whitespace-nowrap">
-                {c.created_at ? formatProspectDate(c.created_at) : '—'}
-              </span>
+              {c.created_at ? (
+                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                  {formatProspectDate(c.created_at)}
+                </span>
+              ) : (
+                <EmptyCell label="Sin fecha" />
+              )}
               {isNew && (
                 <Badge className="border-0 bg-success/10 text-success text-xs font-semibold px-1.5 py-0.5 shrink-0">
                   Nuevo
@@ -967,13 +527,15 @@ export function ProspectsDataTableClient({
           <DataTableColumnHeader column={column} title="Calidad" />
         ),
         cell: ({ row }) => <QualityCell candidate={row.original} />,
-        size: 160,
+        size: 150,
         minSize: 130,
         enableColumnFilter: false,
         meta: {
           label: 'Calidad',
           popoverTitle: 'Calidad',
           disableFilter: true,
+          // La celda resume varias señales: no hay un valor por el que ordenar.
+          disableSort: true,
         },
       },
       {
@@ -983,8 +545,8 @@ export function ProspectsDataTableClient({
           <DataTableColumnHeader column={column} title="Duplicidad" />
         ),
         cell: ({ row }) => <DuplicateCheckCell candidate={row.original} />,
-        size: 150,
-        minSize: 120,
+        size: 160,
+        minSize: 130,
         filterFn: 'arrIncludesSome',
         meta: {
           label: 'Duplicidad',
@@ -999,8 +561,8 @@ export function ProspectsDataTableClient({
           <DataTableColumnHeader column={column} title="Estado" />
         ),
         cell: ({ row }) => <StatusCell candidate={row.original} />,
-        size: 160,
-        minSize: 130,
+        size: 180,
+        minSize: 150,
         filterFn: 'arrIncludesSome',
         meta: {
           label: 'Estado',
@@ -1015,7 +577,7 @@ export function ProspectsDataTableClient({
             { value: 'duplicate', label: 'Duplicado' },
             { value: 'converted_to_account', label: 'Convertido' },
             { value: 'enrichment_pending', label: 'Enriquecimiento pendiente' },
-            { value: 'enriching', label: 'Enriqueciendo...' },
+            { value: 'enriching', label: 'Enriqueciendo…' },
             { value: 'enrichment_failed', label: 'Enriquecimiento fallido' },
           ],
         },
@@ -1229,103 +791,214 @@ export function ProspectsDataTableClient({
 
   const isSourceFiltered = !!sourceId;
 
-  return (
-    <>
-      {/* Banner de operación reciente (sourceId activo) */}
-      {isSourceFiltered && (
-        <div
-          className="flex shrink-0 flex-col gap-3 rounded-2xl border border-primary/20 bg-primary/10 px-4 py-3"
-          aria-live="polite"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-            <div className="flex min-w-0 items-center gap-2.5">
-              {batchStats && (batchStats.pending > 0 || batchStats.enriching > 0) ? (
-                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" aria-hidden="true" />
-              ) : (
-                <Sparkles className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-              )}
-              <p className="min-w-0 text-sm font-medium text-primary">
-                {batchStats ? (
-                  (batchStats.pending > 0 || batchStats.enriching > 0) ? (
-                    `Importación completada. Estamos completando la información de ${batchStats.pending + batchStats.enriching} prospecto${batchStats.pending + batchStats.enriching !== 1 ? 's' : ''}...`
-                  ) : (
-                    `Importación completada. Se enriquecieron ${batchStats.completed} prospecto${batchStats.completed !== 1 ? 's' : ''} y ${batchStats.failed + batchStats.possibleDuplicates} requiere${batchStats.failed + batchStats.possibleDuplicates !== 1 ? 'n' : ''} revisión.`
-                  )
-                ) : (
-                  getSourceBanner(sourceBatchType)
-                )}
-              </p>
-            </div>
-            <Button
-              type="button"
-              variant="link"
-              size="xs"
-              onClick={() => router.push(PROSPECTOS_TAB_ROUTE)}
-              className="shrink-0"
-            >
-              <X aria-hidden="true" />
-              Ver todos los prospectos
-            </Button>
-          </div>
-          {batchStats && (batchStats.pending > 0 || batchStats.enriching > 0) && (
-            <div className="space-y-1.5">
-              <Progress
-                value={batchStats.total > 0 ? ((batchStats.completed + batchStats.failed) / batchStats.total) * 100 : 0}
-                className="h-1.5"
-              />
-              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                <span className="tabular-nums">
-                  {batchStats.completed + batchStats.failed} de {batchStats.total} procesados
-                </span>
-                <span className="tabular-nums font-medium text-primary">
-                  {batchStats.total > 0 ? Math.round(((batchStats.completed + batchStats.failed) / batchStats.total) * 100) : 0}%
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+  // En pantalla ancha los indicadores van dentro de la barra de la tabla (no
+  // gastan un renglón); en estrecha, en su franja encima.
+  const isWide = useWideViewport();
+  const showQuickFilters = !isSourceFiltered && rows.length > 0;
+  const quickFilterGroup = {
+    label: 'Indicadores de prospectos',
+    options: quick.options,
+    value: quick.activeId,
+    onToggle: toggleQuickFilter,
+  };
 
-      <DataTable
-        onSelectionCountChange={reportSelectionCount}
-        ref={dataTableRef}
-        columns={columns}
-        data={rows}
-        getRowId={(row) => row.id}
-        title="Listado de prospectos"
-        description="Genera, importa y revisa empresas candidatas antes de convertirlas en cuentas listas para trabajar."
-        count={rows.length}
-        enableRowSelection
-        contextMenu={contextMenu}
-        bulkActions={bulkActions}
-        enableColumnReorder
-        initialPageSize={20}
-        fillHeight
-        onRowClick={(row) => openCandidateDetail(row)}
-        rowClickable
-        settingsExtraSections={
-          scopeFilterOptions && !sourceId ? (
-            <ScopeFiltersInDrawer
-              scopeFilterOptions={scopeFilterOptions}
-              currentUserId={currentUserId}
-              currentGroupId={currentGroupId}
-              currentRoleKey={currentRoleKey}
-            />
-          ) : undefined
-        }
-        emptyState={
-          <EmptyState
-            variant="plain"
-            icon={Building2}
-            title="Sin prospectos"
-            description={
-              isSourceFiltered
-                ? 'No se encontraron prospectos en esta operación.'
-                : 'Ajusta los filtros o importa prospectos para ver resultados.'
-            }
-          />
+  // ── Vista de lista ────────────────────────────────────────────
+  const renderListItem = React.useCallback(
+    (row: Row, state: DataTableListRowState) => {
+      const domain = row.website ? extractDomainFromUrl(row.website) : null;
+      const evaluation = getFitEvaluation(row);
+      return (
+        <ListItem
+          selected={state.selected}
+          leading={state.checkbox}
+          title={
+            <RowTitleButton onClick={() => openCandidateDetail(row)} title={row.name}>
+              {row.name}
+            </RowTitleButton>
+          }
+          description={
+            [
+              [row.city, countryName(row.country_code)].filter(Boolean).join(', '),
+              getSectorDescription(row),
+              domain,
+              evaluation.score !== null ? evaluation.text : null,
+            ]
+              .filter(Boolean)
+              .join(' · ') || 'Sin país, sector ni sitio web'
+          }
+          meta={<ProspectStatusBadge candidate={row} />}
+          actions={
+            // Con «menú en cada fila» la tabla trae el suyo; si no, el de siempre.
+            state.menu ?? (
+              <CandidateRowActions
+                candidate={row}
+                onApproveOverride={() => openCandidateDetail(row, { approveIntent: true })}
+                onDiscardOverride={() => openCandidateDetail(row, { discardIntent: true })}
+                onMarkDuplicateOverride={() => openCandidateDetail(row, { duplicateIntent: true })}
+              />
+            )
+          }
+        />
+      );
+    },
+    [openCandidateDetail],
+  );
+
+  // ── Vacíos: cada uno dice por qué no hay filas y qué hacer ────
+  // Sin `emptyState`, la tabla pone su propio aviso de «nada coincide con
+  // estos filtros» junto a los chips, que ya traen «Limpiar todo».
+  let emptyState: React.ReactNode;
+  if (rows.length === 0 && isSourceFiltered) {
+    emptyState = (
+      <EmptyState
+        variant="plain"
+        icon={Building2}
+        title="Esta operación no dejó prospectos nuevos"
+        description="Puede que todos se omitieran por estar duplicados, por calidad o por falta de datos."
+        action={
+          <Button type="button" variant="outline" size="sm" onClick={() => router.push(PROSPECTOS_TAB_ROUTE)}>
+            Ver todos los prospectos
+          </Button>
         }
       />
+    );
+  } else if (rows.length === 0 && hasUrlFilters) {
+    emptyState = (
+      <EmptyState
+        variant="plain"
+        icon={Building2}
+        title="Ningún prospecto con estos filtros"
+        description="El enlace por el que llegaste trae filtros que dejan la lista vacía."
+        action={
+          <Button type="button" variant="outline" size="sm" onClick={() => router.push(PROSPECTOS_TAB_ROUTE)}>
+            Limpiar filtros
+          </Button>
+        }
+      />
+    );
+  } else if (rows.length === 0) {
+    emptyState = (
+      <EmptyState
+        variant="plain"
+        icon={Building2}
+        title="No hay prospectos por revisar"
+        description="Genera prospectos con IA, importa un archivo o crea uno a mano. Aparecerán aquí para que decidas."
+        action={emptyActions}
+      />
+    );
+  } else if (quick.rows.length === 0 && quick.activeLabel) {
+    emptyState = (
+      <QuickFilterEmptyState
+        icon={Building2}
+        filterLabel={quick.activeLabel}
+        noun="prospectos"
+        onClear={quick.clear}
+      />
+    );
+  }
+
+  return (
+    <>
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
+        {/* Banner de operación reciente (sourceId activo) */}
+        {isSourceFiltered && (
+          <div
+            className="flex shrink-0 flex-col gap-3 rounded-2xl border border-primary/20 bg-primary/10 px-4 py-3"
+            aria-live="polite"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+              <div className="flex min-w-0 items-center gap-2.5">
+                {batchStats && (batchStats.pending > 0 || batchStats.enriching > 0) ? (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" aria-hidden="true" />
+                ) : (
+                  <Sparkles className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                )}
+                <p className="min-w-0 text-sm font-medium text-primary">
+                  {batchStats ? (
+                    (batchStats.pending > 0 || batchStats.enriching > 0) ? (
+                      `Importación completada. Estamos completando la información de ${batchStats.pending + batchStats.enriching} prospecto${batchStats.pending + batchStats.enriching !== 1 ? 's' : ''}…`
+                    ) : (
+                      `Importación completada. Se enriquecieron ${batchStats.completed} prospecto${batchStats.completed !== 1 ? 's' : ''} y ${batchStats.failed + batchStats.possibleDuplicates} requiere${batchStats.failed + batchStats.possibleDuplicates !== 1 ? 'n' : ''} revisión.`
+                    )
+                  ) : (
+                    getSourceBanner(sourceBatchType)
+                  )}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="link"
+                size="xs"
+                onClick={() => router.push(PROSPECTOS_TAB_ROUTE)}
+                className="shrink-0"
+              >
+                <X aria-hidden="true" />
+                Ver todos los prospectos
+              </Button>
+            </div>
+            {batchStats && (batchStats.pending > 0 || batchStats.enriching > 0) && (
+              <div className="space-y-1.5">
+                <Progress
+                  value={batchStats.total > 0 ? ((batchStats.completed + batchStats.failed) / batchStats.total) * 100 : 0}
+                  className="h-1.5"
+                />
+                <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <span className="tabular-nums">
+                    {batchStats.completed + batchStats.failed} de {batchStats.total} procesados
+                  </span>
+                  <span className="tabular-nums font-medium text-primary">
+                    {batchStats.total > 0 ? Math.round(((batchStats.completed + batchStats.failed) / batchStats.total) * 100) : 0}%
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {showQuickFilters && !isWide && (
+          <QuickFilterStrip
+            {...quickFilterGroup}
+            icon={Building2}
+            total={quick.total}
+            noun={['prospecto por revisar', 'prospectos por revisar']}
+            className="shrink-0"
+          />
+        )}
+
+        <DataTable
+          tableId="prospects"
+          noun="prospectos"
+          getRowLabel={(row) => row.name}
+          onSelectionCountChange={reportSelectionCount}
+          ref={dataTableRef}
+          columns={columns}
+          data={quick.rows}
+          getRowId={(row) => row.id}
+          title={quick.activeLabel ? `Por revisar · ${quick.activeLabel}` : 'Prospectos por revisar'}
+          count={quick.rows.length}
+          actions={showQuickFilters && isWide ? <QuickFilterChips {...quickFilterGroup} /> : undefined}
+          enableRowSelection
+          contextMenu={contextMenu}
+          bulkActions={bulkActions}
+          enableColumnReorder
+          initialPageSize={20}
+          fillHeight
+          onRowClick={(row) => openCandidateDetail(row)}
+          rowClickable
+          renderListItem={renderListItem}
+          settingsExtraSections={
+            scopeFilterOptions && !sourceId ? (
+              <ScopeFiltersInDrawer
+                scopeFilterOptions={scopeFilterOptions}
+                currentUserId={currentUserId}
+                currentGroupId={currentGroupId}
+                currentRoleKey={currentRoleKey}
+              />
+            ) : undefined
+          }
+          emptyState={emptyState}
+        />
+      </div>
 
       <CandidateDetailSheet
         key={detailCandidate?.id ?? 'empty'}

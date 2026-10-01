@@ -105,6 +105,7 @@ import {
   PencilEdit01Icon,
   PencilEdit02Icon,
   PinIcon,
+  PinOffIcon,
   Plug01Icon,
   PlugSocketIcon,
   PlusSignIcon,
@@ -302,6 +303,7 @@ export const Pencil = createIcon(PencilEdit01Icon, "Pencil");
 export const Phone = createIcon(Call02Icon, "Phone");
 export const PhoneCall = createIcon(CallRinging04Icon, "PhoneCall");
 export const Pin = createIcon(PinIcon, "Pin");
+export const PinOff = createIcon(PinOffIcon, "PinOff");
 export const Plug = createIcon(Plug01Icon, "Plug");
 export const PlugZap = createIcon(PlugSocketIcon, "PlugZap");
 export const Plus = createIcon(PlusSignIcon, "Plus");

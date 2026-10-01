@@ -139,4 +139,24 @@ describe('FilterChips', () => {
 
     assert.ok(within(screen.getByRole('radio', { name: /Aprobados/ })).getByText('0'));
   });
+
+  it('por defecto la fila se desplaza en horizontal', () => {
+    renderChips();
+
+    const group = screen.getByRole('radiogroup');
+    assert.ok(group.className.includes('overflow-x-auto'));
+    assert.ok(!group.className.includes('flex-wrap'));
+  });
+
+  it('con `wrap` los chips pasan a la línea siguiente en vez de desplazarse', () => {
+    render(
+      h(FilterChips, { options: OPTIONS, value: 'all', onChange: () => {}, ariaLabel: 'Filtrar por estado', wrap: true }),
+    );
+
+    const group = screen.getByRole('radiogroup');
+    assert.ok(group.className.includes('flex-wrap'));
+    assert.ok(!group.className.includes('overflow-x-auto'));
+    // Un chip ya no se estira para llenar la fila: mide lo que mide su texto.
+    assert.ok(screen.getAllByRole('radio').every((radio) => radio.className.includes('flex-none')));
+  });
 });
