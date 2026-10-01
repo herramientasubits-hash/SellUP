@@ -146,6 +146,28 @@ export const URUGUAY_LEGAL_FORMS: readonly string[] = [
   'SA',
 ];
 
+/**
+ * Formas societarias de Estados Unidos (SEC EDGAR, IRS), más largas primero.
+ * SOURCES-US-EIN-BY-NAME-1. «FOUNDATION», «UNIVERSITY» o «COMPANY» NO se quitan:
+ * son parte del nombre, no la forma.
+ */
+export const US_LEGAL_FORMS: readonly string[] = [
+  'INCORPORATED',
+  'CORPORATION',
+  'LIMITED',
+  'L L C',
+  'L L P',
+  'L P',
+  'CORP',
+  'LLC',
+  'LLP',
+  'LTD',
+  'INC',
+  'PLC',
+  'LP',
+  'CO',
+];
+
 /** Núcleo comparable del nombre con las formas dadas, o cadena vacía. */
 export function normalizeCompanyNameCore(
   name: string | null | undefined,

@@ -935,9 +935,27 @@ describe('CUT-L7 §§ 5, 23, 29, 40, 43 — alcance, fidelidad y cableado', () =
         `la 140 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
       );
     }
-    // Ninguna 141 o superior, se llame como se llame.
+    // 🔴 SOURCES-US-EIN-BY-NAME-1 reclamó después la 141: sólo amplía el CHECK de
+    // `tax_identifier_type` en `accounts` y `prospect_candidates` con 'EIN' y 'NIF'. Misma
+    // exigencia por AUTORÍA que con la 137/138/139/140: se EXIGE que la 141 sea exactamente esa
+    // migración y que su cuerpo no mencione CUT-L7 ni la identidad compartida que este corte
+    // toca. AUTORADA y NO APLICADA.
+    assert.deepEqual(
+      migrations.filter((f) => /^141_/.test(f)),
+      ['141_tax_identifier_type_ein_nif.sql'],
+      'la 141 tiene que ser la ampliación de tipos fiscales con EIN y NIF, y sólo ella',
+    );
+    const taxIdentifierEinNif = read('supabase/migrations/141_tax_identifier_type_ein_nif.sql');
+    for (const foreign of ['CUT-L7', 'shared_fiscal_identity', 'provider_seen_entities']) {
+      assert.equal(
+        taxIdentifierEinNif.includes(foreign),
+        false,
+        `la 141 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
+      );
+    }
+    // Ninguna 142 o superior, se llame como se llame.
     assert.equal(
-      migrations.filter((f) => /^14[1-9]_/.test(f) || /^1[5-9]\d_/.test(f)).length,
+      migrations.filter((f) => /^14[2-9]_/.test(f) || /^1[5-9]\d_/.test(f)).length,
       0,
     );
   });

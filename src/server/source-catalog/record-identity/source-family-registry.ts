@@ -41,6 +41,9 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   py_set_registry: 'TAX_GRAIN',
   // SOURCES-UY-RUT-BY-NAME-1 — un RUT, una fila (empresas activas del RUPE de Uruguay).
   uy_rupe_registry: 'TAX_GRAIN',
+  // SOURCES-US-EIN-BY-NAME-1 — un EIN, una fila (empresas activas de la SEC; ONG del IRS).
+  us_sec_edgar_registry: 'TAX_GRAIN',
+  us_irs_eo_registry: 'TAX_GRAIN',
   pa_panamacompra_convenio: 'NATIVE_RECORD_GRAIN',
   co_fedesoft: 'NATIVE_RECORD_GRAIN',
   ec_scvs: 'NATIVE_RECORD_GRAIN',

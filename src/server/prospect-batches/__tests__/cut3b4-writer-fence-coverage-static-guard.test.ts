@@ -438,7 +438,13 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // parcial propios, con su propio disparador de liberación—, y referencia
     // `prospect_candidates`/`prospect_batches` legítimamente por SU PROPIO motivo. AUTORADA y NO
     // APLICADA.
-    const CEILING = '140_agent1_global_company_identity_claims.sql';
+    const GLOBAL_IDENTITY_CLAIMS_140 = '140_agent1_global_company_identity_claims.sql';
+    // 🔴 SOURCES-US-EIN-BY-NAME-1 reclamó después la 141: sólo amplía el CHECK de
+    // `tax_identifier_type` en `accounts` y `prospect_candidates` con 'EIN' y 'NIF'. No menciona
+    // `AGENT1-CUT3B4`, no reutiliza `identity_epoch` ni escribe candidatos, y el barrido
+    // explícito de abajo se ENSANCHA para incluir la 140, el techo anterior. AUTORADA y NO
+    // APLICADA.
+    const CEILING = '141_tax_identifier_type_ein_nif.sql';
     assert.equal(migrations[migrations.length - 1], CEILING);
     for (const foreign of [
       '127_br_receita_monthly_snapshot_identity.sql',
@@ -453,6 +459,7 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
       WIZARD_BUDGET_ADMIN_137,
       DISCARDED_138,
       ROUND_CONTINUATION_139,
+      GLOBAL_IDENTITY_CLAIMS_140,
       CEILING,
     ]) {
       assert.equal(
@@ -467,8 +474,9 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // AGENT1-WIZARD-BUDGET-ADMIN-F1B la 137 y AGENT1-DISCARDED-PROSPECTS-REVIEW-1 la 138, así
     // que el conteo vuelve a subir con las tres: sin huecos, conteo y techo siguen coincidiendo.
     // AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET añade la 139 y AGENT1-GLOBAL-COMPANY-IDENTITY-
-    // CLAIMS-1 la 140, y el conteo sube otra vez con las dos.
-    assert.equal(migrations.length, 140);
+    // CLAIMS-1 la 140, y el conteo sube otra vez con las dos. SOURCES-US-EIN-BY-NAME-1 añade la
+    // 141 y el conteo sube con ella.
+    assert.equal(migrations.length, 141);
   });
 
   it('🔴 la 124 (Agente 2A) queda intacta, y la 126 no depende de ella', () => {

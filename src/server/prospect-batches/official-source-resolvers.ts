@@ -11,8 +11,8 @@
  * (rd_dgii_bulk) name→RNC, Argentina (ar_rns_registry) name→CUIT, Ecuador
  * (ec_scvs snapshot) name→RUC, Guatemala (gt_rgae_proveedores) name→NIT and
  * Honduras (hn_contrataciones_abiertas) name→RTN and Perú (pe_sunat_registry)
- * name→RUC, Paraguay (py_set_registry) name→RUC and Uruguay
- * (uy_rupe_registry) name→RUT. No promise of MX/… enrichment
+ * name→RUC, Paraguay (py_set_registry) name→RUC, Uruguay
+ * (uy_rupe_registry) name→RUT and Estados Unidos (SEC, then IRS) name→EIN. No promise of MX/… enrichment
  * is made here;
  * unsupported countries fall through to the shared "unsupported" result (soft
  * warning) automatically.
@@ -57,6 +57,7 @@ import {
 import { normalizePeruCompanyCore } from '@/server/source-catalog/connectors/sunat-peru/pe-sunat-registry-row';
 import { normalizeParaguayCompanyCore } from '@/server/source-catalog/connectors/set-paraguay/py-set-registry-row';
 import { normalizeUruguayCompanyCore } from '@/server/source-catalog/connectors/rupe-uruguay/uy-rupe-registry-row';
+import { normalizeUsCompanyCore } from '@/server/source-catalog/connectors/us-ein/us-ein-registry-rows';
 import { createFallbackOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/fallback-official-source-resolver';
 import {
   buildRuesNameLiveQuery,
@@ -153,5 +154,26 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
       normalizeCore: normalizeUruguayCompanyCore,
       querySnapshots: buildSnapshotNameQuery(snapshotClient, 'uy_rupe_registry', 'UY'),
     }),
+    // SOURCES-US-EIN-BY-NAME-1 — empresas activas de la SEC primero; si no dan EIN
+    // fuerte, organizaciones sin ánimo de lucro grandes del IRS. Requiere la
+    // migración 141 (tipo 'EIN') antes de cargar estas fuentes.
+    createFallbackOfficialSourceResolver(
+      createSnapshotNameOfficialSourceResolver({
+        countryCode: 'US',
+        sourceKey: 'us_sec_edgar_registry',
+        taxIdentifierType: 'EIN',
+        validTaxId: /^\d{2}-\d{7}$/,
+        normalizeCore: normalizeUsCompanyCore,
+        querySnapshots: buildSnapshotNameQuery(snapshotClient, 'us_sec_edgar_registry', 'US'),
+      }),
+      createSnapshotNameOfficialSourceResolver({
+        countryCode: 'US',
+        sourceKey: 'us_irs_eo_registry',
+        taxIdentifierType: 'EIN',
+        validTaxId: /^\d{2}-\d{7}$/,
+        normalizeCore: normalizeUsCompanyCore,
+        querySnapshots: buildSnapshotNameQuery(snapshotClient, 'us_irs_eo_registry', 'US'),
+      }),
+    ),
   ];
 }

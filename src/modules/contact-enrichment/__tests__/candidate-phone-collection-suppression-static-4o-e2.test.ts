@@ -253,6 +253,11 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // identidad de empresa. No es de teléfono, no es del catálogo y no nombra ninguna tabla,
       // columna ni función de las cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
       '140_agent1_global_company_identity_claims.sql',
+      // 🔴 SOURCES-US-EIN-BY-NAME-1 reclamó después la 141: sólo amplía el CHECK de
+      // `tax_identifier_type` en `accounts` y `prospect_candidates` con 'EIN' y 'NIF'. No es de
+      // teléfono, no es del catálogo y no toca ninguna columna ni función de teléfono de las
+      // cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
+      '141_tax_identifier_type_ein_nif.sql',
     ]);
   });
 

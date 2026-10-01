@@ -1022,7 +1022,11 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
     // de `prospect_candidate_audit.action_type`; ninguna de las dos es tabla ni vista del
     // catálogo de industrias, y el barrido de abajo lo comprueba sobre su SQL en vez de
     // creerle a este comentario. AUTORADA y NO APLICADA.
-    assert.match(last, /^140_/);
+    // SOURCES-US-EIN-BY-NAME-1 mueve el techo a la 141: sólo amplía el CHECK de
+    // `tax_identifier_type` en `accounts` y `prospect_candidates` con 'EIN' y 'NIF'. No es tabla
+    // ni vista del catálogo de industrias, y el barrido de abajo lo comprueba sobre su SQL.
+    // AUTORADA y NO APLICADA.
+    assert.match(last, /^141_/);
     // Y por encima de la 119 no hay NINGUNA migración de catálogo. Lo que se vigila
     // NO es el techo por sí mismo: es que ninguna migración posterior al cutover toque
     // las tablas del catálogo. Cada archivo nuevo entra a esta lista con su nombre y
@@ -1145,6 +1149,10 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
       // identidad de empresa; ninguna es tabla ni vista del catálogo de industrias. AUTORADA y
       // NO APLICADA.
       '140_agent1_global_company_identity_claims.sql',
+      // 🔴 SOURCES-US-EIN-BY-NAME-1 reclamó después la 141: sólo amplía el CHECK de
+      // `tax_identifier_type` en `accounts` y `prospect_candidates` con 'EIN' y 'NIF'; no es
+      // tabla ni vista del catálogo de industrias. AUTORADA y NO APLICADA.
+      '141_tax_identifier_type_ein_nif.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);

@@ -309,8 +309,11 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 a la 140 (reclamo global de identidad de
       // empresa). Ninguna es tabla ni función de la cadena de teléfono 109–117. AUTORADAS y
       // NO APLICADAS.
-      '140_agent1_global_company_identity_claims.sql',
-      'el techo conocido es la 140: la 133 (la promoción vallada de identidad fiscal de BR-SOURCE CUT D), la 134 (el almacenamiento compacto de BR), la 135 (AGENT1-LUSHA-CUT-L3, renumerada desde la 134 al integrarse en serie), la 136 (el historial de intentos seguros de Lusha), la 137 (la auditoría administrativa del presupuesto del Wizard), la 138 (la disposición durable de descartes de Prospectos), la 139 (la cola durable de continuaciones de ronda de Apollo) y la 140 (el reclamo global de identidad de empresa) — ninguna edita el archivo de una migración anterior de la cadena de teléfono 109–117',
+      // SOURCES-US-EIN-BY-NAME-1 mueve el techo a la 141: sólo amplía el CHECK de
+      // `tax_identifier_type` en `accounts` y `prospect_candidates` con 'EIN' y 'NIF'. No es
+      // tabla ni función de la cadena de teléfono 109–117. AUTORADA y NO APLICADA.
+      '141_tax_identifier_type_ein_nif.sql',
+      'el techo conocido es la 141: la 133 (la promoción vallada de identidad fiscal de BR-SOURCE CUT D), la 134 (el almacenamiento compacto de BR), la 135 (AGENT1-LUSHA-CUT-L3, renumerada desde la 134 al integrarse en serie), la 136 (el historial de intentos seguros de Lusha), la 137 (la auditoría administrativa del presupuesto del Wizard), la 138 (la disposición durable de descartes de Prospectos), la 139 (la cola durable de continuaciones de ronda de Apollo), la 140 (el reclamo global de identidad de empresa) y la 141 (la ampliación de tipos fiscales con EIN y NIF) — ninguna edita el archivo de una migración anterior de la cadena de teléfono 109–117',
     );
     assert.equal(
       // La ventana sube con el techo DECLARADO arriba: la 125 (reconciliación genérica), la 126
@@ -343,15 +346,18 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // de ronda) y AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 declara la 140 (reclamo global de
       // identidad de empresa). Ambas quedan AUTORIZADAS y NOMBRADAS como las anteriores, así que
       // la ventana prohibida sube a la 141 y superiores.
+      // SOURCES-US-EIN-BY-NAME-1 declara la 141 (sólo amplía el CHECK de `tax_identifier_type`
+      // con 'EIN' y 'NIF'). Queda AUTORIZADA y NOMBRADA como las anteriores, así que la ventana
+      // prohibida sube a la 142 y superiores.
       // La guarda no se relaja: sigue impidiendo que alguien cuele una POR ENCIMA del último
       // hito conocido sin declararla.
-      files.some((file) => /^14[1-9]/.test(file) || /^1[5-9]\d/.test(file)),
+      files.some((file) => /^14[2-9]/.test(file) || /^1[5-9]\d/.test(file)),
       false,
       // La 120, la 121 y la 122 son AUTORIZADAS y están declaradas arriba con lo que hacen. Lo que
       // esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último hito
       // conocido sin declararla; la afirmación de que ninguna de ellas escribe sobre las
       // tablas de la cadena de teléfono se comprueba justo abajo, de forma directa.
-      'ninguna migración 141 o superior',
+      'ninguna migración 142 o superior',
     );
     // La afirmación que de verdad importa, ya no delegada en el orden alfabético:
     // ninguna migración posterior a la ÚLTIMA de la cadena de teléfono escribe sobre sus

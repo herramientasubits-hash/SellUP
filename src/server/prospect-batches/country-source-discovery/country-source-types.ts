@@ -25,7 +25,7 @@ export type CountrySourceCompany = {
   legalName: string | null;
   normalizedLegalName: string | null;
   taxId: string | null;
-  taxIdentifierType: 'NIT' | 'RFC' | 'RUT' | 'RUC' | 'CUIT' | 'CNPJ' | 'RNC' | 'RTN' | 'cedula_juridica' | 'other' | null;
+  taxIdentifierType: 'NIT' | 'RFC' | 'RUT' | 'RUC' | 'CUIT' | 'CNPJ' | 'RNC' | 'RTN' | 'cedula_juridica' | 'EIN' | 'NIF' | 'other' | null;
   countryCode: string;
   city: string | null;
   region: string | null;

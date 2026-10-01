@@ -535,8 +535,11 @@ describe('4O-E4.1 estático — alcance', () => {
       // AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1 a la 140 (reclamo global de identidad de
       // empresa). Ninguna ASIGNA `mobile_phone` ni introduce procedencia del escalar móvil.
       // AUTORADAS y NO APLICADAS.
-      140,
-      'la 140 (el reclamo global de identidad de empresa, AGENT1-GLOBAL-COMPANY-IDENTITY-CLAIMS-1) es la última',
+      // SOURCES-US-EIN-BY-NAME-1 mueve el techo a la 141: sólo amplía el CHECK de
+      // `tax_identifier_type` en `accounts` y `prospect_candidates` con 'EIN' y 'NIF'. No ASIGNA
+      // `mobile_phone` ni introduce procedencia del escalar móvil. AUTORADA y NO APLICADA.
+      141,
+      'la 141 (la ampliación de tipos fiscales con EIN y NIF, SOURCES-US-EIN-BY-NAME-1) es la última',
     );
   });
 
