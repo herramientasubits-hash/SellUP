@@ -1,3 +1,4 @@
+import type { TavilyFirstOutcome } from './wizard-tavily-first';
 import type { GenerateAIBatchInput } from '@/modules/prospect-batches/actions';
 import type { WizardApolloSkipReason } from './wizard-apollo-availability';
 import type { NoNewCandidatesBreakdown } from './wizard-no-new-candidates-copy';
@@ -303,6 +304,11 @@ export type WizardExecutionActionResult =
        * dos familias de cifras conviven porque son distintas (§ 10).
        */
       acceptedForTarget?: AcceptedForTargetResult;
+      /**
+       * AGENT1-TAVILY-FIRST-1 — qué pasó con el tramo de Tavily que corre antes
+       * de Apollo. Ausente con la bandera apagada (estado por defecto).
+       */
+      tavilyFirst?: TavilyFirstOutcome;
       /**
        * AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 4 — qué pasó con la pierna Lusha.
        *

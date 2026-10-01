@@ -67,6 +67,14 @@ import { isWizardApolloDiscoveryRolePermitted } from './wizard-run-provider-capa
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isTavilyConfiguredForWizard } from './wizard-availability';
 import {
+  TAVILY_FIRST_MAX_ROUNDS,
+  combineWriterTruths,
+  isTavilyFirstSatisfied,
+  resolveTavilyFirstPrecheck,
+  type TavilyFirstOutcome,
+  type WriterTruthLike,
+} from './wizard-tavily-first';
+import {
   TAVILY_MONTHLY_CREDIT_CAP_ENV,
   evaluateTavilyMonthlyCredits,
   readTavilyCreditsUsedThisMonth,
@@ -110,6 +118,7 @@ import {
 import {
   isWizardRunProviderOverrideEffective,
   isWizardRunTavilyTrialEffective,
+  isAgent1TavilyFirstEffective,
   isWizardRunProviderOverrideEnabled,
 } from '@/lib/feature-flags.server';
 // Q3F-5BB.11E — OBSERVATIONAL Apollo provider-routing wiring. The adapter is pure
@@ -280,6 +289,16 @@ export type WizardExecutionDeps = {
    * con el plan gratis, Tavily rechaza sin cobrar cuando se agotan).
    */
   checkTavilyMonthlyCredits?: (runMaxCredits: number) => Promise<TavilyMonthlyCreditsVerdict | null>;
+  /**
+   * AGENT1-TAVILY-FIRST-1 — ¿corre Tavily antes de Apollo? Sin dep ⇒ no (el
+   * comportamiento de siempre). En Producción: bandera + modo automático.
+   */
+  resolveTavilyFirst?: () => boolean;
+  /**
+   * AGENT1-TAVILY-FIRST-1 — filas del lote que el vendedor puede revisar (ni
+   * duplicadas ni descartadas). `null` = no se pudo contar.
+   */
+  countReviewableCandidates?: (batchId: string) => Promise<number | null>;
   /**
    * A1-APOLLO-WIZARD-1: preflight de Apollo. Se ejecuta ANTES de cualquier
    * reserva. Opcional para no romper a los tests que sólo ejercitan Tavily; si
@@ -554,6 +573,16 @@ export async function executeProspectWizardGenerationAction(
     },
     resolveCatalog: (input) => resolveWizardCatalog(input, supabase),
     checkTavilyAvailability: isTavilyConfiguredForWizard,
+    // AGENT1-TAVILY-FIRST-1 — bandera propia, sólo dentro del modo automático.
+    resolveTavilyFirst: isAgent1TavilyFirstEffective,
+    countReviewableCandidates: async (batchId) => {
+      const { count, error } = await budgetClient
+        .from('prospect_candidates')
+        .select('id', { count: 'exact', head: true })
+        .eq('batch_id', batchId)
+        .not('status', 'in', '(duplicate,discarded)');
+      return error || count === null ? null : count;
+    },
     // AGENT1-TAVILY-FREE-CREDITS-1 — sólo lectura, con el cliente de servicio
     // (la RLS de `provider_usage_logs` no debe recortar el total del mes).
     checkTavilyMonthlyCredits: async (runMaxCredits) => {
@@ -2044,9 +2073,106 @@ export async function executeProspectWizardGeneration(
     displayName: catalogResolution.industry.name,
   });
   runCorrelation = withResolvedIds(runCorrelation, { batchId: reservedBatchId });
+  // ── AGENT1-TAVILY-FIRST-1 — Tavily (gratis) antes de Apollo ─────────────────
+  //
+  // Corre en el MISMO lote, con sus propias puertas (créditos gratis del mes y
+  // la reserva del piloto, como cualquier corrida de Tavily: sin atajos de
+  // presupuesto). Si deja al menos el objetivo en empresas para revisar, Apollo
+  // y Lusha no se pagan. Cualquier tropiezo ⇒ Apollo como siempre.
+  let tavilyFirstOutcome: TavilyFirstOutcome | null = null;
+  let tavilyFirstResult: IncrementalSearchOutput | null = null;
+  if (discoveryProvider === 'apollo_organizations' && deps.resolveTavilyFirst?.() === true) {
+    const tavilyMaxCredits = estimateCreditsForProvider('tavily');
+    const monthly = deps.checkTavilyMonthlyCredits
+      ? await deps.checkTavilyMonthlyCredits(tavilyMaxCredits).catch(() => null)
+      : null;
+    const tavilyConfigured = await deps.checkTavilyAvailability().catch(() => false);
+    const skipReason = resolveTavilyFirstPrecheck({ tavilyConfigured, monthly });
+    const tavilyReservation = skipReason
+      ? null
+      : await deps
+          .reserveBudget({ userId, clientRequestId: req.clientRequestId, requestedCredits: tavilyMaxCredits })
+          .catch(() => null);
+    if (skipReason) {
+      tavilyFirstOutcome = { outcome: 'skipped', skipReason };
+    } else if (!tavilyReservation || tavilyReservation.status !== 'reserved') {
+      tavilyFirstOutcome = { outcome: 'skipped', skipReason: 'pilot_budget_blocked' };
+    } else {
+      try {
+        tavilyFirstResult = await deps.runTavilyPipeline({
+          resolved,
+          reservedBatchId,
+          extraBatchMetadata: runProviderSelectionMetadata,
+          resolveExtraBatchMetadata: resolveAcceptedForTargetBatchMetadata,
+          maxRounds: TAVILY_FIRST_MAX_ROUNDS,
+        });
+      } catch {
+        tavilyFirstOutcome = { outcome: 'failed' };
+      }
+      // Se liquida SIEMPRE lo que Tavily consumió, haya o no seguido Apollo.
+      const reservedTavily = tavilyReservation.creditsReserved;
+      const reconciled = deps.reconcileRunSpend
+        ? await deps
+            .reconcileRunSpend({
+              batchId: reservedBatchId,
+              correlation: withResolvedIds(runCorrelation, { batchId: reservedBatchId }),
+              discoveryProvider: 'tavily',
+              estimatedCredits: tavilyMaxCredits,
+              reservedCredits: reservedTavily,
+            })
+            .catch(() => null)
+        : null;
+      let tavilyToConfirm = reservedTavily;
+      if (reconciled) {
+        tavilyToConfirm = reconciled.creditsToConfirm;
+      } else {
+        const consumed = await deps.readConsumedCredits(reservedBatchId).catch(() => null);
+        tavilyToConfirm = consumed !== null && consumed > 0 ? consumed : reservedTavily;
+      }
+      await deps
+        .confirmBudget({
+          reservationId: tavilyReservation.reservationId,
+          actualCreditsConsumed: tavilyToConfirm,
+          batchId: reservedBatchId,
+          creditsReserved: reservedTavily,
+        })
+        .catch(() => undefined);
+
+      if (tavilyFirstResult) {
+        const reviewable = deps.countReviewableCandidates
+          ? await deps.countReviewableCandidates(reservedBatchId).catch(() => null)
+          : null;
+        const target = WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES;
+        tavilyFirstOutcome = isTavilyFirstSatisfied(reviewable, target)
+          ? { outcome: 'satisfied', reviewable: reviewable as number, target }
+          : { outcome: 'apollo_completed', reviewable, target };
+      }
+    }
+  }
+  const tavilyFirstSatisfied =
+    tavilyFirstOutcome?.outcome === 'satisfied' && tavilyFirstResult !== null;
+  /** Verdad del escritor del tramo de Tavily cuando Apollo completó después. */
+  const tavilyFirstTruth: WriterTruthLike | null =
+    tavilyFirstOutcome?.outcome === 'apollo_completed' && tavilyFirstResult
+      ? {
+          completeValidCandidates: tavilyFirstResult.persistenceOutcome?.completeValidCandidates ?? null,
+          persistedCandidates: tavilyFirstResult.candidatesCreated ?? 0,
+          ...(tavilyFirstResult.persistenceOutcome?.acceptedCandidateIds
+            ? {
+                acceptedIdentities: tavilyFirstResult.persistenceOutcome.acceptedCandidateIds.map(
+                  (candidateId) => `candidate:${candidateId}`,
+                ),
+              }
+            : {}),
+        }
+      : null;
+
   let pipelineResult: IncrementalSearchOutput;
   try {
-    if (discoveryProvider === 'apollo_organizations') {
+    if (tavilyFirstSatisfied && tavilyFirstResult) {
+      // Tavily ya dejó suficientes para revisar: Apollo no se paga.
+      pipelineResult = tavilyFirstResult;
+    } else if (discoveryProvider === 'apollo_organizations') {
       const apolloRunner = deps.runApolloPipeline;
       if (!apolloRunner) {
         throw new Error('apollo_pipeline_not_configured');
@@ -2230,7 +2356,8 @@ export async function executeProspectWizardGeneration(
   // duplicados son 4 aquí, y el total queda en 8. No se finge 10.
   const combinedDurableTotals = resolveBatchDurableTotals({
     preExisting: durableCandidatesFromCount(freeContribution?.persistedCandidates ?? 0),
-    insertedNow: pipelineResult.candidatesCreated ?? 0,
+    // AGENT1-TAVILY-FIRST-1 — lo que guardó Tavily antes de Apollo también es del lote.
+    insertedNow: (pipelineResult.candidatesCreated ?? 0) + (tavilyFirstTruth?.persistedCandidates ?? 0),
   });
 
   // 🔴 AGENT1-HARDENING-CUT-2 — aquí ya NO se decide si la corrida produjo algo.
@@ -2275,10 +2402,15 @@ export async function executeProspectWizardGeneration(
   // qué hueco queda ANTES de correr. El veredicto que se reporta se resuelve
   // abajo, con las piernas ya liquidadas; el nombre lo dice para que nadie
   // vuelva a usar esta cifra como final.
-  const acceptedAfterApollo = resolveRunAcceptance({
-    completeValidCandidates: pipelineResult.persistenceOutcome?.completeValidCandidates ?? null,
-    persistedCandidates: pipelineResult.candidatesCreated ?? 0,
-  });
+  const acceptedAfterApollo = resolveRunAcceptance(
+    combineWriterTruths(
+      {
+        completeValidCandidates: pipelineResult.persistenceOutcome?.completeValidCandidates ?? null,
+        persistedCandidates: pipelineResult.candidatesCreated ?? 0,
+      },
+      tavilyFirstTruth,
+    ),
+  );
 
   // 🔴 § 4/§ 12 — el objetivo PERSISTIBLE que se reporta es el del USUARIO, no el
   // hueco recortado con el que corrió el proveedor. Decir «6» sobre una petición
@@ -2314,6 +2446,8 @@ export async function executeProspectWizardGeneration(
   });
   const lushaWaterfall: LushaWaterfallLegOutcome = isTavilyTrialRun
     ? { executed: false, reason: 'admin_tavily_trial_run' }
+    : tavilyFirstSatisfied
+    ? { executed: false, reason: 'tavily_first_reviewable_met' }
     : deps.runLushaWaterfallLeg
     ? await deps.runLushaWaterfallLeg({
         wizardClientRequestId: req.clientRequestId,
@@ -2417,7 +2551,8 @@ export async function executeProspectWizardGeneration(
   });
 
   const acceptedForTarget = resolveRunAcceptance(
-    {
+    // AGENT1-TAVILY-FIRST-1 — con Tavily + Apollo, la verdad de pago es la suma medida.
+    combineWriterTruths({
       completeValidCandidates: pipelineResult.persistenceOutcome?.completeValidCandidates ?? null,
       persistedCandidates: pipelineResult.candidatesCreated ?? 0,
       // 🔴 X6.13 — los ids DURABLES de las filas que el writer aceptó, ya
@@ -2430,7 +2565,7 @@ export async function executeProspectWizardGeneration(
             ),
           }
         : {}),
-    },
+    }, tavilyFirstTruth),
     waterfallWriterTruth,
     // 🔴 X6.13 — el techo real: las filas ÚNICAS que existen en el lote.
     finalDurableTotals.totalDurableCandidates,
@@ -2592,7 +2727,10 @@ export async function executeProspectWizardGeneration(
         batchId: reservedBatchId,
         published: {
           [LUSHA_WATERFALL_LEG_METADATA_KEY]: waterfallLegTrace.lushaWaterfallLeg,
-          ...(lushaWaterfall.executed
+          ...(tavilyFirstOutcome ? { tavily_first_leg: tavilyFirstOutcome } : {}),
+          // AGENT1-TAVILY-FIRST-1 — con Tavily + Apollo, el escritor de Apollo
+          // publicó sólo su mitad: se republica el bloque combinado.
+          ...(lushaWaterfall.executed || tavilyFirstTruth !== null
             ? {
                 [ACCEPTED_FOR_TARGET_METADATA_KEY]:
                   toAcceptedForTargetMetadata(acceptedForTarget),
@@ -2656,6 +2794,7 @@ export async function executeProspectWizardGeneration(
         }),
     // A1-APOLLO-QA-CONTROL-SURFACE-1 § 10 — el proveedor REAL de esta corrida.
     runProvider: runProviderOutcome,
+    ...(tavilyFirstOutcome ? { tavilyFirst: tavilyFirstOutcome } : {}),
     // § 11 — cifras reales de dos rondas, sólo si la modalidad corrió.
     ...buildTwoRoundOutcome(pipelineResult),
     // AGENT1-APOLLO-CONTINUATION-WIZARD-WIRING § 4 — la pausa, cuando la hubo.
