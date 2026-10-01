@@ -34,7 +34,8 @@
  */
 
 import * as React from 'react';
-import { AlertCircle, CheckCircle2, Loader2, PauseCircle } from "@/icons";
+import { AlertCircle, CheckCircle2, PauseCircle } from "@/icons";
+import { ChatMark } from '@/components/chat';
 
 import {
   continueApolloRound,
@@ -244,7 +245,8 @@ function ContinuationIcon({ status }: { status: ApolloContinuationUiStatus }) {
     );
   }
   if (status === 'processing') {
-    return <Loader2 className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-primary" aria-hidden />;
+    // El agente sigue trabajando: la marca del chat en su estado «pensando».
+    return <ChatMark size="xs" motion="thinking" className="mt-0.5" />;
   }
   return <PauseCircle className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />;
 }

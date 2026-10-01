@@ -36,24 +36,26 @@ mano, busca aquí.
 
 | Familia | Import | Piezas |
 |---|---|---|
-| Shell | `@/components/layout` | `AppShell` (menú lateral desplegable + cabecera con migas, búsqueda ⌘K, avisos, tema y cuenta) |
+| Shell | `@/components/layout` | `AppShell`; `AppHeader` (ruta con las migas que publica cada pantalla, búsqueda ⌘K, notificaciones en popover, `AccountMenu`); `AppSidebar` + `SidebarIconRail` (secciones plegables; contraído, cada icono despliega sus vistas al pasar el puntero); `WorkspaceMenu` (cuelga de la marca: tema + configuración agrupada); `ShellHeaderSlot` / `ShellBreadcrumbs` (la pantalla pinta en la cabecera); `PageShell` (`width`: `narrow` 720 · `normal` 1140 · `wide` 1600 · `full`) |
 | Iconos | `@/icons` | Los iconos por su nombre de siempre (`Building2`, `Users`…), dibujados con Hugeicons. **Nunca** `lucide-react` directo |
 | Tipografía | `@/components/typography` | `Heading`, `Text` |
-| Página | `@/components/shared/*` | `PageHeader` (con `breadcrumbs`), `DataTablePage` (`compact`: título, descripción y pestañas en una sola banda), `ListPageSkeleton` (estado de carga con forma de lista: cabecera real + tabla fantasma), `SurfaceCard`, `SectionHeader` |
-| Navegación | `@/components/navigation/*` | `Breadcrumbs`, `Stepper`, `TabsNav` (pestañas de página con icono y contador) |
-| Datos | `@/components/data-display` | `StatusBadge`, `TableShell`, `Timeline` (`density="compact"` en `TimelineItem`), `ListItem`/`ListItemGroup`, `Kanban` |
+| Utilidad | `@/components/utility` | `IconTile` (el chip de icono: `tone`, `size`, `shape`). No se arma a mano con `flex size-9 … bg-primary/10` |
+| Página | `@/components/shared/*` | `PageHeader` (`breadcrumbs` se publican en la cabecera del shell; `width` para acotar el ancho), `DataTablePage` (`compact`: título, descripción y pestañas en una sola banda), `ListPageSkeleton` (estado de carga con forma de lista: cabecera real + tabla fantasma), `SurfaceCard`, `SectionHeader` |
+| Navegación | `@/components/navigation/*` | `Breadcrumbs`, `Stepper`, **`ThemaTabs`** (la única tira de pestañas: `variant` `view`/`page`, `badge` + `badgeTone`, `fitContent`, `navigation` para tiras que navegan). `TabsNav`, `ModuleTabsNav`, `ContactsModuleTabsNav` y `UrlTabs` son envoltorios finos suyos. Base: `ui/tabs` (`TabsList variant="view" | "page"`, `TabsBadge`) |
+| Datos | `@/components/data-display` | `StatusBadge`, `TableShell`, `Timeline` (`density="compact"` en `TimelineItem`), `ListItem`/`ListItemGroup`, `Kanban` (con `onItemMove`: arrastrar entre columnas y mover con teclado — Espacio levanta, flechas mueven, Escape cancela; `moveKanbanItem` da el nuevo `items`) |
 | Datos · piezas de tabla | `@/components/data-display` | `FilterSortHeader`, `SortOnlyHeader`, `HeaderSortButton`, `HeaderFilterButton` (cabeceras: orden con un clic + embudo), `SelectionHeaderMenu` / `HeaderSelectAllCheckbox` / `HeaderSelectionMark` (selección en cabecera), `TableConfigButton` + `useTableConfig` (panel «Configurar tabla», recordado por `tableId`), `useColumnDrag`, `RowActionsMenu` («⋯» de una fila) |
 | Tablas operables | `@/components/data-table` | `DataTable` (motor TanStack con la experiencia de Thema: título + total, buscador que se abre, chips de filtros activos, «Configurar tabla», menú de selección, scroll infinito o paginación, selección en la barra flotante o acciones en el layout). Props de experiencia: `tableId`, `noun`, `nounGender`, `getRowLabel`, `renderListItem`, `defaultRowsMode`. Piezas sueltas: `DataTableColumnHeader`, `DataTableActiveFilters`, `DataTableSelectionHeader`, `DataTablePagination`, `DataTableLoadMore`, `DataTableRowActions` |
 | Métricas y avisos | `@/components/shared/*` | `MetricCard` (acento, chip, píldora de variación, `hint`, `chart`), `DeltaPill`, `AttentionStrip` + `AttentionAction` |
 | Filtros | `@/components/filters/*` | `FilterChips` (chips con contador), `FilterBar`, `useQuickFilter` + `QuickFilterChips` (indicadores de una lista como filtros de un toque, dentro de la barra de la tabla) / `QuickFilterStrip` (los mismos en franja propia, para pantalla estrecha) / `QuickFilterEmptyState`, `useWideViewport` |
 | Celdas de lista | `@/components/shared/table-cells` | `EmptyCell` (el vacío: «—» apagado con nombre para lector de pantalla), `CountryCell` (bandera + nombre completo), `ExternalLinkCell` / `ExternalIconLink` (enlace que sale de SellUp), `RowTitleButton` (el nombre de la fila que abre su detalle) |
-| Búsqueda | `@/components/search` | `GlobalSearch` (⌘K) |
+| Búsqueda | `@/components/search` | `GlobalSearch` (⌘K): pestañas de alcance (Todo / Ir a / Objetos / Preguntar — solo las que existen), recuento, grupos, ⇥ cambia de alcance. `navigate` (pantallas), `objects` / `loadObjects` (registros, pedidos en diferido), `onAsk` |
 | Acciones | `@/components/action-rail` | **Una sola barra flotante por pantalla** (Foundation § 12). `ListActionRailProvider` (la monta y le reserva sitio) + `RailScreenActions` (la pantalla declara `RailActionSpec[]`: `scope`, `primary`, `overflow`, `tone`, `blockedReason`, `options`, `onSelect`); `DataTable` le pasa sola la selección y sus `bulkActions`. Piezas: `DataListActionRail` (sin selección: plegadas · de a diario · primaria al final; con selección: recuento + acciones sobre lo marcado), `ActionRailShell` (asa `RailDragHandle` · ajustes `RailSettingsMenu` · divisoria · grupos; auto-ocultar con pastilla, orientación y posición recordadas), `RailButton`, `RailPrimaryAction` (la única rellena; `variant="ai"`), `RailOverflowMenu`, `RailSelectionChip`, `RailCreateOption`, `ConfirmActionPopover`, `ActionFab` (móvil), `DrawerActionRail` |
-| Ventanas | `@/components/shared/*` | `DrawerShell`, `DrawerSection`, `CollapsibleDrawerSection` (la misma tarjeta, plegable: un solo título y un `summary` que adelanta lo que contiene), `DetailList` + `DetailItem`, `ModalShell`, `ConfirmDialog` |
+| Ventanas | `@/components/shared/*` | `DrawerShell`, `DrawerSection`, `CollapsibleDrawerSection` (la misma tarjeta, plegable: un solo título y un `summary` que adelanta lo que contiene), `DetailList` + `DetailItem`, `ModalShell` (formulario corto: `title`, `description`, `actions`, `size` sm/md/lg/xl), `ConfirmDialog` (sobre `AlertDialog`: sin X, no se cierra con clic afuera; `variant`, `confirmationText`, `children` para errores/avisos) |
 | Formularios | `@/components/forms/*` | `Field`, `FieldLabel`, `FieldDescription`, `FieldError`, `FormSection`, `SearchableSelect`, `MultiSelect` |
-| Estados | `@/components/ui/*`, `@/components/feedback/*` | `EmptyState` (`variant="plain"`, título opcional), `Skeleton`, `Spinner` (`decorative` para bloques que ya anuncian su estado), `Alert` |
+| Estados | `@/components/ui/*`, `@/components/feedback/*` | `EmptyState` (`variant="plain"`, título opcional), `Skeleton`, `Spinner` (`decorative` para bloques que ya anuncian su estado), `Alert`, `ThemaToaster` (el único `Toaster`, montado en `src/app/layout.tsx`: arriba a la derecha, bajo la cabecera, sobrio y con cierre) |
 | Tablas de solo lectura | `@/components/ui/table` + `TableShell` | `Table`, `TableHeader`, `TableBody`, `TableRow` (`data-state="selected"`), `TableHead`, `TableCell` — nunca `<table>` a mano |
 | Pantallas de acceso | `@/components/shared/access-status-screen` | `AccessStatusScreen` (pendiente, rechazado, suspendido, archivado) |
+| Selectores de fecha | `@/components/date` | `DatePicker`, `DateRangePicker`, `PeriodSelector`, `DateFilterBar` (periodo / día / rango). Nunca `<input type="date">` |
 | Fechas | `@/lib/format-date` | `formatInAppZone`, `formatAppDate`, `formatAppDateTime`, `formatAppTime`, `withAppTimeZone` — siempre con la zona fija de la aplicación; nunca `toLocaleDateString` suelto |
 
 ## 2. Escala de radios (monótona)
@@ -143,9 +145,15 @@ La tabla se **opera** como la de Thema (Foundation § 10), y cada pantalla tiene
 
 **Drawer** — `DrawerShell` con `title`, `description`, `icon`. El cuerpo se arma con `DrawerSection` (icono + título + hint + contenido) en `space-y-4`; nunca cajas con borde dentro de cajas con borde. Pie: secundaria (`outline`) a la izquierda, primaria a la derecha. Con varias áreas: `Tabs` (§ 11 Foundation).
 
-**Modal** — `ModalShell` para formularios cortos, `ConfirmDialog` para confirmar. Un modal no hace scroll largo: si el contenido crece, es un drawer.
+**Modal** — `ModalShell` para formularios cortos, `ConfirmDialog` para confirmar. Un modal no hace scroll largo: si el contenido crece, es un drawer. Las pantallas no montan `<Dialog>` + `<DialogContent>` a mano: migrar uno es mover su título y descripción a las props de `ModalShell`, su contenido a `children` y sus botones a `actions`. Una confirmación es siempre `ConfirmDialog`: no tiene X ni se cierra con clic afuera, el foco entra en Cancelar (o en el campo de `confirmationText`) y no se cierra sola al confirmar (`open={false}` cuando la operación termina bien). `description` es una frase; el error de la operación o un `Alert` van en `children`.
 
-**Estados** — vacío: `EmptyState`. Cargando: `Skeleton` con la forma del contenido final (sin saltos de layout). Error: `Alert`. Éxito efímero: toast (`sonner`), no banners persistentes.
+**Ubicación** — la ruta vive en la cabecera del shell. Una pantalla pasa `breadcrumbs={<Breadcrumbs items={…} />}` a `PageHeader` / `DataTablePage` (o `trail` a `SettingsPage`) y la cabecera pinta «SellUp › sección › …»; si las migas ya empiezan por la sección, no se repite. No se pinta un renglón de migas sobre el título.
+
+**Pestañas** — una sola pieza. Cambiar un panel dentro de la página: `ThemaTabs` (o `Tabs` + `TabsList`) nivel `view`. Cambiar la vista de un módulo: nivel `page` (`TabsNav`). El contador es `badge` / `TabsBadge`, nunca un `<span>` a mano.
+
+**Ancho de página** — `PageShell width` (o `PageHeader width`): `narrow` para formularios y asistentes, `normal` para lectura y detalle, `wide` (el del shell) para tablas, `full` para lienzos.
+
+**Estados** — vacío: `EmptyState`. Cargando: `Skeleton` con la forma del contenido final (sin saltos de layout). Error: `Alert`. Éxito efímero: `toast(...)` de `sonner` (lo pinta `ThemaToaster`, arriba a la derecha; no montes otro `Toaster`), no banners persistentes.
 
 **Métricas** — `MetricCard`; filas de KPIs en `grid gap-4 sm:grid-cols-2 xl:grid-cols-4`.
 

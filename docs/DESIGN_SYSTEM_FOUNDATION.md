@@ -229,9 +229,31 @@ Solo en el panel de marca del login y en la identidad de IA (`su-ai-glow`). No u
 />
 ```
 
-Props: `title` (requerido), `description`, `actions`, `className`.
+Props: `title` (requerido), `description`, `breadcrumbs`, `actions`, `meta`, `backHref`, `width`, `className`.
 
-Aplica: `text-2xl font-bold tracking-tight` para el título (h1 único de la vista). Usa en todas las páginas como primer elemento del contenido.
+El título es un `Heading` (h1 único de la vista, `text-2xl font-bold`). Usa en todas las páginas como primer elemento del contenido. `breadcrumbs` no pinta un renglón sobre el título: se publican en la cabecera del shell (ver abajo). `width` (`narrow` 720 · `normal` 1140 · `wide` 1600 · `full`) acota la cabecera; para acotar la página entera, `PageShell width` (`@/components/layout/page-shell`).
+
+---
+
+### Cabecera y menú del shell
+
+**Ubicación:** `src/components/layout/` — port de Thema `app-shell`.
+
+- **Ruta.** La cabecera pinta «SellUp › sección». Cada pantalla publica sus migas (`PageHeader breadcrumbs`, `DataTablePage breadcrumbs`, `SettingsPage trail`) y la cabecera las añade; lo hace `ShellBreadcrumbs` (`shell-header-slot.tsx`) con un portal, sin desajuste de hidratación. `ShellHeaderSlot` sirve para pintar cualquier otra identidad de pantalla en ese hueco.
+- **Notificaciones.** Popover anclado a la campana (no drawer): «N nuevas», lista, «Marcar leídas» y «Ver todas las notificaciones».
+- **Cuenta** (`AccountMenu`). Identidad y cerrar sesión. El tema y la configuración NO van aquí.
+- **Marca** (`WorkspaceMenu`, en el menú lateral). Tema (Claro / Oscuro / Como el sistema) y la configuración agrupada. No hay botón de tema suelto en la cabecera.
+- **Menú lateral** (`AppSidebar` + `SidebarIconRail`). Secciones plegables con sus vistas (Empresas, Contactos, Configuración); contraído, cada icono despliega sus vistas al pasar el puntero. El árbol sale de `sidebar-nav.ts` y respeta `navAccess`.
+- **Búsqueda** (`GlobalSearch`, ⌘K). Pestañas de alcance, recuento y grupos; los registros (empresas, contactos) se piden al escribir.
+
+### Avisos efímeros (toasts)
+
+Un solo `Toaster`: `ThemaToaster` (`src/components/feedback/thema-toaster.tsx`), montado en `src/app/layout.tsx`. Arriba a la derecha, 76px bajo el borde (libra la cabecera y no tapa la barra de acciones inferior), sobrio (`richColors={false}`), con botón de cerrar e iconos del sistema. Las pantallas solo llaman `toast(...)` de `sonner`; nunca montan otro `Toaster`.
+
+### Confirmaciones y modales
+
+- `ConfirmDialog` (`src/components/shared/confirm-dialog.tsx`) va sobre `AlertDialog`: **sin X y sin cierre por clic afuera**. Foco en Cancelar (o en el campo de `confirmationText`). Tono `destructive`: título en rojo, chip del tono y botón rojo sólido. No se cierra sola al confirmar. `description` es una frase; un error o un `Alert` van en `children`.
+- `ModalShell` (`src/components/shared/modal-shell.tsx`) para formularios cortos: `title`, `description`, `children`, `actions`, `size` (`sm` 384 · `md` 448 · `lg` 512 · `xl` 576). Las pantallas no montan `<Dialog>` a mano.
 
 ---
 

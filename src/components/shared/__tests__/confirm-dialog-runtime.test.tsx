@@ -137,6 +137,16 @@ describe('ConfirmDialog — foco y tono', () => {
     assert.match(action.className, /destructive/);
   });
 
+  it('el cuerpo (un error, un aviso) se pinta fuera del párrafo de la descripción', () => {
+    render(h(Harness, { log: [], children: h('div', { role: 'alert' }, 'No se pudo eliminar.') }));
+    const alert = screen.getByRole('alert');
+    assert.equal(alert.closest('p'), null);
+    assert.ok(alert.closest('[data-slot="confirm-dialog-body"]'));
+    // La descripción sigue siendo su propia frase.
+    assert.equal(screen.getByText('No se pudo eliminar.').textContent, 'No se pudo eliminar.');
+    assert.ok(screen.getByText('No se puede deshacer.').closest('p'));
+  });
+
   it('mientras carga, ni cancelar ni confirmar responden', () => {
     render(h(Harness, { log: [], loading: true }));
     assert.equal((screen.getByRole('button', { name: 'Cancelar' }) as HTMLButtonElement).disabled, true);

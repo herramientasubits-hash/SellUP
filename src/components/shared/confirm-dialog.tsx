@@ -31,6 +31,13 @@ export interface ConfirmDialogProps {
   title: string;
   /** Brief description or warning. Admite nodos para dar énfasis a un nombre. */
   description?: React.ReactNode;
+  /**
+   * Cuerpo del diálogo, bajo la cabecera y FUERA del párrafo de la
+   * descripción: aquí van el error de la operación (`<Alert variant="destructive">`),
+   * un aviso, la lista de lo afectado o un campo. La `description` es una
+   * frase (`<p>`): no admite bloques dentro.
+   */
+  children?: React.ReactNode;
   /** Label for the confirmation button */
   confirmLabel?: string;
   /** Label for the cancellation button */
@@ -90,6 +97,10 @@ const CONFIRMATION_INPUT_ID = 'confirm-dialog-typed-confirmation';
  * cancelar a la izquierda de la confirmación. La confirmación final de algo
  * irreversible es el único botón del sistema que lleva el rojo sólido.
  *
+ * Lo que no es una frase va en `children` (el cuerpo): el error de la
+ * operación, un `Alert`, la lista de lo afectado. La `description` es un `<p>`
+ * y no admite bloques dentro.
+ *
  * Cierre manual tras éxito: la confirmación hace `preventDefault()` para
  * soportar procesos asíncronos (`loading`), así que usado de forma controlada
  * el diálogo NO se cierra solo; quien lo usa pone `open={false}` cuando la
@@ -117,6 +128,7 @@ export function ConfirmDialog({
   trigger,
   title,
   description,
+  children,
   confirmLabel = 'Confirmar',
   cancelLabel = 'Cancelar',
   variant = 'default',
@@ -174,6 +186,12 @@ export function ConfirmDialog({
             {description && <AlertDialogDescription>{description}</AlertDialogDescription>}
           </AlertDialogHeader>
         </div>
+
+        {children && (
+          <div data-slot="confirm-dialog-body" className="flex flex-col gap-3 text-sm">
+            {children}
+          </div>
+        )}
 
         {confirmationText && (
           <div className="flex flex-col gap-1.5">

@@ -115,7 +115,8 @@ function Hint({ keys, label }: { keys: string; label: string }) {
   );
 }
 
-type ObjectsStatus = "idle" | "loading" | "ready" | "error";
+/** `idle`: aún no han llegado (o no se han pedido). */
+type ObjectsStatus = "idle" | "ready" | "error";
 
 interface ObjectGroup {
   heading: string;
@@ -199,24 +200,25 @@ export function GlobalSearch({
 
   // Los registros se piden una sola vez por apertura, y solo cuando hay algo
   // que buscar: abrir ⌘K para ir a una pantalla no cuesta una consulta.
+  const hasRequestedObjects = React.useRef(false);
   React.useEffect(() => {
-    if (!isOpen || !loadObjects || !wantsObjects || objectsStatus !== "idle") return undefined;
-    let isCurrent = true;
-    setObjectsStatus("loading");
+    if (!isOpen) {
+      // Cerrada (también con ⌘K): la próxima apertura vuelve a pedirlos.
+      hasRequestedObjects.current = false;
+      return;
+    }
+    if (!loadObjects || !wantsObjects || hasRequestedObjects.current) return;
+    hasRequestedObjects.current = true;
     loadObjects()
       .then((items) => {
-        if (!isCurrent) return;
+        // Si se cerró mientras llegaban, la próxima apertura los vuelve a pedir.
+        if (!hasRequestedObjects.current) return;
         setLoadedObjects(items);
         setObjectsStatus("ready");
       })
       .catch(() => {
-        if (isCurrent) setObjectsStatus("error");
+        if (hasRequestedObjects.current) setObjectsStatus("error");
       });
-    return () => {
-      isCurrent = false;
-    };
-    // `objectsStatus` fuera: cambiarlo a "loading" no debe cancelar la carga.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, loadObjects, wantsObjects]);
 
   const allObjects = React.useMemo(
@@ -253,7 +255,8 @@ export function GlobalSearch({
   const shownObjects = objectGroups.reduce((sum, group) => sum + group.items.length, 0);
   const showAsk = canAsk && inScope("ask");
   const showNavigate = foundNavigate.length > 0 && inScope("navigate");
-  const isLoadingObjects = hasObjects && inScope("objects") && wantsObjects && objectsStatus === "loading";
+  const isLoadingObjects =
+    Boolean(loadObjects) && inScope("objects") && wantsObjects && objectsStatus === "idle";
   const hasObjectsError = hasObjects && inScope("objects") && wantsObjects && objectsStatus === "error";
   const count = (showAsk ? 1 : 0) + shownObjects + (showNavigate ? foundNavigate.length : 0);
 
@@ -267,6 +270,7 @@ export function GlobalSearch({
     setIsOpen(nextOpen);
     // La próxima apertura vuelve a pedir los registros: pueden haber cambiado.
     if (!nextOpen) {
+      hasRequestedObjects.current = false;
       setObjectsStatus("idle");
       setLoadedObjects([]);
     }

@@ -153,7 +153,7 @@ describe('NumberField — formulario', () => {
   it('dentro de Field, la etiqueta y la ayuda quedan enlazadas al input', () => {
     render(
       React.createElement(
-        Field as unknown as React.ComponentType<object>,
+        Field as unknown as React.ComponentType<Record<string, unknown>>,
         { label: 'Límite mensual', description: 'En créditos.' },
         h(NumberField, { defaultValue: 5, name: 'limit' }),
       ),

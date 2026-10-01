@@ -29,11 +29,9 @@ export function ImportLoadingOverlay({
   const [completedSteps, setCompletedSteps] = React.useState<number[]>([]);
 
   React.useEffect(() => {
-    if (!open) {
-      setCurrentStep(0);
-      setCompletedSteps([]);
-      return;
-    }
+    // Quien lo monta lo desmonta al terminar, así que cada importación empieza
+    // en el primer paso sin tener que reiniciar el estado aquí.
+    if (!open) return;
 
     const timers: NodeJS.Timeout[] = [];
     const stepDuration = 1400;

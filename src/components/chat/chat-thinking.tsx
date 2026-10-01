@@ -19,8 +19,8 @@ export function ChatThinking({ label, since }: ChatThinkingProps) {
     const start = since ?? Date.now();
     const tick = () => setSeconds(Math.max(0, Math.floor((Date.now() - start) / 1000)));
     tick();
-    const timer = window.setInterval(tick, 1000);
-    return () => window.clearInterval(timer);
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
   }, [since]);
   return (
     <div className="flex items-center gap-3" role="status" aria-live="polite" data-testid="chat-thinking">
