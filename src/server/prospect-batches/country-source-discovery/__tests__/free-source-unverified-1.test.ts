@@ -16,6 +16,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 import {
   FREE_SOURCE_MISSING_DOMAIN_REASON_CODE,
@@ -228,5 +230,20 @@ describe('§ 3 — el rescate con Claude recoge estas filas', () => {
   it('🔴 sin dominio y con el motivo del buscador ⇒ candidata a búsqueda de sitio', () => {
     const [row] = buildUnverifiedFreeDispositionRows({ batchId: 'b', countryCode: 'MX', companies: [company(7, null)] });
     assert.equal(isDomainSearchCandidate({ domain: row!.domain ?? null, reason_code: row!.reasonCode ?? null }), true);
+  });
+});
+
+// ─── § 4 — el cableado de producción ──────────────────────────────────────────
+
+describe('§ 4 — en producción las empresas sin sitio SÍ llegan a «Descartadas»', () => {
+  it('🔴 PRODUCTION_DEPS cablea la escritura real (y las deps inyectadas sin ella no escriben)', () => {
+    const source = readFileSync(path.join(__dirname, '..', 'run-prepaid-novelty-discovery.server.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1');
+    assert.match(
+      source,
+      /const PRODUCTION_DEPS: PrePaidNoveltyDiscoveryDeps = \{[^}]*recordUnverified: persistDiscardedDispositionRows,/,
+    );
+    assert.match(source, /&& deps\.recordUnverified\)/);
   });
 });
