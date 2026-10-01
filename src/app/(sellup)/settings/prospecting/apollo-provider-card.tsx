@@ -1,30 +1,6 @@
 'use client';
 
-import { formatAppDateTime } from '@/lib/format-date';
-import { useState, useTransition } from 'react';
-import {
-  Search,
-  CheckCircle2,
-  AlertTriangle,
-  Clock,
-  XCircle,
-  RefreshCw,
-  KeyRound,
-  Unplug,
-} from "@/icons";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { Search } from '@/icons';
 import {
   connectApollo,
   testApolloConnectionAction,
@@ -32,380 +8,37 @@ import {
   disconnectApollo,
 } from '@/modules/prospecting-config/actions';
 import type { ProspectingProviderConnection } from '@/modules/prospecting-config/types';
+import {
+  ProspectingProviderCard,
+  type ProspectingProviderActions,
+} from './prospecting-provider-card';
 
-// ============================================================
-// Tipos
-// ============================================================
-
-type DialogMode = 'connect' | 'update' | null;
-
-interface ApolloStatusConfig {
-  label: string;
-  badgeClass: string;
-  dotClass: string;
-  icon: React.ReactNode;
-}
-
-// ============================================================
-// Helpers de presentación
-// ============================================================
-
-function getStatusConfig(
-  connection: ProspectingProviderConnection | null
-): ApolloStatusConfig {
-  if (!connection || connection.connection_status === 'not_connected') {
-    return {
-      label: 'No configurado',
-      badgeClass: 'border-border/60 bg-surface-subtle text-muted-foreground',
-      dotClass: 'bg-muted-foreground/25',
-      icon: <XCircle className="h-4 w-4 text-muted-foreground" />,
-    };
-  }
-
-  if (
-    connection.connection_status === 'disconnected' ||
-    connection.credentials_status === 'missing'
-  ) {
-    return {
-      label: 'No configurado',
-      badgeClass: 'border-border/60 bg-surface-subtle text-muted-foreground',
-      dotClass: 'bg-muted-foreground/25',
-      icon: <XCircle className="h-4 w-4 text-muted-foreground" />,
-    };
-  }
-
-  if (connection.connection_status === 'not_tested') {
-    return {
-      label: 'Credencial guardada',
-      badgeClass: 'border-warning/30 bg-warning/10 text-warning',
-      dotClass: 'bg-warning',
-      icon: <Clock className="h-4 w-4 text-warning" />,
-    };
-  }
-
-  if (connection.connection_status === 'connected') {
-    return {
-      label: 'Conectado',
-      badgeClass: 'border-success/30 bg-success/10 text-success',
-      dotClass: 'bg-success',
-      icon: <CheckCircle2 className="h-4 w-4 text-success" />,
-    };
-  }
-
-  if (connection.connection_status === 'error') {
-    return {
-      label: 'Error de conexión',
-      badgeClass: 'border-destructive/30 bg-destructive/10 text-destructive',
-      dotClass: 'bg-destructive',
-      icon: <AlertTriangle className="h-4 w-4 text-destructive" />,
-    };
-  }
-
-  return {
-    label: 'No configurado',
-    badgeClass: 'border-border/60 bg-surface-subtle text-muted-foreground',
-    dotClass: 'bg-muted-foreground/25',
-    icon: <XCircle className="h-4 w-4 text-muted-foreground" />,
-  };
-}
-
-function isConfigured(connection: ProspectingProviderConnection | null): boolean {
-  return (
-    connection !== null &&
-    connection.credentials_status === 'stored' &&
-    connection.connection_status !== 'not_connected' &&
-    connection.connection_status !== 'disconnected'
-  );
-}
-
-// ============================================================
-// Toast ligero interno
-// ============================================================
-
-interface ToastState {
-  message: string;
-  type: 'success' | 'error';
-}
-
-// ============================================================
-// Componente principal
-// ============================================================
+const APOLLO_ACTIONS: ProspectingProviderActions = {
+  connect: connectApollo,
+  updateApiKey: updateApolloApiKey,
+  testConnection: testApolloConnectionAction,
+  disconnect: disconnectApollo,
+};
 
 interface ApolloProviderCardProps {
   connection: ProspectingProviderConnection | null;
   description: string | null;
 }
 
-export function ApolloProviderCard({ connection: initialConnection, description }: ApolloProviderCardProps) {
-  const [connection, setConnection] = useState(initialConnection);
-  const [dialogMode, setDialogMode] = useState<DialogMode>(null);
-  const [apiKeyInput, setApiKeyInput] = useState('');
-  const [toast, setToast] = useState<ToastState | null>(null);
-  const [isPending, startTransition] = useTransition();
-
-  const status = getStatusConfig(connection);
-  const configured = isConfigured(connection);
-
-  function showToast(message: string, type: 'success' | 'error') {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 4000);
-  }
-
-  function openDialog(mode: DialogMode) {
-    setApiKeyInput('');
-    setDialogMode(mode);
-  }
-
-  function closeDialog() {
-    setDialogMode(null);
-    setApiKeyInput('');
-  }
-
-  // ── Guardar credencial (conectar o actualizar) ──────────────
-
-  function handleSaveCredential() {
-    if (!apiKeyInput.trim()) return;
-
-    startTransition(async () => {
-      const action = dialogMode === 'connect' ? connectApollo : updateApolloApiKey;
-      const result = await action(apiKeyInput.trim());
-
-      if (result.success) {
-        setConnection((prev) => ({
-          id: prev?.id ?? '',
-          provider_id: prev?.provider_id ?? '',
-          vault_secret_id: null,
-          credentials_status: 'stored',
-          connection_status: 'not_tested',
-          last_tested_at: null,
-          last_connected_at: prev?.last_connected_at ?? null,
-          last_connection_error: null,
-          configured_by: null,
-          created_at: prev?.created_at ?? new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }));
-        showToast(result.message ?? 'API Key guardada correctamente.', 'success');
-        closeDialog();
-      } else {
-        showToast(result.error ?? 'Error al guardar la credencial.', 'error');
-      }
-    });
-  }
-
-  // ── Probar conexión ─────────────────────────────────────────
-
-  function handleTestConnection() {
-    startTransition(async () => {
-      const result = await testApolloConnectionAction();
-
-      if (result.success) {
-        setConnection((prev) =>
-          prev
-            ? {
-                ...prev,
-                connection_status: 'connected',
-                last_tested_at: new Date().toISOString(),
-                last_connected_at: new Date().toISOString(),
-                last_connection_error: null,
-              }
-            : prev
-        );
-        showToast(result.message ?? 'Conexión verificada correctamente.', 'success');
-      } else {
-        setConnection((prev) =>
-          prev
-            ? {
-                ...prev,
-                connection_status: 'error',
-                last_tested_at: new Date().toISOString(),
-                last_connection_error: result.message ?? 'Error desconocido',
-              }
-            : prev
-        );
-        showToast(result.message ?? 'La prueba de conexión falló.', 'error');
-      }
-    });
-  }
-
-  // ── Desconectar ─────────────────────────────────────────────
-
-  function handleDisconnect() {
-    startTransition(async () => {
-      const result = await disconnectApollo();
-
-      if (result.success) {
-        setConnection((prev) =>
-          prev
-            ? {
-                ...prev,
-                credentials_status: 'missing',
-                connection_status: 'disconnected',
-                vault_secret_id: null,
-                last_connection_error: null,
-              }
-            : null
-        );
-        showToast('Apollo.io desconectado correctamente.', 'success');
-      } else {
-        showToast(result.error ?? 'No se pudo desconectar. Inténtalo de nuevo.', 'error');
-      }
-    });
-  }
-
-  // ============================================================
-  // Render
-  // ============================================================
-
+/** Apollo.io: la tarjeta común de proveedor con sus acciones y sus textos. */
+export function ApolloProviderCard({ connection, description }: ApolloProviderCardProps) {
   return (
-    <>
-      <SurfaceCard>
-        <SurfaceCardHeader
-          title="Apollo.io"
-          description={description ?? undefined}
-          actions={
-            <Badge variant="outline" className={status.badgeClass}>
-              <span className={`h-1.5 w-1.5 rounded-full ${status.dotClass}`} aria-hidden="true" />
-              {status.label}
-            </Badge>
-          }
-        />
-
-        {/* Tipo de proveedor */}
-        <div className="mb-4 flex min-w-0 items-center gap-2">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-surface-muted text-muted-foreground">
-            <Search className="h-4 w-4" aria-hidden="true" />
-          </div>
-          <span className="min-w-0 text-xs text-muted-foreground">
-            Completa datos de empresas · búsqueda de empresas en pruebas
-          </span>
-        </div>
-
-        {/* Error message */}
-        {connection?.connection_status === 'error' && connection.last_connection_error && (
-          <div className="mb-4 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2">
-            <p className="line-clamp-2 break-words text-xs text-destructive">
-              {connection.last_connection_error}
-            </p>
-          </div>
-        )}
-
-        {/* Última prueba */}
-        {connection?.last_tested_at && (
-          <p className="mb-4 text-xs tabular-nums text-muted-foreground">
-            Última prueba:{' '}
-            {formatAppDateTime(connection.last_tested_at)}
-          </p>
-        )}
-
-        {/* Acciones */}
-        <div className="flex flex-wrap gap-2">
-          {!configured ? (
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => openDialog('connect')}
-              disabled={isPending}
-            >
-              Conectar Apollo
-            </Button>
-          ) : (
-            <>
-              <Button
-                type="button"
-                size="sm"
-                onClick={handleTestConnection}
-                disabled={isPending}
-              >
-                <RefreshCw className={isPending ? 'animate-spin' : undefined} aria-hidden="true" />
-                Probar conexión
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => openDialog('update')}
-                disabled={isPending}
-              >
-                <KeyRound aria-hidden="true" />
-                Actualizar API Key
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="destructive"
-                onClick={handleDisconnect}
-                disabled={isPending}
-              >
-                <Unplug aria-hidden="true" />
-                Desconectar
-              </Button>
-            </>
-          )}
-        </div>
-      </SurfaceCard>
-
-      {/* Toast */}
-      {toast && (
-        <div
-          className={`fixed bottom-6 right-6 z-50 max-w-sm rounded-xl border border-border/60 bg-popover px-4 py-3 shadow-drawer animate-su-slide-in ${
-            toast.type === 'success' ? 'text-success' : 'text-destructive'
-          }`}
-        >
-          <p className="text-sm font-medium">{toast.message}</p>
-        </div>
-      )}
-
-      {/* Dialog — Conectar / Actualizar API Key */}
-      <Dialog open={dialogMode !== null} onOpenChange={(open) => !open && closeDialog()}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {dialogMode === 'connect' ? 'Conectar Apollo.io' : 'Actualizar API Key'}
-            </DialogTitle>
-            <DialogDescription>
-              La clave se guarda cifrada en el servidor. Apollo completa datos de empresas que ya
-              se encontraron y, de forma experimental, ayuda a buscar empresas nuevas; no está
-              pensado para lotes muy grandes.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3 py-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="apollo-api-key">
-                API Key
-              </Label>
-              <Input
-                id="apollo-api-key"
-                type="password"
-                placeholder="Tu API Key de Apollo.io"
-                value={apiKeyInput}
-                onChange={(e) => setApiKeyInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSaveCredential()}
-                autoComplete="off"
-                className="font-mono"
-              />
-            </div>
-
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Qué se puede consultar y cuántos créditos se gastan depende del plan de Apollo al que pertenece esta clave.
-            </p>
-          </div>
-
-          <DialogFooter>
-            <Button type="button" variant="outline" size="sm" onClick={closeDialog} disabled={isPending}>
-              Cancelar
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={handleSaveCredential}
-              disabled={isPending || apiKeyInput.trim().length < 10}
-            >
-              {isPending ? 'Guardando...' : 'Guardar credencial'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+    <ProspectingProviderCard
+      providerId="apollo"
+      name="Apollo.io"
+      shortName="Apollo"
+      icon={Search}
+      purpose="Completa datos de empresas · búsqueda de empresas en pruebas"
+      credentialDescription="La clave se guarda cifrada en el servidor. Apollo completa datos de empresas que ya se encontraron y, de forma experimental, ayuda a buscar empresas nuevas; no está pensado para lotes muy grandes."
+      credentialHint="Qué se puede consultar y cuántos créditos se gastan depende del plan de Apollo al que pertenece esta clave."
+      connection={connection}
+      description={description}
+      actions={APOLLO_ACTIONS}
+    />
   );
 }

@@ -2,8 +2,10 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { CheckCircle2, Pencil, RotateCcw, AlertTriangle, XCircle, Loader2, AlertCircle, Sparkles } from "@/icons";
+import { Pencil, RotateCcw, Sparkles } from "@/icons";
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { ChatAgentMessage, ChatQuestionCard, ChatThinking } from '@/components/chat';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import { getFlagEmoji } from '@/components/accounts/account-form-helpers';
 import type {
@@ -248,16 +250,7 @@ export function WizardConversationSummary({
 // ── Validating panel ──────────────────────────────────────────────────────────
 
 function ValidatingPanel() {
-  return (
-    <div
-      className="flex items-center gap-3 rounded-xl border border-border/60 bg-surface-subtle p-4"
-      role="status"
-      aria-live="polite"
-    >
-      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" aria-hidden />
-      <p className="text-sm text-foreground">Verificando disponibilidad de generación…</p>
-    </div>
-  );
+  return <ChatThinking label="Verificando disponibilidad de generación…" />;
 }
 
 // ── Validated panel ───────────────────────────────────────────────────────────
@@ -516,25 +509,15 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
 
   return (
     <div className="space-y-4 animate-su-fade-in" role="status">
-      {/* Banner A — validation (positive). */}
-      <div className="flex items-start gap-3 rounded-xl border border-success/20 bg-success/10 p-4">
-        <CheckCircle2
-          className="mt-0.5 h-5 w-5 shrink-0 text-success"
-          aria-hidden
-        />
-        <div className="min-w-0 space-y-1">
-          <p className="text-sm font-semibold text-success">
-            La configuración es válida.
-          </p>
-          <p className="text-xs leading-relaxed text-success">
-            {validBody}
-          </p>
-        </div>
-      </div>
+      {/* Banner A — validation (positive). El contenedor ya es el `status` de
+          esta pantalla, así que los avisos de dentro no repiten rol. */}
+      <Alert variant="success" role={undefined}>
+        <AlertTitle className="text-sm">La configuración es válida.</AlertTitle>
+        <AlertDescription className="text-xs">{validBody}</AlertDescription>
+      </Alert>
 
       {executionError && (
-        <div className="flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden />
+        <Alert variant="destructive" role={undefined}>
           {/* 🔴 CUT-6B § 4 — el bloque de error tiene DOS lecturas posibles y sólo
               una cambia. Sin aporte durable se pinta el MISMO árbol de antes de
               este corte —el `<p>` como hijo directo del flex, sin envoltorio— y no
@@ -559,21 +542,16 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
               </p>
             </div>
           )}
-        </div>
+        </Alert>
       )}
 
       {/* AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — mismo tratamiento visual que el
           error de ejecución: el bloqueo es igual de real, sólo que se conoce
           antes. `role="alert"` porque aparece sin que la usuaria haya actuado. */}
       {preExecutionBudgetMessage !== null && (
-        <div
-          className="flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3"
-          role="alert"
-          data-testid="wizard-budget-preflight-notice"
-        >
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden />
+        <Alert variant="destructive" data-testid="wizard-budget-preflight-notice">
           <p className="min-w-0 break-words text-xs leading-relaxed text-destructive">{preExecutionBudgetMessage}</p>
-        </div>
+        </Alert>
       )}
 
       {/* La forma de la búsqueda no admite proveedor externo. Dice la causa real y
@@ -705,14 +683,16 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
           <Pencil className="h-3.5 w-3.5" aria-hidden />
           Editar búsqueda
         </Button>
-        <button
+        <Button
           type="button"
-          className="mx-auto flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+          variant="ghost"
+          size="xs"
+          className="mx-auto flex text-muted-foreground"
           onClick={() => dispatch({ type: 'REQUEST_RESTART' })}
         >
-          <RotateCcw className="h-3 w-3" aria-hidden />
+          <RotateCcw aria-hidden />
           Comenzar de nuevo
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -756,20 +736,10 @@ type DiscoveryUnavailableNoticeProps = {
 function DiscoveryUnavailableNotice({ reason }: DiscoveryUnavailableNoticeProps) {
   const copy = DISCOVERY_UNAVAILABLE_COPY[reason];
   return (
-    <div
-      className="flex items-start gap-3 rounded-xl border border-warning/25 bg-warning/15 p-4"
-      role="alert"
-      data-testid="wizard-discovery-unavailable-notice"
-    >
-      <AlertTriangle
-        className="mt-0.5 h-5 w-5 shrink-0 text-warning"
-        aria-hidden
-      />
-      <div className="min-w-0 space-y-1">
-        <p className="text-sm font-semibold text-warning">{copy.title}</p>
-        <p className="text-xs leading-relaxed text-warning">{copy.detail}</p>
-      </div>
-    </div>
+    <Alert variant="warning" data-testid="wizard-discovery-unavailable-notice">
+      <AlertTitle className="text-sm">{copy.title}</AlertTitle>
+      <AlertDescription className="text-xs">{copy.detail}</AlertDescription>
+    </Alert>
   );
 }
 
@@ -784,17 +754,11 @@ type BlockedPanelProps = {
 function BlockedPanel({ state, dispatch }: BlockedPanelProps) {
   return (
     <div className="space-y-3 animate-su-fade-in" role="alert">
-      <div className="flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/10 p-4">
-        <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" aria-hidden />
-        <div className="min-w-0 space-y-1">
-          <p className="text-sm font-semibold text-destructive">
-            La búsqueda tiene problemas que deben corregirse.
-          </p>
-          <p className="text-xs text-destructive">
-            Revisa los errores y edita los campos indicados.
-          </p>
-        </div>
-      </div>
+      {/* El panel entero ya es el `alert`; el aviso de dentro no repite rol. */}
+      <Alert variant="destructive" role={undefined}>
+        <AlertTitle className="text-sm">La búsqueda tiene problemas que deben corregirse.</AlertTitle>
+        <AlertDescription className="text-xs">Revisa los errores y edita los campos indicados.</AlertDescription>
+      </Alert>
 
       {state.blockingIssues.map((issue) => (
         <div
@@ -980,14 +944,9 @@ function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
       </div>
 
       {serverWarnings.map((w) => (
-        <div
-          key={w.code}
-          role="status"
-          className="flex items-start gap-2 rounded-xl border border-warning/25 bg-warning/15 px-3 py-2.5 text-xs leading-relaxed text-warning"
-        >
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-          <span className="min-w-0 break-words">{w.message}</span>
-        </div>
+        <Alert key={w.code} variant="warning" role="status">
+          <AlertDescription className="min-w-0 break-words text-xs">{w.message}</AlertDescription>
+        </Alert>
       ))}
 
       <div className="flex flex-col gap-2">
@@ -1031,15 +990,17 @@ function SummaryRow({ label, value, onEdit, wrap = false }: SummaryRowProps) {
         </dd>
       </div>
       {onEdit && (
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="xs"
           onClick={onEdit}
           aria-label={`Editar ${label}`}
-          className="flex shrink-0 items-center gap-1 self-center rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+          className="shrink-0 self-center text-muted-foreground"
         >
-          <Pencil className="h-3 w-3" aria-hidden />
+          <Pencil aria-hidden />
           Editar
-        </button>
+        </Button>
       )}
     </div>
   );
@@ -1051,43 +1012,36 @@ type RestartConfirmationProps = {
   dispatch: React.Dispatch<ProspectWizardAction>;
 };
 
+const RESTART_CANCEL = 'Cancelar';
+const RESTART_CONFIRM = 'Comenzar de nuevo';
+const RESTART_OPTIONS: readonly string[] = [RESTART_CANCEL, RESTART_CONFIRM];
+
+/**
+ * La confirmación de reinicio, como una pregunta más del agente: el mensaje
+ * dice qué se pierde y `ChatQuestionCard` ofrece las dos salidas. Nada se borra
+ * hasta que se elige «Comenzar de nuevo».
+ */
 export function RestartConfirmation({ dispatch }: RestartConfirmationProps) {
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Confirmar reinicio"
-      className="rounded-2xl border border-border/60 bg-card p-5 shadow-drawer space-y-4 animate-su-scale-in"
-    >
-      <div>
-        <p className="text-sm font-semibold text-foreground">
-          ¿Quieres comenzar de nuevo?
-        </p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Se eliminarán las selecciones actuales.
-        </p>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="flex-1"
-          onClick={() => dispatch({ type: 'CANCEL_RESTART' })}
-          autoFocus
-        >
-          Cancelar
-        </Button>
-        <Button
-          type="button"
-          variant="destructive"
-          size="sm"
-          className="flex-1"
-          onClick={() => dispatch({ type: 'CONFIRM_RESTART' })}
-        >
-          Comenzar de nuevo
-        </Button>
-      </div>
+    <div className="space-y-3" data-testid="wizard-restart-confirmation">
+      <ChatAgentMessage
+        isLast={false}
+        message={{
+          id: 'restart-confirmation',
+          role: 'agent',
+          text: '**¿Quieres comenzar de nuevo?**\nSe eliminarán las selecciones actuales.',
+          createdAt: 0,
+          status: 'done',
+        }}
+      />
+      <ChatQuestionCard
+        aria-label="Confirmar reinicio"
+        question={{ options: RESTART_OPTIONS }}
+        active
+        onAnswer={(answer) =>
+          dispatch({ type: answer === RESTART_CONFIRM ? 'CONFIRM_RESTART' : 'CANCEL_RESTART' })
+        }
+      />
     </div>
   );
 }

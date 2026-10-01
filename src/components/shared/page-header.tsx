@@ -2,17 +2,38 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "@/icons";
 import { cn } from "@/lib/utils";
+import { Heading, Text } from "@/components/typography";
+import { ShellBreadcrumbs } from "@/components/layout/shell-header-slot";
+import { PAGE_WIDTH_CLASSES, type PageWidth } from "@/components/layout/page-shell";
 
 interface PageHeaderProps {
   title: string;
   description?: string;
+  /**
+   * Las migas de la pantalla (`<Breadcrumbs items={…} />`). Dentro de la app
+   * se publican en la cabecera del shell, junto a «SellUp › sección»; no
+   * ocupan un renglón sobre el título.
+   */
   breadcrumbs?: ReactNode;
   actions?: ReactNode;
   meta?: ReactNode;
   className?: string;
   backHref?: string;
+  /**
+   * Ancho máximo de la cabecera, cuando la página estrecha su contenido sin
+   * envolverse en `PageShell`: `narrow` 720 · `normal` 1140 · `wide` 1600 ·
+   * `full`. Sin valor, ocupa el ancho que le dé su contenedor.
+   */
+  width?: PageWidth;
 }
 
+/**
+ * PageHeader — port de Thema `utility/PageHeader.tsx`.
+ *
+ * La cabecera de una pantalla: título, descripción, acciones (una sola
+ * primaria) y metadatos. La ubicación la dice la cabecera del shell: aquí solo
+ * se le pasan las `breadcrumbs`.
+ */
 export function PageHeader({
   title,
   description,
@@ -21,11 +42,21 @@ export function PageHeader({
   meta,
   className,
   backHref,
+  width,
 }: PageHeaderProps) {
   return (
-    <header className={cn("flex flex-col gap-3 pb-6", className)}>
-      {breadcrumbs && <div>{breadcrumbs}</div>}
-      
+    <header
+      data-width={width}
+      className={cn(
+        "flex flex-col gap-3 pb-6",
+        width && "mx-auto w-full",
+        width && PAGE_WIDTH_CLASSES[width],
+        className,
+      )}
+    >
+      {/* Las migas se publican en la cabecera del shell; fuera de él, quedan aquí. */}
+      {breadcrumbs && <ShellBreadcrumbs>{breadcrumbs}</ShellBreadcrumbs>}
+
       <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
         <div className="min-w-0 space-y-1.5">
           <div className="flex items-center gap-2">
@@ -38,17 +69,17 @@ export function PageHeader({
                 <ArrowLeft className="h-4 w-4" />
               </Link>
             )}
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            <Heading level={3} as="h1" weight="bold">
               {title}
-            </h1>
+            </Heading>
           </div>
           {description && (
-            <p className="max-w-3xl text-sm leading-relaxed text-muted-foreground">
+            <Text as="p" tone="secondary" className="max-w-3xl leading-relaxed">
               {description}
-            </p>
+            </Text>
           )}
         </div>
-        
+
         {actions && (
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             {actions}

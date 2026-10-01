@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { Bot, Plug, Info, FlaskConical, DollarSign, Zap, CheckCircle2 } from "@/icons";
+import { Bot, Plug, FlaskConical, DollarSign, Zap, CheckCircle2 } from "@/icons";
 import { PageHeader } from '@/components/shared/page-header';
 import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import { LegacyCompatBanner } from '../legacy-compat-banner';
@@ -7,7 +7,25 @@ import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card
 import { MetricCard } from '@/components/shared/metric-card';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
-import { TableShell, Timeline, TimelineItem, type TimelineTone } from '@/components/data-display';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  StatusBadge as SystemStatusBadge,
+  TableShell,
+  Timeline,
+  TimelineItem,
+  type StatusType,
+  type TimelineTone,
+} from '@/components/data-display';
+import { BarList } from '@/components/charts/BarList';
+import { DistributionBar } from '@/components/charts/DistributionBar';
+import { DonutChart } from '@/components/charts/DonutChart';
+import { EffectivenessMeter } from '../../ai-usage/effectiveness-meter';
+import {
+  agentRunSegments,
+  mockAgentCostItems,
+  mockProviderCostData,
+  providerCallSegments,
+} from './usage-chart-data';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { getUsageSummary, getRecentUsageActivity } from '@/modules/usage-tracking/actions';
 import { AgentRunsTable, ProviderLogsTable, QualityEventsTable } from './usage-activity-tables';
@@ -34,14 +52,6 @@ function formatCost(usd: number, decimals = 4): string {
 
 type BadgeTone = 'positive' | 'warning' | 'negative' | 'neutral' | 'brand';
 
-const BADGE_DOT: Record<BadgeTone, string> = {
-  positive: 'bg-success',
-  warning: 'bg-warning',
-  negative: 'bg-destructive',
-  neutral: 'bg-muted-foreground',
-  brand: 'bg-primary',
-};
-
 const STATUS_BADGE: Record<string, { label: string; variant: BadgeTone }> = {
   completed:      { label: 'Completado',  variant: 'positive' },
   running:        { label: 'En curso',    variant: 'brand' },
@@ -57,15 +67,23 @@ const STATUS_BADGE: Record<string, { label: string; variant: BadgeTone }> = {
   planned:        { label: 'Planificado', variant: 'warning' },
 };
 
+/** El chip de estado del sistema (`StatusBadge` de Thema) para cada tono. */
+const BADGE_STATUS: Record<BadgeTone, StatusType> = {
+  positive: 'completed',
+  warning: 'warning',
+  negative: 'error',
+  neutral: 'neutral',
+  brand: 'info',
+};
+
 function StatusBadge({ status }: { status: string }) {
   const config = STATUS_BADGE[status] ?? { label: status, variant: 'neutral' as const };
-  return (
-    <Badge variant={config.variant}>
-      <span className={`h-1.5 w-1.5 rounded-full ${BADGE_DOT[config.variant]}`} aria-hidden="true" />
-      {config.label}
-    </Badge>
-  );
+  return <SystemStatusBadge status={BADGE_STATUS[config.variant]} label={config.label} />;
 }
+
+const CHART_ROW = 'grid gap-4 lg:grid-cols-2';
+const DONUT_HEIGHT = 260;
+const formatRuns = (value: number) => value.toLocaleString('es-ES');
 
 /** Tono del punto del feed según el estado de la ejecución. */
 const STATUS_TIMELINE_TONE: Record<BadgeTone, TimelineTone> = {
@@ -130,7 +148,7 @@ function MockAgentsTable({ agents }: { agents: MockAgentStat[] }) {
   return (
     <UsageTable
       title="Efectividad por agente"
-      description="Ejecuciones, costo y tasa de aprobación por agente — datos ilustrativos."
+      description="Ejecuciones, costo y tasa de aprobación por agente — datos de ejemplo."
       count={agents.length}
       columns={['Agente', 'Estado', 'Ejec.', 'Generados', 'Aprobados', 'Efectividad', 'Costo est.', 'Costo / aprobado']}
       leftAligned={2}
@@ -143,7 +161,9 @@ function MockAgentsTable({ agents }: { agents: MockAgentStat[] }) {
           <TableCell className="text-right text-muted-foreground">{a.executions}</TableCell>
           <TableCell className="text-right text-muted-foreground">{a.resultsGenerated}</TableCell>
           <TableCell className="text-right font-medium text-foreground">{a.resultsApproved}</TableCell>
-          <TableCell className="text-right text-muted-foreground">{a.effectivenessRate.toFixed(1)}%</TableCell>
+          <TableCell>
+            <EffectivenessMeter pct={a.effectivenessRate} label={`Efectividad de ${a.name}`} />
+          </TableCell>
           <TableCell className="text-right font-mono text-muted-foreground">{formatCost(a.estimatedCostUsd, 2)}</TableCell>
           <TableCell className="text-right font-mono text-muted-foreground">{formatCost(a.avgCostPerApproved)}</TableCell>
         </TableRow>
@@ -156,7 +176,7 @@ function MockProvidersTable({ providers }: { providers: MockProviderStat[] }) {
   return (
     <UsageTable
       title="Efectividad por proveedor"
-      description="Llamadas, resultados útiles y costo por proveedor — datos ilustrativos."
+      description="Llamadas, resultados útiles y costo por proveedor — datos de ejemplo."
       count={providers.length}
       columns={['Proveedor', 'Operación', 'Llamadas', 'Devueltos', 'Útiles', 'Efectividad', 'Costo est.', 'Costo / útil']}
       leftAligned={2}
@@ -169,7 +189,9 @@ function MockProvidersTable({ providers }: { providers: MockProviderStat[] }) {
           <TableCell className="text-right text-muted-foreground">{p.calls}</TableCell>
           <TableCell className="text-right text-muted-foreground">{p.resultsReturned}</TableCell>
           <TableCell className="text-right font-medium text-foreground">{p.usefulResults}</TableCell>
-          <TableCell className="text-right text-muted-foreground">{p.effectivenessRate.toFixed(1)}%</TableCell>
+          <TableCell>
+            <EffectivenessMeter pct={p.effectivenessRate} label={`Efectividad de ${p.name}`} />
+          </TableCell>
           <TableCell className="text-right font-mono text-muted-foreground">
             {p.estimatedCostUsd === 0 ? <span className="text-text-muted">—</span> : formatCost(p.estimatedCostUsd, 2)}
           </TableCell>
@@ -227,6 +249,11 @@ export default async function UsagePage() {
     activity.provider_logs.length === 0 &&
     activity.quality_events.length === 0;
 
+  const mockProviderCost = mockProviderCostData(MOCK_PROVIDERS);
+  const mockProviderCostBreakdown = mockProviderCost
+    .map((part) => `${part.label}: ${formatCost(part.value, 2)}`)
+    .join(' · ');
+
   const summaryCards = [
     { label: 'Ejecuciones',  value: isEmpty ? String(MOCK_SUMMARY.totalExecutions)   : String(summary.total_agent_runs),      sub: 'de agentes',           icon: Bot,          accent: 'text-foreground' },
     { label: 'En curso',     value: isEmpty ? '0'                                     : String(summary.running_agent_runs),    sub: 'agentes activos',      icon: Zap,          accent: summary.running_agent_runs > 0 ? 'text-primary' : 'text-muted-foreground' },
@@ -277,23 +304,22 @@ export default async function UsagePage() {
       />
 
       {/* ── Aviso contextual ─────────────────────────────────── */}
-      <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/10 px-4 py-3">
-        <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-        <p className="min-w-0 text-xs leading-relaxed text-muted-foreground">
+      <Alert variant="info" role="note">
+        <AlertDescription>
           {isEmpty ? (
             <>
               Todavía no hay actividad registrada.{' '}
-              <strong className="font-medium text-foreground">Los datos que ves son ilustrativos</strong>{' '}
-              y desaparecerán en cuanto los agentes empiecen a trabajar.
+              <strong className="font-medium text-foreground">Los datos que ves son de ejemplo</strong> y desaparecerán
+              en cuanto los agentes empiecen a trabajar.
             </>
           ) : (
             <>
-              Aquí ves <strong className="font-medium text-foreground">la actividad más reciente</strong>.
-              Los análisis por período llegarán cuando haya suficiente historial.
+              Aquí ves <strong className="font-medium text-foreground">la actividad más reciente</strong>. Los análisis
+              por periodo llegarán cuando haya suficiente historial.
             </>
           )}
-        </p>
-      </div>
+        </AlertDescription>
+      </Alert>
 
       {/* ── Summary cards ────────────────────────────────────── */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -311,6 +337,26 @@ export default async function UsagePage() {
       {/* ── Tablas demo (cuando BD vacía) ───────────────────── */}
       {isEmpty && (
         <div className="space-y-6">
+          <section aria-label="Gráficos de ejemplo" className={CHART_ROW}>
+            <BarList
+              title="Costo por agente"
+              description="Costo estimado en USD, con los resultados aprobados — datos de ejemplo."
+              count={MOCK_AGENTS.length}
+              items={mockAgentCostItems(MOCK_AGENTS)}
+              formatValue={(value) => formatCost(value, 2)}
+            />
+            <DonutChart
+              title="De qué está hecho el costo"
+              description="Reparto del costo estimado (USD) entre proveedores — datos de ejemplo."
+              seriesName="Costo estimado (USD)"
+              data={mockProviderCost}
+              height={DONUT_HEIGHT}
+              ariaLabel="Reparto del costo estimado entre proveedores, con datos de ejemplo"
+              summary={`Costo estimado por proveedor (datos de ejemplo). ${mockProviderCostBreakdown}.`}
+              footer={<span className="tabular-nums">{mockProviderCostBreakdown}</span>}
+            />
+          </section>
+
           <MockAgentsTable agents={MOCK_AGENTS} />
 
           <MockProvidersTable providers={MOCK_PROVIDERS} />
@@ -318,7 +364,7 @@ export default async function UsagePage() {
           <SurfaceCard>
             <SurfaceCardHeader
               title="Actividad reciente"
-              description="Últimas ejecuciones de agentes y llamadas a proveedores — datos ilustrativos."
+              description="Últimas ejecuciones de agentes y llamadas a proveedores — datos de ejemplo."
             />
             <MockActivityTable items={MOCK_ACTIVITY} />
           </SurfaceCard>
@@ -328,6 +374,25 @@ export default async function UsagePage() {
       {/* ── Tablas reales (cuando hay datos) ────────────────── */}
       {!isEmpty && (
         <div className="space-y-6">
+          <section aria-label="Cómo salió la actividad" className={CHART_ROW}>
+            <DistributionBar
+              title="Cómo van las ejecuciones"
+              description="Todas las ejecuciones de agentes registradas."
+              unit="ejecuciones"
+              segments={agentRunSegments(summary)}
+              formatValue={formatRuns}
+              emptyLabel="Todavía no hay ejecuciones de agentes."
+            />
+            <DistributionBar
+              title="Cómo salieron las consultas"
+              description="Todas las consultas a proveedores registradas."
+              unit="consultas"
+              segments={providerCallSegments(summary)}
+              formatValue={formatRuns}
+              emptyLabel="Todavía no hay consultas a proveedores."
+            />
+          </section>
+
           {activity.agent_runs.length > 0 && <AgentRunsTable runs={activity.agent_runs} />}
           {activity.provider_logs.length > 0 && <ProviderLogsTable logs={activity.provider_logs} />}
           {activity.quality_events.length > 0 && <QualityEventsTable events={activity.quality_events} />}
@@ -335,19 +400,14 @@ export default async function UsagePage() {
       )}
 
       {/* ── Estado de configuración de precios ──────────────── */}
-      <SurfaceCard className="bg-surface-subtle shadow-none">
-        <div className="flex items-start gap-3">
-          <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-          <div className="min-w-0 space-y-1">
-            <p className="text-xs font-semibold text-foreground">De dónde salen los costos</p>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Los costos son estimados a partir del precio configurado para cada proveedor. Apollo y Lusha
-              ya tienen su precio por crédito según el contrato vigente; los proveedores de IA pueden
-              necesitar que se configure el precio del modelo en uso.
-            </p>
-          </div>
-        </div>
-      </SurfaceCard>
+      <Alert role="note">
+        <AlertTitle>De dónde salen los costos</AlertTitle>
+        <AlertDescription>
+          Los costos son estimados a partir del precio configurado para cada proveedor. Apollo y Lusha
+          ya tienen su precio por crédito según el contrato vigente; los proveedores de IA pueden
+          necesitar que se configure el precio del modelo en uso.
+        </AlertDescription>
+      </Alert>
     </div>
   );
 }

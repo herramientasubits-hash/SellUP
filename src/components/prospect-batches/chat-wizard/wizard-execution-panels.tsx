@@ -15,8 +15,11 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { CheckCircle2, Pencil, AlertCircle, Sparkles } from "@/icons";
+import { Pencil } from "@/icons";
 import { toast } from 'sonner';
+import { AiAnalyzingState } from '@/components/ai/ai-analyzing-state';
+import { ChatCardView, type ChatCardRow } from '@/components/chat';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
   WizardApolloTwoRoundPlannedSteps,
@@ -51,39 +54,25 @@ export type WizardGenerationOverlayProps = {
   maxRounds: number | null;
 };
 
+/**
+ * La espera de la generación. Es el estado «la IA está trabajando» del sistema
+ * (`AiAnalyzingState` de Thema): la misma chispa y el mismo marco que cualquier
+ * otra espera de IA del producto, con el texto de esta.
+ *
+ * Sin `progress` a propósito: la ejecución es un único viaje al servidor y el
+ * cliente no sabe cuánto falta. Una barra que avanzara sola afirmaría un
+ * progreso que nadie ha medido.
+ */
 function WizardGenerationOverlay({
   showApolloTwoRoundStages,
   maxRounds,
 }: WizardGenerationOverlayProps) {
   return (
-    <div
-      className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-6 p-8 overflow-hidden"
-      role="status"
-      aria-live="polite"
-      aria-label="Generando empresas candidatas"
-      style={{
-        background:
-          'linear-gradient(135deg, var(--su-ai-stop-1), var(--su-ai-stop-2), var(--su-ai-stop-3), var(--su-ai-stop-4), var(--su-ai-stop-5))',
-      }}
-    >
-      {/* Mirror shine sweep */}
-      <div className="pointer-events-none absolute inset-0 -translate-x-full skew-x-[-12deg] su-mirror-shine animate-su-mirror-shine" />
-
-      {/* Sparkle icon */}
-      <div className="animate-su-float relative z-10">
-        <Sparkles className="h-12 w-12 text-white/80" strokeWidth={1.5} />
-      </div>
-
-      {/* Main label */}
-      <div className="relative z-10 text-center space-y-1">
-        <p className="text-lg font-bold text-white">Generando empresas candidatas</p>
-        <p className="text-sm text-white/70">Procesando búsqueda con IA</p>
-      </div>
-
-      {/* Body text */}
-      <p className="relative z-10 text-xs text-white/60 text-center max-w-[280px]">
-        Filtrando resultados y preparando candidatos para revisión
-      </p>
+    <div className="space-y-3" data-testid="wizard-generation-overlay">
+      <AiAnalyzingState
+        title="Generando empresas candidatas"
+        caption="Procesando búsqueda con IA · Filtrando resultados y preparando candidatos para revisión"
+      />
 
       {/* § 11 — etapas de la modalidad de dos rondas, presentadas como PLAN. La
           ejecución es un único viaje al servidor, así que el cliente no sabe en
@@ -92,13 +81,6 @@ function WizardGenerationOverlay({
       {showApolloTwoRoundStages && maxRounds !== null && (
         <WizardApolloTwoRoundPlannedSteps maxRounds={maxRounds} />
       )}
-
-      {/* Indeterminate progress bar */}
-      <div className="relative z-10 w-full max-w-[280px]">
-        <div className="h-2 w-full rounded-full bg-white/20 overflow-hidden">
-          <div className="h-full w-2/3 rounded-full bg-white/80 animate-su-pulse" />
-        </div>
-      </div>
     </div>
   );
 }
@@ -131,31 +113,10 @@ export function SubmittingPanel({
 function WizardPersistenceBreakdown({ rows }: { rows: WizardPersistenceBreakdownRow[] }) {
   if (rows.length === 0) return null;
   return (
-    <dl
-      className="space-y-2 rounded-xl border border-border/60 bg-card p-4"
+    <ChatCardView
       data-testid="wizard-persistence-breakdown"
-    >
-      {rows.map((row) => (
-        <div
-          key={row.key}
-          className="space-y-0.5"
-          data-testid={`wizard-persistence-breakdown-row-${row.key}`}
-        >
-          <div className="flex items-baseline justify-between gap-3">
-            <dt className="min-w-0 text-xs text-muted-foreground">{row.label}</dt>
-            <dd
-              className="shrink-0 text-xs font-semibold tabular-nums text-foreground"
-              data-testid={`wizard-persistence-breakdown-value-${row.key}`}
-            >
-              {row.value}
-            </dd>
-          </div>
-          {row.hint !== null && (
-            <p className="text-xs leading-snug text-muted-foreground">{row.hint}</p>
-          )}
-        </div>
-      ))}
-    </dl>
+      card={{ kind: 'rows', title: 'Qué se guardó', rows }}
+    />
   );
 }
 
@@ -331,18 +292,11 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
   if (status === 'completed_with_errors') {
     return (
       <div className="space-y-4 animate-su-fade-in" role="alert">
-        <div className="flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/10 p-4">
-          <AlertCircle
-            className="mt-0.5 h-5 w-5 shrink-0 text-destructive"
-            aria-hidden
-          />
-          <div className="min-w-0 space-y-1">
-            <p className="text-sm font-semibold text-destructive">
-              {resultCopy.heading}
-            </p>
-            <p className="break-words text-xs leading-relaxed text-destructive">{resultCopy.body}</p>
-          </div>
-        </div>
+        {/* El panel entero ya es el `alert`; el aviso de dentro no repite rol. */}
+        <Alert variant="destructive" role={undefined}>
+          <AlertTitle className="text-sm">{resultCopy.heading}</AlertTitle>
+          <AlertDescription className="break-words text-xs">{resultCopy.body}</AlertDescription>
+        </Alert>
         <WizardPersistenceBreakdown rows={persistenceBreakdownRows} />
         <div className="flex gap-2">
           <Button size="sm" variant="ghost" onClick={onClose}>
@@ -377,55 +331,33 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
     // Sustituye al mensaje genérico como única explicación: el copy dice QUÉ pasó y
     // estas cifras dicen CUÁNTAS empresas hubo detrás. Las repeticiones entre rondas
     // se muestran como tales y nunca se suman a las empresas únicas.
-    const breakdownRows =
+    const breakdownRows: ChatCardRow[] =
       noNewCandidatesBreakdown === null || noNewCandidatesBreakdown === undefined
         ? []
         : toNoNewCandidatesBreakdownRows(
             buildNoNewCandidatesCompactBreakdown(noNewCandidatesBreakdown, {
               candidatesCreatedCount: candidateCount ?? 0,
             }),
-          );
+          ).map((row) => ({ key: row.key, label: row.label, value: String(row.count), hint: row.hint }));
 
     return (
       <div className="space-y-4 animate-su-fade-in" role="status">
-        <div className="flex items-start gap-3 rounded-xl border border-warning/25 bg-warning/15 p-4">
-          <AlertCircle
-            className="mt-0.5 h-5 w-5 shrink-0 text-warning"
-            aria-hidden
-          />
-          <div className="min-w-0 flex-1 space-y-2">
-            <p className="text-sm font-semibold text-warning">
-              {resultCopy.heading ?? 'No encontramos empresas nuevas con estos criterios.'}
-            </p>
-            <p className="break-words text-xs leading-relaxed text-warning">
-              {noNewBody}
-            </p>
+        {/* El panel entero ya es el `status`; el aviso de dentro no repite rol. */}
+        <Alert variant="warning" role={undefined}>
+          <AlertTitle className="text-sm">
+            {resultCopy.heading ?? 'No encontramos empresas nuevas con estos criterios.'}
+          </AlertTitle>
+          <AlertDescription className="break-words text-xs">{noNewBody}</AlertDescription>
+        </Alert>
 
-            {breakdownRows.length > 0 && (
-              <dl
-                className="mt-1 space-y-1 border-t border-warning/25 pt-2"
-                data-testid="wizard-no-new-candidates-breakdown"
-              >
-                {breakdownRows.map((row) => (
-                  <div key={row.key} className="space-y-0.5" data-testid={`wizard-no-new-candidates-row-${row.key}`}>
-                    <div className="flex items-baseline justify-between gap-3">
-                      <dt className="min-w-0 text-xs text-muted-foreground">{row.label}</dt>
-                      <dd
-                        className="shrink-0 text-xs font-semibold tabular-nums text-foreground"
-                        data-testid={`wizard-no-new-candidates-count-${row.key}`}
-                      >
-                        {row.count}
-                      </dd>
-                    </div>
-                    {row.hint !== null && (
-                      <p className="text-xs leading-snug text-muted-foreground">{row.hint}</p>
-                    )}
-                  </div>
-                ))}
-              </dl>
-            )}
-          </div>
-        </div>
+        {breakdownRows.length > 0 && (
+          <ChatCardView
+            data-testid="wizard-no-new-candidates-breakdown"
+            rowTestIdPrefix="wizard-no-new-candidates"
+            valueTestIdSuffix="count"
+            card={{ kind: 'rows', title: 'Qué pasó con lo encontrado', rows: breakdownRows }}
+          />
+        )}
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="outline" onClick={onEditSearch}>
             <Pencil className="h-3.5 w-3.5" aria-hidden />
@@ -463,20 +395,10 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
           al único candidato que contaba hacia el objetivo. El aviso ámbar de más
           abajo pasa a ser el titular de la corrida. */}
       {!isPartialPersistence && (
-        <div className="flex items-start gap-3 rounded-xl border border-success/20 bg-success/10 p-4">
-          <CheckCircle2
-            className="mt-0.5 h-5 w-5 shrink-0 text-success"
-            aria-hidden
-          />
-          <div className="min-w-0 space-y-1">
-            <p className="text-sm font-semibold text-success">
-              {heading}
-            </p>
-            <p className="text-xs leading-relaxed text-success">
-              {body}
-            </p>
-          </div>
-        </div>
+        <Alert variant="success" role="status">
+          <AlertTitle className="text-sm">{heading}</AlertTitle>
+          <AlertDescription className="text-xs">{body}</AlertDescription>
+        </Alert>
       )}
 
       {/* PERSISTENCE-READINESS-4 § 8 — persistencia PARCIAL. Hay candidatos que
@@ -484,20 +406,10 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
           que el usuario concluya que el listado está completo y repita la
           búsqueda para «recuperar» el resto. */}
       {isPersistenceFailure && (
-        <div className="flex items-start gap-3 rounded-xl border border-warning/25 bg-warning/15 p-4" role="alert">
-          <AlertCircle
-            className="mt-0.5 h-5 w-5 shrink-0 text-warning"
-            aria-hidden
-          />
-          <div className="min-w-0 space-y-1">
-            <p className="text-sm font-semibold text-warning">
-              {resultCopy.heading}
-            </p>
-            <p className="break-words text-xs leading-relaxed text-warning">
-              {resultCopy.body}
-            </p>
-          </div>
-        </div>
+        <Alert variant="warning">
+          <AlertTitle className="text-sm">{resultCopy.heading}</AlertTitle>
+          <AlertDescription className="break-words text-xs">{resultCopy.body}</AlertDescription>
+        </Alert>
       )}
 
       {/* § 7 — el desglose administrativo acompaña SIEMPRE al aviso de
@@ -519,51 +431,21 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
           `targetSummary` sigue siendo el respaldo para una corrida que no la
           declaró; sin ninguna de las dos, no se pinta resumen. */}
       {acceptedForTargetRows !== null && (
-        <dl
-          className="space-y-2 rounded-xl border border-border/60 bg-card p-4"
+        <ChatCardView
           data-testid="wizard-target-summary"
-        >
-          {acceptedForTargetRows.map((row) => (
-            <div key={row.key} className="space-y-0.5" data-testid={`wizard-target-summary-row-${row.key}`}>
-              <div className="flex items-baseline justify-between gap-3">
-                <dt className="min-w-0 text-xs text-muted-foreground">{row.label}</dt>
-                <dd
-                  className="shrink-0 text-xs font-semibold tabular-nums text-foreground"
-                  data-testid={`wizard-target-summary-value-${row.key}`}
-                >
-                  {row.value}
-                </dd>
-              </div>
-              {row.hint !== null && (
-                <p className="text-xs leading-snug text-muted-foreground">{row.hint}</p>
-              )}
-            </div>
-          ))}
-        </dl>
+          card={{ kind: 'rows', title: 'Resultado de la búsqueda', rows: acceptedForTargetRows }}
+        />
       )}
 
       {acceptedForTargetRows === null && targetSummary && (
-        <dl
-          className="space-y-2 rounded-xl border border-border/60 bg-card p-4"
+        <ChatCardView
           data-testid="wizard-target-summary"
-        >
-          {buildWizardTargetSummary(targetSummary).rows.map((row) => (
-            <div key={row.key} className="space-y-0.5" data-testid={`wizard-target-summary-row-${row.key}`}>
-              <div className="flex items-baseline justify-between gap-3">
-                <dt className="min-w-0 text-xs text-muted-foreground">{row.label}</dt>
-                <dd
-                  className="shrink-0 text-xs font-semibold tabular-nums text-foreground"
-                  data-testid={`wizard-target-summary-value-${row.key}`}
-                >
-                  {row.value}
-                </dd>
-              </div>
-              {row.hint !== null && (
-                <p className="text-xs leading-snug text-muted-foreground">{row.hint}</p>
-              )}
-            </div>
-          ))}
-        </dl>
+          card={{
+            kind: 'rows',
+            title: 'Resultado de la búsqueda',
+            rows: buildWizardTargetSummary(targetSummary).rows,
+          }}
+        />
       )}
 
       {/* § 11 — cierre honesto de la modalidad de dos rondas: rondas REALMENTE

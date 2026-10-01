@@ -239,14 +239,15 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
         ),
         cell: ({ row }) => (
           <div className="min-w-0 space-y-0.5">
-            <button
+            <Button
               type="button"
+              variant="link"
               onClick={() => openDetail(row.original)}
               title={row.original.name}
-              className="block w-full truncate rounded-sm text-left text-sm font-medium text-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+              className="h-auto max-w-full justify-start p-0 font-medium text-foreground hover:text-primary hover:no-underline"
             >
-              {row.original.name}
-            </button>
+              <span className="truncate">{row.original.name}</span>
+            </Button>
           </div>
         ),
         size: 260,

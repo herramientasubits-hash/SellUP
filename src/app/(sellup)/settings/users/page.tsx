@@ -8,9 +8,8 @@ import {
   getOrganizationGroups,
 } from '@/modules/access/actions';
 import { UsersSettingsClient } from './users-settings-client';
-import { AddUserDrawer } from './add-user-drawer';
-import { ActionButtons } from './action-buttons';
-import { ScreenActionRail, ScreenActionRailProvider } from '@/components/action-rail';
+import { UsersScreenActions } from './users-screen-actions';
+import { ListActionRailProvider } from '@/components/action-rail';
 
 export default async function UsersManagementPage() {
   const isAdmin = await isCurrentUserAdmin();
@@ -26,18 +25,13 @@ export default async function UsersManagementPage() {
   const activeUsers    = users.filter(u => u.access_status === 'active');
 
   return (
-    <ScreenActionRailProvider>
+    <ListActionRailProvider label="Acciones de usuarios" gender="m">
       {/* El hueco inferior deja sitio a la barra flotante de acciones. */}
       <SettingsPage
         title="Usuarios y acceso"
         description="Aprueba solicitudes y gestiona roles, grupos y accesos del equipo."
         className="pb-24"
-        actions={
-          <ScreenActionRail label="Acciones de usuarios">
-            <ActionButtons groups={groups} />
-            <AddUserDrawer roles={roles} activeUsers={activeUsers} groups={groups} />
-          </ScreenActionRail>
-        }
+        actions={<UsersScreenActions roles={roles} activeUsers={activeUsers} groups={groups} />}
       >
         <UsersSettingsClient
           users={users}
@@ -48,6 +42,6 @@ export default async function UsersManagementPage() {
           isAdmin={isAdmin}
         />
       </SettingsPage>
-    </ScreenActionRailProvider>
+    </ListActionRailProvider>
   );
 }

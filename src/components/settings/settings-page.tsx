@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
+import { SurfaceCard } from "@/components/shared/surface-card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Breadcrumbs, type BreadcrumbItem } from "@/components/navigation/breadcrumbs";
 
 export type SettingsTrail = readonly (string | BreadcrumbItem)[];
@@ -88,8 +90,9 @@ interface TechnicalDetailsProps {
  * permisos concedidos, nombres internos) fuera de la vista de quien solo quiere
  * saber si algo funciona.
  *
- * Es un `<details>` nativo: se abre con teclado, no necesita JavaScript y
- * funciona igual en una página de servidor.
+ * Es un `Collapsible` dentro de una `SurfaceCard`: el disparador es un botón
+ * de verdad (se abre con teclado y anuncia si está abierto) y el contenido
+ * plegado sigue apareciendo al buscar en la página.
  */
 export function TechnicalDetails({
   title = "Detalles técnicos",
@@ -98,25 +101,26 @@ export function TechnicalDetails({
   className,
 }: TechnicalDetailsProps) {
   return (
-    <details
-      className={cn(
-        "group rounded-2xl border border-border/60 bg-card shadow-card",
-        className,
-      )}
-    >
-      <summary className="flex cursor-pointer list-none items-center gap-3 rounded-2xl px-6 py-4 transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 [&::-webkit-details-marker]:hidden">
-        <span className="min-w-0 flex-1">
-          <span className="block text-sm font-semibold text-foreground">{title}</span>
-          {summary && (
-            <span className="mt-0.5 block text-xs text-muted-foreground">{summary}</span>
-          )}
-        </span>
-        <span className="shrink-0 text-xs font-medium text-primary group-open:hidden">Ver</span>
-        <span className="hidden shrink-0 text-xs font-medium text-primary group-open:inline">
-          Ocultar
-        </span>
-      </summary>
-      <div className="space-y-4 border-t border-border/60 px-6 py-5">{children}</div>
-    </details>
+    <SurfaceCard noPadding className={className}>
+      <Collapsible>
+        <CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-3 rounded-2xl px-6 py-4 text-left transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold text-foreground">{title}</span>
+            {summary && (
+              <span className="mt-0.5 block text-xs text-muted-foreground">{summary}</span>
+            )}
+          </span>
+          <span className="shrink-0 text-xs font-medium text-primary group-data-[panel-open]:hidden">
+            Ver
+          </span>
+          <span className="hidden shrink-0 text-xs font-medium text-primary group-data-[panel-open]:inline">
+            Ocultar
+          </span>
+        </CollapsibleTrigger>
+        <CollapsibleContent hiddenUntilFound>
+          <div className="space-y-4 border-t border-border/60 px-6 py-5">{children}</div>
+        </CollapsibleContent>
+      </Collapsible>
+    </SurfaceCard>
   );
 }

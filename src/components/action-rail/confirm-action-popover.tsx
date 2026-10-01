@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { railIconButtonClass } from "./rail-button";
+import { useRailPopoutSide } from "./rail-preferences";
 
 export type ConfirmTone = "destructive" | "warning" | "primary";
 
@@ -44,6 +45,7 @@ export function ConfirmActionPopover({
   confirmLabel,
   tone,
   onConfirm,
+  side,
   tooltip,
 }: {
   open: boolean;
@@ -55,9 +57,14 @@ export function ConfirmActionPopover({
   confirmLabel: string;
   tone: ConfirmTone;
   onConfirm: () => void;
+  /** Por defecto, hacia donde la barra tenga sitio. */
+  side?: "top" | "right" | "bottom" | "left";
   /** Lo que dice el botón al pasar por encima, cuando es un icono desnudo. */
   tooltip?: React.ReactNode;
 }) {
+  const railSide = useRailPopoutSide();
+  const popoutSide = side ?? railSide;
+
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       {tooltip === undefined ? (
@@ -65,13 +72,16 @@ export function ConfirmActionPopover({
       ) : (
         <Tooltip>
           <TooltipTrigger render={<PopoverTrigger render={trigger} />} />
-          <TooltipContent side="top">{tooltip}</TooltipContent>
+          <TooltipContent side={popoutSide} className="max-w-56">
+            {tooltip}
+          </TooltipContent>
         </Tooltip>
       )}
       <PopoverContent
         align="center"
+        side={popoutSide}
         sideOffset={10}
-        className="w-72 rounded-2xl border-nav-foreground/10 bg-nav p-3.5 text-nav-foreground shadow-rail"
+        className="w-72 rounded-2xl border-primary/15 bg-nav p-3.5 text-nav-foreground shadow-rail"
       >
         <p className="text-sm font-semibold">{title}</p>
         <p className="mt-1 text-xs leading-relaxed text-nav-foreground/70">{description}</p>
@@ -79,7 +89,7 @@ export function ConfirmActionPopover({
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            className="rounded-md px-3 py-1.5 text-xs font-semibold text-nav-foreground/70 transition-colors hover:bg-nav-foreground/10 hover:text-nav-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nav-foreground/30"
+            className="rounded-lg px-3 py-1.5 text-xs font-semibold text-nav-foreground/70 transition-colors hover:bg-nav-foreground/10 hover:text-nav-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nav-foreground/30"
           >
             Cancelar
           </button>
@@ -87,7 +97,7 @@ export function ConfirmActionPopover({
             type="button"
             onClick={onConfirm}
             className={cn(
-              "rounded-md px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nav-foreground/30",
+              "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nav-foreground/30",
               tone === "destructive" && "bg-destructive/15 text-destructive hover:bg-destructive/25",
               tone === "warning" && "bg-warning/15 text-warning hover:bg-warning/25",
               tone === "primary" && "bg-primary text-primary-foreground hover:bg-primary/90",
@@ -110,7 +120,7 @@ export function railButtonClass(
   iconOnly: boolean,
 ): string {
   return cn(
-    "flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md text-xs font-semibold transition-colors",
+    "flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl text-xs font-semibold transition-colors",
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nav-foreground/30 disabled:pointer-events-none disabled:opacity-40",
     iconOnly ? "w-9 justify-center" : "px-3",
     variant === "primary" && "bg-primary text-primary-foreground hover:bg-primary/90",

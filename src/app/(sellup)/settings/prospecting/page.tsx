@@ -1,8 +1,9 @@
 import { redirect } from 'next/navigation';
-import { Search, Sparkles, CheckCircle2 } from "@/icons";
+import { Search, Sparkles } from "@/icons";
 import { SettingsPage, TechnicalDetails } from '@/components/settings/settings-page';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
-import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { StatusBadge, type StatusType } from '@/components/data-display/status-badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
 import {
@@ -27,32 +28,16 @@ function providerTypeLabel(type: ProviderType): string {
   }
 }
 
-function lifecycleLabel(status: LifecycleStatus): { label: string; className: string; dotClass: string } {
+function lifecycleStatus(status: LifecycleStatus): { label: string; status: StatusType } {
   switch (status) {
     case 'prepared':
-      return {
-        label: 'Listo para conectar',
-        className: 'border-primary/30 bg-primary/10 text-primary',
-        dotClass: 'bg-primary',
-      };
+      return { label: 'Listo para conectar', status: 'info' };
     case 'planned':
-      return {
-        label: 'En estudio',
-        className: 'border-border/60 bg-surface-subtle text-muted-foreground',
-        dotClass: 'bg-muted-foreground/30',
-      };
+      return { label: 'En estudio', status: 'neutral' };
     case 'connected':
-      return {
-        label: 'Conectado',
-        className: 'border-success/30 bg-success/10 text-success',
-        dotClass: 'bg-success',
-      };
+      return { label: 'Conectado', status: 'active' };
     case 'inactive':
-      return {
-        label: 'Inactivo',
-        className: 'border-border/60 bg-surface-subtle text-muted-foreground',
-        dotClass: 'bg-muted-foreground/20',
-      };
+      return { label: 'Inactivo', status: 'inactive' };
   }
 }
 
@@ -61,19 +46,14 @@ function lifecycleLabel(status: LifecycleStatus): { label: string; className: st
 // ============================================================
 
 function StaticProviderCard({ provider }: { provider: ProspectingProvider }) {
-  const lifecycle = lifecycleLabel(provider.lifecycle_status);
+  const lifecycle = lifecycleStatus(provider.lifecycle_status);
 
   return (
     <SurfaceCard>
       <SurfaceCardHeader
         title={provider.name}
         description={provider.description ?? undefined}
-        actions={
-          <Badge variant="outline" className={lifecycle.className}>
-            <span className={`h-1.5 w-1.5 rounded-full ${lifecycle.dotClass}`} aria-hidden="true" />
-            {lifecycle.label}
-          </Badge>
-        }
+        actions={<StatusBadge status={lifecycle.status} label={lifecycle.label} />}
       />
 
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -124,7 +104,6 @@ export default async function ProspectingPage() {
     lushaConnection?.connection_status === 'connected' ? 'Lusha' : null,
   ].filter(Boolean) as string[];
 
-  const activeProviderLabel = 'En uso';
   const connectableCount = (apolloProvider ? 1 : 0) + (lushaProvider ? 1 : 0);
 
   return (
@@ -133,21 +112,22 @@ export default async function ProspectingPage() {
       description="Los proveedores con los que SellUp encuentra empresas y completa sus datos."
     >
       {/* Qué está en uso ahora, en una línea */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
-        <span className="text-sm text-muted-foreground">{activeProviderLabel}:</span>
-        {activeProviderNames.length > 0 ? (
-          activeProviderNames.map((name) => (
-            <Badge key={name} variant="positive">
-              <CheckCircle2 aria-hidden="true" />
-              {name}
-            </Badge>
-          ))
-        ) : (
-          <span className="text-sm font-medium text-foreground">
-            Ninguno todavía. Conecta uno de los proveedores de abajo para empezar a prospectar.
-          </span>
-        )}
-      </div>
+      {activeProviderNames.length > 0 ? (
+        <Alert variant="success">
+          <AlertTitle>En uso: {activeProviderNames.join(' y ')}</AlertTitle>
+          <AlertDescription>
+            SellUp encuentra empresas y completa sus datos con{' '}
+            {activeProviderNames.length === 1 ? 'este proveedor' : 'estos proveedores'}.
+          </AlertDescription>
+        </Alert>
+      ) : (
+        <Alert variant="info">
+          <AlertTitle>Todavía no hay ningún proveedor en uso</AlertTitle>
+          <AlertDescription>
+            Conecta uno de los proveedores de abajo y prueba su conexión para empezar a prospectar.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Los que se pueden conectar hoy */}
       {connectableCount === 0 ? (

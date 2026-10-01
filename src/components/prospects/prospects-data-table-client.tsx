@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import { useReportSelectionCount } from "@/components/action-rail";
 import { useRouter } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
 import {
@@ -216,7 +215,6 @@ export function ProspectsDataTableClient({
   emptyActions,
   hasUrlFilters = false,
 }: ProspectsDataTableClientProps) {
-  const reportSelectionCount = useReportSelectionCount();
   const router = useRouter();
 
   // Attach batch data from the original fetch
@@ -703,6 +701,8 @@ export function ProspectsDataTableClient({
     () => [
       {
         id: 'view-detail',
+        // Solo tiene sentido sobre una fila: con varias marcadas sale de la barra.
+        scope: ['single'],
         label: 'Ver detalle',
         icon: Info,
         disabled: (rows) => rows.length !== 1,
@@ -969,7 +969,6 @@ export function ProspectsDataTableClient({
           tableId="prospects"
           noun="prospectos"
           getRowLabel={(row) => row.name}
-          onSelectionCountChange={reportSelectionCount}
           ref={dataTableRef}
           columns={columns}
           data={quick.rows}

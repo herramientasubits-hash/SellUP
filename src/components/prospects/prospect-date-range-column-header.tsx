@@ -8,11 +8,9 @@
 // etiqueta ordena con un clic y el embudo, aparte y siempre a la vista, abre
 // el rango de fechas. Con rango puesto el embudo se enciende.
 
-import * as React from 'react';
 import type { Column } from '@tanstack/react-table';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { DateRangePicker } from '@/components/date';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { HeaderFilterButton, HeaderSortButton } from '@/components/data-display';
 import { cycleColumnSort } from '@/components/data-table';
@@ -20,6 +18,23 @@ import { cycleColumnSort } from '@/components/data-table';
 export interface DateRangeFilterValue {
   from?: string;
   to?: string;
+}
+
+const ISO_DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** `2026-09-03` → ese día a medianoche en la zona de quien mira. */
+export function parseIsoDay(value: string | undefined): Date | undefined {
+  const match = value ? ISO_DAY.exec(value) : null;
+  if (!match) return undefined;
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+/** El día de `date`, en su propia zona, como `2026-09-03`. */
+export function toIsoDay(date: Date | undefined): string | undefined {
+  if (!date) return undefined;
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
 }
 
 export function DateRangeColumnHeader<TData>({
@@ -31,7 +46,6 @@ export function DateRangeColumnHeader<TData>({
 }) {
   const filterValue = (column.getFilterValue() as DateRangeFilterValue | undefined) ?? {};
   const isFiltered = !!filterValue.from || !!filterValue.to;
-  const fieldId = React.useId();
 
   const setRange = (next: DateRangeFilterValue) => {
     column.setFilterValue(next.from || next.to ? next : undefined);
@@ -58,31 +72,15 @@ export function DateRangeColumnHeader<TData>({
             Fecha de creación
           </p>
 
-          <div className="space-y-2 px-4 py-3">
-            <div className="space-y-1.5">
-              <Label htmlFor={`${fieldId}-from`} className="text-xs text-muted-foreground">
-                Desde
-              </Label>
-              <Input
-                id={`${fieldId}-from`}
-                type="date"
-                inputSize="sm"
-                value={filterValue.from ?? ''}
-                onChange={(e) => setRange({ ...filterValue, from: e.target.value || undefined })}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor={`${fieldId}-to`} className="text-xs text-muted-foreground">
-                Hasta
-              </Label>
-              <Input
-                id={`${fieldId}-to`}
-                type="date"
-                inputSize="sm"
-                value={filterValue.to ?? ''}
-                onChange={(e) => setRange({ ...filterValue, to: e.target.value || undefined })}
-              />
-            </div>
+          {/* El rango se elige en el calendario del sistema; el filtro sigue
+              guardando los días como `AAAA-MM-DD`. */}
+          <div className="px-4 py-3">
+            <DateRangePicker
+              label="Rango"
+              placeholder="Elige el rango"
+              value={{ from: parseIsoDay(filterValue.from), to: parseIsoDay(filterValue.to) }}
+              onChange={(range) => setRange({ from: toIsoDay(range?.from), to: toIsoDay(range?.to) })}
+            />
           </div>
 
           {isFiltered && (

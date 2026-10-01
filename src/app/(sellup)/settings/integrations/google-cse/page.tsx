@@ -1,5 +1,4 @@
 import { redirect } from 'next/navigation';
-import { AlertTriangle, Ban } from "@/icons";
 import { SettingsPage, TechnicalDetails } from '@/components/settings/settings-page';
 import {
   IntegrationCapabilities,
@@ -10,6 +9,7 @@ import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { getGoogleCSEIntegration } from '@/modules/integrations/actions';
 import { GoogleCSEActionsPanel } from './google-cse-actions-client';
 import type { GoogleCSEMetadata } from '@/modules/integrations/types';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 export default async function GoogleCSEIntegrationPage() {
   const isAdmin = await isCurrentUserAdmin();
@@ -33,25 +33,21 @@ export default async function GoogleCSEIntegrationPage() {
       trail={[{ label: 'Integraciones comerciales', href: '/settings/integrations' }]}
     >
       {!isAvailable ? (
-        <div className="flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-4">
-          <Ban aria-hidden className="mt-0.5 size-5 shrink-0 text-destructive" />
-          <div>
-            <p className="text-sm font-semibold text-destructive">Google no permite usar este buscador todavía</p>
-            <p className="mt-1 text-xs leading-relaxed text-destructive">
-              Google ya no da acceso automático a este servicio a cuentas nuevas. SellUp lo mantiene apagado
-              hasta que la cuenta de Google de la empresa tenga acceso. El motivo exacto está en «Detalles
-              técnicos».
-            </p>
-          </div>
-        </div>
+        <Alert variant="destructive">
+          <AlertTitle>Google no permite usar este buscador todavía</AlertTitle>
+          <AlertDescription>
+            Google ya no da acceso automático a este servicio a cuentas nuevas. SellUp lo mantiene apagado
+            hasta que la cuenta de Google de la empresa tenga acceso. El motivo exacto está en «Detalles
+            técnicos».
+          </AlertDescription>
+        </Alert>
       ) : (
-        <div className="flex items-start gap-3 rounded-xl border border-warning/25 bg-warning/15 px-4 py-3">
-          <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0 text-warning" />
-          <p className="text-sm leading-relaxed text-foreground">
-            <span className="font-semibold">Google da 100 búsquedas gratis al día</span>; las demás cuestan
-            unos 5 USD por cada 1.000. «Probar conexión» también gasta 1 búsqueda.
-          </p>
-        </div>
+        <Alert variant="warning">
+          <AlertTitle>Google da 100 búsquedas gratis al día</AlertTitle>
+          <AlertDescription>
+            Las demás cuestan unos 5 USD por cada 1.000. «Probar conexión» también gasta 1 búsqueda.
+          </AlertDescription>
+        </Alert>
       )}
 
       <div className="grid items-start gap-4 lg:grid-cols-2">

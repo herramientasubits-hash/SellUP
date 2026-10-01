@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { isCurrentUserAdmin, getUsersSummary, hasActiveAccess } from "@/modules/access/actions";
 import { getUserDriveConnection } from "@/modules/drive/actions";
 import { getSourceCatalogViewModel } from "@/modules/source-catalog/queries";
+import { Heading } from '@/components/typography';
 
 /**
  * Resumen de Configuración: una tarjeta por sección con lo que se hace en ella
@@ -68,9 +69,9 @@ export default async function SettingsOverviewPage() {
                       </div>
                       <div className="min-w-0 flex-1 space-y-1">
                         <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
-                          <h2 className="text-base font-semibold leading-tight tracking-tight text-foreground">
+                          <Heading level={6} as="h2" className="leading-tight">
                             {section.title}
-                          </h2>
+                          </Heading>
                           {badge && (
                             <Badge variant={badge.tone} className="shrink-0">
                               {badge.label}

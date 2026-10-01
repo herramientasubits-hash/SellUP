@@ -1,5 +1,4 @@
 import { redirect } from 'next/navigation';
-import { AlertTriangle } from "@/icons";
 import { SettingsPage, TechnicalDetails } from '@/components/settings/settings-page';
 import {
   IntegrationCapabilities,
@@ -10,6 +9,7 @@ import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { getTavilyIntegration } from '@/modules/integrations/actions';
 import { TavilyActionsPanel } from './tavily-actions-client';
 import type { TavilyMetadata } from '@/modules/integrations/types';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 export default async function TavilyIntegrationPage() {
   const isAdmin = await isCurrentUserAdmin();
@@ -31,13 +31,12 @@ export default async function TavilyIntegrationPage() {
       trail={[{ label: 'Integraciones comerciales', href: '/settings/integrations' }]}
     >
       {/* Lo que cuesta usarlo, antes de probar nada */}
-      <div className="flex items-start gap-3 rounded-xl border border-warning/25 bg-warning/15 px-4 py-3">
-        <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0 text-warning" />
-        <p className="text-sm leading-relaxed text-foreground">
-          <span className="font-semibold">Cada búsqueda gasta 1 crédito de Tavily</span>, y «Probar conexión»
-          también. El plan gratuito trae unos 1.000 créditos al mes.
-        </p>
-      </div>
+      <Alert variant="warning">
+        <AlertTitle>Cada búsqueda gasta 1 crédito de Tavily</AlertTitle>
+        <AlertDescription>
+          «Probar conexión» también gasta uno. El plan gratuito trae unos 1.000 créditos al mes.
+        </AlertDescription>
+      </Alert>
 
       <div className="grid items-start gap-4 lg:grid-cols-2">
         <IntegrationStatusCard

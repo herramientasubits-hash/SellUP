@@ -1,14 +1,13 @@
 'use client';
 
 import { formatInAppZone } from '@/lib/format-date';
-import { useState, useTransition, useCallback, useRef } from 'react';
+import { useState, useTransition, useCallback, useMemo, useRef } from 'react';
 import {
   Activity,
   Users,
   Link2,
   Cpu,
   Search,
-  ChevronDown,
   Loader2,
   ChevronRight,
 } from "@/icons";
@@ -19,6 +18,9 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Input } from '@/components/ui/input';
 import { Timeline, TimelineItem, type TimelineTone } from '@/components/data-display';
 import { Spinner } from '@/components/feedback/spinner';
+import { SearchableSelect } from '@/components/forms/searchable-select';
+import { SegmentedControl } from '@/components/selection/segmented-control';
+import { Heading } from '@/components/typography';
 import { getPlatformActivity } from '@/modules/system-status/activity-actions';
 import type {
   ActivityViewerContext,
@@ -74,114 +76,66 @@ function SourceIcon({ source }: { source: AdminActivitySource }) {
   return <Cpu className={iconClass} aria-hidden="true" />;
 }
 
-function UserSelector({
-  value,
-  options,
-  onChange,
-}: {
+const ALL_USERS_ID = 'all';
+const ALL_USERS_LABEL = 'Todos los usuarios';
+
+interface UserSelectorProps {
   value: string;
   options: { id: string; email: string; full_name: string | null }[];
   onChange: (id: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const ref = useRef<HTMLDivElement>(null);
+}
 
-  const filtered = options.filter((u) => {
-    const q = query.toLowerCase();
-    return (
-      u.email.toLowerCase().includes(q) ||
-      (u.full_name?.toLowerCase().includes(q) ?? false)
-    );
-  });
+/**
+ * De quién se ve la actividad. El buscador del desplegable compara contra el
+ * valor de cada opción, así que el valor es «nombre · correo» (legible y único
+ * por el correo) y aquí se traduce de vuelta al id de la persona.
+ */
+function UserSelector({ value, options, onChange }: UserSelectorProps) {
+  const entries = useMemo(
+    () => [
+      { id: ALL_USERS_ID, key: ALL_USERS_LABEL, label: ALL_USERS_LABEL, description: undefined },
+      ...options.map((user) => {
+        const name = user.full_name?.trim();
+        return {
+          id: user.id,
+          key: name ? `${name} · ${user.email}` : user.email,
+          label: name || user.email,
+          description: name ? user.email : undefined,
+        };
+      }),
+    ],
+    [options],
+  );
 
-  const selected = options.find((u) => u.id === value);
+  const selectedKey = entries.find((entry) => entry.id === value)?.key ?? ALL_USERS_LABEL;
 
   return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        className="flex h-8 min-w-44 max-w-64 items-center justify-between gap-2 rounded-md border border-input bg-card px-3 text-xs text-foreground transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 dark:bg-muted"
-      >
-        <span className="truncate">
-          {value === 'all'
-            ? 'Todos los usuarios'
-            : (selected?.full_name?.trim() || selected?.email || 'Usuario')}
-        </span>
-        <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
-      </button>
-
-      {open && (
-        <>
-          {/* backdrop */}
-          <div
-            className="fixed inset-0 z-10"
-            onClick={() => { setOpen(false); setQuery(''); }}
-          />
-          <div className="absolute left-0 top-9 z-20 w-72 overflow-hidden rounded-xl border border-border/60 bg-popover shadow-drawer">
-            <div className="p-2">
-              <div className="flex items-center gap-2 rounded-md border border-border/60 bg-surface-subtle px-2.5 py-1.5 transition-colors focus-within:border-primary">
-                <Search className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
-                <input
-                  autoFocus
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Buscar usuario…"
-                  aria-label="Buscar usuario"
-                  className="w-full bg-transparent text-xs outline-none placeholder:text-muted-foreground"
-                />
-              </div>
-            </div>
-            <ul className="max-h-56 overflow-y-auto pb-1">
-              {query === '' && (
-                <li>
-                  <button
-                    type="button"
-                    onClick={() => { onChange('all'); setOpen(false); setQuery(''); }}
-                    className={`flex w-full items-center gap-2 px-3 py-2 text-xs transition-colors hover:bg-surface-muted focus-visible:bg-surface-muted focus-visible:outline-none ${value === 'all' ? 'font-medium text-primary' : 'text-foreground'}`}
-                  >
-                    <Users className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
-                    Todos los usuarios
-                  </button>
-                </li>
-              )}
-              {filtered.map((u) => (
-                <li key={u.id}>
-                  <button
-                    type="button"
-                    onClick={() => { onChange(u.id); setOpen(false); setQuery(''); }}
-                    className={`flex w-full min-w-0 flex-col px-3 py-2 text-left transition-colors hover:bg-surface-muted focus-visible:bg-surface-muted focus-visible:outline-none ${value === u.id ? 'bg-primary/10' : ''}`}
-                  >
-                    <span className={`w-full truncate text-xs font-medium ${value === u.id ? 'text-primary' : 'text-foreground'}`}>
-                      {u.full_name?.trim() || u.email}
-                    </span>
-                    {u.full_name && (
-                      <span className="w-full truncate text-xs text-muted-foreground">{u.email}</span>
-                    )}
-                  </button>
-                </li>
-              ))}
-              {filtered.length === 0 && (
-                <li className="px-3 py-3 text-center text-xs text-muted-foreground">
-                  Sin resultados
-                </li>
-              )}
-            </ul>
-          </div>
-        </>
-      )}
-    </div>
+    <SearchableSelect
+      compact
+      className="h-8 w-auto min-w-44 max-w-64 text-xs"
+      contentClassName="w-72"
+      options={entries.map((entry) => ({
+        value: entry.key,
+        label: entry.label,
+        description: entry.description,
+      }))}
+      value={selectedKey}
+      onValueChange={(key) => {
+        const entry = entries.find((candidate) => candidate.key === key);
+        if (entry) onChange(entry.id);
+      }}
+      placeholder={ALL_USERS_LABEL}
+      searchPlaceholder="Buscar usuario…"
+      emptyMessage="Nadie coincide con tu búsqueda."
+    />
   );
 }
 
-const SOURCE_TABS: { key: SourceFilter; label: string }[] = [
-  { key: 'all', label: 'Todos' },
-  { key: 'users', label: 'Usuarios' },
-  { key: 'integrations', label: 'Integraciones' },
-  { key: 'ai', label: 'IA' },
+const SOURCE_OPTIONS: { value: SourceFilter; label: string }[] = [
+  { value: 'all', label: 'Todo' },
+  { value: 'users', label: 'Usuarios' },
+  { value: 'integrations', label: 'Integraciones' },
+  { value: 'ai', label: 'IA' },
 ];
 
 // ─── Main component ───────────────────────────────────────────────
@@ -279,9 +233,9 @@ export function ActivityFeedClient({ context, initialEvents, initialHasMore, emb
         />
       )}
       {embedded && (
-        <h2 className="text-base font-semibold tracking-tight text-foreground">
+        <Heading level={6} as="h2">
           Actividad administrativa reciente
-        </h2>
+        </Heading>
       )}
 
       {/* ── Filters ────────────────────────────────────────── */}
@@ -295,24 +249,15 @@ export function ActivityFeedClient({ context, initialEvents, initialHasMore, emb
           />
         )}
 
-        {/* Source tabs */}
-        <div className="flex max-w-full items-center gap-0.5 overflow-x-auto rounded-lg bg-tab-track p-0.5">
-          {SOURCE_TABS.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => handleSourceChange(tab.key)}
-              aria-pressed={sourceFilter === tab.key}
-              className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 ${
-                sourceFilter === tab.key
-                  ? 'bg-primary text-primary-foreground shadow-card'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        {/* Tipo de actividad */}
+        <SegmentedControl
+          size="sm"
+          ariaLabel="Filtrar por tipo de actividad"
+          className="w-fit max-w-full overflow-x-auto"
+          options={SOURCE_OPTIONS}
+          value={sourceFilter}
+          onChange={(next) => handleSourceChange(next as SourceFilter)}
+        />
 
         {/* Search */}
         <div className="relative w-full sm:w-56">

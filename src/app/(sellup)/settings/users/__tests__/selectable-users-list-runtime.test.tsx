@@ -118,12 +118,18 @@ function selectRow(name: string): void {
   fireEvent.click(screen.getByRole('checkbox', { name: `Seleccionar ${name}` }));
 }
 
-/** Los botones de la barra de selección (vive en un portal bajo `document.body`). */
+/**
+ * La barra flotante con la selección (vive en un portal bajo `document.body`):
+ * el recuento («2 seleccionados») y, a su lado, las acciones en lote. Cada
+ * acción es un botón de icono que se llama como su etiqueta.
+ */
 function bulkBar(): HTMLElement {
-  // El arrastre de columnas también anuncia por `role="status"`: la barra es
-  // la que dice cuántos hay seleccionados.
-  const bar = screen.getAllByRole('status').find((node) => /seleccionad[oa]s?/.test(node.textContent ?? ''));
-  assert.ok(bar, 'la barra de selección debe estar a la vista');
+  // El arrastre de columnas también anuncia por `role="status"`: el recuento es
+  // el que dice cuántos hay seleccionados.
+  const chip = screen.getAllByRole('status').find((node) => /seleccionad[oa]s?/.test(node.textContent ?? ''));
+  assert.ok(chip, 'la barra de selección debe estar a la vista');
+  const bar = chip.closest<HTMLElement>('[role="toolbar"]');
+  assert.ok(bar, 'el recuento vive dentro de la barra de acciones');
   return bar;
 }
 
@@ -176,7 +182,8 @@ describe('Usuarios — permisos', () => {
     renderList({ isAdmin: false });
 
     assert.equal(screen.queryAllByRole('checkbox').length, 0);
-    assert.equal(screen.queryByLabelText('Acciones del usuario'), null);
+    // El menú de cada fila se llama «Acciones de <persona>» (RowActionsMenu).
+    assert.equal(screen.queryAllByRole('button', { name: /^Acciones de / }).length, 0);
     // La lista sí se lee.
     assert.ok(screen.getAllByText('Ana Ruiz').length > 0);
   });
@@ -187,7 +194,10 @@ describe('Usuarios — permisos', () => {
     for (const person of ['Ana Ruiz', 'Bea Soto', 'Cam Díaz']) {
       assert.ok(screen.getByRole('checkbox', { name: `Seleccionar ${person}` }));
     }
-    assert.equal(screen.getAllByLabelText('Acciones del usuario').length, USERS.length);
+    for (const person of ['Ana Ruiz', 'Bea Soto', 'Cam Díaz']) {
+      assert.ok(screen.getByRole('button', { name: `Acciones de ${person}` }));
+    }
+    assert.equal(screen.queryAllByRole('button', { name: /^Acciones de / }).length, USERS.length);
   });
 });
 
@@ -207,7 +217,7 @@ describe('Usuarios — acciones en lote según la vista', () => {
 
       const labels = within(bulkBar())
         .getAllByRole('button')
-        .map((button) => button.textContent?.trim() ?? '')
+        .map((button) => button.getAttribute('aria-label') ?? '')
         .filter((label) => label.length > 0);
 
       for (const expected of EXPECTED[mode]) {

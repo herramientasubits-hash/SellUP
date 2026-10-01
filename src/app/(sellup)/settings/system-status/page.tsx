@@ -12,7 +12,10 @@ import { SettingsPage, TechnicalDetails } from '@/components/settings/settings-p
 import { TechnicalRow } from '@/components/settings/integration-overview';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { MetricCard } from '@/components/shared/metric-card';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import { DistributionBar } from '@/components/charts/DistributionBar';
+import { Heading } from '@/components/typography';
 import {
   ListItem,
   ListItemGroup,
@@ -173,24 +176,15 @@ export default async function SystemStatusPage() {
 
       {/* ── Qué pide atención: lo primero que hay que leer ───── */}
       <section className="space-y-3" aria-labelledby="status-risks">
-        <h2 id="status-risks" className="text-base font-semibold tracking-tight text-foreground">
+        <Heading level={6} as="h2" id="status-risks">
           Qué pide tu atención
-        </h2>
+        </Heading>
 
         {sortedRisks.length === 0 ? (
-          <SurfaceCard>
-            <div className="flex items-center gap-3">
-              <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-success/10">
-                <CheckCircle2 className="size-4 text-success" aria-hidden="true" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-foreground">Todo en orden</p>
-                <p className="text-xs text-muted-foreground">
-                  No hay conexiones caídas ni solicitudes esperando.
-                </p>
-              </div>
-            </div>
-          </SurfaceCard>
+          <Alert variant="success">
+            <AlertTitle>Todo en orden</AlertTitle>
+            <AlertDescription>No hay conexiones caídas ni solicitudes esperando.</AlertDescription>
+          </Alert>
         ) : (
           <ListItemGroup>
             {sortedRisks.map((risk) => (
@@ -202,9 +196,9 @@ export default async function SystemStatusPage() {
 
       {/* ── Conexiones ───────────────────────────────────────── */}
       <section className="space-y-3" aria-labelledby="status-connections">
-        <h2 id="status-connections" className="text-base font-semibold tracking-tight text-foreground">
+        <Heading level={6} as="h2" id="status-connections">
           Conexiones
-        </h2>
+        </Heading>
         <ListItemGroup>
           {connections.map((connection) => (
             <ConnectionItem key={connection.name} connection={connection} />
@@ -259,33 +253,15 @@ export default async function SystemStatusPage() {
             actions={<SectionLink href="/settings/automations" label="Ir a Automatizaciones" />}
           />
 
-          <div className="flex items-stretch gap-2">
-            {[
-              {
-                label: 'Automáticas',
-                count: health.automations.automatic,
-                color: 'text-success border-success/30 bg-success/10',
-              },
-              {
-                label: 'Sugeridas',
-                count: health.automations.suggested,
-                color: 'text-warning border-warning/30 bg-warning/10',
-              },
-              {
-                label: 'Manuales',
-                count: health.automations.manual,
-                color: 'text-muted-foreground border-border/60 bg-surface-subtle',
-              },
-            ].map((item) => (
-              <div
-                key={item.label}
-                className={`min-w-0 flex-1 rounded-lg border px-2 py-2 text-center ${item.color}`}
-              >
-                <p className="text-lg font-semibold tabular-nums">{item.count}</p>
-                <p className="truncate text-xs">{item.label}</p>
-              </div>
-            ))}
-          </div>
+          <DistributionBar
+            ariaLabel="Automatizaciones por modo de ejecución"
+            emptyLabel="Todavía no hay automatizaciones configuradas."
+            segments={[
+              { id: 'automatic', label: 'Automáticas', value: health.automations.automatic, tone: 'positive' },
+              { id: 'suggested', label: 'Sugeridas', value: health.automations.suggested, tone: 'warning' },
+              { id: 'manual', label: 'Manuales', value: health.automations.manual, tone: 'neutral' },
+            ]}
+          />
         </SurfaceCard>
       </div>
 

@@ -21,6 +21,16 @@ export interface ActionFabProps {
   className?: string;
 }
 
+/** Lo que el abanico necesita de una acción para pintarla como fila. */
+interface FabEntry {
+  id: string;
+  label: string;
+  icon: React.ReactNode;
+  tone?: "default" | "danger";
+  blockedReason?: string | null;
+  onSelect?: () => void;
+}
+
 /** Retardo entre una fila del abanico y la siguiente. */
 const FAN_STEP_MS = 40;
 
@@ -65,7 +75,23 @@ export function ActionFab({
 
   const available = railActionsFor(actions, selectedCount);
   const primary = available.find((action) => action.primary);
-  const rest = available.filter((action) => !action.primary);
+  // Un grupo con menú se abre aquí en sus acciones: el abanico ya es un menú.
+  const rest: readonly FabEntry[] = available
+    .filter((action) => !action.primary)
+    .flatMap((action): FabEntry[] =>
+      action.menu
+        ? action.menu.map((item) => ({ ...item, id: `${action.id}:${item.id}` }))
+        : [{ ...action, label: railActionLabel(action, selectedCount) }],
+    );
+  // Igual con la primaria que abre opciones: cada opción es una fila, y la más
+  // cercana al pulgar es la primera que se declaró.
+  const primaryOptions: readonly FabEntry[] = (primary?.options ?? []).map((option) => ({
+    id: `${primary?.id}:${option.id}`,
+    label: option.title,
+    icon: option.icon,
+    onSelect: option.onSelect,
+  }));
+  const filledPrimary = primary && primaryOptions.length === 0 ? primary : undefined;
 
   React.useEffect(() => {
     if (!isOpen) return;
@@ -79,7 +105,7 @@ export function ActionFab({
   if (available.length === 0) return null;
   if (typeof document === "undefined") return null;
 
-  const run = (action: RailActionSpec) => {
+  const run = (action: { onSelect?: () => void }) => {
     setIsOpen(false);
     action.onSelect?.();
   };
@@ -92,11 +118,11 @@ export function ActionFab({
         <div
           aria-hidden
           onClick={() => setIsOpen(false)}
-          className="fixed inset-0 z-[60] bg-black/40 animate-in fade-in-0 motion-reduce:animate-none"
+          className="fixed inset-0 z-40 bg-black/40 animate-in fade-in-0 motion-reduce:animate-none"
         />
       )}
 
-      <div className={cn("pointer-events-none fixed bottom-6 right-4 z-[60] flex justify-end", className)}>
+      <div className={cn("pointer-events-none fixed bottom-6 right-4 z-40 flex justify-end", className)}>
         <div className="pointer-events-auto flex flex-col items-end gap-3">
           {isOpen && (
             <>
@@ -109,10 +135,10 @@ export function ActionFab({
                   <X />
                 </FabRow>
               )}
-              {[...rest].reverse().map((action, index) => (
+              {[...rest, ...[...primaryOptions].reverse()].reverse().map((action, index) => (
                 <FabRow
                   key={action.id}
-                  label={railActionLabel(action, selectedCount)}
+                  label={action.label}
                   tone={action.tone}
                   blockedReason={action.blockedReason}
                   onClick={() => run(action)}
@@ -121,14 +147,19 @@ export function ActionFab({
                   {action.icon}
                 </FabRow>
               ))}
-              {primary && (
+              {filledPrimary && (
                 <button
                   type="button"
-                  onClick={() => run(primary)}
-                  className="flex h-12 items-center gap-2 rounded-2xl bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-rail transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none motion-reduce:hover:scale-100 [&_svg]:size-5"
+                  onClick={() => run(filledPrimary)}
+                  disabled={filledPrimary.blockedReason != null}
+                  title={filledPrimary.blockedReason ?? undefined}
+                  className={cn(
+                    "flex h-12 items-center gap-2 rounded-2xl px-5 text-sm font-semibold shadow-rail transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40 motion-reduce:transition-none motion-reduce:hover:scale-100 [&_svg]:size-5",
+                    filledPrimary.variant === "ai" ? "su-ai-gradient" : "bg-primary text-primary-foreground",
+                  )}
                 >
-                  {primary.icon}
-                  {primary.label}
+                  {filledPrimary.icon}
+                  {filledPrimary.label}
                 </button>
               )}
             </>

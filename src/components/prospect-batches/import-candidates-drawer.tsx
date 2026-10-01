@@ -128,14 +128,31 @@ const FILE_METHOD_OPTIONS = [
 ];
 
 interface ImportCandidatesDrawerProps {
-  children: React.ReactNode;
+  /** El botón que abre el drawer. Se omite en modo controlado. */
+  children?: React.ReactNode;
+  /**
+   * Modo controlado: quien lo monta decide cuándo está abierto (la barra de
+   * acciones de la pantalla) y el drawer no pinta su propio botón.
+   */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 // ── Componente principal ──────────────────────────────────────
 
-export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps) {
+export function ImportCandidatesDrawer({
+  children,
+  open: controlledOpen,
+  onOpenChange,
+}: ImportCandidatesDrawerProps) {
   const router = useRouter();
-  const [open, setOpen] = React.useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const [internalOpen, setInternalOpen] = React.useState(false);
+  const open = isControlled ? controlledOpen : internalOpen;
+  const setOpen = (next: boolean) => {
+    if (!isControlled) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   const [step, setStep] = React.useState<Step>('input');
   const [fileMethod, setFileMethod] = React.useState<FileMethod>('paste');
   const [showGuide, setShowGuide] = React.useState(false);
@@ -903,10 +920,10 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
     <DrawerShell
       open={open}
       onOpenChange={(v) => {
-        setOpen(v);
-        if (!v) handleClose();
+        if (v) setOpen(true);
+        else handleClose();
       }}
-      trigger={children}
+      trigger={isControlled ? undefined : children}
       title={
         step === 'input'
           ? "Importar candidatos externos"

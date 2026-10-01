@@ -26,7 +26,9 @@ function stripComments(src: string): string {
 const RULE_ACTIONS_PATH = 'src/modules/budgets/rule-actions.ts';
 const CONSUMER_PATHS = [
   'src/app/(sellup)/settings/budget-credits/rules/budget-rules-client.tsx',
-  'src/app/(sellup)/settings/providers/provider-detail-sidepanel.tsx',
+  // Las reglas del panel del proveedor viven en su propia sección desde que
+  // provider-detail-sidepanel.tsx se partió por pestañas.
+  'src/app/(sellup)/settings/providers/detail/provider-rules-section.tsx',
 ];
 
 describe('rule-actions: deleteBudgetRule borra de verdad', () => {

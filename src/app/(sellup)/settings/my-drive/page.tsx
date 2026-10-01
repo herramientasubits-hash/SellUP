@@ -1,6 +1,8 @@
 import { withAppTimeZone } from '@/lib/format-date';
 import { redirect } from 'next/navigation';
-import { CheckCircle2, XCircle, WifiOff, Clock, FolderOpen, AlertTriangle } from "@/icons";
+import { CheckCircle2, FolderOpen } from "@/icons";
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { StatusBadge, type StatusType } from '@/components/data-display';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { hasActiveAccess } from '@/modules/access/actions';
@@ -18,57 +20,12 @@ function formatDate(iso: string | null | undefined): string {
   })).format(new Date(iso));
 }
 
-function ConnectionStatusBlock({ status }: { status: string }) {
-  const map: Record<
-    string,
-    {
-      label: string;
-      icon: React.ComponentType<{ className?: string }>;
-      color: string;
-      bg: string;
-      border: string;
-    }
-  > = {
-    connected: {
-      label: 'Conectado',
-      icon: CheckCircle2,
-      color: 'text-success',
-      bg: 'bg-success/10',
-      border: 'border-success/20',
-    },
-    error: {
-      label: 'Error de conexión',
-      icon: XCircle,
-      color: 'text-destructive',
-      bg: 'bg-destructive/10',
-      border: 'border-destructive/20',
-    },
-    disconnected: {
-      label: 'Desconectado',
-      icon: WifiOff,
-      color: 'text-muted-foreground',
-      bg: 'bg-surface-subtle',
-      border: 'border-border/60',
-    },
-    not_connected: {
-      label: 'No conectado',
-      icon: Clock,
-      color: 'text-muted-foreground',
-      bg: 'bg-surface-subtle',
-      border: 'border-border/60',
-    },
-  };
-
-  const cfg = map[status] ?? map['not_connected'];
-  const Icon = cfg.icon;
-
-  return (
-    <div className={`flex min-w-0 items-center gap-2 rounded-lg border px-3 py-2 ${cfg.bg} ${cfg.border}`}>
-      <Icon className={`h-4 w-4 shrink-0 ${cfg.color}`} aria-hidden="true" />
-      <span className={`truncate text-sm font-medium ${cfg.color}`}>{cfg.label}</span>
-    </div>
-  );
-}
+const CONNECTION_STATUS: Record<string, { status: StatusType; label: string }> = {
+  connected: { status: 'active', label: 'Conectado' },
+  error: { status: 'error', label: 'Error de conexión' },
+  disconnected: { status: 'neutral', label: 'Desconectado' },
+  not_connected: { status: 'neutral', label: 'No conectado' },
+};
 
 interface PageProps {
   searchParams: Promise<{ connected?: string; error?: string }>;
@@ -85,6 +42,7 @@ export default async function MyDrivePage({ searchParams }: PageProps) {
   const conn = await getUserDriveConnection();
 
   const status = conn?.connection_status ?? 'not_connected';
+  const connectionStatus = CONNECTION_STATUS[status] ?? CONNECTION_STATUS.not_connected;
 
   return (
     <div className="space-y-6">
@@ -95,18 +53,18 @@ export default async function MyDrivePage({ searchParams }: PageProps) {
 
       {/* Banner de éxito */}
       {justConnected && (
-        <div className="flex items-start gap-2 rounded-xl border border-success/20 bg-success/10 px-4 py-3 text-sm text-success">
-          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          Google Drive conectado correctamente. La carpeta SellUp está lista en tu Drive.
-        </div>
+        <Alert variant="success">
+          <AlertTitle>Google Drive conectado</AlertTitle>
+          <AlertDescription>La carpeta SellUp ya está lista en tu Drive.</AlertDescription>
+        </Alert>
       )}
 
       {/* Banner de error */}
       {errorParam && (
-        <div className="flex items-start gap-2 rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          <span className="min-w-0 break-words">{errorParam}</span>
-        </div>
+        <Alert variant="destructive">
+          <AlertTitle>No se pudo conectar Google Drive</AlertTitle>
+          <AlertDescription className="break-words">{errorParam}</AlertDescription>
+        </Alert>
       )}
 
       {/* Estado de conexión */}
@@ -120,7 +78,7 @@ export default async function MyDrivePage({ searchParams }: PageProps) {
           {/* Estado: una sola respuesta a «¿funciona?» */}
           <div className="min-w-0 space-y-1.5">
             <p className="text-xs font-semibold text-muted-foreground">Estado</p>
-            <ConnectionStatusBlock status={status} />
+            <StatusBadge status={connectionStatus.status} label={connectionStatus.label} />
           </div>
 
           {/* Carpeta raíz */}
@@ -129,7 +87,7 @@ export default async function MyDrivePage({ searchParams }: PageProps) {
               <p className="text-xs font-semibold text-muted-foreground">
                 Carpeta en tu Drive
               </p>
-              <div className="flex min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-surface-subtle px-3 py-2">
+              <div className="flex min-w-0 items-center gap-2 rounded-xl bg-surface-subtle px-3 py-2">
                 <FolderOpen className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
                 <span className="min-w-0 truncate text-sm font-medium text-foreground">
                   {conn.drive_folder_name ?? 'SellUp'}
@@ -156,10 +114,10 @@ export default async function MyDrivePage({ searchParams }: PageProps) {
 
           {/* Error message if any */}
           {conn?.last_connection_error && status === 'error' && (
-            <div className="rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2">
-              <p className="text-xs text-muted-foreground">Último error:</p>
-              <p className="break-words text-sm text-destructive">{conn.last_connection_error}</p>
-            </div>
+            <Alert variant="destructive">
+              <AlertTitle>Último error</AlertTitle>
+              <AlertDescription className="break-words">{conn.last_connection_error}</AlertDescription>
+            </Alert>
           )}
 
           {/* Acciones */}

@@ -22,7 +22,12 @@
 
 import { CheckCircle2, Lock, ShieldCheck, type LucideIcon } from "@/icons";
 import { Badge } from '@/components/ui/badge';
-import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import {
+  CoverageCard,
+  CoverageSection,
+  CoverageSignalSummary,
+  CoverageStatusNotice,
+} from '@/components/source-catalog/coverage-card';
 
 export const BR_RECEITA_CNPJ_SOURCE_KEY = 'br_receita_dados_abertos';
 
@@ -126,31 +131,27 @@ export function isBrReceitaLiveGenerationEnabled(): boolean {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function CoverageCardHeader({
+function StatusItem({
+  item,
   icon: Icon,
-  title,
-  description,
-  actions,
+  iconClassName,
+  badge,
 }: {
+  item: BrReceitaStatusItem;
   icon: LucideIcon;
-  title: string;
-  description?: string;
-  actions?: React.ReactNode;
+  iconClassName: string;
+  badge: React.ReactNode;
 }) {
   return (
-    <div className="mb-5 flex items-start gap-3">
-      <span
-        aria-hidden="true"
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-inset ring-border/40"
-      >
-        <Icon className="h-4 w-4" />
-      </span>
-      <SurfaceCardHeader
-        title={title}
-        description={description}
-        actions={actions}
-        className="mb-0 min-w-0 flex-1 flex-wrap"
-      />
+    <div className="flex items-start gap-2.5 py-2.5">
+      <Icon aria-hidden="true" className={`mt-0.5 h-4 w-4 shrink-0 ${iconClassName}`} />
+      <div className="min-w-0 flex-1">
+        <dt className="flex flex-wrap items-center justify-between gap-2 text-sm font-medium text-foreground">
+          {item.label}
+          {badge}
+        </dt>
+        <dd className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{item.detail}</dd>
+      </div>
     </div>
   );
 }
@@ -159,28 +160,19 @@ function CoverageCardHeader({
 
 export function BrReceitaCnpjStatusCard() {
   return (
-    <SurfaceCard>
-      <CoverageCardHeader
-        icon={ShieldCheck}
-        title="Estado técnico — Brasil · Receita CNPJ"
-        description="Preparación técnica / dry-run local listo. La fuente aún no importa, no escribe en Supabase y no alimenta el runtime de prospección."
-      />
-
-      <div className="mb-5 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
-        <h3 className="text-sm font-semibold tracking-tight text-foreground">Reconciliación de clave</h3>
+    <CoverageCard
+      icon={ShieldCheck}
+      title="Estado técnico — Brasil · Receita CNPJ"
+      description="Preparación técnica / dry-run local listo. La fuente aún no importa, no escribe en Supabase y no alimenta el runtime de prospección."
+    >
+      <CoverageSignalSummary title="Reconciliación de clave">
         <dl className="mt-2 grid gap-3 sm:grid-cols-2">
           <div className="min-w-0">
-            <dt className="text-xs text-muted-foreground">
-              Clave de catálogo existente
-            </dt>
-            <dd className="break-all font-mono text-xs text-foreground">
-              {BR_RECEITA_REGISTRY_SOURCE_KEY}
-            </dd>
+            <dt className="text-xs text-muted-foreground">Clave de catálogo existente</dt>
+            <dd className="break-all font-mono text-xs text-foreground">{BR_RECEITA_REGISTRY_SOURCE_KEY}</dd>
           </div>
           <div className="min-w-0">
-            <dt className="text-xs text-muted-foreground">
-              Clave técnica canónica
-            </dt>
+            <dt className="text-xs text-muted-foreground">Clave técnica canónica</dt>
             <dd className="break-all font-mono text-xs text-foreground">
               {BR_RECEITA_CANONICAL_TECHNICAL_SOURCE_KEY}
             </dd>
@@ -189,53 +181,45 @@ export function BrReceitaCnpjStatusCard() {
         <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
           {BR_RECEITA_SOURCE_KEY_RECONCILIATION_COPY}
         </p>
+      </CoverageSignalSummary>
+
+      <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
+        <CoverageSection title="Listo">
+          <dl className="divide-y divide-border/50">
+            {BR_RECEITA_READY_ITEMS.map((item) => (
+              <StatusItem
+                key={item.label}
+                item={item}
+                icon={CheckCircle2}
+                iconClassName="text-success"
+                badge={<Badge variant="positive">Listo</Badge>}
+              />
+            ))}
+          </dl>
+        </CoverageSection>
+
+        <CoverageSection title="Bloqueado">
+          <dl className="divide-y divide-border/50">
+            {BR_RECEITA_BLOCKED_ITEMS.map((item) => (
+              <StatusItem
+                key={item.label}
+                item={item}
+                icon={Lock}
+                iconClassName="text-muted-foreground"
+                badge={<Badge variant="neutral">Bloqueado</Badge>}
+              />
+            ))}
+          </dl>
+        </CoverageSection>
       </div>
 
-      <dl className="grid gap-3 sm:grid-cols-2">
-        {BR_RECEITA_READY_ITEMS.map((item) => (
-          <div
-            key={item.label}
-            className="flex items-start gap-2.5 rounded-lg border border-success/20 bg-success/10 px-3 py-2.5"
-          >
-            <CheckCircle2 aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-success" />
-            <div className="min-w-0">
-              <dt className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
-                {item.label}
-                <Badge variant="positive">Listo</Badge>
-              </dt>
-              <dd className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                {item.detail}
-              </dd>
-            </div>
-          </div>
-        ))}
-
-        {BR_RECEITA_BLOCKED_ITEMS.map((item) => (
-          <div
-            key={item.label}
-            className="flex items-start gap-2.5 rounded-lg border border-border/60 bg-surface-subtle px-3 py-2.5"
-          >
-            <Lock aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-            <div className="min-w-0">
-              <dt className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
-                {item.label}
-                <Badge variant="neutral">Bloqueado</Badge>
-              </dt>
-              <dd className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                {item.detail}
-              </dd>
-            </div>
-          </div>
-        ))}
-      </dl>
-
-      <p className="mt-5 rounded-xl border border-warning/25 bg-warning/15 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+      <CoverageStatusNotice>
         Esta fuente está preparada técnicamente para validaciones locales y
         dry-run, pero todavía no ejecuta importaciones, no escribe en Supabase y
         no alimenta el runtime de prospección. La importación, el runtime, la
         integración live con Agent 1 y la sincronización con HubSpot siguen
         deshabilitadas hasta un hito separado con aprobación explícita.
-      </p>
-    </SurfaceCard>
+      </CoverageStatusNotice>
+    </CoverageCard>
   );
 }

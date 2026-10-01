@@ -30,6 +30,8 @@ import {
   OPERATIONAL_TYPE_BADGE,
   type ProviderOperationalType,
 } from '@/modules/budgets/provider-operational-type';
+import { RowTitleButton } from '@/components/shared/table-cells';
+import { SurfaceCard } from '@/components/shared/surface-card';
 import { ProviderAllowanceDrawer } from './provider-allowance-drawer';
 import {
   ProviderDetailSidepanel,
@@ -131,7 +133,7 @@ function SelectionReviewPanel({
   const totalConsumed = deriveConsumedDisplay(totalCredits, totalUsd, totalHasUnknownCost);
 
   return (
-    <div className="rounded-xl border border-primary/20 bg-surface-subtle animate-su-fade-in">
+    <SurfaceCard noPadding className="animate-su-fade-in">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/50">
         <p className="text-xs font-medium text-foreground">
           {rows.length} proveedor{rows.length !== 1 ? 'es' : ''} seleccionado{rows.length !== 1 ? 's' : ''}
@@ -180,7 +182,7 @@ function SelectionReviewPanel({
           </div>
         )}
       </div>
-    </div>
+    </SurfaceCard>
   );
 }
 
@@ -357,13 +359,9 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], pro
       accessorFn: providerName,
       header: ({ column }) => <DataTableColumnHeader column={column} title="Proveedor" />,
       cell: ({ row }) => (
-        <button
-          type="button"
-          onClick={(event) => { event.stopPropagation(); openSidepanel(row.original); }}
-          className="rounded-sm text-left text-sm font-medium whitespace-nowrap text-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-        >
+        <RowTitleButton onClick={() => openSidepanel(row.original)}>
           {providerName(row.original)}
-        </button>
+        </RowTitleButton>
       ),
       size: 200,
       enableHiding: false,

@@ -2,11 +2,19 @@
 
 import * as React from "react";
 
+import { cn } from "@/lib/utils";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ActionFab } from "./action-fab";
-import { ActionRailShell, RailDivider, useContextChangeKey } from "./action-rail-shell";
-import { AnimatedActionItem, RailButton, RailPrimaryAction } from "./rail-button";
+import {
+  ActionRailShell,
+  RailDivider,
+  RailGroupShimmer,
+  useContextChangeKey,
+} from "./action-rail-shell";
+import { AnimatedActionItem, RailButton, RailCreateOption, RailPrimaryAction } from "./rail-button";
 import { RailOverflowMenu, type RailOverflowItem } from "./rail-overflow-menu";
 import { RailSelectionChip } from "./rail-selection-chip";
+import { RAIL_POPOVER_CLASS } from "./rail-settings-menu";
 import {
   railActionLabel,
   railActionsFor,
@@ -15,6 +23,7 @@ import {
   type RailActionScope,
   type RailActionSpec,
 } from "./rail-actions";
+import { useRailPopoutSide } from "./rail-preferences";
 import { useCompactViewport } from "./use-compact-viewport";
 
 export type { RailActionScope, RailActionSpec } from "./rail-actions";
@@ -35,6 +44,8 @@ export interface DataListActionRailProps {
   locked?: boolean;
   /** Un panel modal tomó la pantalla: la barra se recoge y deja de responder. */
   isBlocked?: boolean;
+  /** Nombre accesible de la barra. */
+  label?: string;
 }
 
 /** Cinco caben sin apretar; la sexta ya pide plegarse. */
@@ -51,6 +62,14 @@ function toOverflowItem(action: RailActionSpec, label: string): RailOverflowItem
     tone: action.tone,
     blockedReason: action.blockedReason,
     onClick: () => action.onSelect?.(),
+    subItems: action.menu?.map((item) => ({
+      id: item.id,
+      label: item.label,
+      icon: item.icon,
+      tone: item.tone,
+      blockedReason: item.blockedReason,
+      onClick: () => item.onSelect?.(),
+    })),
   };
 }
 
@@ -58,13 +77,15 @@ function toOverflowItem(action: RailActionSpec, label: string): RailOverflowItem
  * DataListActionRail
  *
  * La barra flotante de una pantalla con lista: concentra **todo** lo que se
- * puede hacer y cambia de contenido según lo que haya marcado.
+ * puede hacer y cambia de contenido según lo que haya marcado. **Una sola por
+ * pantalla.**
  *
- * - **Sin selección** muestra las acciones de la pantalla y su acción primaria.
+ * - **Sin selección** muestra las acciones de la pantalla: primero lo plegado
+ *   («⋯»), luego lo de a diario y al final la acción primaria, la única rellena.
  * - **Con un registro** esas desaparecen —no se apilan— y entran el recuento y
  *   lo que se puede hacer con él, incluidas las que solo valen para uno.
  * - **Con varios** se caen las individuales y el recuento entra en la etiqueta
- *   de las que quedan.
+ *   de las que lo piden (`countInLabel`).
  *
  * Cada acción entra escalonada y la animación se vuelve a disparar cada vez
  * que cambia el contexto, que es lo que hace que el cambio se lea como tal y
@@ -73,19 +94,20 @@ function toOverflowItem(action: RailActionSpec, label: string): RailOverflowItem
  * sexto icono.
  *
  * Quien la usa solo declara las acciones y su ámbito; los modos, el orden, el
- * escalonado y el plegado los resuelve la barra.
+ * escalonado y el plegado los resuelve la barra. En pantalla estrecha es la
+ * misma pieza en su otra forma: `ActionFab`.
  *
- * En SellUp ocupa el mismo sitio que `DataTableBulkActionBar`: una pantalla
- * que monte esta barra no debe pasar además `bulkActions` a su `DataTable`, o
- * las dos se pisarían al marcar filas.
+ * En una pantalla con `DataTable` no se monta a mano: `ListActionRailProvider`
+ * la monta una vez y la tabla le cuenta su selección.
  *
  * @example
  * <DataListActionRail
  *   selectedCount={selected.length}
  *   onClearSelection={() => setSelected([])}
+ *   gender="f"
  *   actions={[
  *     { id: "export", label: "Exportar", icon: <Download />, scope: ["screen"] },
- *     { id: "create", label: "Nuevo lote", icon: <Plus />, scope: ["screen"], primary: true },
+ *     { id: "create", label: "Crear empresa", icon: <Plus />, scope: ["screen"], primary: true },
  *     { id: "edit", label: "Editar", icon: <Pencil />, scope: ["single"] },
  *     { id: "dup", label: "Duplicar", icon: <Copy />, scope: ["single", "bulk"], countInLabel: true },
  *     { id: "del", label: "Eliminar", icon: <Trash2 />, scope: ["single", "bulk"], tone: "danger", countInLabel: true },
@@ -100,12 +122,27 @@ export function DataListActionRail({
   inlineLimit = DEFAULT_INLINE_LIMIT,
   locked = false,
   isBlocked = false,
+  label,
 }: DataListActionRailProps) {
-  const [isMenuOpen, setIsMenuOpen] = React.useState(false);
   const isCompact = useCompactViewport();
 
   const mode: RailActionScope = railModeFor(selectedCount);
   const animKey = useContextChangeKey(mode);
+
+  // Cada menú avisa al abrirse y al cerrarse; mientras haya alguno abierto la
+  // barra no se recoge. Al cambiar de contexto los menús se desmontan sin
+  // avisar, así que la lista se vacía con él.
+  const [menus, setMenus] = React.useState<{ animKey: number; open: readonly string[] }>({
+    animKey,
+    open: [],
+  });
+  if (menus.animKey !== animKey) setMenus({ animKey, open: [] });
+  const hasOpenMenu = menus.animKey === animKey && menus.open.length > 0;
+  const trackMenu = (menuId: string) => (isOpen: boolean) =>
+    setMenus((current) => {
+      const others = current.open.filter((id) => id !== menuId);
+      return { ...current, open: isOpen ? [...others, menuId] : others };
+    });
 
   const labelOf = (action: RailActionSpec) => railActionLabel(action, selectedCount);
   const forMode = railActionsFor(actions, selectedCount);
@@ -127,6 +164,11 @@ export function DataListActionRail({
 
   if (locked) return null;
 
+  const hasSelection = selectedCount > 0;
+  // Sin nada marcado y sin nada que ofrecer no hay barra: una barra con solo
+  // su asa y sus ajustes no le sirve a nadie.
+  if (!hasSelection && forMode.length === 0) return null;
+
   // Estrecho: la misma pieza en su otra forma. No es una barra encogida, es un
   // botón que despliega lo mismo —el reparto de acciones lo decide el mismo
   // código, así que girar el teléfono no cambia lo que se puede hacer.
@@ -142,39 +184,53 @@ export function DataListActionRail({
     );
   }
 
-  const hasSelection = selectedCount > 0;
+  const renderAction = (action: RailActionSpec, actionLabel: string) =>
+    action.menu ? (
+      <RailOverflowMenu
+        label={actionLabel}
+        icon={action.icon}
+        items={toOverflowItem(action, actionLabel).subItems ?? []}
+        onOpenChange={trackMenu(action.id)}
+      />
+    ) : (
+      <RailButton
+        icon={action.icon}
+        label={actionLabel}
+        tone={action.tone}
+        blockedReason={action.blockedReason}
+        onClick={() => action.onSelect?.()}
+      />
+    );
 
   return (
     <ActionRailShell
-      keepOpen={hasSelection || isMenuOpen}
+      label={label}
+      keepOpen={hasSelection || hasOpenMenu}
       isBlocked={isBlocked}
       contextual={
         !hasSelection ? null : (
           <>
+            {animKey > 0 && <RailGroupShimmer animKey={animKey} />}
             <AnimatedActionItem animKey={animKey} staggerIndex={0} skipColorFlash>
               <RailSelectionChip count={selectedCount} onClear={onClearSelection} gender={gender} />
             </AnimatedActionItem>
-            <AnimatedActionItem animKey={animKey} staggerIndex={1} skipColorFlash>
-              <RailDivider />
-            </AnimatedActionItem>
+            {inline.length + overflow.length > 0 && (
+              <AnimatedActionItem animKey={animKey} staggerIndex={1} skipColorFlash>
+                <RailDivider />
+              </AnimatedActionItem>
+            )}
             {inline.map((action, index) => (
               <AnimatedActionItem
                 key={action.id}
                 animKey={animKey}
                 staggerIndex={SELECTION_STAGGER_OFFSET + index}
               >
-                <RailButton
-                  icon={action.icon}
-                  label={labelOf(action)}
-                  tone={action.tone}
-                  blockedReason={action.blockedReason}
-                  onClick={() => action.onSelect?.()}
-                />
+                {renderAction(action, labelOf(action))}
               </AnimatedActionItem>
             ))}
             {overflow.length > 0 && (
               <AnimatedActionItem animKey={animKey} staggerIndex={SELECTION_STAGGER_OFFSET + inline.length}>
-                <RailOverflowMenu items={overflow} onOpenChange={setIsMenuOpen} />
+                <RailOverflowMenu items={overflow} onOpenChange={trackMenu("overflow")} />
               </AnimatedActionItem>
             )}
           </>
@@ -183,38 +239,103 @@ export function DataListActionRail({
       persistent={
         hasSelection ? null : (
           <>
+            {animKey > 0 && <RailGroupShimmer animKey={animKey} />}
             {/* La fila va de menor a mayor peso: primero lo plegado, luego lo
                 de a diario y al final la principal, que la cierra. */}
             {screenOverflow.length > 0 && (
               <AnimatedActionItem animKey={animKey} staggerIndex={0}>
-                <RailOverflowMenu items={screenOverflow} onOpenChange={setIsMenuOpen} />
+                <RailOverflowMenu items={screenOverflow} onOpenChange={trackMenu("overflow")} />
               </AnimatedActionItem>
             )}
             {screenInline.map((action, index) => (
               <AnimatedActionItem key={action.id} animKey={animKey} staggerIndex={screenOffset + index}>
-                <RailButton
-                  icon={action.icon}
-                  label={action.label}
-                  tone={action.tone}
-                  blockedReason={action.blockedReason}
-                  onClick={() => action.onSelect?.()}
-                />
+                {renderAction(action, action.label)}
               </AnimatedActionItem>
             ))}
             {primary && (
-              <AnimatedActionItem animKey={animKey} staggerIndex={screenOffset + screenInline.length}>
-                <RailPrimaryAction
-                  icon={primary.icon}
-                  label={primary.label}
-                  disabled={primary.blockedReason != null}
-                  title={primary.blockedReason ?? undefined}
-                  onClick={() => primary.onSelect?.()}
-                />
+              <AnimatedActionItem
+                animKey={animKey}
+                staggerIndex={screenOffset + screenInline.length}
+                skipColorFlash
+              >
+                <PrimaryRailAction action={primary} onOpenChange={trackMenu(primary.id)} />
               </AnimatedActionItem>
             )}
           </>
         )
       }
     />
+  );
+}
+
+/**
+ * La acción primaria de la barra. Con `options` no actúa: abre un popover de
+ * creación con una fila por opción (icono, título y una línea de por qué).
+ */
+function PrimaryRailAction({
+  action,
+  onOpenChange,
+}: {
+  action: RailActionSpec;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const side = useRailPopoutSide();
+  const options = action.options ?? [];
+
+  if (options.length === 0) {
+    return (
+      <RailPrimaryAction
+        icon={action.icon}
+        label={action.label}
+        variant={action.variant}
+        blockedReason={action.blockedReason}
+        onClick={() => action.onSelect?.()}
+      />
+    );
+  }
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (nextOpen && action.blockedReason != null) return;
+    if (nextOpen === open) return;
+    setOpen(nextOpen);
+    onOpenChange(nextOpen);
+  };
+
+  return (
+    <Popover open={open} onOpenChange={handleOpenChange}>
+      <PopoverTrigger
+        render={
+          <RailPrimaryAction
+            icon={action.icon}
+            label={action.label}
+            variant={action.variant}
+            blockedReason={action.blockedReason}
+            aria-haspopup="dialog"
+          />
+        }
+      />
+      <PopoverContent
+        side={side}
+        align="end"
+        sideOffset={12}
+        aria-label={action.label}
+        className={cn("w-80", RAIL_POPOVER_CLASS)}
+      >
+        {options.map((option) => (
+          <RailCreateOption
+            key={option.id}
+            icon={option.icon}
+            title={option.title}
+            description={option.description}
+            variant={option.variant}
+            onClick={() => {
+              handleOpenChange(false);
+              option.onSelect();
+            }}
+          />
+        ))}
+      </PopoverContent>
+    </Popover>
   );
 }

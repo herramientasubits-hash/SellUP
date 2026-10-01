@@ -36,10 +36,19 @@ export interface DataTableBulkAction<TData> {
    * menu, matching the side panel footer hierarchy.
    */
   items?: DataTableBulkAction<TData>[];
+  /**
+   * Con cuántas filas marcadas se ofrece: `["single"]` solo con una (editar,
+   * ver detalle), `["bulk"]` solo con varias. Por defecto, con una y con
+   * varias. Fuera de su ámbito la acción desaparece de la barra en vez de
+   * quedarse apagada.
+   */
+  scope?: readonly ("single" | "bulk")[];
+  /** Añade el recuento a la etiqueta cuando hay varias: «Archivar (3)». */
+  countInLabel?: boolean;
 }
 
 export interface DataTableHandle {
-  /** Clears the current row selection (and, with it, hides the bulk action bar). */
+  /** Clears the current row selection (and, with it, the rail goes back to the screen actions). */
   clearSelection: () => void;
 }
 
@@ -96,13 +105,17 @@ export interface DataTableProps<TData> {
   /** Optional count badge next to the title. */
   count?: number;
 
-  /** Selection: enable checkbox column + floating bulk action bar. */
+  /**
+   * Selection: enable checkbox column. Con filas marcadas, las `bulkActions`
+   * sustituyen a las acciones de pantalla en la barra flotante (Foundation § 12).
+   */
   enableRowSelection?: boolean;
   bulkActions?: DataTableBulkAction<TData>[];
   /**
-   * Avisa de cuántas filas hay marcadas cada vez que cambia. Solo informa: la
-   * pantalla lo usa para ceder el sitio a la barra masiva (con las acciones
-   * «en el layout» no hay barra masiva, así que informa 0). Pásale una función
+   * Avisa de cuántas filas hay marcadas en la barra flotante cada vez que
+   * cambia (con las acciones «en el layout» la selección no va a la barra,
+   * así que informa 0). Solo informa: la barra de la pantalla ya recibe la
+   * selección por su cuenta (`ListActionRailProvider`). Pásale una función
    * estable.
    */
   onSelectionCountChange?: (count: number) => void;

@@ -4,19 +4,20 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useRailIsVertical, useRailPopoutSide } from "./rail-preferences";
 
 /** Retardo entre una acción y la siguiente al entrar escalonadas. */
-const STAGGER_STEP_MS = 60;
+const STAGGER_STEP_MS = 100;
 
-/** Clases del botón-icono de la barra; las comparte `RailConfirmButton`. */
+/** Clases del botón-icono de la barra (40×40); las comparten todos sus botones. */
 export function railIconButtonClass(tone: "default" | "danger", isActive = false): string {
   return cn(
-    "relative flex h-10 w-10 shrink-0 items-center justify-center rounded-md transition-colors [&_svg]:size-5",
+    "su-dock-item relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl [&_svg]:size-5",
     "focus-visible:outline-none focus-visible:ring-2",
     "aria-disabled:cursor-not-allowed aria-disabled:opacity-40 aria-disabled:hover:bg-transparent",
     tone === "danger"
       ? "text-destructive hover:bg-destructive/15 focus-visible:ring-destructive/40"
-      : "text-nav-foreground/70 hover:bg-nav-foreground/10 hover:text-nav-foreground focus-visible:ring-nav-foreground/30",
+      : "text-nav-foreground/60 hover:bg-nav-foreground/10 hover:text-nav-foreground focus-visible:ring-nav-foreground/30 aria-disabled:hover:text-nav-foreground/60",
     isActive && (tone === "danger" ? "bg-destructive/15" : "bg-nav-foreground/10 text-nav-foreground"),
   );
 }
@@ -49,6 +50,7 @@ export function RailButton({
   tone?: "default" | "danger";
 }) {
   const isBlocked = blockedReason != null;
+  const side = useRailPopoutSide();
 
   return (
     <Tooltip>
@@ -65,36 +67,47 @@ export function RailButton({
           </button>
         }
       />
-      <TooltipContent side="top">{blockedReason ?? label}</TooltipContent>
+      <TooltipContent side={side} className="max-w-56">
+        {blockedReason ?? label}
+      </TooltipContent>
     </Tooltip>
   );
 }
 
 /**
  * Una entrada del popover de creación de la barra: icono, título y una línea
- * de por qué.
+ * de por qué. `variant="ai"` pinta su icono con el degradado de marca de IA.
  *
  * @example
- * <RailCreateOption icon={<Upload />} title="Importar" description="Desde un archivo CSV" onClick={openImport} />
+ * <RailCreateOption icon={<Upload />} title="Importar archivo" description="Sube un CSV o Excel" onClick={openImport} />
  */
 export function RailCreateOption({
   icon,
   title,
   description,
   onClick,
+  variant = "default",
 }: {
   icon: React.ReactNode;
   title: string;
   description: string;
   onClick: () => void;
+  variant?: "default" | "ai";
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="group flex w-full items-center gap-3 rounded-md p-2.5 text-left transition-colors hover:bg-nav-foreground/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nav-foreground/30"
+      className="group flex w-full items-center gap-3 rounded-xl p-2.5 text-left transition-colors hover:bg-nav-foreground/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nav-foreground/30"
     >
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-nav-foreground/5 text-nav-foreground/70 transition-colors group-hover:bg-nav-foreground/10 group-hover:text-nav-foreground [&_svg]:size-5">
+      <span
+        className={cn(
+          "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors [&_svg]:size-5",
+          variant === "ai"
+            ? "su-ai-gradient"
+            : "bg-nav-foreground/5 text-nav-foreground/60 group-hover:bg-nav-foreground/10 group-hover:text-nav-foreground",
+        )}
+      >
         {icon}
       </span>
       <span className="flex flex-col gap-0.5">
@@ -106,17 +119,17 @@ export function RailCreateOption({
 }
 
 /**
- * Entrada escalonada de una acción contextual, que se vuelve a disparar cada
- * vez que cambia `animKey`.
+ * Entrada escalonada de una acción, que se vuelve a disparar cada vez que
+ * cambia `animKey` (la barra cambió de contexto). Además de entrar, la acción
+ * destella en el color de marca; `skipColorFlash` lo apaga para divisorias y
+ * rótulos, que no deben brillar al llegar.
  *
- * En Thema la acción además destella en el color primario al llegar
- * (`skipColorFlash` lo apaga para divisorias y rótulos). SellUp solo anima
- * `transform`/`opacity` con `animate-su-scale-in`, así que la prop se acepta
- * por paridad y no cambia nada.
+ * Con «reducir movimiento» no hay entrada ni destello.
  */
 export function AnimatedActionItem({
   animKey,
   staggerIndex,
+  skipColorFlash = false,
   children,
 }: {
   animKey: number;
@@ -127,43 +140,82 @@ export function AnimatedActionItem({
   return (
     <div
       key={animKey}
-      className="flex items-center self-stretch animate-su-scale-in motion-reduce:animate-none"
-      style={{ animationDelay: `${staggerIndex * STAGGER_STEP_MS}ms` }}
+      className={cn(
+        "flex items-center rounded-xl",
+        skipColorFlash ? "su-rail-item self-stretch" : "su-rail-item su-rail-item-flash",
+      )}
+      style={{ "--su-rail-delay": `${staggerIndex * STAGGER_STEP_MS}ms` } as React.CSSProperties}
     >
       {children}
     </div>
   );
 }
 
+interface RailPrimaryActionProps extends React.ComponentPropsWithoutRef<"button"> {
+  icon: React.ReactNode;
+  label: string;
+  /** `ai` conserva el degradado de marca de las acciones de IA. */
+  variant?: "default" | "ai";
+  /** Explica por qué no se puede ahora; con valor, el botón se apaga. */
+  blockedReason?: string | null;
+}
+
 /**
- * La única llamada a la acción rellena que se permite una barra: «Nuevo lote»,
- * «Importar cuentas».
+ * La única llamada a la acción rellena que se permite una barra: «Crear
+ * empresa», «Buscar contactos con IA».
+ *
+ * De pie, la barra mide un icono de ancho y las palabras no caben: el rótulo
+ * pasa a un tooltip y el botón queda cuadrado como sus vecinos. Sigue siendo
+ * del color primario: perder el rótulo no debe hacer perder a qué botón
+ * apunta la pantalla.
  *
  * Reenvía su ref y las props sobrantes para poder ir dentro de un
  * `PopoverTrigger render={…}`.
  *
  * @example
- * <RailPrimaryAction icon={<Plus />} label="Nuevo lote" onClick={createBatch} />
+ * <RailPrimaryAction icon={<Plus />} label="Crear empresa" onClick={openCreate} />
  */
-export const RailPrimaryAction = React.forwardRef<
-  HTMLButtonElement,
-  { icon: React.ReactNode; label: string } & React.ComponentPropsWithoutRef<"button">
->(function RailPrimaryAction({ icon, label, className, ...props }, ref) {
-  return (
-    <button
-      ref={ref}
-      type="button"
-      aria-label={label}
-      className={cn(
-        "relative flex h-10 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground transition-transform [&_svg]:size-4",
-        "hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground/30 active:scale-95",
-        "disabled:pointer-events-none disabled:opacity-40 motion-reduce:transition-none",
-        className,
-      )}
-      {...props}
-    >
-      {icon}
-      {label}
-    </button>
-  );
-});
+export const RailPrimaryAction = React.forwardRef<HTMLButtonElement, RailPrimaryActionProps>(
+  function RailPrimaryAction(
+    { icon, label, variant = "default", blockedReason = null, className, onClick, ...props },
+    ref,
+  ) {
+    const isVertical = useRailIsVertical();
+    const side = useRailPopoutSide();
+    const isBlocked = blockedReason != null;
+
+    const button = (
+      <button
+        ref={ref}
+        type="button"
+        aria-label={label}
+        aria-disabled={isBlocked || undefined}
+        data-variant={variant}
+        onClick={isBlocked ? undefined : onClick}
+        className={cn(
+          "relative flex h-10 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl text-sm font-semibold transition-transform [&_svg]:size-4",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground/30 active:scale-95",
+          "aria-disabled:cursor-not-allowed aria-disabled:opacity-40 aria-disabled:active:scale-100 motion-reduce:transition-none",
+          variant === "ai" ? "su-ai-gradient" : "bg-primary text-primary-foreground hover:bg-primary/90",
+          isVertical ? "w-10 px-0" : "px-4",
+          className,
+        )}
+        {...props}
+      >
+        {icon}
+        {!isVertical && label}
+      </button>
+    );
+
+    if (!isVertical && !isBlocked) return button;
+
+    return (
+      <Tooltip>
+        <TooltipTrigger render={button} />
+        <TooltipContent side={side} className="max-w-56">
+          {blockedReason ?? label}
+        </TooltipContent>
+      </Tooltip>
+    );
+  },
+);

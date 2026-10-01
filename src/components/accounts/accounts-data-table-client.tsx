@@ -2,7 +2,6 @@
 
 import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
-import { useReportSelectionCount } from "@/components/action-rail";
 import { useRouter } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
 import { toast } from 'sonner';
@@ -181,7 +180,6 @@ export function AccountsDataTableClient({
   scopeFilterOptions,
   emptyActions,
 }: AccountsDataTableClientProps) {
-  const reportSelectionCount = useReportSelectionCount();
   const router = useRouter();
 
   const [detailAccountId, setDetailAccountId] = React.useState<string | null>(null);
@@ -564,6 +562,8 @@ export function AccountsDataTableClient({
     () => [
       {
         id: 'view-detail',
+        // Solo tiene sentido sobre una fila: con varias marcadas sale de la barra.
+        scope: ['single'],
         label: 'Ver detalle',
         icon: Eye,
         disabled: (rows) => rows.length !== 1,
@@ -571,6 +571,8 @@ export function AccountsDataTableClient({
       },
       {
         id: 'edit-account',
+        // Solo tiene sentido sobre una fila: con varias marcadas sale de la barra.
+        scope: ['single'],
         label: 'Editar empresa',
         icon: Pencil,
         disabled: (rows) => rows.length !== 1,
@@ -696,7 +698,6 @@ export function AccountsDataTableClient({
           noun="empresas"
           nounGender="f"
           getRowLabel={(row) => row.name}
-          onSelectionCountChange={reportSelectionCount}
           columns={columns}
           data={quick.rows}
           getRowId={(row) => row.id}

@@ -250,3 +250,60 @@ describe('Capa 4 — a caller that passes no experience gets the safe state', ()
     assert.equal(generateCalls, 0);
   });
 });
+
+// ── Opened from the screen's action rail (controlled mode) ────────────────────
+// The floating action rail opens this drawer from outside (`open` /
+// `onOpenChange`) instead of through its own trigger. Being opened by someone
+// else must not change WHAT it shows: the same fail-closed state, no CTA.
+
+describe('Capa 4 — controlled from the action rail, the safe state is unchanged', () => {
+  for (const kind of KINDS) {
+    it(`${kind}: open={true} shows the explanation, with no trigger and no billable CTA`, () => {
+      render(
+        <GenerateAIBatchDrawer experience="unavailable" unavailableKind={kind} catalog={null} open onOpenChange={() => {}} />,
+      );
+
+      assert.ok(screen.getByText(COPY[kind]));
+      assert.equal(
+        screen.queryByRole('button', { name: /Búsqueda no disponible/i }),
+        null,
+        'controlled: the drawer paints no trigger of its own',
+      );
+      assert.equal(screen.queryByRole('button', { name: /Generar con IA/i }), null);
+      assert.equal(generateCalls, 0);
+    });
+  }
+
+  it('open={false} renders nothing at all', () => {
+    render(<GenerateAIBatchDrawer experience="unavailable" unavailableKind="wizard_disabled" catalog={null} open={false} onOpenChange={() => {}} />);
+
+    assert.equal(screen.queryByRole('button'), null);
+    assert.equal(screen.queryByText(COPY.wizard_disabled), null);
+  });
+
+  it('closing it tells the owner, who decides', () => {
+    const changes: boolean[] = [];
+    render(
+      <GenerateAIBatchDrawer
+        experience="unavailable"
+        unavailableKind="wizard_disabled"
+        catalog={null}
+        open
+        onOpenChange={(next) => changes.push(next)}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /cerrar|close/i }));
+
+    assert.deepEqual(changes, [false]);
+    assert.equal(generateCalls, 0);
+  });
+
+  it('a catalog-dependent experience handed a null catalog stays fail-closed when controlled', () => {
+    render(<GenerateAIBatchDrawer experience="chat_wizard" catalog={null} open onOpenChange={() => {}} />);
+
+    assert.ok(screen.getByText(COPY.catalog_needs_admin));
+    assert.equal(screen.queryByRole('button', { name: /Generar con IA/i }), null);
+    assert.equal(generateCalls, 0);
+  });
+});

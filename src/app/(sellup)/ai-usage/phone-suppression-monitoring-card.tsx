@@ -21,6 +21,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Lock } from '@/icons';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Heading } from '@/components/typography';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { getPhoneSuppressionNotEvaluableSummary } from '@/modules/contact-enrichment/phone-suppression-monitoring-queries';
 import type { PhoneSuppressionNotEvaluableSummary } from '@/modules/contact-enrichment/phone-suppression-monitoring-core';
@@ -52,7 +53,9 @@ function formatCount(value: number): string {
 function FigureGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="border-t border-border/60 pt-4 first:border-t-0 first:pt-0">
-      <h3 className="mb-3 text-sm font-semibold text-foreground">{title}</h3>
+      <Heading level={6} as="h3" className="mb-3 text-sm">
+        {title}
+      </Heading>
       <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">{children}</dl>
     </section>
   );

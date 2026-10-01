@@ -3,9 +3,7 @@
 import { useMemo, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { formatInAppZone } from '@/lib/format-date';
-import { useReportSelectionCount } from '@/components/action-rail';
 import { Pause, RotateCcw, Archive, UserX, Layers, Loader2, Users } from "@/icons";
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -32,16 +30,12 @@ import {
   bulkAssignGroup,
 } from '@/modules/access/actions';
 import { UserActions } from './user-actions';
+import { UserAvatar } from './user-avatar';
 import type { AccessStatus, InternalUser, Role, OrganizationGroup } from '@/modules/access/types';
 import { formatGroupDisplayName, formatGroupLabel } from '@/modules/access/display-helpers';
 
 const NO_GROUP = '__none__';
 const NO_VALUE = '—';
-
-function getInitials(name: string | null, email: string): string {
-  if (name) return name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
-  return email.slice(0, 2).toUpperCase();
-}
 
 function getRoleLabel(roleKey: string | null, roles: Role[]): string {
   if (!roleKey) return 'Sin rol';
@@ -202,7 +196,6 @@ export function SelectableUsersList({
   users, roles, allUsers, activeUsers, groups, mode, isAdmin, title = 'Usuarios',
 }: SelectableUsersListProps) {
   // La barra de acciones de la pantalla se aparta mientras haya selección.
-  const reportSelectionCount = useReportSelectionCount();
   const [pending, setPending] = useState<PendingBulkAction | null>(null);
   const [groupId, setGroupId] = useState<string>('');
   const [loading, setLoading] = useState(false);
@@ -283,11 +276,7 @@ export function SelectableUsersList({
           const user = row.original;
           return (
             <div className="flex min-w-0 items-center gap-3">
-              <Avatar className="size-9 shrink-0">
-                <AvatarFallback className="bg-primary/10 text-xs text-primary">
-                  {getInitials(user.full_name, user.email)}
-                </AvatarFallback>
-              </Avatar>
+              <UserAvatar name={user.full_name} email={user.email} />
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-foreground" title={user.full_name ?? undefined}>
                   {user.full_name ?? 'Sin nombre'}
@@ -410,7 +399,6 @@ export function SelectableUsersList({
         getRowLabel={(user) => user.full_name ?? user.email}
         enableRowSelection={canSelect}
         bulkActions={bulkActions}
-        onSelectionCountChange={reportSelectionCount}
         emptyState={
           <EmptyState
             variant="plain"

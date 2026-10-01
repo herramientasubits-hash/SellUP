@@ -7,6 +7,7 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { SurfaceCard, SurfaceCardHeader } from "@/components/shared/surface-card";
 import { StatusBadge, type StatusType } from "@/components/data-display/status-badge";
+import { Heading } from '@/components/typography';
 
 // ─── Estado de la conexión ────────────────────────────────────────────────────
 
@@ -124,9 +125,9 @@ export function IntegrationStatusCard({
         </span>
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-base font-semibold leading-tight tracking-tight text-foreground">
+            <Heading level={6} as="h2" className="leading-tight">
               Estado de la conexión
-            </h2>
+            </Heading>
             <StatusBadge status={presentation.status} label={presentation.label} />
           </div>
           <p className="text-sm leading-relaxed text-muted-foreground">{presentation.hint(name)}</p>

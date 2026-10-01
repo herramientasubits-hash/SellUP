@@ -5,6 +5,7 @@ import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { getBudgetRulesForAdmin, getBudgetRuleFormOptions } from '@/modules/budgets/rule-queries';
 import { SettingsPage } from '@/components/settings/settings-page';
 import { SurfaceCard } from '@/components/shared/surface-card';
+import { Heading } from '@/components/typography';
 import { buttonVariants } from '@/components/ui/button';
 import { BudgetRulesTabbedSection } from './rules/budget-rules-client';
 
@@ -35,9 +36,9 @@ export default async function BudgetCreditsPage() {
             <Layers className="size-4" />
           </div>
           <div className="min-w-0 flex-1 space-y-1">
-            <h2 className="text-base font-semibold leading-tight tracking-tight text-foreground">
+            <Heading level={6} as="h2">
               El consumo y las cuotas se mudaron a Proveedores y consumo
-            </h2>
+            </Heading>
             <p className="text-sm leading-relaxed text-muted-foreground">
               Ahí ves cuánto ha gastado cada proveedor este mes, ajustas su cuota y revisas su conexión, todo en una
               sola tabla.

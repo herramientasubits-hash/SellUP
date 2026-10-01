@@ -13,13 +13,14 @@ let render: (typeof import('@testing-library/react'))['render'];
 let screen: (typeof import('@testing-library/react'))['screen'];
 let within: (typeof import('@testing-library/react'))['within'];
 let cleanup: (typeof import('@testing-library/react'))['cleanup'];
+let fireEvent: (typeof import('@testing-library/react'))['fireEvent'];
 let SettingsPage: (typeof import('../settings-page'))['SettingsPage'];
 let TechnicalDetails: (typeof import('../settings-page'))['TechnicalDetails'];
 
 const h = React.createElement;
 
 before(async () => {
-  ({ render, screen, within, cleanup } = await import('@testing-library/react'));
+  ({ render, screen, within, cleanup, fireEvent } = await import('@testing-library/react'));
   ({ SettingsPage, TechnicalDetails } = await import('../settings-page'));
 });
 
@@ -78,15 +79,26 @@ describe('SettingsPage — ubicación', () => {
 
 describe('TechnicalDetails — lo técnico, plegado', () => {
   it('arranca cerrado, con título y resumen a la vista', () => {
-    const { container } = render(
+    render(
       h(TechnicalDetails, { summary: 'Identificadores para soporte.', children: h('p', null, 'Hub ID 123') }),
     );
 
-    const details = container.querySelector('details');
-    assert.ok(details);
-    assert.equal(details.open, false);
+    const trigger = screen.getByRole('button', { name: /Detalles técnicos/ });
+    assert.equal(trigger.getAttribute('aria-expanded'), 'false');
     assert.ok(screen.getByText('Detalles técnicos'));
     assert.ok(screen.getByText('Identificadores para soporte.'));
+  });
+
+  it('se abre y se vuelve a plegar con su botón', () => {
+    render(h(TechnicalDetails, { children: h('p', null, 'Hub ID 123') }));
+    const trigger = screen.getByRole('button', { name: /Detalles técnicos/ });
+
+    fireEvent.click(trigger);
+    assert.equal(trigger.getAttribute('aria-expanded'), 'true');
+    assert.ok(screen.getByText('Hub ID 123'));
+
+    fireEvent.click(trigger);
+    assert.equal(trigger.getAttribute('aria-expanded'), 'false');
   });
 
   it('acepta otro título', () => {

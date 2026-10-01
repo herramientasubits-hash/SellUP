@@ -7,19 +7,36 @@
 // (export `ContactEnrichmentWizard` + tipo `ContactEnrichmentInitialCompany`)
 // consumido por el drawer y la página fallback.
 
-import { ContactEnrichmentChatWizard } from './contact-enrichment-chat-wizard';
+import type * as React from 'react';
+import {
+  ContactEnrichmentChatWizard,
+  type ContactEnrichmentChatWizardHandle,
+} from './contact-enrichment-chat-wizard';
 import type { ContactEnrichmentInitialCompany, ManualContactContext } from './contact-enrichment-chat-types';
 
-export type { ContactEnrichmentInitialCompany, ManualContactContext };
+export type { ContactEnrichmentChatWizardHandle, ContactEnrichmentInitialCompany, ManualContactContext };
 
 interface ContactEnrichmentWizardProps {
   initialCompany?: ContactEnrichmentInitialCompany;
   onCreateManualContact?: (ctx: ManualContactContext) => void;
+  /** `panel` dentro del panel del agente; `page` (por defecto) en la pantalla suelta. */
+  layout?: 'panel' | 'page';
+  ref?: React.Ref<ContactEnrichmentChatWizardHandle>;
+  onBusyChange?: (busy: boolean) => void;
 }
 
-export function ContactEnrichmentWizard({ initialCompany, onCreateManualContact }: ContactEnrichmentWizardProps = {}) {
+export function ContactEnrichmentWizard({
+  initialCompany,
+  onCreateManualContact,
+  layout,
+  ref,
+  onBusyChange,
+}: ContactEnrichmentWizardProps = {}) {
   return (
     <ContactEnrichmentChatWizard
+      ref={ref}
+      layout={layout}
+      onBusyChange={onBusyChange}
       initialCompany={initialCompany}
       onCreateManualContact={onCreateManualContact}
     />

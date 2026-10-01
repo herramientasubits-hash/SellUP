@@ -1,11 +1,12 @@
 import { Suspense } from 'react';
 import Link from 'next/link';
 import { ClipboardCheck } from "@/icons";
-import { ScreenActionRail, ScreenActionRailProvider } from "@/components/action-rail";
+import { ListActionRailProvider } from "@/components/action-rail";
 import { DataTablePage } from '@/components/shared/data-table-page';
 import { ListPageSkeleton } from '@/components/shared/list-page-skeleton';
 import { buttonVariants } from '@/components/ui/button';
 import { CreateAccountDrawer } from '@/components/accounts/create-account-drawer';
+import { AccountsScreenActions } from '@/components/accounts/accounts-screen-actions';
 import { AccountsDataTableClient } from '@/components/accounts/accounts-data-table-client';
 import { ModuleTabsNav, type ModuleTabId } from '@/components/navigation/module-tabs-nav';
 import {
@@ -70,17 +71,13 @@ async function AccountsPanel() {
   ]);
 
   return (
-    <ScreenActionRailProvider>
+    <ListActionRailProvider label="Acciones de empresas" gender="f">
       <DataTablePage
         compact
         title={EMPRESAS_MODULE_TITLE}
         description={EMPRESAS_TAB_DESCRIPTIONS.empresas}
         tabs={<ModuleTabsNav active="empresas" counts={{ empresas: accounts.length }} />}
-        actions={
-          <ScreenActionRail label="Acciones de empresas">
-            <CreateAccountDrawer users={users} />
-          </ScreenActionRail>
-        }
+        actions={<AccountsScreenActions users={users} />}
       >
         <AccountsDataTableClient
           accounts={accounts}
@@ -100,6 +97,6 @@ async function AccountsPanel() {
           }
         />
       </DataTablePage>
-    </ScreenActionRailProvider>
+    </ListActionRailProvider>
   );
 }

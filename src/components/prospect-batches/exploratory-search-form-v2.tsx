@@ -7,7 +7,7 @@ import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card
 import { AIButton } from '@/components/ai/ai-button';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Label } from '@/components/ui/label';
+import { FieldError, FieldLabel } from '@/components/forms/field';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
@@ -228,9 +228,7 @@ export function ExploratorySearchFormV2({
         {/* Subindustries */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between gap-2">
-            <Label className="text-sm font-medium">
-              Subindustrias
-            </Label>
+            <FieldLabel>Subindustrias</FieldLabel>
             <span className="text-xs tabular-nums text-muted-foreground">
               {form.subindustryIds.length}/{EXPLORATORY_SEARCH_LIMITS.subindustries.max}
             </span>
@@ -297,10 +295,10 @@ export function ExploratorySearchFormV2({
             </span>
           </div>
           {criteriaOverLimit && (
-            <p className="text-xs font-medium text-destructive">
+            <FieldError>
               El criterio específico puede tener máximo{' '}
               {EXPLORATORY_SEARCH_LIMITS.additionalCriteria.maxChars} caracteres.
-            </p>
+            </FieldError>
           )}
         </div>
       </SurfaceCard>

@@ -45,6 +45,12 @@ import {
 
 interface CreateAccountDrawerProps {
   users: InternalUserOption[];
+  /**
+   * Modo controlado: quien lo monta decide cuándo está abierto (la barra de
+   * acciones de la pantalla) y el drawer no pinta su propio botón.
+   */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 const EMPTY_FORM = {
@@ -62,9 +68,19 @@ const EMPTY_FORM = {
   notes: '',
 };
 
-export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
+export function CreateAccountDrawer({
+  users,
+  open: controlledOpen,
+  onOpenChange,
+}: CreateAccountDrawerProps) {
   const router = useRouter();
-  const [open, setOpen] = React.useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const [internalOpen, setInternalOpen] = React.useState(false);
+  const open = isControlled ? controlledOpen : internalOpen;
+  const setOpen = (next: boolean) => {
+    if (!isControlled) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [form, setForm] = React.useState(EMPTY_FORM);
@@ -125,10 +141,12 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
       open={open}
       onOpenChange={(v) => !v && handleClose()}
       trigger={
-        <Button onClick={() => setOpen(true)} size="sm">
-          <Plus className="h-4 w-4" />
-          Crear empresa
-        </Button>
+        isControlled ? undefined : (
+          <Button onClick={() => setOpen(true)} size="sm">
+            <Plus className="h-4 w-4" />
+            Crear empresa
+          </Button>
+        )
       }
       title="Nueva empresa"
       description="Registra una empresa o prospecto. Podrás enriquecerla con IA más adelante."

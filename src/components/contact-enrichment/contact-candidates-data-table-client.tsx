@@ -2,7 +2,6 @@
 
 import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
-import { useReportSelectionCount } from "@/components/action-rail";
 import { type ColumnDef } from '@tanstack/react-table';
 import { Link2, Building2, Mail, Sparkles, UserSearch } from "@/icons";
 
@@ -248,7 +247,6 @@ export function ContactCandidatesDataTableClient({
   phoneRevealWaterfallEnabled = false,
   phoneRevealWaterfallAuthorized = false,
 }: ContactCandidatesDataTableClientProps) {
-  const reportSelectionCount = useReportSelectionCount();
   // AGENT2A-P0-R2: título, descripción y estado vacío se derivan de la cola. Antes estaban
   // escritos a mano aquí y la tabla se anunciaba como «Candidatos por revisar» incluso bajo
   // la pill «Duplicados».
@@ -319,6 +317,8 @@ export function ContactCandidatesDataTableClient({
     () => [
       {
         id: 'view-detail',
+        // Solo tiene sentido sobre una fila: con varias marcadas sale de la barra.
+        scope: ['single'],
         label: 'Ver detalle',
         icon: UserSearch,
         disabled: (rows) => rows.length !== 1,
@@ -551,7 +551,6 @@ export function ContactCandidatesDataTableClient({
         tableId="contact-candidates"
         noun="candidatos"
         getRowLabel={(row) => row.full_name ?? 'candidato'}
-        onSelectionCountChange={reportSelectionCount}
         columns={columns}
         data={quick.rows}
         getRowId={(row) => row.id}

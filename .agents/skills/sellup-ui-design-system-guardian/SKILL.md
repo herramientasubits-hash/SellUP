@@ -113,7 +113,7 @@ When in doubt, consult these files in order:
    shadcn/ui components and extensions (Tabs, Popover, Checkbox, Switch, SegmentedControl, etc.).
 
 5. **`src/components/data-table/`**  
-   Unified data table system (DataTable, DataTableColumnHeader, DataTableActiveFilters, DataTableLoadMore, DataTableBulkActionBar, etc.; panel «Configurar tabla» = TableConfigButton de data-display).
+   Unified data table system (DataTable, DataTableColumnHeader, DataTableActiveFilters, DataTableLoadMore, etc.; la selección va a la barra flotante de `@/components/action-rail`; panel «Configurar tabla» = TableConfigButton de data-display).
 
 6. **`src/components/layout/`**  
    AppShell, AppHeader, AppSidebar, theme-toggle.
@@ -242,7 +242,7 @@ Before building a custom component, verify:
 2. § 15: usa `<DataTablePage>` para el layout (header + métricas fijas, tabla con scroll interno).
 3. § 10 DataTable: define columns con `meta.label`, habilita `enableRowSelection` + `bulkActions` + `contextMenu`, y pasa `fillHeight` para scroll interno.
 4. § 11 Drawer con Tabs: si el detalle tiene >1 área, envuelve en `Tabs variant="line"`. Sin "Abrir página completa".
-5. § 12 Floating Bar: usa `DataTableBulkActionBar` (ya portaliza internamente).
+5. § 12 Floating Bar: una sola barra por pantalla — `ListActionRailProvider` + `RailScreenActions`; `DataTable` le pasa la selección sola (ya portaliza internamente).
 6. Pre-carga server-side todos los datos del drawer (no fetch on tab change).
 7. Verifica: `npm run lint && npm run typecheck && npm run build`.
 8. Commit con prefijo `feat:` y mensaje claro.

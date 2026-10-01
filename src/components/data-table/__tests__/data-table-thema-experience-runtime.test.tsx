@@ -155,11 +155,19 @@ function headerCell(columnId: string): HTMLElement {
   return cell;
 }
 
-/** Cuántas filas dice la barra flotante que hay marcadas, o null si no hay barra. */
+/** La barra de acciones flotante (`DataListActionRail`), o null si no hay. */
+function actionRail(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('[data-slot="action-rail"]');
+}
+
+/**
+ * Cuántas filas dice la barra flotante que hay marcadas («3 seleccionadas»),
+ * o null si la selección no está en la barra.
+ */
 function bulkBarCount(): number | null {
-  const label = screen.queryByText(/^seleccionad[oa]s?$/);
-  if (!label) return null;
-  return Number(label.previousElementSibling?.textContent);
+  const chip = actionRail()?.querySelector('[role="status"]');
+  const match = /^(\d+) seleccionad[oa]s?$/.exec(chip?.textContent ?? '');
+  return match ? Number(match[1]) : null;
 }
 
 /** Abre el menú de selección de la cabecera, elige una opción y espera a que se cierre. */
@@ -513,7 +521,7 @@ describe('DataTable — dónde van las acciones y cómo se actúa sobre una fila
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar todos (5)' }));
     assert.ok(screen.getByText('5 seleccionadas'));
-    assert.equal(screen.queryByText(/^seleccionad[oa]s?$/), null, 'sin barra flotante');
+    assert.equal(actionRail(), null, 'sin barra flotante');
     assert.equal(screen.queryByText('Listado de empresas'), null, 'el título deja paso');
     assert.equal(reported.at(-1), 0, 'la pantalla no cede su barra: no hay barra masiva');
     assert.equal((screen.getByRole('button', { name: 'Ver detalle' }) as HTMLButtonElement).disabled, true);
@@ -534,7 +542,15 @@ describe('DataTable — dónde van las acciones y cómo se actúa sobre una fila
     });
     fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar todos (5)' }));
     assert.equal(reported.at(-1), 5);
-    assert.ok(screen.getByText(/^seleccionad[oa]s?$/));
+    assert.equal(bulkBarCount(), 5);
+    // Las acciones masivas son los botones de la barra; lo que no aplica a
+    // varias filas queda a la vista, apagado.
+    assert.equal(
+      within(actionRail() as HTMLElement).getByRole('button', { name: 'Ver detalle' }).getAttribute('aria-disabled'),
+      'true',
+    );
+    fireEvent.click(within(actionRail() as HTMLElement).getByRole('button', { name: 'Exportar' }));
+    assert.deepEqual(calls, [['1', '2', '3', '4', '5']]);
   });
 
   it('«Menú en cada fila»: sin casillas, cada fila lleva sus acciones', async () => {

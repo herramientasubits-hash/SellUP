@@ -16,10 +16,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { createPreapproval } from '@/modules/access/actions';
 import type { Role, InternalUser, OrganizationGroup } from '@/modules/access/types';
+import { UserAvatar } from './user-avatar';
 
 const NO_MANAGER = '__none__';
 const NO_GROUP = '__none__';
@@ -28,16 +28,28 @@ interface AddUserDrawerProps {
   roles: Role[];
   activeUsers: InternalUser[];
   groups: OrganizationGroup[];
+  /**
+   * Modo controlado: quien lo monta decide cuándo está abierto (la barra de
+   * acciones de la pantalla) y el drawer no pinta su propio botón.
+   */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-function getInitials(name: string, email: string): string {
-  if (name.trim()) return name.trim().split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
-  const local = email.split('@')[0];
-  return local.slice(0, 2).toUpperCase();
-}
-
-export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps) {
-  const [open, setOpen] = useState(false);
+export function AddUserDrawer({
+  roles,
+  activeUsers,
+  groups,
+  open: controlledOpen,
+  onOpenChange,
+}: AddUserDrawerProps) {
+  const isControlled = controlledOpen !== undefined;
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = isControlled ? controlledOpen : internalOpen;
+  const setOpen = (next: boolean) => {
+    if (!isControlled) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,7 +66,6 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
   const selectedRole = roles.find(r => r.id === roleId);
   const selectedManager = activeUsers.find(u => u.id === managerId);
   const selectedGroup = groups.find(g => g.id === groupId);
-  const previewInitials = getInitials(fullName, email || 'NN');
 
   const sortedGroups = [...groups].sort((a, b) => {
     if (a.depth !== b.depth) return a.depth - b.depth;
@@ -98,10 +109,12 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
       open={open}
       onOpenChange={(v) => { setOpen(v); if (!v) reset(); }}
       trigger={
-        <Button size="sm" onClick={() => setOpen(true)}>
-          <UserPlus className="h-3.5 w-3.5" />
-          Agregar usuario
-        </Button>
+        isControlled ? undefined : (
+          <Button size="sm" onClick={() => setOpen(true)}>
+            <UserPlus className="h-3.5 w-3.5" />
+            Agregar usuario
+          </Button>
+        )
       }
       title="Agregar usuario"
       description="Preautoriza un correo @ubits.co. El acceso se activa en el primer inicio de sesión con Google."
@@ -133,12 +146,9 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
     >
       <div className="space-y-4">
         {/* Identity preview */}
-        <div className="flex items-center gap-4 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
-          <Avatar className="h-12 w-12 shrink-0">
-            <AvatarFallback className="bg-primary/10 text-sm font-semibold text-primary">
-              {previewInitials}
-            </AvatarFallback>
-          </Avatar>
+        {/* Agrupa datos, no es una tarjeta: fondo sutil y sin borde. */}
+        <div className="flex items-center gap-4 rounded-xl bg-surface-subtle px-4 py-3">
+          <UserAvatar name={fullName} email={email || 'NN'} size="xl" />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-foreground">
               {fullName.trim() || <span className="text-muted-foreground italic">Nombre completo</span>}
@@ -253,11 +263,7 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
             </Select>
             {selectedManager && (
               <div className="flex items-center gap-2 rounded-lg bg-surface-subtle px-3 py-2">
-                <Avatar className="h-6 w-6 shrink-0">
-                  <AvatarFallback className="bg-primary/10 text-primary text-xs">
-                    {getInitials(selectedManager.full_name ?? '', selectedManager.email)}
-                  </AvatarFallback>
-                </Avatar>
+                <UserAvatar name={selectedManager.full_name} email={selectedManager.email} size="xs" />
                 <span className="min-w-0 truncate text-xs text-foreground">{selectedManager.full_name ?? selectedManager.email}</span>
               </div>
             )}

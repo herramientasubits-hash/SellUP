@@ -29,6 +29,42 @@ export interface RailActionSpec {
   /** Por qué no se puede ahora. La deja a la vista, apagada y explicada. */
   blockedReason?: string | null
   onSelect?: () => void
+  /**
+   * Solo para la primaria. `ai` le conserva el degradado de marca de las
+   * acciones de IA («Buscar contactos con IA»).
+   */
+  variant?: "default" | "ai"
+  /**
+   * Solo para la primaria. En vez de actuar, abre un popover de creación con
+   * estas opciones: «Agregar prospectos» pasa a ser «Generar con IA» /
+   * «Importar archivo» / «Crear a mano» en lugar de tres botones rellenos.
+   */
+  options?: readonly RailCreateOptionSpec[]
+  /**
+   * Un grupo con nombre. En vez de actuar, despliega estas acciones en un menú
+   * propio; cada una se bloquea y se explica por separado.
+   */
+  menu?: readonly RailMenuItemSpec[]
+}
+
+/** Una opción del popover de creación de la acción primaria. */
+export interface RailCreateOptionSpec {
+  id: string
+  title: string
+  description: string
+  icon: React.ReactNode
+  variant?: "default" | "ai"
+  onSelect: () => void
+}
+
+/** Una acción dentro del menú de un grupo (`RailActionSpec.menu`). */
+export interface RailMenuItemSpec {
+  id: string
+  label: string
+  icon: React.ReactNode
+  tone?: "default" | "danger"
+  blockedReason?: string | null
+  onSelect?: () => void
 }
 
 /**

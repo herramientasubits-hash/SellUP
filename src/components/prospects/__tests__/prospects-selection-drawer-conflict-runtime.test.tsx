@@ -197,6 +197,23 @@ beforeEach(() => {
 });
 afterEach(() => cleanup());
 
+/**
+ * El recuento de la barra flotante («1 seleccionado»). Con la barra de Thema
+ * la selección vive en LA barra de la pantalla: el recuento es un chip y cada
+ * acción es un botón de icono que se llama como su etiqueta.
+ */
+const SELECTION_CHIP = /^\d+ seleccionad[oa]s?$/;
+
+/** Una acción de la barra flotante, por su nombre accesible. */
+function railAction(name: string): HTMLElement {
+  return screen.getByRole('button', { name });
+}
+
+/** Bloqueada: a la vista, apagada (`aria-disabled`) y sin ejecutar nada al pulsarla. */
+function isBlocked(button: HTMLElement): boolean {
+  return button.getAttribute('aria-disabled') === 'true';
+}
+
 function selectRowCheckbox(index: number): void {
   // Checkbox 0 is the header "select all"; row checkboxes follow in order.
   const checkboxes = screen.getAllByRole('checkbox');
@@ -211,13 +228,13 @@ describe('ProspectsDataTableClient — selection bar vs. side panel never coexis
   it('opening the detail via the company name link clears the selection and hides the bar', () => {
     renderTable();
     selectRowCheckbox(0);
-    assert.ok(screen.getByText(/^seleccionad[oa]s?$/), 'selection bar must appear once a row is selected');
+    assert.ok(screen.getByText(SELECTION_CHIP), 'selection bar must appear once a row is selected');
 
     fireEvent.click(screen.getByText('Acme Analytics SA'));
 
     assert.equal(detailSheetProps.open, true, 'side panel must open');
     assert.equal(
-      screen.queryByText(/^seleccionad[oa]s?$/),
+      screen.queryByText(SELECTION_CHIP),
       null,
       'selection bar must be gone once the side panel opens from the name link',
     );
@@ -226,24 +243,24 @@ describe('ProspectsDataTableClient — selection bar vs. side panel never coexis
   it('opening the detail via the "Ver detalle" bulk action clears the selection and hides the bar', () => {
     renderTable();
     selectRowCheckbox(0);
-    assert.ok(screen.getByText(/^seleccionad[oa]s?$/));
+    assert.ok(screen.getByText(SELECTION_CHIP));
 
-    fireEvent.click(screen.getByText('Ver detalle'));
+    fireEvent.click(railAction('Ver detalle'));
 
     assert.equal(detailSheetProps.open, true);
-    assert.equal(screen.queryByText(/^seleccionad[oa]s?$/), null);
+    assert.equal(screen.queryByText(SELECTION_CHIP), null);
   });
 
   it('opening the detail via the "Aprobar" bulk action clears the selection, hides the bar, and arms the approve intent (never approves directly)', () => {
     renderTable();
     selectRowCheckbox(0);
 
-    fireEvent.click(screen.getByText('Aprobar'));
+    fireEvent.click(railAction('Aprobar'));
 
     assert.equal(detailSheetProps.open, true, 'side panel must open');
     assert.equal(detailSheetProps.initialApproveIntent, true, 'approve intent must be armed');
     assert.equal(
-      screen.queryByText(/^seleccionad[oa]s?$/),
+      screen.queryByText(SELECTION_CHIP),
       null,
       'selection bar must be gone once "Aprobar" opens the side panel',
     );
@@ -252,10 +269,10 @@ describe('ProspectsDataTableClient — selection bar vs. side panel never coexis
   it('does not reopen the bar once the selection was cleared by opening the detail', () => {
     renderTable();
     selectRowCheckbox(0);
-    fireEvent.click(screen.getByText('Ver detalle'));
-    assert.equal(screen.queryByText(/^seleccionad[oa]s?$/), null);
+    fireEvent.click(railAction('Ver detalle'));
+    assert.equal(screen.queryByText(SELECTION_CHIP), null);
     // Nothing re-selects rows on its own — the bar stays gone.
-    assert.equal(screen.queryByText(/^seleccionad[oa]s?$/), null);
+    assert.equal(screen.queryByText(SELECTION_CHIP), null);
   });
 });
 
@@ -264,36 +281,43 @@ describe('ProspectsDataTableClient — selection bar action hierarchy (matches s
     renderTable();
     selectRowCheckbox(0);
 
-    assert.ok(screen.getByText('Ver detalle'));
+    assert.ok(railAction('Ver detalle'));
 
-    const aprobarBtn = screen.getByText('Aprobar').closest('button') as HTMLButtonElement;
+    const aprobarBtn = railAction('Aprobar');
     assert.ok(aprobarBtn);
-    assert.equal(aprobarBtn.disabled, false, 'Aprobar must be enabled for exactly one selected row');
+    assert.equal(isBlocked(aprobarBtn), false, 'Aprobar must be enabled for exactly one selected row');
 
     // Q3F-5AZ.2G-1 — Descartar is now enabled for a single eligible row.
-    const descartarBtn = screen.getByText('Descartar').closest('button') as HTMLButtonElement;
+    const descartarBtn = railAction('Descartar');
     assert.ok(descartarBtn, 'Descartar must be visible in the bar');
     assert.equal(
-      descartarBtn.disabled,
+      isBlocked(descartarBtn),
       false,
       'Descartar must be enabled for exactly one eligible selected row',
     );
 
-    assert.ok(screen.getByText('Más acciones'), '"Más acciones" trigger must be visible');
-    assert.ok(screen.getByText('Abrir sitios web'));
+    assert.ok(railAction('Más acciones'), '"Más acciones" trigger must be visible');
+    assert.ok(railAction('Abrir sitios web'));
+
+    // The hierarchy is the order of the rail: same as the side panel footer.
+    const order = Array.from(
+      (screen.getByRole('toolbar') as HTMLElement).querySelectorAll('button'),
+      (button) => button.getAttribute('aria-label'),
+    ).filter((label) => label && !/Mover barra|Ajustes de la barra|Limpiar selección/.test(label));
+    assert.deepEqual(order, ['Ver detalle', 'Aprobar', 'Descartar', 'Más acciones', 'Abrir sitios web']);
   });
 
   it('Descartar from the bar (single eligible) clears the selection, hides the bar, and arms the discard intent (never discards directly)', () => {
     renderTable();
     selectRowCheckbox(0);
 
-    fireEvent.click(screen.getByText('Descartar'));
+    fireEvent.click(railAction('Descartar'));
 
     assert.equal(detailSheetProps.open, true, 'side panel must open');
     assert.equal(detailSheetProps.initialDiscardIntent, true, 'discard intent must be armed');
     assert.equal(detailSheetProps.initialApproveIntent, false, 'approve intent must NOT be armed');
     assert.equal(
-      screen.queryByText(/^seleccionad[oa]s?$/),
+      screen.queryByText(SELECTION_CHIP),
       null,
       'selection bar must be gone once "Descartar" opens the side panel',
     );
@@ -307,24 +331,16 @@ describe('ProspectsDataTableClient — selection bar action hierarchy (matches s
       assert.equal(screen.queryByText(label), null, `"${label}" must live inside the menu, not flat in the bar`);
     }
 
-    fireEvent.click(screen.getByText('Más acciones'));
+    fireEvent.click(railAction('Más acciones'));
 
     // Marcar duplicado is enabled for a single eligible (needs_review + production) row.
-    const dup = await screen.findByRole('menuitem', { name: /Marcar duplicado/ });
-    assert.equal(
-      dup.getAttribute('aria-disabled') === 'true' || dup.hasAttribute('data-disabled'),
-      false,
-      'Marcar duplicado must be ENABLED for a single eligible selected row',
-    );
+    const dup = (await screen.findByRole('button', { name: 'Marcar duplicado' })) as HTMLButtonElement;
+    assert.equal(dup.disabled, false, 'Marcar duplicado must be ENABLED for a single eligible selected row');
 
     for (const label of ['Enviar a enriquecimiento', 'Mantener en revisión']) {
-      const item = await screen.findByRole('menuitem', { name: new RegExp(label) });
+      const item = (await screen.findByRole('button', { name: label })) as HTMLButtonElement;
       assert.ok(item, `expected "${label}" inside Más acciones`);
-      assert.equal(
-        item.getAttribute('aria-disabled') === 'true' || item.hasAttribute('data-disabled'),
-        true,
-        `"${label}" must stay disabled inside the menu`,
-      );
+      assert.equal(item.disabled, true, `"${label}" must stay disabled inside the menu`);
     }
   });
 
@@ -332,8 +348,8 @@ describe('ProspectsDataTableClient — selection bar action hierarchy (matches s
     renderTable();
     selectRowCheckbox(0);
 
-    fireEvent.click(screen.getByText('Más acciones'));
-    const dup = await screen.findByRole('menuitem', { name: /Marcar duplicado/ });
+    fireEvent.click(railAction('Más acciones'));
+    const dup = await screen.findByRole('button', { name: 'Marcar duplicado' });
     fireEvent.click(dup);
 
     assert.equal(detailSheetProps.open, true, 'side panel must open');
@@ -341,7 +357,7 @@ describe('ProspectsDataTableClient — selection bar action hierarchy (matches s
     assert.equal(detailSheetProps.initialApproveIntent, false, 'approve intent must NOT be armed');
     assert.equal(detailSheetProps.initialDiscardIntent, false, 'discard intent must NOT be armed');
     assert.equal(
-      screen.queryByText(/^seleccionad[oa]s?$/),
+      screen.queryByText(SELECTION_CHIP),
       null,
       'selection bar must be gone once "Marcar duplicado" opens the side panel',
     );
@@ -352,22 +368,29 @@ describe('ProspectsDataTableClient — selection bar action hierarchy (matches s
     selectRowCheckbox(0);
     selectRowCheckbox(1);
 
-    const aprobarBtn = screen.getByText('Aprobar').closest('button') as HTMLButtonElement;
-    assert.equal(aprobarBtn.disabled, true, 'no bulk approve for 2+ rows');
+    const aprobarBtn = railAction('Aprobar');
+    assert.equal(isBlocked(aprobarBtn), true, 'no bulk approve for 2+ rows');
 
-    const descartarBtn = screen.getByText('Descartar').closest('button') as HTMLButtonElement;
-    assert.equal(descartarBtn.disabled, true);
+    const descartarBtn = railAction('Descartar');
+    assert.equal(isBlocked(descartarBtn), true);
 
-    assert.ok(screen.getByText('Más acciones'), '"Más acciones" must still render for multi-selection');
+    // Blocked means inert, not just dimmed: clicking never opens the side panel
+    // nor arms an intent.
+    fireEvent.click(aprobarBtn);
+    fireEvent.click(descartarBtn);
+    assert.equal(detailSheetProps.open, false, 'a blocked bulk action must not open the side panel');
+    assert.ok(screen.getByText(SELECTION_CHIP), 'the selection stays as it was');
+
+    // «Ver detalle» only makes sense for one row: with 2+ it leaves the rail.
+    assert.equal(screen.queryByRole('button', { name: 'Ver detalle' }), null);
+
+    assert.ok(railAction('Más acciones'), '"Más acciones" must still render for multi-selection');
 
     // No bulk duplicate: the sub-item stays disabled for 2+ selected rows.
-    fireEvent.click(screen.getByText('Más acciones'));
-    const dup = await screen.findByRole('menuitem', { name: /Marcar duplicado/ });
-    assert.equal(
-      dup.getAttribute('aria-disabled') === 'true' || dup.hasAttribute('data-disabled'),
-      true,
-      'Marcar duplicado must stay disabled for 2+ selected rows (no bulk duplicate)',
-    );
+    fireEvent.click(railAction('Más acciones'));
+    const dup = (await screen.findByRole('button', { name: 'Marcar duplicado' })) as HTMLButtonElement;
+    assert.equal(dup.disabled, true, 'Marcar duplicado must stay disabled for 2+ selected rows (no bulk duplicate)');
+    assert.ok(screen.getByText('Marcar duplicado masivo pendiente'), 'and the menu says why');
   });
 });
 
