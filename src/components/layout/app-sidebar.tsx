@@ -40,8 +40,9 @@ interface AppSidebarProps {
 }
 
 /**
- * Icon-rail sidebar — 80px fixed width.
- * Pattern from plantilla-proyectos-shadcn (SidebarRail.tsx).
+ * Icon-rail sidebar — 64px fixed width.
+ * Patrón de Thema (app-shell/SidebarIconRail.tsx): superficie clara, botones
+ * de 40px con radio lg; el activo es tinte + primario.
  * Only icons visible; labels appear in tooltip on hover (NavLink).
  * Layout (top → bottom): brand · nav · notifications · theme · user.
  */
@@ -77,7 +78,7 @@ export function AppSidebar({
   return (
     <div className={cn("flex h-full flex-col", className)}>
       {/* Top zone — user avatar only */}
-      <div className="flex shrink-0 flex-col items-center border-b border-sidebar-border/30 pt-4 pb-3">
+      <div className="flex shrink-0 flex-col items-center border-b border-sidebar-border pt-4 pb-3">
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger
@@ -85,14 +86,14 @@ export function AppSidebar({
                 <DropdownMenuTrigger
                   className={cn(
                     "group flex items-center justify-center rounded-full p-0.5 transition-all",
-                    "hover:ring-2 hover:ring-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25",
-                    "data-[popup-open]:ring-2 data-[popup-open]:ring-white/20",
+                    "hover:ring-2 hover:ring-primary/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                    "data-[popup-open]:ring-2 data-[popup-open]:ring-primary/30",
                   )}
                   aria-label={`Cuenta de ${displayName}`}
                 >
-                  <Avatar className="h-8 w-8 ring-2 ring-sidebar-border/60 transition-all group-hover:ring-white/25">
+                  <Avatar className="h-8 w-8">
                     <AvatarImage src={avatarUrl} alt={displayName} />
-                    <AvatarFallback className="bg-gradient-to-br from-su-brand to-su-accent-cool text-[10px] font-bold text-white">
+                    <AvatarFallback className="bg-primary text-[10px] font-semibold text-primary-foreground">
                       {initials}
                     </AvatarFallback>
                   </Avatar>
@@ -112,7 +113,7 @@ export function AppSidebar({
                 <div className="flex items-center gap-3 px-1 py-1.5">
                   <Avatar size="lg" className="shrink-0">
                     <AvatarImage src={avatarUrl} alt={displayName} />
-                    <AvatarFallback className="bg-gradient-to-br from-su-brand to-su-accent-cool text-[11px] font-bold text-white">
+                    <AvatarFallback className="bg-primary text-[11px] font-semibold text-primary-foreground">
                       {initials}
                     </AvatarFallback>
                   </Avatar>
@@ -149,7 +150,7 @@ export function AppSidebar({
       </div>
 
       {/* Nav — middle, icon-rail with hover tooltips */}
-      <nav className="flex flex-1 flex-col items-center gap-0.5 overflow-y-auto px-2 py-4">
+      <nav aria-label="Navegación principal" className="flex flex-1 flex-col items-center gap-1 overflow-y-auto px-2 py-4">
         {visibleNavItems.map((item, i) => (
             <div
               key={item.href}
@@ -162,7 +163,7 @@ export function AppSidebar({
       </nav>
 
       {/* Bottom dock — notifications + theme toggle only */}
-      <div className="shrink-0 border-t border-sidebar-border/30 px-2 pt-2 pb-3 flex flex-col items-center gap-1">
+      <div className="flex shrink-0 flex-col items-center gap-1 border-t border-sidebar-border px-2 pt-2 pb-3">
         <NotificationBell
           initialUnreadCount={initialUnreadCount}
           variant="sidebar"

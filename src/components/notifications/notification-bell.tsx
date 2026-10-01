@@ -70,7 +70,7 @@ export function NotificationBell({
   };
 
   const sidebarClasses =
-    "h-8 w-8 text-sidebar-foreground/55 hover:bg-white/[0.06] hover:text-sidebar-foreground";
+    "h-8 w-8 rounded-lg text-text-muted hover:bg-background hover:text-foreground";
 
   return (
     <>
@@ -83,7 +83,7 @@ export function NotificationBell({
             {unreadCount > 0 && (
               <span
                 aria-hidden
-                className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-su-brand px-0.5 text-[10px] font-bold leading-none text-white"
+                className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-primary px-0.5 text-[10px] font-bold leading-none text-primary-foreground"
               >
                 {unreadCount > 99 ? "99+" : unreadCount}
               </span>

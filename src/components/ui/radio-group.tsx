@@ -36,7 +36,7 @@ function RadioGroupItem({
   return (
     <label
       className={cn(
-        "group/radio-group-item peer relative flex items-center gap-2 rounded-lg border border-input p-3 text-sm font-medium transition-all outline-none hover:bg-accent focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:bg-input/30 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 data-[state=checked]:border-primary data-[state=checked]:bg-primary/5 data-[state=checked]:text-primary",
+        "group/radio-group-item peer relative flex items-center gap-2 rounded-md border border-input bg-card p-3 text-sm font-medium transition-all outline-none hover:bg-surface-muted focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:bg-input/30 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 data-[state=checked]:border-primary data-[state=checked]:bg-primary/5 data-[state=checked]:text-primary",
         className
       )}
     >

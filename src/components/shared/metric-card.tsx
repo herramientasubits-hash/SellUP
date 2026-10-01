@@ -28,17 +28,17 @@ function MetricCardSkeleton({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        "rounded-xl border border-transparent dark:border-border/50 bg-card p-5 shadow-[0_1px_2px_0_rgb(0_0_0/0.04)] dark:shadow-[0_1px_2px_0_rgb(255_255_255/0.04)]",
+        "rounded-2xl border border-border/60 bg-card p-5 shadow-card",
         className,
       )}
     >
       <div className="space-y-2">
-        <div className="h-3.5 w-1/2 rounded-md bg-muted/60" />
-        <div className="h-3 w-3/4 rounded-md bg-muted/40" />
+        <div className="h-3.5 w-1/2 animate-pulse rounded-md bg-surface-muted dark:bg-secondary" />
+        <div className="h-3 w-3/4 animate-pulse rounded-md bg-surface-muted dark:bg-secondary" />
       </div>
       <div className="mt-5 flex items-baseline gap-2">
-        <div className="h-9 w-24 rounded-md bg-muted/60" />
-        <div className="h-3 w-12 rounded-md bg-muted/40" />
+        <div className="h-9 w-24 animate-pulse rounded-md bg-surface-muted dark:bg-secondary" />
+        <div className="h-3 w-12 animate-pulse rounded-md bg-surface-muted dark:bg-secondary" />
       </div>
     </div>
   );
@@ -69,11 +69,11 @@ export function MetricCard({
     return (
       <div
         className={cn(
-          "flex h-full flex-col rounded-xl border border-transparent dark:border-border/50 bg-card p-5 shadow-[0_1px_2px_0_rgb(0_0_0/0.04)] dark:shadow-[0_1px_2px_0_rgb(255_255_255/0.04)]",
+          "flex h-full flex-col rounded-2xl border border-border/60 bg-card p-5 shadow-card",
           className,
         )}
       >
-        <p className="text-sm font-semibold text-foreground/80">{title}</p>
+        <p className="text-sm font-medium text-muted-foreground">{title}</p>
         {description && (
           <p className="mt-0.5 text-xs text-muted-foreground/70 line-clamp-1">{description}</p>
         )}
@@ -85,7 +85,7 @@ export function MetricCard({
   const hasDelta = delta !== undefined || deltaLabel !== undefined;
 
   const containerCls = cn(
-    "flex h-full overflow-hidden rounded-xl border border-transparent dark:border-border/50 bg-card shadow-[0_1px_2px_0_rgb(0_0_0/0.04)] dark:shadow-[0_1px_2px_0_rgb(255_255_255/0.04)]",
+    "flex h-full overflow-hidden rounded-2xl border border-border/60 bg-card shadow-card",
     iconPosition === "left-large" ? "flex-row items-center gap-4 p-5" : "flex-col",
     className,
   );
@@ -112,7 +112,7 @@ export function MetricCard({
       <div className={containerCls}>
         {icon && <div className="px-5 pt-5">{icon}</div>}
         <div className="flex flex-1 flex-col px-5 pb-5 pt-3">
-          <p className="text-sm font-semibold text-foreground/80">{title}</p>
+          <p className="text-sm font-medium text-muted-foreground">{title}</p>
           {description && (
             <p className="mt-0.5 text-xs text-muted-foreground/70 line-clamp-1">{description}</p>
           )}
@@ -141,7 +141,7 @@ export function MetricCard({
           </div>
         </div>
         {footer && (
-          <div className="border-t border-border/40 bg-muted/20 px-5 py-2.5 text-[11px] text-muted-foreground">
+          <div className="border-t border-border/60 bg-surface-subtle px-5 py-2.5 text-xs text-muted-foreground">
             {footer}
           </div>
         )}
@@ -153,7 +153,7 @@ export function MetricCard({
     <div className={containerCls}>
       <div className="flex items-start justify-between gap-3 px-5 pt-5">
         <div className="min-w-0 space-y-0.5">
-          <p className="text-sm font-semibold text-foreground/80">{title}</p>
+          <p className="text-sm font-medium text-muted-foreground">{title}</p>
           {description && (
             <p className="text-xs text-muted-foreground/70 line-clamp-1">{description}</p>
           )}
@@ -191,7 +191,7 @@ export function MetricCard({
       </div>
 
       {footer && (
-        <div className="border-t border-border/40 bg-muted/20 px-5 py-2.5 text-[11px] text-muted-foreground">
+        <div className="border-t border-border/60 bg-surface-subtle px-5 py-2.5 text-xs text-muted-foreground">
           {footer}
         </div>
       )}

@@ -73,7 +73,7 @@ export function DataTableColumnHeader<TData, TValue>({
         type="button"
         className={cn(
           "group inline-flex items-center gap-1.5 -mx-1.5 px-1.5 py-1 rounded-md",
-          "hover:bg-muted/40 transition-colors",
+          "hover:bg-surface-muted transition-colors",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
           className,
         )}

@@ -17,14 +17,14 @@ export function SectionHeader({
   className,
 }: SectionHeaderProps) {
   return (
-    <div className={cn("flex items-end justify-between gap-4 pb-4 border-b", className)}>
+    <div className={cn("flex items-end justify-between gap-4 border-b border-border/60 pb-4", className)}>
       <div className="space-y-1">
         {eyebrow && (
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <p className="text-xs font-semibold text-primary">
             {eyebrow}
           </p>
         )}
-        <h3 className="text-lg font-semibold tracking-tight text-foreground">
+        <h3 className="text-base font-semibold tracking-tight text-foreground">
           {title}
         </h3>
         {description && (

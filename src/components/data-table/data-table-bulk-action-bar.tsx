@@ -92,7 +92,7 @@ export function DataTableBulkActionBar<TData>({
         className={cn(
           "fixed bottom-6 left-1/2 -translate-x-1/2 z-[60]",
           "inline-flex items-center gap-2 pl-2 pr-1 py-1",
-          "rounded-full bg-zinc-900 text-zinc-100 shadow-2xl",
+          "rounded-3xl bg-nav text-nav-foreground shadow-rail ring-1 ring-white/10",
           "su-animate-in su-animate-in-fade-up",
           className,
         )}
@@ -104,7 +104,7 @@ export function DataTableBulkActionBar<TData>({
           <span className="text-xs font-medium">Seleccionados</span>
         </div>
 
-        <div className="h-5 w-px bg-zinc-700" />
+        <div className="h-5 w-px bg-white/15" />
 
         {actions.map((action) => {
           if (action.items && action.items.length > 0) {
@@ -127,11 +127,11 @@ export function DataTableBulkActionBar<TData>({
               onClick={() => handleActionClick(action)}
               disabled={isDisabled}
               className={cn(
-                "inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-xs font-medium",
-                "hover:bg-zinc-800 transition-colors",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500",
+                "inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium",
+                "hover:bg-white/10 transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40",
                 "disabled:opacity-50 disabled:cursor-not-allowed",
-                action.variant === "destructive" && "text-red-300 hover:bg-red-950/50",
+                action.variant === "destructive" && "text-red-300 hover:bg-destructive/25",
               )}
             >
               {action.loading ? (
@@ -155,7 +155,7 @@ export function DataTableBulkActionBar<TData>({
 
         {onPin && (
           <>
-            <div className="h-5 w-px bg-zinc-700" />
+            <div className="h-5 w-px bg-white/15" />
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -164,9 +164,9 @@ export function DataTableBulkActionBar<TData>({
                     onClick={onPin}
                     aria-label="Fijar barra"
                     className={cn(
-                      "inline-flex items-center justify-center h-7 w-7 rounded-full",
-                      "hover:bg-zinc-800 transition-colors",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500",
+                      "inline-flex items-center justify-center h-8 w-8 rounded-md",
+                      "hover:bg-white/10 transition-colors",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40",
                     )}
                   >
                     <Pin className="h-3.5 w-3.5" />
@@ -178,7 +178,7 @@ export function DataTableBulkActionBar<TData>({
           </>
         )}
 
-        <div className="h-5 w-px bg-zinc-700" />
+        <div className="h-5 w-px bg-white/15" />
 
         <Tooltip>
           <TooltipTrigger
@@ -188,9 +188,9 @@ export function DataTableBulkActionBar<TData>({
                 onClick={onClear}
                 aria-label="Cerrar barra de selección"
                 className={cn(
-                  "inline-flex items-center justify-center h-7 w-7 rounded-full",
-                  "hover:bg-zinc-800 transition-colors",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500",
+                  "inline-flex items-center justify-center h-8 w-8 rounded-md",
+                  "hover:bg-white/10 transition-colors",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40",
                 )}
               >
                 <X className="h-3.5 w-3.5" />
@@ -252,9 +252,9 @@ function BulkActionDropdownGroup<TData>({
         <button
           type="button"
           className={cn(
-            "inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-xs font-medium",
-            "hover:bg-zinc-800 transition-colors",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500",
+            "inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium",
+            "hover:bg-white/10 transition-colors",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40",
           )}
         >
           {Icon && <Icon className="h-3.5 w-3.5" />}

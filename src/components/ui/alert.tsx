@@ -6,11 +6,11 @@ import { cn } from "@/lib/utils";
 import { X, CheckCircle, AlertCircle, Info, AlertTriangle } from "lucide-react";
 
 const alertVariants = cva(
-  "relative w-full rounded-lg border p-4 text-sm grid has-[>svg]:grid-cols-[auto_1fr] has-[>svg]:gap-x-3 *:[svg]:row-span-2 *:[svg]:translate-y-0.5 *:[svg]:text-current *:[svg:not([class*='size-'])]:size-4",
+  "relative w-full rounded-xl border p-4 text-sm grid has-[>svg]:grid-cols-[auto_1fr] has-[>svg]:gap-x-3 *:[svg]:row-span-2 *:[svg]:translate-y-0.5 *:[svg]:text-current *:[svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
-        default: "bg-card text-foreground",
+        default: "border-border/60 bg-card text-foreground",
         destructive:
           "border-destructive/40 text-destructive [&>svg]:text-destructive bg-destructive/5 dark:border-destructive/50 dark:bg-destructive/10",
         info:
@@ -60,7 +60,7 @@ function AlertTitle({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="alert-title"
-      className={cn("font-medium leading-none tracking-tight", className)}
+      className={cn("font-semibold leading-tight tracking-tight", className)}
       {...props}
     />
   );

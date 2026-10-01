@@ -96,8 +96,8 @@ export function DataTablePagination<TData>({
                 "h-7 w-7 inline-flex items-center justify-center rounded-md text-xs font-medium tabular-nums",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
                 p === pageIndex
-                  ? "bg-foreground text-background"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-surface-muted hover:text-foreground",
               )}
               aria-current={p === pageIndex ? "page" : undefined}
             >

@@ -41,17 +41,17 @@ function EmptyState({
   return (
     <Card
       className={cn(
-        "flex flex-col items-center justify-center p-12 text-center border-dashed border-2 bg-muted/30",
+        "flex flex-col items-center justify-center p-12 text-center border-dashed border-2 bg-surface-subtle shadow-none",
         className,
       )}
       {...props}
     >
       {Icon && (
-        <div className="mb-4 rounded-full bg-muted p-4 text-muted-foreground">
-          <Icon size={32} strokeWidth={1.5} />
+        <div className="mb-4 rounded-full bg-surface-muted p-4 text-text-muted">
+          <Icon size={28} strokeWidth={1.75} />
         </div>
       )}
-      <h3 className="text-lg font-bold text-foreground mb-2">{title}</h3>
+      <h3 className="text-base font-semibold tracking-tight text-foreground mb-1.5">{title}</h3>
       {description && (
         <p className="text-sm text-muted-foreground max-w-sm mb-6 leading-relaxed">
           {description}

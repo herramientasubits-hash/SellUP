@@ -29,7 +29,7 @@ export function ThemeToggle({ variant = "default" }: ThemeToggleProps) {
 
   const baseClass =
     variant === "sidebar"
-      ? "text-sidebar-foreground/55 hover:bg-white/[0.06] hover:text-sidebar-foreground"
+      ? "rounded-lg text-text-muted hover:bg-background hover:text-foreground"
       : "text-muted-foreground/60 hover:bg-accent hover:text-foreground";
 
   if (!mounted) {

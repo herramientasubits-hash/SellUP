@@ -21,14 +21,16 @@ export function SurfaceCard({
   return (
     <div
       className={cn(
-        "rounded-xl border transition-all duration-200",
+        // Thema: una card es una superficie en reposo. Radio 2xl, borde al 60 %
+        // y la sombra `card`. Solo se eleva al pasar el puntero si es pulsable:
+        // una card estática que reacciona promete una acción que no existe.
+        "rounded-2xl border transition-[box-shadow,border-color] duration-200",
         elevated
-          ? "border-su-border-strong/60 bg-su-surface-elevated shadow-md shadow-black/[0.05]"
-          : "border-border/60 bg-card shadow-[0_1px_3px_0_rgb(0_0_0/0.03),0_1px_2px_-1px_rgb(0_0_0/0.03)]",
-        "hover:shadow-[0_4px_12px_0_rgb(0_0_0/0.05),0_1px_3px_-1px_rgb(0_0_0/0.04)]",
-        "hover:border-border/70",
-        onClick && "cursor-pointer hover:border-su-brand/30",
-        !noPadding && "p-5",
+          ? "border-border bg-su-surface-elevated shadow-drawer"
+          : "border-border/60 bg-card shadow-card",
+        onClick &&
+          "cursor-pointer hover:border-primary/30 hover:shadow-drawer focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40",
+        !noPadding && "p-6",
         className,
       )}
       onClick={onClick}
@@ -54,11 +56,11 @@ export function SurfaceCardHeader({
   return (
     <div className={cn("mb-4 flex items-start justify-between gap-3", className)}>
       <div className="min-w-0 space-y-1">
-        <h2 className="text-[0.8125rem] font-semibold leading-none text-foreground">
+        <h2 className="text-base font-semibold leading-tight tracking-tight text-foreground">
           {title}
         </h2>
         {description && (
-          <p className="text-xs leading-relaxed text-muted-foreground">
+          <p className="text-sm leading-relaxed text-muted-foreground">
             {description}
           </p>
         )}

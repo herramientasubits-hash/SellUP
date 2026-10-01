@@ -60,7 +60,9 @@ export function ConfirmDialog({
   className,
 }: ConfirmDialogProps) {
   // Map variant to button variant
-  const actionVariant = variant === 'destructive' ? 'destructive' : 'default';
+  // La confirmación final de algo irreversible sí lleva el rojo sólido: es el
+  // único botón del sistema que debe pesar más que el primario.
+  const actionVariant = variant === 'destructive' ? 'destructive-solid' : 'default';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -70,7 +72,7 @@ export function ConfirmDialog({
         showCloseButton={false}
       >
         <DialogHeader>
-          <DialogTitle className={cn(variant === 'destructive' && 'text-destructive')}>
+          <DialogTitle>
             {title}
           </DialogTitle>
           {description && <DialogDescription>{description}</DialogDescription>}
