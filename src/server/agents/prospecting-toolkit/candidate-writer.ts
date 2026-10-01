@@ -178,6 +178,7 @@ import {
   buildEmployeeCountTrace,
 } from './apollo-company-fields-mapping';
 import { resolveWebDiscoveryCompanyFieldStatuses } from './web-discovery-target-completeness';
+import { resolveLinkedinRequirement } from './linkedin-requirement';
 import {
   evaluateCandidateSubindustryTargetEligibility,
   buildCandidateCompletenessCounters,
@@ -2203,6 +2204,11 @@ export async function writeProspectingCandidates(
       employeeCountStatus:
         entry.candidate.providerCompanyFields?.employeeCount.status ?? 'mapping_failed',
       linkedinStatus: entry.candidate.providerCompanyFields?.linkedin.status ?? 'mapping_failed',
+      // AGENT1-LINKEDIN-OPTIONAL-INSTITUTIONS-1 — la MISMA regla que Pass 4.
+      linkedinRequired: resolveLinkedinRequirement({
+        domain: entry.candidate.domain,
+        name: entry.candidate.name,
+      }).required,
       duplicateStatus: mapDuplicateStatus(entry.candidate.duplicateCheck?.status ?? 'unchecked'),
       ownershipGate: 'pass',
       // 🔴 X6.2-A — antes bastaba `'pass'` porque quien no pasaba la política de
@@ -3072,6 +3078,12 @@ export async function writeProspectingCandidates(
     // veredicto de relevancia sectorial/de INDUSTRIA, subindustria-ciego para
     // toda subindustria sin catálogo de anclas propio, y leerlo como si
     // demostrara la subindustria pedida es el defecto que este cambio cierra.
+    // AGENT1-LINKEDIN-OPTIONAL-INSTITUTIONS-1 — Estado, educación, ONG y gremios
+    // son clientes y muchos no tienen LinkedIn: no se les exige. El tamaño sí.
+    const linkedinRequirement = resolveLinkedinRequirement({
+      domain: candidate.domain,
+      name: candidate.name,
+    });
     const targetEligibility = evaluateCandidateSubindustryTargetEligibility({
       persistenceSuccess: true,
       sectorEvidenceState: candidate.sectorEvidenceState,
@@ -3090,6 +3102,7 @@ export async function writeProspectingCandidates(
         providerCompanyFields?.linkedin.status ??
         webDiscoveryFieldStatuses?.linkedinStatus ??
         'mapping_failed',
+      linkedinRequired: linkedinRequirement.required,
       duplicateStatus: dbDuplicateStatus,
       ownershipGate: 'pass',
       // 🔴 X6.2-A — pregunta 6, y SÓLO la 6. `'pass'` era correcto mientras la
@@ -3308,6 +3321,9 @@ export async function writeProspectingCandidates(
                 requested_subindustries: targetEligibility.requestedSubindustries,
                 matched_requested_subindustry: targetEligibility.matchedRequestedSubindustry,
                 matched_subindustry_family: targetEligibility.matchedSubindustryFamily,
+                // AGENT1-LINKEDIN-OPTIONAL-INSTITUTIONS-1 — auditable por fila.
+                linkedin_required: linkedinRequirement.required,
+                linkedin_requirement_reason: linkedinRequirement.reason,
               },
             }
           : {}),
