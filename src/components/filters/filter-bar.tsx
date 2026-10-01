@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Search, X, RotateCcw } from "lucide-react";
+import { Search, X, RotateCcw } from "@/icons";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";

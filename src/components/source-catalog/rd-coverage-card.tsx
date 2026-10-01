@@ -14,7 +14,7 @@ import type {
   RdCoverageSourceReason,
   RdSourceCoverageSummary,
 } from '@/server/services/rd-source-coverage-summary';
-import { Building2, type LucideIcon } from 'lucide-react';
+import { Building2, type LucideIcon } from "@/icons";
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 
 // ---------------------------------------------------------------------------

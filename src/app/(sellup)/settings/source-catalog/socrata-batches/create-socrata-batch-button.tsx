@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, Plus, AlertCircle } from 'lucide-react';
+import { Loader2, Plus, AlertCircle } from "@/icons";
 import { Button } from '@/components/ui/button';
 import { createSocrataRuesPreviewBatchAction } from '@/modules/source-catalog/socrata-batches-actions';
 

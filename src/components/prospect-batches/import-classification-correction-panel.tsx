@@ -5,7 +5,7 @@
 // via SearchableSelect. Revalidates in backend after correction.
 
 import * as React from 'react';
-import { AlertTriangle, CheckCircle2, Info, X, Users } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Info, X, Users } from "@/icons";
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';

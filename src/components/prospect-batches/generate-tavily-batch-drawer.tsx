@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Sparkles, Loader2, Globe, CheckCircle2, Brain, Workflow } from 'lucide-react';
+import { Sparkles, Loader2, Globe, CheckCircle2, Brain, Workflow } from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { DrawerSection } from '@/components/shared/drawer-section';
 import { Alert, AlertDescription } from '@/components/ui/alert';

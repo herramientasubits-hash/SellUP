@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { MoreHorizontal, Check, X, Plus, Settings, Eye, EyeOff, Key, Unplug } from 'lucide-react';
+import { MoreHorizontal, Check, X, Plus, Settings, Eye, EyeOff, Key, Unplug } from "@/icons";
 import {
   DropdownMenu,
   DropdownMenuContent,

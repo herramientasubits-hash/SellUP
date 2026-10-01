@@ -8,7 +8,7 @@ import {
   Search,
   ChevronDown,
   Sparkles,
-} from "lucide-react";
+} from "@/icons";
 import {
   DropdownMenu,
   DropdownMenuContent,

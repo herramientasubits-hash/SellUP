@@ -51,7 +51,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { CheckCircle2, XCircle, Copy, Sparkles, Clock, ChevronDown, Loader2 } from 'lucide-react';
+import { CheckCircle2, XCircle, Copy, Sparkles, Clock, ChevronDown, Loader2 } from "@/icons";
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';

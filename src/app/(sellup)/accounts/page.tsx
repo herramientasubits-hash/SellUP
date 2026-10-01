@@ -1,4 +1,4 @@
-import { Building2, Globe, TrendingUp, Search } from 'lucide-react';
+import { Building2, Globe, TrendingUp, Search } from "@/icons";
 import { DataTablePage } from '@/components/shared/data-table-page';
 import { MetricCard } from '@/components/shared/metric-card';
 import { CreateAccountDrawer } from '@/components/accounts/create-account-drawer';

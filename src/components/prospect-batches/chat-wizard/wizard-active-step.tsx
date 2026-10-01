@@ -7,7 +7,7 @@ import {
   Sparkles,
   Loader2,
   Clock,
-} from 'lucide-react';
+} from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { SearchableSelect } from '@/components/forms/searchable-select';

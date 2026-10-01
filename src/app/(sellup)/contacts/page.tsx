@@ -1,4 +1,4 @@
-import { Users, Crown, Target, Star } from 'lucide-react';
+import { Users, Crown, Target, Star } from "@/icons";
 import { DataTablePage } from '@/components/shared/data-table-page';
 import { MetricCard } from '@/components/shared/metric-card';
 import { getAllContacts } from '@/modules/contacts/actions';

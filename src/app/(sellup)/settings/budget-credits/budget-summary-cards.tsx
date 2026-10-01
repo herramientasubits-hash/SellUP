@@ -1,6 +1,6 @@
 'use client';
 
-import { Cpu, Activity, TrendingUp, PackageOpen } from 'lucide-react';
+import { Cpu, Activity, TrendingUp, PackageOpen } from "@/icons";
 import { MetricCard } from '@/components/shared/metric-card';
 import type { AdminProviderBudgetRow } from '@/modules/budgets';
 import { resolveCostDisplay, toCostTruth } from '@/modules/usage-tracking/cost-display';

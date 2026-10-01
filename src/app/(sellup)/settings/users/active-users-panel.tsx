@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { LayoutList, GitBranch, Layers } from 'lucide-react';
+import { LayoutList, GitBranch, Layers } from "@/icons";
 import { cn } from '@/lib/utils';
 
 interface ActiveUsersPanelProps {

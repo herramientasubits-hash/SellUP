@@ -31,7 +31,7 @@ import {
   Copy,
   Target,
   BarChart3,
-} from 'lucide-react';
+} from "@/icons";
 import type { TaxIdentifierLookupMetadata } from '@/server/prospect-batches/tax-identifier-lookup';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { ModalShell } from '@/components/shared/modal-shell';

@@ -20,7 +20,7 @@
  * Hito: BR-SOURCE-8-UI
  */
 
-import { CheckCircle2, Lock, ShieldCheck, type LucideIcon } from 'lucide-react';
+import { CheckCircle2, Lock, ShieldCheck, type LucideIcon } from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 

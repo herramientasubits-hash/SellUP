@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Sparkles, Loader2 } from "lucide-react";
+import { Sparkles, Loader2 } from "@/icons";
 import type { AIButtonProps } from "./aiInteractionTypes";
 
 export function AIButton({

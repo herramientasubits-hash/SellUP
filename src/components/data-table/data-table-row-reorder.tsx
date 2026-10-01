@@ -18,7 +18,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical } from "lucide-react";
+import { GripVertical } from "@/icons";
 
 import { TableCell, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";

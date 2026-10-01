@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Eye, EyeOff, Loader2 } from "@/icons";
 import { Button } from '@/components/ui/button';
 import { Alert } from '@/components/ui/alert';
 import {

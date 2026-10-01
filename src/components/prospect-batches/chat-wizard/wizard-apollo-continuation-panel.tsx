@@ -34,7 +34,7 @@
  */
 
 import * as React from 'react';
-import { AlertCircle, CheckCircle2, Loader2, PauseCircle } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Loader2, PauseCircle } from "@/icons";
 
 import {
   continueApolloRound,

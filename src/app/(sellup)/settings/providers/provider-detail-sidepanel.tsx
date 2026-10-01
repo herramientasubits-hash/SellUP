@@ -10,7 +10,7 @@ import {
   Activity, Settings, BarChart2, DollarSign, TrendingUp, ScrollText,
   ChevronDown, Cpu, Zap, Database, Bot, Plus, Pencil, Power, Trash2,
   Loader2, Lock, Check, ChevronDownIcon, RefreshCw,
-} from 'lucide-react';
+} from "@/icons";
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {

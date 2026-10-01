@@ -1,4 +1,4 @@
-import { CheckCircle2, XCircle, AlertTriangle, Clock, History } from 'lucide-react';
+import { CheckCircle2, XCircle, AlertTriangle, Clock, History } from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { TableShell } from '@/components/data-display';

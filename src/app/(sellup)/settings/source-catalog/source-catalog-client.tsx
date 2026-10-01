@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { type ColumnDef } from '@tanstack/react-table';
-import { Copy, ExternalLink, ArrowRight } from 'lucide-react';
+import { Copy, ExternalLink, ArrowRight } from "@/icons";
 import { DataTable, DataTableColumnHeader, TruncatedCell, type DataTableContextMenuItem } from '@/components/data-table';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Badge } from '@/components/ui/badge';

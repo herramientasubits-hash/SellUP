@@ -6,7 +6,7 @@ import {
   RotateCcw,
   XCircle,
   Globe,
-} from 'lucide-react';
+} from "@/icons";
 import { PageHeader } from '@/components/shared/page-header';
 import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';

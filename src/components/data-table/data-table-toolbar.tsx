@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Search, SlidersHorizontal } from "lucide-react";
+import { Search, SlidersHorizontal } from "@/icons";
 import type { Table } from "@tanstack/react-table";
 
 import { cn } from "@/lib/utils";

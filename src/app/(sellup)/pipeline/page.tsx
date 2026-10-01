@@ -1,4 +1,4 @@
-import { LayoutDashboard } from "lucide-react";
+import { LayoutDashboard } from "@/icons";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModulePlaceholder } from "@/components/shared/module-placeholder";
 import { Kanban, type KanbanColumn } from "@/components/data-display";

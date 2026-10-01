@@ -23,7 +23,7 @@ import {
   XCircle,
   Settings2,
   ExternalLink,
-} from 'lucide-react';
+} from "@/icons";
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';

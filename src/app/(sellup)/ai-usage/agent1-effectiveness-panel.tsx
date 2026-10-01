@@ -14,7 +14,7 @@ import {
   Plug,
   Sparkles,
   Filter,
-} from 'lucide-react';
+} from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';

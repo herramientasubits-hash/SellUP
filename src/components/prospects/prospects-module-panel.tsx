@@ -1,4 +1,4 @@
-import { Building2, CheckCircle2, GitMerge, Upload } from 'lucide-react';
+import { Building2, CheckCircle2, GitMerge, Upload } from "@/icons";
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { DataTablePage } from '@/components/shared/data-table-page';

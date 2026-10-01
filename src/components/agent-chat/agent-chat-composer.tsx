@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { ArrowUp } from 'lucide-react';
+import { ArrowUp } from "@/icons";
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 

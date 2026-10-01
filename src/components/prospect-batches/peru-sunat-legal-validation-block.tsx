@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { ShieldCheck, AlertTriangle, Clock, XCircle } from 'lucide-react';
+import { ShieldCheck, AlertTriangle, Clock, XCircle } from "@/icons";
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { Badge } from '@/components/ui/badge';
 import type { PeruSunatEnrichmentBlock } from '@/server/prospect-batches/peru-sunat-post-approval-enrichment';

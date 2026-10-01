@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { MoreHorizontal, Pencil, Tag, Archive, Loader2 } from 'lucide-react';
+import { MoreHorizontal, Pencil, Tag, Archive, Loader2 } from "@/icons";
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {

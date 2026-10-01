@@ -8,7 +8,7 @@
 
 import * as React from 'react';
 import type { Column } from '@tanstack/react-table';
-import { ArrowUp, ArrowDown, ChevronsUpDown, ListFilter, X } from 'lucide-react';
+import { ArrowUp, ArrowDown, ChevronsUpDown, ListFilter, X } from "@/icons";
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';

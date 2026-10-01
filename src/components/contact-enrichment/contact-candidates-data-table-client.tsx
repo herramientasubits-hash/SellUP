@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { type ColumnDef } from '@tanstack/react-table';
-import { Link2, Building2, Globe, UserSearch } from 'lucide-react';
+import { Link2, Building2, Globe, UserSearch } from "@/icons";
 
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';

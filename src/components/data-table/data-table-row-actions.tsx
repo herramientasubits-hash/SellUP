@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { MoreHorizontal } from "lucide-react";
+import { MoreHorizontal } from "@/icons";
 
 import { Button } from "@/components/ui/button";
 import {

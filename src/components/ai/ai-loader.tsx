@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Sparkles, Loader2 } from "lucide-react";
+import { Sparkles, Loader2 } from "@/icons";
 import type { AILoaderProps } from "./aiInteractionTypes";
 
 export function AILoader({

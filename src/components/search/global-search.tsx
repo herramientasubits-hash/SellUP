@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { ListTree, Search, type LucideIcon } from "lucide-react";
+import { ListTree, Search, type LucideIcon } from "@/icons";
 
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";

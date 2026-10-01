@@ -13,7 +13,7 @@ import {
   X,
   Info,
   Loader2,
-} from 'lucide-react';
+} from "@/icons";
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { SurfaceCard } from '@/components/shared/surface-card';

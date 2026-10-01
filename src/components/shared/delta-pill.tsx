@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus } from "@/icons";
 
 export type DeltaTone = "positive" | "negative" | "neutral";
 export type DeltaDirection = "up" | "down" | "flat";

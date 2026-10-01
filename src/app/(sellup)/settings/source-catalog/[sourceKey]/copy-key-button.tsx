@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check } from "@/icons";
 import { Button } from '@/components/ui/button';
 
 export function CopyKeyButton({ sourceKey }: { sourceKey: string }) {

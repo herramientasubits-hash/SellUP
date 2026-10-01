@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Info } from 'lucide-react';
+import { Info } from "@/icons";
 
 interface LegacyCompatBannerProps {
   message: string;

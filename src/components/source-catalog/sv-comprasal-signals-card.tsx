@@ -19,7 +19,7 @@
  */
 
 import type { SvComprasalSignalsSummary } from '@/server/services/sv-comprasal-signals-summary';
-import { Landmark, type LucideIcon } from 'lucide-react';
+import { Landmark, type LucideIcon } from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 

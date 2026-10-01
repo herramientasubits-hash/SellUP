@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { createPortal } from 'react-dom';
-import { Search, X, Check, type LucideIcon } from 'lucide-react';
+import { Search, X, Check, type LucideIcon } from "@/icons";
 import { DrawerSection } from '@/components/shared/drawer-section';
 import { FieldLabel } from '@/components/forms/field';
 import { cn } from '@/lib/utils';

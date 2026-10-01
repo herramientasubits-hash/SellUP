@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight } from "@/icons";
 
 // ── Conversational option card ────────────────────────────────────────────────
 // A clickable card used to present in-conversation choices (e.g. company

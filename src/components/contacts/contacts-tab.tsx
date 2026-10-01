@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Star, Mail, Phone, Users, Crown, Target, Archive } from 'lucide-react';
+import { Star, Mail, Phone, Users, Crown, Target, Archive } from "@/icons";
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { MetricCard } from '@/components/shared/metric-card';
 import { Badge } from '@/components/ui/badge';

@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Plus, Loader2, Building2, Zap, MapPin, Briefcase, FileText, StickyNote } from 'lucide-react';
+import { Plus, Loader2, Building2, Zap, MapPin, Briefcase, FileText, StickyNote } from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { DrawerSection } from '@/components/shared/drawer-section';
 import { Button } from '@/components/ui/button';

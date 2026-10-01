@@ -1,4 +1,4 @@
-import { BrainCircuit, CheckCircle, Settings, DollarSign, Clock } from 'lucide-react';
+import { BrainCircuit, CheckCircle, Settings, DollarSign, Clock } from "@/icons";
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { MetricCard } from '@/components/shared/metric-card';
 import { Badge } from '@/components/ui/badge';

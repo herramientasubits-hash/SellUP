@@ -41,6 +41,8 @@ const FOREIGN_UI = [
   /from\s+["'](@mui\/|@chakra-ui\/|antd|@ant-design\/|@mantine\/|@headlessui\/|react-bootstrap|@nextui|@heroui|primereact|@fluentui|semantic-ui-react)/,
   /from\s+["'](react-icons|@heroicons\/|@tabler\/icons|@fortawesome\/|phosphor-react|@phosphor-icons\/|iconoir-react|@iconify\/)/,
 ];
+/** Los iconos salen de `@/icons` (Hugeicons, la familia de Thema); solo ese módulo importa la librería. */
+const ICON_LIB = /from\s+["'](lucide-react|@hugeicons\/)/;
 /** Los primitivos headless solo se envuelven una vez, en `src/components/ui`. */
 const HEADLESS = /from\s+["'](@radix-ui\/react-|@base-ui\/react|radix-ui["'])/;
 
@@ -165,6 +167,7 @@ for (const full of targets) {
     const isComment = /^\s*(\/\/|\*|\/\*|\{\/\*)/.test(line);
     if (isCss) return;
     if (FOREIGN_UI.some((re) => re.test(line))) add(file, n, "libreria-ajena", "Otra librería de interfaz o iconos. Todo sale de @/components y lucide-react.");
+    if (!/^src\/icons\//.test(file) && !TESTS.test(file) && ICON_LIB.test(line)) add(file, n, "libreria-ajena", "Icono importado de la librería. Pídelo a @/icons, que es quien decide el dibujo.");
     if (!allowed(file, ALLOW.headless) && HEADLESS.test(line)) add(file, n, "libreria-ajena", "Primitivo headless importado fuera de src/components/ui. Usa el componente de @/components/ui.");
     if (isComment) return;
     if (!allowed(file, ALLOW.color) && RAW_COLOR.test(line)) add(file, n, "color-a-mano", `Color escrito a mano (${line.match(RAW_COLOR)[0]}). Usa una clase del tema.`);

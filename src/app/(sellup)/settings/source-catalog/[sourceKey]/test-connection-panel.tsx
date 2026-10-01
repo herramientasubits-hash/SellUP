@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Loader2, ShieldCheck, AlertTriangle, CheckCircle2, XCircle, Info, Clock, PlugZap } from 'lucide-react';
+import { Loader2, ShieldCheck, AlertTriangle, CheckCircle2, XCircle, Info, Clock, PlugZap } from "@/icons";
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { SurfaceCard } from '@/components/shared/surface-card';

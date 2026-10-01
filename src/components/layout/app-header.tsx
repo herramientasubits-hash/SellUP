@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ChevronDown, ChevronRight, LogOut, PanelLeft, Settings } from "lucide-react";
+import { ChevronDown, ChevronRight, LogOut, PanelLeft, Settings } from "@/icons";
 import type { User } from "@supabase/supabase-js";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { GlobalSearch, type SearchNavigateItem } from "@/components/search";

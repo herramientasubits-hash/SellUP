@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Building2, MoreHorizontal, Eye, Pencil, Tag, Archive, Loader2 } from 'lucide-react';
+import { Building2, MoreHorizontal, Eye, Pencil, Tag, Archive, Loader2 } from "@/icons";
 import { toast } from 'sonner';
 import type { ComponentProps } from 'react';
 import { Badge } from '@/components/ui/badge';

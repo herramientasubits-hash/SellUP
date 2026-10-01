@@ -1,6 +1,6 @@
 'use client';
 
-import { Info } from 'lucide-react';
+import { Info } from "@/icons";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { CostDisplayValue } from '@/modules/usage-tracking/cost-display';
 import type { CreditsDisplayValue } from '@/modules/usage-tracking/credits-display';

@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Link2, Search, Bot, Users, Activity, HardDrive, Database, Layers } from "lucide-react";
+import { Link2, Search, Bot, Users, Activity, HardDrive, Database, Layers } from "@/icons";
 import { PageHeader } from "@/components/shared/page-header";
 import { SurfaceCard } from "@/components/shared/surface-card";
 import { Badge } from "@/components/ui/badge";

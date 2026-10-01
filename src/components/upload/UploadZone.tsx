@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Upload, X, FileText, AlertCircle } from "lucide-react";
+import { Upload, X, FileText, AlertCircle } from "@/icons";
 import { cn } from "@/lib/utils";
 import { validateFiles } from "./uploadUtils";
 

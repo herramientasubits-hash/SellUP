@@ -70,7 +70,7 @@
 // «Ver más números» aparezca sin F5 cuando la colección creció.
 
 import * as React from 'react';
-import { Loader2, Search } from 'lucide-react';
+import { Loader2, Search } from "@/icons";
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {

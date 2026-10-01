@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import type { LucideIcon } from "lucide-react";
+import type { LucideIcon } from "@/icons";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { railButtonClass } from "./confirm-action-popover";

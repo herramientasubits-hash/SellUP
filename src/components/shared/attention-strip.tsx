@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ChevronRight, type LucideIcon } from "lucide-react";
+import { ChevronRight, type LucideIcon } from "@/icons";
 import { cn } from "@/lib/utils";
 
 export type AttentionTone = "brand" | "positive" | "warning" | "negative" | "neutral";

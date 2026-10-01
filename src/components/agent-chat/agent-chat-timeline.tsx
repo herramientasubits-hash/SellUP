@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { AlertTriangle, XCircle, Loader2 } from 'lucide-react';
+import { AlertTriangle, XCircle, Loader2 } from "@/icons";
 import { AgentChatOrb } from './agent-chat-orb';
 import type { AgentChatMessage } from './agent-chat-types';
 

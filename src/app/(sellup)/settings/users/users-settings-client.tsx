@@ -1,7 +1,7 @@
 'use client';
 
 import { useSearchParams, useRouter } from 'next/navigation';
-import { UserPlus, UserCheck, UserX, Pause, Clock, Layers } from 'lucide-react';
+import { UserPlus, UserCheck, UserX, Pause, Clock, Layers } from "@/icons";
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { UsersTab, GroupsTab } from './users-groups-tabs';

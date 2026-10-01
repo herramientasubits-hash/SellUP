@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
 import { toast } from 'sonner';
-import { Mail, Phone, ExternalLink, Info, Pencil, Star, RefreshCw, Archive } from 'lucide-react';
+import { Mail, Phone, ExternalLink, Info, Pencil, Star, RefreshCw, Archive } from "@/icons";
 
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';

@@ -10,7 +10,7 @@ import {
   File,
   X,
   AlertCircle,
-} from "lucide-react";
+} from "@/icons";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import type { UploadFileItem } from "./uploadTypes";

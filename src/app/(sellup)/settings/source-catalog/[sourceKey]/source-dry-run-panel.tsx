@@ -9,7 +9,7 @@ import {
   ShieldCheck,
   ChevronDown,
   ChevronUp,
-} from 'lucide-react';
+} from "@/icons";
 import { Button } from '@/components/ui/button';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { runSourceDryRunAction } from '@/modules/source-catalog/source-credential-actions';

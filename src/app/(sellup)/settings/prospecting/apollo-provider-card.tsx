@@ -10,7 +10,7 @@ import {
   RefreshCw,
   KeyRound,
   Unplug,
-} from 'lucide-react';
+} from "@/icons";
 import {
   Dialog,
   DialogContent,

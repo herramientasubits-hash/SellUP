@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
-import { LogOut, Mail, Ban } from 'lucide-react';
+import { LogOut, Mail, Ban } from "@/icons";
 import { Button } from '@/components/ui/button';
 import { signOut } from '@/modules/auth/actions';
 

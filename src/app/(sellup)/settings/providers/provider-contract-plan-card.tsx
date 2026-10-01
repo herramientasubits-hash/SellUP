@@ -11,7 +11,7 @@
  * Sólo lectura. La vista llega armada desde el servidor (admin).
  */
 
-import { ReceiptText } from 'lucide-react';
+import { ReceiptText } from "@/icons";
 import { DrawerSection } from '@/components/shared/drawer-section';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import type { ProviderContractPlanView } from '@/modules/budgets/provider-contract-plan';

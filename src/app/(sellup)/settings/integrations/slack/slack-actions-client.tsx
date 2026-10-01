@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, Hash, CheckCircle2, ExternalLink, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Hash, CheckCircle2, ExternalLink, Eye, EyeOff } from "@/icons";
 import { Button } from '@/components/ui/button';
 import { Alert } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';

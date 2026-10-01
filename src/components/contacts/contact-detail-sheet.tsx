@@ -21,7 +21,7 @@ import {
   AlertCircle,
   UserX,
   type LucideIcon,
-} from 'lucide-react';
+} from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';

@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { RefreshCcw, Loader2 } from 'lucide-react';
+import { RefreshCcw, Loader2 } from "@/icons";
 import {
   Dialog,
   DialogTrigger,

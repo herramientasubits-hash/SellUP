@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Database, XCircle, CheckCircle2, FlaskConical, Layers, Lock } from 'lucide-react';
+import { Database, XCircle, CheckCircle2, FlaskConical, Layers, Lock } from "@/icons";
 import { PageHeader } from '@/components/shared/page-header';
 import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';

@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { UserSearch } from 'lucide-react';
+import { UserSearch } from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { ContactEnrichmentWizard } from './contact-enrichment-wizard';
 import type { ContactEnrichmentInitialCompany, ManualContactContext } from './contact-enrichment-wizard';

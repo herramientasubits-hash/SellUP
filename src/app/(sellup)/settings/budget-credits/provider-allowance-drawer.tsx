@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { Wallet, Coins, Landmark } from 'lucide-react';
+import { Wallet, Coins, Landmark } from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { DrawerSection } from '@/components/shared/drawer-section';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';

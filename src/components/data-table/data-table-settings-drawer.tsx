@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Columns3, Layers, Search, X } from "lucide-react";
+import { Columns3, Layers, Search, X } from "@/icons";
 import type { Table } from "@tanstack/react-table";
 
 import { cn } from "@/lib/utils";

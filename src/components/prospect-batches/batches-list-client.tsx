@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Layers, MoreHorizontal, ArrowRight, CheckCircle2, XCircle, GitMerge, Loader2, FlaskConical } from 'lucide-react';
+import { Layers, MoreHorizontal, ArrowRight, CheckCircle2, XCircle, GitMerge, Loader2, FlaskConical } from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { EmptyState as SharedEmptyState } from '@/components/ui/empty-state';
 import { Button } from '@/components/ui/button';

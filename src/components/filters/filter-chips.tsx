@@ -1,6 +1,6 @@
 "use client";
 
-import type { LucideIcon } from "lucide-react";
+import type { LucideIcon } from "@/icons";
 
 import { cn } from "@/lib/utils";
 import { OptionTile } from "@/components/selection/option-tile";

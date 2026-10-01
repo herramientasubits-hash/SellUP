@@ -40,7 +40,7 @@
 // accionable—.
 
 import * as React from 'react';
-import { Loader2, PhoneCall } from 'lucide-react';
+import { Loader2, PhoneCall } from "@/icons";
 import { Button } from '@/components/ui/button';
 import {
   getOfficialContactPhoneRevealOfferAction,

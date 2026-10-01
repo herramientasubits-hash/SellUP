@@ -1,4 +1,4 @@
-import { Inbox, Sparkles, Mail, Link2, CopyCheck } from 'lucide-react';
+import { Inbox, Sparkles, Mail, Link2, CopyCheck } from "@/icons";
 import { DataTablePage } from '@/components/shared/data-table-page';
 import { MetricCard } from '@/components/shared/metric-card';
 import { CreateContactDrawer } from '@/components/contacts/create-contact-drawer';

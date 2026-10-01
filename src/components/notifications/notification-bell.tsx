@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Bell } from "lucide-react";
+import { Bell } from "@/icons";
 import { TooltipIconButton } from "@/components/ui/tooltip-icon-button";
 import {
   getMyNotifications,

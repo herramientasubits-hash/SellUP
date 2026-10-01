@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Archive, Building2, ClipboardCheck } from "lucide-react";
+import { Archive, Building2, ClipboardCheck } from "@/icons";
 import { TabsNav, type Tab } from "@/components/navigation/tabs-nav";
 import {
   ACCOUNTS_ROUTE,

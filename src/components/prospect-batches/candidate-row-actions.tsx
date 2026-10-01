@@ -13,7 +13,7 @@ import {
   Link2,
   ClipboardCheck,
   RotateCcw,
-} from 'lucide-react';
+} from "@/icons";
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,

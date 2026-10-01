@@ -13,7 +13,7 @@ import { DeltaPill } from "./DeltaPill";
 import { MetricComparisonFooter } from "./MetricComparisonFooter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle } from "@/icons";
 import type { SurveyMetricCardProps } from "./surveyAnalyticsTypes";
 
 /**

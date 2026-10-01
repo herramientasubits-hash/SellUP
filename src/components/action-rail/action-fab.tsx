@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { createPortal } from "react-dom";
-import { Ellipsis, X } from "lucide-react";
+import { Ellipsis, X } from "@/icons";
 
 import { cn } from "@/lib/utils";
 import {

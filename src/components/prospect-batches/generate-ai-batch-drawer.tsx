@@ -16,7 +16,7 @@ import {
   Hash,
   Database,
   Building2,
-} from 'lucide-react';
+} from "@/icons";
 import { ExploratorySearchFormV2 } from '@/components/prospect-batches/exploratory-search-form-v2';
 import { ProspectChatWizard } from '@/components/prospect-batches/chat-wizard';
 import type { ActiveIndustryCatalog } from '@/modules/industry-catalog/types';

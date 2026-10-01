@@ -9,7 +9,7 @@ import {
   AlertCircle,
   XCircle,
   Building2,
-} from 'lucide-react';
+} from "@/icons";
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { MetricCard } from '@/components/shared/metric-card';

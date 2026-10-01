@@ -8,7 +8,7 @@
  */
 
 import { useState, useTransition } from 'react';
-import { Database, Loader2, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
+import { Database, Loader2, CheckCircle2, XCircle, AlertTriangle } from "@/icons";
 import { Button } from '@/components/ui/button';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { createDenuePreviewBatchAction } from '@/modules/source-catalog/denue-batches-actions';

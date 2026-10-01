@@ -10,7 +10,7 @@ import {
   CheckCircle2,
   Activity,
   Users,
-} from 'lucide-react';
+} from "@/icons";
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { Badge } from '@/components/ui/badge';

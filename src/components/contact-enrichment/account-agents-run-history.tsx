@@ -15,7 +15,7 @@
 // action from this tab.
 
 import * as React from 'react';
-import { Bot, Calendar, ChevronDown, ChevronUp, Info, XCircle } from 'lucide-react';
+import { Bot, Calendar, ChevronDown, ChevronUp, Info, XCircle } from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';

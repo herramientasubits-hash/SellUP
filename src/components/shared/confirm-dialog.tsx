@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { AlertTriangle, CircleHelp, Loader2, Trash2, type LucideIcon } from 'lucide-react';
+import { AlertTriangle, CircleHelp, Loader2, Trash2, type LucideIcon } from "@/icons";
 
 import { cn } from '@/lib/utils';
 import {

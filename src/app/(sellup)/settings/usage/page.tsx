@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { Bot, Plug, Info, FlaskConical, DollarSign, Zap, CheckCircle2 } from 'lucide-react';
+import { Bot, Plug, Info, FlaskConical, DollarSign, Zap, CheckCircle2 } from "@/icons";
 import { PageHeader } from '@/components/shared/page-header';
 import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import { LegacyCompatBanner } from '../legacy-compat-banner';
