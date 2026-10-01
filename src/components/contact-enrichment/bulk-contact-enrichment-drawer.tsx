@@ -17,6 +17,7 @@ import { Spinner } from '@/components/feedback/spinner';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { DrawerShell } from '@/components/shared/drawer-shell';
+import { DrawerSection } from '@/components/shared/drawer-section';
 import {
   checkBulkEnrichmentEligibilityAction,
   createBulkContactEnrichmentRunAction,
@@ -233,7 +234,7 @@ export function BulkContactEnrichmentDrawer({
     !isDone;
 
   const footer = (
-    <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+    <div className="flex w-full flex-wrap items-center justify-between gap-2">
       {isDone ? (
         <>
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
@@ -289,9 +290,10 @@ export function BulkContactEnrichmentDrawer({
       size="lg"
       title="Enriquecer contactos en lote"
       description={`Prepara runs de enriquecimiento para ${selectedAccounts.length} cuenta${selectedAccounts.length !== 1 ? 's' : ''} seleccionada${selectedAccounts.length !== 1 ? 's' : ''}.`}
-      footer={footer}
+      icon={<Users className="h-4 w-4" />}
+      actions={footer}
     >
-      <div className="space-y-5 px-1">
+      <div className="space-y-4">
         {/* Conversational intro */}
         <p className="text-sm text-muted-foreground">
           Voy a revisar cuáles de estas cuentas pueden enriquecerse antes de consumir
@@ -310,10 +312,10 @@ export function BulkContactEnrichmentDrawer({
 
         {/* Account cards */}
         {!tooManyAccounts && (
-          <div className="space-y-2">
-            <p className="text-xs font-medium text-foreground">
-              Cuentas seleccionadas ({selectedAccounts.length})
-            </p>
+          <DrawerSection
+            icon={Building2}
+            title={`Cuentas seleccionadas (${selectedAccounts.length})`}
+          >
             <ul className="space-y-2">
               {selectedAccounts.map((account) => {
                 const eligible = eligibility?.eligible.find(
@@ -326,9 +328,9 @@ export function BulkContactEnrichmentDrawer({
                 return (
                   <li
                     key={account.id}
-                    className="flex items-start gap-3 rounded-xl border border-border/60 bg-card px-3 py-2.5"
+                    className="flex items-start gap-3 rounded-lg border border-border/60 bg-surface-subtle px-3 py-2.5"
                   >
-                    <div className="mt-0.5 rounded-md bg-muted p-1">
+                    <div className="mt-0.5 rounded-md bg-card p-1 ring-1 ring-inset ring-border/40">
                       <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
                     </div>
                     <div className="min-w-0 flex-1">
@@ -336,7 +338,7 @@ export function BulkContactEnrichmentDrawer({
                         {account.name ?? account.id}
                       </p>
                       {account.domain && (
-                        <p className="text-xs text-muted-foreground font-mono truncate">
+                        <p className="truncate font-mono text-xs text-muted-foreground" title={account.domain}>
                           {account.domain}
                         </p>
                       )}
@@ -372,7 +374,7 @@ export function BulkContactEnrichmentDrawer({
                 );
               })}
             </ul>
-          </div>
+          </DrawerSection>
         )}
 
         {/* Summary stats */}
@@ -396,7 +398,7 @@ export function BulkContactEnrichmentDrawer({
               <div className="space-y-1 text-center">
                 <p className="text-xs text-muted-foreground">
                   Cuentas elegibles para búsqueda Apollo:{' '}
-                  <span className="font-medium text-foreground">
+                  <span className="font-medium tabular-nums text-foreground">
                     {eligibility.estimatedApolloCredits}
                   </span>
                 </p>
@@ -422,8 +424,8 @@ export function BulkContactEnrichmentDrawer({
           (state === 'creating_bulk_run' ||
             state === 'executing' ||
             state === 'checking_status') && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
+            <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
               {state === 'creating_bulk_run'
                 ? 'Preparando enriquecimiento en lote…'
                 : state === 'checking_status'
@@ -444,8 +446,8 @@ export function BulkContactEnrichmentDrawer({
 
         {/* Disclaimer */}
         {!tooManyAccounts && state !== 'error' && !isDone && !isUnknown && (
-          <div className="rounded-lg bg-surface-subtle px-3 py-2.5">
-            <p className="text-xs text-muted-foreground">
+          <div className="rounded-xl border border-border/60 bg-surface-subtle px-4 py-3">
+            <p className="text-xs leading-relaxed text-muted-foreground">
               Este proceso{' '}
               <strong className="text-foreground">no crea contactos oficiales</strong> ni
               escribe en HubSpot. Los resultados quedarán como{' '}
@@ -479,7 +481,7 @@ export function BulkContactEnrichmentDrawer({
                   El lote terminó sin candidatos nuevos para revisar.
                 </div>
               )}
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs mt-2">
+              <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 rounded-xl border border-border/60 bg-card p-4 text-xs">
                 <SummaryRow label="Cuentas procesadas" value={summary.processed} />
                 <SummaryRow label="Con candidatos" value={summary.with_candidates} />
                 <SummaryRow

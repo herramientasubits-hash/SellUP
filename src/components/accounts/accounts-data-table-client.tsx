@@ -1,5 +1,6 @@
 'use client';
 
+import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
 import { useReportSelectionCount } from "@/components/action-rail";
 import { useRouter } from 'next/navigation';
@@ -106,11 +107,11 @@ function getFlagEmoji(countryCode: string): string {
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('es-CO', {
+  return formatInAppZone(iso, {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  });
+  }, 'es-CO');
 }
 
 // ── Types ──────────────────────────────────────────────────────

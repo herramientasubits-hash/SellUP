@@ -18,6 +18,7 @@
  * Hito: Centroamérica.7E.3
  */
 
+import { formatInAppZone } from '@/lib/format-date';
 import type { SvComprasalSignalsSummary } from '@/server/services/sv-comprasal-signals-summary';
 import { Landmark, type LucideIcon } from "@/icons";
 import { Badge } from '@/components/ui/badge';
@@ -38,11 +39,11 @@ export function formatSvSourceYears(years: number[]): string {
 export function formatSvLatestImportedAt(iso: string | null): string {
   if (!iso) return 'No disponible';
   try {
-    return new Date(iso).toLocaleDateString('es-SV', {
+    return formatInAppZone(iso, {
       year: 'numeric',
       month: 'long',
       day: 'numeric',
-    });
+    }, 'es-SV');
   } catch {
     return iso;
   }

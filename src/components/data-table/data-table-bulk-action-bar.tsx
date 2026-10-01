@@ -248,19 +248,18 @@ function BulkActionDropdownGroup<TData>({
   const Icon = action.icon;
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger>
-        <button
+      <DropdownMenuTrigger
+        render={<button
           type="button"
           className={cn(
             "inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium",
             "hover:bg-white/10 transition-colors",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40",
-          )}
-        >
+          )} />}
+      >
           {Icon && <Icon className="h-3.5 w-3.5" />}
           {action.label}
           <ChevronDown className="h-3.5 w-3.5" />
-        </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-56">
         {action.items!.map((item) => {

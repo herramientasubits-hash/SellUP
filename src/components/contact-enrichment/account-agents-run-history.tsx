@@ -14,6 +14,7 @@
 // exists for direct access/debugging, it is just no longer the primary
 // action from this tab.
 
+import { withAppTimeZone } from '@/lib/format-date';
 import * as React from 'react';
 import { Bot, Calendar, ChevronDown, ChevronUp, Info, XCircle } from "@/icons";
 import { Badge } from '@/components/ui/badge';
@@ -52,13 +53,13 @@ export const ACCOUNT_RUN_PROVIDER_LABELS: Record<string, string> = {
 /** Pure — exported for unit tests (see account-agents-run-history.test.ts). */
 export function formatContactEnrichmentRunDateTime(iso: string): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleString('es-CO', {
+  return new Date(iso).toLocaleString('es-CO', withAppTimeZone({
     day: '2-digit',
     month: 'short',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  });
+  }));
 }
 
 /** Pure — prefers providersUsed[0] (what actually ran) over intendedProvider
@@ -178,7 +179,7 @@ function AccountRunInlineDetail({ run }: { run: AccountContactEnrichmentRun }) {
             <Info className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
           )}
         </div>
-        <div className="space-y-0.5">
+        <div className="min-w-0 space-y-0.5">
           <p className="text-xs font-semibold text-foreground">{content.headline}</p>
           <p className="text-xs text-muted-foreground">{content.detail}</p>
         </div>
@@ -188,7 +189,7 @@ function AccountRunInlineDetail({ run }: { run: AccountContactEnrichmentRun }) {
         <dl className="ml-8 space-y-1 text-xs">
           <div className="flex justify-between gap-3">
             <dt className="text-muted-foreground">Resultados brutos</dt>
-            <dd className="font-medium text-foreground">{content.rawResultsCount ?? 0}</dd>
+            <dd className="font-medium tabular-nums text-foreground">{content.rawResultsCount ?? 0}</dd>
           </div>
           <div className="flex justify-between gap-3">
             <dt className="text-muted-foreground">Reveal de teléfono</dt>
@@ -218,7 +219,7 @@ function RunCard({ run }: { run: AccountContactEnrichmentRun }) {
               {statusBadge.label}
             </Badge>
             {run.attemptOrder != null && (
-              <span className="text-xs text-muted-foreground">Intento {run.attemptOrder}</span>
+              <span className="text-xs tabular-nums text-muted-foreground">Intento {run.attemptOrder}</span>
             )}
           </div>
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -254,7 +255,7 @@ function RunCard({ run }: { run: AccountContactEnrichmentRun }) {
           size="xs"
           onClick={() => setExpanded((current) => !current)}
           aria-expanded={expanded}
-          className="shrink-0 text-primary hover:text-primary"
+          className="shrink-0"
         >
           {expanded ? <ChevronUp className="h-3.5 w-3.5" aria-hidden /> : <ChevronDown className="h-3.5 w-3.5" aria-hidden />}
           {expanded ? 'Ocultar detalle' : 'Ver detalle'}
@@ -290,7 +291,7 @@ function LegacyRunGroup({ runs }: { runs: AccountContactEnrichmentRun[] }) {
             size="xs"
             onClick={() => setExpanded((current) => !current)}
             aria-expanded={expanded}
-            className="shrink-0 text-muted-foreground hover:text-foreground"
+            className="shrink-0"
           >
             {expanded ? <ChevronUp className="h-3.5 w-3.5" aria-hidden /> : <ChevronDown className="h-3.5 w-3.5" aria-hidden />}
             {expanded ? 'Ocultar' : 'Ver'}

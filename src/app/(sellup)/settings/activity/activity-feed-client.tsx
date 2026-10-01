@@ -1,5 +1,6 @@
 'use client';
 
+import { formatInAppZone } from '@/lib/format-date';
 import { useState, useTransition, useCallback, useRef } from 'react';
 import {
   Activity,
@@ -49,7 +50,7 @@ function formatRelativeTime(iso: string): string {
   if (hrs < 24) return `hace ${hrs}h`;
   const days = Math.floor(hrs / 24);
   if (days < 30) return `hace ${days}d`;
-  return new Date(iso).toLocaleDateString('es-CO', { month: 'short', day: 'numeric' });
+  return formatInAppZone(iso, { month: 'short', day: 'numeric' }, 'es-CO');
 }
 
 function displayName(user: { email: string; full_name: string | null } | null): string {

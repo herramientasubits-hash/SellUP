@@ -1,5 +1,6 @@
 'use client';
 
+import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
 import { Building2, Globe, ShieldCheck, ExternalLink, Link2, AlertTriangle } from "@/icons";
 import { getCandidateLinkedInDisplay } from '@/modules/prospect-batches/candidate-linkedin-url';
@@ -38,6 +39,7 @@ import {
 } from './batch-candidate-safe-actions';
 import { CandidateDetailSheet } from './candidate-detail-sheet';
 import { getIcpSizeGateUiState } from './icp-size-gate-ui';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 interface TableQualityCheck {
   has_website?: boolean;
@@ -296,10 +298,10 @@ function getCandidateOriginLabel(candidate: CandidateWithBatch): string {
   if (batch.source === 'manual') return 'Creación manual';
   if (batch.source === 'external_import') {
     if (batch.created_at) {
-      const date = new Date(batch.created_at).toLocaleDateString('es-CO', {
+      const date = formatInAppZone(batch.created_at, {
         day: '2-digit',
         month: 'short',
-      });
+      }, 'es-CO');
       return `Importado el ${date}`;
     }
     return 'Importación externa';
@@ -343,9 +345,9 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
   return (
     <>
       <div className="su-table-scroll">
-        <table className="su-table su-table-sticky">
-          <thead>
-            <tr className="border-b border-border/60 bg-surface-subtle">
+        <Table className="su-table su-table-sticky">
+          <TableHeader>
+            <TableRow>
               {['Empresa', 'Perfil', 'Calidad', 'Duplicidad', 'Estado', ''].map(
                 (col) => {
                   let tooltipContent = '';
@@ -358,10 +360,7 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                   }
 
                   return (
-                    <th
-                      key={col}
-                      className="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold text-muted-foreground"
-                    >
+                    <TableHead key={col}>
                       {tooltipContent ? (
                         <TooltipProvider>
                           <Tooltip>
@@ -378,13 +377,13 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                       ) : (
                         col
                       )}
-                    </th>
+                    </TableHead>
                   );
                 }
               )}
-            </tr>
-          </thead>
-          <tbody>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {candidates.map((c) => {
               const isChileOfficialCandidate =
                 c.source_primary === 'datos_gob_cl' ||
@@ -463,12 +462,12 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
               }
 
               return (
-                <tr
+                <TableRow
                   key={c.id}
-                  className="group border-b border-border/50 transition-colors last:border-0 hover:bg-surface-muted"
+                  className="group [&>td]:whitespace-normal"
                 >
                   {/* ── Empresa ── */}
-                  <td className="max-w-56 px-4 py-2.5">
+                  <TableCell className="max-w-56">
                     <div className="space-y-1">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <button
@@ -556,10 +555,10 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                         );
                       })()}
                     </div>
-                  </td>
+                  </TableCell>
 
                   {/* ── Perfil ── */}
-                  <td className="max-w-44 px-4 py-2.5">
+                  <TableCell className="max-w-44">
                     <div className="space-y-0.5 text-xs text-muted-foreground">
                       <p className="truncate font-medium text-foreground" title={sectorDescription ?? undefined}>
                         {sectorDescription ?? 'Sin sector'}
@@ -602,10 +601,10 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                         {getCandidateOriginLabel(c as CandidateWithBatch)}
                       </p>
                     </div>
-                  </td>
+                  </TableCell>
 
                   {/* ── Calidad ── */}
-                  <td className="px-4 py-2.5">
+                  <TableCell>
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger render={
@@ -656,15 +655,15 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
-                  </td>
+                  </TableCell>
 
                   {/* ── Duplicidad ── */}
-                  <td className="px-4 py-2.5">
+                  <TableCell>
                     <DuplicateCheckCell candidate={c} />
-                  </td>
+                  </TableCell>
 
                   {/* ── Estado ── */}
-                  <td className="min-w-32 px-4 py-2.5">
+                  <TableCell className="min-w-32">
                     <div className="space-y-1">
                       {(() => {
                         const validationMeta = (c.metadata as unknown as TableCandidateMetadata)?.validation;
@@ -766,17 +765,17 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                         );
                       })()}
                     </div>
-                  </td>
+                  </TableCell>
 
                   {/* ── Acciones ── */}
-                  <td className="px-3 py-2.5">
+                  <TableCell>
                     <BatchCandidateSafeActions candidate={c} onOpenDetail={openCandidateDetail} />
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               );
             })}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
 
       {/* Drawer de detalle de candidato */}

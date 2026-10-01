@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState as SystemEmptyState } from "@/components/ui/empty-state";
 import { ListItem, ListItemGroup } from "@/components/data-display";
 import { cn } from "@/lib/utils";
+import { formatInAppZone } from "@/lib/format-date";
 import type { UserNotification, NotificationFilter } from "@/modules/notifications/types";
 
 interface NotificationDrawerProps {
@@ -35,7 +36,7 @@ function formatRelativeDate(dateString: string): string {
   if (diffHours < 24) return `hace ${diffHours}h`;
   if (diffDays === 1) return "ayer";
   if (diffDays < 7) return `hace ${diffDays}d`;
-  return date.toLocaleDateString("es-CO", { day: "numeric", month: "short" });
+  return formatInAppZone(date, { day: "numeric", month: "short" });
 }
 
 function NotificationItem({

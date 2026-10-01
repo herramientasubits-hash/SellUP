@@ -250,7 +250,7 @@ export function WizardConversationSummary({
 function ValidatingPanel() {
   return (
     <div
-      className="flex items-center gap-3 rounded-xl bg-surface-subtle p-4"
+      className="flex items-center gap-3 rounded-xl border border-border/60 bg-surface-subtle p-4"
       role="status"
       aria-live="polite"
     >
@@ -522,11 +522,11 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
           className="mt-0.5 h-5 w-5 shrink-0 text-success"
           aria-hidden
         />
-        <div className="space-y-1">
+        <div className="min-w-0 space-y-1">
           <p className="text-sm font-semibold text-success">
             La configuración es válida.
           </p>
-          <p className="text-xs text-success">
+          <p className="text-xs leading-relaxed text-success">
             {validBody}
           </p>
         </div>
@@ -547,14 +547,14 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
               omitido), y anteponerles un encabezado genérico las reencuadraría a
               todas por un cambio que sólo pretende dejar de callar un hecho. */}
           {freeContributionNotice === null ? (
-            <p className="text-xs text-destructive">{executionError.message}</p>
+            <p className="min-w-0 break-words text-xs leading-relaxed text-destructive">{executionError.message}</p>
           ) : (
-            <div className="flex flex-col gap-1">
+            <div className="flex min-w-0 flex-col gap-1">
               <p className="text-sm font-semibold text-destructive">
                 {freeContributionNotice.title}
               </p>
-              <p className="text-xs text-destructive">{executionError.message}</p>
-              <p className="text-xs text-foreground" data-testid="wizard-free-contribution-notice">
+              <p className="break-words text-xs leading-relaxed text-destructive">{executionError.message}</p>
+              <p className="text-xs leading-relaxed text-foreground" data-testid="wizard-free-contribution-notice">
                 {freeContributionNotice.message}
               </p>
             </div>
@@ -572,7 +572,7 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
           data-testid="wizard-budget-preflight-notice"
         >
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden />
-          <p className="text-xs text-destructive">{preExecutionBudgetMessage}</p>
+          <p className="min-w-0 break-words text-xs leading-relaxed text-destructive">{preExecutionBudgetMessage}</p>
         </div>
       )}
 
@@ -707,7 +707,7 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
         </Button>
         <button
           type="button"
-          className="mx-auto flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+          className="mx-auto flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
           onClick={() => dispatch({ type: 'REQUEST_RESTART' })}
         >
           <RotateCcw className="h-3 w-3" aria-hidden />
@@ -765,9 +765,9 @@ function DiscoveryUnavailableNotice({ reason }: DiscoveryUnavailableNoticeProps)
         className="mt-0.5 h-5 w-5 shrink-0 text-warning"
         aria-hidden
       />
-      <div className="space-y-1">
+      <div className="min-w-0 space-y-1">
         <p className="text-sm font-semibold text-warning">{copy.title}</p>
-        <p className="text-xs text-warning">{copy.detail}</p>
+        <p className="text-xs leading-relaxed text-warning">{copy.detail}</p>
       </div>
     </div>
   );
@@ -784,9 +784,9 @@ type BlockedPanelProps = {
 function BlockedPanel({ state, dispatch }: BlockedPanelProps) {
   return (
     <div className="space-y-3 animate-su-fade-in" role="alert">
-      <div className="flex items-start gap-2.5 rounded-xl border border-destructive/20 bg-destructive/10 p-4">
-        <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden />
-        <div className="space-y-1">
+      <div className="flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/10 p-4">
+        <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" aria-hidden />
+        <div className="min-w-0 space-y-1">
           <p className="text-sm font-semibold text-destructive">
             La búsqueda tiene problemas que deben corregirse.
           </p>
@@ -799,15 +799,15 @@ function BlockedPanel({ state, dispatch }: BlockedPanelProps) {
       {state.blockingIssues.map((issue) => (
         <div
           key={issue.code}
-          className="flex items-start justify-between gap-3 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2.5"
+          className="flex items-center justify-between gap-3 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2.5"
         >
-          <p className="text-xs text-destructive leading-relaxed">{issue.message}</p>
+          <p className="min-w-0 break-words text-xs leading-relaxed text-destructive">{issue.message}</p>
           {issue.recoverable && issue.step !== 'summary' && issue.step !== 'blocked' && (
             <Button
               type="button"
-              variant="ghost"
+              variant="destructive"
               size="xs"
-              className="shrink-0 text-destructive hover:bg-destructive/10"
+              className="shrink-0"
               onClick={() =>
                 dispatch({
                   type: 'EDIT_STEP',
@@ -862,10 +862,10 @@ function SubindustrySelectionRecap({
   return (
     <div className="space-y-1.5 rounded-xl border border-border/60 bg-card px-4 py-3">
       <div className="flex items-baseline justify-between gap-3">
-        <span className="text-xs font-medium text-muted-foreground">
+        <span className="text-xs font-semibold text-foreground">
           {WIZARD_SUBINDUSTRY_RECAP_LABEL}
         </span>
-        <span className="text-xs text-muted-foreground tabular-nums" aria-live="polite">
+        <span className="shrink-0 text-xs text-muted-foreground tabular-nums" aria-live="polite">
           {recap.countLabel}
         </span>
       </div>
@@ -876,13 +876,13 @@ function SubindustrySelectionRecap({
           {recap.names.map((name) => (
             <li key={name} className="flex gap-1.5 text-xs text-foreground">
               <span aria-hidden>•</span>
-              <span>{name}</span>
+              <span className="min-w-0 break-words">{name}</span>
             </li>
           ))}
           {recap.unresolvedIds.map((id) => (
             <li key={id} className="flex gap-1.5 text-xs text-warning">
               <span aria-hidden>•</span>
-              <span>Subindustria no reconocida en el catálogo ({id})</span>
+              <span className="min-w-0 break-words">Subindustria no reconocida en el catálogo ({id})</span>
             </li>
           ))}
         </ul>
@@ -930,7 +930,7 @@ function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
         Resumen de la búsqueda
       </h3>
 
-      <div className="divide-y divide-border/50 rounded-xl border border-border/60 bg-card">
+      <dl className="divide-y divide-border/50 rounded-xl border border-border/60 bg-card">
         <SummaryRow
           label="Tipo de búsqueda"
           value="Empresas por criterios"
@@ -965,7 +965,7 @@ function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
           label="Tamaño mínimo"
           value=">200 empleados"
         />
-      </div>
+      </dl>
 
       {/* § A.4 — la multiselección completa, explícita y contada. Ausente por
           completo en macro mode: no hay selección de subindustria que recapitular. */}
@@ -973,7 +973,7 @@ function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
         <SubindustrySelectionRecap state={state} catalog={catalog} />
       )}
 
-      <div className="rounded-lg bg-surface-subtle px-4 py-3">
+      <div className="rounded-xl bg-surface-subtle px-4 py-3">
         <p className="text-xs text-muted-foreground leading-relaxed">
           <span className="font-medium text-foreground">Cantidad:</span> SellUp determinará cuántas empresas entregar según calidad, disponibilidad y criterios de búsqueda.
         </p>
@@ -983,10 +983,10 @@ function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
         <div
           key={w.code}
           role="status"
-          className="flex items-start gap-2 rounded-lg border border-warning/25 bg-warning/15 px-3 py-2.5 text-xs text-warning"
+          className="flex items-start gap-2 rounded-xl border border-warning/25 bg-warning/15 px-3 py-2.5 text-xs leading-relaxed text-warning"
         >
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-          <span>{w.message}</span>
+          <span className="min-w-0 break-words">{w.message}</span>
         </div>
       ))}
 
@@ -1019,22 +1019,23 @@ function SummaryRow({ label, value, onEdit, wrap = false }: SummaryRowProps) {
   return (
     <div className="flex items-start justify-between gap-3 px-4 py-3">
       <div className="min-w-0 flex-1">
-        <p className="text-xs text-muted-foreground">{label}</p>
-        <p
+        <dt className="text-xs text-muted-foreground">{label}</dt>
+        <dd
           className={[
             'mt-0.5 text-sm font-medium text-foreground',
             wrap ? 'break-words' : 'truncate',
           ].join(' ')}
+          title={wrap ? undefined : value}
         >
           {value}
-        </p>
+        </dd>
       </div>
       {onEdit && (
         <button
           type="button"
           onClick={onEdit}
           aria-label={`Editar ${label}`}
-          className="flex shrink-0 items-center gap-1 self-center rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+          className="flex shrink-0 items-center gap-1 self-center rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
         >
           <Pencil className="h-3 w-3" aria-hidden />
           Editar
@@ -1066,7 +1067,7 @@ export function RestartConfirmation({ dispatch }: RestartConfirmationProps) {
           Se eliminarán las selecciones actuales.
         </p>
       </div>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button
           type="button"
           variant="outline"

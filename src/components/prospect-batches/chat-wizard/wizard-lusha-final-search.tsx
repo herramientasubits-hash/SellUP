@@ -288,7 +288,7 @@ export function WizardLushaFinalSearch({
             data-testid="lusha-budget-preflight-notice"
           >
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden />
-            <p className="text-xs text-destructive">{budgetMessage}</p>
+            <p className="min-w-0 break-words text-xs leading-relaxed text-destructive">{budgetMessage}</p>
           </div>
         )}
 
@@ -405,7 +405,7 @@ function PersistConfirmation({
           <p className="text-sm font-semibold text-success">
             Empresas candidatas listas para revisión
           </p>
-          <p className="text-xs text-success">
+          <p className="text-xs leading-relaxed text-success">
             Encontramos {count} {count === 1 ? 'empresa' : 'empresas'} y las dejamos en
             Prospectos para que las revises antes de aprobarlas.
           </p>
@@ -487,7 +487,7 @@ function PersistConfirmation({
         <DetailRow label="Lote" value={shortBatch} />
       </dl>
 
-      <div className="rounded-lg bg-surface-subtle px-4 py-3 space-y-1">
+      <div className="space-y-1 rounded-xl bg-surface-subtle px-4 py-3 leading-relaxed">
         {/* § P0 — misma razón que arriba: «hasta 20 empresas (2 × 10)» describía
             el ejecutor de una sola rama. El número de empresas que una corrida
             puede devolver lo fija el plan de su macro industria; lo que sí puede
@@ -513,7 +513,7 @@ function PersistConfirmation({
         </Button>
         <button
           type="button"
-          className="mx-auto flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+          className="mx-auto flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
           onClick={onGenerateAnother}
           data-testid="wizard-lusha-generate-another"
         >
@@ -536,9 +536,9 @@ function DetailRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-3 px-4 py-3">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dt className="min-w-0 text-xs text-muted-foreground">{label}</dt>
       <dd
-        className="text-sm font-medium tabular-nums text-foreground"
+        className="shrink-0 text-sm font-medium tabular-nums text-foreground"
         {...(testId ? { 'data-testid': testId } : {})}
       >
         {value}
@@ -554,7 +554,7 @@ function EmptyResult({ onGenerateAnother }: { onGenerateAnother?: () => void }) 
     <div className="space-y-4 animate-su-fade-in" data-testid="wizard-lusha-empty">
       <div className="flex items-start gap-3 rounded-xl border border-warning/25 bg-warning/15 p-4">
         <Info className="mt-0.5 h-5 w-5 shrink-0 text-warning" aria-hidden />
-        <div className="space-y-1">
+        <div className="min-w-0 space-y-1">
           <p className="text-sm font-semibold text-warning">
             No encontramos empresas nuevas con estos criterios.
           </p>
@@ -565,7 +565,7 @@ function EmptyResult({ onGenerateAnother }: { onGenerateAnother?: () => void }) 
       </div>
       <button
         type="button"
-        className="mx-auto flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+        className="mx-auto flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
         onClick={onGenerateAnother}
         data-testid="wizard-lusha-generate-another"
       >
@@ -583,9 +583,9 @@ function ErrorResult({ message, onRetry }: { message: string; onRetry: () => voi
     <div className="space-y-4 animate-su-fade-in" data-testid="wizard-lusha-error">
       <div className="flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/10 p-4">
         <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" aria-hidden />
-        <div className="space-y-1">
+        <div className="min-w-0 space-y-1">
           <p className="text-sm font-semibold text-destructive">No se pudo completar la búsqueda.</p>
-          <p className="text-xs text-destructive">{message}</p>
+          <p className="break-words text-xs leading-relaxed text-destructive">{message}</p>
         </div>
       </div>
       <Button

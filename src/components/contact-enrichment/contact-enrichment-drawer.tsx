@@ -27,7 +27,7 @@ export function ContactEnrichmentDrawer({
       onOpenChange={onOpenChange}
       title="Enriquecer contactos"
       description="Prepara un run de enriquecimiento de contactos para esta empresa."
-      icon={<UserSearch className="h-4 w-4 text-primary" />}
+      icon={<UserSearch className="h-4 w-4" />}
       size="xl"
     >
       <ContactEnrichmentWizard

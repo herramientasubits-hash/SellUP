@@ -1,5 +1,6 @@
 'use client';
 
+import { formatInAppZone } from '@/lib/format-date';
 import { useState } from 'react';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { Badge } from '@/components/ui/badge';
@@ -105,11 +106,11 @@ export function AutomationCard({ automation }: { automation: SystemAutomation })
           {automation.updated_at && (
             <span className="text-xs tabular-nums text-muted-foreground">
               Actualizado{' '}
-              {new Date(automation.updated_at).toLocaleDateString('es-ES', {
+              {formatInAppZone(automation.updated_at, {
                 day: '2-digit',
                 month: 'short',
                 year: 'numeric',
-              })}
+              }, 'es-ES')}
             </span>
           )}
         </div>

@@ -23,8 +23,12 @@ import { Card } from "@/components/ui/card";
  *     action={<AIButton>Generar con IA</AIButton>}
  *   />
  */
-interface EmptyStateProps extends React.HTMLAttributes<HTMLDivElement> {
-  title: string;
+interface EmptyStateProps extends Omit<React.HTMLAttributes<HTMLDivElement>, "title"> {
+  /**
+   * Opcional: un vacío dentro de un drawer o panel cuyo título ya está en la
+   * cabecera puede dar solo la descripción, sin repetirlo.
+   */
+  title?: string;
   description?: string;
   icon?: LucideIcon;
   action?: React.ReactNode;
@@ -61,7 +65,9 @@ function EmptyState({
           <Icon size={28} strokeWidth={1.75} />
         </div>
       )}
-      <h3 className="text-base font-semibold tracking-tight text-foreground mb-1.5">{title}</h3>
+      {title && (
+        <h3 className="text-base font-semibold tracking-tight text-foreground mb-1.5">{title}</h3>
+      )}
       {description && (
         <p className="text-sm text-muted-foreground max-w-sm mb-5 leading-relaxed">
           {description}

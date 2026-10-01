@@ -1,3 +1,4 @@
+import { formatInAppZone } from '@/lib/format-date';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -67,21 +68,21 @@ const AUDIT_LABELS: Record<ContactAuditAction, string> = {
 };
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('es-CO', {
+  return formatInAppZone(iso, {
     day: '2-digit',
     month: 'long',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  });
+  }, 'es-CO');
 }
 
 function formatShortDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('es-CO', {
+  return formatInAppZone(iso, {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  });
+  }, 'es-CO');
 }
 
 export default async function ContactDetailPage({ params }: ContactDetailPageProps) {

@@ -30,13 +30,13 @@ export function AgentChatOptionCard({
       type="button"
       aria-label={ariaLabel ?? title}
       onClick={onClick}
-      className="w-full rounded-xl border border-border/60 bg-card p-4 text-left transition-all duration-200 hover:border-primary/40 hover:bg-surface-muted focus-visible:border-primary/40 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+      className="w-full rounded-xl border border-border/60 bg-card p-4 text-left transition-colors duration-200 hover:border-primary/40 hover:bg-surface-muted focus-visible:border-primary/40 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 active:bg-surface-muted"
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           {icon && <div className="shrink-0">{icon}</div>}
           <div className="min-w-0">
-            <p className="truncate text-sm font-medium text-foreground">{title}</p>
+            <p className="truncate text-sm font-semibold text-foreground" title={title}>{title}</p>
             {meta && <div className="mt-0.5 flex flex-wrap items-center gap-2">{meta}</div>}
           </div>
         </div>

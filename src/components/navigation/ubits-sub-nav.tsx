@@ -94,11 +94,11 @@ export function UbitsSubNav({
           /* Mobile: Module Selector */
           <div className="flex items-center gap-2">
               <DropdownMenu>
-                <DropdownMenuTrigger>
-                  <button type="button" className="flex items-center gap-1 rounded-md text-sm font-semibold text-foreground outline-none transition-colors hover:text-primary focus-visible:ring-3 focus-visible:ring-ring/40">
+                <DropdownMenuTrigger
+                  render={<button type="button" className="flex items-center gap-1 rounded-md text-sm font-semibold text-foreground outline-none transition-colors hover:text-primary focus-visible:ring-3 focus-visible:ring-ring/40" />}
+                >
                     {activeTab.label}
                     <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" aria-hidden="true" />
-                  </button>
                 </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-56 rounded-xl p-1 border-border/60 shadow-drawer">
                 {tabs.map((tab) => {

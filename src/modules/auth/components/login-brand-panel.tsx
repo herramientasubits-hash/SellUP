@@ -94,10 +94,10 @@ export function LoginBrandPanel() {
 
       {/* ── Logo ─────────────────────────────────────────────────────────── */}
       <div className="relative">
-        <h1 className="text-[1.85rem] font-extrabold leading-none tracking-tight">
+        <p className="text-[1.85rem] font-extrabold leading-none tracking-tight">
           <span className="text-white">Sell</span>
           <span style={{ color: '#5b7eff' }}>Up</span>
-        </h1>
+        </p>
         <div className="mt-2.5 flex items-center gap-2.5">
           <div className="h-px w-6 rounded-full" style={{ background: 'linear-gradient(90deg, #5b7eff, transparent)' }} />
           <p

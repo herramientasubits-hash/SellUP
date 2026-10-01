@@ -18,6 +18,7 @@
  * Hito: Centroamérica.8C.4C
  */
 
+import { formatInAppZone } from '@/lib/format-date';
 import { Landmark, type LucideIcon } from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -174,7 +175,7 @@ function SnapshotSection({ coverage }: { coverage: HnContratacionesCoverageSumma
             )}
             <FieldRow label="Piloto controlado" value={pilotScope ? 'Sí' : 'No'} />
             {refreshedAt && (
-              <FieldRow label="Última actualización" value={new Date(refreshedAt).toLocaleDateString('es-HN')} />
+              <FieldRow label="Última actualización" value={formatInAppZone(refreshedAt, {}, 'es-HN')} />
             )}
           </dl>
 

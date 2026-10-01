@@ -72,6 +72,7 @@ import type {
   ManualClassificationCorrection,
   CatalogVersionState,
 } from '@/modules/prospect-batches/import-classification/import-classification-ui-types';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 // ── Tipos locales ─────────────────────────────────────────────
 
@@ -1316,23 +1317,23 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                   SellUp tiene un <strong>contrato oficial de columnas</strong> en español. Puedes copiar tablas desde Excel, Google Sheets, o directamente desde los chats con <strong>Claude, Gemini o ChatGPT</strong>. El parser resolverá automáticamente los siguientes campos:
                 </p>
 
-                <div className="max-h-56 overflow-auto rounded-xl border border-border/60 bg-card">
-                  <table className="w-full text-xs border-collapse">
-                    <thead>
-                      <tr className="border-b border-border/50 bg-surface-subtle text-muted-foreground font-semibold">
-                        <th className="px-2 py-1.5 text-left">Columna oficial</th>
-                        <th className="px-2 py-1.5 text-center">Estado</th>
-                        <th className="px-2 py-1.5 text-left">Descripción</th>
-                        <th className="px-2 py-1.5 text-left">Ejemplo / Aliases</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/50">
+                <div className="max-h-56 overflow-auto rounded-xl border border-border/60">
+                  <Table className="text-xs">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Columna oficial</TableHead>
+                        <TableHead className="text-center">Estado</TableHead>
+                        <TableHead>Descripción</TableHead>
+                        <TableHead>Ejemplo / Aliases</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                       {EXTERNAL_IMPORT_CONTRACT.map((col) => (
-                        <tr key={col.field} className="hover:bg-surface-muted">
-                          <td className="px-2 py-1.5 font-semibold text-foreground whitespace-nowrap">
+                        <TableRow key={col.field}>
+                          <TableCell className="font-semibold text-foreground">
                             {col.officialHeader}
-                          </td>
-                          <td className="px-2 py-1.5 text-center">
+                          </TableCell>
+                          <TableCell className="text-center">
                             {col.required ? (
                               <Badge variant="negative">Requerido</Badge>
                             ) : col.recommended ? (
@@ -1340,20 +1341,20 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                             ) : (
                               <Badge variant="neutral">Opcional</Badge>
                             )}
-                          </td>
-                          <td className="px-2 py-1.5 text-muted-foreground leading-normal">
+                          </TableCell>
+                          <TableCell className="whitespace-normal text-muted-foreground leading-normal">
                             {col.description}
-                          </td>
-                          <td className="px-2 py-1.5 text-muted-foreground leading-normal">
+                          </TableCell>
+                          <TableCell className="whitespace-normal text-muted-foreground leading-normal">
                             <span className="italic block text-foreground mb-0.5">Ej: {col.example}</span>
                             <span className="block max-w-40 truncate text-xs text-muted-foreground" title={col.aliases.join(', ')}>
                               Aliases: {col.aliases.join(', ')}
                             </span>
-                          </td>
-                        </tr>
+                          </TableCell>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </Table>
                 </div>
 
                 <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/10 p-3">

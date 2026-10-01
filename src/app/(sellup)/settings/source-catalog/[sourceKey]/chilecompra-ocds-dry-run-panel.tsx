@@ -23,6 +23,7 @@ import type {
   ChileCompraOcdsHealthCheckReport,
   ChileCompraOcdsDryRunReport,
 } from '@/server/source-catalog/connectors/chilecompra-ocds/types';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -148,43 +149,43 @@ function DryRunResult({ report }: { report: ChileCompraOcdsDryRunReport }) {
       )}
 
       <div className="overflow-x-auto rounded-xl border border-border/60">
-        <table className="w-full min-w-[760px] text-xs">
-          <thead>
-            <tr className="border-b border-border/50 bg-surface-subtle text-left text-xs text-muted-foreground">
-              <th scope="col" className="whitespace-nowrap px-3 py-2 font-semibold">ocid</th>
-              <th scope="col" className="whitespace-nowrap px-3 py-2 font-semibold">Título</th>
-              <th scope="col" className="whitespace-nowrap px-3 py-2 font-semibold">Comprador</th>
-              <th scope="col" className="whitespace-nowrap px-3 py-2 font-semibold">RUT comprador</th>
-              <th scope="col" className="whitespace-nowrap px-3 py-2 font-semibold">Monto</th>
-              <th scope="col" className="whitespace-nowrap px-3 py-2 font-semibold">Estado</th>
-              <th scope="col" className="whitespace-nowrap px-3 py-2 font-semibold">UNSPSC</th>
-              <th scope="col" className="whitespace-nowrap px-3 py-2 font-semibold">Proveedor adjudicado</th>
-              <th scope="col" className="whitespace-nowrap px-3 py-2 font-semibold">Fuente</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border/50">
+        <Table className="min-w-[760px] text-xs">
+          <TableHeader>
+            <TableRow>
+              <TableHead scope="col">ocid</TableHead>
+              <TableHead scope="col">Título</TableHead>
+              <TableHead scope="col">Comprador</TableHead>
+              <TableHead scope="col">RUT comprador</TableHead>
+              <TableHead scope="col" className="text-right">Monto</TableHead>
+              <TableHead scope="col">Estado</TableHead>
+              <TableHead scope="col">UNSPSC</TableHead>
+              <TableHead scope="col">Proveedor adjudicado</TableHead>
+              <TableHead scope="col">Fuente</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {report.items.map((item) => (
-              <tr key={item.ocid} className="align-top transition-colors hover:bg-surface-muted">
-                <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{item.ocid}</td>
-                <td className="px-3 py-2 text-foreground">{item.tender_title ?? '—'}</td>
-                <td className="px-3 py-2 text-foreground">{item.buyer_name ?? '—'}</td>
-                <td className="px-3 py-2 font-mono text-muted-foreground">{item.buyer_rut ?? '—'}</td>
-                <td className="px-3 py-2 tabular-nums text-foreground">
+              <TableRow key={item.ocid} className="[&>td]:align-top">
+                <TableCell className="font-mono text-xs text-muted-foreground">{item.ocid}</TableCell>
+                <TableCell className="whitespace-normal text-foreground">{item.tender_title ?? '—'}</TableCell>
+                <TableCell className="whitespace-normal text-foreground">{item.buyer_name ?? '—'}</TableCell>
+                <TableCell className="font-mono text-muted-foreground">{item.buyer_rut ?? '—'}</TableCell>
+                <TableCell className="text-right tabular-nums text-foreground">
                   {formatAmount(item.tender_value_amount, item.tender_value_currency)}
-                </td>
-                <td className="px-3 py-2 text-muted-foreground">{item.tender_status ?? '—'}</td>
-                <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
+                </TableCell>
+                <TableCell className="text-muted-foreground">{item.tender_status ?? '—'}</TableCell>
+                <TableCell className="font-mono text-xs whitespace-normal text-muted-foreground">
                   {item.unspsc_codes.length > 0 ? item.unspsc_codes.join(', ') : '—'}
-                </td>
-                <td className="px-3 py-2 text-foreground">
+                </TableCell>
+                <TableCell className="whitespace-normal text-foreground">
                   {item.awarded_supplier_name ?? '—'}
                   {item.awarded_supplier_rut && (
                     <span className="ml-1 font-mono text-xs text-muted-foreground">
                       ({item.awarded_supplier_rut})
                     </span>
                   )}
-                </td>
-                <td className="px-3 py-2">
+                </TableCell>
+                <TableCell>
                   <a
                     href={item.source_url}
                     target="_blank"
@@ -194,11 +195,11 @@ function DryRunResult({ report }: { report: ChileCompraOcdsDryRunReport }) {
                     Ver
                     <ExternalLink className="h-3 w-3 shrink-0" />
                   </a>
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
 
       <p className="text-xs text-muted-foreground">{report.message}</p>

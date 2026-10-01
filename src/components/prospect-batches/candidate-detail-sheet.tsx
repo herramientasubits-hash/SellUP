@@ -1,5 +1,6 @@
 'use client';
 
+import { formatInAppZone, withAppTimeZone } from '@/lib/format-date';
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -90,6 +91,7 @@ import { ReviewStatusInfo } from '@/components/prospects/review-status-info';
 import { ProspectReviewActions } from '@/components/prospects/prospect-review-actions';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 interface HubSpotSyncAudit {
   status: string;
@@ -1444,11 +1446,11 @@ export function CandidateDetailSheet({
                   {chileIncorporationDate && (
                     <Field
                       label="Fecha de constitución"
-                      value={new Date(chileIncorporationDate).toLocaleDateString('es-CL', {
+                      value={formatInAppZone(chileIncorporationDate, {
                         day: '2-digit',
                         month: 'short',
                         year: 'numeric',
-                      })}
+                      }, 'es-CL')}
                     />
                   )}
                   {chileCapital !== null && chileCapital !== undefined && (
@@ -2339,24 +2341,24 @@ export function CandidateDetailSheet({
                   return (
                     <DrawerSection title="Comparación rápida" icon={ListFilter} tone="neutral">
                       <div className="overflow-x-auto rounded-lg border border-border/60">
-                        <table className="w-full text-xs">
-                          <thead className="bg-surface-subtle">
-                            <tr>
-                              <th scope="col" className="text-left text-xs text-muted-foreground font-medium py-2 px-3">Campo</th>
-                              <th scope="col" className="text-left text-xs text-muted-foreground font-medium py-2 px-3">Candidato</th>
-                              <th scope="col" className="text-left text-xs text-muted-foreground font-medium py-2 px-3">Coincidencia</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-border/50">
+                        <Table className="text-xs">
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead scope="col">Campo</TableHead>
+                              <TableHead scope="col">Candidato</TableHead>
+                              <TableHead scope="col">Coincidencia</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
                             {rows.map(({ label: rl, cv, mv }) => (
-                              <tr key={rl}>
-                                <td className="py-2 px-3 text-muted-foreground font-medium">{rl}</td>
-                                <td className="py-2 px-3 text-foreground break-words">{cv ?? <span className="text-text-muted italic">Sin dato</span>}</td>
-                                <td className="py-2 px-3 text-foreground break-words">{mv ?? <span className="text-text-muted italic">Sin dato</span>}</td>
-                              </tr>
+                              <TableRow key={rl}>
+                                <TableCell className="text-muted-foreground font-medium">{rl}</TableCell>
+                                <TableCell className="whitespace-normal break-words text-foreground">{cv ?? <span className="text-text-muted italic">Sin dato</span>}</TableCell>
+                                <TableCell className="whitespace-normal break-words text-foreground">{mv ?? <span className="text-text-muted italic">Sin dato</span>}</TableCell>
+                              </TableRow>
                             ))}
-                          </tbody>
-                        </table>
+                          </TableBody>
+                        </Table>
                       </div>
                     </DrawerSection>
                   );
@@ -2651,7 +2653,7 @@ export function CandidateDetailSheet({
                     />
                     <Field
                       label="Última validación"
-                      value={new Date(validationMetaSheet.validated_at || candidate.updated_at).toLocaleString('es-CO')}
+                      value={new Date(validationMetaSheet.validated_at || candidate.updated_at).toLocaleString('es-CO', withAppTimeZone())}
                     />
                   </FieldGrid>
 
@@ -2684,10 +2686,10 @@ export function CandidateDetailSheet({
                 <Field label="Candidate ID" value={candidate.id} mono />
                 <Field label="Batch ID" value={candidate.batch_id} mono />
                 <Field label="Fuente primaria" value={val(candidate.source_primary)} mono />
-                <Field label="Creado" value={new Date(candidate.created_at).toLocaleString('es-CO')} />
-                <Field label="Actualizado" value={new Date(candidate.updated_at).toLocaleString('es-CO')} />
+                <Field label="Creado" value={new Date(candidate.created_at).toLocaleString('es-CO', withAppTimeZone())} />
+                <Field label="Actualizado" value={new Date(candidate.updated_at).toLocaleString('es-CO', withAppTimeZone())} />
                 {candidate.reviewed_at && (
-                  <Field label="Revisado" value={new Date(candidate.reviewed_at).toLocaleString('es-CO')} />
+                  <Field label="Revisado" value={new Date(candidate.reviewed_at).toLocaleString('es-CO', withAppTimeZone())} />
                 )}
                 {candidate.confidence_score !== null && (
                   <Field label="Puntaje Confianza" value={`${candidate.confidence_score?.toFixed(0)}%`} />

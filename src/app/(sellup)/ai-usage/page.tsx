@@ -1,3 +1,4 @@
+import { formatInAppZone } from '@/lib/format-date';
 import { Suspense } from 'react';
 import {
   Bot,
@@ -46,6 +47,7 @@ import {
   type CreditsDisplayValue,
 } from '@/modules/usage-tracking/credits-display';
 import { CostValue, CreditsValue } from '@/components/shared/cost-value';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 // Q3F-5AY.7B — post-backfill UI parity.
 //
@@ -103,16 +105,16 @@ function formatRelativeTime(isoDate: string | null): string {
   if (diff < 3600) return `Hace ${Math.floor(diff / 60)} min`;
   if (diff < 86400) return `Hace ${Math.floor(diff / 3600)} h`;
   if (diff < 604800) return `Hace ${Math.floor(diff / 86400)} días`;
-  return new Date(isoDate).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+  return formatInAppZone(isoDate, { day: 'numeric', month: 'short' }, 'es-ES');
 }
 
 function formatDate(isoDate: string): string {
-  return new Date(isoDate).toLocaleDateString('es-ES', {
+  return formatInAppZone(isoDate, {
     day: 'numeric',
     month: 'short',
     hour: '2-digit',
     minute: '2-digit',
-  });
+  }, 'es-ES');
 }
 
 /**
@@ -198,21 +200,17 @@ function AgentStatsTable({ agents }: { agents: AgentStat[] }) {
   }
 
   return (
-    <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border/60 bg-surface-subtle">
+    <Table>
+        <TableHeader>
+          <TableRow>
             {['Agente', 'Ejec.', 'Generados', 'Aprobados', 'Efectividad', 'Costo est.', 'Costo/aprobado'].map((h) => (
-              <th
-                key={h}
-                scope="col"
-                className={`py-2.5 text-xs font-semibold text-muted-foreground ${h === 'Agente' ? 'text-left' : 'text-right'} pr-4`}
-              >
+              <TableHead key={h} scope="col" className={h === 'Agente' ? 'text-left' : 'text-right'}>
                 {h}
-              </th>
+              </TableHead>
             ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border/40">
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {agents.map((a) => {
             const effectiveness =
               a.total_results_generated > 0
@@ -224,19 +222,19 @@ function AgentStatsTable({ agents }: { agents: AgentStat[] }) {
                 : null;
 
             return (
-              <tr key={a.agent_key}>
-                <td className="py-3 pr-4">
+              <TableRow key={a.agent_key}>
+                <TableCell>
                   <div className="flex items-center gap-2">
                     <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-primary/10">
                       <Bot className="h-3.5 w-3.5 text-primary" />
                     </div>
                     <span className="font-medium text-foreground">{agentDisplayName(a)}</span>
                   </div>
-                </td>
-                <td className="py-3 pr-4 text-right text-muted-foreground">{a.total_executions}</td>
-                <td className="py-3 pr-4 text-right text-muted-foreground">{a.total_results_generated}</td>
-                <td className="py-3 pr-4 text-right font-medium text-foreground">{a.total_results_approved}</td>
-                <td className="py-3 pr-4">
+                </TableCell>
+                <TableCell className="text-right text-muted-foreground">{a.total_executions}</TableCell>
+                <TableCell className="text-right text-muted-foreground">{a.total_results_generated}</TableCell>
+                <TableCell className="text-right font-medium text-foreground">{a.total_results_approved}</TableCell>
+                <TableCell>
                   <div className="flex justify-end">
                     {effectiveness !== null ? (
                       <EffectivenessBar pct={effectiveness} />
@@ -244,20 +242,20 @@ function AgentStatsTable({ agents }: { agents: AgentStat[] }) {
                       <span className="text-muted-foreground text-xs">Sin datos</span>
                     )}
                   </div>
-                </td>
-                <td className="py-3 pr-4 text-right font-mono tabular-nums text-muted-foreground">
+                </TableCell>
+                <TableCell className="text-right font-mono tabular-nums text-muted-foreground">
                   {formatCost(a.total_estimated_cost_usd, 2)}
-                </td>
-                <td className="py-3 text-right font-mono tabular-nums text-muted-foreground">
+                </TableCell>
+                <TableCell className="text-right font-mono tabular-nums text-muted-foreground">
                   {costPerApproved !== null
                     ? formatCost(costPerApproved)
                     : <span className="text-text-muted">—</span>}
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             );
           })}
-        </tbody>
-    </table>
+        </TableBody>
+    </Table>
   );
 }
 
@@ -309,24 +307,20 @@ function ProviderStatsTable({ providers }: { providers: ProviderStat[] }) {
   }
 
   return (
-    <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border/60 bg-surface-subtle">
+    <Table>
+        <TableHeader>
+          <TableRow>
             {['Proveedor', 'Medición', 'Llamadas', 'Cantidad', 'Resultados', 'Costo est.', 'Último uso'].map((h) => (
-              <th
-                key={h}
-                scope="col"
-                className={`py-2.5 text-xs font-semibold text-muted-foreground ${h === 'Proveedor' || h === 'Medición' ? 'text-left' : 'text-right'} pr-4`}
-              >
+              <TableHead key={h} scope="col" className={h === 'Proveedor' || h === 'Medición' ? 'text-left' : 'text-right'}>
                 {h}
-              </th>
+              </TableHead>
             ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border/40">
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {providers.map((p) => (
-            <tr key={p.provider_key}>
-              <td className="py-3 pr-4">
+            <TableRow key={p.provider_key}>
+              <TableCell>
                 <div className="flex items-center gap-2">
                   <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-surface-subtle">
                     <Plug className="h-3.5 w-3.5 text-muted-foreground" />
@@ -335,12 +329,12 @@ function ProviderStatsTable({ providers }: { providers: ProviderStat[] }) {
                     {providerDisplayName(p.provider_key)}
                   </span>
                 </div>
-              </td>
-              <td className="py-3 pr-4 text-muted-foreground text-xs">
+              </TableCell>
+              <TableCell className="text-muted-foreground text-xs">
                 {providerMeasurementLabel(p)}
-              </td>
-              <td className="py-3 pr-4 text-right text-muted-foreground">{p.total_calls}</td>
-              <td className="py-3 pr-4 text-right font-mono tabular-nums text-muted-foreground">
+              </TableCell>
+              <TableCell className="text-right text-muted-foreground">{p.total_calls}</TableCell>
+              <TableCell className="text-right font-mono tabular-nums text-muted-foreground">
                 {(() => {
                   const credits = providerMeasurementCredits(p);
                   if (credits) {
@@ -349,9 +343,9 @@ function ProviderStatsTable({ providers }: { providers: ProviderStat[] }) {
                   const tokens = providerMeasurementTokens(p);
                   return tokens ?? <span className="text-text-muted">—</span>;
                 })()}
-              </td>
-              <td className="py-3 pr-4 text-right text-muted-foreground">{p.total_results_returned}</td>
-              <td className="py-3 pr-4 text-right font-mono tabular-nums text-muted-foreground">
+              </TableCell>
+              <TableCell className="text-right text-muted-foreground">{p.total_results_returned}</TableCell>
+              <TableCell className="text-right font-mono tabular-nums text-muted-foreground">
                 {p.total_estimated_cost_usd === 0 && !p.has_unknown_cost
                   ? <span className="text-text-muted">—</span>
                   : (
@@ -363,14 +357,14 @@ function ProviderStatsTable({ providers }: { providers: ProviderStat[] }) {
                       })}
                     />
                   )}
-              </td>
-              <td className="py-3 text-right text-muted-foreground">
+              </TableCell>
+              <TableCell className="text-right text-muted-foreground">
                 {formatRelativeTime(p.last_used_at)}
-              </td>
-            </tr>
+              </TableCell>
+            </TableRow>
           ))}
-        </tbody>
-    </table>
+        </TableBody>
+    </Table>
   );
 }
 
@@ -384,21 +378,17 @@ function RecentLogsTable({ logs }: { logs: ProviderUsageLog[] }) {
   }
 
   return (
-    <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border/60 bg-surface-subtle">
+    <Table>
+        <TableHeader>
+          <TableRow>
             {['Fecha', 'Proveedor', 'Operación', 'Estado', 'Cred./Tokens', 'Costo est.'].map((h) => (
-              <th
-                key={h}
-                scope="col"
-                className={`py-2.5 text-xs font-semibold text-muted-foreground ${h === 'Fecha' || h === 'Proveedor' || h === 'Operación' ? 'text-left' : 'text-right'} pr-4`}
-              >
+              <TableHead key={h} scope="col" className={h === 'Fecha' || h === 'Proveedor' || h === 'Operación' ? 'text-left' : 'text-right'}>
                 {h}
-              </th>
+              </TableHead>
             ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border/40">
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {logs.map((log) => {
             // § 3 — el estado del crédito se resuelve explícitamente: un NULL (o
             // un billing_state indeterminado) NO se muestra como "0 créditos"
@@ -421,34 +411,34 @@ function RecentLogsTable({ logs }: { logs: ProviderUsageLog[] }) {
                     : '0 créd.';
 
             return (
-              <tr key={log.id}>
-                <td className="py-2.5 pr-4 text-muted-foreground whitespace-nowrap">
+              <TableRow key={log.id}>
+                <TableCell className="text-muted-foreground">
                   {formatDate(log.created_at)}
-                </td>
-                <td className="py-2.5 pr-4 font-medium text-foreground capitalize">
+                </TableCell>
+                <TableCell className="font-medium text-foreground capitalize">
                   {providerDisplayName(log.provider_key)}
-                </td>
-                <td className="py-2.5 pr-4 text-muted-foreground max-w-44 truncate" title={log.operation_key}>
+                </TableCell>
+                <TableCell className="text-muted-foreground max-w-44 truncate" title={log.operation_key}>
                   {log.operation_key.replace(/_/g, ' ')}
-                </td>
-                <td className="py-2.5 pr-4">
+                </TableCell>
+                <TableCell>
                   <div className="flex justify-end">
                     <StatusBadge status={log.status} />
                   </div>
-                </td>
-                <td className="py-2.5 pr-4 text-right font-mono tabular-nums text-muted-foreground">
+                </TableCell>
+                <TableCell className="text-right font-mono tabular-nums text-muted-foreground">
                   {quantity}
-                </td>
-                <td className="py-2.5 text-right font-mono tabular-nums text-muted-foreground">
+                </TableCell>
+                <TableCell className="text-right font-mono tabular-nums text-muted-foreground">
                   {Number(log.estimated_cost_usd) > 0
                     ? formatCost(Number(log.estimated_cost_usd))
                     : <span className="text-text-muted">—</span>}
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             );
           })}
-        </tbody>
-    </table>
+        </TableBody>
+    </Table>
   );
 }
 
@@ -725,26 +715,22 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
             />
           }
         >
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border/60 bg-surface-subtle">
+              <Table>
+                <TableHeader>
+                  <TableRow>
                     {['Usuario', 'Ejecuciones', 'Llamadas', 'Proveedores', 'Costo est.', 'Último uso'].map((h) => (
-                      <th
-                        key={h}
-                        scope="col"
-                className={`py-2.5 text-xs font-semibold text-muted-foreground ${h === 'Usuario' ? 'text-left' : 'text-right'} pr-4`}
-                      >
+                      <TableHead key={h} scope="col" className={h === 'Usuario' ? 'text-left' : 'text-right'}>
                         {h}
-                      </th>
+                      </TableHead>
                     ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/40">
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {(userConsumption ?? []).map((u) => {
                     const hasActivity = u.executions + u.provider_calls > 0;
                     return (
-                      <tr key={u.triggered_by} className={hasActivity ? undefined : 'opacity-60'}>
-                        <td className="py-3 pr-4">
+                      <TableRow key={u.triggered_by} className={hasActivity ? undefined : 'opacity-60'}>
+                        <TableCell>
                           <div className="flex flex-col">
                             <span className="font-medium text-foreground">
                               {u.full_name ?? u.email ?? u.triggered_by.slice(0, 8)}
@@ -753,15 +739,15 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
                               <span className="text-xs text-muted-foreground">{u.email}</span>
                             )}
                           </div>
-                        </td>
-                        <td className="py-3 pr-4 text-right text-muted-foreground">{u.executions}</td>
-                        <td className="py-3 pr-4 text-right text-muted-foreground">{u.provider_calls}</td>
-                        <td className="py-3 pr-4 text-right text-muted-foreground">
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">{u.executions}</TableCell>
+                        <TableCell className="text-right text-muted-foreground">{u.provider_calls}</TableCell>
+                        <TableCell className="text-right text-muted-foreground">
                           {u.providers.length > 0
                             ? u.providers.map(providerDisplayName).join(', ')
                             : <span className="text-text-muted">—</span>}
-                        </td>
-                        <td className="py-3 pr-4 text-right font-mono tabular-nums text-muted-foreground">
+                        </TableCell>
+                        <TableCell className="text-right font-mono tabular-nums text-muted-foreground">
                           {u.estimated_cost_usd === 0 && !u.has_unknown_cost
                             ? <span className="text-text-muted">$0.00</span>
                             : (
@@ -773,15 +759,15 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
                                 })}
                               />
                             )}
-                        </td>
-                        <td className="py-3 text-right text-muted-foreground">
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
                           {formatRelativeTime(u.last_activity_at)}
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     );
                   })}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
         </TableShell>
       )}
 

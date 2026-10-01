@@ -1,5 +1,6 @@
 'use client';
 
+import { withAppTimeZone } from '@/lib/format-date';
 import { useState } from 'react';
 import { Loader2, ShieldCheck, AlertTriangle, CheckCircle2, XCircle, Info, Clock, PlugZap } from "@/icons";
 import { Button } from '@/components/ui/button';
@@ -112,10 +113,10 @@ function ResultPanel({ result }: { result: SourceConnectionTestResult }) {
   const isRateLimited = result.metadata?.rateLimited === true ||
     (result.recommendation?.toLowerCase().includes('espera') ?? false);
 
-  const checkedAtDate = new Date(result.checkedAt).toLocaleString('es-CO', {
+  const checkedAtDate = new Date(result.checkedAt).toLocaleString('es-CO', withAppTimeZone({
     dateStyle: 'short',
     timeStyle: 'medium',
-  });
+  }));
 
   return (
     <div className="space-y-4">

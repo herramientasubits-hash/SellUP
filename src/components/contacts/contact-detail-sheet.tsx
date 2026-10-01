@@ -1,5 +1,6 @@
 'use client';
 
+import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
 import Link from 'next/link';
 import {
@@ -104,21 +105,21 @@ const AUDIT_LABELS: Record<ContactAuditAction, string> = {
 };
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('es-CO', {
+  return formatInAppZone(iso, {
     day: '2-digit',
     month: 'long',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  });
+  }, 'es-CO');
 }
 
 function formatShortDate(iso: string) {
-  return new Date(iso).toLocaleDateString('es-CO', {
+  return formatInAppZone(iso, {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  });
+  }, 'es-CO');
 }
 
 interface ContactDetailSheetProps {
@@ -227,7 +228,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
       }
       titleBadge={
         contact ? (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Badge
               variant="outline"
               className={STATUS_STYLES[contact.contact_status]}
@@ -334,21 +335,21 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                       <dl className="space-y-3">
                         {contact.email && (
                           <DetailRow icon={Mail} label="Email">
-                            <a href={`mailto:${contact.email}`} className="text-primary hover:underline">
+                            <a href={`mailto:${contact.email}`} className="break-all text-primary hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
                               {contact.email}
                             </a>
                           </DetailRow>
                         )}
                         {contact.mobile_phone && (
                           <DetailRow icon={Phone} label="Celular">
-                            <a href={`tel:${contact.mobile_phone}`} className="hover:underline">
+                            <a href={`tel:${contact.mobile_phone}`} className="tabular-nums hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
                               {contact.mobile_phone}
                             </a>
                           </DetailRow>
                         )}
                         {contact.phone && (
                           <DetailRow icon={Phone} label="Teléfono">
-                            <a href={`tel:${contact.phone}`} className="hover:underline">
+                            <a href={`tel:${contact.phone}`} className="tabular-nums hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
                               {contact.phone}
                             </a>
                           </DetailRow>
@@ -388,7 +389,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                               href={contact.linkedin_url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="text-primary hover:underline"
+                              className="break-all text-primary hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                             >
                               {contact.linkedin_url}
                             </a>
@@ -396,7 +397,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                         )}
                         <DetailRow icon={Building2} label="Cuenta">
                           {account ? (
-                            <Link href={`/accounts/${account.id}`} className="text-primary hover:underline">
+                            <Link href={`/accounts/${account.id}`} className="text-primary hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
                               {account.name}
                             </Link>
                           ) : (
@@ -443,7 +444,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                           <p className="mb-1 text-xs font-semibold text-muted-foreground">
                             Notas
                           </p>
-                          <p className="break-words text-xs leading-relaxed text-foreground">
+                          <p className="break-words text-sm leading-relaxed text-foreground">
                             {contact.notes}
                           </p>
                         </div>
@@ -511,7 +512,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                     <dl className="space-y-3">
                       <DetailRow icon={Tag} label="HubSpot Contact ID">
                         {contact.hubspot_contact_id ? (
-                          <span className="font-mono text-xs">{contact.hubspot_contact_id}</span>
+                          <span className="break-all font-mono text-xs">{contact.hubspot_contact_id}</span>
                         ) : (
                           <span className="text-muted-foreground">No vinculado</span>
                         )}
@@ -681,10 +682,8 @@ function TraceRow({
   return (
     <div className="flex items-start gap-2.5">
       <div className="min-w-0 flex-1">
-        <dt className="text-xs font-semibold text-muted-foreground">
-          {label}
-        </dt>
-        <dd className="mt-0.5 text-xs text-foreground">{children}</dd>
+        <dt className="text-xs text-muted-foreground">{label}</dt>
+        <dd className="mt-0.5 break-words text-sm text-foreground">{children}</dd>
       </div>
     </div>
   );
@@ -710,22 +709,20 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
                 {vm.originLabel}
               </Badge>
             ) : (
-              <Badge
-                variant="neutral">
+              <Badge variant="neutral">
                 {vm.originLabel}
               </Badge>
             )}
           </span>
         </TraceRow>
         <TraceRow label="Fuente">
-          <Badge
-            variant="neutral">
+          <Badge variant="neutral">
             {vm.sourceLabel}
           </Badge>
         </TraceRow>
         {vm.hasSourceCandidate && vm.sourceCandidateId && (
           <TraceRow label="ID candidato">
-            <span className="font-mono text-xs text-muted-foreground">
+            <span className="break-all font-mono text-xs text-muted-foreground">
               {vm.sourceCandidateId}
             </span>
           </TraceRow>
@@ -754,9 +751,7 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
               <TraceRow label="Datos completados">
                 <span className="flex flex-wrap gap-1">
                   {vm.completedFields.map((f) => (
-                    <Badge
-                      key={f}
-                      variant="neutral">
+                    <Badge key={f} variant="neutral">
                       {f}
                     </Badge>
                   ))}
@@ -793,9 +788,7 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
               <TraceRow label="Campos normalizados">
                 <span className="flex flex-wrap gap-1">
                   {vm.normalizedFields.map((f) => (
-                    <Badge
-                      key={f}
-                      variant="neutral">
+                    <Badge key={f} variant="neutral">
                       {f}
                     </Badge>
                   ))}
@@ -831,15 +824,14 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
         </TraceRow>
         {vm.hubspotContactId && (
           <TraceRow label="HubSpot Contact ID">
-            <span className="font-mono text-xs text-muted-foreground">
+            <span className="break-all font-mono text-xs text-muted-foreground">
               {vm.hubspotContactId}
             </span>
           </TraceRow>
         )}
         {vm.hubspotMode && (
           <TraceRow label="Modo">
-            <Badge
-              variant="neutral">
+            <Badge variant="neutral">
               {vm.hubspotMode === 'created' ? 'Creado en HubSpot' :
                vm.hubspotMode === 'linked_existing' ? 'Vinculado a existente' :
                vm.hubspotMode}
@@ -896,14 +888,12 @@ function DetailRow({
   // Design Refresh v6: layout horizontal (label izquierda / valor derecha),
   // consistente con el drawer de Empresa.
   return (
-    <div className="flex items-start gap-3">
+    <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:gap-3">
       <div className="flex shrink-0 items-center gap-2 min-w-[104px]">
         <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        <dt className="text-xs font-medium text-muted-foreground">
-          {label}
-        </dt>
+        <dt className="text-xs text-muted-foreground">{label}</dt>
       </div>
-      <dd className="min-w-0 flex-1 break-words text-right text-xs text-foreground">{children}</dd>
+      <dd className="min-w-0 flex-1 break-words text-sm text-foreground sm:text-right">{children}</dd>
     </div>
   );
 }

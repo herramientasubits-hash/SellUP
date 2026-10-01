@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Loader2, AlertCircle, CheckCircle2, Info } from "@/icons";
+import { AlertCircle, CheckCircle2, Info } from "@/icons";
 import { toast } from 'sonner';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { AIButton } from '@/components/ai/ai-button';
@@ -231,7 +231,7 @@ export function ExploratorySearchFormV2({
             <Label className="text-sm font-medium">
               Subindustrias
             </Label>
-            <span className="text-xs text-muted-foreground">
+            <span className="text-xs tabular-nums text-muted-foreground">
               {form.subindustryIds.length}/{EXPLORATORY_SEARCH_LIMITS.subindustries.max}
             </span>
           </div>
@@ -282,12 +282,12 @@ export function ExploratorySearchFormV2({
             className="resize-none"
             aria-label="¿Qué características adicionales quieres encontrar?"
           />
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <p className="text-xs text-muted-foreground">
               No se enviará todavía a ningún modelo de IA.
             </p>
             <span
-              className={`text-xs tabular-nums ${
+              className={`shrink-0 text-xs tabular-nums ${
                 criteriaOverLimit
                   ? 'text-destructive font-semibold'
                   : 'text-muted-foreground'
@@ -329,7 +329,7 @@ export function ExploratorySearchFormV2({
       )}
 
       {/* Footer actions */}
-      <div className="flex items-center justify-between gap-3 pt-2">
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
         <Button
           type="button"
           variant="outline"
@@ -346,14 +346,8 @@ export function ExploratorySearchFormV2({
           disabled={!canSubmit}
           loading={submitting}
         >
-          {submitting ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Validando…
-            </>
-          ) : (
-            'Validar búsqueda'
-          )}
+          {/* El spinner lo pone `AIButton` con `loading`; aquí solo cambia el rótulo. */}
+          {submitting ? 'Validando…' : 'Validar búsqueda'}
         </AIButton>
       </div>
     </form>

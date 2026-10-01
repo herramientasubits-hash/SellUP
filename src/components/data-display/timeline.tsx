@@ -56,6 +56,8 @@ export interface TimelineItemProps extends Omit<React.LiHTMLAttributes<HTMLLIEle
   description?: React.ReactNode;
   /** Cuerpo opcional bajo la descripción: una tarjeta, una cita, adjuntos. */
   children?: React.ReactNode;
+  /** `compact`: título en `text-xs` y menos aire entre eventos, para listas de pasos dentro de un panel. */
+  density?: "default" | "compact";
 }
 
 /** Un evento del `Timeline`: punto con tono, título, hora y cuerpo opcional. */
@@ -66,9 +68,11 @@ export function TimelineItem({
   time,
   description,
   children,
+  density = "default",
   className,
   ...props
 }: TimelineItemProps) {
+  const isCompact = density === "compact";
   const { align } = React.useContext(TimelineContext);
   const isAlternate = align === "alternate";
 
@@ -92,7 +96,9 @@ export function TimelineItem({
           isAlternate ? "group-odd/item:flex-row-reverse" : "justify-between",
         )}
       >
-        <span className="text-sm font-medium text-foreground">{title}</span>
+        <span className={cn(isCompact ? "text-xs" : "text-sm", "font-medium text-foreground")}>
+          {title}
+        </span>
         {time && <span className="shrink-0 text-xs tabular-nums text-text-muted">{time}</span>}
       </div>
       {description && <p className="text-xs leading-relaxed text-muted-foreground">{description}</p>}
@@ -105,8 +111,10 @@ export function TimelineItem({
       <li
         data-slot="timeline-item"
         data-tone={tone}
+      data-density={density}
         className={cn(
-          "group/item relative grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-x-4 pb-6 last:pb-0",
+          "group/item relative grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-x-4 last:pb-0",
+          isCompact ? "pb-3" : "pb-6",
           "before:absolute before:top-6 before:bottom-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-border last:before:hidden",
           className,
         )}
@@ -124,8 +132,10 @@ export function TimelineItem({
     <li
       data-slot="timeline-item"
       data-tone={tone}
+      data-density={density}
       className={cn(
-        "relative flex gap-3 pb-6 last:pb-0",
+        "relative flex gap-3 last:pb-0",
+        isCompact ? "pb-3" : "pb-6",
         "before:absolute before:top-6 before:bottom-0 before:left-3 before:w-px before:-translate-x-1/2 before:bg-border last:before:hidden",
         className,
       )}

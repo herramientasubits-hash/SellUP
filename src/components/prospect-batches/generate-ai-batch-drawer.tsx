@@ -6,6 +6,7 @@ import {
   Sparkles,
   Loader2,
   AlertCircle,
+  Check,
   CheckCircle2,
   ChevronRight,
   TriangleAlert,
@@ -33,6 +34,7 @@ import type { WizardBudgetPreflight } from '@/modules/prospect-batches/chat-wiza
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { DrawerSection } from '@/components/shared/drawer-section';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { Timeline, TimelineItem } from '@/components/data-display/timeline';
 import { Button } from '@/components/ui/button';
 import { AIButton } from '@/components/ai/ai-button';
 import { Badge } from '@/components/ui/badge';
@@ -125,25 +127,34 @@ const PROGRESS_STEPS: ProgressStep[] = [
   { label: 'Generando resumen…', delay: 400 },
 ];
 
+// Registro de lo que el agente ya hizo: un evento por paso sobre la línea del
+// `Timeline` de Thema. El último, mientras corre, gira en vez de marcar hecho.
 function ThinkingStepsDisplay({ steps, isTyping }: { steps: string[]; isTyping: boolean }) {
   return (
-    <div className="space-y-2 animate-su-fade-in">
+    <Timeline className="w-full animate-su-fade-in">
       {steps.map((msg, i) => (
-        <div key={i} className="flex items-start gap-2 text-xs text-muted-foreground animate-su-fade-in">
-          <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0 text-primary" />
-          <span className="leading-relaxed">{msg}</span>
-        </div>
+        <TimelineItem
+          key={i}
+          tone="primary"
+          icon={<Check aria-hidden />}
+          title={<span className="leading-relaxed">{msg}</span>}
+          className="pb-3 animate-su-fade-in"
+        />
       ))}
       {isTyping && (
-        <div className="flex items-start gap-2 text-xs text-muted-foreground animate-su-fade-in">
-          <Loader2 className="h-3.5 w-3.5 mt-0.5 shrink-0 animate-spin text-primary" />
-          <span className="leading-relaxed flex items-center gap-0.5">
-            Pensando
-            <span className="animate-pulse">…</span>
-          </span>
-        </div>
+        <TimelineItem
+          tone="default"
+          icon={<Loader2 className="animate-spin text-primary" aria-hidden />}
+          title={
+            <span className="flex items-center gap-0.5 leading-relaxed text-muted-foreground">
+              Pensando
+              <span className="animate-pulse">…</span>
+            </span>
+          }
+          className="pb-3 animate-su-fade-in"
+        />
       )}
-    </div>
+    </Timeline>
   );
 }
 
@@ -639,7 +650,7 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
         </div>
       ) : drawer.generating ? (
         /* ── Thinking steps progresivos ── */
-        <div ref={resultPanelRef} className="flex flex-col items-start py-6 px-2">
+        <div ref={resultPanelRef} className="flex flex-col items-start px-2 py-6">
           <ThinkingStepsDisplay steps={progressSteps} isTyping={true} />
         </div>
       ) : (
@@ -845,7 +856,7 @@ function DrawerFooter({
 
   return (
     <div className="shrink-0 border-t border-border/60 bg-card px-6 py-4">
-      <div className="flex w-full items-center justify-between gap-3">
+      <div className="flex w-full flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <Button
             type="button"
@@ -858,7 +869,7 @@ function DrawerFooter({
           </Button>
           {generating && progressMsg && (
             <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin animate-su-pulse" />
+              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" aria-hidden />
               <span className="truncate">{progressMsg}</span>
             </p>
           )}
@@ -1317,7 +1328,7 @@ function GenerationResultPanel({
             </div>
           )}
           <div className="min-w-0">
-            <h3 className="text-sm font-semibold text-foreground">
+            <h3 className="text-base font-semibold tracking-tight text-foreground">
               {usefulCandidatesCount > 0 ? 'Generación completada' : 'Generación finalizada'}
             </h3>
             <p className="text-xs text-muted-foreground">
@@ -1355,40 +1366,44 @@ function GenerationResultPanel({
             : 'Empresas generadas (Apollo)'}
           icon={Building2}
         >
-          <div className="space-y-3">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Estado:</span>
-              {usefulCandidatesCount > 0 ? (
-                <Badge variant="positive">
-                  <CheckCircle2 className="h-3 w-3" />
-                  Creado
-                </Badge>
-              ) : (
-                <Badge variant="warning">
-                  <TriangleAlert className="h-3 w-3" />
-                  Sin candidatas útiles
-                </Badge>
-              )}
+          <dl className="space-y-3 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <dt className="text-muted-foreground">Estado:</dt>
+              <dd>
+                {usefulCandidatesCount > 0 ? (
+                  <Badge variant="positive">
+                    <CheckCircle2 className="h-3 w-3" />
+                    Creado
+                  </Badge>
+                ) : (
+                  <Badge variant="warning">
+                    <TriangleAlert className="h-3 w-3" />
+                    Sin candidatas útiles
+                  </Badge>
+                )}
+              </dd>
             </div>
             {apolloBatchId && (
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Batch ID:</span>
-                <code className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
-                  {apolloBatchId.slice(0, 8)}…
-                </code>
+              <div className="flex items-center justify-between gap-2">
+                <dt className="text-muted-foreground">Batch ID:</dt>
+                <dd>
+                  <code className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                    {apolloBatchId.slice(0, 8)}…
+                  </code>
+                </dd>
               </div>
             )}
-            <div className="grid grid-cols-2 gap-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Candidatos útiles:</span>
-                <span className="font-semibold tabular-nums text-foreground">{usefulCandidatesCount}</span>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-x-6">
+              <div className="flex justify-between gap-2">
+                <dt className="text-muted-foreground">Candidatos útiles:</dt>
+                <dd className="font-semibold tabular-nums text-foreground">{usefulCandidatesCount}</dd>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Omitidos:</span>
-                <span className="font-semibold tabular-nums text-foreground">{omittedCandidatesCount}</span>
+              <div className="flex justify-between gap-2">
+                <dt className="text-muted-foreground">Omitidos:</dt>
+                <dd className="font-semibold tabular-nums text-foreground">{omittedCandidatesCount}</dd>
               </div>
             </div>
-          </div>
+          </dl>
         </DrawerSection>
       )}
 
@@ -1405,7 +1420,7 @@ function GenerationResultPanel({
         return (
           <SurfaceCard className="p-4">
             <div className="mb-3 flex items-center gap-2">
-              <div className={`h-2 w-2 rounded-full ${dotClass}`} />
+              <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`} />
               <span className="text-xs font-semibold text-muted-foreground">
                 Fuente oficial procesada
               </span>
@@ -1426,39 +1441,43 @@ function GenerationResultPanel({
                   </Alert>
                 )}
                 {advancedOpen && (
-                  <div className="space-y-2 text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Estado:</span>
-                      <Badge variant="positive">
-                        <CheckCircle2 className="h-3 w-3" />
-                        Creado · Revisión humana pendiente
-                      </Badge>
+                  <dl className="space-y-2 text-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <dt className="text-muted-foreground">Estado:</dt>
+                      <dd>
+                        <Badge variant="positive">
+                          <CheckCircle2 className="h-3 w-3" />
+                          Creado · Revisión humana pendiente
+                        </Badge>
+                      </dd>
                     </div>
                     {!structuredBatch.autoMode && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground">Página usada:</span>
-                        <span className="font-semibold text-foreground">{structuredSourcePage}</span>
+                      <div className="flex items-center justify-between gap-2">
+                        <dt className="text-muted-foreground">Página usada:</dt>
+                        <dd className="font-semibold tabular-nums text-foreground">{structuredSourcePage}</dd>
                       </div>
                     )}
                     {structuredBatch.batchId && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground">Batch ID:</span>
-                        <code className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
-                          {structuredBatch.batchId.slice(0, 8)}…
-                        </code>
+                      <div className="flex items-center justify-between gap-2">
+                        <dt className="text-muted-foreground">Batch ID:</dt>
+                        <dd>
+                          <code className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                            {structuredBatch.batchId.slice(0, 8)}…
+                          </code>
+                        </dd>
                       </div>
                     )}
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Candidatos escritos:</span>
-                        <span className="font-semibold text-foreground">{structuredBatch.candidatesWritten}</span>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-x-6">
+                      <div className="flex justify-between gap-2">
+                        <dt className="text-muted-foreground">Candidatos escritos:</dt>
+                        <dd className="font-semibold tabular-nums text-foreground">{structuredBatch.candidatesWritten}</dd>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Omitidos:</span>
-                        <span className="font-semibold text-foreground">{structuredBatch.candidatesSkipped}</span>
+                      <div className="flex justify-between gap-2">
+                        <dt className="text-muted-foreground">Omitidos:</dt>
+                        <dd className="font-semibold tabular-nums text-foreground">{structuredBatch.candidatesSkipped}</dd>
                       </div>
                     </div>
-                  </div>
+                  </dl>
                 )}
               </>
             ) : structuredBatch.status === 'official_source_error' ? (
@@ -1558,16 +1577,16 @@ function GenerationResultPanel({
               </div>
             }
           />
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Candidatos leídos:</span>
-              <span className="font-medium text-foreground">{result.recordsRead}</span>
+          <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+            <div className="flex justify-between gap-2">
+              <dt className="text-muted-foreground">Candidatos leídos:</dt>
+              <dd className="font-medium tabular-nums text-foreground">{result.recordsRead}</dd>
             </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Potenciales:</span>
-              <span className="font-medium text-foreground">{result.candidatesCount}</span>
+            <div className="flex justify-between gap-2">
+              <dt className="text-muted-foreground">Potenciales:</dt>
+              <dd className="font-medium tabular-nums text-foreground">{result.candidatesCount}</dd>
             </div>
-          </div>
+          </dl>
         </SurfaceCard>
       )}
     </div>

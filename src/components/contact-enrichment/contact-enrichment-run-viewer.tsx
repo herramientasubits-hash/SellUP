@@ -7,6 +7,7 @@
 // Phone numbers are never rendered (see the hito's "no revelar teléfonos"
 // constraint) even when a candidate row carries one.
 
+import { withAppTimeZone } from '@/lib/format-date';
 import { Building2, Calendar, Globe, Info, MapPin, Users, XCircle } from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -41,13 +42,13 @@ const CANDIDATE_STATUS_BADGE: Record<ContactEnrichmentRunCandidate['status'], { 
 
 function formatDateTime(iso: string): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleString('es-CO', {
+  return new Date(iso).toLocaleString('es-CO', withAppTimeZone({
     day: '2-digit',
     month: 'short',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  });
+  }));
 }
 
 // ── Run header ────────────────────────────────────────────────────────────
@@ -69,12 +70,12 @@ function RunHeaderCard({ run }: { run: ContactEnrichmentRunDetail }) {
         <div className="flex items-center gap-2">
           <Building2 className="h-4 w-4 text-muted-foreground" aria-hidden />
           <dt className="sr-only">Empresa</dt>
-          <dd className="font-medium text-foreground">{run.companyName || '—'}</dd>
+          <dd className="min-w-0 truncate font-medium text-foreground">{run.companyName || '—'}</dd>
         </div>
         <div className="flex items-center gap-2">
           <Globe className="h-4 w-4 text-muted-foreground" aria-hidden />
           <dt className="sr-only">Dominio</dt>
-          <dd className="text-foreground">{run.companyDomain ?? 'Sin dominio'}</dd>
+          <dd className="min-w-0 truncate text-foreground">{run.companyDomain ?? 'Sin dominio'}</dd>
         </div>
         <div className="flex items-center gap-2">
           <MapPin className="h-4 w-4 text-muted-foreground" aria-hidden />
@@ -84,7 +85,7 @@ function RunHeaderCard({ run }: { run: ContactEnrichmentRunDetail }) {
         <div className="flex items-center gap-2">
           <Calendar className="h-4 w-4 text-muted-foreground" aria-hidden />
           <dt className="sr-only">Ejecutado</dt>
-          <dd className="text-foreground">{formatDateTime(run.createdAt)}</dd>
+          <dd className="tabular-nums text-foreground">{formatDateTime(run.createdAt)}</dd>
         </div>
       </dl>
 
@@ -95,7 +96,7 @@ function RunHeaderCard({ run }: { run: ContactEnrichmentRunDetail }) {
         </div>
         <div className="space-y-0.5">
           <dt className="text-muted-foreground">Intento</dt>
-          <dd className="font-medium text-foreground">{run.attemptOrder ?? '—'}</dd>
+          <dd className="font-medium tabular-nums text-foreground">{run.attemptOrder ?? '—'}</dd>
         </div>
         <div className="space-y-0.5">
           <dt className="text-muted-foreground">Costo estimado</dt>
@@ -103,13 +104,13 @@ function RunHeaderCard({ run }: { run: ContactEnrichmentRunDetail }) {
         </div>
         <div className="space-y-0.5">
           <dt className="text-muted-foreground">Costo real</dt>
-          <dd className="font-medium text-foreground">
+          <dd className="font-medium tabular-nums text-foreground">
             {run.realCostUsd != null ? `US$ ${run.realCostUsd.toFixed(4)}` : 'No disponible'}
           </dd>
         </div>
       </dl>
 
-      <p className="border-t border-border/50 pt-3 font-mono text-xs text-muted-foreground">
+      <p className="break-all border-t border-border/50 pt-3 font-mono text-xs text-muted-foreground">
         run_id: {run.id}
       </p>
     </SurfaceCard>
@@ -181,7 +182,7 @@ function LushaOutcomeCard({
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-surface-muted">
             <Info className="h-4 w-4 text-muted-foreground" aria-hidden />
           </div>
-          <div className="space-y-1">
+          <div className="min-w-0 space-y-1">
             <p className="text-sm font-semibold text-foreground">{copy.headline}</p>
             <p className="text-xs text-muted-foreground">{copy.detail}</p>
           </div>
@@ -192,15 +193,15 @@ function LushaOutcomeCard({
         </div>
 
         <dl className="space-y-1.5 border-t border-border/50 pt-3 text-xs">
-          <div className="flex justify-between">
+          <div className="flex justify-between gap-3">
             <dt className="text-muted-foreground">Resultados brutos</dt>
-            <dd className="font-medium text-foreground">{latestUsage?.rawResultsCount ?? 0}</dd>
+            <dd className="font-medium tabular-nums text-foreground">{latestUsage?.rawResultsCount ?? 0}</dd>
           </div>
-          <div className="flex justify-between">
+          <div className="flex justify-between gap-3">
             <dt className="text-muted-foreground">Créditos usados</dt>
-            <dd className="font-medium text-foreground">{latestUsage?.creditsUsed ?? 0}</dd>
+            <dd className="font-medium tabular-nums text-foreground">{latestUsage?.creditsUsed ?? 0}</dd>
           </div>
-          <div className="flex justify-between">
+          <div className="flex justify-between gap-3">
             <dt className="text-muted-foreground">Reveal de teléfono</dt>
             <dd className="font-medium text-foreground">
               {latestUsage?.phoneRevealEnabled ? 'ejecutado' : 'no ejecutado'}

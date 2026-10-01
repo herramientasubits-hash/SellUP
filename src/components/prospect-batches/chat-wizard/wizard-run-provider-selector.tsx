@@ -76,14 +76,14 @@ export function WizardRunProviderSelector({
 
   return (
     <fieldset
-      className="space-y-2 rounded-xl border border-border/60 bg-card px-4 py-3"
+      className="min-w-0 space-y-3 rounded-xl border border-border/60 bg-card px-4 py-3"
       data-testid="wizard-run-provider-selector"
     >
       <legend className="px-1 text-xs font-semibold text-foreground">
         {RUN_PROVIDER_SECTION_TITLE}
       </legend>
 
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         {WIZARD_RUN_SELECTABLE_PROVIDERS.map((provider) => {
           const optionEnabled = isProviderOptionEnabled(capability, provider);
           const inputDisabled = disabled || !optionEnabled;
@@ -92,8 +92,8 @@ export function WizardRunProviderSelector({
               key={provider}
               className={
                 inputDisabled
-                  ? 'flex cursor-not-allowed items-center gap-2 rounded-md px-1 py-1.5 text-sm text-muted-foreground opacity-70'
-                  : 'flex cursor-pointer items-center gap-2 rounded-md px-1 py-1.5 text-sm text-foreground transition-colors hover:bg-surface-muted has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/40'
+                  ? 'flex cursor-not-allowed items-center gap-2.5 rounded-lg border border-dashed border-border/60 bg-surface-subtle px-3 py-2.5 text-sm text-muted-foreground'
+                  : 'flex cursor-pointer items-center gap-2.5 rounded-lg border border-border/60 bg-card px-3 py-2.5 text-sm text-foreground transition-colors hover:border-primary/40 hover:bg-surface-muted has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/40'
               }
             >
               <input
@@ -110,9 +110,9 @@ export function WizardRunProviderSelector({
                   if (inputDisabled) return;
                   onChange(provider);
                 }}
-                className="size-3.5 accent-primary"
+                className="size-4 shrink-0 accent-primary focus-visible:outline-none"
               />
-              <span className="font-medium">
+              <span className="min-w-0 break-words font-medium">
                 {provider === 'tavily' && automaticOptionLabel
                   ? automaticOptionLabel
                   : RUN_PROVIDER_OPTION_LABELS[provider]}
@@ -127,7 +127,7 @@ export function WizardRunProviderSelector({
           de los tres candados lo impide. */}
       {!isProviderOptionEnabled(capability, 'apollo_organizations') && (
         <p
-          className="flex items-start gap-1.5 text-xs text-muted-foreground"
+          className="flex items-start gap-1.5 text-xs leading-relaxed text-muted-foreground"
           data-testid="wizard-run-provider-apollo-unavailable"
         >
           <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
@@ -138,11 +138,11 @@ export function WizardRunProviderSelector({
       {/* § 5 — qué significa elegir Apollo, con los topes reales de la corrida. */}
       {apolloCopy && (
         <div
-          className="space-y-1.5 rounded-lg bg-primary/5 px-3 py-2"
+          className="space-y-1.5 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5"
           data-testid="wizard-run-provider-apollo-mode"
         >
           <p className="text-xs text-foreground">{apolloCopy.headline}</p>
-          <p className="text-xs font-medium text-foreground">{apolloCopy.limitsTitle}</p>
+          <p className="text-xs font-semibold text-foreground">{apolloCopy.limitsTitle}</p>
           <ul className="space-y-0.5">
             {apolloCopy.limits.map((limit) => (
               <li key={limit} className="text-xs text-muted-foreground">

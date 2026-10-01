@@ -1,3 +1,5 @@
+import { formatInAppZone } from '@/lib/format-date';
+
 // ─── Batch status ─────────────────────────────────────────────────────────────
 
 export const BATCH_STATUS_LABELS: Record<string, string> = {
@@ -215,9 +217,9 @@ export function formatDatasetLabel(dataset: string | null): string {
 
 export function formatShortDate(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleDateString('es-CO', {
+  return formatInAppZone(d, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
-  });
+  }, 'es-CO');
 }

@@ -1,5 +1,6 @@
 'use client';
 
+import { withAppTimeZone } from '@/lib/format-date';
 import { useState, useEffect, useCallback, useTransition, useRef, useMemo } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import Link from 'next/link';
@@ -126,6 +127,7 @@ import {
   resolveContactEnrichmentEffectivenessUiState,
 } from './contact-enrichment-effectiveness-ui';
 import type { ProviderEffectivenessProviderSummary } from '@/modules/provider-effectiveness/types';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 // ── Rule display constants ────────────────────────────────────────────────────
 
@@ -213,19 +215,19 @@ function formatAllowance(credits: number | null, usd: number | null): string {
 }
 
 function formatDateShort(iso: string): string {
-  return new Date(iso).toLocaleString('es-CO', {
+  return new Date(iso).toLocaleString('es-CO', withAppTimeZone({
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  });
+  }));
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString('es-CO', {
+  return new Date(iso).toLocaleString('es-CO', withAppTimeZone({
     dateStyle: 'medium',
     timeStyle: 'short',
-  });
+  }));
 }
 
 // ── Info row ──────────────────────────────────────────────────────────────────
@@ -3340,46 +3342,46 @@ function TabLogs({
           )
         ) : (
           <>
-            <div className="overflow-x-auto rounded-xl border border-border/60 bg-card">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-border/60 bg-surface-subtle">
+            <div className="overflow-x-auto rounded-xl border border-border/60">
+              <Table className="text-xs">
+                <TableHeader>
+                  <TableRow>
                     {['Fecha', 'Operación', 'Usuario / Agente', 'Créditos', 'Costo USD', 'Estado', 'Detalle de error'].map((col) => (
-                      <th key={col} scope="col" className="px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">
+                      <TableHead key={col} scope="col" className={col === 'Créditos' || col === 'Costo USD' ? 'text-right' : undefined}>
                         {col}
-                      </th>
+                      </TableHead>
                     ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/50">
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {visibleUsageLogs.map((log) => (
-                    <tr key={log.id} className="transition-colors hover:bg-surface-muted">
-                      <td className="px-3 py-2 text-muted-foreground whitespace-nowrap tabular-nums">
+                    <TableRow key={log.id}>
+                      <TableCell className="text-muted-foreground tabular-nums">
                         {formatDateShort(log.createdAt)}
-                      </td>
-                      <td className="px-3 py-2 text-foreground max-w-[140px] truncate" title={log.operationKey ?? undefined}>
+                      </TableCell>
+                      <TableCell className="text-foreground max-w-[140px] truncate" title={log.operationKey ?? undefined}>
                         {log.operationKey ?? '—'}
-                      </td>
-                      <td className="px-3 py-2 text-foreground max-w-[170px]">
+                      </TableCell>
+                      <TableCell className="text-foreground max-w-[170px]">
                         <div className="truncate">{log.userDisplay?.primary ?? '—'}</div>
                         <div className="truncate text-xs text-muted-foreground">{log.agentDisplay ?? '—'}</div>
-                      </td>
-                      <td className="px-3 py-2 text-foreground whitespace-nowrap tabular-nums">
+                      </TableCell>
+                      <TableCell className="text-right text-foreground tabular-nums">
                         {log.creditsUsed != null ? `${log.creditsUsed.toLocaleString()} cr` : '—'}
-                      </td>
-                      <td className="px-3 py-2 text-foreground whitespace-nowrap tabular-nums">
+                      </TableCell>
+                      <TableCell className="text-right text-foreground tabular-nums">
                         {log.estimatedCostUsd != null ? `$${log.estimatedCostUsd.toFixed(4)}` : '—'}
-                      </td>
-                      <td className="px-3 py-2 text-muted-foreground capitalize">
+                      </TableCell>
+                      <TableCell className="text-muted-foreground capitalize">
                         {log.status ?? '—'}
-                      </td>
-                      <td className="px-3 py-2 text-destructive max-w-[180px] truncate" title={formatUsageLogErrorDetailText(log.errorDetail ?? null)}>
+                      </TableCell>
+                      <TableCell className="text-destructive max-w-[180px] truncate" title={formatUsageLogErrorDetailText(log.errorDetail ?? null)}>
                         {formatUsageLogErrorDetailText(log.errorDetail ?? null)}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
             {effectiveUsageLogs.length > INITIAL_USAGE && (
               <button
@@ -3408,45 +3410,45 @@ function TabLogs({
               sub="Ejecuta un sync desde la tabla de proveedores para registrar actividad."
             />
           ) : (
-            <div className="overflow-x-auto rounded-xl border border-border/60 bg-card">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-border/60 bg-surface-subtle">
+            <div className="overflow-x-auto rounded-xl border border-border/60">
+              <Table className="text-xs">
+                <TableHeader>
+                  <TableRow>
                     {['Fecha', 'Estado', 'Fuente', 'HTTP', 'Créditos ext.', 'Costo MTD', 'Error'].map((col) => (
-                      <th key={col} scope="col" className="px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">
+                      <TableHead key={col} scope="col" className={col === 'HTTP' || col === 'Créditos ext.' || col === 'Costo MTD' ? 'text-right' : undefined}>
                         {col}
-                      </th>
+                      </TableHead>
                     ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/50">
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {syncLogs.map((log) => (
-                    <tr key={log.id} className="transition-colors hover:bg-surface-muted">
-                      <td className="px-3 py-2 text-muted-foreground whitespace-nowrap tabular-nums">
+                    <TableRow key={log.id}>
+                      <TableCell className="text-muted-foreground tabular-nums">
                         {formatDate(log.syncedAt)}
-                      </td>
-                      <td className="px-3 py-2">
+                      </TableCell>
+                      <TableCell>
                         <Badge variant={log.syncStatus === 'success' ? 'positive' : 'negative'}>
                           {log.syncStatus ?? '—'}
                         </Badge>
-                      </td>
-                      <td className="px-3 py-2 text-muted-foreground">{log.source ?? '—'}</td>
-                      <td className="px-3 py-2 text-muted-foreground tabular-nums">{log.httpStatus ?? '—'}</td>
-                      <td className="px-3 py-2 text-foreground whitespace-nowrap tabular-nums">
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{log.source ?? '—'}</TableCell>
+                      <TableCell className="text-right text-muted-foreground tabular-nums">{log.httpStatus ?? '—'}</TableCell>
+                      <TableCell className="text-right text-foreground tabular-nums">
                         {log.creditsRemainingExternal != null
                           ? `${log.creditsRemainingExternal.toLocaleString()} cr`
                           : '—'}
-                      </td>
-                      <td className="px-3 py-2 text-foreground whitespace-nowrap tabular-nums">
+                      </TableCell>
+                      <TableCell className="text-right text-foreground tabular-nums">
                         {log.usdCostMtd != null ? `$${log.usdCostMtd.toFixed(2)}` : '—'}
-                      </td>
-                      <td className="px-3 py-2 text-destructive text-xs max-w-[150px] truncate" title={log.errorMessage ?? undefined}>
+                      </TableCell>
+                      <TableCell className="text-destructive text-xs max-w-[150px] truncate" title={log.errorMessage ?? undefined}>
                         {log.errorMessage ?? '—'}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           )}
         </div>

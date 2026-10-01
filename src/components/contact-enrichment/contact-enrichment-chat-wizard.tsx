@@ -273,7 +273,7 @@ export function ContactEnrichmentChatWizard({
                   <AgentChatOptionCard
                     key={`${candidate.source}-${candidate.sellupAccountId ?? candidate.hubspotCompanyId ?? candidate.domain ?? i}`}
                     icon={
-                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
                         <Building2 className="h-4 w-4 text-primary" aria-hidden />
                       </div>
                     }
@@ -290,7 +290,7 @@ export function ContactEnrichmentChatWizard({
                   onClick={handleContinueAsManual}
                   className="w-full"
                 >
-                  <PenLine className="mr-2 h-4 w-4" aria-hidden />
+                  <PenLine className="h-4 w-4" aria-hidden />
                   Continuar como empresa manual
                 </Button>
                 <SecondaryReset onReset={handleReset} label="Buscar otra empresa" />
@@ -304,12 +304,12 @@ export function ContactEnrichmentChatWizard({
             {state.step === 'confirming' && state.selectedCandidate && (
               <div className="space-y-3">
                 <CompanyChip candidate={state.selectedCandidate} />
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button variant="outline" onClick={handleReset} className="flex-1">
                     Cambiar empresa
                   </Button>
                   <Button onClick={handleConfirm} className="flex-1">
-                    <Check className="mr-2 h-4 w-4" aria-hidden />
+                    <Check className="h-4 w-4" aria-hidden />
                     Confirmar empresa
                   </Button>
                 </div>
@@ -342,7 +342,7 @@ export function ContactEnrichmentChatWizard({
                   <>
                     <AutomaticEnrichmentInfoCard />
                     <Button onClick={handleSearchContacts} className="w-full">
-                      <Sparkles className="mr-2 h-4 w-4" aria-hidden />
+                      <Sparkles className="h-4 w-4" aria-hidden />
                       Buscar contactos con IA
                     </Button>
                   </>
@@ -352,7 +352,7 @@ export function ContactEnrichmentChatWizard({
             )}
 
             {state.step === 'error' && (
-              <Alert variant="destructive" className="p-5">
+              <Alert variant="destructive">
                 <AlertTitle>No se pudo continuar</AlertTitle>
                 <AlertDescription>
                   <p>{state.errorMessage ?? 'Error desconocido'}</p>
@@ -386,8 +386,8 @@ function CandidateMeta({ candidate }: { candidate: CompanyCandidate }) {
   return (
     <>
       {candidate.domain && (
-        <span className="flex items-center gap-1 text-xs text-muted-foreground">
-          <Globe className="h-3 w-3" aria-hidden />
+        <span className="flex min-w-0 items-center gap-1 break-all text-xs text-muted-foreground">
+          <Globe className="h-3 w-3 shrink-0" aria-hidden />
           {candidate.domain}
         </span>
       )}
@@ -398,7 +398,7 @@ function CandidateMeta({ candidate }: { candidate: CompanyCandidate }) {
         </span>
       )}
       {candidate.hubspotCompanyId && (
-        <span className="font-mono text-xs text-muted-foreground">
+        <span className="font-mono text-xs tabular-nums text-muted-foreground">
           HS: {candidate.hubspotCompanyId}
         </span>
       )}
@@ -485,7 +485,7 @@ function ExtraDataCard({
         </div>
       </div>
       <p className="text-xs text-muted-foreground">Puedes completar solo uno de los dos campos.</p>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button variant="ghost" size="sm" onClick={onReset} className="text-muted-foreground">
           Buscar otra empresa
         </Button>
@@ -494,7 +494,7 @@ function ExtraDataCard({
           onClick={() => onConfirm(domain.trim(), country.trim())}
           className="flex-1"
         >
-          <PenLine className="mr-2 h-4 w-4" aria-hidden />
+          <PenLine className="h-4 w-4" aria-hidden />
           Continuar con empresa manual
         </Button>
       </div>

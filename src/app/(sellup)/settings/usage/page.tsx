@@ -1,3 +1,4 @@
+import { formatInAppZone } from '@/lib/format-date';
 import { redirect } from 'next/navigation';
 import { Bot, Plug, Info, FlaskConical, DollarSign, Zap, CheckCircle2 } from "@/icons";
 import { PageHeader } from '@/components/shared/page-header';
@@ -20,6 +21,7 @@ import {
   MOCK_ACTIVITY,
 } from '@/modules/usage-tracking/mock-data';
 import type { MockAgentStat, MockProviderStat, MockActivityItem } from '@/modules/usage-tracking/mock-data';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 // ============================================================
 // Helpers
@@ -31,7 +33,7 @@ function formatRelativeTime(isoDate: string): string {
   if (diff < 3600) return `Hace ${Math.floor(diff / 60)} min`;
   if (diff < 86400) return `Hace ${Math.floor(diff / 3600)} h`;
   if (diff < 604800) return `Hace ${Math.floor(diff / 86400)} días`;
-  return new Date(isoDate).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+  return formatInAppZone(isoDate, { day: 'numeric', month: 'short' }, 'es-ES');
 }
 
 function formatCost(usd: number, decimals = 4): string {
@@ -109,7 +111,7 @@ const STATUS_TIMELINE_TONE: Record<BadgeTone, TimelineTone> = {
 // ============================================================
 
 function headCell(isLeft: boolean): string {
-  return `py-2.5 pr-4 text-xs font-semibold text-muted-foreground whitespace-nowrap ${isLeft ? 'text-left' : 'text-right'}`;
+  return isLeft ? 'text-left' : 'text-right';
 }
 
 interface UsageTableProps {
@@ -136,16 +138,16 @@ function UsageTable({ title, description, count, columns, leftAligned, emptyLabe
       empty={count === 0}
       emptyState={<EmptyState variant="plain" title={emptyLabel} />}
     >
-      <table className="w-full text-xs tabular-nums">
-        <thead>
-          <tr className="border-b border-border/60 bg-surface-subtle">
+      <Table className="text-xs tabular-nums">
+        <TableHeader>
+          <TableRow>
             {columns.map((h, i) => (
-              <th key={h} scope="col" className={headCell(i < leftAligned)}>{h}</th>
+              <TableHead key={h} scope="col" className={headCell(i < leftAligned)}>{h}</TableHead>
             ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border/50">{children}</tbody>
-      </table>
+          </TableRow>
+        </TableHeader>
+        <TableBody>{children}</TableBody>
+      </Table>
     </TableShell>
   );
 }
@@ -165,14 +167,14 @@ function AgentRunsTable({ runs }: { runs: AgentRun[] }) {
       emptyLabel="Sin ejecuciones de agentes todavía."
     >
       {runs.map((run) => (
-        <tr key={run.id} className="transition-colors hover:bg-surface-muted">
-          <td className="py-2.5 pr-4 font-medium text-foreground">{run.agent_name ?? run.agent_key}</td>
-          <td className="py-2.5 pr-4"><StatusBadge status={run.status} /></td>
-          <td className="py-2.5 pr-4 text-right text-muted-foreground">{run.results_generated}</td>
-          <td className="py-2.5 pr-4 text-right text-muted-foreground">{run.results_approved}</td>
-          <td className="py-2.5 pr-4 text-right font-mono text-muted-foreground">{formatCost(Number(run.estimated_cost_usd), 2)}</td>
-          <td className="py-2.5 text-right text-muted-foreground">{run.created_at ? formatRelativeTime(run.created_at) : '—'}</td>
-        </tr>
+        <TableRow key={run.id}>
+          <TableCell className="font-medium text-foreground">{run.agent_name ?? run.agent_key}</TableCell>
+          <TableCell><StatusBadge status={run.status} /></TableCell>
+          <TableCell className="text-right text-muted-foreground">{run.results_generated}</TableCell>
+          <TableCell className="text-right text-muted-foreground">{run.results_approved}</TableCell>
+          <TableCell className="text-right font-mono text-muted-foreground">{formatCost(Number(run.estimated_cost_usd), 2)}</TableCell>
+          <TableCell className="text-right text-muted-foreground">{run.created_at ? formatRelativeTime(run.created_at) : '—'}</TableCell>
+        </TableRow>
       ))}
     </UsageTable>
   );
@@ -189,12 +191,12 @@ function ProviderLogsTable({ logs }: { logs: ProviderUsageLog[] }) {
       emptyLabel="Sin llamadas a proveedores todavía."
     >
       {logs.map((log) => (
-        <tr key={log.id} className="transition-colors hover:bg-surface-muted">
-          <td className="py-2.5 pr-4 font-medium capitalize text-foreground">{log.provider_key}</td>
-          <td className="py-2.5 pr-4 text-muted-foreground">{log.operation_key.replace(/_/g, ' ')}</td>
-          <td className="py-2.5 pr-4"><StatusBadge status={log.status} /></td>
-          <td className="py-2.5 pr-4 text-right text-muted-foreground">{log.results_returned}</td>
-          <td className="py-2.5 pr-4 text-right font-mono text-muted-foreground">
+        <TableRow key={log.id}>
+          <TableCell className="font-medium capitalize text-foreground">{log.provider_key}</TableCell>
+          <TableCell className="text-muted-foreground">{log.operation_key.replace(/_/g, ' ')}</TableCell>
+          <TableCell><StatusBadge status={log.status} /></TableCell>
+          <TableCell className="text-right text-muted-foreground">{log.results_returned}</TableCell>
+          <TableCell className="text-right font-mono text-muted-foreground">
             <CostValue
               display={resolveCostDisplay({
                 valueUsd: log.estimated_cost_usd ?? 0,
@@ -202,9 +204,9 @@ function ProviderLogsTable({ logs }: { logs: ProviderUsageLog[] }) {
                 formatUsd: (v) => formatCost(v, 2),
               })}
             />
-          </td>
-          <td className="py-2.5 text-right text-muted-foreground">{formatRelativeTime(log.created_at)}</td>
-        </tr>
+          </TableCell>
+          <TableCell className="text-right text-muted-foreground">{formatRelativeTime(log.created_at)}</TableCell>
+        </TableRow>
       ))}
     </UsageTable>
   );
@@ -221,13 +223,13 @@ function QualityEventsTable({ events }: { events: ResultQualityEvent[] }) {
       emptyLabel="Sin eventos de calidad todavía."
     >
       {events.map((ev) => (
-        <tr key={ev.id} className="transition-colors hover:bg-surface-muted">
-          <td className="py-2.5 pr-4 text-muted-foreground capitalize">{ev.result_type}</td>
-          <td className="py-2.5 pr-4"><EventTypeBadge type={ev.event_type} /></td>
-          <td className="py-2.5 pr-4 text-muted-foreground">{ev.source_key ?? '—'}</td>
-          <td className="py-2.5 pr-4 max-w-52 truncate text-muted-foreground" title={ev.notes ?? undefined}>{ev.notes ?? '—'}</td>
-          <td className="py-2.5 text-right text-muted-foreground">{formatRelativeTime(ev.created_at)}</td>
-        </tr>
+        <TableRow key={ev.id}>
+          <TableCell className="text-muted-foreground capitalize">{ev.result_type}</TableCell>
+          <TableCell><EventTypeBadge type={ev.event_type} /></TableCell>
+          <TableCell className="text-muted-foreground">{ev.source_key ?? '—'}</TableCell>
+          <TableCell className="max-w-52 truncate text-muted-foreground" title={ev.notes ?? undefined}>{ev.notes ?? '—'}</TableCell>
+          <TableCell className="text-right text-muted-foreground">{formatRelativeTime(ev.created_at)}</TableCell>
+        </TableRow>
       ))}
     </UsageTable>
   );
@@ -248,16 +250,16 @@ function MockAgentsTable({ agents }: { agents: MockAgentStat[] }) {
       emptyLabel="Sin ejecuciones de agentes todavía."
     >
       {agents.map((a) => (
-        <tr key={a.key} className="transition-colors hover:bg-surface-muted">
-          <td className="py-2.5 pr-4 font-medium text-foreground">{a.name}</td>
-          <td className="py-2.5 pr-4"><StatusBadge status={a.status} /></td>
-          <td className="py-2.5 pr-4 text-right text-muted-foreground">{a.executions}</td>
-          <td className="py-2.5 pr-4 text-right text-muted-foreground">{a.resultsGenerated}</td>
-          <td className="py-2.5 pr-4 text-right font-medium text-foreground">{a.resultsApproved}</td>
-          <td className="py-2.5 pr-4 text-right text-muted-foreground">{a.effectivenessRate.toFixed(1)}%</td>
-          <td className="py-2.5 pr-4 text-right font-mono text-muted-foreground">{formatCost(a.estimatedCostUsd, 2)}</td>
-          <td className="py-2.5 text-right font-mono text-muted-foreground">{formatCost(a.avgCostPerApproved)}</td>
-        </tr>
+        <TableRow key={a.key}>
+          <TableCell className="font-medium text-foreground">{a.name}</TableCell>
+          <TableCell><StatusBadge status={a.status} /></TableCell>
+          <TableCell className="text-right text-muted-foreground">{a.executions}</TableCell>
+          <TableCell className="text-right text-muted-foreground">{a.resultsGenerated}</TableCell>
+          <TableCell className="text-right font-medium text-foreground">{a.resultsApproved}</TableCell>
+          <TableCell className="text-right text-muted-foreground">{a.effectivenessRate.toFixed(1)}%</TableCell>
+          <TableCell className="text-right font-mono text-muted-foreground">{formatCost(a.estimatedCostUsd, 2)}</TableCell>
+          <TableCell className="text-right font-mono text-muted-foreground">{formatCost(a.avgCostPerApproved)}</TableCell>
+        </TableRow>
       ))}
     </UsageTable>
   );
@@ -274,20 +276,20 @@ function MockProvidersTable({ providers }: { providers: MockProviderStat[] }) {
       emptyLabel="Sin llamadas a proveedores todavía."
     >
       {providers.map((p) => (
-        <tr key={p.key} className="transition-colors hover:bg-surface-muted">
-          <td className="py-2.5 pr-4 font-medium text-foreground">{p.name}</td>
-          <td className="py-2.5 pr-4 text-muted-foreground">{p.operation}</td>
-          <td className="py-2.5 pr-4 text-right text-muted-foreground">{p.calls}</td>
-          <td className="py-2.5 pr-4 text-right text-muted-foreground">{p.resultsReturned}</td>
-          <td className="py-2.5 pr-4 text-right font-medium text-foreground">{p.usefulResults}</td>
-          <td className="py-2.5 pr-4 text-right text-muted-foreground">{p.effectivenessRate.toFixed(1)}%</td>
-          <td className="py-2.5 pr-4 text-right font-mono text-muted-foreground">
+        <TableRow key={p.key}>
+          <TableCell className="font-medium text-foreground">{p.name}</TableCell>
+          <TableCell className="text-muted-foreground">{p.operation}</TableCell>
+          <TableCell className="text-right text-muted-foreground">{p.calls}</TableCell>
+          <TableCell className="text-right text-muted-foreground">{p.resultsReturned}</TableCell>
+          <TableCell className="text-right font-medium text-foreground">{p.usefulResults}</TableCell>
+          <TableCell className="text-right text-muted-foreground">{p.effectivenessRate.toFixed(1)}%</TableCell>
+          <TableCell className="text-right font-mono text-muted-foreground">
             {p.estimatedCostUsd === 0 ? <span className="text-text-muted">—</span> : formatCost(p.estimatedCostUsd, 2)}
-          </td>
-          <td className="py-2.5 text-right font-mono text-muted-foreground">
+          </TableCell>
+          <TableCell className="text-right font-mono text-muted-foreground">
             {p.avgCostPerUsefulResult === 0 ? <span className="text-text-muted">—</span> : formatCost(p.avgCostPerUsefulResult)}
-          </td>
-        </tr>
+          </TableCell>
+        </TableRow>
       ))}
     </UsageTable>
   );

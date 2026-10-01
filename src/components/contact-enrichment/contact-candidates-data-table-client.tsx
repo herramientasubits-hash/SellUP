@@ -1,5 +1,6 @@
 'use client';
 
+import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
 import { useReportSelectionCount } from "@/components/action-rail";
 import { type ColumnDef } from '@tanstack/react-table';
@@ -56,11 +57,11 @@ const RELEVANCE_DOTS: Record<ContactRelevanceStatus, string> = {
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr);
-  return d.toLocaleDateString('es-CO', {
+  return formatInAppZone(d, {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  });
+  }, 'es-CO');
 }
 
 /** Convierte un score 0–1 en porcentaje legible; null si no hay dato. */
@@ -99,7 +100,7 @@ function NameCell({ candidate }: { candidate: PendingContactCandidate }) {
             target="_blank"
             rel="noopener noreferrer"
             aria-label="Perfil de LinkedIn"
-            className="shrink-0 text-primary transition-colors hover:text-primary"
+            className="shrink-0 rounded-sm text-primary transition-colors hover:text-primary/80 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
             onClick={(e) => e.stopPropagation()}
           >
             <Link2 className="h-3 w-3" />
@@ -275,7 +276,7 @@ export function ContactCandidatesDataTableClient({
         accessorKey: 'title',
         header: ({ column }) => <DataTableColumnHeader column={column} title="Cargo" />,
         cell: ({ row }) => (
-          <span className="text-xs text-muted-foreground line-clamp-2 max-w-[200px]">
+          <span className="line-clamp-2 max-w-[200px] text-xs text-muted-foreground" title={row.original.title ?? undefined}>
             {row.original.title ?? 'Sin cargo'}
           </span>
         ),
@@ -298,7 +299,7 @@ export function ContactCandidatesDataTableClient({
               {c.company_domain && (
                 <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                   <Globe className="h-2.5 w-2.5 shrink-0" />
-                  <span className="truncate max-w-[160px]">{c.company_domain}</span>
+                  <span className="max-w-[160px] truncate" title={c.company_domain}>{c.company_domain}</span>
                 </span>
               )}
             </div>
@@ -313,7 +314,7 @@ export function ContactCandidatesDataTableClient({
         accessorKey: 'source',
         header: ({ column }) => <DataTableColumnHeader column={column} title="Fuente" />,
         cell: ({ row }) => (
-          <Badge className="border-0 bg-muted text-muted-foreground py-0.5">
+          <Badge variant="neutral">
             {SOURCE_LABELS[row.original.source] ?? row.original.source}
           </Badge>
         ),

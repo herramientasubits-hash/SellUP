@@ -1,5 +1,6 @@
 'use client';
 
+import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { Building2, MoreHorizontal, Eye, Pencil, Tag, Archive, Loader2 } from "@/icons";
@@ -37,6 +38,7 @@ import {
 } from '@/modules/accounts/types';
 import { AccountEditDrawer } from './account-edit-drawer';
 import { AccountDetailSheet } from './account-detail-sheet';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 type BadgeVariant = NonNullable<ComponentProps<typeof Badge>['variant']>;
 
@@ -65,11 +67,11 @@ const ACTIVE_STATUSES: { value: PipelineStatus; label: string }[] = [
 ];
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('es-CO', {
+  return formatInAppZone(iso, {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  });
+  }, 'es-CO');
 }
 
 function getFlagEmoji(countryCode: string): string {
@@ -138,30 +140,30 @@ export function AccountsTable({ accounts, users }: AccountsTableProps) {
   return (
     <>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px] text-sm">
-          <thead>
-            <tr className="border-b border-border/50">
+        <Table className="min-w-[760px]">
+          <TableHeader>
+            <TableRow>
               {['Empresa', 'País', 'Industria', 'Dominio', 'Estado', 'Owner', 'Fuente', 'Creación', ''].map(
                 (col) => (
-                  <th
+                  <TableHead
                     key={col}
-                    className="px-5 py-2.5 text-left text-xs font-semibold text-muted-foreground last:w-12 last:px-3"
+                    className="last:w-12"
                   >
                     {col}
-                  </th>
+                  </TableHead>
                 ),
               )}
-            </tr>
-          </thead>
-          <tbody>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {accounts.map((account, i) => (
-              <tr
+              <TableRow
                 key={account.id}
-                className="group border-b border-border/50 transition-colors hover:bg-surface-muted last:border-0 animate-su-slide-in"
+                className="group animate-su-slide-in"
                 style={{ animationDelay: `${i * 30}ms` }}
               >
                 {/* Nombre — abre el drawer */}
-                <td className="px-5 py-3.5">
+                <TableCell className="whitespace-normal">
                   <button
                     type="button"
                     onClick={() => openSheet(account.id)}
@@ -169,9 +171,9 @@ export function AccountsTable({ accounts, users }: AccountsTableProps) {
                   >
                     {account.name}
                   </button>
-                </td>
+                </TableCell>
 
-                <td className="px-5 py-3.5 text-muted-foreground">
+                <TableCell className="text-muted-foreground">
                   {account.country_code ? (
                     <span className="flex items-center gap-1.5">
                       <span className="text-base leading-none">{getFlagEmoji(account.country_code)}</span>
@@ -180,41 +182,41 @@ export function AccountsTable({ accounts, users }: AccountsTableProps) {
                   ) : (
                     <span className="text-text-muted">—</span>
                   )}
-                </td>
+                </TableCell>
 
-                <td className="px-5 py-3.5 text-xs text-muted-foreground">
+                <TableCell className="text-xs whitespace-normal text-muted-foreground">
                   {account.industry ?? <span className="text-text-muted">—</span>}
-                </td>
+                </TableCell>
 
-                <td className="px-5 py-3.5 text-xs text-muted-foreground">
+                <TableCell className="text-xs text-muted-foreground">
                   {account.domain ? (
                     <span className="font-mono">{account.domain}</span>
                   ) : (
                     <span className="text-text-muted">—</span>
                   )}
-                </td>
+                </TableCell>
 
-                <td className="px-5 py-3.5">
+                <TableCell>
                   <Badge variant={STATUS_VARIANT[account.pipeline_status]}>
                     {PIPELINE_STATUS_LABELS[account.pipeline_status]}
                   </Badge>
-                </td>
+                </TableCell>
 
-                <td className="px-5 py-3.5 text-xs text-muted-foreground">
+                <TableCell className="text-xs text-muted-foreground">
                   {account.owner_name ?? <span className="text-text-muted">—</span>}
-                </td>
+                </TableCell>
 
-                <td className="px-5 py-3.5">
+                <TableCell>
                   <Badge variant={SOURCE_VARIANT[account.source as AccountSource]}>
                     {SOURCE_LABELS[account.source as AccountSource]}
                   </Badge>
-                </td>
+                </TableCell>
 
-                <td className="px-5 py-3.5 text-xs text-muted-foreground">
+                <TableCell className="text-xs text-muted-foreground">
                   {formatDate(account.created_at)}
-                </td>
+                </TableCell>
 
-                <td className="px-3 py-3.5">
+                <TableCell>
                   <DropdownMenu>
                     <DropdownMenuTrigger
                       render={
@@ -266,11 +268,11 @@ export function AccountsTable({ accounts, users }: AccountsTableProps) {
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
 
       {/* Edit drawer */}

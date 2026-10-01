@@ -41,7 +41,7 @@ mano, busca aquí.
 | Tipografía | `@/components/typography` | `Heading`, `Text` |
 | Página | `@/components/shared/*` | `PageHeader` (con `breadcrumbs`), `DataTablePage`, `SurfaceCard`, `SectionHeader` |
 | Navegación | `@/components/navigation/*` | `Breadcrumbs`, `Stepper`, `TabsNav` (pestañas de página con icono y contador) |
-| Datos | `@/components/data-display` | `StatusBadge`, `TableShell`, `Timeline`, `ListItem`/`ListItemGroup`, `Kanban` |
+| Datos | `@/components/data-display` | `StatusBadge`, `TableShell`, `Timeline` (`density="compact"` en `TimelineItem`), `ListItem`/`ListItemGroup`, `Kanban` |
 | Tablas operables | `@/components/data-table` | `DataTable` (título + total, búsqueda, ajustes, selección, barra masiva) |
 | Métricas y avisos | `@/components/shared/*` | `MetricCard` (acento, chip, píldora de variación, `hint`, `chart`), `DeltaPill`, `AttentionStrip` + `AttentionAction` |
 | Filtros | `@/components/filters/*` | `FilterChips` (chips con contador), `FilterBar` |
@@ -49,7 +49,10 @@ mano, busca aquí.
 | Acciones | `@/components/action-rail` | `DataListActionRail`, `DrawerActionRail`, `RailButton`, `ActionFab` |
 | Ventanas | `@/components/shared/*` | `DrawerShell`, `DrawerSection`, `ModalShell`, `ConfirmDialog` |
 | Formularios | `@/components/forms/*` | `Field`, `FieldLabel`, `FieldDescription`, `FieldError`, `FormSection`, `SearchableSelect`, `MultiSelect` |
-| Estados | `@/components/ui/*`, `@/components/feedback/*` | `EmptyState` (`variant="plain"`), `Skeleton`, `Spinner`, `Alert` |
+| Estados | `@/components/ui/*`, `@/components/feedback/*` | `EmptyState` (`variant="plain"`, título opcional), `Skeleton`, `Spinner` (`decorative` para bloques que ya anuncian su estado), `Alert` |
+| Tablas de solo lectura | `@/components/ui/table` + `TableShell` | `Table`, `TableHeader`, `TableBody`, `TableRow` (`data-state="selected"`), `TableHead`, `TableCell` — nunca `<table>` a mano |
+| Pantallas de acceso | `@/components/shared/access-status-screen` | `AccessStatusScreen` (pendiente, rechazado, suspendido, archivado) |
+| Fechas | `@/lib/format-date` | `formatInAppZone`, `formatAppDate`, `formatAppDateTime`, `formatAppTime`, `withAppTimeZone` — siempre con la zona fija de la aplicación; nunca `toLocaleDateString` suelto |
 
 ## 2. Escala de radios (monótona)
 
@@ -125,6 +128,8 @@ Una card anidada siempre redondea menos que la que la contiene. No hay radios ar
 
 **Lista / tabla** — `DataTablePage` + `DataTable` (nunca `<Table>` directo). Estados: cargando (skeleton de la tabla), vacío (`EmptyState` con acción), error (`Alert variant="destructive"`).
 
+**Tabla de solo lectura** (historiales, desgloses, comparaciones dentro de un drawer) — `Table`, `TableHeader`, `TableBody`, `TableRow`, `TableHead`, `TableCell` de `@/components/ui/table`, nunca `<table>`/`<tr>`/`<td>` a mano: la pieza ya pone el fondo de cabecera, los bordes, la altura, el hover y la tipografía, así que en `className` solo queda lo propio (ancho, `text-right tabular-nums` en números y montos, `whitespace-normal` en texto largo, `colSpan`, `sticky`). Fila seleccionada: `data-state="selected"`. Con título propio va dentro de `TableShell` (`@/components/data-display`), que trae título, descripción, acciones, vacío y pie; si vive dentro de una card o un drawer que ya tiene título, basta un contenedor `overflow-x-auto rounded-xl border border-border/60`. Fila vacía: `empty` de `TableShell` o `EmptyState variant="plain"` en una celda con `colSpan`.
+
 **Drawer** — `DrawerShell` con `title`, `description`, `icon`. El cuerpo se arma con `DrawerSection` (icono + título + hint + contenido) en `space-y-4`; nunca cajas con borde dentro de cajas con borde. Pie: secundaria (`outline`) a la izquierda, primaria a la derecha. Con varias áreas: `Tabs` (§ 11 Foundation).
 
 **Modal** — `ModalShell` para formularios cortos, `ConfirmDialog` para confirmar. Un modal no hace scroll largo: si el contenido crece, es un drawer.
@@ -168,8 +173,24 @@ Revisar en claro y oscuro, y a 375px.
 primitivo headless fuera de `src/components/ui`; un icono importado de la librería en vez de `@/icons`; un color literal; paleta cruda de Tailwind; un tamaño de
 letra, un z-index, una sombra o un radio arbitrarios; un rótulo en MAYÚSCULAS con tracking; `font-black` /
 `font-extrabold`; clases `*-su-brand`; texto atenuado con opacidad; `text-white` a mano; o un
-`Button` / `Input` / `SelectTrigger` / `Badge` con radio, alto o tipografía sobrescritos por `className`.
+`Button` / `Input` / `SelectTrigger` / `Badge` con radio, alto o tipografía sobrescritos por `className`;
+o una tabla HTML escrita a mano en un `.tsx` (regla `tabla-a-mano`: `<table>`, `<thead>`, `<tbody>`,
+`<tfoot>`, `<tr>`, `<th>`, `<td>`; se usan las piezas de `@/components/ui/table`).
+
+También falla con la regla `fecha-sin-zona`: un `toLocaleDateString(` o `toLocaleTimeString(` en un
+`.tsx` / `.ts` de UI. Sin `timeZone`, la fecha se escribe en la zona de quien la pinta: el servidor (UTC)
+y el navegador (Bogotá) dan días distintos para el mismo instante cerca de la medianoche y React rechaza
+la hidratación (error #418). Toda fecha u hora que se pinta sale de `@/lib/format-date`
+(`formatInAppZone`, `formatAppDate`, `formatAppDateTime`, `formatAppTime`), que fija `America/Bogota`;
+donde se conserva un `toLocaleString` o un `Intl.DateTimeFormat`, las opciones pasan por `withAppTimeZone`.
 
 Las excepciones se declaran en el propio script (`ALLOW`), cada una con su motivo: el panel de marca del
 login, la identidad de IA (orbes y velos de carga), el logotipo de Google, los gráficos y dos archivos cuya
-cadena de clases está fijada por una prueba.
+cadena de clases está fijada por una prueba. Para `tabla-a-mano` se admiten solo `ui/table.tsx` (es la
+pieza), `ui/calendar.tsx` (rejilla de react-day-picker) y `src/components/data-table/` (la tabla operable de
+TanStack, cuya cabecera reordenable necesita su propio `<th>`).
+Para `fecha-sin-zona` se admiten `src/lib/format-date.ts` (es la pieza), `ui/calendar.tsx` y
+`src/components/date/` (el selector de fechas trabaja a propósito con el día local de quien elige),
+`src/app/api/` y los `actions.ts` de `src/modules/` (solo servidor: nombres de lote que se guardan, no
+texto que se hidrata), y `prospect-date-utils.ts` y `provider-contract-plan-card.tsx`, que ya pasan un
+`timeZone` explícito.

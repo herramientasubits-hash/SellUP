@@ -26,6 +26,7 @@ import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
 import { detectPromptInjection, normalizeCriteria } from '@/modules/industry-catalog/schema';
 import { executeProspectWizardGenerationAction } from '@/modules/prospect-batches/chat-wizard-execution';
 import { resolveWizardLushaCriteria } from '@/modules/prospect-batches/wizard-lusha-criteria';
+import { Progress } from '@/components/ui/progress';
 import { WizardMessageList } from './wizard-message-list';
 import { WizardActiveStep } from './wizard-active-step';
 import {
@@ -821,13 +822,11 @@ export function ProspectChatWizard({
         <div className="flex flex-col gap-1.5">
           {showProgress && progressLabel && (
             <div className="flex items-center gap-3" aria-hidden>
-              <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full rounded-full bg-primary transition-all duration-500"
-                  style={{ width: `${progress.percentage}%` }}
-                />
-              </div>
-              <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+              <Progress
+                value={Math.min(100, Math.max(0, progress.percentage))}
+                className="h-1.5 min-w-0 flex-1"
+              />
+              <span className="shrink-0 text-xs font-medium text-muted-foreground tabular-nums">
                 {progressLabel}
               </span>
             </div>
@@ -914,7 +913,7 @@ export function ProspectChatWizard({
       {/* Sticky composer — spans full width by negating the drawer's px-7 padding.
           Hidden at the final review step: actions move to the panel footer. */}
       {!hideComposer && (
-        <div className="sticky bottom-0 -mx-7 px-7 pt-3 pb-4 bg-background border-t border-border/50 mt-auto">
+        <div className="sticky bottom-0 -mx-7 mt-auto border-t border-border/50 bg-background px-7 pt-3 pb-4">
           <WizardChatComposer
             mode={composerMode}
             value={criteriaText}

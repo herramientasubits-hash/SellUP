@@ -1,5 +1,6 @@
 'use client';
 
+import { withAppTimeZone } from '@/lib/format-date';
 import { useState, useTransition } from 'react';
 import {
   Sparkles,
@@ -292,12 +293,12 @@ export function LushaProviderCard({ connection: initialConnection, description }
         {connection?.last_tested_at && (
           <p className="mb-4 text-xs tabular-nums text-muted-foreground">
             Última prueba:{' '}
-            {new Date(connection.last_tested_at).toLocaleString('es-ES', {
+            {new Date(connection.last_tested_at).toLocaleString('es-ES', withAppTimeZone({
               day: 'numeric',
               month: 'short',
               hour: '2-digit',
               minute: '2-digit',
-            })}
+            }))}
           </p>
         )}
 

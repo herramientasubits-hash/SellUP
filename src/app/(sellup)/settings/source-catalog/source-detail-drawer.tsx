@@ -51,6 +51,7 @@ import { SourceDryRunPanel } from './[sourceKey]/source-dry-run-panel';
 import { DenuePreviewBatchPanel } from './[sourceKey]/denue-preview-batch-panel';
 import { ChileResDryRunPanel } from './[sourceKey]/chile-res-dry-run-panel';
 import { HnContratacionesAbiertasCard } from '@/components/source-catalog/hn-contrataciones-abiertas-card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 export type { SocrataPreviewBatchListItem, SocrataPreviewBatchListViewModel } from '@/modules/source-catalog/socrata-batches-queries';
 
 interface SourceDetailDrawerProps {
@@ -415,42 +416,42 @@ export function SourceDetailDrawer({
 
 function SocrataBatchesTable({ batches }: { batches: SocrataPreviewBatchListItem[] }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border/50 text-left">
-            <th scope="col" className="whitespace-nowrap px-3 py-2.5 text-xs font-semibold text-muted-foreground">Nombre</th>
-            <th scope="col" className="whitespace-nowrap px-3 py-2.5 text-xs font-semibold text-muted-foreground">Estado</th>
-            <th scope="col" className="whitespace-nowrap px-3 py-2.5 text-xs font-semibold text-muted-foreground">Dataset</th>
-            <th scope="col" className="whitespace-nowrap px-3 py-2.5 text-xs font-semibold text-muted-foreground">Candidatos</th>
-            <th scope="col" className="whitespace-nowrap px-3 py-2.5 text-xs font-semibold text-muted-foreground">Flags</th>
-            <th scope="col" className="whitespace-nowrap px-3 py-2.5 text-xs font-semibold text-muted-foreground">Fecha</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border/50">
+    <div className="overflow-x-auto rounded-xl border border-border/60">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead scope="col">Nombre</TableHead>
+            <TableHead scope="col">Estado</TableHead>
+            <TableHead scope="col">Dataset</TableHead>
+            <TableHead scope="col" className="text-right">Candidatos</TableHead>
+            <TableHead scope="col">Flags</TableHead>
+            <TableHead scope="col">Fecha</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {batches.map((batch) => (
-            <tr key={batch.id} className="transition-colors hover:bg-surface-muted">
-              <td className="px-3 py-3">
+            <TableRow key={batch.id}>
+              <TableCell>
                 <span className="font-medium text-foreground">{batch.name}</span>
                 {batch.countryCode && (
                   <span className="ml-2 text-xs text-muted-foreground">{batch.countryCode}</span>
                 )}
-              </td>
-              <td className="px-3 py-3">
+              </TableCell>
+              <TableCell>
                 <Badge variant="outline" className={batchStatusBadgeClass(batch.status)}>
                   {BATCH_STATUS_LABELS[batch.status] ?? batch.status}
                 </Badge>
-              </td>
-              <td className="px-3 py-3">
+              </TableCell>
+              <TableCell>
                 <span className="font-mono text-xs text-muted-foreground">{formatDatasetLabel(batch.dataset)}</span>
-              </td>
-              <td className="px-3 py-3 tabular-nums text-muted-foreground">
+              </TableCell>
+              <TableCell className="text-right tabular-nums text-muted-foreground">
                 {batch.candidatesCount}
                 {batch.targetCount ? (
                   <span className="ml-1 text-xs text-muted-foreground">/ {batch.targetCount}</span>
                 ) : null}
-              </td>
-              <td className="px-3 py-3">
+              </TableCell>
+              <TableCell>
                 <div className="flex flex-wrap gap-1">
                   {batch.previewMode && (
                     <Badge variant="brand">Preview</Badge>
@@ -465,12 +466,12 @@ function SocrataBatchesTable({ batches }: { batches: SocrataPreviewBatchListItem
                     <span className="text-xs text-text-muted">—</span>
                   )}
                 </div>
-              </td>
-              <td className="px-3 py-3 text-xs text-muted-foreground">{formatShortDate(batch.createdAt)}</td>
-            </tr>
+              </TableCell>
+              <TableCell className="text-xs text-muted-foreground">{formatShortDate(batch.createdAt)}</TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
   );
 }

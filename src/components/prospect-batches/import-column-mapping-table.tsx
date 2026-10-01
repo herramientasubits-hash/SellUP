@@ -19,6 +19,7 @@ import type {
   ImportColumnMapping,
   ImportColumnTarget,
 } from '@/modules/prospect-batches/import-classification/import-classification-ui-types';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 // ── Labels for column targets ─────────────────────────────────────────────────
 
@@ -123,21 +124,15 @@ export function ImportColumnMappingTable({
 
       {/* Mapping table */}
       <div className="overflow-x-auto rounded-xl border border-border/60">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b border-border/50 bg-surface-subtle">
-              <th className="px-3 py-2 text-left font-semibold text-muted-foreground whitespace-nowrap">
-                Columna del archivo
-              </th>
-              <th className="px-3 py-2 text-left font-semibold text-muted-foreground whitespace-nowrap">
-                Asignada a
-              </th>
-              <th className="px-3 py-2 text-left font-semibold text-muted-foreground">
-                Valores de muestra
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border/50">
+        <Table className="text-xs">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Columna del archivo</TableHead>
+              <TableHead>Asignada a</TableHead>
+              <TableHead>Valores de muestra</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {columnMappings.map((mapping) => {
               const isKey = isKeyClassificationTarget(mapping.targetField);
               const isDuplicate =
@@ -145,16 +140,15 @@ export function ImportColumnMappingTable({
                 hasDuplicateTarget(columnMappings, mapping.targetField);
 
               return (
-                <tr
+                <TableRow
                   key={mapping.sourceColumn}
                   className={cn(
-                    'transition-colors',
-                    isKey ? 'bg-primary/10' : 'hover:bg-surface-muted',
+                    isKey && 'bg-primary/10',
                     isDuplicate && 'bg-destructive/10',
                   )}
                 >
                   {/* Column name */}
-                  <td className="px-3 py-2.5">
+                  <TableCell>
                     <div className="flex items-center gap-1.5">
                       {isKey && (
                         <Check className="h-3 w-3 text-primary shrink-0" />
@@ -171,10 +165,10 @@ export function ImportColumnMappingTable({
                         </Badge>
                       )}
                     </div>
-                  </td>
+                  </TableCell>
 
                   {/* Target select */}
-                  <td className="px-3 py-2.5">
+                  <TableCell>
                     <div className="flex items-center gap-1.5">
                       <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
                       {isKey || mapping.targetField === 'ignore' ? (
@@ -202,10 +196,10 @@ export function ImportColumnMappingTable({
                         </span>
                       )}
                     </div>
-                  </td>
+                  </TableCell>
 
                   {/* Sample values */}
-                  <td className="px-3 py-2.5">
+                  <TableCell>
                     {mapping.sampleValues.length > 0 ? (
                       <span className="block max-w-48 truncate text-xs text-muted-foreground" title={mapping.sampleValues.slice(0, 3).join(', ')}>
                         {mapping.sampleValues.slice(0, 3).join(', ')}
@@ -213,12 +207,12 @@ export function ImportColumnMappingTable({
                     ) : (
                       <span className="text-xs italic text-text-muted">—</span>
                     )}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               );
             })}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
 
       {/* Legacy note */}

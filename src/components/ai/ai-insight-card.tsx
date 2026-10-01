@@ -150,24 +150,24 @@ function AIInsightCard({
           </p>
         )}
         {(evidence || impact) && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+          <dl className="grid grid-cols-1 gap-3 border-t border-border/50 pt-3 sm:grid-cols-2">
             {evidence && (
-              <div className="space-y-1">
-                <span className="text-xs font-semibold text-muted-foreground">
+              <div className="min-w-0 space-y-1">
+                <dt className="text-xs font-semibold text-muted-foreground">
                   Evidencia
-                </span>
-                <p className="text-xs font-medium">{evidence}</p>
+                </dt>
+                <dd className="break-words text-xs font-medium text-foreground">{evidence}</dd>
               </div>
             )}
             {impact && (
-              <div className="space-y-1">
-                <span className="text-xs font-semibold text-muted-foreground">
+              <div className="min-w-0 space-y-1">
+                <dt className="text-xs font-semibold text-muted-foreground">
                   Impacto
-                </span>
-                <p className="text-xs font-medium">{impact}</p>
+                </dt>
+                <dd className="break-words text-xs font-medium text-foreground">{impact}</dd>
               </div>
             )}
-          </div>
+          </dl>
         )}
       </CardContent>
       {actionLabel && (

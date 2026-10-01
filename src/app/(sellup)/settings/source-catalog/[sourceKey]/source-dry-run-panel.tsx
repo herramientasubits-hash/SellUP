@@ -1,5 +1,6 @@
 'use client';
 
+import { withAppTimeZone } from '@/lib/format-date';
 import { useState, useTransition } from 'react';
 import {
   FlaskConical,
@@ -129,10 +130,10 @@ function DryRunReportView({ report }: { report: SafeDryRunReport }) {
       {/* Timestamp + connection source */}
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-border/50 pt-3 text-xs text-muted-foreground">
         <span>
-          Ejecutado: {new Intl.DateTimeFormat('es-CO', {
+          Ejecutado: {new Intl.DateTimeFormat('es-CO', withAppTimeZone({
             day: '2-digit', month: 'short', year: 'numeric',
             hour: '2-digit', minute: '2-digit',
-          }).format(new Date(report.executedAt))}
+          })).format(new Date(report.executedAt))}
         </span>
         <span className="break-all font-mono">{report.sourceKey} · {report.countryCode}</span>
       </div>

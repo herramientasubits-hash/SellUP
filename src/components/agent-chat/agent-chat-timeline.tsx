@@ -36,7 +36,7 @@ export function AgentChatTimeline({
       aria-live="polite"
       aria-atomic="false"
       aria-relevant="additions"
-      className="space-y-3"
+      className="flex flex-col gap-4"
     >
       {visibleMessages.map((message) => {
         if (message.role === 'assistant') {
@@ -57,7 +57,7 @@ export function AgentChatTimeline({
       {isTyping && (
         <div className="flex items-start gap-2.5 animate-su-fade-in">
           <AgentChatOrb size="sm" className="mt-0.5" />
-          <div className="flex items-center gap-1.5 rounded-xl rounded-tl-sm bg-surface-subtle px-4 py-3">
+          <div className="flex items-center gap-2 rounded-2xl rounded-tl-md bg-surface-subtle px-4 py-2.5">
             <Loader2 className="h-3 w-3 animate-spin text-primary" aria-hidden />
             <span className="text-sm text-muted-foreground animate-pulse">
               {typingLabel}
@@ -75,7 +75,7 @@ function AssistantMessage({ message }: { message: AgentChatMessage }) {
   return (
     <div className="flex items-start gap-2.5 animate-su-fade-in">
       <AgentChatOrb size="sm" className="mt-0.5" />
-      <div className="max-w-[85%] min-w-0 whitespace-pre-line break-words rounded-xl rounded-tl-sm bg-surface-muted px-4 py-2.5 text-sm text-foreground">
+      <div className="max-w-[85%] min-w-0 whitespace-pre-line break-words rounded-2xl rounded-tl-md bg-surface-muted px-4 py-2.5 text-sm leading-relaxed text-foreground">
         {message.content}
       </div>
     </div>
@@ -84,8 +84,8 @@ function AssistantMessage({ message }: { message: AgentChatMessage }) {
 
 function UserMessage({ message }: { message: AgentChatMessage }) {
   return (
-    <div className="flex items-end justify-end animate-su-fade-in">
-      <div className="max-w-[80%] min-w-0 whitespace-pre-line break-words rounded-xl rounded-tr-sm bg-primary/10 px-4 py-2.5 text-sm text-foreground">
+    <div className="flex items-end justify-end pl-8 animate-su-fade-in">
+      <div className="max-w-[80%] min-w-0 whitespace-pre-line break-words rounded-2xl rounded-br-md bg-primary/10 px-4 py-2.5 text-sm leading-relaxed text-foreground">
         {message.content}
       </div>
     </div>
@@ -94,7 +94,7 @@ function UserMessage({ message }: { message: AgentChatMessage }) {
 
 function SystemMessage({ message }: { message: AgentChatMessage }) {
   return (
-    <div className="rounded-lg bg-surface-subtle px-3 py-2 text-xs text-muted-foreground">
+    <div className="break-words rounded-lg bg-surface-subtle px-3 py-2 text-xs leading-relaxed text-muted-foreground">
       {message.content}
     </div>
   );
@@ -104,10 +104,10 @@ function WarningMessage({ message }: { message: AgentChatMessage }) {
   return (
     <div
       role="status"
-      className="flex items-start gap-2 rounded-lg border border-warning/25 bg-warning/15 px-3 py-2.5 text-xs text-warning"
+      className="flex items-start gap-2 rounded-xl border border-warning/25 bg-warning/15 px-3 py-2.5 text-xs leading-relaxed text-warning"
     >
       <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-      <span>{message.content}</span>
+      <span className="min-w-0 break-words">{message.content}</span>
     </div>
   );
 }
@@ -116,10 +116,10 @@ function ErrorMessage({ message }: { message: AgentChatMessage }) {
   return (
     <div
       role="alert"
-      className="flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2.5 text-xs text-destructive"
+      className="flex items-start gap-2 rounded-xl border border-destructive/20 bg-destructive/10 px-3 py-2.5 text-xs leading-relaxed text-destructive"
     >
       <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-      <span>{message.content}</span>
+      <span className="min-w-0 break-words">{message.content}</span>
     </div>
   );
 }

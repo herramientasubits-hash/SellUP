@@ -12,6 +12,7 @@ import type {
   SourceConnectionTestHistoryItem,
 } from '@/modules/source-catalog/history-queries';
 import type { SourceConnectionTestStatus } from '@/server/source-catalog/connection-test/types';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -139,9 +140,9 @@ function LatestTestBlock({ item }: { item: SourceConnectionTestHistoryItem }) {
 
 function HistoryTable({ items }: { items: SourceConnectionTestHistoryItem[] }) {
   return (
-    <table className="w-full min-w-160 text-sm">
-        <thead>
-          <tr className="border-b border-border/50 bg-surface-subtle">
+    <Table className="min-w-160">
+        <TableHeader>
+          <TableRow>
             {[
               'Fecha',
               'Resultado',
@@ -152,47 +153,46 @@ function HistoryTable({ items }: { items: SourceConnectionTestHistoryItem[] }) {
               'Probado por',
               'Recomendación',
             ].map((col) => (
-              <th
+              <TableHead
                 key={col}
                 scope="col"
-                className="py-2.5 pr-4 text-left text-xs font-semibold text-muted-foreground"
               >
                 {col}
-              </th>
+              </TableHead>
             ))}
-          </tr>
-        </thead>
-        <tbody>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {items.map((item) => (
-            <tr key={item.id} className="border-b border-border/50 transition-colors last:border-0 hover:bg-surface-muted">
-              <td className="py-2.5 pr-4 text-xs text-muted-foreground whitespace-nowrap">
+            <TableRow key={item.id}>
+              <TableCell className="text-xs text-muted-foreground">
                 {formatDateTime(item.checkedAt)}
-              </td>
-              <td className="py-2.5 pr-4">
+              </TableCell>
+              <TableCell>
                 <StatusBadge status={item.status} />
-              </td>
-              <td className="py-2.5 pr-4 text-xs text-muted-foreground whitespace-nowrap">
+              </TableCell>
+              <TableCell className="text-xs text-muted-foreground">
                 {CONNECTION_TEST_STRATEGY_LABELS[item.strategy]}
-              </td>
-              <td className="py-2.5 pr-4 font-mono text-xs tabular-nums text-foreground">
+              </TableCell>
+              <TableCell className="font-mono text-xs tabular-nums text-foreground">
                 {dash(item.httpStatus)}
-              </td>
-              <td className="whitespace-nowrap py-2.5 pr-4 text-xs tabular-nums text-foreground">
+              </TableCell>
+              <TableCell className="text-xs tabular-nums text-foreground">
                 {item.responseTimeMs !== null ? `${item.responseTimeMs} ms` : '—'}
-              </td>
-              <td className="py-2.5 pr-4 text-xs font-mono text-muted-foreground">
+              </TableCell>
+              <TableCell className="text-xs font-mono text-muted-foreground">
                 {item.errorCode === 'OK' ? '—' : item.errorCode}
-              </td>
-              <td className="py-2.5 pr-4 text-xs text-muted-foreground whitespace-nowrap">
+              </TableCell>
+              <TableCell className="text-xs text-muted-foreground">
                 {dash(item.testedByEmailSnapshot)}
-              </td>
-              <td className="py-2.5 text-xs text-muted-foreground" title={item.recommendation ?? undefined}>
+              </TableCell>
+              <TableCell className="text-xs text-muted-foreground" title={item.recommendation ?? undefined}>
                 {truncate(item.recommendation)}
-              </td>
-            </tr>
+              </TableCell>
+            </TableRow>
           ))}
-        </tbody>
-    </table>
+        </TableBody>
+    </Table>
   );
 }
 

@@ -73,7 +73,7 @@ export function WizardApolloTwoRoundOutcome(props: OutcomeProps) {
 
   return (
     <div
-      className="space-y-1 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3"
+      className="space-y-1 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3 leading-relaxed"
       data-testid="wizard-two-round-outcome"
     >
       {outcome.roundsLine && (
@@ -83,7 +83,7 @@ export function WizardApolloTwoRoundOutcome(props: OutcomeProps) {
         <p className="text-xs text-muted-foreground">{outcome.targetLine}</p>
       )}
       {outcome.partialLine && (
-        <p className="text-xs text-foreground">{outcome.partialLine}</p>
+        <p className="text-xs font-medium text-foreground">{outcome.partialLine}</p>
       )}
       {outcome.filtersLine && (
         <p className="text-xs text-muted-foreground">{outcome.filtersLine}</p>

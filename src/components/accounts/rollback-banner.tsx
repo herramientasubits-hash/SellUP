@@ -1,3 +1,4 @@
+import { formatInAppZone } from '@/lib/format-date';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 interface RollbackBannerProps {
@@ -10,13 +11,13 @@ function safeStr(val: unknown): string | null {
 }
 
 function formatRollbackDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('es-CO', {
+  return formatInAppZone(iso, {
     day: '2-digit',
     month: 'long',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  });
+  }, 'es-CO');
 }
 
 export function RollbackBanner({ metadata, hubspotCompanyId }: RollbackBannerProps) {
