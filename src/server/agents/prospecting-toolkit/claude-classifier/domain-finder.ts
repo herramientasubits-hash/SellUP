@@ -7,7 +7,8 @@
  *  1. la URL tiene que haber salido de su búsqueda web (o un subdominio de ella),
  *     salvo que el sitio enlace al MISMO LinkedIn: esa prueba basta por sí sola;
  *  2. no puede ser una plataforma (LinkedIn, directorios, redes, marketplaces);
- *  3. la descargamos NOSOTROS y tiene que responder con texto;
+ *  3. la descargamos NOSOTROS; si el sitio bloquea la descarga, vale el título del
+ *     resultado de búsqueda de ese mismo dominio;
  *  4. el sitio tiene que enlazar al MISMO LinkedIn de la empresa, o el nombre de
  *     la página coincidir con el de la empresa (puntaje ≥ 60, el mismo umbral de
  *     «verificado» de `verifyWebsite`).
@@ -28,7 +29,6 @@ import {
   type AnthropicRequestBody,
 } from './anthropic-messages-client';
 import { forceSubmission, isOffsiteRedirect, toUsage } from './classify-company';
-import { extractSearchResultUrls } from './evidence-verifier';
 import { extractVisibleText } from './page-text';
 import { WEB_SEARCH_TOOL_TYPE } from './prompt';
 import type { ClassifierUsage } from './types';
@@ -45,14 +45,25 @@ export type DomainFinderInput = {
   countryName: string | null;
   countryCode: string | null;
   linkedinUrl: string | null;
+  /** Otras formas del nombre para comparar con la página (nunca para buscar). */
+  alternateNames?: readonly string[];
 };
+
+/**
+ * Cómo se comprobó el sitio:
+ *  - `linkedin_cross_link`: la página (descargada por nosotros) enlaza al MISMO LinkedIn;
+ *  - `name_match`: el título/descripción de la página coincide con el nombre;
+ *  - `search_result_match`: no pudimos descargarla (o no lo dice), pero el resultado de
+ *    búsqueda de ESE dominio trae un título que coincide con el nombre.
+ */
+export type DomainVerification = 'linkedin_cross_link' | 'name_match' | 'search_result_match';
 
 export type DomainFinderOutcome =
   | {
       found: true;
       website: string;
       domain: string;
-      verification: 'linkedin_cross_link' | 'name_match';
+      verification: DomainVerification;
       /** false = la URL no salió de la búsqueda; sólo se acepta si el sitio enlaza al mismo LinkedIn. */
       inSearchResults: boolean;
       usage: ClassifierUsage | null;
@@ -126,6 +137,57 @@ function sameSite(a: string, b: string): boolean {
   return a === b || a.endsWith(`.${b}`) || b.endsWith(`.${a}`);
 }
 
+type SearchResultEntry = { domain: string; title: string | null };
+
+function extractSearchResultEntries(content: AnthropicConversationResult['content']): SearchResultEntry[] {
+  return content
+    .filter((b) => b.type === 'web_search_tool_result' && Array.isArray(b.content))
+    .flatMap((b) => b.content as Array<Record<string, unknown>>)
+    .filter((r) => r?.type === 'web_search_result' && typeof r.url === 'string')
+    .map((r) => ({
+      domain: normalizeDomain(r.url as string) ?? '',
+      title: typeof r.title === 'string' ? r.title : null,
+    }))
+    .filter((r) => r.domain);
+}
+
+/** Palabras de país/región que Apollo y LinkedIn añaden al nombre («Pirelli Mexico», «VASS LATAM»). */
+const LOCATION_WORDS = new Set([
+  'mexico', 'colombia', 'peru', 'chile', 'argentina', 'ecuador', 'uruguay', 'paraguay', 'bolivia',
+  'venezuela', 'guatemala', 'honduras', 'panama', 'costa', 'rica', 'dominicana', 'latam',
+  'latinoamerica', 'america', 'northamerica', 'sa', 'cv', 'sas', 'de',
+]);
+
+function stripAccents(text: string): string {
+  return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+/** El nombre sin palabras de país ni forma societaria; null si no queda nada distinto. */
+function withoutLocationWords(name: string): string | null {
+  const words = stripAccents(name).split(/[^A-Za-z0-9]+/).filter(Boolean);
+  const kept = words.filter((w) => !LOCATION_WORDS.has(w.toLowerCase()));
+  return kept.length > 0 && kept.length < words.length ? kept.join(' ') : null;
+}
+
+/** Nombres a comparar: el principal, sus variantes y cada uno sin el país. Gana el mejor. */
+function bestNameScore(input: DomainFinderInput, domain: string, title: string | null, meta: string | null): number {
+  const base = [input.name, ...(input.alternateNames ?? [])].filter((n) => n && n.trim());
+  const names = [...base, ...base.map(withoutLocationWords).filter((n): n is string => !!n)];
+  return Math.max(0, ...names.map((n) => scoreCompanyNameAgainstPage(n, domain, title, meta).score));
+}
+
+function bestSearchResultMatch(
+  input: DomainFinderInput,
+  domain: string,
+  results: readonly SearchResultEntry[],
+): SearchResultEntry | null {
+  return (
+    results.find(
+      (r) => sameSite(r.domain, domain) && !!r.title && bestNameScore(input, domain, r.title, null) >= FINDER_MIN_NAME_SCORE,
+    ) ?? null
+  );
+}
+
 function hasSubmission(content: AnthropicConversationResult['content']): boolean {
   return content.some((b) => b.type === 'tool_use' && b.name === FIND_WEBSITE_TOOL_NAME);
 }
@@ -175,50 +237,72 @@ export async function findOfficialWebsite(
   const claimedDomain = claimed ? normalizeDomain(claimed) : null;
   if (!claimed || !claimedDomain) return { found: false, reason: 'no_candidate', usage };
 
-  const searchDomains = extractSearchResultUrls(conversation.content)
-    .map((u) => normalizeDomain(u))
-    .filter((d): d is string => !!d);
-  const inSearchResults = searchDomains.some((d) => sameSite(d, claimedDomain));
+  const searchResults = extractSearchResultEntries(conversation.content);
+  const inSearchResults = searchResults.some((r) => sameSite(r.domain, claimedDomain));
 
   if (!evaluateExternalPlatformGate(claimed, input.name).allowed) {
     return { found: false, reason: 'platform_domain', claimedUrl: claimed, usage };
   }
 
-  let page: SafePageFetchResult;
+  let page: SafePageFetchResult | null = null;
+  let fetchError: string | null = null;
   try {
     page = await deps.fetchPage(claimed);
   } catch (err) {
-    return {
-      found: false,
-      reason: 'page_unreachable',
-      errorCode: err instanceof Error ? err.message : 'fetch_failed',
-      claimedUrl: claimed,
-      usage,
-    };
+    fetchError = err instanceof Error ? err.message : 'fetch_failed';
   }
-  const html = page.html ?? '';
-  if (!page.html || (page.httpStatus ?? 0) >= 400 || extractVisibleText(html).length < MIN_PAGE_TEXT_CHARS) {
-    return { found: false, reason: 'page_unreachable', errorCode: page.error, claimedUrl: claimed, usage };
+  const html = page?.html ?? '';
+  const pageUsable =
+    !!page?.html && (page.httpStatus ?? 0) < 400 && extractVisibleText(html).length >= MIN_PAGE_TEXT_CHARS;
+
+  if (!pageUsable) {
+    // Muchos sitios oficiales (gobierno, universidades, grandes marcas) bloquean nuestra
+    // descarga. Respaldo: el dominio salió de la búsqueda y el TÍTULO del resultado
+    // coincide con la empresa. Nada inventado: título y URL los devolvió la búsqueda.
+    const matched = bestSearchResultMatch(input, claimedDomain, searchResults);
+    if (matched) {
+      return {
+        found: true,
+        website: `https://${claimedDomain}`,
+        domain: claimedDomain,
+        verification: 'search_result_match',
+        inSearchResults: true,
+        usage,
+      };
+    }
+    const errorCode = fetchError ?? page?.error ?? (page?.httpStatus ? `http_${page.httpStatus}` : 'thin_page');
+    return { found: false, reason: 'page_unreachable', errorCode, claimedUrl: claimed, usage };
   }
-  // Redirige a OTRO dominio (parqueado, marketplace, otra empresa): ese dominio no se comprobó.
-  if (isOffsiteRedirect(claimed, page.finalUrl)) {
-    return { found: false, reason: 'redirected_offsite', claimedUrl: claimed, usage };
+
+  const fetched = page as SafePageFetchResult;
+  const finalDomain = normalizeDomain(fetched.finalUrl ?? claimed) ?? claimedDomain;
+  // Redirige a OTRO dominio: sólo vale si ese dominio también salió de la búsqueda y no es
+  // plataforma (p. ej. conacyt.gob.mx → conahcyt.mx). Un parqueado o marketplace no pasa.
+  if (isOffsiteRedirect(claimed, fetched.finalUrl)) {
+    const finalOk =
+      searchResults.some((r) => sameSite(r.domain, finalDomain)) &&
+      evaluateExternalPlatformGate(fetched.finalUrl, input.name).allowed;
+    if (!finalOk) return { found: false, reason: 'redirected_offsite', claimedUrl: claimed, usage };
   }
-  const finalDomain = normalizeDomain(page.finalUrl ?? claimed) ?? claimedDomain;
   const website = `https://${finalDomain}`;
+  const finalInSearch = inSearchResults || searchResults.some((r) => sameSite(r.domain, finalDomain));
 
   const expectedSlug = linkedinSlug(input.linkedinUrl);
   const siteSlugs = extractLinkedInCompanyUrlsFromHtml(html).map((u) => linkedinSlug(u));
   if (expectedSlug && siteSlugs.includes(expectedSlug)) {
-    return { found: true, website, domain: finalDomain, verification: 'linkedin_cross_link', inSearchResults, usage };
+    return { found: true, website, domain: finalDomain, verification: 'linkedin_cross_link', inSearchResults: finalInSearch, usage };
   }
   // Sin enlace al mismo LinkedIn, la URL TIENE que haber salido de la búsqueda (no inventada).
-  if (!inSearchResults) return { found: false, reason: 'not_in_search_results', claimedUrl: claimed, usage };
+  if (!finalInSearch) return { found: false, reason: 'not_in_search_results', claimedUrl: claimed, usage };
 
   const signals = extractPageSignals(html);
-  const { score } = scoreCompanyNameAgainstPage(input.name, finalDomain, signals.title, signals.metaDescription);
+  const score = bestNameScore(input, finalDomain, signals.title, signals.metaDescription);
   if (score >= FINDER_MIN_NAME_SCORE) {
-    return { found: true, website, domain: finalDomain, verification: 'name_match', inSearchResults, usage };
+    return { found: true, website, domain: finalDomain, verification: 'name_match', inSearchResults: true, usage };
+  }
+  // La página no lo dice en el título, pero el resultado de búsqueda de ese dominio sí.
+  if (bestSearchResultMatch(input, finalDomain, searchResults)) {
+    return { found: true, website, domain: finalDomain, verification: 'search_result_match', inSearchResults: true, usage };
   }
   return { found: false, reason: 'identity_not_confirmed', claimedUrl: claimed, usage };
 }

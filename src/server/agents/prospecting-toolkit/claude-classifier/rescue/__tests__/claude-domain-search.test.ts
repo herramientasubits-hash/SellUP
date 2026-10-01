@@ -39,12 +39,12 @@ const USAGE = {
   webFetchRequests: 0,
 };
 
-function conversation(url: string | null, searchUrls: string[]): AnthropicConversationResult {
+function conversation(url: string | null, searchUrls: string[], titles: string[] = []): AnthropicConversationResult {
   return {
     content: [
       {
         type: 'web_search_tool_result',
-        content: searchUrls.map((u) => ({ type: 'web_search_result', url: u, title: 'x' })),
+        content: searchUrls.map((u, i) => ({ type: 'web_search_result', url: u, title: titles[i] ?? 'x' })),
       },
       { type: 'tool_use', name: FIND_WEBSITE_TOOL_NAME, input: { official_website_url: url, confidence: 0.9 } },
     ],
@@ -176,6 +176,73 @@ describe('A. findOfficialWebsite', () => {
       finderDeps(conversation(url, [url]), page(LINKED_HTML, 'https://parked-domains.example/landing')),
     );
     assert.deepEqual(out.found ? null : out.reason, 'redirected_offsite');
+  });
+
+  it('sitio que bloquea nuestra descarga: vale el título del resultado de búsqueda de ese dominio', async () => {
+    const url = 'https://www.unam.mx';
+    const blocked = { ...page('', url), html: null, httpStatus: 403 };
+    const input = { ...INPUT, name: 'Unam', alternateNames: ['unam'] };
+    const ok = await findOfficialWebsite(
+      input,
+      MODEL,
+      finderDeps(conversation(url, ['https://www.unam.mx/'], ['UNAM | Universidad Nacional Autónoma de México']), blocked),
+    );
+    assert.equal(ok.found && ok.verification, 'search_result_match');
+    if (ok.found) assert.equal(ok.domain, 'unam.mx');
+
+    // Mismo bloqueo, pero el título del resultado es de otra cosa ⇒ no.
+    const no = await findOfficialWebsite(
+      input,
+      MODEL,
+      finderDeps(conversation(url, ['https://www.unam.mx/'], ['Portal de trámites']), blocked),
+    );
+    assert.deepEqual(no.found ? null : [no.reason, no.errorCode], ['page_unreachable', 'http_403']);
+
+    // Bloqueada y fuera de la búsqueda ⇒ no (no hay nada que no haya escrito Claude).
+    const outside = await findOfficialWebsite(
+      input,
+      MODEL,
+      finderDeps(conversation(url, ['https://otra.mx/'], ['UNAM']), blocked),
+    );
+    assert.equal(outside.found, false);
+  });
+
+  it('redirección a otro dominio vale si el destino también salió de la búsqueda', async () => {
+    const claimed = 'https://siigroup.co';
+    const ok = await findOfficialWebsite(
+      INPUT,
+      MODEL,
+      finderDeps(conversation(claimed, [claimed, 'https://sii-group.com/es-CO']), page(LINKED_HTML, 'https://sii-group.com/es-CO')),
+    );
+    assert.equal(ok.found && ok.domain, 'sii-group.com');
+    // El destino no salió de la búsqueda ⇒ no (parqueado, marketplace…).
+    const no = await findOfficialWebsite(
+      INPUT,
+      MODEL,
+      finderDeps(conversation(claimed, [claimed]), page(LINKED_HTML, 'https://sii-group.com/es-CO')),
+    );
+    assert.deepEqual(no.found ? null : no.reason, 'redirected_offsite');
+  });
+
+  it('las palabras de país no bajan el puntaje del nombre', async () => {
+    const html = `<html><head><title>Pirelli | Neumáticos</title></head><body><p>${FILLER}</p></body></html>`;
+    const url = 'https://www.pirelli.com';
+    const out = await findOfficialWebsite({ ...INPUT, name: 'Pirelli México' }, MODEL, finderDeps(conversation(url, [url]), page(html, url)));
+    assert.equal(out.found && out.verification, 'name_match');
+  });
+
+  it('el nombre se compara en todas sus formas (gana la mejor)', async () => {
+    const html = `<html><head><title>Universidad Tecmilenio</title></head><body><p>${FILLER}</p></body></html>`;
+    const url = 'https://tecmilenio.mx';
+    const conv = conversation(url, [url]);
+    const single = await findOfficialWebsite({ ...INPUT, name: 'Tecmilenio Monterrey' }, MODEL, finderDeps(conv, page(html, url)));
+    const multi = await findOfficialWebsite(
+      { ...INPUT, name: 'Tecmilenio Monterrey', alternateNames: ['tecmilenio'] },
+      MODEL,
+      finderDeps(conv, page(html, url)),
+    );
+    assert.equal(single.found, false);
+    assert.equal(multi.found && multi.verification, 'name_match');
   });
 
   it('si la descarga lanza, no se pierde el uso pagado', async () => {
