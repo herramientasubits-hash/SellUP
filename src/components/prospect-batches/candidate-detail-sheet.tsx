@@ -90,6 +90,7 @@ import { ReviewStatusInfo } from '@/components/prospects/review-status-info';
 import { ProspectReviewActions } from '@/components/prospects/prospect-review-actions';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 interface HubSpotSyncAudit {
   status: string;
@@ -2339,24 +2340,24 @@ export function CandidateDetailSheet({
                   return (
                     <DrawerSection title="Comparación rápida" icon={ListFilter} tone="neutral">
                       <div className="overflow-x-auto rounded-lg border border-border/60">
-                        <table className="w-full text-xs">
-                          <thead className="bg-surface-subtle">
-                            <tr>
-                              <th scope="col" className="text-left text-xs text-muted-foreground font-medium py-2 px-3">Campo</th>
-                              <th scope="col" className="text-left text-xs text-muted-foreground font-medium py-2 px-3">Candidato</th>
-                              <th scope="col" className="text-left text-xs text-muted-foreground font-medium py-2 px-3">Coincidencia</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-border/50">
+                        <Table className="text-xs">
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead scope="col">Campo</TableHead>
+                              <TableHead scope="col">Candidato</TableHead>
+                              <TableHead scope="col">Coincidencia</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
                             {rows.map(({ label: rl, cv, mv }) => (
-                              <tr key={rl}>
-                                <td className="py-2 px-3 text-muted-foreground font-medium">{rl}</td>
-                                <td className="py-2 px-3 text-foreground break-words">{cv ?? <span className="text-text-muted italic">Sin dato</span>}</td>
-                                <td className="py-2 px-3 text-foreground break-words">{mv ?? <span className="text-text-muted italic">Sin dato</span>}</td>
-                              </tr>
+                              <TableRow key={rl}>
+                                <TableCell className="text-muted-foreground font-medium">{rl}</TableCell>
+                                <TableCell className="whitespace-normal break-words text-foreground">{cv ?? <span className="text-text-muted italic">Sin dato</span>}</TableCell>
+                                <TableCell className="whitespace-normal break-words text-foreground">{mv ?? <span className="text-text-muted italic">Sin dato</span>}</TableCell>
+                              </TableRow>
                             ))}
-                          </tbody>
-                        </table>
+                          </TableBody>
+                        </Table>
                       </div>
                     </DrawerSection>
                   );

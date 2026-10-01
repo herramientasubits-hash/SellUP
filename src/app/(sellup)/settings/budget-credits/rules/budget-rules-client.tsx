@@ -34,6 +34,7 @@ import {
 import { createBudgetRule, updateBudgetRule, toggleBudgetRuleStatus, deleteBudgetRule } from '@/modules/budgets/rule-actions';
 import type { BudgetRuleRow, BudgetRuleFormOptions } from '@/modules/budgets/rule-queries';
 import type { BudgetOnExceed, BudgetPeriodType, BudgetScopeType } from '@/modules/usage-tracking/types';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 // ─── Display helpers ──────────────────────────────────────────────────────────
 
@@ -626,55 +627,55 @@ function RulesTabTable({ rules, emptyMessage, onEdit, onToggle, onArchive, toggl
   return (
     <>
       <div className="overflow-x-auto rounded-xl border border-border/60">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border/60 bg-surface-subtle">
-              <th className="w-10 px-4 py-3">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-10">
                 <Checkbox
                   checked={allSelected ? true : someSelected ? 'indeterminate' : false}
                   onCheckedChange={toggleAll}
                   aria-label="Seleccionar todas las reglas"
                 />
-              </th>
+              </TableHead>
               {['Proveedor', 'Alcance', 'Límite', 'Período', 'Acción', 'Estado', 'Actualizado'].map((col) => (
-                <th key={col} className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
+                <TableHead key={col} className={col === 'Límite' ? 'text-right' : undefined}>
                   {col}
-                </th>
+                </TableHead>
               ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border/50">
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {rules.map((rule) => {
               const isSelected = selectedIds.has(rule.id);
               return (
-                <tr key={rule.id} className={`hover:bg-surface-muted transition-colors ${isSelected ? 'bg-surface-subtle' : ''}`}>
-                  <td className="w-10 px-4 py-3">
+                <TableRow key={rule.id} data-state={isSelected ? 'selected' : undefined}>
+                  <TableCell className="w-10">
                     <Checkbox
                       checked={isSelected}
                       onCheckedChange={() => toggleRow(rule.id)}
                       aria-label={`Seleccionar regla de ${rule.providerDisplayName}`}
                     />
-                  </td>
-                  <td className="px-4 py-3 font-medium text-foreground">{rule.providerDisplayName}</td>
-                  <td className="px-4 py-3">
+                  </TableCell>
+                  <TableCell className="font-medium text-foreground">{rule.providerDisplayName}</TableCell>
+                  <TableCell>
                     <Badge variant="neutral">
                       {rule.scopeLabel}
                     </Badge>
-                  </td>
-                  <td className="px-4 py-3 tabular-nums text-foreground">{formatLimit(rule.limit_credits, rule.limit_usd)}</td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">{PERIOD_LABELS[rule.period_type]}</td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">{ON_EXCEED_LABELS[rule.on_exceed]}</td>
-                  <td className="px-4 py-3">
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-foreground">{formatLimit(rule.limit_credits, rule.limit_usd)}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{PERIOD_LABELS[rule.period_type]}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{ON_EXCEED_LABELS[rule.on_exceed]}</TableCell>
+                  <TableCell>
                     <Badge variant={rule.is_active ? 'positive' : 'neutral'}>
                       {rule.is_active ? 'Activa' : 'Inactiva'}
                     </Badge>
-                  </td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">{formatDate(rule.updated_at)}</td>
-                </tr>
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{formatDate(rule.updated_at)}</TableCell>
+                </TableRow>
               );
             })}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
 
       <DataTableBulkActionBar
@@ -927,47 +928,47 @@ export function BudgetRulesClient({ rules, options }: Props) {
         <EmptyState title="Aún no hay reglas de presupuesto. Crea la primera con el botón Nueva regla." />
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border/60">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border/60 bg-surface-subtle">
+          <Table>
+            <TableHeader>
+              <TableRow>
                 {['Proveedor', 'Alcance', 'Límite', 'Período', 'Acción', 'Estado', 'Actualizado', 'Acciones'].map(
                   (col) => (
-                    <th key={col} className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
+                    <TableHead key={col} className={col === 'Límite' ? 'text-right' : undefined}>
                       {col}
-                    </th>
+                    </TableHead>
                   ),
                 )}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/50">
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {rules.map((rule) => (
-                <tr key={rule.id} className="hover:bg-surface-muted transition-colors">
-                  <td className="px-4 py-3 font-medium text-foreground">
+                <TableRow key={rule.id}>
+                  <TableCell className="font-medium text-foreground">
                     {rule.providerDisplayName}
-                  </td>
-                  <td className="px-4 py-3">
+                  </TableCell>
+                  <TableCell>
                     <Badge variant="neutral">
                       {rule.scopeLabel}
                     </Badge>
-                  </td>
-                  <td className="px-4 py-3 tabular-nums text-foreground">
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-foreground">
                     {formatLimit(rule.limit_credits, rule.limit_usd)}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
                     {PERIOD_LABELS[rule.period_type]}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
                     {ON_EXCEED_LABELS[rule.on_exceed]}
-                  </td>
-                  <td className="px-4 py-3">
+                  </TableCell>
+                  <TableCell>
                     <Badge variant={rule.is_active ? 'positive' : 'neutral'}>
                       {rule.is_active ? 'Activa' : 'Inactiva'}
                     </Badge>
-                  </td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
                     {formatDate(rule.updated_at)}
-                  </td>
-                  <td className="px-4 py-3">
+                  </TableCell>
+                  <TableCell>
                     <div className="flex flex-wrap items-center gap-2">
                       <Button
                         size="xs"
@@ -1000,11 +1001,11 @@ export function BudgetRulesClient({ rules, options }: Props) {
                         </Button>
                       )}
                     </div>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
 

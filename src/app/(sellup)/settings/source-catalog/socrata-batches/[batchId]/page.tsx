@@ -34,6 +34,7 @@ import {
   formatDatasetLabel,
   formatShortDate,
 } from '@/modules/source-catalog/socrata-batches-labels';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 interface Props {
   params: Promise<{ batchId: string }>;
@@ -361,45 +362,45 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
           <EmptyState variant="plain" icon={Building2} title="Sin candidatos en este lote." />
         }
       >
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border/50 bg-surface-subtle text-left">
-                  <th scope="col" className="whitespace-nowrap px-5 py-3 text-xs font-semibold text-muted-foreground">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead scope="col">
                     Empresa
-                  </th>
-                  <th scope="col" className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-muted-foreground">
+                  </TableHead>
+                  <TableHead scope="col">
                     NIT
-                  </th>
-                  <th scope="col" className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-muted-foreground">
+                  </TableHead>
+                  <TableHead scope="col">
                     Ciudad / Dpto.
-                  </th>
-                  <th scope="col" className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-muted-foreground">
+                  </TableHead>
+                  <TableHead scope="col">
                     Sector
-                  </th>
-                  <th scope="col" className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-muted-foreground">
+                  </TableHead>
+                  <TableHead scope="col">
                     Tamaño
-                  </th>
-                  <th scope="col" className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-muted-foreground">
+                  </TableHead>
+                  <TableHead scope="col">
                     HubSpot
-                  </th>
-                  <th scope="col" className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-muted-foreground">
+                  </TableHead>
+                  <TableHead scope="col">
                     Estado revisión
-                  </th>
-                  <th scope="col" className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-muted-foreground">
+                  </TableHead>
+                  <TableHead scope="col">
                     Duplicado
-                  </th>
-                  <th scope="col" className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-muted-foreground">
+                  </TableHead>
+                  <TableHead scope="col">
                     Flags
-                  </th>
-                  <th scope="col" className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-muted-foreground">
+                  </TableHead>
+                  <TableHead scope="col">
                     Fuente
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/50">
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {candidates.map((candidate) => (
-                  <tr key={candidate.id} className="align-top transition-colors hover:bg-surface-muted">
-                    <td className="px-5 py-3.5">
+                  <TableRow key={candidate.id} className="[&>td]:align-top">
+                    <TableCell className="whitespace-normal">
                       <p className="font-medium text-foreground">
                         {candidate.name ?? <span className="text-text-muted">—</span>}
                       </p>
@@ -417,28 +418,28 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
                           <Badge variant="brand">Convertido</Badge>
                         )}
                       </div>
-                    </td>
-                    <td className="px-4 py-3.5 font-mono text-xs text-muted-foreground">
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">
                       {candidate.taxId ?? <span className="text-text-muted">—</span>}
-                    </td>
-                    <td className="px-4 py-3.5 text-xs text-muted-foreground">
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
                       <div>{candidate.city ?? '—'}</div>
                       {candidate.department && (
                         <div className="text-muted-foreground">{candidate.department}</div>
                       )}
-                    </td>
-                    <td className="px-4 py-3.5 text-xs text-muted-foreground">
+                    </TableCell>
+                    <TableCell className="text-xs whitespace-normal text-muted-foreground">
                       {candidate.sectorDescription ?? candidate.sectorCode ?? (
                         <span className="text-text-muted">—</span>
                       )}
-                    </td>
-                    <td className="px-4 py-3.5">
+                    </TableCell>
+                    <TableCell>
                       <SizeCell candidate={candidate} />
-                    </td>
-                    <td className="px-4 py-3.5">
+                    </TableCell>
+                    <TableCell>
                       <HubSpotCell status={candidate.hubspotMatchStatus} />
-                    </td>
-                    <td className="px-4 py-3.5">
+                    </TableCell>
+                    <TableCell>
                       {candidate.reviewStatus ? (
                         <Badge variant="outline" className={reviewStatusBadgeClass(candidate.reviewStatus)}>
                           {REVIEW_STATUS_LABELS[candidate.reviewStatus] ?? candidate.reviewStatus}
@@ -446,8 +447,8 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
                       ) : (
                         <span className="text-xs text-text-muted">—</span>
                       )}
-                    </td>
-                    <td className="px-4 py-3.5">
+                    </TableCell>
+                    <TableCell>
                       {candidate.duplicateStatus ? (
                         <Badge variant="outline" className={duplicateStatusBadgeClass(candidate.duplicateStatus)}>
                           {DUPLICATE_STATUS_LABELS[candidate.duplicateStatus] ?? candidate.duplicateStatus}
@@ -455,17 +456,17 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
                       ) : (
                         <span className="text-xs text-text-muted">—</span>
                       )}
-                    </td>
-                    <td className="px-4 py-3.5">
+                    </TableCell>
+                    <TableCell className="whitespace-normal">
                       <FlagChips flags={candidate.reviewFlags} />
-                    </td>
-                    <td className="px-4 py-3.5">
+                    </TableCell>
+                    <TableCell>
                       <SourceCell candidate={candidate} batchDataset={batch.dataset} />
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
       </TableShell>
 
       {/* Warnings panel — only when candidates have warnings */}

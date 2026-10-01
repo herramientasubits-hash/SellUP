@@ -41,6 +41,7 @@ import {
   resolveProviderWorkspaceUrlState,
   buildProviderWorkspaceParams,
 } from './provider-workspace-url-state';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 interface Props {
   providers: AdminProviderBudgetRow[];
@@ -323,27 +324,24 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], pro
     <>
       <div className="space-y-3">
         <div className="overflow-x-auto rounded-xl border border-border/60">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border/60 bg-surface-subtle">
-                <th className="w-10 px-4 py-3">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-10">
                   <Checkbox
                     checked={allSelected ? true : someSelected ? 'indeterminate' : false}
                     onCheckedChange={toggleAll}
                     aria-label="Seleccionar todos los proveedores"
                   />
-                </th>
+                </TableHead>
                 {LIGHT_TABLE_COLUMNS.map((col) => (
-                  <th
-                    key={col}
-                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
-                  >
+                  <TableHead key={col}>
                     {col}
-                  </th>
+                  </TableHead>
                 ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/50">
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {providers.map((row) => {
                 const ms = row.measurementStatus;
                 const msBadge = MEASUREMENT_STATUS_BADGE[ms];
@@ -359,21 +357,21 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], pro
                     : null;
 
                 return (
-                  <tr
+                  <TableRow
                     key={row.providerKey}
-                    className={`hover:bg-surface-muted transition-colors ${isSelected ? 'bg-surface-subtle' : ''}`}
+                    data-state={isSelected ? 'selected' : undefined}
                   >
                     {/* Checkbox — selecting does NOT open sidepanel */}
-                    <td className="w-10 px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                    <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
                       <Checkbox
                         checked={isSelected}
                         onCheckedChange={() => toggleRow(row.providerKey)}
                         aria-label={`Seleccionar ${row.displayName ?? row.providerKey}`}
                       />
-                    </td>
+                    </TableCell>
 
                     {/* Proveedor — name click opens sidepanel */}
-                    <td className="px-4 py-3">
+                    <TableCell>
                       <div className="space-y-0.5">
                         <button
                           type="button"
@@ -383,28 +381,28 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], pro
                           {row.displayName ?? row.providerKey}
                         </button>
                       </div>
-                    </td>
+                    </TableCell>
 
                     {/* Tipo — texto plano (categoría); el badge de color queda
                         para Estado y Alerta (Design Refresh v10) */}
-                    <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                    <TableCell className="text-xs text-muted-foreground">
                       {OPERATIONAL_TYPE_LABEL[opType]}
-                    </td>
+                    </TableCell>
 
                     {/* Estado */}
-                    <td className="px-4 py-3">
+                    <TableCell>
                       <Badge variant="outline" className={msBadge.className}>
                         {MEASUREMENT_STATUS_LABEL[ms]}
                       </Badge>
-                    </td>
+                    </TableCell>
 
                     {/* Consumo del mes */}
-                    <td className="px-4 py-3 text-xs tabular-nums text-foreground whitespace-nowrap" title={consumed.description}>
+                    <TableCell className="text-xs tabular-nums text-foreground" title={consumed.description}>
                       {consumed.label}
-                    </td>
+                    </TableCell>
 
                     {/* Alerta */}
-                    <td className="px-4 py-3">
+                    <TableCell>
                       {attention !== 'none' ? (
                         <Badge variant={ATTENTION_BADGE[attention].variant}>
                           {ATTENTION_BADGE[attention].label}
@@ -412,15 +410,15 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], pro
                       ) : (
                         <span className="text-xs text-text-muted">—</span>
                       )}
-                    </td>
+                    </TableCell>
 
                     {/* Última sync */}
-                    <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                    <TableCell className="text-xs text-muted-foreground">
                       {syncedAt ?? <span className="text-text-muted">—</span>}
-                    </td>
+                    </TableCell>
 
                     {/* Acciones */}
-                    <td className="px-4 py-3">
+                    <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger className="inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
                           <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
@@ -458,12 +456,12 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], pro
                           )}
                         </DropdownMenuContent>
                       </DropdownMenu>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
 
         {reviewOpen && selectedRows.length > 0 && (

@@ -41,6 +41,8 @@ import type {
   CatalogVersionState,
 } from '@/modules/prospect-batches/import-classification/import-classification-ui-types';
 import { CLASSIFICATION_STATUS_MAP } from '@/modules/prospect-batches/import-classification/import-classification-ui-types';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { EmptyState } from '@/components/ui/empty-state';
 
 // ── Local catalog types ────────────────────────────────────────────────────────
 
@@ -292,8 +294,8 @@ function ExpandedDetailRow({
     row.requiresHumanReview;
 
   return (
-    <tr>
-      <td colSpan={colSpan} className="px-0 pb-0 pt-0">
+    <TableRow className="hover:bg-transparent">
+      <TableCell colSpan={colSpan} className="p-0 whitespace-normal">
         <div className="mx-3 mb-3 overflow-hidden rounded-lg border border-border/50 bg-surface-subtle">
 
           {/* ── Bloque 1: Resumen ──────────────────────────────────────────────── */}
@@ -497,8 +499,8 @@ function ExpandedDetailRow({
             )}
           </div>
         </div>
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -1006,15 +1008,12 @@ export function ImportClassificationTable({
   return (
     <div className="flex flex-col gap-0 h-full">
       <div className="overflow-x-auto flex-1">
-        <table className="w-full text-xs">
-          <thead>
+        <Table className="text-xs">
+          <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id} className="border-b border-border/50 bg-surface-subtle">
+              <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header, idx) => (
-                  <th
-                    key={header.id}
-                    className="px-3 py-2 text-left font-semibold text-muted-foreground whitespace-nowrap"
-                  >
+                  <TableHead key={header.id}>
                     {idx === 0 ? (
                       <Checkbox
                         checked={headerCheckState}
@@ -1024,18 +1023,18 @@ export function ImportClassificationTable({
                     ) : header.isPlaceholder ? null : (
                       flexRender(header.column.columnDef.header, header.getContext())
                     )}
-                  </th>
+                  </TableHead>
                 ))}
-              </tr>
+              </TableRow>
             ))}
-          </thead>
-          <tbody className="divide-y divide-border/50">
+          </TableHeader>
+          <TableBody>
             {table.getRowModel().rows.length === 0 ? (
-              <tr>
-                <td colSpan={visibleColumns.length} className="px-3 py-8 text-center text-muted-foreground">
-                  No hay filas que coincidan con el filtro.
-                </td>
-              </tr>
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={visibleColumns.length}>
+                  <EmptyState variant="plain" title="No hay filas que coincidan con el filtro." />
+                </TableCell>
+              </TableRow>
             ) : (
               table.getRowModel().rows.map((row) => {
                 const isSelected = selectedRowIds.has(row.original.rowNumber);
@@ -1043,12 +1042,11 @@ export function ImportClassificationTable({
                 const isExpanded = expandedRowNumber === row.original.rowNumber;
                 return (
                   <React.Fragment key={row.id}>
-                    <tr
+                    <TableRow
                       className={cn(
-                        'transition-colors',
                         isEditing && 'bg-primary/10 ring-1 ring-inset ring-primary/30',
                         !isEditing && isSelected && 'cursor-pointer bg-primary/10',
-                        !isEditing && !isSelected && 'cursor-pointer opacity-60 hover:bg-surface-muted',
+                        !isEditing && !isSelected && 'cursor-pointer opacity-60',
                         !isEditing && row.original.requiresHumanReview && isSelected && 'bg-destructive/10',
                       )}
                       onClick={() => {
@@ -1060,11 +1058,11 @@ export function ImportClassificationTable({
                       }}
                     >
                       {row.getVisibleCells().map((cell) => (
-                        <td key={cell.id} className="px-3 py-2.5 align-top">
+                        <TableCell key={cell.id} className="align-top whitespace-normal">
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </td>
+                        </TableCell>
                       ))}
-                    </tr>
+                    </TableRow>
                     {isExpanded && !isEditing && (
                       <ExpandedDetailRow row={row.original} colSpan={visibleColumns.length} showSubindustry={showSubindustry} />
                     )}
@@ -1072,8 +1070,8 @@ export function ImportClassificationTable({
                 );
               })
             )}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
 
       {/* Pagination */}

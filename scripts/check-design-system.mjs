@@ -23,7 +23,11 @@
  *  11. texto-atenuado  — texto atenuado con opacidad (`text-muted-foreground/60`): se elige el nivel;
  *  12. blanco-a-mano   — `text-white` sobre color de marca (usa `text-primary-foreground`);
  *  13. control-a-mano  — un `Button` / `Input` / `SelectTrigger` / `Badge` con radio, alto o
- *                        tipografía sobrescritos por `className` (usa `size` y `variant`).
+ *                        tipografía sobrescritos por `className` (usa `size` y `variant`);
+ *  14. tabla-a-mano    — una tabla HTML escrita a mano (`<table>`, `<thead>`, `<tbody>`, `<tfoot>`,
+ *                        `<tr>`, `<th>`, `<td>`) en un `.tsx`: se pinta con `Table`, `TableHeader`,
+ *                        `TableBody`, `TableRow`, `TableHead`, `TableCell` de `@/components/ui/table`
+ *                        (y `TableShell` de `@/components/data-display` si la lista lleva título).
  *
  * Una excepción se declara en ALLOW, con su motivo; nunca apagando la regla en el archivo.
  * Guía de traducción: docs/THEMA_AZUL_MIGRATION.md
@@ -65,6 +69,8 @@ const CONTROL_TAG = /<(Button|Input|SelectTrigger|Textarea|Badge)\b((?:[^<>{}]|\
 const CONTROL_RADIUS = /(?<![\w:\[-])!?rounded-(?:full|xl|lg|2xl|3xl|none)(?![\w-])/;
 const CONTROL_HEIGHT = /(?<![\w:\[-])!?h-(?:5|6|7|8|9|10|11|12|14)(?![\w./-])/;
 const BADGE_TYPE = /(?<![\w:\[-])(?:text-(?:xs|sm)|font-(?:medium|semibold|bold)|rounded-(?:full|sm|lg))(?![\w/-])/;
+/** Etiqueta de tabla HTML nativa (apertura o cierre), en JSX. */
+const RAW_TABLE = /<\/?(?:table|thead|tbody|tfoot|tr|th|td)(?=[\s>\/])/;
 
 /**
  * Dónde sí puede vivir cada excepción, y por qué.
@@ -106,6 +112,10 @@ const ALLOW = {
   white: [/^src\/components\/ui\//, TESTS, ...EDITORIAL, ...AI_IDENTITY, /chat-wizard\/wizard-(execution-panels|lusha-final-search)\.tsx$/],
   // `candidate-search-more-phones-cta`: una prueba estática fija `className="h-7 gap-1.5 text-xs"`.
   control: [/^src\/components\/ui\//, TESTS, ...EDITORIAL, /candidate-search-more-phones-cta\.tsx$/],
+  // `ui/table.tsx` ES la pieza que pinta la tabla; `ui/calendar.tsx` rellena la rejilla de
+  // react-day-picker (que ya es un `<table>`); `data-table/` monta la tabla operable de TanStack
+  // (la cabecera reordenable necesita su propio `<th>` con ref y estilos de arrastre).
+  table: [/^src\/components\/ui\/(table|calendar)\.tsx$/, /^src\/components\/data-table\//, TESTS],
 };
 
 /**
@@ -181,6 +191,7 @@ for (const full of targets) {
     if (!allowed(file, ALLOW.legacyBrand) && LEGACY_BRAND.test(line)) add(file, n, "marca-heredada", `Clase heredada (${line.match(LEGACY_BRAND)[0]}). Usa bg-primary / text-primary / bg-primary/10.`);
     if (!allowed(file, ALLOW.faded) && FADED_TEXT.test(line)) add(file, n, "texto-atenuado", "Texto atenuado con opacidad. Elige el nivel: text-foreground, text-muted-foreground o text-text-muted.");
     if (!allowed(file, ALLOW.white) && RAW_WHITE.test(line) && !/su-ai-/.test(line)) add(file, n, "blanco-a-mano", "text-white a mano. Sobre primario usa text-primary-foreground; para un sólido de estado, la variante del Button.");
+    if (file.endsWith(".tsx") && !allowed(file, ALLOW.table) && RAW_TABLE.test(line)) add(file, n, "tabla-a-mano", `Tabla escrita a mano (${line.match(RAW_TABLE)[0]}>). Usa Table, TableHeader, TableBody, TableRow, TableHead y TableCell de @/components/ui/table.`);
   });
 
   // Controles del sistema con su apariencia sobrescrita por className.

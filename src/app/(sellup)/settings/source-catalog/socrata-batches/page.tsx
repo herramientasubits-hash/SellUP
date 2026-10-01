@@ -16,6 +16,7 @@ import {
   formatShortDate,
 } from '@/modules/source-catalog/socrata-batches-labels';
 import { CreateSocrataBatchButton } from './create-socrata-batch-button';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 export const metadata = {
   title: 'Lotes Socrata — Catálogo de fuentes',
@@ -131,68 +132,67 @@ export default async function SocrataBatchesPage() {
           <EmptyState variant="plain" icon={Database} title="Aún no hay lotes Socrata creados." />
         }
       >
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border/50 bg-surface-subtle text-left">
-                  <th scope="col" className="whitespace-nowrap px-5 py-3 text-xs font-semibold text-muted-foreground">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead scope="col">
                     Nombre
-                  </th>
-                  <th scope="col" className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-muted-foreground">
+                  </TableHead>
+                  <TableHead scope="col">
                     Estado
-                  </th>
-                  <th scope="col" className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-muted-foreground">
+                  </TableHead>
+                  <TableHead scope="col">
                     Dataset
-                  </th>
-                  <th scope="col" className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-muted-foreground">
+                  </TableHead>
+                  <TableHead scope="col" className="text-right">
                     Candidatos
-                  </th>
-                  <th scope="col" className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-muted-foreground">
+                  </TableHead>
+                  <TableHead scope="col">
                     Preview
-                  </th>
-                  <th scope="col" className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-muted-foreground">
+                  </TableHead>
+                  <TableHead scope="col">
                     Smoke / Rollback
-                  </th>
-                  <th scope="col" className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-muted-foreground">
+                  </TableHead>
+                  <TableHead scope="col">
                     Fecha
-                  </th>
-                  <th scope="col" className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-muted-foreground">
+                  </TableHead>
+                  <TableHead scope="col">
                     &nbsp;
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/50">
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {batches.map((batch) => (
-                  <tr
+                  <TableRow
                     key={batch.id}
-                    className="transition-colors hover:bg-surface-muted"
                   >
-                    <td className="px-5 py-3.5">
+                    <TableCell>
                       <span className="font-medium text-foreground">{batch.name}</span>
                       {batch.countryCode && (
                         <span className="ml-2 text-xs text-muted-foreground">
                           {batch.countryCode}
                         </span>
                       )}
-                    </td>
-                    <td className="px-4 py-3.5">
+                    </TableCell>
+                    <TableCell>
                       <Badge variant="outline" className={batchStatusBadgeClass(batch.status)}>
                         {BATCH_STATUS_LABELS[batch.status] ?? batch.status}
                       </Badge>
-                    </td>
-                    <td className="px-4 py-3.5">
+                    </TableCell>
+                    <TableCell>
                       <span className="font-mono text-xs text-muted-foreground">
                         {formatDatasetLabel(batch.dataset)}
                       </span>
-                    </td>
-                    <td className="px-4 py-3.5 tabular-nums text-muted-foreground">
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
                       {batch.candidatesCount}
                       {batch.targetCount ? (
                         <span className="ml-1 text-xs text-muted-foreground">
                           / {batch.targetCount}
                         </span>
                       ) : null}
-                    </td>
-                    <td className="px-4 py-3.5">
+                    </TableCell>
+                    <TableCell>
                       {batch.previewMode ? (
                         <Badge variant="brand">
                           Preview
@@ -200,8 +200,8 @@ export default async function SocrataBatchesPage() {
                       ) : (
                         <span className="text-xs text-text-muted">—</span>
                       )}
-                    </td>
-                    <td className="px-4 py-3.5">
+                    </TableCell>
+                    <TableCell>
                       <div className="flex flex-wrap gap-1">
                         {batch.smokeTest && (
                           <Badge variant="info">
@@ -217,21 +217,21 @@ export default async function SocrataBatchesPage() {
                           <span className="text-xs text-text-muted">—</span>
                         )}
                       </div>
-                    </td>
-                    <td className="px-4 py-3.5 text-xs text-muted-foreground">
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
                       {formatShortDate(batch.createdAt)}
-                    </td>
-                    <td className="px-4 py-3.5">
+                    </TableCell>
+                    <TableCell>
                       <Button asChild variant="ghost" size="xs">
                         <Link href={`/settings/source-catalog/socrata-batches/${batch.id}`}>
                           Ver detalle
                         </Link>
                       </Button>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
       </TableShell>
     </div>
   );

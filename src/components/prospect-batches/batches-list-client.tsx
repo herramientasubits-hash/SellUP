@@ -22,6 +22,7 @@ import {
   type ProspectBatchWithMeta,
   type BatchStatus,
 } from '@/modules/prospect-batches/types';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 const STATUS_VARIANTS: Record<
   BatchStatus,
@@ -166,25 +167,25 @@ export function BatchesListClient({ batches }: BatchesListClientProps) {
           </Button>
         </div>
       )}
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border/60 bg-surface-subtle">
+      <Table>
+        <TableHeader>
+          <TableRow>
             {['Nombre', 'País', 'Industria', 'Estado', 'Fuente', 'Candidatos', 'Aprobados', 'Convertidos', 'Costo est.', 'Creación', ''].map(
               (col) => (
-                <th
+                <TableHead
                   key={col}
-                  className="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold text-muted-foreground"
+                  className={['Candidatos', 'Aprobados', 'Convertidos', 'Costo est.'].includes(col) ? 'text-right' : undefined}
                 >
                   {col}
-                </th>
+                </TableHead>
               )
             )}
-          </tr>
-        </thead>
-        <tbody>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {visibleBatches.length === 0 ? (
-            <tr>
-              <td colSpan={11}>
+            <TableRow className="hover:bg-transparent">
+              <TableCell colSpan={11}>
                 <SharedEmptyState
                   variant="plain"
                   icon={Layers}
@@ -197,16 +198,16 @@ export function BatchesListClient({ batches }: BatchesListClientProps) {
                     ) : undefined
                   }
                 />
-              </td>
-            </tr>
+              </TableCell>
+            </TableRow>
           ) : null}
           {visibleBatches.map((batch) => (
-            <tr
+            <TableRow
               key={batch.id}
-              className="group border-b border-border/50 transition-colors last:border-0 hover:bg-surface-muted"
+              className="group"
             >
               {/* Nombre */}
-              <td className="px-4 py-3">
+              <TableCell>
                 <Link
                   href={`/prospect-batches/${batch.id}`}
                   className="rounded-sm font-medium text-foreground hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
@@ -223,9 +224,9 @@ export function BatchesListClient({ batches }: BatchesListClientProps) {
                     Búsqueda real
                   </Badge>
                 )}
-              </td>
+              </TableCell>
               {/* País */}
-              <td className="px-4 py-3 text-muted-foreground">
+              <TableCell className="text-muted-foreground">
                 {batch.country_code ? (
                   <span className="flex items-center gap-1.5">
                     <span>{getFlagEmoji(batch.country_code)}</span>
@@ -234,15 +235,15 @@ export function BatchesListClient({ batches }: BatchesListClientProps) {
                 ) : (
                   <span className="text-xs text-muted-foreground">—</span>
                 )}
-              </td>
+              </TableCell>
               {/* Industria */}
-              <td className="px-4 py-3">
+              <TableCell>
                 <span className="text-xs text-muted-foreground">
                   {batch.industry ?? <span className="text-muted-foreground">—</span>}
                 </span>
-              </td>
+              </TableCell>
               {/* Estado */}
-              <td className="px-4 py-3">
+              <TableCell>
                 {batch.metadata?.review_ready === false && batch.status === 'ready_for_review' ? (
                   <Badge variant="neutral">
                     Sin candidatas útiles
@@ -252,49 +253,49 @@ export function BatchesListClient({ batches }: BatchesListClientProps) {
                     {BATCH_STATUS_LABELS[batch.status]}
                   </Badge>
                 )}
-              </td>
+              </TableCell>
               {/* Fuente */}
-              <td className="px-4 py-3">
+              <TableCell>
                 <span className="text-xs text-muted-foreground">
                   {BATCH_SOURCE_LABELS[batch.source]}
                 </span>
-              </td>
+              </TableCell>
               {/* Candidatos */}
-              <td className="px-4 py-3 tabular-nums text-foreground">
+              <TableCell className="text-right tabular-nums text-foreground">
                 {batch.total_candidates}
-              </td>
+              </TableCell>
               {/* Aprobados */}
-              <td className="px-4 py-3 tabular-nums">
+              <TableCell className="text-right tabular-nums">
                 <span className="text-success">
                   {batch.approved_count}
                 </span>
-              </td>
+              </TableCell>
               {/* Convertidos */}
-              <td className="px-4 py-3 tabular-nums">
+              <TableCell className="text-right tabular-nums">
                 <span className="text-primary">{batch.converted_count}</span>
-              </td>
+              </TableCell>
               {/* Costo */}
-              <td className="px-4 py-3 tabular-nums text-xs text-muted-foreground">
+              <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
                 {batch.estimated_cost_usd
                   ? `$${Number(batch.estimated_cost_usd).toFixed(4)}`
                   : '—'}
-              </td>
+              </TableCell>
               {/* Fecha */}
-              <td className="px-4 py-3 text-xs text-muted-foreground">
+              <TableCell className="text-xs text-muted-foreground">
                 {formatDate(batch.created_at)}
-              </td>
+              </TableCell>
               {/* Acciones */}
-              <td className="px-3 py-3">
+              <TableCell>
                 <BatchRowActions
                   batch={batch}
                   onStatusChange={handleStatusChange}
                   loading={loadingId === batch.id}
                 />
-              </td>
-            </tr>
+              </TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
   );
 }

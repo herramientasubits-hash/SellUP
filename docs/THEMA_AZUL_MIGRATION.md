@@ -125,6 +125,8 @@ Una card anidada siempre redondea menos que la que la contiene. No hay radios ar
 
 **Lista / tabla** — `DataTablePage` + `DataTable` (nunca `<Table>` directo). Estados: cargando (skeleton de la tabla), vacío (`EmptyState` con acción), error (`Alert variant="destructive"`).
 
+**Tabla de solo lectura** (historiales, desgloses, comparaciones dentro de un drawer) — `Table`, `TableHeader`, `TableBody`, `TableRow`, `TableHead`, `TableCell` de `@/components/ui/table`, nunca `<table>`/`<tr>`/`<td>` a mano: la pieza ya pone el fondo de cabecera, los bordes, la altura, el hover y la tipografía, así que en `className` solo queda lo propio (ancho, `text-right tabular-nums` en números y montos, `whitespace-normal` en texto largo, `colSpan`, `sticky`). Fila seleccionada: `data-state="selected"`. Con título propio va dentro de `TableShell` (`@/components/data-display`), que trae título, descripción, acciones, vacío y pie; si vive dentro de una card o un drawer que ya tiene título, basta un contenedor `overflow-x-auto rounded-xl border border-border/60`. Fila vacía: `empty` de `TableShell` o `EmptyState variant="plain"` en una celda con `colSpan`.
+
 **Drawer** — `DrawerShell` con `title`, `description`, `icon`. El cuerpo se arma con `DrawerSection` (icono + título + hint + contenido) en `space-y-4`; nunca cajas con borde dentro de cajas con borde. Pie: secundaria (`outline`) a la izquierda, primaria a la derecha. Con varias áreas: `Tabs` (§ 11 Foundation).
 
 **Modal** — `ModalShell` para formularios cortos, `ConfirmDialog` para confirmar. Un modal no hace scroll largo: si el contenido crece, es un drawer.
@@ -168,8 +170,12 @@ Revisar en claro y oscuro, y a 375px.
 primitivo headless fuera de `src/components/ui`; un icono importado de la librería en vez de `@/icons`; un color literal; paleta cruda de Tailwind; un tamaño de
 letra, un z-index, una sombra o un radio arbitrarios; un rótulo en MAYÚSCULAS con tracking; `font-black` /
 `font-extrabold`; clases `*-su-brand`; texto atenuado con opacidad; `text-white` a mano; o un
-`Button` / `Input` / `SelectTrigger` / `Badge` con radio, alto o tipografía sobrescritos por `className`.
+`Button` / `Input` / `SelectTrigger` / `Badge` con radio, alto o tipografía sobrescritos por `className`;
+o una tabla HTML escrita a mano en un `.tsx` (regla `tabla-a-mano`: `<table>`, `<thead>`, `<tbody>`,
+`<tfoot>`, `<tr>`, `<th>`, `<td>`; se usan las piezas de `@/components/ui/table`).
 
 Las excepciones se declaran en el propio script (`ALLOW`), cada una con su motivo: el panel de marca del
 login, la identidad de IA (orbes y velos de carga), el logotipo de Google, los gráficos y dos archivos cuya
-cadena de clases está fijada por una prueba.
+cadena de clases está fijada por una prueba. Para `tabla-a-mano` se admiten solo `ui/table.tsx` (es la
+pieza), `ui/calendar.tsx` (rejilla de react-day-picker) y `src/components/data-table/` (la tabla operable de
+TanStack, cuya cabecera reordenable necesita su propio `<th>`).

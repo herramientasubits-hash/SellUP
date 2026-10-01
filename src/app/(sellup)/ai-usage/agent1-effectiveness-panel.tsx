@@ -31,6 +31,7 @@ import type {
   RecordOrigin,
   RejectionReason,
 } from '@/modules/agent1-effectiveness';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 // ============================================================
 // Format helpers (local — mirror the /ai-usage conventions)
@@ -285,28 +286,23 @@ function ProviderBreakdownTable({
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border/60">
+    <div className="overflow-x-auto rounded-xl border border-border/60">
+      <Table>
+        <TableHeader>
+          <TableRow>
             {['Proveedor', 'Operación', 'Logs', 'Créditos', 'Resultados', 'Costo est.', 'Sin costo', 'Costo 0'].map(
               (h) => (
-                <th
-                  key={h}
-                  className={`pb-2.5 text-xs font-semibold text-muted-foreground ${
-                    h === 'Proveedor' || h === 'Operación' ? 'text-left' : 'text-right'
-                  } pr-4 last:pr-0`}
-                >
+                <TableHead key={h} className={h === 'Proveedor' || h === 'Operación' ? 'text-left' : 'text-right'}>
                   {h}
-                </th>
+                </TableHead>
               ),
             )}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border/40">
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {rows.map((r) => (
-            <tr key={`${r.providerKey}::${r.operationKey}`}>
-              <td className="py-3 pr-4">
+            <TableRow key={`${r.providerKey}::${r.operationKey}`}>
+              <TableCell>
                 <div className="flex items-center gap-2">
                   <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-surface-subtle">
                     <Plug className="h-3.5 w-3.5 text-muted-foreground" />
@@ -315,40 +311,40 @@ function ProviderBreakdownTable({
                     {providerDisplayName(r.providerKey)}
                   </span>
                 </div>
-              </td>
-              <td className="py-3 pr-4 text-muted-foreground max-w-44 truncate" title={r.operationKey}>
+              </TableCell>
+              <TableCell className="text-muted-foreground max-w-44 truncate" title={r.operationKey}>
                 {r.operationKey.replace(/_/g, ' ')}
-              </td>
-              <td className="py-3 pr-4 text-right text-muted-foreground">{r.usageLogsCount}</td>
-              <td className="py-3 pr-4 text-right font-mono tabular-nums text-muted-foreground">
+              </TableCell>
+              <TableCell className="text-right text-muted-foreground">{r.usageLogsCount}</TableCell>
+              <TableCell className="text-right font-mono tabular-nums text-muted-foreground">
                 {r.credits.toLocaleString('es-ES')}
-              </td>
-              <td className="py-3 pr-4 text-right text-muted-foreground">{r.resultsReturned}</td>
-              <td className="py-3 pr-4 text-right font-mono tabular-nums text-muted-foreground">
+              </TableCell>
+              <TableCell className="text-right text-muted-foreground">{r.resultsReturned}</TableCell>
+              <TableCell className="text-right font-mono tabular-nums text-muted-foreground">
                 {r.estimatedCostUsd === 0 && r.missingCostRows === 0 ? (
                   <span className="text-text-muted">—</span>
                 ) : (
                   formatUsd(r.estimatedCostUsd, 2)
                 )}
-              </td>
-              <td className="py-3 pr-4 text-right">
+              </TableCell>
+              <TableCell className="text-right">
                 {r.missingCostRows > 0 ? (
                   <span className="font-mono text-warning">{r.missingCostRows}</span>
                 ) : (
                   <span className="text-text-muted">0</span>
                 )}
-              </td>
-              <td className="py-3 text-right">
+              </TableCell>
+              <TableCell className="text-right">
                 {r.zeroCostRows > 0 ? (
                   <span className="font-mono tabular-nums text-muted-foreground">{r.zeroCostRows}</span>
                 ) : (
                   <span className="text-text-muted">0</span>
                 )}
-              </td>
-            </tr>
+              </TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
   );
 }

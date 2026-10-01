@@ -41,6 +41,7 @@ import {
 import { resolveBatchCandidatesPanelState } from '@/components/prospect-batches/batch-candidates-panel-state';
 import type { BatchStatus, BatchSource } from '@/modules/prospect-batches/types';
 import { getIcpSizeGateSummaryUiState } from '@/components/prospect-batches/icp-size-gate-ui';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 const BATCH_SOURCE_VENDOR_LABELS: Partial<Record<BatchSource, string>> = {
   socrata_colombia: 'Fuente oficial',
@@ -612,17 +613,17 @@ export default async function BatchDetailPage({ params }: Props) {
             Estas empresas aparecen en la tabla de arriba. Aquí sólo se explica la
             señal de calidad; no cambia qué acciones autoriza la revisión.
           </p>
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-border/60 text-left text-xs font-semibold text-muted-foreground">
-                  <th className="px-3 py-2">Empresa</th>
-                  <th className="px-3 py-2">Razón social / Identificador</th>
-                  <th className="px-3 py-2">Ubicación</th>
-                  <th className="px-3 py-2">Señal / Motivo</th>
-                </tr>
-              </thead>
-              <tbody>
+          <div className="mt-4 overflow-x-auto rounded-lg border border-border/60">
+            <Table className="text-xs">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Empresa</TableHead>
+                  <TableHead>Razón social / Identificador</TableHead>
+                  <TableHead>Ubicación</TableHead>
+                  <TableHead>Señal / Motivo</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {qualityFlaggedCandidates.map((c) => {
                   const flags = c.review_flags ?? [];
                   const reasons: string[] = [];
@@ -658,23 +659,23 @@ export default async function BatchDetailPage({ params }: Props) {
                   });
 
                   return (
-                    <tr key={c.id} className="border-b border-border/50 last:border-0 hover:bg-surface-muted">
-                      <td className="px-3 py-2 font-medium text-foreground">{c.name}</td>
-                      <td className="px-3 py-2 font-mono">
+                    <TableRow key={c.id}>
+                      <TableCell className="font-medium text-foreground">{c.name}</TableCell>
+                      <TableCell className="whitespace-normal font-mono">
                         {c.legal_name || '—'}
                         {c.tax_identifier && <span className="block text-xs text-muted-foreground">NIT/ID: {c.tax_identifier}</span>}
-                      </td>
-                      <td className="px-3 py-2 text-muted-foreground">{c.city || c.region || '—'}</td>
-                      <td className="px-3 py-2">
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{c.city || c.region || '—'}</TableCell>
+                      <TableCell className="whitespace-normal">
                         <span className="inline-block rounded-md bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning">
                           {reasons.length > 0 ? reasons.join(', ') : 'Omitida por calidad'}
                         </span>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </details>
       )}

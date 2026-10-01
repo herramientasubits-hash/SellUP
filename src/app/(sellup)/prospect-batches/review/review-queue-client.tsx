@@ -54,6 +54,7 @@ import type {
   PendingReviewCandidate,
   PendingReviewBatch,
 } from '@/modules/prospect-review/types';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 // Friendly messages for each typed rejection reason from the approve action.
 const APPROVE_ERROR_MESSAGES: Record<string, string> = {
@@ -454,33 +455,30 @@ export function ReviewQueueClient({
 
               {/* Candidates table */}
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border/60">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
                       {['Empresa', 'País', 'Industria', 'Fit', 'Conf.', 'Compl.', 'Duplicado', 'HubSpot', 'Antigüedad', 'Estado'].map(
                         (h) => (
-                          <th
-                            key={h}
-                            className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground"
-                          >
+                          <TableHead key={h}>
                             {h}
-                          </th>
+                          </TableHead>
                         ),
                       )}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/40">
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {group.candidates.map((c) => {
                       const host = hostname(c.website, c.domain);
                       const href = externalHref(c.website, c.domain);
                       const age = ageInDays(c.createdAt, new Date(nowISO));
                       return (
-                        <tr
+                        <TableRow
                           key={c.id}
                           onClick={() => setSelectedId(c.id)}
-                          className="cursor-pointer transition-colors hover:bg-surface-muted"
+                          className="cursor-pointer"
                         >
-                          <td className="px-4 py-3">
+                          <TableCell>
                             <div className="flex flex-col">
                               <span className="font-medium text-foreground">{c.name ?? '—'}</span>
                               {host && (
@@ -500,37 +498,37 @@ export function ReviewQueueClient({
                                 )
                               )}
                             </div>
-                          </td>
-                          <td className="px-4 py-3 text-muted-foreground">
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
                             {countryLabel(c.countryCode)}
-                          </td>
-                          <td className="px-4 py-3 text-muted-foreground">{c.industry ?? '—'}</td>
-                          <td className="px-4 py-3">
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">{c.industry ?? '—'}</TableCell>
+                          <TableCell>
                             <ScoreCell score={c.fitScore} />
-                          </td>
-                          <td className="px-4 py-3">
+                          </TableCell>
+                          <TableCell>
                             <ConfidenceBadge score={c.confidenceScore} />
-                          </td>
-                          <td className="px-4 py-3">
+                          </TableCell>
+                          <TableCell>
                             <ScoreCell score={c.dataCompletenessScore} />
-                          </td>
-                          <td className="px-4 py-3">
+                          </TableCell>
+                          <TableCell>
                             <DuplicateBadge candidate={c} />
-                          </td>
-                          <td className="px-4 py-3">
+                          </TableCell>
+                          <TableCell>
                             <HubspotBadge candidate={c} />
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
                             {formatAge(age)}
-                          </td>
-                          <td className="px-4 py-3">
+                          </TableCell>
+                          <TableCell>
                             <Badge variant="warning">Por revisar</Badge>
-                          </td>
-                        </tr>
+                          </TableCell>
+                        </TableRow>
                       );
                     })}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
             </SurfaceCard>
           );
