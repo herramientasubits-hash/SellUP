@@ -255,3 +255,55 @@ export async function persistApolloRejectedDispositions(
     return result;
   }
 }
+
+/**
+ * AGENT1-FREE-SOURCE-UNVERIFIED-1 — UPSERT genérico de filas ya construidas
+ * (p. ej. las empresas de un catálogo oficial sin sitio web). Misma idempotencia
+ * que el de Apollo (`ON CONFLICT (batch_id, source_key)`). Nunca lanza.
+ */
+export async function persistDiscardedDispositionRows(
+  rows: readonly CreateDiscardedDispositionInput[],
+): Promise<{ attempted: number; persisted: number; failed: number; errors: string[] }> {
+  const result = { attempted: 0, persisted: 0, failed: 0, errors: [] as string[] };
+  try {
+    const unique = new Map<string, CreateDiscardedDispositionInput>();
+    for (const row of rows) if (!unique.has(row.sourceKey)) unique.set(row.sourceKey, row);
+    const uniqueRows = [...unique.values()];
+    result.attempted = uniqueRows.length;
+    if (uniqueRows.length === 0) return result;
+    const { data, error } = await getAdminClient()
+      .from("prospect_discarded_dispositions")
+      .upsert(
+        uniqueRows.map((row) => ({
+          batch_id: row.batchId,
+          provider_identifier: row.providerIdentifier ?? null,
+          source_key: row.sourceKey,
+          name: row.name,
+          domain: row.domain ?? null,
+          country_code: row.countryCode ?? null,
+          industry: row.industry ?? null,
+          source_primary: row.sourcePrimary ?? null,
+          round_origin: row.roundOrigin ?? null,
+          disposition: row.disposition,
+          reason_code: row.reasonCode ?? null,
+          reason_detail: row.reasonDetail ?? null,
+          evidence: row.evidence ?? {},
+        })),
+        { onConflict: "batch_id,source_key", ignoreDuplicates: false },
+      )
+      .select("id");
+    if (error) {
+      result.failed = uniqueRows.length;
+      result.errors.push(error.message);
+      console.error("[prospect-discards] persistDiscardedDispositionRows upsert failed (non-critical):", error);
+      return result;
+    }
+    result.persisted = data?.length ?? uniqueRows.length;
+    return result;
+  } catch (err) {
+    result.failed = result.attempted;
+    result.errors.push(err instanceof Error ? err.message : String(err));
+    console.error("[prospect-discards] persistDiscardedDispositionRows failed (non-critical):", err);
+    return result;
+  }
+}

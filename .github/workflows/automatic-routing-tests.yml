@@ -6283,6 +6283,14 @@ jobs:
       - name: Run Agent 1 delivery cap tests
         run: npm run test:a1-delivery-cap
 
+      # AGENT1-FREE-SOURCE-UNVERIFIED-1 - una empresa de un catalogo oficial sin
+      # sitio web no cuenta para la meta: va a Descartadas (missing_domain_final)
+      # para que el rescate con Claude busque su sitio.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 free source unverified tests
+        run: npm run test:a1-free-source-unverified
+
       # AGENT1-TAVILY-V2-1 - Tavily compite con Apollo y Lusha: consultas desde
       # el catalogo de 12 macro industrias (rotacion por lote, pais e idioma),
       # universidades/gobierno/gremios pasan el filtro y los directorios no,
