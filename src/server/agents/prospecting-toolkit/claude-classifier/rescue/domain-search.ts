@@ -20,6 +20,13 @@ import { CLAUDE_RESCUE_METADATA_KEY } from './rescue-patch';
 export const DOMAIN_SEARCH_REASON_CODE = 'missing_domain_final';
 export const CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY = 'claude_domain_search';
 export const CLAUDE_DOMAIN_SEARCH_OPERATION_KEY = 'company_domain_search';
+/**
+ * Versión del buscador. d1 = #514 (30-09). d2 (01-10): nombre desde el slug de LinkedIn
+ * cuando falta el original, subdominios de un resultado y URL fuera de la búsqueda si
+ * enlaza al mismo LinkedIn. Un «no encontrado» de una versión anterior se reintenta UNA vez.
+ */
+export const DOMAIN_SEARCH_VERSION = 'd2';
+
 /** Errores pasajeros (modelo, sitio caído) se reintentan hasta este número de búsquedas. */
 export const DOMAIN_SEARCH_MAX_ATTEMPTS = 3;
 const TRANSIENT_REASONS: ReadonlySet<string> = new Set(['model_error', 'page_unreachable']);
@@ -54,9 +61,40 @@ function readString(evidence: Evidence | null, key: string): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-/** El `name` de la disposición viene normalizado («colombia sii»); el original es mejor. */
+/**
+ * «bbva-technology-en-america» → «Bbva Technology En America». Conserva el orden de
+ * las palabras, que el `name` normalizado pierde. Quita el sufijo numérico que
+ * LinkedIn agrega a slugs repetidos («unam_3», «prepa-en-linea-sep-286»).
+ */
+export function nameFromLinkedInSlug(linkedinUrl: string | null): string | null {
+  if (!linkedinUrl) return null;
+  const slug = normalizeLinkedInCompanyUrl(linkedinUrl).slug;
+  if (!slug) return null;
+  let decoded = slug;
+  try {
+    decoded = decodeURIComponent(slug);
+  } catch {
+    // slug con % suelto: se usa tal cual
+  }
+  const words = decoded
+    .replace(/[-_.]+\d+$/, '')
+    .split(/[-_.]+/)
+    .filter(Boolean);
+  if (words.length === 0) return null;
+  return words.map((w) => w.charAt(0).toLocaleUpperCase('es') + w.slice(1)).join(' ');
+}
+
+/**
+ * El `name` de la disposición viene normalizado y desordenado («america bbva en
+ * technology»). Primero el nombre original del proveedor; si falta (56 de 166 en
+ * Prod el 01-10, todo el lote MX×Tec), el del slug de LinkedIn.
+ */
 export function dispositionDisplayName(row: Pick<DomainSearchRow, 'name' | 'evidence'>): string {
-  return readString(row.evidence, 'provider_raw_name') ?? row.name;
+  return (
+    readString(row.evidence, 'provider_raw_name') ??
+    nameFromLinkedInSlug(readString(row.evidence, 'linkedin_url')) ??
+    row.name
+  );
 }
 
 export function dispositionLinkedInUrl(row: Pick<DomainSearchRow, 'evidence'>): string | null {
@@ -64,6 +102,14 @@ export function dispositionLinkedInUrl(row: Pick<DomainSearchRow, 'evidence'>): 
   if (!raw) return null;
   const normalized = normalizeLinkedInCompanyUrl(raw);
   return normalized.rejected ? null : normalized.normalized;
+}
+
+/** «Sitio no encontrado» con una versión vieja del buscador: vale un intento con la nueva. */
+export function websiteNotFoundWithOlderSearch(evidence: Evidence | null): boolean {
+  const rescue = evidence?.[CLAUDE_RESCUE_METADATA_KEY] as { decision?: unknown } | undefined;
+  if (rescue?.decision !== 'website_not_found') return false;
+  const search = evidence?.[CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY] as { search_version?: unknown } | undefined;
+  return search?.search_version !== DOMAIN_SEARCH_VERSION;
 }
 
 export function isDomainSearchCandidate(row: Pick<DomainSearchRow, 'domain' | 'reason_code'>): boolean {
@@ -95,6 +141,7 @@ export function buildFoundEvidence(evidence: Evidence | null, found: FoundWebsit
     ...(evidence ?? {}),
     [CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY]: {
       contract_version: CLAUDE_CLASSIFIER_CONTRACT_VERSION,
+      search_version: DOMAIN_SEARCH_VERSION,
       searched_at: searchedAt,
       found: true,
       website: found.website,
@@ -122,10 +169,12 @@ export function buildDomainSearchStaysEvidence(
     params.kind === 'not_found'
       ? {
           contract_version: CLAUDE_CLASSIFIER_CONTRACT_VERSION,
+          search_version: DOMAIN_SEARCH_VERSION,
           searched_at: decidedAt,
           found: false,
           attempts,
           reason: params.outcome.reason,
+          claimed_url: params.outcome.claimedUrl ?? null,
           error_code: params.outcome.errorCode ?? null,
         }
       : {

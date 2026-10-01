@@ -4,7 +4,8 @@
  * con LinkedIn y nombre original del proveedor).
  *
  * Nada de lo que diga Claude se acepta sin comprobar:
- *  1. la URL tiene que haber salido de su búsqueda web;
+ *  1. la URL tiene que haber salido de su búsqueda web (o un subdominio de ella),
+ *     salvo que el sitio enlace al MISMO LinkedIn: esa prueba basta por sí sola;
  *  2. no puede ser una plataforma (LinkedIn, directorios, redes, marketplaces);
  *  3. la descargamos NOSOTROS y tiene que responder con texto;
  *  4. el sitio tiene que enlazar al MISMO LinkedIn de la empresa, o el nombre de
@@ -52,6 +53,8 @@ export type DomainFinderOutcome =
       website: string;
       domain: string;
       verification: 'linkedin_cross_link' | 'name_match';
+      /** false = la URL no salió de la búsqueda; sólo se acepta si el sitio enlaza al mismo LinkedIn. */
+      inSearchResults: boolean;
       usage: ClassifierUsage | null;
     }
   | {
@@ -65,6 +68,8 @@ export type DomainFinderOutcome =
         | 'identity_not_confirmed'
         | 'model_error';
       errorCode?: string | null;
+      /** La URL que propuso Claude (para diagnosticar), si propuso alguna. */
+      claimedUrl?: string | null;
       usage: ClassifierUsage | null;
     };
 
@@ -116,6 +121,11 @@ export function buildDomainFinderRequestBody(input: DomainFinderInput, model: st
   };
 }
 
+/** Mismo sitio: igual, o uno es subdominio del otro (`portal.unam.mx` ↔ `unam.mx`). */
+function sameSite(a: string, b: string): boolean {
+  return a === b || a.endsWith(`.${b}`) || b.endsWith(`.${a}`);
+}
+
 function hasSubmission(content: AnthropicConversationResult['content']): boolean {
   return content.some((b) => b.type === 'tool_use' && b.name === FIND_WEBSITE_TOOL_NAME);
 }
@@ -165,30 +175,34 @@ export async function findOfficialWebsite(
   const claimedDomain = claimed ? normalizeDomain(claimed) : null;
   if (!claimed || !claimedDomain) return { found: false, reason: 'no_candidate', usage };
 
-  const searchDomains = new Set(
-    extractSearchResultUrls(conversation.content)
-      .map((u) => normalizeDomain(u))
-      .filter((d): d is string => !!d),
-  );
-  if (!searchDomains.has(claimedDomain)) return { found: false, reason: 'not_in_search_results', usage };
+  const searchDomains = extractSearchResultUrls(conversation.content)
+    .map((u) => normalizeDomain(u))
+    .filter((d): d is string => !!d);
+  const inSearchResults = searchDomains.some((d) => sameSite(d, claimedDomain));
 
   if (!evaluateExternalPlatformGate(claimed, input.name).allowed) {
-    return { found: false, reason: 'platform_domain', usage };
+    return { found: false, reason: 'platform_domain', claimedUrl: claimed, usage };
   }
 
   let page: SafePageFetchResult;
   try {
     page = await deps.fetchPage(claimed);
   } catch (err) {
-    return { found: false, reason: 'page_unreachable', errorCode: err instanceof Error ? err.message : 'fetch_failed', usage };
+    return {
+      found: false,
+      reason: 'page_unreachable',
+      errorCode: err instanceof Error ? err.message : 'fetch_failed',
+      claimedUrl: claimed,
+      usage,
+    };
   }
   const html = page.html ?? '';
   if (!page.html || (page.httpStatus ?? 0) >= 400 || extractVisibleText(html).length < MIN_PAGE_TEXT_CHARS) {
-    return { found: false, reason: 'page_unreachable', errorCode: page.error, usage };
+    return { found: false, reason: 'page_unreachable', errorCode: page.error, claimedUrl: claimed, usage };
   }
   // Redirige a OTRO dominio (parqueado, marketplace, otra empresa): ese dominio no se comprobó.
   if (isOffsiteRedirect(claimed, page.finalUrl)) {
-    return { found: false, reason: 'redirected_offsite', usage };
+    return { found: false, reason: 'redirected_offsite', claimedUrl: claimed, usage };
   }
   const finalDomain = normalizeDomain(page.finalUrl ?? claimed) ?? claimedDomain;
   const website = `https://${finalDomain}`;
@@ -196,13 +210,15 @@ export async function findOfficialWebsite(
   const expectedSlug = linkedinSlug(input.linkedinUrl);
   const siteSlugs = extractLinkedInCompanyUrlsFromHtml(html).map((u) => linkedinSlug(u));
   if (expectedSlug && siteSlugs.includes(expectedSlug)) {
-    return { found: true, website, domain: finalDomain, verification: 'linkedin_cross_link', usage };
+    return { found: true, website, domain: finalDomain, verification: 'linkedin_cross_link', inSearchResults, usage };
   }
+  // Sin enlace al mismo LinkedIn, la URL TIENE que haber salido de la búsqueda (no inventada).
+  if (!inSearchResults) return { found: false, reason: 'not_in_search_results', claimedUrl: claimed, usage };
 
   const signals = extractPageSignals(html);
   const { score } = scoreCompanyNameAgainstPage(input.name, finalDomain, signals.title, signals.metaDescription);
   if (score >= FINDER_MIN_NAME_SCORE) {
-    return { found: true, website, domain: finalDomain, verification: 'name_match', usage };
+    return { found: true, website, domain: finalDomain, verification: 'name_match', inSearchResults, usage };
   }
-  return { found: false, reason: 'identity_not_confirmed', usage };
+  return { found: false, reason: 'identity_not_confirmed', claimedUrl: claimed, usage };
 }
