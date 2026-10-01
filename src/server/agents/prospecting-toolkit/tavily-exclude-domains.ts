@@ -44,6 +44,10 @@ export const TAVILY_STATIC_EXCLUDE_DOMAINS: readonly string[] = Object.freeze([
   // estudios de mercado, comercio exterior y repositorios académicos
   'statista.com', 'fortunebusinessinsights.com', 'mordorintelligence.com',
   'seair.co.in', 'sciencedirect.com', 'researchgate.net',
+  // AGENT1-TAVILY-FREE-CREDITS-1 — ruido visto en Prod 01-10: excluirlo en la
+  // búsqueda hace que Tavily llene esos huecos con resultados útiles.
+  'opcionempleo.cl', 'opcionempleo.com', 'jobsora.com', 'laborum.cl', 'trabajando.com',
+  'dateas.com', 'licitador.co', 'elhospital.com',
 ]);
 
 export type TavilyExcludeDomainsInput = {

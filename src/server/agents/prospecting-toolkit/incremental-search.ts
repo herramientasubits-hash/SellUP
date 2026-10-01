@@ -92,7 +92,7 @@ import { type HistoricalCandidateRow } from './apollo-prepaid-historical-parity'
 // escribía su propio cuerpo y contaba NOVEDAD en vez de UTILIDAD.
 import { createApolloPaginationAcceptanceEvaluator } from './apollo-pagination-usefulness-authority';
 import { normalizeDomain } from './normalization';
-import { buildTavilyMacroQueryPlan } from './tavily-query-plan';
+import { TAVILY_RESULTS_PER_QUERY, buildTavilyMacroQueryPlan } from './tavily-query-plan';
 import { loadTavilyQueryHistory } from './tavily-query-history';
 import type { TavilyQueryHistory } from './tavily-query-space';
 import { buildTavilyExcludeDomains, type TavilyExcludeDomainsResult } from './tavily-exclude-domains';
@@ -1073,6 +1073,8 @@ export async function runIncrementalProspectingSearch(
       webSearchProvider: input.webSearchProvider ?? 'mock',
       mode: 'multi_query',
       targetCount: targetInternal,
+      // AGENT1-TAVILY-FREE-CREDITS-1 — 20 resultados por el mismo crédito.
+      ...(tavilyMacroQueryPlan ? { maxResultsPerQuery: TAVILY_RESULTS_PER_QUERY } : {}),
       queryOverrides,
       usageContext: roundUsageContext,
       // L2.7: subindustrias y tokens para Apollo. ProspectingPipelineInput los acepta

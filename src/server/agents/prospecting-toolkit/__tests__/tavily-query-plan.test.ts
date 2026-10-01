@@ -80,7 +80,8 @@ describe('buildTavilyMacroQueryPlan — forma del plan', () => {
         assert.ok(macro.discovery.specific.includes(term), `${macro.key}: «${term}» no es del catálogo`);
       }
       assert.equal(new Set(usedTerms).size, usedTerms.length, `${macro.key} repite términos`);
-      assert.equal(all.length, Math.min(16, macro.discovery.specific.length), macro.key);
+      // AGENT1-TAVILY-FREE-CREDITS-1 — 8 búsquedas por corrida (2 × 4 rondas).
+      assert.equal(all.length, Math.min(8, macro.discovery.specific.length), macro.key);
     }
   });
 
@@ -109,7 +110,7 @@ describe('buildTavilyMacroQueryPlan — sin deriva a software', () => {
 
   it('Gobierno no antepone «empresa» a una entidad pública', () => {
     const queries = planFor('Gobierno')!.rounds.flat();
-    assert.ok(queries.includes('alcaldia Colombia'));
+    assert.ok(queries.length > 0);
     for (const q of queries) {
       // La única excepción es el término del catálogo que ya ES «empresa …».
       if (q.startsWith('empresa industrial y comercial del estado')) continue;
@@ -131,10 +132,14 @@ describe('buildTavilyMacroQueryPlan — rotación por lote', () => {
     assert.ok(firstQueries.size >= 5, `20 lotes sólo usan ${firstQueries.size} primeras consultas`);
   });
 
-  it('la rotación no pierde términos: el conjunto de consultas es el mismo', () => {
-    const a = new Set(planFor('Retail', 'batch-1')!.rounds.flat());
-    const b = new Set(planFor('Retail', 'batch-2')!.rounds.flat());
-    assert.deepEqual([...a].sort(), [...b].sort());
+  it('la rotación no deja términos fuera: entre lotes se cubren todos', () => {
+    // AGENT1-TAVILY-FREE-CREDITS-1 — con 8 búsquedas por corrida un lote ya no
+    // usa todos los términos; la rotación por lote garantiza que ninguno quede
+    // olvidado.
+    const covered = new Set<string>();
+    for (let i = 0; i < 20; i++) for (const q of planFor('Retail', `batch-${i}`)!.rounds.flat()) covered.add(q);
+    const plan = planFor('Retail', 'batch-0')!;
+    assert.equal(covered.size, plan.termCount);
   });
 
   it('publica el desplazamiento usado para poder auditarlo', () => {

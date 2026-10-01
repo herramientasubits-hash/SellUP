@@ -64,7 +64,15 @@ import type {
 // A1-APOLLO-QA-CONTROL-SURFACE-1 § 7 — un solo lector de sesión y rol, compartido
 // con la capacidad que gobierna la superficie administrativa.
 import { isWizardApolloDiscoveryRolePermitted } from './wizard-run-provider-capability.server';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { isTavilyConfiguredForWizard } from './wizard-availability';
+import {
+  TAVILY_MONTHLY_CREDIT_CAP_ENV,
+  evaluateTavilyMonthlyCredits,
+  readTavilyCreditsUsedThisMonth,
+  resolveTavilyMonthlyCreditCap,
+  type TavilyMonthlyCreditsVerdict,
+} from '@/server/agents/prospecting-toolkit/tavily-monthly-credits';
 // A1-APOLLO-WIZARD-1 — preflight de Apollo. Antes, con Apollo seleccionado y
 // sin credencial, la ejecución reservaba presupuesto y lote y sólo entonces el
 // provider devolvía `skipped`; como la reconciliación es conservadora, eso
@@ -266,6 +274,12 @@ export type WizardExecutionDeps = {
   getActiveUserId: () => Promise<string>;
   resolveCatalog: (input: CatalogResolutionInput) => Promise<CatalogResolutionOutput>;
   checkTavilyAvailability: () => Promise<boolean>;
+  /**
+   * AGENT1-TAVILY-FREE-CREDITS-1 — ¿alcanzan los créditos gratis de Tavily del
+   * mes para el peor caso de esta corrida? `null` = no se pudo leer (no bloquea:
+   * con el plan gratis, Tavily rechaza sin cobrar cuando se agotan).
+   */
+  checkTavilyMonthlyCredits?: (runMaxCredits: number) => Promise<TavilyMonthlyCreditsVerdict | null>;
   /**
    * A1-APOLLO-WIZARD-1: preflight de Apollo. Se ejecuta ANTES de cualquier
    * reserva. Opcional para no romper a los tests que sólo ejercitan Tavily; si
@@ -540,6 +554,20 @@ export async function executeProspectWizardGenerationAction(
     },
     resolveCatalog: (input) => resolveWizardCatalog(input, supabase),
     checkTavilyAvailability: isTavilyConfiguredForWizard,
+    // AGENT1-TAVILY-FREE-CREDITS-1 — sólo lectura, con el cliente de servicio
+    // (la RLS de `provider_usage_logs` no debe recortar el total del mes).
+    checkTavilyMonthlyCredits: async (runMaxCredits) => {
+      const nowMs = Date.now();
+      const usedCredits = await readTavilyCreditsUsedThisMonth(
+        budgetClient as unknown as SupabaseClient,
+        nowMs,
+      );
+      return evaluateTavilyMonthlyCredits({
+        usedCredits,
+        cap: resolveTavilyMonthlyCreditCap(process.env[TAVILY_MONTHLY_CREDIT_CAP_ENV]),
+        runMaxCredits,
+      });
+    },
 
     // A1-APOLLO-WIZARD-1 — preflight real. Ninguna comprobación llama a Apollo
     // ni gasta créditos: sólo verifica flag, capability, rol, presupuesto,
@@ -1742,6 +1770,29 @@ export async function executeProspectWizardGeneration(
   let reservationId: string | null;
   let creditsReserved: number;
   let budgetWasNew = false;
+
+  // AGENT1-TAVILY-FREE-CREDITS-1 — Tavily vive de los créditos gratis del mes
+  // (decisión de la dueña, 01-10). Si no alcanzan para el peor caso de esta
+  // corrida, no se empieza a pagar: se sella lo que trajo la capa gratuita.
+  if (discoveryProvider === 'tavily' && deps.checkTavilyMonthlyCredits) {
+    const monthly = await deps.checkTavilyMonthlyCredits(requestedCredits).catch(() => null);
+    if (monthly?.status === 'exhausted') {
+      await sealFreeContributionBatch();
+      return {
+        ok: false,
+        code: 'BUDGET_EXCEEDED',
+        message: `Se usaron los créditos gratis de Tavily de este mes (${monthly.usedCredits} de ${monthly.cap}). Vuelven el 1 del próximo mes.`,
+        retryable: false,
+        runProvider: runProviderOutcome,
+        budgetExceeded: {
+          reason: monthly.remaining <= 0 ? 'exhausted' : 'insufficient_for_run',
+          availableCredits: monthly.remaining,
+          requiredCredits: requestedCredits,
+        },
+        ...describeFreeContribution(),
+      };
+    }
+  }
 
   if (isApolloBudgetGate) {
     const checkApolloQuota = deps.checkApolloProviderQuota;

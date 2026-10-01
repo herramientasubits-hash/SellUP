@@ -22,12 +22,11 @@ export const WIZARD_ADAPTIVE_MAX_ROUNDS = 4;
 /**
  * AGENT1-TAVILY-V2-1 § 2 — tope de resultados evaluados por corrida.
  *
- * El default del runner (50) cortaba la corrida en la ronda 3: cada ronda deja
- * pasar hasta 20 resultados (4 consultas × 5), así que 20 + 20 + 20 ≥ 50 y la
- * ronda 4 del plan nunca se pagaba. 4 × 20 = 80 deja correr el plan completo
- * sin abrir más gasto: el tope de consultas (16) sigue mandando.
+ * AGENT1-TAVILY-FREE-CREDITS-1 — cada ronda deja pasar hasta 25 resultados (2
+ * búsquedas de 20, recortadas por el objetivo interno del pipeline): 4 × 25 =
+ * 100 deja correr el plan completo. El gasto lo acota el plan (8 búsquedas).
  */
-export const WIZARD_TAVILY_MAX_TOTAL_RAW_TO_EVALUATE = 80;
+export const WIZARD_TAVILY_MAX_TOTAL_RAW_TO_EVALUATE = 100;
 /**
  * AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 1 — DERIVADO, antes el literal `10`.
  *
