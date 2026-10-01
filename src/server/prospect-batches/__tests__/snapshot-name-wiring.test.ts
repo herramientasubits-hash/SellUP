@@ -65,7 +65,7 @@ describe('cableado', () => {
     const resolvers = buildColombiaOfficialSourceResolvers();
     assert.ok(Array.isArray(resolvers));
     for (const resolver of resolvers) {
-      assert.ok(['CO', 'DO', 'AR', 'EC', 'GT', 'HN', 'PE', 'PY', 'UY', 'US'].includes(resolver.countryCode), resolver.countryCode);
+      assert.ok(['CO', 'DO', 'AR', 'EC', 'GT', 'HN', 'PE', 'PY', 'UY', 'US', 'ES'].includes(resolver.countryCode), resolver.countryCode);
     }
   });
 
@@ -101,6 +101,12 @@ describe('cableado', () => {
       wiring,
       /createFallbackOfficialSourceResolver\(\s*createSnapshotNameOfficialSourceResolver\(\{\s*countryCode: 'US',\s*sourceKey: 'us_sec_edgar_registry',\s*taxIdentifierType: 'EIN',[\s\S]*?buildSnapshotNameQuery\(snapshotClient, 'us_sec_edgar_registry', 'US'\),\s*\}\),\s*createSnapshotNameOfficialSourceResolver\(\{\s*countryCode: 'US',\s*sourceKey: 'us_irs_eo_registry',\s*taxIdentifierType: 'EIN',[\s\S]*?buildSnapshotNameQuery\(snapshotClient, 'us_irs_eo_registry', 'US'\),/,
     );
+  });
+
+  it('el factory construye España (NIF de sociedad) sobre las adjudicatarias de la PLACSP', () => {
+    const wiring = read('src/server/prospect-batches/official-source-resolvers.ts');
+    assert.match(wiring, /countryCode: 'ES',\s*sourceKey: 'es_placsp_registry',\s*taxIdentifierType: 'NIF',/);
+    assert.match(wiring, /buildSnapshotNameQuery\(snapshotClient, 'es_placsp_registry', 'ES'\)/);
   });
 
   it('el resolvedor genérico es puro y la lectura no escribe', () => {
