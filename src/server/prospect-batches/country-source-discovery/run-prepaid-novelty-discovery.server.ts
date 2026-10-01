@@ -388,7 +388,7 @@ export async function runPrePaidNoveltyDiscovery(
           batchId: canonicalBatchId,
           metadata: { prepaid_novelty: { ...gate.telemetry, ...unverifiedTelemetry } },
         })
-      : { batchId: canonicalBatchId, writtenCount: 0, skippedCount: 0, failed: false };
+      : { batchId: null as string | null, writtenCount: 0, skippedCount: 0, failed: false };
 
   const discardsBatchId = persistence.batchId ?? canonicalBatchId;
   if (withoutDomain.length > 0 && discardsBatchId && deps.recordUnverified) {
