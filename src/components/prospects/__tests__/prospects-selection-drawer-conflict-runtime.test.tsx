@@ -211,13 +211,13 @@ describe('ProspectsDataTableClient — selection bar vs. side panel never coexis
   it('opening the detail via the company name link clears the selection and hides the bar', () => {
     renderTable();
     selectRowCheckbox(0);
-    assert.ok(screen.getByText('Seleccionados'), 'selection bar must appear once a row is selected');
+    assert.ok(screen.getByText(/^seleccionad[oa]s?$/), 'selection bar must appear once a row is selected');
 
     fireEvent.click(screen.getByText('Acme Analytics SA'));
 
     assert.equal(detailSheetProps.open, true, 'side panel must open');
     assert.equal(
-      screen.queryByText('Seleccionados'),
+      screen.queryByText(/^seleccionad[oa]s?$/),
       null,
       'selection bar must be gone once the side panel opens from the name link',
     );
@@ -226,12 +226,12 @@ describe('ProspectsDataTableClient — selection bar vs. side panel never coexis
   it('opening the detail via the "Ver detalle" bulk action clears the selection and hides the bar', () => {
     renderTable();
     selectRowCheckbox(0);
-    assert.ok(screen.getByText('Seleccionados'));
+    assert.ok(screen.getByText(/^seleccionad[oa]s?$/));
 
     fireEvent.click(screen.getByText('Ver detalle'));
 
     assert.equal(detailSheetProps.open, true);
-    assert.equal(screen.queryByText('Seleccionados'), null);
+    assert.equal(screen.queryByText(/^seleccionad[oa]s?$/), null);
   });
 
   it('opening the detail via the "Aprobar" bulk action clears the selection, hides the bar, and arms the approve intent (never approves directly)', () => {
@@ -243,7 +243,7 @@ describe('ProspectsDataTableClient — selection bar vs. side panel never coexis
     assert.equal(detailSheetProps.open, true, 'side panel must open');
     assert.equal(detailSheetProps.initialApproveIntent, true, 'approve intent must be armed');
     assert.equal(
-      screen.queryByText('Seleccionados'),
+      screen.queryByText(/^seleccionad[oa]s?$/),
       null,
       'selection bar must be gone once "Aprobar" opens the side panel',
     );
@@ -253,9 +253,9 @@ describe('ProspectsDataTableClient — selection bar vs. side panel never coexis
     renderTable();
     selectRowCheckbox(0);
     fireEvent.click(screen.getByText('Ver detalle'));
-    assert.equal(screen.queryByText('Seleccionados'), null);
+    assert.equal(screen.queryByText(/^seleccionad[oa]s?$/), null);
     // Nothing re-selects rows on its own — the bar stays gone.
-    assert.equal(screen.queryByText('Seleccionados'), null);
+    assert.equal(screen.queryByText(/^seleccionad[oa]s?$/), null);
   });
 });
 
@@ -293,7 +293,7 @@ describe('ProspectsDataTableClient — selection bar action hierarchy (matches s
     assert.equal(detailSheetProps.initialDiscardIntent, true, 'discard intent must be armed');
     assert.equal(detailSheetProps.initialApproveIntent, false, 'approve intent must NOT be armed');
     assert.equal(
-      screen.queryByText('Seleccionados'),
+      screen.queryByText(/^seleccionad[oa]s?$/),
       null,
       'selection bar must be gone once "Descartar" opens the side panel',
     );
@@ -341,7 +341,7 @@ describe('ProspectsDataTableClient — selection bar action hierarchy (matches s
     assert.equal(detailSheetProps.initialApproveIntent, false, 'approve intent must NOT be armed');
     assert.equal(detailSheetProps.initialDiscardIntent, false, 'discard intent must NOT be armed');
     assert.equal(
-      screen.queryByText('Seleccionados'),
+      screen.queryByText(/^seleccionad[oa]s?$/),
       null,
       'selection bar must be gone once "Marcar duplicado" opens the side panel',
     );

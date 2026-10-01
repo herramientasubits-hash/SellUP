@@ -157,7 +157,7 @@ function headerCell(columnId: string): HTMLElement {
 
 /** Cuántas filas dice la barra flotante que hay marcadas, o null si no hay barra. */
 function bulkBarCount(): number | null {
-  const label = screen.queryByText('Seleccionados');
+  const label = screen.queryByText(/^seleccionad[oa]s?$/);
   if (!label) return null;
   return Number(label.previousElementSibling?.textContent);
 }
@@ -513,7 +513,7 @@ describe('DataTable — dónde van las acciones y cómo se actúa sobre una fila
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar todos (5)' }));
     assert.ok(screen.getByText('5 seleccionadas'));
-    assert.equal(screen.queryByText('Seleccionados'), null, 'sin barra flotante');
+    assert.equal(screen.queryByText(/^seleccionad[oa]s?$/), null, 'sin barra flotante');
     assert.equal(screen.queryByText('Listado de empresas'), null, 'el título deja paso');
     assert.equal(reported.at(-1), 0, 'la pantalla no cede su barra: no hay barra masiva');
     assert.equal((screen.getByRole('button', { name: 'Ver detalle' }) as HTMLButtonElement).disabled, true);
@@ -534,7 +534,7 @@ describe('DataTable — dónde van las acciones y cómo se actúa sobre una fila
     });
     fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar todos (5)' }));
     assert.equal(reported.at(-1), 5);
-    assert.ok(screen.getByText('Seleccionados'));
+    assert.ok(screen.getByText(/^seleccionad[oa]s?$/));
   });
 
   it('«Menú en cada fila»: sin casillas, cada fila lleva sus acciones', async () => {

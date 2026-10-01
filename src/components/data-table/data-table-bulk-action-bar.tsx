@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { ChevronDown, Loader2, Pin, X } from "@/icons";
 
 import { cn } from "@/lib/utils";
+import { selectionWord } from "./data-table-utils";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -32,6 +33,8 @@ interface DataTableBulkActionBarProps<TData> {
   actions: DataTableBulkAction<TData>[];
   onPin?: () => void;
   onClear: () => void;
+  /** Género de lo que se cuenta: «1 seleccionada» frente a «1 seleccionado». */
+  gender?: "f" | "m";
   className?: string;
 }
 
@@ -52,6 +55,7 @@ export function DataTableBulkActionBar<TData>({
   actions,
   onPin,
   onClear,
+  gender = "m",
   className,
 }: DataTableBulkActionBarProps<TData>) {
   const { handleActionClick, confirmDialog } = useBulkActionRunner(selectedRows);
@@ -79,7 +83,7 @@ export function DataTableBulkActionBar<TData>({
           <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-semibold tabular-nums">
             {selectedCount}
           </span>
-          <span className="text-xs font-medium">Seleccionados</span>
+          <span className="text-xs font-medium">{selectionWord(selectedCount, gender)}</span>
         </div>
 
         <div className="h-5 w-px bg-white/15" />

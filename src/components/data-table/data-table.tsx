@@ -668,6 +668,7 @@ function DataTableInner<TData>(
           selectedRows={selectedRows}
           actions={bulkActions}
           onClear={clearSelection}
+          gender={nounGender}
         />
       )}
     </div>

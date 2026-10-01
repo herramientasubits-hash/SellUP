@@ -122,7 +122,7 @@ function selectRow(name: string): void {
 function bulkBar(): HTMLElement {
   // El arrastre de columnas también anuncia por `role="status"`: la barra es
   // la que dice cuántos hay seleccionados.
-  const bar = screen.getAllByRole('status').find((node) => node.textContent?.includes('Seleccionados'));
+  const bar = screen.getAllByRole('status').find((node) => /seleccionad[oa]s?/.test(node.textContent ?? ''));
   assert.ok(bar, 'la barra de selección debe estar a la vista');
   return bar;
 }
