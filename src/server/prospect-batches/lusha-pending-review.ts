@@ -3773,7 +3773,7 @@ export async function persistLushaPendingReviewBatch(
   // Nunca por debajo del objetivo (misma regla que el escritor de Apollo).
   const deliveryCap =
     execution?.maxDeliveredCandidates === undefined
-      ? resolveMaxDeliveredCandidates(process.env, targetGap)
+      ? resolveMaxDeliveredCandidates(undefined, targetGap)
       : execution.maxDeliveredCandidates === null
         ? null
         : Math.max(Math.trunc(execution.maxDeliveredCandidates), targetGap);

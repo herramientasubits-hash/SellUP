@@ -348,7 +348,7 @@ export async function runPrePaidNoveltyDiscovery(
   const deliveredFree = applyDeliveryCap(
     gate.acceptedCompanies,
     deps.maxDeliveredCandidates === undefined
-      ? resolveMaxDeliveredCandidates(process.env, input.requestedTarget)
+      ? resolveMaxDeliveredCandidates(undefined, input.requestedTarget)
       : deps.maxDeliveredCandidates,
     () => true,
   ).delivered;
