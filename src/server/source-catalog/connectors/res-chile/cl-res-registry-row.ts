@@ -64,7 +64,7 @@ export function buildClResRegistryRow(
   if (EXCLUDED_COMPANY_TYPES.has(companyType)) return null;
   const rut = normalizeChileRut(record['RUT']);
   const legalName = (record['Razon Social'] ?? '').replace(/\s+/g, ' ').trim();
-  if (rut === null || legalName.length === 0) return null;
+  if (rut === null) return null;
 
   const core = normalizeChileCompanyCore(legalName);
   if (core.length < 2) return null;
