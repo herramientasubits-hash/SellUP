@@ -13,7 +13,8 @@
  * Honduras (hn_contrataciones_abiertas) name→RTN and Perú (pe_sunat_registry)
  * name→RUC, Paraguay (py_set_registry) name→RUC, Uruguay
  * (uy_rupe_registry) name→RUT, Estados Unidos (SEC, then IRS) name→EIN and
- * España (es_placsp_registry, adjudicatarias) name→NIF. No promise of MX/… enrichment
+ * España (es_placsp_registry, adjudicatarias) name→NIF and Chile
+ * (cl_res_registry) name→RUT. No promise of MX/… enrichment
  * is made here;
  * unsupported countries fall through to the shared "unsupported" result (soft
  * warning) automatically.
@@ -60,6 +61,7 @@ import { normalizeParaguayCompanyCore } from '@/server/source-catalog/connectors
 import { normalizeUruguayCompanyCore } from '@/server/source-catalog/connectors/rupe-uruguay/uy-rupe-registry-row';
 import { normalizeUsCompanyCore } from '@/server/source-catalog/connectors/us-ein/us-ein-registry-rows';
 import { normalizeSpainCompanyCore } from '@/server/source-catalog/connectors/placsp-spain/es-placsp-registry-rows';
+import { normalizeChileCompanyCore } from '@/server/source-catalog/connectors/res-chile/cl-res-registry-row';
 import { createFallbackOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/fallback-official-source-resolver';
 import {
   buildRuesNameLiveQuery,
@@ -186,6 +188,15 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
       validTaxId: /^[A-HJNPQRSUVW]\d{7}[0-9A-J]$/,
       normalizeCore: normalizeSpainCompanyCore,
       querySnapshots: buildSnapshotNameQuery(snapshotClient, 'es_placsp_registry', 'ES'),
+    }),
+    // SOURCES-CL-RUT-BY-NAME-1 — sociedades del Registro de Empresas y Sociedades.
+    createSnapshotNameOfficialSourceResolver({
+      countryCode: 'CL',
+      sourceKey: 'cl_res_registry',
+      taxIdentifierType: 'RUT',
+      validTaxId: /^\d{7,8}-[\dK]$/,
+      normalizeCore: normalizeChileCompanyCore,
+      querySnapshots: buildSnapshotNameQuery(snapshotClient, 'cl_res_registry', 'CL'),
     }),
   ];
 }

@@ -65,7 +65,7 @@ describe('cableado', () => {
     const resolvers = buildColombiaOfficialSourceResolvers();
     assert.ok(Array.isArray(resolvers));
     for (const resolver of resolvers) {
-      assert.ok(['CO', 'DO', 'AR', 'EC', 'GT', 'HN', 'PE', 'PY', 'UY', 'US', 'ES'].includes(resolver.countryCode), resolver.countryCode);
+      assert.ok(['CO', 'DO', 'AR', 'EC', 'GT', 'HN', 'PE', 'PY', 'UY', 'US', 'ES', 'CL'].includes(resolver.countryCode), resolver.countryCode);
     }
   });
 
@@ -107,6 +107,12 @@ describe('cableado', () => {
     const wiring = read('src/server/prospect-batches/official-source-resolvers.ts');
     assert.match(wiring, /countryCode: 'ES',\s*sourceKey: 'es_placsp_registry',\s*taxIdentifierType: 'NIF',/);
     assert.match(wiring, /buildSnapshotNameQuery\(snapshotClient, 'es_placsp_registry', 'ES'\)/);
+  });
+
+  it('el factory construye Chile (RUT con DV) sobre el Registro de Empresas y Sociedades', () => {
+    const wiring = read('src/server/prospect-batches/official-source-resolvers.ts');
+    assert.match(wiring, /countryCode: 'CL',\s*sourceKey: 'cl_res_registry',\s*taxIdentifierType: 'RUT',/);
+    assert.match(wiring, /buildSnapshotNameQuery\(snapshotClient, 'cl_res_registry', 'CL'\)/);
   });
 
   it('el resolvedor genérico es puro y la lectura no escribe', () => {
