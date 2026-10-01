@@ -5,6 +5,7 @@ import { type ColumnDef } from '@tanstack/react-table';
 import { Link2, Building2, Globe, UserSearch } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
 import { DataTable, DataTableColumnHeader, type DataTableBulkAction } from '@/components/data-table';
 import { ContactsEnrichmentCTA } from '@/components/contact-enrichment/contacts-enrichment-cta';
 import { ContactCandidateDetailSheet } from '@/components/contact-enrichment/contact-candidate-detail-sheet';
@@ -44,7 +45,7 @@ const RELEVANCE_LABELS: Record<ContactRelevanceStatus, string> = {
 // plano (sin badge) — máximo un elemento de color fuerte por fila.
 const RELEVANCE_DOTS: Record<ContactRelevanceStatus, string> = {
   high_relevance: 'bg-success',
-  medium_relevance: 'bg-su-brand',
+  medium_relevance: 'bg-primary',
   low_relevance: 'bg-warning',
   not_relevant: 'bg-border',
   insufficient_data: 'bg-border',
@@ -97,7 +98,7 @@ function NameCell({ candidate }: { candidate: PendingContactCandidate }) {
             target="_blank"
             rel="noopener noreferrer"
             aria-label="Perfil de LinkedIn"
-            className="shrink-0 text-su-brand transition-colors hover:text-su-brand/70"
+            className="shrink-0 text-primary transition-colors hover:text-primary/70"
             onClick={(e) => e.stopPropagation()}
           >
             <Link2 className="h-3 w-3" />
@@ -409,18 +410,13 @@ export function ContactCandidatesDataTableClient({
       rowClickable
       onRowClick={openDetail}
       emptyState={
-        <div className="flex flex-col items-center justify-center py-12 text-center">
-          <div className="mb-3 rounded-full bg-surface-muted p-3">
-            <UserSearch className="h-6 w-6 text-text-muted" />
-          </div>
-          <p className="text-sm font-medium text-foreground">{queueCopy.emptyTitle}</p>
-          <p className="mt-1 max-w-sm text-xs text-muted-foreground">{queueCopy.emptyBody}</p>
-          {queueCopy.showEnrichmentCta && (
-            <div className="mt-4">
-              <ContactsEnrichmentCTA />
-            </div>
-          )}
-        </div>
+        <EmptyState
+          icon={UserSearch}
+          title={queueCopy.emptyTitle}
+          description={queueCopy.emptyBody}
+          action={queueCopy.showEnrichmentCta ? <ContactsEnrichmentCTA /> : undefined}
+          className="border-0 bg-transparent p-8"
+        />
       }
     />
     <ContactCandidateDetailSheet

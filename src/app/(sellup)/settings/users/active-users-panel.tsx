@@ -25,18 +25,20 @@ export function ActiveUsersPanel({ userCount, listContent, orgContent, groupsCon
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-sm text-muted-foreground">
           {userCount} {userCount === 1 ? 'usuario activo' : 'usuarios activos'}
         </span>
 
-        <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-surface-subtle p-1">
+        <div className="flex items-center gap-1 rounded-lg bg-tab-track p-1" role="group" aria-label="Vista de usuarios activos">
           {tabs.map(tab => (
             <button
               key={tab.id}
+              type="button"
+              aria-pressed={view === tab.id}
               onClick={() => setView(tab.id)}
               className={cn(
-                'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40',
                 view === tab.id
                   ? 'bg-card text-foreground shadow-card'
                   : 'text-muted-foreground hover:text-foreground',

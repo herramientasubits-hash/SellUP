@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { Alert } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -53,14 +55,14 @@ export function ActiveConfigForm({ providers, models, activeConfig }: ActiveConf
   return (
     <div className="flex flex-col gap-4">
       {activeModelNonExecutable && (
-        <div className="rounded-md border border-warning/40 bg-warning/10 px-4 py-2 text-sm text-warning">
+        <Alert variant="warning">
           El modelo activo de Claude no está disponible. Selecciona otro modelo o usa <strong>Actualizar modelos disponibles</strong> en el proveedor.
-        </div>
+        </Alert>
       )}
     <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
-      <div className="flex-1">
-        <Label className="text-xs text-muted-foreground mb-1.5 block">Proveedor activo</Label>
-        <Select 
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <Label>Proveedor activo</Label>
+        <Select
           value={selectedProvider} 
           onValueChange={(value) => {
             if (value) {
@@ -88,9 +90,9 @@ export function ActiveConfigForm({ providers, models, activeConfig }: ActiveConf
           </SelectContent>
         </Select>
       </div>
-      <div className="flex-1">
-        <Label className="text-xs text-muted-foreground mb-1.5 block">Modelo base</Label>
-        <Select 
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <Label>Modelo base</Label>
+        <Select
           value={selectedModel || ''}
           onValueChange={(value) => setSelectedModel(value || '')}
         >
@@ -118,20 +120,21 @@ export function ActiveConfigForm({ providers, models, activeConfig }: ActiveConf
           </SelectContent>
         </Select>
       </div>
-      <button
+      <Button
+        type="button"
         onClick={handleSave}
         disabled={!selectedProvider || !selectedModel || saving}
-        className="px-4 py-2 bg-su-brand text-primary-foreground rounded-md hover:bg-su-brand/90 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {saving ? 'Guardando...' : 'Guardar'}
-      </button>
+      </Button>
 
       {toast && (
-        <div className={`fixed bottom-8 left-1/2 -translate-x-1/2 transform px-4 py-3 rounded-lg shadow-drawer border z-50 bg-card ${
-          toast.type === 'success'
-            ? 'border-success/50 text-success dark:text-success'
-            : 'border-destructive/50 text-destructive'
-        }`}>
+        <div
+          role="status"
+          className={`fixed bottom-8 left-1/2 z-50 -translate-x-1/2 rounded-xl border border-border/60 bg-popover px-4 py-3 text-sm font-medium shadow-drawer ${
+            toast.type === 'success' ? 'text-success' : 'text-destructive'
+          }`}
+        >
           {toast.message}
         </div>
       )}

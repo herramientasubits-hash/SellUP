@@ -18,12 +18,12 @@ export function FormSection({
   ...props
 }: FormSectionProps) {
   return (
-    <Card className={cn("border-border bg-card shadow-card", className)} {...props}>
+    <Card className={cn("rounded-2xl border-border/60 bg-card shadow-card", className)} {...props}>
       {(title || description || actions) && (
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-6">
-          <div className="space-y-1">
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0 pb-6">
+          <div className="min-w-0 space-y-1">
             {title && (
-              <CardTitle className="text-lg font-bold text-foreground">
+              <CardTitle className="text-base font-semibold tracking-tight text-foreground">
                 {title}
               </CardTitle>
             )}
@@ -33,7 +33,7 @@ export function FormSection({
               </CardDescription>
             )}
           </div>
-          {actions && <div className="flex items-center space-x-2">{actions}</div>}
+          {actions && <div className="flex items-center gap-2">{actions}</div>}
         </CardHeader>
       )}
       <CardContent className={cn("space-y-6", (title || description || actions) ? "pt-0" : "pt-6")}>

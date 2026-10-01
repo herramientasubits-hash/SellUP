@@ -21,6 +21,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/feedback/EmptyState";
 
 export interface ImportCsvPanelProps {
@@ -73,11 +74,11 @@ export function ImportCsvPanel({
       <CardContent className="p-6 space-y-6">
         {/* Header/Instruction */}
         <div className="flex items-start gap-4">
-          <div className="p-3 rounded-xl bg-su-brand/5 text-su-brand border border-su-brand/10">
-            <FileSpreadsheet className="h-6 w-6" />
+          <div className="p-3 rounded-xl bg-primary/10 text-primary border border-primary/20">
+            <FileSpreadsheet className="h-6 w-6" aria-hidden="true" />
           </div>
-          <div className="flex flex-col">
-            <h3 className="text-lg font-bold">Importar Datos</h3>
+          <div className="flex min-w-0 flex-col">
+            <h3 className="text-base font-semibold tracking-tight">Importar Datos</h3>
             <p className="text-sm text-muted-foreground">
               Carga tu archivo CSV para previsualizar y validar los datos antes de importar.
             </p>
@@ -110,7 +111,7 @@ export function ImportCsvPanel({
                 status={status}
                 label={status === "uploading" ? "Cargando archivo..." : status === "validating" ? "Validando datos..." : "Procesado"}
                 error={error}
-                className="bg-surface-subtle p-4 rounded-xl border border-border/50"
+                className="bg-surface-subtle p-4 rounded-xl border border-border/60"
               />
             )}
           </div>
@@ -120,21 +121,21 @@ export function ImportCsvPanel({
         {hasFile && status !== "uploading" && (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <h4 className="text-sm font-bold flex items-center gap-2">
+              <h4 className="flex flex-wrap items-center gap-2 text-sm font-semibold">
                 Previsualización de Datos
-                <span className="text-xs font-normal px-1.5 py-0.5 rounded bg-muted text-muted-foreground uppercase">
+                <Badge variant="neutral">
                   Primeras {previewRows?.length} filas
-                </span>
+                </Badge>
               </h4>
             </div>
 
             {hasPreview ? (
-              <div className="rounded-xl border border-border/50 overflow-hidden bg-muted/5">
+              <div className="rounded-xl border border-border/60 overflow-hidden bg-card">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-surface-subtle hover:bg-surface-muted">
                       {previewColumns.map((col) => (
-                        <TableHead key={col.key} className="h-10 text-xs font-bold">
+                        <TableHead key={col.key} className="h-10 text-xs font-semibold">
                           {col.label}
                         </TableHead>
                       ))}
@@ -144,7 +145,7 @@ export function ImportCsvPanel({
                     {previewRows.map((row, idx) => (
                       <TableRow key={idx} className="hover:bg-surface-muted">
                         {previewColumns.map((col) => (
-                          <TableCell key={col.key} className="py-2 text-xs truncate max-w-[200px]">
+                          <TableCell key={col.key} className="py-2 text-xs truncate max-w-[200px]" title={String(row[col.key] ?? "")}>
                             {String(row[col.key] ?? "")}
                           </TableCell>
                         ))}
@@ -155,7 +156,7 @@ export function ImportCsvPanel({
               </div>
             ) : status === "success" ? (
               <div className="p-12 border-2 border-dashed rounded-xl flex flex-col items-center text-center gap-3">
-                <Info className="h-8 w-8 text-muted-foreground" />
+                <Info className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
                 <div className="space-y-1">
                   <p className="text-sm font-medium">No hay vista previa disponible</p>
                   <p className="text-xs text-muted-foreground">Los datos han sido procesados correctamente.</p>
@@ -174,7 +175,7 @@ export function ImportCsvPanel({
 
         {/* Footer Actions */}
         {actions && (
-          <div className="px-6 py-4 bg-surface-subtle border-t border-border/50 flex items-center justify-end gap-3">
+          <div className="px-6 py-4 bg-surface-subtle border-t border-border/50 flex flex-wrap items-center justify-end gap-3">
             {actions}
           </div>
         )}

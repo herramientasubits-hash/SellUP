@@ -96,30 +96,30 @@ export function CheckboxCardGroup({
                 disabled={isDisabled}
                 onClick={() => handleToggle(option.value)}
                 className={cn(
-                  "group flex flex-col w-full text-left p-0 rounded-xl outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-su-brand focus-visible:ring-offset-2",
+                  "group flex flex-col w-full text-left p-0 rounded-2xl outline-none transition-all duration-200 focus-visible:ring-3 focus-visible:ring-ring/40",
                 )}
               >
                 <Card className={cn(
-                  "flex flex-col w-full h-full p-5 border-2 transition-all duration-200",
+                  "flex flex-col w-full h-full p-5 border-2 shadow-none transition-all duration-200",
                   isSelected
-                    ? "border-su-brand bg-su-brand/[0.02] ring-1 ring-su-brand/20"
-                    : "border-border/50 bg-card hover:border-su-brand/30",
-                  isDisabled && "opacity-50 grayscale-[0.5] hover:border-border/50"
+                    ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                    : "border-border/60 bg-card hover:border-primary/30",
+                  isDisabled && "opacity-50 grayscale-[0.5] hover:border-border/60"
                 )}>
                   {/* Header: Icon + Badge */}
                   <div className="flex items-start justify-between gap-3 mb-4">
                     <div className={cn(
                       "p-2.5 rounded-xl border transition-colors",
                       isSelected
-                        ? "bg-su-brand text-su-brand-foreground border-su-brand"
-                        : "bg-surface-muted text-muted-foreground border-border/50 group-hover:bg-su-brand/5 group-hover:text-su-brand group-hover:border-su-brand/20"
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-surface-muted text-muted-foreground border-border/60 group-hover:bg-primary/5 group-hover:text-primary group-hover:border-primary/20"
                     )}>
-                      {Icon ? <Icon className="h-5 w-5" /> : <Checkbox checked={isSelected} className="rounded" />}
+                      {Icon ? <Icon className="h-5 w-5" aria-hidden="true" /> : <Checkbox checked={isSelected} className="rounded" />}
                     </div>
                     {option.badge && (
                       <Badge
                         variant={isSelected ? "default" : "outline"}
-                        className="font-bold text-xs"
+                        className="font-semibold"
                       >
                         {option.badge}
                       </Badge>
@@ -129,11 +129,11 @@ export function CheckboxCardGroup({
                   {/* Content */}
                   <div className="flex flex-col min-w-0 flex-1">
                     {option.eyebrow && (
-                      <span className="text-xs font-bold text-su-brand/70 mb-1">
+                      <span className="text-xs font-semibold text-primary mb-1">
                         {option.eyebrow}
                       </span>
                     )}
-                    <h4 className="text-sm font-bold truncate leading-snug">
+                    <h4 className="text-sm font-semibold truncate leading-snug">
                       {option.label}
                     </h4>
                     {option.description && (
@@ -145,10 +145,11 @@ export function CheckboxCardGroup({
 
                   {/* Multiple Selection Indicator (Visual Checkbox) */}
                   <div className={cn(
-                    "absolute top-2 right-2 flex items-center justify-center h-5 w-5 rounded border-2 transition-all duration-200",
-                    isSelected ? "bg-su-brand border-su-brand text-su-brand-foreground scale-100" : "bg-muted border-border/50 text-transparent scale-90 opacity-0 group-hover:opacity-100"
+                    "absolute top-2 right-2 flex items-center justify-center h-5 w-5 rounded-xs border-2 transition-all duration-200",
+                    isSelected ? "bg-primary border-primary text-primary-foreground scale-100" : "bg-muted border-border/60 text-transparent scale-90 opacity-0 group-hover:opacity-100"
                   )}>
                     <svg
+                      aria-hidden="true"
                       className="h-3 w-3 stroke-current"
                       viewBox="0 0 24 24"
                       fill="none"

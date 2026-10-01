@@ -27,6 +27,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { DrawerSection } from '@/components/shared/drawer-section';
 import { getContactById, getContactAudit } from '@/modules/contacts/actions';
 import { buildContactTraceabilityViewModel } from '@/modules/contacts/contact-traceability';
 import { getAccountById } from '@/modules/accounts/actions';
@@ -85,8 +86,8 @@ const STATUS_STYLES: Record<ContactStatus, string> = {
 };
 
 const ROLE_STYLES: Record<string, string> = {
-  decision_maker: 'bg-su-brand-soft text-su-brand border-transparent',
-  economic_buyer: 'bg-su-brand-soft text-su-brand border-transparent',
+  decision_maker: 'bg-primary/10 text-primary border-transparent',
+  economic_buyer: 'bg-primary/10 text-primary border-transparent',
   champion: 'bg-success/10 text-success border-transparent',
   influencer: 'bg-warning/10 text-warning border-transparent',
 };
@@ -212,7 +213,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
       onOpenChange={(v) => !v && onClose()}
       side="right"
       className="w-full sm:w-[70vw] sm:min-w-[700px] sm:!max-w-none"
-      icon={<User className="h-5 w-5 text-su-brand" />}
+      icon={<User className="h-5 w-5 text-primary" />}
       title={
         contact
           ? contact.full_name
@@ -227,20 +228,20 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
           <div className="flex items-center gap-2">
             <Badge
               variant="outline"
-              className={`text-xs ${STATUS_STYLES[contact.contact_status]}`}
+              className={STATUS_STYLES[contact.contact_status]}
             >
               {CONTACT_STATUS_LABELS[contact.contact_status]}
             </Badge>
             {contact.is_primary && (
-              <div className="flex items-center gap-1 rounded-full bg-warning/10 px-2.5 py-1 text-xs font-medium text-warning">
-                <Star className="h-3.5 w-3.5 fill-warning text-warning" />
+              <Badge variant="warning">
+                <Star className="fill-warning" />
                 Primario
-              </div>
+              </Badge>
             )}
             {contact.role_in_account && (
               <Badge
                 variant="outline"
-                className={`text-xs ${ROLE_STYLES[contact.role_in_account] ?? 'bg-muted text-muted-foreground border-transparent'}`}
+                className={ROLE_STYLES[contact.role_in_account] ?? 'bg-muted text-muted-foreground border-transparent'}
               >
                 {ROLE_LABELS[contact.role_in_account as ContactRole]}
               </Badge>
@@ -265,7 +266,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
             {account && (
               <Link
                 href={`/accounts/${account.id}`}
-                className="text-xs text-su-brand hover:underline"
+                className="text-xs text-primary hover:underline"
               >
                 {account.name}
               </Link>
@@ -289,7 +290,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <div className="mb-3 rounded-full bg-surface-muted p-3">
             {loadOutcome === 'load_error' ? (
-              <AlertCircle className="h-6 w-6 text-destructive/70" />
+              <AlertCircle className="h-6 w-6 text-destructive" />
             ) : (
               <UserX className="h-6 w-6 text-text-muted" />
             )}
@@ -329,12 +330,11 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                 {/* Resumen */}
                 <TabsContent value="resumen" className="space-y-4">
                   <div className="grid gap-4 md:grid-cols-2">
-                    <SurfaceCard>
-                      <SurfaceCardHeader title="Datos de contacto" />
+                    <DrawerSection title="Datos de contacto" icon={Mail}>
                       <dl className="space-y-3">
                         {contact.email && (
                           <DetailRow icon={Mail} label="Email">
-                            <a href={`mailto:${contact.email}`} className="text-su-brand hover:underline">
+                            <a href={`mailto:${contact.email}`} className="text-primary hover:underline">
                               {contact.email}
                             </a>
                           </DetailRow>
@@ -388,7 +388,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                               href={contact.linkedin_url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="text-su-brand hover:underline"
+                              className="text-primary hover:underline"
                             >
                               {contact.linkedin_url}
                             </a>
@@ -396,7 +396,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                         )}
                         <DetailRow icon={Building2} label="Cuenta">
                           {account ? (
-                            <Link href={`/accounts/${account.id}`} className="text-su-brand hover:underline">
+                            <Link href={`/accounts/${account.id}`} className="text-primary hover:underline">
                               {account.name}
                             </Link>
                           ) : (
@@ -404,10 +404,9 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                           )}
                         </DetailRow>
                       </dl>
-                    </SurfaceCard>
+                    </DrawerSection>
 
-                    <SurfaceCard>
-                      <SurfaceCardHeader title="Cargo y función" />
+                    <DrawerSection title="Cargo y función" icon={Briefcase}>
                       <dl className="space-y-3">
                         {contact.job_title && (
                           <DetailRow icon={Briefcase} label="Cargo">{contact.job_title}</DetailRow>
@@ -424,14 +423,14 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                           <DetailRow icon={Tag} label="Rol en cuenta">
                             <Badge
                               variant="outline"
-                              className={`text-xs ${ROLE_STYLES[contact.role_in_account] ?? 'bg-muted text-muted-foreground border-transparent'}`}
+                              className={ROLE_STYLES[contact.role_in_account] ?? 'bg-muted text-muted-foreground border-transparent'}
                             >
                               {ROLE_LABELS[contact.role_in_account as ContactRole]}
                             </Badge>
                           </DetailRow>
                         )}
                         <DetailRow icon={Tag} label="Fuente">
-                          <Badge variant="outline" className="text-xs bg-surface-subtle border-transparent text-muted-foreground">
+                          <Badge variant="neutral">
                             {CONTACT_SOURCE_LABELS[contact.source]}
                           </Badge>
                         </DetailRow>
@@ -449,17 +448,13 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                           </p>
                         </div>
                       )}
-                    </SurfaceCard>
+                    </DrawerSection>
                   </div>
                 </TabsContent>
 
                 {/* Actividad */}
                 <TabsContent value="actividad">
-                  <SurfaceCard>
-                    <SurfaceCardHeader
-                      title="Registro de actividad"
-                      description="Cambios y eventos de auditoría de este contacto."
-                    />
+                  <DrawerSection title="Registro de actividad" icon={Activity} hint="Cambios y eventos de auditoría de este contacto.">
                     {auditLog.length === 0 ? (
                       <p className="py-6 text-center text-xs text-muted-foreground">
                         Sin actividad registrada todavía.
@@ -488,7 +483,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                         ))}
                       </ol>
                     )}
-                  </SurfaceCard>
+                  </DrawerSection>
                 </TabsContent>
 
                 {/* Enriquecimiento — Calidad y trazabilidad */}
@@ -671,10 +666,9 @@ function TraceCard({
   children: React.ReactNode;
 }) {
   return (
-    <SurfaceCard>
-      <SurfaceCardHeader title={title} />
+    <DrawerSection title={title}>
       <dl className="space-y-3">{children}</dl>
-    </SurfaceCard>
+    </DrawerSection>
   );
 }
 
@@ -715,7 +709,7 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
             {vm.hasSourceCandidate ? (
               <Badge
                 variant="outline"
-                className="text-xs bg-su-brand-soft text-su-brand border-transparent"
+                className="text-xs bg-primary/10 text-primary border-transparent"
               >
                 {vm.originLabel}
               </Badge>
@@ -897,7 +891,7 @@ function RelevanceBadge({ label }: { label: string }) {
     Baja: 'bg-surface-subtle text-muted-foreground border-transparent',
   };
   return (
-    <Badge variant="outline" className={`text-xs ${styles[label] ?? 'bg-surface-subtle text-muted-foreground border-transparent'}`}>
+    <Badge variant="outline" className={styles[label] ?? 'bg-surface-subtle text-muted-foreground border-transparent'}>
       {label}
     </Badge>
   );
@@ -926,14 +920,14 @@ function DetailRow({
   // Design Refresh v6: layout horizontal (label izquierda / valor derecha),
   // consistente con el drawer de Empresa.
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-start gap-3">
       <div className="flex shrink-0 items-center gap-2 min-w-[104px]">
         <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <dt className="text-xs font-medium text-muted-foreground">
           {label}
         </dt>
       </div>
-      <dd className="min-w-0 flex-1 text-right text-xs text-foreground">{children}</dd>
+      <dd className="min-w-0 flex-1 break-words text-right text-xs text-foreground">{children}</dd>
     </div>
   );
 }

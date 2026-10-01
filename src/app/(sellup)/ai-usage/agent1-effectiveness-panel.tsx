@@ -15,6 +15,8 @@ import {
   Sparkles,
   Filter,
 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { getAgent1EffectivenessPanel } from '@/modules/agent1-effectiveness';
 import type {
@@ -128,31 +130,31 @@ const CLEAN_PRODUCTION_WARNING_LABELS: Record<CleanProductionWarning, string> = 
 
 const COMPLETENESS_CONFIG: Record<
   Agent1CostCompletenessFlag,
-  { label: string; classes: string; Icon: typeof CheckCircle2 }
+  { label: string; variant: 'positive' | 'warning' | 'neutral'; Icon: typeof CheckCircle2 }
 > = {
   complete: {
     label: 'Costo completo',
-    classes: 'border-success/30 bg-success/10 text-success',
+    variant: 'positive',
     Icon: CheckCircle2,
   },
   partial_missing_llm_cost: {
     label: 'Costo parcial · falta LLM',
-    classes: 'border-warning/30 bg-warning/10 text-warning',
+    variant: 'warning',
     Icon: AlertTriangle,
   },
   partial_missing_provider_pricing: {
     label: 'Costo parcial · falta pricing',
-    classes: 'border-warning/30 bg-warning/10 text-warning',
+    variant: 'warning',
     Icon: AlertTriangle,
   },
   partial_missing_candidate_outcomes: {
     label: 'Funnel parcial',
-    classes: 'border-warning/30 bg-warning/10 text-warning',
+    variant: 'warning',
     Icon: AlertTriangle,
   },
   unknown: {
     label: 'Datos insuficientes',
-    classes: 'border-border/60 bg-surface-subtle text-muted-foreground',
+    variant: 'neutral',
     Icon: Info,
   },
 };
@@ -161,12 +163,10 @@ function CompletenessBadge({ flag }: { flag: Agent1CostCompletenessFlag }) {
   const cfg = COMPLETENESS_CONFIG[flag] ?? COMPLETENESS_CONFIG.unknown;
   const { Icon } = cfg;
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${cfg.classes}`}
-    >
-      <Icon className="h-3 w-3" />
+    <Badge variant={cfg.variant}>
+      <Icon aria-hidden="true" />
       {cfg.label}
-    </span>
+    </Badge>
   );
 }
 
@@ -214,8 +214,8 @@ function PanelShell({ children }: { children: React.ReactNode }) {
         title="Efectividad Agente 1"
         description="Lotes de prospectos, tasas de conversión y costo por resultado. Fuente: prospect_batches → prospect_candidates → provider_usage_logs (no agent_runs)."
         actions={
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-su-brand-soft">
-            <TrendingUp className="h-4 w-4 text-su-brand" />
+          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10">
+            <TrendingUp className="h-4 w-4 text-primary" />
           </div>
         }
       />
@@ -242,9 +242,12 @@ function PanelMessage({
   const Icon = tone === 'error' ? AlertTriangle : Info;
   const iconColor = tone === 'error' ? 'text-destructive' : 'text-muted-foreground';
   return (
-    <div className={`flex items-start gap-3 rounded-xl border px-4 py-3 ${classes}`}>
-      <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${iconColor}`} />
-      <p className="text-xs leading-relaxed text-muted-foreground">{children}</p>
+    <div
+      role={tone === 'error' ? 'alert' : undefined}
+      className={`flex items-start gap-3 rounded-xl border px-4 py-3 ${classes}`}
+    >
+      <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${iconColor}`} aria-hidden="true" />
+      <p className="text-sm leading-relaxed text-muted-foreground">{children}</p>
     </div>
   );
 }
@@ -252,13 +255,13 @@ function PanelMessage({
 export function Agent1EffectivenessPanelSkeleton() {
   return (
     <PanelShell>
-      <div className="animate-pulse space-y-4">
+      <div className="space-y-4">
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="h-16 rounded-lg border border-border/60 bg-surface-subtle" />
+            <Skeleton key={i} className="h-16 rounded-lg" />
           ))}
         </div>
-        <div className="h-24 rounded-lg border border-border/60 bg-surface-subtle" />
+        <Skeleton className="h-24 rounded-lg" />
       </div>
     </PanelShell>
   );
@@ -283,7 +286,7 @@ function ProviderBreakdownTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs">
+      <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border/60">
             {['Proveedor', 'Operación', 'Logs', 'Créditos', 'Resultados', 'Costo est.', 'Sin costo', 'Costo 0'].map(
@@ -305,7 +308,7 @@ function ProviderBreakdownTable({
             <tr key={`${r.providerKey}::${r.operationKey}`}>
               <td className="py-3 pr-4">
                 <div className="flex items-center gap-2">
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-subtle">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-surface-subtle">
                     <Plug className="h-3.5 w-3.5 text-muted-foreground" />
                   </div>
                   <span className="font-medium text-foreground">
@@ -313,15 +316,15 @@ function ProviderBreakdownTable({
                   </span>
                 </div>
               </td>
-              <td className="py-3 pr-4 text-muted-foreground max-w-[180px] truncate">
+              <td className="py-3 pr-4 text-muted-foreground max-w-44 truncate" title={r.operationKey}>
                 {r.operationKey.replace(/_/g, ' ')}
               </td>
               <td className="py-3 pr-4 text-right text-muted-foreground">{r.usageLogsCount}</td>
-              <td className="py-3 pr-4 text-right font-mono text-muted-foreground">
+              <td className="py-3 pr-4 text-right font-mono tabular-nums text-muted-foreground">
                 {r.credits.toLocaleString('es-ES')}
               </td>
               <td className="py-3 pr-4 text-right text-muted-foreground">{r.resultsReturned}</td>
-              <td className="py-3 pr-4 text-right font-mono text-muted-foreground">
+              <td className="py-3 pr-4 text-right font-mono tabular-nums text-muted-foreground">
                 {r.estimatedCostUsd === 0 && r.missingCostRows === 0 ? (
                   <span className="text-text-muted">—</span>
                 ) : (
@@ -337,7 +340,7 @@ function ProviderBreakdownTable({
               </td>
               <td className="py-3 text-right">
                 {r.zeroCostRows > 0 ? (
-                  <span className="font-mono text-muted-foreground">{r.zeroCostRows}</span>
+                  <span className="font-mono tabular-nums text-muted-foreground">{r.zeroCostRows}</span>
                 ) : (
                   <span className="text-text-muted">0</span>
                 )}
@@ -364,19 +367,12 @@ function BreakdownChip({
   count: number;
   tone?: 'neutral' | 'brand' | 'warn';
 }) {
-  const toneClasses =
-    tone === 'brand'
-      ? 'border-su-brand/30 bg-su-brand-soft text-su-brand'
-      : tone === 'warn'
-        ? 'border-warning/30 bg-warning/10 text-warning'
-        : 'border-border/60 bg-surface-subtle text-muted-foreground';
+  const variant = tone === 'brand' ? 'brand' : tone === 'warn' ? 'warning' : 'neutral';
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${toneClasses}`}
-    >
+    <Badge variant={variant}>
       {label}
-      <span className="font-mono font-semibold">{count.toLocaleString('es-ES')}</span>
-    </span>
+      <span className="font-mono font-semibold tabular-nums">{count.toLocaleString('es-ES')}</span>
+    </Badge>
   );
 }
 
@@ -453,12 +449,12 @@ function CleanProductionSection({
     cleanProduction;
 
   return (
-    <div className="space-y-5 rounded-xl border border-su-brand/20 bg-su-brand-soft/30 p-4">
+    <div className="space-y-5 rounded-xl border border-primary/20 bg-primary/5 p-4">
       {/* Header + scope badge */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-su-brand-soft">
-            <Sparkles className="h-3.5 w-3.5 text-su-brand" />
+          <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-primary/10">
+            <Sparkles className="h-3.5 w-3.5 text-primary" />
           </div>
           <div>
             <p className="text-sm font-semibold text-foreground">Producción limpia</p>
@@ -467,10 +463,10 @@ function CleanProductionSection({
             </p>
           </div>
         </div>
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-surface-subtle px-2.5 py-1 text-xs font-semibold text-muted-foreground">
-          <Filter className="h-3 w-3" />
+        <Badge variant="neutral">
+          <Filter aria-hidden="true" />
           Excluye QA, smoke, cleanup e import
-        </span>
+        </Badge>
       </div>
 
       {/* Clean funnel */}
@@ -539,7 +535,7 @@ function CleanProductionSection({
 
       {/* Classification warnings */}
       {classificationWarnings.length > 0 && (
-        <div className="space-y-1.5 rounded-xl border border-warning/20 bg-warning/5 px-4 py-3">
+        <div className="space-y-1.5 rounded-xl border border-warning/25 bg-warning/5 px-4 py-3">
           {classificationWarnings.map((code) => (
             <div key={code} className="flex items-start gap-2">
               <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
@@ -586,7 +582,7 @@ function SummaryBody({ summary }: { summary: Agent1EffectivenessSummary }) {
       </div>
 
       {warnings.length > 0 && (
-        <div className="space-y-1.5 rounded-xl border border-warning/20 bg-warning/5 px-4 py-3">
+        <div className="space-y-1.5 rounded-xl border border-warning/25 bg-warning/5 px-4 py-3">
           {warnings.map((w, i) => (
             <div key={i} className="flex items-start gap-2">
               <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />

@@ -89,18 +89,18 @@ export function ChartCard({
                 {meta}
               </span>
             )}
-            <h3 className="text-base font-semibold leading-tight text-foreground truncate">
+            <h3 className="truncate text-base font-semibold leading-tight tracking-tight text-foreground" title={title}>
               {title}
             </h3>
             {description && (
-              <p className="text-sm text-muted-foreground">{description}</p>
+              <p className="line-clamp-2 text-sm text-muted-foreground">{description}</p>
             )}
           </div>
           {actions && (
-            <div className="flex items-center gap-2 shrink-0">{actions}</div>
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">{actions}</div>
           )}
         </div>
-        {filters && <div className="mt-2">{filters}</div>}
+        {filters && <div className="mt-2 flex flex-wrap items-center gap-2">{filters}</div>}
       </div>
 
       <CardContent className="px-6 pb-6 pt-0 flex-1">

@@ -203,7 +203,8 @@ export function CandidateRowActions({
           <span>
             {message}{' '}
             <button
-              className="underline font-medium"
+              type="button"
+              className="rounded-sm font-medium underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
               onClick={() => router.push('/accounts')}
             >
               Ver empresas
@@ -215,7 +216,8 @@ export function CandidateRowActions({
           <span>
             {message}{' '}
             <button
-              className="underline font-medium"
+              type="button"
+              className="rounded-sm font-medium underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
               onClick={() => router.push('/accounts')}
             >
               Ver empresas
@@ -341,7 +343,7 @@ export function CandidateRowActions({
       <TooltipProvider>
         <DropdownMenu>
           <DropdownMenuTrigger>
-            <Button variant="ghost" size="icon" className="h-7 w-7" disabled={loading}>
+            <Button variant="ghost" size="icon-xs" disabled={loading} aria-label={`Acciones para ${candidate.name}`}>
               {loading ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
@@ -353,7 +355,7 @@ export function CandidateRowActions({
             {/* Marcar revisado — solo candidatos estructurados en needs_manual_review */}
             {canMarkReady && (
               <DropdownMenuItem onClick={handleMarkReady}>
-                <ClipboardCheck className="mr-2 h-3.5 w-3.5 text-su-brand" />
+                <ClipboardCheck className="mr-2 h-3.5 w-3.5 text-primary" />
                 Marcar revisado
               </DropdownMenuItem>
             )}
@@ -363,11 +365,11 @@ export function CandidateRowActions({
               <Tooltip>
                 <TooltipTrigger>
                   <DropdownMenuItem onClick={() => setDuplicateReviewConfirmOpen(true)}>
-                    <ShieldCheck className="mr-2 h-3.5 w-3.5 text-su-brand" />
+                    <ShieldCheck className="mr-2 h-3.5 w-3.5 text-primary" />
                     Marcar duplicidad revisada
                   </DropdownMenuItem>
                 </TooltipTrigger>
-                <TooltipContent side="left" className="max-w-[240px] text-center">
+                <TooltipContent side="left" className="max-w-60 text-center">
                   Confirma que revisaste posibles duplicados antes de aprobar.
                 </TooltipContent>
               </Tooltip>
@@ -388,7 +390,7 @@ export function CandidateRowActions({
                       </DropdownMenuItem>
                     </div>
                   </TooltipTrigger>
-                  <TooltipContent side="left" className="max-w-[220px] text-center">
+                  <TooltipContent side="left" className="max-w-56 text-center">
                     {approveBlockMessage}
                   </TooltipContent>
                 </Tooltip>
@@ -405,7 +407,7 @@ export function CandidateRowActions({
                       </DropdownMenuItem>
                     </div>
                   </TooltipTrigger>
-                  <TooltipContent side="left" className="max-w-[240px] text-center">
+                  <TooltipContent side="left" className="max-w-60 text-center">
                     Este candidato viene de una fuente oficial. Primero debe marcarse como listo para aprobación.
                   </TooltipContent>
                 </Tooltip>
@@ -463,7 +465,7 @@ export function CandidateRowActions({
 
       {/* Possible duplicate confirmation dialog */}
       <Dialog open={approveConfirmOpen} onOpenChange={setApproveConfirmOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ShieldAlert className="h-4 w-4 text-warning shrink-0" />
@@ -484,7 +486,7 @@ export function CandidateRowActions({
                 {dc.matches.map((match, i) => (
                   <div
                     key={i}
-                    className="rounded-2xl border border-border/60 bg-card p-2.5 space-y-0.5"
+                    className="space-y-0.5 rounded-lg border border-border/60 bg-surface-subtle p-2.5"
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold text-foreground">
@@ -515,7 +517,7 @@ export function CandidateRowActions({
             )}
           </div>
 
-          <DialogFooter className="gap-2">
+          <DialogFooter>
             <Button
               variant="outline"
               onClick={() => setApproveConfirmOpen(false)}
@@ -526,7 +528,6 @@ export function CandidateRowActions({
             <Button
               onClick={doApprove}
               disabled={loading}
-              className="gap-1.5 bg-warning hover:bg-warning/90 text-white"
             >
               {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               Aprobar de todas formas
@@ -540,7 +541,7 @@ export function CandidateRowActions({
         setDiscardOpen(open);
         if (!open) { setDiscardReason(''); setDiscardReasonKey(''); }
       }}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Descartar candidato</DialogTitle>
             <DialogDescription>
@@ -551,7 +552,7 @@ export function CandidateRowActions({
 
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-muted-foreground">
+              <Label>
                 Motivo de descarte
               </Label>
               <div className="flex flex-col gap-1.5 max-h-64 overflow-y-auto pr-1">
@@ -560,7 +561,8 @@ export function CandidateRowActions({
                     key={r.value}
                     type="button"
                     onClick={() => setDiscardReasonKey(r.value)}
-                    className={`rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                    aria-pressed={discardReasonKey === r.value}
+                    className={`rounded-lg border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 ${
                       discardReasonKey === r.value
                         ? 'border-destructive bg-destructive/10'
                         : 'border-border/60 bg-card hover:bg-surface-muted'
@@ -575,7 +577,7 @@ export function CandidateRowActions({
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-muted-foreground">
+              <Label>
                 {discardReasonKey === 'other' ? 'Motivo personalizado' : 'Notas adicionales (opcional)'}
               </Label>
               <Textarea
@@ -591,15 +593,14 @@ export function CandidateRowActions({
             </div>
           </div>
 
-          <DialogFooter className="gap-2">
+          <DialogFooter>
             <Button variant="outline" onClick={() => setDiscardOpen(false)} disabled={loading}>
               Cancelar
             </Button>
             <Button
-              variant="destructive"
+              variant="destructive-solid"
               onClick={handleDiscard}
               disabled={loading || (discardReasonKey === 'other' && !discardReason.trim())}
-              className="gap-1.5"
             >
               {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               Descartar
@@ -612,7 +613,7 @@ export function CandidateRowActions({
         setMarkDuplicateOpen(open);
         if (!open) setMarkDuplicateNote('');
       }}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Marcar como duplicado</DialogTitle>
             <DialogDescription>
@@ -623,7 +624,7 @@ export function CandidateRowActions({
           <div className="space-y-3">
             {/* Type selector — 3 options as toggle buttons */}
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-muted-foreground">Tipo</Label>
+              <Label>Tipo</Label>
               <div className="flex flex-col gap-1.5">
                 {(
                   [
@@ -651,9 +652,10 @@ export function CandidateRowActions({
                     key={opt.value}
                     type="button"
                     onClick={() => setMarkDuplicateType(opt.value)}
-                    className={`rounded-lg border px-3 py-2 text-left transition-colors ${
+                    aria-pressed={markDuplicateType === opt.value}
+                    className={`rounded-lg border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 ${
                       markDuplicateType === opt.value
-                        ? 'border-su-brand bg-su-brand-soft'
+                        ? 'border-primary bg-primary/10'
                         : 'border-border/60 bg-card hover:bg-surface-muted'
                     }`}
                   >
@@ -666,7 +668,7 @@ export function CandidateRowActions({
 
             {/* Optional note — for related_company: parent company name */}
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-muted-foreground">
+              <Label>
                 {markDuplicateType === 'related_company'
                   ? 'Empresa matriz o relacionada (opcional)'
                   : 'Notas (opcional)'}
@@ -684,7 +686,7 @@ export function CandidateRowActions({
             </div>
           </div>
 
-          <DialogFooter className="gap-2">
+          <DialogFooter>
             <Button
               variant="outline"
               onClick={() => setMarkDuplicateOpen(false)}
@@ -692,7 +694,7 @@ export function CandidateRowActions({
             >
               Cancelar
             </Button>
-            <Button onClick={doMarkDuplicate} disabled={loading} className="gap-1.5">
+            <Button onClick={doMarkDuplicate} disabled={loading}>
               {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               Confirmar
             </Button>
@@ -702,10 +704,10 @@ export function CandidateRowActions({
 
       {/* Duplicate review confirmation dialog */}
       <Dialog open={duplicateReviewConfirmOpen} onOpenChange={setDuplicateReviewConfirmOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <ShieldCheck className="h-4 w-4 text-su-brand shrink-0" />
+              <ShieldCheck className="h-4 w-4 text-primary shrink-0" />
               Confirmar revisión de duplicados
             </DialogTitle>
             <DialogDescription>
@@ -715,13 +717,13 @@ export function CandidateRowActions({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="rounded-xl border border-border/60 bg-surface-subtle px-3 py-2.5 text-xs text-muted-foreground space-y-1">
+          <div className="space-y-1 rounded-lg bg-surface-subtle px-3 py-2.5 text-sm text-muted-foreground">
             <p className="font-medium text-foreground">¿Ya verificaste?</p>
             <p>• Buscar la empresa en SellUp (Cuentas / Candidatos)</p>
             <p>• Buscar la empresa en HubSpot por nombre y NIT</p>
           </div>
 
-          <DialogFooter className="gap-2">
+          <DialogFooter>
             <Button
               variant="outline"
               onClick={() => setDuplicateReviewConfirmOpen(false)}
@@ -732,7 +734,6 @@ export function CandidateRowActions({
             <Button
               onClick={handleMarkDuplicateReviewed}
               disabled={loading}
-              className="gap-1.5"
             >
               {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               Sí, sin duplicados
@@ -746,7 +747,7 @@ export function CandidateRowActions({
         setRollbackOpen(open);
         if (!open) setRollbackReason('');
       }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <RotateCcw className="h-4 w-4 text-warning shrink-0" />
@@ -757,7 +758,7 @@ export function CandidateRowActions({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="rounded-xl border border-warning/20 bg-warning/5 px-3 py-2.5 text-xs text-warning space-y-1">
+          <div className="space-y-1 rounded-lg border border-warning/25 bg-warning/15 px-3 py-2.5 text-sm text-warning">
             <p className="font-medium">¿Qué hace este rollback?</p>
             <p>• La cuenta queda marcada como no operativa en metadata.</p>
             <p>• El candidato vuelve a estado &quot;Aprobado&quot; con trazabilidad completa.</p>
@@ -766,7 +767,7 @@ export function CandidateRowActions({
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-muted-foreground">
+            <Label>
               Motivo del rollback <span className="text-destructive">*</span>
             </Label>
             <Textarea
@@ -777,7 +778,7 @@ export function CandidateRowActions({
             />
           </div>
 
-          <DialogFooter className="gap-2">
+          <DialogFooter>
             <Button
               variant="outline"
               onClick={() => setRollbackOpen(false)}
@@ -788,7 +789,6 @@ export function CandidateRowActions({
             <Button
               onClick={handleRollback}
               disabled={loading || !rollbackReason.trim()}
-              className="gap-1.5 bg-warning hover:bg-warning/90 text-white"
             >
               {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               Deshacer conversión
@@ -799,7 +799,7 @@ export function CandidateRowActions({
 
       {/* Related-company approval warning */}
       <Dialog open={relatedCompanyWarnOpen} onOpenChange={setRelatedCompanyWarnOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Link2 className="h-4 w-4 text-warning shrink-0" />
@@ -816,7 +816,7 @@ export function CandidateRowActions({
             <p className="text-sm text-muted-foreground">{dc.summary}</p>
           )}
 
-          <DialogFooter className="gap-2">
+          <DialogFooter>
             <Button
               variant="outline"
               onClick={() => setRelatedCompanyWarnOpen(false)}
@@ -827,7 +827,6 @@ export function CandidateRowActions({
             <Button
               onClick={doApprove}
               disabled={loading}
-              className="gap-1.5 bg-warning hover:bg-warning/90 text-white"
             >
               {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               Aprobar de todas formas

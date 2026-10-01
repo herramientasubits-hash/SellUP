@@ -102,7 +102,7 @@ export function GenerateMockBatchDrawer() {
       icon={<FlaskConical className="h-4 w-4 text-warning" />}
       size="xl"
       actions={
-        <div className="flex w-full items-center justify-end gap-2">
+        <div className="flex w-full items-center justify-between gap-2">
           <Button
             type="button"
             variant="outline"
@@ -117,8 +117,7 @@ export function GenerateMockBatchDrawer() {
             type="submit"
             size="sm"
             disabled={!canSubmit}
-            variant="outline"
-            className="gap-1.5 border-warning/40 text-warning hover:bg-warning/10 disabled:opacity-40"
+            className="gap-1.5"
           >
             {loading ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -133,10 +132,10 @@ export function GenerateMockBatchDrawer() {
       <form
         id="mock-batch-form"
         onSubmit={handleSubmit}
-        className="space-y-8"
+        className="space-y-6"
       >
         {/* Alerta de seguridad */}
-        <div className="rounded-xl border border-warning/30 bg-warning/5 px-4 py-3">
+        <div className="rounded-xl border border-warning/25 bg-warning/15 px-4 py-3">
           <div className="flex gap-2.5">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
             <p className="text-xs text-muted-foreground">

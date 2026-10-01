@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { Plug, MessageSquare, HardDrive, Bot, Globe, Search, ExternalLink } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { getAllIntegrations } from '@/modules/integrations/actions';
@@ -21,7 +22,11 @@ const INTEGRATION_META: Record<
     href: '/settings/integrations/hubspot',
     cta: 'Administrar conexión',
   },
-  slack: { icon: MessageSquare, href: '/settings/integrations/slack', cta: 'Administrar conexión' },
+  slack: {
+    icon: MessageSquare,
+    href: '/settings/integrations/slack',
+    cta: 'Administrar conexión',
+  },
   google_drive: {
     icon: HardDrive,
     href: '/settings/my-drive',
@@ -30,9 +35,21 @@ const INTEGRATION_META: Record<
     // Cada usuario conecta su propio Drive desde /settings/my-drive.
     personalNote: 'Conexión personal disponible en Mi Google Drive',
   },
-  samu_ia: { icon: Bot, href: '/settings/integrations/samu', cta: 'Administrar conexión' },
-  tavily: { icon: Globe, href: '/settings/integrations/tavily', cta: 'Administrar conexión' },
-  google_cse: { icon: Search, href: '/settings/integrations/google-cse', cta: 'Administrar conexión' },
+  samu_ia: {
+    icon: Bot,
+    href: '/settings/integrations/samu',
+    cta: 'Administrar conexión',
+  },
+  tavily: {
+    icon: Globe,
+    href: '/settings/integrations/tavily',
+    cta: 'Administrar conexión',
+  },
+  google_cse: {
+    icon: Search,
+    href: '/settings/integrations/google-cse',
+    cta: 'Administrar conexión',
+  },
 };
 
 function ConnectionStatusBadge({
@@ -46,54 +63,54 @@ function ConnectionStatusBadge({
 }) {
   if (!isAvailable) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-surface-subtle px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
-        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/25" />
+      <Badge variant="neutral">
+        <span className="size-1.5 rounded-full bg-muted-foreground/40" />
         Próximamente
-      </span>
+      </Badge>
     );
   }
 
   if (credentialsStatus === 'missing' || !credentialsStatus) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-surface-subtle px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
-        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/25" />
+      <Badge variant="neutral">
+        <span className="size-1.5 rounded-full bg-muted-foreground/40" />
         No configurado
-      </span>
+      </Badge>
     );
   }
 
   if (connectionStatus === 'connected') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/10 px-2.5 py-0.5 text-xs font-medium text-success">
-        <span className="h-1.5 w-1.5 rounded-full bg-success" />
+      <Badge variant="positive">
+        <span className="size-1.5 rounded-full bg-success" />
         Conectado
-      </span>
+      </Badge>
     );
   }
 
   if (connectionStatus === 'error') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-destructive/30 bg-destructive/10 px-2.5 py-0.5 text-xs font-medium text-destructive">
-        <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
+      <Badge variant="negative">
+        <span className="size-1.5 rounded-full bg-destructive" />
         Error
-      </span>
+      </Badge>
     );
   }
 
   if (connectionStatus === 'disconnected') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-warning/30 bg-warning/10 px-2.5 py-0.5 text-xs font-medium text-warning">
-        <span className="h-1.5 w-1.5 rounded-full bg-warning" />
+      <Badge variant="warning">
+        <span className="size-1.5 rounded-full bg-warning" />
         Desconectado
-      </span>
+      </Badge>
     );
   }
 
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-surface-subtle px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
-      <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/25" />
+    <Badge variant="neutral">
+      <span className="size-1.5 rounded-full bg-muted-foreground/40" />
       Sin probar
-    </span>
+    </Badge>
   );
 }
 
@@ -106,10 +123,10 @@ function IntegrationCard({ integration }: { integration: IntegrationWithConnecti
 
   const statusBadge = isPersonal ? (
     // Google Drive: conexión personal, no gestionada aquí
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-su-brand/30 bg-su-brand-soft px-2.5 py-0.5 text-xs font-medium text-su-brand">
-      <span className="h-1.5 w-1.5 rounded-full bg-su-brand" />
+    <Badge variant="brand">
+      <span className="size-1.5 rounded-full bg-su-brand" />
       Personal
-    </span>
+    </Badge>
   ) : (
     <ConnectionStatusBadge
       credentialsStatus={conn?.credentials_status}
@@ -127,22 +144,22 @@ function IntegrationCard({ integration }: { integration: IntegrationWithConnecti
       />
       <div className="flex items-center justify-between">
         <div
-          className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${
+          className={`flex size-9 items-center justify-center rounded-xl transition-colors ${
             isPersonal
-              ? 'bg-su-brand-soft text-su-brand group-hover:bg-su-brand/20'
+              ? 'bg-primary/10 text-primary group-hover:bg-primary/15'
               : isAvailable && conn?.connection_status === 'connected'
-              ? 'bg-su-brand-soft text-su-brand group-hover:bg-su-brand/20'
-              : isAvailable
-              ? 'bg-su-brand-soft/60 text-su-brand/70 group-hover:bg-su-brand/15'
-              : 'bg-accent/60 text-text-muted'
+                ? 'bg-primary/10 text-primary group-hover:bg-primary/15'
+                : isAvailable
+                  ? 'bg-primary/5 text-primary/80 group-hover:bg-primary/10'
+                  : 'bg-surface-muted text-text-muted'
           }`}
         >
-          <Icon className="h-4 w-4" />
+          <Icon className="size-4" />
         </div>
         {(isAvailable || isPersonal) && meta?.href && (
-          <span className="flex items-center gap-1 text-xs font-medium text-su-brand opacity-0 transition-opacity group-hover:opacity-100">
+          <span className="flex items-center gap-1 text-xs font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
             {meta.cta}
-            <ExternalLink className="h-3 w-3" />
+            <ExternalLink className="size-3" />
           </span>
         )}
         {isAvailable && !meta?.href && (
@@ -157,19 +174,18 @@ function IntegrationCard({ integration }: { integration: IntegrationWithConnecti
 
   if ((isAvailable || isPersonal) && meta?.href) {
     return (
-      <Link href={meta.href}>
-        <SurfaceCard className="group cursor-pointer transition-all hover:border-su-brand/30 hover:shadow-drawer">
+      <Link
+        href={meta.href}
+        className="block rounded-2xl focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+      >
+        <SurfaceCard className="group h-full cursor-pointer hover:border-primary/30 hover:shadow-drawer">
           {cardContent}
         </SurfaceCard>
       </Link>
     );
   }
 
-  return (
-    <SurfaceCard className="group">
-      {cardContent}
-    </SurfaceCard>
-  );
+  return <SurfaceCard className="group">{cardContent}</SurfaceCard>;
 }
 
 export default async function IntegrationsPage() {
@@ -177,12 +193,10 @@ export default async function IntegrationsPage() {
   if (!isAdmin) redirect('/settings');
 
   const allIntegrations = await getAllIntegrations();
-  const integrations = allIntegrations.filter(
-    (i) => i.integration_key !== 'google_drive'
-  );
+  const integrations = allIntegrations.filter((i) => i.integration_key !== 'google_drive');
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <PageHeader
         title="Integraciones comerciales"
         description="Conecta herramientas externas que permiten a SellUp validar, enriquecer y operar información comercial."

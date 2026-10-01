@@ -262,7 +262,7 @@ export function WizardLushaFinalSearch({
             cifras: media instantánea no explica nada. */}
         {availableCredits !== null && requiredCredits !== null && (
           <dl
-            className="rounded-2xl border border-border bg-card divide-y divide-border/60 text-sm"
+            className="divide-y divide-border/50 rounded-xl border border-border/60 bg-card text-sm"
             data-testid="lusha-budget-preflight"
           >
             <DetailRow
@@ -283,7 +283,7 @@ export function WizardLushaFinalSearch({
             `role="alert"` porque aparece sin que la usuaria haya actuado. */}
         {budgetMessage !== null && (
           <div
-            className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3"
+            className="flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3"
             role="alert"
             data-testid="lusha-budget-preflight-notice"
           >
@@ -295,7 +295,6 @@ export function WizardLushaFinalSearch({
         <Button
           type="button"
           size="sm"
-          className="gap-2"
           disabled={status === 'loading' || budgetBlock !== null}
           onClick={handleSearch}
           data-testid="lusha-preview-run"
@@ -397,12 +396,12 @@ function PersistConfirmation({
 
   return (
     <div className="space-y-4 animate-su-fade-in" data-testid="wizard-lusha-persist-confirmation">
-      <div className="flex items-start gap-3 rounded-xl border border-success/20 bg-success/10 px-5 py-4 dark:border-success/40">
+      <div className="flex items-start gap-3 rounded-xl border border-success/20 bg-success/10 p-4">
         <CheckCircle2
           className="mt-0.5 h-5 w-5 shrink-0 text-success"
           aria-hidden
         />
-        <div className="space-y-1">
+        <div className="min-w-0 space-y-1">
           <p className="text-sm font-semibold text-success">
             Empresas candidatas listas para revisión
           </p>
@@ -414,7 +413,7 @@ function PersistConfirmation({
       </div>
 
       <dl
-        className="rounded-2xl border border-border bg-card divide-y divide-border/60 text-sm"
+        className="divide-y divide-border/50 rounded-xl border border-border/60 bg-card text-sm"
         data-testid="wizard-lusha-persist-metrics"
       >
         <DetailRow
@@ -505,7 +504,7 @@ function PersistConfirmation({
         <Button
           type="button"
           size="sm"
-          className="w-full gap-1.5"
+          className="w-full"
           onClick={onViewProspects}
           data-testid="wizard-lusha-view-prospects"
         >
@@ -514,7 +513,7 @@ function PersistConfirmation({
         </Button>
         <button
           type="button"
-          className="mx-auto flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          className="mx-auto flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
           onClick={onGenerateAnother}
           data-testid="wizard-lusha-generate-another"
         >
@@ -539,7 +538,7 @@ function DetailRow({
     <div className="flex items-center justify-between gap-3 px-4 py-3">
       <dt className="text-xs text-muted-foreground">{label}</dt>
       <dd
-        className="text-sm font-medium text-foreground"
+        className="text-sm font-medium tabular-nums text-foreground"
         {...(testId ? { 'data-testid': testId } : {})}
       >
         {value}
@@ -553,7 +552,7 @@ function DetailRow({
 function EmptyResult({ onGenerateAnother }: { onGenerateAnother?: () => void }) {
   return (
     <div className="space-y-4 animate-su-fade-in" data-testid="wizard-lusha-empty">
-      <div className="flex items-start gap-3 rounded-xl border border-warning/20 bg-warning/15 px-5 py-4 dark:border-warning/40 dark:bg-warning/10">
+      <div className="flex items-start gap-3 rounded-xl border border-warning/25 bg-warning/15 p-4">
         <Info className="mt-0.5 h-5 w-5 shrink-0 text-warning" aria-hidden />
         <div className="space-y-1">
           <p className="text-sm font-semibold text-warning">
@@ -566,7 +565,7 @@ function EmptyResult({ onGenerateAnother }: { onGenerateAnother?: () => void }) 
       </div>
       <button
         type="button"
-        className="mx-auto flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        className="mx-auto flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
         onClick={onGenerateAnother}
         data-testid="wizard-lusha-generate-another"
       >
@@ -582,7 +581,7 @@ function EmptyResult({ onGenerateAnother }: { onGenerateAnother?: () => void }) 
 function ErrorResult({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <div className="space-y-4 animate-su-fade-in" data-testid="wizard-lusha-error">
-      <div className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-5 py-4">
+      <div className="flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/10 p-4">
         <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" aria-hidden />
         <div className="space-y-1">
           <p className="text-sm font-semibold text-destructive">No se pudo completar la búsqueda.</p>
@@ -593,7 +592,6 @@ function ErrorResult({ message, onRetry }: { message: string; onRetry: () => voi
         type="button"
         variant="outline"
         size="sm"
-        className="gap-2"
         onClick={onRetry}
         data-testid="lusha-preview-run"
       >

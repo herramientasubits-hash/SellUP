@@ -29,12 +29,12 @@ export function AIPanel({
   className,
 }: AIPanelProps) {
   return (
-    <Card className={cn("border-su-brand/20 bg-su-brand/5 shadow-none", className)}>
+    <Card className={cn("border-primary/20 bg-primary/5 shadow-none", className)}>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-su-brand" />
-            <CardTitle className="text-lg font-bold text-su-brand">
+            <Sparkles className="h-5 w-5 text-primary" aria-hidden />
+            <CardTitle className="text-base font-semibold tracking-tight text-primary">
               {title}
             </CardTitle>
           </div>
@@ -44,8 +44,8 @@ export function AIPanel({
       </CardHeader>
       <CardContent className="space-y-4">
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-12 space-y-4">
-            <Loader2 className="h-8 w-8 text-su-brand animate-spin" />
+          <div role="status" className="flex flex-col items-center justify-center space-y-4 py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" aria-hidden />
             <p className="text-sm font-medium text-muted-foreground">Generando insights estratégicos...</p>
           </div>
         ) : empty ? (
@@ -63,7 +63,7 @@ export function AIPanel({
         )}
       </CardContent>
       {footer && (
-        <CardFooter className="border-t border-su-brand/10 pt-4 mt-2">
+        <CardFooter className="border-t border-border/50 pt-4 mt-2">
           {footer}
         </CardFooter>
       )}

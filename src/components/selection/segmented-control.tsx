@@ -50,13 +50,13 @@ export function SegmentedControl({
   className,
 }: SegmentedControlProps) {
   const containerStyles = {
-    solid: "p-1 bg-surface-muted rounded-lg border border-border/50",
-    outline: "p-0.5 border border-border rounded-lg",
+    solid: "p-1 bg-surface-muted rounded-lg border border-border/60",
+    outline: "p-0.5 border border-border/60 rounded-lg",
     underline: "p-0 border-b border-border rounded-none bg-transparent",
   }[variant];
 
   const segmentBase = cn(
-    "relative flex items-center justify-center transition-all duration-200 outline-none focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-su-brand",
+    "relative flex items-center justify-center transition-all duration-200 outline-none focus-visible:z-10 focus-visible:ring-3 focus-visible:ring-ring/40",
     size === "sm" ? "px-3 py-1.5 text-xs" : "px-4 py-2 text-xs",
     fullWidth ? "flex-1" : "flex-initial min-w-[80px]"
   );
@@ -89,13 +89,13 @@ export function SegmentedControl({
               onClick={() => onChange?.(option.value)}
               className={cn(
                 segmentBase,
-                "font-bold",
+                "font-semibold",
 
                 // Solid Variant logic
                 variant === "solid" && cn(
                   "rounded-md",
                   isActive
-                    ? "bg-card text-su-brand shadow-card ring-1 ring-black/[0.05] dark:ring-white/[0.1]"
+                    ? "bg-card text-primary shadow-card ring-1 ring-border/60"
                     : "text-muted-foreground hover:text-foreground hover:bg-surface-muted"
                 ),
 
@@ -103,7 +103,7 @@ export function SegmentedControl({
                 variant === "outline" && cn(
                   "rounded-md",
                   isActive
-                    ? "bg-su-brand text-su-brand-foreground"
+                    ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:bg-surface-muted"
                 ),
 
@@ -111,14 +111,14 @@ export function SegmentedControl({
                 variant === "underline" && cn(
                   "rounded-none border-b-2 border-transparent",
                   isActive
-                    ? "border-su-brand text-su-brand"
+                    ? "border-primary text-primary"
                     : "text-muted-foreground hover:text-foreground"
                 ),
 
                 isDisabled && "opacity-50 cursor-not-allowed"
               )}
             >
-              <div className="flex items-center gap-2">
+              <div className="flex min-w-0 items-center gap-2">
                 {Icon && <Icon className={cn("h-3.5 w-3.5", isActive ? "opacity-100" : "opacity-60")} />}
                 <span className="truncate">{option.label}</span>
               </div>

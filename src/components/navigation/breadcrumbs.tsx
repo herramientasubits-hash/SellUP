@@ -18,7 +18,7 @@ const Breadcrumbs = React.forwardRef<HTMLElement, BreadcrumbsProps>(
       <nav
         ref={ref}
         aria-label="Breadcrumb"
-        className={cn("flex items-center space-x-1 text-xs", className)}
+        className={cn("flex flex-wrap items-center gap-1 text-xs", className)}
         {...props}
       >
         {items.map((item, index) => {
@@ -31,7 +31,7 @@ const Breadcrumbs = React.forwardRef<HTMLElement, BreadcrumbsProps>(
                 <a
                   href={item.href}
                   className={cn(
-                    "transition-colors",
+                    "rounded-xs transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/40",
                     "text-muted-foreground hover:text-foreground"
                   )}
                 >
@@ -39,6 +39,7 @@ const Breadcrumbs = React.forwardRef<HTMLElement, BreadcrumbsProps>(
                 </a>
               ) : (
                 <span
+                  aria-current={isActive ? "page" : undefined}
                   className={cn(
                     "transition-colors",
                     isActive
@@ -50,7 +51,7 @@ const Breadcrumbs = React.forwardRef<HTMLElement, BreadcrumbsProps>(
                 </span>
               )}
               {!isLast && (
-                <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
+                <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" aria-hidden="true" />
               )}
             </React.Fragment>
           );

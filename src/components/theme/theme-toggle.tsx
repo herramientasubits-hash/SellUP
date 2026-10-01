@@ -29,14 +29,15 @@ export function ThemeToggle({ variant = "default" }: ThemeToggleProps) {
 
   const baseClass =
     variant === "sidebar"
-      ? "rounded-lg text-text-muted hover:bg-background hover:text-foreground"
+      ? "rounded-md text-text-muted hover:bg-surface-muted hover:text-foreground"
       : "text-muted-foreground hover:bg-surface-muted hover:text-foreground";
 
   if (!mounted) {
     return (
       <button
+        type="button"
         className={cn(
-          "flex h-8 w-8 items-center justify-center rounded-xl",
+          "flex h-8 w-8 items-center justify-center rounded-md",
           baseClass,
         )}
         aria-label="Cambiar tema"
@@ -53,18 +54,19 @@ export function ThemeToggle({ variant = "default" }: ThemeToggleProps) {
       <TooltipTrigger
         render={
           <button
+            type="button"
             onClick={() => setTheme(isLight ? "dark" : "light")}
             className={cn(
-              "group flex h-8 w-8 items-center justify-center rounded-xl transition-all duration-200",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+              "group flex h-8 w-8 items-center justify-center rounded-md transition-all duration-200",
+              "focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40",
               baseClass,
             )}
             aria-label="Cambiar tema"
           >
             {isLight ? (
-              <Moon className="h-[15px] w-[15px] transition-transform duration-300 group-hover:rotate-[-15deg]" />
+              <Moon className="h-4 w-4 transition-transform duration-300 group-hover:rotate-[-15deg]" />
             ) : (
-              <Sun className="h-[15px] w-[15px] transition-transform duration-300 group-hover:rotate-45" />
+              <Sun className="h-4 w-4 transition-transform duration-300 group-hover:rotate-45" />
             )}
           </button>
         }

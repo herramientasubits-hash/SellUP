@@ -49,11 +49,11 @@ export function LoginAccessCard({ children, errorMessage }: LoginAccessCardProps
         </h1>
       </div>
 
-      <Card className="border-border/60 shadow-drawer">
+      <Card className="rounded-2xl border-border/60 shadow-card">
         <CardContent className="space-y-7 px-7 py-7">
           {/* Encabezado */}
           <div className="space-y-2">
-            <h2 className="text-2xl font-bold tracking-tight">
+            <h2 className="text-2xl font-semibold tracking-tight">
               Bienvenido a SellUp
             </h2>
             <p className="text-sm leading-relaxed text-muted-foreground">
@@ -62,8 +62,8 @@ export function LoginAccessCard({ children, errorMessage }: LoginAccessCardProps
           </div>
 
           {/* Badge de entorno */}
-          <Badge variant="outline" className="gap-1.5 py-1.5 text-xs font-medium border-su-success/20 bg-su-success/5 text-su-success">
-            <span className="h-1.5 w-1.5 rounded-full bg-su-success animate-su-pulse" />
+          <Badge variant="positive" className="gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-success animate-su-pulse" aria-hidden="true" />
             Acceso interno UBITS
           </Badge>
 
@@ -71,7 +71,7 @@ export function LoginAccessCard({ children, errorMessage }: LoginAccessCardProps
           {errorMessage && (
             <div
               role="alert"
-              className="flex items-start gap-2.5 rounded-xl border border-destructive/25 bg-destructive/8 px-4 py-3 text-sm text-destructive"
+              className="flex items-start gap-2.5 rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive"
             >
               <AlertCircleIcon />
               <span>{errorMessage}</span>
@@ -81,7 +81,7 @@ export function LoginAccessCard({ children, errorMessage }: LoginAccessCardProps
           {/* Acción de autenticación */}
           {children}
 
-          <Separator className="bg-border/40" />
+          <Separator className="bg-border/50" />
 
           {/* Nota de seguridad */}
           <p className="text-center text-xs leading-relaxed text-muted-foreground">

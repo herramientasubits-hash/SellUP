@@ -244,7 +244,7 @@ export function LushaPreviewPanel({
           title="Criterios de búsqueda"
           description={criteriaDescription}
         />
-        <div className="space-y-5">
+        <div className="space-y-4">
           <Row>
             <Field label="País" required>
               <Select value={countryCode} onValueChange={(v) => setCountryCode(v ?? '')} disabled={status === 'loading'}>
@@ -534,16 +534,16 @@ function PreviewResult({
       <SurfaceCard elevated>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-sm">
-            <Building2 className="h-4 w-4 text-su-brand" />
+            <Building2 className="h-4 w-4 text-primary" />
             <span className="font-semibold text-foreground">
               {status === 'empty' ? 'Sin resultados' : `${results.length} empresa${results.length !== 1 ? 's' : ''}`}
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-            <Badge variant="outline" className="rounded-full">
+            <Badge variant="outline">
               Créditos: {billing.creditsCharged ?? '—'} / máx {billing.expectedMaxCredits}
             </Badge>
-            <Badge variant="outline" className="rounded-full">
+            <Badge variant="outline">
               {requestSummary.sector ?? '—'} · {requestSummary.country ?? '—'}
             </Badge>
           </div>
@@ -588,25 +588,25 @@ function PreviewCompanyCard({ company }: { company: LushaPreviewCompany }) {
       : '—');
 
   return (
-    <SurfaceCard>
+    <SurfaceCard className="p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <span className="truncate text-sm font-semibold text-foreground">{company.name ?? 'Empresa sin nombre'}</span>
             {company.passesGate ? (
-              <Badge variant="secondary" className="rounded-full bg-success/10 text-success">
+              <Badge variant="positive">
                 <CheckCircle2 className="h-3 w-3" />
                 Pasa
               </Badge>
             ) : (
-              <Badge variant="secondary" className="rounded-full bg-warning/10 text-warning">
+              <Badge variant="warning">
                 <TriangleAlert className="h-3 w-3" />
                 No pasa
               </Badge>
             )}
           </div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            <span>{company.domain ?? 'sin dominio'}</span>
+            <span className="min-w-0 break-all">{company.domain ?? 'sin dominio'}</span>
             <span>· {company.country ?? '—'}</span>
             <span>· {company.industry ?? 'industria n/d'}</span>
             <span>· {typeof employees === 'number' ? `${employees} empl.` : `${employees} empl.`}</span>
@@ -615,7 +615,7 @@ function PreviewCompanyCard({ company }: { company: LushaPreviewCompany }) {
                 href={company.linkedinUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-su-brand hover:underline"
+                className="inline-flex items-center gap-1 text-primary hover:underline"
               >
                 LinkedIn
                 <ExternalLink className="h-3 w-3" />
@@ -625,7 +625,7 @@ function PreviewCompanyCard({ company }: { company: LushaPreviewCompany }) {
           {company.issues.length > 0 && (
             <div className="flex flex-wrap gap-1 pt-1">
               {company.issues.map((issue) => (
-                <Badge key={issue} variant="outline" className="rounded-full text-xs text-muted-foreground">
+                <Badge key={issue} variant="outline" className="text-muted-foreground">
                   {ISSUE_LABELS[issue] ?? issue}
                 </Badge>
               ))}
@@ -633,7 +633,7 @@ function PreviewCompanyCard({ company }: { company: LushaPreviewCompany }) {
           )}
         </div>
         <div className="shrink-0 text-right">
-          <span className="text-lg font-bold text-foreground">{company.score}</span>
+          <span className="text-lg font-bold tabular-nums text-foreground">{company.score}</span>
           <p className="text-xs text-muted-foreground">Score</p>
         </div>
       </div>

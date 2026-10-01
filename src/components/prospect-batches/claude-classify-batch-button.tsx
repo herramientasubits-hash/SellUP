@@ -88,7 +88,6 @@ export function ClaudeClassifyBatchButton({ batchId, eligibleCount }: ClaudeClas
             variant="outline"
             size="sm"
             onClick={() => setOpen(true)}
-            className="gap-1.5 text-xs text-muted-foreground"
           >
             <Sparkles className="h-3.5 w-3.5" />
             Sugerir sector y tamaño
@@ -96,18 +95,18 @@ export function ClaudeClassifyBatchButton({ batchId, eligibleCount }: ClaudeClas
         }
       />
 
-      <DialogContent className="sm:max-w-[440px]">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader className="pt-2">
-          <DialogTitle className="text-base font-semibold">¿Sugerir sector y tamaño con Claude?</DialogTitle>
-          <DialogDescription className="text-xs text-muted-foreground">
+          <DialogTitle>¿Sugerir sector y tamaño con Claude?</DialogTitle>
+          <DialogDescription>
             Claude leerá el sitio de {eligibleCount} candidato(s) «para revisión» a los que les falta sector o tamaño,
             y dejará una sugerencia con su fuente. Máximo {CLASSIFIER_MAX_COMPANIES_PER_RUN} por vez.
             Costo aproximado: US$0,01 a US$0,05 por empresa.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="py-2 space-y-1.5">
-          <ul className="list-disc pl-4 space-y-1 text-xs text-muted-foreground">
+        <div>
+          <ul className="list-disc space-y-1 pl-4 text-sm text-muted-foreground">
             <li>Sólo sugiere: no cambia el estado de ningún candidato.</li>
             <li>Cada dato trae su fuente; lo que no se puede verificar se descarta.</li>
             <li>El tamaño siempre es estimado.</li>
@@ -116,7 +115,7 @@ export function ClaudeClassifyBatchButton({ batchId, eligibleCount }: ClaudeClas
           </ul>
         </div>
 
-        <DialogFooter className="mt-2">
+        <DialogFooter>
           <DialogClose render={<Button variant="outline" size="sm" disabled={loading} onClick={handleClose} />}>
             Cancelar
           </DialogClose>

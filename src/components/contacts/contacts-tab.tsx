@@ -66,7 +66,7 @@ export function ContactsTab({
       {/* Summary mini-cards */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <SummaryCard icon={Users} label="Total" value={summary.total} color="text-foreground" />
-        <SummaryCard icon={Crown} label="Decisores" value={summary.decision_makers} color="text-su-brand" />
+        <SummaryCard icon={Crown} label="Decisores" value={summary.decision_makers} color="text-primary" />
         <SummaryCard icon={Target} label="Champions" value={summary.champions} color="text-success" />
         <SummaryCard icon={Archive} label="Inactivos" value={summary.inactive_or_archived} color="text-muted-foreground" />
       </div>
@@ -120,7 +120,7 @@ function ContactRow({
     <TableRow className="group">
       <TableCell className="pl-4">
         <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground/70">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
             {contact.full_name.charAt(0).toUpperCase()}
           </div>
           <div className="min-w-0">
@@ -129,7 +129,7 @@ function ContactRow({
                 <button
                   type="button"
                   onClick={() => onViewContact(contact.id)}
-                  className="text-xs font-medium text-foreground hover:text-su-brand hover:underline truncate text-left"
+                  className="text-xs font-medium text-foreground hover:text-primary hover:underline truncate text-left rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                 >
                   {contact.full_name}
                 </button>
@@ -156,7 +156,7 @@ function ContactRow({
         {contact.email ? (
           <a
             href={`mailto:${contact.email}`}
-            className="flex items-center gap-1 text-xs text-su-brand hover:underline"
+            className="flex items-center gap-1 text-xs text-primary hover:underline"
           >
             <Mail className="h-3 w-3 shrink-0" />
             <span className="truncate max-w-[140px]">{contact.email}</span>
@@ -170,7 +170,7 @@ function ContactRow({
         {contact.phone ?? contact.mobile_phone ? (
           <a
             href={`tel:${contact.mobile_phone ?? contact.phone}`}
-            className="flex items-center gap-1 text-xs text-foreground/70 hover:text-foreground"
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
           >
             <Phone className="h-3 w-3 shrink-0" />
             {contact.mobile_phone ?? contact.phone}
@@ -183,14 +183,14 @@ function ContactRow({
       <TableCell>
         <Badge
           variant="outline"
-          className={`text-xs ${STATUS_STYLES[contact.contact_status] ?? ''}`}
+          className={STATUS_STYLES[contact.contact_status] ?? ''}
         >
           {CONTACT_STATUS_LABELS[contact.contact_status]}
         </Badge>
       </TableCell>
 
       <TableCell>
-        <Badge variant="outline" className="text-xs bg-surface-subtle border-transparent text-muted-foreground">
+        <Badge variant="neutral">
           {CONTACT_SOURCE_LABELS[contact.source]}
         </Badge>
       </TableCell>

@@ -60,7 +60,7 @@ export function WizardMessageList({
       aria-live="polite"
       aria-atomic="false"
       aria-relevant="additions"
-      className="space-y-2"
+      className="space-y-3"
     >
       {visibleMessages.map((msg) => {
         if (msg.role === 'assistant') {
@@ -91,7 +91,7 @@ export function WizardMessageList({
         <div className="flex items-start gap-2.5 animate-su-fade-in">
           <AIOrb size="sm" className="mt-0.5" />
           <div className="flex items-center gap-1.5 rounded-xl rounded-tl-sm bg-surface-subtle px-4 py-3">
-            <Loader2 className="h-3 w-3 animate-spin text-su-brand" />
+            <Loader2 className="h-3 w-3 animate-spin text-primary" aria-hidden />
             <span className="text-sm text-muted-foreground animate-pulse">
               escribiendo
             </span>
@@ -108,7 +108,7 @@ function AssistantMessage({ message }: { message: DerivedWizardMessage }) {
   return (
     <div className="flex items-start gap-2.5">
       <AIOrb size="sm" className="mt-0.5" />
-      <div className="max-w-[85%] rounded-xl rounded-tl-sm bg-surface-muted px-4 py-2.5 text-sm text-foreground">
+      <div className="max-w-[85%] min-w-0 break-words rounded-xl rounded-tl-sm bg-surface-muted px-4 py-2.5 text-sm text-foreground">
         {message.content}
       </div>
     </div>
@@ -129,13 +129,13 @@ function UserMessage({ message, canEdit, onEdit }: UserMessageProps) {
           type="button"
           onClick={onEdit}
           aria-label={`Editar respuesta: ${message.content}`}
-          className="mb-0.5 flex shrink-0 items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          className="mb-0.5 flex shrink-0 items-center gap-1 rounded-md px-1 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
         >
           <Pencil className="h-3 w-3" aria-hidden />
           Editar
         </button>
       )}
-      <div className="max-w-[80%] rounded-xl rounded-tr-sm bg-su-brand/10 px-4 py-2.5 text-sm text-foreground">
+      <div className="max-w-[80%] min-w-0 break-words rounded-xl rounded-tr-sm bg-primary/10 px-4 py-2.5 text-sm text-foreground">
         {message.content}
       </div>
     </div>
@@ -146,7 +146,7 @@ function WarningMessage({ message }: { message: DerivedWizardMessage }) {
   return (
     <div
       role="status"
-      className="flex items-start gap-2 rounded-lg border border-warning/20 bg-warning/15 px-3 py-2.5 text-xs text-warning dark:border-warning/40 dark:bg-warning/10"
+      className="flex items-start gap-2 rounded-lg border border-warning/25 bg-warning/15 px-3 py-2.5 text-xs text-warning"
     >
       <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
       <span>{message.content}</span>
@@ -158,7 +158,7 @@ function ErrorMessage({ message }: { message: DerivedWizardMessage }) {
   return (
     <div
       role="alert"
-      className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-xs text-destructive"
+      className="flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2.5 text-xs text-destructive"
     >
       <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
       <span>{message.content}</span>

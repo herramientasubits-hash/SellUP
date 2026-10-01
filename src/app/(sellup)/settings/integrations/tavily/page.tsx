@@ -1,5 +1,15 @@
 import { redirect } from 'next/navigation';
-import { CheckCircle2, XCircle, Clock, WifiOff, ShieldCheck, Globe, AlertTriangle } from 'lucide-react';
+import {
+  CheckCircle2,
+  XCircle,
+  Clock,
+  WifiOff,
+  ShieldCheck,
+  Globe,
+  AlertTriangle,
+} from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Alert } from '@/components/ui/alert';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
@@ -26,38 +36,28 @@ function ConnectionStatusBlock({ connectionStatus }: { connectionStatus: string 
     {
       label: string;
       icon: React.ComponentType<{ className?: string }>;
-      color: string;
-      bg: string;
-      border: string;
+      variant: 'positive' | 'negative' | 'warning' | 'neutral';
     }
   > = {
     connected: {
       label: 'Conectado',
       icon: CheckCircle2,
-      color: 'text-success',
-      bg: 'bg-success/10',
-      border: 'border-success/30',
+      variant: 'positive',
     },
     error: {
       label: 'Error de conexión',
       icon: XCircle,
-      color: 'text-destructive',
-      bg: 'bg-destructive/10',
-      border: 'border-destructive/30',
+      variant: 'negative',
     },
     disconnected: {
       label: 'Desconectado',
       icon: WifiOff,
-      color: 'text-warning',
-      bg: 'bg-warning/10',
-      border: 'border-warning/30',
+      variant: 'warning',
     },
     not_tested: {
       label: 'Sin probar',
       icon: Clock,
-      color: 'text-muted-foreground',
-      bg: 'bg-surface-subtle',
-      border: 'border-border/60',
+      variant: 'neutral',
     },
   };
 
@@ -65,12 +65,10 @@ function ConnectionStatusBlock({ connectionStatus }: { connectionStatus: string 
   const Icon = config.icon;
 
   return (
-    <div
-      className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium ${config.bg} ${config.border} ${config.color}`}
-    >
-      <Icon className="h-4 w-4 shrink-0" />
+    <Badge variant={config.variant}>
+      <Icon />
       {config.label}
-    </div>
+    </Badge>
   );
 }
 
@@ -86,7 +84,7 @@ export default async function TavilyIntegrationPage() {
   const metadata = conn?.metadata as TavilyMetadata | null;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <PageHeader
         title="Tavily"
         description="Proveedor de búsqueda web para validar empresas, sitios web y fuentes públicas. Usado por el Agente 1 para investigación de prospectos."
@@ -105,15 +103,15 @@ export default async function TavilyIntegrationPage() {
             <div className="flex items-center justify-between">
               <span className="text-xs text-muted-foreground">Credencial</span>
               {hasCredential ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/10 px-2.5 py-0.5 text-xs font-medium text-success">
-                  <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                <Badge variant="positive">
+                  <span className="size-1.5 rounded-full bg-success" />
                   Almacenada
-                </span>
+                </Badge>
               ) : (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-surface-subtle px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
-                  <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/25" />
+                <Badge variant="neutral">
+                  <span className="size-1.5 rounded-full bg-muted-foreground/40" />
                   No configurada
-                </span>
+                </Badge>
               )}
             </div>
 
@@ -130,10 +128,10 @@ export default async function TavilyIntegrationPage() {
             </div>
 
             {conn?.last_connection_error && (
-              <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2">
-                <p className="text-xs font-medium text-destructive mb-0.5">Último error</p>
-                <p className="text-xs text-destructive/80">{conn.last_connection_error}</p>
-              </div>
+              <Alert variant="destructive">
+                <p className="text-xs font-medium">Último error</p>
+                <p className="text-xs">{conn.last_connection_error}</p>
+              </Alert>
             )}
           </div>
         </SurfaceCard>
@@ -147,8 +145,8 @@ export default async function TavilyIntegrationPage() {
           {metadata?.response_time_ms != null ? (
             <div className="space-y-2">
               <div className="flex items-center gap-3 rounded-lg border border-border/60 bg-surface-subtle px-3 py-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-su-brand-soft text-su-brand shrink-0">
-                  <Globe className="h-4 w-4" />
+                <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary shrink-0">
+                  <Globe className="size-4" />
                 </div>
                 <div className="space-y-1">
                   <p className="text-xs text-muted-foreground">Tiempo de respuesta</p>
@@ -168,8 +166,8 @@ export default async function TavilyIntegrationPage() {
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-6 text-center">
-              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-surface-subtle">
-                <Globe className="h-5 w-5 text-muted-foreground" />
+              <div className="mb-3 flex size-10 items-center justify-center rounded-xl bg-surface-subtle">
+                <Globe className="size-5 text-muted-foreground" />
               </div>
               <p className="text-sm text-muted-foreground">
                 Prueba la conexión para ver el resultado.
@@ -182,16 +180,15 @@ export default async function TavilyIntegrationPage() {
       {/* Advertencia de créditos */}
       <SurfaceCard>
         <div className="flex items-start gap-3">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
           <div>
             <p className="text-sm font-semibold text-foreground ">
               Tavily consume créditos por búsqueda
             </p>
             <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
-              Cada búsqueda real consume 1 crédito Tavily. El plan gratuito incluye
-              aproximadamente 1,000 créditos/mes. El botón &ldquo;Probar conexión&rdquo;
-              también consume 1 crédito. Mantener Tavily desactivado para usuarios
-              finales hasta validar calidad y costos.
+              Cada búsqueda real consume 1 crédito Tavily. El plan gratuito incluye aproximadamente
+              1,000 créditos/mes. El botón &ldquo;Probar conexión&rdquo; también consume 1 crédito.
+              Mantener Tavily desactivado para usuarios finales hasta validar calidad y costos.
             </p>
           </div>
         </div>
@@ -226,19 +223,17 @@ export default async function TavilyIntegrationPage() {
           ].map(({ label, enabled }) => (
             <div key={label} className="flex items-center gap-2.5">
               <span
-                className={`h-1.5 w-1.5 rounded-full shrink-0 ${
-                  enabled ? 'bg-success' : 'bg-muted-foreground/25'
+                className={`size-1.5 rounded-full shrink-0 ${
+                  enabled ? 'bg-success' : 'bg-muted-foreground/40'
                 }`}
               />
-              <span
-                className={`text-xs ${enabled ? 'text-foreground' : 'text-muted-foreground'}`}
-              >
+              <span className={`text-xs ${enabled ? 'text-foreground' : 'text-muted-foreground'}`}>
                 {label}
               </span>
               {!enabled && (
-                <span className="ml-auto text-xs font-medium text-muted-foreground border border-border/50 rounded-full px-2 py-0.5">
+                <Badge variant="neutral" className="ml-auto">
                   No aplica
-                </span>
+                </Badge>
               )}
             </div>
           ))}
@@ -248,15 +243,15 @@ export default async function TavilyIntegrationPage() {
       {/* Seguridad */}
       <SurfaceCard elevated>
         <div className="flex items-start gap-3">
-          <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-su-brand" />
+          <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />
           <div>
             <p className="text-sm font-semibold text-foreground ">
               Almacenamiento seguro de credenciales
             </p>
             <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
               Tu API Key se almacena de forma segura y exclusiva en el servidor mediante Vault.
-              Nunca se expone en el navegador ni se registra en logs.
-              SellUp solo la usa para búsquedas controladas del Agente 1.
+              Nunca se expone en el navegador ni se registra en logs. SellUp solo la usa para
+              búsquedas controladas del Agente 1.
             </p>
           </div>
         </div>

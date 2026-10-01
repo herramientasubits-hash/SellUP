@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard } from '@/components/shared/surface-card';
+import { MetricCard } from '@/components/shared/metric-card';
 import { Badge } from '@/components/ui/badge';
 import { CreateCandidateDrawer } from '@/components/prospect-batches/create-candidate-drawer';
 import { CandidatesTableClient } from '@/components/prospect-batches/candidates-table-client';
@@ -46,14 +47,17 @@ const BATCH_SOURCE_VENDOR_LABELS: Partial<Record<BatchSource, string>> = {
   datos_gob_cl: 'Fuente oficial Chile',
 };
 
-const STATUS_STYLES: Record<BatchStatus, string> = {
-  draft: 'bg-muted text-muted-foreground',
-  generating: 'bg-warning/10 text-warning',
-  ready_for_review: 'bg-su-brand-soft text-su-brand',
-  in_review: 'bg-info/10 text-info',
-  completed: 'bg-success/10 text-success',
-  cancelled: 'bg-surface-muted text-muted-foreground',
-  failed: 'bg-destructive/10 text-destructive',
+const STATUS_VARIANT: Record<
+  BatchStatus,
+  'neutral' | 'brand' | 'warning' | 'info' | 'positive' | 'negative'
+> = {
+  draft: 'neutral',
+  generating: 'warning',
+  ready_for_review: 'brand',
+  in_review: 'info',
+  completed: 'positive',
+  cancelled: 'neutral',
+  failed: 'negative',
 };
 
 interface Props {
@@ -159,7 +163,7 @@ export default async function BatchDetailPage({ params }: Props) {
       value: counts.needs_review,
       icon: AlertTriangle,
       color: 'text-warning',
-      bg: 'bg-warning/10',
+      bg: 'bg-warning/15',
     },
     {
       label: 'Aprobados',
@@ -179,15 +183,15 @@ export default async function BatchDetailPage({ params }: Props) {
       label: 'Convertidos',
       value: counts.converted,
       icon: ArrowRightCircle,
-      color: 'text-su-brand',
-      bg: 'bg-su-brand-soft',
+      color: 'text-primary',
+      bg: 'bg-primary/10',
     },
     {
       label: 'Posibles duplicados',
       value: counts.duplicates,
       icon: GitMerge,
       color: 'text-warning',
-      bg: 'bg-warning/10',
+      bg: 'bg-warning/15',
     },
   ];
 
@@ -197,7 +201,7 @@ export default async function BatchDetailPage({ params }: Props) {
       <div>
         <Link
           href="/prospects"
-          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-surface-muted hover:text-foreground transition-colors"
+          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
           Prospectos
@@ -209,7 +213,7 @@ export default async function BatchDetailPage({ params }: Props) {
         title={pageTitle}
         description={pageSubtitle}
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {isAdmin &&
               batch.metadata?.batch_type === 'structured' &&
               (batch.metadata?.source_key === 'co_rues' ||
@@ -257,7 +261,7 @@ export default async function BatchDetailPage({ params }: Props) {
                         Candidatos importados y validados automáticamente
                       </p>
                       {hsNotConfigured && (
-                        <Badge className="border-0 bg-muted text-muted-foreground text-xs font-medium">
+                        <Badge variant="neutral">
                           HubSpot no configurado
                         </Badge>
                       )}
@@ -286,7 +290,7 @@ export default async function BatchDetailPage({ params }: Props) {
 
       {/* Alerta de rollback lógico aplicado */}
       {batch.status === 'cancelled' && batch.metadata?.rollback_logical === true && (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-5 py-3.5 animate-in fade-in-0 duration-200">
+        <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-5 py-3.5 animate-in fade-in-0 duration-200">
           <div className="flex items-start gap-2.5">
             <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
             <div>
@@ -309,9 +313,9 @@ export default async function BatchDetailPage({ params }: Props) {
       {/* Banner revisión humana — lotes estructurados */}
       {batch.metadata?.batch_type === 'structured' &&
         batch.metadata?.human_review_required === true && (
-          <div className="rounded-xl border border-su-brand/30 bg-su-brand-soft/40 px-5 py-3.5 animate-in fade-in-0 duration-200">
+          <div className="rounded-xl border border-primary/20 bg-primary/5 px-5 py-3.5 animate-in fade-in-0 duration-200">
             <div className="flex items-start gap-2.5">
-              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-su-brand" />
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
               <div>
                 <p className="text-sm font-medium text-foreground">
                   Empresas verificadas con fuente oficial
@@ -328,7 +332,7 @@ export default async function BatchDetailPage({ params }: Props) {
 
       {/* Alerta modo mock */}
       {batch.metadata?.generation_mode === 'mock' && (
-        <div className="rounded-xl border border-warning/30 bg-warning/5 px-5 py-3.5">
+        <div className="rounded-xl border border-warning/25 bg-warning/5 px-5 py-3.5">
           <div className="flex items-start gap-2.5">
             <FlaskConical className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
             <div>
@@ -354,7 +358,7 @@ export default async function BatchDetailPage({ params }: Props) {
           .slice(0, 3)
           .map((i) => i.name);
         return (
-          <div className="rounded-xl border border-warning/30 bg-warning/5 px-5 py-3.5">
+          <div className="rounded-xl border border-warning/25 bg-warning/5 px-5 py-3.5">
             <div className="flex items-start gap-2.5">
               <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
               <div>
@@ -379,7 +383,7 @@ export default async function BatchDetailPage({ params }: Props) {
 
       {/* Alerta modo prueba controlada con búsqueda real */}
       {batch.metadata?.generation_mode === 'controlled_real_test' && (
-        <div className="rounded-xl border border-info/30 bg-info/5 px-5 py-3.5">
+        <div className="rounded-xl border border-info/20 bg-info/5 px-5 py-3.5">
           <div className="flex items-start gap-2.5">
             <Globe className="mt-0.5 h-4 w-4 shrink-0 text-info" />
             <div>
@@ -416,9 +420,9 @@ export default async function BatchDetailPage({ params }: Props) {
           error: 'Error en búsqueda',
         };
         return (
-          <div className="rounded-xl border border-su-brand/20 bg-su-brand-soft/40 px-5 py-3.5">
+          <div className="rounded-xl border border-primary/20 bg-primary/5 px-5 py-3.5">
             <div className="flex items-start gap-2.5">
-              <Layers className="mt-0.5 h-4 w-4 shrink-0 text-su-brand" />
+              <Layers className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-foreground">
                   Búsqueda incremental · {roundsExecuted} ronda{roundsExecuted !== 1 ? 's' : ''}
@@ -446,15 +450,15 @@ export default async function BatchDetailPage({ params }: Props) {
       {/* Batch meta */}
       <div className="flex flex-wrap items-center gap-2">
         {batch.metadata?.review_ready === false && batch.status === 'ready_for_review' ? (
-          <Badge className="bg-muted text-muted-foreground border-0 text-xs font-semibold">
+          <Badge variant="neutral">
             Sin candidatas útiles
           </Badge>
         ) : (
-          <Badge className={`${STATUS_STYLES[batch.status]} border-0 text-xs font-semibold`}>
+          <Badge variant={STATUS_VARIANT[batch.status]}>
             {BATCH_STATUS_LABELS[batch.status]}
           </Badge>
         )}
-        <Badge variant="outline" className="text-xs">
+        <Badge variant="outline">
           {isApolloCandidateBatch
             ? 'Fuente comercial'
             : isStructuredChile
@@ -462,45 +466,41 @@ export default async function BatchDetailPage({ params }: Props) {
             : (BATCH_SOURCE_VENDOR_LABELS[batch.source] ?? BATCH_SOURCE_LABELS[batch.source])}
         </Badge>
         {!isStructuredOfficial && !isApolloCandidateBatch && (
-          <Badge variant="outline" className="text-xs">
+          <Badge variant="outline">
             Profundidad: {BATCH_SEARCH_DEPTH_LABELS[batch.search_depth]}
           </Badge>
         )}
         {batch.country && (
-          <Badge variant="outline" className="text-xs">
+          <Badge variant="outline">
             {batch.country}
           </Badge>
         )}
         {batch.industry && (
-          <Badge variant="outline" className="text-xs">
+          <Badge variant="outline">
             {isStructuredChile ? `Criterio solicitado: ${batch.industry}` : batch.industry}
           </Badge>
         )}
         {!isApolloCandidateBatch && batch.estimated_cost_usd !== null && batch.estimated_cost_usd > 0 && (
-          <Badge variant="outline" className="text-xs">
+          <Badge variant="outline">
             Costo est.: ${Number(batch.estimated_cost_usd).toFixed(4)}
           </Badge>
         )}
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {summaryCards.map((card) => (
-          <SurfaceCard key={card.label} className="py-3">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground">
-                  {card.label}
-                </p>
-                <p className="mt-1 text-xl font-semibold tabular-nums text-foreground">
-                  {card.value}
-                </p>
+          <MetricCard
+            key={card.label}
+            title={card.label}
+            value={card.value}
+            compact
+            icon={
+              <div className={`rounded-xl p-2 ${card.bg}`}>
+                <card.icon className={`h-4 w-4 ${card.color}`} aria-hidden="true" />
               </div>
-              <div className={`rounded-lg p-1 ${card.bg}`}>
-                <card.icon className={`h-3.5 w-3.5 ${card.color}`} />
-              </div>
-            </div>
-          </SurfaceCard>
+            }
+          />
         ))}
       </div>
 
@@ -566,11 +566,11 @@ export default async function BatchDetailPage({ params }: Props) {
       {/* Candidates table */}
       <SurfaceCard noPadding>
         <div className="flex items-center justify-between border-b border-border/60 px-5 py-3.5">
-          <p className="text-sm font-semibold text-foreground">
+          <p className="min-w-0 truncate text-sm font-semibold text-foreground" title={candidatesPanel.headline}>
             {candidatesPanel.headline}
           </p>
           <div className="flex items-center gap-2">
-            <Layers className="h-3.5 w-3.5 text-muted-foreground" />
+            <Layers className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
             <span className="text-xs text-muted-foreground">
               {batch.target_count ? `Objetivo: ${batch.target_count}` : ''}
             </span>
@@ -592,7 +592,7 @@ export default async function BatchDetailPage({ params }: Props) {
             </p>
             <Link
               href={candidatesPanel.prospectosHref}
-              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-su-brand hover:bg-su-brand-soft transition-colors"
+              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
             >
               Revisar en Prospectos
               <ArrowRightCircle className="h-3.5 w-3.5" />
@@ -609,10 +609,10 @@ export default async function BatchDetailPage({ params }: Props) {
       */}
       {qualityFlaggedCandidates.length > 0 && (
         <details className="group rounded-2xl border border-border/60 bg-card p-4">
-          <summary className="flex cursor-pointer items-center justify-between font-semibold text-xs text-muted-foreground hover:text-foreground">
+          <summary className="flex cursor-pointer items-center justify-between rounded-md text-xs font-semibold text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
             <span className="flex items-center gap-2">
               <span>Empresas señaladas por calidad ({qualityFlaggedCandidates.length})</span>
-              <span className="rounded-full bg-warning/10 px-1.5 py-0.5 text-xs font-normal text-warning">
+              <span className="rounded-full bg-warning/15 px-2 py-0.5 text-xs font-normal text-warning">
                 Inactivas, disueltas, duplicadas o sin NIT
               </span>
             </span>
@@ -675,7 +675,7 @@ export default async function BatchDetailPage({ params }: Props) {
                       </td>
                       <td className="px-3 py-2 text-muted-foreground">{c.city || c.region || '—'}</td>
                       <td className="px-3 py-2">
-                        <span className="inline-block rounded px-1.5 py-0.5 text-xs font-medium bg-warning/10 text-warning">
+                        <span className="inline-block rounded-md bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning">
                           {reasons.length > 0 ? reasons.join(', ') : 'Omitida por calidad'}
                         </span>
                       </td>

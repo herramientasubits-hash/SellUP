@@ -8,7 +8,10 @@ import { syncProviderQuota } from '@/modules/budgets';
 import { deriveConsumedDisplay } from './budget-display';
 import { DataTableBulkActionBar } from '@/components/data-table/data-table-bulk-action-bar';
 import type { DataTableBulkAction } from '@/components/data-table/data-table';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { EmptyState } from '@/components/ui/empty-state';
 import { toast } from 'sonner';
 import {
   DropdownMenu,
@@ -73,10 +76,10 @@ function deriveAttention(row: AdminProviderBudgetRow): AttentionLevel {
   return 'none';
 }
 
-const ATTENTION_BADGE: Record<Exclude<AttentionLevel, 'none'>, { label: string; className: string }> = {
-  quota_required: { label: 'Cuota requerida', className: 'border-warning/30 bg-warning/10 text-warning' },
-  warning:        { label: 'Advertencia',      className: 'border-warning/30 bg-warning/10 text-warning' },
-  exceeded:       { label: 'Excedido',         className: 'border-destructive/30 bg-destructive/10 text-destructive' },
+const ATTENTION_BADGE: Record<Exclude<AttentionLevel, 'none'>, { label: string; variant: 'warning' | 'negative' }> = {
+  quota_required: { label: 'Cuota requerida', variant: 'warning' },
+  warning:        { label: 'Advertencia',      variant: 'warning' },
+  exceeded:       { label: 'Excedido',         variant: 'negative' },
 };
 
 // ── Consumed display ──────────────────────────────────────────────────────────
@@ -106,19 +109,20 @@ function SelectionReviewPanel({
   const totalConsumed = deriveConsumedDisplay(totalCredits, totalUsd, totalHasUnknownCost);
 
   return (
-    <div className="rounded-lg border border-su-brand/20 bg-surface-subtle animate-su-fade-in">
+    <div className="rounded-xl border border-primary/20 bg-surface-subtle animate-su-fade-in">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/50">
         <p className="text-xs font-medium text-foreground">
           {rows.length} proveedor{rows.length !== 1 ? 'es' : ''} seleccionado{rows.length !== 1 ? 's' : ''}
         </p>
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="icon-xs"
           onClick={onClose}
-          className="inline-flex items-center justify-center h-6 w-6 rounded-md hover:bg-surface-muted transition-colors"
           aria-label="Cerrar revisión"
         >
-          <X className="h-3.5 w-3.5 text-muted-foreground" />
-        </button>
+          <X className="text-muted-foreground" />
+        </Button>
       </div>
       <div className="p-4 space-y-1.5">
         {rows.map((row) => {
@@ -129,17 +133,17 @@ function SelectionReviewPanel({
           const consumed = deriveConsumed(row, ms);
           return (
             <div key={row.providerKey} className="flex items-center gap-3 py-1.5 border-b border-border/50 last:border-0">
-              <span className="text-xs font-medium text-foreground min-w-0 truncate shrink-0" style={{ maxWidth: '10rem' }}>
+              <span className="min-w-0 max-w-40 shrink-0 truncate text-xs font-medium text-foreground" title={row.displayName ?? row.providerKey}>
                 {row.displayName ?? row.providerKey}
               </span>
-              <span className={`shrink-0 inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-medium ${opBadge}`}>
+              <Badge variant="outline" className={opBadge}>
                 {OPERATIONAL_TYPE_LABEL[opType]}
-              </span>
-              <span className={`shrink-0 inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-medium ${msBadge.className}`}>
+              </Badge>
+              <Badge variant="outline" className={msBadge.className}>
                 {MEASUREMENT_STATUS_LABEL[ms]}
-              </span>
+              </Badge>
               <span
-                className="ml-auto shrink-0 text-xs text-muted-foreground whitespace-nowrap"
+                className="ml-auto shrink-0 whitespace-nowrap text-xs tabular-nums text-muted-foreground"
                 title={consumed.description}
               >
                 {consumed.label}
@@ -308,18 +312,17 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], pro
 
   if (providers.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-        <p className="text-sm text-muted-foreground">
-          Aún no hay reglas de presupuesto configuradas. Este panel ya puede mostrar consumo registrado por proveedor.
-        </p>
-      </div>
+      <EmptyState
+        title="Aún no hay reglas de presupuesto configuradas. Este panel ya puede mostrar consumo registrado por proveedor."
+        className="m-4 border-0"
+      />
     );
   }
 
   return (
     <>
       <div className="space-y-3">
-        <div className="overflow-x-auto rounded-lg border border-border/60">
+        <div className="overflow-x-auto rounded-xl border border-border/60">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border/60 bg-surface-subtle">
@@ -340,7 +343,7 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], pro
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-border/30">
+            <tbody className="divide-y divide-border/50">
               {providers.map((row) => {
                 const ms = row.measurementStatus;
                 const msBadge = MEASUREMENT_STATUS_BADGE[ms];
@@ -375,7 +378,7 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], pro
                         <button
                           type="button"
                           onClick={() => openSidepanel(row)}
-                          className="font-medium text-foreground hover:text-su-brand transition-colors text-left whitespace-nowrap focus-visible:outline-none focus-visible:underline"
+                          className="font-medium text-foreground rounded-sm text-left whitespace-nowrap transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                         >
                           {row.displayName ?? row.providerKey}
                         </button>
@@ -390,22 +393,22 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], pro
 
                     {/* Estado */}
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${msBadge.className}`}>
+                      <Badge variant="outline" className={msBadge.className}>
                         {MEASUREMENT_STATUS_LABEL[ms]}
-                      </span>
+                      </Badge>
                     </td>
 
                     {/* Consumo del mes */}
-                    <td className="px-4 py-3 text-xs text-foreground whitespace-nowrap" title={consumed.description}>
+                    <td className="px-4 py-3 text-xs tabular-nums text-foreground whitespace-nowrap" title={consumed.description}>
                       {consumed.label}
                     </td>
 
                     {/* Alerta */}
                     <td className="px-4 py-3">
                       {attention !== 'none' ? (
-                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${ATTENTION_BADGE[attention].className}`}>
+                        <Badge variant={ATTENTION_BADGE[attention].variant}>
                           {ATTENTION_BADGE[attention].label}
-                        </span>
+                        </Badge>
                       ) : (
                         <span className="text-xs text-text-muted">—</span>
                       )}
@@ -419,7 +422,7 @@ export function BudgetProvidersTable({ providers, resolvedAt, allRules = [], pro
                     {/* Acciones */}
                     <td className="px-4 py-3">
                       <DropdownMenu>
-                        <DropdownMenuTrigger className="inline-flex items-center justify-center h-7 w-7 rounded-md hover:bg-surface-muted transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border">
+                        <DropdownMenuTrigger className="inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
                           <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
                           <span className="sr-only">Acciones</span>
                         </DropdownMenuTrigger>

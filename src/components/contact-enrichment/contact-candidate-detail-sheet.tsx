@@ -47,7 +47,8 @@ import {
   SelectContent,
   SelectItem,
 } from '@/components/ui/select';
-import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { SurfaceCard } from '@/components/shared/surface-card';
+import { DrawerSection } from '@/components/shared/drawer-section';
 import {
   getReviewableContactCandidateById,
   getDuplicateCandidateMergeOffer,
@@ -274,7 +275,7 @@ const RELEVANCE_LABELS: Record<ContactRelevanceStatus, string> = {
 
 const RELEVANCE_STYLES: Record<ContactRelevanceStatus, string> = {
   high_relevance: 'bg-success/10 text-success',
-  medium_relevance: 'bg-su-brand-soft text-su-brand',
+  medium_relevance: 'bg-primary/10 text-primary',
   low_relevance: 'bg-warning/10 text-warning',
   not_relevant: 'bg-muted text-muted-foreground',
   insufficient_data: 'bg-muted text-muted-foreground',
@@ -2103,7 +2104,7 @@ export function ContactCandidateDetailSheet({
       side="right"
       className="w-full sm:w-[60vw] sm:min-w-[620px] sm:max-w-[820px]"
       loading={loading}
-      icon={<UserSearch className="h-5 w-5 text-su-brand" />}
+      icon={<UserSearch className="h-5 w-5 text-primary" />}
       title={
         candidate ? (
           <div className="flex items-center justify-between gap-4 mr-6">
@@ -2119,17 +2120,11 @@ export function ContactCandidateDetailSheet({
               {/* 4O-H3-B-R1: el badge dice el estado REAL. Un duplicado ya no se presenta como si
                   siguiera siendo una aprobación normal pendiente. */}
               {candidate.status === 'duplicate' ? (
-                <Badge
-                  variant="outline"
-                  className="shrink-0 border-transparent bg-muted text-muted-foreground text-xs font-semibold"
-                >
+                <Badge variant="neutral" className="shrink-0">
                   Duplicado
                 </Badge>
               ) : (
-                <Badge
-                  variant="outline"
-                  className="shrink-0 border-transparent bg-warning/10 text-warning text-xs font-semibold"
-                >
+                <Badge variant="warning" className="shrink-0">
                   Por revisar
                 </Badge>
               )}
@@ -2258,7 +2253,7 @@ export function ContactCandidateDetailSheet({
           <div
             className={
               loadOutcome === 'load_error'
-                ? 'flex h-12 w-12 items-center justify-center rounded-xl bg-destructive/10'
+                ? 'flex h-12 w-12 items-center justify-center rounded-xl bg-destructive/10 ring-1 ring-inset ring-border/40'
                 : 'flex h-12 w-12 items-center justify-center rounded-xl bg-surface-muted'
             }
           >
@@ -2332,8 +2327,7 @@ export function ContactCandidateDetailSheet({
           ) : null}
 
           {/* 1. Información principal */}
-          <SurfaceCard>
-            <SurfaceCardHeader title="Información principal" />
+            <DrawerSection icon={User} title="Información principal">
             <dl className="space-y-3">
               <DetailRow icon={User} label="Nombre completo">
                 {candidate.full_name || <Fallback />}
@@ -2348,7 +2342,7 @@ export function ContactCandidateDetailSheet({
                 {candidate.company_domain || <Fallback />}
               </DetailRow>
               <DetailRow icon={Tag} label={CANDIDATE_SOURCE_LABEL}>
-                <Badge variant="outline" className="text-xs">
+                <Badge variant="outline">
                   {SOURCE_LABELS[candidate.source] ?? candidate.source}
                 </Badge>
               </DetailRow>
@@ -2356,11 +2350,10 @@ export function ContactCandidateDetailSheet({
                 {formatDate(candidate.created_at)}
               </DetailRow>
             </dl>
-          </SurfaceCard>
+          </DrawerSection>
 
           {/* 2. Canales de contacto */}
-          <SurfaceCard>
-            <SurfaceCardHeader title="Canales de contacto" />
+            <DrawerSection icon={Phone} title="Canales de contacto">
             <dl className="space-y-3">
               <DetailRow icon={Mail} label="Email">
                 {candidate.email || <Fallback />}
@@ -2371,7 +2364,7 @@ export function ContactCandidateDetailSheet({
                     href={normalizeLinkedinUrl(candidate.linkedin_url)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-su-brand hover:underline break-all"
+                    className="text-primary hover:underline break-all"
                   >
                     {candidate.linkedin_url}
                   </a>
@@ -2384,13 +2377,13 @@ export function ContactCandidateDetailSheet({
                   {hasPhone ? (
                     <span className="inline-flex flex-wrap items-center gap-2">
                       <span className="break-all">{phoneNumber}</span>
-                      <Badge className="border-0 bg-su-brand-soft text-su-brand text-xs font-semibold">
+                      <Badge variant="brand">
                         {phoneTypeLabel}
                       </Badge>
                       {phoneSourceLabel && (
                         <Badge
                           variant="outline"
-                          className="text-xs font-normal text-muted-foreground"
+                          className="font-normal text-muted-foreground"
                         >
                           {phoneSourceLabel}
                         </Badge>
@@ -2468,7 +2461,7 @@ export function ContactCandidateDetailSheet({
                   {phoneRevealInFlight && (
                     <div className="space-y-1">
                       <span className="inline-flex items-center gap-1.5">
-                        <Badge className="border-0 bg-warning/10 text-warning text-xs font-semibold">
+                        <Badge variant="warning">
                           <Loader2 className="mr-1 h-3 w-3 animate-spin" />
                           Revelación en proceso
                         </Badge>
@@ -2875,7 +2868,7 @@ export function ContactCandidateDetailSheet({
                     <div className="space-y-1">
                       {waterfallLushaRunning ? (
                         <span className="inline-flex items-center gap-1.5">
-                          <Badge className="border-0 bg-warning/10 text-warning text-xs font-semibold">
+                          <Badge variant="warning">
                             <Loader2 className="mr-1 h-3 w-3 animate-spin" />
                             Lusha
                           </Badge>
@@ -2923,18 +2916,18 @@ export function ContactCandidateDetailSheet({
                 </div>
               </DetailRow>
             </dl>
-          </SurfaceCard>
+          </DrawerSection>
 
           {/* 2b. Auditoría del waterfall de teléfono (AGENT2A-PHONE-WATERFALL-1).
                Solo con el flag activo, rol admin y corrida existente. Muestra qué
                hizo CADA proveedor y cuánto costó CADA pata por separado — nunca un
                total mezclado — y no expone ningún dato personal adicional. */}
           {waterfallActive && waterfallAudit && (
-            <SurfaceCard>
-              <SurfaceCardHeader
+              <DrawerSection
+                icon={PhoneCall}
                 title="Revelación de teléfono por proveedor"
-                description="Trazabilidad de la última revelación autorizada: qué intentó cada proveedor y cuánto costó cada consulta."
-              />
+                hint="Trazabilidad de la última revelación autorizada: qué intentó cada proveedor y cuánto costó cada consulta."
+              >
               <dl className="space-y-3">
                 <DetailRow icon={PhoneCall} label="Apollo">
                   <span className="flex flex-col gap-0.5">
@@ -3004,21 +2997,21 @@ export function ContactCandidateDetailSheet({
                   </span>
                 </DetailRow>
               </dl>
-            </SurfaceCard>
+            </DrawerSection>
           )}
 
           {/* 3. Evaluación del candidato */}
-          <SurfaceCard>
-            <SurfaceCardHeader
+            <DrawerSection
+              icon={Gauge}
               title="Evaluación del candidato"
-              description="Veredicto del filtro de relevancia del Agente de contactos."
-            />
+              hint="Veredicto del filtro de relevancia del Agente de contactos."
+            >
             <dl className="space-y-3">
               <DetailRow icon={Gauge} label="Relevancia">
                 {relevance?.status ? (
                   <span className="inline-flex flex-wrap items-center gap-2">
                     <Badge
-                      className={`${RELEVANCE_STYLES[relevance.status]} border-0 text-xs font-semibold`}
+                      className={`${RELEVANCE_STYLES[relevance.status]} border-0`}
                     >
                       {RELEVANCE_LABELS[relevance.status] ?? relevance.status}
                     </Badge>
@@ -3056,7 +3049,7 @@ export function ContactCandidateDetailSheet({
                       <Badge
                         key={kw}
                         variant="outline"
-                        className="text-xs font-normal"
+                        className="font-normal"
                       >
                         {kw}
                       </Badge>
@@ -3065,11 +3058,12 @@ export function ContactCandidateDetailSheet({
                 </DetailRow>
               )}
             </dl>
-          </SurfaceCard>
+          </DrawerSection>
 
           {/* 3a. Consistencia de identidad (Hito 17B.4W.6) — observacional */}
-          <SurfaceCard>
-            <SurfaceCardHeader
+            <DrawerSection
+              icon={ShieldCheck}
+              tone="neutral"
               title="Consistencia de identidad"
               /* § 8.3: copy NEUTRAL respecto al proveedor. El texto anterior
                  nombraba a Lusha ("la persona encontrada en Lusha"), lo que sugería
@@ -3077,8 +3071,8 @@ export function ContactCandidateDetailSheet({
                  indica es `candidate.source`. Este bloque compara identidades del
                  CANDIDATO y del enriquecimiento; no dice nada del proveedor
                  telefónico, así que tampoco debe nombrar a ninguno. */
-              description="Compara la identidad del candidato encontrado por la fuente original con la identidad devuelta durante el enriquecimiento."
-            />
+              hint="Compara la identidad del candidato encontrado por la fuente original con la identidad devuelta durante el enriquecimiento."
+            >
             <div className="flex items-start gap-2.5">
               <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center">
                 {identityDisplay.tone === 'consistent' ? (
@@ -3091,7 +3085,7 @@ export function ContactCandidateDetailSheet({
               </div>
               <div className="min-w-0 flex-1 space-y-1.5">
                 <Badge
-                  className={`${IDENTITY_TONE_STYLES[identityDisplay.tone]} border-0 text-xs font-semibold`}
+                  className={`${IDENTITY_TONE_STYLES[identityDisplay.tone]} border-0`}
                 >
                   {identityDisplay.label}
                 </Badge>
@@ -3116,7 +3110,7 @@ export function ContactCandidateDetailSheet({
                 )}
               </div>
             </div>
-          </SurfaceCard>
+          </DrawerSection>
 
           {/* 3b. Consistencia con la empresa (Hito 17A.9G) */}
           {showConsistencyWarning && companyConsistency && (
@@ -3145,8 +3139,7 @@ export function ContactCandidateDetailSheet({
           )}
 
           {/* 4. Trazabilidad */}
-          <SurfaceCard>
-            <SurfaceCardHeader title="Trazabilidad" />
+            <DrawerSection icon={Hash} title="Trazabilidad">
             <dl className="space-y-3">
               <DetailRow icon={Hash} label="Candidate ID">
                 <span className="font-mono text-xs break-all">{candidate.id}</span>
@@ -3188,15 +3181,16 @@ export function ContactCandidateDetailSheet({
                 </DetailRow>
               )}
             </dl>
-          </SurfaceCard>
+          </DrawerSection>
 
           {/* 5. Revisión humana (Hito 17A.4B) */}
           {showRejectForm ? (
-            <SurfaceCard>
-              <SurfaceCardHeader
+              <DrawerSection
+                icon={Ban}
+                tone="negative"
                 title="Motivo de rechazo"
-                description="Quedará registrado en la trazabilidad del candidato."
-              />
+                hint="Quedará registrado en la trazabilidad del candidato."
+              >
               <div className="space-y-3">
                 <Select value={reason} onValueChange={(v) => setReason(v ?? REJECTION_REASONS[0])}>
                   <SelectTrigger className="w-full">
@@ -3220,11 +3214,11 @@ export function ContactCandidateDetailSheet({
                   />
                 )}
               </div>
-            </SurfaceCard>
+            </DrawerSection>
           ) : !candidate.account_id && candidate.hubspot_company_id ? (
-            <div className="rounded-xl border border-dashed border-su-brand/30 bg-su-brand-soft/40 px-4 py-3">
+            <div className="rounded-xl border border-dashed border-primary/30 bg-primary/5 px-4 py-3">
               <div className="flex items-start gap-2.5">
-                <Info className="mt-0.5 h-4 w-4 shrink-0 text-su-brand" />
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                 <div className="space-y-1">
                   <p className="text-xs font-medium text-foreground">
                     Empresa vinculada vía HubSpot

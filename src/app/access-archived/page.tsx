@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { LogOut, Archive, RotateCcw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { signOut } from '@/modules/auth/actions';
 import { requestReaccess } from './actions';
 
@@ -26,43 +27,44 @@ export default async function AccessArchivedPage() {
 
   return (
     <div className="w-full max-w-md text-center">
-      <div className="mb-6 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-muted-foreground/10">
-        <Archive className="h-8 w-8 text-muted-foreground" />
+      <div className="mb-6 inline-flex h-14 w-14 items-center justify-center rounded-xl bg-muted">
+        <Archive className="h-7 w-7 text-muted-foreground" aria-hidden="true" />
       </div>
 
       <h1 className="mb-3 text-2xl font-bold tracking-tight text-foreground">
         Usuario archivado
       </h1>
 
-      <p className="mb-8 text-sm text-muted-foreground leading-relaxed">
+      <p className="mb-8 text-sm leading-relaxed text-muted-foreground">
         Tu cuenta ha sido archivada y ya no tiene acceso a SellUp. Si deseas
         volver a usar la plataforma, puedes solicitar reingreso. Un administrador
         revisará tu solicitud.
       </p>
 
-      <div className="mb-8 flex items-center justify-center gap-2 rounded-2xl border border-border/50 bg-card p-4">
-        <span className="text-sm text-foreground">{user.email}</span>
+      <div className="mb-8 flex items-center justify-center gap-2 rounded-2xl border border-border/60 bg-card px-4 py-3 shadow-card">
+        <span className="min-w-0 truncate text-sm text-foreground" title={user.email}>{user.email}</span>
       </div>
 
-      <div className="flex flex-col items-center gap-3">
-        <form action={requestReaccess}>
-          <button
+      <div className="flex flex-col items-stretch gap-3">
+        <form action={requestReaccess} className="w-full">
+          <Button
             type="submit"
-            className="inline-flex items-center justify-center gap-2 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-surface-muted focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 w-full"
+            className="w-full"
           >
-            <RotateCcw className="h-4 w-4" />
+            <RotateCcw className="h-4 w-4" aria-hidden="true" />
             Solicitar reingreso
-          </button>
+          </Button>
         </form>
 
-        <form action={signOut}>
-          <button
+        <form action={signOut} className="w-full">
+          <Button
             type="submit"
-            className="inline-flex items-center justify-center gap-2 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-surface-muted focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            variant="outline"
+            className="w-full"
           >
-            <LogOut className="h-4 w-4" />
+            <LogOut className="h-4 w-4" aria-hidden="true" />
             Cerrar sesión
-          </button>
+          </Button>
         </form>
       </div>
     </div>

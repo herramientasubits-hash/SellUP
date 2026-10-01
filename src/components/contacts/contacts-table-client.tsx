@@ -33,8 +33,8 @@ const STATUS_STYLES: Record<ContactStatus, string> = {
 };
 
 const ROLE_STYLES: Record<string, string> = {
-  decision_maker: 'bg-su-brand-soft text-su-brand border-transparent',
-  economic_buyer: 'bg-su-brand-soft text-su-brand border-transparent',
+  decision_maker: 'bg-primary/10 text-primary border-transparent',
+  economic_buyer: 'bg-primary/10 text-primary border-transparent',
   champion: 'bg-success/10 text-success border-transparent',
   influencer: 'bg-warning/10 text-warning border-transparent',
 };
@@ -94,13 +94,13 @@ export function ContactsTableClient({ contacts }: ContactsTableClientProps) {
                 {/* Nombre — clickable */}
                 <TableCell className="pl-4">
                   <div className="flex items-center gap-2">
-                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground/70">
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
                       {contact.full_name.charAt(0).toUpperCase()}
                     </div>
                     <button
                       type="button"
                       onClick={() => openSheet(contact.id)}
-                      className="text-xs font-medium text-foreground hover:text-su-brand hover:underline text-left"
+                      className="text-xs font-medium text-foreground hover:text-primary hover:underline text-left rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                     >
                       {contact.full_name}
                     </button>
@@ -112,7 +112,7 @@ export function ContactsTableClient({ contacts }: ContactsTableClientProps) {
                   {contact.account_name ? (
                     <Link
                       href={`/accounts/${contact.account_id}`}
-                      className="text-xs text-su-brand hover:underline"
+                      className="text-xs text-primary hover:underline"
                     >
                       {contact.account_name}
                     </Link>
@@ -133,7 +133,7 @@ export function ContactsTableClient({ contacts }: ContactsTableClientProps) {
                   {contact.email ? (
                     <a
                       href={`mailto:${contact.email}`}
-                      className="flex items-center gap-1 text-xs text-su-brand hover:underline"
+                      className="flex items-center gap-1 text-xs text-primary hover:underline"
                     >
                       <Mail className="h-3 w-3 shrink-0" />
                       <span className="truncate max-w-[140px]">{contact.email}</span>
@@ -148,7 +148,7 @@ export function ContactsTableClient({ contacts }: ContactsTableClientProps) {
                   {contact.phone ?? contact.mobile_phone ? (
                     <a
                       href={`tel:${contact.mobile_phone ?? contact.phone}`}
-                      className="flex items-center gap-1 text-xs text-foreground/70 hover:text-foreground"
+                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                     >
                       <Phone className="h-3 w-3 shrink-0" />
                       {contact.mobile_phone ?? contact.phone}
@@ -162,7 +162,7 @@ export function ContactsTableClient({ contacts }: ContactsTableClientProps) {
                 <TableCell>
                   <Badge
                     variant="outline"
-                    className={`text-xs ${STATUS_STYLES[contact.contact_status]}`}
+                    className={STATUS_STYLES[contact.contact_status]}
                   >
                     {CONTACT_STATUS_LABELS[contact.contact_status]}
                   </Badge>
@@ -173,7 +173,7 @@ export function ContactsTableClient({ contacts }: ContactsTableClientProps) {
                   {contact.role_in_account ? (
                     <Badge
                       variant="outline"
-                      className={`text-xs ${ROLE_STYLES[contact.role_in_account] ?? 'bg-muted text-muted-foreground border-transparent'}`}
+                      className={ROLE_STYLES[contact.role_in_account] ?? 'bg-muted text-muted-foreground border-transparent'}
                     >
                       {ROLE_LABELS[contact.role_in_account as ContactRole]}
                     </Badge>

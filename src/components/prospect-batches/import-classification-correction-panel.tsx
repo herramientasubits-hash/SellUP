@@ -173,19 +173,18 @@ export function ImportClassificationCorrectionPanel({
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
           <h4 className="text-sm font-semibold text-foreground">
             Corregir clasificación — Fila {row.rowNumber}
           </h4>
-          <p className="text-xs text-muted-foreground">{row.companyName}</p>
+          <p className="truncate text-xs text-muted-foreground" title={row.companyName}>{row.companyName}</p>
         </div>
         <Button
           type="button"
           variant="ghost"
-          size="sm"
+          size="icon-sm"
           onClick={onClose}
-          className="h-7 w-7 p-0"
           aria-label="Cerrar panel de corrección"
         >
           <X className="h-4 w-4" />
@@ -194,7 +193,7 @@ export function ImportClassificationCorrectionPanel({
 
       {/* Current classification */}
       <div className="rounded-xl border border-border/60 bg-surface-subtle p-3">
-        <p className="text-xs font-semibold text-muted-foreground mb-2">
+        <p className="mb-2 text-xs font-semibold text-muted-foreground">
           Clasificación actual
         </p>
         <div className="grid grid-cols-2 gap-2">
@@ -218,11 +217,11 @@ export function ImportClassificationCorrectionPanel({
           </div>
         </div>
         <div className="mt-2 flex items-center gap-2">
-          <Badge variant={statusConfig.variant === 'success' ? 'secondary' : statusConfig.variant === 'warning' ? 'default' : 'destructive'} className="text-xs">
+          <Badge variant={statusConfig.variant === 'success' ? 'secondary' : statusConfig.variant === 'warning' ? 'default' : 'destructive'}>
             {statusConfig.label}
           </Badge>
           {row.correctionSource && (
-            <Badge variant="outline" className="text-xs">
+            <Badge variant="outline">
               Corrección: {row.correctionSource}
             </Badge>
           )}
@@ -231,9 +230,9 @@ export function ImportClassificationCorrectionPanel({
 
       {/* Warnings */}
       {row.warnings.length > 0 && (
-        <div className="rounded-xl border border-warning/30 bg-warning/5 p-3">
-          <div className="flex items-center gap-1.5 mb-1.5">
-            <AlertTriangle className="h-3 w-3 text-warning" />
+        <div className="rounded-xl border border-warning/25 bg-warning/15 p-3">
+          <div className="mb-1.5 flex items-center gap-1.5">
+            <AlertTriangle className="h-3.5 w-3.5 text-warning" />
             <p className="text-xs font-semibold text-warning">
               Advertencias
             </p>
@@ -287,21 +286,22 @@ export function ImportClassificationCorrectionPanel({
       {/* Validation message */}
       {validationMessage && (
         <div
+          role={validationMessage.type === 'error' ? 'alert' : 'status'}
           className={`rounded-xl border p-3 ${
             validationMessage.type === 'success'
-              ? 'border-success/30 bg-success/5'
+              ? 'border-success/20 bg-success/10'
               : validationMessage.type === 'warning'
-                ? 'border-warning/30 bg-warning/5'
-                : 'border-destructive/30 bg-destructive/5'
+                ? 'border-warning/25 bg-warning/15'
+                : 'border-destructive/20 bg-destructive/10'
           }`}
         >
           <div className="flex items-center gap-1.5">
             {validationMessage.type === 'success' ? (
-              <CheckCircle2 className="h-3 w-3 text-success" />
+              <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success" />
             ) : validationMessage.type === 'warning' ? (
-              <AlertTriangle className="h-3 w-3 text-warning" />
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warning" />
             ) : (
-              <Info className="h-3 w-3 text-destructive" />
+              <Info className="h-3.5 w-3.5 shrink-0 text-destructive" />
             )}
             <p className="text-xs text-foreground">{validationMessage.text}</p>
           </div>
@@ -320,7 +320,7 @@ export function ImportClassificationCorrectionPanel({
             />
             <label htmlFor="apply-to-equivalent" className="cursor-pointer space-y-0.5">
               <div className="flex items-center gap-1.5">
-                <Users className="h-3 w-3 text-muted-foreground" />
+                <Users className="h-3.5 w-3.5 text-muted-foreground" />
                 <span className="text-xs font-medium text-foreground">
                   Aplicar a {equivalentCount + 1} filas equivalentes
                 </span>
@@ -335,13 +335,12 @@ export function ImportClassificationCorrectionPanel({
       )}
 
       {/* Actions */}
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex items-center justify-between gap-2">
         <Button
           type="button"
-          variant="ghost"
+          variant="outline"
           size="sm"
           onClick={handleReset}
-          className="h-8 text-xs"
         >
           Restablecer
         </Button>
@@ -351,7 +350,6 @@ export function ImportClassificationCorrectionPanel({
           size="sm"
           onClick={handleSave}
           disabled={isSaving || !selectedIndustryId}
-          className="h-8 text-xs bg-su-brand text-primary-foreground hover:bg-su-brand/90"
         >
           {isSaving
             ? 'Aplicando...'

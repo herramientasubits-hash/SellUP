@@ -83,12 +83,14 @@ export function AccountDetailActions({
   return (
     <>
       <DropdownMenu>
-        <DropdownMenuTrigger>
-          <div className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-border/60 bg-card hover:bg-surface-muted transition-colors">
-            <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
-            <span className="sr-only">Acciones de cuenta</span>
-          </div>
-        </DropdownMenuTrigger>
+        <DropdownMenuTrigger
+          render={
+            <Button type="button" variant="outline" size="icon-sm">
+              <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+              <span className="sr-only">Acciones de cuenta</span>
+            </Button>
+          }
+        />
         <DropdownMenuContent align="end">
           <DropdownMenuItem onClick={() => setEditOpen(true)}>
             <Pencil className="h-3.5 w-3.5" />
@@ -105,7 +107,7 @@ export function AccountDetailActions({
                 <DropdownMenuItem
                   key={s.value}
                   onClick={() => handleStatusChange(s.value)}
-                  className={currentStatus === s.value ? 'font-medium text-su-brand' : ''}
+                  className={currentStatus === s.value ? 'font-medium text-primary' : ''}
                 >
                   {s.label}
                 </DropdownMenuItem>

@@ -13,6 +13,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import {
   setPrimaryContact,
@@ -139,12 +140,15 @@ export function ContactRowActions({ contact, onActionComplete }: ContactRowActio
   return (
     <>
       <DropdownMenu>
-        <DropdownMenuTrigger disabled={pending}>
-          <div className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md hover:bg-surface-muted transition-colors">
-            <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="sr-only">Acciones</span>
-          </div>
-        </DropdownMenuTrigger>
+        <DropdownMenuTrigger
+          disabled={pending}
+          render={
+            <Button type="button" variant="ghost" size="icon-xs">
+              <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="sr-only">Acciones</span>
+            </Button>
+          }
+        />
         <DropdownMenuContent align="end" className="w-44">
           <DropdownMenuItem onClick={() => router.push(`/contacts/${contact.id}`)}>
             <Eye className="mr-2 h-3.5 w-3.5" />
@@ -172,7 +176,7 @@ export function ContactRowActions({ contact, onActionComplete }: ContactRowActio
                 <DropdownMenuItem
                   key={s}
                   onClick={() => handleChangeStatus(s)}
-                  className={contact.contact_status === s ? 'font-medium text-su-brand' : ''}
+                  className={contact.contact_status === s ? 'font-medium text-primary' : ''}
                 >
                   {CONTACT_STATUS_LABELS[s]}
                 </DropdownMenuItem>

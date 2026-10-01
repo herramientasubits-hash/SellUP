@@ -147,7 +147,7 @@ export function EChart({
 
       {loading && (
         <div className="absolute inset-0">
-          <Skeleton className="size-full rounded-xl" />
+          <Skeleton className="size-full rounded-xl" aria-hidden="true" />
         </div>
       )}
 
@@ -156,7 +156,7 @@ export function EChart({
           <EmptyState
             title="Sin datos disponibles"
             description="No hay información para mostrar en este gráfico actualmente."
-            className="p-0"
+            className="border-0 bg-transparent p-0 shadow-none"
           />
         </div>
       )}

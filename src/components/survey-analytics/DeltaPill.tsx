@@ -36,7 +36,7 @@ export function DeltaPill({
   const toneClasses = {
     positive: "bg-success/10 text-success border-success/20",
     negative: "bg-destructive/10 text-destructive border-destructive/20",
-    neutral: "bg-surface-subtle text-muted-foreground border-border/50",
+    neutral: "bg-surface-subtle text-muted-foreground border-border/60",
   }[resolvedTone];
 
   const sizeClasses = {
@@ -46,12 +46,12 @@ export function DeltaPill({
 
   return (
     <div className={cn(
-      "inline-flex items-center font-bold rounded-full border whitespace-nowrap",
+      "inline-flex items-center font-semibold tabular-nums rounded-md border whitespace-nowrap",
       toneClasses,
       sizeClasses,
       className
     )}>
-      {showIcon && <Icon className={cn(size === "sm" ? "h-3 w-3" : "h-3.5 w-3.5")} />}
+      {showIcon && <Icon className={cn(size === "sm" ? "h-3 w-3" : "h-3.5 w-3.5")} aria-hidden="true" />}
       <span>{label || (value !== undefined ? `${value > 0 ? "+" : ""}${value}%` : "")}</span>
     </div>
   );

@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import {
+  type LucideIcon,
   Building2,
   Brain,
   Users,
@@ -16,6 +17,7 @@ import {
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getAccountById, getAccountAudit, getActiveUsers } from '@/modules/accounts/actions';
 import { getContactsByAccount, getContactsSummary } from '@/modules/contacts/actions';
@@ -40,12 +42,15 @@ interface AccountDetailPageProps {
   params: Promise<{ accountId: string }>;
 }
 
-const STATUS_STYLES: Record<PipelineStatus, string> = {
-  new: 'bg-muted text-muted-foreground border-transparent',
-  ready_for_research: 'bg-su-brand-soft text-su-brand border-transparent',
-  research_in_progress: 'bg-warning/10 text-warning border-transparent',
-  ready_for_outreach: 'bg-success/10 text-success border-transparent',
-  archived: 'bg-surface-muted text-muted-foreground border-transparent',
+const STATUS_VARIANT: Record<
+  PipelineStatus,
+  'neutral' | 'brand' | 'warning' | 'positive'
+> = {
+  new: 'neutral',
+  ready_for_research: 'brand',
+  research_in_progress: 'warning',
+  ready_for_outreach: 'positive',
+  archived: 'neutral',
 };
 
 function formatDate(iso: string): string {
@@ -105,19 +110,13 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
         description={account.legal_name ?? undefined}
         backHref="/accounts"
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {isRolledBack && (
-              <Badge
-                variant="outline"
-                className="text-xs border-warning/30 bg-warning/10 text-warning"
-              >
+              <Badge variant="warning">
                 No operativa
               </Badge>
             )}
-            <Badge
-              variant="outline"
-              className={`text-xs ${STATUS_STYLES[account.pipeline_status]}`}
-            >
+            <Badge variant={STATUS_VARIANT[account.pipeline_status]}>
               {PIPELINE_STATUS_LABELS[account.pipeline_status]}
             </Badge>
             <AccountEnrichContactsButton
@@ -185,7 +184,7 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
                       href={account.website}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-su-brand hover:underline"
+                      className="rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                     >
                       {account.domain ?? account.website}
                     </a>
@@ -197,7 +196,7 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
                       href={account.linkedin_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-su-brand hover:underline break-all"
+                      className="break-all rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                     >
                       {account.linkedin_url.replace(/^https?:\/\/(www\.)?/i, '')}
                     </a>
@@ -224,7 +223,7 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
                   </DetailRow>
                 )}
                 <DetailRow icon={Tag} label="Fuente">
-                  <Badge variant="outline" className="text-xs">
+                  <Badge variant="outline">
                     {SOURCE_LABELS[account.source as AccountSource]}
                   </Badge>
                 </DetailRow>
@@ -244,18 +243,14 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
                   )}
                 </DetailRow>
                 <DetailRow icon={Tag} label="Estado pipeline">
-                  <span
-                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
-                      STATUS_STYLES[account.pipeline_status]
-                    }`}
-                  >
+                  <Badge variant={STATUS_VARIANT[account.pipeline_status]}>
                     {PIPELINE_STATUS_LABELS[account.pipeline_status]}
-                  </span>
+                  </Badge>
                 </DetailRow>
                 {account.hubspot_company_id ? (
                   <DetailRow icon={Globe} label="HubSpot">
                     <div className="space-y-0.5">
-                      <span className="text-xs font-medium text-success">
+                      <span className="text-sm font-medium text-success">
                         Sincronizado
                       </span>
                       <p className="font-mono text-xs text-muted-foreground">
@@ -283,7 +278,7 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
 
                   return (
                     <DetailRow icon={Globe} label="HubSpot">
-                      <span className={`text-xs ${info.className}`}>{info.label}</span>
+                      <span className={`text-sm ${info.className}`}>{info.label}</span>
                     </DetailRow>
                   );
                 })()}
@@ -389,7 +384,7 @@ function DetailRow({
         <dt className="text-xs font-semibold text-muted-foreground">
           {label}
         </dt>
-        <dd className="mt-0.5 text-xs text-foreground">{children}</dd>
+        <dd className="mt-0.5 break-words text-sm text-foreground">{children}</dd>
       </div>
     </div>
   );
@@ -400,21 +395,11 @@ function PlaceholderTab({
   title,
   description,
 }: {
-  icon: React.ComponentType<{ className?: string }>;
+  icon: LucideIcon;
   title: string;
   description: string;
 }) {
   return (
-    <SurfaceCard>
-      <div className="flex flex-col items-center gap-3 py-10 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-surface-muted">
-          <Icon className="h-5 w-5 text-text-muted" />
-        </div>
-        <div className="max-w-sm space-y-1">
-          <p className="text-sm font-semibold text-foreground">{title}</p>
-          <p className="text-xs text-muted-foreground leading-relaxed">{description}</p>
-        </div>
-      </div>
-    </SurfaceCard>
+    <EmptyState icon={Icon} title={title} description={description} />
   );
 }

@@ -41,7 +41,7 @@ function EmptyState({
   return (
     <Card
       className={cn(
-        "flex flex-col items-center justify-center p-12 text-center border-dashed border-2 bg-surface-subtle shadow-none",
+        "flex flex-col items-center justify-center gap-0 p-10 text-center border-dashed border-2 bg-surface-subtle shadow-none",
         className,
       )}
       {...props}
@@ -53,11 +53,11 @@ function EmptyState({
       )}
       <h3 className="text-base font-semibold tracking-tight text-foreground mb-1.5">{title}</h3>
       {description && (
-        <p className="text-sm text-muted-foreground max-w-sm mb-6 leading-relaxed">
+        <p className="text-sm text-muted-foreground max-w-sm mb-5 leading-relaxed">
           {description}
         </p>
       )}
-      {action && <div className="mt-2">{action}</div>}
+      {action && <div>{action}</div>}
     </Card>
   );
 }

@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { Building2, MoreHorizontal, Eye, Pencil, Tag, Archive, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import type { ComponentProps } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -36,17 +37,19 @@ import {
 import { AccountEditDrawer } from './account-edit-drawer';
 import { AccountDetailSheet } from './account-detail-sheet';
 
-const STATUS_STYLES: Record<PipelineStatus, string> = {
-  new: 'bg-muted text-muted-foreground',
-  ready_for_research: 'bg-su-brand-soft text-su-brand',
-  research_in_progress: 'bg-warning/10 text-warning',
-  ready_for_outreach: 'bg-success/10 text-success',
-  archived: 'bg-surface-muted text-muted-foreground',
+type BadgeVariant = NonNullable<ComponentProps<typeof Badge>['variant']>;
+
+const STATUS_VARIANT: Record<PipelineStatus, BadgeVariant> = {
+  new: 'neutral',
+  ready_for_research: 'brand',
+  research_in_progress: 'warning',
+  ready_for_outreach: 'positive',
+  archived: 'neutral',
 };
 
 const SOURCE_STYLES: Record<AccountSource, string> = {
   manual: 'border-border text-muted-foreground',
-  agent_1: 'bg-su-brand-soft text-su-brand border-transparent',
+  agent_1: 'bg-primary/10 text-primary border-transparent',
   hubspot: 'bg-warning/10 text-warning border-transparent',
   apollo: 'bg-info/10 text-info border-transparent',
   imported: 'border-border text-muted-foreground',
@@ -167,7 +170,7 @@ export function AccountsTable({ accounts, users }: AccountsTableProps) {
                   <button
                     type="button"
                     onClick={() => openSheet(account.id)}
-                    className="font-medium text-foreground hover:text-su-brand transition-colors text-left"
+                    className="font-medium text-foreground hover:text-primary transition-colors text-left rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                   >
                     {account.name}
                   </button>
@@ -197,11 +200,9 @@ export function AccountsTable({ accounts, users }: AccountsTableProps) {
                 </td>
 
                 <td className="px-5 py-3.5">
-                  <span
-                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLES[account.pipeline_status]}`}
-                  >
+                  <Badge variant={STATUS_VARIANT[account.pipeline_status]}>
                     {PIPELINE_STATUS_LABELS[account.pipeline_status]}
-                  </span>
+                  </Badge>
                 </td>
 
                 <td className="px-5 py-3.5 text-xs text-muted-foreground">
@@ -211,7 +212,7 @@ export function AccountsTable({ accounts, users }: AccountsTableProps) {
                 <td className="px-5 py-3.5">
                   <Badge
                     variant="outline"
-                    className={`text-xs ${SOURCE_STYLES[account.source as AccountSource]}`}
+                    className={SOURCE_STYLES[account.source as AccountSource]}
                   >
                     {SOURCE_LABELS[account.source as AccountSource]}
                   </Badge>
@@ -223,12 +224,19 @@ export function AccountsTable({ accounts, users }: AccountsTableProps) {
 
                 <td className="px-3 py-3.5">
                   <DropdownMenu>
-                    <DropdownMenuTrigger>
-                      <div className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md opacity-0 transition-opacity group-hover:opacity-100 hover:bg-surface-muted">
-                        <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
-                        <span className="sr-only">Acciones</span>
-                      </div>
-                    </DropdownMenuTrigger>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-xs"
+                          className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 data-[popup-open]:opacity-100"
+                        >
+                          <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+                          <span className="sr-only">Acciones</span>
+                        </Button>
+                      }
+                    />
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onClick={() => openSheet(account.id)}>
                         <Eye className="h-3.5 w-3.5" />
@@ -249,7 +257,7 @@ export function AccountsTable({ accounts, users }: AccountsTableProps) {
                             <DropdownMenuItem
                               key={s.value}
                               onClick={() => handleStatusChange(account.id, s.value)}
-                              className={account.pipeline_status === s.value ? 'font-medium text-su-brand' : ''}
+                              className={account.pipeline_status === s.value ? 'font-medium text-primary' : ''}
                             >
                               {s.label}
                             </DropdownMenuItem>

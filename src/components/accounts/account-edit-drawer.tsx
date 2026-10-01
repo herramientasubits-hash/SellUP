@@ -165,12 +165,12 @@ export function AccountEditDrawer({
       onOpenChange={(v) => !v && handleClose()}
       title="Editar cuenta"
       description="Modifica los datos de la cuenta. Los cambios quedan registrados en auditoría."
-      icon={<Building2 className="h-4 w-4 text-su-brand" />}
+      icon={<Building2 className="h-4 w-4 text-primary" />}
       size="xl"
       actions={
         <>
           {error && (
-            <p className="mr-auto flex-1 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
+            <p role="alert" className="mr-auto flex-1 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive">
               {error}
             </p>
           )}
@@ -205,22 +205,24 @@ export function AccountEditDrawer({
     >
       {/* ── Loading skeleton ── */}
       {loading ? (
-        <div className="space-y-8">
+        <div className="space-y-4">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="space-y-4">
-              <div className="flex items-center gap-2">
-                <Skeleton className="h-3 w-3 rounded" />
-                <Skeleton className="h-2.5 w-24" />
-                <Skeleton className="h-px flex-1" />
+            <div
+              key={i}
+              className="space-y-4 rounded-2xl border border-border/60 bg-card p-4 shadow-card"
+            >
+              <div className="flex items-center gap-2.5 border-b border-border/50 pb-3">
+                <Skeleton className="h-8 w-8 rounded-xl" />
+                <Skeleton className="h-4 w-28" />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <Skeleton className="h-2.5 w-20" />
-                  <Skeleton className="h-8 w-full" />
+                  <Skeleton className="h-3 w-20" />
+                  <Skeleton className="h-10 w-full" />
                 </div>
                 <div className="space-y-1.5">
-                  <Skeleton className="h-2.5 w-20" />
-                  <Skeleton className="h-8 w-full" />
+                  <Skeleton className="h-3 w-20" />
+                  <Skeleton className="h-10 w-full" />
                 </div>
               </div>
             </div>
@@ -231,7 +233,7 @@ export function AccountEditDrawer({
         <form
           id="edit-account-form"
           onSubmit={handleSubmit}
-          className="space-y-8"
+          className="space-y-4"
         >
           {/* Identificación */}
           <Section icon={Building2} label="Identificación">
@@ -398,7 +400,7 @@ export function AccountEditDrawer({
                   <SelectTrigger className="w-full">
                     {form.owner_id ? (
                       <span className="flex items-center gap-2 text-sm">
-                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-su-brand-soft text-xs font-semibold text-su-brand">
+                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
                           {(
                             users.find((u) => u.id === form.owner_id)?.full_name ?? 'U'
                           )

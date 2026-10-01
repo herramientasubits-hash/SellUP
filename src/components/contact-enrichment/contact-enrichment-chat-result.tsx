@@ -27,7 +27,7 @@ export function SourceBadge({ source }: { source: 'sellup' | 'hubspot' | 'manual
     return (
       <Badge
         variant="outline"
-        className="text-xs border-muted-foreground/30 text-muted-foreground bg-surface-subtle"
+        className="border-muted-foreground/30 text-muted-foreground bg-surface-subtle"
       >
         Manual
       </Badge>
@@ -38,8 +38,8 @@ export function SourceBadge({ source }: { source: 'sellup' | 'hubspot' | 'manual
       variant="outline"
       className={
         source === 'sellup'
-          ? 'text-xs border-su-brand/30 text-su-brand bg-su-brand-soft'
-          : 'text-xs border-warning/30 text-warning bg-warning/10'
+          ? 'border-primary/30 text-primary bg-primary/10'
+          : 'border-warning/30 text-warning bg-warning/10'
       }
     >
       {source === 'sellup' ? 'SellUp' : 'HubSpot'}
@@ -57,9 +57,9 @@ function sourceLabel(source: 'sellup' | 'hubspot' | 'manual'): string {
 
 export function CompanyChip({ candidate }: { candidate: CompanyCandidate }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-border bg-surface-subtle p-3">
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-su-brand-soft">
-        <Building2 className="h-4 w-4 text-su-brand" aria-hidden />
+    <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-surface-subtle p-3">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+        <Building2 className="h-4 w-4 text-primary" aria-hidden />
       </div>
       <div className="min-w-0">
         <p className="truncate text-sm font-semibold text-foreground">{candidate.name}</p>
@@ -123,11 +123,11 @@ export function RunResultSnapshot({
     <SurfaceCard className="space-y-4 p-6">
       <div className="flex items-center gap-2">
         {lushaTerminalError ? (
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-warning/10">
+          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-warning/15">
             <XCircle className="h-4 w-4 text-warning" aria-hidden />
           </div>
         ) : (
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-success/10">
+          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-success/10">
             <Check className="h-4 w-4 text-success" aria-hidden />
           </div>
         )}
@@ -150,7 +150,7 @@ export function RunResultSnapshot({
             ) : provider === 'lusha' && lushaResult?.status === 'disabled' ? (
               <Badge
                 variant="outline"
-                className="text-xs text-muted-foreground border-border bg-surface-subtle"
+                className="text-xs text-muted-foreground border-border/60 bg-surface-subtle"
               >
                 Desactivado
               </Badge>
@@ -207,7 +207,7 @@ export function RunResultSnapshot({
       </dl>
 
       {snapshot && (
-        <div className="space-y-3 border-t border-border pt-3">
+        <div className="space-y-3 border-t border-border/50 pt-3">
           <p className="text-xs font-medium text-foreground">Contactos existentes detectados</p>
           <dl className="space-y-1.5 text-xs">
             <div className="flex justify-between">
@@ -288,28 +288,28 @@ export function RunResultSnapshot({
           onCreateManualContact={onCreateManualContact}
         />
       ) : lushaCredentialsMissing ? (
-        <p className="border-t border-border pt-3 text-xs text-warning">
+        <p className="border-t border-border/50 pt-3 text-xs text-warning">
           {lushaResult?.status === 'missing_api_key'
             ? 'Lusha no pudo acceder a la credencial configurada en Supabase Vault desde este runtime. No se ejecutó el proveedor y no se crearon candidatos.'
             : 'Lusha está desactivado en este entorno. No se ejecutó el proveedor y no se crearon candidatos.'}
         </p>
       ) : lushaCompanyContextError ? (
-        <p className="border-t border-border pt-3 text-xs text-warning">
+        <p className="border-t border-border/50 pt-3 text-xs text-warning">
           No se pudo resolver suficiente contexto de la empresa para ejecutar Lusha. No se crearon candidatos.
         </p>
       ) : lushaProviderError ? (
-        <p className="border-t border-border pt-3 text-xs text-destructive">
+        <p className="border-t border-border/50 pt-3 text-xs text-destructive">
           {lushaResult?.error ??
             'No fue posible completar la búsqueda con Lusha. El proveedor devolvió un error durante la búsqueda. Intenta nuevamente más tarde o revisa el estado de la integración.'}
         </p>
       ) : lushaResult && lushaResult.candidatesCreated === 0 ? (
         <LushaEmptyState result={lushaResult} />
       ) : lushaResult ? (
-        <p className="border-t border-border pt-3 text-xs text-muted-foreground">
+        <p className="border-t border-border/50 pt-3 text-xs text-muted-foreground">
           Los candidatos quedaron pendientes de revisión. No se crearon contactos finales.
         </p>
       ) : (
-        <p className="border-t border-border pt-3 text-xs text-muted-foreground">
+        <p className="border-t border-border/50 pt-3 text-xs text-muted-foreground">
           {provider === 'lusha'
             ? 'Lusha buscará o enriquecerá perfiles para crear candidatos revisables con email corporativo cuando esté disponible. Teléfono deshabilitado en esta fase. No se crean contactos finales ni se escribe en HubSpot.'
             : 'Apollo buscará perfiles de RR. HH. para crear candidatos revisables. No se crean contactos finales ni se escribe en HubSpot.'}
@@ -334,9 +334,9 @@ function LushaEmptyState({ result }: { result: LushaEnrichmentUiResult }) {
   });
 
   return (
-    <div className="space-y-3 rounded-xl border border-border bg-surface-subtle p-4">
+    <div className="space-y-3 rounded-xl border border-border/60 bg-surface-subtle p-4">
       <div className="flex items-start gap-3">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-muted">
           <Info className="h-4 w-4 text-muted-foreground" aria-hidden />
         </div>
         <div className="space-y-1">
@@ -375,8 +375,8 @@ export function ApolloPreflightCard({ provider }: { provider?: ContactEnrichment
   return (
     <SurfaceCard className="space-y-3 p-4">
       <div className="flex items-center gap-2">
-        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-su-brand-soft">
-          <ShieldCheck className="h-3.5 w-3.5 text-su-brand" aria-hidden />
+        <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-primary/10">
+          <ShieldCheck className="h-3.5 w-3.5 text-primary" aria-hidden />
         </div>
         <p className="text-sm font-semibold text-foreground">
           {isLusha ? 'Control de enriquecimiento Lusha' : 'Control de créditos Apollo'}
@@ -506,9 +506,9 @@ function ApolloEmptyState({ result, runId, accountId, onCreateManualContact }: A
   const canCreateManual = !!(runId && accountId && onCreateManualContact);
 
   return (
-    <div className="space-y-4 rounded-xl border border-border bg-surface-subtle p-4">
+    <div className="space-y-4 rounded-xl border border-border/60 bg-surface-subtle p-4">
       <div className="flex items-start gap-3">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-warning/10">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-warning/15">
           <AlertCircle className="h-4 w-4 text-warning" aria-hidden />
         </div>
         <div className="space-y-1">
@@ -523,7 +523,7 @@ function ApolloEmptyState({ result, runId, accountId, onCreateManualContact }: A
 
       <div className="space-y-2">
         <div className="flex items-center gap-1.5">
-          <Lightbulb className="h-3.5 w-3.5 text-su-brand" aria-hidden />
+          <Lightbulb className="h-3.5 w-3.5 text-primary" aria-hidden />
           <p className="text-xs font-medium text-foreground">Qué puedes hacer</p>
         </div>
         <ul className="space-y-1.5">
@@ -567,7 +567,7 @@ interface ApolloResultSummaryProps {
 function ApolloResultSummary({ result, runId, accountId, companyName, companyDomain, onCreateManualContact }: ApolloResultSummaryProps) {
   if (result.providerStatus === 'error' || result.providerStatus === 'skipped') {
     return (
-      <div className="border-t border-border pt-3">
+      <div className="border-t border-border/50 pt-3">
         <p className="text-xs text-warning">
           {result.error ?? 'Apollo no pudo ejecutarse. No se crearon candidatos.'}
         </p>
@@ -578,7 +578,7 @@ function ApolloResultSummary({ result, runId, accountId, companyName, companyDom
   const hasNoReviewableCandidates = result.candidatesCreated === 0;
 
   return (
-    <div className="space-y-3 border-t border-border pt-3">
+    <div className="space-y-3 border-t border-border/50 pt-3">
       <p className="text-xs font-medium text-foreground">Resultado de Apollo</p>
       <dl className="space-y-1.5 text-xs">
         <div className="flex justify-between">

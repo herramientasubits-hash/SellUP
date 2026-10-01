@@ -2,8 +2,10 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, AlertTriangle, Hash, CheckCircle2, ExternalLink, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Hash, CheckCircle2, ExternalLink, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Alert } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
@@ -67,18 +69,16 @@ function SlackConnectModal({ open, onOpenChange }: ConnectModalProps) {
   }
 
   const canSubmit =
-    clientId.trim().length > 0 &&
-    clientSecret.trim().length > 0 &&
-    redirectUri.trim().length > 0;
+    clientId.trim().length > 0 && clientSecret.trim().length > 0 && redirectUri.trim().length > 0;
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle className="">Conectar Slack</DialogTitle>
+          <DialogTitle>Conectar Slack</DialogTitle>
           <DialogDescription>
-            Introduce los datos de tu Slack App. SellUp los guardará de forma segura y
-            abrirá el flujo OAuth para autorizar el acceso al workspace.
+            Introduce los datos de tu Slack App. SellUp los guardará de forma segura y abrirá el
+            flujo OAuth para autorizar el acceso al workspace.
           </DialogDescription>
         </DialogHeader>
 
@@ -93,7 +93,7 @@ function SlackConnectModal({ open, onOpenChange }: ConnectModalProps) {
               placeholder="123456789012.987654321098"
               disabled={isPending}
               autoComplete="off"
-              className="font-mono text-sm"
+              className="font-mono"
             />
           </div>
 
@@ -109,16 +109,18 @@ function SlackConnectModal({ open, onOpenChange }: ConnectModalProps) {
                 placeholder="••••••••••••••••••••••••••••••••"
                 disabled={isPending}
                 autoComplete="off"
-                className="pr-9 font-mono text-sm"
+                className="pr-9 font-mono"
               />
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon-xs"
                 onClick={() => setShowSecret((v) => !v)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                tabIndex={-1}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                aria-label={showSecret ? 'Ocultar secreto' : 'Mostrar secreto'}
               >
-                {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
+                {showSecret ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </Button>
             </div>
           </div>
 
@@ -132,7 +134,7 @@ function SlackConnectModal({ open, onOpenChange }: ConnectModalProps) {
               placeholder="https://tu-dominio.com/api/integrations/slack/oauth/callback"
               disabled={isPending}
               autoComplete="off"
-              className="font-mono text-sm"
+              className="font-mono"
             />
             <p className="text-xs text-muted-foreground">
               Debe usar HTTPS y estar registrada en tu Slack App → OAuth &amp; Permissions.
@@ -146,13 +148,10 @@ function SlackConnectModal({ open, onOpenChange }: ConnectModalProps) {
             </p>
             <div className="flex flex-wrap gap-1.5 pt-0.5">
               {['channels:manage', 'chat:write'].map((scope) => (
-                <span
-                  key={scope}
-                  className="inline-flex items-center gap-1 rounded-full border border-su-brand/30 bg-su-brand-soft px-2.5 py-0.5 text-xs font-medium text-su-brand"
-                >
-                  <CheckCircle2 className="h-3 w-3" />
+                <Badge key={scope} variant="brand">
+                  <CheckCircle2 />
                   {scope}
-                </span>
+                </Badge>
               ))}
             </div>
           </div>
@@ -161,18 +160,13 @@ function SlackConnectModal({ open, onOpenChange }: ConnectModalProps) {
             href="https://api.slack.com/apps"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-xs text-su-brand hover:underline"
+            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
           >
             Crear o gestionar Slack Apps
-            <ExternalLink className="h-3 w-3" />
+            <ExternalLink className="size-3" />
           </a>
 
-          {error && (
-            <p className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              {error}
-            </p>
-          )}
+          {error && <Alert variant="destructive">{error}</Alert>}
         </div>
 
         <DialogFooter>
@@ -180,7 +174,7 @@ function SlackConnectModal({ open, onOpenChange }: ConnectModalProps) {
             Cancelar
           </Button>
           <Button onClick={handleSubmit} disabled={isPending || !canSubmit}>
-            {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {isPending && <Loader2 className="animate-spin" />}
             Guardar y conectar
           </Button>
         </DialogFooter>
@@ -211,7 +205,10 @@ export function SlackConnectButton() {
 export function SlackTestConnectionButton() {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [result, setResult] = useState<{ success: boolean; message?: string } | null>(null);
+  const [result, setResult] = useState<{
+    success: boolean;
+    message?: string;
+  } | null>(null);
 
   function handleTest() {
     setResult(null);
@@ -225,20 +222,14 @@ export function SlackTestConnectionButton() {
   return (
     <div className="space-y-2">
       <Button variant="outline" onClick={handleTest} disabled={isPending}>
-        {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+        {isPending && <Loader2 className="animate-spin" />}
         Probar conexión
       </Button>
 
       {result && (
-        <p
-          className={`rounded-lg border px-3 py-2 text-xs ${
-            result.success
-              ? 'border-success/30 bg-success/10 text-success dark:text-success'
-              : 'border-destructive/30 bg-destructive/10 text-destructive'
-          }`}
-        >
+        <Alert variant={result.success ? 'success' : 'destructive'}>
           {result.message ?? (result.success ? 'Conexión verificada.' : 'Error de conexión.')}
-        </p>
+        </Alert>
       )}
     </div>
   );
@@ -290,25 +281,25 @@ export function SlackCreateChannelModal({ open, onOpenChange }: CreateChannelMod
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="">Crear canal oficial de SellUp</DialogTitle>
+          <DialogTitle>Crear canal oficial de SellUp</DialogTitle>
           <DialogDescription>
             Este canal recibirá alertas y comunicaciones operativas generadas por SellUp.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <Label htmlFor="slack-channel">Nombre del canal</Label>
             <div className="relative">
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                <Hash className="h-4 w-4" />
+                <Hash className="size-4" />
               </span>
               <Input
                 id="slack-channel"
                 type="text"
                 value={channelName}
                 onChange={(e) => setChannelName(e.target.value)}
-                className="pl-9 font-mono text-sm"
+                className="pl-9 font-mono"
                 disabled={isPending}
                 placeholder="sellup-alertas"
                 autoComplete="off"
@@ -319,29 +310,17 @@ export function SlackCreateChannelModal({ open, onOpenChange }: CreateChannelMod
             </p>
           </div>
 
-          {error && (
-            <p className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              {error}
-            </p>
-          )}
+          {error && <Alert variant="destructive">{error}</Alert>}
 
-          {successMsg && (
-            <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-xs text-success">
-              {successMsg}
-            </p>
-          )}
+          {successMsg && <Alert variant="success">{successMsg}</Alert>}
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={handleClose} disabled={isPending}>
             Cancelar
           </Button>
-          <Button
-            onClick={handleSubmit}
-            disabled={isPending || channelName.trim().length === 0}
-          >
-            {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          <Button onClick={handleSubmit} disabled={isPending || channelName.trim().length === 0}>
+            {isPending && <Loader2 className="animate-spin" />}
             Crear canal
           </Button>
         </DialogFooter>
@@ -356,7 +335,10 @@ export function SlackCreateChannelModal({ open, onOpenChange }: CreateChannelMod
 
 export function SlackSendTestMessageButton() {
   const [isPending, startTransition] = useTransition();
-  const [result, setResult] = useState<{ success: boolean; message?: string } | null>(null);
+  const [result, setResult] = useState<{
+    success: boolean;
+    message?: string;
+  } | null>(null);
 
   function handleSend() {
     setResult(null);
@@ -369,20 +351,14 @@ export function SlackSendTestMessageButton() {
   return (
     <div className="space-y-2">
       <Button variant="outline" onClick={handleSend} disabled={isPending}>
-        {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+        {isPending && <Loader2 className="animate-spin" />}
         Enviar mensaje de prueba
       </Button>
 
       {result && (
-        <p
-          className={`rounded-lg border px-3 py-2 text-xs ${
-            result.success
-              ? 'border-success/30 bg-success/10 text-success dark:text-success'
-              : 'border-destructive/30 bg-destructive/10 text-destructive'
-          }`}
-        >
+        <Alert variant={result.success ? 'success' : 'destructive'}>
           {result.message ?? (result.success ? 'Mensaje enviado.' : 'Error al enviar.')}
-        </p>
+        </Alert>
       )}
     </div>
   );
@@ -425,26 +401,21 @@ export function SlackDisconnectDialog({ open, onOpenChange }: DisconnectDialogPr
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle className="">Desconectar Slack</DialogTitle>
+          <DialogTitle>Desconectar Slack</DialogTitle>
           <DialogDescription>
             SellUp dejará de tener acceso al workspace. El canal creado en Slack no se eliminará.
             Podrás volver a conectar en cualquier momento.
           </DialogDescription>
         </DialogHeader>
 
-        {error && (
-          <p className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-            {error}
-          </p>
-        )}
+        {error && <Alert variant="destructive">{error}</Alert>}
 
         <DialogFooter>
           <Button variant="outline" onClick={handleClose} disabled={isPending}>
             Cancelar
           </Button>
-          <Button variant="destructive" onClick={handleDisconnect} disabled={isPending}>
-            {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          <Button variant="destructive-solid" onClick={handleDisconnect} disabled={isPending}>
+            {isPending && <Loader2 className="animate-spin" />}
             Desconectar
           </Button>
         </DialogFooter>
@@ -476,11 +447,7 @@ export function SlackActionsPanel({ isConnected }: SlackActionsPanelProps) {
     <div className="flex flex-wrap items-start gap-3">
       <SlackTestConnectionButton />
 
-      <Button
-        variant="ghost"
-        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-        onClick={() => setDisconnectOpen(true)}
-      >
+      <Button variant="destructive" onClick={() => setDisconnectOpen(true)}>
         Desconectar
       </Button>
 

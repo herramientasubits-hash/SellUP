@@ -97,7 +97,7 @@ function StoredOfficialPhoneRow({ phone }: { phone: StoredOfficialPhoneView }) {
         <a href={`tel:${phone.number}`} className="break-all text-sm text-foreground hover:underline">
           {phone.number}
         </a>
-        <Badge className="border-0 bg-su-brand-soft text-su-brand text-xs font-semibold">
+        <Badge variant="brand">
           {typeLabel}
         </Badge>
       </span>
@@ -177,7 +177,7 @@ export function OfficialContactStoredPhonesDisclosure({
         onClick={handleToggle}
         aria-expanded={open}
         aria-controls={panelId}
-        className="h-auto gap-1.5 px-0 text-xs font-medium text-su-brand hover:bg-transparent hover:underline"
+        className="h-auto gap-1.5 px-0 text-xs font-medium text-primary hover:bg-transparent hover:underline"
       >
         <Phone className="h-3 w-3" />
         {open

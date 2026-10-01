@@ -125,7 +125,7 @@ export const DatePicker = React.forwardRef<
               variant="outline"
               disabled={disabled}
               className={cn(
-                "w-full justify-start text-left font-normal",
+                "w-full min-w-0 justify-start text-left font-normal",
                 !isValidValue && "text-muted-foreground",
                 hasError && "border-destructive text-destructive focus-visible:ring-destructive"
               )}
@@ -134,8 +134,8 @@ export const DatePicker = React.forwardRef<
               aria-describedby={[descriptionId, errorId].filter(Boolean).join(" ") || undefined}
               aria-labelledby={labelId}
             >
-              <CalendarIcon className="mr-2 h-4 w-4" />
-              {displayText}
+              <CalendarIcon className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />
+              <span className="truncate">{displayText}</span>
             </Button>
           }
         />
@@ -166,7 +166,7 @@ export const DatePicker = React.forwardRef<
       {error && (
         <p
           id={errorId}
-          className="text-xs text-destructive"
+          className="text-xs font-medium text-destructive"
         >
           {error}
         </p>

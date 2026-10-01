@@ -83,15 +83,15 @@ export function ImportColumnMappingTable({
   return (
     <div className="space-y-4">
       {/* Summary */}
-      <div className="rounded-xl border border-su-brand/20 bg-su-brand-soft/20 p-3 space-y-2">
-        <p className="text-xs font-semibold text-su-brand">
+      <div className="space-y-2 rounded-xl border border-primary/20 bg-primary/10 p-3">
+        <p className="text-xs font-semibold text-primary">
           Columnas detectadas para clasificación
         </p>
         <div className="flex flex-wrap gap-3 text-xs">
           <div className="flex items-center gap-1.5">
             <span className="text-muted-foreground">Industria:</span>
             {industryMapping ? (
-              <Badge variant="secondary" className="text-xs bg-su-brand-soft text-su-brand border-0">
+              <Badge variant="brand">
                 {industryMapping.sourceColumn}
               </Badge>
             ) : (
@@ -101,7 +101,7 @@ export function ImportColumnMappingTable({
           <div className="flex items-center gap-1.5">
             <span className="text-muted-foreground">Subindustria:</span>
             {subindustryMapping ? (
-              <Badge variant="secondary" className="text-xs bg-su-brand-soft text-su-brand border-0">
+              <Badge variant="brand">
                 {subindustryMapping.sourceColumn}
               </Badge>
             ) : (
@@ -113,7 +113,7 @@ export function ImportColumnMappingTable({
 
       {/* Conflict warning */}
       {hasConflict && (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 flex items-center gap-2">
+        <div className="flex items-center gap-2 rounded-xl border border-destructive/20 bg-destructive/10 p-3">
           <Info className="h-3.5 w-3.5 text-destructive shrink-0" />
           <p className="text-xs text-destructive">
             Dos columnas no pueden asignarse al mismo campo. Corrige el mapeo antes de continuar.
@@ -137,7 +137,7 @@ export function ImportColumnMappingTable({
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-border/20">
+          <tbody className="divide-y divide-border/50">
             {columnMappings.map((mapping) => {
               const isKey = isKeyClassificationTarget(mapping.targetField);
               const isDuplicate =
@@ -149,15 +149,15 @@ export function ImportColumnMappingTable({
                   key={mapping.sourceColumn}
                   className={cn(
                     'transition-colors',
-                    isKey ? 'bg-su-brand-soft/10 hover:bg-su-brand-soft/20' : 'hover:bg-surface-muted',
-                    isDuplicate && 'bg-destructive/5',
+                    isKey ? 'bg-primary/10' : 'hover:bg-surface-muted',
+                    isDuplicate && 'bg-destructive/10',
                   )}
                 >
                   {/* Column name */}
                   <td className="px-3 py-2.5">
                     <div className="flex items-center gap-1.5">
                       {isKey && (
-                        <Check className="h-3 w-3 text-su-brand shrink-0" />
+                        <Check className="h-3 w-3 text-primary shrink-0" />
                       )}
                       <span className={cn(
                         'font-medium',
@@ -166,7 +166,7 @@ export function ImportColumnMappingTable({
                         {mapping.sourceColumn}
                       </span>
                       {mapping.detectedAutomatically && isKey && (
-                        <Badge variant="outline" className="text-xs text-muted-foreground px-1 py-0">
+                        <Badge variant="outline" className="text-muted-foreground">
                           auto
                         </Badge>
                       )}
@@ -182,8 +182,8 @@ export function ImportColumnMappingTable({
                           value={mapping.targetField}
                           onValueChange={(v) => onMappingChange(mapping.sourceColumn, v as ImportColumnTarget)}
                         >
-                          <SelectTrigger className={cn(
-                            'h-7 text-xs min-w-[140px]',
+                          <SelectTrigger size="sm" className={cn(
+                            'min-w-36',
                             isDuplicate && 'border-destructive',
                           )}>
                             <SelectValue />
@@ -207,11 +207,11 @@ export function ImportColumnMappingTable({
                   {/* Sample values */}
                   <td className="px-3 py-2.5">
                     {mapping.sampleValues.length > 0 ? (
-                      <span className="text-xs text-muted-foreground truncate block max-w-[200px]">
+                      <span className="block max-w-48 truncate text-xs text-muted-foreground" title={mapping.sampleValues.slice(0, 3).join(', ')}>
                         {mapping.sampleValues.slice(0, 3).join(', ')}
                       </span>
                     ) : (
-                      <span className="text-xs text-text-muted italic">—</span>
+                      <span className="text-xs italic text-text-muted">—</span>
                     )}
                   </td>
                 </tr>

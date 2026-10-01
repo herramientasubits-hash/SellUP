@@ -186,7 +186,7 @@ export function ExploratorySearchFormV2({
       )}
 
       {/* Segmentation */}
-      <SurfaceCard>
+      <SurfaceCard className="space-y-4">
         <SurfaceCardHeader
           title="Segmentación"
           description="Define el mercado objetivo de la búsqueda."
@@ -227,7 +227,7 @@ export function ExploratorySearchFormV2({
 
         {/* Subindustries */}
         <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <Label className="text-sm font-medium">
               Subindustrias
             </Label>
@@ -287,7 +287,7 @@ export function ExploratorySearchFormV2({
               No se enviará todavía a ningún modelo de IA.
             </p>
             <span
-              className={`text-xs font-mono ${
+              className={`text-xs tabular-nums ${
                 criteriaOverLimit
                   ? 'text-destructive font-semibold'
                   : 'text-muted-foreground'
@@ -297,7 +297,7 @@ export function ExploratorySearchFormV2({
             </span>
           </div>
           {criteriaOverLimit && (
-            <p className="text-xs text-destructive">
+            <p className="text-xs font-medium text-destructive">
               El criterio específico puede tener máximo{' '}
               {EXPLORATORY_SEARCH_LIMITS.additionalCriteria.maxChars} caracteres.
             </p>
@@ -312,7 +312,7 @@ export function ExploratorySearchFormV2({
           <span className="text-sm font-medium text-foreground">Más de 200 empleados</span>
           <span className="text-xs text-muted-foreground">Fijo</span>
         </div>
-        <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
           Buscaremos empresas cuya entidad local en el país seleccionado supere este tamaño.
         </p>
       </SurfaceCard>
@@ -332,7 +332,7 @@ export function ExploratorySearchFormV2({
       <div className="flex items-center justify-between gap-3 pt-2">
         <Button
           type="button"
-          variant="ghost"
+          variant="outline"
           size="sm"
           onClick={onClose}
           disabled={submitting}
@@ -385,19 +385,19 @@ function SearchSummaryCard({ catalog, form }: SearchSummaryCardProps) {
       <dl className="space-y-2 text-sm">
         <Row>
           <dt className="text-muted-foreground shrink-0">País</dt>
-          <dd className="font-medium text-foreground text-right">
+          <dd className="min-w-0 break-words text-right font-medium text-foreground">
             {countryEntry ? `${getFlagEmoji(form.countryCode)} ${countryEntry.name}` : '—'}
           </dd>
         </Row>
         <Row>
           <dt className="text-muted-foreground shrink-0">Industria</dt>
-          <dd className="font-medium text-foreground text-right">
+          <dd className="min-w-0 break-words text-right font-medium text-foreground">
             {industryEntry?.name ?? '—'}
           </dd>
         </Row>
         <Row>
           <dt className="text-muted-foreground shrink-0">Subindustrias</dt>
-          <dd className="font-medium text-foreground text-right">
+          <dd className="min-w-0 break-words text-right font-medium text-foreground">
             {selectedSubs.length > 0
               ? selectedSubs.map((s) => s.name).join(', ')
               : '—'}
@@ -405,13 +405,13 @@ function SearchSummaryCard({ catalog, form }: SearchSummaryCardProps) {
         </Row>
         <Row>
           <dt className="text-muted-foreground shrink-0">Tamaño</dt>
-          <dd className="font-medium text-foreground text-right">
+          <dd className="min-w-0 break-words text-right font-medium text-foreground">
             {'>200 empleados'}
           </dd>
         </Row>
         {normalizedCriteria && (
           <div className="pt-1">
-            <dt className="text-muted-foreground text-xs mb-1">Criterio específico</dt>
+            <dt className="mb-1 text-xs text-muted-foreground">Criterio específico</dt>
             <dd className="text-xs text-foreground leading-relaxed line-clamp-3">
               {normalizedCriteria}
             </dd>

@@ -1,9 +1,9 @@
 'use client';
 
 import * as React from 'react';
-import { Plus, Loader2, Building2, Zap } from 'lucide-react';
+import { Plus, Loader2, Building2, Zap, MapPin, Briefcase, FileText, StickyNote } from 'lucide-react';
 import { DrawerShell } from '@/components/shared/drawer-shell';
-import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { DrawerSection } from '@/components/shared/drawer-section';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -182,13 +182,13 @@ export function CreateCandidateDrawer({
       }
       title="Nueva empresa candidata"
       description="Agrega una empresa candidata manualmente. Deberá ser aprobada antes de convertirse en prospecto."
-      icon={<Building2 className="h-4 w-4 text-su-brand" />}
+      icon={<Building2 className="h-4 w-4" />}
       size="xl"
       actions={
-        <div className="flex w-full items-center justify-end gap-2">
+        <div className="flex w-full items-center justify-between gap-2">
           <Button
             type="button"
-            variant="ghost"
+            variant="outline"
             size="sm"
             onClick={handleClose}
             disabled={saving}
@@ -215,14 +215,10 @@ export function CreateCandidateDrawer({
       <form
         id="create-candidate-form"
         onSubmit={handleSubmit}
-        className="space-y-5 animate-su-fade-in"
+        className="space-y-4 animate-su-fade-in"
       >
         {/* Empresa */}
-        <SurfaceCard>
-          <SurfaceCardHeader
-            title="Empresa"
-            description="Información básica de la empresa."
-          />
+        <DrawerSection title="Empresa" icon={Building2} hint="Información básica de la empresa.">
           <div className="space-y-4">
             <Field label="Nombre de la empresa" required>
               <Input
@@ -250,14 +246,10 @@ export function CreateCandidateDrawer({
               />
             </Field>
           </div>
-        </SurfaceCard>
+        </DrawerSection>
 
         {/* Ubicación */}
-        <SurfaceCard>
-          <SurfaceCardHeader
-            title="Ubicación"
-            description="País y ubicación de la empresa."
-          />
+        <DrawerSection title="Ubicación" icon={MapPin} hint="País y ubicación de la empresa.">
           <div className="space-y-4">
             <Field label="País">
               <Select
@@ -265,7 +257,7 @@ export function CreateCandidateDrawer({
                 onValueChange={(v) => handleCountryChange(v)}
                 disabled={saving}
               >
-                <SelectTrigger className="!w-full !h-11 !rounded-xl">
+                <SelectTrigger className="!w-full">
                   <SelectValue placeholder="Seleccionar país" />
                 </SelectTrigger>
                 <SelectContent className="!w-auto !min-w-[200px]">
@@ -296,14 +288,10 @@ export function CreateCandidateDrawer({
               </Field>
             </div>
           </div>
-        </SurfaceCard>
+        </DrawerSection>
 
         {/* Perfil de empresa */}
-        <SurfaceCard>
-          <SurfaceCardHeader
-            title="Perfil de empresa"
-            description="Industria y tamaño de la empresa."
-          />
+        <DrawerSection title="Perfil de empresa" icon={Briefcase} hint="Industria y tamaño de la empresa.">
           <div className="grid grid-cols-2 gap-4">
             <Field label="Industria">
               <Select
@@ -311,7 +299,7 @@ export function CreateCandidateDrawer({
                 onValueChange={(v) => set('industry', v ?? '')}
                 disabled={saving}
               >
-                <SelectTrigger className="!w-full !h-11 !rounded-xl">
+                <SelectTrigger className="!w-full">
                   <SelectValue placeholder="Seleccionar industria" />
                 </SelectTrigger>
                 <SelectContent className="!w-auto !min-w-[200px]">
@@ -329,7 +317,7 @@ export function CreateCandidateDrawer({
                 onValueChange={(v) => set('company_size', v ?? '')}
                 disabled={saving}
               >
-                <SelectTrigger className="!w-full !h-11 !rounded-xl">
+                <SelectTrigger className="!w-full">
                   <SelectValue placeholder="Empleados" />
                 </SelectTrigger>
                 <SelectContent>
@@ -340,7 +328,7 @@ export function CreateCandidateDrawer({
               </Select>
             </Field>
           </div>
-        </SurfaceCard>
+        </DrawerSection>
 
         {/* Identificador fiscal */}
         {(() => {
@@ -358,11 +346,7 @@ export function CreateCandidateDrawer({
           }
 
           return (
-            <SurfaceCard>
-              <SurfaceCardHeader
-                title="Identificador fiscal"
-                description={hasCountry && rule ? `Tipo: ${rule.label}` : undefined}
-              />
+            <DrawerSection title="Identificador fiscal" icon={FileText} hint={hasCountry && rule ? `Tipo: ${rule.label}` : undefined}>
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <Field label="Tipo">
@@ -371,7 +355,7 @@ export function CreateCandidateDrawer({
                       onValueChange={(v) => set('tax_identifier_type', (v ?? '') as TaxIdentifierType)}
                       disabled={isDisabled || saving}
                     >
-                <SelectTrigger className="!w-full !h-11 !rounded-xl">
+                      <SelectTrigger className="!w-full">
                         <SelectValue placeholder="Tipo" />
                       </SelectTrigger>
                       <SelectContent>
@@ -412,16 +396,12 @@ export function CreateCandidateDrawer({
                   </p>
                 )}
               </div>
-            </SurfaceCard>
+            </DrawerSection>
           );
         })()}
 
         {/* Fuente y notas */}
-        <SurfaceCard>
-          <SurfaceCardHeader
-            title="Fuente y notas"
-            description="Origen del candidato y observaciones."
-          />
+        <DrawerSection title="Fuente y notas" icon={StickyNote} hint="Origen del candidato y observaciones.">
           <div className="space-y-4">
             <Field label="Fuente principal">
               <Select
@@ -429,7 +409,7 @@ export function CreateCandidateDrawer({
                 onValueChange={(v) => set('source_primary', (v ?? 'manual') as CandidateSourcePrimary)}
                 disabled={saving}
               >
-                <SelectTrigger className="!w-full !h-11 !rounded-xl">
+                <SelectTrigger className="!w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -451,7 +431,7 @@ export function CreateCandidateDrawer({
               />
             </Field>
           </div>
-        </SurfaceCard>
+        </DrawerSection>
       </form>
     </DrawerShell>
   );

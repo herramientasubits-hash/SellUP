@@ -132,12 +132,12 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
       }
       title="Nueva empresa"
       description="Registra una empresa o prospecto. Podrás enriquecerla con IA más adelante."
-      icon={<Building2 className="h-4 w-4 text-su-brand" />}
+      icon={<Building2 className="h-4 w-4 text-primary" />}
       size="xl"
       actions={
         <>
           {error && (
-            <p className="flex-1 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
+            <p role="alert" className="flex-1 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive">
               {error}
             </p>
           )}
@@ -173,7 +173,7 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
       <form
         id="create-account-form"
         onSubmit={handleSubmit}
-        className="space-y-8"
+        className="space-y-4"
       >
         {/* Identificación */}
         <Section icon={Building2} label="Identificación">
@@ -348,7 +348,7 @@ export function CreateAccountDrawer({ users }: CreateAccountDrawerProps) {
                 <SelectTrigger className="w-full">
                   {form.owner_id ? (
                     <span className="flex items-center gap-2 text-sm">
-                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-su-brand-soft text-xs font-semibold text-su-brand">
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
                         {(
                           users.find((u) => u.id === form.owner_id)?.full_name ?? 'U'
                         )

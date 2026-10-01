@@ -183,12 +183,12 @@ export function CreateContactDrawer({
       }
       title="Nuevo contacto"
       description="Registra un decisor, sponsor o persona clave vinculada a esta cuenta."
-      icon={<User className="h-4 w-4 text-su-brand" />}
+      icon={<User className="h-4 w-4 text-primary" />}
       size="xl"
       actions={
         <>
           {error && (
-            <p className="flex-1 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
+            <p role="alert" className="flex-1 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive">
               {error}
             </p>
           )}
@@ -224,7 +224,7 @@ export function CreateContactDrawer({
       <form
         id="create-contact-form"
         onSubmit={handleSubmit}
-        className="space-y-8"
+        className="space-y-4"
       >
         {/* Cuenta */}
         {accountId ? (() => {
@@ -465,9 +465,9 @@ export function CreateContactDrawer({
                 type="checkbox"
                 checked={form.is_primary}
                 onChange={(e) => set('is_primary', e.target.checked)}
-                className="h-4 w-4 rounded border-border accent-[hsl(var(--su-brand))]"
+                className="h-4 w-4 rounded border-border accent-primary"
               />
-              <span className="text-xs font-medium text-foreground/70">Contacto primario</span>
+              <span className="text-xs font-medium text-muted-foreground">Contacto primario</span>
             </label>
           </Row>
           <Field id="notes" label="Notas">

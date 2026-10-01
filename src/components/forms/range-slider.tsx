@@ -87,7 +87,7 @@ export const RangeSlider = React.forwardRef<
         {showValue && (
           <span
             className={cn(
-              "text-xs font-medium text-muted-foreground",
+              "text-xs font-medium tabular-nums text-muted-foreground",
               disabled && "opacity-50"
             )}
           >

@@ -19,7 +19,7 @@ const TabsNav = React.forwardRef<HTMLDivElement, TabsNavProps>(
       <div
         ref={ref}
         className={cn(
-          "flex items-center gap-2 w-full bg-card px-4 py-2",
+          "flex w-full flex-wrap items-center gap-2 bg-card px-4 py-2",
           className
         )}
         {...props}
@@ -30,11 +30,13 @@ const TabsNav = React.forwardRef<HTMLDivElement, TabsNavProps>(
           return (
             <button
               key={tab.id}
+              type="button"
+              aria-current={isActive ? "page" : undefined}
               onClick={() => onTabChange(tab.id)}
               className={cn(
-                "relative rounded-full px-4 py-1.5 text-sm font-medium transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "relative rounded-md px-4 py-1.5 text-sm font-medium transition-all outline-none focus-visible:ring-3 focus-visible:ring-ring/40",
                 isActive
-                  ? "bg-su-brand text-su-brand-foreground shadow-card"
+                  ? "bg-primary text-primary-foreground shadow-card"
                   : "text-muted-foreground hover:bg-surface-muted hover:text-foreground"
               )}
             >
@@ -42,8 +44,8 @@ const TabsNav = React.forwardRef<HTMLDivElement, TabsNavProps>(
               {tab.count !== undefined && tab.count > 0 && (
                 <span
                   className={cn(
-                    "absolute -top-1 -right-1 min-w-[16px] h-5 rounded-full bg-su-brand/20 text-xs font-medium px-1.5 text-center text-su-brand",
-                    isActive && "bg-su-brand-foreground/20 text-su-brand-foreground"
+                    "absolute -top-1 -right-1 h-5 min-w-5 rounded-full bg-primary/15 px-1.5 text-center text-xs font-semibold tabular-nums text-primary",
+                    isActive && "bg-primary-foreground/20 text-primary-foreground"
                   )}
                 >
                   {tab.count > 99 ? "99+" : tab.count}

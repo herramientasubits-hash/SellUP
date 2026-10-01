@@ -127,11 +127,21 @@ export function UploadZone({
         onDragOver={handleDrag}
         onDrop={handleDrop}
         onClick={() => !disabled && inputRef.current?.click()}
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            if (!disabled) inputRef.current?.click();
+          }
+        }}
+        role="button"
+        tabIndex={disabled ? -1 : 0}
+        aria-disabled={disabled || undefined}
         className={cn(
-          'relative flex flex-col items-center justify-center min-h-[160px] p-6 border-2 border-dashed rounded-xl transition-all cursor-pointer',
-          'bg-muted/5 border-border hover:bg-surface-muted hover:border-su-brand/50',
-          isDragActive && 'bg-su-brand/5 border-su-brand scale-[1.01] shadow-card',
-          hasError && 'bg-destructive/5 border-destructive/50 hover:border-destructive',
+          'relative flex flex-col items-center justify-center min-h-[160px] p-6 border-2 border-dashed rounded-xl transition-all cursor-pointer outline-none focus-visible:ring-3 focus-visible:ring-ring/40',
+          'bg-surface-subtle border-border hover:bg-surface-muted hover:border-primary/50',
+          isDragActive && 'bg-primary/5 border-primary scale-[1.01] shadow-card',
+          hasError && 'bg-destructive/10 border-destructive/40 hover:border-destructive',
           disabled && 'opacity-50 cursor-not-allowed grayscale-[0.5] hover:border-border hover:bg-surface-muted'
         )}
       >
@@ -148,11 +158,11 @@ export function UploadZone({
 
         <div className="flex flex-col items-center text-center gap-3">
           <div className={cn(
-            'p-3 rounded-full bg-background shadow-card border border-border/50',
-            isDragActive && 'text-su-brand',
+            'p-3 rounded-full bg-card shadow-card border border-border/60',
+            isDragActive && 'text-primary',
             hasError && 'text-destructive'
           )}>
-            {hasError ? <AlertCircle className="h-6 w-6" /> : <Upload className="h-6 w-6" />}
+            {hasError ? <AlertCircle className="h-6 w-6" aria-hidden="true" /> : <Upload className="h-6 w-6" aria-hidden="true" />}
           </div>
 
           <div className="space-y-1">
@@ -163,7 +173,7 @@ export function UploadZone({
               <p className="text-xs text-muted-foreground">{description}</p>
             )}
             {displayError && (
-              <p className="text-xs text-destructive font-medium">{displayError}</p>
+              <p role="alert" className="text-xs font-medium text-destructive">{displayError}</p>
             )}
           </div>
         </div>
@@ -175,9 +185,9 @@ export function UploadZone({
           {value.map((file, index) => (
             <div
               key={`${file.name}-${index}`}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-secondary/30 border border-border/50 text-xs font-medium max-w-[240px]"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-surface-subtle border border-border/60 text-xs font-medium max-w-[240px]"
             >
-              <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
+              <FileText className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
               <span className="truncate">{file.name}</span>
               {!disabled && (
                 <button
@@ -186,9 +196,10 @@ export function UploadZone({
                     e.stopPropagation();
                     removeFile(index);
                   }}
-                  className="hover:text-destructive transition-colors ml-1"
+                  aria-label={`Remove ${file.name}`}
+                  className="ml-1 rounded-xs transition-colors hover:text-destructive focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                 >
-                  <X className="h-3 w-3" />
+                  <X className="h-3 w-3" aria-hidden="true" />
                 </button>
               )}
             </div>

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Layers, MoreHorizontal, ArrowRight, CheckCircle2, XCircle, GitMerge, Loader2, FlaskConical } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { EmptyState as SharedEmptyState } from '@/components/ui/empty-state';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -22,14 +23,17 @@ import {
   type BatchStatus,
 } from '@/modules/prospect-batches/types';
 
-const STATUS_STYLES: Record<BatchStatus, string> = {
-  draft: 'bg-muted text-muted-foreground',
-  generating: 'bg-warning/10 text-warning',
-  ready_for_review: 'bg-su-brand-soft text-su-brand',
-  in_review: 'bg-info/10 text-info',
-  completed: 'bg-success/10 text-success',
-  cancelled: 'bg-surface-muted text-muted-foreground',
-  failed: 'bg-destructive/10 text-destructive',
+const STATUS_VARIANTS: Record<
+  BatchStatus,
+  'neutral' | 'warning' | 'brand' | 'info' | 'positive' | 'negative'
+> = {
+  draft: 'neutral',
+  generating: 'warning',
+  ready_for_review: 'brand',
+  in_review: 'info',
+  completed: 'positive',
+  cancelled: 'neutral',
+  failed: 'negative',
 };
 
 function formatDate(iso: string) {
@@ -47,15 +51,12 @@ function getFlagEmoji(code: string) {
 
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="mb-4 rounded-full bg-su-brand-soft p-4">
-        <Layers className="h-8 w-8 text-su-brand" />
-      </div>
-      <p className="text-sm font-semibold text-foreground">Sin lotes todavía</p>
-      <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-        Todavía no hay lotes de prospectos. Crea un lote manualmente o, más adelante, genera prospectos con IA.
-      </p>
-    </div>
+    <SharedEmptyState
+      icon={Layers}
+      title="Sin lotes todavía"
+      description="Todavía no hay lotes de prospectos. Crea un lote manualmente o, más adelante, genera prospectos con IA."
+      className="m-4 border-0 bg-transparent py-16"
+    />
   );
 }
 
@@ -69,14 +70,17 @@ function BatchRowActions({ batch, onStatusChange, loading }: BatchRowActionsProp
   const router = useRouter();
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger>
-        <Button variant="ghost" size="icon" className="h-7 w-7" disabled={loading}>
-          {loading ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <MoreHorizontal className="h-3.5 w-3.5" />
-          )}
-        </Button>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            disabled={loading}
+            aria-label={`Acciones para ${batch.name}`}
+          />
+        }
+      >
+        {loading ? <Loader2 className="animate-spin" /> : <MoreHorizontal />}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem onClick={() => router.push(`/prospect-batches/${batch.id}`)}>
@@ -86,7 +90,7 @@ function BatchRowActions({ batch, onStatusChange, loading }: BatchRowActionsProp
         <DropdownMenuSeparator />
         {batch.status === 'draft' && (
           <DropdownMenuItem onClick={() => onStatusChange(batch.id, 'ready_for_review')}>
-            <CheckCircle2 className="mr-2 h-3.5 w-3.5 text-su-brand" />
+            <CheckCircle2 className="mr-2 h-3.5 w-3.5 text-primary" />
             Marcar listo para revisión
           </DropdownMenuItem>
         )}
@@ -150,7 +154,7 @@ export function BatchesListClient({ batches }: BatchesListClientProps) {
           <button
             type="button"
             onClick={() => setShowTechnical((v) => !v)}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-muted-foreground transition-colors"
+            className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
           >
             <FlaskConical className="h-3 w-3" />
             {showTechnical
@@ -161,12 +165,12 @@ export function BatchesListClient({ batches }: BatchesListClientProps) {
       )}
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-border/60">
+          <tr className="border-b border-border/60 bg-surface-subtle">
             {['Nombre', 'País', 'Industria', 'Estado', 'Fuente', 'Candidatos', 'Aprobados', 'Convertidos', 'Costo est.', 'Creación', ''].map(
               (col) => (
                 <th
                   key={col}
-                  className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground"
+                  className="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold text-muted-foreground"
                 >
                   {col}
                 </th>
@@ -183,7 +187,7 @@ export function BatchesListClient({ batches }: BatchesListClientProps) {
                   <button
                     type="button"
                     onClick={() => setShowTechnical(true)}
-                    className="underline hover:text-foreground"
+                    className="rounded-sm underline hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                   >
                     Ver lotes técnicos ({technicalCount})
                   </button>
@@ -200,17 +204,17 @@ export function BatchesListClient({ batches }: BatchesListClientProps) {
               <td className="px-4 py-3">
                 <Link
                   href={`/prospect-batches/${batch.id}`}
-                  className="font-medium text-foreground hover:text-su-brand hover:underline"
+                  className="font-medium text-foreground hover:text-primary hover:underline"
                 >
                   {batch.name}
                 </Link>
                 {batch.description && (
-                  <p className="mt-0.5 max-w-[200px] truncate text-xs text-muted-foreground">
+                  <p className="mt-0.5 max-w-52 truncate text-xs text-muted-foreground" title={batch.description}>
                     {batch.description}
                   </p>
                 )}
                 {batch.metadata?.generation_mode === 'controlled_real_test' && (
-                  <Badge className="mt-1 border-0 bg-info/10 text-xs font-semibold text-info">
+                  <Badge variant="info" className="mt-1">
                     Búsqueda real
                   </Badge>
                 )}
@@ -235,11 +239,11 @@ export function BatchesListClient({ batches }: BatchesListClientProps) {
               {/* Estado */}
               <td className="px-4 py-3">
                 {batch.metadata?.review_ready === false && batch.status === 'ready_for_review' ? (
-                  <Badge className="bg-muted text-muted-foreground border-0 text-xs font-semibold">
+                  <Badge variant="neutral">
                     Sin candidatas útiles
                   </Badge>
                 ) : (
-                  <Badge className={`${STATUS_STYLES[batch.status]} border-0 text-xs font-semibold`}>
+                  <Badge variant={STATUS_VARIANTS[batch.status]}>
                     {BATCH_STATUS_LABELS[batch.status]}
                   </Badge>
                 )}
@@ -262,7 +266,7 @@ export function BatchesListClient({ batches }: BatchesListClientProps) {
               </td>
               {/* Convertidos */}
               <td className="px-4 py-3 tabular-nums">
-                <span className="text-su-brand">{batch.converted_count}</span>
+                <span className="text-primary">{batch.converted_count}</span>
               </td>
               {/* Costo */}
               <td className="px-4 py-3 tabular-nums text-xs text-muted-foreground">

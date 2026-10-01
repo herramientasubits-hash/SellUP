@@ -85,7 +85,7 @@ export function MetricCard({
   const hasDelta = delta !== undefined || deltaLabel !== undefined;
 
   const containerCls = cn(
-    "flex h-full overflow-hidden rounded-2xl border border-border/60 bg-card shadow-card",
+    "flex h-full min-w-0 overflow-hidden rounded-2xl border border-border/60 bg-card shadow-card",
     iconPosition === "left-large" ? "flex-row items-center gap-4 p-5" : "flex-col",
     className,
   );

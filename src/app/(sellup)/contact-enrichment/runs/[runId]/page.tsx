@@ -33,7 +33,7 @@ export default async function ContactEnrichmentRunPage({ params }: ContactEnrich
   ]);
 
   return (
-    <div className="flex flex-col gap-6 p-6">
+    <div className="flex flex-col">
       <PageHeader
         title="Run de enriquecimiento de contactos"
         description={`${run.companyName || 'Empresa sin nombre'} — vista de solo lectura`}

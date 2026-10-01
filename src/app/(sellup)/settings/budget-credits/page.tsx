@@ -20,7 +20,7 @@ export default async function BudgetCreditsPage() {
   ]);
 
   return (
-    <div className="space-y-8 px-8 py-6">
+    <div className="space-y-6 px-8 py-6">
       <LegacyCompatBanner
         message="Esta vista sigue disponible por compatibilidad. La gestión principal de cuotas, presupuesto y reglas ahora vive dentro de Proveedores y consumo."
         ctaLabel="Ir a Proveedores y consumo"

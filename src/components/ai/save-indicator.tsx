@@ -19,7 +19,7 @@ export function SaveIndicator({
     },
     saving: {
       icon: Loader2,
-      color: "text-su-brand",
+      color: "text-primary",
       label: "Guardando...",
     },
     saved: {

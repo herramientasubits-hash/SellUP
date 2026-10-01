@@ -15,6 +15,7 @@ import {
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getContactById, getContactAudit } from '@/modules/contacts/actions';
 import { getAccountById } from '@/modules/accounts/actions';
@@ -34,19 +35,21 @@ interface ContactDetailPageProps {
   params: Promise<{ contactId: string }>;
 }
 
-const STATUS_STYLES: Record<ContactStatus, string> = {
-  active: 'bg-success/10 text-success border-transparent',
-  inactive: 'bg-muted text-muted-foreground border-transparent',
-  left_company: 'bg-warning/10 text-warning border-transparent',
-  do_not_contact: 'bg-destructive/10 text-destructive border-transparent',
-  archived: 'bg-surface-muted text-muted-foreground border-transparent',
+type BadgeTone = 'neutral' | 'brand' | 'warning' | 'positive' | 'negative';
+
+const STATUS_VARIANT: Record<ContactStatus, BadgeTone> = {
+  active: 'positive',
+  inactive: 'neutral',
+  left_company: 'warning',
+  do_not_contact: 'negative',
+  archived: 'neutral',
 };
 
-const ROLE_STYLES: Record<string, string> = {
-  decision_maker: 'bg-su-brand-soft text-su-brand border-transparent',
-  economic_buyer: 'bg-su-brand-soft text-su-brand border-transparent',
-  champion: 'bg-success/10 text-success border-transparent',
-  influencer: 'bg-warning/10 text-warning border-transparent',
+const ROLE_VARIANT: Record<string, BadgeTone> = {
+  decision_maker: 'brand',
+  economic_buyer: 'brand',
+  champion: 'positive',
+  influencer: 'warning',
 };
 
 const AUDIT_LABELS: Record<ContactAuditAction, string> = {
@@ -94,24 +97,18 @@ export default async function ContactDetailPage({ params }: ContactDetailPagePro
         description={contact.job_title ?? undefined}
         backHref="/contacts"
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {contact.is_primary && (
-              <div className="flex items-center gap-1 rounded-full bg-warning/10 px-2.5 py-1 text-xs font-medium text-warning">
-                <Star className="h-3 w-3 fill-warning text-warning" />
+              <Badge variant="warning">
+                <Star className="fill-warning" aria-hidden="true" />
                 Primario
-              </div>
+              </Badge>
             )}
-            <Badge
-              variant="outline"
-              className={`text-xs ${STATUS_STYLES[contact.contact_status]}`}
-            >
+            <Badge variant={STATUS_VARIANT[contact.contact_status]}>
               {CONTACT_STATUS_LABELS[contact.contact_status]}
             </Badge>
             {contact.role_in_account && (
-              <Badge
-                variant="outline"
-                className={`text-xs ${ROLE_STYLES[contact.role_in_account] ?? 'bg-muted text-muted-foreground border-transparent'}`}
-              >
+              <Badge variant={ROLE_VARIANT[contact.role_in_account] ?? 'neutral'}>
                 {ROLE_LABELS[contact.role_in_account as ContactRole]}
               </Badge>
             )}
@@ -139,7 +136,7 @@ export default async function ContactDetailPage({ params }: ContactDetailPagePro
                   <DetailRow icon={Mail} label="Email">
                     <a
                       href={`mailto:${contact.email}`}
-                      className="text-su-brand hover:underline"
+                      className="rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                     >
                       {contact.email}
                     </a>
@@ -147,14 +144,14 @@ export default async function ContactDetailPage({ params }: ContactDetailPagePro
                 )}
                 {contact.mobile_phone && (
                   <DetailRow icon={Phone} label="Celular">
-                    <a href={`tel:${contact.mobile_phone}`} className="hover:underline">
+                    <a href={`tel:${contact.mobile_phone}`} className="rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
                       {contact.mobile_phone}
                     </a>
                   </DetailRow>
                 )}
                 {contact.phone && (
                   <DetailRow icon={Phone} label="Teléfono">
-                    <a href={`tel:${contact.phone}`} className="hover:underline">
+                    <a href={`tel:${contact.phone}`} className="rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
                       {contact.phone}
                     </a>
                   </DetailRow>
@@ -165,7 +162,7 @@ export default async function ContactDetailPage({ params }: ContactDetailPagePro
                       href={contact.linkedin_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-su-brand hover:underline"
+                      className="rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                     >
                       {contact.linkedin_url}
                     </a>
@@ -173,7 +170,7 @@ export default async function ContactDetailPage({ params }: ContactDetailPagePro
                 )}
                 <DetailRow icon={Building2} label="Cuenta">
                   {account ? (
-                    <Link href={`/accounts/${account.id}`} className="text-su-brand hover:underline">
+                    <Link href={`/accounts/${account.id}`} className="rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
                       {account.name}
                     </Link>
                   ) : (
@@ -204,16 +201,13 @@ export default async function ContactDetailPage({ params }: ContactDetailPagePro
                 )}
                 {contact.role_in_account && (
                   <DetailRow icon={Tag} label="Rol en cuenta">
-                    <Badge
-                      variant="outline"
-                      className={`text-xs ${ROLE_STYLES[contact.role_in_account] ?? 'bg-muted text-muted-foreground border-transparent'}`}
-                    >
+                    <Badge variant={ROLE_VARIANT[contact.role_in_account] ?? 'neutral'}>
                       {ROLE_LABELS[contact.role_in_account as ContactRole]}
                     </Badge>
                   </DetailRow>
                 )}
                 <DetailRow icon={Tag} label="Fuente">
-                  <Badge variant="outline" className="text-xs bg-surface-subtle border-transparent text-muted-foreground">
+                  <Badge variant="neutral">
                     {CONTACT_SOURCE_LABELS[contact.source]}
                   </Badge>
                 </DetailRow>
@@ -262,7 +256,7 @@ export default async function ContactDetailPage({ params }: ContactDetailPagePro
                         </p>
                       )}
                       {Object.keys(entry.details).length > 0 && (
-                        <p className="text-xs text-muted-foreground">
+                        <p className="break-words text-xs text-muted-foreground">
                           {JSON.stringify(entry.details)}
                         </p>
                       )}
@@ -279,22 +273,11 @@ export default async function ContactDetailPage({ params }: ContactDetailPagePro
 
         {/* ── Enriquecimiento ──────────────────────────────────── */}
         <TabsContent value="enriquecimiento">
-          <SurfaceCard>
-            <div className="flex flex-col items-center gap-3 py-10 text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-surface-muted">
-                <Globe className="h-5 w-5 text-text-muted" />
-              </div>
-              <div className="max-w-sm space-y-1">
-                <p className="text-sm font-semibold text-foreground">
-                  Enriquecimiento — Próxima fase
-                </p>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Enriquecimiento automático con Apollo y Lusha: email verificado, teléfono
-                  directo, cargo actualizado y señales de intención.
-                </p>
-              </div>
-            </div>
-          </SurfaceCard>
+          <EmptyState
+            icon={Globe}
+            title="Enriquecimiento — Próxima fase"
+            description="Enriquecimiento automático con Apollo y Lusha: email verificado, teléfono directo, cargo actualizado y señales de intención."
+          />
         </TabsContent>
 
         {/* ── HubSpot ──────────────────────────────────────────── */}
@@ -369,7 +352,7 @@ function DetailRow({
         <dt className="text-xs font-semibold text-muted-foreground">
           {label}
         </dt>
-        <dd className="mt-0.5 text-xs text-foreground">{children}</dd>
+        <dd className="mt-0.5 break-words text-sm text-foreground">{children}</dd>
       </div>
     </div>
   );

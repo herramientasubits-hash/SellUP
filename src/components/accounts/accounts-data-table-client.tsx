@@ -15,7 +15,9 @@ import {
   UserSearch,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import type { ComponentProps } from 'react';
 import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
 import {
   Dialog,
   DialogContent,
@@ -55,17 +57,19 @@ import { CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS } from '@/modules/contact-enrichme
 
 // ── Styles ─────────────────────────────────────────────────────
 
-const STATUS_STYLES: Record<PipelineStatus, string> = {
-  new: 'bg-muted text-muted-foreground',
-  ready_for_research: 'bg-su-brand-soft text-su-brand',
-  research_in_progress: 'bg-warning/10 text-warning',
-  ready_for_outreach: 'bg-success/10 text-success',
-  archived: 'bg-surface-muted text-muted-foreground',
+type BadgeVariant = NonNullable<ComponentProps<typeof Badge>['variant']>;
+
+const STATUS_VARIANT: Record<PipelineStatus, BadgeVariant> = {
+  new: 'neutral',
+  ready_for_research: 'brand',
+  research_in_progress: 'warning',
+  ready_for_outreach: 'positive',
+  archived: 'neutral',
 };
 
 const SOURCE_STYLES: Record<AccountSource, string> = {
   manual: 'border-border text-muted-foreground',
-  agent_1: 'bg-su-brand-soft text-su-brand border-transparent',
+  agent_1: 'bg-primary/10 text-primary border-transparent',
   hubspot: 'bg-warning/10 text-warning border-transparent',
   apollo: 'bg-info/10 text-info border-transparent',
   imported: 'border-border text-muted-foreground',
@@ -214,7 +218,7 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
           <button
             type="button"
             onClick={() => openDetail(row.original.id)}
-            className="font-medium text-foreground hover:text-su-brand transition-colors text-left text-sm"
+            className="font-medium text-foreground hover:text-primary transition-colors text-left text-sm rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
           >
             {row.original.name}
           </button>
@@ -299,11 +303,9 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
         cell: ({ row }) => {
           const status = row.original.pipeline_status;
           return (
-            <span
-              className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLES[status]}`}
-            >
+            <Badge variant={STATUS_VARIANT[status]}>
               {PIPELINE_STATUS_LABELS[status]}
-            </span>
+            </Badge>
           );
         },
         size: 140,
@@ -361,7 +363,7 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
           return (
             <Badge
               variant="outline"
-              className={`text-xs ${SOURCE_STYLES[source]}`}
+              className={SOURCE_STYLES[source]}
             >
               {SOURCE_LABELS[source]}
             </Badge>
@@ -561,15 +563,12 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
           ) : undefined
         }
         emptyState={
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <div className="mb-3 rounded-full bg-surface-muted p-3">
-              <Building2 className="h-6 w-6 text-text-muted" />
-            </div>
-            <p className="text-sm font-medium text-foreground">Sin cuentas todavía</p>
-            <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto">
-              Crea una cuenta manualmente o, más adelante, genera prospectos con IA.
-            </p>
-          </div>
+          <EmptyState
+            icon={Building2}
+            title="Sin cuentas todavía"
+            description="Crea una cuenta manualmente o, más adelante, genera prospectos con IA."
+            className="border-0 bg-transparent p-8"
+          />
         }
       />
 

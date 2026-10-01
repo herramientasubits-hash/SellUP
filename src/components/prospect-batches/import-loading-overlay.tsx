@@ -59,6 +59,8 @@ export function ImportLoadingOverlay({
 
   return (
     <div
+      role="status"
+      aria-live="polite"
       className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-6 p-8 overflow-hidden"
       style={{
         background: `linear-gradient(135deg, var(--su-ai-stop-1), var(--su-ai-stop-2), var(--su-ai-stop-3), var(--su-ai-stop-4), var(--su-ai-stop-5))`,
@@ -73,31 +75,31 @@ export function ImportLoadingOverlay({
       </div>
 
       {/* Main label */}
-      <div className="relative z-10 text-center space-y-1">
+      <div className="relative z-10 space-y-1 text-center">
         <p className="text-lg font-bold text-white">
           {STEPS[currentStep].label}
         </p>
         {total > 0 && (
-          <p className="text-sm text-white/70">
+          <p className="text-sm text-white/80">
             {total} candidato{total !== 1 ? 's' : ''} en proceso
           </p>
         )}
       </div>
 
       {/* Sub label */}
-      <p className="relative z-10 text-xs text-white/60">
+      <p className="relative z-10 text-xs text-white/75">
         {STEPS[currentStep].sub}
       </p>
 
       {/* Progress bar */}
-      <div className="relative z-10 w-full max-w-[280px] space-y-2">
+      <div className="relative z-10 w-full max-w-72 space-y-2">
         <div className="h-2 w-full rounded-full bg-white/20 overflow-hidden">
           <div
             className="h-full rounded-full bg-white transition-all duration-700 ease-out"
             style={{ width: `${progress}%` }}
           />
         </div>
-        <div className="flex justify-end text-xs font-bold text-white/80">
+        <div className="flex justify-end text-xs font-bold tabular-nums text-white/90">
           {Math.round(progress)}%
         </div>
       </div>

@@ -823,7 +823,7 @@ export function ProspectChatWizard({
             <div className="flex items-center gap-3" aria-hidden>
               <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
                 <div
-                  className="h-full rounded-full bg-su-brand transition-all duration-500"
+                  className="h-full rounded-full bg-primary transition-all duration-500"
                   style={{ width: `${progress.percentage}%` }}
                 />
               </div>

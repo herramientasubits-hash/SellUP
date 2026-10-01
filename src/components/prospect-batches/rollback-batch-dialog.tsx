@@ -69,7 +69,6 @@ export function RollbackBatchDialog({ batchId, batchName }: RollbackBatchDialogP
             variant="outline"
             size="sm"
             onClick={() => setOpen(true)}
-            className="gap-1.5 text-muted-foreground"
           >
             <RotateCcw className="h-3.5 w-3.5" />
             Deshacer lote
@@ -77,20 +76,22 @@ export function RollbackBatchDialog({ batchId, batchName }: RollbackBatchDialogP
         }
       />
 
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader className="pt-2">
-          <div className="flex items-center gap-2 text-muted-foreground mb-1">
-            <AlertTriangle className="h-5 w-5" />
-            <DialogTitle className="text-base font-semibold">Deshacer este lote de candidatos</DialogTitle>
+          <div className="mb-1 flex items-center gap-2.5">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-warning/15 text-warning">
+              <AlertTriangle className="h-4 w-4" aria-hidden />
+            </span>
+            <DialogTitle>Deshacer este lote de candidatos</DialogTitle>
           </div>
-          <DialogDescription className="text-xs text-muted-foreground">
+          <DialogDescription>
             Esta acción revierte la creación del lote en SellUp y conserva el historial para auditoría. Los candidatos quedan descartados y el lote no afecta el flujo de prospección.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-3">
+        <div className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="rollback-reason" className="text-xs font-semibold text-muted-foreground">
+            <Label htmlFor="rollback-reason">
               Motivo (opcional)
             </Label>
             <Textarea
@@ -100,12 +101,12 @@ export function RollbackBatchDialog({ batchId, batchName }: RollbackBatchDialogP
               placeholder="Ej. QA rollback para lote structured de Agente 1..."
               disabled={loading}
               rows={3}
-              className="resize-none text-xs"
+              className="resize-none"
             />
           </div>
         </div>
 
-        <DialogFooter className="mt-2">
+        <DialogFooter>
           <DialogClose
             render={
               <Button
@@ -119,11 +120,10 @@ export function RollbackBatchDialog({ batchId, batchName }: RollbackBatchDialogP
             Cancelar
           </DialogClose>
           <Button
-            variant="destructive"
+            variant="destructive-solid"
             size="sm"
             disabled={loading}
             onClick={handleConfirm}
-            className="gap-1.5"
           >
             {loading ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />

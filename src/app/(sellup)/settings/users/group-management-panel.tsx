@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Folder, FolderOpen, ChevronDown, ChevronRight } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -60,12 +61,8 @@ function depthLabel(depth: number): string {
   return ['Nivel 1 (raíz)', 'Nivel 2', 'Nivel 3'][depth] ?? `Nivel ${depth + 1}`;
 }
 
-function depthBadgeClass(depth: number): string {
-  return [
-    'bg-su-brand-soft text-su-brand border-su-brand/20',
-    'bg-warning/10 text-warning border-warning/20',
-    'bg-success/10 text-success border-success/20',
-  ][depth] ?? '';
+function depthBadgeVariant(depth: number): 'brand' | 'warning' | 'positive' | 'neutral' {
+  return (['brand', 'warning', 'positive'] as const)[depth] ?? 'neutral';
 }
 
 interface TreeNodeRowProps {
@@ -84,8 +81,10 @@ function TreeNodeRow({ node, level }: TreeNodeRowProps) {
         style={{ paddingLeft: `${12 + level * 20}px` }}
       >
         <button
+          type="button"
+          aria-expanded={hasChildren ? expanded : undefined}
           onClick={() => setExpanded(v => !v)}
-          className="flex h-4 w-4 items-center justify-center text-muted-foreground hover:text-foreground"
+          className="flex h-4 w-4 items-center justify-center rounded-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
           disabled={!hasChildren}
         >
           {hasChildren
@@ -95,13 +94,13 @@ function TreeNodeRow({ node, level }: TreeNodeRowProps) {
         </button>
 
         {hasChildren
-          ? <FolderOpen className="h-4 w-4 shrink-0 text-su-brand" />
+          ? <FolderOpen className="h-4 w-4 shrink-0 text-primary" />
           : <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
         }
 
-        <span className="flex-1 text-sm font-medium text-foreground">{node.group.name}</span>
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground" title={node.group.name}>{node.group.name}</span>
 
-        <Badge variant="outline" className={`text-xs ${depthBadgeClass(node.group.depth)}`}>
+        <Badge variant={depthBadgeVariant(node.group.depth)} className="shrink-0">
           {depthLabel(node.group.depth)}
         </Badge>
       </div>
@@ -174,12 +173,12 @@ export function GroupManagementPanel({ groups: initialGroups }: GroupManagementP
 
       {/* Tree */}
       {tree.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border/60 py-8 text-center">
+        <div className="rounded-2xl border border-dashed border-border/60 py-8 text-center">
           <Folder className="mx-auto mb-2 h-6 w-6 text-muted-foreground opacity-40" />
           <p className="text-sm text-muted-foreground">No hay grupos todavía.</p>
         </div>
       ) : (
-        <div className="rounded-xl border border-border/60 overflow-hidden">
+        <div className="overflow-hidden rounded-2xl border border-border/60 bg-card">
           {tree.map(root => (
             <TreeNodeRow key={root.group.id} node={root} level={0} />
           ))}
@@ -232,9 +231,9 @@ export function GroupManagementPanel({ groups: initialGroups }: GroupManagementP
             </div>
 
             {error && (
-              <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive border border-destructive/20">
-                {error}
-              </p>
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
             )}
           </div>
 

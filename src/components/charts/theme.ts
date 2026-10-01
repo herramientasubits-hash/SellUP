@@ -58,45 +58,47 @@ export interface SellUpChartTheme {
  * color values ready for canvas rendering.
  *
  * Token resolution strategy:
- *  - Direct SellUp tokens: return raw HEX values, stable across
- *    light/dark because brand colors are intentionally theme-invariant.
- *    Used for series colors to maintain semantic visual consistency.
- *  - shadcn HSL-channel tokens (globals.css): values are space-separated HSL
- *    channels (e.g. "215 19% 23%") and must be wrapped in hsl() with commas
- *    for compatibility with zrender (ECharts canvas renderer).
- *    These tokens switch values under the .dark class on <html>.
+ *  - Every token in globals.css is a complete CSS color (`hsl(219 90% 49%)`),
+ *    not a bare channel list. zrender (the ECharts canvas renderer) does not
+ *    parse CSS Level 4 space syntax, so each token is resolved through a
+ *    probe element: the browser returns a plain `rgb(r, g, b)` string.
+ *  - Series colors come from the Thema chart tokens `--chart-1..5`, which
+ *    already swap between light and dark.
+ *  - UI colors (text, borders, tooltip) come from the shadcn tokens, which
+ *    also switch under the .dark class on <html>.
  */
 export function getSellUpChartTheme(): SellUpChartTheme {
-  const css = getComputedStyle(document.documentElement);
-  const get = (name: string): string => css.getPropertyValue(name).trim();
+  const probe = document.createElement("span");
+  probe.style.display = "none";
+  document.documentElement.appendChild(probe);
 
-  /**
-   * Wraps space-separated HSL channels (e.g. "215 19% 23%") into a
-   * comma-separated hsl() string for zrender/Canvas compatibility.
-   * CSS Level 4 space syntax is not universally supported by canvas engines.
-   */
-  const hsl = (channels: string): string =>
-    `hsl(${channels.replace(/\s+/g, ", ")})`;
+  /** Resolves `var(--token)` to a canvas-safe color string. */
+  const resolve = (name: string, fallback: string): string => {
+    probe.style.color = "";
+    probe.style.color = `var(${name})`;
+    const value = getComputedStyle(probe).color;
+    return value && value !== "" ? value : fallback;
+  };
 
-  // --- Series colors: direct SellUp brand tokens (HEX values) ---
-  // These are intentionally theme-invariant. Brand, positive, warning, negative,
-  // and neutral gray provide a semantically grounded 5-color palette.
-  // If a chart requires more than 5 series, override option.color directly.
-  const brand = get("--su-brand"); // primary blue
-  const positive = get("--color-emerald-500"); // green
-  const warning = get("--color-amber-500"); // amber
-  const negative = get("--destructive"); // red
-  const neutral = get("--muted-foreground"); // neutral gray
+  // --- Series colors: Thema chart palette (--chart-1..5) ---
+  const seriesColors = [
+    resolve("--chart-1", "rgb(12, 91, 239)"),
+    resolve("--chart-2", "rgb(124, 58, 237)"),
+    resolve("--chart-3", "rgb(14, 165, 233)"),
+    resolve("--chart-4", "rgb(5, 150, 105)"),
+    resolve("--chart-5", "rgb(255, 123, 13)"),
+  ];
 
-  // --- UI colors: shadcn HSL-channel tokens (globals.css) ---
-  // These adapt between light and dark mode via the .dark class on <html>.
-  const colorText = hsl(get("--foreground"));
-  const colorMuted = hsl(get("--muted-foreground"));
-  const colorBorder = hsl(get("--border"));
-  const colorBg = hsl(get("--background"));
+  // --- UI colors: adapt between light and dark via the .dark class ---
+  const colorText = resolve("--foreground", "rgb(48, 54, 70)");
+  const colorMuted = resolve("--muted-foreground", "rgb(92, 98, 112)");
+  const colorBorder = resolve("--border", "rgb(208, 210, 214)");
+  const colorBg = resolve("--popover", "rgb(255, 255, 255)");
+
+  probe.remove();
 
   return {
-    color: [brand, positive, warning, negative, neutral],
+    color: seriesColors,
     textStyle: {
       fontFamily: "Inter, sans-serif",
       color: colorText,

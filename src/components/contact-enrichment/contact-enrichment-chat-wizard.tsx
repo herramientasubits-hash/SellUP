@@ -1,9 +1,11 @@
 'use client';
 
 import * as React from 'react';
-import { Building2, Check, Globe, MapPin, PenLine, AlertCircle, Sparkles } from 'lucide-react';
+import { Building2, Check, Globe, MapPin, PenLine, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   AgentChatTimeline,
   AgentChatComposer,
@@ -271,8 +273,8 @@ export function ContactEnrichmentChatWizard({
                   <AgentChatOptionCard
                     key={`${candidate.source}-${candidate.sellupAccountId ?? candidate.hubspotCompanyId ?? candidate.domain ?? i}`}
                     icon={
-                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-su-brand-soft">
-                        <Building2 className="h-4 w-4 text-su-brand" aria-hidden />
+                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+                        <Building2 className="h-4 w-4 text-primary" aria-hidden />
                       </div>
                     }
                     title={candidate.name}
@@ -350,18 +352,15 @@ export function ContactEnrichmentChatWizard({
             )}
 
             {state.step === 'error' && (
-              <div className="space-y-3 rounded-2xl border border-destructive/30 bg-destructive/5 p-5">
-                <div className="flex items-center gap-2">
-                  <AlertCircle className="h-5 w-5 text-destructive" aria-hidden />
-                  <p className="text-sm font-medium text-destructive">No se pudo continuar</p>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {state.errorMessage ?? 'Error desconocido'}
-                </p>
-                <Button variant="outline" size="sm" onClick={handleReset}>
-                  Intentar de nuevo
-                </Button>
-              </div>
+              <Alert variant="destructive" className="p-5">
+                <AlertTitle>No se pudo continuar</AlertTitle>
+                <AlertDescription>
+                  <p>{state.errorMessage ?? 'Error desconocido'}</p>
+                  <Button variant="outline" size="sm" onClick={handleReset} className="mt-3">
+                    Intentar de nuevo
+                  </Button>
+                </AlertDescription>
+              </Alert>
             )}
           </div>
         )}
@@ -425,8 +424,8 @@ function AutomaticEnrichmentInfoCard() {
   return (
     <SurfaceCard className="space-y-2 p-4">
       <div className="flex items-center gap-2">
-        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-su-brand-soft">
-          <Sparkles className="h-3.5 w-3.5 text-su-brand" aria-hidden />
+        <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-primary/10">
+          <Sparkles className="h-3.5 w-3.5 text-primary" aria-hidden />
         </div>
         <p className="text-sm font-semibold text-foreground">Búsqueda automática de contactos</p>
       </div>
@@ -457,26 +456,28 @@ function ExtraDataCard({
   const hasEnough = domain.trim().length > 0 || country.trim().length > 0;
 
   return (
-    <div className="space-y-4 rounded-2xl border border-border/50 bg-card p-5">
+    <SurfaceCard className="space-y-4 p-5">
       <div className="space-y-3">
-        <div className="space-y-1">
-          <label className="flex items-center gap-1 text-xs text-muted-foreground">
+        <div className="space-y-1.5">
+          <Label htmlFor="extra-data-domain" className="text-muted-foreground">
             <Globe className="h-3 w-3" aria-hidden />
             Dominio de la empresa
-          </label>
+          </Label>
           <Input
+            id="extra-data-domain"
             placeholder="ejemplo.com"
             value={domain}
             onChange={(e) => setDomain(e.target.value)}
             autoFocus
           />
         </div>
-        <div className="space-y-1">
-          <label className="flex items-center gap-1 text-xs text-muted-foreground">
+        <div className="space-y-1.5">
+          <Label htmlFor="extra-data-country" className="text-muted-foreground">
             <MapPin className="h-3 w-3" aria-hidden />
             País
-          </label>
+          </Label>
           <Input
+            id="extra-data-country"
             placeholder="Colombia"
             value={country}
             onChange={(e) => setCountry(e.target.value)}
@@ -497,6 +498,6 @@ function ExtraDataCard({
           Continuar con empresa manual
         </Button>
       </div>
-    </div>
+    </SurfaceCard>
   );
 }

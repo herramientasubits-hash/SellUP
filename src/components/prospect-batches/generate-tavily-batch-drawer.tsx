@@ -96,7 +96,7 @@ export function GenerateTavilyBatchDrawer() {
       }
       title="Buscar empresas con IA"
       description="SellUp buscará empresas en la web, evaluará los resultados con IA y dejará los mejores candidatos encontrados en revisión."
-      icon={<Sparkles className="h-4 w-4 text-su-brand" />}
+      icon={<Sparkles className="h-4 w-4" />}
       size="xl"
       actions={
         <>
@@ -132,7 +132,7 @@ export function GenerateTavilyBatchDrawer() {
       <form
         id="generate-tavily-batch-form"
         onSubmit={handleSubmit}
-        className="space-y-8"
+        className="space-y-6"
       >
         {/* Segmentación */}
         <Section icon={Globe} label="Segmentación">
@@ -182,7 +182,7 @@ export function GenerateTavilyBatchDrawer() {
             <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
             <p className="text-xs text-muted-foreground">
               Los candidatos no se aprueban automáticamente. La cantidad final puede variar según la disponibilidad y calidad de resultados.
-              <span className="mt-1 block text-muted-foreground">
+              <span className="mt-1 block">
                 Ninguna empresa se crea en SellUp sin revisión humana.
               </span>
             </p>
@@ -214,12 +214,12 @@ export function GenerateTavilyBatchDrawer() {
             ].map((src) => (
               <div
                 key={src.label}
-                className="flex items-center gap-2.5 rounded-lg border border-border/60 bg-card px-3 py-2"
+                className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 rounded-lg border border-border/60 bg-card px-3 py-2"
               >
-                <src.icon className="h-3.5 w-3.5 shrink-0 text-su-brand" />
+                <src.icon className="h-3.5 w-3.5 shrink-0 text-primary" />
                 <span className="text-xs font-medium text-foreground">{src.label}</span>
-                <span className="text-xs text-muted-foreground">·</span>
-                <span className="text-xs text-muted-foreground">{src.desc}</span>
+                <span className="text-xs text-muted-foreground" aria-hidden="true">·</span>
+                <span className="min-w-0 text-xs text-muted-foreground">{src.desc}</span>
               </div>
             ))}
           </div>

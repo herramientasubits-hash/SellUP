@@ -94,18 +94,18 @@ interface PreapprovalCardProps {
 
 function PreapprovalCard({ preapproval, isAdmin }: PreapprovalCardProps) {
   return (
-    <div className="flex items-center gap-4 rounded-xl border border-su-brand/20 bg-su-brand-soft/30 p-4">
+    <div className="flex items-center gap-4 rounded-xl border border-primary/20 bg-primary/5 p-4">
       <Avatar className="h-10 w-10">
-        <AvatarFallback className="bg-su-brand-soft text-su-brand text-xs">
+        <AvatarFallback className="bg-primary/10 text-primary text-xs">
           {getInitials(preapproval.full_name, preapproval.email)}
         </AvatarFallback>
       </Avatar>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <span className="truncate font-medium text-foreground">
             {preapproval.full_name ?? 'Sin nombre registrado'}
           </span>
-          <Badge variant="outline" className="text-xs bg-su-brand-soft text-su-brand border-su-brand/30 shrink-0">
+          <Badge variant="brand" className="shrink-0">
             Esperando primer login
           </Badge>
         </div>
@@ -169,16 +169,18 @@ export function UsersTab({
     <div className="flex flex-col flex-1 min-h-0 space-y-4">
       {/* Filter bar + view toggle */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-1 rounded-xl border border-border/60 bg-surface-subtle p-1">
+        <div className="flex flex-wrap gap-1 rounded-xl bg-tab-track p-1" role="group" aria-label="Filtrar usuarios">
           {USER_FILTERS.map(f => (
             <button
               key={f.id}
+              type="button"
+              aria-pressed={filter === f.id}
               onClick={() => {
                 setFilter(f.id);
                 onFilterChange?.(f.id);
               }}
               className={cn(
-                'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap',
+                'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40',
                 filter === f.id
                   ? 'bg-card text-foreground shadow-card'
                   : 'text-muted-foreground hover:text-foreground',
@@ -186,8 +188,8 @@ export function UsersTab({
             >
               {f.label}
               <span className={cn(
-                'ml-1.5 rounded-full px-1.5 py-0.5 text-xs',
-                filter === f.id ? 'bg-su-brand-soft text-su-brand' : 'bg-muted text-muted-foreground',
+                'ml-1.5 rounded-full px-1.5 py-0.5 text-xs tabular-nums',
+                filter === f.id ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground',
               )}>
                 {filterCounts[f.id]}
               </span>
@@ -196,11 +198,13 @@ export function UsersTab({
         </div>
 
         {showViewToggle && (
-          <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-surface-subtle p-1">
+          <div className="flex items-center gap-1 rounded-lg bg-tab-track p-1" role="group" aria-label="Vista">
             <button
+              type="button"
+              aria-pressed={viewMode === 'list'}
               onClick={() => setViewMode('list')}
               className={cn(
-                'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40',
                 viewMode === 'list' ? 'bg-card text-foreground shadow-card' : 'text-muted-foreground hover:text-foreground',
               )}
             >
@@ -208,9 +212,11 @@ export function UsersTab({
               Lista
             </button>
             <button
+              type="button"
+              aria-pressed={viewMode === 'org'}
               onClick={() => setViewMode('org')}
               className={cn(
-                'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40',
                 viewMode === 'org' ? 'bg-card text-foreground shadow-card' : 'text-muted-foreground hover:text-foreground',
               )}
             >
@@ -225,7 +231,7 @@ export function UsersTab({
       {showPreapprovedList && (
         <div className="flex-1 min-h-0 overflow-y-auto space-y-2">
           {preapprovals.length === 0 ? (
-            <div className="py-12 text-center text-muted-foreground text-sm">
+            <div className="py-12 text-center text-sm text-muted-foreground">
               No hay preautorizaciones pendientes.
             </div>
           ) : (
@@ -245,7 +251,7 @@ export function UsersTab({
       {showUserList && (
         <div className="flex-1 min-h-0 overflow-y-auto">
           {filteredUsers.length === 0 ? (
-            <div className="py-12 text-center text-muted-foreground text-sm">
+            <div className="py-12 text-center text-sm text-muted-foreground">
               No hay usuarios en esta categoría.
             </div>
           ) : (
@@ -279,15 +285,17 @@ export function GroupsTab({ users, groups, roles, isAdmin = false }: GroupsTabPr
 
   return (
     <div className="flex flex-col flex-1 min-h-0 space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-sm text-muted-foreground">
           {groups.length} {groups.length === 1 ? 'grupo' : 'grupos'}
         </span>
-        <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-surface-subtle p-1">
+        <div className="flex items-center gap-1 rounded-lg bg-tab-track p-1" role="group" aria-label="Vista">
           <button
+            type="button"
+            aria-pressed={viewMode === 'list'}
             onClick={() => setViewMode('list')}
             className={cn(
-              'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+              'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40',
               viewMode === 'list' ? 'bg-card text-foreground shadow-card' : 'text-muted-foreground hover:text-foreground',
             )}
           >
@@ -295,9 +303,11 @@ export function GroupsTab({ users, groups, roles, isAdmin = false }: GroupsTabPr
             Lista
           </button>
           <button
+            type="button"
+            aria-pressed={viewMode === 'org'}
             onClick={() => setViewMode('org')}
             className={cn(
-              'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+              'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40',
               viewMode === 'org' ? 'bg-card text-foreground shadow-card' : 'text-muted-foreground hover:text-foreground',
             )}
           >
@@ -314,7 +324,7 @@ export function GroupsTab({ users, groups, roles, isAdmin = false }: GroupsTabPr
       )}
 
       {viewMode === 'org' && (
-        <div className="flex-1 min-h-0 overflow-y-auto rounded-xl border border-border/60">
+        <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-border/60 bg-card">
           <GroupsView users={activeUsers} groups={groups} roles={roles} isAdmin={isAdmin} />
         </div>
       )}

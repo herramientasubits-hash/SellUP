@@ -7,7 +7,7 @@ import { X } from "lucide-react";
 import type { ChipProps } from "./aiInteractionTypes";
 
 const chipVariants = cva(
-  "inline-flex items-center justify-center gap-1.5 rounded-full border transition-all focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 disabled:pointer-events-none disabled:opacity-50",
+  "inline-flex items-center justify-center gap-1.5 rounded-full border transition-all focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       tone: {
@@ -93,7 +93,7 @@ export function Chip({
       {typeof count === "number" && (
         <span className={cn(
           "ml-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full px-1 text-xs font-bold",
-          selected ? "bg-white/20 text-current" : "bg-muted-foreground/10 text-muted-foreground",
+          selected ? "bg-primary-foreground/20 text-current" : "bg-muted-foreground/10 text-muted-foreground",
           isAI && !selected && "bg-su-ai-surface su-ai-gradient-text"
         )}>
           {count}
@@ -104,7 +104,7 @@ export function Chip({
           type="button"
           onClick={handleRemove}
           className={cn(
-            "ml-1 -mr-1 flex h-4 w-4 items-center justify-center rounded-full transition-colors hover:bg-black/10 dark:hover:bg-white/10",
+            "ml-1 -mr-1 flex h-4 w-4 items-center justify-center rounded-full transition-colors hover:bg-foreground/10 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40",
             disabled && "pointer-events-none"
           )}
           aria-label={`Remove ${label}`}

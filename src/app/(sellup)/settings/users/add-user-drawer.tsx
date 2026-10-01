@@ -1,12 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { UserPlus, Mail, CheckCircle2, XCircle, ChevronDown, User } from 'lucide-react';
+import { UserPlus, Mail, CheckCircle2, XCircle, ChevronDown, User, KeyRound, Network } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { DrawerShell } from '@/components/shared/drawer-shell';
+import { DrawerSection } from '@/components/shared/drawer-section';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Select,
   SelectContent,
@@ -96,40 +98,38 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
       open={open}
       onOpenChange={(v) => { setOpen(v); if (!v) reset(); }}
       trigger={
-        <Button size="sm" className="gap-2 h-9 text-xs font-medium" onClick={() => setOpen(true)}>
+        <Button size="sm" onClick={() => setOpen(true)}>
           <UserPlus className="h-3.5 w-3.5" />
           Agregar usuario
         </Button>
       }
       title="Agregar usuario"
       description="Preautoriza un correo @ubits.co. El acceso se activa en el primer inicio de sesión con Google."
-      icon={<User className="h-4 w-4 text-su-brand" />}
+      icon={<User className="h-4 w-4 text-primary" />}
       size="lg"
       actions={
         <div className="flex items-center gap-3 ml-auto">
           <Button
             variant="outline"
             onClick={() => { setOpen(false); reset(); }}
-            className="text-sm"
           >
             Cancelar
           </Button>
           <Button
             onClick={handleSubmit}
             disabled={!emailValid || !roleId || loading}
-            className="text-sm gap-2 h-9"
           >
-            <UserPlus className="h-3.5 w-3.5" />
+            <UserPlus className="h-4 w-4" />
             {loading ? 'Preautorizando...' : 'Preautorizar'}
           </Button>
         </div>
       }
     >
-      <div className="space-y-6">
+      <div className="space-y-4">
         {/* Identity preview */}
-        <div className="flex items-center gap-4 rounded-xl border border-border/50 bg-surface-subtle px-4 py-3">
+        <div className="flex items-center gap-4 rounded-2xl border border-border/60 bg-surface-subtle px-4 py-3">
           <Avatar className="h-12 w-12 shrink-0">
-            <AvatarFallback className="bg-su-brand-soft text-su-brand text-sm font-semibold">
+            <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">
               {previewInitials}
             </AvatarFallback>
           </Avatar>
@@ -141,7 +141,7 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
               {email || <span className="italic">correo@ubits.co</span>}
             </p>
             {selectedRole && (
-              <Badge variant="outline" className="mt-1 text-xs bg-su-brand-soft text-su-brand border-su-brand/20">
+              <Badge variant="brand" className="mt-1">
                 {selectedRole.name}
               </Badge>
             )}
@@ -149,10 +149,7 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
         </div>
 
         {/* ── Section: Identidad ────────────────────────── */}
-        <div className="space-y-4">
-          <p className="text-xs font-semibold text-muted-foreground">
-            Identidad
-          </p>
+        <DrawerSection title="Identidad" icon={User} contentClassName="space-y-4">
 
           {/* Email */}
           <div className="space-y-1.5">
@@ -185,7 +182,7 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
               )}
             </div>
             {emailTouched && !emailValid && (
-              <p className="text-xs text-destructive">Debe terminar en @ubits.co</p>
+              <p className="text-xs font-medium text-destructive">Debe terminar en @ubits.co</p>
             )}
           </div>
 
@@ -205,13 +202,10 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
               />
             </div>
           </div>
-        </div>
+        </DrawerSection>
 
         {/* ── Section: Acceso ───────────────────────────── */}
-        <div className="space-y-4">
-          <p className="text-xs font-semibold text-muted-foreground">
-            Acceso
-          </p>
+        <DrawerSection title="Acceso" icon={KeyRound} contentClassName="space-y-4">
 
           {/* Role */}
           <div className="space-y-1.5">
@@ -256,9 +250,9 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
               </SelectContent>
             </Select>
             {selectedManager && (
-              <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-surface-subtle px-3 py-2">
+              <div className="flex items-center gap-2 rounded-lg bg-surface-subtle px-3 py-2">
                 <Avatar className="h-6 w-6 shrink-0">
-                  <AvatarFallback className="bg-su-brand-soft text-su-brand text-xs">
+                  <AvatarFallback className="bg-primary/10 text-primary text-xs">
                     {getInitials(selectedManager.full_name ?? '', selectedManager.email)}
                   </AvatarFallback>
                 </Avatar>
@@ -266,13 +260,10 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
               </div>
             )}
           </div>
-        </div>
+        </DrawerSection>
 
         {/* ── Section: Organización ─────────────────────── */}
-        <div className="space-y-4">
-          <p className="text-xs font-semibold text-muted-foreground">
-            Organización
-          </p>
+        <DrawerSection title="Organización" icon={Network} contentClassName="space-y-4">
 
           <div className="space-y-1.5">
             <Label className="text-sm">
@@ -314,12 +305,12 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
               className="resize-none text-sm"
             />
           </div>
-        </div>
+        </DrawerSection>
 
         {error && (
-          <div className="rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-xs text-destructive">
-            {error}
-          </div>
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
       </div>
     </DrawerShell>

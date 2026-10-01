@@ -24,7 +24,7 @@ export function SurfaceCard({
         // Thema: una card es una superficie en reposo. Radio 2xl, borde al 60 %
         // y la sombra `card`. Solo se eleva al pasar el puntero si es pulsable:
         // una card estática que reacciona promete una acción que no existe.
-        "rounded-2xl border transition-[box-shadow,border-color] duration-200",
+        "min-w-0 rounded-2xl border transition-[box-shadow,border-color] duration-200",
         elevated
           ? "border-border bg-su-surface-elevated shadow-drawer"
           : "border-border/60 bg-card shadow-card",

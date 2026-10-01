@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Check, Users } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -96,21 +97,22 @@ export function AssignUsersToGroupDialog({
                   key={user.id}
                   type="button"
                   onClick={() => toggleUser(user.id)}
-                  className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                  aria-pressed={isSelected}
+                  className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 ${
                     isSelected
-                      ? 'border-su-brand/40 bg-su-brand-soft/20'
-                      : 'border-border/50 hover:border-border/80 hover:bg-surface-muted'
+                      ? 'border-primary/40 bg-primary/10'
+                      : 'border-border/50 hover:bg-surface-muted'
                   }`}
                 >
                   <div
-                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors ${
-                      isSelected ? 'border-su-brand bg-su-brand' : 'border-border'
+                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-xs border-2 transition-colors ${
+                      isSelected ? 'border-primary bg-primary' : 'border-border'
                     }`}
                   >
-                    {isSelected && <Check className="h-3 w-3 text-white" />}
+                    {isSelected && <Check className="h-3 w-3 text-primary-foreground" />}
                   </div>
                   <Avatar className="h-7 w-7 shrink-0">
-                    <AvatarFallback className="bg-su-brand-soft text-su-brand text-xs">
+                    <AvatarFallback className="bg-primary/10 text-primary text-xs">
                       {getInitials(user.full_name, user.email)}
                     </AvatarFallback>
                   </Avatar>
@@ -121,11 +123,9 @@ export function AssignUsersToGroupDialog({
                     <p className="truncate text-xs text-muted-foreground">{user.email}</p>
                   </div>
                   {user.group_id && (
-                    <Badge
-                      variant="outline"
-                      className="shrink-0 text-xs text-muted-foreground border-border/60"
-                    >
-                      {formatGroupLabel(user.group_id, allGroups)}
+                    <Badge variant="neutral" className="max-w-[10rem] shrink-0">
+                      <span className="truncate">
+                      {formatGroupLabel(user.group_id, allGroups)}</span>
                     </Badge>
                   )}
                 </button>
@@ -141,9 +141,9 @@ export function AssignUsersToGroupDialog({
         )}
 
         {error && (
-          <p className="rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            {error}
-          </p>
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
 
         <DialogFooter>

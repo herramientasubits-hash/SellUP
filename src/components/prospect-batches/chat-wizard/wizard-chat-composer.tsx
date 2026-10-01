@@ -67,7 +67,7 @@ export function WizardChatComposer({
         'rounded-xl border transition-colors',
         isLocked
           ? 'border-border/60 bg-surface-subtle'
-          : 'border-border bg-card focus-within:border-su-brand/40 focus-within:ring-1 focus-within:ring-su-brand/20',
+          : 'border-border bg-card focus-within:border-primary/40 focus-within:ring-3 focus-within:ring-ring/30',
       )}
     >
       <div className="flex items-end gap-2 px-3 py-2.5">
@@ -83,7 +83,7 @@ export function WizardChatComposer({
           placeholder={placeholder}
           rows={1}
           className={cn(
-            'flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground leading-relaxed',
+            'min-w-0 flex-1 resize-none bg-transparent text-sm leading-relaxed outline-none placeholder:text-muted-foreground',
             isLocked
               ? 'cursor-default text-muted-foreground'
               : 'text-foreground',
@@ -93,7 +93,7 @@ export function WizardChatComposer({
         />
         <Button
           type="button"
-          size="icon"
+          size="icon-xs"
           disabled={!canSend}
           onClick={canSend ? onSubmit : undefined}
           aria-label="Enviar respuesta"
@@ -102,13 +102,13 @@ export function WizardChatComposer({
             boxShadow: 'var(--su-ai-send-shadow)',
           } : undefined}
           className={cn(
-            'h-7 w-7 shrink-0 rounded-full transition-all',
+            'shrink-0 rounded-full transition-all',
             canSend
-              ? 'text-white hover:opacity-90 active:scale-95'
+              ? 'text-primary-foreground hover:opacity-90 active:scale-95'
               : 'bg-muted text-text-muted',
           )}
         >
-          <ArrowUp className="h-3.5 w-3.5" aria-hidden />
+          <ArrowUp aria-hidden />
         </Button>
       </div>
 

@@ -71,14 +71,14 @@ export default async function ProvidersConsumptionPage() {
   }
 
   return (
-    <div className="space-y-8 px-8 py-6">
+    <div className="space-y-6 px-8 py-6">
       <PageHeader
         title="Proveedores y consumo"
         description="Administra proveedores, cuotas, presupuestos, reglas, modelos de IA y trazabilidad de consumo desde un solo lugar."
         backHref="/settings"
       />
 
-      <div className="space-y-8">
+      <div className="space-y-6">
         <BudgetSummaryCards providers={summary.providers} />
         <SurfaceCard>
           <div className="p-1">

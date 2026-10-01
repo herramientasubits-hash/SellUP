@@ -20,17 +20,17 @@ export function MetricComparisonFooter({
 
   return (
     <div className={cn(
-      "grid gap-4 py-4 border-t border-border/60",
+      "grid gap-4 py-4 border-t border-border/50",
       gridCols,
       className
     )}>
       {items.map((item, index) => (
         <div key={index} className="flex flex-col gap-1.5 min-w-0">
-          <span className="text-xs font-bold text-muted-foreground truncate">
+          <span className="text-xs font-semibold text-muted-foreground truncate">
             {item.label}
           </span>
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-bold text-foreground">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold tabular-nums text-foreground">
               {item.value}
             </span>
             {(item.delta !== undefined || item.deltaLabel) && (

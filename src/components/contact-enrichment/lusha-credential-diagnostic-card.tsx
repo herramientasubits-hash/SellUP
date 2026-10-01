@@ -123,13 +123,13 @@ function LushaPreflightSection() {
 
   if (pf.status === 'idle') {
     return (
-      <div className="rounded-xl border border-border/60 bg-card/50 p-3 space-y-2 mt-2">
+      <div className="rounded-xl border border-border/60 bg-surface-subtle p-3 space-y-2 mt-2">
         <p className="text-xs text-muted-foreground leading-relaxed">{LUSHA_PREFLIGHT_DISCLAIMER}</p>
         <Button
           variant="outline"
           size="sm"
           onClick={runPreflight}
-          className="w-full text-xs"
+          className="w-full"
           data-testid="lusha-preflight-button"
         >
           <ShieldCheck className="mr-2 h-3.5 w-3.5" aria-hidden />
@@ -141,7 +141,7 @@ function LushaPreflightSection() {
 
   if (pf.status === 'loading') {
     return (
-      <div className="rounded-xl border border-border/60 bg-card/50 p-3 flex items-center gap-2 mt-2">
+      <div className="rounded-xl border border-border/60 bg-surface-subtle p-3 flex items-center gap-2 mt-2">
         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden />
         <span className="text-xs text-muted-foreground">Validando preflight del runner…</span>
       </div>
@@ -153,7 +153,7 @@ function LushaPreflightSection() {
       <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 space-y-2 mt-2">
         <p className="text-xs font-medium text-destructive">Error en preflight</p>
         <p className="text-xs text-muted-foreground">{pf.message}</p>
-        <Button variant="ghost" size="sm" onClick={() => setPf({ status: 'idle' })} className="text-xs text-muted-foreground">
+        <Button variant="ghost" size="sm" onClick={() => setPf({ status: 'idle' })} className="text-muted-foreground">
           Reintentar
         </Button>
       </div>
@@ -227,7 +227,7 @@ function LushaPreflightSection() {
       </div>
 
       <div className="border-t border-border/50" />
-      <div className="rounded-lg border border-border/60 bg-background/60 px-3 py-2">
+      <div className="rounded-lg border border-border/60 bg-card px-3 py-2">
         <p className="text-xs font-semibold text-muted-foreground mb-1">Recomendación</p>
         <p className="text-xs text-foreground leading-relaxed" data-testid="lusha-preflight-recommendation">{r.recommendation}</p>
       </div>
@@ -263,7 +263,7 @@ export function LushaCredentialDiagnosticCard() {
   // ── Idle ─────────────────────────────────────────────────────────────────────
   if (diag.status === 'idle') {
     return (
-      <div className="rounded-xl border border-border/60 bg-card/50 p-3 space-y-2">
+      <div className="rounded-xl border border-border/60 bg-surface-subtle p-3 space-y-2">
         <p className="text-xs text-muted-foreground leading-relaxed">
           {LUSHA_DIAG_DISCLAIMER}
         </p>
@@ -271,7 +271,7 @@ export function LushaCredentialDiagnosticCard() {
           variant="outline"
           size="sm"
           onClick={runDiagnostic}
-          className="w-full text-xs"
+          className="w-full"
           data-testid="lusha-diag-button"
         >
           <ShieldCheck className="mr-2 h-3.5 w-3.5" aria-hidden />
@@ -284,7 +284,7 @@ export function LushaCredentialDiagnosticCard() {
   // ── Loading ──────────────────────────────────────────────────────────────────
   if (diag.status === 'loading') {
     return (
-      <div className="rounded-xl border border-border/60 bg-card/50 p-3 flex items-center gap-2">
+      <div className="rounded-xl border border-border/60 bg-surface-subtle p-3 flex items-center gap-2">
         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden />
         <span className="text-xs text-muted-foreground">
           Diagnosticando acceso seguro a Supabase Vault…
@@ -486,7 +486,7 @@ export function LushaCredentialDiagnosticCard() {
             {sourceResolved}
           </span>
         </div>
-        <div className="rounded-lg border border-border/60 bg-background/60 px-3 py-2">
+        <div className="rounded-lg border border-border/60 bg-card px-3 py-2">
           <p className="text-xs font-semibold text-muted-foreground mb-1">
             Recomendación
           </p>

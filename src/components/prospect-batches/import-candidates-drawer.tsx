@@ -901,10 +901,10 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
         step === 'success'
           ? <CheckCircle2 className="h-4 w-4 text-success" />
           : step === 'classification'
-          ? <Search className="h-4 w-4 text-su-brand" />
+          ? <Search className="h-4 w-4 text-primary" />
           : step === 'preview'
-          ? <FileText className="h-4 w-4 text-su-brand" />
-          : <Upload className="h-4 w-4 text-su-brand" />
+          ? <FileText className="h-4 w-4 text-primary" />
+          : <Upload className="h-4 w-4 text-primary" />
       }
       className={cn(
         "transition-all duration-300",
@@ -954,7 +954,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                     onClick={handleBuildClassification}
                     disabled={loadingClassification || computeHasMappingConflict(columnMappings)}
                     size="sm"
-                    className="gap-2 text-xs font-semibold bg-su-brand text-primary-foreground hover:bg-su-brand/90"
+                    className="gap-2 text-xs font-semibold bg-primary text-primary-foreground hover:bg-primary/90"
                   >
                     {loadingClassification ? (
                       <>
@@ -1023,7 +1023,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div className="text-left flex-1 space-y-1">
                   {selectedRows.length > 0 && (
-                    <p className="text-xs text-su-brand font-medium">
+                    <p className="text-xs text-primary font-medium">
                       {selectedRows.length} fila{selectedRows.length !== 1 ? 's' : ''} seleccionada{selectedRows.length !== 1 ? 's' : ''} para importar.
                     </p>
                   )}
@@ -1122,7 +1122,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                     <button
                       type="button"
                       onClick={loadCatalog}
-                      className="flex items-center gap-1 text-xs text-su-brand hover:underline"
+                      className="flex items-center gap-1 text-xs text-primary hover:underline"
                     >
                       <RefreshCw className="h-3 w-3" />
                       Reintentar
@@ -1193,7 +1193,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
               onClick={() => setFileMethod('paste')}
               className={`flex flex-col items-center gap-1.5 rounded-xl border px-3 py-3 text-xs font-medium transition-colors ${
                 fileMethod === 'paste'
-                  ? 'border-su-brand bg-su-brand-soft text-su-brand'
+                  ? 'border-primary bg-primary/10 text-primary'
                   : 'border-border/60 bg-surface-subtle text-muted-foreground hover:border-border hover:bg-surface-muted'
               }`}
             >
@@ -1205,7 +1205,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
               onClick={() => setFileMethod('file')}
               className={`flex flex-col items-center gap-1.5 rounded-xl border px-3 py-3 text-xs font-medium transition-colors ${
                 fileMethod === 'file'
-                  ? 'border-su-brand bg-su-brand-soft text-su-brand'
+                  ? 'border-primary bg-primary/10 text-primary'
                   : 'border-border/60 bg-surface-subtle text-muted-foreground hover:border-border hover:bg-surface-muted'
               }`}
             >
@@ -1243,8 +1243,8 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                 className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border/60 bg-surface-subtle px-6 py-10 text-center cursor-pointer hover:border-border hover:bg-surface-muted transition-colors"
                 onClick={() => fileInputRef.current?.click()}
               >
-                <div className="rounded-full bg-su-brand-soft p-2.5">
-                  <Upload className="h-5 w-5 text-su-brand" />
+                <div className="rounded-full bg-primary/10 p-2.5">
+                  <Upload className="h-5 w-5 text-primary" />
                 </div>
                 {fileName ? (
                   <>
@@ -1277,7 +1277,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
             <AccordionItem value="guide">
               <AccordionTrigger className="text-xs font-semibold text-foreground px-0 py-2">
                 <div className="flex items-center gap-2">
-                  <Info className="h-4 w-4 text-su-brand" />
+                  <Info className="h-4 w-4 text-primary" />
                   Ver guía del contrato oficial de importación
                 </div>
               </AccordionTrigger>
@@ -1306,7 +1306,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                             {col.required ? (
                               <span className="text-xs font-semibold text-destructive uppercase">Requerido</span>
                             ) : col.recommended ? (
-                              <span className="text-xs font-semibold text-su-brand uppercase">Recomendado</span>
+                              <span className="text-xs font-semibold text-primary uppercase">Recomendado</span>
                             ) : (
                               <span className="text-xs text-muted-foreground">Opcional</span>
                             )}
@@ -1326,9 +1326,9 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                   </table>
                 </div>
 
-                <div className="space-y-2 rounded-lg border border-su-brand/20 bg-su-brand-soft/20 p-3">
+                <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/10 p-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-su-brand">
+                    <span className="text-xs font-semibold text-primary">
                       Ejemplo de tabla copiable
                     </span>
                     <Button
@@ -1342,7 +1342,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                         navigator.clipboard.writeText(exampleText);
                         toast.success('Ejemplo copiado en formato TSV al portapapeles');
                       }}
-                      className="h-6 gap-1 px-2 text-xs text-su-brand hover:text-su-brand hover:bg-su-brand-soft"
+                      className="h-6 gap-1 px-2 text-xs text-primary hover:text-primary hover:bg-primary/10"
                     >
                       <Copy className="h-3 w-3" />
                       Copiar ejemplo
@@ -1469,7 +1469,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                 className={cn(
                   'rounded-lg px-2.5 py-1 text-xs font-medium transition-colors',
                   filterStatus === opt.value
-                    ? 'bg-su-brand text-primary-foreground'
+                    ? 'bg-primary text-primary-foreground'
                     : 'bg-surface-muted text-muted-foreground hover:bg-surface-muted',
                 )}
               >
@@ -1513,22 +1513,22 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
 
           {/* Defaults del lote */}
           {(selectedCountryCode || selectedIndustry || selectedSubindustryId) && (
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-su-brand/20 bg-su-brand-soft/30 px-4 py-2.5">
-              <p className="text-xs font-semibold text-su-brand/70 mr-1">
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/20 bg-primary/10 px-4 py-2.5">
+              <p className="text-xs font-semibold text-primary/70 mr-1">
                 Criterios de importación:
               </p>
               {selectedCountryCode && (
-                <Badge variant="secondary" className="text-xs font-normal bg-su-brand-soft text-su-brand border-0">
+                <Badge variant="secondary" className="text-xs font-normal bg-primary/10 text-primary border-0">
                   🌍 {selectedCountry?.name ?? selectedCountryCode}
                 </Badge>
               )}
               {selectedIndustry && (
-                <Badge variant="secondary" className="text-xs font-normal bg-su-brand-soft text-su-brand border-0">
+                <Badge variant="secondary" className="text-xs font-normal bg-primary/10 text-primary border-0">
                   🏭 {selectedIndustryName ?? selectedIndustry}
                 </Badge>
               )}
               {selectedSubindustryId && selectedSubindustryId !== '__none__' && selectedSubindustryName && (
-                <Badge variant="secondary" className="text-xs font-normal bg-su-brand-soft text-su-brand border-0">
+                <Badge variant="secondary" className="text-xs font-normal bg-primary/10 text-primary border-0">
                   🏷️ {selectedSubindustryName}
                 </Badge>
               )}
@@ -1539,7 +1539,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
           <div className="flex flex-wrap gap-2">
             {[
               { label: 'Filas detectadas', value: preview.total, color: 'text-foreground', bg: 'bg-surface-muted' },
-              { label: 'Importables', value: preview.valid + preview.warnings_only, color: 'text-su-brand font-bold', bg: 'bg-su-brand-soft' },
+              { label: 'Importables', value: preview.valid + preview.warnings_only, color: 'text-primary font-bold', bg: 'bg-primary/10' },
               { label: 'Sin observaciones', value: preview.valid, color: 'text-success', bg: 'bg-success/10' },
               { label: 'Con advertencias', value: preview.warnings_only, color: 'text-warning', bg: 'bg-warning/10' },
               { label: 'Con errores', value: preview.errors, color: 'text-destructive', bg: 'bg-destructive/10' },

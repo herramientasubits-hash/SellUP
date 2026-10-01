@@ -20,6 +20,9 @@ import {
 import { toast } from 'sonner';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { DrawerShell } from '@/components/shared/drawer-shell';
+import { DrawerSection } from '@/components/shared/drawer-section';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -78,10 +81,13 @@ const COUNTRY_LABELS: Record<string, string> = {
   EC: 'Ecuador',
 };
 
-const CONFIDENCE_BADGE: Record<ConfidenceBand, { label: string; classes: string }> = {
-  high: { label: 'Alta', classes: 'border-success/30 bg-success/10 text-success' },
-  medium: { label: 'Media', classes: 'border-su-brand/30 bg-su-brand/10 text-su-brand' },
-  low: { label: 'Baja', classes: 'border-warning/30 bg-warning/10 text-warning' },
+const CONFIDENCE_BADGE: Record<
+  ConfidenceBand,
+  { label: string; variant: 'positive' | 'brand' | 'warning' }
+> = {
+  high: { label: 'Alta', variant: 'positive' },
+  medium: { label: 'Media', variant: 'brand' },
+  low: { label: 'Baja', variant: 'warning' },
 };
 
 function countryLabel(code: string | null): string {
@@ -128,37 +134,33 @@ function ConfidenceBadge({ score }: { score: number | null }) {
   if (!band) return <span className="text-text-muted">—</span>;
   const cfg = CONFIDENCE_BADGE[band];
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${cfg.classes}`}
-    >
+    <Badge variant={cfg.variant}>
       {cfg.label} · {formatScore(score)}
-    </span>
+    </Badge>
   );
 }
 
 function DuplicateBadge({ candidate }: { candidate: PendingReviewCandidate }) {
   if (isPossibleDuplicate(candidate)) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
-        <Copy className="h-2.5 w-2.5" />
+      <Badge variant="warning">
+        <Copy aria-hidden="true" />
         Posible duplicado
-      </span>
+      </Badge>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface-subtle px-2 py-0.5 text-xs font-medium text-muted-foreground">
-      Sin coincidencia
-    </span>
+    <Badge variant="neutral">Sin coincidencia</Badge>
   );
 }
 
 function HubspotBadge({ candidate }: { candidate: PendingReviewCandidate }) {
   if (!hasHubspotMatch(candidate)) return <span className="text-text-muted">—</span>;
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
-      <ShieldCheck className="h-2.5 w-2.5" />
+    <Badge variant="warning">
+      <ShieldCheck aria-hidden="true" />
       HubSpot
-    </span>
+    </Badge>
   );
 }
 
@@ -212,10 +214,10 @@ function CandidateDetail({
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-su-brand hover:underline"
+                className="inline-flex items-center gap-1 rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
               >
                 {host}
-                <ExternalLink className="h-3 w-3" />
+                <ExternalLink className="h-3 w-3" aria-hidden="true" />
               </a>
             ) : (
               host
@@ -239,10 +241,7 @@ function CandidateDetail({
       </div>
 
       {/* Scores */}
-      <div className="rounded-xl border border-border/50 bg-surface-subtle p-3">
-        <p className="mb-2 text-xs font-semibold text-muted-foreground">
-          Puntajes
-        </p>
+      <DrawerSection title="Puntajes">
         <div className="grid grid-cols-3 gap-3 text-center">
           <div>
             <p className="font-mono text-lg font-semibold text-foreground tabular-nums">
@@ -263,7 +262,7 @@ function CandidateDetail({
             <p className="text-xs text-muted-foreground">Completitud</p>
           </div>
         </div>
-      </div>
+      </DrawerSection>
 
       {/* Señales / clasificación */}
       <div className="grid grid-cols-2 gap-x-4">
@@ -281,25 +280,22 @@ function CandidateDetail({
         <DetailRow label="Lote de origen">{batchLabel(candidate.batchId ?? '', batch)}</DetailRow>
         <DetailRow label="Antigüedad">{formatAge(age)}</DetailRow>
         <DetailRow label="Estado de revisión">
-          <span className="inline-flex items-center gap-1 rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
-            Por revisar
-          </span>
+          <Badge variant="warning">Por revisar</Badge>
         </DetailRow>
       </div>
 
       {/* Actions */}
-      <div className="rounded-xl border border-su-brand/20 bg-su-brand/5 p-3">
+      <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
         <div className="flex flex-wrap gap-2">
           <Button
             size="sm"
             onClick={onApprove}
             disabled={approving}
-            className="bg-su-brand text-primary-foreground hover:bg-su-brand/90"
           >
             {approving ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <Loader2 className="animate-spin" aria-hidden="true" />
             ) : (
-              <CheckCircle2 className="h-3.5 w-3.5" />
+              <CheckCircle2 aria-hidden="true" />
             )}
             Aprobar
           </Button>
@@ -310,15 +306,15 @@ function CandidateDetail({
               size="sm"
               disabled
               title="Disponible en siguiente fase"
-              className="cursor-not-allowed opacity-60"
+              className="cursor-not-allowed"
             >
-              <a.icon className="h-3.5 w-3.5" />
+              <a.icon aria-hidden="true" />
               {a.label}
             </Button>
           ))}
         </div>
         <div className="mt-2 flex items-start gap-2">
-          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-su-brand" />
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
           <p className="text-xs leading-relaxed text-muted-foreground">
             Aprobar cambia el estado a <strong className="font-medium text-foreground">aprobado</strong>{' '}
             sin convertir a cuenta ni enviar a HubSpot. El resto de acciones se habilitarán en el
@@ -418,19 +414,15 @@ export function ReviewQueueClient({
 
   if (candidates.length === 0) {
     return (
-      <SurfaceCard>
-        <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
-          <Building2 className="h-6 w-6 text-text-muted" />
-          <p className="text-sm font-medium text-foreground">
-            No hay candidatos que coincidan con los filtros
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {totalPending > 0
-              ? 'Ajusta o limpia los filtros para ver la cola completa.'
-              : 'No hay candidatos limpios pendientes de revisión en este momento.'}
-          </p>
-        </div>
-      </SurfaceCard>
+      <EmptyState
+        icon={Building2}
+        title="No hay candidatos que coincidan con los filtros"
+        description={
+          totalPending > 0
+            ? 'Ajusta o limpia los filtros para ver la cola completa.'
+            : 'No hay candidatos limpios pendientes de revisión en este momento.'
+        }
+      />
     );
   }
 
@@ -445,8 +437,8 @@ export function ReviewQueueClient({
               {/* Batch header */}
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-5 py-3">
                 <div className="flex items-center gap-2">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-su-brand-soft">
-                    <Layers className="h-3.5 w-3.5 text-su-brand" />
+                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10">
+                    <Layers className="h-3.5 w-3.5 text-primary" />
                   </div>
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-foreground">{label}</p>
@@ -462,16 +454,14 @@ export function ReviewQueueClient({
 
               {/* Candidates table */}
               <div className="overflow-x-auto">
-                <table className="w-full text-xs">
+                <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border/60">
                       {['Empresa', 'País', 'Industria', 'Fit', 'Conf.', 'Compl.', 'Duplicado', 'HubSpot', 'Antigüedad', 'Estado'].map(
-                        (h, i) => (
+                        (h) => (
                           <th
                             key={h}
-                            className={`px-4 py-2.5 text-xs font-semibold text-muted-foreground ${
-                              i === 0 ? 'text-left' : 'text-left'
-                            }`}
+                            className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground"
                           >
                             {h}
                           </th>
@@ -500,9 +490,9 @@ export function ReviewQueueClient({
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     onClick={(e) => e.stopPropagation()}
-                                    className="inline-flex items-center gap-1 text-xs text-su-brand hover:underline"
+                                    className="inline-flex items-center gap-1 rounded-sm text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                                   >
-                                    <Globe className="h-2.5 w-2.5" />
+                                    <Globe className="h-3 w-3" aria-hidden="true" />
                                     {host}
                                   </a>
                                 ) : (
@@ -534,9 +524,7 @@ export function ReviewQueueClient({
                             {formatAge(age)}
                           </td>
                           <td className="px-4 py-3">
-                            <span className="inline-flex items-center gap-1 rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
-                              Por revisar
-                            </span>
+                            <Badge variant="warning">Por revisar</Badge>
                           </td>
                         </tr>
                       );
@@ -559,8 +547,8 @@ export function ReviewQueueClient({
         title={selected?.name ?? 'Detalle del candidato'}
         description="Vista de solo lectura — revisión de prospecto pendiente"
         icon={
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-su-brand-soft">
-            <Building2 className="h-4 w-4 text-su-brand" />
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
+            <Building2 className="h-4 w-4 text-primary" />
           </div>
         }
       >
@@ -600,7 +588,7 @@ export function ReviewQueueClient({
               No se convierte a cuenta ni se envía a HubSpot.
             </AlertDialogDescription>
             {approveNeedsWarning && (
-              <div className="mt-2 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-2 text-warning">
+              <div className="mt-2 flex items-start gap-2 rounded-xl border border-warning/25 bg-warning/15 p-3 text-warning">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span className="text-xs">
                   Este candidato tiene posible coincidencia. Revisa antes de aprobar.
@@ -632,7 +620,7 @@ export function ReviewQueueClient({
               }}
               disabled={approving}
             >
-              {approving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {approving && <Loader2 className="animate-spin" aria-hidden="true" />}
               Aprobar
             </AlertDialogAction>
           </AlertDialogFooter>

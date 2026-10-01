@@ -107,7 +107,7 @@ export async function ContactCandidatesPanel({
         </div>
       }
       metrics={
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           {/* 4O-H3-B-R1 (§ 11): el conteo NO cambia de significado. «Por revisar» sigue contando
               sólo `pending_review`; los duplicados se cuentan en su propia tarjeta, en su propia
               cola. Nunca se suman al mismo número. */}
@@ -139,8 +139,8 @@ export async function ContactCandidatesPanel({
             description="Mejor encaje detectado"
             value={highRelevance}
             icon={
-              <div className="rounded-lg p-1.5 bg-su-brand-soft">
-                <Sparkles className="h-4 w-4 text-su-brand" />
+              <div className="rounded-lg p-1.5 bg-primary/10">
+                <Sparkles className="h-4 w-4 text-primary" />
               </div>
             }
           />

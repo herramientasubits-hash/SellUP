@@ -36,8 +36,8 @@ const SUMMARY_CARDS: {
   {
     key: 'preapproved',
     label: 'Preautorizados',
-    icon: <Clock className="h-4 w-4 text-su-brand" />,
-    colorClass: 'bg-su-brand-soft',
+    icon: <Clock className="h-4 w-4 text-primary" />,
+    colorClass: 'bg-primary/10',
   },
   {
     key: 'active',
@@ -60,8 +60,8 @@ const SUMMARY_CARDS: {
   {
     key: 'groups',
     label: 'Grupos',
-    icon: <Layers className="h-4 w-4 text-su-brand" />,
-    colorClass: 'bg-su-brand-soft',
+    icon: <Layers className="h-4 w-4 text-primary" />,
+    colorClass: 'bg-primary/10',
   },
 ];
 
@@ -106,7 +106,7 @@ export function UsersSettingsClient({
         {SUMMARY_CARDS.map(card => (
           <SurfaceCard
             key={card.key}
-            className="cursor-pointer transition-colors hover:border-su-brand/30"
+            className="cursor-pointer transition-colors hover:border-primary/30"
             onClick={() => {
               if (card.key === 'groups') {
                 router.push(buildUrl(searchParams, 'grupos'));
@@ -115,12 +115,12 @@ export function UsersSettingsClient({
               }
             }}
           >
-            <div className="flex items-center gap-3">
+            <div className="flex min-w-0 items-center gap-3">
               <div className={`flex h-9 w-9 items-center justify-center rounded-xl ${card.colorClass}`}>
                 {card.icon}
               </div>
               <div>
-                <p className="text-lg font-semibold text-foreground">{counts[card.key] ?? 0}</p>
+                <p className="text-lg font-semibold tabular-nums text-foreground">{counts[card.key] ?? 0}</p>
                 <p className="text-xs text-muted-foreground">{card.label}</p>
               </div>
             </div>
@@ -134,7 +134,7 @@ export function UsersSettingsClient({
         onValueChange={(v) => navigate(v, v === 'usuarios' ? activeFilter : undefined)}
         className="flex flex-col flex-1 min-h-0 mt-6"
       >
-        <TabsList className="bg-surface-muted flex-wrap h-auto gap-1 shrink-0">
+        <TabsList className="h-auto shrink-0 flex-wrap gap-1">
           <TabsTrigger value="usuarios" className="gap-2">
             <UserCheck className="h-4 w-4" />
             Usuarios

@@ -154,7 +154,7 @@ export function UserActions({ user, roles, activeUsers, groups, triggerMode = 'd
       {triggerMode === 'dropdown' ? (
         <DropdownMenu>
           <DropdownMenuTrigger>
-            <div className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md hover:bg-surface-muted">
+            <div className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-surface-muted">
               <MoreHorizontal className="h-4 w-4" />
             </div>
           </DropdownMenuTrigger>
@@ -238,14 +238,14 @@ export function UserActions({ user, roles, activeUsers, groups, triggerMode = 'd
         </DropdownMenu>
       ) : (
         /* Inline mode: action buttons for the floating selection bar (single user) */
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           {user.access_status === 'pending_approval' && (
             <>
-              <Button size="sm" variant="default" className="gap-1.5 h-8 text-xs" onClick={() => setShowApproveDialog(true)}>
+              <Button size="sm" variant="ghost" className="gap-1.5 hover:bg-white/10 text-nav-foreground hover:text-nav-foreground" onClick={() => setShowApproveDialog(true)}>
                 <Check className="h-3.5 w-3.5" />
                 Aprobar y asignar rol
               </Button>
-              <Button size="sm" variant="destructive" className="gap-1.5 h-8 text-xs" onClick={() => setShowRejectDialog(true)}>
+              <Button size="sm" variant="ghost" className="gap-1.5 hover:bg-white/10 text-destructive hover:text-destructive" onClick={() => setShowRejectDialog(true)}>
                 <X className="h-3.5 w-3.5" />
                 Rechazar
               </Button>
@@ -253,18 +253,18 @@ export function UserActions({ user, roles, activeUsers, groups, triggerMode = 'd
           )}
           {user.access_status === 'active' && (
             <>
-              <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs" onClick={() => { setSelectedRole(user.role_id ?? ''); setShowRoleDialog(true); }}>
+              <Button size="sm" variant="ghost" className="gap-1.5 hover:bg-white/10 text-nav-foreground hover:text-nav-foreground" onClick={() => { setSelectedRole(user.role_id ?? ''); setShowRoleDialog(true); }}>
                 Cambiar rol
               </Button>
-              <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs" onClick={() => { setSelectedManager(user.manager_id ?? SELF_MANAGER_VALUE); setShowManagerDialog(true); }}>
+              <Button size="sm" variant="ghost" className="gap-1.5 hover:bg-white/10 text-nav-foreground hover:text-nav-foreground" onClick={() => { setSelectedManager(user.manager_id ?? SELF_MANAGER_VALUE); setShowManagerDialog(true); }}>
                 <UserCog className="h-3.5 w-3.5" />
                 Jefe directo
               </Button>
-              <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs" onClick={() => { setSelectedGroup(user.group_id ?? NO_GROUP_VALUE); setShowGroupDialog(true); }}>
+              <Button size="sm" variant="ghost" className="gap-1.5 hover:bg-white/10 text-nav-foreground hover:text-nav-foreground" onClick={() => { setSelectedGroup(user.group_id ?? NO_GROUP_VALUE); setShowGroupDialog(true); }}>
                 <Users className="h-3.5 w-3.5" />
                 Asignar grupo
               </Button>
-              <Button size="sm" variant="destructive" className="gap-1.5 h-8 text-xs" onClick={() => setShowSuspendDialog(true)}>
+              <Button size="sm" variant="ghost" className="gap-1.5 hover:bg-white/10 text-destructive hover:text-destructive" onClick={() => setShowSuspendDialog(true)}>
                 <Pause className="h-3.5 w-3.5" />
                 Suspender
               </Button>
@@ -272,11 +272,11 @@ export function UserActions({ user, roles, activeUsers, groups, triggerMode = 'd
           )}
           {user.access_status === 'suspended' && (
             <>
-              <Button size="sm" variant="default" className="gap-1.5 h-8 text-xs" onClick={() => setShowReactivateDialog(true)}>
+              <Button size="sm" variant="ghost" className="gap-1.5 hover:bg-white/10 text-nav-foreground hover:text-nav-foreground" onClick={() => setShowReactivateDialog(true)}>
                 <RotateCcw className="h-3.5 w-3.5" />
                 Reactivar
               </Button>
-              <Button size="sm" variant="destructive" className="gap-1.5 h-8 text-xs" onClick={() => setShowArchiveDialog(true)}>
+              <Button size="sm" variant="ghost" className="gap-1.5 hover:bg-white/10 text-destructive hover:text-destructive" onClick={() => setShowArchiveDialog(true)}>
                 <Archive className="h-3.5 w-3.5" />
                 Archivar
               </Button>
@@ -284,15 +284,15 @@ export function UserActions({ user, roles, activeUsers, groups, triggerMode = 'd
           )}
           {user.access_status === 'rejected' && (
             <>
-              <Button size="sm" variant="default" className="gap-1.5 h-8 text-xs" onClick={() => { setSelectedRole(''); setSelectedManager(''); setShowActivateRejectedDialog(true); }}>
+              <Button size="sm" variant="ghost" className="gap-1.5 hover:bg-white/10 text-nav-foreground hover:text-nav-foreground" onClick={() => { setSelectedRole(''); setSelectedManager(''); setShowActivateRejectedDialog(true); }}>
                 <Check className="h-3.5 w-3.5" />
                 Activar (rol)
               </Button>
-              <Button size="sm" variant="destructive" className="gap-1.5 h-8 text-xs" onClick={() => setShowSuspendDialog(true)}>
+              <Button size="sm" variant="ghost" className="gap-1.5 hover:bg-white/10 text-destructive hover:text-destructive" onClick={() => setShowSuspendDialog(true)}>
                 <Pause className="h-3.5 w-3.5" />
                 Suspender
               </Button>
-              <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs text-muted-foreground" onClick={() => setShowArchiveDialog(true)}>
+              <Button size="sm" variant="ghost" className="gap-1.5 hover:bg-white/10 text-nav-foreground hover:text-nav-foreground" onClick={() => setShowArchiveDialog(true)}>
                 <Archive className="h-3.5 w-3.5" />
                 Archivar
               </Button>

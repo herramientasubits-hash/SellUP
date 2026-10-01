@@ -80,11 +80,10 @@ export function BatchCandidateSafeActions({
         render={
           <Button
             variant="ghost"
-            size="icon"
-            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+            size="icon-xs"
             aria-label={`Acciones para ${candidate.name}`}
           >
-            <MoreHorizontal className="h-3.5 w-3.5" />
+            <MoreHorizontal />
           </Button>
         }
       />

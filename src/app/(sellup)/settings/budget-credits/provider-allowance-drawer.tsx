@@ -1,8 +1,11 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { Wallet } from 'lucide-react';
+import { Wallet, Coins, Landmark } from 'lucide-react';
 import { DrawerShell } from '@/components/shared/drawer-shell';
+import { DrawerSection } from '@/components/shared/drawer-section';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -59,10 +62,7 @@ function QuotaSourceSection({
   }
 
   return (
-    <div className="rounded-lg border border-border/60 bg-surface-subtle px-4 py-3 space-y-2.5">
-      <p className="text-xs text-muted-foreground font-medium">
-        Fuente de cuota
-      </p>
+    <DrawerSection title="Fuente de cuota" icon={Coins} contentClassName="space-y-2.5">
       <div className="space-y-0.5">
         <p className="text-xs font-medium text-foreground">Fuente actual: {sourceLabel}</p>
         <p className="text-xs text-muted-foreground">{sourceDescription}</p>
@@ -77,8 +77,7 @@ function QuotaSourceSection({
           <Button
             type="button"
             variant="outline"
-            size="sm"
-            className="h-7 text-xs"
+            size="xs"
             onClick={onUseApi}
             disabled={isPendingApiSwitch}
           >
@@ -92,8 +91,7 @@ function QuotaSourceSection({
         <Button
           type="button"
           variant="outline"
-          size="sm"
-          className="h-7 text-xs"
+          size="xs"
           onClick={onUseApi}
           disabled={isPendingApiSwitch}
         >
@@ -109,11 +107,11 @@ function QuotaSourceSection({
       )}
 
       {apiSwitchError && (
-        <div className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2">
-          <p className="text-xs text-destructive">{apiSwitchError}</p>
-        </div>
+        <Alert variant="destructive">
+          <AlertDescription>{apiSwitchError}</AlertDescription>
+        </Alert>
       )}
-    </div>
+    </DrawerSection>
   );
 }
 
@@ -199,24 +197,23 @@ export function ProviderAllowanceDrawer({ provider, open, onClose, onSaved }: Pr
       size="md"
       title={`Editar cuota — ${provider?.displayName ?? provider?.providerKey ?? ''}`}
       description="Configura la bolsa mensual contratada con el proveedor."
-      icon={<Wallet className="h-4 w-4 text-su-brand" />}
-      footer={
-        <div className="shrink-0 flex items-center justify-end gap-3 border-t border-border/50 bg-surface-subtle px-7 py-4">
-          <Button variant="ghost" size="sm" onClick={onClose} disabled={isPending}>
+      icon={<Wallet className="h-4 w-4 text-primary" />}
+      actions={
+        <>
+          <Button variant="outline" onClick={onClose} disabled={isPending}>
             Cancelar
           </Button>
           <Button
-            size="sm"
             onClick={handleSave}
             disabled={isPending || isNotApplicable}
           >
             {isPending ? 'Guardando…' : 'Guardar'}
           </Button>
-        </div>
+        </>
       }
     >
       {provider && (
-        <div className="space-y-5">
+        <div className="space-y-4">
           {/* Quota source section */}
           {provider.measurementStatus !== 'not_measured' && (
             <QuotaSourceSection
@@ -228,43 +225,38 @@ export function ProviderAllowanceDrawer({ provider, open, onClose, onSaved }: Pr
           )}
 
           {/* Info box */}
-          <div className="rounded-lg border border-border/60 bg-surface-subtle px-4 py-3 space-y-1">
-            <p className="text-xs font-medium text-foreground">
-              Bolsa externa contratada
-            </p>
+          <DrawerSection title="Bolsa externa contratada" icon={Landmark} tone="neutral">
             <p className="text-xs text-muted-foreground leading-relaxed">
               Estos valores representan la cuota mensual del proveedor (créditos o USD
               contratados). No son reglas de bloqueo de SellUp — solo sirven para
               visualizar el disponible real frente al consumo.
             </p>
-          </div>
+          </DrawerSection>
 
           {/* Claude USD note — Anthropic se mide en USD, no en créditos */}
           {provider && USD_PRIMARY_PROVIDERS.has(provider.providerKey) && !isNotApplicable && (
-            <div className="rounded-lg border border-su-brand/20 bg-su-brand-soft px-4 py-3 space-y-1">
-              <p className="text-xs font-medium text-su-brand">
+            <Alert variant="info">
+              <AlertTitle>
                 Claude se mide principalmente en USD/tokens, no en créditos.
-              </p>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Configura el presupuesto mensual USD. El campo de créditos no aplica para este proveedor.
-              </p>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Anthropic requiere una Admin API key para sincronizar costo USD. Mientras
-                tanto, configura el presupuesto mensual de forma manual.
-              </p>
-            </div>
+              </AlertTitle>
+              <AlertDescription>
+                <p>
+                  Configura el presupuesto mensual USD. El campo de créditos no aplica para este proveedor.
+                </p>
+                <p>
+                  Anthropic requiere una Admin API key para sincronizar costo USD. Mientras
+                  tanto, configura el presupuesto mensual de forma manual.
+                </p>
+              </AlertDescription>
+            </Alert>
           )}
 
           {isNotApplicable ? (
-            <div className="rounded-lg border border-border/50 bg-surface-subtle px-4 py-6 text-center">
-              <p className="text-sm text-muted-foreground">
-                Este proveedor no aplica configuración de cuota por ahora.
-              </p>
-            </div>
+            <EmptyState title="Este proveedor no aplica configuración de cuota por ahora." />
           ) : (
             <div className="space-y-4">
               <div className="space-y-1.5">
-                <Label htmlFor="credits-allowance" className="text-xs">
+                <Label htmlFor="credits-allowance">
                   Créditos mensuales del proveedor
                 </Label>
                 <Input
@@ -275,7 +267,6 @@ export function ProviderAllowanceDrawer({ provider, open, onClose, onSaved }: Pr
                   placeholder="Ej: 500"
                   value={credits}
                   onChange={(e) => setCredits(e.target.value)}
-                  className="text-sm"
                 />
                 <p className="text-xs text-muted-foreground">
                   Dejar vacío para &quot;No configurado&quot;.
@@ -283,7 +274,7 @@ export function ProviderAllowanceDrawer({ provider, open, onClose, onSaved }: Pr
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="usd-allowance" className="text-xs">
+                <Label htmlFor="usd-allowance">
                   Presupuesto mensual USD
                 </Label>
                 <Input
@@ -294,7 +285,6 @@ export function ProviderAllowanceDrawer({ provider, open, onClose, onSaved }: Pr
                   placeholder="Ej: 50.00"
                   value={usd}
                   onChange={(e) => setUsd(e.target.value)}
-                  className="text-sm"
                 />
                 <p className="text-xs text-muted-foreground">
                   Útil para modelos LLM. Dejar vacío para &quot;No configurado&quot;.
@@ -302,9 +292,9 @@ export function ProviderAllowanceDrawer({ provider, open, onClose, onSaved }: Pr
               </div>
 
               {error && (
-                <div className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2">
-                  <p className="text-xs text-destructive">{error}</p>
-                </div>
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
               )}
             </div>
           )}

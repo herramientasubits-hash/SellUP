@@ -19,21 +19,21 @@ import type {
 } from '@/modules/contact-enrichment/run-viewer-types';
 
 const RUN_STATUS_BADGE: Record<ContactEnrichmentRunDetail['status'], { label: string; className: string }> = {
-  pending: { label: 'Pendiente', className: 'text-muted-foreground border-border bg-surface-subtle' },
-  resolving: { label: 'Resolviendo', className: 'text-muted-foreground border-border bg-surface-subtle' },
-  ready_to_enrich: { label: 'Listo para enriquecer', className: 'text-su-brand border-su-brand/30 bg-su-brand-soft' },
-  enriching: { label: 'Enriqueciendo', className: 'text-su-brand border-su-brand/30 bg-su-brand-soft' },
+  pending: { label: 'Pendiente', className: 'text-muted-foreground border-border/60 bg-surface-subtle' },
+  resolving: { label: 'Resolviendo', className: 'text-muted-foreground border-border/60 bg-surface-subtle' },
+  ready_to_enrich: { label: 'Listo para enriquecer', className: 'text-primary border-primary/30 bg-primary/10' },
+  enriching: { label: 'Enriqueciendo', className: 'text-primary border-primary/30 bg-primary/10' },
   ready_for_review: { label: 'Listo para revisión', className: 'text-success border-success/30 bg-success/10' },
   completed: { label: 'Completado', className: 'text-success border-success/30 bg-success/10' },
   failed: { label: 'Fallido', className: 'text-destructive border-destructive/30 bg-destructive/10' },
-  superseded: { label: 'Reemplazado', className: 'text-muted-foreground border-border bg-surface-subtle' },
+  superseded: { label: 'Reemplazado', className: 'text-muted-foreground border-border/60 bg-surface-subtle' },
 };
 
 const CANDIDATE_STATUS_BADGE: Record<ContactEnrichmentRunCandidate['status'], { label: string; className: string }> = {
   pending_review: { label: 'Por revisar', className: 'text-warning border-warning/30 bg-warning/10' },
   approved: { label: 'Aprobado', className: 'text-success border-success/30 bg-success/10' },
-  discarded: { label: 'Descartado', className: 'text-muted-foreground border-border bg-surface-subtle' },
-  duplicate: { label: 'Duplicado', className: 'text-muted-foreground border-border bg-surface-subtle' },
+  discarded: { label: 'Descartado', className: 'text-muted-foreground border-border/60 bg-surface-subtle' },
+  duplicate: { label: 'Duplicado', className: 'text-muted-foreground border-border/60 bg-surface-subtle' },
 };
 
 function formatDateTime(iso: string): string {
@@ -57,7 +57,7 @@ function RunHeaderCard({ run }: { run: ContactEnrichmentRunDetail }) {
       <SurfaceCardHeader
         title="Contexto del run"
         actions={
-          <Badge variant="outline" className={`text-xs ${statusBadge.className}`}>
+          <Badge variant="outline" className={statusBadge.className}>
             {statusBadge.label}
           </Badge>
         }
@@ -133,7 +133,7 @@ function LushaOutcomeCard({
     return (
       <SurfaceCard className="space-y-2">
         <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-warning/10">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-warning/15">
             <XCircle className="h-4 w-4 text-warning" aria-hidden />
           </div>
           <p className="text-sm font-semibold text-foreground">Lusha no está disponible o no tiene credenciales configuradas</p>
@@ -175,7 +175,7 @@ function LushaOutcomeCard({
     return (
       <SurfaceCard className="space-y-3">
         <div className="flex items-start gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-muted">
             <Info className="h-4 w-4 text-muted-foreground" aria-hidden />
           </div>
           <div className="space-y-1">
@@ -252,10 +252,10 @@ function CandidatesList({ candidates }: { candidates: ContactEnrichmentRunCandid
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  <Badge variant="outline" className="text-xs border-border bg-surface-subtle text-muted-foreground">
+                  <Badge variant="outline" className="border-border/60 bg-surface-subtle text-muted-foreground">
                     {candidate.source}
                   </Badge>
-                  <Badge variant="outline" className={`text-xs ${statusBadge.className}`}>
+                  <Badge variant="outline" className={statusBadge.className}>
                     {statusBadge.label}
                   </Badge>
                 </div>

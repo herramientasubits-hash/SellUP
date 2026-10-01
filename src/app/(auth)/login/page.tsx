@@ -30,7 +30,7 @@ export default async function LoginPage({
       <LoginBrandPanel />
 
       {/* Panel derecho — login */}
-      <div className="relative flex flex-1 flex-col items-center justify-center px-6 py-12 lg:py-16">
+      <div className="relative flex flex-1 flex-col items-center justify-center px-4 py-12 sm:px-6 lg:py-16">
         {/* Resplandor ambiental detrás de la card — solo desktop */}
         <div
           className="pointer-events-none absolute inset-0 hidden lg:block"

@@ -72,7 +72,7 @@ export function UbitsSubNav({
   return (
     <header
       className={cn(
-        "w-full h-10 bg-card border border-border/60 rounded-full px-5 flex items-center justify-between transition-all duration-300 z-[40]",
+        "w-full h-10 bg-card border border-border/60 rounded-2xl px-5 flex items-center justify-between transition-all duration-300 z-[40]",
         isSticky && "sticky top-4",
         className
       )}
@@ -81,10 +81,10 @@ export function UbitsSubNav({
       <div className="flex items-center h-full gap-5 flex-1 overflow-hidden">
         {showLogo && (
           <div className="flex items-center gap-2 pr-5 border-r border-border/60 h-6">
-            <div className="w-5 h-5 bg-su-brand rounded flex items-center justify-center">
-              <Sparkles className="w-3 h-3 text-su-brand-foreground" />
+            <div className="w-5 h-5 bg-primary rounded-xs flex items-center justify-center">
+              <Sparkles className="w-3 h-3 text-primary-foreground" aria-hidden="true" />
             </div>
-            <span className="text-xs font-bold tracking-tight text-foreground/70">
+            <span className="text-xs font-semibold tracking-tight text-muted-foreground">
               {clientName}
             </span>
           </div>
@@ -95,12 +95,12 @@ export function UbitsSubNav({
           <div className="flex items-center gap-2">
               <DropdownMenu>
                 <DropdownMenuTrigger>
-                  <button className="flex items-center gap-1 text-sm font-bold text-foreground hover:text-su-brand transition-colors">
+                  <button type="button" className="flex items-center gap-1 rounded-md text-sm font-semibold text-foreground outline-none transition-colors hover:text-primary focus-visible:ring-3 focus-visible:ring-ring/40">
                     {activeTab.label}
-                    <ChevronDown className="w-3.5 h-3.5 opacity-30" />
+                    <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" aria-hidden="true" />
                   </button>
                 </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-56 rounded-lg p-1 border-border/60 shadow-drawer">
+              <DropdownMenuContent align="start" className="w-56 rounded-xl p-1 border-border/60 shadow-drawer">
                 {tabs.map((tab) => {
                   const TabIcon = tab.icon ? ICON_MAP[tab.icon] : null;
                   const isActive = tab.id === currentTabId;
@@ -109,13 +109,13 @@ export function UbitsSubNav({
                       key={tab.id}
                       onClick={() => onTabChange?.(tab.id)}
                       className={cn(
-                        "flex items-center gap-2 rounded px-2 py-1.5 cursor-pointer text-sm",
+                        "flex items-center gap-2 rounded-md px-2 py-1.5 cursor-pointer text-sm",
                         isActive
-                          ? "text-su-brand font-bold bg-su-brand/5"
+                          ? "text-primary font-semibold bg-primary/10"
                           : "text-muted-foreground"
                       )}
                     >
-                      {TabIcon && <TabIcon className="w-3.5 h-3.5" />}
+                      {TabIcon && <TabIcon className="w-3.5 h-3.5" aria-hidden="true" />}
                       {tab.label}
                     </DropdownMenuItem>
                   );
@@ -132,11 +132,13 @@ export function UbitsSubNav({
               return (
                 <button
                   key={tab.id}
+                  type="button"
+                  aria-current={isActive ? "page" : undefined}
                   onClick={() => onTabChange?.(tab.id)}
                   className={cn(
-                    "relative h-full px-3 flex items-center gap-2 transition-all group outline-none",
+                    "relative h-full px-3 flex items-center gap-2 transition-all group outline-none focus-visible:ring-3 focus-visible:ring-ring/40 rounded-md",
                     isActive
-                      ? "text-su-brand font-bold"
+                      ? "text-primary font-semibold"
                       : "text-muted-foreground hover:text-foreground"
                   )}
                 >
@@ -155,7 +157,7 @@ export function UbitsSubNav({
                   {/* Underline grow effect */}
                   <div
                     className={cn(
-                      "absolute bottom-0 left-0 right-0 h-[1.5px] bg-su-brand rounded-t-full transition-all duration-300 transform origin-center",
+                      "absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t-full transition-all duration-300 transform origin-center",
                       isActive
                         ? "scale-x-100 opacity-100"
                         : "scale-x-0 opacity-0 group-hover:scale-x-40 group-hover:opacity-10"
@@ -170,11 +172,11 @@ export function UbitsSubNav({
 
       {/* Right Area: Minimal Tools */}
       <div className="flex items-center gap-1.5 ml-4">
-        <button className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-surface-muted transition-colors text-muted-foreground hover:text-foreground">
-          <Search className="w-3.5 h-3.5" />
+        <button type="button" aria-label="Buscar" className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-surface-muted transition-colors text-muted-foreground hover:text-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
+          <Search className="w-3.5 h-3.5" aria-hidden="true" />
         </button>
-        <button className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-surface-muted transition-colors text-muted-foreground hover:text-foreground">
-          <Settings className="w-3.5 h-3.5" />
+        <button type="button" aria-label="Configuración" className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-surface-muted transition-colors text-muted-foreground hover:text-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
+          <Settings className="w-3.5 h-3.5" aria-hidden="true" />
         </button>
       </div>
     </header>

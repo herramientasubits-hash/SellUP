@@ -16,6 +16,7 @@
 // solo le pasa el dato.
 
 import { ShieldAlert, Info } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { getPhoneSuppressionNotEvaluableSummary } from '@/modules/contact-enrichment/phone-suppression-monitoring-queries';
 import type { PhoneSuppressionNotEvaluableSummary } from '@/modules/contact-enrichment/phone-suppression-monitoring-core';
@@ -77,14 +78,14 @@ export function PhoneSuppressionNotEvaluableCard({
         title={CARD_TITLE}
         description={CARD_DESCRIPTION}
         actions={
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface-subtle">
-            <ShieldAlert className="h-4 w-4 text-muted-foreground" />
+          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-surface-subtle">
+            <ShieldAlert className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
           </div>
         }
       />
 
       {summary === null ? (
-        <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-surface-subtle px-3 py-2.5">
+        <div className="flex items-start gap-2 rounded-xl border border-border/60 bg-surface-subtle px-3 py-2.5">
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <p className="text-xs leading-relaxed text-muted-foreground">
             Sin permisos para ver el monitoreo de supresiones.
@@ -92,7 +93,7 @@ export function PhoneSuppressionNotEvaluableCard({
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <Figure
               label="Últimas 24 h"
               value={summary.total_24h.toLocaleString('es-ES')}
@@ -112,7 +113,7 @@ export function PhoneSuppressionNotEvaluableCard({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <Figure
               label="Fase start (7 d)"
               value={summary.by_phase_7d.start.toLocaleString('es-ES')}
@@ -136,7 +137,7 @@ export function PhoneSuppressionNotEvaluableCard({
           </div>
 
           {summary.unclassified_phase_7d > 0 && (
-            <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-surface-subtle px-3 py-2.5">
+            <div className="flex items-start gap-2 rounded-xl border border-border/60 bg-surface-subtle px-3 py-2.5">
               <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <p className="text-xs leading-relaxed text-muted-foreground">
                 {summary.unclassified_phase_7d.toLocaleString('es-ES')} evento(s) sin
@@ -146,7 +147,7 @@ export function PhoneSuppressionNotEvaluableCard({
           )}
 
           {summary.read_truncated && (
-            <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2.5">
+            <div className="flex items-start gap-2 rounded-xl border border-warning/25 bg-warning/15 px-3 py-2.5">
               <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
               <p className="text-xs leading-relaxed text-warning">
                 La lectura alcanzó el tope de filas: los conteos son un mínimo, no el
@@ -171,7 +172,7 @@ export function PhoneSuppressionNotEvaluablePanelSkeleton() {
   return (
     <SurfaceCard>
       <SurfaceCardHeader title={CARD_TITLE} description={CARD_DESCRIPTION} />
-      <div className="animate-pulse grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="animate-pulse grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="h-14 rounded-lg border border-border/60 bg-surface-subtle" />
         ))}

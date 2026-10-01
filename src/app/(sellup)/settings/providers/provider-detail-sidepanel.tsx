@@ -22,6 +22,8 @@ import {
 } from '@/components/ui/command';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { DrawerShell } from '@/components/shared/drawer-shell';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { AdminProviderBudgetRow } from '@/modules/budgets';
@@ -227,18 +229,18 @@ function formatDate(iso: string): string {
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-4 py-2 border-b border-border/50 last:border-0">
-      <span className="text-xs text-muted-foreground font-medium shrink-0 pt-0.5">
+    <div className="flex items-start justify-between gap-4 border-b border-border/50 py-2 first:pt-0 last:border-0 last:pb-0">
+      <span className="shrink-0 pt-0.5 text-xs font-medium text-muted-foreground">
         {label}
       </span>
-      <span className="text-xs text-foreground text-right">{value}</span>
+      <span className="min-w-0 text-right text-xs tabular-nums text-foreground">{value}</span>
     </div>
   );
 }
 
 function SectionCard({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-border/60 bg-surface-subtle px-4 py-3 space-y-0">
+    <div className="rounded-xl border border-border/60 bg-card px-4 py-3">
       {children}
     </div>
   );
@@ -246,16 +248,16 @@ function SectionCard({ children }: { children: React.ReactNode }) {
 
 function ProgressiveNote({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-su-brand/20 bg-su-brand-soft px-4 py-3">
-      <p className="text-xs text-muted-foreground leading-relaxed">{children}</p>
-    </div>
+    <Alert variant="info">
+      <AlertDescription>{children}</AlertDescription>
+    </Alert>
   );
 }
 
 function LoadingPlaceholder({ label }: { label: string }) {
   return (
-    <div className="rounded-lg border border-border/50 bg-surface-subtle px-4 py-6 flex items-center justify-center gap-2">
-      <Loader2 className="h-3.5 w-3.5 text-muted-foreground animate-spin" />
+    <div className="flex items-center justify-center gap-2 rounded-xl border border-border/60 bg-surface-subtle px-4 py-6" role="status">
+      <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
       <p className="text-xs text-muted-foreground">{label}</p>
     </div>
   );
@@ -263,7 +265,7 @@ function LoadingPlaceholder({ label }: { label: string }) {
 
 function EmptyBlock({ message, sub }: { message: string; sub?: string }) {
   return (
-    <div className="rounded-lg border border-border/50 bg-surface-subtle px-4 py-5 text-center">
+    <div className="rounded-xl border border-dashed border-border/60 bg-surface-subtle px-4 py-5 text-center">
       <p className="text-xs text-muted-foreground">{message}</p>
       {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
     </div>
@@ -276,7 +278,7 @@ function EmptyBlock({ message, sub }: { message: string; sub?: string }) {
 // empties, so a zero-consumption filter combination reads as one clear signal.
 function GlobalConsumptionEmptyBlock() {
   return (
-    <div className="rounded-lg border border-border/50 bg-surface-subtle px-4 py-6 text-center space-y-1">
+    <div className="space-y-1 rounded-xl border border-dashed border-border/60 bg-surface-subtle px-4 py-6 text-center">
       <p className="text-xs font-medium text-foreground">Sin consumo registrado</p>
       <p className="text-xs text-muted-foreground">
         No encontramos consumo de este proveedor para los filtros seleccionados.
@@ -415,9 +417,9 @@ function TabResumen({
           <InfoRow
             label="Tipo"
             value={
-              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${opBadge}`}>
+              <Badge variant="outline" className={opBadge}>
                 {OPERATIONAL_TYPE_LABEL[opType]}
-              </span>
+              </Badge>
             }
           />
           {syncedAt && (
@@ -447,10 +449,10 @@ function TabResumen({
                 <span>Uso del presupuesto</span>
                 <span>{progressPct}%</span>
               </div>
-              <div className="h-1.5 w-full rounded-full bg-surface-subtle overflow-hidden">
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={progressPct} aria-valuemin={0} aria-valuemax={100} aria-label="Uso del presupuesto">
                 <div
                   className={`h-full rounded-full transition-all ${
-                    progressPct >= 90 ? 'bg-destructive' : progressPct >= 70 ? 'bg-warning' : 'bg-su-brand'
+                    progressPct >= 90 ? 'bg-destructive' : progressPct >= 70 ? 'bg-warning' : 'bg-primary'
                   }`}
                   style={{ width: `${progressPct}%` }}
                 />
@@ -472,7 +474,7 @@ function TabResumen({
             {recentOps.map((log) => {
               const isError = log.status != null && (log.status.toLowerCase().includes('error') || log.status.toLowerCase().includes('fail'));
               return (
-                <div key={log.id} className="rounded-lg border border-border/60 bg-surface-subtle px-3 py-2 flex items-center gap-3">
+                <div key={log.id} className="flex items-center gap-3 rounded-lg border border-border/60 bg-card px-3 py-2">
                   <span className={`shrink-0 h-1.5 w-1.5 rounded-full ${isError ? 'bg-destructive' : 'bg-success'}`} />
                   <span className="text-xs text-foreground truncate flex-1">
                     {log.operationKey ?? 'operación general'}
@@ -505,7 +507,7 @@ function TabResumen({
               const outcome = parseBudgetCheck(log.budgetCheck)?.outcome;
               const isError = outcome === 'technical_error' || outcome === 'would_block';
               return (
-                <div key={log.id} className="rounded-lg border border-border/60 bg-surface-subtle px-3 py-2 flex items-center gap-3">
+                <div key={log.id} className="flex items-center gap-3 rounded-lg border border-border/60 bg-card px-3 py-2">
                   <span className={`shrink-0 h-1.5 w-1.5 rounded-full ${isError ? 'bg-destructive' : 'bg-success'}`} />
                   <span className="text-xs text-foreground truncate flex-1">
                     {log.operationKey ?? 'operación general'}
@@ -542,15 +544,9 @@ function TabResumen({
           <InfoRow
             label="Estado sync"
             value={
-              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${
-                syncSignal === 'ok'
-                  ? 'border-success/30 bg-success/10 text-success dark:text-success'
-                  : syncSignal === 'error'
-                    ? 'border-destructive/30 bg-destructive/10 text-destructive'
-                    : 'border-border/60 bg-surface-subtle text-muted-foreground'
-              }`}>
+              <Badge variant={syncSignal === 'ok' ? 'positive' : syncSignal === 'error' ? 'negative' : 'neutral'}>
                 {syncSignal === 'ok' ? 'OK' : syncSignal === 'error' ? 'Error' : 'Sin registro'}
-              </span>
+              </Badge>
             }
           />
           {syncErrorMsg && (
@@ -582,10 +578,10 @@ function TabResumen({
                 key={action.tab + action.label}
                 type="button"
                 onClick={() => onNavigate(action.tab)}
-                className={`inline-flex items-center rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                className={`inline-flex items-center rounded-md border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 ${
                   action.variant === 'warn'
-                    ? 'border-warning/30 bg-warning/5 text-warning hover:bg-warning/10'
-                    : 'border-su-brand/20 bg-su-brand-soft text-su-brand hover:bg-su-brand-soft/80'
+                    ? 'border-warning/25 bg-warning/15 text-warning hover:bg-warning/20'
+                    : 'border-primary/20 bg-primary/10 text-primary hover:bg-primary/15'
                 }`}
               >
                 {action.label} →
@@ -629,11 +625,12 @@ function ReadOnlyToggle({ label, checked, note }: { label: string; checked: bool
 function ConfigAccordion({ label, children }: { label: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="rounded-lg border border-border/60 bg-surface-subtle">
+    <div className="rounded-xl border border-border/60 bg-card">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-foreground hover:bg-surface-muted transition-colors rounded-lg"
+        aria-expanded={open}
+        className="flex w-full items-center justify-between rounded-lg px-4 py-2.5 text-xs text-foreground transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
       >
         <span className="font-medium">{label}</span>
         <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
@@ -649,27 +646,25 @@ function ConfigAccordion({ label, children }: { label: string; children: React.R
 
 // ── Tab: Configuración — estado de conexión helpers ──────────────────────────
 
-const CONNECTION_STATUS_BADGE: Record<string, { label: string; cls: string }> = {
-  connected:      { label: 'Conectado',      cls: 'border-success/30 bg-success/10 text-success' },
-  not_tested:     { label: 'Sin probar',     cls: 'border-warning/30 bg-warning/10 text-warning' },
-  not_configured: { label: 'No configurado', cls: 'border-border/60 bg-surface-subtle text-muted-foreground' },
-  error:          { label: 'Error',          cls: 'border-destructive/30 bg-destructive/10 text-destructive' },
-  disconnected:   { label: 'Desconectado',   cls: 'border-border/60 bg-surface-subtle text-muted-foreground' },
+type StatusBadgeVariant = 'positive' | 'warning' | 'negative' | 'neutral';
+
+const CONNECTION_STATUS_BADGE: Record<string, { label: string; variant: StatusBadgeVariant }> = {
+  connected:      { label: 'Conectado',      variant: 'positive' },
+  not_tested:     { label: 'Sin probar',     variant: 'warning' },
+  not_configured: { label: 'No configurado', variant: 'neutral' },
+  error:          { label: 'Error',          variant: 'negative' },
+  disconnected:   { label: 'Desconectado',   variant: 'neutral' },
 };
 
 function ConnectionStatusBadge({ status }: { status: string }) {
-  const cfg = CONNECTION_STATUS_BADGE[status] ?? { label: status, cls: 'border-border/60 bg-surface-subtle text-muted-foreground' };
-  return (
-    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${cfg.cls}`}>
-      {cfg.label}
-    </span>
-  );
+  const cfg = CONNECTION_STATUS_BADGE[status] ?? { label: status, variant: 'neutral' as const };
+  return <Badge variant={cfg.variant}>{cfg.label}</Badge>;
 }
 
 function InlineFeedback({ feedback }: { feedback: { ok: boolean; msg: string } | null }) {
   if (!feedback) return null;
   return (
-    <p className={`text-xs mt-2 px-1 ${feedback.ok ? 'text-success dark:text-success' : 'text-destructive'}`}>
+    <p className={`mt-2 px-1 text-xs font-medium ${feedback.ok ? 'text-success' : 'text-destructive'}`} role="status">
       {feedback.msg}
     </p>
   );
@@ -677,19 +672,15 @@ function InlineFeedback({ feedback }: { feedback: { ok: boolean; msg: string } |
 
 // ── Tab: Configuración IA — modelos y tarifas helpers ────────────────────────
 
-const MODEL_STATUS_BADGE: Record<string, { label: string; cls: string }> = {
-  active:   { label: 'Activo',   cls: 'border-success/30 bg-success/10 text-success' },
-  inactive: { label: 'Inactivo', cls: 'border-border/60 bg-surface-subtle text-muted-foreground' },
-  error:    { label: 'Error',    cls: 'border-destructive/30 bg-destructive/10 text-destructive' },
+const MODEL_STATUS_BADGE: Record<string, { label: string; variant: StatusBadgeVariant }> = {
+  active:   { label: 'Activo',   variant: 'positive' },
+  inactive: { label: 'Inactivo', variant: 'neutral' },
+  error:    { label: 'Error',    variant: 'negative' },
 };
 
 function ModelStatusBadge({ status }: { status: string }) {
-  const cfg = MODEL_STATUS_BADGE[status] ?? { label: status, cls: 'border-border/60 bg-surface-subtle text-muted-foreground' };
-  return (
-    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${cfg.cls}`}>
-      {cfg.label}
-    </span>
-  );
+  const cfg = MODEL_STATUS_BADGE[status] ?? { label: status, variant: 'neutral' as const };
+  return <Badge variant={cfg.variant}>{cfg.label}</Badge>;
 }
 
 function formatPricePerMillion(value: number, currency: string): string {
@@ -2272,7 +2263,7 @@ function TabConsumo({
           ) : (
             <div className="space-y-1.5">
               {recentOps.map((log) => (
-                <div key={log.id} className="rounded-lg border border-border/60 bg-surface-subtle px-3 py-2 flex items-center gap-3">
+                <div key={log.id} className="flex items-center gap-3 rounded-lg border border-border/60 bg-card px-3 py-2">
                   <span className="text-xs text-foreground truncate flex-1">
                     {getProviderOperationLabel(providerKey, log.operationKey ?? '')}
                   </span>

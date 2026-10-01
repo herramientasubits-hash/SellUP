@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { X, Pause, RotateCcw, Archive, UserX, Layers } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -55,14 +56,14 @@ function formatDate(dateStr: string | null): string {
 }
 
 function getStatusBadge(status: string) {
-  const cfg: Record<string, { label: string; className: string }> = {
-    pending_approval: { label: 'Pendiente',   className: 'bg-warning/10 text-warning border-warning/30' },
-    active:           { label: 'Activo',       className: 'bg-success/10 text-success border-success/30' },
-    rejected:         { label: 'Rechazado',    className: 'bg-destructive/10 text-destructive border-destructive/30' },
-    suspended:        { label: 'Suspendido',   className: 'bg-warning/10 text-warning border-warning/30' },
-    archived:         { label: 'Archivado',    className: 'bg-muted-foreground/10 text-muted-foreground border-border' },
+  const cfg: Record<string, { label: string; variant: 'warning' | 'positive' | 'negative' | 'neutral' }> = {
+    pending_approval: { label: 'Pendiente',   variant: 'warning' },
+    active:           { label: 'Activo',       variant: 'positive' },
+    rejected:         { label: 'Rechazado',    variant: 'negative' },
+    suspended:        { label: 'Suspendido',   variant: 'warning' },
+    archived:         { label: 'Archivado',    variant: 'neutral' },
   };
-  return cfg[status] ?? { label: status, className: '' };
+  return cfg[status] ?? { label: status, variant: 'neutral' as const };
 }
 
 function getDateLabel(user: InternalUser): string {
@@ -247,7 +248,7 @@ export function SelectableUsersList({
   };
 
   if (users.length === 0) {
-    return <div className="py-12 text-center text-muted-foreground text-sm">No hay usuarios en esta categoría.</div>;
+    return <div className="py-12 text-center text-sm text-muted-foreground">No hay usuarios en esta categoría.</div>;
   }
 
   return (
@@ -260,7 +261,7 @@ export function SelectableUsersList({
               type="checkbox"
               checked={allSelected}
               onChange={toggleAll}
-              className="h-4 w-4 rounded border-border accent-su-brand cursor-pointer"
+              className="h-4 w-4 cursor-pointer rounded-xs border-border accent-primary focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
             />
             <span className="text-xs text-muted-foreground">
               {selectedIds.length > 0
@@ -283,7 +284,7 @@ export function SelectableUsersList({
             <div
               key={user.id}
               className={`flex items-center gap-3 px-4 py-3 transition-colors ${
-                isSelected ? 'bg-su-brand-soft/25' : 'hover:bg-surface-muted'
+                isSelected ? 'bg-primary/10' : 'hover:bg-surface-muted'
               }`}
             >
             {isAdmin && bulkActions.length > 0 && (
@@ -291,26 +292,26 @@ export function SelectableUsersList({
                 type="checkbox"
                 checked={isSelected}
                 onChange={() => toggleOne(user.id)}
-                className="h-4 w-4 shrink-0 rounded border-border accent-su-brand cursor-pointer"
+                className="h-4 w-4 shrink-0 cursor-pointer rounded-xs border-border accent-primary focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
               />
             )}
 
             <Avatar className="h-10 w-10 shrink-0">
-              <AvatarFallback className="bg-su-brand-soft text-su-brand text-xs">
+              <AvatarFallback className="bg-primary/10 text-primary text-xs">
                 {getInitials(user.full_name, user.email)}
               </AvatarFallback>
             </Avatar>
 
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="truncate font-medium text-foreground">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="truncate font-medium text-foreground" title={user.full_name ?? undefined}>
                   {user.full_name ?? 'Sin nombre'}
                 </span>
-                <Badge variant="outline" className={`text-xs shrink-0 ${statusBadge.className}`}>
+                <Badge variant={statusBadge.variant} className="shrink-0">
                   {statusBadge.label}
                 </Badge>
               </div>
-              <div className="truncate text-xs text-muted-foreground">{user.email}</div>
+              <div className="truncate text-xs text-muted-foreground" title={user.email}>{user.email}</div>
             </div>
 
             <div className="hidden min-w-[100px] text-sm text-muted-foreground md:block">
@@ -336,12 +337,12 @@ export function SelectableUsersList({
 
       {/* Floating action toolbar */}
       {selectedIds.length > 0 && isAdmin && (
-        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 animate-su-slide-in">
-          <div className="flex items-center gap-2 rounded-2xl border border-border/80 bg-card px-4 py-2.5 shadow-drawer">
-            <span className="text-sm font-medium text-foreground pr-1">
+        <div className="fixed bottom-6 left-1/2 z-50 max-w-[calc(100vw-2rem)] -translate-x-1/2 animate-su-slide-in">
+          <div className="flex flex-wrap items-center justify-center gap-2 rounded-3xl bg-nav py-1 pl-4 pr-1 text-nav-foreground shadow-rail ring-1 ring-white/10">
+            <span className="text-sm font-medium tabular-nums pr-1">
               {selectedIds.length} seleccionado{selectedIds.length > 1 ? 's' : ''}
             </span>
-            <div className="h-4 w-px bg-border" />
+            <div className="h-5 w-px bg-white/15" />
             {selectedIds.length === 1 ? (
               /* Single selection: show per-user individual actions */
               (() => {
@@ -362,8 +363,12 @@ export function SelectableUsersList({
                 <Button
                   key={action.id}
                   size="sm"
-                  variant={action.variant}
-                  className="gap-1.5 h-8 text-xs"
+                  variant="ghost"
+                  className={`gap-1.5 hover:bg-white/10 ${
+                    action.variant === 'destructive'
+                      ? 'text-destructive hover:text-destructive'
+                      : 'text-nav-foreground hover:text-nav-foreground'
+                  }`}
                   onClick={() => setActiveAction(action)}
                 >
                   {action.icon}
@@ -371,10 +376,12 @@ export function SelectableUsersList({
                 </Button>
               ))
             )}
-            <div className="h-4 w-px bg-border" />
+            <div className="h-5 w-px bg-white/15" />
             <button
+              type="button"
+              aria-label="Limpiar selección"
               onClick={() => setSelectedIds([])}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-muted transition-colors"
+              className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -411,9 +418,9 @@ export function SelectableUsersList({
             )}
 
             {error && (
-              <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive border border-destructive/20">
-                {error}
-              </p>
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
             )}
 
             <DialogFooter>

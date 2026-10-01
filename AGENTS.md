@@ -10,7 +10,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 # SellUp Design System Governance
 
-**Authority:** Design System Foundation v0.1  
+**Authority:** Design System Foundation v0.2 (tema Azul de Thema)  
 **Scope:** All agents, developers, and tools modifying SellUp UI  
 **Multi-agent support:** Antigravity, Claude Code, OpenCode, and any agent reading AGENTS.md
 
@@ -22,9 +22,11 @@ All UI work must consult and respect these authoritative sources:
 
 | Artifact | Location | Purpose |
 |----------|----------|---------|
-| **Design System Foundation v0.1** | `docs/DESIGN_SYSTEM_FOUNDATION.md` | Official specification (15 sections: principles, tokens, typography, radius/shadows, components, Light/Dark, rules, DataTable, Drawer con Tabs, Floating Bar, Lazy Load, Page Recipe, Scroll interno de tabla) |
+| **Thema · tema Azul** | `~/Documents/Thema Shadcn` + `docs/THEMA_AZUL_MIGRATION.md` | Sistema de diseño de referencia y guía de traducción pantalla por pantalla |
+| **Design-system check** | `scripts/check-design-system.mjs` | `node scripts/check-design-system.mjs` — debe dar 0 hallazgos |
+| **Design System Foundation v0.2** | `docs/DESIGN_SYSTEM_FOUNDATION.md` | Official specification (15 sections: principles, tokens, typography, radius/shadows, components, Light/Dark, rules, DataTable, Drawer con Tabs, Floating Bar, Lazy Load, Page Recipe, Scroll interno de tabla) |
 | **CSS Tokens** | `src/app/globals.css` | Implemented custom properties and animations |
-| **Base Components** | `src/components/shared/` | PageHeader, SurfaceCard, ModulePlaceholder, NavLink, DrawerShell, DataTablePage |
+| **Base Components** | `src/components/shared/` | PageHeader, SurfaceCard, ModulePlaceholder, NavLink, DrawerShell, DrawerSection, DataTablePage |
 | **UI Library** | `src/components/ui/` | shadcn/ui extensions and custom widgets |
 | **Layout System** | `src/components/layout/` | AppShell, AppHeader, AppSidebar, theme-toggle |
 | **DataTable System** | `src/components/data-table/` | DataTable, DataTableSettingsDrawer, DataTableLoadMore, DataTableBulkActionBar — Foundation § 10 |
@@ -61,12 +63,14 @@ All UI work must consult and respect these authoritative sources:
 
 4. **Avoid arbitrary styling**
    - No custom font families (Inter only)
-   - No `shadow-xl`, `shadow-2xl`
-   - Radius: `rounded-md` (inputs), `rounded-xl` (cards), `rounded-full` (badges)
+   - Shadows: only `shadow-card`, `shadow-drawer`, `shadow-rail`
+   - Radius: `rounded-md` (buttons, inputs, badges), `rounded-xl` (nested cards), `rounded-2xl` (page cards, drawers, dialogs), `rounded-full` (avatars, dots)
+   - No raw Tailwind palette (`text-emerald-500`), no fixed font sizes (`text-[11px]`), no uppercase overlines
    - Animations: only `su-*` utilities from globals.css
 
 5. **Validate before commit**
    ```bash
+   node scripts/check-design-system.mjs   # 0 hallazgos
    npm run lint       # 0 errors
    npm run typecheck  # TypeScript passes
    npm run build      # Production build succeeds
@@ -155,7 +159,10 @@ All three layers must be consistent. If divergence occurs, Design System Foundat
 
 - Hardcode colors (`#5b7eff`, `rgb(91, 126, 255)`)
 - Introduce new font families
-- Use `shadow-xl`, `shadow-2xl`
+- Use `shadow-xl`, `shadow-2xl`, or arbitrary `shadow-[…]`
+- Use the raw Tailwind palette (`bg-emerald-500/10`, `text-amber-600`) — use `success` / `warning` / `destructive` / `info` tokens or `Badge` variants
+- Fix font sizes (`text-[11px]`) or write UPPERCASE overlines with tracking
+- Use `text-white` on primary (use `text-primary-foreground`)
 - Create Button, Card, Badge without checking existing components
 - Add custom keyframes (use globals.css utilities)
 - Ignore Light/Dark testing
@@ -171,13 +178,14 @@ All three layers must be consistent. If divergence occurs, Design System Foundat
 
 | Purpose | Token CSS | Tailwind | Use Case |
 |---------|-----------|----------|----------|
-| Accent | `--su-brand` | `text-su-brand`, `bg-su-brand` | Logo, nav highlight, feature accent |
-| Brand soft | `--su-brand-soft` | `bg-su-brand-soft` | Tinted backgrounds (info context) |
+| Accent | `--primary` (= `--su-brand`) | `text-primary`, `bg-primary` | Primary actions, nav highlight, feature accent |
+| Brand soft | — | `bg-primary/10` | Tinted backgrounds, icon chips |
 | Primary text | `--foreground` | `text-foreground` | Main content |
 | Secondary text | `--muted-foreground` | `text-muted-foreground` | Labels, secondary info |
-| Card surface | `--card` | `bg-card` | Content panels |
-| Success | — | `text-emerald-500`, `bg-emerald-500/10` | Positive outcomes |
-| Warning | — | `text-amber-500`, `bg-amber-500/10` | Alerts |
+| Card surface | `--card` | `bg-card` | Content panels (`rounded-2xl border-border/60 shadow-card`) |
+| Muted surface | `--surface-muted` / `--surface-subtle` | `bg-surface-muted`, `bg-surface-subtle` | Row hover, sunken areas |
+| Success | `--success` | `text-success`, `bg-success/10` | Positive outcomes |
+| Warning | `--warning` | `text-warning`, `bg-warning/15` | Alerts |
 | Error | `--destructive` | `text-destructive`, `bg-destructive/10` | Failures |
 
 **Full token reference:** See `src/app/globals.css` and Design System Foundation § 3.
@@ -194,6 +202,7 @@ Before commit, verify:
 - [ ] Shadows within bounds
 - [ ] Shared components reused
 - [ ] No visual regressions
+- [ ] `node scripts/check-design-system.mjs` reports 0 findings
 - [ ] `npm run lint` passes
 - [ ] `npm run typecheck` passes
 - [ ] `npm run build` succeeds
