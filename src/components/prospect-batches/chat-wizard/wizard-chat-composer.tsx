@@ -64,10 +64,10 @@ export function WizardChatComposer({
     <div
       aria-label="Campo de respuesta al asistente"
       className={cn(
-        'rounded-xl border transition-colors',
+        'rounded-2xl border transition-colors',
         isLocked
           ? 'border-border/60 bg-surface-subtle'
-          : 'border-border bg-card focus-within:border-primary/40 focus-within:ring-3 focus-within:ring-ring/30',
+          : 'border-border/60 bg-card shadow-card focus-within:border-primary/40 focus-within:ring-3 focus-within:ring-ring/40',
       )}
     >
       <div className="flex items-end gap-2 px-3 py-2.5">
@@ -114,7 +114,7 @@ export function WizardChatComposer({
 
       {/* Character counter — only when typing */}
       {isTextInput && charCount > 0 && (
-        <div className="flex items-center justify-between px-3 pb-2 pt-0">
+        <div className="flex items-center justify-between gap-3 px-3 pb-2 pt-0">
           <span className="text-xs text-muted-foreground">
             Shift+Enter para nueva línea
           </span>

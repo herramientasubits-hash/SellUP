@@ -142,9 +142,9 @@ function WizardPersistenceBreakdown({ rows }: { rows: WizardPersistenceBreakdown
           data-testid={`wizard-persistence-breakdown-row-${row.key}`}
         >
           <div className="flex items-baseline justify-between gap-3">
-            <dt className="text-xs text-muted-foreground">{row.label}</dt>
+            <dt className="min-w-0 text-xs text-muted-foreground">{row.label}</dt>
             <dd
-              className="text-xs font-semibold tabular-nums text-foreground"
+              className="shrink-0 text-xs font-semibold tabular-nums text-foreground"
               data-testid={`wizard-persistence-breakdown-value-${row.key}`}
             >
               {row.value}
@@ -340,7 +340,7 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
             <p className="text-sm font-semibold text-destructive">
               {resultCopy.heading}
             </p>
-            <p className="text-xs text-destructive">{resultCopy.body}</p>
+            <p className="break-words text-xs leading-relaxed text-destructive">{resultCopy.body}</p>
           </div>
         </div>
         <WizardPersistenceBreakdown rows={persistenceBreakdownRows} />
@@ -397,7 +397,7 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
             <p className="text-sm font-semibold text-warning">
               {resultCopy.heading ?? 'No encontramos empresas nuevas con estos criterios.'}
             </p>
-            <p className="text-xs text-warning">
+            <p className="break-words text-xs leading-relaxed text-warning">
               {noNewBody}
             </p>
 
@@ -409,9 +409,9 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
                 {breakdownRows.map((row) => (
                   <div key={row.key} className="space-y-0.5" data-testid={`wizard-no-new-candidates-row-${row.key}`}>
                     <div className="flex items-baseline justify-between gap-3">
-                      <dt className="text-xs text-muted-foreground">{row.label}</dt>
+                      <dt className="min-w-0 text-xs text-muted-foreground">{row.label}</dt>
                       <dd
-                        className="text-xs font-semibold tabular-nums text-foreground"
+                        className="shrink-0 text-xs font-semibold tabular-nums text-foreground"
                         data-testid={`wizard-no-new-candidates-count-${row.key}`}
                       >
                         {row.count}
@@ -468,11 +468,11 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
             className="mt-0.5 h-5 w-5 shrink-0 text-success"
             aria-hidden
           />
-          <div className="space-y-1">
+          <div className="min-w-0 space-y-1">
             <p className="text-sm font-semibold text-success">
               {heading}
             </p>
-            <p className="text-xs text-success">
+            <p className="text-xs leading-relaxed text-success">
               {body}
             </p>
           </div>
@@ -489,11 +489,11 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
             className="mt-0.5 h-5 w-5 shrink-0 text-warning"
             aria-hidden
           />
-          <div className="space-y-1">
+          <div className="min-w-0 space-y-1">
             <p className="text-sm font-semibold text-warning">
               {resultCopy.heading}
             </p>
-            <p className="text-xs text-warning">
+            <p className="break-words text-xs leading-relaxed text-warning">
               {resultCopy.body}
             </p>
           </div>
@@ -526,9 +526,9 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
           {acceptedForTargetRows.map((row) => (
             <div key={row.key} className="space-y-0.5" data-testid={`wizard-target-summary-row-${row.key}`}>
               <div className="flex items-baseline justify-between gap-3">
-                <dt className="text-xs text-muted-foreground">{row.label}</dt>
+                <dt className="min-w-0 text-xs text-muted-foreground">{row.label}</dt>
                 <dd
-                  className="text-xs font-semibold tabular-nums text-foreground"
+                  className="shrink-0 text-xs font-semibold tabular-nums text-foreground"
                   data-testid={`wizard-target-summary-value-${row.key}`}
                 >
                   {row.value}
@@ -550,9 +550,9 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
           {buildWizardTargetSummary(targetSummary).rows.map((row) => (
             <div key={row.key} className="space-y-0.5" data-testid={`wizard-target-summary-row-${row.key}`}>
               <div className="flex items-baseline justify-between gap-3">
-                <dt className="text-xs text-muted-foreground">{row.label}</dt>
+                <dt className="min-w-0 text-xs text-muted-foreground">{row.label}</dt>
                 <dd
-                  className="text-xs font-semibold tabular-nums text-foreground"
+                  className="shrink-0 text-xs font-semibold tabular-nums text-foreground"
                   data-testid={`wizard-target-summary-value-${row.key}`}
                 >
                   {row.value}

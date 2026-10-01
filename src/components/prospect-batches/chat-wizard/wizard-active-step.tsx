@@ -146,7 +146,7 @@ function StepBlockingIssues({ state, step }: { state: ProspectWizardState; step:
   return (
     <div className="space-y-2" role="alert">
       {issues.map((issue) => (
-        <p key={issue.code} className="text-xs text-destructive">
+        <p key={issue.code} className="text-xs font-medium text-destructive">
           {issue.message}
         </p>
       ))}
@@ -200,20 +200,20 @@ function SearchTypeStep({ state, dispatch, titleRef }: SearchTypeStepProps) {
               aria-disabled={isComingSoon}
               aria-pressed={isSelected}
               className={[
-                'flex w-full items-start gap-3 rounded-xl border px-4 py-3.5 text-left transition-all focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40',
+                'flex w-full items-start gap-3 rounded-xl border px-4 py-3.5 text-left transition-colors duration-200 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40',
                 // Design Refresh v13: 'coming_soon' claramente inerte — borde
                 // punteado, fondo muted y SIN hover (antes conservaba el hover
                 // azul de las activas y parecía clickeable).
                 isComingSoon
                   ? 'cursor-default border-dashed border-border/60 bg-surface-subtle'
                   : isSelected
-                  ? 'cursor-pointer border-primary bg-primary/5'
+                  ? 'cursor-pointer border-primary bg-primary/5 ring-1 ring-primary/20'
                   : 'cursor-pointer border-border/60 bg-card hover:border-primary/40 hover:bg-surface-muted',
               ].join(' ')}
             >
               <div
                 className={[
-                  'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                  'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors',
                   isSelected && !isComingSoon
                     ? 'bg-primary/10'
                     : isComingSoon
@@ -234,10 +234,10 @@ function SearchTypeStep({ state, dispatch, titleRef }: SearchTypeStepProps) {
                 />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <span
                     className={[
-                      'text-sm font-medium',
+                      'text-sm font-semibold',
                       isComingSoon ? 'text-muted-foreground' : 'text-foreground',
                     ].join(' ')}
                   >
@@ -266,7 +266,7 @@ function SearchTypeStep({ state, dispatch, titleRef }: SearchTypeStepProps) {
       {comingSoonWarning && (
         <div
           role="status"
-          className="rounded-lg border border-warning/25 bg-warning/15 px-3 py-2.5 text-xs text-warning"
+          className="rounded-xl border border-warning/25 bg-warning/15 px-3 py-2.5 text-xs leading-relaxed text-warning"
         >
           Esta forma de búsqueda estará disponible próximamente. Por ahora puedes buscar empresas por criterios.
         </div>
@@ -388,10 +388,10 @@ function SubindustriesStep({
         industria.
       </p>
 
-      <div className="space-y-1">
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>Subindustrias</span>
-          <span aria-live="polite" aria-atomic="true">
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">Subindustrias</span>
+          <span className="shrink-0 tabular-nums" aria-live="polite" aria-atomic="true">
             {selected.length}/{max} seleccionadas
           </span>
         </div>
@@ -417,11 +417,11 @@ function SubindustriesStep({
       {/* § A.4 — la lista explícita, no sólo el resumen del control: una pérdida
           entre dos clics tiene que ser visible ANTES de gastar créditos. */}
       {selectedLabels.length > 0 && (
-        <ul className="space-y-1 text-xs text-muted-foreground">
+        <ul className="space-y-1 rounded-lg bg-surface-subtle px-3 py-2.5 text-xs text-muted-foreground">
           {selectedLabels.map((label, index) => (
             <li key={selected[index]} className="flex gap-1.5">
               <span aria-hidden>•</span>
-              <span className="text-foreground">{label}</span>
+              <span className="min-w-0 break-words text-foreground">{label}</span>
             </li>
           ))}
         </ul>
@@ -429,7 +429,7 @@ function SubindustriesStep({
 
       <StepBlockingIssues state={state} step="subindustries" />
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button
           type="button"
           className="flex-1"
@@ -497,7 +497,7 @@ function AdditionalCriteriaStep({
 
       <StepBlockingIssues state={state} step="additional_criteria" />
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button
           type="button"
           size="sm"
@@ -525,7 +525,7 @@ function AdditionalCriteriaStep({
 function ValidatingStep() {
   return (
     <div
-      className="flex items-center gap-3 rounded-xl bg-surface-subtle p-4"
+      className="flex items-center gap-3 rounded-xl border border-border/60 bg-surface-subtle p-4"
       role="status"
       aria-live="polite"
     >

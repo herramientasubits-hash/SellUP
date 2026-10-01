@@ -201,7 +201,7 @@ export function WizardApolloContinuationPanel({
             {isFinished ? 'Corrida completada' : APOLLO_CONTINUATION_PANEL_TITLE}
           </p>
           <p
-            className="text-xs text-muted-foreground"
+            className="break-words text-xs leading-relaxed text-muted-foreground"
             data-testid="wizard-apollo-continuation-body"
           >
             {body}
@@ -210,7 +210,7 @@ export function WizardApolloContinuationPanel({
       </div>
 
       {!isFinished && !isFailure && (
-        <p className="text-xs leading-snug text-muted-foreground">
+        <p className="border-t border-border/50 pt-2 text-xs leading-snug text-muted-foreground">
           {APOLLO_CONTINUATION_IN_SESSION_NOTE}
         </p>
       )}

@@ -417,7 +417,7 @@ export function LockedCriteriaRecap({
       <SurfaceCard>
         <SurfaceCardHeader title={recap.title} description={recap.description} />
         <div className="space-y-3" data-testid="lusha-locked-criteria-recap">
-          <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+          <dl className="grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
             <RecapItem label="País" value={countryLabel} />
             <RecapItem label="Sector" value={recap.sectorLabel} />
             {recap.subIndustryLabel && (
@@ -428,7 +428,7 @@ export function LockedCriteriaRecap({
               <RecapItem
                 label="Criterio adicional"
                 value={recap.criteriaLabel}
-                className="col-span-2"
+                className="sm:col-span-2"
                 wrap
               />
             )}
@@ -437,7 +437,7 @@ export function LockedCriteriaRecap({
               value={`Proveedor configurado: ${recap.providerLabel}`}
             />
             <RecapItem label="Costo estimado" value={recap.costLabel} />
-          </div>
+          </dl>
           <p
             className="border-t border-border/60 pt-3 text-xs text-muted-foreground leading-relaxed"
             data-testid="lusha-locked-criteria-readonly-note"
@@ -458,22 +458,22 @@ export function LockedCriteriaRecap({
         title="Criterios de la búsqueda"
         description="SellUp buscará empresas candidatas con estos criterios. Nada se guarda todavía."
       />
-      <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm" data-testid="lusha-locked-criteria-recap">
-        <div>
-          <p className="text-xs text-muted-foreground">País</p>
-          <p className="font-medium text-foreground">{countryLabel}</p>
+      <dl className="flex flex-wrap gap-x-6 gap-y-2 text-sm" data-testid="lusha-locked-criteria-recap">
+        <div className="min-w-0">
+          <dt className="text-xs text-muted-foreground">País</dt>
+          <dd className="mt-0.5 font-medium text-foreground">{countryLabel}</dd>
         </div>
-        <div>
-          <p className="text-xs text-muted-foreground">Sector</p>
-          <p className="font-medium text-foreground">{sectorLabel}</p>
+        <div className="min-w-0">
+          <dt className="text-xs text-muted-foreground">Sector</dt>
+          <dd className="mt-0.5 font-medium text-foreground">{sectorLabel}</dd>
         </div>
         {trimmedSearch.length > 0 && (
           <div className="min-w-0">
-            <p className="text-xs text-muted-foreground">Criterio adicional</p>
-            <p className="font-medium text-foreground break-words">{trimmedSearch}</p>
+            <dt className="text-xs text-muted-foreground">Criterio adicional</dt>
+            <dd className="mt-0.5 break-words font-medium text-foreground">{trimmedSearch}</dd>
           </div>
         )}
-      </div>
+      </dl>
     </SurfaceCard>
   );
 }
@@ -493,15 +493,16 @@ function RecapItem({
 }) {
   return (
     <div className={['min-w-0', className ?? ''].join(' ')}>
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd
         className={[
           'mt-0.5 font-medium text-foreground',
           wrap ? 'break-words' : 'truncate',
         ].join(' ')}
+        title={wrap ? undefined : value}
       >
         {value}
-      </p>
+      </dd>
     </div>
   );
 }
@@ -592,7 +593,7 @@ function PreviewCompanyCard({ company }: { company: LushaPreviewCompany }) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-sm font-semibold text-foreground">{company.name ?? 'Empresa sin nombre'}</span>
+            <span className="truncate text-sm font-semibold text-foreground" title={company.name ?? undefined}>{company.name ?? 'Empresa sin nombre'}</span>
             {company.passesGate ? (
               <Badge variant="positive">
                 <CheckCircle2 className="h-3 w-3" />
@@ -615,10 +616,10 @@ function PreviewCompanyCard({ company }: { company: LushaPreviewCompany }) {
                 href={company.linkedinUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-primary hover:underline"
+                className="inline-flex items-center gap-1 rounded-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
               >
                 LinkedIn
-                <ExternalLink className="h-3 w-3" />
+                <ExternalLink className="h-3 w-3" aria-hidden />
               </a>
             )}
           </div>
