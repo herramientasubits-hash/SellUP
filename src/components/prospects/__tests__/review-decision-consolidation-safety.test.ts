@@ -143,19 +143,46 @@ describe('action zone renders the remaining not-yet-available actions as disable
   });
 });
 
-describe('KPI copy — renamed, count logic untouched', () => {
+// UX-EMPRESAS-CONTACTOS — los indicadores de «Por revisar» dejaron de ser
+// tarjetas de métricas del panel de servidor y pasaron a ser filtros de un
+// toque sobre la tabla (`prospect-quick-filters.ts`). La guarda se muda con
+// ellos y sigue protegiendo lo mismo:
+//   - el copy: «Sin bloqueos detectados», nunca «Listos para aprobar»;
+//   - la regla: la MISMA que contaba `getGlobalProspectsKPIs().readyForApproval`
+//     (su comportamiento se prueba en prospect-quick-filters.test.ts).
+describe('KPI copy — renamed, count rule preserved', () => {
+  const QUICK_FILTERS_RAW = readFileSync(join(COMPONENTS, 'prospect-quick-filters.ts'), 'utf8');
+  const QUICK_FILTERS_SRC = stripLineComments(QUICK_FILTERS_RAW);
+  const TABLE_RAW = readFileSync(join(COMPONENTS, 'prospects-data-table-client.tsx'), 'utf8');
+
   it('renames "Listos para aprobar" to "Sin bloqueos detectados"', () => {
-    assert.ok(PANEL_RAW.includes('Sin bloqueos detectados'));
-    assert.ok(PANEL_RAW.includes('Candidatos sin señales bloqueantes'));
-    assert.ok(!PANEL_RAW.includes('Listos para aprobar'), 'old KPI label must be gone');
+    assert.ok(QUICK_FILTERS_SRC.includes("label: 'Sin bloqueos detectados'"));
+    assert.ok(QUICK_FILTERS_RAW.includes('Candidatos sin señales bloqueantes'));
+    for (const [name, source] of [
+      ['prospects-module-panel', stripLineComments(PANEL_RAW)],
+      ['prospect-quick-filters', QUICK_FILTERS_SRC],
+      ['prospects-data-table-client', stripLineComments(TABLE_RAW)],
+    ] as const) {
+      assert.ok(!source.includes('Listos para aprobar'), `old KPI label must be gone from ${name}`);
+    }
   });
 
-  it('still binds the KPI to the existing readyForApproval count (no logic rewrite)', () => {
-    assert.ok(PANEL_RAW.includes('kpis.readyForApproval'));
+  it('the indicator keeps the readyForApproval rule (no logic rewrite)', () => {
+    // Mismos tres términos que la consulta: estado en revisión, sin veto de
+    // revisión, y duplicidad que no bloquea.
+    assert.match(QUICK_FILTERS_SRC, /\['needs_review', 'generated', 'normalized'\]/);
+    assert.match(QUICK_FILTERS_SRC, /review_status === 'ready_for_approval'/);
+    assert.match(QUICK_FILTERS_SRC, /review_status === null/);
+    assert.match(QUICK_FILTERS_SRC, /\['no_match', 'related_company', 'possible_duplicate'\]/);
   });
 
-  it('keeps "Pendientes de revisión" KPI', () => {
-    assert.ok(PANEL_RAW.includes('Pendientes de revisión'));
+  it('the table wires the indicators it filters by', () => {
+    assert.ok(TABLE_RAW.includes('buildProspectQuickFilters'));
+    assert.ok(TABLE_RAW.includes('<QuickFilterStrip'));
+  });
+
+  it('keeps "Pendientes de revisión" as the total of the strip', () => {
+    assert.ok(TABLE_RAW.includes("'prospecto por revisar', 'prospectos por revisar'"));
   });
 });
 

@@ -68,7 +68,11 @@ describe('ProspectsModulePanel — una sola fila de pestañas (sin tabs dentro d
   );
 
   it('renderiza <ModuleTabsNav> como la única fila de pestañas del panel', () => {
-    assert.match(content, /tabs=\{<ModuleTabsNav active="prospectos" \/>\}/);
+    // UX-EMPRESAS-CONTACTOS: la pestaña activa lleva ahora su contador
+    // (`counts=…`), así que la guarda admite props tras `active`. Lo que protege
+    // no cambia: UNA fila de pestañas, la del módulo, con «prospectos» activa.
+    assert.match(content, /tabs=\{<ModuleTabsNav active="prospectos"[^>]*\/>\}/);
+    assert.equal((content.match(/<ModuleTabsNav\b/g) ?? []).length, 1);
   });
 
   it('el panel de Descartadas usa la MISMA fila de pestañas, marcada activa', () => {

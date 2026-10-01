@@ -11,23 +11,25 @@ import {
 } from "@/config/navigation";
 
 /**
- * Module-level pill switcher for the unified "Empresas" module.
+ * Las pestañas del módulo «Empresas».
  *
- * Empresas (`/accounts`), Prospectos (`/accounts?tab=prospectos`) y Descartadas
- * (`/accounts?tab=prospectos&view=descartadas`) son pills hermanas dentro de un
- * único módulo: cambiar de pestaña se queda en `/accounts` vía query params en
- * vez de navegar a una ruta distinta. Sus flujos de datos siguen desacoplados
- * (cada pestaña renderiza su propio panel de servidor), así que deep links,
- * filtros y el flujo de Agente 1 quedan intactos.
+ * El módulo tiene una sola voz —«Empresas»— y tres vistas de la misma cosa
+ * según dónde está cada empresa en su camino:
  *
- * AGENT1-DISCARDED-TAB-PARITY-1 — "Descartadas" era una sub-pestaña DENTRO de
- * Prospectos (una segunda fila de pills bajo la primera). Se promovió a este
- * mismo nivel: una sola fila de pestañas, sin pestañas dentro de pestañas. La
- * ruta no cambió (`view=descartadas`), así que los deep links existentes siguen
- * funcionando.
+ * - **Empresas** (`/accounts`): las ya aprobadas, que son cuentas de trabajo.
+ * - **Por revisar** (`/accounts?tab=prospectos`): candidatas generadas o
+ *   importadas que esperan una decisión.
+ * - **Descartadas** (`/accounts?tab=prospectos&view=descartadas`): las que se
+ *   quedaron fuera, por si hay que rescatar alguna.
  *
- * Reuses the shared <TabsNav> pill styling (Foundation § design tokens) — no
- * custom visual styles introduced.
+ * Antes se llamaban «Prospectos aprobados / Candidatos por revisar /
+ * Descartadas» y el título de la página cambiaba a «Prospectos» según la
+ * pestaña: tres nombres para el mismo módulo. Las rutas NO cambiaron — siguen
+ * siendo query params sobre `/accounts`, así que los enlaces profundos, los
+ * filtros y el flujo del Agente 1 quedan intactos.
+ *
+ * AGENT1-DISCARDED-TAB-PARITY-1 — «Descartadas» es hermana de las otras dos:
+ * una sola fila de pestañas, sin pestañas dentro de pestañas.
  */
 export type ModuleTabId = "empresas" | "prospectos" | "descartadas";
 
@@ -40,24 +42,33 @@ const TAB_ROUTES: Record<ModuleTabId, string> = {
 interface ModuleTabsNavProps {
   active: ModuleTabId;
   /**
-   * Conteo mostrado sobre la pill "Descartadas". Sólo lo pasa el panel que ya
-   * tiene el total en memoria (la propia pestaña Descartadas): ninguna otra
-   * pantalla paga una query extra sólo para pintar un badge.
+   * Cuántos registros hay en cada pestaña. Solo lo pasa la pantalla que ya
+   * tiene el total en memoria (normalmente, el de su propia pestaña): ninguna
+   * paga una consulta extra para pintar el contador de otra.
    */
+  counts?: Partial<Record<ModuleTabId, number>>;
+  /** Atajo histórico de `counts.descartadas`. */
   discardedCount?: number;
 }
 
-export function ModuleTabsNav({ active, discardedCount }: ModuleTabsNavProps) {
+export function ModuleTabsNav({ active, counts, discardedCount }: ModuleTabsNavProps) {
   const router = useRouter();
 
   const tabs: Tab[] = [
-    { id: "empresas", label: "Prospectos aprobados", icon: Building2 },
-    { id: "prospectos", label: "Candidatos por revisar", icon: ClipboardCheck },
-    { id: "descartadas", label: "Descartadas", icon: Archive, count: discardedCount },
+    { id: "empresas", label: "Empresas", icon: Building2, count: counts?.empresas },
+    { id: "prospectos", label: "Por revisar", icon: ClipboardCheck, count: counts?.prospectos },
+    {
+      id: "descartadas",
+      label: "Descartadas",
+      icon: Archive,
+      count: counts?.descartadas ?? discardedCount,
+    },
   ];
 
   return (
     <TabsNav
+      aria-label="Vistas de empresas"
+      role="navigation"
       tabs={tabs}
       activeTabId={active}
       onTabChange={(id) => router.push(TAB_ROUTES[id as ModuleTabId] ?? TAB_ROUTES.empresas)}

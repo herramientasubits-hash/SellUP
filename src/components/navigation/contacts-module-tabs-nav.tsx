@@ -11,17 +11,18 @@ import {
 } from "@/config/navigation";
 
 /**
- * Module-level pill switcher for the unified "Contactos" module (Hito 17A.4A).
+ * Las pestañas del módulo «Contactos» (Hito 17A.4A).
  *
- * "Contactos aprobados" (`/contacts`, the official `contacts` table) and
- * "Candidatos por revisar" (`/contacts?tab=candidates`,
- * `contact_enrichment_candidates` en `pending_review`) son pills hermanas dentro
- * de un único módulo: cambiar de tab se queda en `/contacts` vía query param, sin
- * agregar item al sidebar. Cada tab renderiza su propio panel server, así que los
- * flujos de datos quedan desacoplados y el wizard conversacional permanece intacto.
+ * Una sola voz —«Contactos»— y dos vistas: **Contactos** (`/contacts`, la tabla
+ * oficial `contacts`) y **Por revisar** (`/contacts?tab=candidates`,
+ * `contact_enrichment_candidates` en `pending_review`). Antes se llamaban
+ * «Contactos aprobados» y "Candidatos por revisar"; la tabla de la segunda
+ * vista conserva ese título. Cambiar de pestaña se queda en `/contacts` vía
+ * query param, sin entrada propia en el menú lateral, y cada una pinta su panel
+ * de servidor: los flujos de datos siguen desacoplados.
  *
- * Reutiliza el styling de pills compartido <TabsNav> (Foundation § tokens) — sin
- * estilos visuales nuevos. Mismo patrón que <ModuleTabsNav> de Empresas/Prospectos.
+ * La cola de duplicados (`?tab=duplicates`) conserva su ruta pero no tiene
+ * pestaña: se llega a ella por enlace.
  */
 export type ContactsTabId = "approved" | "candidates" | "duplicates";
 
@@ -33,23 +34,26 @@ const TAB_ROUTES: Record<ContactsTabId, string> = {
 
 interface ContactsModuleTabsNavProps {
   active: ContactsTabId;
+  /**
+   * Cuántos registros hay en cada pestaña. Solo lo pasa la pantalla que ya
+   * tiene el total en memoria: el contador de la otra pestaña exigiría una
+   * consulta extra y por eso no se pinta.
+   */
+  counts?: Partial<Record<ContactsTabId, number>>;
 }
 
-export function ContactsModuleTabsNav({
-  active,
-}: ContactsModuleTabsNavProps) {
+export function ContactsModuleTabsNav({ active, counts }: ContactsModuleTabsNavProps) {
   const router = useRouter();
 
-  // Pills limpias, sin badge de conteo (ajuste posterior a 17A.4A): el número
-  // de candidatos generaba ruido visual y forzaba una query extra en el tab
-  // por defecto. Las labels quedan simples; el routing por tab no cambia.
   const tabs: Tab[] = [
-    { id: "approved", label: "Contactos aprobados", icon: UserCheck },
-    { id: "candidates", label: "Candidatos por revisar", icon: ClipboardCheck },
+    { id: "approved", label: "Contactos", icon: UserCheck, count: counts?.approved },
+    { id: "candidates", label: "Por revisar", icon: ClipboardCheck, count: counts?.candidates },
   ];
 
   return (
     <TabsNav
+      aria-label="Vistas de contactos"
+      role="navigation"
       tabs={tabs}
       activeTabId={active}
       onTabChange={(id) =>

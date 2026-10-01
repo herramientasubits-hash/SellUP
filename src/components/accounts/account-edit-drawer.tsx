@@ -90,7 +90,7 @@ export function AccountEditDrawer({
         const account = await getAccountById(accountId);
         if (cancelled) return;
         if (!account) {
-          setError('Cuenta no encontrada');
+          setError('No encontramos esta empresa.');
           return;
         }
         setForm({
@@ -153,7 +153,7 @@ export function AccountEditDrawer({
       }
       handleClose();
       router.refresh();
-      toast.success('Cuenta actualizada correctamente');
+      toast.success('Empresa actualizada');
     } finally {
       setPending(false);
     }
@@ -163,8 +163,8 @@ export function AccountEditDrawer({
     <DrawerShell
       open={open}
       onOpenChange={(v) => !v && handleClose()}
-      title="Editar cuenta"
-      description="Modifica los datos de la cuenta. Los cambios quedan registrados en auditoría."
+      title="Editar empresa"
+      description="Modifica los datos de la empresa. Los cambios quedan registrados en auditoría."
       icon={<Building2 className="h-4 w-4" />}
       size="xl"
       actions={

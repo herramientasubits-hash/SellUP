@@ -35,7 +35,12 @@ const SHARED_DATATABLE_CAPABILITIES = [
   'settingsExtraSections=',
   'count=',
   'title=',
-  'description=',
+  // UX-EMPRESAS-CONTACTOS: las dos tablas dejaron de repetir bajo su título la
+  // descripción de la página (`description=` ya no es una capacidad compartida)
+  // y las dos ganaron la vista de lista y los indicadores que filtran.
+  'renderListItem=',
+  '<QuickFilterStrip',
+  '<QuickFilterChips',
   'emptyState=',
 ] as const;
 

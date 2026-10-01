@@ -769,6 +769,8 @@ Fijar y ocultar una columna **no** viven en la cabecera: están en «Configurar 
 
 Para un filtro que no es una lista (rango de fechas), compón `HeaderSortButton` + `HeaderFilterButton` de `@/components/data-display` con tu propio Popover (ver `prospect-date-range-column-header.tsx`).
 
+**Celdas** — el mismo dato se lee igual en todas las tablas; las piezas viven en `@/components/shared/table-cells`: el dato que falta es `EmptyCell` («—» apagado, con su nombre para el lector de pantalla), nunca un texto distinto por tabla («Sin dato», «Sin verificar»…); el país es `CountryCell` (bandera + nombre completo); un enlace que sale de SellUp es `ExternalLinkCell` o `ExternalIconLink` (icono, foco visible, no dispara el clic de la fila); el nombre que abre el detalle es `RowTitleButton`.
+
 **Filtros activos** — `<DataTableActiveFilters>` pinta bajo la barra un chip `Columna: valor ×` por cada valor elegido y por la búsqueda, con «Limpiar todo». Sin filtros la fila no existe. Con filtros, el total junto al título es el de lo filtrado.
 
 **Coexistencia row reorder + sort:** cuando `enableRowReorder` está activo y el usuario aún no ha ordenado, el orden de filas es el que provee el padre (drag-and-drop). Al ordenar por una cabecera, TanStack toma el control; al volver a «sin orden» (tercer clic), el control vuelve al padre.
@@ -941,6 +943,15 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 - **Ancho del drawer:** para detail views con tablas usar un ancho acotado con tope — p. ej. `sm:w-[58vw] sm:min-w-[660px] sm:!max-w-[900px]` — para evitar un lienzo vacío en pantallas anchas; `sm:w-[480px]` o `sm:w-[560px]` para detail views simples. Evitar `!w-[90vw]` salvo que el contenido lo justifique.
 - **Footer del drawer:** acciones de copia (Copiar key/ID) y enlaces externos (Abrir URL). **Nunca** un "Abrir página completa".
 - **Datos del tab:** pre-cargar server-side y pasar como prop. No `useEffect` ni flash de loading al cambiar de tab.
+
+### 11.4 bis Secciones plegables y resumen
+
+- **Un título por sección.** Una sección que se pliega es `CollapsibleDrawerSection` (`@/components/shared/collapsible-drawer-section`): la misma tarjeta que `DrawerSection`, con la cabecera como botón. Nunca un rótulo plegable con una tarjeta dentro que repite el nombre.
+- **Plegada, dice qué contiene.** Pasa `summary` (una línea: «acme.co · con LinkedIn · 250 empleados») o `badge` (un contador). Arranca abierta (`defaultOpen`) la que trae algo que decidir.
+- **Resumen arriba.** Antes de las pestañas o de la primera sección, tres o cuatro datos clave en un `DetailList` (`columns={4}`). Lo que está en el resumen no se repite en las secciones.
+- **Sin tarjetas con rayas.** Si no hay datos que resumir (p. ej. un prospecto sin evaluar), el resumen dice por qué y qué falta, en vez de pintar «— / 100».
+- **Pie.** La acción principal, a la derecha; lo secundario y lo destructivo, a la izquierda.
+- **Títulos en frase.** «Datos oficiales y legales», no «Datos Oficiales y Legales».
 
 ### 11.5 Prohibiciones
 
@@ -1316,6 +1327,20 @@ Internamente:
 ```
 
 `shrink-0` en header, pestañas y métricas para que no se colapsen; `flex-1` en el área de contenido para que ocupe todo el alto que queda.
+
+**Cabecera compacta (`compact`).** Las pantallas de lista con pestañas de módulo (Empresas, Contactos) gastaban el alto en título + descripción + pestañas + cuatro tarjetas de métricas y a la tabla le quedaban tres o cuatro filas. Con `compact`:
+
+- título, descripción (letra pequeña, hasta dos renglones) y pestañas van en **una sola banda** de la altura de las pestañas; en pantalla estrecha las pestañas bajan a su renglón;
+- los huecos entre bloques pasan de `gap-5` a `gap-3`;
+- las métricas dejan de ser tarjetas: son **indicadores que filtran** (`useQuickFilter` + `QuickFilterChips` en `@/components/filters/quick-filter-strip`). En pantalla ancha (≥ 1280px) van dentro de la barra de la tabla (`<DataTable actions={…} />`) y no gastan renglón; en estrecha, en su franja (`QuickFilterStrip`) sobre la tabla. Pulsar uno deja en la tabla solo sus filas (`aria-pressed`) y volver a pulsarlo lo quita; el número de cada uno se calcula sobre las mismas filas que pinta la tabla.
+
+Resultado a 1440×900: de 3–4 filas a 8–9 sin desplazar la página. El estado de carga de estas pantallas es `ListPageSkeleton`, que conserva la banda (con la pestaña activa) y pinta una tabla fantasma.
+
+```tsx
+<DataTablePage compact title="Empresas" description="…" tabs={<ModuleTabsNav active="empresas" counts={{ empresas: n }} />}>
+  <AccountsDataTableClient … />
+</DataTablePage>
+```
 
 **Alto mínimo de la tabla.** En una pantalla alta la cabecera y las métricas quedan fijas y la tabla llena el resto. En una baja (p. ej. 1440×900 con pestañas y métricas) el alto que quedaba dejaba ver solo unas cuatro filas: ahora la tabla no baja de `min(100%, 32rem)` y lo que se desplaza es la página (`overflow-y-auto` en la propia caja de `DataTablePage`), con la tabla conservando su scroll interno y su cabecera pegada. La caja con scroll es la de `DataTablePage` y no la del shell para que el hueco inferior que reserva `ScreenActionRailProvider` (`pb-20`) quede siempre fuera: la barra flotante nunca tapa el pie de la tabla. El `-mx-3 px-3` deja sitio a sombras y anillos de foco, que una caja con scroll recortaría.
 

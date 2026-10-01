@@ -42,12 +42,25 @@ interface AccountDetailActionsProps {
   accountId: string;
   currentStatus: PipelineStatus;
   users: InternalUserOption[];
+  /**
+   * Avisa de que el estado cambió. Quien muestra la empresa con datos cargados
+   * en el cliente (el panel lateral) la usa para volver a leerlos; la página de
+   * detalle no la necesita porque `router.refresh()` ya la repinta.
+   */
+  onChanged?: () => void;
+  /**
+   * Avisa de que la empresa se archivó. Con ella el menú NO navega a la lista:
+   * quien lo aloja decide (el panel lateral se cierra).
+   */
+  onArchived?: () => void;
 }
 
 export function AccountDetailActions({
   accountId,
   currentStatus,
   users,
+  onChanged,
+  onArchived,
 }: AccountDetailActionsProps) {
   const router = useRouter();
   const [editOpen, setEditOpen] = React.useState(false);
@@ -58,7 +71,8 @@ export function AccountDetailActions({
     const result = await updateAccount(accountId, { pipeline_status: status });
     if (result.success) {
       router.refresh();
-      toast.success(`Estado cambiado a "${PIPELINE_STATUS_LABELS[status]}"`);
+      onChanged?.();
+      toast.success(`Estado cambiado a «${PIPELINE_STATUS_LABELS[status]}»`);
     } else {
       toast.error(result.error);
     }
@@ -70,8 +84,13 @@ export function AccountDetailActions({
       const result = await archiveAccount(accountId);
       if (result.success) {
         setArchiveOpen(false);
-        toast.success('Cuenta archivada');
-        router.push('/accounts');
+        toast.success('Empresa archivada');
+        if (onArchived) {
+          router.refresh();
+          onArchived();
+        } else {
+          router.push('/accounts');
+        }
       } else {
         toast.error(result.error);
       }
@@ -87,14 +106,14 @@ export function AccountDetailActions({
           render={
             <Button type="button" variant="outline" size="icon-sm">
               <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
-              <span className="sr-only">Acciones de cuenta</span>
+              <span className="sr-only">Más acciones de la empresa</span>
             </Button>
           }
         />
         <DropdownMenuContent align="end">
           <DropdownMenuItem onClick={() => setEditOpen(true)}>
             <Pencil className="h-3.5 w-3.5" />
-            Editar cuenta
+            Editar empresa
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuSub>
@@ -117,7 +136,7 @@ export function AccountDetailActions({
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onClick={() => setArchiveOpen(true)}>
             <Archive className="h-3.5 w-3.5" />
-            Archivar
+            Archivar empresa
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -126,15 +145,19 @@ export function AccountDetailActions({
         accountId={accountId}
         users={users}
         open={editOpen}
-        onOpenChange={setEditOpen}
+        onOpenChange={(nextOpen) => {
+          setEditOpen(nextOpen);
+          // Al cerrar el editor, quien aloja el menú vuelve a leer la empresa.
+          if (!nextOpen) onChanged?.();
+        }}
       />
 
       <Dialog open={archiveOpen} onOpenChange={setArchiveOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Archivar cuenta</DialogTitle>
+            <DialogTitle>Archivar empresa</DialogTitle>
             <DialogDescription>
-              Esta acción retira la cuenta del pipeline activo. Solo un administrador puede
+              Esta acción retira la empresa del pipeline activo. Solo un administrador puede
               realizarla y queda registrada en auditoría. ¿Confirmas?
             </DialogDescription>
           </DialogHeader>
@@ -159,7 +182,7 @@ export function AccountDetailActions({
                   Archivando…
                 </>
               ) : (
-                'Archivar cuenta'
+                'Archivar empresa'
               )}
             </Button>
           </DialogFooter>

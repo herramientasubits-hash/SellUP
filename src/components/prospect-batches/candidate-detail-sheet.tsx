@@ -1,6 +1,6 @@
 'use client';
 
-import { formatInAppZone, withAppTimeZone } from '@/lib/format-date';
+import { formatAppDateTime, formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -17,8 +17,6 @@ import {
   Globe,
   Link2,
   ShieldCheck,
-  ChevronDown,
-  ChevronRight,
   Building2,
   MapPin,
   AlertTriangle,
@@ -31,7 +29,6 @@ import {
   Info,
   Copy,
   Target,
-  BarChart3,
   FileText,
   Search,
   ClipboardCheck,
@@ -53,9 +50,10 @@ import type { TaxIdentifierLookupMetadata } from '@/server/prospect-batches/tax-
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { ModalShell } from '@/components/shared/modal-shell';
 import { DrawerSection } from '@/components/shared/drawer-section';
+import { CollapsibleDrawerSection } from '@/components/shared/collapsible-drawer-section';
+import { CandidateDetailSummary, describePendingEvaluation } from './candidate-detail-summary';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Spinner } from '@/components/feedback/spinner';
-import { MetricCard } from '@/components/shared/metric-card';
 import { Badge } from '@/components/ui/badge';
 import {
   hasOwnershipUnverifiedFlag,
@@ -405,36 +403,6 @@ function classifyRisk(riskText: string): 'critical' | 'high' | 'medium' | 'low' 
     return 'medium';
   }
   return 'low';
-}
-
-function CollapsibleSection({
-  title,
-  children,
-  defaultOpen = false,
-}: {
-  title: string;
-  children: React.ReactNode;
-  defaultOpen?: boolean;
-}) {
-  const [open, setOpen] = React.useState(defaultOpen);
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="mb-2 flex w-full items-center gap-1.5 rounded-sm text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-      >
-        {open ? (
-          <ChevronDown className="h-3 w-3" aria-hidden="true" />
-        ) : (
-          <ChevronRight className="h-3 w-3" aria-hidden="true" />
-        )}
-        {title}
-      </button>
-      {open && <div>{children}</div>}
-    </div>
-  );
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -904,6 +872,79 @@ export function CandidateDetailSheet({
     tax_identifier_conflict: 'Evaluación pausada por NIT inconsistente',
   };
 
+  // ── Resumen de cabecera y de las secciones plegables ──────────
+  // Una sección plegada no es una fila muda: adelanta lo que contiene.
+  const completenessPct =
+    typeof candidate.data_completeness_score === 'number'
+      ? candidate.data_completeness_score
+      : typeof enrichment?.completeness_pct === 'number'
+        ? enrichment.completeness_pct
+        : null;
+
+  const pendingEvaluation = describePendingEvaluation({
+    enrichmentStatus: (enrichment?.status as string | undefined) ?? null,
+    fitStatus,
+    hasTaxIdConflict: hasNitConflict,
+    hasOfficialWebsite,
+    hasLinkedin: Boolean(effectiveLinkedinUrl),
+    hasSector: Boolean(sectorDescription),
+    hasSize: Boolean(employeeCount),
+  });
+
+  const taxIdLabel = getTaxIdLabel(candidate.country_code);
+
+  const officialDataSummary = [
+    candidate.legal_name ?? candidate.name,
+    candidate.tax_identifier
+      ? `${candidate.tax_identifier_type ?? taxIdLabel} ${candidate.tax_identifier}`
+      : 'sin identificador fiscal',
+    [candidate.city, candidate.country ?? candidate.country_code].filter(Boolean).join(', ') || null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+  const commercialSummary = [
+    hasOfficialWebsite && candidate.website
+      ? (candidate.domain ?? extractDomainFromUrl(candidate.website) ?? candidate.website)
+      : 'sin sitio web oficial',
+    effectiveLinkedinUrl ? 'con LinkedIn' : suggestedLinkedinDisplay ? 'LinkedIn sugerido' : 'sin LinkedIn',
+    employeeCountFieldDisplay.value !== null
+      ? `${employeeCountFieldDisplay.value.toLocaleString('es-CO')} empleados`
+      : employeeCount
+        ? `${employeeCount} empleados`
+        : 'sin tamaño',
+  ].join(' · ');
+
+  const hasTaxIdSuggestion = !candidate.tax_identifier && Boolean(taxIdLookup?.best_candidate);
+  const taxIdSummary = candidate.tax_identifier
+    ? `${candidate.tax_identifier} · validado`
+    : isLookingUpTaxId || taxIdLookup?.status === 'searching'
+      ? 'Buscando…'
+      : hasTaxIdSuggestion
+        ? 'Hay uno sugerido: revísalo antes de aprobar'
+        : taxIdLookup?.status === 'failed'
+          ? 'La búsqueda no se pudo completar'
+          : taxIdLookup?.status === 'no_result' || taxIdLookup?.status === 'completed'
+            ? 'No se encontró uno confiable'
+            : 'Sin identificador todavía';
+
+  const riskCounts = sortedRisks.reduce<Record<string, number>>((counts, risk) => {
+    const severity = classifyRisk(risk);
+    return { ...counts, [severity]: (counts[severity] ?? 0) + 1 };
+  }, {});
+  const riskSummary = (
+    [
+      ['critical', 'crítico', 'críticos'],
+      ['high', 'alto', 'altos'],
+      ['medium', 'medio', 'medios'],
+      ['low', 'bajo', 'bajos'],
+    ] as const
+  )
+    .filter(([severity]) => (riskCounts[severity] ?? 0) > 0)
+    .map(([severity, singular, plural]) => `${riskCounts[severity]} ${riskCounts[severity] === 1 ? singular : plural}`)
+    .join(' · ');
+  const hasSeriousRisk = (riskCounts.critical ?? 0) > 0 || (riskCounts.high ?? 0) > 0;
+
   const SOURCE_TYPE_LABELS: Record<string, string> = {
     commercial_directory: 'Directorio comercial',
     public_registry: 'Registro público',
@@ -927,7 +968,29 @@ export function CandidateDetailSheet({
         icon={<Building2 className="h-4 w-4" />}
         title={candidate.name}
         description={
-          <div className="flex items-center gap-2 flex-wrap">
+          // Cabecera: nombre (título) + estado + dónde está. Son `span`: la
+          // descripción del panel es un párrafo y no admite bloques dentro.
+          <span className="flex flex-wrap items-center gap-2">
+            <Badge
+              variant={
+                candidate.status === 'approved'
+                  ? 'positive'
+                  : candidate.status === 'needs_review' || candidate.status === 'duplicate'
+                    ? 'warning'
+                    : candidate.status === 'converted_to_account'
+                      ? 'brand'
+                      : 'neutral'
+              }
+            >
+              {CANDIDATE_STATUS_LABELS[candidate.status]}
+            </Badge>
+            {candidate.review_status && (
+              <Badge className={`border-0 ${
+                REVIEW_STATUS_STYLES[candidate.review_status as ReviewStatus] ?? 'bg-muted text-muted-foreground'
+              }`}>
+                {REVIEW_STATUS_LABELS[candidate.review_status as ReviewStatus] ?? candidate.review_status}
+              </Badge>
+            )}
             {candidate.country_code && (
               <span className="flex items-center gap-1">
                 <MapPin className="h-3 w-3" aria-hidden="true" />
@@ -942,7 +1005,7 @@ export function CandidateDetailSheet({
             ) : sourcePrimaryLabel ? (
               <span className="text-xs text-muted-foreground">{sourcePrimaryLabel}</span>
             ) : null}
-          </div>
+          </span>
         }
         footer={
           <ProspectReviewActions
@@ -1021,84 +1084,16 @@ export function CandidateDetailSheet({
               </div>
             ))}
 
-            {/* KPIs: Scores y Estado */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <MetricCard
-                title="Encaje"
-                description="Evaluación comercial"
-                value={fitScore !== null ? fitScore.toFixed(0) : '—'}
-                subtitle="/ 100"
-                icon={
-                  <div className="rounded-lg p-1.5 bg-primary/10">
-                    <Target className="h-4 w-4 text-primary" />
-                  </div>
-                }
-                iconPosition="right"
-                valueClassName={fitScore !== null ? (fitScore >= 75 ? 'text-success' : fitScore >= 50 ? 'text-warning' : '') : ''}
-              />
-              <MetricCard
-                title="Completitud"
-                description="Datos esenciales"
-                value={(() => {
-                  const score = candidate.data_completeness_score;
-                  if (typeof score === 'number') return score;
-                  const enrichment = candidate.metadata?.enrichment as Record<string, unknown> | undefined;
-                  const pct = enrichment?.completeness_pct;
-                  if (typeof pct === 'number') return pct;
-                  return '—';
-                })()}
-                subtitle={(() => {
-                  const score = candidate.data_completeness_score;
-                  if (typeof score === 'number') return '%';
-                  const enrichment = candidate.metadata?.enrichment as Record<string, unknown> | undefined;
-                  const pct = enrichment?.completeness_pct;
-                  if (typeof pct === 'number') return '%';
-                  return '';
-                })()}
-                icon={
-                  <div className="rounded-lg p-1.5 bg-primary/10">
-                    <BarChart3 className="h-4 w-4 text-primary" />
-                  </div>
-                }
-                iconPosition="right"
-              />
-              <MetricCard
-                title="Estado"
-                description="En SellUp"
-                value={CANDIDATE_STATUS_LABELS[candidate.status]}
-                compact
-                icon={
-                  <div className={`rounded-lg p-1.5 ${
-                    candidate.status === 'approved' ? 'bg-success/10' :
-                    candidate.status === 'needs_review' ? 'bg-warning/10' :
-                    candidate.status === 'converted_to_account' ? 'bg-primary/10' :
-                    'bg-muted'
-                  }`}>
-                    <CheckCircle2 className={`h-4 w-4 ${
-                      candidate.status === 'approved' ? 'text-success' :
-                      candidate.status === 'needs_review' ? 'text-warning' :
-                      candidate.status === 'converted_to_account' ? 'text-primary' :
-                      'text-muted-foreground'
-                    }`} />
-                  </div>
-                }
-                iconPosition="right"
-                footer={candidate.review_status ? (
-                  <div className="flex items-center gap-2 pt-2 border-t border-border/60">
-                    <span className="text-xs text-muted-foreground">Revisión:</span>
-                    <Badge className={`border-0 ${
-                      REVIEW_STATUS_STYLES[candidate.review_status as ReviewStatus] ??'bg-muted text-muted-foreground'
-                    }`}>
-                      {REVIEW_STATUS_LABELS[candidate.review_status as ReviewStatus] ?? candidate.review_status}
-                    </Badge>
-                  </div>
-                ) : undefined}
-              />
-            </div>
+            {/* Resumen: lo que hay evaluado o, si no hay nada, qué falta para evaluarlo */}
+            <CandidateDetailSummary
+              fitScore={fitScore}
+              completeness={completenessPct}
+              pendingEvaluation={pendingEvaluation}
+            />
 
             {/* AI Summary */}
             {aiSummary && (
-              <DrawerSection title="Resumen del Negocio (IA)" icon={FileText}>
+              <DrawerSection title="Resumen del negocio (IA)" icon={FileText}>
                 <p className="text-sm text-muted-foreground leading-relaxed italic break-words">
                   &ldquo;{isChileOfficialCandidate ? sanitizeTextForChile(aiSummary) : aiSummary}&rdquo;
                 </p>
@@ -1112,7 +1107,7 @@ export function CandidateDetailSheet({
                   <dl className="space-y-3">
                     {!!searchTrace?.query_text && (
                       <div className="min-w-0 space-y-1">
-                        <dt className="text-xs text-muted-foreground">Query de búsqueda</dt>
+                        <dt className="text-xs text-muted-foreground">Consulta de búsqueda</dt>
                         <dd className="text-xs text-foreground leading-snug font-mono break-words bg-surface-subtle rounded-md px-2.5 py-1.5">
                           {String(searchTrace.query_text)}
                         </dd>
@@ -1234,7 +1229,7 @@ export function CandidateDetailSheet({
 
             {/* Conversión y HubSpot Sync */}
             {candidate.status === 'converted_to_account' && candidate.converted_account_id && (
-              <DrawerSection title="Conversión a Cuenta" icon={ArrowRightCircle}>
+              <DrawerSection title="Conversión a cuenta" icon={ArrowRightCircle}>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="rounded-xl border border-primary/20 bg-primary/10 px-3 py-2.5 space-y-1">
                     <div className="flex items-center gap-2">
@@ -1264,10 +1259,10 @@ export function CandidateDetailSheet({
                       synced: 'Sincronizado',
                       blocked_duplicate: 'Bloqueado (Duplicado)',
                       blocked_inactive_or_liquidation: 'Bloqueado (Inactivo)',
-                      skipped_flag_off: 'Omitido (Feature Flag)',
-                      skipped_rollback: 'Omitido (Rollback)',
-                      failed_lookup: 'Fallo búsqueda',
-                      failed_create: 'Fallo creación',
+                      skipped_flag_off: 'Omitido (sincronización desactivada)',
+                      skipped_rollback: 'Omitido (operación revertida)',
+                      failed_lookup: 'Falló la búsqueda',
+                      failed_create: 'Falló la creación',
                     };
 
                     const variant = statusVariants[hsSync.status] ?? 'neutral';
@@ -1278,7 +1273,7 @@ export function CandidateDetailSheet({
                         <div className="space-y-1.5">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <span className="text-xs font-semibold text-muted-foreground">
-                              HubSpot Sync
+                              Sincronización con HubSpot
                             </span>
                             <Badge variant={variant}>{label}</Badge>
                           </div>
@@ -1289,7 +1284,7 @@ export function CandidateDetailSheet({
                                 <dd className="min-w-0 break-all font-mono font-medium text-foreground">{hsSync.company_id}</dd>
                               </div>
                               <div className="flex items-center justify-between gap-2">
-                                <dt className="text-muted-foreground">Owner:</dt>
+                                <dt className="text-muted-foreground">Responsable:</dt>
                                 <dd className="font-medium text-foreground">
                                   {hsSync.owner_assigned || hsSync.owner_mapping_status === 'mapped' ? 'Asignado' : 'No asignado'}
                                 </dd>
@@ -1307,7 +1302,7 @@ export function CandidateDetailSheet({
             {/* Análisis de Encaje IA */}
             {hasAiEval && showAiEvaluation && (
               <DrawerSection
-                title="Análisis de Encaje"
+                title="Análisis de encaje"
                 icon={Target}
                 action={
                   <InfoTooltip content="Evaluación automática basada en información pública. No reemplaza la revisión comercial." />
@@ -1347,7 +1342,7 @@ export function CandidateDetailSheet({
             {/* Oportunidades comerciales */}
             {hasAiEval && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <DrawerSection title="Necesidades Detectadas" icon={Lightbulb}>
+                <DrawerSection title="Necesidades detectadas" icon={Lightbulb}>
                   {(() => {
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     const enrichmentData = candidate.metadata?.enrichment as any;
@@ -1373,7 +1368,7 @@ export function CandidateDetailSheet({
                     );
                   })()}
                 </DrawerSection>
-                <DrawerSection title="Ángulos Comerciales" icon={Sparkles}>
+                <DrawerSection title="Ángulos comerciales" icon={Sparkles}>
                   {(() => {
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     const enrichmentData = candidate.metadata?.enrichment as any;
@@ -1402,9 +1397,13 @@ export function CandidateDetailSheet({
               </div>
             )}
 
-            {/* Datos Oficiales y Legales */}
-            <CollapsibleSection title="Datos Oficiales y Legales" defaultOpen>
-            <DrawerSection title="Datos Oficiales y Legales" icon={Landmark}>
+            {/* Datos oficiales y legales */}
+            <CollapsibleDrawerSection
+              title="Datos oficiales y legales"
+              icon={Landmark}
+              summary={officialDataSummary}
+              defaultOpen
+            >
               {isChileOfficialCandidate ? (
                 <FieldGrid>
                   <Field label="Razón social" value={val(candidate.legal_name ?? candidate.name)} />
@@ -1510,33 +1509,26 @@ export function CandidateDetailSheet({
                 </FieldGrid>
                 </>
               )}
-            </DrawerSection>
-            </CollapsibleSection>
+            </CollapsibleDrawerSection>
 
+            {/* Estos tres bloques ya son una tarjeta con su propio título:
+                envolverlos en otro rótulo plegable enseñaba el nombre dos veces. */}
             {/* Sugerencia de Claude (sector/tamaño con fuente) — sólo si existe */}
-            {claudeClassification && (
-              <CollapsibleSection title="Sugerencia de Claude" defaultOpen>
-                <ClaudeClassificationBlock display={claudeClassification} />
-              </CollapsibleSection>
-            )}
+            {claudeClassification && <ClaudeClassificationBlock display={claudeClassification} />}
 
             {/* Validación Legal SUNAT — solo para candidatos Perú */}
-            {isPeCandidate && (
-              <CollapsibleSection title="Validación Legal SUNAT" defaultOpen>
-                <PeruSunatLegalValidationBlock block={peSunatBlock} />
-              </CollapsibleSection>
-            )}
+            {isPeCandidate && <PeruSunatLegalValidationBlock block={peSunatBlock} />}
 
             {/* Validación complementaria Migo — solo si existe pe_migo_api */}
-            {isPeCandidate && peMigoBlock && (
-              <CollapsibleSection title="Validación complementaria Migo" defaultOpen>
-                <PeruMigoLegalValidationBlock block={peMigoBlock} />
-              </CollapsibleSection>
-            )}
+            {isPeCandidate && peMigoBlock && <PeruMigoLegalValidationBlock block={peMigoBlock} />}
 
-            {/* Datos Comerciales y Web */}
-            <CollapsibleSection title="Datos Comerciales y Web">
-            <DrawerSection title="Datos Comerciales y Web" icon={Globe}>
+            {/* Datos comerciales y web — abierta cuando hay algo que mirar */}
+            <CollapsibleDrawerSection
+              title="Datos comerciales y web"
+              icon={Globe}
+              summary={commercialSummary}
+              defaultOpen={hasOfficialWebsite || Boolean(effectiveLinkedinUrl)}
+            >
               <div className="space-y-3">
                 <FieldGrid>
                   <Field
@@ -1719,8 +1711,7 @@ export function CandidateDetailSheet({
                   </div>
                 ) : null}
               </div>
-            </DrawerSection>
-            </CollapsibleSection>
+            </CollapsibleDrawerSection>
 
             {/* Tamaño ICP */}
             {(() => {
@@ -1740,25 +1731,38 @@ export function CandidateDetailSheet({
                 danger: 'negative',
                 neutral: 'neutral',
               };
+              const icpVerdict =
+                icpState.decision === 'pass'
+                  ? 'ICP >200 validado'
+                  : icpState.decision === 'needs_validation'
+                  ? 'Tamaño pendiente de validación'
+                  : icpState.decision === 'block'
+                  ? 'Fuera de ICP por tamaño'
+                  : 'Sin evaluación de tamaño';
               return (
-                <CollapsibleSection title="Tamaño ICP">
-                <DrawerSection title="Tamaño ICP" hint="Umbral: más de 200 colaboradores" icon={Users}>
+                <CollapsibleDrawerSection
+                  title="Tamaño ICP"
+                  hint="Umbral: más de 200 colaboradores"
+                  summary={[icpVerdict, icpState.rangeLabel].filter(Boolean).join(' · ')}
+                  icon={Users}
+                  tone={
+                    icpState.decision === 'block'
+                      ? 'negative'
+                      : icpState.decision === 'needs_validation'
+                      ? 'warning'
+                      : 'brand'
+                  }
+                  // Abierta cuando el tamaño pide una decisión; si pasa o no se midió, plegada.
+                  defaultOpen={icpState.decision === 'block' || icpState.decision === 'needs_validation'}
+                >
                   <div className="space-y-3">
                     {/* Badge de estado */}
-                    <Badge variant={badgeVariant[icpState.tone] ?? 'neutral'}>
-                      {icpState.decision === 'pass'
-                        ? 'ICP >200 validado'
-                        : icpState.decision === 'needs_validation'
-                        ? 'Tamaño pendiente de validación'
-                        : icpState.decision === 'block'
-                        ? 'Fuera de ICP por tamaño'
-                        : 'Sin evaluación de tamaño'}
-                    </Badge>
+                    <Badge variant={badgeVariant[icpState.tone] ?? 'neutral'}>{icpVerdict}</Badge>
 
                     {/* Detalle */}
                     {!icpState.decision ? (
                       <p className="text-xs text-muted-foreground italic">
-                        Este candidato no tiene evaluación de tamaño ICP registrada. Puede venir de un flujo anterior o de un flujo que aún no pasa por el ICP Size Gate.
+                        Este prospecto no tiene una evaluación de tamaño registrada: llegó por una vía que todavía no mide el tamaño. Revísalo a mano antes de decidir.
                       </p>
                     ) : (
                       <div className="space-y-3">
@@ -1792,8 +1796,7 @@ export function CandidateDetailSheet({
                       </div>
                     )}
                   </div>
-                </DrawerSection>
-                </CollapsibleSection>
+                </CollapsibleDrawerSection>
               );
             })()}
 
@@ -1824,11 +1827,22 @@ export function CandidateDetailSheet({
               // neutro por diseño, no por omisión.
 
               return (
-                <CollapsibleSection title="Subindustria solicitada">
-                <DrawerSection
+                <CollapsibleDrawerSection
                   title="Subindustria solicitada"
                   hint="Sólo una subindustria confirmada cuenta hacia el objetivo de la búsqueda."
+                  summary={`${subindustryStatus.requestedSubindustry ?? 'Sin subindustria declarada'} · ${subindustryStatus.verdictLabel}`}
                   icon={Tag}
+                  tone={
+                    subindustryStatus.verdict === 'rejected'
+                      ? 'negative'
+                      : subindustryStatus.verdict === 'ambiguous'
+                      ? 'warning'
+                      : 'brand'
+                  }
+                  // Abierta cuando NO quedó confirmada: es justo lo que hay que mirar.
+                  defaultOpen={
+                    subindustryStatus.verdict === 'ambiguous' || subindustryStatus.verdict === 'rejected'
+                  }
                 >
                   <div className="space-y-3" data-testid="candidate-subindustry-status">
                     <dl>
@@ -1892,18 +1906,25 @@ export function CandidateDetailSheet({
                       </div>
                     )}
                   </div>
-                </DrawerSection>
-                </CollapsibleSection>
+                </CollapsibleDrawerSection>
               );
             })()}
 
-            {/* Evidencia Pública Encontrada */}
+            {/* Evidencia pública encontrada */}
             {displayedPublicEvidence.length > 0 && (
-              <CollapsibleSection title="Evidencia Pública">
-              <DrawerSection
-                title="Evidencia pública encontrada"
+              <CollapsibleDrawerSection
+                title="Evidencia pública"
                 icon={FileSearch}
                 badge={displayedPublicEvidence.length}
+                summary={Array.from(
+                  new Set(
+                    displayedPublicEvidence.map(
+                      (item) => SOURCE_TYPE_LABELS[item.source_type as string] || String(item.source_type),
+                    ),
+                  ),
+                )
+                  .slice(0, 3)
+                  .join(', ')}
               >
                 <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {displayedPublicEvidence.map((item, idx) => {
@@ -1936,7 +1957,7 @@ export function CandidateDetailSheet({
                             href={item.url as string}
                             target="_blank"
                             rel="noopener noreferrer"
-                            aria-label="Abrir fuente"
+                            aria-label={`Abrir la fuente «${String(item.title)}» en una pestaña nueva`}
                             className="rounded-md p-1 text-primary transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                           >
                             <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -1946,16 +1967,18 @@ export function CandidateDetailSheet({
                     );
                   })}
                 </ul>
-              </DrawerSection>
-              </CollapsibleSection>
+              </CollapsibleDrawerSection>
             )}
 
-            {/* Identificador Fiscal — estado automático */}
-            <CollapsibleSection title="Identificador Fiscal">
-            <DrawerSection
-              title="Identificador Fiscal"
+            {/* Identificador fiscal — estado automático */}
+            <CollapsibleDrawerSection
+              title="Identificador fiscal"
               hint="Dato legal o tributario consultado en fuentes disponibles. Debe revisarse antes de aprobarlo."
+              summary={taxIdSummary}
               icon={Hash}
+              tone={hasTaxIdSuggestion ? 'warning' : 'brand'}
+              // Abierta cuando hay una sugerencia esperando tu decisión.
+              defaultOpen={hasTaxIdSuggestion}
             >
 
               {candidate.tax_identifier ? (
@@ -2138,8 +2161,7 @@ export function CandidateDetailSheet({
                   );
                 })()
               )}
-            </DrawerSection>
-            </CollapsibleSection>
+            </CollapsibleDrawerSection>
 
           </TabsContent>
 
@@ -2163,7 +2185,7 @@ export function CandidateDetailSheet({
 
             {/* Estado de Duplicidad */}
             <DrawerSection
-              title="Verificación de Duplicidad"
+              title="Verificación de duplicidad"
               hint="Determina si esta empresa ya existe en los registros internos de SellUp o HubSpot CRM."
               icon={Layers}
             >
@@ -2383,14 +2405,15 @@ export function CandidateDetailSheet({
               </div>
             )}
 
-            {/* Riesgos e Incertidumbres */}
+            {/* Riesgos e incertidumbres — abierta si hay alguno crítico o alto */}
             {sortedRisks.length > 0 && (
-              <CollapsibleSection title="Riesgos e Incertidumbres">
-              <DrawerSection
-                title="Riesgos e Incertidumbres"
+              <CollapsibleDrawerSection
+                title="Riesgos e incertidumbres"
                 icon={ShieldAlert}
-                tone="warning"
+                tone={hasSeriousRisk ? 'negative' : 'warning'}
                 badge={sortedRisks.length}
+                summary={riskSummary}
+                defaultOpen={hasSeriousRisk}
               >
                 <ul className="space-y-2">
                   {sortedRisks.map((risk, i) => {
@@ -2416,18 +2439,20 @@ export function CandidateDetailSheet({
                     );
                   })}
                 </ul>
-              </DrawerSection>
-              </CollapsibleSection>
+              </CollapsibleDrawerSection>
             )}
 
-            {/* Datos Faltantes (de evaluación IA) */}
+            {/* Datos faltantes (de evaluación IA) */}
             {missingFields.length > 0 && (
-              <CollapsibleSection title="Datos Faltantes">
-              <DrawerSection
-                title="Datos Faltantes"
+              <CollapsibleDrawerSection
+                title="Datos faltantes"
                 icon={CircleDashed}
                 tone="neutral"
                 badge={missingFields.length}
+                summary={missingFields
+                  .slice(0, 3)
+                  .map((field) => (isChileOfficialCandidate ? sanitizeTextForChile(field) : field))
+                  .join(' · ')}
               >
                 <ul className="space-y-1.5">
                   {missingFields.map((field, i) => (
@@ -2437,14 +2462,24 @@ export function CandidateDetailSheet({
                     </li>
                   ))}
                 </ul>
-              </DrawerSection>
-              </CollapsibleSection>
+              </CollapsibleDrawerSection>
             )}
 
-            {/* Evidencia de País */}
+            {/* Evidencia de país */}
             {!!countryEvidence && (
-              <CollapsibleSection title="Evidencia de País" defaultOpen>
-              <DrawerSection title="Evidencia de País" icon={MapPin}>
+              <CollapsibleDrawerSection
+                title="Evidencia de país"
+                icon={MapPin}
+                summary={
+                  (
+                    { strong: 'Evidencia fuerte', weak: 'Evidencia débil', query_only: 'Solo aparece en la búsqueda' } as Record<
+                      string,
+                      string
+                    >
+                  )[String(countryEvidence.evidence_level ?? '')] ?? 'Nivel de evidencia sin clasificar'
+                }
+                defaultOpen
+              >
                 {(() => {
                   const level = countryEvidence.evidence_level as string | undefined;
                   const sources = countryEvidence.evidence_sources as string[] | undefined;
@@ -2504,14 +2539,34 @@ export function CandidateDetailSheet({
                     </div>
                   );
                 })()}
-              </DrawerSection>
-              </CollapsibleSection>
+              </CollapsibleDrawerSection>
             )}
 
-            {/* Validación de Sitio Web */}
+            {/* Validación del sitio web */}
             {!!websiteVerification && (
-              <CollapsibleSection title="Validación de Sitio Web" defaultOpen>
-              <DrawerSection title="Validación de Sitio Web" icon={Globe}>
+              <CollapsibleDrawerSection
+                title="Validación del sitio web"
+                icon={Globe}
+                summary={
+                  websiteVerification.skipped
+                    ? 'Verificación omitida'
+                    : [
+                        (
+                          {
+                            verified: 'Verificado',
+                            inferred: 'Inferido',
+                            mismatch: 'No coincide',
+                            not_found: 'No encontrado',
+                            error: 'Error al verificar',
+                          } as Record<string, string>
+                        )[String(websiteVerification.status ?? '')] ?? null,
+                        (websiteVerification.domain as string | undefined) ?? null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ') || 'Sin resultado'
+                }
+                defaultOpen
+              >
                 {(() => {
                   const wvStatus = websiteVerification.status as string | undefined;
                   const wvDomain = websiteVerification.domain as string | undefined;
@@ -2566,14 +2621,24 @@ export function CandidateDetailSheet({
                     </div>
                   );
                 })()}
-              </DrawerSection>
-              </CollapsibleSection>
+              </CollapsibleDrawerSection>
             )}
 
-            {/* Motivos de Revisión */}
+            {/* Motivos de revisión */}
             {!!(scoringMeta?.reasons || scoringMeta?.warnings) && (
-              <CollapsibleSection title="Motivos de Revisión" defaultOpen>
-              <DrawerSection title="Motivos de Revisión del Agente 1" icon={ClipboardCheck}>
+              <CollapsibleDrawerSection
+                title="Motivos de revisión"
+                icon={ClipboardCheck}
+                summary={[
+                  [scoringMeta.reasons, 'a favor'],
+                  [scoringMeta.warnings, 'advertencias'],
+                  [scoringMeta.blockers, 'bloqueadores'],
+                ]
+                  .filter(([list]) => Array.isArray(list) && list.length > 0)
+                  .map(([list, label]) => `${(list as unknown[]).length} ${label as string}`)
+                  .join(' · ')}
+                defaultOpen
+              >
                 <div className="space-y-3">
                   {Array.isArray(scoringMeta.reasons) && (scoringMeta.reasons as string[]).length > 0 && (
                     <div className="space-y-1.5">
@@ -2615,14 +2680,17 @@ export function CandidateDetailSheet({
                     </div>
                   )}
                 </div>
-              </DrawerSection>
-              </CollapsibleSection>
+              </CollapsibleDrawerSection>
             )}
 
-            {/* Datos de Validación (Claves normalizadas) */}
+            {/* Datos de la validación (incluye las claves normalizadas) */}
             {validationMetaSheet && (
-              <CollapsibleSection title="Claves Normalizadas">
-              <DrawerSection title="Datos de la Validación" icon={Key} tone="neutral">
+              <CollapsibleDrawerSection
+                title="Datos de la validación"
+                icon={Key}
+                tone="neutral"
+                summary={`Última validación: ${formatAppDateTime(validationMetaSheet.validated_at || candidate.updated_at)}`}
+              >
                 <div className="space-y-3">
                   <FieldGrid>
                     <Field
@@ -2653,7 +2721,7 @@ export function CandidateDetailSheet({
                     />
                     <Field
                       label="Última validación"
-                      value={new Date(validationMetaSheet.validated_at || candidate.updated_at).toLocaleString('es-CO', withAppTimeZone())}
+                      value={formatAppDateTime(validationMetaSheet.validated_at || candidate.updated_at)}
                     />
                   </FieldGrid>
 
@@ -2674,25 +2742,29 @@ export function CandidateDetailSheet({
                     </div>
                   )}
                 </div>
-              </DrawerSection>
-              </CollapsibleSection>
+              </CollapsibleDrawerSection>
             )}
 
-            {/* Detalle Técnico del Sistema */}
-            <CollapsibleSection title="Detalle Técnico">
-            <div className="space-y-4">
-            <DrawerSection title="Detalle Técnico del Sistema" icon={Settings2} tone="neutral">
+            {/* Detalle técnico: identificadores, fechas y la traza de la búsqueda */}
+            <CollapsibleDrawerSection
+              title="Detalle técnico"
+              icon={Settings2}
+              tone="neutral"
+              summary="Identificadores, fechas y traza de la búsqueda"
+              contentClassName="space-y-4"
+            >
+            <div>
               <FieldGrid>
-                <Field label="Candidate ID" value={candidate.id} mono />
-                <Field label="Batch ID" value={candidate.batch_id} mono />
+                <Field label="ID del prospecto" value={candidate.id} mono />
+                <Field label="ID del lote" value={candidate.batch_id} mono />
                 <Field label="Fuente primaria" value={val(candidate.source_primary)} mono />
-                <Field label="Creado" value={new Date(candidate.created_at).toLocaleString('es-CO', withAppTimeZone())} />
-                <Field label="Actualizado" value={new Date(candidate.updated_at).toLocaleString('es-CO', withAppTimeZone())} />
+                <Field label="Creado" value={formatAppDateTime(candidate.created_at)} />
+                <Field label="Actualizado" value={formatAppDateTime(candidate.updated_at)} />
                 {candidate.reviewed_at && (
-                  <Field label="Revisado" value={new Date(candidate.reviewed_at).toLocaleString('es-CO', withAppTimeZone())} />
+                  <Field label="Revisado" value={formatAppDateTime(candidate.reviewed_at)} />
                 )}
                 {candidate.confidence_score !== null && (
-                  <Field label="Puntaje Confianza" value={`${candidate.confidence_score?.toFixed(0)}%`} />
+                  <Field label="Puntaje de confianza" value={`${candidate.confidence_score?.toFixed(0)}%`} />
                 )}
                 {candidate.estimated_cost_usd !== null && Number(candidate.estimated_cost_usd) > 0 && (
                   <Field label="Costo estimado" value={`$${Number(candidate.estimated_cost_usd).toFixed(4)} USD`} mono />
@@ -2705,9 +2777,10 @@ export function CandidateDetailSheet({
                   <p className="text-sm text-foreground leading-relaxed break-words">{candidate.review_notes}</p>
                 </div>
               )}
-            </DrawerSection>
+            </div>
 
-            <DrawerSection title="Source Trace Raw JSON" icon={Database} tone="neutral">
+            <div className="space-y-2 border-t border-border/50 pt-3.5">
+              <p className="text-xs font-semibold text-muted-foreground">Traza de la búsqueda (JSON)</p>
               {(() => {
                 const hasSourceTrace = candidate.source_trace && Object.keys(candidate.source_trace).length > 0;
                 const hasSearchTrace = searchTrace && Object.keys(searchTrace).length > 0;
@@ -2727,9 +2800,8 @@ export function CandidateDetailSheet({
                   </pre>
                 );
               })()}
-            </DrawerSection>
             </div>
-            </CollapsibleSection>
+            </CollapsibleDrawerSection>
           </TabsContent>
         </Tabs>
       </DrawerShell>
@@ -2737,7 +2809,7 @@ export function CandidateDetailSheet({
       <ModalShell
         open={!!confirmDialogData}
         onOpenChange={(open) => { if (!open) setConfirmDialogData(null); }}
-        title="Confirmar Identificador Fiscal"
+        title="Confirmar identificador fiscal"
         description={
           <span>
             ¿Estás seguro de que deseas aprobar <span className="font-mono text-foreground font-medium">{confirmDialogData?.taxIdentifier}</span> como el identificador fiscal oficial de este candidato?
@@ -2772,7 +2844,7 @@ export function CandidateDetailSheet({
               {isApprovingTaxId ? (
                 <>
                   <Loader2 className="animate-spin" aria-hidden="true" />
-                  Guardando...
+                  Guardando…
                 </>
               ) : (
                 `Guardar ${getTaxIdLabel(candidate?.country_code)}`
@@ -2785,7 +2857,7 @@ export function CandidateDetailSheet({
           <dl className="divide-y divide-border/50 text-sm">
             {confirmDialogData?.legalName && (
               <div className="flex items-start justify-between gap-3 py-2 first:pt-0">
-                <dt className="shrink-0 text-xs text-muted-foreground">Razón Social:</dt>
+                <dt className="shrink-0 text-xs text-muted-foreground">Razón social:</dt>
                 <dd className="min-w-0 break-words text-right font-medium text-foreground">{confirmDialogData.legalName}</dd>
               </div>
             )}
