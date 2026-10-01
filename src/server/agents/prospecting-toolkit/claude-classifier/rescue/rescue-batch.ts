@@ -3,7 +3,7 @@
  *
  * Corre en segundo plano al terminar una búsqueda del asistente:
  *  1. «Candidatos por revisar» a los que les falta sector o tamaño;
- *  2. «Descartadas» por falta de datos.
+ *  2. «Descartadas» por falta de datos (y, con el buscador encendido, sin dominio).
  * Respeta la configuración igual que el clasificador (modelo de Configuración → IA,
  * cuota de Anthropic) y registra cada llamada en `provider_usage_logs`.
  */
@@ -15,8 +15,22 @@ import type {
   ClassifierCompanyInput,
   CompanyClassificationResult,
 } from '../types';
+import type { DuplicateCheckInput } from '../../types';
+import type { DomainFinderInput, DomainFinderOutcome } from '../domain-finder';
 import type { LogProviderUsageInput } from '@/modules/usage-tracking/types';
 import type { SendToReviewOrigin } from '@/modules/prospect-discards/send-to-review-core';
+import {
+  buildDomainFinderInput,
+  buildDomainSearchStaysEvidence,
+  buildDomainSearchUsageLog,
+  buildFoundEvidence,
+  buildFoundWebsiteColumns,
+  CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY,
+  dispositionDisplayName,
+  readFoundWebsite,
+  type DomainDuplicateCheck,
+  type FoundWebsite,
+} from './domain-search';
 import { decideRescue, DEFAULT_ICP_MIN_EMPLOYEES } from './rescue-decision';
 import {
   buildCandidateRescuePatch,
@@ -71,6 +85,15 @@ export type RescueBatchDeps = {
   admitDisposition: (dispositionId: string, origin: SendToReviewOrigin) => Promise<string | null>;
   /** «Una empresa, un vendedor»: reclama la identidad de los candidatos rescatados. */
   claimIdentities: (batchId: string, candidateIds: readonly string[]) => Promise<void>;
+  /**
+   * Buscador de sitio oficial para descartadas SIN dominio. Ausente = apagado
+   * (`ENABLE_AGENT1_CLAUDE_DOMAIN_FINDER`): esas filas ni se cargan ni se tocan.
+   */
+  domainSearch?: {
+    findWebsite: (input: DomainFinderInput, active: ActiveAnthropicModel) => Promise<DomainFinderOutcome>;
+    /** SellUp + HubSpot, sólo lectura. Lanza si alguna de las dos no se pudo revisar. */
+    checkDuplicate: (input: DuplicateCheckInput) => Promise<DomainDuplicateCheck>;
+  };
   nowIso: () => string;
   nowMs: () => number;
 };
@@ -204,6 +227,80 @@ async function rescueCandidate(
   return { tag: 'unchanged', cost };
 }
 
+type WebsiteStep =
+  | { kind: 'found'; found: FoundWebsite; cost: number }
+  | { kind: 'done'; outcome: ItemOutcome };
+
+/**
+ * Descartada SIN dominio: Claude busca el sitio oficial y se revisan duplicados.
+ * Sólo sigue al rescate si el sitio quedó comprobado y la empresa es NUEVA.
+ */
+async function resolveDispositionWebsite(
+  row: RescuableDispositionRow,
+  ctx: RescueRunContext,
+  deps: RescueBatchDeps,
+  domainSearch: NonNullable<RescueBatchDeps['domainSearch']>,
+): Promise<WebsiteStep> {
+  let found = readFoundWebsite(row.evidence);
+  let cost = 0;
+  if (!found) {
+    const startedMs = deps.nowMs();
+    let outcome: DomainFinderOutcome;
+    try {
+      outcome = await domainSearch.findWebsite(buildDomainFinderInput(row, null), ctx.active);
+    } catch (err) {
+      console.error('[claude-rescue] domain search failed:', err instanceof Error ? err.message : err);
+      outcome = { found: false, reason: 'model_error', errorCode: 'unexpected_error', usage: null };
+    }
+    const searchedAt = deps.nowIso();
+    const log = buildDomainSearchUsageLog(outcome, {
+      batchId: ctx.batchId,
+      dispositionId: row.id,
+      triggeredBy: ctx.triggeredBy,
+      searchedAt,
+      durationMs: deps.nowMs() - startedMs,
+    });
+    if (log) await deps.logUsage(log);
+    cost = outcome.usage?.estimatedCostUsd ?? 0;
+    if (!outcome.found) {
+      const saved = await deps.patchDispositionEvidence(row.id, (evidence) =>
+        buildDomainSearchStaysEvidence(evidence, { kind: 'not_found', outcome }, searchedAt),
+      );
+      return { kind: 'done', outcome: { tag: saved ? 'kept' : 'failed', cost } };
+    }
+    found = { website: outcome.website, domain: outcome.domain, verification: outcome.verification };
+  }
+
+  let duplicate: DomainDuplicateCheck;
+  try {
+    duplicate = await domainSearch.checkDuplicate({
+      name: dispositionDisplayName(row),
+      website: found.website,
+      domain: found.domain,
+      countryCode: row.country_code,
+    });
+  } catch (err) {
+    // Sin poder revisar SellUp/HubSpot NO se admite: se guarda el sitio y se reintenta.
+    console.error('[claude-rescue] duplicate check failed:', err instanceof Error ? err.message : err);
+    const at = deps.nowIso();
+    const kept = found;
+    await deps.patchDispositionEvidence(row.id, (evidence) => ({
+      ...buildFoundEvidence(evidence, kept, at),
+      [CLAUDE_RESCUE_METADATA_KEY]: { ...buildRescueInProgress(at), decision: 'retryable' },
+    }));
+    return { kind: 'done', outcome: { tag: 'failed', cost } };
+  }
+  if (duplicate.status !== 'new_candidate') {
+    const at = deps.nowIso();
+    const kept = found;
+    const saved = await deps.patchDispositionEvidence(row.id, (evidence) =>
+      buildDomainSearchStaysEvidence(evidence, { kind: 'duplicate', found: kept, duplicate }, at),
+    );
+    return { kind: 'done', outcome: { tag: saved ? 'kept' : 'failed', cost } };
+  }
+  return { kind: 'found', found, cost };
+}
+
 async function rescueDisposition(
   row: RescuableDispositionRow,
   ctx: RescueRunContext,
@@ -211,13 +308,26 @@ async function rescueDisposition(
   admittedIds: string[],
 ): Promise<ItemOutcome> {
   const claimed = await deps.patchDispositionEvidence(row.id, (evidence) =>
-    needsDispositionRescue({ ...row, evidence }, deps.nowMs())
+    needsDispositionRescue({ ...row, evidence }, deps.nowMs(), !!deps.domainSearch)
       ? buildDispositionInProgressEvidence(evidence, deps.nowIso())
       : null,
   );
   if (!claimed) return { tag: 'skipped', cost: 0 };
 
-  const company = dispositionToCompanyInput(row);
+  let found: FoundWebsite | null = null;
+  let searchCost = 0;
+  if (!row.domain) {
+    if (!deps.domainSearch) return { tag: 'skipped', cost: 0 };
+    const step = await resolveDispositionWebsite(row, ctx, deps, deps.domainSearch);
+    if (step.kind === 'done') return step.outcome;
+    found = step.found;
+    searchCost = step.cost;
+  }
+
+  const baseCompany = dispositionToCompanyInput(row);
+  const company = found
+    ? { ...baseCompany, name: dispositionDisplayName(row), websiteOrDomain: found.website }
+    : baseCompany;
   const result = await safeClassify(
     ctx.requestedIndustry
       ? {
@@ -231,9 +341,20 @@ async function rescueDisposition(
     ctx.active,
     deps,
   );
-  if (!result) return { tag: 'failed', cost: 0 };
+  // Sitio ya pagado y comprobado: se guarda aunque la clasificación falle.
+  const withFound = (evidence: Record<string, unknown> | null) =>
+    found ? buildFoundEvidence(evidence, found, deps.nowIso()) : evidence;
+  if (!result) {
+    if (found) {
+      await deps.patchDispositionEvidence(row.id, (evidence) => ({
+        ...withFound(evidence),
+        [CLAUDE_RESCUE_METADATA_KEY]: { ...buildRescueInProgress(deps.nowIso()), decision: 'retryable' },
+      }));
+    }
+    return { tag: 'failed', cost: searchCost };
+  }
   await logUsage(result, ctx.batchId, ctx.triggeredBy, deps);
-  const cost = result.usage?.estimatedCostUsd ?? 0;
+  const cost = searchCost + (result.usage?.estimatedCostUsd ?? 0);
 
   const decision = decideRescue(result, {
     icpMinEmployees: DEFAULT_ICP_MIN_EMPLOYEES,
@@ -242,9 +363,21 @@ async function rescueDisposition(
   const decidedAt = deps.nowIso();
   // Una fila de Descartadas sólo vuelve si el SECTOR quedó confirmado (se descartó por eso).
   if (decision.kind === 'admit' && decision.sectorConfirmed) {
+    const origin = buildDispositionAdmissionOrigin(result, decision, DEFAULT_ICP_MIN_EMPLOYEES, decidedAt);
     const candidateId = await deps.admitDisposition(
       row.id,
-      buildDispositionAdmissionOrigin(result, decision, DEFAULT_ICP_MIN_EMPLOYEES, decidedAt),
+      found
+        ? {
+            ...origin,
+            metadata: {
+              ...origin.metadata,
+              [CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY]: buildFoundEvidence(null, found, decidedAt)[
+                CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY
+              ],
+            },
+            columns: { ...buildFoundWebsiteColumns(row, found), ...(origin.columns ?? {}) },
+          }
+        : origin,
     );
     if (candidateId) {
       admittedIds.push(candidateId);
@@ -255,7 +388,7 @@ async function rescueDisposition(
   // Se queda en Descartadas: si Claude completó algo pero no el sector, no es un «admit».
   const staysDecision = decision.kind === 'admit' ? ({ kind: 'unchanged', why: 'sector_unknown' } as const) : decision;
   const saved = await deps.patchDispositionEvidence(row.id, (evidence) =>
-    buildDispositionStaysEvidence(evidence, result, staysDecision, decidedAt),
+    buildDispositionStaysEvidence(withFound(evidence), result, staysDecision, decidedAt),
   );
   return { tag: saved ? 'kept' : 'failed', cost };
 }
@@ -310,7 +443,7 @@ export async function rescueBatchWithClaude(
   const startedMs = deps.nowMs();
   const work: WorkItem[] = [
     ...candidates.filter((row) => needsCandidateRescue(row, startedMs)).map((row) => ({ kind: 'candidate' as const, row })),
-    ...dispositions.filter((row) => needsDispositionRescue(row, startedMs)).map((row) => ({ kind: 'disposition' as const, row })),
+    ...dispositions.filter((row) => needsDispositionRescue(row, startedMs, !!deps.domainSearch)).map((row) => ({ kind: 'disposition' as const, row })),
   ];
   const thisRun = work.slice(0, RESCUE_MAX_COMPANIES_PER_RUN);
   const requestedIndustryId = await deps.loadBatchIndustryId(params.batchId).catch(() => null);

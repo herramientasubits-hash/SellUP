@@ -4,7 +4,8 @@
  * Sólo se rescatan los descartes cuyo motivo es que faltaba un dato que Claude
  * puede completar. Los descartes correctos (duplicado en HubSpot/SellUp,
  * periodo de espera, dominio ajeno, país equivocado, tamaño conocido menor)
- * NO se tocan. Sin dominio (140 en Prod) es fase B: habría que buscar la web.
+ * NO se tocan. Sin dominio (`missing_domain_final`) sólo con el buscador de
+ * sitio oficial encendido (`domain-search.ts`).
  */
 
 import { buildClassificationMetadata } from '../classification-metadata';
@@ -13,6 +14,7 @@ import {
   type CompanyClassificationResult,
 } from '../types';
 import type { SendToReviewOrigin } from '@/modules/prospect-discards/send-to-review-core';
+import { isDomainSearchCandidate } from './domain-search';
 import type { RescueDecision } from './rescue-decision';
 import {
   buildLinkedInEnrichmentFromClaude,
@@ -51,10 +53,17 @@ export type RescuableDispositionRow = {
 
 type Evidence = Record<string, unknown>;
 
-export function needsDispositionRescue(row: RescuableDispositionRow, nowMs: number): boolean {
+export function needsDispositionRescue(
+  row: RescuableDispositionRow,
+  nowMs: number,
+  /** ¿Está encendido el buscador de sitio oficial? (`ENABLE_AGENT1_CLAUDE_DOMAIN_FINDER`) */
+  domainSearchEnabled = false,
+): boolean {
   if (row.status !== 'discarded' || row.candidate_id) return false;
-  if (!row.domain) return false;
-  if (!(RESCUABLE_DISPOSITION_REASON_CODES as readonly string[]).includes(row.reason_code ?? '')) return false;
+  const rescuable = row.domain
+    ? (RESCUABLE_DISPOSITION_REASON_CODES as readonly string[]).includes(row.reason_code ?? '')
+    : domainSearchEnabled && isDomainSearchCandidate(row);
+  if (!rescuable) return false;
   return rescueStillPending(row.evidence?.[CLAUDE_RESCUE_METADATA_KEY], nowMs, row.evidence?.claude_classification);
 }
 
