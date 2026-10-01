@@ -157,6 +157,7 @@ function freeLayerWith(accepted: number, cap: number | null | undefined): {
   const companies = Array.from({ length: accepted }, (_, i) => ({
     recordIdentityKey: `denue:${i}`,
     legalName: `EMPRESA ${i}`,
+    domain: `empresa${i}.com.mx`,
   })) as unknown as CountrySourceCompany[];
   const gateResult = {
     context,
