@@ -6274,6 +6274,15 @@ jobs:
       - name: Run Agent 1 Lusha social domain tests
         run: npm run test:a1-lusha-social-domain
 
+      # AGENT1-DELIVERY-CAP-1 - un vendedor recibe como maximo
+      # AGENT1_MAX_DELIVERED_CANDIDATES empresas por escritura (completas
+      # primero); lo que no cabe no se persiste ni se reclama. Sin la variable,
+      # nada cambia.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 delivery cap tests
+        run: npm run test:a1-delivery-cap
+
       # AGENT1-TAVILY-V2-1 - Tavily compite con Apollo y Lusha: consultas desde
       # el catalogo de 12 macro industrias (rotacion por lote, pais e idioma),
       # universidades/gobierno/gremios pasan el filtro y los directorios no,
