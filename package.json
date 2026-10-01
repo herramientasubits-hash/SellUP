@@ -540,6 +540,7 @@
     "test:a1-apollo-exclusion-same-industry": "node --import tsx --test src/server/prospect-batches/provider-seen/__tests__/apollo-exclusion-same-industry-1.test.ts",
     "test:a1-lusha-social-domain": "node --import tsx --test src/server/prospect-batches/__tests__/lusha-social-domain-1.test.ts",
     "test:a1-delivery-cap": "node --import tsx --test src/modules/prospect-batches/__tests__/delivery-cap-1.test.ts src/server/agents/prospecting-toolkit/__tests__/candidate-writer-delivery-cap-1.test.ts src/server/prospect-batches/__tests__/lusha-delivery-cap-1.test.ts",
+    "test:a1-free-source-unverified": "node --import tsx --test src/server/prospect-batches/country-source-discovery/__tests__/free-source-unverified-1.test.ts",
     "test:settings-providers-admin-guard": "node --import tsx --test src/modules/budgets/__tests__/settings-providers-admin-guard.test.ts",
     "test:settings-provider-contract-plan": "node --import tsx --test src/modules/budgets/__tests__/provider-contract-plan.test.ts \"src/app/(sellup)/settings/providers/__tests__/provider-contract-plan-card-runtime.test.tsx\"",
     "test:a1-provider-run-scorecard": "node --import tsx --test src/modules/agent1-effectiveness/__tests__/provider-run-scorecard.test.ts src/modules/agent1-effectiveness/__tests__/provider-run-scorecard-request.test.ts src/modules/agent1-effectiveness/__tests__/provider-run-scorecard-tavily.test.ts src/modules/agent1-effectiveness/__tests__/provider-run-scorecard-claude-cost.test.ts",

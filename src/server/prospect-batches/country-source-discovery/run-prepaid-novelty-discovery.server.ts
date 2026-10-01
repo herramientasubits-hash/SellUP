@@ -95,6 +95,11 @@ import {
 } from '@/modules/prospect-batches/provider-seen/provider-seen-identity';
 import { persistCountrySourceCandidates } from './persist-country-source-candidates';
 import { applyDeliveryCap, resolveMaxDeliveredCandidates } from '@/modules/prospect-batches/delivery-cap';
+import { persistDiscardedDispositionRows } from '@/modules/prospect-discards/pipeline-writer.server';
+import {
+  buildUnverifiedFreeDispositionRows,
+  partitionFreeCompaniesByDomain,
+} from './free-source-unverified';
 
 export type PrePaidNoveltyDiscoveryInput = {
   /**
@@ -199,6 +204,12 @@ export type PrePaidNoveltyDiscoveryDeps = {
    * entorno (`resolveMaxDeliveredCandidates`); `null` ⇒ sin tope.
    */
   maxDeliveredCandidates?: number | null;
+  /**
+   * AGENT1-FREE-SOURCE-UNVERIFIED-1 — dónde van las empresas SIN sitio web
+   * («Descartadas», motivo `missing_domain_final`). Inyectable para pruebas;
+   * ausente ⇒ la escritura real. Nunca lanza.
+   */
+  recordUnverified?: typeof persistDiscardedDispositionRows;
 };
 
 const PRODUCTION_DEPS: PrePaidNoveltyDiscoveryDeps = {
@@ -345,23 +356,50 @@ export async function runPrePaidNoveltyDiscovery(
   // Salud): DENUE dejó 20 filas para un objetivo de 5. Nunca baja del objetivo
   // (el resolutor lo garantiza), así que la aritmética del hueco no cambia.
   // Ausente el tope ⇒ todo, como antes.
+  // 🔴 AGENT1-FREE-SOURCE-UNVERIFIED-1 — decisión de la dueña (01-10): una
+  // empresa del catálogo SIN sitio web no cuenta para la meta. No se entrega: va
+  // a «Descartadas» con `missing_domain_final` y el rescate con Claude busca su
+  // sitio al terminar la corrida (si lo encuentra, la envía a revisión). Como
+  // sólo lo GUARDADO cierra hueco, basta con no guardarla para que los
+  // proveedores de pago corran por lo que falta.
+  const { withDomain, withoutDomain } = partitionFreeCompaniesByDomain(gate.acceptedCompanies);
   const deliveredFree = applyDeliveryCap(
-    gate.acceptedCompanies,
+    withDomain,
     deps.maxDeliveredCandidates === undefined
       ? resolveMaxDeliveredCandidates(undefined, input.requestedTarget)
       : deps.maxDeliveredCandidates,
     () => true,
   ).delivered;
 
-  const persistence = await deps.persist(client, {
-    companies: deliveredFree,
-    countryCode: input.countryCode,
-    countryName: input.countryName,
-    macroIndustryKey: input.macroIndustryKey ?? '',
-    requestedByUserId: input.requestedByUserId,
-    batchId: canonicalBatchId,
-    metadata: { prepaid_novelty: gate.telemetry },
-  });
+  const unverifiedTelemetry = {
+    unverified_without_domain: withoutDomain.length,
+    unverified_sent_to_discards: 0,
+  };
+
+  const persistence =
+    deliveredFree.length > 0
+      ? await deps.persist(client, {
+          companies: deliveredFree,
+          countryCode: input.countryCode,
+          countryName: input.countryName,
+          macroIndustryKey: input.macroIndustryKey ?? '',
+          requestedByUserId: input.requestedByUserId,
+          batchId: canonicalBatchId,
+          metadata: { prepaid_novelty: { ...gate.telemetry, ...unverifiedTelemetry } },
+        })
+      : { batchId: canonicalBatchId, writtenCount: 0, skippedCount: 0, failed: false };
+
+  const discardsBatchId = persistence.batchId ?? canonicalBatchId;
+  if (withoutDomain.length > 0 && discardsBatchId) {
+    const recorded = await (deps.recordUnverified ?? persistDiscardedDispositionRows)(
+      buildUnverifiedFreeDispositionRows({
+        batchId: discardsBatchId,
+        countryCode: input.countryCode,
+        companies: withoutDomain,
+      }),
+    ).catch(() => ({ persisted: 0 }));
+    unverifiedTelemetry.unverified_sent_to_discards = recorded.persisted;
+  }
 
   // 🔴 § 13/§ 14 — sólo lo GUARDADO cierra hueco.
   const context = withFreeSourcePersistenceOutcome(gate.context, {
@@ -401,7 +439,7 @@ export async function runPrePaidNoveltyDiscovery(
 
     return {
       ...noContribution(
-        buildPrePaidNoveltyTelemetry(context, gate.exclusionPlan, null),
+        { ...buildPrePaidNoveltyTelemetry(context, gate.exclusionPlan, null), ...unverifiedTelemetry },
         gate.exclusionPlan.availableValues,
         {
           providerSeenMemory: gate.providerSeenMemory,
@@ -425,6 +463,6 @@ export async function runPrePaidNoveltyDiscovery(
     providerSeenLoad: gate.providerSeen,
     providerExclusionPlan: gate.providerExclusionPlan,
     freeSource: context.freeSource,
-    telemetry: buildPrePaidNoveltyTelemetry(context, gate.exclusionPlan, null),
+    telemetry: { ...buildPrePaidNoveltyTelemetry(context, gate.exclusionPlan, null), ...unverifiedTelemetry },
   };
 }
