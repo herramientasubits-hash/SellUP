@@ -26,7 +26,7 @@ import {
   type AnthropicConversationResult,
   type AnthropicRequestBody,
 } from './anthropic-messages-client';
-import { forceSubmission, toUsage } from './classify-company';
+import { forceSubmission, isOffsiteRedirect, toUsage } from './classify-company';
 import { extractSearchResultUrls } from './evidence-verifier';
 import { extractVisibleText } from './page-text';
 import { WEB_SEARCH_TOOL_TYPE } from './prompt';
@@ -61,6 +61,7 @@ export type DomainFinderOutcome =
         | 'not_in_search_results'
         | 'platform_domain'
         | 'page_unreachable'
+        | 'redirected_offsite'
         | 'identity_not_confirmed'
         | 'model_error';
       errorCode?: string | null;
@@ -175,10 +176,19 @@ export async function findOfficialWebsite(
     return { found: false, reason: 'platform_domain', usage };
   }
 
-  const page = await deps.fetchPage(claimed);
+  let page: SafePageFetchResult;
+  try {
+    page = await deps.fetchPage(claimed);
+  } catch (err) {
+    return { found: false, reason: 'page_unreachable', errorCode: err instanceof Error ? err.message : 'fetch_failed', usage };
+  }
   const html = page.html ?? '';
   if (!page.html || (page.httpStatus ?? 0) >= 400 || extractVisibleText(html).length < MIN_PAGE_TEXT_CHARS) {
     return { found: false, reason: 'page_unreachable', errorCode: page.error, usage };
+  }
+  // Redirige a OTRO dominio (parqueado, marketplace, otra empresa): ese dominio no se comprobó.
+  if (isOffsiteRedirect(claimed, page.finalUrl)) {
+    return { found: false, reason: 'redirected_offsite', usage };
   }
   const finalDomain = normalizeDomain(page.finalUrl ?? claimed) ?? claimedDomain;
   const website = `https://${finalDomain}`;

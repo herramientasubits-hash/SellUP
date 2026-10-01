@@ -20,6 +20,14 @@ import { CLAUDE_RESCUE_METADATA_KEY } from './rescue-patch';
 export const DOMAIN_SEARCH_REASON_CODE = 'missing_domain_final';
 export const CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY = 'claude_domain_search';
 export const CLAUDE_DOMAIN_SEARCH_OPERATION_KEY = 'company_domain_search';
+/** Errores pasajeros (modelo, sitio caído) se reintentan hasta este número de búsquedas. */
+export const DOMAIN_SEARCH_MAX_ATTEMPTS = 3;
+const TRANSIENT_REASONS: ReadonlySet<string> = new Set(['model_error', 'page_unreachable']);
+
+function previousAttempts(evidence: Evidence | null): number {
+  const attempts = (evidence?.[CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY] as { attempts?: unknown } | undefined)?.attempts;
+  return typeof attempts === 'number' && attempts > 0 ? attempts : 0;
+}
 
 type Evidence = Record<string, unknown>;
 
@@ -98,7 +106,8 @@ export function buildFoundEvidence(evidence: Evidence | null, found: FoundWebsit
 
 /**
  * La empresa se QUEDA en Descartadas por la búsqueda del sitio (no encontrado, o ya
- * existe en SellUp/HubSpot). Sólo un error del modelo se reintenta; lo demás es final.
+ * existe en SellUp/HubSpot). Un error pasajero se reintenta hasta DOMAIN_SEARCH_MAX_ATTEMPTS
+ * búsquedas en total; lo demás es final.
  */
 export function buildDomainSearchStaysEvidence(
   evidence: Evidence | null,
@@ -107,6 +116,7 @@ export function buildDomainSearchStaysEvidence(
     | { kind: 'duplicate'; found: FoundWebsite; duplicate: DomainDuplicateCheck },
   decidedAt: string,
 ): Evidence {
+  const attempts = previousAttempts(evidence) + (params.kind === 'not_found' ? 1 : 0);
   const base = params.kind === 'duplicate' ? buildFoundEvidence(evidence, params.found, decidedAt) : { ...(evidence ?? {}) };
   const search =
     params.kind === 'not_found'
@@ -114,6 +124,7 @@ export function buildDomainSearchStaysEvidence(
           contract_version: CLAUDE_CLASSIFIER_CONTRACT_VERSION,
           searched_at: decidedAt,
           found: false,
+          attempts,
           reason: params.outcome.reason,
           error_code: params.outcome.errorCode ?? null,
         }
@@ -122,7 +133,8 @@ export function buildDomainSearchStaysEvidence(
           duplicate_status: params.duplicate.status,
           duplicate_summary: params.duplicate.summary,
         };
-  const retryable = params.kind === 'not_found' && params.outcome.reason === 'model_error';
+  const retryable =
+    params.kind === 'not_found' && TRANSIENT_REASONS.has(params.outcome.reason) && attempts < DOMAIN_SEARCH_MAX_ATTEMPTS;
   return {
     ...base,
     [CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY]: search,

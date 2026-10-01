@@ -147,6 +147,28 @@ describe('A. findOfficialWebsite', () => {
     assert.equal(out.usage?.webSearchRequests, 2);
   });
 
+  it('rechaza un sitio que redirige a OTRO dominio (no comprobado)', async () => {
+    const url = 'https://sii-group.com';
+    const out = await findOfficialWebsite(
+      INPUT,
+      MODEL,
+      finderDeps(conversation(url, [url]), page(LINKED_HTML, 'https://parked-domains.example/landing')),
+    );
+    assert.deepEqual(out.found ? null : out.reason, 'redirected_offsite');
+  });
+
+  it('si la descarga lanza, no se pierde el uso pagado', async () => {
+    const url = 'https://sii-group.com';
+    const out = await findOfficialWebsite(INPUT, MODEL, {
+      runConversation: async () => conversation(url, [url]),
+      fetchPage: async () => {
+        throw new Error('socket hang up');
+      },
+    });
+    assert.deepEqual(out.found ? null : out.reason, 'page_unreachable');
+    assert.ok((out.usage?.estimatedCostUsd ?? 0) > 0);
+  });
+
   it('un error del modelo no lanza', async () => {
     const out = await findOfficialWebsite(INPUT, MODEL, {
       runConversation: async () => {
@@ -370,6 +392,25 @@ describe('C. rescate de descartadas sin dominio', () => {
     const ev = f.evidence.get('d1')!;
     assert.equal((ev.claude_rescue as { decision: string }).decision, 'retryable');
     assert.equal(needsDispositionRescue({ ...disposition(), evidence: ev }, NOW, true), true);
+  });
+
+  it('sitio caído: se reintenta, pero como máximo 3 búsquedas en total', async () => {
+    let ev: Record<string, unknown> | null = disposition().evidence;
+    const decisions: string[] = [];
+    for (let run = 0; run < 3; run++) {
+      const f = fakeDeps({
+        loadDispositions: async () => [disposition({ evidence: ev })],
+        patchDispositionEvidence: async (_id, build) => ((ev = build(ev)), true),
+        domainSearch: {
+          findWebsite: async () => ({ found: false, reason: 'page_unreachable', usage: FOUND.usage }),
+          checkDuplicate: async () => ({ status: 'new_candidate', summary: '' }),
+        },
+      });
+      await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+      decisions.push((ev!.claude_rescue as { decision: string }).decision);
+    }
+    assert.deepEqual(decisions, ['retryable', 'retryable', 'website_not_found']);
+    assert.equal((ev![CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY] as { attempts: number }).attempts, 3);
   });
 
   it('sitio nuevo pero de OTRO sector ⇒ se queda, con el sitio guardado', async () => {
