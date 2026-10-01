@@ -21,6 +21,17 @@ import {
   resolveMaxDeliveredCandidates,
 } from '../delivery-cap';
 import { WIZARD_TARGET_USEFUL_COMPANIES } from '../wizard-target-authority';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  runPrePaidNoveltyDiscovery,
+  type PrePaidNoveltyDiscoveryDeps,
+} from '@/server/prospect-batches/country-source-discovery/run-prepaid-novelty-discovery.server';
+import { buildPrePaidNoveltyContext } from '@/modules/prospect-batches/prepaid-novelty/prepaid-novelty-context';
+import { planProviderExclusions } from '@/modules/prospect-batches/provider-seen/provider-exclusion-planner';
+import { EMPTY_PROVIDER_SEEN_MEMORY } from '@/modules/prospect-batches/provider-seen/provider-seen-identity';
+import { PROVIDER_SEEN_LOAD_EMPTY } from '@/modules/prospect-batches/provider-seen/provider-seen-telemetry';
+import type { PrePaidNoveltyGateResult } from '@/server/prospect-batches/country-source-discovery/run-prepaid-novelty-gate';
+import type { CountrySourceCompany } from '@/server/prospect-batches/country-source-discovery/country-source-types';
 
 describe('§ 1 — el valor', () => {
   const env = (v?: string) => ({ [DELIVERY_CAP_ENV_VAR]: v });
@@ -115,5 +126,87 @@ describe('§ 3 — el cableado', () => {
   it('capa gratuita: persiste como mucho el tope', () => {
     const free = read('src/server/prospect-batches/country-source-discovery/run-prepaid-novelty-discovery.server.ts');
     assert.match(free, /companies:\s*deliveredFree,/);
+  });
+});
+
+// ─── § 4 — la capa gratuita, de verdad ─────────────────────────────────────────
+
+function freeLayerWith(accepted: number, cap: number | null | undefined): {
+  deps: PrePaidNoveltyDiscoveryDeps;
+  persisted: number[];
+} {
+  const persisted: number[] = [];
+  const context = buildPrePaidNoveltyContext({
+    requestedTarget: WIZARD_TARGET_USEFUL_COMPANIES,
+    countryCode: 'MX',
+    macroIndustryKey: 'technology',
+    freeSource: {
+      sourceKey: 'mx_denue_discovery',
+      attempted: true,
+      rawReturned: accepted,
+      macroConfirmed: accepted,
+      ambiguous: 0,
+      rejected: 0,
+      sellupKnown: 0,
+      hubspotKnown: 0,
+      acceptedNovel: accepted,
+      failed: false,
+      failureCode: null,
+    },
+  });
+  const companies = Array.from({ length: accepted }, (_, i) => ({
+    recordIdentityKey: `denue:${i}`,
+    legalName: `EMPRESA ${i}`,
+  })) as unknown as CountrySourceCompany[];
+  const gateResult = {
+    context,
+    exclusionPlan: { available: 0, availableValues: [], sent: [], omittedDueToCap: 0 },
+    providerExclusionPlan: planProviderExclusions('apollo', {}),
+    providerSeen: PROVIDER_SEEN_LOAD_EMPTY,
+    providerSeenMemory: EMPTY_PROVIDER_SEEN_MEMORY,
+    acceptedCompanies: companies,
+    telemetry: {},
+  } as unknown as PrePaidNoveltyGateResult;
+  return {
+    persisted,
+    deps: {
+      runGate: async () => gateResult,
+      persist: async (_client, input) => {
+        persisted.push(input.companies.length);
+        return { batchId: 'b-1', writtenCount: input.companies.length, skippedCount: 0, failed: false };
+      },
+      ...(cap === undefined ? {} : { maxDeliveredCandidates: cap }),
+    },
+  };
+}
+
+async function runFree(accepted: number, cap: number | null | undefined) {
+  const { deps, persisted } = freeLayerWith(accepted, cap);
+  await runPrePaidNoveltyDiscovery(
+    {} as unknown as SupabaseClient,
+    {
+      provider: 'apollo',
+      countryCode: 'MX',
+      countryName: 'México',
+      macroIndustryKey: 'technology',
+      requestedTarget: WIZARD_TARGET_USEFUL_COMPANIES,
+      requestedByUserId: 'u-1',
+      resolveBatchId: async () => 'b-1',
+      partialGapSupported: true,
+    } as Parameters<typeof runPrePaidNoveltyDiscovery>[1],
+    deps,
+  );
+  return persisted;
+}
+
+describe('§ 4 — la capa gratuita guarda como mucho el tope', () => {
+  it('🔴 20 aceptadas (DENUE en México) con tope 10 ⇒ se guardan 10', async () => {
+    assert.deepEqual(await runFree(20, 10), [10]);
+  });
+  it('sin tope ⇒ las 20, como antes', async () => {
+    assert.deepEqual(await runFree(20, null), [20]);
+  });
+  it('si caben ⇒ todas', async () => {
+    assert.deepEqual(await runFree(7, 10), [7]);
   });
 });
