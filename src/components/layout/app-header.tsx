@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { ChevronDown, ChevronRight, LogOut, PanelLeft, Settings } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
+import { GlobalSearch, type SearchNavigateItem } from "@/components/search";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { BrandMark, MobileNavLink } from "@/components/layout/app-sidebar";
@@ -32,6 +33,22 @@ interface AppHeaderProps {
   navAccess: NavAccessContext;
 }
 
+/**
+ * Las secciones de Configuración también son destinos de la búsqueda: son
+ * justo a lo que se llega una vez al mes y de lo que no se recuerda la ruta.
+ */
+const SETTINGS_DESTINATIONS: readonly (SearchNavigateItem & { adminOnly: boolean })[] = [
+  { id: "settings-users", label: "Usuarios y acceso", href: "/settings/users", section: "Configuración", keywords: ["roles", "permisos", "equipo"], adminOnly: true },
+  { id: "settings-providers", label: "Proveedores y consumo", href: "/settings/providers", section: "Configuración", keywords: ["apollo", "lusha", "tavily", "claude"], adminOnly: true },
+  { id: "settings-budget", label: "Presupuesto y créditos", href: "/settings/budget-credits", section: "Configuración", keywords: ["gasto", "tope"], adminOnly: true },
+  { id: "settings-automations", label: "Automatizaciones", href: "/settings/automations", section: "Configuración", adminOnly: true },
+  { id: "settings-integrations", label: "Integraciones comerciales", href: "/settings/integrations", section: "Configuración", keywords: ["hubspot", "slack"], adminOnly: true },
+  { id: "settings-prospecting", label: "Prospección y enriquecimiento", href: "/settings/prospecting", section: "Configuración", adminOnly: true },
+  { id: "settings-sources", label: "Catálogo de fuentes", href: "/settings/source-catalog", section: "Configuración", keywords: ["países", "registros"], adminOnly: true },
+  { id: "settings-activity", label: "Actividad de la plataforma", href: "/settings/activity", section: "Configuración", keywords: ["historial", "auditoría"], adminOnly: false },
+  { id: "settings-drive", label: "Mi Google Drive", href: "/settings/my-drive", section: "Configuración", adminOnly: false },
+];
+
 /** Cómo se nombra el rol en el chip de la cuenta. */
 function roleLabel({ isAdmin, roleKey }: NavAccessContext): string {
   if (isAdmin) return "Administrador";
@@ -52,6 +69,19 @@ export function AppHeader({ user, initialUnreadCount = 0, navAccess }: AppHeader
   const visibleNavItems = getVisibleNavItems(mainNavItems, navAccess);
   const current = mainNavItems.find(
     (item) => pathname === item.href || pathname.startsWith(item.href + "/"),
+  );
+
+  const searchDestinations = React.useMemo<SearchNavigateItem[]>(
+    () => [
+      ...visibleNavItems.map((item) => ({
+        id: item.href,
+        label: item.title,
+        href: item.href,
+        icon: item.icon,
+      })),
+      ...SETTINGS_DESTINATIONS.filter((item) => !item.adminOnly || navAccess.isAdmin),
+    ],
+    [visibleNavItems, navAccess.isAdmin],
   );
 
   const displayName =
@@ -121,6 +151,7 @@ export function AppHeader({ user, initialUnreadCount = 0, navAccess }: AppHeader
 
       {/* Acciones transversales */}
       <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
+        <GlobalSearch navigate={searchDestinations} placeholder="Buscar…" />
         <NotificationBell initialUnreadCount={initialUnreadCount} />
         <ThemeToggle />
 

@@ -24,15 +24,17 @@ const PopoverTrigger = PopoverPrimitive.Trigger;
 
 interface PopoverContentProps extends React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Popup> {
   align?: "start" | "center" | "end";
+  /** Lado preferido; Base UI voltea solo si no cabe. */
+  side?: "top" | "right" | "bottom" | "left";
   sideOffset?: number;
 }
 
 const PopoverContent = React.forwardRef<
   React.ComponentRef<typeof PopoverPrimitive.Popup>,
   PopoverContentProps
->(({ className, align = "center", sideOffset = 4, ...props }, ref) => (
+>(({ className, align = "center", side = "bottom", sideOffset = 4, ...props }, ref) => (
   <PopoverPrimitive.Portal>
-    <PopoverPrimitive.Positioner sideOffset={sideOffset} align={align} positionMethod="fixed" className="z-[9999]">
+    <PopoverPrimitive.Positioner side={side} sideOffset={sideOffset} align={align} positionMethod="fixed" className="z-[9999]">
       <PopoverPrimitive.Popup
         ref={ref}
         className={cn(
