@@ -92,9 +92,8 @@ export function AutomationModeControl({
         disabled={isPending}
       >
         <SelectTrigger
-          className="h-8 w-[140px] text-xs"
-          aria-label={`Modo de ejecución para ${automationName}`}
-        >
+          size="sm" className="w-[140px]"
+          aria-label={`Modo de ejecución para ${automationName}`}>
           <SelectValue>{EXECUTION_MODE_LABELS[mode]}</SelectValue>
         </SelectTrigger>
         <SelectContent>
@@ -138,9 +137,7 @@ export function AutomationModeControl({
             </Button>
             <Button
               size="sm"
-              className="bg-su-brand text-su-brand-foreground hover:bg-su-brand/90"
-              onClick={confirmAutomatic}
-            >
+              onClick={confirmAutomatic}>
               Activar automático
             </Button>
           </DialogFooter>
@@ -150,7 +147,7 @@ export function AutomationModeControl({
       {/* Toast */}
       {toast && (
         <div
-          className={`fixed bottom-8 left-1/2 z-50 -translate-x-1/2 rounded-lg border bg-card px-4 py-3 shadow-drawer ${
+          className={`fixed bottom-8 left-1/2 z-50 -translate-x-1/2 rounded-xl border bg-card px-4 py-3 shadow-drawer ${
             toast.type === 'success'
               ? 'border-success/50 text-success dark:text-success'
               : 'border-destructive/50 text-destructive'

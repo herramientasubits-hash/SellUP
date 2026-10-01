@@ -860,7 +860,7 @@ function SubindustrySelectionRecap({
   );
 
   return (
-    <div className="space-y-1.5 rounded-lg border border-border/60 bg-card px-4 py-3">
+    <div className="space-y-1.5 rounded-xl border border-border/60 bg-card px-4 py-3">
       <div className="flex items-baseline justify-between gap-3">
         <span className="text-xs font-medium text-muted-foreground">
           {WIZARD_SUBINDUSTRY_RECAP_LABEL}

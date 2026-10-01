@@ -258,8 +258,8 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
               description="Esperando primera evaluación"
               value={kpis.needsReview}
               icon={
-                <div className="rounded-lg p-1.5 bg-su-brand-soft">
-                  <Building2 className="h-4 w-4 text-su-brand" />
+                <div className="rounded-lg p-1.5 bg-primary/10">
+                  <Building2 className="h-4 w-4 text-primary" />
                 </div>
               }
             />

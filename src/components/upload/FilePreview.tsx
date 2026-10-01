@@ -93,7 +93,7 @@ export function FilePreview({
   if (variant === "row") {
     return (
       <div className={cn(
-        "flex items-center gap-3 p-3 rounded-lg border bg-card border-border/60 transition-colors",
+        "flex items-center gap-3 p-3 rounded-xl border bg-card border-border/60 transition-colors",
         hasError && "border-destructive/20 bg-destructive/10",
         disabled && "opacity-50",
         className

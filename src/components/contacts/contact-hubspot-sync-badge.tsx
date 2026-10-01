@@ -41,7 +41,7 @@ export function ContactHubSpotSyncBadge({
   return (
     <Badge
       variant="outline"
-      className={`text-xs border-transparent ${HUBSPOT_SYNC_TONE_CLASSES[tone]}`}
+      className={`border-transparent ${HUBSPOT_SYNC_TONE_CLASSES[tone]}`}
     >
       {label}
     </Badge>

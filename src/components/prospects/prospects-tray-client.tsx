@@ -250,15 +250,15 @@ export function ProspectsTrayClient({
     <div className="flex flex-1 min-h-0 flex-col gap-6">
       {/* Banner de operación reciente (sourceId activo) */}
       {isSourceFiltered && (
-        <div className="shrink-0 flex flex-col gap-2.5 rounded-xl border border-su-brand/20 bg-su-brand-soft/30 px-4 py-3">
+        <div className="shrink-0 flex flex-col gap-2.5 rounded-xl border border-primary/20 bg-primary/10 px-4 py-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
               {batchStats && (batchStats.pending > 0 || batchStats.enriching > 0) ? (
-                <Loader2 className="h-4 w-4 shrink-0 text-su-brand animate-spin" />
+                <Loader2 className="h-4 w-4 shrink-0 text-primary animate-spin" />
               ) : (
-                <Sparkles className="h-4 w-4 shrink-0 text-su-brand" />
+                <Sparkles className="h-4 w-4 shrink-0 text-primary" />
               )}
-              <p className="text-xs font-medium text-su-brand">
+              <p className="text-xs font-medium text-primary">
                 {batchStats ? (
                   (batchStats.pending > 0 || batchStats.enriching > 0) ? (
                     `Importación completada. Estamos completando la información de ${batchStats.pending + batchStats.enriching} prospecto${batchStats.pending + batchStats.enriching !== 1 ? 's' : ''}...`
@@ -272,10 +272,9 @@ export function ProspectsTrayClient({
             </div>
             <Button
               variant="ghost"
-              size="sm"
+              size="xs"
               onClick={clearAllFilters}
-              className="h-7 shrink-0 gap-1.5 px-2.5 text-xs text-su-brand hover:bg-su-brand-soft hover:text-su-brand"
-            >
+              className="shrink-0 gap-1.5 px-2.5 text-primary hover:bg-primary/10 hover:text-primary">
               <X className="h-3 w-3" />
               Ver todos los prospectos
             </Button>
@@ -284,13 +283,13 @@ export function ProspectsTrayClient({
             <div className="space-y-1.5">
               <Progress
                 value={batchStats.total > 0 ? ((batchStats.completed + batchStats.failed) / batchStats.total) * 100 : 0}
-                className="h-1.5 bg-su-brand/10"
+                className="h-1.5 bg-primary/10"
               />
               <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span>
                   {batchStats.completed + batchStats.failed} de {batchStats.total} procesados
                 </span>
-                <span className="tabular-nums font-medium text-su-brand/70">
+                <span className="tabular-nums font-medium text-primary/70">
                   {batchStats.total > 0 ? Math.round(((batchStats.completed + batchStats.failed) / batchStats.total) * 100) : 0}%
                 </span>
               </div>
@@ -308,7 +307,7 @@ export function ProspectsTrayClient({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Buscar por nombre de empresa..."
-            className="pl-9 text-xs h-9 bg-surface-subtle border-border/50 focus-visible:ring-1 focus-visible:ring-su-brand/50"
+            className="pl-9"
           />
         </div>
 
@@ -316,7 +315,7 @@ export function ProspectsTrayClient({
         <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-2">
           {/* Select de Estado */}
           <Select value={activeStatus} onValueChange={(val) => updateFilter('status', val)}>
-            <SelectTrigger className="h-9 w-full sm:w-[155px] text-xs bg-surface-subtle border-border/50">
+            <SelectTrigger className="w-full sm:w-[155px] text-xs bg-surface-subtle border-border/50">
               <SelectValue placeholder="Estado" />
             </SelectTrigger>
             <SelectContent>
@@ -330,7 +329,7 @@ export function ProspectsTrayClient({
 
           {/* Select de País */}
           <Select value={activeCountry} onValueChange={(val) => updateFilter('country', val)}>
-            <SelectTrigger className="h-9 w-full sm:w-[130px] text-xs bg-surface-subtle border-border/50">
+            <SelectTrigger className="w-full sm:w-[130px] text-xs bg-surface-subtle border-border/50">
               <SelectValue placeholder="Todos los países" />
             </SelectTrigger>
             <SelectContent>
@@ -345,7 +344,7 @@ export function ProspectsTrayClient({
 
           {/* Select de Sector */}
           <Select value={activeIndustry} onValueChange={(val) => updateFilter('industry', val)}>
-            <SelectTrigger className="h-9 w-full sm:w-[150px] text-xs bg-surface-subtle border-border/50">
+            <SelectTrigger className="w-full sm:w-[150px] text-xs bg-surface-subtle border-border/50">
               <SelectValue placeholder="Todos los sectores" />
             </SelectTrigger>
             <SelectContent>
@@ -360,7 +359,7 @@ export function ProspectsTrayClient({
 
           {/* Select de Origen */}
           <Select value={activeOrigin} onValueChange={(val) => updateFilter('source', val)}>
-            <SelectTrigger className="h-9 w-full sm:w-[145px] text-xs bg-surface-subtle border-border/50">
+            <SelectTrigger className="w-full sm:w-[145px] text-xs bg-surface-subtle border-border/50">
               <SelectValue placeholder="Todos los orígenes" />
             </SelectTrigger>
             <SelectContent>
@@ -379,8 +378,7 @@ export function ProspectsTrayClient({
           <Button
             variant="ghost"
             onClick={clearAllFilters}
-            className="h-9 px-3 text-xs text-muted-foreground hover:text-foreground shrink-0 border border-border/50 sm:border-0 hover:bg-surface-muted"
-          >
+            size="sm" className="px-3 text-xs text-muted-foreground hover:text-foreground shrink-0 border border-border/50 sm:border-0 hover:bg-surface-muted">
             Limpiar filtros
           </Button>
         )}
@@ -434,7 +432,7 @@ export function ProspectsTrayClient({
         /* Listado de prospectos */
         <div className="flex-1 min-h-0 flex flex-col rounded-2xl border border-border/50 bg-card overflow-hidden">
           <div className="shrink-0 flex items-center justify-between border-b border-border/60 px-5 py-3.5 bg-muted/[0.08]">
-            <p className="text-xs font-semibold text-foreground/80">
+            <p className="text-xs font-semibold text-foreground">
               Mostrando {startRow} - {endRow} de {total} prospectos
             </p>
             <div className="flex items-center gap-3">
@@ -443,17 +441,16 @@ export function ProspectsTrayClient({
                   render={
                     <Button
                       variant="ghost"
-                      size="sm"
-                      className="h-7 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground"
-                      aria-label="Guía de revisión"
-                    >
+                      size="xs"
+                      className="gap-1.5 px-2.5 text-muted-foreground hover:text-foreground"
+                      aria-label="Guía de revisión">
                       <Info className="h-3.5 w-3.5" />
                       <span className="hidden sm:inline">Guía de revisión</span>
                     </Button>
                   }
                 />
                 <PopoverContent className="w-80 p-4" align="end">
-                  <div className="space-y-2 text-xs text-foreground/90">
+                  <div className="space-y-2 text-xs text-foreground">
                     <p className="font-semibold text-sm border-b pb-1.5 mb-1.5">Antes de aprobar revisa:</p>
                     <ul className="list-disc pl-4 space-y-1.5 leading-relaxed text-muted-foreground">
                       <li>Identidad y actividad de la empresa</li>
@@ -479,7 +476,7 @@ export function ProspectsTrayClient({
           {/* Paginación */}
           {totalPages > 1 && (
             <div className="shrink-0 flex items-center justify-between border-t border-border/60 px-5 py-3.5 bg-muted/[0.04]">
-              <span className="text-xs text-muted-foreground/75">
+              <span className="text-xs text-muted-foreground">
                 Página {page} de {totalPages}
               </span>
               <div className="flex items-center gap-1.5">
@@ -488,8 +485,7 @@ export function ProspectsTrayClient({
                   size="sm"
                   onClick={() => handlePageChange(page - 1)}
                   disabled={page === 1}
-                  className="h-8 gap-1 text-xs px-2.5 hover:bg-surface-muted"
-                >
+                  className="gap-1 text-xs px-2.5 hover:bg-surface-muted">
                   <ChevronLeft className="h-3.5 w-3.5" />
                   Anterior
                 </Button>
@@ -508,13 +504,11 @@ export function ProspectsTrayClient({
                       <Button
                         key={pageNum}
                         variant={page === pageNum ? 'default' : 'outline'}
-                        size="sm"
+                        size="icon-sm"
+                        aria-label={`Página ${pageNum}`}
+                        aria-current={page === pageNum ? 'page' : undefined}
                         onClick={() => handlePageChange(pageNum)}
-                        className={`h-8 w-8 text-xs p-0 ${
-                          page === pageNum 
-                            ? 'bg-foreground text-background font-semibold hover:bg-foreground/90' 
-                            : 'hover:bg-surface-muted'
-                        }`}
+                        className="text-xs tabular-nums"
                       >
                         {pageNum}
                       </Button>
@@ -528,8 +522,7 @@ export function ProspectsTrayClient({
                       variant="outline"
                       size="sm"
                       onClick={() => handlePageChange(totalPages)}
-                      className="h-8 w-8 text-xs p-0 hover:bg-surface-muted"
-                    >
+                      className="w-8 text-xs p-0 hover:bg-surface-muted">
                       {totalPages}
                     </Button>
                   )}
@@ -540,8 +533,7 @@ export function ProspectsTrayClient({
                   size="sm"
                   onClick={() => handlePageChange(page + 1)}
                   disabled={page === totalPages}
-                  className="h-8 gap-1 text-xs px-2.5 hover:bg-surface-muted"
-                >
+                  className="gap-1 text-xs px-2.5 hover:bg-surface-muted">
                   Siguiente
                   <ChevronRight className="h-3.5 w-3.5" />
                 </Button>

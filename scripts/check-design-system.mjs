@@ -18,7 +18,12 @@
  *   6. sombra-a-mano   — `shadow-xl`, `shadow-2xl` o una sombra arbitraria (`shadow-[…]`);
  *   7. radio-a-mano    — un radio arbitrario (`rounded-[…px]`);
  *   8. overline        — un rótulo en MAYÚSCULAS con tracking (Thema usa caja normal);
- *   9. peso-a-mano     — `font-black` / `font-extrabold`.
+ *   9. peso-a-mano     — `font-black` / `font-extrabold`;
+ *  10. marca-heredada  — clases `*-su-brand` (el primario es `bg-primary` / `text-primary`);
+ *  11. texto-atenuado  — texto atenuado con opacidad (`text-muted-foreground/60`): se elige el nivel;
+ *  12. blanco-a-mano   — `text-white` sobre color de marca (usa `text-primary-foreground`);
+ *  13. control-a-mano  — un `Button` / `Input` / `SelectTrigger` / `Badge` con radio, alto o
+ *                        tipografía sobrescritos por `className` (usa `size` y `variant`).
  *
  * Una excepción se declara en ALLOW, con su motivo; nunca apagando la regla en el archivo.
  * Guía de traducción: docs/THEMA_AZUL_MIGRATION.md
@@ -50,6 +55,14 @@ const RAW_SHADOW = /(?<![\w-])shadow-(?:xl|2xl|\[)/;
 const RAW_RADIUS = /(?<![\w-])rounded(?:-[trblse]{1,2})?-\[\d/;
 const OVERLINE = /(?<![\w-])uppercase(?![\w-])[^"'`]*tracking-(?:wide|wider|widest|\[)|tracking-(?:wide|wider|widest|\[)[^"'`]*(?<![\w-])uppercase(?![\w-])/;
 const RAW_WEIGHT = /(?<![\w-])font-(?:black|extrabold)(?![\w-])/;
+const LEGACY_BRAND = /(?<![\w-])(?:bg|text|border|ring|from|to|via|fill|stroke)-su-brand(?!-foreground)/;
+const FADED_TEXT = /(?<![\w-])text-(?:foreground|muted-foreground)\/\[?\d/;
+const RAW_WHITE = /(?<![\w-])text-white(?![\w/-])/;
+/** Etiqueta de apertura de un control del sistema, con sus atributos (admite varias líneas). */
+const CONTROL_TAG = /<(Button|Input|SelectTrigger|Textarea|Badge)\b((?:[^<>{}]|\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})*?)\/?>/g;
+const CONTROL_RADIUS = /(?<![\w:\[-])!?rounded-(?:full|xl|lg|2xl|3xl|none)(?![\w-])/;
+const CONTROL_HEIGHT = /(?<![\w:\[-])!?h-(?:5|6|7|8|9|10|11|12|14)(?![\w./-])/;
+const BADGE_TYPE = /(?<![\w:\[-])(?:text-(?:xs|sm)|font-(?:medium|semibold|bold)|rounded-(?:full|sm|lg))(?![\w/-])/;
 
 /**
  * Dónde sí puede vivir cada excepción, y por qué.
@@ -84,7 +97,21 @@ const ALLOW = {
   radius: [/^src\/components\/ui\//, TESTS, ...EDITORIAL],
   overline: [TESTS, ...EDITORIAL],
   weight: [TESTS, ...EDITORIAL],
+  // `wizard-admin-tavily-trial-toggle`: una prueba de runtime fija la cadena `su-brand`.
+  legacyBrand: [/^src\/components\/ui\//, TESTS, ...EDITORIAL, /wizard-admin-tavily-trial-toggle\.tsx$/],
+  faded: [/^src\/components\/ui\//, TESTS, ...EDITORIAL],
+  // Sobre el degradado de IA y los velos de carga a pantalla completa el texto es blanco por identidad.
+  white: [/^src\/components\/ui\//, TESTS, ...EDITORIAL, ...AI_IDENTITY, /chat-wizard\/wizard-(execution-panels|lusha-final-search)\.tsx$/],
+  // `candidate-search-more-phones-cta`: una prueba estática fija `className="h-7 gap-1.5 text-xs"`.
+  control: [/^src\/components\/ui\//, TESTS, ...EDITORIAL, /candidate-search-more-phones-cta\.tsx$/],
 };
+
+/**
+ * El badge «Nuevo» comparte una cadena exacta entre Agente 1 y Agente 2A, fijada
+ * por `contact-candidate-new-badge-static.test.ts`. Es la única tipografía propia
+ * que se admite en un `Badge`.
+ */
+const PINNED_NEW_BADGE = "border-0 bg-success/10 text-success text-xs font-semibold px-1.5 py-0.5 shrink-0";
 
 const findings = [];
 const add = (file, line, rule, message) => findings.push({ file, line, rule, message });
@@ -146,7 +173,27 @@ for (const full of targets) {
     if (!allowed(file, ALLOW.radius) && RAW_RADIUS.test(line)) add(file, n, "radio-a-mano", "Radio arbitrario. Usa la escala (rounded-md … rounded-2xl).");
     if (!allowed(file, ALLOW.overline) && OVERLINE.test(line)) add(file, n, "overline", "Rótulo en mayúsculas con tracking. Thema usa caja normal: text-xs font-semibold text-muted-foreground.");
     if (!allowed(file, ALLOW.weight) && RAW_WEIGHT.test(line)) add(file, n, "peso-a-mano", "font-black / font-extrabold. El máximo es font-bold; títulos internos, font-semibold.");
+    if (!allowed(file, ALLOW.legacyBrand) && LEGACY_BRAND.test(line)) add(file, n, "marca-heredada", `Clase heredada (${line.match(LEGACY_BRAND)[0]}). Usa bg-primary / text-primary / bg-primary/10.`);
+    if (!allowed(file, ALLOW.faded) && FADED_TEXT.test(line)) add(file, n, "texto-atenuado", "Texto atenuado con opacidad. Elige el nivel: text-foreground, text-muted-foreground o text-text-muted.");
+    if (!allowed(file, ALLOW.white) && RAW_WHITE.test(line) && !/su-ai-/.test(line)) add(file, n, "blanco-a-mano", "text-white a mano. Sobre primario usa text-primary-foreground; para un sólido de estado, la variante del Button.");
   });
+
+  // Controles del sistema con su apariencia sobrescrita por className.
+  if (!isCss && !allowed(file, ALLOW.control)) {
+    for (const match of text.matchAll(CONTROL_TAG)) {
+      const [, name, attrs] = match;
+      const cls = attrs.match(/className="([^"]*)"/)?.[1] ?? attrs.match(/className=\{`([^`]*)`\}/)?.[1];
+      if (!cls || /su-ai-/.test(cls)) continue;
+      const n = text.slice(0, match.index).split("\n").length;
+      if (name === "Badge") {
+        if (cls.includes(PINNED_NEW_BADGE)) continue;
+        if (BADGE_TYPE.test(cls)) add(file, n, "control-a-mano", `Badge con tipografía o radio propios (${cls.match(BADGE_TYPE)[0]}). El Badge ya trae su escala; usa una variante.`);
+        continue;
+      }
+      if (name !== "Textarea" && CONTROL_RADIUS.test(cls)) add(file, n, "control-a-mano", `${name} con radio propio (${cls.match(CONTROL_RADIUS)[0]}). El radio lo pone el sistema.`);
+      if (name !== "Textarea" && CONTROL_HEIGHT.test(cls) && !/(?<![\w-])w-(?:5|6|7|8|9|10|11|12|14)(?![\w-])/.test(cls)) add(file, n, "control-a-mano", `${name} con alto propio (${cls.match(CONTROL_HEIGHT)[0]}). Usa size="xs" | "sm" (Input: inputSize="sm").`);
+    }
+  }
 }
 
 const byRule = new Map();

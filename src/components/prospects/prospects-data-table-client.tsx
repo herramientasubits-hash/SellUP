@@ -110,7 +110,7 @@ const STATUS_STYLES: Record<CandidateStatus, string> = {
   approved: 'bg-success/10 text-success',
   discarded: 'bg-surface-muted text-muted-foreground',
   duplicate: 'bg-warning/10 text-warning',
-  converted_to_account: 'bg-su-brand-soft text-su-brand',
+  converted_to_account: 'bg-primary/10 text-primary',
 };
 
 const FIT_STATUS_LABELS: Record<string, string> = {
@@ -210,7 +210,7 @@ function getDisplayStatusStyle(candidate: Row): string {
     candidate.duplicate_status === 'exact_duplicate';
 
   if (enrichmentStatus === 'pending') return 'bg-muted text-muted-foreground';
-  if (enrichmentStatus === 'enriching') return 'bg-su-brand-soft text-su-brand';
+  if (enrichmentStatus === 'enriching') return 'bg-primary/10 text-primary';
   if (enrichmentStatus === 'failed') return 'bg-destructive/10 text-destructive';
 
   if (validationMeta && !hasDuplicate) return 'bg-success/10 text-success';
@@ -350,7 +350,7 @@ function DuplicateCheckCell({ candidate }: { candidate: Row }) {
         <Tooltip>
           <TooltipTrigger render={
             primaryDupStyle ? (
-              <Badge className={`${primaryDupStyle} border-0 text-xs font-semibold w-fit py-0.5 cursor-help`}>
+              <Badge className={`${primaryDupStyle} border-0 w-fit py-0.5 cursor-help`}>
                 {primaryDupLabel}
               </Badge>
             ) : (
@@ -414,7 +414,7 @@ function DuplicateCheckCell({ candidate }: { candidate: Row }) {
                         href={match.matched_website.startsWith('http') ? match.matched_website : `https://${match.matched_website}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-xs text-su-brand hover:underline block"
+                        className="text-xs text-primary hover:underline block"
                       >
                         {match.matched_website}
                       </a>
@@ -512,7 +512,7 @@ function QualityCell({ candidate }: { candidate: Row }) {
       <Tooltip>
         <TooltipTrigger render={
           <div className="flex flex-col gap-1 w-fit cursor-help">
-            <span className="flex items-center gap-1.5 text-xs text-foreground/85">
+            <span className="flex items-center gap-1.5 text-xs text-foreground">
               <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${completenessDot}`} />
               {completenessText}
             </span>
@@ -562,7 +562,7 @@ function StatusCell({ candidate }: { candidate: Row }) {
   const enrichmentError = enrichment.error_message as string | undefined;
 
   const badgeNode = (
-    <Badge className={`${statusStyle} border-0 text-xs font-semibold py-0.5 w-fit ${enrichmentStatus === 'enriching' ? 'animate-pulse' : ''}`}>
+    <Badge className={`${statusStyle} border-0 py-0.5 w-fit ${enrichmentStatus ==='enriching' ?'animate-pulse' :''}`}>
       {statusLabel}
     </Badge>
   );
@@ -808,31 +808,31 @@ export function ProspectsDataTableClient({
                 <button
                   type="button"
                   onClick={() => openCandidateDetail(c)}
-                  className="text-left font-semibold text-foreground hover:text-su-brand focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-su-brand rounded focus:text-su-brand transition-colors text-sm line-clamp-2"
+                  className="text-left font-semibold text-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded focus:text-primary transition-colors text-sm line-clamp-2"
                 >
                   {c.name}
                 </button>
                 {isChileOfficialCandidate ? (
-                  <Badge className="border-0 bg-su-brand-soft text-su-brand text-xs font-semibold flex items-center gap-0.5 px-1.5 py-0.5 shrink-0">
+                  <Badge variant="brand" className="flex items-center gap-0.5 px-1.5 py-0.5 shrink-0">
                     <ShieldCheck className="h-2.5 w-2.5" />
                     Fuente oficial Chile
                   </Badge>
                 ) : isStructuredCandidate(c) ? (
-                  <Badge className="border-0 bg-su-brand-soft text-su-brand text-xs font-semibold flex items-center gap-0.5 px-1.5 py-0.5 shrink-0">
+                  <Badge variant="brand" className="flex items-center gap-0.5 px-1.5 py-0.5 shrink-0">
                     <ShieldCheck className="h-2.5 w-2.5" />
                     {VENDOR_STRUCTURED_SOURCE_LABELS[c.source_primary ?? ''] ?? 'Fuente oficial'}
                   </Badge>
                 ) : null}
               </div>
               {location && (
-                <p className="text-xs text-muted-foreground/75 leading-tight">{location}</p>
+                <p className="text-xs text-muted-foreground leading-tight">{location}</p>
               )}
               {c.website && (
                 <a
                   href={c.website.startsWith('http') ? c.website : `https://${c.website}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-xs text-su-brand hover:underline font-medium"
+                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline font-medium"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <Globe className="h-2.5 w-2.5" />
@@ -845,7 +845,7 @@ export function ProspectsDataTableClient({
                   href={companyLinkedInUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-xs text-su-brand hover:underline font-medium"
+                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline font-medium"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <Link2 className="h-2.5 w-2.5" />
@@ -1224,15 +1224,15 @@ export function ProspectsDataTableClient({
     <>
       {/* Banner de operación reciente (sourceId activo) */}
       {isSourceFiltered && (
-        <div className="shrink-0 flex flex-col gap-2.5 rounded-xl border border-su-brand/20 bg-su-brand-soft/30 px-4 py-3">
+        <div className="shrink-0 flex flex-col gap-2.5 rounded-xl border border-primary/20 bg-primary/10 px-4 py-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
               {batchStats && (batchStats.pending > 0 || batchStats.enriching > 0) ? (
-                <Loader2 className="h-4 w-4 shrink-0 text-su-brand animate-spin" />
+                <Loader2 className="h-4 w-4 shrink-0 text-primary animate-spin" />
               ) : (
-                <Sparkles className="h-4 w-4 shrink-0 text-su-brand" />
+                <Sparkles className="h-4 w-4 shrink-0 text-primary" />
               )}
-              <p className="text-xs font-medium text-su-brand">
+              <p className="text-xs font-medium text-primary">
                 {batchStats ? (
                   (batchStats.pending > 0 || batchStats.enriching > 0) ? (
                     `Importación completada. Estamos completando la información de ${batchStats.pending + batchStats.enriching} prospecto${batchStats.pending + batchStats.enriching !== 1 ? 's' : ''}...`
@@ -1246,10 +1246,9 @@ export function ProspectsDataTableClient({
             </div>
             <Button
               variant="ghost"
-              size="sm"
+              size="xs"
               onClick={() => router.push(PROSPECTOS_TAB_ROUTE)}
-              className="h-7 shrink-0 gap-1.5 px-2.5 text-xs text-su-brand hover:bg-su-brand-soft hover:text-su-brand"
-            >
+              className="shrink-0 gap-1.5 px-2.5 text-primary hover:bg-primary/10 hover:text-primary">
               <X className="h-3 w-3" />
               Ver todos los prospectos
             </Button>
@@ -1258,13 +1257,13 @@ export function ProspectsDataTableClient({
             <div className="space-y-1.5">
               <Progress
                 value={batchStats.total > 0 ? ((batchStats.completed + batchStats.failed) / batchStats.total) * 100 : 0}
-                className="h-1.5 bg-su-brand/10"
+                className="h-1.5 bg-primary/10"
               />
               <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span>
                   {batchStats.completed + batchStats.failed} de {batchStats.total} procesados
                 </span>
-                <span className="tabular-nums font-medium text-su-brand/70">
+                <span className="tabular-nums font-medium text-primary/70">
                   {batchStats.total > 0 ? Math.round(((batchStats.completed + batchStats.failed) / batchStats.total) * 100) : 0}%
                 </span>
               </div>

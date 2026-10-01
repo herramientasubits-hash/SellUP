@@ -257,8 +257,8 @@ function ChileCompraReportView({ report }: { report: SafeChileCompraDryRunReport
       </div>
 
       {report.qualitySummary.credentialInstructions && (
-        <div className="rounded-lg border border-su-brand/20 bg-su-brand-soft px-3 py-2.5 space-y-1">
-          <p className="text-xs font-medium text-su-brand">Instrucciones de ticket ChileCompra</p>
+        <div className="rounded-lg border border-primary/20 bg-primary/10 px-3 py-2.5 space-y-1">
+          <p className="text-xs font-medium text-primary">Instrucciones de ticket ChileCompra</p>
           <p className="text-xs text-muted-foreground">
             {report.qualitySummary.credentialInstructions}
           </p>
@@ -352,7 +352,7 @@ export function ChileCompraDryRunPanel({ isAdmin }: Props) {
 
         <div className="space-y-1.5 rounded-lg border border-border/60 bg-surface-subtle px-3 py-2.5 text-xs text-muted-foreground">
           <p className="flex items-start gap-1.5">
-            <Zap className="mt-0.5 h-3.5 w-3.5 shrink-0 text-su-brand" />
+            <Zap className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
             <span>
               <strong className="text-foreground">Compra Ágil V2</strong> — busca por keywords
               ICP (capacitación, software, formación, tecnología) en{' '}

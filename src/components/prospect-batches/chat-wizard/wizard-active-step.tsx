@@ -205,7 +205,7 @@ function SearchTypeStep({ state, dispatch, titleRef }: SearchTypeStepProps) {
                 // punteado, fondo muted y SIN hover (antes conservaba el hover
                 // azul de las activas y parecía clickeable).
                 isComingSoon
-                  ? 'cursor-default border-dashed border-border/70 bg-surface-subtle'
+                  ? 'cursor-default border-dashed border-border/60 bg-surface-subtle'
                   : isSelected
                   ? 'cursor-pointer border-primary bg-primary/5'
                   : 'cursor-pointer border-border/60 bg-card hover:border-primary/40 hover:bg-surface-muted',

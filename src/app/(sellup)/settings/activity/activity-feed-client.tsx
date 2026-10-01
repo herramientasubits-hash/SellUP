@@ -56,7 +56,7 @@ function displayName(user: { email: string; full_name: string | null } | null): 
 // Design Refresh v2: el icono de categoría lleva un tinte sutil por fuente.
 // Así el color señala la categoría sin necesidad del badge uppercase repetido.
 const SOURCE_ICON_TINT: Record<AdminActivitySource, string> = {
-  users: 'bg-su-brand-soft text-su-brand',
+  users: 'bg-primary/10 text-primary',
   integrations: 'bg-warning/10 text-warning',
   ai: 'bg-info/10 text-info',
 };
@@ -96,7 +96,7 @@ function UserSelector({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex h-8 min-w-[180px] max-w-[260px] items-center justify-between gap-2 rounded-lg border border-border/60 bg-card px-3 text-xs text-foreground transition-colors hover:border-su-brand/40 hover:bg-su-brand-soft/30"
+        className="flex h-8 min-w-[180px] max-w-[260px] items-center justify-between gap-2 rounded-md border border-border/60 bg-card px-3 text-xs text-foreground transition-colors hover:border-primary/40 hover:bg-primary/10"
       >
         <span className="truncate">
           {value === 'all'
@@ -132,7 +132,7 @@ function UserSelector({
                   <button
                     type="button"
                     onClick={() => { onChange('all'); setOpen(false); setQuery(''); }}
-                    className={`flex w-full items-center gap-2 px-3 py-2 text-xs transition-colors hover:bg-surface-muted ${value === 'all' ? 'text-su-brand font-medium' : 'text-foreground'}`}
+                    className={`flex w-full items-center gap-2 px-3 py-2 text-xs transition-colors hover:bg-surface-muted ${value === 'all' ? 'text-primary font-medium' : 'text-foreground'}`}
                   >
                     <Users className="h-3 w-3 text-muted-foreground" />
                     Todos los usuarios
@@ -144,9 +144,9 @@ function UserSelector({
                   <button
                     type="button"
                     onClick={() => { onChange(u.id); setOpen(false); setQuery(''); }}
-                    className={`flex w-full flex-col px-3 py-2 text-left transition-colors hover:bg-surface-muted ${value === u.id ? 'bg-su-brand-soft/40' : ''}`}
+                    className={`flex w-full flex-col px-3 py-2 text-left transition-colors hover:bg-surface-muted ${value === u.id ? 'bg-primary/10' : ''}`}
                   >
-                    <span className={`text-xs font-medium ${value === u.id ? 'text-su-brand' : 'text-foreground'}`}>
+                    <span className={`text-xs font-medium ${value === u.id ? 'text-primary' : 'text-foreground'}`}>
                       {u.full_name?.trim() || u.email}
                     </span>
                     {u.full_name && (
@@ -281,7 +281,7 @@ export function ActivityFeedClient({ context, initialEvents, initialHasMore, emb
         )}
 
         {/* Source tabs */}
-        <div className="flex items-center gap-0.5 rounded-lg border border-border/50 bg-card p-0.5">
+        <div className="flex items-center gap-0.5 rounded-xl border border-border/50 bg-card p-0.5">
           {SOURCE_TABS.map((tab) => (
             <button
               key={tab.key}
@@ -289,7 +289,7 @@ export function ActivityFeedClient({ context, initialEvents, initialHasMore, emb
               onClick={() => handleSourceChange(tab.key)}
               className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                 sourceFilter === tab.key
-                  ? 'bg-su-brand text-primary-foreground shadow-card'
+                  ? 'bg-primary text-primary-foreground shadow-card'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
@@ -299,7 +299,7 @@ export function ActivityFeedClient({ context, initialEvents, initialHasMore, emb
         </div>
 
         {/* Search */}
-        <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-card px-3 py-1.5 transition-colors focus-within:border-su-brand/40">
+        <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-card px-3 py-1.5 transition-colors focus-within:border-primary/40">
           <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <input
             value={search}

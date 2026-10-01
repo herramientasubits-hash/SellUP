@@ -27,8 +27,8 @@ export default async function AutomationsPage() {
       description: 'Total de automatizaciones',
       value: summary.total,
       icon: Bot,
-      color: 'text-su-brand',
-      bg: 'bg-su-brand-soft',
+      color: 'text-primary',
+      bg: 'bg-primary/10',
     },
     {
       label: 'Automáticas',
@@ -43,8 +43,8 @@ export default async function AutomationsPage() {
       description: 'Con sugerencia de IA',
       value: summary.suggested,
       icon: Lightbulb,
-      color: 'text-su-brand',
-      bg: 'bg-su-brand-soft',
+      color: 'text-primary',
+      bg: 'bg-primary/10',
     },
     {
       label: 'Manuales',
@@ -100,8 +100,8 @@ export default async function AutomationsPage() {
               {
                 mode: 'suggested' as AutomationExecutionMode,
                 icon: Lightbulb,
-                color: 'text-su-brand',
-                bg: 'bg-su-brand-soft',
+                color: 'text-primary',
+                bg: 'bg-primary/10',
               },
               {
                 mode: 'automatic' as AutomationExecutionMode,
@@ -166,8 +166,8 @@ export default async function AutomationsPage() {
       {/* Nota informativa */}
       <SurfaceCard className="border-border/50 bg-surface-subtle">
         <div className="flex items-start gap-3">
-          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-su-brand-soft mt-0.5">
-            <Brain className="h-3 w-3 text-su-brand" />
+          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-primary/10 mt-0.5">
+            <Brain className="h-3 w-3 text-primary" />
           </div>
           <div className="space-y-1">
             <p className="text-xs font-semibold text-foreground">

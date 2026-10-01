@@ -147,7 +147,7 @@ function ContactRow({
       </TableCell>
 
       <TableCell>
-        <span className="text-xs text-foreground/80 truncate max-w-[120px] block">
+        <span className="text-xs text-foreground truncate max-w-[120px] block">
           {contact.job_title ?? <span className="text-text-muted">—</span>}
         </span>
       </TableCell>

@@ -193,7 +193,7 @@ export default async function SourceDetailPage({ params }: Props) {
                     href={source.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-su-brand hover:underline break-all"
+                    className="inline-flex items-center gap-1 text-primary hover:underline break-all"
                   >
                     {source.url}
                     <ExternalLink className="h-3 w-3 shrink-0" />
@@ -433,7 +433,7 @@ export default async function SourceDetailPage({ params }: Props) {
           </div>
           <Link
             href="/settings/source-catalog/socrata-batches"
-            className="shrink-0 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:border-su-brand/40 hover:bg-su-brand-soft hover:text-su-brand transition-colors"
+            className="shrink-0 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary transition-colors"
           >
             Ver lotes Socrata
           </Link>

@@ -49,7 +49,7 @@ export function AIButton({
         aria-busy={loading}
         className={cn(
           "relative overflow-hidden rounded-full font-semibold transition-all duration-300",
-          isPrimary && !disabled && "su-ai-gradient text-su-brand-foreground border-0 shadow-none ring-0 hover:opacity-90 active:scale-95",
+          isPrimary && !disabled && "su-ai-gradient text-primary-foreground border-0 shadow-none ring-0 hover:opacity-90 active:scale-95",
           isOutline && !disabled && "su-ai-border hover:opacity-80 active:scale-95"
         )}
       >
@@ -61,7 +61,7 @@ export function AIButton({
         ) : (
           <div className="flex items-center gap-2">
             <span className={cn(
-              isPrimary ? "text-su-brand-foreground" : "su-ai-gradient-text",
+              isPrimary ? "text-primary-foreground" : "su-ai-gradient-text",
             )}>
               {LeftIcon ? (
                 <LeftIcon className={cn(
@@ -75,7 +75,7 @@ export function AIButton({
                 )} />
               )}
             </span>
-            <span className={cn(isPrimary && "text-su-brand-foreground")}>
+            <span className={cn(isPrimary && "text-primary-foreground")}>
               {label || children}
             </span>
             {RightIcon && (

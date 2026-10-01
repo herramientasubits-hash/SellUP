@@ -165,7 +165,7 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
               type="button"
               onClick={() => openDetail(row.original)}
               title={row.original.name}
-              className="block w-full truncate text-sm font-medium text-foreground hover:text-su-brand transition-colors text-left"
+              className="block w-full truncate text-sm font-medium text-foreground hover:text-primary transition-colors text-left"
             >
               {row.original.name}
             </button>
@@ -332,7 +332,7 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
           // (solo lectura). Ninguna dispara una conexión.
           const className =
             action.kind === 'connect'
-              ? 'inline-flex items-center gap-1 rounded-md border border-su-brand/30 bg-su-brand-soft px-2.5 py-1 text-xs font-medium text-su-brand hover:bg-su-brand hover:text-primary-foreground transition-colors whitespace-nowrap'
+              ? 'inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary hover:text-primary-foreground transition-colors whitespace-nowrap'
               : 'inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap';
           return (
             <button type="button" onClick={() => openDetail(row.original)} className={className}>

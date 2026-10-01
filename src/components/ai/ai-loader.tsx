@@ -40,7 +40,7 @@ export function AILoader({
       <div className={cn("flex flex-col gap-4 rounded-2xl border su-ai-border bg-card/50 p-6 su-ai-glow", className)} role="status" aria-live="polite">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl su-ai-gradient text-su-brand-foreground shadow-card">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl su-ai-gradient text-primary-foreground shadow-card">
               <Sparkles className="h-5 w-5" />
             </div>
             <div>

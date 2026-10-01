@@ -2383,8 +2383,7 @@ export function ContactCandidateDetailSheet({
                       {phoneSourceLabel && (
                         <Badge
                           variant="outline"
-                          className="font-normal text-muted-foreground"
-                        >
+                          className="text-muted-foreground">
                           {phoneSourceLabel}
                         </Badge>
                       )}
@@ -2511,11 +2510,10 @@ export function ContactCandidateDetailSheet({
                         <Button
                           type="button"
                           variant="ghost"
-                          size="sm"
-                          className="h-7 gap-1.5 text-xs"
+                          size="xs"
+                          className="gap-1.5"
                           disabled={busy || refreshingFromDatabase}
-                          onClick={handleRefreshFromDatabase}
-                        >
+                          onClick={handleRefreshFromDatabase}>
                           {refreshingFromDatabase ? (
                             <>
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -2561,11 +2559,10 @@ export function ContactCandidateDetailSheet({
                           <Button
                             type="button"
                             variant="outline"
-                            size="sm"
-                            className="h-7 gap-1.5 text-xs"
+                            size="xs"
+                            className="gap-1.5"
                             disabled={busy || recoveringPhone}
-                            onClick={handleRecoverPhoneNow}
-                          >
+                            onClick={handleRecoverPhoneNow}>
                             {recoveringPhone ? (
                               <>
                                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -2609,11 +2606,10 @@ export function ContactCandidateDetailSheet({
                       <Button
                         type="button"
                         variant="outline"
-                        size="sm"
-                        className="h-7 gap-1.5 text-xs"
+                        size="xs"
+                        className="gap-1.5"
                         disabled={busy || revealingPhoneViaLusha}
-                        onClick={handleLushaPhoneFallback}
-                      >
+                        onClick={handleLushaPhoneFallback}>
                         <PhoneCall className="h-3.5 w-3.5" />
                         {lushaPhoneFallbackCopy.buttonLabel}
                       </Button>
@@ -2654,8 +2650,8 @@ export function ContactCandidateDetailSheet({
                       <Button
                         type="button"
                         variant="outline"
-                        size="sm"
-                        className="h-7 gap-1.5 text-xs"
+                        size="xs"
+                        className="gap-1.5"
                         // Sin clave de supresión el botón se DESHABILITA en vez de
                         // aceptar un clic que el backend ya sabe que va a bloquear
                         // (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-2). Cubre las dos
@@ -2693,8 +2689,7 @@ export function ContactCandidateDetailSheet({
                                     waterfallAuthorizationCopy.maxCredits,
                                   )
                             : () => handlePhoneReveal()
-                        }
-                      >
+                        }>
                         {revealingPhone || revealingLegacyPhone ? (
                           <>
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -2764,11 +2759,10 @@ export function ContactCandidateDetailSheet({
                           <Button
                             type="button"
                             variant="ghost"
-                            size="sm"
-                            className="h-7 gap-1.5 text-xs"
+                            size="xs"
+                            className="gap-1.5"
                             disabled={busy || refreshingFromDatabase}
-                            onClick={handleRefreshFromDatabase}
-                          >
+                            onClick={handleRefreshFromDatabase}>
                             {refreshingFromDatabase ? (
                               <>
                                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -3047,10 +3041,8 @@ export function ContactCandidateDetailSheet({
                   <span className="flex flex-wrap gap-1">
                     {matchedKeywords.map((kw) => (
                       <Badge
-                        key={kw}
-                        variant="outline"
-                        className="font-normal"
-                      >
+ key={kw}
+ variant="outline">
                         {kw}
                       </Badge>
                     ))}

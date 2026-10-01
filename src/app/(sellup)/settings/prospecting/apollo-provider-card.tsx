@@ -306,11 +306,9 @@ export function ApolloProviderCard({ connection: initialConnection, description 
         <div className="flex flex-wrap gap-2">
           {!configured ? (
             <Button
-              size="sm"
-              onClick={() => openDialog('connect')}
-              disabled={isPending}
-              className="bg-su-brand text-primary-foreground hover:bg-su-brand/90"
-            >
+ size="sm"
+ onClick={() => openDialog('connect')}
+ disabled={isPending}>
               Conectar Apollo
             </Button>
           ) : (
@@ -405,11 +403,9 @@ export function ApolloProviderCard({ connection: initialConnection, description 
               Cancelar
             </Button>
             <Button
-              size="sm"
-              onClick={handleSaveCredential}
-              disabled={isPending || apiKeyInput.trim().length < 10}
-              className="bg-su-brand text-primary-foreground hover:bg-su-brand/90"
-            >
+ size="sm"
+ onClick={handleSaveCredential}
+ disabled={isPending || apiKeyInput.trim().length < 10}>
               {isPending ? 'Guardando...' : 'Guardar credencial'}
             </Button>
           </DialogFooter>

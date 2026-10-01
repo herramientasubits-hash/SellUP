@@ -569,7 +569,7 @@ export function AIControls({ type, item, models, activeConfig }: AIControlsProps
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed bottom-8 left-1/2 -translate-x-1/2 transform px-4 py-3 rounded-lg shadow-drawer border z-50 bg-card ${
+        <div className={`fixed bottom-8 left-1/2 -translate-x-1/2 transform px-4 py-3 rounded-xl shadow-drawer border z-50 bg-card ${
           toast.type === 'success'
             ? 'border-success/50 text-success dark:text-success'
             : 'border-destructive/50 text-destructive'

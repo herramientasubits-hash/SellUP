@@ -157,7 +157,7 @@ export default async function MyDrivePage({ searchParams }: PageProps) {
                 Carpeta raíz en Drive
               </p>
               <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-surface-subtle px-3 py-2">
-                <FolderOpen className="h-4 w-4 text-su-brand flex-shrink-0" />
+                <FolderOpen className="h-4 w-4 text-primary flex-shrink-0" />
                 <span className="text-sm font-medium text-foreground">
                   {conn.drive_folder_name ?? 'SellUp'}
                 </span>

@@ -138,21 +138,19 @@ export function DataTableColumnPopover<TData, TValue>({
             <div className="px-4 pb-2.5 flex items-center gap-1.5">
               <Button
                 variant={sortDirection === "asc" ? "default" : "outline"}
-                size="sm"
-                className="flex-1 h-7 rounded-lg text-xs"
+                size="xs"
+                className="flex-1"
                 onClick={() => column.toggleSorting(false)}
-                aria-pressed={sortDirection === "asc"}
-              >
+                aria-pressed={sortDirection === "asc"}>
                 <ArrowUp className="h-3 w-3" />
                 Asc
               </Button>
               <Button
                 variant={sortDirection === "desc" ? "default" : "outline"}
-                size="sm"
-                className="flex-1 h-7 rounded-lg text-xs"
+                size="xs"
+                className="flex-1"
                 onClick={() => column.toggleSorting(true)}
-                aria-pressed={sortDirection === "desc"}
-              >
+                aria-pressed={sortDirection === "desc"}>
                 <ArrowDown className="h-3 w-3" />
                 Desc
               </Button>
@@ -173,7 +171,8 @@ export function DataTableColumnPopover<TData, TValue>({
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Buscar..."
-                  className="h-7 pl-7 text-xs"
+                  inputSize="sm"
+                  className="pl-7"
                 />
               </div>
             )}
@@ -221,10 +220,9 @@ export function DataTableColumnPopover<TData, TValue>({
             <div className="px-4 py-2.5">
               <Button
                 variant="ghost"
-                size="sm"
-                className="w-full h-7 text-xs justify-center text-muted-foreground"
-                onClick={clearAll}
-              >
+                size="xs"
+                className="w-full justify-center text-muted-foreground"
+                onClick={clearAll}>
                 <X className="h-3 w-3" />
                 Limpiar filtros
               </Button>

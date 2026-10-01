@@ -39,7 +39,7 @@ function formatCost(usd: number, decimals = 4): string {
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; classes: string; dot: string }> = {
     completed:      { label: 'Completado',  classes: 'border-success/30 bg-success/10 text-success', dot: 'bg-success' },
-    running:        { label: 'En curso',    classes: 'border-su-brand/30 bg-su-brand/10 text-su-brand',         dot: 'bg-su-brand' },
+    running:        { label: 'En curso',    classes: 'border-primary/30 bg-primary/10 text-primary',         dot: 'bg-primary' },
     failed:         { label: 'Error',       classes: 'border-destructive/30 bg-destructive/10 text-destructive', dot: 'bg-destructive' },
     cancelled:      { label: 'Cancelado',   classes: 'border-border/60 bg-surface-subtle text-muted-foreground',   dot: 'bg-muted-foreground/25' },
     pending:        { label: 'Pendiente',   classes: 'border-warning/30 bg-warning/10 text-warning',       dot: 'bg-warning' },
@@ -66,13 +66,13 @@ function StatusBadge({ status }: { status: string }) {
 
 function EventTypeBadge({ type }: { type: string }) {
   const map: Record<string, string> = {
-    generated:            'bg-su-brand/10 text-su-brand',
+    generated:            'bg-primary/10 text-primary',
     normalized:           'bg-surface-subtle text-muted-foreground',
     duplicate_detected:   'bg-warning/10 text-warning',
     discarded:            'bg-destructive/10 text-destructive',
     approved:             'bg-success/10 text-success',
     converted_to_account: 'bg-success/10 text-success',
-    sent_to_hubspot:      'bg-su-brand/10 text-su-brand',
+    sent_to_hubspot:      'bg-primary/10 text-primary',
     contact_useful:       'bg-success/10 text-success',
     contact_invalid:      'bg-destructive/10 text-destructive',
   };
@@ -302,7 +302,7 @@ export default async function UsagePage() {
 
   const summaryCards = [
     { label: 'Ejecuciones',  value: isEmpty ? String(MOCK_SUMMARY.totalExecutions)   : String(summary.total_agent_runs),      sub: 'de agentes',           icon: Bot,          accent: 'text-foreground',   bg: 'bg-surface-subtle' },
-    { label: 'En curso',     value: isEmpty ? '0'                                     : String(summary.running_agent_runs),    sub: 'agentes activos',      icon: Zap,          accent: summary.running_agent_runs > 0 ? 'text-su-brand' : 'text-muted-foreground', bg: 'bg-surface-subtle' },
+    { label: 'En curso',     value: isEmpty ? '0'                                     : String(summary.running_agent_runs),    sub: 'agentes activos',      icon: Zap,          accent: summary.running_agent_runs > 0 ? 'text-primary' : 'text-muted-foreground', bg: 'bg-surface-subtle' },
     { label: 'Fallidas',     value: isEmpty ? '0'                                     : String(summary.failed_agent_runs),     sub: 'con error',            icon: Bot,          accent: summary.failed_agent_runs > 0 ? 'text-destructive' : 'text-muted-foreground', bg: 'bg-surface-subtle' },
     { label: 'Llamadas API', value: isEmpty ? String(MOCK_SUMMARY.totalProviderCalls) : String(summary.total_provider_calls), sub: 'a proveedores',        icon: Plug,         accent: 'text-foreground',   bg: 'bg-surface-subtle' },
     { label: 'Aprobados',    value: isEmpty ? String(MOCK_SUMMARY.totalApproved)      : '—',                                  sub: 'resultados aprobados', icon: CheckCircle2, accent: 'text-success',  bg: 'bg-success/10' },
@@ -319,7 +319,7 @@ export default async function UsagePage() {
             })}
           />
         ),
-      sub: 'USD estimados', icon: DollarSign, accent: 'text-su-brand', bg: 'bg-su-brand-soft',
+      sub: 'USD estimados', icon: DollarSign, accent: 'text-primary', bg: 'bg-primary/10',
     },
   ];
 
@@ -343,8 +343,8 @@ export default async function UsagePage() {
       />
 
       {/* ── Aviso contextual ─────────────────────────────────── */}
-      <div className="flex items-start gap-3 rounded-xl border border-su-brand/20 bg-su-brand/5 px-4 py-3">
-        <Info className="mt-0.5 h-4 w-4 shrink-0 text-su-brand" />
+      <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
+        <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
         <p className="text-xs text-muted-foreground leading-relaxed">
           {isEmpty ? (
             <>
@@ -387,7 +387,7 @@ export default async function UsagePage() {
             <SurfaceCardHeader
               title="Efectividad por agente"
               description="Ejecuciones, costo y tasa de aprobación por agente — datos ilustrativos."
-              actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-su-brand-soft"><Bot className="h-4 w-4 text-su-brand" /></div>}
+              actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10"><Bot className="h-4 w-4 text-primary" /></div>}
             />
             <MockAgentsTable agents={MOCK_AGENTS} />
           </SurfaceCard>
@@ -405,7 +405,7 @@ export default async function UsagePage() {
             <SurfaceCardHeader
               title="Actividad reciente"
               description="Últimas ejecuciones de agentes y llamadas a proveedores — datos ilustrativos."
-              actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-su-brand-soft"><TrendingUp className="h-4 w-4 text-su-brand" /></div>}
+              actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10"><TrendingUp className="h-4 w-4 text-primary" /></div>}
             />
             <MockActivityTable items={MOCK_ACTIVITY} />
           </SurfaceCard>
@@ -420,7 +420,7 @@ export default async function UsagePage() {
               <SurfaceCardHeader
                 title="Ejecuciones de agentes"
                 description={`Últimas ${activity.agent_runs.length} ejecuciones`}
-                actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-su-brand-soft"><Bot className="h-4 w-4 text-su-brand" /></div>}
+                actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10"><Bot className="h-4 w-4 text-primary" /></div>}
               />
               <AgentRunsTable runs={activity.agent_runs} />
             </SurfaceCard>
@@ -430,7 +430,7 @@ export default async function UsagePage() {
               <SurfaceCardHeader
                 title="Llamadas a proveedores"
                 description={`Últimas ${activity.provider_logs.length} llamadas`}
-                actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-su-brand-soft"><Plug className="h-4 w-4 text-su-brand" /></div>}
+                actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10"><Plug className="h-4 w-4 text-primary" /></div>}
               />
               <ProviderLogsTable logs={activity.provider_logs} />
             </SurfaceCard>
@@ -440,7 +440,7 @@ export default async function UsagePage() {
               <SurfaceCardHeader
                 title="Eventos de calidad de resultados"
                 description={`Últimos ${activity.quality_events.length} eventos`}
-                actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-su-brand-soft"><Star className="h-4 w-4 text-su-brand" /></div>}
+                actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10"><Star className="h-4 w-4 text-primary" /></div>}
               />
               <QualityEventsTable events={activity.quality_events} />
             </SurfaceCard>
@@ -451,7 +451,7 @@ export default async function UsagePage() {
       {/* ── Estado de configuración de precios ──────────────── */}
       <SurfaceCard>
         <div className="flex items-start gap-3">
-          <Info className="mt-0.5 h-4 w-4 shrink-0 text-su-brand" />
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
           <div className="space-y-1">
             <p className="text-xs font-medium text-foreground">Configuración de costos por proveedor</p>
             <p className="text-xs text-muted-foreground">

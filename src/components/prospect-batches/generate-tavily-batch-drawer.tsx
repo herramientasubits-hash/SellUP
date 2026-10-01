@@ -214,7 +214,7 @@ export function GenerateTavilyBatchDrawer() {
             ].map((src) => (
               <div
                 key={src.label}
-                className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 rounded-lg border border-border/60 bg-card px-3 py-2"
+                className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 rounded-xl border border-border/60 bg-card px-3 py-2"
               >
                 <src.icon className="h-3.5 w-3.5 shrink-0 text-primary" />
                 <span className="text-xs font-medium text-foreground">{src.label}</span>

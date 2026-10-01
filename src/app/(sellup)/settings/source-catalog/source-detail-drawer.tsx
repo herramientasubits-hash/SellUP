@@ -170,7 +170,7 @@ export function SourceDetailDrawer({
             )}
             {source.url && (
               <SourceInfoRow label="URL">
-                <Link href={source.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-su-brand hover:underline break-all">
+                <Link href={source.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline break-all">
                   {source.url}
                   <ExternalLink className="h-3 w-3 shrink-0" />
                 </Link>
@@ -333,7 +333,7 @@ export function SourceDetailDrawer({
               </div>
               <Link
                 href="/settings/source-catalog/socrata-batches"
-                className="shrink-0 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:border-su-brand/40 hover:bg-su-brand-soft hover:text-su-brand transition-colors"
+                className="shrink-0 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary transition-colors"
               >
                 Ver lotes Socrata
               </Link>
@@ -360,7 +360,7 @@ export function SourceDetailDrawer({
         <div className="flex items-center gap-2.5 px-5 py-2.5 border-b border-border/60 bg-surface-subtle">
           <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <p className="text-xs text-muted-foreground">
-            <span className="font-medium text-foreground/80">Solo lectura para candidatos.</span>{' '}
+            <span className="font-medium text-foreground">Solo lectura para candidatos.</span>{' '}
             No permite editar, aprobar, descartar ni sincronizar.
           </p>
         </div>
@@ -393,14 +393,14 @@ export function SourceDetailDrawer({
           <CopyKeyInline sourceKey={source.key} />
           <div className="flex items-center gap-2">
             {source.url && (
-              <Button variant="outline" size="sm" className="h-9 rounded-lg" asChild>
+              <Button variant="outline" size="sm" asChild>
                 <a href={source.url} target="_blank" rel="noopener noreferrer">
                   <ExternalLink className="h-3.5 w-3.5" />
                   Abrir URL
                 </a>
               </Button>
             )}
-            <Button variant="default" size="sm" className="h-9 rounded-lg" asChild>
+            <Button variant="default" size="sm" asChild>
               <Link href={`/settings/source-catalog/${source.key}`}>
                 Ver página completa
                 <ExternalLink className="h-3.5 w-3.5 ml-1" />
@@ -473,13 +473,13 @@ function SocrataBatchesTable({ batches }: { batches: SocrataPreviewBatchListItem
               <td className="px-4 py-3">
                 <div className="flex flex-wrap gap-1">
                   {batch.previewMode && (
-                    <Badge className="border-su-brand/30 bg-su-brand-soft text-su-brand border text-xs">Preview</Badge>
+                    <Badge variant="brand">Preview</Badge>
                   )}
                   {batch.smokeTest && (
-                    <Badge className="border-info/30 bg-info/10 text-info border text-xs">Smoke</Badge>
+                    <Badge variant="info">Smoke</Badge>
                   )}
                   {batch.rollbackLogical && (
-                    <Badge className="border-border/60 bg-surface-muted text-muted-foreground border text-xs">Rollback</Badge>
+                    <Badge variant="neutral">Rollback</Badge>
                   )}
                   {!batch.previewMode && !batch.smokeTest && !batch.rollbackLogical && (
                     <span className="text-xs text-text-muted">—</span>

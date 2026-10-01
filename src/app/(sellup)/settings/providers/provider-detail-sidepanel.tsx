@@ -474,7 +474,7 @@ function TabResumen({
             {recentOps.map((log) => {
               const isError = log.status != null && (log.status.toLowerCase().includes('error') || log.status.toLowerCase().includes('fail'));
               return (
-                <div key={log.id} className="flex items-center gap-3 rounded-lg border border-border/60 bg-card px-3 py-2">
+                <div key={log.id} className="flex items-center gap-3 rounded-xl border border-border/60 bg-card px-3 py-2">
                   <span className={`shrink-0 h-1.5 w-1.5 rounded-full ${isError ? 'bg-destructive' : 'bg-success'}`} />
                   <span className="text-xs text-foreground truncate flex-1">
                     {log.operationKey ?? 'operación general'}
@@ -507,7 +507,7 @@ function TabResumen({
               const outcome = parseBudgetCheck(log.budgetCheck)?.outcome;
               const isError = outcome === 'technical_error' || outcome === 'would_block';
               return (
-                <div key={log.id} className="flex items-center gap-3 rounded-lg border border-border/60 bg-card px-3 py-2">
+                <div key={log.id} className="flex items-center gap-3 rounded-xl border border-border/60 bg-card px-3 py-2">
                   <span className={`shrink-0 h-1.5 w-1.5 rounded-full ${isError ? 'bg-destructive' : 'bg-success'}`} />
                   <span className="text-xs text-foreground truncate flex-1">
                     {log.operationKey ?? 'operación general'}
@@ -747,7 +747,7 @@ function AiModelRow({
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           {model.isActiveGlobalModel && (
-            <span className="inline-flex items-center rounded-full border border-su-brand/30 bg-su-brand-soft px-2 py-0.5 text-xs font-medium text-su-brand">
+            <span className="inline-flex items-center rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
               Activo global
             </span>
           )}
@@ -765,15 +765,15 @@ function AiModelRow({
       )}
 
       <div className="flex flex-wrap gap-1.5 pt-1">
-        <Button size="sm" variant="outline" disabled={isPending} onClick={handleToggleStatus} className="h-6 text-xs px-2">
+        <Button size="xs" variant="outline" disabled={isPending} onClick={handleToggleStatus} className="px-2">
           {isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
           {model.status === 'active' ? 'Desactivar modelo' : 'Activar modelo'}
         </Button>
-        <Button size="sm" variant="outline" disabled={isPending} onClick={() => setShowPricingForm((v) => !v)} className="h-6 text-xs px-2">
+        <Button size="xs" variant="outline" disabled={isPending} onClick={() => setShowPricingForm((v) => !v)} className="px-2">
           {model.latestPricing ? 'Actualizar tarifa' : 'Agregar tarifa'}
         </Button>
         {!model.isActiveGlobalModel && (
-          <Button size="sm" variant="outline" disabled={isPending} onClick={handleUseAsGlobalBase} className="h-6 text-xs px-2">
+          <Button size="xs" variant="outline" disabled={isPending} onClick={handleUseAsGlobalBase} className="px-2">
             Usar como modelo base global
           </Button>
         )}
@@ -789,7 +789,7 @@ function AiModelRow({
               value={inputCost}
               onChange={(e) => setInputCost(e.target.value)}
               placeholder="Input (USD)"
-              className="w-full rounded-md border border-border/60 bg-background px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-su-brand/40"
+              className="w-full rounded-md border border-border/60 bg-background px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-primary/40"
             />
             <input
               type="number"
@@ -797,15 +797,15 @@ function AiModelRow({
               value={outputCost}
               onChange={(e) => setOutputCost(e.target.value)}
               placeholder="Output (USD)"
-              className="w-full rounded-md border border-border/60 bg-background px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-su-brand/40"
+              className="w-full rounded-md border border-border/60 bg-background px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-primary/40"
             />
           </div>
           <div className="flex gap-2">
-            <Button size="sm" disabled={isPending || !inputCost || !outputCost} onClick={handleSavePricing} className="h-6 text-xs px-2">
+            <Button size="xs" disabled={isPending || !inputCost || !outputCost} onClick={handleSavePricing} className="px-2">
               {isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
               Guardar tarifa
             </Button>
-            <Button size="sm" variant="outline" onClick={() => { setShowPricingForm(false); setInputCost(''); setOutputCost(''); }} className="h-6 text-xs px-2">
+            <Button size="xs" variant="outline" onClick={() => { setShowPricingForm(false); setInputCost(''); setOutputCost(''); }} className="px-2">
               Cancelar
             </Button>
           </div>
@@ -947,16 +947,16 @@ function TabConfiguracionIA({
             </SectionCard>
 
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" disabled={isPending || !connState?.hasCredential} onClick={handleTest} className="h-7 text-xs">
+              <Button size="xs" variant="outline" disabled={isPending || !connState?.hasCredential} onClick={handleTest}>
                 {isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Zap className="h-3 w-3 mr-1" />}
                 Probar conexión
               </Button>
-              <Button size="sm" variant="outline" disabled={isPending} onClick={() => { setShowKeyForm((v) => !v); setShowDisconnectConfirm(false); }} className="h-7 text-xs">
+              <Button size="xs" variant="outline" disabled={isPending} onClick={() => { setShowKeyForm((v) => !v); setShowDisconnectConfirm(false); }}>
                 <Lock className="h-3 w-3 mr-1" />
                 Actualizar API key
               </Button>
               {connState?.hasCredential && (
-                <Button size="sm" variant="outline" disabled={isPending} onClick={() => { setShowDisconnectConfirm((v) => !v); setShowKeyForm(false); }} className="h-7 text-xs text-destructive hover:text-destructive border-destructive/30 hover:border-destructive/60">
+                <Button size="xs" variant="outline" disabled={isPending} onClick={() => { setShowDisconnectConfirm((v) => !v); setShowKeyForm(false); }} className="text-destructive hover:text-destructive border-destructive/30 hover:border-destructive/60">
                   <Power className="h-3 w-3 mr-1" />
                   Desconectar
                 </Button>
@@ -971,15 +971,15 @@ function TabConfiguracionIA({
                   value={apiKeyInput}
                   onChange={(e) => setApiKeyInput(e.target.value)}
                   placeholder="sk-••••••••"
-                  className="w-full rounded-md border border-border/60 bg-background px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-su-brand/40"
+                  className="w-full rounded-md border border-border/60 bg-background px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-primary/40"
                   autoComplete="new-password"
                 />
                 <div className="flex gap-2">
-                  <Button size="sm" disabled={isPending || !apiKeyInput.trim()} onClick={handleSaveKey} className="h-7 text-xs">
+                  <Button size="xs" disabled={isPending || !apiKeyInput.trim()} onClick={handleSaveKey}>
                     {isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
                     Guardar API key
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => { setShowKeyForm(false); setApiKeyInput(''); }} className="h-7 text-xs">
+                  <Button size="xs" variant="outline" onClick={() => { setShowKeyForm(false); setApiKeyInput(''); }}>
                     Cancelar
                   </Button>
                 </div>
@@ -991,11 +991,11 @@ function TabConfiguracionIA({
                 <p className="text-xs text-foreground">¿Confirmar desconexión del proveedor?</p>
                 <p className="text-xs text-muted-foreground">Se eliminarán las credenciales. Esta acción no se puede deshacer.</p>
                 <div className="flex gap-2">
-                  <Button size="sm" variant="destructive" disabled={isPending} onClick={handleDisconnect} className="h-7 text-xs">
+                  <Button size="xs" variant="destructive" disabled={isPending} onClick={handleDisconnect}>
                     {isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
                     Confirmar desconexión
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => setShowDisconnectConfirm(false)} className="h-7 text-xs">
+                  <Button size="xs" variant="outline" onClick={() => setShowDisconnectConfirm(false)}>
                     Cancelar
                   </Button>
                 </div>
@@ -1021,7 +1021,7 @@ function TabConfiguracionIA({
             />
           </SectionCard>
           <div className="pt-2">
-            <Button size="sm" variant="outline" disabled={statusPending} onClick={handleToggleProviderStatus} className="h-7 text-xs">
+            <Button size="xs" variant="outline" disabled={statusPending} onClick={handleToggleProviderStatus}>
               {statusPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Power className="h-3 w-3 mr-1" />}
               {aiProviderDetail.providerStatus === 'active' ? 'Desactivar proveedor' : 'Activar proveedor'}
             </Button>
@@ -1067,7 +1067,7 @@ function TabConfiguracionIA({
           )}
           {isAnthropic && (
             <div className="pt-1 space-y-1">
-              <Button size="sm" variant="outline" disabled={syncPending} onClick={handleSyncModels} className="h-7 text-xs">
+              <Button size="xs" variant="outline" disabled={syncPending} onClick={handleSyncModels}>
                 {syncPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
                 Actualizar modelos
               </Button>
@@ -1264,7 +1264,7 @@ function TabConfiguracionNoIA({
         ) : connLoadError || connState?.loadErrorMsg ? (
           <div className="rounded-lg border border-border/60 bg-surface-subtle px-4 py-4 space-y-2">
             <p className="text-xs text-muted-foreground">{connState?.loadErrorMsg ?? 'No fue posible cargar el estado de conexión.'}</p>
-            <Button size="sm" variant="outline" onClick={() => void loadConn()} className="h-7 text-xs">
+            <Button size="xs" variant="outline" onClick={() => void loadConn()}>
               Reintentar
             </Button>
           </div>
@@ -1300,16 +1300,16 @@ function TabConfiguracionNoIA({
             </SectionCard>
 
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" disabled={isPending || !hasCredential} onClick={handleTest} className="h-7 text-xs">
+              <Button size="xs" variant="outline" disabled={isPending || !hasCredential} onClick={handleTest}>
                 {isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Zap className="h-3 w-3 mr-1" />}
                 Probar conexión
               </Button>
-              <Button size="sm" variant="outline" disabled={isPending} onClick={() => { setShowKeyForm((v) => !v); setShowDisconnectConfirm(false); }} className="h-7 text-xs">
+              <Button size="xs" variant="outline" disabled={isPending} onClick={() => { setShowKeyForm((v) => !v); setShowDisconnectConfirm(false); }}>
                 <Lock className="h-3 w-3 mr-1" />
                 Actualizar API key
               </Button>
               {hasCredential && (
-                <Button size="sm" variant="outline" disabled={isPending} onClick={() => { setShowDisconnectConfirm((v) => !v); setShowKeyForm(false); }} className="h-7 text-xs text-destructive hover:text-destructive border-destructive/30 hover:border-destructive/60">
+                <Button size="xs" variant="outline" disabled={isPending} onClick={() => { setShowDisconnectConfirm((v) => !v); setShowKeyForm(false); }} className="text-destructive hover:text-destructive border-destructive/30 hover:border-destructive/60">
                   <Power className="h-3 w-3 mr-1" />
                   Desconectar
                 </Button>
@@ -1324,15 +1324,15 @@ function TabConfiguracionNoIA({
                   value={apiKeyInput}
                   onChange={(e) => setApiKeyInput(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full rounded-md border border-border/60 bg-background px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-su-brand/40"
+                  className="w-full rounded-md border border-border/60 bg-background px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-primary/40"
                   autoComplete="new-password"
                 />
                 <div className="flex gap-2">
-                  <Button size="sm" disabled={isPending || !apiKeyInput.trim()} onClick={handleSaveKey} className="h-7 text-xs">
+                  <Button size="xs" disabled={isPending || !apiKeyInput.trim()} onClick={handleSaveKey}>
                     {isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
                     Guardar API key
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => { setShowKeyForm(false); setApiKeyInput(''); }} className="h-7 text-xs">
+                  <Button size="xs" variant="outline" onClick={() => { setShowKeyForm(false); setApiKeyInput(''); }}>
                     Cancelar
                   </Button>
                 </div>
@@ -1344,11 +1344,11 @@ function TabConfiguracionNoIA({
                 <p className="text-xs text-foreground">¿Confirmar desconexión?</p>
                 <p className="text-xs text-muted-foreground">Se eliminarán las credenciales almacenadas.</p>
                 <div className="flex gap-2">
-                  <Button size="sm" variant="destructive" disabled={isPending} onClick={handleDisconnect} className="h-7 text-xs">
+                  <Button size="xs" variant="destructive" disabled={isPending} onClick={handleDisconnect}>
                     {isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
                     Confirmar desconexión
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => setShowDisconnectConfirm(false)} className="h-7 text-xs">
+                  <Button size="xs" variant="outline" onClick={() => setShowDisconnectConfirm(false)}>
                     Cancelar
                   </Button>
                 </div>
@@ -1587,8 +1587,7 @@ function ConsumptionUserFilter({
             variant="outline"
             role="combobox"
             aria-expanded={open}
-            className="h-8 w-[160px] justify-between rounded-lg border-input bg-transparent px-2 font-normal text-xs hover:bg-surface-muted dark:bg-input/30 dark:hover:bg-input/50"
-          >
+            size="sm" className="w-[160px] justify-between border-input bg-transparent px-2 font-normal text-xs hover:bg-surface-muted dark:bg-input/30 dark:hover:bg-input/50">
             <span className="truncate">{triggerLabel}</span>
             <ChevronDownIcon className="pointer-events-none size-4 shrink-0 text-muted-foreground" />
           </Button>
@@ -1959,11 +1958,9 @@ function TabConsumo({
           )}
           <p className="text-xs text-muted-foreground">Puedes reintentar sin cerrar el workspace.</p>
           <Button
-            size="sm"
-            variant="outline"
-            className="h-7 text-xs"
-            onClick={() => { if (isActive) loadConsumptionSnapshot(); }}
-          >
+ size="xs"
+ variant="outline"
+ onClick={() => { if (isActive) loadConsumptionSnapshot(); }}>
             Reintentar
           </Button>
         </div>
@@ -1973,7 +1970,7 @@ function TabConsumo({
       <div className="flex flex-wrap gap-1.5">
         {/* Período */}
         <Select value={period} onValueChange={(v) => setFilter('period', v)}>
-          <SelectTrigger className="h-7 w-[140px] text-xs">
+          <SelectTrigger size="sm" className="w-[140px]">
             <SelectValue>
               {CONSUMPTION_PERIOD_OPTIONS.find((o) => o.value === period)?.label ?? period}
             </SelectValue>
@@ -1990,7 +1987,7 @@ function TabConsumo({
         {/* Rol */}
         {(options?.roles ?? []).length > 0 && (
           <Select value={filters.role ?? 'all'} onValueChange={onRoleChange}>
-            <SelectTrigger className="h-7 w-[150px] text-xs">
+            <SelectTrigger size="sm" className="w-[150px]">
               <SelectValue placeholder="Rol">
                 {filters.role
                   ? (options?.roles.find((r) => r.key === filters.role)?.label ?? filters.role)
@@ -2009,7 +2006,7 @@ function TabConsumo({
         {/* Grupo */}
         {(options?.groups ?? []).length > 0 && (
           <Select value={filters.groupId ?? 'all'} onValueChange={onGroupChange}>
-            <SelectTrigger className="h-7 w-[160px] text-xs">
+            <SelectTrigger size="sm" className="w-[160px]">
               <SelectValue placeholder="Grupo">
                 {filters.groupId
                   ? (groupNameMap.get(filters.groupId) ?? filters.groupId)
@@ -2041,7 +2038,7 @@ function TabConsumo({
         {/* Agente */}
         {(options?.agents ?? []).length > 0 && (
           <Select value={filters.agent ?? 'all'} onValueChange={(v) => setFilter('agent', v)}>
-            <SelectTrigger className="h-7 w-[180px] text-xs">
+            <SelectTrigger size="sm" className="w-[180px]">
               <SelectValue placeholder="Agente">
                 {filters.agent
                   ? labelConsumptionAgent(
@@ -2065,7 +2062,7 @@ function TabConsumo({
         {/* Estado */}
         {(options?.statuses ?? []).length > 0 && (
           <Select value={filters.status ?? 'all'} onValueChange={(v) => setFilter('status', v)}>
-            <SelectTrigger className="h-7 w-[130px] text-xs">
+            <SelectTrigger size="sm" className="w-[130px]">
               <SelectValue placeholder="Estado">
                 {filters.status ? filters.status.replace(/_/g, ' ') : 'Todos los estados'}
               </SelectValue>
@@ -2263,7 +2260,7 @@ function TabConsumo({
           ) : (
             <div className="space-y-1.5">
               {recentOps.map((log) => (
-                <div key={log.id} className="flex items-center gap-3 rounded-lg border border-border/60 bg-card px-3 py-2">
+                <div key={log.id} className="flex items-center gap-3 rounded-xl border border-border/60 bg-card px-3 py-2">
                   <span className="text-xs text-foreground truncate flex-1">
                     {getProviderOperationLabel(providerKey, log.operationKey ?? '')}
                   </span>
@@ -2381,7 +2378,7 @@ function ProviderRulesInline({
         <div className="flex items-center justify-between gap-3 px-1">
           <p className="text-xs text-muted-foreground">Reglas de presupuesto</p>
           {formOptions && (
-            <Button size="sm" variant="outline" className="h-6 px-2 text-xs gap-1" onClick={() => setShowCreate(true)}>
+            <Button size="xs" variant="outline" className="px-2 gap-1" onClick={() => setShowCreate(true)}>
               <Plus className="h-3 w-3" />
               Crear regla
             </Button>
@@ -2407,11 +2404,10 @@ function ProviderRulesInline({
                     </p>
                     {formOptions && (
                       <Button
-                        size="sm"
+                        size="xs"
                         variant="outline"
-                        className="mt-3 h-6 px-3 text-xs"
-                        onClick={() => setShowCreate(true)}
-                      >
+                        className="mt-3 px-3"
+                        onClick={() => setShowCreate(true)}>
                         Crear primera regla
                       </Button>
                     )}
@@ -2474,7 +2470,7 @@ function ProviderRulesInline({
         </Tabs>
 
         {activeRules.length === 0 && rules.length === 0 && !formOptions && (
-          <div className="rounded-lg border border-su-brand/20 bg-su-brand-soft px-4 py-3 mt-1">
+          <div className="rounded-lg border border-primary/20 bg-primary/10 px-4 py-3 mt-1">
             <p className="text-xs text-muted-foreground leading-relaxed">
               La creación de reglas se conectará directamente en este panel de forma progresiva.
             </p>
@@ -2654,22 +2650,18 @@ function TabPresupuesto({
         <div className="flex flex-wrap gap-2">
           {!isNotMeasured && quotaButtonLabel && (
             <Button
-              variant="outline"
-              size="sm"
-              className="text-xs h-7"
-              onClick={() => setAllowanceOpen(true)}
-            >
+ variant="outline"
+ size="xs"
+ onClick={() => setAllowanceOpen(true)}>
               {quotaButtonLabel}
             </Button>
           )}
           {!isNotMeasured && isSyncCapable && (
             <Button
-              variant="outline"
-              size="sm"
-              className="text-xs h-7"
-              disabled={isSyncing}
-              onClick={handleSync}
-            >
+ variant="outline"
+ size="xs"
+ disabled={isSyncing}
+ onClick={handleSync}>
               {isSyncing ? (
                 <Loader2 className="h-3 w-3 animate-spin mr-1" />
               ) : (
@@ -2942,7 +2934,7 @@ function ContactEnrichmentOutcomeSection({
         </ProgressiveNote>
         <Link
           href={CONTACTS_CANDIDATES_ROUTE}
-          className="inline-flex items-center rounded-md border px-3 py-1.5 text-xs font-medium transition-colors border-su-brand/20 bg-su-brand-soft text-su-brand hover:bg-su-brand-soft/80"
+          className="inline-flex items-center rounded-md border px-3 py-1.5 text-xs font-medium transition-colors border-primary/20 bg-primary/10 text-primary hover:bg-primary/10"
         >
           Revisar candidatos →
         </Link>
@@ -3195,11 +3187,9 @@ function TabLogs({
             <p className="text-xs text-foreground">{logsLoadError}</p>
             <p className="text-xs text-muted-foreground">Puedes reintentar sin cerrar el workspace.</p>
             <Button
-              size="sm"
-              variant="outline"
-              className="h-7 text-xs"
-              onClick={() => { if (isActive) loadFilteredLogs(); }}
-            >
+ size="xs"
+ variant="outline"
+ onClick={() => { if (isActive) loadFilteredLogs(); }}>
               Reintentar
             </Button>
           </div>
@@ -3209,7 +3199,7 @@ function TabLogs({
           <div className="flex flex-wrap gap-1.5">
             {/* Período */}
             <Select value={logFilters.period ?? 'all'} onValueChange={(v) => setLogFilter('period', v)}>
-              <SelectTrigger className="h-7 w-[140px] text-xs">
+              <SelectTrigger size="sm" className="w-[140px]">
                 <SelectValue>
                   {logFilters.period
                     ? (CONSUMPTION_PERIOD_OPTIONS.find((o) => o.value === logFilters.period)?.label ?? logFilters.period)
@@ -3228,7 +3218,7 @@ function TabLogs({
             {/* Rol */}
             {(filterOptions?.roles ?? []).length > 0 && (
               <Select value={logFilters.role ?? 'all'} onValueChange={onLogRoleChange}>
-                <SelectTrigger className="h-7 w-[150px] text-xs">
+                <SelectTrigger size="sm" className="w-[150px]">
                   <SelectValue placeholder="Rol">
                     {logFilters.role
                       ? (filterOptions?.roles.find((r) => r.key === logFilters.role)?.label ?? logFilters.role)
@@ -3247,7 +3237,7 @@ function TabLogs({
             {/* Grupo */}
             {(filterOptions?.groups ?? []).length > 0 && (
               <Select value={logFilters.groupId ?? 'all'} onValueChange={onLogGroupChange}>
-                <SelectTrigger className="h-7 w-[160px] text-xs">
+                <SelectTrigger size="sm" className="w-[160px]">
                   <SelectValue placeholder="Grupo">
                     {logFilters.groupId
                       ? (logGroupNameMap.get(logFilters.groupId) ?? logFilters.groupId)
@@ -3279,7 +3269,7 @@ function TabLogs({
             {/* Agente */}
             {(filterOptions?.agents ?? []).length > 0 && (
               <Select value={logFilters.agent ?? 'all'} onValueChange={(v) => setLogFilter('agent', v)}>
-                <SelectTrigger className="h-7 w-[180px] text-xs">
+                <SelectTrigger size="sm" className="w-[180px]">
                   <SelectValue placeholder="Agente">
                     {logFilters.agent
                       ? labelConsumptionAgent(
@@ -3303,7 +3293,7 @@ function TabLogs({
             {/* Estado */}
             {(filterOptions?.statuses ?? []).length > 0 && (
               <Select value={logFilters.status ?? 'all'} onValueChange={(v) => setLogFilter('status', v)}>
-                <SelectTrigger className="h-7 w-[130px] text-xs">
+                <SelectTrigger size="sm" className="w-[130px]">
                   <SelectValue placeholder="Estado">
                     {logFilters.status ? logFilters.status.replace(/_/g, ' ') : 'Todos los estados'}
                   </SelectValue>
@@ -3616,7 +3606,7 @@ export function ProviderDetailSidepanel({
         </div>
       }
       description={provider ? getProviderOperationalContext(provider.providerKey) : ''}
-      icon={<Activity className="h-4 w-4 text-su-brand" />}
+      icon={<Activity className="h-4 w-4 text-primary" />}
     >
       {provider && (
         <Tabs

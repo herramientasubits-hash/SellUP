@@ -324,7 +324,7 @@ export function BulkContactEnrichmentDrawer({
                 return (
                   <li
                     key={account.id}
-                    className="flex items-start gap-3 rounded-lg border border-border/60 bg-card px-3 py-2.5"
+                    className="flex items-start gap-3 rounded-xl border border-border/60 bg-card px-3 py-2.5"
                   >
                     <div className="mt-0.5 rounded-md bg-muted p-1">
                       <Building2 className="h-3.5 w-3.5 text-muted-foreground" />

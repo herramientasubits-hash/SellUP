@@ -127,7 +127,7 @@ function SourceCell({
   const hasTrace = sourceKey || datasetId;
   return (
     <div className="space-y-0.5 font-mono text-xs text-muted-foreground">
-      <div className="font-medium text-foreground/70">Socrata / {datasetLabel}</div>
+      <div className="font-medium text-foreground">Socrata / {datasetLabel}</div>
       {hasTrace && (
         <div className="text-muted-foreground">
           {[sourceKey, datasetId].filter(Boolean).join(' · ')}
@@ -171,7 +171,7 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
       <div className="flex items-center gap-2.5 rounded-xl border border-border/60 bg-surface-subtle px-5 py-3.5">
         <Lock className="h-4 w-4 shrink-0 text-muted-foreground" />
         <p className="text-xs text-muted-foreground">
-          <span className="font-medium text-foreground/80">Modo revisión estructurada.</span>{' '}
+          <span className="font-medium text-foreground">Modo revisión estructurada.</span>{' '}
           Puedes consultar los candidatos y su trazabilidad, pero no aprobarlos, convertirlos
           ni sincronizarlos con HubSpot desde esta vista.
         </p>
@@ -201,7 +201,7 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
           <div className="flex items-start gap-2.5">
             <RotateCcw className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
             <div>
-              <p className="text-sm font-medium text-foreground/80">Rollback lógico aplicado</p>
+              <p className="text-sm font-medium text-foreground">Rollback lógico aplicado</p>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 El lote y sus candidatos fueron marcados como cancelados/descartados
                 mediante rollback lógico. Los datos persisten para trazabilidad pero no son
@@ -244,7 +244,7 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
           {
             label: 'Convertidos',
             value: batch.summary.converted,
-            cls: 'text-su-brand',
+            cls: 'text-primary',
           },
           {
             label: 'Costo estimado',
@@ -428,7 +428,7 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
                           {CANDIDATE_STATUS_LABELS[candidate.status] ?? candidate.status}
                         </span>
                         {candidate.isConverted && (
-                          <span className="inline-flex items-center rounded-full border border-su-brand/30 bg-su-brand-soft px-1.5 py-0.5 text-xs font-medium text-su-brand">
+                          <span className="inline-flex items-center rounded-full border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary">
                             Convertido
                           </span>
                         )}
@@ -501,7 +501,7 @@ export default async function SocrataBatchDetailPage({ params }: Props) {
               .filter((c) => c.warnings.length > 0)
               .map((c) => (
                 <div key={c.id} className="text-xs">
-                  <span className="font-medium text-foreground/80">{c.name ?? c.id}:</span>{' '}
+                  <span className="font-medium text-foreground">{c.name ?? c.id}:</span>{' '}
                   <span className="text-muted-foreground">{c.warnings.join(' · ')}</span>
                 </div>
               ))}

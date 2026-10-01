@@ -60,7 +60,7 @@ interface MemberChipProps {
 
 function MemberChip({ user, roles }: MemberChipProps) {
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-card px-3 py-2">
+    <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-card px-3 py-2">
       <Avatar className="h-7 w-7 shrink-0">
         <AvatarFallback className="bg-primary/10 text-primary text-xs">
           {getInitials(user.full_name, user.email)}

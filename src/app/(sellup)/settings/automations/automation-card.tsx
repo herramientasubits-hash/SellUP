@@ -14,12 +14,12 @@ import {
 function ExecutionModeBadge({ mode }: { mode: AutomationExecutionMode }) {
   const styles: Record<AutomationExecutionMode, string> = {
     manual: 'border-border/60 bg-surface-subtle text-muted-foreground',
-    suggested: 'border-su-brand/30 bg-su-brand-soft text-su-brand',
+    suggested: 'border-primary/30 bg-primary/10 text-primary',
     automatic: 'border-success/30 bg-success/10 text-success',
   };
   const dotStyles: Record<AutomationExecutionMode, string> = {
     manual: 'bg-muted-foreground/40',
-    suggested: 'bg-su-brand',
+    suggested: 'bg-primary',
     automatic: 'bg-success',
   };
 

@@ -172,9 +172,9 @@ export function PhoneSuppressionNotEvaluablePanelSkeleton() {
   return (
     <SurfaceCard>
       <SurfaceCardHeader title={CARD_TITLE} description={CARD_DESCRIPTION} />
-      <div className="animate-pulse grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="h-14 rounded-lg border border-border/60 bg-surface-subtle" />
+          <Skeleton key={i} className="h-14 rounded-lg" />
         ))}
       </div>
     </SurfaceCard>

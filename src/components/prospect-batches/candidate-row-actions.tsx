@@ -562,7 +562,7 @@ export function CandidateRowActions({
                     type="button"
                     onClick={() => setDiscardReasonKey(r.value)}
                     aria-pressed={discardReasonKey === r.value}
-                    className={`rounded-lg border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 ${
+                    className={`rounded-xl border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 ${
                       discardReasonKey === r.value
                         ? 'border-destructive bg-destructive/10'
                         : 'border-border/60 bg-card hover:bg-surface-muted'
@@ -653,7 +653,7 @@ export function CandidateRowActions({
                     type="button"
                     onClick={() => setMarkDuplicateType(opt.value)}
                     aria-pressed={markDuplicateType === opt.value}
-                    className={`rounded-lg border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 ${
+                    className={`rounded-xl border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 ${
                       markDuplicateType === opt.value
                         ? 'border-primary bg-primary/10'
                         : 'border-border/60 bg-card hover:bg-surface-muted'

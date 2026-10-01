@@ -122,7 +122,7 @@ function RelevanceCell({ candidate }: { candidate: PendingContactCandidate }) {
   }
 
   return (
-    <span className="flex w-fit items-center gap-1.5 text-xs text-foreground/85">
+    <span className="flex w-fit items-center gap-1.5 text-xs text-foreground">
       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${RELEVANCE_DOTS[status]}`} />
       {RELEVANCE_LABELS[status] ?? status}
       {scoreLabel && (
@@ -311,7 +311,7 @@ export function ContactCandidatesDataTableClient({
         accessorKey: 'source',
         header: ({ column }) => <DataTableColumnHeader column={column} title="Fuente" />,
         cell: ({ row }) => (
-          <Badge className="border-0 bg-muted text-muted-foreground text-xs font-semibold py-0.5">
+          <Badge className="border-0 bg-muted text-muted-foreground py-0.5">
             {SOURCE_LABELS[row.original.source] ?? row.original.source}
           </Badge>
         ),

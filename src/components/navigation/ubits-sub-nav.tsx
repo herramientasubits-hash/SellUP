@@ -72,7 +72,7 @@ export function UbitsSubNav({
   return (
     <header
       className={cn(
-        "w-full h-10 bg-card border border-border/60 rounded-2xl px-5 flex items-center justify-between transition-all duration-300 z-[40]",
+        "w-full h-10 bg-card border border-border/60 rounded-md px-5 flex items-center justify-between transition-all duration-300 z-[40]",
         isSticky && "sticky top-4",
         className
       )}

@@ -88,7 +88,8 @@ export function DataTableToolbar<TData>({
                       if (!globalFilter) setSearchOpen(false);
                     }}
                     placeholder="Buscar..."
-                    className="h-8 pl-7 pr-2 text-xs"
+                    inputSize="sm"
+                    className="pl-7 pr-2"
                   />
                 </div>
               ) : (

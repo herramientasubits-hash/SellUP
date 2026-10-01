@@ -17,6 +17,12 @@ const buttonVariants = cva(
           "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30",
         "destructive-solid":
           "bg-destructive text-destructive-foreground font-semibold shadow-card hover:bg-destructive/90 focus-visible:ring-destructive/30",
+        // Sólidos de estado, para la acción que confirma algo con significado
+        // propio (marcar duplicado, aprobar). Evitan colorear un Button a mano.
+        success:
+          "bg-success text-white font-semibold shadow-card hover:bg-success/90 focus-visible:ring-success/30",
+        warning:
+          "bg-warning text-white font-semibold shadow-card hover:bg-warning/90 focus-visible:ring-warning/30",
         outline:
           "border-border bg-card text-foreground hover:bg-surface-muted aria-expanded:bg-surface-muted dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
         secondary:

@@ -31,8 +31,8 @@ function lifecycleLabel(status: LifecycleStatus): { label: string; className: st
     case 'prepared':
       return {
         label: 'Preparado para futura conexión',
-        className: 'border-su-brand/30 bg-su-brand-soft text-su-brand',
-        dotClass: 'bg-su-brand',
+        className: 'border-primary/30 bg-primary/10 text-primary',
+        dotClass: 'bg-primary',
       };
     case 'planned':
       return {
@@ -149,7 +149,7 @@ export default async function ProspectingPage() {
             description="Fuentes identificadas para discovery"
             value={stats.total}
             icon={
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-su-brand-soft text-su-brand">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
                 <Database className="h-4 w-4" />
               </div>
             }
@@ -158,9 +158,9 @@ export default async function ProspectingPage() {
             title="Preparados para conexión"
             description="Listos para habilitar"
             value={stats.prepared}
-            valueClassName="text-su-brand"
+            valueClassName="text-primary"
             icon={
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-su-brand-soft text-su-brand">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
                 <CheckCircle2 className="h-4 w-4" />
               </div>
             }

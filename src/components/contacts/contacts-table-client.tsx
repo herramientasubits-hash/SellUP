@@ -123,7 +123,7 @@ export function ContactsTableClient({ contacts }: ContactsTableClientProps) {
 
                 {/* Cargo */}
                 <TableCell>
-                  <span className="text-xs text-foreground/80">
+                  <span className="text-xs text-foreground">
                     {contact.job_title ?? <span className="text-text-muted">—</span>}
                   </span>
                 </TableCell>

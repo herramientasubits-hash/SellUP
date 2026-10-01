@@ -108,8 +108,8 @@ export function RadioCardGroup({
                     <Badge
                       variant="outline"
                       className={cn(
-                        "font-semibold",
-                        "group-data-[state=checked]:bg-primary group-data-[state=checked]:text-primary-foreground group-data-[state=checked]:border-transparent"
+                       "",
+                       "group-data-[state=checked]:bg-primary group-data-[state=checked]:text-primary-foreground group-data-[state=checked]:border-transparent"
                       )}
                     >
                       {option.badge}

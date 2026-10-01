@@ -149,12 +149,11 @@ export function OfficialContactRescuePanel({
         <div className="space-y-1.5">
           <Button
             type="button"
-            size="sm"
+            size="xs"
             variant="outline"
-            className="h-7 gap-1.5 text-xs"
+            className="gap-1.5"
             disabled={anyBusy}
-            onClick={() => void run('recovery')}
-          >
+            onClick={() => void run('recovery')}>
             {busy === 'recovery' ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
             ) : (
@@ -239,34 +238,29 @@ function PaidRescueAction({
       {armed ? (
         <div className="flex flex-wrap items-center gap-2">
           <Button
-            type="button"
-            size="sm"
-            className="h-7 text-xs"
-            disabled={anyBusy}
-            onClick={onConfirm}
-          >
+ type="button"
+ size="xs"
+ disabled={anyBusy}
+ onClick={onConfirm}>
             {RESCUE_CONFIRM_LABEL}
           </Button>
           <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="h-7 text-xs"
-            disabled={anyBusy}
-            onClick={onCancel}
-          >
+ type="button"
+ size="xs"
+ variant="ghost"
+ disabled={anyBusy}
+ onClick={onCancel}>
             {RESCUE_CANCEL_LABEL}
           </Button>
         </div>
       ) : (
         <Button
           type="button"
-          size="sm"
+          size="xs"
           variant="outline"
-          className="h-7 gap-1.5 text-xs"
+          className="gap-1.5"
           disabled={anyBusy}
-          onClick={onArm}
-        >
+          onClick={onArm}>
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : icon}
           {busy ? busyLabel : label}
         </Button>

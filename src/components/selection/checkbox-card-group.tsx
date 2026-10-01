@@ -118,9 +118,7 @@ export function CheckboxCardGroup({
                     </div>
                     {option.badge && (
                       <Badge
-                        variant={isSelected ? "default" : "outline"}
-                        className="font-semibold"
-                      >
+ variant={isSelected ? "default" : "outline"}>
                         {option.badge}
                       </Badge>
                     )}

@@ -196,7 +196,7 @@ export function DiscardedProspectsDataTableClient({
                 e.stopPropagation();
                 setSelected(item);
               }}
-              className="text-left font-semibold text-foreground hover:text-su-brand focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-su-brand rounded transition-colors text-sm"
+              className="text-left font-semibold text-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded transition-colors text-sm"
             >
               {item.name}
             </button>
@@ -321,7 +321,7 @@ export function DiscardedProspectsDataTableClient({
         accessorKey: 'disposition',
         header: ({ column }) => <DataTableColumnHeader column={column} title="Motivo" />,
         cell: ({ row }) => (
-          <Badge variant="outline" className="text-xs font-medium">
+          <Badge variant="outline">
             {DISCARD_DISPOSITION_LABELS[row.original.disposition] ?? 'Otro motivo'}
           </Badge>
         ),
@@ -341,11 +341,11 @@ export function DiscardedProspectsDataTableClient({
         cell: ({ row }) => (
           <Badge
             className={
-              row.original.status === 'sent_to_review'
-                ? 'border-0 bg-su-brand-soft text-su-brand text-xs'
+              row.original.status ==='sent_to_review'
+                ?'border-0 bg-primary/10 text-primary'
                 : row.original.sendToReviewBlockedReason
-                  ? 'border-0 bg-warning/10 text-warning text-xs'
-                  : 'border-0 bg-muted text-muted-foreground text-xs'
+                  ?'border-0 bg-warning/10 text-warning'
+                  :'border-0 bg-muted text-muted-foreground'
             }
           >
             {row.original.status === 'sent_to_review'

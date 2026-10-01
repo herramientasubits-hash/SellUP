@@ -358,7 +358,7 @@ export function ProspectReviewActions({
   return (
     <div className="shrink-0 border-t border-border/50 bg-surface-subtle px-7 py-4">
       {confirming ? (
-        <div className="rounded-xl border border-su-brand/30 bg-su-brand/5 p-3 space-y-3">
+        <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 space-y-3">
           <div className="space-y-1">
             <p className="text-sm font-medium text-foreground">¿Aprobar y crear empresa?</p>
             <p className="text-xs text-muted-foreground">
@@ -382,11 +382,9 @@ export function ProspectReviewActions({
           </div>
           <div className="flex flex-wrap gap-2">
             <Button
-              size="sm"
-              onClick={doApprove}
-              disabled={approving}
-              className="bg-su-brand text-primary-foreground hover:bg-su-brand/90"
-            >
+ size="sm"
+ onClick={doApprove}
+ disabled={approving}>
               {approving ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
@@ -439,7 +437,7 @@ export function ProspectReviewActions({
                       aria-pressed={selected}
                       disabled={discarding}
                       onClick={() => setDiscardReasonKey(r.value)}
-                      className={`rounded-md border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40 disabled:cursor-not-allowed disabled:opacity-60 ${
+                      className={`rounded-xl border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40 disabled:cursor-not-allowed disabled:opacity-60 ${
                         selected
                           ? 'border-destructive bg-destructive/10'
                           : 'border-border/50 bg-card hover:bg-surface-muted'
@@ -530,7 +528,7 @@ export function ProspectReviewActions({
               size="sm"
               onClick={doMarkDuplicate}
               disabled={markingDuplicate}
-              className="bg-warning text-white hover:bg-warning/90"
+              variant="warning"
             >
               {markingDuplicate ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -559,8 +557,7 @@ export function ProspectReviewActions({
               onClick={() => setConfirming(true)}
               disabled={!view.canApprove}
               title={view.canApprove ? undefined : 'No disponible para este candidato'}
-              className="bg-su-brand text-primary-foreground hover:bg-su-brand/90 disabled:cursor-not-allowed disabled:opacity-60"
-            >
+              className="disabled:cursor-not-allowed disabled:opacity-60">
               <CheckCircle2 className="h-3.5 w-3.5" />
               Aprobar
             </Button>

@@ -234,7 +234,7 @@ export function ContactsDataTableClient({
           <DataTableColumnHeader column={column} title="Cargo" />
         ),
         cell: ({ row }) => (
-          <span className="text-xs text-foreground/80 truncate block max-w-[160px]">
+          <span className="text-xs text-foreground truncate block max-w-[160px]">
             {row.original.job_title ?? <span className="text-text-muted">—</span>}
           </span>
         ),

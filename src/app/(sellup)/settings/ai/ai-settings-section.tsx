@@ -260,7 +260,7 @@ export async function AiSettingsSection() {
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="truncate font-medium text-foreground">{model.name}</span>
-                      <Badge variant="outline" className="text-xs ">
+                      <Badge variant="outline">
                         Vigente
                       </Badge>
                     </div>

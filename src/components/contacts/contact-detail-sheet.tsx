@@ -708,16 +708,13 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
           <span className="flex items-center gap-1.5">
             {vm.hasSourceCandidate ? (
               <Badge
-                variant="outline"
-                className="text-xs bg-primary/10 text-primary border-transparent"
-              >
+ variant="brand">
                 {vm.originLabel}
               </Badge>
             ) : (
               <Badge
                 variant="outline"
-                className="text-xs bg-surface-subtle border-transparent text-muted-foreground"
-              >
+                className="bg-surface-subtle border-transparent text-muted-foreground">
                 {vm.originLabel}
               </Badge>
             )}
@@ -726,8 +723,7 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
         <TraceRow label="Fuente">
           <Badge
             variant="outline"
-            className="text-xs bg-surface-subtle border-transparent text-muted-foreground"
-          >
+            className="bg-surface-subtle border-transparent text-muted-foreground">
             {vm.sourceLabel}
           </Badge>
         </TraceRow>
@@ -765,8 +761,7 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
                     <Badge
                       key={f}
                       variant="outline"
-                      className="text-xs bg-surface-subtle border-transparent text-muted-foreground"
-                    >
+                      className="bg-surface-subtle border-transparent text-muted-foreground">
                       {f}
                     </Badge>
                   ))}
@@ -806,8 +801,7 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
                     <Badge
                       key={f}
                       variant="outline"
-                      className="text-xs bg-surface-subtle border-transparent text-muted-foreground"
-                    >
+                      className="bg-surface-subtle border-transparent text-muted-foreground">
                       {f}
                     </Badge>
                   ))}
@@ -852,8 +846,7 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
           <TraceRow label="Modo">
             <Badge
               variant="outline"
-              className="text-xs bg-surface-subtle border-transparent text-muted-foreground"
-            >
+              className="bg-surface-subtle border-transparent text-muted-foreground">
               {vm.hubspotMode === 'created' ? 'Creado en HubSpot' :
                vm.hubspotMode === 'linked_existing' ? 'Vinculado a existente' :
                vm.hubspotMode}
@@ -864,10 +857,10 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
           <TraceRow label="Asociación con empresa">
             <Badge
               variant="outline"
-              className={`text-xs border-transparent ${
-                vm.hubspotAssociationStatus === 'associated'
-                  ? 'bg-success/10 text-success dark:text-success'
-                  : 'bg-warning/10 text-warning dark:text-warning'
+              className={`border-transparent ${
+                vm.hubspotAssociationStatus ==='associated'
+                  ?'bg-success/10 text-success dark:text-success'
+                  :'bg-warning/10 text-warning dark:text-warning'
               }`}
             >
               {vm.hubspotAssociationStatus === 'associated' ? 'Asociado' :

@@ -26,8 +26,8 @@ export default async function SocrataBatchesPage() {
       label: 'Total lotes',
       value: totalCount,
       icon: Layers,
-      color: 'text-su-brand',
-      bg: 'bg-su-brand-soft',
+      color: 'text-primary',
+      bg: 'bg-primary/10',
     },
     {
       label: 'Listos para revisión',
@@ -64,7 +64,7 @@ export default async function SocrataBatchesPage() {
       <div className="flex items-center gap-2.5 rounded-xl border border-border/60 bg-surface-subtle px-5 py-3.5">
         <Lock className="h-4 w-4 shrink-0 text-muted-foreground" />
         <p className="text-xs text-muted-foreground">
-          <span className="font-medium text-foreground/80">Solo lectura para candidatos.</span>{' '}
+          <span className="font-medium text-foreground">Solo lectura para candidatos.</span>{' '}
           No permite editar, aprobar, descartar ni sincronizar candidatos existentes.
         </p>
       </div>
@@ -84,8 +84,8 @@ export default async function SocrataBatchesPage() {
           description="Lotes creados en el sistema"
           value={totalCount}
           icon={
-            <div className="rounded-lg p-1.5 bg-su-brand-soft">
-              <Layers className="h-4 w-4 text-su-brand" />
+            <div className="rounded-lg p-1.5 bg-primary/10">
+              <Layers className="h-4 w-4 text-primary" />
             </div>
           }
         />
@@ -203,7 +203,7 @@ export default async function SocrataBatchesPage() {
                     </td>
                     <td className="px-4 py-3.5">
                       {batch.previewMode ? (
-                        <Badge className="border-su-brand/30 bg-su-brand-soft text-su-brand border text-xs">
+                        <Badge variant="brand">
                           Preview
                         </Badge>
                       ) : (
@@ -213,12 +213,12 @@ export default async function SocrataBatchesPage() {
                     <td className="px-4 py-3.5">
                       <div className="flex flex-wrap gap-1">
                         {batch.smokeTest && (
-                          <Badge className="border-info/30 bg-info/10 text-info border text-xs">
+                          <Badge variant="info">
                             Smoke test
                           </Badge>
                         )}
                         {batch.rollbackLogical && (
-                          <Badge className="border-border/60 bg-surface-muted text-muted-foreground border text-xs">
+                          <Badge variant="neutral">
                             Rollback lógico
                           </Badge>
                         )}
@@ -233,7 +233,7 @@ export default async function SocrataBatchesPage() {
                     <td className="px-4 py-3.5">
                       <Link
                         href={`/settings/source-catalog/socrata-batches/${batch.id}`}
-                        className="rounded-md px-3 py-1.5 text-xs font-medium text-su-brand hover:bg-su-brand-soft transition-colors"
+                        className="rounded-md px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
                       >
                         Ver detalle
                       </Link>

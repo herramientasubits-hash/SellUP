@@ -113,7 +113,7 @@ export default async function SettingsPage() {
                   </h2>
                   <div className="flex shrink-0 items-center gap-2">
                     {pendingCount > 0 && (
-                      <Badge variant="warning" className="font-semibold">
+                      <Badge variant="warning">
                         {pendingCount} pendiente{pendingCount > 1 ? 's' : ''}
                       </Badge>
                     )}

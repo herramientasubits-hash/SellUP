@@ -224,7 +224,7 @@ export default async function SystemStatusPage() {
                         {provider.name}
                       </span>
                       {provider.is_active_provider && (
-                        <span className="text-xs text-su-brand font-medium">activo</span>
+                        <span className="text-xs text-primary font-medium">activo</span>
                       )}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -554,7 +554,7 @@ function RiskItem({ risk }: { risk: AdminRisk }) {
 
   return (
     <Link href={risk.action_href}>
-      <SurfaceCard className="group cursor-pointer transition-all hover:border-su-brand/20">
+      <SurfaceCard className="group cursor-pointer transition-all hover:border-primary/20">
         <div className="flex items-start gap-3">
           <div className="mt-0.5 shrink-0">{iconMap[risk.severity]}</div>
           <div className="flex-1 min-w-0 space-y-1">
@@ -562,7 +562,7 @@ function RiskItem({ risk }: { risk: AdminRisk }) {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <RiskBadge severity={risk.severity} />
-            <ChevronRight className="h-3.5 w-3.5 text-text-muted group-hover:text-su-brand transition-colors" />
+            <ChevronRight className="h-3.5 w-3.5 text-text-muted group-hover:text-primary transition-colors" />
           </div>
         </div>
       </SurfaceCard>

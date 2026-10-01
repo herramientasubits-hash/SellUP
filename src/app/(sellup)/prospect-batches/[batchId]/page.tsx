@@ -429,16 +429,16 @@ export default async function BatchDetailPage({ params }: Props) {
                 </p>
                 <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                   {stoppedReason && (
-                    <span>Detuvo por: <span className="font-medium text-foreground/80">{reasonLabels[stoppedReason] ?? stoppedReason}</span></span>
+                    <span>Detuvo por: <span className="font-medium text-foreground">{reasonLabels[stoppedReason] ?? stoppedReason}</span></span>
                   )}
                   {totalRaw !== undefined && (
-                    <span>Resultados evaluados: <span className="font-medium text-foreground/80">{totalRaw}</span></span>
+                    <span>Resultados evaluados: <span className="font-medium text-foreground">{totalRaw}</span></span>
                   )}
                   {totalAcc !== undefined && (
-                    <span>Candidatos acumulados: <span className="font-medium text-foreground/80">{totalAcc}</span></span>
+                    <span>Candidatos acumulados: <span className="font-medium text-foreground">{totalAcc}</span></span>
                   )}
                   {usefulCount !== undefined && (
-                    <span>Útiles: <span className="font-medium text-foreground/80">{usefulCount}</span></span>
+                    <span>Útiles: <span className="font-medium text-foreground">{usefulCount}</span></span>
                   )}
                 </div>
               </div>

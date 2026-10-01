@@ -35,7 +35,7 @@ export function CreateSocrataBatchButton() {
         type="button"
         onClick={handleClick}
         disabled={isPending}
-        className="inline-flex items-center gap-1.5 rounded-md bg-su-brand-soft px-3 py-1.5 text-xs font-medium text-su-brand transition-colors hover:bg-su-brand/10 disabled:cursor-not-allowed disabled:opacity-60"
+        className="inline-flex items-center gap-1.5 rounded-md bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {isPending ? (
           <>

@@ -137,7 +137,7 @@ export function DriveActionsPanel({ connectionStatus, folderId }: DriveActionsPa
       ) : (
         <a
           href="/api/integrations/google-drive/oauth/start"
-          className="inline-flex items-center rounded-md bg-su-brand px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-su-brand/90"
+          className="inline-flex items-center rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-brand-hover"
         >
           Conectar Google Drive
         </a>

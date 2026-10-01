@@ -124,7 +124,7 @@ function IntegrationCard({ integration }: { integration: IntegrationWithConnecti
   const statusBadge = isPersonal ? (
     // Google Drive: conexión personal, no gestionada aquí
     <Badge variant="brand">
-      <span className="size-1.5 rounded-full bg-su-brand" />
+      <span className="size-1.5 rounded-full bg-primary" />
       Personal
     </Badge>
   ) : (

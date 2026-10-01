@@ -954,8 +954,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                     onClick={handleBuildClassification}
                     disabled={loadingClassification || computeHasMappingConflict(columnMappings)}
                     size="sm"
-                    className="gap-2 text-xs font-semibold bg-primary text-primary-foreground hover:bg-primary/90"
-                  >
+                    className="gap-2 text-xs font-semibold">
                     {loadingClassification ? (
                       <>
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1087,7 +1086,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                   País de referencia <span className="text-destructive">*</span>
                 </label>
                 <Select value={selectedCountryCode} onValueChange={handleCountryChange}>
-                  <SelectTrigger className="!w-full !h-11 !rounded-xl">
+                  <SelectTrigger className="!w-full">
                     <SelectValue placeholder="País" />
                   </SelectTrigger>
                   <SelectContent className="!w-auto !min-w-[200px]">
@@ -1286,7 +1285,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                   SellUp tiene un <strong>contrato oficial de columnas</strong> en español. Puedes copiar tablas desde Excel, Google Sheets, o directamente desde los chats con <strong>Claude, Gemini o ChatGPT</strong>. El parser resolverá automáticamente los siguientes campos:
                 </p>
 
-                <div className="max-h-[220px] overflow-y-auto rounded-lg border border-border/50 bg-card">
+                <div className="max-h-[220px] overflow-y-auto rounded-xl border border-border/50 bg-card">
                   <table className="w-full text-xs border-collapse">
                     <thead>
                       <tr className="border-b border-border/50 bg-surface-subtle text-muted-foreground font-semibold">
@@ -1315,7 +1314,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                             {col.description}
                           </td>
                           <td className="px-2 py-1.5 text-muted-foreground leading-normal">
-                            <span className="italic block text-foreground/80 mb-0.5">Ej: {col.example}</span>
+                            <span className="italic block text-foreground mb-0.5">Ej: {col.example}</span>
                             <span className="text-xs text-muted-foreground block truncate max-w-[150px]" title={col.aliases.join(', ')}>
                               Aliases: {col.aliases.join(', ')}
                             </span>
@@ -1334,7 +1333,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                     <Button
                       type="button"
                       variant="ghost"
-                      size="sm"
+                      size="xs"
                       onClick={() => {
                         const headers = EXTERNAL_IMPORT_CONTRACT.map(c => c.officialHeader).join('\t');
                         const values = EXTERNAL_IMPORT_CONTRACT.map(c => c.example).join('\t');
@@ -1342,8 +1341,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                         navigator.clipboard.writeText(exampleText);
                         toast.success('Ejemplo copiado en formato TSV al portapapeles');
                       }}
-                      className="h-6 gap-1 px-2 text-xs text-primary hover:text-primary hover:bg-primary/10"
-                    >
+                      className="gap-1 px-2 text-primary hover:text-primary hover:bg-primary/10">
                       <Copy className="h-3 w-3" />
                       Copiar ejemplo
                     </Button>
@@ -1518,17 +1516,17 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                 Criterios de importación:
               </p>
               {selectedCountryCode && (
-                <Badge variant="secondary" className="text-xs font-normal bg-primary/10 text-primary border-0">
+                <Badge variant="brand">
                   🌍 {selectedCountry?.name ?? selectedCountryCode}
                 </Badge>
               )}
               {selectedIndustry && (
-                <Badge variant="secondary" className="text-xs font-normal bg-primary/10 text-primary border-0">
+                <Badge variant="brand">
                   🏭 {selectedIndustryName ?? selectedIndustry}
                 </Badge>
               )}
               {selectedSubindustryId && selectedSubindustryId !== '__none__' && selectedSubindustryName && (
-                <Badge variant="secondary" className="text-xs font-normal bg-primary/10 text-primary border-0">
+                <Badge variant="brand">
                   🏷️ {selectedSubindustryName}
                 </Badge>
               )}
@@ -1588,7 +1586,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                   </p>
                   <div className="flex flex-wrap gap-1">
                     {preview.recognized_columns.map((col) => (
-                      <Badge key={col} variant="secondary" className="text-xs font-normal">
+                      <Badge key={col} variant="secondary">
                         {col}
                       </Badge>
                     ))}
@@ -1602,7 +1600,7 @@ export function ImportCandidatesDrawer({ children }: ImportCandidatesDrawerProps
                   </p>
                   <div className="flex flex-wrap gap-1">
                     {preview.unrecognized_columns.map((col) => (
-                      <Badge key={col} variant="outline" className="text-xs font-normal text-muted-foreground">
+                      <Badge key={col} variant="outline" className="text-muted-foreground">
                         {col}
                       </Badge>
                     ))}

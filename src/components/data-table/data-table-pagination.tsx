@@ -73,11 +73,10 @@ export function DataTablePagination<TData>({
       <div className="flex items-center gap-1">
         <Button
           variant="ghost"
-          size="sm"
-          className="h-7 px-2 text-xs font-medium"
+          size="xs"
+          className="px-2 font-medium"
           onClick={() => table.previousPage()}
-          disabled={!table.getCanPreviousPage()}
-        >
+          disabled={!table.getCanPreviousPage()}>
           <ChevronLeft className="h-3 w-3" />
           Anterior
         </Button>
@@ -108,11 +107,10 @@ export function DataTablePagination<TData>({
 
         <Button
           variant="ghost"
-          size="sm"
-          className="h-7 px-2 text-xs font-medium"
+          size="xs"
+          className="px-2 font-medium"
           onClick={() => table.nextPage()}
-          disabled={!table.getCanNextPage()}
-        >
+          disabled={!table.getCanNextPage()}>
           Siguiente
           <ChevronRight className="h-3 w-3" />
         </Button>

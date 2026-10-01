@@ -69,7 +69,7 @@ export function OptionTile({
             {option.label}
           </span>
           {option.badge && (
-            <Badge variant={selected ? "default" : "outline"} className="font-semibold">
+            <Badge variant={selected ? "default" : "outline"}>
               {option.badge}
             </Badge>
           )}

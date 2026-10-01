@@ -159,9 +159,8 @@ export function DataTableSettingsDrawer<TData>({
         <div className="px-6 py-3 bg-surface-subtle border-t border-border/50 flex justify-end">
           <Button
             size="sm"
-            className="h-9 px-5 rounded-lg"
-            onClick={() => onOpenChange(false)}
-          >
+            className="px-5"
+            onClick={() => onOpenChange(false)}>
             Aplicar
           </Button>
         </div>

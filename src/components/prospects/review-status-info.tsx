@@ -58,7 +58,7 @@ export function ReviewStatusInfo({ candidate }: ReviewStatusInfoProps) {
             (candidate.convertedAccountId ? (
               <Link
                 href={`/accounts/${candidate.convertedAccountId}`}
-                className="inline-flex items-center gap-1.5 text-xs font-semibold text-su-brand hover:underline"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
               >
                 <ArrowRightCircle className="h-3.5 w-3.5" />
                 Ver empresa
@@ -93,7 +93,7 @@ export function ReviewStatusInfo({ candidate }: ReviewStatusInfoProps) {
       )}
 
       <div className="mt-2 flex items-start gap-2">
-        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-su-brand" />
+        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
         <p className="text-xs leading-relaxed text-muted-foreground">
           {view.blockReason ?? 'Usa la acción "Aprobar" en la barra de acciones del panel para avanzar este prospecto.'}
         </p>

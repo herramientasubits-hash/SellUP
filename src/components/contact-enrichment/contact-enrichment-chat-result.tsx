@@ -142,37 +142,28 @@ export function RunResultSnapshot({
           <dd>
             {provider === 'lusha' && lushaResult?.status === 'missing_api_key' ? (
               <Badge
-                variant="outline"
-                className="text-xs text-warning border-warning/30 bg-warning/10"
-              >
+ variant="warning">
                 Sin credenciales
               </Badge>
             ) : provider === 'lusha' && lushaResult?.status === 'disabled' ? (
               <Badge
                 variant="outline"
-                className="text-xs text-muted-foreground border-border/60 bg-surface-subtle"
-              >
+                className="text-muted-foreground border-border/60 bg-surface-subtle">
                 Desactivado
               </Badge>
             ) : provider === 'lusha' && lushaCompanyContextError ? (
               <Badge
-                variant="outline"
-                className="text-xs text-warning border-warning/30 bg-warning/10"
-              >
+ variant="warning">
                 Sin contexto de empresa
               </Badge>
             ) : provider === 'lusha' && lushaResult?.status === 'provider_error' ? (
               <Badge
-                variant="outline"
-                className="text-xs text-destructive border-destructive/30 bg-destructive/10"
-              >
+ variant="negative">
                 Error del proveedor
               </Badge>
             ) : (
               <Badge
-                variant="outline"
-                className="text-xs text-success border-success/30 bg-success/10"
-              >
+ variant="positive">
                 {apolloResult?.status === 'ready_for_review' || lushaResult?.status === 'ready_for_review' || lushaResult?.providerStatus === 'success'
                   ? 'Listo para revisión'
                   : apolloResult?.status === 'completed' || lushaResult?.status === 'completed'
@@ -345,7 +336,7 @@ function LushaEmptyState({ result }: { result: LushaEnrichmentUiResult }) {
         </div>
       </div>
 
-      <div className="rounded-lg border border-border/50 bg-card px-3 py-2">
+      <div className="rounded-xl border border-border/50 bg-card px-3 py-2">
         <p className="text-xs text-muted-foreground">{copy.notAnError}</p>
       </div>
 
@@ -517,7 +508,7 @@ function ApolloEmptyState({ result, runId, accountId, onCreateManualContact }: A
         </div>
       </div>
 
-      <div className="rounded-lg border border-border/50 bg-card px-3 py-2">
+      <div className="rounded-xl border border-border/50 bg-card px-3 py-2">
         <p className="text-xs text-muted-foreground">{copy.notAnError}</p>
       </div>
 

@@ -227,7 +227,7 @@ function LushaPreflightSection() {
       </div>
 
       <div className="border-t border-border/50" />
-      <div className="rounded-lg border border-border/60 bg-card px-3 py-2">
+      <div className="rounded-xl border border-border/60 bg-card px-3 py-2">
         <p className="text-xs font-semibold text-muted-foreground mb-1">Recomendación</p>
         <p className="text-xs text-foreground leading-relaxed" data-testid="lusha-preflight-recommendation">{r.recommendation}</p>
       </div>
@@ -486,7 +486,7 @@ export function LushaCredentialDiagnosticCard() {
             {sourceResolved}
           </span>
         </div>
-        <div className="rounded-lg border border-border/60 bg-card px-3 py-2">
+        <div className="rounded-xl border border-border/60 bg-card px-3 py-2">
           <p className="text-xs font-semibold text-muted-foreground mb-1">
             Recomendación
           </p>
