@@ -81,8 +81,8 @@ describe('Tavily + macro industria — las rondas pagan exactamente el plan', ()
     // inglés (retailer, grocery store, department store…): 14 → 8.
     assert.equal(result.metadata.tavily_query_plan?.term_count, 8);
     // AGENT1-TAVILY-QUERY-SPACE-1 — 8 términos × (nacional + 33 regiones) = 272
-    // celdas: la corrida paga su tope completo (16), ya no sólo 8 nacionales.
-    assert.equal(result.metadata.tavily_query_plan?.queries_planned, 16);
+    // celdas. AGENT1-TAVILY-FREE-CREDITS-1 — tope de 8 búsquedas de 20 resultados.
+    assert.equal(result.metadata.tavily_query_plan?.queries_planned, 8);
   });
 
   it('ninguna consulta de Retail lleva literales de software (R3/R4 legacy)', async () => {
@@ -91,15 +91,26 @@ describe('Tavily + macro industria — las rondas pagan exactamente el plan', ()
     for (const q of captured.flat()) assert.doesNotMatch(q, /\b(ERP|CRM|SaaS|software)\b/i, q);
   });
 
-  it('nunca supera 16 consultas pagadas por corrida', async () => {
+  it('nunca supera 8 consultas pagadas por corrida, 2 por ronda (AGENT1-TAVILY-FREE-CREDITS-1)', async () => {
     const captured: string[][] = [];
     await runIncrementalProspectingSearch(
       baseInput({ industry: 'Salud & Farmacéuticos' }),
       undefined,
       capturingPipeline(captured),
     );
-    assert.ok(captured.flat().length <= 16);
-    for (const round of captured) assert.ok(round.length <= 4);
+    assert.ok(captured.flat().length <= 8);
+    for (const round of captured) assert.ok(round.length <= 2);
+  });
+
+  it('cada consulta pide 20 resultados: Tavily cobra por búsqueda, no por resultado', async () => {
+    const perQuery: Array<number | undefined> = [];
+    const fn = async (pipelineInput: { queryOverrides?: string[]; maxResultsPerQuery?: number }) => {
+      perQuery.push(pipelineInput.maxResultsPerQuery);
+      return capturingPipeline([])(pipelineInput as never);
+    };
+    await runIncrementalProspectingSearch(baseInput({ industry: 'Gobierno' }), undefined, fn as unknown as PipelineFn);
+    assert.ok(perQuery.length > 0);
+    assert.ok(perQuery.every((n) => n === 20), JSON.stringify(perQuery));
   });
 
   it('Gobierno (7 términos en español) ya no se agota en 7 consultas, y no inventa ninguna', async () => {
@@ -123,8 +134,9 @@ describe('Tavily + macro industria — las rondas pagan exactamente el plan', ()
       additionalCriteria: null,
     })!;
     assert.deepEqual(captured, plan.rounds);
-    assert.equal(captured.flat().length, 16);
-    assert.equal(new Set(captured.flat()).size, 16);
+    // AGENT1-TAVILY-FREE-CREDITS-1 — 8 búsquedas distintas de 20 resultados.
+    assert.equal(captured.flat().length, 8);
+    assert.equal(new Set(captured.flat()).size, 8);
   });
 
   it('dos lotes distintos arrancan por consultas distintas', async () => {

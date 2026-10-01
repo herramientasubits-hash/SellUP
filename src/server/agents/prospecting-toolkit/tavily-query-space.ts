@@ -46,6 +46,12 @@ export type TavilyQueryCell = {
   region: string | null;
   query: string;
   key: string;
+  /**
+   * AGENT1-TAVILY-FREE-CREDITS-1 — 0 nacional, 1 región principal, 2 resto. Las
+   * regiones principales van antes: en Gobierno, las búsquedas en regiones
+   * pequeñas traían municipios de menos de 200 empleados (Prod 01-10, 63a87ee1).
+   */
+  tier?: number;
 };
 
 export type TavilyQueryCellHistory = {
@@ -123,6 +129,9 @@ function spreadFreshCells(fresh: readonly TavilyQueryCell[], seedKey: string): T
   const queues = [...byTerm.values()].map((list) =>
     [...list].sort((a, b) => {
       if ((a.region === null) !== (b.region === null)) return a.region === null ? -1 : 1;
+      const tierA = a.tier ?? 1;
+      const tierB = b.tier ?? 1;
+      if (tierA !== tierB) return tierA - tierB;
       return rank(a) - rank(b);
     }),
   );

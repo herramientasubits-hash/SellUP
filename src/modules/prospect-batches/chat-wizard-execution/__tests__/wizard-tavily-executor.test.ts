@@ -328,11 +328,13 @@ describe('E8: structural guardrail — executor does not reference Apollo', () =
 // ── E11: AGENT1-TAVILY-V2-1 § 2 — el tope de resultados deja correr 4 rondas ──
 
 describe('E11: maxTotalRawToEvaluate deja correr las 4 rondas del plan', () => {
-  it('runner receives maxTotalRawToEvaluate: 80 (4 rondas × 20 resultados)', async () => {
+  it('runner receives maxTotalRawToEvaluate: 100 (4 rondas × 25 resultados)', async () => {
     const { runner, getCapture } = makeFakeRunner();
     await runWizardTavilySearch(makeInput(), runner);
     assert.equal(getCapture()!.maxTotalRawToEvaluate, WIZARD_TAVILY_MAX_TOTAL_RAW_TO_EVALUATE);
-    assert.equal(WIZARD_TAVILY_MAX_TOTAL_RAW_TO_EVALUATE, WIZARD_ADAPTIVE_MAX_ROUNDS * 20);
+    // AGENT1-TAVILY-FREE-CREDITS-1 — cada ronda deja pasar hasta 25 (2 búsquedas
+    // de 20 recortadas por el objetivo interno del pipeline).
+    assert.equal(WIZARD_TAVILY_MAX_TOTAL_RAW_TO_EVALUATE, WIZARD_ADAPTIVE_MAX_ROUNDS * 25);
   });
 });
 

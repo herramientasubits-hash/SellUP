@@ -121,6 +121,13 @@ const JOB_BOARD_DOMAINS = new Set([
   'freelancer.es',    // Hito 13B: variante española de Freelancer
   'workana.com',      // Hito 13B: plataforma freelance LATAM
   'upwork.com',       // Hito 13B: marketplace global de freelancers
+  // AGENT1-TAVILY-FREE-CREDITS-1 — vistas en Prod 01-10 (CL×Salud, e174731e)
+  'opcionempleo.cl',
+  'jobsora.com',
+  'laborum.cl',
+  'chiletrabajos.cl',
+  'jooble.org',
+  'talent.com',
 ]);
 
 const SOFTWARE_DIRECTORY_DOMAINS = new Set([
@@ -165,6 +172,9 @@ const GENERIC_DIRECTORY_DOMAINS = new Set([
   'infocif.es',
   'einforma.com',
   'einforma.co',               // Hito 13A: variante .co de einforma (directorio-empresas.einforma.co)
+  // AGENT1-TAVILY-FREE-CREDITS-1 — agregadores vistos en Prod 01-10 (CO×Gobierno, 63a87ee1)
+  'dateas.com',
+  'licitador.co',
   'datacreditoempresas.com.co', // Hito 10B: directorio empresarial DataCrédito
   'empresite.eleconomistaamerica.co', // Hito 10B: directorio El Economista CO
   'guiaempresas.universia.net.co',    // Hito 10B: guía empresas Universia CO
@@ -446,6 +456,8 @@ function classifyInstitutionalContent(domain: string): InstitutionalContentVerdi
 }
 
 const NEWS_MEDIA_DOMAINS = new Set([
+  // AGENT1-TAVILY-FREE-CREDITS-1 — medio del sector salud (Prod 01-10, CL×Salud)
+  'elhospital.com',
   // AGENT1-TAVILY-V2-2 — medios que se colaron en la prueba controlada del
   // 30-09 (noticias de sector presentadas como empresas).
   'clarin.com',

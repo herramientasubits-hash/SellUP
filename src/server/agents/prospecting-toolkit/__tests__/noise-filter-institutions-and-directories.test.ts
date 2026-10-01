@@ -167,3 +167,17 @@ describe('AGENT1-TAVILY-QUERY-SPACE-1 — portales nacionales que agrupan a todo
     it(`pasa (entidad propia): ${url}`, () => assert.equal(kept(url), true));
   }
 });
+
+describe('AGENT1-TAVILY-FREE-CREDITS-1 — ruido visto en Prod 01-10', () => {
+  for (const url of [
+    'https://www.opcionempleo.cl/empleo-laboratorio.html',
+    'https://cl.jobsora.com/empleo-farmaceutico',
+    'https://www.dateas.com/es/consulta_entidades',
+    'https://www.licitador.co/entidades',
+    'https://www.elhospital.com/es/noticias/x',
+  ]) {
+    it(`fuera: ${url}`, () => assert.equal(kept(url), false));
+  }
+  // Una ONG sí es cliente: no se filtra por publicar noticias.
+  it('pasa: transparenciacolombia.org.co (ONG)', () => assert.equal(kept('https://transparenciacolombia.org.co/'), true));
+});
