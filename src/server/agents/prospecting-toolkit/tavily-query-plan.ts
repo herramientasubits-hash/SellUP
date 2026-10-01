@@ -30,6 +30,9 @@ import {
   type MacroIndustryKey,
 } from '@/modules/macro-industry-catalog/macro-industries';
 import { resolveTavilyCountryRegions } from './tavily-country-regions';
+import { resolveTavilyCountryTerms } from './tavily-country-vocabulary';
+
+export { resolveTavilyCountryTerms };
 import {
   normalizeTavilyQueryKey,
   selectTavilyQueryCells,
@@ -40,8 +43,17 @@ import {
 
 export const TAVILY_QUERY_PLAN_VERSION = 'tavily_macro_query_plan_v2';
 
-export const TAVILY_QUERIES_PER_ROUND = 4;
+/**
+ * AGENT1-TAVILY-FREE-CREDITS-1 — Tavily cobra 1 crédito por búsqueda devuelva 5
+ * o 20 resultados. Antes: 4 búsquedas de 5 por ronda (4 créditos por 20
+ * resultados). Ahora: 2 búsquedas de 20 (2 créditos por hasta 40). Una corrida
+ * paga como mucho 8 búsquedas y el espacio de búsqueda dura el doble.
+ */
+export const TAVILY_QUERIES_PER_ROUND = 2;
 export const TAVILY_PLAN_MAX_ROUNDS = 4;
+export const TAVILY_RESULTS_PER_QUERY = 20;
+/** Resultados que una ronda puede conservar (2 búsquedas × 20). */
+export const TAVILY_RESULTS_PER_ROUND = TAVILY_QUERIES_PER_ROUND * TAVILY_RESULTS_PER_QUERY;
 const ADDITIONAL_CRITERIA_MAX_CHARS = 80;
 
 // ─── Vocabulario ──────────────────────────────────────────────────────────────
@@ -279,10 +291,13 @@ function buildQueryCells(
   regions: readonly string[],
 ): TavilyQueryCell[] {
   const locations: (string | null)[] = [null, ...regions];
+  // Primer tercio de la lista = regiones principales (capital y las más pobladas).
+  const mainRegionCount = Math.ceil(regions.length / 3);
   return terms.flatMap((term) =>
-    locations.map((region) => {
+    locations.map((region, index) => {
       const query = redactQuery(definition, term, region ? `${region} ${country}` : country);
-      return { term, region, query, key: normalizeTavilyQueryKey(query) };
+      const tier = region === null ? 0 : index - 1 < mainRegionCount ? 1 : 2;
+      return { term, region, query, key: normalizeTavilyQueryKey(query), tier };
     }),
   );
 }
@@ -298,7 +313,11 @@ export function buildTavilyMacroQueryPlan(
   if (!definition) return null;
 
   const spanishOnly = resolveTavilyCountryTargeting(input.countryCode).language === 'spanish';
-  const terms = interleaveDiscoveryTerms(definition, { spanishOnly });
+  const terms = resolveTavilyCountryTerms({
+    macroKey: definition.key,
+    countryCode: input.countryCode,
+    terms: interleaveDiscoveryTerms(definition, { spanishOnly }),
+  });
   if (terms.length === 0) return null;
 
   const rotationOffset = stableHash(input.seedKey) % terms.length;

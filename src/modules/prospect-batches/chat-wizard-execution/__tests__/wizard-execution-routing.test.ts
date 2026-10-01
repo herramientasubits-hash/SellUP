@@ -276,3 +276,64 @@ describe('R5: no resolveProvider dep → default is Tavily', () => {
     }
   });
 });
+
+// ── AGENT1-TAVILY-FREE-CREDITS-1 — créditos gratis del mes ───────────────────
+
+describe('Tavily vive de los créditos gratis del mes', () => {
+  it('sin créditos para el peor caso: no se reserva, no se llama a Tavily y se avisa', async () => {
+    let tavilyCalled = false;
+    let budgetReserved = false;
+    let askedFor: number | null = null;
+    const deps = makeBaseDeps({
+      resolveProvider: () => 'tavily',
+      checkTavilyMonthlyCredits: async (runMax) => {
+        askedFor = runMax;
+        return { status: 'exhausted', usedCredits: 990, cap: 1000, remaining: 10 };
+      },
+      reserveBudget: async () => { budgetReserved = true; return { status: 'reserved', reservationId: 'r', creditsReserved: 20 }; },
+      runTavilyPipeline: async ({ reservedBatchId }) => { tavilyCalled = true; return makePipelineOutput(reservedBatchId); },
+    });
+    const result = await executeProspectWizardGeneration(VALID_REQUEST, deps);
+    assert.equal(result.ok, false);
+    assert.equal(!result.ok && result.code, 'BUDGET_EXCEEDED');
+    assert.match(!result.ok ? result.message : '', /créditos gratis de Tavily/);
+    assert.equal(tavilyCalled, false);
+    assert.equal(budgetReserved, false);
+    assert.ok(askedFor !== null && askedFor > 0, 'se consulta con el peor caso de la corrida');
+  });
+
+  it('con créditos, la corrida sigue igual', async () => {
+    let tavilyCalled = false;
+    const deps = makeBaseDeps({
+      resolveProvider: () => 'tavily',
+      checkTavilyMonthlyCredits: async () => ({ status: 'available', usedCredits: 100, cap: 1000, remaining: 900 }),
+      runTavilyPipeline: async ({ reservedBatchId }) => { tavilyCalled = true; return makePipelineOutput(reservedBatchId); },
+    });
+    const result = await executeProspectWizardGeneration(VALID_REQUEST, deps);
+    assert.ok(result.ok, JSON.stringify(result));
+    assert.equal(tavilyCalled, true);
+  });
+
+  it('si no se puede leer el consumo, no bloquea (el plan gratis no cobra al agotarse)', async () => {
+    let tavilyCalled = false;
+    const deps = makeBaseDeps({
+      resolveProvider: () => 'tavily',
+      checkTavilyMonthlyCredits: async () => { throw new Error('db down'); },
+      runTavilyPipeline: async ({ reservedBatchId }) => { tavilyCalled = true; return makePipelineOutput(reservedBatchId); },
+    });
+    const result = await executeProspectWizardGeneration(VALID_REQUEST, deps);
+    assert.ok(result.ok, JSON.stringify(result));
+    assert.equal(tavilyCalled, true);
+  });
+
+  it('Apollo no pasa por el tope de Tavily', async () => {
+    let asked = false;
+    const deps = makeBaseDeps({
+      resolveProvider: () => 'apollo_organizations',
+      checkTavilyMonthlyCredits: async () => { asked = true; return { status: 'exhausted', usedCredits: 1000, cap: 1000, remaining: 0 }; },
+      runApolloPipeline: async ({ reservedBatchId }) => makePipelineOutput(reservedBatchId),
+    });
+    await executeProspectWizardGeneration(VALID_REQUEST, deps);
+    assert.equal(asked, false);
+  });
+});

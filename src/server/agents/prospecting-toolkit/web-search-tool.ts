@@ -76,6 +76,13 @@ const MAX_RESULTS_HARD_LIMIT = 20;
 const DEFAULT_SEARCH_DEPTH = 'standard' as const;
 const DEFAULT_MAX_RESULTS_PER_QUERY = 3;
 const MAX_RESULTS_PER_QUERY_LIMIT = 5;
+/**
+ * AGENT1-TAVILY-FREE-CREDITS-1 — Tavily cobra por búsqueda, no por resultado
+ * (`max_results` admite hasta 20 por 1 crédito). Sólo Tavily sube sus topes;
+ * mock, Google CSE y Apollo conservan los suyos.
+ */
+const TAVILY_MAX_RESULTS_PER_QUERY_LIMIT = 20;
+const TAVILY_MAX_RESULTS_PER_ROUND_LIMIT = 40;
 const MAX_QUERIES_LIMIT = 10;
 // Apollo Organizations tiene su propio logger per-query y sus créditos son más caros.
 // Cap configurable por env (AGENT1_APOLLO_MAX_QUERIES_PER_RUN). Default: 1. Hard cap: 3.
@@ -330,13 +337,14 @@ export async function runMultiQueryWebSearch(
   usageDeps?: TavilyUsageDeps,
 ): Promise<MultiQueryWebSearchOutput> {
   const provider = input.provider ?? DEFAULT_PROVIDER;
+  const isTavily = provider === 'tavily';
   const maxResultsPerQuery = Math.min(
     Math.max(1, input.maxResultsPerQuery ?? DEFAULT_MAX_RESULTS_PER_QUERY),
-    MAX_RESULTS_PER_QUERY_LIMIT,
+    isTavily ? TAVILY_MAX_RESULTS_PER_QUERY_LIMIT : MAX_RESULTS_PER_QUERY_LIMIT,
   );
   const targetCount = Math.min(
     Math.max(1, input.targetCount ?? DEFAULT_MAX_RESULTS),
-    MAX_RESULTS_HARD_LIMIT,
+    isTavily ? TAVILY_MAX_RESULTS_PER_ROUND_LIMIT : MAX_RESULTS_HARD_LIMIT,
   );
   const searchDepth = input.searchDepth ?? DEFAULT_SEARCH_DEPTH;
 

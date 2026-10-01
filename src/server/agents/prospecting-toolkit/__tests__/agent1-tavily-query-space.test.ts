@@ -221,7 +221,8 @@ describe('buildTavilyMacroQueryPlan con espacio de búsqueda', () => {
     const second = buildTavilyMacroQueryPlan({ ...base, seedKey: 'fb530d9b', history, nowMs: NOW });
     assert.ok(second);
     const again = second.rounds.flat();
-    assert.equal(again.length, 16, 'la 2.ª corrida tiene 16 búsquedas nuevas, no 7 repetidas');
+    // AGENT1-TAVILY-FREE-CREDITS-1 — tope de 8 por corrida.
+    assert.equal(again.length, 8, 'la 2.ª corrida tiene 8 búsquedas nuevas, no 7 repetidas');
     for (const q of again) assert.equal(used.includes(q), false, q);
   });
 
