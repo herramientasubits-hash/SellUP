@@ -336,42 +336,6 @@ export function DiscardedProspectsDataTableClient({
         },
       },
       {
-        id: 'sourcePrimary',
-        accessorKey: 'sourcePrimary',
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Proveedor" />,
-        cell: ({ row }) =>
-          row.original.sourcePrimary ? (
-            <span className="block truncate text-xs text-muted-foreground">
-              {row.original.sourcePrimary}
-            </span>
-          ) : (
-            <EmptyCell label="Sin proveedor" />
-          ),
-        size: 130,
-        minSize: 100,
-        filterFn: 'arrIncludesSome',
-        // Enumerable: el embudo ofrece los proveedores que aparecen en la lista.
-        meta: { label: 'Proveedor', popoverTitle: 'Proveedor' },
-      },
-      {
-        id: 'roundOrigin',
-        accessorKey: 'roundOrigin',
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Ronda/origen" />,
-        cell: ({ row }) => {
-          const origin = row.original.roundOrigin ?? row.original.batchName;
-          return origin ? (
-            <span className="block truncate text-xs text-muted-foreground" title={origin}>
-              {origin}
-            </span>
-          ) : (
-            <EmptyCell label="Sin ronda ni origen" />
-          );
-        },
-        size: 180,
-        minSize: 140,
-        meta: { label: 'Ronda/origen', popoverTitle: 'Ronda/origen', disableFilter: true },
-      },
-      {
         id: 'createdAt',
         accessorKey: 'createdAt',
         header: ({ column }) => <DateRangeColumnHeader column={column} title="Fecha" />,

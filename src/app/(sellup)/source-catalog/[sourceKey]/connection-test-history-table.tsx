@@ -7,7 +7,6 @@ import { StatusBadge } from '@/components/data-display/status-badge';
 import { formatAppDateTime } from '@/lib/format-date';
 import {
   CONNECTION_TEST_STATUS_LABELS,
-  CONNECTION_TEST_STRATEGY_LABELS,
 } from '@/modules/source-catalog/labels';
 import type { SourceConnectionTestHistoryItem } from '@/modules/source-catalog/history-queries';
 import { CONNECTION_TEST_STATUS_TONE } from './connection-test-status';
@@ -80,24 +79,6 @@ export function ConnectionTestHistoryTable({ items }: ConnectionTestHistoryTable
         meta: { label: 'Qué hacer', disableFilter: true, disableSort: true },
       },
       {
-        id: 'testedBy',
-        accessorFn: (item) => item.testedByEmailSnapshot ?? '',
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Probó" />,
-        cell: ({ row }) => (
-          <span className="whitespace-nowrap text-sm text-muted-foreground">
-            {row.original.testedByEmailSnapshot ?? NO_VALUE}
-          </span>
-        ),
-        size: 220,
-        meta: {
-          label: 'Probó',
-          filterOptions: unique(items.map((item) => item.testedByEmailSnapshot ?? '')).map((email) => ({
-            label: email || 'Sin registrar',
-            value: email,
-          })),
-        },
-      },
-      {
         id: 'responseTime',
         accessorFn: (item) => item.responseTimeMs ?? -1,
         header: ({ column }) => <DataTableColumnHeader column={column} title="Tiempo de respuesta" />,
@@ -108,36 +89,6 @@ export function ConnectionTestHistoryTable({ items }: ConnectionTestHistoryTable
         ),
         size: 170,
         meta: { label: 'Tiempo de respuesta', disableFilter: true },
-      },
-      {
-        id: 'strategy',
-        accessorKey: 'strategy',
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Tipo de prueba" />,
-        cell: ({ row }) => (
-          <span className="whitespace-nowrap text-sm text-muted-foreground">
-            {CONNECTION_TEST_STRATEGY_LABELS[row.original.strategy]}
-          </span>
-        ),
-        size: 220,
-        meta: {
-          label: 'Tipo de prueba',
-          filterOptions: unique(items.map((item) => item.strategy)).map((strategy) => ({
-            label: CONNECTION_TEST_STRATEGY_LABELS[strategy],
-            value: strategy,
-          })),
-        },
-      },
-      {
-        id: 'httpStatus',
-        accessorFn: (item) => item.httpStatus ?? -1,
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Código de respuesta" />,
-        cell: ({ row }) => (
-          <span className="font-mono text-xs tabular-nums text-muted-foreground">
-            {row.original.httpStatus ?? NO_VALUE}
-          </span>
-        ),
-        size: 170,
-        meta: { label: 'Código de respuesta', disableFilter: true },
       },
       {
         id: 'errorCode',
