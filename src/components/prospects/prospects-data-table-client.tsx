@@ -50,7 +50,6 @@ import {
   countryName,
 } from '@/components/shared/table-cells';
 import {
-  DuplicateCheckCell,
   ProspectStatusBadge,
   QualityCell,
   StatusCell,
@@ -89,15 +88,6 @@ import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filte
 type Row = ProspectRow;
 
 // ── Constants ──────────────────────────────────────────────────
-
-const DUPLICATE_STATUS_OPTIONS = [
-  { value: 'no_match', label: 'Sin coincidencias' },
-  { value: 'possible_duplicate', label: 'Posible duplicado' },
-  { value: 'exact_duplicate', label: 'Duplicado exacto' },
-  { value: 'related_company', label: 'Empresa relacionada' },
-  { value: 'unchecked', label: 'Sin verificar' },
-  { value: 'insufficient_data', label: 'Datos insuficientes' },
-];
 
 const NO_QUICK_FILTERS: QuickFilterDefinition<Row>[] = [];
 
@@ -532,22 +522,6 @@ export function ProspectsDataTableClient({
           disableFilter: true,
           // La celda resume varias señales: no hay un valor por el que ordenar.
           disableSort: true,
-        },
-      },
-      {
-        id: 'duplicate_status',
-        accessorKey: 'duplicate_status',
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Duplicidad" />
-        ),
-        cell: ({ row }) => <DuplicateCheckCell candidate={row.original} />,
-        size: 160,
-        minSize: 130,
-        filterFn: 'arrIncludesSome',
-        meta: {
-          label: 'Duplicidad',
-          popoverTitle: 'Duplicidad',
-          filterOptions: DUPLICATE_STATUS_OPTIONS,
         },
       },
       {

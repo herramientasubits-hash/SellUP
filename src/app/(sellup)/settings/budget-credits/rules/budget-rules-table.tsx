@@ -19,7 +19,6 @@ import {
   PERIOD_LABELS,
   SCOPE_LABELS,
   formatLimit,
-  formatRuleDate,
 } from './budget-rule-display';
 
 // ─── Rules table ──────────────────────────────────────────────────────────────
@@ -231,19 +230,6 @@ export function RulesDataTable({
           { label: 'Inactiva', value: 'inactive' },
         ],
       },
-    },
-    {
-      id: 'updatedAt',
-      accessorKey: 'updated_at',
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Actualizada" />,
-      cell: ({ row }) => (
-        <span className="whitespace-nowrap text-sm text-muted-foreground">
-          {formatRuleDate(row.original.updated_at)}
-        </span>
-      ),
-      sortDescFirst: true,
-      size: 130,
-      meta: { label: 'Actualizada', disableFilter: true },
     },
     {
       id: 'actions',

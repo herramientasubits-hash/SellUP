@@ -18,7 +18,6 @@ import {
   Sparkles,
   SendHorizonal,
 } from "@/icons";
-import { Button } from '@/components/ui/button';
 import type { ComponentProps } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -49,11 +48,9 @@ import {
 } from '@/components/shared/table-cells';
 import {
   PIPELINE_STATUS_LABELS,
-  SOURCE_LABELS,
   INDUSTRIES,
   LATAM_COUNTRIES,
   type AccountListItem,
-  type AccountSource,
   type InternalUserOption,
   type PipelineStatus,
 } from '@/modules/accounts/types';
@@ -116,11 +113,6 @@ const ACTIVE_PIPELINE_STATUSES: PipelineStatus[] = [
 // ── Filter options ─────────────────────────────────────────────
 
 const STATUS_FILTER_OPTIONS = Object.entries(PIPELINE_STATUS_LABELS).map(([value, label]) => ({
-  value,
-  label,
-}));
-
-const SOURCE_FILTER_OPTIONS = Object.entries(SOURCE_LABELS).map(([value, label]) => ({
   value,
   label,
 }));
@@ -372,30 +364,6 @@ export function AccountsDataTableClient({
                       : (u.full_name ?? u.email ?? u.id.slice(0, 8)),
                 }))
               : ownerFilterOptions,
-        },
-      },
-      {
-        id: 'source',
-        accessorKey: 'source',
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Fuente" />
-        ),
-        cell: ({ row }) => {
-          // Un solo chip de color por fila (el estado): la fuente va en texto.
-          const source = row.original.source as AccountSource;
-          return (
-            <span className="block truncate text-xs text-muted-foreground">
-              {SOURCE_LABELS[source] ?? source}
-            </span>
-          );
-        },
-        size: 110,
-        minSize: 90,
-        filterFn: 'arrIncludesSome',
-        meta: {
-          label: 'Fuente',
-          popoverTitle: 'Fuente',
-          filterOptions: SOURCE_FILTER_OPTIONS,
         },
       },
       {

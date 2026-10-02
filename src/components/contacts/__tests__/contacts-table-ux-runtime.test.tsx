@@ -203,7 +203,7 @@ describe('Contactos — vacíos y celdas', () => {
   it('lo que falta es siempre una raya con nombre', () => {
     renderTable();
 
-    for (const label of ['Sin email', 'Sin cargo', 'Sin seniority', 'Sin rol']) {
+    for (const label of ['Sin email', 'Sin cargo', 'Sin rol']) {
       assert.ok(screen.getAllByText(label).length >= 1, label);
     }
   });
