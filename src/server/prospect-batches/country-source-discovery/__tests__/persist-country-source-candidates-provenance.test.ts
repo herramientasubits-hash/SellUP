@@ -363,3 +363,44 @@ describe('SOURCES-AR-RNS-1 — Argentina', () => {
     assert.equal(stats.batchInserts[0].source, 'agent_1');
   });
 });
+
+describe('SOURCES-EC-FREE-DISCOVERY-1 — Ecuador', () => {
+  it('el candidato ecuatoriano lleva su propia fuente, su RUC y su CIIU; la procedencia sigue siendo la lista cerrada', async () => {
+    const stats = freshStats();
+    const result = await persistCountrySourceCandidates(makeFiscalAwareFakeSupabase(stats), {
+      companies: [
+        syntheticCompany({
+          recordIdentityKey: 'tax:1791234567001',
+          legalName: 'EMPRESA SINTETICA EC S.A.',
+          normalizedLegalName: 'EMPRESA SINTETICA EC',
+          taxId: '1791234567001',
+          taxIdentifierType: 'RUC',
+          countryCode: 'EC',
+          city: 'QUITO',
+          region: 'PICHINCHA',
+          declaredIndustry: null,
+          industryCode: 'J6201.01',
+          coarseSector: null,
+          officialMacroIndustry: { macroIndustryKeys: ['technology'], tableVersion: 'ec-ciiu4-inec-macro-v1' },
+        }),
+      ],
+      countryCode: 'EC',
+      countryName: 'Ecuador',
+      macroIndustryKey: 'technology',
+      requestedByUserId: 'user-synthetic-1',
+    });
+
+    assert.equal(result.failed, false);
+    assert.equal(result.writtenCount, 1);
+    const candidate = stats.candidateInserts[0];
+    assert.equal(candidate.source_primary, 'public_source');
+    assert.equal(candidate.tax_identifier, '1791234567001');
+    assert.equal(candidate.tax_identifier_type, 'RUC');
+    assert.equal(candidate.country_code, 'EC');
+    const trace = candidate.source_trace as Record<string, unknown>;
+    assert.equal(trace.sourceKey, 'ec_scvs_directory_discovery');
+    assert.equal(trace.industryCode, 'J6201.01');
+    assert.equal((candidate.metadata as Record<string, unknown>).macro_industry_key, 'technology');
+    assert.equal(stats.batchInserts[0].source, 'agent_1');
+  });
+});

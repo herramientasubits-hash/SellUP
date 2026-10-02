@@ -36,6 +36,7 @@ const WIRED: ReadonlyArray<{ key: string; country: string; status: AiFlowStatus 
   { key: 'us_irs_eo_registry', country: 'US', status: 'connected_identity_in_run' },
   { key: 'es_placsp_registry', country: 'ES', status: 'connected_identity_in_run' },
   { key: 'cl_res_registry', country: 'CL', status: 'connected_identity_in_run' },
+  { key: 'cl_sii_registry', country: 'CL', status: 'connected_identity_in_run' },
   { key: 'cr_company_registry', country: 'CR', status: 'connected_identity_in_run' },
 ];
 
@@ -142,17 +143,22 @@ describe('Catálogo — identificadores y nombres de país', () => {
   });
 });
 
-describe('Chile SII (SOURCES-CL-SII-REGISTRY-1): conectada en código, carga pendiente', () => {
-  it('existe, CL, identidad en la corrida, sin carga verificada todavía y fuera de las recomendaciones', () => {
-    const s = CATALOG_SOURCES.find((source) => source.key === 'cl_sii_registry');
+describe('Ecuador capa gratuita (SOURCES-EC-FREE-DISCOVERY-1): conectada en código, carga pendiente', () => {
+  it('existe, EC, capa gratuita, sin carga verificada todavía y fuera de las recomendaciones', () => {
+    const s = CATALOG_SOURCES.find((source) => source.key === 'ec_scvs_directory');
     assert.ok(s);
-    assert.deepEqual(s.countryCodes, ['CL']);
-    assert.equal(s.aiFlowStatus, 'connected_identity_in_run');
+    assert.deepEqual(s.countryCodes, ['EC']);
+    assert.equal(s.aiFlowStatus, 'connected_free_discovery');
+    assert.equal(s.connectionMode, 'read_only_snapshot');
     assert.equal(s.operationalStatus, 'pending_validation');
+    assert.deepEqual(s.sectors, []);
     assert.match(s.nextAction ?? '', /espera la autorización/);
-    for (const depth of ['basic', 'standard', 'deep'] as const) {
-      const ctx = getCatalogContext({ country: 'Chile', countryCode: 'CL', industry: 'technology', searchDepth: depth });
-      assert.equal(ctx.recommendedSources.some((r) => r.key === 'cl_sii_registry'), false, depth);
+    for (const industry of INDUSTRIES) {
+      for (const depth of DEPTHS) {
+        const ctx = getCatalogContext({ country: 'Ecuador', countryCode: 'EC', industry, searchDepth: depth });
+        assert.equal(ctx.recommendedSources.some((r) => r.key === 'ec_scvs_directory'), false, `${industry}/${depth}`);
+        assert.equal(ctx.sectorSources.some((r) => r.key === 'ec_scvs_directory'), false, `${industry}/${depth}`);
+      }
     }
   });
 });
