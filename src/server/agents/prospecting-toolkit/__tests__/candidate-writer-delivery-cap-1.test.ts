@@ -255,7 +255,12 @@ function buildCandidates(completeIndexes: ReadonlySet<number> = new Set()): Cand
 
 async function runWriter(
   candidates: Candidate[],
-  options: { maxDeliveredCandidates?: number | null; targetPersistibleCandidates?: number | null },
+  options: {
+    maxDeliveredCandidates?: number | null;
+    targetPersistibleCandidates?: number | null;
+    holdBatchStatus?: boolean;
+    candidateProvenance?: 'apollo' | null;
+  },
 ): Promise<{ stats: Stats; candidatesCreated: number; deliveryCappedCompanies: readonly DeliveryCappedCompany[] }> {
   const stats: Stats = { candidateInserts: [], batchUpdates: [] };
   const pipelineOutput = {
@@ -313,6 +318,8 @@ async function runWriter(
     ...('maxDeliveredCandidates' in options
       ? { maxDeliveredCandidates: options.maxDeliveredCandidates }
       : {}),
+    ...(options.holdBatchStatus !== undefined ? { holdBatchStatus: options.holdBatchStatus } : {}),
+    ...(options.candidateProvenance !== undefined ? { candidateProvenance: options.candidateProvenance } : {}),
   } as unknown as CandidateWriterInput;
 
   const result = await writeProspectingCandidates(input, makeFakeAdmin(stats));
@@ -386,6 +393,34 @@ describe('AGENT1-DELIVERY-CAP-1 — writer Apollo/Tavily: tope de entrega por ve
     assert.deepEqual(deliveryCappedCompanies.map((c) => c.name), NAMES.slice(10));
     const none = await runWriter(buildCandidates(), { maxDeliveredCandidates: null });
     assert.deepEqual(none.deliveryCappedCompanies, []);
+  });
+
+  it('🔴 BANK-FIRST-1: lo recortado trae el candidato COMPLETO para el banco', async () => {
+    const { deliveryCappedCompanies } = await runWriter(buildCandidates(), {
+      maxDeliveredCandidates: 10,
+      targetPersistibleCandidates: TARGET,
+    });
+    for (const company of deliveryCappedCompanies) {
+      assert.equal(company.bankCandidate?.name, company.name);
+      assert.equal(company.bankCandidate?.domain, company.domain);
+      assert.equal('searchTrace' in (company.bankCandidate ?? {}), false);
+    }
+  });
+
+  it('🔴 BANK-FIRST-1: `holdBatchStatus` ⇒ el escritor NO sella el lote (sólo metadata)', async () => {
+    const held = await runWriter(buildCandidates(), { maxDeliveredCandidates: 10, holdBatchStatus: true });
+    assert.equal(held.candidatesCreated, 10);
+    assert.equal(held.stats.batchUpdates.some((u) => 'status' in u), false, 'ninguna escritura de estado');
+    assert.ok(held.stats.batchUpdates.some((u) => u.metadata != null), 'la metadata sí se escribe');
+    const sealed = await runWriter(buildCandidates(), { maxDeliveredCandidates: 10 });
+    assert.ok(sealed.stats.batchUpdates.some((u) => 'status' in u), 'sin la bandera, se sella como siempre');
+  });
+
+  it('🔴 BANK-FIRST-1: `candidateProvenance: apollo` ⇒ las filas son de Apollo', async () => {
+    const plain = await runWriter(buildCandidates(), { maxDeliveredCandidates: 10 });
+    assert.ok(plain.stats.candidateInserts.every((row) => row.source_primary === 'web_ai'));
+    const banked = await runWriter(buildCandidates(), { maxDeliveredCandidates: 10, candidateProvenance: 'apollo' });
+    assert.ok(banked.stats.candidateInserts.every((row) => row.source_primary === 'apollo'));
   });
 
   it('🔴 BANCO: lo recortado trae si contaba para la meta y las MISMAS claves de reclamo', async () => {

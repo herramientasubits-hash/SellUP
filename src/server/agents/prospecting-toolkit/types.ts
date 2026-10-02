@@ -729,6 +729,19 @@ export type CandidateWriterInput = {
    * no se persiste ni se reclama. Ausente/`null` ⇒ sin tope (X6.13).
    */
   maxDeliveredCandidates?: number | null;
+  /**
+   * AGENT1-COMPANY-BANK-FIRST-1 — `true` ⇒ el escritor NO sella el estado del lote
+   * (`ready_for_review` / `completed` / `failed`). Lo usa el banco cuando escribe
+   * ANTES que el resto de la búsqueda: las piernas siguientes adoptan el lote sólo
+   * si sigue en `draft`/`generating`. La metadata sí se escribe.
+   */
+  holdBatchStatus?: boolean;
+  /**
+   * AGENT1-COMPANY-BANK-FIRST-1 — las filas son de Apollo aunque esta escritura no
+   * sea una búsqueda de Apollo (vienen del banco): `source_primary = 'apollo'` y
+   * su rastro de proveedor, como cuando las escribió la corrida original.
+   */
+  candidateProvenance?: 'apollo' | null;
 };
 
 export type CandidateWriterSkipped = {
@@ -800,6 +813,11 @@ export type DeliveryCappedCompany = {
   countsTowardTarget?: boolean;
   /** Las MISMAS claves de reclamo global que la fila habría tomado al persistirse. */
   claims?: readonly GlobalIdentityClaim[];
+  /**
+   * AGENT1-COMPANY-BANK-FIRST-1 — el candidato completo (acotado) para que el
+   * banco pueda entregarlo antes que cualquier proveedor. `null` si no cabe.
+   */
+  bankCandidate?: Record<string, unknown> | null;
 };
 
 // Combined output for runAndWriteProspectingPipeline

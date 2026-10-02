@@ -70,6 +70,8 @@ import { normalizeDomain } from "./normalization";
 // Esta ruta dedupeaba por DOMINIO/nombre y la gratuita por identidad FISCAL: sin
 // un contrato común, la misma empresa legal era invisible para la otra capa.
 import { buildCompanyIdentityEvidence } from "./company-identity-evidence";
+import { projectCandidateForBank } from "@/server/prospect-batches/company-bank/pipeline-candidate-bank-payload";
+import { resolveEffectiveDeliveryCap } from "@/modules/prospect-batches/delivery-cap";
 import {
   acceptIdentity,
   createBatchIdentityCounters,
@@ -2253,10 +2255,29 @@ export async function writeProspectingCandidates(
   // viene COMPLETAS PRIMERO, así que recortar la cola nunca deja fuera a una
   // completa por una incompleta. Lo recortado no se persiste y por tanto NO
   // reclama la empresa: queda libre para otro vendedor. Nunca baja del objetivo.
-  const deliveryCap =
-    input.maxDeliveredCandidates != null && Number.isFinite(input.maxDeliveredCandidates)
-      ? Math.max(Math.trunc(input.maxDeliveredCandidates), targetCap ?? 0)
-      : null;
+  // ── AGENT1-CUT3B23 §§ 8/9 — registro de identidad de ESTE lote ─────────────
+  //
+  // Se siembra con lo que el lote YA contiene. Es el paso que hace que esta ruta
+  // de PAGO vea lo que la capa gratuita escribió en el mismo lote, y al revés,
+  // sin que ninguna de las dos tenga que conocer a la otra. Ámbito: un lote. NO
+  // es novedad global ni histórica — esas viven en `novelty-checker` y en
+  // `provider_seen` y siguen intactas.
+  // AGENT1-CUT3B4 § 9 — la foto trae filas Y ÉPOCA del MISMO estado. Se conserva
+  // como UN valor que avanza: el registro y la época no pueden separarse sin
+  // reabrir la carrera por la puerta de la lectura.
+  // AGENT1-COMPANY-BANK-FIRST-1 — se lee ANTES del tope de entrega: lo que el
+  // lote ya contiene (el banco, la capa gratuita, otra pierna) cuenta para el
+  // tope, que es por vendedor y por búsqueda, no por escritor.
+  const batchIdentitySeed = await loadBatchIdentityRegistry(admin, batchId);
+  const alreadyDeliveredInBatch = batchIdentitySeed.degraded ? 0 : batchIdentitySeed.seededCount;
+  const deliveryCap = resolveEffectiveDeliveryCap({
+    cap:
+      input.maxDeliveredCandidates != null && Number.isFinite(input.maxDeliveredCandidates)
+        ? input.maxDeliveredCandidates
+        : null,
+    alreadyDelivered: alreadyDeliveredInBatch,
+    floor: targetCap,
+  });
   const toPersist =
     deliveryCap !== null && capOrdered.length > deliveryCap
       ? capOrdered.slice(0, deliveryCap)
@@ -2284,6 +2305,7 @@ export async function writeProspectingCandidates(
         name: entry.candidate.name,
       }),
     ),
+    bankCandidate: projectCandidateForBank(entry.candidate),
   }));
 
   // ── Active Duplicate Guard: prefetch active candidates (v1.13.1) ───────────
@@ -2304,17 +2326,6 @@ export async function writeProspectingCandidates(
   duplicateGuardData.prefetchStatus = guardPrefetch.status;
   duplicateGuardData.prefetchReason = guardPrefetch.reason;
 
-  // ── AGENT1-CUT3B23 §§ 8/9 — registro de identidad de ESTE lote ─────────────
-  //
-  // Se siembra con lo que el lote YA contiene. Es el paso que hace que esta ruta
-  // de PAGO vea lo que la capa gratuita escribió en el mismo lote, y al revés,
-  // sin que ninguna de las dos tenga que conocer a la otra. Ámbito: un lote. NO
-  // es novedad global ni histórica — esas viven en `novelty-checker` y en
-  // `provider_seen` y siguen intactas.
-  // AGENT1-CUT3B4 § 9 — la foto trae filas Y ÉPOCA del MISMO estado. Se conserva
-  // como UN valor que avanza: el registro y la época no pueden separarse sin
-  // reabrir la carrera por la puerta de la lectura.
-  const batchIdentitySeed = await loadBatchIdentityRegistry(admin, batchId);
   let batchIdentitySnapshot: BatchIdentitySeedOutcome = batchIdentitySeed;
   let batchIdentityCounters = createBatchIdentityCounters();
   const batchIdentityDuplicateSignals: Record<string, number> = {};
@@ -3176,7 +3187,8 @@ export async function writeProspectingCandidates(
       webSearchProvider: pipelineMeta?.provider,
       hasProviderRouting: preMergedMetadata[BATCH_PROVIDER_ROUTING_KEY] != null,
     });
-    const candidateSourcePrimary = isApolloCompanyDiscoveryRun ? 'apollo' : 'web_ai';
+    const candidateSourcePrimary =
+      isApolloCompanyDiscoveryRun || input.candidateProvenance === 'apollo' ? 'apollo' : 'web_ai';
 
     // ── CANDIDATE-OPERABILITY-VALIDATION-1 § A — la procedencia de la FILA ──────
     //
@@ -3464,7 +3476,8 @@ export async function writeProspectingCandidates(
     // keys). A provider mismatch fails closed via ProviderMetadataConsistencyError
     // rather than silently overwriting provenance. Per-candidate cost stays
     // null/null — batch credits are never split per candidate.
-    const apolloProviderTrace = isApolloCompanyDiscoveryRun
+    const apolloProviderTrace =
+      isApolloCompanyDiscoveryRun || input.candidateProvenance === 'apollo'
       ? buildApolloCandidateProviderTrace()
       : null;
 
@@ -3962,8 +3975,12 @@ export async function writeProspectingCandidates(
   // este escritor no aportó nada: no hay estado terminal honesto, así que no se
   // escribe ninguno y el lote conserva el que ya tenía. La metadata sí se
   // escribe, con el motivo, para que la corrida no quede muda.
+  // AGENT1-COMPANY-BANK-FIRST-1 — `holdBatchStatus` ⇒ como `preserve`: otra
+  // pierna de la MISMA búsqueda escribirá después y sellará el lote.
   const batchStatusForOutcome =
-    batchStatusDecision.action === 'write' ? batchStatusDecision.status : null;
+    batchStatusDecision.action === 'write' && input.holdBatchStatus !== true
+      ? batchStatusDecision.status
+      : null;
 
   // ── Terminal status write (guaranteed) ───────────────────────────────────
   // A batch with 0 persisted candidates must NEVER remain ready_for_review.

@@ -43,6 +43,7 @@ import {
   runPrePaidNoveltyDiscovery,
   type PrePaidNoveltyDiscoveryOutcome,
 } from '@/server/prospect-batches/country-source-discovery/run-prepaid-novelty-discovery.server';
+import { resolveProductionBankFirstDrawer } from '@/server/prospect-batches/company-bank/prepaid-bank-draw.server';
 import { loadApolloExclusionSellupDomains } from '@/server/prospect-batches/provider-seen/apollo-exclusion-sellup-domains.server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { scheduleClaudeRescueAfterWizardRun } from '@/server/agents/prospecting-toolkit/claude-classifier/rescue/schedule-rescue.server';
@@ -373,6 +374,8 @@ export type WizardExecutionDeps = {
     degraded: boolean;
     outOfScopeSeenDomains?: string[];
     liveOutOfScopeCount?: number;
+    /** KNOWN-REJECTED-1 — ya entregados que Apollo rechazaría gratis: van al final. */
+    knownRejectedDomains?: string[];
   }>;
   runPrePaidNoveltyDiscovery?: (input: {
     countryCode: string;
@@ -385,6 +388,8 @@ export type WizardExecutionDeps = {
      * ejecución, resuelto perezosamente. Lo gratuito y lo de pago comparten lote.
      */
     resolveBatchId: () => Promise<string>;
+    /** AGENT1-COMPANY-BANK-FIRST-1 — nombre visible de la industria (entrada del escritor del banco). */
+    industryName?: string;
   }) => Promise<PrePaidNoveltyDiscoveryOutcome>;
   /**
    * AGENT1-LOCAL-CUT5-SINGLE-BATCH-PLUMBING § 11 — sella el lote canónico cuando
@@ -717,6 +722,9 @@ export async function executeProspectWizardGenerationAction(
         // CUT-5 §§ 4, 5 — el lote canónico de la ejecución llega hasta el writer
         // gratuito. Sin esto la capa creaba lote propio.
         resolveBatchId: input.resolveBatchId,
+        // AGENT1-COMPANY-BANK-FIRST-1 — el banco es la PRIMERA fuente: corre antes
+        // de la capa gratuita, en el mismo lote. Banco apagado ⇒ ausente.
+        drawCompanyBank: resolveProductionBankFirstDrawer(input.industryName ?? '') ?? undefined,
         partialGapSupported: WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED,
         // ADDENDUM PROVIDER-SEEN §§ 5, 6 — esta ruta paga con Apollo, cuya
         // capacidad de exclusión es NINGUNA (su contrato no la prueba). Que el
@@ -1430,6 +1438,7 @@ export async function executeProspectWizardGeneration(
           requestedTarget: WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
           requestedByUserId: userId,
           countryName,
+          industryName: catalogResolution.industry.name,
         })
         // Fail-open (§ 12): una capa gratuita rota nunca deja el wizard
         // inservible. Se degrada a «no aportó» y la ruta de pago sigue.
@@ -1808,6 +1817,7 @@ export async function executeProspectWizardGeneration(
     releasedDomains: apolloExclusionSellup?.releasedDomains ?? [],
     outOfScopeSeenDomains: apolloExclusionSellup?.outOfScopeSeenDomains ?? [],
     liveOutOfScopeCount: apolloExclusionSellup?.liveOutOfScopeCount ?? 0,
+    knownRejectedDomains: apolloExclusionSellup?.knownRejectedDomains ?? [],
     now: new Date(),
   });
 

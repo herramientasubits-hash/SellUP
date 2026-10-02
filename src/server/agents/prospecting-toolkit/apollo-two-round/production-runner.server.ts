@@ -3624,6 +3624,7 @@ export async function runApolloTwoRoundWizardDiscovery(
         countryCode: input.countryCode ?? '',
         macroIndustryKey: deps.companyBank ? bankMacroIndustryKey : null,
         sourceBatchId: cappedBatchId,
+        requestedSubindustries: input.subindustries ?? [],
         capped: deliveryCapped,
         evidenceFor: (company) => evidenceByKey.get(apolloEvidenceKeyForCapped(company)) ?? null,
       });
