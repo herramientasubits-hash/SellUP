@@ -1082,7 +1082,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     // SOURCES-CATALOG-COUNTRY-AUDIT-1 (02-10): el snapshot post-approval
     // (peru_sunat_ruc_snapshot) está VACÍO en Producción.
     nextAction:
-      'Enrichment legal post-approval conectado, pero su snapshot está VACÍO en Producción (peru_sunat_ruc_snapshot = 0 filas, verificado el 02-10): no confirma ningún RUC y deja pasar el respaldo de pago Migo. El RUC por nombre en cada corrida usa una carga separada y sí cargada: pe_sunat_registry (867.359 sociedades).',
+      'Enrichment legal post-approval conectado. Su snapshot propio está vacío en Producción (peru_sunat_ruc_snapshot = 0 filas, verificado el 02-10), así que desde el 02-10 la confirmación lee también el mismo padrón cargado aparte (pe_sunat_registry, 867.359 sociedades activas y habidas): encontrar el RUC ahí lo confirma sin llamar a Migo.',
     countryCodes: ['PE'],
     sectors: [],
     priority: 'P0',
@@ -1188,7 +1188,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'eligible_not_connected',
     connectionMode: 'not_connected',
     nextAction:
-      'Clave guardada y probada el 01-07 (el panel la muestra conectada). Respaldo DE PAGO del enriquecimiento posterior a la aprobación: se consulta cuando la validación de SUNAT no confirma el RUC. ⚠️ Como la tabla de pe_sunat_bulk está vacía en Producción, hoy se consultaría para CADA empresa peruana aprobada con RUC (verificado el 02-10).',
+      'Clave guardada y probada el 01-07 (el panel la muestra conectada). Respaldo DE PAGO del enriquecimiento posterior a la aprobación: sólo se consulta cuando SUNAT no confirma el RUC (no está en el padrón de sociedades activas y habidas).',
     countryCodes: ['PE'],
     sectors: [],
     priority: 'P2',
