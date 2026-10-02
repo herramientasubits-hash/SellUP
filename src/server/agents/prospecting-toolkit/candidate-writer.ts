@@ -2260,6 +2260,14 @@ export async function writeProspectingCandidates(
       ? capOrdered.slice(0, deliveryCap)
       : capOrdered;
   precisionGate.targetCapCount = capOrdered.length - toPersist.length;
+  // AGENT1-DELIVERY-CAP-STAYS-FREE-1 — lo recortado viaja al llamador para que
+  // quede registrado (y libre) en vez de desaparecer.
+  const deliveryCappedCompanies = capOrdered.slice(toPersist.length).map((entry) => ({
+    name: entry.candidate.name,
+    domain: entry.domain,
+    linkedinUrl: entry.candidate.companyLinkedInUrl ?? null,
+    countryCode: entry.candidate.countryCode ?? null,
+  }));
 
   // ── Active Duplicate Guard: prefetch active candidates (v1.13.1) ───────────
   // Fetches existing active candidates once before the write loop to avoid
@@ -4722,6 +4730,7 @@ export async function writeProspectingCandidates(
     // consumidor existente lo lee. `persistence.completeValidCandidates` sigue
     // siendo la autoridad que gobierna el objetivo.
     acceptedForTargetByCandidate: persistedCandidateAcceptances,
+    deliveryCappedCompanies,
   };
 }
 

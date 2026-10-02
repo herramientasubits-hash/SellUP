@@ -765,6 +765,20 @@ export type CandidateWriterOutput = {
    * sobre su código, no el compilador: ver la suite de D.1 § I.
    */
   acceptedForTargetByCandidate?: readonly PersistedCandidateAcceptance[];
+  /**
+   * AGENT1-DELIVERY-CAP-STAYS-FREE-1 — empresas elegibles que el tope de ENTREGA
+   * dejó fuera (no persistidas, no reclamadas). El llamador las registra en
+   * «Descartadas» (`target_cap_reached`) para que la exclusión de Apollo NO las
+   * oculte 30 días: tienen que quedar libres para otro vendedor.
+   */
+  deliveryCappedCompanies?: readonly DeliveryCappedCompany[];
+};
+
+export type DeliveryCappedCompany = {
+  name: string;
+  domain: string | null;
+  linkedinUrl: string | null;
+  countryCode: string | null;
 };
 
 // Combined output for runAndWriteProspectingPipeline

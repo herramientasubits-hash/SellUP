@@ -145,6 +145,7 @@ import { enrichApolloOrganization } from '@/server/integrations/apollo-client';
 import { loadActiveApolloOrganizationEnrichmentPricing } from '@/modules/usage-tracking/provider-pricing';
 import { writeProspectingCandidates } from '../candidate-writer';
 import { resolveMaxDeliveredCandidates } from '@/modules/prospect-batches/delivery-cap';
+import { buildDeliveryCappedDispositionRows } from '@/modules/prospect-discards/delivery-capped-dispositions';
 import type { CandidatePersistenceOutcome } from '../prospect-candidate-persistence-readiness';
 // AGENT1-APOLLO-SHARED-INTAKE-ADOPTION-1 — adoption of the existing,
 // provider-neutral official-source intake seam (see the module docstring for
@@ -247,7 +248,10 @@ import {
 // every terminal rejection this module already computes (see the call site
 // below, right after the writer runs). Isolated module: no Apollo call, no
 // budget/credit write, never throws. See pipeline-writer.server.ts.
-import { persistApolloRejectedDispositions } from '@/modules/prospect-discards/pipeline-writer.server';
+import {
+  persistApolloRejectedDispositions,
+  persistDiscardedDispositionRows,
+} from '@/modules/prospect-discards/pipeline-writer.server';
 import type { CandidateSectorEvidenceState } from './enrichment-ranking';
 import {
   APOLLO_TWO_ROUND_CHECKPOINT_CONTRACT_VERSION,
@@ -3515,6 +3519,28 @@ export async function runApolloTwoRoundWizardDiscovery(
         err,
       );
     });
+
+    // AGENT1-DELIVERY-CAP-STAYS-FREE-1 — lo que el tope de entrega dejó fuera
+    // queda en «Descartadas» (y la exclusión de Apollo lo libera): sin esto,
+    // Apollo ya lo tenía por visto y lo ocultaba ~30 días a todos los vendedores.
+    // Best-effort: nunca altera el resultado de la corrida.
+    const deliveryCapped = writerResult.deliveryCappedCompanies ?? [];
+    if (deliveryCapped.length > 0) {
+      const cappedBatchId = writerResult.batchId ?? input.reservedBatchId;
+      if (cappedBatchId) {
+        await persistDiscardedDispositionRows(
+          buildDeliveryCappedDispositionRows({
+            batchId: cappedBatchId,
+            sourcePrimary: 'apollo',
+            requestedCountryCode: input.countryCode ?? null,
+            requestedIndustry: input.industry ?? null,
+            companies: deliveryCapped,
+          }),
+        ).catch((err) => {
+          console.error('[apollo-two-round] delivery-capped dispositions failed (non-critical):', err);
+        });
+      }
+    }
 
     // § 3 — el checkpoint final se escribe DESPUÉS del writer y RELEYENDO el
     // documento, así que conserva la metadata que el writer acaba de dejar.
