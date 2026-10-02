@@ -19,8 +19,12 @@ import type { IncrementalSearchOutput } from '@/server/agents/prospecting-toolki
 import type { ResolvedWizardExecution } from '../wizard-execution-types';
 import {
   reopenBatchForApolloAfterTavilyFirst,
+  tavilyOwnReviewable,
   type ReopenBatchClient,
 } from '../wizard-tavily-first';
+import { planProviderExclusions } from '@/modules/prospect-batches/provider-seen/provider-exclusion-planner';
+import { EMPTY_PROVIDER_SEEN_MEMORY } from '@/modules/prospect-batches/provider-seen/provider-seen-identity';
+import { PROVIDER_SEEN_LOAD_EMPTY } from '@/modules/prospect-batches/provider-seen/provider-seen-telemetry';
 import {
   writeProspectingCandidates,
   CandidateWriterBatchValidationError,
@@ -680,5 +684,69 @@ describe('escritor real de candidatos sobre el lote que dejó Tavily (AGENT1-TAV
       from: () => ({ update: () => ({ eq: () => ({ eq: () => Promise.resolve({ error: { message: 'rls' } }) }) }) }),
     } as unknown as ReopenBatchClient;
     assert.equal(await reopenBatchForApolloAfterTavilyFirst(client, BATCH_ID), false);
+  });
+});
+
+// ── AGENT1-TAVILY-FIRST-4 — sólo cuenta lo que aportó Tavily, contra el hueco ──
+//
+// La capa gratuita y el banco de empresas escriben ANTES en el mismo lote.
+// `countReviewableCandidates` cuenta todas las filas del lote: sin restarlas,
+// filas ajenas daban la corrida por «satisfecha» sin que Tavily aportara nada.
+
+function prePaidStub(persistedCount: number, accepted: number) {
+  return async () => ({
+    requestedTarget: 10,
+    residualGap: 10 - accepted,
+    acceptedBeforeProvider: accepted,
+    providerRequired: accepted < 10,
+    batchId: BATCH_ID,
+    persistedCount,
+    knownSuppressionDomains: [],
+    providerSeenMemory: EMPTY_PROVIDER_SEEN_MEMORY,
+    providerSeenLoad: PROVIDER_SEEN_LOAD_EMPTY,
+    providerExclusionPlan: planProviderExclusions('apollo', {}),
+    freeSource: {} as never,
+    telemetry: {},
+  });
+}
+
+describe('Tavily-primero cuenta sólo sus filas, contra el hueco (AGENT1-TAVILY-FIRST-4)', () => {
+  it('4 filas previas (todas cuentan) + 4 de Tavily: hueco 6 ⇒ NO basta, Apollo completa', async () => {
+    const calls = newCalls();
+    const result = await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
+      reviewable: 8, calls, overrides: { runPrePaidNoveltyDiscovery: prePaidStub(4, 4) },
+    }));
+    assert.ok(result.ok, JSON.stringify(result));
+    assert.equal(calls.apollo, 1, 'antes: 8 ≥ 7 daba «satisfecha» con filas que Tavily no trajo');
+    assert.ok(result.ok && result.tavilyFirst?.outcome === 'apollo_completed');
+    assert.ok(result.ok && result.tavilyFirst?.outcome === 'apollo_completed' && result.tavilyFirst.reviewable === 4);
+    assert.ok(result.ok && result.tavilyFirst?.outcome === 'apollo_completed' && result.tavilyFirst.target === 6);
+  });
+
+  it('4 filas previas + 6 de Tavily: hueco 6 ⇒ basta, sin Apollo', async () => {
+    const calls = newCalls();
+    const result = await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
+      reviewable: 10, calls, overrides: { runPrePaidNoveltyDiscovery: prePaidStub(4, 4) },
+    }));
+    assert.ok(result.ok, JSON.stringify(result));
+    assert.equal(calls.apollo, 0);
+    assert.ok(result.ok && result.tavilyFirst?.outcome === 'satisfied' && result.tavilyFirst.reviewable === 6);
+  });
+
+  it('filas previas «por completar» (no cuentan): el hueco sigue entero', async () => {
+    const calls = newCalls();
+    const result = await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
+      reviewable: 13, calls, overrides: { runPrePaidNoveltyDiscovery: prePaidStub(3, 0) },
+    }));
+    assert.ok(result.ok, JSON.stringify(result));
+    assert.ok(result.ok && result.tavilyFirst?.outcome === 'satisfied' && result.tavilyFirst.target === 10);
+    assert.ok(result.ok && result.tavilyFirst?.outcome === 'satisfied' && result.tavilyFirst.reviewable === 10);
+  });
+
+  it('tavilyOwnReviewable: resta y nunca baja de 0; null se conserva', () => {
+    assert.equal(tavilyOwnReviewable(8, 4), 4);
+    assert.equal(tavilyOwnReviewable(2, 4), 0);
+    assert.equal(tavilyOwnReviewable(null, 4), null);
+    assert.equal(tavilyOwnReviewable(5, 0), 5);
   });
 });

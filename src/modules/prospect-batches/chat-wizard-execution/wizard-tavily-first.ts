@@ -90,6 +90,17 @@ export function resolveTavilyFirstPrecheck(input: {
 }
 
 /** ¿Basta lo que dejó Tavily? `null` (no se pudo contar) ⇒ no basta: Apollo completa. */
+/**
+ * AGENT1-TAVILY-FIRST-4 — lo revisable que aportó TAVILY: el conteo del lote
+ * menos lo que ya estaba antes del tramo (capa gratuita y banco de empresas,
+ * que escriben en el mismo lote). Sin esto, filas ajenas daban por «satisfecha»
+ * la corrida sin que Tavily aportara nada.
+ */
+export function tavilyOwnReviewable(lotReviewable: number | null, preExisting: number): number | null {
+  if (lotReviewable === null) return null;
+  return Math.max(0, lotReviewable - Math.max(0, preExisting));
+}
+
 export function isTavilyFirstSatisfied(reviewable: number | null, target: number): boolean {
   return reviewable !== null && reviewable >= target;
 }

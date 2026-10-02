@@ -75,6 +75,7 @@ import {
   resolveInlineRescueWindowMs,
   reopenBatchForApolloAfterTavilyFirst,
   resolveTavilyFirstPrecheck,
+  tavilyOwnReviewable,
   withRecountedAcceptance,
   type ReopenBatchClient,
   type TavilyFirstOutcome,
@@ -2159,11 +2160,17 @@ export async function executeProspectWizardGeneration(
       }
 
       if (tavilyFirstResult) {
-        const target = WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES;
+        // AGENT1-TAVILY-FIRST-4 — Tavily responde por el HUECO que dejaron la capa
+        // gratuita y el banco (mismo lote), y sólo cuentan las filas que él aportó.
+        const target = apolloResultDemand.remainingTarget;
+        const preExistingReviewable = prePaidContributed ? prePaidNovelty.persistedCount : 0;
         const countReviewable = async (): Promise<number | null> =>
-          deps.countReviewableCandidates
-            ? await deps.countReviewableCandidates(reservedBatchId).catch(() => null)
-            : null;
+          tavilyOwnReviewable(
+            deps.countReviewableCandidates
+              ? await deps.countReviewableCandidates(reservedBatchId).catch(() => null)
+              : null,
+            preExistingReviewable,
+          );
         const before = await countReviewable();
         let after = before;
         let claudeReviewed = false;
