@@ -1,6 +1,6 @@
 # Agente 1 — Banco de empresas (diseño y plan por fases)
 
-**Estado:** diseño APROBADO por la dueña (2026-10-01). Fase 1 construida y probada en PostgreSQL real; **sin conectar a nada** y **sin aplicar en Producción**.
+**Estado:** diseño APROBADO por la dueña (2026-10-01); «Activar el banco» y «decídelo tú» (maximizar efectividad y ahorrar) el mismo día. Fundación + conexión con Apollo construidas y probadas; **migración 142 sin aplicar en Producción** (requiere autorización). Sin la 142 todo cae a «Descartadas», como antes.
 **Track:** AGENT1. **Migración:** 142 (recurso global: re-verificar el número al integrar; ver `docs/PARALLEL_DEVELOPMENT_PROTOCOL.md` § 7).
 
 ## Qué es
@@ -42,6 +42,20 @@ Funciones: `agent1_bank_deposit(items)`, `agent1_bank_draw(país, macro, límite
 * Caducidad por defecto 60 días (1–180). Las filas finales (`assigned/expired/invalidated`) no ocupan claves; una limpieza de historial (p. ej. > 180 días) es una fase posterior y no urgente.
 * Primero las más antiguas (se usan antes de caducar), listas antes que «por completar».
 
+## Cómo funciona hoy (Apollo)
+
+1. **Qué entra.** Sólo lo que el **tope de entrega** (10 por vendedor) deja fuera: empresas que ya pasaron TODOS los filtros gratuitos de la corrida. Nada de «Descartadas». Completa ⇒ `ready`; si no ⇒ `to_complete`. Sin dominio, sin evidencia o sin claves de reclamo ⇒ no entra (va a «Descartadas» con `target_cap_reached`, que la exclusión de Apollo libera).
+2. **Qué se guarda.** La evidencia de búsqueda de Apollo (`apollo_evidence_v1`, la misma del checkpoint: textos ≤ 300, listas ≤ 10) + las claves de reclamo exactas.
+3. **Cuándo sale.** En la ronda 1 de la siguiente corrida del mismo país × macro, **antes** de pagar la primera página (y aunque Apollo no pueda pagar): hasta 10, listas primero y más antiguas primero; reserva de 15 min; id de extracción = lote.
+4. **Qué pasa al salir.** Entran como resultados de esa página: vuelven a pasar todos los filtros gratis (duplicado SellUp/HubSpot, propiedad, país, novedad), compiten por el enriquecimiento (sin gastar más: el tope de enriquecimientos es el mismo) y las escribe el escritor de siempre, que las **reclama** para el vendedor. Claude las revisa con el rescate de siempre después de la corrida: no se paga Claude al guardar, sólo por lo que de verdad se entrega.
+5. **Cierre.** Escrita en el lote ⇒ `assigned`; recortada otra vez ⇒ `released` (vuelve al banco); cualquier otra cosa ⇒ `invalidated`. Si la lectura falla, no se cierra nada y la reserva vence sola.
+6. **Meta.** Las `ready` que salen pueden contar para la meta (si siguen completas); las `to_complete` sólo rellenan hasta el tope, igual que hoy.
+7. **Apagado.** `AGENT1_COMPANY_BANK_DISABLED=1` (Vercel) ⇒ la corrida es la de antes. Telemetría: `company_bank` en la metadata del lote y líneas `[apollo-two-round] company bank deposit|settle` en los registros.
+
+**Por qué así (costo y efectividad).** La búsqueda de Apollo cobra por página, no por empresa: sin banco, lo que sobraba quedaba visto y oculto ~30 días, o había que volver a comprarlo. Con banco, lo ya pagado se entrega después sin volver a pagar, y la exclusión de Apollo (ventana de «visto», ~30 días) evita recomprarlo mientras tanto; si después Apollo lo devuelve fresco, gana la copia fresca y la del banco se cierra. Claude sólo se paga por lo que sale del banco hacia un vendedor.
+
+**Fuera de esta versión:** Lusha, Tavily y la capa gratuita no depositan ni sacan todavía (la capa gratuita se regenera gratis en cada corrida; Lusha es respaldo).
+
 ## Fases (un PR a la vez, merge sólo con «MERGE APROBADO»)
 
 1. **Fundación (este PR):** migración 142 + almacén TypeScript (`src/server/prospect-batches/company-bank/`) + pruebas. Oscuro: nada lo llama.
@@ -53,7 +67,7 @@ Funciones: `agent1_bank_deposit(items)`, `agent1_bank_draw(país, macro, límite
 
 * Decidido: banco aparte; dos niveles (`ready`, `to_complete`); caducidad 60 días; se reclama al asignar; un descarte del vendedor **no** devuelve la empresa al banco (queda liberada para los proveedores).
 * **Pendiente antes de activar el depósito en Producción:** ¿los términos de Apollo y Lusha permiten **guardar el perfil comprado y repartirlo entre vendedores de UBITS**? La 123 guarda sólo identidad a propósito. Si no, el banco guarda sólo identidad + qué faltaba y re-obtiene el perfil al asignar (cuesta crédito).
-* Pendiente de decisión: si el sobrante de Apollo (hoy entregado entero al vendedor desde X6.13: «el objetivo es un mínimo») pasa al banco.
+* Decidido (01-10): el sobrante de Apollo que deja el tope de entrega pasa al banco. Términos de Apollo: guardar y compartir internamente permitido (soporte, 01-10).
 
 ## Riesgos conocidos
 

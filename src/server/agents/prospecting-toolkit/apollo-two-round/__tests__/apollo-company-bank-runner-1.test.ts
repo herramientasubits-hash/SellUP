@@ -47,16 +47,6 @@ const runBudgetFixture = inMemoryRunBudgetDeps(1_000);
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 const FIXTURE_OBSERVED_AT = '2026-08-10T00:00:00.000Z';
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-/**
- * Edad REAL contra el reloj del proceso. `evaluateCandidateNovelty` compara con
- * `Date.now()`, así que una fecha fija de fixture convertiría «31 días» en
- * cualquier otra cosa el día que se ejecute la suite.
- */
-function daysAgo(days: number): string {
-  return new Date(Date.now() - days * DAY_MS).toISOString();
-}
 
 function correlation(overrides: Record<string, string> = {}) {
   return {
