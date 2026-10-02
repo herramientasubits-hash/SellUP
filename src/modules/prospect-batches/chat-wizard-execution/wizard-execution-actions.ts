@@ -8,6 +8,11 @@ import {
 } from '@/lib/feature-flags.server';
 import { createClient } from '@/lib/supabase/server';
 import { withRunProgress } from './run-progress';
+import {
+  claudeLegWriterTruth,
+  decideClaudeSearchLeg,
+  type ClaudeSearchLegOutcome,
+} from './wizard-claude-search-leg';
 import { openRunProgress } from './run-progress.server';
 
 import { requireActiveUser } from '@/modules/prospect-batches/actions';
@@ -118,6 +123,7 @@ import {
 import {
   isWizardRunProviderOverrideEffective,
   isAgent1TavilyFirstEffective,
+  isAgent1ClaudeCompanySearchAutoEnabled,
   isAgent1ClaudeRescueEnabled,
   isWizardRunProviderOverrideEnabled,
 } from '@/lib/feature-flags.server';
@@ -537,6 +543,13 @@ export type WizardExecutionDeps = {
   runLushaWaterfallLeg?: (
     input: LushaWaterfallLegInput,
   ) => Promise<LushaWaterfallLegOutcome>;
+  /**
+   * AGENT1-CLAUDE-COMPANY-SEARCH-AUTO-1 — Claude busca empresas como ÚLTIMO paso,
+   * sólo si la corrida no llegó a la meta y queda tiempo. Opcional: sin ella (o con
+   * su bandera apagada) la ejecución es la de hoy.
+   */
+  resolveClaudeSearchLeg?: () => boolean;
+  runClaudeCompanySearchLeg?: (input: { batchId: string; phaseMs: number }) => Promise<ClaudeSearchLegOutcome>;
   /**
    * AGENT1-WATERFALL-LEG-DURABLE-TRACE — publica la traza de la pierna en la
    * metadata del lote.
@@ -971,6 +984,29 @@ export async function executeProspectWizardGenerationAction(
     // cuando la bandera está encendida habría metido una segunda puerta —el
     // cableado— en un sitio donde la política ya vive en un único lugar.
     runLushaWaterfallLeg: (legInput) => runLushaWaterfallLeg(legInput),
+    // AGENT1-CLAUDE-COMPANY-SEARCH-AUTO-1 — último paso, detrás de su bandera.
+    resolveClaudeSearchLeg: isAgent1ClaudeCompanySearchAutoEnabled,
+    runClaudeCompanySearchLeg: async ({ batchId, phaseMs }) => {
+      const auth = await requireActiveUser();
+      const [{ runClaudeCompanySearch }, { buildLiveClaudeCompanySearchDeps }] = await Promise.all([
+        import('@/server/agents/prospecting-toolkit/claude-classifier/company-search-run'),
+        import('@/server/agents/prospecting-toolkit/claude-classifier/company-search-run.server'),
+      ]);
+      const summary = await runClaudeCompanySearch(
+        { sourceBatchId: batchId, triggeredBy: auth.internalUserId, writeIntoSourceBatch: true, phaseMs },
+        buildLiveClaudeCompanySearchDeps(auth.internalUserId),
+      );
+      if (!summary.ok) return { executed: false, reason: summary.error };
+      return {
+        executed: true,
+        persistedCandidates: summary.candidatesCreated,
+        completeValidCandidates: summary.completeValidCandidates,
+        acceptedIdentities: summary.acceptedCandidateIds.map((id) => `candidate:${id}`),
+        estimatedCostUsd: summary.estimatedCostUsd,
+        proposed: summary.proposed,
+        passedPreFilter: summary.passedPreFilter,
+      };
+    },
     // ── AGENT1-WATERFALL-LEG-DURABLE-TRACE — la traza, durable ───────────────
     //
     // 🔴 NO se acuña un segundo mecanismo: es el MISMO par que CUT-9B usa para
@@ -2605,6 +2641,7 @@ export async function executeProspectWizardGeneration(
       })
     : { executed: false, reason: 'waterfall_flag_disabled' };
 
+
   /**
    * ══ AGENT1-HARDENING-CUT-2 — LA AUTORIDAD FINAL DE LA CORRIDA ══════════════
    *
@@ -2638,7 +2675,7 @@ export async function executeProspectWizardGeneration(
    * filas sí se cuentan en el universo durable: `stableFinalizableCandidateCount`
    * y el conteo de filas no cambian de significado por este corte.
    */
-  const waterfallWriterTruth: {
+  const lushaWriterTruth: {
     completeValidCandidates: number | null | undefined;
     persistedCandidates: number;
     acceptedIdentities?: readonly string[];
@@ -2660,6 +2697,60 @@ export async function executeProspectWizardGeneration(
           : {}),
       }
     : PAID_ROUTE_NOT_RUN_WRITER_TRUTH;
+
+  // ── AGENT1-CLAUDE-COMPANY-SEARCH-AUTO-1 — Claude, último paso ───────────────
+  //
+  // Sólo si después de todo lo anterior falta para la meta y queda tiempo. Escribe
+  // en ESTE lote (sin sellarlo) y su verdad de escritor se suma a la de Lusha en la
+  // autoridad final de abajo. Cualquier tropiezo ⇒ la corrida sigue como sin él.
+  // La MISMA autoridad de aceptación, con la pierna Lusha ya liquidada (sin aritmética propia).
+  const acceptedBeforeClaude = resolveRunAcceptance(
+    combineWriterTruths(
+      recountIfTavilyClosed({
+        completeValidCandidates: pipelineResult.persistenceOutcome?.completeValidCandidates ?? null,
+        persistedCandidates: pipelineResult.candidatesCreated ?? 0,
+      }),
+      tavilyFirstTruth,
+    ),
+    lushaWriterTruth,
+  ).acceptedForTargetTotal;
+  const claudeLegDecision = decideClaudeSearchLeg({
+    enabled: deps.resolveClaudeSearchLeg?.() === true,
+    tavilyFirstSatisfied,
+    target: acceptedAfterApollo.requestedTarget,
+    acceptedSoFar: acceptedBeforeClaude,
+    elapsedMs:
+      deps.actionStartedAtMs === undefined
+        ? null
+        : (deps.nowMs ? deps.nowMs() : Date.now()) - deps.actionStartedAtMs,
+  });
+  let claudeLeg: ClaudeSearchLegOutcome = claudeLegDecision.run
+    ? { executed: false, reason: 'not_configured' }
+    : { executed: false, reason: claudeLegDecision.reason };
+  if (claudeLegDecision.run && deps.runClaudeCompanySearchLeg) {
+    try {
+      claudeLeg = await deps.runClaudeCompanySearchLeg({ batchId: reservedBatchId, phaseMs: claudeLegDecision.phaseMs });
+    } catch {
+      claudeLeg = { executed: false, reason: 'failed' };
+    }
+  }
+  const claudeLegTruth = claudeLegWriterTruth(claudeLeg);
+
+  // AGENT1-CLAUDE-COMPANY-SEARCH-AUTO-1 — las piernas TARDÍAS (Lusha y Claude) suman en
+  // la misma posición. Sin Lusha, la verdad es la de Claude (no un «no medido» + Claude).
+  const waterfallWriterTruth: {
+    completeValidCandidates: number | null | undefined;
+    persistedCandidates: number;
+    acceptedIdentities?: readonly string[];
+    exact?: boolean;
+  } = !claudeLegTruth
+    ? lushaWriterTruth
+    : !lushaWaterfall.executed
+    ? claudeLegTruth
+    : {
+        ...combineWriterTruths(lushaWriterTruth, claudeLegTruth),
+        ...(lushaWriterTruth.exact === false ? { exact: false } : {}),
+      };
 
   // 🔴 Las FILAS de la corrida entera. Sin pierna Lusha ejecutada el total es
   // idéntico a `combinedDurableTotals`, entero por entero.
@@ -2853,7 +2944,8 @@ export async function executeProspectWizardGeneration(
           // publicó sólo su mitad: se republica el bloque combinado.
           // AGENT1-TAVILY-FIRST-3 — y también cuando Claude revisó dentro: el
           // writer publicó lo medido ANTES de la revisión.
-          ...(lushaWaterfall.executed || tavilyFirstTruth !== null || tavilyFirstAcceptedIds !== null
+          ...(claudeLegDecision.run || claudeLeg.executed ? { claude_search_leg: claudeLeg } : {}),
+          ...(lushaWaterfall.executed || claudeLeg.executed || tavilyFirstTruth !== null || tavilyFirstAcceptedIds !== null
             ? {
                 [ACCEPTED_FOR_TARGET_METADATA_KEY]:
                   toAcceptedForTargetMetadata(acceptedForTarget),
@@ -2918,6 +3010,7 @@ export async function executeProspectWizardGeneration(
     // A1-APOLLO-QA-CONTROL-SURFACE-1 § 10 — el proveedor REAL de esta corrida.
     runProvider: runProviderOutcome,
     ...(tavilyFirstOutcome ? { tavilyFirst: tavilyFirstOutcome } : {}),
+    ...(claudeLeg.executed ? { claudeSearchLeg: claudeLeg } : {}),
     // § 11 — cifras reales de dos rondas, sólo si la modalidad corrió.
     ...buildTwoRoundOutcome(pipelineResult),
     // AGENT1-APOLLO-CONTINUATION-WIZARD-WIRING § 4 — la pausa, cuando la hubo.

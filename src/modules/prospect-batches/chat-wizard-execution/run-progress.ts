@@ -24,6 +24,7 @@ export const RUN_PROGRESS_STAGES = [
   'claude_review',
   'apollo',
   'lusha',
+  'claude_search',
   'reviewing',
 ] as const;
 
@@ -37,6 +38,7 @@ export const RUN_PROGRESS_LABELS: Readonly<Record<RunProgressStage, string>> = {
   claude_review: 'Claude está revisando las empresas encontradas',
   apollo: 'Buscando empresas con Apollo y completando sus datos',
   lusha: 'Completando la búsqueda con Lusha',
+  claude_search: 'Claude está buscando más empresas en la web',
   reviewing: 'Revisando lo encontrado',
 };
 
@@ -52,6 +54,7 @@ const STAGE_BY_DEP = {
   rescueBatchInline: 'claude_review',
   runApolloPipeline: 'apollo',
   runLushaWaterfallLeg: 'lusha',
+  runClaudeCompanySearchLeg: 'claude_search',
 } as const satisfies Record<string, RunProgressStage>;
 
 type StageDepName = keyof typeof STAGE_BY_DEP;

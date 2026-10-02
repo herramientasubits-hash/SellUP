@@ -1053,3 +1053,21 @@ export const AGENT1_CLAUDE_COMPANY_SEARCH_FLAG = 'ENABLE_AGENT1_CLAUDE_COMPANY_S
 export function isAgent1ClaudeCompanySearchEnabled(): boolean {
   return isEnvFlagEnabled(process.env[AGENT1_CLAUDE_COMPANY_SEARCH_FLAG]);
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// Agente 1 · Claude busca empresas como ÚLTIMO paso de la corrida (AGENT1-CLAUDE-COMPANY-SEARCH-AUTO-1)
+// ════════════════════════════════════════════════════════════════════════════
+
+export const AGENT1_CLAUDE_COMPANY_SEARCH_AUTO_FLAG = 'ENABLE_AGENT1_CLAUDE_COMPANY_SEARCH_AUTO';
+
+/**
+ * Al final de cada búsqueda del asistente, si después del banco, la capa gratuita,
+ * Tavily, Apollo y Lusha todavía falta para la meta y queda tiempo, ¿busca Claude más
+ * empresas en el MISMO lote? Tope: 2 llamadas por corrida (≈ US$0,25). Mismas
+ * compuertas de siempre; nunca aprueba nada. Decisión de la dueña 02-10: automático.
+ *
+ * 🔴 Fail-closed y por defecto APAGADA: sólo el token exacto `true` la enciende.
+ */
+export function isAgent1ClaudeCompanySearchAutoEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[AGENT1_CLAUDE_COMPANY_SEARCH_AUTO_FLAG]);
+}

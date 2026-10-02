@@ -175,7 +175,7 @@ export function buildLiveClaudeCompanySearchDeps(userId: string): ClaudeCompanyS
       );
       return { pipelineOutput, calls: context.calls };
     },
-    writeCandidates: async ({ pipelineOutput, metadata }) => {
+    writeCandidates: async ({ pipelineOutput, metadata, existingBatchId }) => {
       const output = await writeProspectingCandidates({
         pipelineOutput: pipelineOutput as ProspectingPipelineOutput,
         triggeredByUserId: userId,
@@ -185,10 +185,15 @@ export function buildLiveClaudeCompanySearchDeps(userId: string): ClaudeCompanyS
         targetPersistibleCandidates: CLAUDE_COMPANY_SEARCH_TARGET,
         maxDeliveredCandidates: resolveMaxDeliveredCandidates(),
         extraBatchMetadata: metadata,
+        // Paso del asistente: escribe en el lote de la corrida y NO sella su estado
+        // (lo decide la finalización del asistente, como con el banco).
+        ...(existingBatchId ? { existingBatchId, holdBatchStatus: true } : {}),
       });
       return {
         batchId: output.status === 'failed' ? null : output.batchId,
         candidatesCreated: output.candidatesCreated,
+        completeValidCandidates: output.persistence?.completeValidCandidates ?? null,
+        acceptedCandidateIds: output.persistence?.acceptedCandidateIds ?? [],
         errors: output.errors,
       };
     },

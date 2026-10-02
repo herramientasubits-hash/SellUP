@@ -50,6 +50,14 @@ describe('withRunProgress — la etapa se anota cuando la dependencia empieza', 
     assert.deepEqual(seen, ['free_sources', 'reviewing', 'apollo', 'reviewing']);
   });
 
+  it('el paso de Claude al final anota «claude_search» con su rótulo', async () => {
+    const seen: RunProgressStage[] = [];
+    const deps = withRunProgress({ runClaudeCompanySearchLeg: async () => 'claude' }, (stage) => seen.push(stage));
+    await deps.runClaudeCompanySearchLeg();
+    assert.deepEqual(seen, ['claude_search', 'reviewing']);
+    assert.equal(RUN_PROGRESS_LABELS.claude_search, 'Claude está buscando más empresas en la web');
+  });
+
   it('🔴 lo que no se llama no se anota: sin Apollo no hay «Buscando con Apollo»', async () => {
     const seen: RunProgressStage[] = [];
     const deps = withRunProgress(

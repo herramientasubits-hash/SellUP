@@ -69,6 +69,11 @@ export type RescueBatchDeps = {
   loadDispositions: (batchId: string) => Promise<RescuableDispositionRow[]>;
   /** Macroindustria PEDIDA en la búsqueda (`prospect_batches.metadata.industry_id`). */
   loadBatchIndustryId: (batchId: string) => Promise<string | null>;
+  /**
+   * ¿Claude buscó empresas en este lote (`metadata.claude_company_search`)? Esas filas no
+   * traen completitud: se revisan también (AGENT1-CLAUDE-COMPANY-SEARCH-AUTO-1).
+   */
+  loadBatchHasClaudeCompanySearch?: (batchId: string) => Promise<boolean>;
   classify: (
     company: ClassifierCompanyInput,
     catalog: readonly ClassifierCatalogIndustry[],
@@ -562,10 +567,15 @@ export async function rescueBatchWithClaude(
     return { ok: false, error: 'load_failed', detail: err instanceof Error ? err.message : String(err) };
   }
 
+  const includeUnassessed =
+    params.includeUnassessed === true ||
+    (deps.loadBatchHasClaudeCompanySearch
+      ? await deps.loadBatchHasClaudeCompanySearch(params.batchId).catch(() => false)
+      : false);
   const startedMs = deps.nowMs();
   const work: WorkItem[] = [
     ...candidates
-      .filter((row) => needsCandidateRescue(row, startedMs, { includeUnassessed: params.includeUnassessed === true }))
+      .filter((row) => needsCandidateRescue(row, startedMs, { includeUnassessed }))
       .map((row) => ({ kind: 'candidate' as const, row })),
     ...dispositions.filter((row) => needsDispositionRescue(row, startedMs, !!deps.domainSearch)).map((row) => ({ kind: 'disposition' as const, row })),
   ];
