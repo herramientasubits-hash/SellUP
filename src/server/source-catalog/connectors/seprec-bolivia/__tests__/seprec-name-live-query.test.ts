@@ -3,14 +3,16 @@
  * Respuestas con la forma real de la API (02-10). Fetch doble: nunca sale a la red.
  */
 
-import { describe, it } from 'node:test';
+import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
   BO_SEPREC_MAX_CONSECUTIVE_FAILURES,
+  BO_SEPREC_MAX_DETAILS_PER_LOOKUP,
   BO_SEPREC_MAX_LOOKUPS_PER_RUN,
+  BO_SEPREC_REQUEST_TIMEOUT_MS,
   BO_SEPREC_TOTAL_BUDGET_MS,
   buildSeprecDetailUrl,
   buildSeprecNameLiveQuery,
@@ -110,6 +112,45 @@ describe('consulta en vivo', () => {
     ]);
     assert.equal(f.urls.filter((u) => u.includes('informacionBasicaEmpresa')).length, 1);
     assert.equal(JSON.stringify(rows).includes('persona@'), false);
+  });
+
+  it(`como mucho ${BO_SEPREC_MAX_DETAILS_PER_LOOKUP} fichas por empresa, aunque haya más homónimos`, async () => {
+    const f = fakeSeprec(search([hit('1', 'ALFA S.A.'), hit('2', 'ALFA S.R.L.'), hit('3', 'ALFA LTDA')]), {
+      '1': detail('1000001'),
+      '2': detail('1000002'),
+      '3': detail('1000003'),
+    });
+    const rows = await buildSeprecNameLiveQuery({ fetchImpl: f.fetchImpl })('ALFA');
+    assert.equal(rows.length, BO_SEPREC_MAX_DETAILS_PER_LOOKUP);
+    assert.equal(f.urls.filter((u) => u.includes('informacionBasicaEmpresa')).length, BO_SEPREC_MAX_DETAILS_PER_LOOKUP);
+  });
+
+  it('un acierto reinicia la cuenta de fallos', async () => {
+    let n = 0;
+    const query = buildSeprecNameLiveQuery({
+      fetchImpl: async () => {
+        n += 1;
+        if (n % BO_SEPREC_MAX_CONSECUTIVE_FAILURES === 0) return { ok: true, json: async () => search([]) };
+        throw new Error('intermitente');
+      },
+    });
+    for (let i = 0; i < 9; i++) await query('A B');
+    assert.equal(n, 9);
+  });
+
+  it(`una petición lenta se corta a los ${BO_SEPREC_REQUEST_TIMEOUT_MS} ms`, async () => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      const fetchImpl = (_url: string, init?: { signal?: AbortSignal }) =>
+        new Promise<{ ok: boolean; json: () => Promise<unknown> }>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error('abortada')));
+        });
+      const pending = buildSeprecNameLiveQuery({ fetchImpl })('A B');
+      mock.timers.tick(BO_SEPREC_REQUEST_TIMEOUT_MS);
+      assert.deepEqual(await pending, []);
+    } finally {
+      mock.timers.reset();
+    }
   });
 
   it('sin núcleo no consulta; error o excepción → vacío', async () => {

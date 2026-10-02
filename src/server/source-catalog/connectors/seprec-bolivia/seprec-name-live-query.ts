@@ -140,7 +140,7 @@ export function buildSeprecNameLiveQuery(deps: { fetchImpl?: Fetch; now?: () => 
   return async (core: string) => {
     if (typeof core !== 'string' || core.trim().length === 0) return [];
     if (consecutiveFailures >= BO_SEPREC_MAX_CONSECUTIVE_FAILURES) return [];
-    if (lookups >= BO_SEPREC_MAX_LOOKUPS_PER_RUN || !budgetLeft()) return [];
+    if (lookups >= BO_SEPREC_MAX_LOOKUPS_PER_RUN) return [];
     lookups += 1;
 
     const search = await getJson(buildSeprecSearchUrl(core.trim()));
