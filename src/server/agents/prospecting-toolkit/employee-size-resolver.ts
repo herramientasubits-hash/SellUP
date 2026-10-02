@@ -8,7 +8,8 @@
  *   1. rich_profile.size.estimated_range   — ya normalizado y enriquecido
  *   2. candidate.company_size              — campo plano disponible
  *   3. HubSpot numberofemployees           — conteo exacto del CRM
- *   4. unknown                             — sin datos, no inventa
+ *   4. registro oficial (trabajadores)     — sólo aprueba, estimado (ver abajo)
+ *   5. unknown                             — sin datos, no inventa
  *
  * Principios:
  *   - Sin llamadas externas, sin LLM, sin Supabase, sin efectos secundarios.
@@ -16,6 +17,7 @@
  *   - No bloquea por omisión: unknown → needs_validation.
  */
 
+import { ICP_SIZE_GATE_DEFAULT_THRESHOLD } from './icp-size-gate';
 import type { IcpSizeGateInput } from './icp-size-gate';
 
 // ─── Tipos públicos ───────────────────────────────────────────────────────────
@@ -24,6 +26,7 @@ export type EmployeeSizeSource =
   | 'rich_profile_size'
   | 'candidate_company_size'
   | 'hubspot_number_of_employees'
+  | 'official_registry_workers'
   | 'unknown';
 
 export type EmployeeSizeConfidence = 'high' | 'medium' | 'low' | 'unknown';
@@ -43,8 +46,29 @@ export type EmployeeSizeResolverInput = {
   } | null;
   candidateCompanySize?: string | number | null;
   matchedHubspotEmployees?: number | string | null;
+  /** Trabajadores informados por el registro oficial (p. ej. SII de Chile). */
+  officialRegistryWorkforce?: OfficialRegistryWorkforce | null;
+  /** Año de referencia para la antigüedad del dato del registro (por defecto, el actual). */
+  referenceYear?: number;
   threshold?: number;
 };
+
+/**
+ * AGENT1-SIZE-OFFICIAL-REGISTRY-WORKERS-1 — trabajadores dependientes que la
+ * empresa informó al registro oficial. Misma forma que `OfficialWorkforce` de
+ * `prospect-intake` (sin acoplar este módulo puro a ese paquete).
+ */
+export type OfficialRegistryWorkforce = {
+  workers: number;
+  year: number;
+  source: string;
+};
+
+/**
+ * Un dato del registro más viejo que esto no describe a la empresa de hoy.
+ * La carga vigente del SII es la de 2024.
+ */
+export const OFFICIAL_REGISTRY_WORKERS_MAX_AGE_YEARS = 3;
 
 export type EmployeeSizeResolverOutput = {
   /** Input listo para pasar a evaluateIcpSizeGate() */
@@ -166,6 +190,32 @@ export function extractCandidateCompanySize(candidate: unknown): string | number
   }
 
   return null;
+}
+
+// ─── Extractor defensivo del registro oficial ────────────────────────────────
+
+/**
+ * Lee `officialSourceIdentity.officialSourceMetadata.workforce`, que Apollo y
+ * Tavily ya llenan antes del writer. Sólo con identidad fuerte (mismo número
+ * fiscal): el metadata ya lo exige, y aquí se vuelve a exigir por si cambia.
+ * Devuelve `null` ante cualquier forma inesperada; nunca lanza.
+ */
+export function extractOfficialRegistryWorkforce(candidate: unknown): OfficialRegistryWorkforce | null {
+  if (!candidate || typeof candidate !== 'object') return null;
+  const identity = (candidate as Record<string, unknown>)['officialSourceIdentity'];
+  if (!identity || typeof identity !== 'object') return null;
+  const id = identity as Record<string, unknown>;
+  if (id['strongIdentityAvailable'] !== true) return null;
+  const metadata = id['officialSourceMetadata'];
+  if (!metadata || typeof metadata !== 'object') return null;
+  const workforce = (metadata as Record<string, unknown>)['workforce'];
+  if (!workforce || typeof workforce !== 'object') return null;
+  const w = workforce as Record<string, unknown>;
+  const { workers, year, source } = w;
+  if (typeof workers !== 'number' || !Number.isInteger(workers) || workers < 0) return null;
+  if (typeof year !== 'number' || !Number.isInteger(year)) return null;
+  if (typeof source !== 'string' || source.trim().length === 0) return null;
+  return { workers, year, source };
 }
 
 // ─── Extractor defensivo de HubSpot employees desde raw ──────────────────────
@@ -302,7 +352,49 @@ export function resolveEmployeeSizeForIcpGate(
       : `HubSpot numberofemployees "${input.matchedHubspotEmployees}" is not parseable`,
   });
 
-  // ── Fuente 4: unknown ─────────────────────────────────────────────────────
+  // ── Fuente 4: trabajadores del registro oficial ───────────────────────────
+  // «Trabajadores dependientes informados» es un PISO del tamaño real (no cuenta
+  // honorarios ni contratistas). Por eso esta fuente sólo puede APROBAR: con el
+  // piso en el umbral o encima, el rango `N+` pasa como ESTIMADO; por debajo no
+  // dice nada sobre el tamaño total y cae a unknown (revisión), nunca a bloqueo.
+  const registry = input.officialRegistryWorkforce ?? null;
+  if (registry !== null) {
+    const floor = threshold ?? ICP_SIZE_GATE_DEFAULT_THRESHOLD;
+    const referenceYear = input.referenceYear ?? new Date().getUTCFullYear();
+    const isRecent = referenceYear - registry.year <= OFFICIAL_REGISTRY_WORKERS_MAX_AGE_YEARS;
+    if (isRecent && registry.workers >= floor) {
+      const range = `${registry.workers}+`;
+      attemptedSources.push({
+        source: 'official_registry_workers',
+        value: registry.workers,
+        usable: true,
+        reason: `${registry.source} informó ${registry.workers} trabajadores en ${registry.year}`,
+      });
+      return {
+        icpInput: {
+          sizeRange: range,
+          sizeStatus: 'estimated',
+          source: `${registry.source}:${registry.year}`,
+          threshold,
+        },
+        selectedSource: 'official_registry_workers',
+        selectedValue: range,
+        confidence: 'medium',
+        reason: `Used ${registry.source} workers=${registry.workers} (year ${registry.year}) as a lower bound`,
+        attemptedSources,
+      };
+    }
+    attemptedSources.push({
+      source: 'official_registry_workers',
+      value: registry.workers,
+      usable: false,
+      reason: isRecent
+        ? `${registry.workers} trabajadores informados (${registry.year}) es un piso bajo el umbral: no decide`
+        : `dato de ${registry.year} demasiado antiguo`,
+    });
+  }
+
+  // ── Fuente 5: unknown ─────────────────────────────────────────────────────
   return {
     icpInput: {
       threshold,

@@ -166,6 +166,7 @@ async function writeWithProvider(
   candidate: { name: string; domain: string; snippet: string } = {
     name: 'Nexen', domain: 'nexen.com.co', snippet: 'Software empresarial Colombia',
   },
+  extra: Partial<ProspectingPipelineCandidate> = {},
 ) {
   const candidates = [
     makeCandidate({
@@ -173,6 +174,7 @@ async function writeWithProvider(
       website: `https://${candidate.domain}`,
       domain: candidate.domain,
       sourceSnippet: candidate.snippet,
+      ...extra,
     }),
   ];
   const pipelineOutput = makePipelineOutput(candidates);
@@ -280,5 +282,45 @@ describe('AGENT1-LINKEDIN-OPTIONAL-INSTITUTIONS-1 — el writer no exige LinkedI
     const completeness = (inserted[0]?.metadata as Record<string, unknown>)?.target_completeness as Record<string, unknown>;
     assert.ok((completeness.failed_conditions as string[]).includes('linkedin_status'));
     assert.equal(completeness.linkedin_required, true);
+  });
+});
+
+describe('AGENT1-SIZE-OFFICIAL-REGISTRY-WORKERS-1 — los trabajadores del registro oficial cuentan como tamaño', () => {
+  function withWorkforce(workers: number, strong = true): Partial<ProspectingPipelineCandidate> {
+    return {
+      officialSourceIdentity: {
+        officialSourceMetadata: {
+          strongIdentityAvailable: strong,
+          ...(strong ? { workforce: { workers, year: new Date().getUTCFullYear() - 2, source: 'cl_sii_registry' } } : {}),
+        },
+        typedColumns: {},
+        strongIdentityAvailable: strong,
+      },
+    } as unknown as Partial<ProspectingPipelineCandidate>;
+  }
+
+  it('≥ 200 trabajadores informados: la fila de Tavily ya no falla por tamaño', async () => {
+    const { result, inserted } = await writeWithProvider('tavily', undefined, withWorkforce(350));
+    assert.equal(result.candidatesCreated, 1);
+    const metadata = inserted[0]?.metadata as Record<string, unknown>;
+    const completeness = metadata?.target_completeness as Completeness;
+    assert.equal(completeness.failed_conditions?.includes('employee_count_status'), false);
+    // El LinkedIn se sigue exigiendo: el registro no lo sustituye.
+    assert.ok(completeness.failed_conditions?.includes('linkedin_status'));
+    const gate = metadata?.icp_size_gate as Record<string, unknown> | undefined;
+    assert.equal(gate?.size_status, 'estimated_above_threshold');
+  });
+
+  it('< 200 trabajadores informados: ni bloquea ni cuenta (queda como hoy)', async () => {
+    const { result, inserted } = await writeWithProvider('tavily', undefined, withWorkforce(12));
+    assert.equal(result.candidatesCreated, 1);
+    const completeness = (inserted[0]?.metadata as Record<string, unknown>)?.target_completeness as Completeness;
+    assert.ok(completeness.failed_conditions?.includes('employee_count_status'));
+  });
+
+  it('sin identidad fuerte el dato no se usa', async () => {
+    const { inserted } = await writeWithProvider('tavily', undefined, withWorkforce(350, false));
+    const completeness = (inserted[0]?.metadata as Record<string, unknown>)?.target_completeness as Completeness;
+    assert.ok(completeness.failed_conditions?.includes('employee_count_status'));
   });
 });
