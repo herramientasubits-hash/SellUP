@@ -11,7 +11,7 @@
  */
 
 import type { SendToReviewOrigin } from '@/modules/prospect-discards/send-to-review-core';
-import type { RescueDecision } from './rescue-decision';
+import { looksLikeMediaCompany, type RescueDecision } from './rescue-decision';
 import {
   buildReassignedCompleteness,
   buildReassignReviewNote,
@@ -71,6 +71,9 @@ export function decideStoredReassignment(input: StoredReassignInput): ReassignDe
   if (!sizeConfirmed && !input.sizePassedIcpGate) return null;
 
   const quote = str(sector.quote) ?? '';
+  // Medios: siempre descartados (decisión de la dueña 02-10).
+  const fit = asObject(classification?.fits_requested_industry);
+  if (looksLikeMediaCompany([quote, str(fit?.quote)])) return null;
   const from = input.requestedIndustryName ? `Buscada en ${input.requestedIndustryName}, ` : '';
   return {
     kind: 'reassign',
