@@ -22,6 +22,7 @@ import {
   getVisibleNavItems,
   type NavAccessContext,
   type NavItem,
+  ROI_CALCULATOR_ROUTE,
   SOURCE_CATALOG_ROUTE,
 } from "@/config/navigation";
 import { getVisibleSettingsSections } from "@/components/settings/settings-sections";
@@ -45,6 +46,7 @@ const SETTINGS_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
 /** Palabras con las que también se busca un módulo. */
 const NAV_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
   [SOURCE_CATALOG_ROUTE]: ["fuentes", "países", "registros"],
+  [ROI_CALCULATOR_ROUTE]: ["roi", "proyección", "valor", "cotización", "propuesta"],
 };
 
 const SEARCH_OBJECTS_HINT = "Registros: tus 200 empresas y 500 contactos más recientes.";

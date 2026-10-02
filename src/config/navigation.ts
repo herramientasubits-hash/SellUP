@@ -2,6 +2,7 @@ import { type LucideIcon } from "@/icons";
 import {
   BrainCircuit,
   Building2,
+  Calculator,
   Database,
   LayoutDashboard,
   Settings,
@@ -88,6 +89,9 @@ export const CONTACTS_DUPLICATES_ROUTE = "/contacts?tab=duplicates";
 export const SOURCE_CATALOG_ROUTE = "/source-catalog";
 export const SOURCE_CATALOG_BATCHES_ROUTE = "/source-catalog/socrata-batches";
 
+/** Calculadora de ROI de UBITS, solo el ejercicio de proyección de venta. */
+export const ROI_CALCULATOR_ROUTE = "/roi-calculator";
+
 /** A dónde va un enlace antiguo `/settings/source-catalog/<…>`, con sus parámetros. */
 export function legacySourceCatalogRedirect(
   path: readonly string[] | undefined,
@@ -141,6 +145,13 @@ export const mainNavItems: NavItem[] = [
     // Lo ve quien ya lo veía como sección de Configuración: solo quien
     // administra. La guarda de cada panel sensible sigue en la propia página.
     access: "adminOnly",
+  },
+  {
+    title: "Calculadora de ROI",
+    href: ROI_CALCULATOR_ROUTE,
+    icon: Calculator,
+    // Herramienta de venta: la usan los comerciales, así que es pública. Los
+    // supuestos del modelo solo los edita un admin (la página lo resuelve).
   },
   {
     title: "Configuración",
