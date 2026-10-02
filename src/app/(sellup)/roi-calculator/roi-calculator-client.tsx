@@ -43,7 +43,10 @@ export function RoiCalculatorClient({ canEditParams }: { canEditParams: boolean 
   const limpiar = useROIStore((s) => s.limpiar);
 
   return (
-    <PageShell>
+    // `min-h-auto`: es una página que crece con su contenido, no una que llena
+    // el alto. Con el `min-h-0` de PageShell se encogía al alto de la ventana y
+    // el reporte la desbordaba, sin aire debajo de la última tarjeta.
+    <PageShell className="min-h-auto">
       <PageHeader
         title="Calculadora de ROI"
         description="Proyección del valor que va a tener un prospecto durante la venta: lo que se cotiza, a precio de mercado, sobre lo que invierte."
