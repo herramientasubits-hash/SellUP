@@ -27,6 +27,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { GLOBAL_IDENTITY_RELEASING_STATUSES } from '@/server/agents/prospecting-toolkit/global-identity-claims';
 import { normalizeExclusionDomain } from '@/modules/prospect-batches/prepaid-novelty/provider-exclusion-domains';
+import { DELIVERY_CAP_DISPOSITION } from '@/modules/prospect-discards/delivery-capped-dispositions';
 import {
   classifyBatchScope,
   isBatchCorrelationId,
@@ -178,6 +179,27 @@ export async function loadApolloExclusionSellupDomains(
         if (domain === null) continue;
         if (row.status === 'discarded') releasedCandidates.add(domain);
         else if (typeof row.status === 'string' && !RELEASING.has(row.status)) stillLive.add(domain);
+      }
+    } catch {
+      degraded = true;
+    }
+    // AGENT1-DELIVERY-CAP-STAYS-FREE-1 — lo que el tope de entrega dejó fuera
+    // vive en «Descartadas» como `target_cap_reached` (nunca fue candidato). Se
+    // libera igual que un descarte: tiene que poder llegarle a otro vendedor.
+    try {
+      const { data, error } = await client
+        .from('prospect_discarded_dispositions')
+        .select('domain')
+        .eq('disposition', DELIVERY_CAP_DISPOSITION)
+        .eq('status', 'discarded')
+        .in('domain', variants);
+      if (error || !Array.isArray(data)) {
+        degraded = true;
+        continue;
+      }
+      for (const row of data as Array<{ domain?: unknown }>) {
+        const domain = normalize(row.domain);
+        if (domain !== null) releasedCandidates.add(domain);
       }
     } catch {
       degraded = true;

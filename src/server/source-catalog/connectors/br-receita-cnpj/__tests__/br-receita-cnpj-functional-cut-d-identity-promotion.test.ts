@@ -1415,7 +1415,10 @@ describe('CUT D — the transport, and the recorded contracts', () => {
     // SOURCES-US-EIN-BY-NAME-1 mueve el techo a la 141: sólo amplía el CHECK de
     // `tax_identifier_type` en `accounts` y `prospect_candidates` con 'EIN' y 'NIF'. Tampoco es
     // autoría de BR-SOURCE ni de CUT D. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], '141_tax_identifier_type_ein_nif.sql');
+    // AGENT1-COMPANY-BANK mueve el techo a la 142: el banco de empresas (tabla aparte
+    // `agent1_company_bank`, sólo service_role). No es de teléfono, ni del catálogo, ni de BR,
+    // ni de CUT3B4: tampoco es autoría de BR-SOURCE ni de CUT D. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], '142_agent1_company_bank.sql');
     // Control NEGATIVO del filtro, sobre un nombre SINTÉTICO.
     assert.equal(/^\d{3}_/.test('LOCAL_example_unnumbered.sql'), false);
     assert.equal(/^\d{3}_/.test(MIGRATION_FILE), true);

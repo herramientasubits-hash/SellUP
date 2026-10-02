@@ -444,7 +444,14 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // `AGENT1-CUT3B4`, no reutiliza `identity_epoch` ni escribe candidatos, y el barrido
     // explícito de abajo se ENSANCHA para incluir la 140, el techo anterior. AUTORADA y NO
     // APLICADA.
-    const CEILING = '141_tax_identifier_type_ein_nif.sql';
+    const TAX_IDENTIFIER_EIN_NIF_141 = '141_tax_identifier_type_ein_nif.sql';
+    // 🔴 AGENT1-COMPANY-BANK reclamó después la 142: el banco de empresas (tabla aparte
+    // `agent1_company_bank` y sus funciones, sólo service_role). No es de teléfono, ni del
+    // catálogo, ni de BR, ni de CUT3B4: no menciona `AGENT1-CUT3B4`, no reutiliza
+    // `identity_epoch` ni escribe filas de candidatos —sólo referencia `prospect_candidates`/
+    // `prospect_batches` como FK de su propia tabla—, y el barrido explícito de abajo se
+    // ENSANCHA para incluir la 141, el techo anterior. AUTORADA y NO APLICADA.
+    const CEILING = '142_agent1_company_bank.sql';
     assert.equal(migrations[migrations.length - 1], CEILING);
     for (const foreign of [
       '127_br_receita_monthly_snapshot_identity.sql',
@@ -460,6 +467,7 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
       DISCARDED_138,
       ROUND_CONTINUATION_139,
       GLOBAL_IDENTITY_CLAIMS_140,
+      TAX_IDENTIFIER_EIN_NIF_141,
       CEILING,
     ]) {
       assert.equal(
@@ -475,8 +483,8 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // que el conteo vuelve a subir con las tres: sin huecos, conteo y techo siguen coincidiendo.
     // AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET añade la 139 y AGENT1-GLOBAL-COMPANY-IDENTITY-
     // CLAIMS-1 la 140, y el conteo sube otra vez con las dos. SOURCES-US-EIN-BY-NAME-1 añade la
-    // 141 y el conteo sube con ella.
-    assert.equal(migrations.length, 141);
+    // 141 y el conteo sube con ella. AGENT1-COMPANY-BANK añade la 142 y el conteo sube con ella.
+    assert.equal(migrations.length, 142);
   });
 
   it('🔴 la 124 (Agente 2A) queda intacta, y la 126 no depende de ella', () => {
