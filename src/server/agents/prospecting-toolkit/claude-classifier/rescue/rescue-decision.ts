@@ -40,6 +40,23 @@ export type RescueDecision =
       sectorMismatchUnconfirmed?: boolean;
     }
   | {
+      /**
+       * Decisión de la dueña (01-10): la empresa es de OTRA macroindustria del
+       * catálogo (cita comprobada, la misma exigencia que para descartar) pero
+       * encaja con UBITS (≥ umbral ICP). No se descarta: vuelve a «Candidatos por
+       * revisar» del mismo vendedor con la industria corregida, y NO cuenta para
+       * la meta de la búsqueda (no es lo que se pidió).
+       */
+      kind: 'reassign';
+      industryId: string;
+      industryName: string;
+      /** Frase para la nota de revisión. */
+      detail: string;
+      sourceUrl: string;
+      sizeConfirmed: boolean;
+      linkedinConfirmed: boolean;
+    }
+  | {
       kind: 'unchanged';
       why: 'nothing_verifiable' | 'sector_unknown' | 'not_classified';
       sectorMismatchUnconfirmed?: boolean;
@@ -51,6 +68,11 @@ export type RescueContext = {
   requestedIndustryName?: string | null;
   /** El tamaño ya viene confirmado por el proveedor (p. ej. Lusha): Claude no lo contradice. */
   sizeAlreadyConfirmed?: boolean;
+  /**
+   * El filtro ICP del asistente ya dejó pasar la fila por tamaño (`icp_size_gate.decision='pass'`).
+   * Sólo sirve para REASIGNAR la industria: no resuelve la condición de tamaño de la meta.
+   */
+  sizePassedIcpGate?: boolean;
 };
 
 /**
@@ -136,6 +158,21 @@ export function decideRescue(result: CompanyClassificationResult, ctx: RescueCon
 
   if (sector === 'fail') {
     const bySector = result.sector && result.sector.matchesCurrentIndustry === false ? result.sector : null;
+    // Otra macro del catálogo + tamaño UBITS ⇒ se corrige la industria en vez de descartar.
+    // Sin macro (p. ej. medios, Prod 30-09) no hay industria a la que pasarla: se descarta.
+    const sizeFitsUbits = size === 'pass' || ctx.sizeAlreadyConfirmed === true || ctx.sizePassedIcpGate === true;
+    if (bySector && bySector.industryId && sizeFitsUbits) {
+      const from = ctx.requestedIndustryName ? `Buscada en ${ctx.requestedIndustryName}, ` : '';
+      return {
+        kind: 'reassign',
+        industryId: bySector.industryId,
+        industryName: bySector.industryName,
+        detail: `${from}según Claude es ${bySector.industryName}: «${bySector.quote.slice(0, 160)}»`,
+        sourceUrl: bySector.sourceUrl,
+        sizeConfirmed: size === 'pass',
+        linkedinConfirmed: !!result.linkedin,
+      };
+    }
     const evidence = bySector ?? result.requestedIndustryFit!;
     const what = bySector ? `es ${bySector.industryName}` : `no es ${ctx.requestedIndustryName ?? 'de la industria buscada'}`;
     return {
