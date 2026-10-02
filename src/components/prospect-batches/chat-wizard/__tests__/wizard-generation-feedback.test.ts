@@ -365,7 +365,10 @@ describe('20.R — Error path regression after Block A/B changes', () => {
 describe('21.A.1 — la espera dice EN VIVO lo que hace el agente (AGENT1-RUN-LIVE-PROGRESS-1)', () => {
   it('el titular es la etapa que anota el servidor, no un texto fijo', () => {
     const src = readComponentSrc();
-    assert.ok(src.includes('getAgent1RunProgressAction'), 'la espera no lee la etapa de la corrida');
+    // Por una ruta, no por una server action: las server actions van de una en una
+    // y la consulta esperaba detrás de la propia corrida.
+    assert.ok(src.includes('/api/prospect-batches/run-progress'), 'la espera no lee la etapa de la corrida');
+    assert.ok(!src.includes('getAgent1RunProgressAction'), 'la espera vuelve a leer con una server action');
     assert.ok(src.includes('title={label}'), 'el titular de la espera no es la etapa en vivo');
   });
 
