@@ -11,7 +11,13 @@ import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { countryName } from "@/components/shared/table-cells";
 import { Kanban, type KanbanColumn, type KanbanItem } from "@/components/data-display";
 import type { PipelineStatus } from "@/modules/accounts/types";
+import {
+  EMPTY_PIPELINE_FILTERS,
+  applyPipelineFilters,
+  type PipelineFilters,
+} from "@/modules/pipeline/pipeline-filters";
 import type { PipelineOverviewAccount } from "@/modules/pipeline/types";
+import { PipelineFilterBar } from "./pipeline-filters-panel";
 import {
   BOARD_COLUMNS,
   PROSPECTS_HREF,
@@ -43,6 +49,11 @@ interface PipelineBoardProps {
   onOpenAccount?: (accountId: string) => void;
   /** Avisa de que el movimiento falló (un toast); la tarjeta ya volvió a su columna. */
   onMoveFailed?: (message: string) => void;
+  /** Los mismos filtros que la lista del recorrido (y su mismo estado en la URL). Sin ellos, son locales. */
+  filters?: PipelineFilters;
+  onFiltersChange?: (next: PipelineFilters) => void;
+  /** «Ahora», para los filtros de fecha. */
+  now?: Date;
 }
 
 interface PendingMove {
@@ -79,7 +90,21 @@ function toItem(account: PipelineOverviewAccount, status: PipelineStatus): Kanba
  * falla, la tarjeta vuelve a su columna. El cambio de etapa siempre lo decide
  * la persona.
  */
-export function PipelineBoard({ accounts, onMoveAccount, onOpenAccount, onMoveFailed }: PipelineBoardProps) {
+export function PipelineBoard({
+  accounts,
+  onMoveAccount,
+  onOpenAccount,
+  onMoveFailed,
+  filters: controlledFilters,
+  onFiltersChange,
+  now: nowProp,
+}: PipelineBoardProps) {
+  const [localFilters, setLocalFilters] = React.useState<PipelineFilters>(EMPTY_PIPELINE_FILTERS);
+  const filters = controlledFilters ?? localFilters;
+  const setFilters = onFiltersChange ?? setLocalFilters;
+  const [mountedAt] = React.useState(() => new Date());
+  const now = nowProp ?? mountedAt;
+  const visibleAccounts = React.useMemo(() => applyPipelineFilters(accounts, filters, now), [accounts, filters, now]);
   const [pending, setPending] = React.useState<PendingMove | null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -87,12 +112,12 @@ export function PipelineBoard({ accounts, onMoveAccount, onOpenAccount, onMoveFa
   // La tarjeta se enseña en la columna destino mientras se pregunta; al cancelar o fallar, vuelve.
   const items = React.useMemo(
     () =>
-      accounts
+      visibleAccounts
         .filter((account) => account.pipelineStatus !== "archived")
         .map((account) =>
           toItem(account, pending?.accountId === account.id ? pending.to : account.pipelineStatus),
         ),
-    [accounts, pending],
+    [visibleAccounts, pending],
   );
 
   if (accounts.length === 0) {
@@ -153,6 +178,12 @@ export function PipelineBoard({ accounts, onMoveAccount, onOpenAccount, onMoveFa
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
+      <PipelineFilterBar
+        accounts={accounts}
+        filters={filters}
+        onChange={setFilters}
+        visibleCount={visibleAccounts.length}
+      />
       <Kanban
         columns={[...PIPELINE_BOARD_COLUMNS]}
         items={items}

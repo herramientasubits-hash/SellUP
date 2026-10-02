@@ -1,4 +1,18 @@
+import {
+  Briefcase,
+  Brain,
+  Calendar,
+  CheckCircle2,
+  MessageSquareText,
+  ReceiptText,
+  Target,
+  UserSearch,
+  type LucideIcon,
+} from "@/icons";
 import type { StatusType } from "@/components/data-display";
+import type { ChartTone } from "@/components/charts/tone";
+import type { MetricTone } from "@/components/shared/metric-card";
+import { serializePipelineFilters, type PipelineFilters } from "@/modules/pipeline/pipeline-filters";
 import type { PipelineStatus } from "@/modules/accounts/types";
 import type {
   PipelineSignal,
@@ -12,7 +26,16 @@ import type {
 
 export const PIPELINE_TITLE = "Pipeline";
 export const PIPELINE_DESCRIPTION =
-  "El recorrido de cada empresa por el proceso de venta: en qué etapa está, qué pasó en cada una y qué falta.";
+  "En qué etapa del proceso de venta está cada empresa, qué pasó en cada una y qué falta.";
+
+/**
+ * El primer tramo de las migas: el mismo rótulo que el módulo en el menú
+ * lateral (`mainNavItems`), para que la cabecera no repita la sección.
+ */
+export const PIPELINE_CRUMB_LABEL = "Pipeline SellUp";
+
+/** Lo que dice la nota del resumen mientras las etapas de la derecha no tengan empresas. */
+export const FUTURE_STAGES_NOTE = "Las etapas de Reunión a Cierre se activarán cuando existan sus agentes.";
 
 /** A dónde va quien todavía no tiene empresas en el pipeline. */
 export const PROSPECTS_HREF = "/accounts?tab=prospectos";
@@ -29,10 +52,14 @@ export function resolvePipelineView(value: string | undefined): PipelineView {
 }
 
 /** La ruta de la pantalla con su vista y su empresa; lo que es por defecto no ensucia la URL. */
-export function pipelineHref(view: PipelineView, accountId: string | null): string {
+export function pipelineHref(view: PipelineView, accountId: string | null, filters?: PipelineFilters): string {
   const params = new URLSearchParams();
   if (view !== "recorrido") params.set("view", view);
   if (accountId) params.set("account", accountId);
+  // Los filtros viajan con la vista: sobreviven a elegir empresa y a cambiar de vista.
+  if (filters) {
+    for (const [key, value] of Object.entries(serializePipelineFilters(filters))) params.set(key, value);
+  }
   const query = params.toString();
   return query ? `/pipeline?${query}` : "/pipeline";
 }
@@ -146,5 +173,18 @@ export function hubspotApprovalLabel(action: string | null): string | null {
 }
 
 export function formatUsd(value: number): string {
-  return `US$ ${value.toFixed(value < 1 ? 4 : 2)}`;
+  // Dos decimales, como cualquier importe; solo las fracciones de centavo conservan cuatro.
+  return `US$ ${value.toFixed(value !== 0 && Math.abs(value) < 0.01 ? 4 : 2)}`;
 }
+
+/** Icono y tonos de cada etapa, en el resumen y en el reparto. */
+export const STAGE_VISUAL: Record<PipelineStageId, { icon: LucideIcon; tone: MetricTone; chartTone: ChartTone }> = {
+  prospeccion: { icon: Target, tone: "neutral", chartTone: "neutral" },
+  enriquecimiento: { icon: UserSearch, tone: "info", chartTone: "brand" },
+  inteligencia: { icon: Brain, tone: "warning", chartTone: "warning" },
+  preparacion: { icon: MessageSquareText, tone: "positive", chartTone: "positive" },
+  reunion: { icon: Calendar, tone: "brand", chartTone: "info" },
+  cotizacion: { icon: ReceiptText, tone: "brand", chartTone: "negative" },
+  venta_interna: { icon: Briefcase, tone: "brand", chartTone: "neutral" },
+  cierre: { icon: CheckCircle2, tone: "positive", chartTone: "positive" },
+};

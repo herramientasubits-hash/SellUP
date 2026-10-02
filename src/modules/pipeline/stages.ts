@@ -88,9 +88,11 @@ export const PIPELINE_STAGE_IDS: readonly PipelineStageId[] = PIPELINE_STAGES.ma
 /** Rótulo del `Badge` de fase de cada etapa. */
 export const STAGE_PHASE_LABELS: Record<PipelineStagePhase, string> = {
   hecho: 'Hecho',
-  mvp: 'Previsto · MVP',
-  fase_2: 'Previsto · Fase 2',
-  fase_3: 'Previsto · Fase 3',
+  // Para quien usa SellUp, una etapa sin agente es simplemente «Próximamente»: en qué fase
+  // del plan entra (MVP, Fase 2, Fase 3) es un dato interno que sigue en `phase`.
+  mvp: 'Próximamente',
+  fase_2: 'Próximamente',
+  fase_3: 'Próximamente',
 };
 
 export function getPipelineStage(id: PipelineStageId): PipelineStage {

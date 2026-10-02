@@ -1,40 +1,34 @@
 "use client";
 
+import * as React from "react";
 import type { ReactNode } from "react";
-import Link from "next/link";
 import {
   Activity,
   Bot,
   Building2,
   Check,
-  FileSearch,
+  ChevronDown,
+  ChevronsUpDown,
   Globe,
+  PanelRight,
   Phone,
   Tag,
-  User,
+  Target,
   UserCheck,
   Users,
-  XCircle,
 } from "@/icons";
 import { cn } from "@/lib/utils";
 import { formatAppDate, formatAppDateTime } from "@/lib/format-date";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { AIButton } from "@/components/ai/ai-button";
 import { Heading, Text } from "@/components/typography";
 import { SurfaceCard } from "@/components/shared/surface-card";
 import { DetailItem, DetailList } from "@/components/shared/detail-list";
-import { MetricCard } from "@/components/shared/metric-card";
-import { countryName } from "@/components/shared/table-cells";
-import {
-  ListItem,
-  ListItemGroup,
-  StatusBadge,
-  Timeline,
-  TimelineItem,
-  type TimelineTone,
-} from "@/components/data-display";
+import { EmptyCell } from "@/components/shared/table-cells";
+import { StatusBadge, Timeline, TimelineItem } from "@/components/data-display";
 import {
   resolveAccountRunProviderLabel,
   resolveAccountRunStatusBadge,
@@ -42,27 +36,20 @@ import {
 import { SOURCE_LABELS } from "@/modules/accounts/types";
 import { STAGE_PHASE_LABELS } from "@/modules/pipeline/stages";
 import type { AccountJourney, JourneyEvent, JourneyStage, PipelineStageId } from "@/modules/pipeline/types";
-import {
-  SIGNAL_BADGE_VARIANT,
-  STAGE_STATE_BADGE,
-  formatUsd,
-  hubspotApprovalLabel,
-  sourcePrimaryLabel,
-} from "./pipeline-copy";
-
-const LINK_CLASSES =
-  "rounded-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40";
-
-/** Cuántas corridas y decisores se enseñan antes de mandar a la ficha de la empresa. */
-const SHORT_LIST_LIMIT = 5;
+import { SIGNAL_BADGE_VARIANT, STAGE_STATE_BADGE, sourcePrimaryLabel } from "./pipeline-copy";
 
 /** El `id` del ancla de la tarjeta de una etapa (la pista desplaza hasta aquí). */
 export function stageAnchorId(stageId: PipelineStageId): string {
   return `etapa-${stageId}`;
 }
 
-function percent(value: number | null): string | null {
+export function percent(value: number | null): string | null {
   return value === null ? null : `${Math.round(value)}%`;
+}
+
+/** Un dato o, si falta, la raya apagada del sistema (con nombre para lector de pantalla). */
+export function orEmpty(value: ReactNode, emptyLabel: string): ReactNode {
+  return value === null || value === undefined || value === "" ? <EmptyCell label={emptyLabel} /> : value;
 }
 
 // ── Marco común de una tarjeta de etapa ─────────────────────────
@@ -70,46 +57,75 @@ function percent(value: number | null): string | null {
 interface StageCardFrameProps {
   entry: JourneyStage;
   index: number;
+  open: boolean;
+  onToggle: () => void;
   children: ReactNode;
 }
 
-function StageCardFrame({ entry, index, children }: StageCardFrameProps) {
+/**
+ * Una etapa es un acordeón: la cabecera (nombre, agente, estado, qué pasa en la
+ * etapa y la fecha del hito) es el botón que abre y cierra el detalle, y los
+ * avisos se quedan a la vista aunque esté plegada. El título es el `h3` que
+ * envuelve al botón (patrón de acordeón de WAI-ARIA).
+ */
+function StageCardFrame({ entry, index, open, onToggle, children }: StageCardFrameProps) {
   const { stage, state, signals, milestoneAt } = entry;
   const isPlanned = stage.phase !== "hecho";
   const stateBadge = STAGE_STATE_BADGE[state];
+  const anchor = stageAnchorId(stage.id);
+  const contentId = `${anchor}-detalle`;
 
   return (
-    <SurfaceCard className={cn("p-5", isPlanned && "bg-surface-subtle shadow-none")}>
-      <section id={stageAnchorId(stage.id)} className="scroll-mt-6" aria-labelledby={`${stageAnchorId(stage.id)}-titulo`} data-stage={stage.id} data-state={state}>
-        <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-          <div className="flex min-w-0 flex-col gap-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <Heading
-                level={6}
-                as="h3"
-                id={`${stageAnchorId(stage.id)}-titulo`}
-                tone={isPlanned ? "muted" : "default"}
-              >
-                {index + 1}. {stage.name}
-              </Heading>
-              <Badge variant={isPlanned ? "neutral" : "brand"}>
-                {isPlanned ? STAGE_PHASE_LABELS[stage.phase] : stage.agent}
-              </Badge>
-              <StatusBadge status={stateBadge.status} label={stateBadge.label} />
-            </div>
-            <Text size="xs" tone="secondary" className="max-w-3xl leading-relaxed">
-              {stage.summary}
-            </Text>
-          </div>
-          {milestoneAt && (
-            <Text as="span" size="xs" tone="muted" tabular className="shrink-0">
-              {formatAppDate(milestoneAt)}
-            </Text>
-          )}
-        </header>
+    <SurfaceCard className={cn("p-0", isPlanned && "bg-surface-subtle shadow-none")}>
+      <section
+        id={anchor}
+        className="scroll-mt-6"
+        aria-labelledby={`${anchor}-titulo`}
+        data-stage={stage.id}
+        data-state={state}
+        data-open={open}
+      >
+        <h3 id={`${anchor}-titulo`} className="m-0">
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-controls={open ? contentId : undefined}
+            onClick={onToggle}
+            className="flex w-full items-start gap-3 rounded-2xl p-5 text-left outline-none transition-colors hover:bg-surface-muted/50 focus-visible:ring-3 focus-visible:ring-ring/40"
+          >
+            <span className="flex min-w-0 flex-1 flex-col gap-2">
+              <span className="flex flex-wrap items-center gap-2">
+                <span
+                  className={cn(
+                    "text-base font-semibold tracking-tight",
+                    isPlanned ? "text-muted-foreground" : "text-foreground",
+                  )}
+                >
+                  {index + 1}. {stage.name}
+                </span>
+                <Badge variant={isPlanned ? "neutral" : "brand"}>
+                  {isPlanned ? STAGE_PHASE_LABELS[stage.phase] : stage.agent}
+                </Badge>
+                <StatusBadge status={stateBadge.status} label={stateBadge.label} />
+              </span>
+              <span className="block max-w-3xl text-xs font-normal leading-relaxed text-muted-foreground">
+                {stage.summary}
+              </span>
+            </span>
+            {milestoneAt && (
+              <span className="shrink-0 pt-0.5 text-xs font-normal tabular-nums text-text-muted">
+                {formatAppDate(milestoneAt)}
+              </span>
+            )}
+            <ChevronDown
+              aria-hidden
+              className={cn("mt-1 size-4 shrink-0 text-text-muted transition-transform", open && "rotate-180")}
+            />
+          </button>
+        </h3>
 
         {signals.length > 0 && (
-          <ul aria-label={`Avisos de ${stage.name}`} className="mt-3 flex flex-wrap gap-1.5">
+          <ul aria-label={`Avisos de ${stage.name}`} className="flex flex-wrap gap-1.5 px-5 pb-4">
             {signals.map((signal) => (
               <li key={signal.id}>
                 <Badge variant={SIGNAL_BADGE_VARIANT[signal.severity]}>{signal.label}</Badge>
@@ -118,300 +134,197 @@ function StageCardFrame({ entry, index, children }: StageCardFrameProps) {
           </ul>
         )}
 
-        <div className="mt-4 flex flex-col gap-4">{children}</div>
+        {open && (
+          <div id={contentId} className="flex flex-col gap-3 border-t border-border/50 px-5 pb-5 pt-4">
+            {children}
+          </div>
+        )}
       </section>
     </SurfaceCard>
   );
 }
 
-// ── Prospección ─────────────────────────────────────────────────
+// ── Etapa disponible pero sin empezar: invitación a activarla ───
+
+interface StageInvitationProps {
+  entry: JourneyStage;
+  index: number;
+  journey: AccountJourney;
+  onSearchContacts?: () => void;
+}
+
+/**
+ * Una etapa cuyo agente ya existe y que para esta empresa aún no tiene nada no
+ * es un acordeón (no hay nada que desplegar): es UNA fila, con la misma altura,
+ * padding y anatomía que la cabecera de una etapa plegada, que invita a
+ * activarla. Donde iría la descripción va la frase de invitación; donde irían la
+ * fecha y la flecha, el accionador de IA secundario. La fila no es un botón: solo
+ * el accionador es interactivo. Conserva el ancla y los `data-*` de la etapa
+ * para que la pista siga llevando hasta ella, pero no se pliega ni cuenta para
+ * «Expandir/Contraer todas».
+ */
+function StageInvitation({ entry, index, journey, onSearchContacts }: StageInvitationProps) {
+  const { stage, state, signals } = entry;
+  const stateBadge = STAGE_STATE_BADGE[state];
+  const anchor = stageAnchorId(stage.id);
+  const canActivate = Boolean(onSearchContacts) && !journey.isArchived;
+
+  return (
+    <SurfaceCard className="border-dashed bg-surface-subtle p-0 shadow-none">
+      <section
+        id={anchor}
+        className="scroll-mt-6"
+        aria-labelledby={`${anchor}-titulo`}
+        data-stage={stage.id}
+        data-state={state}
+        data-invitation
+      >
+        <div className="flex flex-wrap items-start gap-3 p-5">
+          <div className="flex min-w-0 flex-1 basis-64 flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 id={`${anchor}-titulo`} className="m-0 text-base font-semibold tracking-tight text-foreground">
+                {index + 1}. {stage.name}
+              </h3>
+              <Badge variant="brand">{stage.agent}</Badge>
+              <StatusBadge status={stateBadge.status} label={stateBadge.label} />
+            </div>
+            <p className="max-w-3xl text-xs leading-relaxed text-muted-foreground">
+              {journey.isArchived
+                ? `No se buscaron los contactos de ${journey.account.name}: la empresa está archivada.`
+                : `Aún no se han buscado los contactos de ${journey.account.name}.`}
+            </p>
+          </div>
+          {canActivate && (
+            <AIButton variant="secondary" size="sm" className="shrink-0" onClick={onSearchContacts}>
+              Buscar contactos con IA
+            </AIButton>
+          )}
+        </div>
+
+        {signals.length > 0 && (
+          <ul aria-label={`Avisos de ${stage.name}`} className="flex flex-wrap gap-1.5 px-5 pb-4">
+            {signals.map((signal) => (
+              <li key={signal.id}>
+                <Badge variant={SIGNAL_BADGE_VARIANT[signal.severity]}>{signal.label}</Badge>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </SurfaceCard>
+  );
+}
+
+// ── Cuerpo de una etapa: SOLO lo esencial ───────────────────────
+//
+// El acordeón resume; el drawer detalla. Abierta, una etapa enseña lo que se
+// lee de una pasada (una fila de datos clave o de cifras) y «Ver más» abre el
+// drawer con todo lo demás (`PipelineStageDrawer`). Nada se repite aquí.
+
+/** La fila de datos clave, con la pieza del detalle de la empresa: todos los pares con icono. */
+function StageSummary({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <DetailList columns={4} aria-label={label}>
+      {children}
+    </DetailList>
+  );
+}
 
 function ProspeccionBody({ journey }: { journey: AccountJourney }) {
   const { account, origin } = journey;
-  const tracking = (
-    <DetailList aria-label="Seguimiento de la empresa">
-      <DetailItem icon={User} label="Responsable" emptyLabel="Sin asignar">
-        {account.ownerName}
-      </DetailItem>
-      <DetailItem icon={Globe} label="HubSpot hoy">
-        {account.hubspotLabel}
-        {account.hubspotCompanyId && (
-          <span className="ml-1 text-xs tabular-nums text-muted-foreground">· ficha n.º {account.hubspotCompanyId}</span>
-        )}
-      </DetailItem>
-    </DetailList>
-  );
+  const sourceLabel = SOURCE_LABELS[account.source];
 
   if (!origin) {
-    return (
-      <>
-        {account.source === "manual" ? (
-          <Text tone="secondary">
-            Creada a mano por {account.createdByName ?? "alguien del equipo"} el {formatAppDate(account.createdAt)}.
-          </Text>
-        ) : (
-          <EmptyState
-            variant="plain"
-            icon={FileSearch}
-            title="No hay rastro del origen"
-            description={`La empresa llegó por «${SOURCE_LABELS[account.source]}» el ${formatAppDate(account.createdAt)}, pero no quedó enlazada a ningún prospecto.`}
-          />
-        )}
-        {tracking}
-      </>
+    return account.source === "manual" ? (
+      <Text tone="secondary">
+        Creada a mano por {account.createdByName ?? "alguien del equipo"} el {formatAppDate(account.createdAt)}.
+      </Text>
+    ) : (
+      <Text tone="secondary">
+        No hay rastro del origen: llegó por «{sourceLabel}» el {formatAppDate(account.createdAt)}, sin quedar enlazada a
+        ningún prospecto.
+      </Text>
     );
   }
 
   const provider = sourcePrimaryLabel(origin.sourcePrimary);
   const fit = percent(origin.fitScore);
-  const confidence = percent(origin.confidenceScore);
-  const classification = origin.claudeClassification;
-  const hubspotAtApproval = hubspotApprovalLabel(origin.hubspotAction);
   const approvedAt = origin.approvedAt ?? origin.reviewedAt;
-  const taxId = origin.taxIdentifier ?? account.taxIdentifier;
-  const taxIdType = origin.taxIdentifierType ?? account.taxIdentifierType;
 
   return (
-    <>
-      <DetailList aria-label="Origen de la empresa">
-        <DetailItem icon={Tag} label="Origen">
-          {SOURCE_LABELS[account.source]}
-          {provider && <span className="text-muted-foreground"> · {provider}</span>}
-        </DetailItem>
-        <DetailItem label="Lote" emptyLabel="Sin lote">
-          {origin.batchId ? (
-            <Link href={`/prospect-batches/${origin.batchId}`} className={LINK_CLASSES}>
-              {origin.batchName ?? "Ver lote"}
-            </Link>
-          ) : null}
-        </DetailItem>
-        <DetailItem label="Encaje ICP" emptyLabel="Sin puntaje">
-          {fit || confidence
-            ? [fit ? `Encaje ${fit}` : null, confidence ? `confianza ${confidence}` : null].filter(Boolean).join(" · ")
-            : null}
-        </DetailItem>
-        <DetailItem label="Clasificación de Claude" emptyLabel="Sin clasificación">
-          {classification ? (
-            <span className="flex flex-col gap-0.5">
-              <span>
-                {[classification.sector?.label, classification.employeeRange?.label].filter(Boolean).join(" · ") ||
-                  classification.outcomeLabel}
-              </span>
-              {classification.sector && (
-                <span className="text-xs text-muted-foreground">{classification.sector.verificationLabel}</span>
-              )}
-            </span>
-          ) : null}
-        </DetailItem>
-        <DetailItem label="Identificador fiscal" emptyLabel="Sin identificador">
-          {taxId ? (
-            <span className="tabular-nums">
-              {taxIdType && taxIdType !== "other" ? `${taxIdType} ` : ""}
-              {taxId}
-            </span>
-          ) : null}
-        </DetailItem>
-        <DetailItem icon={UserCheck} label="Aprobado por" emptyLabel="Sin registro de aprobación">
-          {origin.reviewerName || approvedAt
-            ? [origin.reviewerName, approvedAt ? formatAppDateTime(approvedAt) : null].filter(Boolean).join(" · ")
-            : null}
-        </DetailItem>
-        <DetailItem label="HubSpot al aprobar" emptyLabel="Sin registro">
-          {hubspotAtApproval}
-        </DetailItem>
-        <DetailItem label="Costo" emptyLabel="Sin costo registrado">
-          {origin.estimatedCostUsd !== null ? (
-            <span className="tabular-nums">{formatUsd(origin.estimatedCostUsd)} (estimado)</span>
-          ) : null}
-        </DetailItem>
-      </DetailList>
-      <div className="border-t border-border/60 pt-4">{tracking}</div>
-    </>
+    <StageSummary label="Datos clave de la prospección">
+      <DetailItem icon={Tag} label="Origen">
+        {[sourceLabel, provider].filter(Boolean).join(" · ")}
+      </DetailItem>
+      <DetailItem icon={Target} label="Encaje ICP">
+        {orEmpty(fit ? <span className="tabular-nums">{fit}</span> : null, "Sin puntaje")}
+      </DetailItem>
+      <DetailItem icon={UserCheck} label="Aprobado por">
+        {orEmpty(
+          origin.reviewerName || approvedAt
+            ? [origin.reviewerName, approvedAt ? formatAppDate(approvedAt) : null].filter(Boolean).join(" · ")
+            : null,
+          "Sin registro de aprobación",
+        )}
+      </DetailItem>
+      <DetailItem icon={Globe} label="HubSpot">
+        <StatusBadge status={account.hubspotStatus} label={account.hubspotLabel} />
+      </DetailItem>
+    </StageSummary>
   );
 }
 
-// ── Enriquecimiento de contactos ────────────────────────────────
+/** Una cifra de la fila de datos clave: el número manda, sin caja propia. */
+function Figure({ value }: { value: number }) {
+  return <span className="text-base font-semibold tabular-nums text-foreground">{value}</span>;
+}
 
-const RUN_TONE: Record<string, TimelineTone> = {
-  positive: "positive",
-  negative: "negative",
-  brand: "primary",
-  neutral: "default",
-};
-
-function EnriquecimientoBody({
-  journey,
-  onSearchContacts,
-}: {
-  journey: AccountJourney;
-  onSearchContacts?: () => void;
-}) {
-  const { account, contacts, runs } = journey;
-  const shownRuns = runs.slice(0, SHORT_LIST_LIMIT);
-  const shownDecisionMakers = contacts.decisionMakerList.slice(0, SHORT_LIST_LIMIT);
-  const contactsHref = `/accounts/${account.id}?tab=contactos`;
-
+function EnriquecimientoBody({ journey }: { journey: AccountJourney }) {
+  const { contacts } = journey;
   return (
-    <>
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <MetricCard compact title="Contactos" value={contacts.total} tone="brand" icon={<Users />} />
-        <MetricCard compact title="Decisores" value={contacts.decisionMakers} tone="info" icon={<UserCheck />} />
-        <MetricCard compact title="Con teléfono" value={contacts.withPhone} tone="positive" icon={<Phone />} />
-        <MetricCard compact title="En HubSpot" value={contacts.inHubSpot} tone="neutral" icon={<Globe />} />
-      </div>
+    <StageSummary label="Cifras de contactos">
+      <DetailItem icon={Users} label="Contactos">
+        <Figure value={contacts.total} />
+      </DetailItem>
+      <DetailItem icon={UserCheck} label="Decisores">
+        <Figure value={contacts.decisionMakers} />
+      </DetailItem>
+      <DetailItem icon={Phone} label="Con teléfono">
+        <Figure value={contacts.withPhone} />
+      </DetailItem>
+      <DetailItem icon={Globe} label="En HubSpot">
+        <Figure value={contacts.inHubSpot} />
+      </DetailItem>
+    </StageSummary>
+  );
+}
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <section aria-label="Búsquedas del Agente 2A" className="flex min-w-0 flex-col gap-3">
-          <Heading level={6} as="h4" weight="medium" className="text-sm">
-            Búsquedas del Agente 2A
-          </Heading>
-          {runs.length === 0 ? (
-            <Text size="xs" tone="muted">
-              Todavía no se han buscado contactos para esta empresa.
-            </Text>
-          ) : (
-            <>
-              <Timeline>
-                {shownRuns.map((run) => {
-                  const badge = resolveAccountRunStatusBadge(run.status);
-                  const isFailed = run.status === "failed";
-                  const cost = run.realCostUsd ?? run.estimatedCostUsd;
-                  return (
-                    <TimelineItem
-                      key={run.id}
-                      density="compact"
-                      tone={RUN_TONE[badge.variant] ?? "default"}
-                      icon={isFailed ? <XCircle /> : <Bot />}
-                      title={`${badge.label} · ${resolveAccountRunProviderLabel(run)}`}
-                      time={formatAppDateTime(run.createdAt)}
-                      description={
-                        isFailed && run.summaryError
-                          ? `No se completó: ${run.summaryError}`
-                          : `${run.candidateCount} encontrados · ${run.approvedCount} aprobados · ${formatUsd(cost)}`
-                      }
-                    />
-                  );
-                })}
-              </Timeline>
-              {runs.length > shownRuns.length && (
-                <Link href={`/accounts/${account.id}?tab=agentes`} className={cn(LINK_CLASSES, "text-xs")}>
-                  Ver las {runs.length} búsquedas
-                </Link>
-              )}
-            </>
-          )}
-        </section>
-
-        <section aria-label="Decisores" className="flex min-w-0 flex-col gap-3">
-          <div className="flex items-center justify-between gap-2">
-            <Heading level={6} as="h4" weight="medium" className="text-sm">
-              Decisores
-            </Heading>
-            {contacts.total > 0 && (
-              <Link href={contactsHref} className={cn(LINK_CLASSES, "text-xs")}>
-                Ver todos
-              </Link>
-            )}
-          </div>
-          {shownDecisionMakers.length === 0 ? (
-            <Text size="xs" tone="muted">
-              {contacts.total === 0
-                ? "Esta empresa aún no tiene contactos."
-                : "Ninguno de sus contactos está marcado como decisor."}
-            </Text>
-          ) : (
-            <ListItemGroup aria-label="Decisores de la empresa">
-              {shownDecisionMakers.map((contact) => (
-                <ListItem
-                  key={contact.id}
-                  size="sm"
-                  title={contact.fullName}
-                  // Las insignias van bajo el cargo y no al lado: en media columna,
-                  // dos insignias en la misma fila dejaban el nombre sin sitio.
-                  description={
-                    <span className="flex flex-col gap-1.5 whitespace-normal">
-                      <span>{contact.jobTitle ?? "Sin cargo"}</span>
-                      <span className="flex flex-wrap items-center gap-1.5">
-                        <Badge variant={contact.hasRevealedPhone ? "positive" : "neutral"}>
-                          {contact.hasRevealedPhone ? "Con teléfono" : "Sin teléfono"}
-                        </Badge>
-                        <Badge variant={contact.hubspotLinked ? "info" : "neutral"}>{contact.hubspotLabel}</Badge>
-                      </span>
-                    </span>
-                  }
-                />
-              ))}
-            </ListItemGroup>
-          )}
-        </section>
-      </div>
-
-      {onSearchContacts && !journey.isArchived && (
-        <div>
-          <AIButton size="sm" onClick={onSearchContacts}>
-            Buscar contactos con IA
-          </AIButton>
-        </div>
+/** La última búsqueda del agente, en una línea. */
+function LastRunLine({ journey }: { journey: AccountJourney }) {
+  const lastRun = journey.runs[0];
+  return (
+    <Text size="xs" tone="secondary" data-slot="stage-last-run" className="min-w-0 flex-1">
+      {lastRun ? (
+        <>
+          <span className="font-medium text-foreground">Última búsqueda:</span>{" "}
+          {[
+            resolveAccountRunStatusBadge(lastRun.status).label,
+            resolveAccountRunProviderLabel(lastRun),
+            formatAppDate(lastRun.createdAt),
+            lastRun.status === "failed" ? null : `${lastRun.approvedCount} aprobados`,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </>
+      ) : (
+        "Aún no hay búsquedas del agente."
       )}
-    </>
+    </Text>
   );
-}
-
-// ── Etapas previstas ────────────────────────────────────────────
-
-/** Los datos REALES que SellUp ya tiene y que alimentarán la etapa. Nada inventado. */
-function plannedFacts(stageId: PipelineStageId, journey: AccountJourney): { label: string; value: ReactNode }[] {
-  const { account, contacts } = journey;
-  const taxId = account.taxIdentifier
-    ? `${account.taxIdentifierType && account.taxIdentifierType !== "other" ? `${account.taxIdentifierType} ` : ""}${account.taxIdentifier}`
-    : null;
-
-  switch (stageId) {
-    case "inteligencia":
-      return [
-        { label: "País", value: countryName(account.countryCode) },
-        { label: "Sector", value: account.industry },
-        { label: "Tamaño", value: account.companySize },
-        { label: "Dominio", value: account.domain },
-        { label: "LinkedIn", value: account.linkedinUrl?.replace(/^https?:\/\/(www\.)?/i, "") ?? null },
-        { label: "Decisores", value: contacts.decisionMakers },
-      ];
-    case "preparacion":
-      return [
-        { label: "Decisores", value: contacts.decisionMakers },
-        { label: "Contactos con teléfono", value: contacts.withPhone },
-        { label: "Sector", value: account.industry },
-      ];
-    case "reunion":
-      return [
-        { label: "Contactos", value: contacts.total },
-        { label: "Contactos en HubSpot", value: contacts.inHubSpot },
-      ];
-    case "cotizacion":
-      return [
-        { label: "Tamaño", value: account.companySize },
-        { label: "País", value: countryName(account.countryCode) },
-        { label: "Identificador fiscal", value: taxId },
-      ];
-    case "venta_interna":
-      return [
-        { label: "Champions", value: contacts.champions },
-        { label: "Decisores", value: contacts.decisionMakers },
-        { label: "Sector", value: account.industry },
-      ];
-    case "cierre":
-      return [
-        { label: "HubSpot", value: account.hubspotLabel },
-        { label: "Responsable", value: account.ownerName },
-      ];
-    default:
-      return [];
-  }
 }
 
 function PlannedBody({ entry, journey }: { entry: JourneyStage; journey: AccountJourney }) {
   const { stage } = entry;
-  const facts = plannedFacts(stage.id, journey);
   const isResearching = stage.id === "inteligencia" && journey.account.pipelineStatus === "research_in_progress";
 
   return (
@@ -426,54 +339,157 @@ function PlannedBody({ entry, journey }: { entry: JourneyStage; journey: Account
           </AlertDescription>
         </Alert>
       )}
-      <div className="flex flex-col gap-1">
-        <Text size="xs" weight="medium" tone="secondary">
-          {stage.agent}
-        </Text>
-        <Text tone="secondary" className="max-w-3xl leading-relaxed">
-          {stage.plannedText}
-        </Text>
-      </div>
-      {facts.length > 0 && (
-        <div className="flex flex-col gap-3 border-t border-border/60 pt-4">
-          <Text size="xs" weight="medium" tone="secondary">
-            Lo que ya tiene SellUp para esta etapa
-          </Text>
-          <DetailList columns={3} aria-label={`Datos disponibles para ${stage.name}`}>
-            {facts.map((fact) => (
-              <DetailItem key={fact.label} label={fact.label}>
-                {typeof fact.value === "number" ? <span className="tabular-nums">{fact.value}</span> : fact.value}
-              </DetailItem>
-            ))}
-          </DetailList>
-        </div>
-      )}
+      <Text tone="secondary" className="max-w-3xl leading-relaxed">
+        {stage.plannedText}
+      </Text>
     </>
   );
 }
 
+/** Las etapas con detalle que enseñar en el drawer: las que ya tienen agente. */
+export function stageHasDetail(entry: JourneyStage): boolean {
+  return entry.stage.phase === "hecho" && !entry.notStarted;
+}
+
 // ── Las ocho tarjetas ───────────────────────────────────────────
+
+export interface StageFocusRequest {
+  stageId: PipelineStageId;
+  /** Cambia en cada petición, para que pedir dos veces la misma etapa vuelva a abrirla y llevar hasta ella. */
+  nonce: number;
+}
 
 interface PipelineStageCardsProps {
   journey: AccountJourney;
   /** Abre el buscador de contactos del Agente 2A (el único agente que se ejecuta desde aquí). */
   onSearchContacts?: () => void;
+  /** La pista de etapas pide una etapa: se abre y se lleva la vista hasta ella. */
+  focusRequest?: StageFocusRequest | null;
+  /** «Ver más»: abre el drawer de detalle de esa etapa. Sin ella no se ofrece. */
+  onOpenStageDetail?: (stageId: PipelineStageId) => void;
 }
 
-export function PipelineStageCards({ journey, onSearchContacts }: PipelineStageCardsProps) {
+/** De entrada solo está abierta la etapa en la que está la empresa; el resto se abre al pulsar su cabecera. */
+function initialOpenStages(journey: AccountJourney): ReadonlySet<PipelineStageId> {
+  const current = journey.stages.find((entry) => entry.state === "current" && !entry.notStarted);
+  return new Set(current ? [current.stage.id] : []);
+}
+
+export function PipelineStageCards({
+  journey,
+  onSearchContacts,
+  focusRequest = null,
+  onOpenStageDetail,
+}: PipelineStageCardsProps) {
+  // El estado de abierto/cerrado es de la empresa mostrada: al elegir otra empresa vuelve a la configuración inicial.
+  return (
+    <StageAccordion
+      key={journey.account.id}
+      journey={journey}
+      onSearchContacts={onSearchContacts}
+      focusRequest={focusRequest}
+      onOpenStageDetail={onOpenStageDetail}
+    />
+  );
+}
+
+function StageAccordion({ journey, onSearchContacts, focusRequest, onOpenStageDetail }: PipelineStageCardsProps) {
+  const [openStages, setOpenStages] = React.useState<ReadonlySet<PipelineStageId>>(() => initialOpenStages(journey));
+  // Una etapa-invitación no se pliega: no cuenta para «Expandir/Contraer todas».
+  const allIds = React.useMemo(
+    () => journey.stages.filter((entry) => !entry.notStarted).map((entry) => entry.stage.id),
+    [journey.stages],
+  );
+  const allOpen = allIds.every((id) => openStages.has(id));
+
+  const toggle = React.useCallback((stageId: PipelineStageId) => {
+    setOpenStages((current) => {
+      const next = new Set(current);
+      if (next.has(stageId)) next.delete(stageId);
+      else next.add(stageId);
+      return next;
+    });
+  }, []);
+
+  // La pista de etapas pide una etapa: se abre y, ya pintada, se lleva la vista hasta ella.
+  const lastNonce = React.useRef<number | null>(null);
+  React.useEffect(() => {
+    if (!focusRequest || lastNonce.current === focusRequest.nonce) return;
+    lastNonce.current = focusRequest.nonce;
+    setOpenStages((current) => new Set(current).add(focusRequest.stageId));
+    const frame = requestAnimationFrame(() => {
+      document.getElementById(stageAnchorId(focusRequest.stageId))?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusRequest]);
+
   return (
     <div className="flex flex-col gap-3">
-      {journey.stages.map((entry, index) => (
-        <StageCardFrame key={entry.stage.id} entry={entry} index={index}>
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          onClick={() => setOpenStages(allOpen ? new Set() : new Set(allIds))}
+        >
+          <ChevronsUpDown aria-hidden />
+          {allOpen ? "Contraer todas" : "Expandir todas"}
+        </Button>
+      </div>
+      {journey.stages.map((entry, index) =>
+        entry.notStarted ? (
+          <StageInvitation
+            key={entry.stage.id}
+            entry={entry}
+            index={index}
+            journey={journey}
+            onSearchContacts={onSearchContacts}
+          />
+        ) : (
+        <StageCardFrame
+          key={entry.stage.id}
+          entry={entry}
+          index={index}
+          open={openStages.has(entry.stage.id)}
+          onToggle={() => toggle(entry.stage.id)}
+        >
           {entry.stage.id === "prospeccion" ? (
             <ProspeccionBody journey={journey} />
           ) : entry.stage.id === "enriquecimiento" ? (
-            <EnriquecimientoBody journey={journey} onSearchContacts={onSearchContacts} />
+            <EnriquecimientoBody journey={journey} />
           ) : (
             <PlannedBody entry={entry} journey={journey} />
           )}
+          {(entry.stage.id === "enriquecimiento" || (onOpenStageDetail && stageHasDetail(entry))) && (
+            // En escritorio, la línea y los botones comparten renglón (los botones, a la derecha); en
+            // estrecho los botones bajan a su propio renglón.
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              {entry.stage.id === "enriquecimiento" ? <LastRunLine journey={journey} /> : <span aria-hidden />}
+              <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
+                {entry.stage.id === "enriquecimiento" && onSearchContacts && !journey.isArchived && (
+                  // Secundario: el agente primario de la pantalla vive en la barra de acciones.
+                  <AIButton variant="secondary" size="sm" onClick={onSearchContacts}>
+                    Buscar más contactos con IA
+                  </AIButton>
+                )}
+                {onOpenStageDetail && stageHasDetail(entry) && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    aria-label={`Ver más de ${entry.stage.name}`}
+                    onClick={() => onOpenStageDetail(entry.stage.id)}
+                  >
+                    <PanelRight aria-hidden />
+                    Ver más
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
         </StageCardFrame>
-      ))}
+        ),
+      )}
     </div>
   );
 }

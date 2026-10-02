@@ -43,11 +43,11 @@ describe('Pipeline · etapas — modelo fijo', () => {
     assert.equal(getPipelineStage('cierre').phase, 'fase_2');
   });
 
-  it('los rótulos de fase dicen «Previsto» para lo que no existe', () => {
+  it('lo que aún no tiene agente se rotula «Próximamente», sin jerga de fases', () => {
     assert.equal(STAGE_PHASE_LABELS.hecho, 'Hecho');
-    assert.equal(STAGE_PHASE_LABELS.mvp, 'Previsto · MVP');
-    assert.equal(STAGE_PHASE_LABELS.fase_2, 'Previsto · Fase 2');
-    assert.equal(STAGE_PHASE_LABELS.fase_3, 'Previsto · Fase 3');
+    assert.equal(STAGE_PHASE_LABELS.mvp, 'Próximamente');
+    assert.equal(STAGE_PHASE_LABELS.fase_2, 'Próximamente');
+    assert.equal(STAGE_PHASE_LABELS.fase_3, 'Próximamente');
   });
 });
 

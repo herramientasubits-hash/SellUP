@@ -1,15 +1,15 @@
 import { Suspense } from "react";
-import { PageHeader } from "@/components/shared/page-header";
-import { Breadcrumbs } from "@/components/navigation/breadcrumbs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { isNextControlFlowSignal } from "@/modules/contact-enrichment/next-control-flow-signal";
+import { parsePipelineFilters, type PipelineFilters } from "@/modules/pipeline/pipeline-filters";
 import { getAccountJourney, getPipelineOverview } from "@/modules/pipeline/actions";
-import { PIPELINE_DESCRIPTION, PIPELINE_TITLE, resolvePipelineView, type PipelineView } from "./pipeline-copy";
+import { resolvePipelineView, type PipelineView } from "./pipeline-copy";
+import { PipelineFrame } from "./pipeline-frame";
 import { PipelineScreen } from "./pipeline-screen";
 import { PipelineSkeleton } from "./pipeline-skeleton";
 
 interface PipelinePageProps {
-  searchParams: Promise<{ view?: string | string[]; account?: string | string[] }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
 function first(value: string | string[] | undefined): string | undefined {
@@ -17,7 +17,15 @@ function first(value: string | string[] | undefined): string | undefined {
 }
 
 /** Carga el resumen y, si hay empresa elegida, su recorrido, en paralelo. */
-async function PipelineData({ view, accountId }: { view: PipelineView; accountId: string | null }) {
+async function PipelineData({
+  view,
+  accountId,
+  filters,
+}: {
+  view: PipelineView;
+  accountId: string | null;
+  filters: PipelineFilters;
+}) {
   const [overview, journey] = await Promise.allSettled([
     getPipelineOverview(),
     accountId ? getAccountJourney(accountId) : Promise.resolve(null),
@@ -30,28 +38,24 @@ async function PipelineData({ view, accountId }: { view: PipelineView; accountId
 
   if (overview.status === "rejected") {
     return (
-      <Alert variant="destructive">
-        <AlertTitle>No se pudo cargar el pipeline</AlertTitle>
-        <AlertDescription>Vuelve a intentarlo en un momento. Si sigue fallando, avisa al equipo.</AlertDescription>
-      </Alert>
+      <PipelineFrame view={view} accountId={accountId}>
+        <Alert variant="destructive">
+          <AlertTitle>No se pudo cargar el pipeline</AlertTitle>
+          <AlertDescription>Vuelve a intentarlo en un momento. Si sigue fallando, avisa al equipo.</AlertDescription>
+        </Alert>
+      </PipelineFrame>
     );
   }
 
   return (
-    <>
-      {journey.status === "rejected" && (
-        <Alert variant="destructive">
-          <AlertTitle>No se pudo cargar el recorrido de esa empresa</AlertTitle>
-          <AlertDescription>La lista sigue disponible; vuelve a elegir la empresa en un momento.</AlertDescription>
-        </Alert>
-      )}
-      <PipelineScreen
-        overview={overview.value}
-        view={view}
-        selectedAccountId={journey.status === "rejected" ? null : accountId}
-        journey={journey.status === "fulfilled" ? journey.value : null}
-      />
-    </>
+    <PipelineScreen
+      overview={overview.value}
+      view={view}
+      selectedAccountId={journey.status === "rejected" ? null : accountId}
+      journey={journey.status === "fulfilled" ? journey.value : null}
+      journeyError={journey.status === "rejected"}
+      initialFilters={filters}
+    />
   );
 }
 
@@ -60,17 +64,11 @@ export default async function PipelinePage({ searchParams }: PipelinePageProps) 
   const view = resolvePipelineView(first(params.view));
   const accountId = view === "recorrido" ? first(params.account)?.trim() || null : null;
 
+  // Mientras llegan los datos se ve la pantalla con su forma (cabecera real, lista y recorrido
+  // fantasma). La `key` hace que el esqueleto vuelva a salir al cambiar de vista.
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <PageHeader
-        className="pb-0"
-        title={PIPELINE_TITLE}
-        description={PIPELINE_DESCRIPTION}
-        breadcrumbs={<Breadcrumbs items={["Pipeline"]} />}
-      />
-      <Suspense fallback={<PipelineSkeleton />}>
-        <PipelineData view={view} accountId={accountId} />
-      </Suspense>
-    </div>
+    <Suspense key={view} fallback={<PipelineSkeleton view={view} accountId={accountId} />}>
+      <PipelineData view={view} accountId={accountId} filters={parsePipelineFilters(params)} />
+    </Suspense>
   );
 }

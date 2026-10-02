@@ -14,7 +14,7 @@ import {
   resolveHubSpotPresentation,
   safeAccountMetadata,
 } from '@/modules/accounts/hubspot-company-sync-presentation';
-import { PIPELINE_STAGES, resolveCurrentStage, resolveStageStates } from './stages';
+import { PIPELINE_STAGES, PIPELINE_STAGE_IDS, resolveCurrentStage, resolveStageStates } from './stages';
 import { computeSignals, daysBetween, highestSeverity, severityRank, SIGNAL_IDS } from './signals';
 import type {
   AccountJourney,
@@ -26,6 +26,7 @@ import type {
   PipelineOverviewAccount,
   PipelineSignal,
   PipelineSignalId,
+  PipelineStage,
   PipelineStageId,
 } from './types';
 
@@ -238,6 +239,23 @@ function resolveMilestones(args: {
   };
 }
 
+// ── Etapa disponible pero sin empezar ──────────────────────────
+
+/**
+ * Una etapa cuyo agente YA existe y que para esta empresa no tiene nada todavía. `prospeccion`
+ * nunca lo es (la empresa existe); `enriquecimiento` lo es sin contactos y sin ninguna búsqueda
+ * del Agente 2A — una búsqueda fallida ya cuenta como empezada: hay algo que contar. Las etapas
+ * previstas tampoco: no se pueden activar.
+ */
+export function isStageNotStarted(
+  stage: Pick<PipelineStage, 'id' | 'phase'>,
+  facts: { contactsTotal: number; runsTotal: number },
+): boolean {
+  if (stage.phase !== 'hecho') return false;
+  if (stage.id !== 'enriquecimiento') return false;
+  return facts.contactsTotal === 0 && facts.runsTotal === 0;
+}
+
 // ── Recorrido ──────────────────────────────────────────────────
 
 export interface AccountJourneyInput {
@@ -292,6 +310,7 @@ export function buildAccountJourney(input: AccountJourneyInput): AccountJourney 
     state: stageStates[stage.id],
     signals: signals.filter((signal) => signal.stageId === stage.id),
     milestoneAt: milestones[stage.id] ?? null,
+    notStarted: isStageNotStarted(stage, { contactsTotal: input.contacts.length, runsTotal: runs.length }),
   }));
 
   return {
@@ -313,6 +332,7 @@ export function buildAccountJourney(input: AccountJourneyInput): AccountJourney 
       pipelineStatus: effectiveStatus,
       hubspotCompanyId: account.hubspot_company_id,
       hubspotLabel: hubspotPresentation.label,
+      hubspotStatus: hubspotPresentation.status,
       hubspotSynced,
     },
     currentStageId,
@@ -381,13 +401,14 @@ export function sortOverviewAccounts(accounts: readonly PipelineOverviewAccount[
 
 export function buildPipelineOverview(input: PipelineOverviewInput): PipelineOverview {
   const countsBySignal = Object.fromEntries(SIGNAL_IDS.map((id) => [id, 0])) as Record<PipelineSignalId, number>;
-  const countsByStage = { enriquecimiento: 0, inteligencia: 0, preparacion: 0 };
+  const countsByStage = Object.fromEntries(PIPELINE_STAGE_IDS.map((id) => [id, 0])) as Record<PipelineStageId, number>;
   let withSignalsTotal = 0;
 
   const accounts = input.accounts.map((account): PipelineOverviewAccount => {
     const facts = input.facts.get(account.id) ?? EMPTY_ACCOUNT_FACTS;
     const { stageId, substatusLabel } = resolveCurrentStage(account.pipeline_status);
-    const daysSinceMovement = daysBetween(facts.lastStatusChangeAt ?? account.created_at, input.now);
+    const lastMovementAt = facts.lastStatusChangeAt ?? account.created_at;
+    const daysSinceMovement = daysBetween(lastMovementAt, input.now);
     const signals: PipelineSignal[] = computeSignals({
       pipelineStatus: account.pipeline_status,
       currentStageId: stageId,
@@ -400,7 +421,7 @@ export function buildPipelineOverview(input: PipelineOverviewInput): PipelineOve
       lastRunStatus: facts.lastRunStatus,
     });
 
-    if (stageId && stageId in countsByStage) countsByStage[stageId as keyof typeof countsByStage] += 1;
+    if (stageId) countsByStage[stageId] += 1;
     if (signals.length > 0) withSignalsTotal += 1;
     for (const signal of signals) countsBySignal[signal.id] += 1;
 
@@ -415,6 +436,8 @@ export function buildPipelineOverview(input: PipelineOverviewInput): PipelineOve
       currentStageId: stageId,
       substatusLabel,
       daysSinceMovement,
+      lastMovementAt,
+      createdAt: account.created_at,
       signals,
     };
   });

@@ -5,3 +5,4 @@ export * from './types';
 export * from './stages';
 export * from './signals';
 export * from './journey-read-model';
+export * from './pipeline-filters';

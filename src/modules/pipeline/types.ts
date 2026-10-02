@@ -1,4 +1,5 @@
 import type { AccountAuditEntry, AccountSource, PipelineStatus } from '@/modules/accounts/types';
+import type { HubSpotCompanyPresentationStatus } from '@/modules/accounts/hubspot-company-sync-presentation';
 import type { AccountContactEnrichmentRun } from '@/modules/contact-enrichment/account-run-history-types';
 import type { ClaudeClassificationDisplay } from '@/components/prospect-batches/claude-classification-display';
 
@@ -82,13 +83,17 @@ export interface PipelineOverviewAccount {
   currentStageId: PipelineStageId | null;
   substatusLabel: string;
   daysSinceMovement: number;
+  /** Último cambio de estado (o la creación, si nunca cambió), ISO. */
+  lastMovementAt: string;
+  /** Cuándo entró al pipeline (`created_at`), ISO. */
+  createdAt: string;
   signals: PipelineSignal[];
 }
 
 export interface PipelineOverview {
   accounts: PipelineOverviewAccount[];
-  /** Cuántas empresas hay en cada etapa con datos. */
-  countsByStage: Record<'enriquecimiento' | 'inteligencia' | 'preparacion', number>;
+  /** Cuántas empresas tienen cada etapa como actual: las 8 del proceso (0 si ninguna ha llegado). */
+  countsByStage: Record<PipelineStageId, number>;
   archivedTotal: number;
   /** Cuántas empresas tienen al menos una señal. */
   withSignalsTotal: number;
@@ -141,6 +146,12 @@ export interface JourneyStage {
   signals: PipelineSignal[];
   /** Fecha del hito de la etapa, si existe (ISO). */
   milestoneAt: string | null;
+  /**
+   * La etapa ya tiene agente en SellUp pero para esta empresa aún no se ha hecho nada: se pinta
+   * como una invitación a activarla, no como un acordeón vacío. Hoy solo puede serlo
+   * `enriquecimiento` (sin contactos y sin ninguna búsqueda del Agente 2A).
+   */
+  notStarted: boolean;
 }
 
 export type JourneyEventKind = 'audit' | 'approval' | 'run';
@@ -173,6 +184,8 @@ export interface AccountJourney {
     pipelineStatus: PipelineStatus;
     hubspotCompanyId: string | null;
     hubspotLabel: string;
+    /** El tono del chip de HubSpot (el vocabulario de `StatusBadge`). */
+    hubspotStatus: HubSpotCompanyPresentationStatus;
     hubspotSynced: boolean;
   };
   currentStageId: PipelineStageId | null;

@@ -212,8 +212,20 @@ export function buildJourney(overrides: Partial<AccountWithOwner> = {}): Account
   });
 }
 
+/** Una empresa recién aprobada: solo tiene la etapa 1 (su origen); aún no se han buscado sus contactos. */
+export function buildProspectOnlyJourney(overrides: Partial<AccountWithOwner> = {}): AccountJourney {
+  return buildAccountJourney({
+    account: account({ pipeline_status: 'new', ...overrides }),
+    origin: ORIGIN,
+    contacts: [],
+    runs: [],
+    audit: [],
+    now: NOW,
+  });
+}
+
 /** Una empresa creada a mano, sin prospecto, sin contactos y parada 30 días. */
-export function buildManualJourney(): AccountJourney {
+export function buildManualJourney(overrides: Partial<AccountWithOwner> = {}): AccountJourney {
   return buildAccountJourney({
     account: account({
       id: 'acme',
@@ -223,6 +235,7 @@ export function buildManualJourney(): AccountJourney {
       hubspot_company_id: null,
       metadata: {},
       created_at: '2026-09-01T10:00:00Z',
+      ...overrides,
     }),
     origin: null,
     contacts: [],

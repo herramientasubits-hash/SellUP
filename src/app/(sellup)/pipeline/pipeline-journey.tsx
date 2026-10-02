@@ -1,62 +1,59 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
-import { ArrowLeft, ChevronDown, ExternalLink, Search } from "@/icons";
+import { ArrowLeft, LayoutDashboard, Search } from "@/icons";
 import { cn } from "@/lib/utils";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Heading, Text } from "@/components/typography";
+import { Heading } from "@/components/typography";
 import { SurfaceCard } from "@/components/shared/surface-card";
-import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { CountryCell, countryFlag, countryName } from "@/components/shared/table-cells";
-import { FilterChips } from "@/components/filters/filter-chips";
 import { Stepper, type StepperStep } from "@/components/navigation/stepper";
 import { ListItem, ListItemGroup, StatusBadge } from "@/components/data-display";
-import { PIPELINE_STATUS_LABELS, type PipelineStatus } from "@/modules/accounts/types";
+import type { PipelineStatus } from "@/modules/accounts/types";
+import {
+  EMPTY_PIPELINE_FILTERS,
+  applyPipelineFilters,
+  countActiveFilters,
+  isSignalFiltered,
+  toggleSignalFilter,
+  type PipelineFilters,
+} from "@/modules/pipeline/pipeline-filters";
 import type {
   AccountJourney,
   PipelineOverview,
   PipelineOverviewAccount,
-  PipelineSignalId,
   PipelineStageId,
 } from "@/modules/pipeline/types";
 import {
-  BOARD_COLUMNS,
   SIGNAL_BADGE_VARIANT,
-  SIGNAL_FILTER_LABELS,
   STAGE_SHORT_LABELS,
   currentStageBadge,
   daysAgoLabel,
   hasCriticalSignal,
 } from "./pipeline-copy";
+import { PipelineFilterBar } from "./pipeline-filters-panel";
 import { PipelineOverviewPanel } from "./pipeline-overview";
-import { PipelineHistory, PipelineStageCards, stageAnchorId } from "./pipeline-stage-cards";
+import { PipelineHistory, PipelineStageCards, type StageFocusRequest } from "./pipeline-stage-cards";
+import { PipelineStageDrawer } from "./pipeline-stage-drawer";
 import { PipelineJourneySkeleton } from "./pipeline-skeleton";
 
 /** Lo que devuelve mover una empresa de etapa (la forma de `updateAccount`). */
 export type ChangeStageResult = { success: true } | { success: false; error: string };
 export type ChangeStageAction = (accountId: string, status: PipelineStatus) => Promise<ChangeStageResult>;
 
-type StageFilter = "all" | "enriquecimiento" | "inteligencia" | "preparacion";
-
-// ── Panel izquierdo: la lista de empresas ───────────────────────
+// ── Panel izquierdo: el resumen y la lista de empresas ──────────
 
 interface AccountListPanelProps {
   overview: PipelineOverview;
   selectedAccountId: string | null;
   onSelectAccount: (accountId: string | null) => void;
-  signalFilter: PipelineSignalId | null;
-  onSignalFilterChange: (signal: PipelineSignalId | null) => void;
+  filters: PipelineFilters;
+  onFiltersChange: (next: PipelineFilters) => void;
+  now: Date;
 }
 
 function matchesSearch(account: PipelineOverviewAccount, query: string): boolean {
@@ -65,224 +62,172 @@ function matchesSearch(account: PipelineOverviewAccount, query: string): boolean
   return haystack.includes(query);
 }
 
+/**
+ * Arriba, fijo: la entrada «Resumen del pipeline», el buscador y los filtros.
+ * Debajo, la lista de empresas con su propio scroll (en escritorio; en pantalla
+ * estrecha la página es la que se desplaza).
+ */
 function AccountListPanel({
   overview,
   selectedAccountId,
   onSelectAccount,
-  signalFilter,
-  onSignalFilterChange,
+  filters,
+  onFiltersChange,
+  now,
 }: AccountListPanelProps) {
   const [search, setSearch] = React.useState("");
-  const [stageFilter, setStageFilter] = React.useState<StageFilter>("all");
   const query = search.trim().toLowerCase();
 
-  const visible = overview.accounts.filter(
-    (account) =>
-      matchesSearch(account, query) &&
-      (stageFilter === "all" || account.currentStageId === stageFilter) &&
-      (!signalFilter || account.signals.some((signal) => signal.id === signalFilter)),
+  const visible = applyPipelineFilters(overview.accounts, filters, now).filter((account) =>
+    matchesSearch(account, query),
   );
+  const hasAnyFilter = countActiveFilters(filters) > 0 || query !== "";
 
   return (
-    <div className="flex min-h-0 flex-col gap-3">
-      <div className="relative">
-        <Search aria-hidden className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-text-muted" />
-        <Input
-          type="search"
-          aria-label="Buscar empresa por nombre o dominio"
-          placeholder="Buscar por nombre o dominio"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          className="pl-9"
+    <div className="flex min-h-0 flex-col gap-3 lg:flex-1">
+      <div className="flex shrink-0 flex-col gap-3">
+        {/* El resumen solo existe como «una cosa a la vez» en escritorio; en móvil se llega con «Volver». */}
+        <ListItemGroup aria-label="Resumen" className="hidden lg:flex">
+          <ListItem
+            size="sm"
+            selected={selectedAccountId === null}
+            onClick={() => onSelectAccount(null)}
+            leading={<LayoutDashboard aria-hidden className="size-4 shrink-0 text-text-muted" />}
+            title="Resumen del pipeline"
+            description={
+              overview.withSignalsTotal > 0
+                ? `${overview.accounts.length} empresas · ${overview.withSignalsTotal} requieren atención`
+                : `${overview.accounts.length} empresas`
+            }
+          />
+        </ListItemGroup>
+
+        <div className="relative">
+          <Search aria-hidden className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-text-muted" />
+          <Input
+            type="search"
+            aria-label="Buscar empresa por nombre o dominio"
+            placeholder="Buscar por nombre o dominio"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            className="pl-9"
+          />
+        </div>
+
+        <PipelineFilterBar
+          accounts={overview.accounts}
+          filters={filters}
+          onChange={onFiltersChange}
+          visibleCount={visible.length}
         />
       </div>
 
-      <FilterChips
-        wrap
-        ariaLabel="Filtrar por etapa actual"
-        value={stageFilter}
-        onChange={(value) => setStageFilter(value as StageFilter)}
-        options={[
-          { value: "all", label: "Todas", count: overview.accounts.length },
-          { value: "enriquecimiento", label: STAGE_SHORT_LABELS.enriquecimiento, count: overview.countsByStage.enriquecimiento },
-          { value: "inteligencia", label: STAGE_SHORT_LABELS.inteligencia, count: overview.countsByStage.inteligencia },
-          { value: "preparacion", label: STAGE_SHORT_LABELS.preparacion, count: overview.countsByStage.preparacion },
-        ]}
-      />
-
-      {signalFilter && (
-        <div className="flex items-center justify-between gap-2">
-          <Badge variant="warning">{SIGNAL_FILTER_LABELS[signalFilter]}</Badge>
-          <Button variant="ghost" size="xs" onClick={() => onSignalFilterChange(null)}>
-            Quitar filtro
-          </Button>
-        </div>
-      )}
-
-      <Text size="xs" tone="muted" aria-live="polite">
-        {visible.length === 1 ? "1 empresa" : `${visible.length} empresas`}
-      </Text>
-
-      {visible.length === 0 ? (
-        <EmptyState
-          variant="plain"
-          title="Ninguna empresa coincide"
-          description="Prueba con otro nombre o quita los filtros."
-        />
-      ) : (
-        <ListItemGroup aria-label="Empresas del pipeline">
-          {visible.map((account) => {
-            const stage = currentStageBadge(account.currentStageId);
-            const country = countryName(account.countryCode);
-            const flag = countryFlag(account.countryCode);
-            const needsAttention = account.signals.length > 0;
-            return (
-              <ListItem
-                key={account.id}
-                selected={account.id === selectedAccountId}
-                onClick={() => onSelectAccount(account.id)}
-                title={account.name}
-                description={[country ? `${flag} ${country}`.trim() : null, daysAgoLabel(account.daysSinceMovement)]
-                  .filter(Boolean)
-                  .join(" · ")}
-                meta={
-                  <span className="flex items-center gap-1.5">
-                    {needsAttention && (
-                      <span
-                        role="img"
-                        aria-label="Requiere atención"
-                        className={cn(
-                          "size-2 shrink-0 rounded-full",
-                          hasCriticalSignal(account.signals) ? "bg-destructive" : "bg-warning",
-                        )}
-                      />
-                    )}
-                    <StatusBadge status={stage.status} label={stage.label} />
-                  </span>
-                }
-              />
-            );
-          })}
-        </ListItemGroup>
-      )}
+      <div className="min-h-0 lg:-mx-1 lg:flex-1 lg:overflow-y-auto lg:px-1 lg:pb-1">
+        {visible.length === 0 ? (
+          <EmptyState
+            variant="plain"
+            title="Ninguna empresa coincide"
+            description="Prueba con otro nombre o quita los filtros."
+            action={
+              hasAnyFilter ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSearch("");
+                    onFiltersChange({ ...EMPTY_PIPELINE_FILTERS, dateField: filters.dateField });
+                  }}
+                >
+                  Limpiar filtros
+                </Button>
+              ) : undefined
+            }
+          />
+        ) : (
+          <ListItemGroup aria-label="Empresas del pipeline">
+            {visible.map((account) => {
+              const stage = currentStageBadge(account.currentStageId);
+              const country = countryName(account.countryCode);
+              const flag = countryFlag(account.countryCode);
+              const needsAttention = account.signals.length > 0;
+              const isSelected = account.id === selectedAccountId;
+              return (
+                <ListItem
+                  key={account.id}
+                  selected={isSelected}
+                  // Pulsar la empresa ya elegida vuelve al resumen.
+                  onClick={() => onSelectAccount(isSelected ? null : account.id)}
+                  title={account.name}
+                  description={[country ? `${flag} ${country}`.trim() : null, daysAgoLabel(account.daysSinceMovement)]
+                    .filter(Boolean)
+                    .join(" · ")}
+                  meta={
+                    <span className="flex items-center gap-1.5">
+                      {needsAttention && (
+                        <span
+                          role="img"
+                          aria-label="Requiere atención"
+                          className={cn(
+                            "size-2 shrink-0 rounded-full",
+                            hasCriticalSignal(account.signals) ? "bg-destructive" : "bg-warning",
+                          )}
+                        />
+                      )}
+                      <StatusBadge status={stage.status} label={stage.label} />
+                    </span>
+                  }
+                />
+              );
+            })}
+          </ListItemGroup>
+        )}
+      </div>
     </div>
   );
 }
 
 // ── Cabecera de la empresa y cambio de etapa ────────────────────
 
-interface JourneyHeaderProps {
-  journey: AccountJourney;
-  onChangeStage?: ChangeStageAction;
-}
-
-function JourneyHeader({ journey, onChangeStage }: JourneyHeaderProps) {
+/**
+ * Quién es la empresa y dónde está. Sin botones: «Cambiar etapa», «Ver empresa»
+ * y el agente de IA viven en la barra de acciones de la pantalla
+ * (`PipelineScreenActions`), para no duplicarlos.
+ */
+function JourneyHeader({ journey }: { journey: AccountJourney }) {
   const { account } = journey;
   const stage = currentStageBadge(journey.currentStageId);
-  const [target, setTarget] = React.useState<PipelineStatus | null>(null);
-  const [isSaving, setIsSaving] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-
-  async function confirmChange() {
-    if (!target || !onChangeStage || isSaving) return;
-    setIsSaving(true);
-    setError(null);
-    try {
-      const result = await onChangeStage(account.id, target);
-      if (result.success) setTarget(null);
-      else setError(result.error);
-    } catch {
-      setError("No se pudo mover la empresa. Inténtalo de nuevo.");
-    } finally {
-      setIsSaving(false);
-    }
-  }
 
   return (
     <SurfaceCard className="p-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex min-w-0 flex-col gap-2">
-          <Heading level={5} as="h2" truncate>
-            {account.name}
-          </Heading>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            <CountryCell code={account.countryCode} />
-            {account.industry && <span>{account.industry}</span>}
-            <span>{account.ownerName ? `Responsable: ${account.ownerName}` : "Sin responsable"}</span>
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <StatusBadge
-              status={stage.status}
-              label={journey.isArchived ? stage.label : `${stage.label} · ${journey.substatusLabel}`}
-            />
-            {journey.signals.map((signal) => (
-              <Badge key={signal.id} variant={SIGNAL_BADGE_VARIANT[signal.severity]}>
-                {signal.label}
-              </Badge>
-            ))}
-          </div>
+      <div className="flex min-w-0 flex-col gap-2">
+        <Heading level={5} as="h2" truncate>
+          {account.name}
+        </Heading>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <CountryCell code={account.countryCode} />
+          {account.industry && <span>{account.industry}</span>}
+          <span>{account.ownerName ? `Responsable: ${account.ownerName}` : "Sin responsable"}</span>
         </div>
-
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-          <Button asChild variant="outline" size="sm">
-            <Link href={`/accounts/${account.id}`}>
-              Ver empresa
-              <ExternalLink aria-hidden="true" />
-            </Link>
-          </Button>
-          {onChangeStage && !journey.isArchived && (
-            <DropdownMenu>
-              <DropdownMenuTrigger render={<Button size="sm" />}>
-                Cambiar etapa
-                <ChevronDown aria-hidden="true" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                {BOARD_COLUMNS.map((column) => (
-                  <DropdownMenuItem
-                    key={column.status}
-                    disabled={column.status === account.pipelineStatus}
-                    onClick={() => {
-                      setError(null);
-                      setTarget(column.status);
-                    }}
-                  >
-                    {PIPELINE_STATUS_LABELS[column.status]}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <StatusBadge
+            status={stage.status}
+            label={journey.isArchived ? stage.label : `${stage.label} · ${journey.substatusLabel}`}
+          />
+          {journey.signals.map((signal) => (
+            <Badge key={signal.id} variant={SIGNAL_BADGE_VARIANT[signal.severity]}>
+              {signal.label}
+            </Badge>
+          ))}
         </div>
       </div>
-
-      <ConfirmDialog
-        open={target !== null}
-        onOpenChange={(open) => {
-          if (!open && !isSaving) setTarget(null);
-        }}
-        title={target ? `¿Mover a «${PIPELINE_STATUS_LABELS[target]}»?` : ""}
-        description={`${account.name} cambiará de etapa en el pipeline. Queda anotado en su historial.`}
-        confirmLabel="Mover"
-        loading={isSaving}
-        onConfirm={confirmChange}
-      >
-        {error && (
-          <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-      </ConfirmDialog>
     </SurfaceCard>
   );
 }
 
 // ── Pista de etapas ─────────────────────────────────────────────
 
-function scrollToStage(stageId: PipelineStageId) {
-  document.getElementById(stageAnchorId(stageId))?.scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-function StageTrack({ journey }: { journey: AccountJourney }) {
+function StageTrack({ journey, onSelectStage }: { journey: AccountJourney; onSelectStage: (stageId: PipelineStageId) => void }) {
   const currentIndex = journey.stages.findIndex((entry) => entry.state === "current");
   const steps: StepperStep[] = journey.stages.map((entry) => ({
     id: entry.stage.id,
@@ -306,7 +251,7 @@ function StageTrack({ journey }: { journey: AccountJourney }) {
         steps={steps}
         current={currentIndex}
         clickableUpcoming
-        onStepClick={(index) => scrollToStage(journey.stages[index].stage.id)}
+        onStepClick={(index) => onSelectStage(journey.stages[index].stage.id)}
       />
     </SurfaceCard>
   );
@@ -316,17 +261,44 @@ function StageTrack({ journey }: { journey: AccountJourney }) {
 
 interface JourneyDetailProps {
   journey: AccountJourney;
-  onChangeStage?: ChangeStageAction;
   onSearchContacts?: () => void;
+  /** Avisa de que el drawer de detalle de una etapa se abrió o se cerró (la barra se bloquea mientras). */
+  onStageDetailOpenChange?: (open: boolean) => void;
 }
 
-export function JourneyDetail({ journey, onChangeStage, onSearchContacts }: JourneyDetailProps) {
+export function JourneyDetail({ journey, onSearchContacts, onStageDetailOpenChange }: JourneyDetailProps) {
+  const [detailStage, setDetailStage] = React.useState<PipelineStageId | null>(null);
+  const setDetail = React.useCallback(
+    (stageId: PipelineStageId | null) => {
+      setDetailStage(stageId);
+      onStageDetailOpenChange?.(stageId !== null);
+    },
+    [onStageDetailOpenChange],
+  );
+  const [focusRequest, setFocusRequest] = React.useState<StageFocusRequest | null>(null);
+  const nonce = React.useRef(0);
+  const selectStage = React.useCallback((stageId: PipelineStageId) => {
+    nonce.current += 1;
+    setFocusRequest({ stageId, nonce: nonce.current });
+  }, []);
+
   return (
     <div className="flex min-w-0 flex-col gap-3">
-      <JourneyHeader journey={journey} onChangeStage={onChangeStage} />
-      <StageTrack journey={journey} />
-      <PipelineStageCards journey={journey} onSearchContacts={onSearchContacts} />
+      <JourneyHeader journey={journey} />
+      <StageTrack journey={journey} onSelectStage={selectStage} />
+      <PipelineStageCards
+        journey={journey}
+        onSearchContacts={onSearchContacts}
+        focusRequest={focusRequest}
+        onOpenStageDetail={setDetail}
+      />
       <PipelineHistory history={journey.history} />
+      <PipelineStageDrawer
+        journey={journey}
+        stageId={detailStage}
+        onClose={() => setDetail(null)}
+        onSearchContacts={onSearchContacts}
+      />
     </div>
   );
 }
@@ -343,9 +315,16 @@ export interface PipelineJourneyProps {
   onSelectAccount: (accountId: string | null) => void;
   /** La empresa hacia la que se está navegando: mientras llega, se pinta el esqueleto. */
   pendingAccountId?: string | null;
-  /** Mueve la empresa de etapa. Sin ella no se ofrece «Cambiar etapa». */
-  onChangeStage?: ChangeStageAction;
   onSearchContacts?: () => void;
+  /** La barra flotante de acciones está abajo: el panel pegado le deja sitio. */
+  railAtBottom?: boolean;
+  /** El drawer de detalle de una etapa se abrió o se cerró. */
+  onStageDetailOpenChange?: (open: boolean) => void;
+  /** Los filtros de la lista, cuando los lleva quien monta la vista (la URL). Sin ellos, son estado local. */
+  filters?: PipelineFilters;
+  onFiltersChange?: (next: PipelineFilters) => void;
+  /** «Ahora», para los filtros de fecha. Por defecto, el momento de montar la vista. */
+  now?: Date;
 }
 
 /**
@@ -360,10 +339,19 @@ export function PipelineJourney({
   journey,
   onSelectAccount,
   pendingAccountId = null,
-  onChangeStage,
   onSearchContacts,
+  railAtBottom = false,
+  onStageDetailOpenChange,
+  filters: controlledFilters,
+  onFiltersChange,
+  now: nowProp,
 }: PipelineJourneyProps) {
-  const [signalFilter, setSignalFilter] = React.useState<PipelineSignalId | null>(null);
+  // Los filtros los lleva quien monta la vista (a la URL); sin él, viven aquí.
+  const [localFilters, setLocalFilters] = React.useState<PipelineFilters>(EMPTY_PIPELINE_FILTERS);
+  const filters = controlledFilters ?? localFilters;
+  const setFilters = onFiltersChange ?? setLocalFilters;
+  const [mountedAt] = React.useState(() => new Date());
+  const now = nowProp ?? mountedAt;
   const activeAccountId = pendingAccountId ?? selectedAccountId;
   const hasSelection = activeAccountId !== null;
   const isLoading = pendingAccountId !== null && pendingAccountId !== journey?.account.id;
@@ -373,7 +361,12 @@ export function PipelineJourney({
   if (isLoading) {
     detail = <PipelineJourneySkeleton />;
   } else if (selectedAccountId && journey) {
-    detail = <JourneyDetail journey={journey} onChangeStage={onChangeStage} onSearchContacts={onSearchContacts} />;
+    detail = <JourneyDetail
+        key={journey.account.id}
+        journey={journey}
+        onSearchContacts={onSearchContacts}
+        onStageDetailOpenChange={onStageDetailOpenChange}
+      />;
   } else if (selectedAccountId) {
     detail = (
       <Alert variant="warning">
@@ -383,33 +376,51 @@ export function PipelineJourney({
     );
   } else {
     detail = (
-      <PipelineOverviewPanel overview={overview} signalFilter={signalFilter} onSignalFilterChange={setSignalFilter} />
+      <PipelineOverviewPanel
+        overview={overview}
+        isSignalFiltered={(signal) => isSignalFiltered(filters, signal)}
+        onToggleSignal={(signal) => setFilters(toggleSignalFilter(filters, signal))}
+        hasFilters={countActiveFilters(filters) > 0}
+      />
     );
   }
 
   if (!hasAccounts && !hasSelection) return <div className="flex min-h-0 flex-1 flex-col">{detail}</div>;
 
   return (
+    // Solo se desplaza la PÁGINA y, dentro del panel izquierdo, la lista de empresas: el panel va
+    // pegado (`sticky`) bajo la cabecera de la app con su propio scroll, y el recorrido fluye con la
+    // página. En pantalla estrecha todo fluye y se ve una cosa a la vez.
     <div className="grid min-w-0 gap-4 lg:grid-cols-[21.25rem_minmax(0,1fr)] lg:items-start">
       <aside
         aria-label="Empresas"
         data-slot="pipeline-list"
         data-collapsed-on-mobile={hasSelection || undefined}
-        className={cn("min-w-0", hasSelection && "hidden lg:block")}
+        className={cn(
+          "flex min-w-0 flex-col lg:sticky lg:top-4",
+          // Con la barra flotante abajo, el panel pegado acaba antes para que no le tape las últimas
+          // empresas, tampoco con la página sin desplazar (cuando aún tiene encima la cabecera de la página).
+          railAtBottom ? "lg:max-h-[calc(100dvh-14.5rem)]" : "lg:max-h-[calc(100dvh-5.5rem)]",
+          hasSelection && "hidden lg:flex",
+        )}
       >
         <AccountListPanel
           overview={overview}
           selectedAccountId={activeAccountId}
           onSelectAccount={onSelectAccount}
-          signalFilter={signalFilter}
-          onSignalFilterChange={setSignalFilter}
+          filters={filters}
+          onFiltersChange={setFilters}
+          now={now}
         />
       </aside>
 
       <div
         data-slot="pipeline-detail"
         data-collapsed-on-mobile={!hasSelection || undefined}
-        className={cn("flex min-w-0 flex-col gap-3", !hasSelection && "hidden lg:flex")}
+        className={cn(
+          "flex min-w-0 flex-col gap-3",
+          !hasSelection && "hidden lg:flex",
+        )}
       >
         {hasSelection && (
           <div className="lg:hidden">

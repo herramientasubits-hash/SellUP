@@ -3,21 +3,30 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ThemaTabs } from "@/components/navigation/thema-tabs";
+import { ListActionRailProvider } from "@/components/action-rail";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ContactEnrichmentDrawer } from "@/components/contact-enrichment/contact-enrichment-drawer";
 import { countryName } from "@/components/shared/table-cells";
 import { updateAccount } from "@/modules/accounts/actions";
 import { PIPELINE_STATUS_LABELS, type PipelineStatus } from "@/modules/accounts/types";
+import type { PipelineFilters } from "@/modules/pipeline/pipeline-filters";
 import type { AccountJourney, PipelineOverview } from "@/modules/pipeline/types";
-import { PIPELINE_VIEWS, pipelineHref, resolvePipelineView, type PipelineView } from "./pipeline-copy";
+import { usePipelineUrlFilters } from "./pipeline-filter-state";
+import { pipelineHref, type PipelineView } from "./pipeline-copy";
+import { PipelineFrame } from "./pipeline-frame";
 import { PipelineBoard } from "./pipeline-board";
 import { PipelineJourney, type ChangeStageResult } from "./pipeline-journey";
+import { PipelineRailGap, PipelineScreenActions, usePipelineRailAtBottom } from "./pipeline-screen-actions";
 
 interface PipelineScreenProps {
   overview: PipelineOverview;
   view: PipelineView;
   selectedAccountId: string | null;
   journey: AccountJourney | null;
+  /** Aviso cuando el recorrido de la empresa elegida no se pudo cargar (la lista sigue disponible). */
+  journeyError?: boolean;
+  /** Los filtros que venían en la URL. */
+  initialFilters: PipelineFilters;
 }
 
 /**
@@ -26,20 +35,22 @@ interface PipelineScreenProps {
  * —mover una empresa de etapa con `updateAccount`—, que siempre nace de una
  * confirmación de la persona.
  */
-export function PipelineScreen({ overview, view, selectedAccountId, journey }: PipelineScreenProps) {
+export function PipelineScreen({ overview, view, selectedAccountId, journey, journeyError = false, initialFilters }: PipelineScreenProps) {
   const router = useRouter();
   const [isNavigating, startNavigation] = React.useTransition();
   const [targetAccountId, setTargetAccountId] = React.useState<string | null>(null);
   const [enrichmentOpen, setEnrichmentOpen] = React.useState(false);
+  const [filters, setFilters] = usePipelineUrlFilters(initialFilters);
+  const [stageDetailOpen, setStageDetailOpen] = React.useState(false);
 
   const navigate = React.useCallback(
     (nextView: PipelineView, accountId: string | null) => {
       setTargetAccountId(accountId);
       startNavigation(() => {
-        router.push(pipelineHref(nextView, accountId), { scroll: false });
+        router.push(pipelineHref(nextView, accountId, filters), { scroll: false });
       });
     },
-    [router],
+    [router, filters],
   );
 
   const changeStage = React.useCallback(
@@ -54,18 +65,38 @@ export function PipelineScreen({ overview, view, selectedAccountId, journey }: P
     [router],
   );
 
+  const openEnrichment = React.useCallback(() => setEnrichmentOpen(true), []);
+  const viewAccount = React.useCallback((accountId: string) => router.push(`/accounts/${accountId}`), [router]);
+
   const pendingAccountId = isNavigating && targetAccountId !== selectedAccountId ? targetAccountId : null;
 
+  // Las acciones son de la empresa elegida en el recorrido: sin ella (resumen, tablero) no hay barra.
+  const actionJourney = view === "recorrido" && pendingAccountId === null ? journey : null;
+  const railAtBottom = usePipelineRailAtBottom(actionJourney !== null);
+
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
-      <ThemaTabs
-        navigation
-        fitContent
-        listLabel="Vistas del pipeline"
-        tabs={PIPELINE_VIEWS}
-        activeTabId={view}
-        onTabChange={(id) => navigate(resolvePipelineView(id), id === "recorrido" ? selectedAccountId : null)}
-      />
+    <ListActionRailProvider label="Acciones del pipeline" gender="f">
+    <PipelineFrame
+      view={view}
+      accountId={selectedAccountId}
+      accountName={journey?.account.name}
+      onViewChange={(next) => navigate(next, next === "recorrido" ? selectedAccountId : null)}
+      actions={
+        <PipelineScreenActions
+          journey={actionJourney}
+          onChangeStage={changeStage}
+          onSearchContacts={openEnrichment}
+          onViewAccount={viewAccount}
+          isBlocked={enrichmentOpen || stageDetailOpen}
+        />
+      }
+    >
+      {journeyError && (
+        <Alert variant="destructive" className="mb-3">
+          <AlertTitle>No se pudo cargar el recorrido de esa empresa</AlertTitle>
+          <AlertDescription>La lista sigue disponible; vuelve a elegir la empresa en un momento.</AlertDescription>
+        </Alert>
+      )}
 
       {view === "tablero" ? (
         <PipelineBoard
@@ -73,6 +104,8 @@ export function PipelineScreen({ overview, view, selectedAccountId, journey }: P
           onMoveAccount={changeStage}
           onOpenAccount={(accountId) => navigate("recorrido", accountId)}
           onMoveFailed={(message) => toast.error(message)}
+          filters={filters}
+          onFiltersChange={setFilters}
         />
       ) : (
         <PipelineJourney
@@ -81,10 +114,15 @@ export function PipelineScreen({ overview, view, selectedAccountId, journey }: P
           journey={journey}
           pendingAccountId={pendingAccountId}
           onSelectAccount={(accountId) => navigate("recorrido", accountId)}
-          onChangeStage={changeStage}
-          onSearchContacts={() => setEnrichmentOpen(true)}
+          onSearchContacts={openEnrichment}
+          railAtBottom={railAtBottom}
+          onStageDetailOpenChange={setStageDetailOpen}
+          filters={filters}
+          onFiltersChange={setFilters}
         />
       )}
+
+      <PipelineRailGap visible={railAtBottom} />
 
       {journey && (
         <ContactEnrichmentDrawer
@@ -104,6 +142,7 @@ export function PipelineScreen({ overview, view, selectedAccountId, journey }: P
           }}
         />
       )}
-    </div>
+    </PipelineFrame>
+    </ListActionRailProvider>
   );
 }

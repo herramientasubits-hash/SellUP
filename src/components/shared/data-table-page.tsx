@@ -39,6 +39,14 @@ interface DataTablePageProps {
    * la tabla sin filas. Por defecto, la cabecera de siempre (`PageHeader`).
    */
   compact?: boolean;
+  /**
+   * Deja que se desplace la PÁGINA (la caja de todo el ancho del shell) en vez de
+   * una caja propia con alto fijo. Para pantallas de lista + detalle cuyo detalle
+   * es largo: el detalle fluye con la página y la lista se queda pegada
+   * (`sticky`) con su propio scroll. Sin esto habría dos barras de scroll
+   * verticales anidadas.
+   */
+  pageScroll?: boolean;
   className?: string;
 }
 
@@ -129,6 +137,7 @@ export function DataTablePage({
   metrics,
   children,
   compact = false,
+  pageScroll = false,
   className,
 }: DataTablePageProps) {
   return (
@@ -141,7 +150,9 @@ export function DataTablePage({
     // y a los anillos de foco, que una caja con scroll recortaría.
     <div
       className={cn(
-        "-mx-3 flex min-h-0 flex-1 flex-col overflow-y-auto px-3 pb-1",
+        pageScroll
+          ? "flex shrink-0 flex-col pb-4"
+          : "-mx-3 flex min-h-0 flex-1 flex-col overflow-y-auto px-3 pb-1",
         compact ? "gap-3" : "gap-5",
         className,
       )}
@@ -172,7 +183,7 @@ export function DataTablePage({
       {metrics && <div className="shrink-0">{metrics}</div>}
       {/* La tabla ocupa todo el alto que queda, con un mínimo: el de la
           pantalla visible, hasta 32rem. */}
-      <div className="flex min-h-[min(100%,32rem)] flex-1 flex-col">{children}</div>
+      <div className={pageScroll ? "flex flex-col" : "flex min-h-[min(100%,32rem)] flex-1 flex-col"}>{children}</div>
     </div>
   );
 }

@@ -14,6 +14,7 @@ import type { AccountContactEnrichmentRun } from '@/modules/contact-enrichment/a
 import {
   buildAccountJourney,
   buildPipelineOverview,
+  isStageNotStarted,
   readApprovalMetadata,
   resolveLastMovementAt,
   type OverviewAccountFacts,
@@ -374,8 +375,17 @@ describe('Read model — resumen del pipeline', () => {
     now: NOW,
   });
 
-  it('cuenta por etapa y archivadas', () => {
-    assert.deepEqual(overview.countsByStage, { enriquecimiento: 1, inteligencia: 2, preparacion: 1 });
+  it('cuenta las 8 etapas del proceso (0 para las que ninguna empresa ha alcanzado) y las archivadas', () => {
+    assert.deepEqual(overview.countsByStage, {
+      prospeccion: 0,
+      enriquecimiento: 1,
+      inteligencia: 2,
+      preparacion: 1,
+      reunion: 0,
+      cotizacion: 0,
+      venta_interna: 0,
+      cierre: 0,
+    });
     assert.equal(overview.archivedTotal, 3);
   });
 
@@ -402,5 +412,55 @@ describe('Read model — resumen del pipeline', () => {
     assert.equal(overview.countsBySignal.sin_contactos, 1);
     assert.equal(overview.countsBySignal.sin_hubspot, 1);
     assert.equal(overview.countsBySignal.sin_responsable, 0);
+  });
+});
+
+describe('Read model — etapa disponible pero sin empezar', () => {
+  const notStartedIds = (journey: ReturnType<typeof buildAccountJourney>) =>
+    journey.stages.filter((entry) => entry.notStarted).map((entry) => entry.stage.id);
+
+  it('enriquecimiento sin contactos ni búsquedas está sin empezar; prospección nunca', () => {
+    const journey = buildAccountJourney({ account: account(), origin: ORIGIN, contacts: [], runs: [], audit: [], now: NOW });
+    assert.deepEqual(notStartedIds(journey), ['enriquecimiento']);
+    assert.equal(journey.stages[0].notStarted, false);
+  });
+
+  it('con algún contacto ya empezó', () => {
+    const journey = buildAccountJourney({ account: account(), origin: ORIGIN, contacts: [contact()], runs: [], audit: [], now: NOW });
+    assert.deepEqual(notStartedIds(journey), []);
+  });
+
+  it('con una búsqueda, aunque haya fallado y no haya contactos, ya empezó', () => {
+    const journey = buildAccountJourney({
+      account: account(),
+      origin: ORIGIN,
+      contacts: [],
+      runs: [run({ status: 'failed', candidateCount: 0, summaryError: 'missing_api_key' })],
+      audit: [],
+      now: NOW,
+    });
+    assert.deepEqual(notStartedIds(journey), []);
+  });
+
+  it('una empresa archivada sin datos sigue marcada sin empezar (la pantalla decide que no se puede activar)', () => {
+    const journey = buildAccountJourney({
+      account: account({ pipeline_status: 'archived', archived_at: '2026-09-15T10:00:00Z' }),
+      origin: ORIGIN,
+      contacts: [],
+      runs: [],
+      audit: [],
+      now: NOW,
+    });
+    assert.equal(journey.isArchived, true);
+    assert.deepEqual(notStartedIds(journey), ['enriquecimiento']);
+  });
+
+  it('las etapas previstas no se pueden activar: nunca están «sin empezar»', () => {
+    const facts = { contactsTotal: 0, runsTotal: 0 };
+    assert.equal(isStageNotStarted({ id: 'inteligencia', phase: 'mvp' }, facts), false);
+    assert.equal(isStageNotStarted({ id: 'cierre', phase: 'fase_2' }, facts), false);
+    assert.equal(isStageNotStarted({ id: 'prospeccion', phase: 'hecho' }, facts), false);
+    assert.equal(isStageNotStarted({ id: 'enriquecimiento', phase: 'hecho' }, facts), true);
+    assert.equal(isStageNotStarted({ id: 'enriquecimiento', phase: 'hecho' }, { contactsTotal: 0, runsTotal: 1 }), false);
   });
 });
