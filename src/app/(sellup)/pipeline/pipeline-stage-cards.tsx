@@ -8,7 +8,6 @@ import {
   Building2,
   Check,
   ChevronDown,
-  ChevronsUpDown,
   Globe,
   PanelRight,
   Phone,
@@ -160,8 +159,7 @@ interface StageInvitationProps {
  * activarla. Donde iría la descripción va la frase de invitación; donde irían la
  * fecha y la flecha, el accionador de IA secundario. La fila no es un botón: solo
  * el accionador es interactivo. Conserva el ancla y los `data-*` de la etapa
- * para que la pista siga llevando hasta ella, pero no se pliega ni cuenta para
- * «Expandir/Contraer todas».
+ * para que la pista siga llevando hasta ella, pero no se pliega.
  */
 function StageInvitation({ entry, index, journey, onSearchContacts }: StageInvitationProps) {
   const { stage, state, signals } = entry;
@@ -369,10 +367,10 @@ interface PipelineStageCardsProps {
   onOpenStageDetail?: (stageId: PipelineStageId) => void;
 }
 
-/** De entrada solo está abierta la etapa en la que está la empresa; el resto se abre al pulsar su cabecera. */
-function initialOpenStages(journey: AccountJourney): ReadonlySet<PipelineStageId> {
+/** De entrada está abierta la etapa en la que está la empresa; el resto se abre al pulsar su cabecera. */
+function initialOpenStage(journey: AccountJourney): PipelineStageId | null {
   const current = journey.stages.find((entry) => entry.state === "current" && !entry.notStarted);
-  return new Set(current ? [current.stage.id] : []);
+  return current ? current.stage.id : null;
 }
 
 export function PipelineStageCards({
@@ -394,21 +392,11 @@ export function PipelineStageCards({
 }
 
 function StageAccordion({ journey, onSearchContacts, focusRequest, onOpenStageDetail }: PipelineStageCardsProps) {
-  const [openStages, setOpenStages] = React.useState<ReadonlySet<PipelineStageId>>(() => initialOpenStages(journey));
-  // Una etapa-invitación no se pliega: no cuenta para «Expandir/Contraer todas».
-  const allIds = React.useMemo(
-    () => journey.stages.filter((entry) => !entry.notStarted).map((entry) => entry.stage.id),
-    [journey.stages],
-  );
-  const allOpen = allIds.every((id) => openStages.has(id));
+  // Un solo acordeón abierto a la vez: abrir una etapa cierra la que estuviera abierta.
+  const [openStage, setOpenStage] = React.useState<PipelineStageId | null>(() => initialOpenStage(journey));
 
   const toggle = React.useCallback((stageId: PipelineStageId) => {
-    setOpenStages((current) => {
-      const next = new Set(current);
-      if (next.has(stageId)) next.delete(stageId);
-      else next.add(stageId);
-      return next;
-    });
+    setOpenStage((current) => (current === stageId ? null : stageId));
   }, []);
 
   // La pista de etapas pide una etapa: se abre y, ya pintada, se lleva la vista hasta ella.
@@ -416,7 +404,7 @@ function StageAccordion({ journey, onSearchContacts, focusRequest, onOpenStageDe
   React.useEffect(() => {
     if (!focusRequest || lastNonce.current === focusRequest.nonce) return;
     lastNonce.current = focusRequest.nonce;
-    setOpenStages((current) => new Set(current).add(focusRequest.stageId));
+    setOpenStage(focusRequest.stageId);
     const frame = requestAnimationFrame(() => {
       document.getElementById(stageAnchorId(focusRequest.stageId))?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
@@ -425,17 +413,6 @@ function StageAccordion({ journey, onSearchContacts, focusRequest, onOpenStageDe
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex justify-end">
-        <Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          onClick={() => setOpenStages(allOpen ? new Set() : new Set(allIds))}
-        >
-          <ChevronsUpDown aria-hidden />
-          {allOpen ? "Contraer todas" : "Expandir todas"}
-        </Button>
-      </div>
       {journey.stages.map((entry, index) =>
         entry.notStarted ? (
           <StageInvitation
@@ -450,7 +427,7 @@ function StageAccordion({ journey, onSearchContacts, focusRequest, onOpenStageDe
           key={entry.stage.id}
           entry={entry}
           index={index}
-          open={openStages.has(entry.stage.id)}
+          open={openStage === entry.stage.id}
           onToggle={() => toggle(entry.stage.id)}
         >
           {entry.stage.id === "prospeccion" ? (

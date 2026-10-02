@@ -296,7 +296,11 @@ describe('Pipeline · resumen sin empresa elegida', () => {
 
 describe('Pipeline · recorrido de una empresa', () => {
   const stageCards = () => Array.from(document.querySelectorAll('section[data-stage]')) as HTMLElement[];
-  const expandAll = () => fireEvent.click(screen.getByRole('button', { name: 'Expandir todas' }));
+  /** Abre la etapa en la posición `index` (solo puede haber una abierta). */
+  const openStage = (index: number) => {
+    const card = stageCards()[index];
+    if (card.getAttribute('data-open') !== 'true') fireEvent.click(within(card).getAllByRole('button')[0]);
+  };
 
   it('muestra las 8 tarjetas de etapa, en orden, con su estado', () => {
     renderJourney({ selectedAccountId: 'globex', journey: buildJourney() });
@@ -361,7 +365,7 @@ describe('Pipeline · recorrido de una empresa', () => {
 
   it('prospección abierta enseña SOLO lo esencial: una fila de 4 datos clave y «Ver más»', () => {
     renderJourney({ selectedAccountId: 'globex', journey: buildJourney() });
-    expandAll();
+    openStage(0);
     const body = openBody(0);
 
     const summary = within(body).getByLabelText('Datos clave de la prospección');
@@ -387,7 +391,7 @@ describe('Pipeline · recorrido de una empresa', () => {
 
   it('«Ver más» de prospección abre el drawer con el detalle real, en secciones', async () => {
     renderJourney({ selectedAccountId: 'globex', journey: buildJourney() });
-    expandAll();
+    openStage(0);
     fireEvent.click(screen.getByRole('button', { name: 'Ver más de Prospección' }));
 
     const drawer = await dialog();
@@ -422,7 +426,7 @@ describe('Pipeline · recorrido de una empresa', () => {
       journey: buildJourney(),
       onStageDetailOpenChange: (open) => changes.push(open),
     });
-    expandAll();
+    openStage(0);
     const more = screen.getByRole('button', { name: 'Ver más de Prospección' });
     more.focus();
     fireEvent.click(more);
@@ -437,7 +441,7 @@ describe('Pipeline · recorrido de una empresa', () => {
 
   it('una empresa creada a mano lo dice, sin inventar origen (en el acordeón y en el drawer)', async () => {
     renderJourney({ selectedAccountId: 'acme', journey: buildManualJourney() });
-    expandAll();
+    openStage(0);
     const body = openBody(0);
     assert.ok(within(body).getByText(/Creada a mano por Ana Pérez el /));
     assert.ok(within(body).queryByText('Encaje ICP') === null);
@@ -456,7 +460,7 @@ describe('Pipeline · recorrido de una empresa', () => {
 
   it('sin prospecto enlazado y sin ser manual, dice que no hay rastro del origen', async () => {
     renderJourney({ selectedAccountId: 'acme', journey: buildManualJourney({ source: 'imported' }) });
-    expandAll();
+    openStage(0);
     assert.ok(within(openBody(0)).getByText(/No hay rastro del origen: llegó por «Importada»/));
 
     fireEvent.click(screen.getByRole('button', { name: 'Ver más de Prospección' }));
@@ -466,7 +470,7 @@ describe('Pipeline · recorrido de una empresa', () => {
   it('enriquecimiento abierto: las 4 cifras, la última búsqueda en una línea y, al pie, «Buscar más contactos con IA» + «Ver más»', () => {
     let opened = 0;
     renderJourney({ selectedAccountId: 'globex', journey: buildJourney(), onSearchContacts: () => (opened += 1) });
-    expandAll();
+    openStage(1);
     const body = openBody(1);
 
     const figures = within(body).getByLabelText('Cifras de contactos');
@@ -493,7 +497,7 @@ describe('Pipeline · recorrido de una empresa', () => {
 
   it('sin buscador o con la empresa archivada, el acordeón de enriquecimiento no ofrece buscar más', () => {
     renderJourney({ selectedAccountId: 'globex', journey: buildJourney() });
-    expandAll();
+    openStage(1);
     assert.deepEqual(within(openBody(1)).getAllByRole('button').map((button) => button.textContent), ['Ver más']);
     cleanup();
 
@@ -502,14 +506,14 @@ describe('Pipeline · recorrido de una empresa', () => {
       journey: buildJourney({ pipeline_status: 'archived', archived_at: '2026-09-20T10:00:00Z' }),
       onSearchContacts: () => {},
     });
-    expandAll();
+    openStage(1);
     assert.deepEqual(within(openBody(1)).getAllByRole('button').map((button) => button.textContent), ['Ver más']);
   });
 
   it('«Ver más» de enriquecimiento abre el drawer con las búsquedas, los decisores y el botón de IA al pie', async () => {
     let opened = 0;
     renderJourney({ selectedAccountId: 'globex', journey: buildJourney(), onSearchContacts: () => (opened += 1) });
-    expandAll();
+    openStage(1);
     fireEvent.click(screen.getByRole('button', { name: 'Ver más de Enriquecimiento de contactos' }));
 
     const drawer = await dialog();
@@ -532,16 +536,17 @@ describe('Pipeline · recorrido de una empresa', () => {
 
   it('las etapas «Próximamente» dicen en una frase qué hará el agente, sin «Ver más» ni datos simulados', () => {
     renderJourney({ selectedAccountId: 'globex', journey: buildJourney() });
-    expandAll();
     const planned = stageCards().slice(2);
     assert.equal(planned.length, 6);
     planned.forEach((card, index) => {
+      openStage(index + 2);
       assert.match(card.textContent ?? '', /Próximamente/);
       const body = openBody(index + 2);
       assert.equal(body.querySelectorAll('p').length, 1);
       assert.equal(within(body).queryAllByRole('button').length, 0);
       assert.equal(body.querySelectorAll('dl').length, 0);
     });
+    openStage(2);
     assert.ok(within(openBody(2)).getByText(/Armará el brief de la empresa/));
     assert.ok(screen.queryByText('Lo que ya tiene SellUp para esta etapa') === null);
     // Nada de reuniones, cotizaciones ni cierres simulados.
@@ -627,14 +632,11 @@ describe('Pipeline · etapa disponible sin empezar: invitación a activarla', ()
     assert.equal(opened, 1);
   });
 
-  it('las demás etapas siguen siendo acordeones y «Expandir todas» no cuenta la invitación', () => {
+  it('las demás etapas siguen siendo acordeones; la invitación no se pliega', () => {
     renderJourney({ selectedAccountId: 'nova', journey: buildProspectOnlyJourney({ id: 'nova', name: 'Nova Energía' }) });
 
     assert.equal(document.querySelectorAll('section[data-stage]').length, 8);
     assert.equal(document.querySelectorAll('section[data-stage] [aria-expanded]').length, 7);
-    fireEvent.click(screen.getByRole('button', { name: 'Expandir todas' }));
-    assert.equal(document.querySelectorAll('section[data-stage][data-open="true"]').length, 7);
-    assert.ok(screen.getByRole('button', { name: 'Contraer todas' }));
     assert.ok(stage('enriquecimiento').hasAttribute('data-invitation'));
   });
 
@@ -741,23 +743,19 @@ describe('Pipeline · cada etapa es un acordeón', () => {
     assert.equal(within(card('cotizacion')).queryByText('Lo que ya tiene SellUp para esta etapa'), null);
   });
 
-  it('abrir una etapa no cierra las demás', () => {
+  it('solo hay un acordeón abierto: abrir una etapa cierra la que estaba abierta', () => {
     renderJourney({ selectedAccountId: 'globex', journey: buildJourney() });
+    const openCount = () => document.querySelectorAll('section[data-stage][data-open="true"]').length;
 
+    assert.equal(card('inteligencia').getAttribute('data-open'), 'true');
     fireEvent.click(header('prospeccion'));
     assert.equal(card('prospeccion').getAttribute('data-open'), 'true');
-    assert.equal(card('inteligencia').getAttribute('data-open'), 'true');
-  });
+    assert.equal(card('inteligencia').getAttribute('data-open'), 'false');
+    assert.equal(openCount(), 1);
 
-  it('«Expandir todas» y «Contraer todas» abren y cierran todo, y el rótulo sigue al estado', () => {
-    renderJourney({ selectedAccountId: 'globex', journey: buildJourney() });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Expandir todas' }));
-    assert.equal(document.querySelectorAll('section[data-stage][data-open="true"]').length, 8);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Contraer todas' }));
-    assert.equal(document.querySelectorAll('section[data-stage][data-open="true"]').length, 0);
-    assert.ok(screen.getByRole('button', { name: 'Expandir todas' }));
+    fireEvent.click(header('prospeccion'));
+    assert.equal(openCount(), 0, 'pulsar la abierta la cierra');
+    assert.equal(screen.queryByRole('button', { name: /Expandir todas|Contraer todas/ }), null);
   });
 
   it('los avisos de la etapa se ven aunque esté plegada', () => {
