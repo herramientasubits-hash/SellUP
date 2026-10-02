@@ -84,7 +84,7 @@ export const COUNTRY_RISKS: Record<string, string[]> = {
   ],
   BO: [
     'Bolivia no publica un padrón descargable: el NIT por nombre se consulta en vivo en el registro de comercio (SEPREC) y puede tardar o fallar.',
-    'Como mucho 25 empresas y 45 segundos por corrida: las demás quedan sin NIT.',
+    'Peticiones espaciadas y como mucho 45 segundos por corrida (unas 8-10 empresas): las demás quedan sin NIT.',
     'Las empresas unipersonales (personas) nunca se ofrecen; nombres repetidos o genéricos no dan un NIT seguro.',
   ],
   BR: [
@@ -1494,7 +1494,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'backend_connected',
     nextAction:
-      'Consulta en vivo y gratuita en cada corrida: el Agente 1 busca la empresa por nombre en el SEPREC y lee su NIT. Como mucho 25 empresas y 45 s por corrida.',
+      'Consulta en vivo y gratuita en cada corrida: el Agente 1 busca la empresa por nombre en el SEPREC y lee su NIT. Peticiones espaciadas 2,5 s (el SEPREC frena las ráfagas) y como mucho 45 s por corrida: unas 8-10 empresas.',
     countryCodes: ['BO'],
     sectors: [],
     priority: 'P1',
@@ -1506,9 +1506,9 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'Bolivia no publica un padrón descargable de empresas. En cada corrida del Agente 1 se consulta en vivo la búsqueda por nombre del Servicio Plurinacional de Registro de Comercio (SEPREC) y, para las empresas activas cuyo nombre coincide exactamente, su ficha básica para leer el NIT (nunca los contactos). Probado el 02-10: Cervecería Boliviana Nacional y Banco Mercantil Santa Cruz devuelven su NIT. NIT seguro sólo cuando exactamente un NIT tiene ese mismo núcleo de nombre; los homónimos y los nombres de una sola palabra sin forma societaria quedan como señal.',
     limitations: [
       'Es la búsqueda que usa el portal público del SEPREC, no un servicio documentado para terceros: puede cambiar sin aviso.',
-      'Lenta (1,5-4 s por empresa): como mucho 25 empresas y 45 s por corrida; tras 3 fallos seguidos se apaga en esa corrida.',
+      'Lenta y con límite de ritmo: el SEPREC responde 429 a 4-5 peticiones seguidas, así que se espacian 2,5 s (ante un 429 se espera 5 s y se reintenta una vez). Con 45 s por corrida alcanza para unas 8-10 empresas; tras 3 fallos seguidos se apaga en esa corrida.',
       'Excluye empresas unipersonales (personas) y matrículas no activas.',
-      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente. Muchas empresas usan una marca distinta de su razón social (Mersur → AGENCIA DESPACHANTE DE ADUANA MERSUR S.R.L.) y quedan sin NIT.',
     ],
     riskNotes: [
       'Si el SEPREC cambia o cae, las empresas bolivianas simplemente quedan sin NIT; la corrida sigue.',
