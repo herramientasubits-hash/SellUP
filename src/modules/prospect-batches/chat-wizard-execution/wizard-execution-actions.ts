@@ -79,6 +79,7 @@ import {
   canStartApolloAfterTavilyFirst,
   canStartLushaAfterTavilyFirst,
   combineWriterTruths,
+  isTavilyFirstClosing,
   isTavilyFirstSatisfied,
   resolveInlineRescueWindowMs,
   reopenBatchForApolloAfterTavilyFirst,
@@ -2245,13 +2246,16 @@ export async function executeProspectWizardGeneration(
             }
           }
         }
-        if (isTavilyFirstSatisfied(after, target)) {
+        // AGENT1-TAVILY-FIRST-5 — tras Claude decide lo que CUENTA, no lo revisable.
+        const acceptedAfterClaude = claudeReviewed ? (tavilyFirstAcceptedIds?.length ?? null) : null;
+        if (isTavilyFirstClosing({ reviewable: after, acceptedAfterClaude, claudeReviewed, target })) {
           tavilyFirstOutcome = {
             outcome: 'satisfied',
             reviewable: after as number,
             reviewableBeforeClaude: before as number,
             claudeReviewed,
             target,
+            acceptedAfterClaude,
           };
         } else if (
           claudeReviewed &&
@@ -2266,6 +2270,7 @@ export async function executeProspectWizardGeneration(
             reviewableBeforeClaude: before,
             claudeReviewed: true,
             target,
+            acceptedAfterClaude,
           };
         } else {
           tavilyFirstOutcome = {
@@ -2274,6 +2279,7 @@ export async function executeProspectWizardGeneration(
             reviewableBeforeClaude: before,
             claudeReviewed,
             target,
+            acceptedAfterClaude,
           };
         }
       }

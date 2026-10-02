@@ -50,7 +50,10 @@ export function verifyLinkedInCompany(params: {
   // El slug tiene que coincidir con el NOMBRE de la empresa (el evaluador deja
   // «ambiguous» cuando sólo hay nombre, sin título/snippet: eso basta aquí,
   // porque la URL además vino de la búsqueda y la empresa queda en revisión).
-  if (match.status === 'rejected' || !match.signals.name_match) {
+  if (
+    (match.status === 'rejected' || !match.signals.name_match) &&
+    !slugIsDomainBrandWithCountry(claimed.slug, params.companyDomain)
+  ) {
     return { linkedin: null, rejected: { field: 'linkedin', reason: 'linkedin_slug_name_mismatch' } };
   }
   return { linkedin: { url: claimed.normalized, slug: claimed.slug, source: 'provided_search_result' }, rejected: null };
@@ -74,4 +77,29 @@ export function linkedInCompanyUrlsFromEvidence(urls: readonly (string | null | 
     if (!out.includes(raw)) out.push(raw);
   }
   return out;
+}
+
+/** Países y regiones que las empresas pegan a su marca en el slug de LinkedIn. */
+const COUNTRY_SLUG_AFFIXES: readonly string[] = [
+  'peru', 'chile', 'colombia', 'mexico', 'argentina', 'ecuador', 'bolivia', 'uruguay',
+  'paraguay', 'venezuela', 'panama', 'guatemala', 'honduras', 'costarica', 'dominicana',
+  'espana', 'spain', 'brasil', 'brazil', 'usa', 'latam', 'latinoamerica',
+  'pe', 'cl', 'co', 'mx', 'ar', 'ec', 'bo', 'uy', 'py', 'es', 'br',
+];
+
+/**
+ * AGENT1-TAVILY-FIRST-5 — el slug es la MARCA del dominio más un país
+ * (`engieperu` para `engie-energia.pe`). Prod 02-10 (2fc07f4a): Engie quedó sin
+ * LinkedIn por «slug_name_mismatch» con un nombre inferido del dominio. Sólo con
+ * la marca del dominio (la identidad que ya se verificó) y de 4+ letras.
+ */
+export function slugIsDomainBrandWithCountry(slug: string, companyDomain: string | null): boolean {
+  if (!companyDomain) return false;
+  const brand = companyDomain.toLowerCase().replace(/^www\./, '').split('.')[0].split('-')[0];
+  if (brand.length < 4) return false;
+  const compact = slug.toLowerCase().replace(/[^a-z0-9]/g, '');
+  for (const affix of COUNTRY_SLUG_AFFIXES) {
+    if (compact === `${brand}${affix}` || compact === `${affix}${brand}`) return true;
+  }
+  return false;
 }

@@ -18,6 +18,7 @@ import type { WizardExecutionDeps } from '../wizard-execution-actions';
 import type { IncrementalSearchOutput } from '@/server/agents/prospecting-toolkit/incremental-search-types';
 import type { ResolvedWizardExecution } from '../wizard-execution-types';
 import {
+  isTavilyFirstClosing,
   reopenBatchForApolloAfterTavilyFirst,
   tavilyOwnReviewable,
   type ReopenBatchClient,
@@ -302,6 +303,7 @@ describe('Claude dentro de la corrida (AGENT1-TAVILY-FIRST-2)', () => {
       overrides: {
         countReviewableCandidates: sequence([9, 6]),
         rescueBatchInline: async () => { rescued++; return true; },
+        listAcceptedCandidateIds: async () => ['c1', 'c2', 'c3', 'c4', 'c5'],
         actionStartedAtMs: START, ...clock(START, [50_000]),
       },
     }));
@@ -310,6 +312,7 @@ describe('Claude dentro de la corrida (AGENT1-TAVILY-FIRST-2)', () => {
     assert.equal(calls.apollo, 0);
     assert.deepEqual(result.ok && result.tavilyFirst, {
       outcome: 'satisfied', reviewable: 6, reviewableBeforeClaude: 9, claudeReviewed: true, target: 5,
+      acceptedAfterClaude: 5,
     });
   });
 
@@ -422,18 +425,19 @@ describe('aceptadas recontadas tras la revisión de Claude (AGENT1-TAVILY-FIRST-
       overrides: {
         countReviewableCandidates: sequence([9, 7]),
         rescueBatchInline: async () => true,
-        listAcceptedCandidateIds: async (batchId) => { asked = batchId; return ['c1', 'c2']; },
+        listAcceptedCandidateIds: async (batchId) => { asked = batchId; return ['c1', 'c2', 'c3', 'c4', 'c5']; },
         publishWaterfallLegTrace: async ({ published: p }) => { published.push(p); return { status: 'published' } as never; },
         actionStartedAtMs: START, nowMs: () => START + 50_000,
       },
     }));
     assert.ok(result.ok, JSON.stringify(result));
     assert.ok(asked, 'se recuentan las aceptadas del lote');
-    assert.equal(result.ok && result.acceptedForTarget?.acceptedPaidForTarget, 2);
+    assert.equal(calls.apollo, 0);
+    assert.equal(result.ok && result.acceptedForTarget?.acceptedPaidForTarget, 5);
     assert.equal(published.length, 1);
     assert.equal(
       (published[0].accepted_for_target as { accepted_paid_for_target?: number }).accepted_paid_for_target,
-      2,
+      5,
     );
   });
 
@@ -748,5 +752,84 @@ describe('Tavily-primero cuenta sólo sus filas, contra el hueco (AGENT1-TAVILY-
     assert.equal(tavilyOwnReviewable(2, 4), 0);
     assert.equal(tavilyOwnReviewable(null, 4), null);
     assert.equal(tavilyOwnReviewable(5, 0), 5);
+  });
+});
+
+// ── AGENT1-TAVILY-FIRST-5 — tras Claude decide lo que CUENTA ──────────────────
+//
+// Prod 02-10 (PE×Energía 2fc07f4a): Claude dejó 5 «para revisar» (un gremio y
+// dos fichas de portales entre ellas) y 1 que cuenta; con meta 5 la corrida se
+// dio por cumplida y Apollo no corrió. Bolivia 26c12524: 8 y 0.
+
+describe('Tavily-primero decide por las que cuentan tras Claude (AGENT1-TAVILY-FIRST-5)', () => {
+  const START = 3_000_000;
+  it('PE×Energía: 5 para revisar pero 1 cuenta ⇒ Apollo completa', async () => {
+    const calls = newCalls();
+    const result = await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
+      reviewable: 0, calls,
+      overrides: {
+        countReviewableCandidates: sequence([8, 5]),
+        rescueBatchInline: async () => true,
+        listAcceptedCandidateIds: async () => ['cmh'],
+        actionStartedAtMs: START, nowMs: () => START + 60_000,
+      },
+    }));
+    assert.ok(result.ok, JSON.stringify(result));
+    assert.equal(calls.apollo, 1, 'antes: 5 ≥ 5 «para revisar» cerraba la corrida con 1 útil');
+    assert.ok(result.ok && result.tavilyFirst?.outcome === 'apollo_completed');
+    assert.ok(result.ok && result.tavilyFirst?.outcome === 'apollo_completed' && result.tavilyFirst.acceptedAfterClaude === 1);
+  });
+
+  it('Bolivia: 8 para revisar y 0 cuentan ⇒ Apollo completa', async () => {
+    const calls = newCalls();
+    await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
+      reviewable: 0, calls,
+      overrides: {
+        countReviewableCandidates: sequence([9, 8]),
+        rescueBatchInline: async () => true,
+        listAcceptedCandidateIds: async () => [],
+        actionStartedAtMs: START, nowMs: () => START + 60_000,
+      },
+    }));
+    assert.equal(calls.apollo, 1);
+  });
+
+  it('pocas que cuentan y ya no cabe Apollo ⇒ se entrega lo que hay (sin error)', async () => {
+    const calls = newCalls();
+    const result = await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
+      reviewable: 0, calls,
+      overrides: {
+        countReviewableCandidates: sequence([8, 5]),
+        rescueBatchInline: async () => true,
+        listAcceptedCandidateIds: async () => ['cmh'],
+        actionStartedAtMs: START, ...clock(START, [60_000, 170_000]),
+      },
+    }));
+    assert.ok(result.ok, JSON.stringify(result));
+    assert.equal(calls.apollo, 0);
+    assert.ok(result.ok && result.tavilyFirst?.outcome === 'short_no_time');
+  });
+
+  it('Claude revisó pero no se pudo contar ⇒ vuelve a lo revisable (no bloquea)', async () => {
+    const calls = newCalls();
+    const result = await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
+      reviewable: 0, calls,
+      overrides: {
+        countReviewableCandidates: sequence([9, 6]),
+        rescueBatchInline: async () => true,
+        listAcceptedCandidateIds: async () => null,
+        actionStartedAtMs: START, nowMs: () => START + 50_000,
+      },
+    }));
+    assert.ok(result.ok && result.tavilyFirst?.outcome === 'satisfied');
+    assert.equal(calls.apollo, 0);
+  });
+
+  it('isTavilyFirstClosing: tabla de verdad', () => {
+    assert.equal(isTavilyFirstClosing({ reviewable: 5, acceptedAfterClaude: 1, claudeReviewed: true, target: 5 }), false);
+    assert.equal(isTavilyFirstClosing({ reviewable: 5, acceptedAfterClaude: 5, claudeReviewed: true, target: 5 }), true);
+    assert.equal(isTavilyFirstClosing({ reviewable: 5, acceptedAfterClaude: null, claudeReviewed: true, target: 5 }), true);
+    assert.equal(isTavilyFirstClosing({ reviewable: 5, acceptedAfterClaude: null, claudeReviewed: false, target: 5 }), true);
+    assert.equal(isTavilyFirstClosing({ reviewable: 4, acceptedAfterClaude: null, claudeReviewed: false, target: 5 }), false);
   });
 });

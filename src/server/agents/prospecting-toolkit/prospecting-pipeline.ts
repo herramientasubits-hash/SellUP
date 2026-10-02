@@ -526,7 +526,12 @@ export async function runProspectingPipeline(
         ? inferCompanyNameFromSearchResult(rawResult.title, rawResult.url)
         : null;
 
-      const website = evaluated.website ?? rawResult?.url ?? null;
+      // AGENT1-TAVILY-FIRST-5 — el sitio de la empresa es su PORTADA, no la página
+      // donde apareció (Prod 02-10: 56/150 filas web_ai guardaban una nota de
+      // prensa; Claude citaba la portada y la cita no se encontraba ⇒ sin sector).
+      // La página encontrada sigue como `sourceUrl`.
+      const foundPageUrl = evaluated.website ?? rawResult?.url ?? null;
+      const website = toHomepageUrl(foundPageUrl);
       const domain = evaluated.domain
         ? (normalizeDomain(evaluated.domain) ?? normalizeDomain(website ?? ''))
         : normalizeDomain(website ?? '');
@@ -629,7 +634,7 @@ export async function runProspectingPipeline(
         country: input.country,
         countryCode: input.countryCode,
         industry: input.industry,
-        sourceUrl: website,
+        sourceUrl: foundPageUrl,
         sourceTitle: rawResult?.title ?? null,
         sourceSnippet: rawResult?.snippet ?? null,
         inferredNameSource,
@@ -1023,4 +1028,20 @@ export function buildSummary(
     discarded: labelCounts.discard,
     unchecked,
   };
+}
+
+/**
+ * AGENT1-TAVILY-FIRST-5 — `https://host/` de una URL (la portada del sitio).
+ * Sin protocolo se asume https; algo que no es URL se devuelve tal cual.
+ */
+export function toHomepageUrl(url: string | null): string | null {
+  if (!url) return url;
+  const trimmed = url.trim();
+  try {
+    const parsed = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+    if (!parsed.hostname.includes('.')) return trimmed;
+    return `${parsed.protocol}//${parsed.host}/`;
+  } catch {
+    return trimmed;
+  }
 }
