@@ -187,6 +187,7 @@ export interface AccountJourney {
   contacts: {
     total: number;
     decisionMakers: number;
+    champions: number;
     withPhone: number;
     inHubSpot: number;
     /** Los decisores, para la lista corta. */

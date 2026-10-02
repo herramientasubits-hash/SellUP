@@ -36,7 +36,6 @@ export const HUBSPOT_SYNC_STATUS: Record<string, HubSpotCompanyPresentation> = {
   skipped_no_connection: { label: 'HubSpot no está conectado', status: 'neutral' },
   skipped_missing_write_scope: { label: 'Falta permiso para escribir en HubSpot', status: 'neutral' },
   skipped_rollback: { label: 'No se envía: la empresa no está operativa', status: 'neutral' },
-  pending_match_review: { label: 'Coincidencia pendiente de revisar', status: 'pending' },
 };
 
 export const HUBSPOT_COMPANY_SYNCED_LABEL = 'Sincronizada' as const;

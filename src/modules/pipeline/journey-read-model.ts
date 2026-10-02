@@ -329,6 +329,7 @@ export function buildAccountJourney(input: AccountJourneyInput): AccountJourney 
     contacts: {
       total: input.contacts.length,
       decisionMakers: decisionMakers.length,
+      champions: input.contacts.filter((contact) => contact.role_in_account === 'champion').length,
       withPhone: input.contacts.filter((contact) => Boolean(contact.phone_revealed_at)).length,
       inHubSpot: input.contacts.filter((contact) => Boolean(contact.hubspot_contact_id)).length,
       decisionMakerList,

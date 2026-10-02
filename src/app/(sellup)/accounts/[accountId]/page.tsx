@@ -47,6 +47,7 @@ import { AccountEnrichContactsButton } from '@/components/accounts/account-enric
 import { RollbackBanner } from '@/components/accounts/rollback-banner';
 import { readPendingHubSpotMatch } from '@/modules/accounts/hubspot-company-resolution-state';
 import { HubSpotCompanyMatchReviewBanner } from '@/components/accounts/hubspot-company-match-review-banner';
+import { resolveHubSpotPresentation } from '@/modules/accounts/hubspot-company-sync-presentation';
 
 interface AccountDetailPageProps {
   params: Promise<{ accountId: string }>;
@@ -97,36 +98,6 @@ const AUDIT_PRESENTATION: Record<AccountAuditAction, AuditPresentation> = {
 };
 
 const FALLBACK_AUDIT: AuditPresentation = { title: 'Cambio registrado', icon: Activity, tone: 'default' };
-
-interface HubSpotPresentation {
-  label: string;
-  status: StatusType;
-}
-
-/** Por qué una empresa sin ficha en HubSpot todavía no la tiene. */
-const HUBSPOT_SYNC_STATUS: Record<string, HubSpotPresentation> = {
-  blocked_duplicate: { label: 'No se creó: ya existe en HubSpot', status: 'warning' },
-  blocked_inactive_or_liquidation: {
-    label: 'No se envió: la empresa parece inactiva o en liquidación',
-    status: 'warning',
-  },
-  failed_create: { label: 'No se pudo crear en HubSpot', status: 'error' },
-  failed_lookup: { label: 'No se pudo comprobar en HubSpot', status: 'error' },
-  skipped_flag_off: { label: 'El envío a HubSpot está desactivado', status: 'neutral' },
-  skipped_no_connection: { label: 'HubSpot no está conectado', status: 'neutral' },
-  skipped_missing_write_scope: { label: 'Falta permiso para escribir en HubSpot', status: 'neutral' },
-  skipped_rollback: { label: 'No se envía: la empresa no está operativa', status: 'neutral' },
-};
-
-function resolveHubSpotPresentation(
-  hubspotCompanyId: string | null | undefined,
-  metadata: Record<string, unknown>,
-): HubSpotPresentation {
-  if (hubspotCompanyId) return { label: 'Sincronizada', status: 'active' };
-  const syncStatus = metadata.hubspot_sync_status;
-  const known = typeof syncStatus === 'string' ? HUBSPOT_SYNC_STATUS[syncStatus] : undefined;
-  return known ?? { label: 'Aún no está en HubSpot', status: 'neutral' };
-}
 
 export default async function AccountDetailPage({ params, searchParams }: AccountDetailPageProps) {
   const [{ accountId }, { tab }] = await Promise.all([params, searchParams]);

@@ -1325,6 +1325,34 @@ Verificar en light + dark mode que:
 
 ---
 
+### 14.6 Receta «Recorrido por etapas» (Pipeline)
+
+Para una pantalla que cuenta **por dónde va un registro en un proceso de varias etapas** (referencia: `/pipeline`, `src/app/(sellup)/pipeline/`). No es una lista CRUD: no lleva `DataTable` ni drawer.
+
+```
+PageHeader (migas «Pipeline»)  ·  ThemaTabs navigation → ?view=recorrido|tablero
+┌── lista ≈ 340 px ──┐ ┌── detalle ────────────────────────────────────────┐
+│ buscador           │ │ SIN elegir: AttentionStrip + AttentionAction (filtran) │
+│ FilterChips (wrap) │ │             MetricCard compact ×4 + DistributionBar   │
+│ ListItemGroup      │ │ CON elegir: SurfaceCard cabecera (StatusBadge, señales,│
+│  ListItem selected │ │             «Ver empresa», «Cambiar etapa»)           │
+│  (punto de alerta) │ │             Stepper sm (clickableUpcoming) → ancla     │
+└────────────────────┘ │             SurfaceCard por etapa · Timeline historial │
+                       └────────────────────────────────────────────────────┘
+```
+
+Reglas:
+
+- **Modelo de etapas fijo** en `src/modules/pipeline/stages.ts`; la etapa actual sale de `pipeline_status` (`resolveCurrentStage`). Señales de atención = reglas puras en `signals.ts`. El recorrido se compone en `journey-read-model.ts` (puro, `now` inyectado) y se lee con `actions.ts` (solo SELECT, siempre a través de `getAccountsList` / `getAccountById` para respetar el alcance comercial).
+- **Nada inventado.** Una etapa cuyo agente aún no existe se pinta apagada (`bg-surface-subtle`, `Badge` «Previsto · MVP/Fase N»), con el texto de qué hará el agente y un `DetailList` «Lo que ya tiene SellUp para esta etapa» hecho solo de datos reales. Si un dato no se puede leer, se omite.
+- **El cambio de etapa lo decide la persona**: menú → `ConfirmDialog` → `updateAccount({ pipeline_status })`. En el tablero (`Kanban` con `onItemMove`), mover una tarjeta abre el mismo `ConfirmDialog`; cancelar o fallar la devuelve a su columna. Ninguna otra escritura.
+- **Estado en la URL**: `?view=` y `?account=` (lo que es por defecto no ensucia la URL). Buscador y filtros son estado local.
+- **Pantalla estrecha**: una cosa cada vez — la lista, y al elegir, el detalle con «Volver» (`hidden lg:block` / `lg:hidden`); la pista se desplaza en horizontal.
+- **Carga y error**: `Suspense` con `PipelineSkeleton` (misma forma: lista + pista + tarjetas); `Alert` para fallos; las señales de control de Next (`redirect`) se relanzan.
+- En pruebas, las acciones se inyectan por prop (`onChangeStage`, `onMoveAccount`); la conexión con `useRouter`, `toast` y la acción de servidor vive solo en `pipeline-screen.tsx`.
+
+---
+
 ## 15. Scroll interno de tabla — Page fijo / Tabla scrolleable
 
 ### 15.1 Propósito

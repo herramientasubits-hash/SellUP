@@ -1,112 +1,191 @@
 /**
- * PipelineBoard — contrato RUNTIME: un solo estado vacío con su siguiente paso,
- * y el tablero con tarjetas cuando hay cuentas.
+ * Pipeline · vista «Tablero» — contrato RUNTIME: una tarjeta por empresa en la
+ * columna de su estado; mover una tarjeta PIDE confirmación y solo escribe al
+ * aceptar (una vez, con el estado elegido); cancelar o fallar devuelve la
+ * tarjeta a su columna; y un único vacío cuando no hay empresas.
  */
 
-import { JSDOM } from 'jsdom';
-
-// ── jsdom bootstrap (node:test no trae DOM) ───────────────────────────────────
-const dom = new JSDOM('<!doctype html><html><body></body></html>', {
-  url: 'http://localhost/ruta?period=7d',
-  pretendToBeVisual: true,
-});
-function defineGlobal(name: string, value: unknown): void {
-  Object.defineProperty(globalThis, name, { value, writable: true, configurable: true });
-}
-defineGlobal('window', dom.window);
-defineGlobal('document', dom.window.document);
-defineGlobal('navigator', dom.window.navigator);
-defineGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-function copyWindowPropsToGlobal(): void {
-  const target = globalThis as unknown as Record<string, unknown>;
-  const source = dom.window as unknown as Record<string, unknown>;
-  for (const prop of Object.getOwnPropertyNames(dom.window)) {
-    if (prop in target) continue;
-    const descriptor = Object.getOwnPropertyDescriptor(source, prop);
-    if (descriptor) Object.defineProperty(target, prop, descriptor);
-  }
-}
-copyWindowPropsToGlobal();
+import '../../../../components/settings/__tests__/jsdom-bootstrap';
 
 import * as React from 'react';
 import { describe, it, before, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { buildOverview } from './pipeline-fixtures';
+
 let render: (typeof import('@testing-library/react'))['render'];
 let screen: (typeof import('@testing-library/react'))['screen'];
+let within: (typeof import('@testing-library/react'))['within'];
+let fireEvent: (typeof import('@testing-library/react'))['fireEvent'];
+let waitFor: (typeof import('@testing-library/react'))['waitFor'];
 let cleanup: (typeof import('@testing-library/react'))['cleanup'];
+let PipelineBoard: (typeof import('../pipeline-board'))['PipelineBoard'];
+let PIPELINE_BOARD_COLUMNS: (typeof import('../pipeline-board'))['PIPELINE_BOARD_COLUMNS'];
+
+type Props = React.ComponentProps<(typeof import('../pipeline-board'))['PipelineBoard']>;
+type Call = [string, string];
 
 const h = React.createElement;
 
-let PipelineBoard: (typeof import('../pipeline-board'))['PipelineBoard'];
-let PIPELINE_STAGES: (typeof import('../pipeline-board'))['PIPELINE_STAGES'];
-
 before(async () => {
-  ({ render, screen, cleanup } = await import('@testing-library/react'));
-  ({ PipelineBoard, PIPELINE_STAGES } = await import('../pipeline-board'));
+  ({ render, screen, within, fireEvent, waitFor, cleanup } = await import('@testing-library/react'));
+  ({ PipelineBoard, PIPELINE_BOARD_COLUMNS } = await import('../pipeline-board'));
 });
 
 afterEach(() => {
   cleanup();
 });
 
-describe('PipelineBoard — sin cuentas', () => {
-  it('muestra un único estado vacío, no uno por columna', () => {
-    render(h(PipelineBoard, { items: [] }));
+// `hidden`: con el diálogo de confirmación abierto, el tablero queda fuera del árbol accesible.
+const column = (name: string) => screen.getByRole('region', { name, hidden: true });
+const card = (title: string) =>
+  document.querySelector(`[data-slot="kanban-card"][aria-label="${title}"]`) as HTMLElement;
+const cardsIn = (name: string) =>
+  Array.from(column(name).querySelectorAll('[data-slot="kanban-card"]'), (node) => node.getAttribute('aria-label'));
 
-    assert.equal(screen.getAllByText('El pipeline aún no muestra cuentas').length, 1);
-    assert.equal(screen.queryByText('Sin cuentas todavía'), null);
-    assert.equal(screen.queryByText('Sin tarjetas'), null);
-  });
+function renderBoard(props: Partial<Props> = {}) {
+  const calls: Call[] = [];
+  const utils = render(
+    h(PipelineBoard, {
+      accounts: buildOverview().accounts,
+      onMoveAccount: async (id: string, status: string) => {
+        calls.push([id, status]);
+        return { success: true as const };
+      },
+      ...props,
+    }),
+  );
+  return { ...utils, calls };
+}
 
-  it('dice qué hacer y lleva a los prospectos de Empresas', () => {
-    render(h(PipelineBoard, { items: [] }));
+/** Levanta la tarjeta con Espacio y la pasa a la columna de la derecha. */
+function moveRight(title: string) {
+  const node = card(title);
+  node.focus();
+  fireEvent.keyDown(node, { key: ' ' });
+  fireEvent.keyDown(card(title), { key: 'ArrowRight' });
+}
 
-    assert.ok(screen.getByText(/revisa y aprueba prospectos en Empresas/));
-    const link = screen.getByRole('link', { name: /Ir a prospectos/ });
-    assert.equal(link.getAttribute('href'), '/accounts?tab=prospectos');
-  });
+describe('PipelineBoard — sin empresas', () => {
+  it('muestra un único estado vacío, no uno por columna, y lleva a los prospectos', () => {
+    render(h(PipelineBoard, { accounts: [] }));
 
-  it('explica las cuatro etapas, en orden, con su descripción', () => {
-    render(h(PipelineBoard, { items: [] }));
-
-    const stages = screen.getByRole('list', { name: 'Etapas del pipeline' });
-    const titles = Array.from(stages.querySelectorAll('h2')).map((node) => node.textContent);
-    assert.deepEqual(titles, PIPELINE_STAGES.map((stage) => stage.title));
-    for (const stage of PIPELINE_STAGES) {
-      assert.ok(stage.description, `${stage.title} debe explicar qué significa`);
-      assert.ok(screen.getByText(stage.description as string));
-    }
+    assert.equal(screen.getAllByText('Todavía no hay empresas en el tablero').length, 1);
+    assert.ok(screen.queryByText('Sin empresas') === null);
+    assert.equal(screen.getByRole('link', { name: /Ir a prospectos/ }).getAttribute('href'), '/accounts?tab=prospectos');
   });
 });
 
-describe('PipelineBoard — con cuentas', () => {
-  const items = [
-    { id: 'a1', columnId: 'preparacion', title: 'Acme S.A.S.', description: 'Tecnología · Colombia' },
-    { id: 'a2', columnId: 'contacto', title: 'Globex' },
-  ];
+describe('PipelineBoard — con empresas', () => {
+  it('son los cuatro estados, en orden, cada uno con su descripción', () => {
+    renderBoard();
 
-  it('pinta una tarjeta por cuenta en la columna de su etapa', () => {
-    render(h(PipelineBoard, { items }));
-
-    const first = screen.getByRole('region', { name: 'Preparación inicial' });
-    assert.ok(first.textContent?.includes('Acme S.A.S.'));
-    const last = screen.getByRole('region', { name: 'Preparados para contacto' });
-    assert.ok(last.textContent?.includes('Globex'));
-  });
-
-  it('ya no muestra el estado vacío ni su botón', () => {
-    render(h(PipelineBoard, { items }));
-
-    assert.equal(screen.queryByText('El pipeline aún no muestra cuentas'), null);
-    assert.equal(screen.queryByRole('link', { name: /Ir a prospectos/ }), null);
-  });
-
-  it('cada columna conserva la descripción de su etapa', () => {
-    render(h(PipelineBoard, { items }));
-
-    for (const stage of PIPELINE_STAGES) {
+    assert.deepEqual(
+      PIPELINE_BOARD_COLUMNS.map((stage) => [stage.id, stage.title]),
+      [
+        ['new', 'Nuevas'],
+        ['ready_for_research', 'Listas para investigar'],
+        ['research_in_progress', 'Investigación en curso'],
+        ['ready_for_outreach', 'Listas para contacto'],
+      ],
+    );
+    for (const stage of PIPELINE_BOARD_COLUMNS) {
+      assert.ok(column(stage.title));
       assert.ok(screen.getByText(stage.description as string));
     }
+  });
+
+  it('pinta una tarjeta por empresa en la columna de su estado', () => {
+    renderBoard();
+
+    assert.deepEqual(cardsIn('Nuevas'), ['Acme']);
+    assert.deepEqual(cardsIn('Listas para investigar'), ['Globex']);
+    assert.deepEqual(cardsIn('Investigación en curso'), ['Initech']);
+    assert.deepEqual(cardsIn('Listas para contacto'), ['Umbrella']);
+    assert.ok(screen.queryByText('Todavía no hay empresas en el tablero') === null);
+  });
+
+  it('la tarjeta dice país · industria, el último movimiento y sus señales', () => {
+    renderBoard();
+
+    const acme = within(card('Acme'));
+    assert.ok(acme.getByText('Colombia · Tecnología'));
+    assert.ok(acme.getByText('Último movimiento: hace 30 días'));
+    assert.ok(acme.getByText('Sin movimiento 30 días'));
+    assert.ok(acme.getByText('Sin contactos'));
+    assert.ok(within(card('Globex')).queryByText('Sin contactos') === null);
+  });
+
+  it('pulsar una tarjeta abre el recorrido de esa empresa', () => {
+    const opened: string[] = [];
+    renderBoard({ onOpenAccount: (id) => opened.push(id) });
+
+    fireEvent.click(card('Globex'));
+    assert.deepEqual(opened, ['globex']);
+  });
+
+  it('sin acción de mover, el tablero solo se mira', () => {
+    render(h(PipelineBoard, { accounts: buildOverview().accounts }));
+
+    assert.ok(document.querySelector('[data-slot="kanban-card"]') === null);
+    assert.ok(within(column('Nuevas')).getByText('Acme'));
+  });
+});
+
+describe('PipelineBoard — mover de etapa', () => {
+  it('mover pide confirmación y no escribe hasta aceptar', async () => {
+    const { calls } = renderBoard();
+
+    moveRight('Acme');
+    const dialog = await screen.findByRole('alertdialog');
+    assert.ok(within(dialog).getByText('¿Mover Acme a «Listas para investigar»?'));
+    assert.deepEqual(calls, []);
+  });
+
+  it('al aceptar llama UNA vez con la empresa y el estado elegido', async () => {
+    const { calls } = renderBoard();
+
+    moveRight('Acme');
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Mover' }));
+    await waitFor(() => assert.ok(screen.queryByRole('alertdialog') === null));
+    assert.deepEqual(calls, [['acme', 'ready_for_research']]);
+  });
+
+  it('si se cancela no escribe y la tarjeta vuelve a su columna', async () => {
+    const { calls } = renderBoard();
+
+    moveRight('Acme');
+    await screen.findByRole('alertdialog');
+    assert.deepEqual(cardsIn('Listas para investigar'), ['Acme', 'Globex']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+    await waitFor(() => assert.ok(screen.queryByRole('alertdialog') === null));
+    assert.deepEqual(calls, []);
+    assert.deepEqual(cardsIn('Nuevas'), ['Acme']);
+    assert.deepEqual(cardsIn('Listas para investigar'), ['Globex']);
+  });
+
+  it('si falla, avisa del motivo y la tarjeta vuelve a su columna', async () => {
+    const failures: string[] = [];
+    renderBoard({
+      onMoveAccount: async () => ({ success: false, error: 'Cuenta no encontrada' }),
+      onMoveFailed: (message) => failures.push(message),
+    });
+
+    moveRight('Acme');
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Mover' }));
+    await waitFor(() => assert.deepEqual(failures, ['Cuenta no encontrada']));
+    assert.deepEqual(cardsIn('Nuevas'), ['Acme']);
+    await waitFor(() => assert.equal(screen.getByRole('alert').textContent, 'Cuenta no encontrada'));
+  });
+
+  it('reordenar dentro de la misma columna no es un cambio de etapa', () => {
+    const { calls } = renderBoard();
+
+    const node = card('Acme');
+    fireEvent.keyDown(node, { key: ' ' });
+    fireEvent.keyDown(card('Acme'), { key: 'ArrowDown' });
+    assert.ok(screen.queryByRole('alertdialog') === null);
+    assert.deepEqual(calls, []);
   });
 });

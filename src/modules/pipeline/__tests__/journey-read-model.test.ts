@@ -180,7 +180,7 @@ describe('Read model — recorrido con prospecto de origen', () => {
   it('cuenta los contactos reales y no inventa nada en las etapas previstas', () => {
     assert.deepEqual(
       { ...journey.contacts, decisionMakerList: journey.contacts.decisionMakerList.length },
-      { total: 1, decisionMakers: 1, withPhone: 1, inHubSpot: 0, decisionMakerList: 1 },
+      { total: 1, decisionMakers: 1, champions: 0, withPhone: 1, inHubSpot: 0, decisionMakerList: 1 },
     );
     for (const stage of journey.stages.filter((s) => s.stage.phase !== 'hecho')) {
       assert.equal(stage.milestoneAt, null, stage.stage.id);

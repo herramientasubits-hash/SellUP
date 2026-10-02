@@ -1,95 +1,107 @@
+"use client";
+
+import * as React from "react";
 import Link from "next/link";
 import { ArrowRight, LayoutDashboard } from "@/icons";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { countryName } from "@/components/shared/table-cells";
 import { Kanban, type KanbanColumn, type KanbanItem } from "@/components/data-display";
+import type { PipelineStatus } from "@/modules/accounts/types";
+import type { PipelineOverviewAccount } from "@/modules/pipeline/types";
+import {
+  BOARD_COLUMNS,
+  PROSPECTS_HREF,
+  SIGNAL_BADGE_VARIANT,
+  boardColumnTitle,
+  daysAgoLabel,
+} from "./pipeline-copy";
 
-/**
- * Los cuatro macroestados del proceso comercial, en orden, con lo que significa
- * cada uno para quien mira el tablero.
- */
-export const PIPELINE_STAGES: readonly KanbanColumn[] = [
-  {
-    id: "preparacion",
-    title: "Preparación inicial",
-    description: "Cuentas recién aprobadas, con sus datos básicos por completar.",
-    tone: "default",
-  },
-  {
-    id: "profundizar",
-    title: "Listos para profundizar",
-    description: "Ya tienen lo básico; toca investigarlas a fondo.",
-    tone: "primary",
-  },
-  {
-    id: "inteligencia",
-    title: "Inteligencia lista",
-    description: "Investigación comercial terminada y lista para usar.",
-    tone: "primary",
-  },
-  {
-    id: "contacto",
-    title: "Preparados para contacto",
-    description: "Con contactos y mensaje listos para el primer acercamiento.",
-    tone: "positive",
-  },
+export { PROSPECTS_HREF };
+
+type BoardStatus = (typeof BOARD_COLUMNS)[number]["status"];
+
+/** Las cuatro columnas del tablero: los cuatro estados entre los que una persona mueve una empresa. */
+export const PIPELINE_BOARD_COLUMNS: readonly KanbanColumn[] = [
+  { id: "new", title: BOARD_COLUMNS[0].title, description: BOARD_COLUMNS[0].description, tone: "default" },
+  { id: "ready_for_research", title: BOARD_COLUMNS[1].title, description: BOARD_COLUMNS[1].description, tone: "primary" },
+  { id: "research_in_progress", title: BOARD_COLUMNS[2].title, description: BOARD_COLUMNS[2].description, tone: "warning" },
+  { id: "ready_for_outreach", title: BOARD_COLUMNS[3].title, description: BOARD_COLUMNS[3].description, tone: "positive" },
 ];
 
-/** A dónde va quien todavía no tiene cuentas en el tablero. */
-export const PROSPECTS_HREF = "/accounts?tab=prospectos";
-
-const STAGE_DOT: Record<NonNullable<KanbanColumn["tone"]>, string> = {
-  default: "bg-text-muted",
-  primary: "bg-primary",
-  positive: "bg-success",
-  warning: "bg-warning",
-  negative: "bg-destructive",
-};
+export type MoveAccountResult = { success: true } | { success: false; error: string };
 
 interface PipelineBoardProps {
-  /** Las cuentas del tablero, cada una en la columna de su macroestado. */
-  items: readonly KanbanItem[];
+  /** Las empresas activas del pipeline (las archivadas no están en el tablero). */
+  accounts: readonly PipelineOverviewAccount[];
+  /** Mueve la empresa de estado. Sin ella, el tablero solo se mira. */
+  onMoveAccount?: (accountId: string, status: PipelineStatus) => Promise<MoveAccountResult>;
+  /** Abre el recorrido de la empresa. */
+  onOpenAccount?: (accountId: string) => void;
+  /** Avisa de que el movimiento falló (un toast); la tarjeta ya volvió a su columna. */
+  onMoveFailed?: (message: string) => void;
+}
+
+interface PendingMove {
+  accountId: string;
+  accountName: string;
+  to: BoardStatus;
+}
+
+function toItem(account: PipelineOverviewAccount, status: PipelineStatus): KanbanItem {
+  const place = [countryName(account.countryCode), account.industry].filter(Boolean).join(" · ");
+  return {
+    id: account.id,
+    columnId: status,
+    title: account.name,
+    description: place || undefined,
+    meta: `Último movimiento: ${daysAgoLabel(account.daysSinceMovement)}`,
+    badges:
+      account.signals.length > 0
+        ? account.signals.map((signal) => (
+            <Badge key={signal.id} variant={SIGNAL_BADGE_VARIANT[signal.severity]}>
+              {signal.label}
+            </Badge>
+          ))
+        : undefined,
+  };
 }
 
 /**
- * PipelineBoard — el tablero del pipeline.
+ * PipelineBoard — la vista «Tablero»: el `Kanban` del sistema con una tarjeta
+ * por empresa en la columna de su estado.
  *
- * Con cuentas, pinta el `Kanban` del sistema con una tarjeta por cuenta. Sin
- * cuentas no repite «vacío» en cada columna: enseña las cuatro etapas como una
- * guía de lo que significa cada una y un único estado vacío con el siguiente
- * paso.
+ * Mover una tarjeta (arrastrando o con teclado) NO escribe: pide confirmación
+ * («¿Mover X a Y?») y solo al aceptar llama a `onMoveAccount`. Si se cancela o
+ * falla, la tarjeta vuelve a su columna. El cambio de etapa siempre lo decide
+ * la persona.
  */
-export function PipelineBoard({ items }: PipelineBoardProps) {
-  if (items.length > 0) {
-    return <Kanban columns={[...PIPELINE_STAGES]} items={[...items]} className="min-h-0 flex-1" />;
-  }
+export function PipelineBoard({ accounts, onMoveAccount, onOpenAccount, onMoveFailed }: PipelineBoardProps) {
+  const [pending, setPending] = React.useState<PendingMove | null>(null);
+  const [isSaving, setIsSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <ol
-        aria-label="Etapas del pipeline"
-        className="grid shrink-0 gap-px overflow-hidden rounded-2xl border border-border/60 bg-border/60 shadow-card sm:grid-cols-2 xl:grid-cols-4"
-      >
-        {PIPELINE_STAGES.map((stage, index) => (
-          <li
-            key={stage.id}
-            className="flex flex-col gap-1 bg-card px-5 py-4"
-          >
-            <div className="flex items-center gap-2">
-              <span aria-hidden className={`size-2 shrink-0 rounded-full ${STAGE_DOT[stage.tone ?? "default"]}`} />
-              <span className="text-xs font-medium tabular-nums text-text-muted">{index + 1}</span>
-              <h2 className="min-w-0 truncate text-sm font-semibold text-foreground">{stage.title}</h2>
-            </div>
-            <p className="text-xs leading-relaxed text-muted-foreground">{stage.description}</p>
-          </li>
-        ))}
-      </ol>
+  // La tarjeta se enseña en la columna destino mientras se pregunta; al cancelar o fallar, vuelve.
+  const items = React.useMemo(
+    () =>
+      accounts
+        .filter((account) => account.pipelineStatus !== "archived")
+        .map((account) =>
+          toItem(account, pending?.accountId === account.id ? pending.to : account.pipelineStatus),
+        ),
+    [accounts, pending],
+  );
 
+  if (accounts.length === 0) {
+    return (
       <EmptyState
         className="min-h-64 flex-1"
         icon={LayoutDashboard}
-        title="El pipeline aún no muestra cuentas"
-        description="Esta vista está en preparación. Mientras tanto, revisa y aprueba prospectos en Empresas: ahí sigue su avance."
+        title="Todavía no hay empresas en el tablero"
+        description="Las empresas entran aquí cuando apruebas un prospecto. Revisa y aprueba prospectos en Empresas."
         action={
           <Button asChild>
             <Link href={PROSPECTS_HREF}>
@@ -98,6 +110,67 @@ export function PipelineBoard({ items }: PipelineBoardProps) {
             </Link>
           </Button>
         }
+      />
+    );
+  }
+
+  function handleMove(itemId: string, toColumnId: string) {
+    if (isSaving) return;
+    const account = accounts.find((candidate) => candidate.id === itemId);
+    if (!account) return;
+    // Volver a su columna (Escape, o arrastrarla de vuelta) deshace la pregunta. Reordenar dentro
+    // de la columna no es un cambio de etapa.
+    if (toColumnId === account.pipelineStatus) {
+      setPending(null);
+      return;
+    }
+    setError(null);
+    setPending({ accountId: account.id, accountName: account.name, to: toColumnId as BoardStatus });
+  }
+
+  async function confirmMove() {
+    if (!pending || !onMoveAccount || isSaving) return;
+    setIsSaving(true);
+    let failure: string | null = null;
+    try {
+      const result = await onMoveAccount(pending.accountId, pending.to);
+      if (!result.success) failure = result.error;
+    } catch {
+      failure = "No se pudo mover la empresa. Inténtalo de nuevo.";
+    }
+    setIsSaving(false);
+    setPending(null);
+    if (failure) {
+      setError(failure);
+      onMoveFailed?.(failure);
+    }
+  }
+
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      <Kanban
+        columns={[...PIPELINE_BOARD_COLUMNS]}
+        items={items}
+        emptyColumnLabel="Sin empresas"
+        onItemMove={onMoveAccount ? handleMove : undefined}
+        onItemClick={onOpenAccount ? (item) => onOpenAccount(item.id) : undefined}
+        className="min-h-0 flex-1"
+      />
+      <ConfirmDialog
+        open={pending !== null}
+        onOpenChange={(open) => {
+          if (!open && !isSaving) setPending(null);
+        }}
+        title={pending ? `¿Mover ${pending.accountName} a «${boardColumnTitle(pending.to)}»?` : ""}
+        description="El cambio de etapa queda anotado en el historial de la empresa."
+        confirmLabel="Mover"
+        loading={isSaving}
+        onConfirm={confirmMove}
       />
     </div>
   );
