@@ -22,7 +22,7 @@
 import type { MacroIndustryKey } from '@/modules/macro-industry-catalog/macro-industries';
 
 /** Versión de la tabla aprobada. */
-export const MX_DENUE_MACRO_TABLE_VERSION = 'mx-scian-denue-macro-v1' as const;
+export const MX_DENUE_MACRO_TABLE_VERSION = 'mx-scian-denue-macro-v2' as const;
 
 const MANUFACTURING = 'industry_manufacturing_chemicals_automotive' as const;
 const ENERGY = 'energy_mining_environment' as const;
@@ -59,7 +59,12 @@ export const MX_SCIAN_MACRO: Readonly<Record<string, MacroIndustryKey | null>> =
   '515': null, // radio y televisión
   '517': 'technology', // telecomunicaciones
   '518': 'technology', // procesamiento de datos y hosting
-  '519': 'technology', // otros servicios de información
+  // SOURCES-MX-SCIAN-519-LIBRARIES-1 (dueña, 01-10): la 519 entera ya no es
+  // Tecnología — DENUE mete ahí las bibliotecas y los archivos públicos.
+  '5191': null, // agencias de noticias (medios, como radio y TV)
+  '519211': null, // bibliotecas y archivos del sector privado
+  '519212': 'government', // bibliotecas y archivos del sector público
+  '519290': 'technology', // portales de búsqueda y otros servicios de información
   '531': 'property_construction', // servicios inmobiliarios
   '532': 'services_company', // alquiler de bienes
   '533': null, // marcas
@@ -110,10 +115,10 @@ export const MX_DENUE_QUERY_PLAN: Readonly<Record<string, readonly DenueActivity
   health_pharma: ['62', '3254', '3391', '4641'].map(filter),
   retail: ['43', '46'].map(filter),
   transport_logistics: ['48', '49'].map(filter),
-  technology: ['5112', '517', '518', '519', '5415'].map(filter),
+  technology: ['5112', '517', '518', '5192', '5415'].map(filter),
   insurance_financial_services: ['52'].map(filter),
   services_company: ['54', '55', '56', '532'].map(filter),
-  government: ['93'].map(filter),
+  government: ['93', '5192'].map(filter),
 });
 
 /** ¿Hay algo que preguntar a DENUE para esta macro? */
