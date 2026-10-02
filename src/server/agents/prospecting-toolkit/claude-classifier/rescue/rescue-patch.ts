@@ -131,12 +131,35 @@ export function buildReassignedCompleteness(completeness: Metadata | null): Meta
   };
 }
 
-/** Columnas de la industria corregida (texto + id del catálogo). */
+/**
+ * Columnas de la industria corregida. La subindustria de la industria anterior se
+ * borra (no pertenece a la nueva). `catalog_version_id` lo añade el servidor con
+ * `attachIndustryCatalogVersion`: la tabla exige industria + versión juntas.
+ */
 export function reassignedIndustryColumns(decision: Extract<RescueDecision, { kind: 'reassign' }>): {
   industry: string;
   industry_id: string;
+  subindustry: null;
+  subindustry_id: null;
 } {
-  return { industry: decision.industryName, industry_id: decision.industryId };
+  return { industry: decision.industryName, industry_id: decision.industryId, subindustry: null, subindustry_id: null };
+}
+
+/**
+ * `prospect_candidates` exige `catalog_version_id` cuando hay `industry_id`
+ * (`pc_industry_requires_version` + FK compuesta a `industries`). Prod 02-10: sin
+ * esto TODAS las reasignaciones fallaban al escribir. Si no se conoce la versión,
+ * se quita el `industry_id` y se conserva el nombre: la fila no se pierde.
+ */
+export function attachIndustryCatalogVersion<T extends Record<string, unknown>>(
+  columns: T,
+  catalogVersionId: string | null,
+): Record<string, unknown> {
+  if (typeof columns.industry_id !== 'string') return columns;
+  if (catalogVersionId) return { ...columns, catalog_version_id: catalogVersionId };
+  const rest: Record<string, unknown> = { ...columns };
+  delete rest.industry_id;
+  return rest;
 }
 
 export function buildReassignReviewNote(decision: Extract<RescueDecision, { kind: 'reassign' }>): string {
@@ -231,6 +254,9 @@ export type CandidateRescuePatch = {
   review_notes?: string;
   industry?: string;
   industry_id?: string;
+  subindustry?: null;
+  subindustry_id?: null;
+  catalog_version_id?: string;
   employee_count?: number;
   employee_count_status?: 'estimated_100_plus';
   employee_count_source?: string;

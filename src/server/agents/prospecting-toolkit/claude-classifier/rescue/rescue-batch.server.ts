@@ -31,6 +31,29 @@ import { DOMAIN_SEARCH_REASON_CODE, type DomainDuplicateCheck } from './domain-s
 import type { RescueBatchDeps } from './rescue-batch';
 import { RESCUABLE_DISPOSITION_REASON_CODES, type RescuableDispositionRow } from './rescue-dispositions';
 import { SECTOR_MISMATCH_DISCARD_REASON } from './reassign-stored';
+import { attachIndustryCatalogVersion, type CandidateRescuePatch } from './rescue-patch';
+
+/** Versión de catálogo de una macroindustria (la tabla exige industria + versión). */
+async function loadIndustryCatalogVersion(industryId: string): Promise<string | null> {
+  const { data, error } = await createSupabaseAdminClient()
+    .from('industries')
+    .select('catalog_version_id')
+    .eq('id', industryId)
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.error('[claude-rescue] industry catalog version read failed:', error.message);
+    return null;
+  }
+  const version = (data as { catalog_version_id?: unknown } | null)?.catalog_version_id;
+  return typeof version === 'string' && version ? version : null;
+}
+
+/** Añade `catalog_version_id` a unas columnas que cambian la industria (si la cambian). */
+async function withCatalogVersion<T extends Record<string, unknown>>(columns: T): Promise<Record<string, unknown>> {
+  if (typeof columns.industry_id !== 'string') return columns;
+  return attachIndustryCatalogVersion(columns, await loadIndustryCatalogVersion(columns.industry_id));
+}
 
 /** Reintentos si otro proceso escribió la fila entre la lectura y la escritura. */
 const WRITE_MAX_ATTEMPTS = 3;
@@ -50,8 +73,9 @@ async function patchCandidate(
     if (current.error || !current.data) return false;
     const row = current.data as { metadata: Record<string, unknown> | null; status: string; updated_at: string };
     if (row.status !== expectedStatus) return false;
-    const patch = buildPatch(row.metadata);
-    if (!patch) return false;
+    const built = buildPatch(row.metadata);
+    if (!built) return false;
+    const patch = (await withCatalogVersion(built)) as CandidateRescuePatch;
 
     const { data, error } = await admin
       .from('prospect_candidates')
@@ -199,7 +223,7 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
           isBatchInScope: async () => true,
         },
         dispositionId,
-        origin,
+        origin.columns ? { ...origin, columns: await withCatalogVersion(origin.columns) } : origin,
       );
       if (outcome.outcome === 'sent' || outcome.outcome === 'idempotent') return outcome.candidateId;
       console.error('[claude-rescue] admit failed:', outcome.outcome);

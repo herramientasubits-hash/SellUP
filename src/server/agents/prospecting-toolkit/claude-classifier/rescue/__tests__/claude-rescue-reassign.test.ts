@@ -9,7 +9,12 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { decideRescue } from '../rescue-decision';
-import { buildCandidateRescuePatch, INDUSTRY_REASSIGNED_CONDITION, rescueStillPending } from '../rescue-patch';
+import {
+  attachIndustryCatalogVersion,
+  buildCandidateRescuePatch,
+  INDUSTRY_REASSIGNED_CONDITION,
+  rescueStillPending,
+} from '../rescue-patch';
 import { buildDispositionReassignOrigin, type RescuableDispositionRow } from '../rescue-dispositions';
 import {
   buildStoredReassignCandidatePatch,
@@ -378,5 +383,39 @@ describe('D. rescueBatchWithClaude — reabre descartes por sector guardados', (
     const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
     assert.equal(s.ok && s.reassigned, 1);
     assert.equal(s.ok && s.candidatesDiscarded, 0);
+  });
+});
+
+// ─── E. Restricciones de la tabla (Prod 02-10: todas las escrituras fallaban) ──
+
+describe('E. prospect_candidates exige industria + versión de catálogo', () => {
+  const decision = decideRescue(clinic(), CTX);
+
+  it('la reasignación borra la subindustria de la industria anterior', () => {
+    const p = buildCandidateRescuePatch({ metadata: REVIEW_METADATA, result: clinic(), decision, minEmployees: 200, decidedAt: AT });
+    assert.equal(p.subindustry_id, null);
+    assert.equal(p.subindustry, null);
+  });
+
+  it('con versión conocida se escribe junto al industry_id', () => {
+    const cols = attachIndustryCatalogVersion({ industry: SALUD, industry_id: 'salud' }, 'v2');
+    assert.deepEqual(cols, { industry: SALUD, industry_id: 'salud', catalog_version_id: 'v2' });
+  });
+
+  it('sin versión se quita el industry_id y se conserva el nombre (la fila no se pierde)', () => {
+    const cols = attachIndustryCatalogVersion({ industry: SALUD, industry_id: 'salud', employee_count: 1001 }, null);
+    assert.deepEqual(cols, { industry: SALUD, employee_count: 1001 });
+  });
+
+  it('columnas sin cambio de industria no se tocan', () => {
+    const cols = { employee_count: 1001 };
+    assert.equal(attachIndustryCatalogVersion(cols, 'v2'), cols);
+  });
+
+  it('el origen de Descartadas también borra la subindustria', () => {
+    assert.equal(decision.kind, 'reassign');
+    if (decision.kind !== 'reassign') return;
+    const o = buildDispositionReassignOrigin(clinic(), decision, 200, AT);
+    assert.equal(o.columns?.subindustry_id, null);
   });
 });
