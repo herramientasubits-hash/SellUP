@@ -30,6 +30,7 @@ import { CLAUDE_CLASSIFIER_PROVIDER_KEY } from '../types';
 import { DOMAIN_SEARCH_REASON_CODE, type DomainDuplicateCheck } from './domain-search';
 import type { RescueBatchDeps } from './rescue-batch';
 import { RESCUABLE_DISPOSITION_REASON_CODES, type RescuableDispositionRow } from './rescue-dispositions';
+import { SECTOR_MISMATCH_DISCARD_REASON } from './reassign-stored';
 
 /** Reintentos si otro proceso escribió la fila entre la lectura y la escritura. */
 const WRITE_MAX_ATTEMPTS = 3;
@@ -37,6 +38,7 @@ const WRITE_MAX_ATTEMPTS = 3;
 async function patchCandidate(
   candidateId: string,
   buildPatch: Parameters<RescueBatchDeps['patchCandidate']>[1],
+  expectedStatus: 'needs_review' | 'discarded' = 'needs_review',
 ): Promise<boolean> {
   const admin = createSupabaseAdminClient();
   for (let attempt = 0; attempt < WRITE_MAX_ATTEMPTS; attempt++) {
@@ -47,7 +49,7 @@ async function patchCandidate(
       .maybeSingle();
     if (current.error || !current.data) return false;
     const row = current.data as { metadata: Record<string, unknown> | null; status: string; updated_at: string };
-    if (row.status !== 'needs_review') return false;
+    if (row.status !== expectedStatus) return false;
     const patch = buildPatch(row.metadata);
     if (!patch) return false;
 
@@ -55,7 +57,7 @@ async function patchCandidate(
       .from('prospect_candidates')
       .update(patch)
       .eq('id', candidateId)
-      .eq('status', 'needs_review')
+      .eq('status', expectedStatus)
       .eq('updated_at', row.updated_at)
       .select('id');
     if (error) {
@@ -160,9 +162,33 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
       const id = (data as { metadata?: { industry_id?: unknown } } | null)?.metadata?.industry_id;
       return typeof id === 'string' && id ? id : null;
     },
+    loadSectorMismatchDiscards: async (batchId) => {
+      const admin = createSupabaseAdminClient();
+      const [candidates, dispositions] = await Promise.all([
+        admin
+          .from('prospect_candidates')
+          .select('id, industry_id, industry, source_primary, name, website, domain, country_code, country, status, metadata')
+          .eq('batch_id', batchId)
+          .eq('status', 'discarded')
+          .eq('metadata->claude_rescue->>discard_reason', SECTOR_MISMATCH_DISCARD_REASON),
+        admin
+          .from('prospect_discarded_dispositions')
+          .select('id, batch_id, candidate_id, status, name, domain, country_code, industry, reason_code, evidence')
+          .eq('batch_id', batchId)
+          .eq('status', 'discarded')
+          .eq('evidence->claude_rescue->>discard_reason', SECTOR_MISMATCH_DISCARD_REASON),
+      ]);
+      if (candidates.error) throw new Error(`sector_discards_read_failed:${candidates.error.message}`);
+      if (dispositions.error) throw new Error(`sector_dispositions_read_failed:${dispositions.error.message}`);
+      return {
+        candidates: (candidates.data ?? []) as ClassifiableCandidateRow[],
+        dispositions: (dispositions.data ?? []) as RescuableDispositionRow[],
+      };
+    },
+    reopenDiscardedCandidate: (candidateId, buildPatch) => patchCandidate(candidateId, buildPatch, 'discarded'),
     classify: classifyCompanyLive,
     logUsage: logProviderUsage,
-    patchCandidate,
+    patchCandidate: (candidateId, buildPatch) => patchCandidate(candidateId, buildPatch),
     patchDispositionEvidence,
     admitDisposition: async (dispositionId, origin) => {
       const outcome = await sendDispositionToReviewCore(

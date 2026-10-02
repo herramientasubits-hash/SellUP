@@ -77,9 +77,10 @@ describe('A. decideRescue', () => {
     assert.deepEqual(decideRescue(result(), CTX), { kind: 'admit', sectorConfirmed: true, sizeConfirmed: true, linkedinConfirmed: false });
   });
 
-  it('sector de otro lote con cita COMPROBADA → descartar por sector', () => {
+  it('sector de otro lote con cita COMPROBADA y tamaño desconocido → descartar por sector', () => {
+    // Con tamaño UBITS se reasigna la industria (claude-rescue-reassign.test.ts).
     const d = decideRescue(
-      result({ sector: { ...result().sector!, matchesCurrentIndustry: false, industryName: 'Minería' } }),
+      result({ sector: { ...result().sector!, matchesCurrentIndustry: false, industryName: 'Minería' }, employeeRange: null }),
       CTX,
     );
     assert.equal(d.kind, 'discard');
@@ -343,7 +344,7 @@ describe('D. rescueBatchWithClaude', () => {
   it('una descartada que NO pasa se queda en Descartadas con la evidencia', async () => {
     const f = fakeDeps({
       loadReviewCandidates: async () => [],
-      classify: async () => result({ sector: { ...result().sector!, matchesCurrentIndustry: false } }),
+      classify: async () => result({ sector: { ...result().sector!, matchesCurrentIndustry: false }, employeeRange: null }),
     });
     const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
     assert.equal(s.ok && s.dispositionsKept, 1);
@@ -443,7 +444,8 @@ describe('E. LinkedIn en el rescate', () => {
 
 describe('F. descartes prudentes', () => {
   const mismatch = (overrides: Partial<NonNullable<CompanyClassificationResult['sector']>> = {}) =>
-    result({ sector: { ...result().sector!, industryName: 'Retail', matchesCurrentIndustry: false, confidence: 0.95, ...overrides } });
+    // Tamaño desconocido: aquí se prueba el filtro de DESCARTE (con tamaño UBITS se reasigna).
+    result({ sector: { ...result().sector!, industryName: 'Retail', matchesCurrentIndustry: false, confidence: 0.95, ...overrides }, employeeRange: null });
 
   it('MASPLAY: la cita dice «EMPRESA DE TECNOLOGIA» en un lote de Tecnología → NO descarta', () => {
     const d = decideRescue(mismatch({ quote: 'MASPLAY.PE EMPRESA DE TECNOLOGIA', confidence: 0.95 }), {
@@ -509,7 +511,7 @@ describe('F2. Lusha entra al rescate para revisar el sector', () => {
     assert.equal(s.ok && s.candidatesDiscarded, 0);
   });
 
-  it('un medio en un lote de Tecnología (cita comprobada, confianza alta) se descarta', async () => {
+  it('un medio en un lote de Tecnología con otra macro y tamaño de Lusha → industria corregida, no cuenta como Tecnología', async () => {
     const f = fakeDeps({
       loadReviewCandidates: async () => [lushaRow],
       loadDispositions: async () => [],
@@ -526,7 +528,8 @@ describe('F2. Lusha entra al rescate para revisar el sector', () => {
         }),
     });
     const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
-    assert.equal(s.ok && s.candidatesDiscarded, 1);
+    assert.equal(s.ok && s.candidatesDiscarded, 0);
+    assert.equal(s.ok && s.reassigned, 1);
   });
 });
 
@@ -577,7 +580,7 @@ describe('H. respuesta directa sobre la industria buscada', () => {
   it('«no pertenece» sin cita comprobada → no descarta, deja aviso', () => {
     const d = decideRescue(media({ verification: 'source_listed' }), { icpMinEmployees: 200, requestedIndustryName: 'Tecnología' });
     assert.notEqual(d.kind, 'discard');
-    assert.equal(d.kind !== 'discard' && d.sectorMismatchUnconfirmed, true);
+    assert.equal((d.kind === 'admit' || d.kind === 'unchanged') && d.sectorMismatchUnconfirmed, true);
   });
 
   it('catálogo dice Tecnología pero la respuesta directa dice que no → no decide (contradicción)', () => {
@@ -631,6 +634,7 @@ describe('I. descarte con cita de búsqueda y confianza ≥ 0,95', () => {
         quote,
       },
       requestedIndustryFit: { fits: false, quote, sourceUrl: 'https://pe.linkedin.com/company/kfc', confidence, verification: 'source_listed' },
+      employeeRange: null,
     });
 
   it('KFC (búsqueda, 0,95) → descarta', () => {

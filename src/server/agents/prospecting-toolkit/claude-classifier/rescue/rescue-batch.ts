@@ -40,7 +40,14 @@ import {
   type CandidateRescuePatch,
 } from './rescue-patch';
 import {
+  buildStoredReassignCandidatePatch,
+  buildStoredReassignDispositionOrigin,
+  decideStoredReassignment,
+  icpGatePassed,
+} from './reassign-stored';
+import {
   buildDispositionAdmissionOrigin,
+  buildDispositionReassignOrigin,
   buildDispositionInProgressEvidence,
   buildDispositionStaysEvidence,
   dispositionToCompanyInput,
@@ -86,6 +93,19 @@ export type RescueBatchDeps = {
   /** «Una empresa, un vendedor»: reclama la identidad de los candidatos rescatados. */
   claimIdentities: (batchId: string, candidateIds: readonly string[]) => Promise<void>;
   /**
+   * Descartes de Claude por SECTOR ya guardados en el lote (candidatos `discarded`
+   * y filas de Descartadas). Ausente = no se reabren (costo cero: no llama a Claude).
+   */
+  loadSectorMismatchDiscards?: (batchId: string) => Promise<{
+    candidates: ClassifiableCandidateRow[];
+    dispositions: RescuableDispositionRow[];
+  }>;
+  /** Como `patchCandidate`, pero sólo si el candidato sigue `discarded`. */
+  reopenDiscardedCandidate?: (
+    candidateId: string,
+    buildPatch: (metadata: Record<string, unknown> | null) => CandidateRescuePatch | null,
+  ) => Promise<boolean>;
+  /**
    * Buscador de sitio oficial para descartadas SIN dominio. Ausente = apagado
    * (`ENABLE_AGENT1_CLAUDE_DOMAIN_FINDER`): esas filas ni se cargan ni se tocan.
    */
@@ -106,6 +126,8 @@ export type RescueBatchSummary =
       candidatesUnchanged: number;
       dispositionsAdmitted: number;
       dispositionsKept: number;
+      /** Otra industria UBITS: en revisión con la industria corregida, sin contar para la meta. */
+      reassigned: number;
       failed: number;
       remaining: number;
       estimatedCostUsd: number;
@@ -117,7 +139,7 @@ type WorkItem =
   | { kind: 'disposition'; row: RescuableDispositionRow };
 
 type ItemOutcome =
-  | { tag: 'completed' | 'discarded' | 'unchanged' | 'admitted' | 'kept' | 'failed' | 'skipped'; cost: number };
+  | { tag: 'completed' | 'discarded' | 'unchanged' | 'admitted' | 'reassigned' | 'kept' | 'failed' | 'skipped'; cost: number };
 
 function readIcpThreshold(metadata: Record<string, unknown> | null): number {
   const gate = metadata?.icp_size_gate as { threshold?: unknown } | undefined;
@@ -215,6 +237,7 @@ async function rescueCandidate(
     icpMinEmployees: minEmployees,
     requestedIndustryName: ctx.requestedIndustry?.name ?? row.industry ?? null,
     sizeAlreadyConfirmed: sizeAlreadyConfirmed(row.metadata),
+    sizePassedIcpGate: icpGatePassed(row.metadata),
   });
   const decidedAt = deps.nowIso();
   const saved = await deps.patchCandidate(row.id, (metadata) =>
@@ -223,6 +246,7 @@ async function rescueCandidate(
   const cost = result.usage?.estimatedCostUsd ?? 0;
   if (!saved) return { tag: 'failed', cost };
   if (decision.kind === 'discard') return { tag: 'discarded', cost };
+  if (decision.kind === 'reassign') return { tag: 'reassigned', cost };
   if (decision.kind === 'admit') return { tag: 'completed', cost };
   return { tag: 'unchanged', cost };
 }
@@ -361,9 +385,14 @@ async function rescueDisposition(
     requestedIndustryName: ctx.requestedIndustry?.name ?? row.industry,
   });
   const decidedAt = deps.nowIso();
-  // Una fila de Descartadas sólo vuelve si el SECTOR quedó confirmado (se descartó por eso).
-  if (decision.kind === 'admit' && decision.sectorConfirmed) {
-    const origin = buildDispositionAdmissionOrigin(result, decision, DEFAULT_ICP_MIN_EMPLOYEES, decidedAt);
+  // Una fila de Descartadas sólo vuelve si el SECTOR quedó confirmado (se descartó por eso),
+  // o si es de OTRA industria UBITS (vuelve con la industria corregida, sin contar para la meta).
+  const goesBack = decision.kind === 'reassign' || (decision.kind === 'admit' && decision.sectorConfirmed);
+  if (goesBack) {
+    const origin =
+      decision.kind === 'reassign'
+        ? buildDispositionReassignOrigin(result, decision, DEFAULT_ICP_MIN_EMPLOYEES, decidedAt)
+        : buildDispositionAdmissionOrigin(result, decision, DEFAULT_ICP_MIN_EMPLOYEES, decidedAt);
     const candidateId = await deps.admitDisposition(
       row.id,
       found
@@ -381,7 +410,7 @@ async function rescueDisposition(
     );
     if (candidateId) {
       admittedIds.push(candidateId);
-      return { tag: 'admitted', cost };
+      return { tag: decision.kind === 'reassign' ? 'reassigned' : 'admitted', cost };
     }
     return { tag: 'failed', cost };
   }
@@ -391,6 +420,61 @@ async function rescueDisposition(
     buildDispositionStaysEvidence(withFound(evidence), result, staysDecision, decidedAt),
   );
   return { tag: saved ? 'kept' : 'failed', cost };
+}
+
+/**
+ * Descartes por sector YA guardados que encajan con UBITS → revisión con la
+ * industria corregida. Sólo lee la clasificación guardada: costo cero.
+ */
+async function reassignStoredSectorMismatches(
+  batchId: string,
+  requestedIndustryName: string | null,
+  deps: RescueBatchDeps,
+  reopenedIds: string[],
+): Promise<number> {
+  if (!deps.loadSectorMismatchDiscards) return 0;
+  let loaded: Awaited<ReturnType<NonNullable<RescueBatchDeps['loadSectorMismatchDiscards']>>>;
+  try {
+    loaded = await deps.loadSectorMismatchDiscards(batchId);
+  } catch (err) {
+    console.error('[claude-rescue] stored sector discards read failed:', err instanceof Error ? err.message : err);
+    return 0;
+  }
+  let reassigned = 0;
+  const decidedAt = deps.nowIso();
+  if (deps.reopenDiscardedCandidate) {
+    for (const row of loaded.candidates) {
+      const saved = await deps.reopenDiscardedCandidate(row.id, (metadata) => {
+        const decision = decideStoredReassignment({
+          stored: metadata,
+          requestedIndustryName,
+          icpMinEmployees: readIcpThreshold(metadata),
+          sizePassedIcpGate: icpGatePassed(metadata),
+        });
+        return decision ? buildStoredReassignCandidatePatch(metadata, decision, decidedAt) : null;
+      });
+      if (saved) {
+        reopenedIds.push(row.id);
+        reassigned++;
+      }
+    }
+  }
+  for (const row of loaded.dispositions) {
+    if (row.status !== 'discarded' || row.candidate_id) continue;
+    const decision = decideStoredReassignment({
+      stored: row.evidence,
+      requestedIndustryName: requestedIndustryName ?? row.industry,
+      icpMinEmployees: DEFAULT_ICP_MIN_EMPLOYEES,
+      sizePassedIcpGate: false,
+    });
+    if (!decision) continue;
+    const candidateId = await deps.admitDisposition(row.id, buildStoredReassignDispositionOrigin(row.evidence, decision, decidedAt));
+    if (candidateId) {
+      reopenedIds.push(candidateId);
+      reassigned++;
+    }
+  }
+  return reassigned;
 }
 
 /** Procesa en paralelo; deja de EMPEZAR ítems nuevos cuando `shouldStop()` es true. */
@@ -458,6 +542,12 @@ export async function rescueBatchWithClaude(
       : null,
   };
   const admittedIds: string[] = [];
+  const storedReassigned = await reassignStoredSectorMismatches(
+    params.batchId,
+    ctx.requestedIndustry?.name ?? null,
+    deps,
+    admittedIds,
+  );
 
   const outcomes = await mapUntil(
     thisRun,
@@ -478,6 +568,7 @@ export async function rescueBatchWithClaude(
     candidatesUnchanged: count('unchanged'),
     dispositionsAdmitted: count('admitted'),
     dispositionsKept: count('kept'),
+    reassigned: count('reassigned') + storedReassigned,
     failed: count('failed'),
     remaining: work.length - outcomes.filter((o) => o.tag !== 'skipped').length,
     estimatedCostUsd: Math.round(outcomes.reduce((acc, o) => acc + o.cost, 0) * 1_000_000) / 1_000_000,
