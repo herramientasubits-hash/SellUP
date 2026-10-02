@@ -127,6 +127,28 @@ async function loadExcludedDomains(source: SourceBatch): Promise<string[]> {
   return [...new Set([...domains, ...bankDomains])];
 }
 
+/** `ready_for_review` → `generating` (sólo ese estado). true = se reabrió. */
+async function reopenClosedBatch(batchId: string): Promise<boolean> {
+  const { data, error } = await createSupabaseAdminClient()
+    .from('prospect_batches')
+    .update({ status: 'generating' })
+    .eq('id', batchId)
+    .eq('status', 'ready_for_review')
+    .select('id');
+  if (error) throw new Error(`batch_reopen_failed:${error.message}`);
+  return Array.isArray(data) && data.length === 1;
+}
+
+/** Si la escritura falló, el lote vuelve al estado en que estaba. */
+async function restoreClosedBatch(batchId: string): Promise<void> {
+  const { error } = await createSupabaseAdminClient()
+    .from('prospect_batches')
+    .update({ status: 'ready_for_review' })
+    .eq('id', batchId)
+    .eq('status', 'generating');
+  if (error) console.error('[claude-company-search] batch restore failed:', error.message);
+}
+
 async function countPreviousRuns(countryCode: string, industry: string): Promise<number> {
   const { count, error } = await createSupabaseAdminClient()
     .from('prospect_batches')
@@ -176,26 +198,35 @@ export function buildLiveClaudeCompanySearchDeps(userId: string): ClaudeCompanyS
       return { pipelineOutput, calls: context.calls };
     },
     writeCandidates: async ({ pipelineOutput, metadata, existingBatchId }) => {
-      const output = await writeProspectingCandidates({
-        pipelineOutput: pipelineOutput as ProspectingPipelineOutput,
-        triggeredByUserId: userId,
-        ownerId: userId,
-        source: 'agent_1',
-        dryRun: false,
-        targetPersistibleCandidates: CLAUDE_COMPANY_SEARCH_TARGET,
-        maxDeliveredCandidates: resolveMaxDeliveredCandidates(),
-        extraBatchMetadata: metadata,
-        // Paso del asistente: escribe en el lote de la corrida y NO sella su estado
-        // (lo decide la finalización del asistente, como con el banco).
-        ...(existingBatchId ? { existingBatchId, holdBatchStatus: true } : {}),
-      });
-      return {
-        batchId: output.status === 'failed' ? null : output.batchId,
-        candidatesCreated: output.candidatesCreated,
-        completeValidCandidates: output.persistence?.completeValidCandidates ?? null,
-        acceptedCandidateIds: output.persistence?.acceptedCandidateIds ?? [],
-        errors: output.errors,
-      };
+      // Paso del asistente: cuando Claude termina, el escritor de Apollo ya cerró el lote
+      // (`ready_for_review`) y el escritor no admite lotes cerrados (Prod 02-10, lote
+      // ab11727e: 2 llamadas pagadas, 0 escritas). Se reabre JUSTO antes de escribir, y
+      // el escritor —el último de la corrida— vuelve a decidir el estado como siempre.
+      const reopened = existingBatchId ? await reopenClosedBatch(existingBatchId) : false;
+      try {
+        const output = await writeProspectingCandidates({
+          pipelineOutput: pipelineOutput as ProspectingPipelineOutput,
+          triggeredByUserId: userId,
+          ownerId: userId,
+          source: 'agent_1',
+          dryRun: false,
+          targetPersistibleCandidates: CLAUDE_COMPANY_SEARCH_TARGET,
+          maxDeliveredCandidates: resolveMaxDeliveredCandidates(),
+          extraBatchMetadata: metadata,
+          ...(existingBatchId ? { existingBatchId } : {}),
+        });
+        if (reopened && output.status === 'failed') await restoreClosedBatch(existingBatchId as string);
+        return {
+          batchId: output.status === 'failed' ? null : output.batchId,
+          candidatesCreated: output.candidatesCreated,
+          completeValidCandidates: output.persistence?.completeValidCandidates ?? null,
+          acceptedCandidateIds: output.persistence?.acceptedCandidateIds ?? [],
+          errors: output.errors,
+        };
+      } catch (err) {
+        if (reopened) await restoreClosedBatch(existingBatchId as string);
+        throw err;
+      }
     },
     logUsage: logProviderUsage,
     newRunId: () => randomUUID(),
