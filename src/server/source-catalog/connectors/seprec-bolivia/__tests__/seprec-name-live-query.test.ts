@@ -24,6 +24,7 @@ import {
   normalizeBoliviaCompanyCore,
   parseSeprecDetailNit,
   parseSeprecSearch,
+  sectorNameVariant,
 } from '../seprec-name-live-query';
 import { createSnapshotNameOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/snapshot-name-official-source-resolver';
 import {
@@ -393,6 +394,106 @@ describe('marca dentro de la razón social (sólo pista)', () => {
     const candidate = { canonicalName: 'Marca Global', countryCode: 'BO', domain: null, websiteUrl: null } as unknown as NormalizedProspectCandidate;
     const out = await resolver.resolve({ candidate, criteria: { countryCode: 'BO' }, policy: DEFAULT_OFFICIAL_SOURCE_ENRICHMENT_POLICY });
     assert.equal(out.status, 'not_found');
+  });
+});
+
+describe('nombre corto de sector: «X SAFI» y «X Seguros» (sólo pista)', () => {
+  /** Fetch doble que responde cada búsqueda según su filtro. */
+  function fakeBySearch(searches: Record<string, unknown[]>, details: Record<string, unknown>) {
+    const urls: string[] = [];
+    const fetchImpl = async (url: string) => {
+      urls.push(url);
+      if (url.includes('/buscarEmpresas?')) {
+        const filtro = new URL(url).searchParams.get('filtro') ?? '';
+        return { ok: true, json: async () => search(searches[filtro] ?? []) };
+      }
+      const id = /informacionBasicaEmpresa\/([^/]+)\//.exec(url)?.[1] ?? '';
+      return { ok: true, json: async () => details[id] ?? {} };
+    };
+    return { fetchImpl, urls };
+  }
+
+  it('la forma larga que usa el SEPREC; otros nombres no cambian', () => {
+    assert.equal(sectorNameVariant('CREDIFONDO SAFI'), 'CREDIFONDO SOCIEDAD ADMINISTRADORA DE FONDOS DE INVERSION');
+    assert.equal(sectorNameVariant('ALIANZA SEGUROS'), 'ALIANZA COMPANIA DE SEGUROS');
+    assert.equal(sectorNameVariant('SEGUROS'), null);
+    assert.equal(sectorNameVariant('SEGUROS ALIANZA'), null);
+    assert.equal(sectorNameVariant('CERVECERIA BOLIVIANA NACIONAL'), null);
+  });
+
+  it('«Credifondo SAFI»: 0 resultados → una búsqueda más con la forma larga → pista con su NIT', async () => {
+    const f = fakeBySearch(
+      { 'CREDIFONDO SOCIEDAD ADMINISTRADORA DE FONDOS DE INVERSION': [hit('31', 'CREDIFONDO SOCIEDAD ADMINISTRADORA DE FONDOS DE INVERSION S.A.')] },
+      { '31': detail('1020399029') },
+    );
+    const rows = await buildSeprecNameLiveQuery({ sleep: noSleep, fetchImpl: f.fetchImpl })('CREDIFONDO SAFI');
+    assert.deepEqual(rows, [
+      {
+        taxId: '1020399029',
+        legalName: 'CREDIFONDO SOCIEDAD ADMINISTRADORA DE FONDOS DE INVERSION S.A.',
+        normalizedLegalName: 'CREDIFONDO SOCIEDAD ADMINISTRADORA DE FONDOS DE INVERSION',
+        brandSignal: true,
+      },
+    ]);
+    assert.equal(f.urls.filter((u) => u.includes('/buscarEmpresas?')).length, 2);
+  });
+
+  it('«Alianza Seguros» → ALIANZA COMPAÑIA DE SEGUROS Y REASEGUROS: el resolvedor da low_confidence_match y NO llena el NIT', async () => {
+    const f = fakeBySearch(
+      { 'ALIANZA COMPANIA DE SEGUROS': [hit('41', 'ALIANZA COMPAÑIA DE SEGUROS Y REASEGUROS  S.A.')] },
+      { '41': detail('1028339025') },
+    );
+    const resolver = createSnapshotNameOfficialSourceResolver({
+      countryCode: 'BO',
+      sourceKey: 'bo_seprec_live',
+      taxIdentifierType: 'NIT',
+      validTaxId: /^\d{7,13}$/,
+      normalizeCore: normalizeBoliviaCompanyCore,
+      querySnapshots: buildSeprecNameLiveQuery({ sleep: noSleep, fetchImpl: f.fetchImpl }),
+      singleWordIsSignalOnly: true,
+    });
+    const candidate = { sourceProvider: 'web_ai', canonicalName: 'Alianza Seguros', countryCode: 'BO', requestedCountryCode: 'BO', domain: 'alianza.com.bo', websiteUrl: null, warnings: [], issues: [], providerMetadataSafe: {}, trace: {} } as unknown as NormalizedProspectCandidate;
+    const out = await resolver.resolve({ candidate, criteria: { countryCode: 'BO' }, policy: DEFAULT_OFFICIAL_SOURCE_ENRICHMENT_POLICY });
+    assert.equal(out.status, 'low_confidence_match');
+    assert.equal(out.taxIdentifier, '1028339025');
+    assert.deepEqual(out.safeMetadata, { normalizedSearchName: 'ALIANZA SEGUROS', brandInLegalName: true });
+    const enriched = await enrichNormalizedProspectWithOfficialSources(candidate, { country: 'Bolivia', countryCode: 'BO' }, [resolver], DEFAULT_OFFICIAL_SOURCE_ENRICHMENT_POLICY);
+    assert.equal(enriched.strongIdentityAvailable, false);
+    assert.equal(enriched.taxIdentifier, null);
+  });
+
+  it('dos aseguradoras con la forma larga (homónimos) → nada', async () => {
+    const f = fakeBySearch(
+      {
+        'NACIONAL COMPANIA DE SEGUROS': [
+          hit('51', 'NACIONAL COMPAÑIA DE SEGUROS DE VIDA S.A.'),
+          hit('52', 'NACIONAL COMPAÑIA DE SEGUROS GENERALES S.A.'),
+        ],
+      },
+      { '51': detail('1000051'), '52': detail('1000052') },
+    );
+    const rows = await buildSeprecNameLiveQuery({ sleep: noSleep, fetchImpl: f.fetchImpl })('NACIONAL SEGUROS');
+    assert.deepEqual(rows, []);
+    assert.equal(f.urls.filter((u) => u.includes('informacionBasicaEmpresa')).length, 0);
+  });
+
+  it('si la primera búsqueda trajo resultados, no se hace la segunda (ni una petición más)', async () => {
+    const f = fakeBySearch(
+      {
+        'NACIONAL SEGUROS': [hit('61', 'NACIONAL SEGUROS PATRIMONIALES Y FIANZAS S.A.'), hit('62', 'NACIONAL SEGUROS VIDA Y SALUD S.A.')],
+        'NACIONAL COMPANIA DE SEGUROS': [hit('63', 'NACIONAL COMPAÑIA DE SEGUROS S.A.')],
+      },
+      { '63': detail('1000063') },
+    );
+    const rows = await buildSeprecNameLiveQuery({ sleep: noSleep, fetchImpl: f.fetchImpl })('NACIONAL SEGUROS');
+    assert.deepEqual(rows, []);
+    assert.equal(f.urls.length, 1);
+  });
+
+  it('un nombre sin palabra de sector y 0 resultados: una sola búsqueda', async () => {
+    const f = fakeBySearch({}, {});
+    assert.deepEqual(await buildSeprecNameLiveQuery({ sleep: noSleep, fetchImpl: f.fetchImpl })('EMPRESA INEXISTENTE'), []);
+    assert.equal(f.urls.length, 1);
   });
 });
 
