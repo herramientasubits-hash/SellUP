@@ -171,6 +171,10 @@ import {
   StopIcon,
   ThumbsDownIcon,
   ThumbsUpIcon,
+  Calculator01Icon,
+  Download01Icon,
+  PresentationBarChart01Icon,
+  ShoppingCart01Icon,
 } from "@hugeicons/core-free-icons";
 
 // El spinner conserva el dibujo anterior: es el único icono que gira y su
@@ -222,6 +226,10 @@ export const Brain = createIcon(Brain02Icon, "Brain");
 export const BrainCircuit = createIcon(AiBrain01Icon, "BrainCircuit");
 export const Briefcase = createIcon(Briefcase01Icon, "Briefcase");
 export const Building2 = createIcon(Building03Icon, "Building2");
+export const Calculator = createIcon(Calculator01Icon, "Calculator");
+export const Download = createIcon(Download01Icon, "Download");
+export const Presentation = createIcon(PresentationBarChart01Icon, "Presentation");
+export const ShoppingCart = createIcon(ShoppingCart01Icon, "ShoppingCart");
 export const Calendar = createIcon(Calendar03Icon, "Calendar");
 export const CalendarIcon = createIcon(Calendar03Icon, "CalendarIcon");
 export const Check = createIcon(Tick02Icon, "Check");
