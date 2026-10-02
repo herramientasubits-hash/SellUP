@@ -128,6 +128,11 @@ export type AiFlowStatus =
   // industria antes de pagar a Apollo/Lusha. Presentacional — NO entra en
   // recommendedSources ni cambia la puntuación de candidatos.
   | 'connected_free_discovery'
+  // Proveedor pagado conectado al Agente 1 (Apollo, Lusha, Tavily): busca
+  // empresas con créditos. Presentacional — NO entra en recommendedSources ni
+  // cambia la puntuación de candidatos (los proveedores globales se piden por
+  // su clave, no por este estado).
+  | 'connected_paid_provider'
   | 'paused'
   | 'not_applicable'
   | 'pending_classification';

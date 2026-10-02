@@ -141,3 +141,36 @@ describe('Catálogo — identificadores y nombres de país', () => {
     assert.equal(getCatalogContext({ country: 'España', countryCode: 'ES', industry: 'technology' }).fiscalIdentifierLabel, 'NIF');
   });
 });
+
+describe('proveedores globales con su estado real (SOURCES-CATALOG-COUNTRY-AUDIT-1)', () => {
+  const byKey = (key: string) => CATALOG_SOURCES.find((s) => s.key === key);
+
+  it('Apollo y Lusha: proveedores pagados conectados, en la pestaña de la IA y sin «Conectar»', () => {
+    for (const key of ['global_apollo', 'global_lusha']) {
+      const source = byKey(key);
+      assert.equal(source?.aiFlowStatus, 'connected_paid_provider', key);
+      assert.equal(source?.operationalStatus, 'operational_verified', key);
+      assert.equal(source?.priority, 'P2', `${key}: la prioridad no cambia (puntuación)`);
+      assert.equal(shouldSkipGenericConnectionPanels(source as never), true, key);
+    }
+    const operativas = filterTab(getSourceCatalogViewModel().sources, 'operativas').map((s) => s.key);
+    assert.ok(operativas.includes('global_apollo') && operativas.includes('global_lusha'));
+    assert.equal(AI_FLOW_STATUS_LABELS.connected_paid_provider, 'Conectada · proveedor pagado (usa créditos)');
+  });
+
+  it('OpenCorporates: descartada (de pago), fuera de la pestaña de la IA, misma clave y prioridad', () => {
+    const source = byKey('global_opencorporates');
+    assert.equal(source?.operationalStatus, 'discarded_paid_or_tos');
+    assert.equal(source?.priority, 'P2');
+    const operativas = filterTab(getSourceCatalogViewModel().sources, 'operativas').map((s) => s.key);
+    assert.equal(operativas.includes('global_opencorporates'), false);
+  });
+
+  it('el estado nuevo no entra en el flujo automático: Lusha sigue fuera y Apollo sólo como último recurso', () => {
+    const deep = getCatalogContext({ country: 'X', countryCode: 'XX', industry: 'technology', searchDepth: 'deep' });
+    const keys = deep.recommendedSources.map((s) => s.key);
+    assert.deepEqual(keys, ['global_opencorporates', 'global_apollo']);
+    const basic = getCatalogContext({ country: 'Colombia', countryCode: 'CO', industry: 'technology', searchDepth: 'basic' });
+    assert.equal(basic.recommendedSources.some((s) => s.key.startsWith('global_')), false);
+  });
+});
