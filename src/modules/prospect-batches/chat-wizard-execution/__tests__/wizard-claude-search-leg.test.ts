@@ -220,6 +220,34 @@ describe('Claude como último paso de la corrida', () => {
   });
 });
 
+describe('traza de Lusha sin las filas de Claude', () => {
+  it('con Lusha y Claude en la misma corrida, la traza de Lusha cuenta sólo lo suyo', async () => {
+    const calls: Array<{ batchId: string; phaseMs: number }> = [];
+    const result = await executeProspectWizardGeneration(
+      VALID_REQUEST,
+      legDeps({
+        apolloCreated: 1,
+        apolloComplete: 0,
+        calls,
+        overrides: {
+          runLushaWaterfallLeg: async () =>
+            ({
+              executed: true,
+              gap: 5,
+              clientRequestId: 'lusha-1',
+              result: { insertedCandidatesCount: 2, multiBranch: { acceptedForTargetTotal: null } },
+            }) as never,
+        },
+      }),
+    );
+    assert.ok(result.ok, JSON.stringify(result));
+    assert.equal(calls.length, 1);
+    const trace = (result as { lushaWaterfallLeg?: { persistedCandidates: number | null } }).lushaWaterfallLeg;
+    assert.equal(trace?.persistedCandidates, 2, 'sólo las 2 de Lusha, no las 3 de Claude');
+    assert.equal(result.ok && result.candidateCount, 6, '1 Apollo + 2 Lusha + 3 Claude');
+  });
+});
+
 describe('decideClaudeSearchLeg', () => {
   const base = { enabled: true, tavilyFirstSatisfied: false, target: 10, acceptedSoFar: 4, elapsedMs: 60_000 };
   it('corre con el tiempo acotado y dice cuántas faltan', () => {
