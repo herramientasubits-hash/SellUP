@@ -71,6 +71,7 @@ import { normalizeDomain } from "./normalization";
 // un contrato común, la misma empresa legal era invisible para la otra capa.
 import { buildCompanyIdentityEvidence } from "./company-identity-evidence";
 import { projectCandidateForBank } from "@/server/prospect-batches/company-bank/pipeline-candidate-bank-payload";
+import { resolveEffectiveDeliveryCap } from "@/modules/prospect-batches/delivery-cap";
 import {
   acceptIdentity,
   createBatchIdentityCounters,
@@ -2269,10 +2270,14 @@ export async function writeProspectingCandidates(
   // tope, que es por vendedor y por búsqueda, no por escritor.
   const batchIdentitySeed = await loadBatchIdentityRegistry(admin, batchId);
   const alreadyDeliveredInBatch = batchIdentitySeed.degraded ? 0 : batchIdentitySeed.seededCount;
-  const deliveryCap =
-    input.maxDeliveredCandidates != null && Number.isFinite(input.maxDeliveredCandidates)
-      ? Math.max(Math.trunc(input.maxDeliveredCandidates) - alreadyDeliveredInBatch, targetCap ?? 0, 0)
-      : null;
+  const deliveryCap = resolveEffectiveDeliveryCap({
+    cap:
+      input.maxDeliveredCandidates != null && Number.isFinite(input.maxDeliveredCandidates)
+        ? input.maxDeliveredCandidates
+        : null,
+    alreadyDelivered: alreadyDeliveredInBatch,
+    floor: targetCap,
+  });
   const toPersist =
     deliveryCap !== null && capOrdered.length > deliveryCap
       ? capOrdered.slice(0, deliveryCap)
