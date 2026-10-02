@@ -47,10 +47,17 @@ function ShellLayout({ children, className, user, initialUnreadCount = 0, navAcc
                 todo el ancho (la barra de scroll queda en el borde, no en medio).
                 Dentro, el contenido mide como mucho 1440px y se centra. DataTablePage
                 sigue funcionando porque flex-1 min-h-0 en sus hijos satura el
-                contenedor y la tabla desplaza por dentro. */}
+                contenedor y la tabla desplaza por dentro.
+
+                El aire inferior es un espaciador y no un padding: esta caja mide
+                lo que la ventana (min-h-0, para que la tabla pueda llenarla), así
+                que en una página larga el contenido la desborda y un padding-bottom
+                se quedaba a media página. La última tarjeta tocaba el borde. Como
+                último hijo, el espaciador va siempre detrás del contenido. */}
             <div className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto">
-              <div className="mx-auto flex min-h-0 w-full max-w-360 flex-1 flex-col px-4 py-6 sm:px-6 lg:px-8 lg:py-8 animate-su-fade-in">
+              <div className="mx-auto flex min-h-0 w-full max-w-360 flex-1 flex-col px-4 pt-6 sm:px-6 lg:px-8 lg:pt-8 animate-su-fade-in">
                 {children}
+                <div aria-hidden className="h-6 shrink-0 lg:h-8" />
               </div>
             </div>
           </main>
