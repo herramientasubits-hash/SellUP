@@ -50,7 +50,6 @@ import { resolveWizardDiscoveryProvider } from '@/modules/prospect-batches/chat-
 // ni flags, ni sus valores, ni el rol del usuario.
 import {
   resolveWizardProviderOverrideCapabilityForCurrentUser,
-  resolveAdminTavilyTrialAvailableForCurrentUser,
   resolveApolloRunModeLimitsForSurface,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-provider-capability.server';
 // AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — lectura de sólo lectura del período
@@ -280,13 +279,11 @@ export async function resolveGenerateProspectsAgent(): Promise<GenerateProspects
   //
   // El fallo de esta lectura no puede tumbar la página: `Promise.all` propaga un
   // rechazo, así que el resolutor ya devuelve `null` en vez de lanzar.
-  const [wizardProviderOverrideCapability, apolloRunModeLimits, wizardBudgetPreflight, adminTavilyTrialAvailable] =
+  const [wizardProviderOverrideCapability, apolloRunModeLimits, wizardBudgetPreflight] =
     await Promise.all([
       resolveWizardProviderOverrideCapabilityForCurrentUser(),
       resolveApolloRunModeLimitsForSurface(),
       resolveWizardBudgetPreflightForSurface(),
-      // AGENT1-TAVILY-TRIAL-1 — no lanza: sin prueba devuelve false sin consultar.
-      resolveAdminTavilyTrialAvailableForCurrentUser().catch(() => false),
     ]);
 
   // Load catalog only when any enhanced experience is on — zero Supabase queries
@@ -316,7 +313,7 @@ export async function resolveGenerateProspectsAgent(): Promise<GenerateProspects
   // vacío inicial («no hay prospectos por revisar»), para que la acción esté
   // también donde se la echa en falta.
   const generateDrawer = (
-    <GenerateAIBatchDrawer experience={experience} unavailableKind={unavailableKind} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} autoProviderCascade={autoProviderCascade} discoveryProvider={wizardDiscoveryProvider} providerOverrideCapability={wizardProviderOverrideCapability} apolloRunModeLimits={apolloRunModeLimits} budgetPreflight={wizardBudgetPreflight} adminTavilyTrialAvailable={adminTavilyTrialAvailable} />
+    <GenerateAIBatchDrawer experience={experience} unavailableKind={unavailableKind} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} autoProviderCascade={autoProviderCascade} discoveryProvider={wizardDiscoveryProvider} providerOverrideCapability={wizardProviderOverrideCapability} apolloRunModeLimits={apolloRunModeLimits} budgetPreflight={wizardBudgetPreflight} />
   );
 
   return { generateDrawer, isGenerateAvailable: experience !== 'unavailable' };
