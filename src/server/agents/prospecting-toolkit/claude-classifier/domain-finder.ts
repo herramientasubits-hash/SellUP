@@ -31,6 +31,7 @@ import {
 import { forceSubmission, isOffsiteRedirect, toUsage } from './classify-company';
 import { extractVisibleText } from './page-text';
 import { WEB_SEARCH_TOOL_TYPE } from './prompt';
+import { searchConfirmsDomain } from './site-match';
 import type { ClassifierUsage } from './types';
 
 export const FIND_WEBSITE_TOOL_NAME = 'submit_official_website';
@@ -133,13 +134,13 @@ export function buildDomainFinderRequestBody(input: DomainFinderInput, model: st
 }
 
 /** Mismo sitio: igual, o uno es subdominio del otro (`portal.unam.mx` ↔ `unam.mx`). */
-function sameSite(a: string, b: string): boolean {
+export function sameSite(a: string, b: string): boolean {
   return a === b || a.endsWith(`.${b}`) || b.endsWith(`.${a}`);
 }
 
-type SearchResultEntry = { domain: string; title: string | null };
+export type SearchResultEntry = { domain: string; title: string | null };
 
-function extractSearchResultEntries(content: AnthropicConversationResult['content']): SearchResultEntry[] {
+export function extractSearchResultEntries(content: AnthropicConversationResult['content']): SearchResultEntry[] {
   return content
     .filter((b) => b.type === 'web_search_tool_result' && Array.isArray(b.content))
     .flatMap((b) => b.content as Array<Record<string, unknown>>)
@@ -183,7 +184,7 @@ function bestSearchResultMatch(
 ): SearchResultEntry | null {
   return (
     results.find(
-      (r) => sameSite(r.domain, domain) && !!r.title && bestNameScore(input, domain, r.title, null) >= FINDER_MIN_NAME_SCORE,
+      (r) => searchConfirmsDomain(domain, r.domain) && !!r.title && bestNameScore(input, domain, r.title, null) >= FINDER_MIN_NAME_SCORE,
     ) ?? null
   );
 }
@@ -238,7 +239,7 @@ export async function findOfficialWebsite(
   if (!claimed || !claimedDomain) return { found: false, reason: 'no_candidate', usage };
 
   const searchResults = extractSearchResultEntries(conversation.content);
-  const inSearchResults = searchResults.some((r) => sameSite(r.domain, claimedDomain));
+  const inSearchResults = searchResults.some((r) => searchConfirmsDomain(claimedDomain, r.domain));
 
   if (!evaluateExternalPlatformGate(claimed, input.name).allowed) {
     return { found: false, reason: 'platform_domain', claimedUrl: claimed, usage };
@@ -280,12 +281,12 @@ export async function findOfficialWebsite(
   // plataforma (p. ej. conacyt.gob.mx → conahcyt.mx). Un parqueado o marketplace no pasa.
   if (isOffsiteRedirect(claimed, fetched.finalUrl)) {
     const finalOk =
-      searchResults.some((r) => sameSite(r.domain, finalDomain)) &&
+      searchResults.some((r) => searchConfirmsDomain(finalDomain, r.domain)) &&
       evaluateExternalPlatformGate(fetched.finalUrl, input.name).allowed;
     if (!finalOk) return { found: false, reason: 'redirected_offsite', claimedUrl: claimed, usage };
   }
   const website = `https://${finalDomain}`;
-  const finalInSearch = inSearchResults || searchResults.some((r) => sameSite(r.domain, finalDomain));
+  const finalInSearch = inSearchResults || searchResults.some((r) => searchConfirmsDomain(finalDomain, r.domain));
 
   const expectedSlug = linkedinSlug(input.linkedinUrl);
   const siteSlugs = extractLinkedInCompanyUrlsFromHtml(html).map((u) => linkedinSlug(u));
