@@ -22,7 +22,6 @@ import { ChatCardView, type ChatCardRow } from '@/components/chat';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { WizardApolloTwoRoundOutcome } from './wizard-two-round-progress-panel';
-import { getAgent1RunProgressAction } from '@/modules/prospect-batches/chat-wizard-execution/run-progress-actions';
 import { RUN_PROGRESS_FALLBACK_LABEL } from '@/modules/prospect-batches/chat-wizard-execution/run-progress';
 import {
   buildNoNewCandidatesCompactBreakdown,
@@ -59,6 +58,25 @@ export type WizardGenerationOverlayProps = {
 };
 
 /**
+ * Lee la etapa de la ruta `/api/prospect-batches/run-progress`. Es una ruta y no
+ * una server action: el cliente despacha las server actions de una en una, y la
+ * consulta se quedaba en cola detrás de la propia corrida hasta que terminaba.
+ */
+async function fetchRunProgress(clientRequestId: string): Promise<{ label: string } | null> {
+  try {
+    const response = await fetch(
+      `/api/prospect-batches/run-progress?clientRequestId=${encodeURIComponent(clientRequestId)}`,
+      { cache: 'no-store' },
+    );
+    if (!response.ok) return null;
+    const body = (await response.json()) as { progress?: { label?: unknown } | null };
+    return typeof body.progress?.label === 'string' ? { label: body.progress.label } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * La etapa actual de la corrida, leída del servidor cada poco. Nunca se inventa:
  * hasta que el servidor anota una, se dice «Preparando la búsqueda»; si una
  * lectura falla, se queda la última que sí llegó.
@@ -70,7 +88,7 @@ function useRunProgressLabel(clientRequestId: string | null): string {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const poll = async () => {
-      const snapshot = await getAgent1RunProgressAction(clientRequestId).catch(() => null);
+      const snapshot = await fetchRunProgress(clientRequestId);
       if (cancelled) return;
       if (snapshot) setLabel(snapshot.label);
       timer = setTimeout(poll, RUN_PROGRESS_POLL_MS);
