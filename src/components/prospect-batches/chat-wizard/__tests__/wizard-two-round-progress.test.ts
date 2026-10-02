@@ -1,6 +1,7 @@
 /**
- * wizard-two-round-progress.test.ts — etapas y cierre de la modalidad Apollo de
- * dos rondas.
+ * wizard-two-round-progress.test.ts — cierre de la modalidad Apollo de dos
+ * rondas. (Las «etapas planificadas» se retiraron: el chat cuenta la etapa en
+ * vivo, ver `run-progress.test.ts`.)
  *
  * A1-APOLLO-QA-CONTROL-SURFACE-1 · § 11 · casos 19–22.
  *
@@ -9,7 +10,6 @@
  *   ronda 1 alcanza el objetivo   → «Rondas ejecutadas: 1» y nada sobre la ronda 2
  *   3 + 2 = 5                     → objetivo alcanzado tras 2 rondas
  *   menos de cinco                → estado parcial + filtros intactos
- *   tope de rondas                → la etapa de la ronda 2 es CONDICIONAL
  *
  * Todo offline: módulo puro, sin DOM.
  *   LIVE_APOLLO_CALLS = 0 · APOLLO_CREDITS_USED = 0 · PRODUCTION_WRITES = 0
@@ -19,58 +19,11 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  APOLLO_TWO_ROUND_CONDITIONAL_NOTICE,
   APOLLO_TWO_ROUND_FILTERS_PRESERVED_LINE,
-  APOLLO_TWO_ROUND_PLANNED_STEPS_TITLE,
-  buildApolloTwoRoundProgressSteps,
   summarizeApolloTwoRoundOutcome,
 } from '../wizard-two-round-progress';
 
 const TARGET = 5;
-
-describe('§ 11 · etapas planificadas', () => {
-  it('lista las cinco etapas del contrato, en orden', () => {
-    const steps = buildApolloTwoRoundProgressSteps({ maxRounds: 2 });
-
-    assert.deepEqual(
-      steps.map((s) => s.label),
-      [
-        'Buscando empresas con Apollo — ronda 1 de 2',
-        'Evaluando resultados y duplicados',
-        'Buscando alternativas — ronda 2 de 2',
-        'Evaluando empresas para enrichment',
-        'Preparando candidatos',
-      ],
-    );
-  });
-
-  it('la ronda 2 se marca CONDICIONAL: puede no ocurrir', () => {
-    const steps = buildApolloTwoRoundProgressSteps({ maxRounds: 2 });
-    const round2 = steps.find((s) => s.phase === 'round_2_search');
-    assert.equal(round2?.conditional, true);
-
-    // Ninguna otra etapa es condicional: las demás siempre ocurren.
-    const conditionals = steps.filter((s) => s.conditional).map((s) => s.phase);
-    assert.deepEqual(conditionals, ['round_2_search']);
-  });
-
-  it('se presentan como PLAN, no como progreso cumplido', () => {
-    assert.equal(APOLLO_TWO_ROUND_PLANNED_STEPS_TITLE, 'Etapas de esta ejecución');
-    assert.equal(
-      APOLLO_TWO_ROUND_CONDITIONAL_NOTICE,
-      'La ronda 2 sólo se ejecuta si la ronda 1 no alcanza el objetivo.',
-    );
-  });
-
-  it('caso 22 — con el tope en una ronda la etapa de la ronda 2 desaparece', () => {
-    const steps = buildApolloTwoRoundProgressSteps({ maxRounds: 1 });
-    assert.equal(
-      steps.some((s) => s.phase === 'round_2_search'),
-      false,
-    );
-    assert.match(steps[0].label, /ronda 1 de 1/);
-  });
-});
 
 describe('§ 11 · caso 19 — la ronda 1 alcanza el objetivo', () => {
   const outcome = summarizeApolloTwoRoundOutcome({

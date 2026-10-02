@@ -1,6 +1,5 @@
 /**
- * wizard-two-round-progress.ts — estados de progreso y cierre de la modalidad
- * Apollo de dos rondas.
+ * wizard-two-round-progress.ts — cierre de la modalidad Apollo de dos rondas.
  *
  * A1-APOLLO-QA-CONTROL-SURFACE-1 · § 11.
  *
@@ -8,89 +7,15 @@
  *
  * La regla que gobierna este módulo: NO afirmar que la ronda 2 corrió.
  *
- * La ejecución del wizard es un único viaje al servidor — no hay streaming, así
- * que durante la corrida el cliente no sabe en qué ronda está. Por eso las etapas
- * se presentan como PLAN («esto es lo que puede pasar»), nunca como progreso
- * cumplido. Lo cumplido sólo se afirma DESPUÉS, y sólo con el número real de
- * rondas que el backend reportó.
+ * Lo cumplido sólo se afirma DESPUÉS, y sólo con el número real de rondas que el
+ * backend reportó. Durante la corrida el chat cuenta la etapa EN VIVO, tal como
+ * el servidor la anota (`run-progress.ts`, AGENT1-RUN-LIVE-PROGRESS-1); la lista
+ * de «etapas de esta ejecución» que se pintaba como plan se retiró.
  *
  * Un indicador que dice «ronda 2 de 2» porque la barra llegó al 90 % es una
  * afirmación falsa sobre gasto: la ronda 2 son créditos de Apollo, y decir que
  * ocurrió cuando no ocurrió desalinea el copy de la contabilidad.
  */
-
-// ─── Etapas planificadas ──────────────────────────────────────────────────────
-
-export type ApolloTwoRoundProgressPhase =
-  | 'round_1_search'
-  | 'round_1_evaluation'
-  | 'round_2_search'
-  | 'enrichment_evaluation'
-  | 'preparing_candidates';
-
-export type ApolloTwoRoundProgressStep = {
-  phase: ApolloTwoRoundProgressPhase;
-  label: string;
-  /**
-   * True cuando la etapa puede no ocurrir. La ronda 2 sólo corre si la ronda 1
-   * no alcanzó el objetivo, y la superficie tiene que poder decirlo.
-   */
-  conditional: boolean;
-};
-
-export const APOLLO_TWO_ROUND_PLANNED_STEPS_TITLE = 'Etapas de esta ejecución';
-
-/**
- * Aviso que acompaña a la lista planificada. Sin él, una lista de cinco líneas se
- * lee como cinco cosas que van a pasar.
- */
-export const APOLLO_TWO_ROUND_CONDITIONAL_NOTICE =
-  'La ronda 2 sólo se ejecuta si la ronda 1 no alcanza el objetivo.';
-
-/**
- * Etapas de una corrida de dos rondas, en orden.
- *
- * `maxRounds` viene de la configuración efectiva: si un operador bajó el máximo a
- * una ronda, la etapa de la ronda 2 desaparece en vez de mentir sobre un techo
- * que ya no existe.
- */
-export function buildApolloTwoRoundProgressSteps(input: {
-  maxRounds: number;
-}): readonly ApolloTwoRoundProgressStep[] {
-  const { maxRounds } = input;
-
-  const steps: ApolloTwoRoundProgressStep[] = [
-    {
-      phase: 'round_1_search',
-      label: `Buscando empresas con Apollo — ronda 1 de ${maxRounds}`,
-      conditional: false,
-    },
-    {
-      phase: 'round_1_evaluation',
-      label: 'Evaluando resultados y duplicados',
-      conditional: false,
-    },
-  ];
-
-  if (maxRounds >= 2) {
-    steps.push({
-      phase: 'round_2_search',
-      label: `Buscando alternativas — ronda 2 de ${maxRounds}`,
-      conditional: true,
-    });
-  }
-
-  steps.push(
-    {
-      phase: 'enrichment_evaluation',
-      label: 'Evaluando empresas para enrichment',
-      conditional: false,
-    },
-    { phase: 'preparing_candidates', label: 'Preparando candidatos', conditional: false },
-  );
-
-  return steps;
-}
 
 // ─── Cierre de la corrida ─────────────────────────────────────────────────────
 

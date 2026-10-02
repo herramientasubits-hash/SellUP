@@ -21,10 +21,9 @@ import { AiAnalyzingState } from '@/components/ai/ai-analyzing-state';
 import { ChatCardView, type ChatCardRow } from '@/components/chat';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import {
-  WizardApolloTwoRoundPlannedSteps,
-  WizardApolloTwoRoundOutcome,
-} from './wizard-two-round-progress-panel';
+import { WizardApolloTwoRoundOutcome } from './wizard-two-round-progress-panel';
+import { getAgent1RunProgressAction } from '@/modules/prospect-batches/chat-wizard-execution/run-progress-actions';
+import { RUN_PROGRESS_FALLBACK_LABEL } from '@/modules/prospect-batches/chat-wizard-execution/run-progress';
 import {
   buildNoNewCandidatesCompactBreakdown,
   toNoNewCandidatesBreakdownRows,
@@ -48,38 +47,77 @@ import type { AcceptedForTargetSummary } from '@/modules/prospect-batches/accept
 
 // ── Wizard generation overlay ─────────────────────────────────────────────────
 
+/** Cada cuánto se pregunta al servidor en qué etapa va la corrida. */
+const RUN_PROGRESS_POLL_MS = 1500;
+
 export type WizardGenerationOverlayProps = {
-  /** § 11 — listar las etapas de la modalidad de dos rondas. */
-  showApolloTwoRoundStages: boolean;
-  maxRounds: number | null;
+  /**
+   * AGENT1-RUN-LIVE-PROGRESS-1 — el id de esta corrida, con el que el servidor
+   * anota su etapa. `null` = no se puede seguir: se muestra el texto genérico.
+   */
+  clientRequestId: string | null;
 };
 
 /**
- * La espera de la generación. Es el estado «la IA está trabajando» del sistema
- * (`AiAnalyzingState` de Thema): la misma chispa y el mismo marco que cualquier
- * otra espera de IA del producto, con el texto de esta.
- *
- * Sin `progress` a propósito: la ejecución es un único viaje al servidor y el
- * cliente no sabe cuánto falta. Una barra que avanzara sola afirmaría un
- * progreso que nadie ha medido.
+ * La etapa actual de la corrida, leída del servidor cada poco. Nunca se inventa:
+ * hasta que el servidor anota una, se dice «Preparando la búsqueda»; si una
+ * lectura falla, se queda la última que sí llegó.
  */
-function WizardGenerationOverlay({
-  showApolloTwoRoundStages,
-  maxRounds,
-}: WizardGenerationOverlayProps) {
-  return (
-    <div className="space-y-3" data-testid="wizard-generation-overlay">
-      <AiAnalyzingState
-        title="Generando empresas candidatas"
-        caption="Procesando búsqueda con IA · Filtrando resultados y preparando candidatos para revisión"
-      />
+function useRunProgressLabel(clientRequestId: string | null): string {
+  const [label, setLabel] = React.useState(RUN_PROGRESS_FALLBACK_LABEL);
+  React.useEffect(() => {
+    if (!clientRequestId) return undefined;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      const snapshot = await getAgent1RunProgressAction(clientRequestId).catch(() => null);
+      if (cancelled) return;
+      if (snapshot) setLabel(snapshot.label);
+      timer = setTimeout(poll, RUN_PROGRESS_POLL_MS);
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [clientRequestId]);
+  return label;
+}
 
-      {/* § 11 — etapas de la modalidad de dos rondas, presentadas como PLAN. La
-          ejecución es un único viaje al servidor, así que el cliente no sabe en
-          qué ronda está: marcar la ronda 2 como cumplida sería afirmar un gasto
-          de Apollo que puede no haber ocurrido. */}
-      {showApolloTwoRoundStages && maxRounds !== null && (
-        <WizardApolloTwoRoundPlannedSteps maxRounds={maxRounds} />
+/**
+ * La espera de la generación, acoplada al pie del panel (donde está la caja de
+ * escribir): la chispa de «la IA está trabajando» (`AiAnalyzingState`) con lo
+ * que el agente hace AHORA — «Revisando el banco de empresas…», «Buscando
+ * empresas con Apollo…», «Completando la búsqueda con Lusha»—, tal como el
+ * servidor lo anota al empezar cada etapa.
+ *
+ * Sin barra a propósito: nadie sabe cuánto falta, y una barra que avanzara sola
+ * afirmaría un progreso que nadie ha medido. Los segundos sí son reales.
+ */
+function WizardGenerationOverlay({ clientRequestId }: WizardGenerationOverlayProps) {
+  const label = useRunProgressLabel(clientRequestId);
+  const [startedAt] = React.useState(() => Date.now());
+  const [seconds, setSeconds] = React.useState(0);
+  React.useEffect(() => {
+    const timer = setInterval(() => setSeconds(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, [startedAt]);
+
+  return (
+    <div
+      className="flex items-center justify-between gap-3 rounded-2xl border border-border/70 bg-card px-4 py-3 shadow-card"
+      data-testid="wizard-generation-overlay"
+    >
+      <div className="min-w-0 flex-1">
+        <AiAnalyzingState variant="inline" title={label} />
+        <p className="mt-0.5 pl-6.5 text-xs text-muted-foreground">
+          Generando empresas candidatas
+        </p>
+      </div>
+      {seconds > 0 && (
+        <span className="shrink-0 text-xs tabular-nums text-text-muted" aria-hidden>
+          {seconds} s
+        </span>
       )}
     </div>
   );
@@ -87,16 +125,8 @@ function WizardGenerationOverlay({
 
 // ── Submitting panel ──────────────────────────────────────────────────────────
 
-export function SubmittingPanel({
-  showApolloTwoRoundStages,
-  maxRounds,
-}: WizardGenerationOverlayProps) {
-  return (
-    <WizardGenerationOverlay
-      showApolloTwoRoundStages={showApolloTwoRoundStages}
-      maxRounds={maxRounds}
-    />
-  );
+export function SubmittingPanel({ clientRequestId }: WizardGenerationOverlayProps) {
+  return <WizardGenerationOverlay clientRequestId={clientRequestId} />;
 }
 
 // ── Desglose administrativo de la escritura ───────────────────────────────────

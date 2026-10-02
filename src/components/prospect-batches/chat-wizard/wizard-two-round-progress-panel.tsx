@@ -1,8 +1,8 @@
 'use client';
 
 /**
- * wizard-two-round-progress-panel.tsx — presentación de las etapas y el cierre de
- * una corrida Apollo de dos rondas.
+ * wizard-two-round-progress-panel.tsx — presentación del cierre de una corrida
+ * Apollo de dos rondas.
  *
  * A1-APOLLO-QA-CONTROL-SURFACE-1 · § 11.
  *
@@ -10,49 +10,14 @@
  * de progreso que ya existe (el overlay de generación y el panel de éxito) en vez
  * de introducir una pantalla nueva.
  *
- * Lo que estos componentes NO hacen: afirmar que la ronda 2 corrió. La ejecución
- * es un solo viaje al servidor, así que en vuelo las etapas se listan como PLAN y
- * la ronda condicional se marca como tal. Lo cumplido se afirma después, con el
- * número real de rondas que devolvió el backend.
+ * Lo que estos componentes NO hacen: afirmar que la ronda 2 corrió. Lo cumplido
+ * se afirma después, con el número real de rondas que devolvió el backend.
  */
 
 import {
-  APOLLO_TWO_ROUND_CONDITIONAL_NOTICE,
-  APOLLO_TWO_ROUND_PLANNED_STEPS_TITLE,
-  buildApolloTwoRoundProgressSteps,
   summarizeApolloTwoRoundOutcome,
   type ApolloTwoRoundOutcomeInput,
 } from './wizard-two-round-progress';
-
-// ─── Etapas planificadas (en vuelo) ───────────────────────────────────────────
-
-type PlannedStepsProps = {
-  maxRounds: number;
-};
-
-export function WizardApolloTwoRoundPlannedSteps({ maxRounds }: PlannedStepsProps) {
-  const steps = buildApolloTwoRoundProgressSteps({ maxRounds });
-
-  return (
-    <div
-      className="space-y-1.5 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3"
-      data-testid="wizard-two-round-planned-steps"
-    >
-      <p className="text-xs font-medium text-foreground">
-        {APOLLO_TWO_ROUND_PLANNED_STEPS_TITLE}
-      </p>
-      <ol className="space-y-0.5">
-        {steps.map((step) => (
-          <li key={step.phase} className="text-xs text-muted-foreground">
-            {step.label}
-            {step.conditional && <span className="text-text-muted"> (si hace falta)</span>}
-          </li>
-        ))}
-      </ol>
-      <p className="text-xs text-text-muted">{APOLLO_TWO_ROUND_CONDITIONAL_NOTICE}</p>
-    </div>
-  );
-}
 
 // ─── Cierre de la corrida ─────────────────────────────────────────────────────
 

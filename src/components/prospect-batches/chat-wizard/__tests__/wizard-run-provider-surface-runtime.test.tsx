@@ -179,7 +179,6 @@ function renderValidated(options: RenderOptions) {
       apolloRunModeLimits={options.limits === undefined ? LIMITS : options.limits}
       requestedProvider={options.requestedProvider}
       onRequestedProviderChange={options.onChange ?? (() => {})}
-      showApolloTwoRoundStages={false}
       twoRoundOutcome={null}
     />,
   );

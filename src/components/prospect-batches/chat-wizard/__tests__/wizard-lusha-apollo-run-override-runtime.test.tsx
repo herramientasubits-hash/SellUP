@@ -231,7 +231,6 @@ function renderValidated(options: RenderOptions) {
       apolloRunModeLimits={LIMITS}
       requestedProvider={options.requestedProvider}
       onRequestedProviderChange={options.onChange ?? (() => {})}
-      showApolloTwoRoundStages={false}
       twoRoundOutcome={null}
       budgetPreflight={options.budgetPreflight ?? null}
       defaultDiscoveryProvider={options.defaultDiscoveryProvider ?? null}
@@ -272,7 +271,6 @@ function StatefulOverridePanel(props: {
       apolloRunModeLimits={LIMITS}
       requestedProvider={provider}
       onRequestedProviderChange={setProvider}
-      showApolloTwoRoundStages={false}
       twoRoundOutcome={null}
       budgetPreflight={null}
       defaultDiscoveryProvider={null}

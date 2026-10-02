@@ -50,7 +50,7 @@ import { WizardRunProviderSelector } from './wizard-run-provider-selector';
 import { WizardAutoProviderNotice } from './wizard-auto-provider-notice';
 // Paneles de la fase de ejecución (overlay, envío y éxito), extraídos a su propio
 // archivo para mantener este por debajo del techo de tamaño del repo.
-import { SubmittingPanel, SuccessPanel } from './wizard-execution-panels';
+import { SuccessPanel } from './wizard-execution-panels';
 import type { NoNewCandidatesBreakdown } from '@/modules/prospect-batches/chat-wizard-execution/wizard-no-new-candidates-copy';
 import type { WizardPersistenceOutcome } from '@/modules/prospect-batches/chat-wizard-execution/wizard-result-copy';
 import {
@@ -79,8 +79,6 @@ type WizardRunProviderSurfaceProps = {
   /** `undefined` = el administrador no tocó el selector (§ 3). */
   requestedProvider?: WizardRunSelectableProvider | undefined;
   onRequestedProviderChange?: (provider: WizardRunSelectableProvider) => void;
-  /** § 11 — listar las etapas de dos rondas mientras la corrida está en vuelo. */
-  showApolloTwoRoundStages?: boolean;
   /** § 11 — cifras reales devueltas por el backend. `null` = no corrió / no llegó. */
   twoRoundOutcome?: { roundsExecuted: number | null; eligibleCompaniesFound: number | null } | null;
   /** QUERY-QUALITY-2 § 8 — distribución real de descartes de la corrida. */
@@ -137,7 +135,6 @@ export function WizardConversationSummary({
   apolloRunModeLimits = null,
   requestedProvider,
   onRequestedProviderChange,
-  showApolloTwoRoundStages = false,
   twoRoundOutcome = null,
   noNewCandidatesBreakdown = null,
   persistenceOutcome = null,
@@ -174,14 +171,9 @@ export function WizardConversationSummary({
     );
   }
 
-  if (state.currentStep === 'submitting') {
-    return (
-      <SubmittingPanel
-        showApolloTwoRoundStages={showApolloTwoRoundStages}
-        maxRounds={apolloRunModeLimits?.maxRounds ?? null}
-      />
-    );
-  }
+  // AGENT1-RUN-LIVE-PROGRESS-1 — mientras corre, la espera vive al pie del panel
+  // (`SubmittingPanel`, en el lugar de la caja de escribir), no en el hilo.
+  if (state.currentStep === 'submitting') return null;
 
   if (state.currentStep === 'success') {
     return (

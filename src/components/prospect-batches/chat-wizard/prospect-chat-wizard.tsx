@@ -31,6 +31,7 @@ import { Stepper, type StepperStep } from '@/components/navigation/stepper';
 import { getWizardProgressSteps } from '@/modules/prospect-batches/chat-wizard/wizard-selectors';
 import { WizardMessageList } from './wizard-message-list';
 import { WizardActiveStep } from './wizard-active-step';
+import { SubmittingPanel } from './wizard-execution-panels';
 import {
   WizardConversationSummary,
   RestartConfirmation,
@@ -56,7 +57,6 @@ import type { WizardPersistenceOutcome } from '@/modules/prospect-batches/chat-w
 // del administrador y se envía como PETICIÓN.
 import {
   NO_PROVIDER_OVERRIDE_CAPABILITY,
-  isProviderOptionEnabled,
   type WizardProviderOverrideCapability,
   type WizardRunSelectableProvider,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-provider-capability';
@@ -209,6 +209,9 @@ export function ProspectChatWizard({
 
   // clientRequestId — generated once when entering validated state, reset on restart
   const clientRequestIdRef = React.useRef<string | null>(null);
+  // AGENT1-RUN-LIVE-PROGRESS-1 — el id de la corrida en vuelo, para que la espera
+  // lea su etapa. Estado (no la ref) porque se pinta.
+  const [runningRequestId, setRunningRequestId] = React.useState<string | null>(null);
 
   // Criteria text draft for the composer — reset on submit or skip
   const [criteriaText, setCriteriaText] = React.useState('');
@@ -381,23 +384,6 @@ export function ProspectChatWizard({
     ],
   );
 
-  /**
-   * § 11 — ¿esta corrida va a ejecutar Apollo en dos rondas?
-   *
-   * Se deriva de la petición del administrador Y de la capacidad, que el servidor
-   * sólo declara con el kill switch y la modalidad de dos rondas encendidos. Es lo
-   * más cerca que el cliente puede estar de la verdad mientras la ejecución está
-   * en vuelo, y por eso las etapas se presentan como PLAN y no como progreso.
-   */
-  const willRunApolloTwoRound =
-    (requestedProvider === 'apollo_organizations' &&
-      isProviderOptionEnabled(providerOverrideCapability, 'apollo_organizations')) ||
-    // AGENT1-AUTO-PROVIDER-CASCADE-1 — sin selector, Apollo es el principal que
-    // resolvió el servidor.
-    (autoProviderCascade &&
-      discoveryProvider === 'apollo_organizations' &&
-      // AGENT1-TAVILY-TRIAL-1 — marcada la prueba, esta corrida no es de Apollo.
-      requestedProvider !== 'tavily');
 
   // ── Catalog options derived for UI ────────────────────────────────────────
 
@@ -689,6 +675,7 @@ export function ProspectChatWizard({
     if (state.currentStep !== 'validated') return;
     if (!clientRequestIdRef.current) return;
 
+    setRunningRequestId(clientRequestIdRef.current);
     dispatch({ type: 'BEGIN_EXECUTION' });
     // Un intento nuevo empieza sin omisión previa: el indicador vuelve al
     // proveedor resuelto hasta que el backend diga otra cosa.
@@ -873,7 +860,9 @@ export function ProspectChatWizard({
   // "La configuración ya fue validada" input would only read as a dead field,
   // so we hide the composer once the configuration is validated (or done).
   const hideComposer =
-    state.currentStep === 'validated' || state.currentStep === 'success';
+    state.currentStep === 'validated' ||
+    state.currentStep === 'success' ||
+    state.currentStep === 'submitting';
 
   // La caja se enfoca sola en cuanto se puede escribir en ella.
   const composerInputRef = React.useRef<HTMLTextAreaElement>(null);
@@ -963,7 +952,6 @@ export function ProspectChatWizard({
                   defaultDiscoveryProvider={discoveryProvider}
                   requestedProvider={requestedProvider}
                   onRequestedProviderChange={setRequestedProvider}
-                  showApolloTwoRoundStages={willRunApolloTwoRound}
                   twoRoundOutcome={twoRoundOutcome}
                   noNewCandidatesBreakdown={noNewCandidatesBreakdown}
                   persistenceOutcome={persistenceOutcome}
@@ -989,6 +977,14 @@ export function ProspectChatWizard({
           contesta eligiendo, queda apagada con la pista de qué hacer; se enciende
           para el criterio adicional. Oculta en la revisión final: ahí las
           acciones viven en el propio panel. */}
+      {/* AGENT1-RUN-LIVE-PROGRESS-1 — mientras corre, la espera ocupa el sitio de
+          la caja de escribir y dice en vivo qué está haciendo el agente. */}
+      {state.currentStep === 'submitting' && (
+        <div className="shrink-0 px-4 pb-4 pt-2">
+          <SubmittingPanel clientRequestId={runningRequestId} />
+        </div>
+      )}
+
       {!hideComposer && (
         <div className="shrink-0 px-4 pb-4 pt-2">
           <ChatComposer

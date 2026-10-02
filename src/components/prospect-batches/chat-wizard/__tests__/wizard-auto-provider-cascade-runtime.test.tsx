@@ -166,7 +166,6 @@ function renderValidated(options: {
       apolloRunModeLimits={null}
       requestedProvider={undefined}
       onRequestedProviderChange={() => {}}
-      showApolloTwoRoundStages={false}
       twoRoundOutcome={null}
       budgetPreflight={options.budgetPreflight ?? null}
       defaultDiscoveryProvider={options.defaultDiscoveryProvider ?? 'apollo_organizations'}
