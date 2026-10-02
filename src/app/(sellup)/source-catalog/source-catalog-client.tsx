@@ -16,9 +16,7 @@ import type { SocrataPreviewBatchListViewModel } from '@/modules/source-catalog/
 import {
   OPERATIONAL_STATUS_LABELS,
   COUNTRY_LABELS,
-  SELLUP_USE_LABELS,
   AI_FLOW_STATUS_LABELS,
-  CONNECTION_MODE_LABELS,
   operationalStatusBadgeClass,
   operationalStatusDotClass,
 } from '@/modules/source-catalog/labels';
@@ -365,30 +363,6 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
         meta: { label: 'Siguiente acción', disableFilter: true, disableSort: true },
       },
       {
-        id: 'sellupUse',
-        accessorKey: 'sellupUse',
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Uso en SellUp" />
-        ),
-        cell: ({ row }) => (
-          // Design Refresh v2: texto plano — la única columna con badge de color
-          // por fila es "Estado fuente". Categorías (uso/flujo/conexión) van planas.
-          <span className="whitespace-nowrap text-xs text-muted-foreground">
-            {SELLUP_USE_LABELS[row.original.sellupUse]}
-          </span>
-        ),
-        size: 170,
-        minSize: 140,
-        meta: {
-          label: 'Uso en SellUp',
-          popoverTitle: 'Uso en SellUp',
-          filterOptions: Object.entries(SELLUP_USE_LABELS).map(([value, label]) => ({
-            label,
-            value,
-          })),
-        },
-      },
-      {
         id: 'aiFlowStatus',
         accessorKey: 'aiFlowStatus',
         header: ({ column }) => (
@@ -405,28 +379,6 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
           label: 'Uso por la IA',
           popoverTitle: 'Uso por la IA',
           filterOptions: Object.entries(AI_FLOW_STATUS_LABELS).map(([value, label]) => ({
-            label,
-            value,
-          })),
-        },
-      },
-      {
-        id: 'connectionMode',
-        accessorKey: 'connectionMode',
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Conexión" />
-        ),
-        cell: ({ row }) => (
-          <span className="whitespace-nowrap text-xs text-muted-foreground">
-            {CONNECTION_MODE_LABELS[row.original.connectionMode]}
-          </span>
-        ),
-        size: 170,
-        minSize: 140,
-        meta: {
-          label: 'Conexión',
-          popoverTitle: 'Conexión',
-          filterOptions: Object.entries(CONNECTION_MODE_LABELS).map(([value, label]) => ({
             label,
             value,
           })),

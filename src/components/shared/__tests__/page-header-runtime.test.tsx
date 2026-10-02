@@ -68,12 +68,12 @@ describe('PageHeader', () => {
 });
 
 describe('PageShell — anchos de página', () => {
-  it('los cuatro anchos de Thema: 720 · 1140 · 1600 · sin tope', () => {
+  it('los cuatro anchos: 720 · 1140 · 1440 (el tope del shell) · sin tope', () => {
     // Tailwind 4: `max-w-N` = N × 0.25rem.
     assert.deepEqual(PAGE_WIDTH_CLASSES, {
       narrow: 'max-w-180',
       normal: 'max-w-285',
-      wide: 'max-w-400',
+      wide: 'max-w-360',
       full: 'max-w-none',
     });
   });

@@ -894,7 +894,7 @@ export function ProspectChatWizard({
     <div className="flex h-full min-h-0 flex-1 flex-col">
       {/* Scrollable conversation body */}
       <div className="relative min-h-0 flex-1 overflow-y-auto px-4 py-5">
-        <div ref={scrollContainerRef} className="flex flex-col gap-4">
+        <div ref={scrollContainerRef} className="flex min-h-full flex-col gap-4">
           {/* Encabezado del contenido: pasos + proveedor de búsqueda. El indicador
               de proveedor se mantiene visible en todos los pasos: al validar es
               justo cuando saber el proveedor importa. */}
@@ -923,6 +923,13 @@ export function ProspectChatWizard({
 
               No pinta nada cuando no hay trabajo pendiente. */}
           <WizardApolloContinuationPanel pausedRunSignal={state.executionContinuationPending} />
+
+          {/* AGENT1-RUN-LIVE-PROGRESS-1 — mientras corre, la espera ocupa el cuerpo
+              del panel (el bloque grande de «la IA está trabajando») y su titular
+              dice en vivo qué está haciendo el agente. */}
+          {state.currentStep === 'submitting' && (
+            <SubmittingPanel clientRequestId={runningRequestId} />
+          )}
 
           {/* Conversation history */}
           {messages.length > 0 && (
@@ -981,14 +988,6 @@ export function ProspectChatWizard({
           contesta eligiendo, queda apagada con la pista de qué hacer; se enciende
           para el criterio adicional. Oculta en la revisión final: ahí las
           acciones viven en el propio panel. */}
-      {/* AGENT1-RUN-LIVE-PROGRESS-1 — mientras corre, la espera ocupa el sitio de
-          la caja de escribir y dice en vivo qué está haciendo el agente. */}
-      {state.currentStep === 'submitting' && (
-        <div className="shrink-0 px-4 pb-4 pt-2">
-          <SubmittingPanel clientRequestId={runningRequestId} />
-        </div>
-      )}
-
       {/* La pregunta del agente, acoplada en el sitio de la caja de escribir. */}
       {questionDocked && <div className="shrink-0 px-4 pb-4 pt-2">{activeStepView}</div>}
 

@@ -32,7 +32,6 @@ import { EmptyCell, RowTitleButton } from '@/components/shared/table-cells';
 import {
   ROLE_LABELS,
   CONTACT_STATUS_LABELS,
-  SENIORITY_LABELS,
   type ContactStatus,
   type ContactRole,
 } from '@/modules/contacts/types';
@@ -101,11 +100,6 @@ const STATUS_FILTER_OPTIONS = Object.entries(CONTACT_STATUS_LABELS).map(([value,
 }));
 
 const ROLE_FILTER_OPTIONS = Object.entries(ROLE_LABELS).map(([value, label]) => ({
-  value,
-  label,
-}));
-
-const SENIORITY_FILTER_OPTIONS = Object.entries(SENIORITY_LABELS).map(([value, label]) => ({
   value,
   label,
 }));
@@ -407,31 +401,6 @@ export function ContactsDataTableClient({
           label: 'Rol',
           popoverTitle: 'Rol',
           filterOptions: ROLE_FILTER_OPTIONS,
-        },
-      },
-      {
-        id: 'seniority',
-        accessorKey: 'seniority',
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Seniority" />
-        ),
-        cell: ({ row }) => {
-          const seniority = row.original.seniority ? SENIORITY_LABELS[row.original.seniority] : null;
-          return seniority ? (
-            <span className="block truncate text-xs text-muted-foreground" title={seniority}>
-              {seniority}
-            </span>
-          ) : (
-            <EmptyCell label="Sin seniority" />
-          );
-        },
-        size: 130,
-        minSize: 100,
-        filterFn: 'arrIncludesSome',
-        meta: {
-          label: 'Seniority',
-          popoverTitle: 'Seniority',
-          filterOptions: SENIORITY_FILTER_OPTIONS,
         },
       },
     ],
