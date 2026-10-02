@@ -19,6 +19,8 @@ import {
   buildSeprecDetailUrl,
   buildSeprecNameLiveQuery,
   buildSeprecSearchUrl,
+  findBrandInLegalName,
+  BO_SEPREC_BRAND_MAX_SEARCH_TOTAL,
   normalizeBoliviaCompanyCore,
   parseSeprecDetailNit,
   parseSeprecSearch,
@@ -152,6 +154,9 @@ describe('consulta en vivo', () => {
         });
       const pending = buildSeprecNameLiveQuery({ sleep: noSleep, fetchImpl })('A B');
       // La petición sale después de su turno (una espera asíncrona): dejar que arranque.
+      await new Promise((resolve) => setImmediate(resolve));
+      mock.timers.tick(BO_SEPREC_REQUEST_TIMEOUT_MS);
+      // Un corte por tiempo se reintenta UNA vez: el reintento también se corta.
       await new Promise((resolve) => setImmediate(resolve));
       mock.timers.tick(BO_SEPREC_REQUEST_TIMEOUT_MS);
       assert.deepEqual(await pending, []);
@@ -308,6 +313,101 @@ describe('ritmo de peticiones (el SEPREC responde 429 a las ráfagas)', () => {
     });
     for (let i = 0; i < 6; i++) await query('A B');
     assert.equal(calls, BO_SEPREC_MAX_CONSECUTIVE_FAILURES * 2);
+  });
+});
+
+describe('marca dentro de la razón social (sólo pista)', () => {
+  const mersurSearch = search([
+    hit('88887', 'AGENCIA DESPACHANTE DE ADUANA MERSUR S.R.L.'),
+    hit('9', 'AMERSUR', { codTipoUnidadEconomica: { codigo: '01', nombre: 'EMPRESA UNIPERSONAL' } }),
+  ]);
+
+  it('una sola sociedad activa contiene la marca y la búsqueda es corta → candidata', () => {
+    const hits = parseSeprecSearch(mersurSearch);
+    assert.equal(findBrandInLegalName('MERSUR', hits, 2)?.id, '88887');
+  });
+
+  it(`no es «marca distintiva» si la búsqueda devuelve más de ${BO_SEPREC_BRAND_MAX_SEARCH_TOTAL} resultados, si dos sociedades la contienen o si la palabra es muy corta`, () => {
+    const two = parseSeprecSearch(search([hit('1', 'ORIENTAL SUR S.R.L.'), hit('2', 'INDUSTRIAS ORIENTAL S.A.')]));
+    assert.equal(findBrandInLegalName('MERSUR', parseSeprecSearch(mersurSearch), BO_SEPREC_BRAND_MAX_SEARCH_TOTAL + 1), null);
+    assert.equal(findBrandInLegalName('ORIENTAL', two, 2), null);
+    assert.equal(findBrandInLegalName('ABC', parseSeprecSearch(search([hit('3', 'GRUPO ABC S.A.')])), 1), null);
+    assert.equal(findBrandInLegalName('MERSUR', parseSeprecSearch(mersurSearch), null), null);
+    // palabra completa: «SUR» no está en «AGENCIA … MERSUR»
+    assert.equal(findBrandInLegalName('SURX', parseSeprecSearch(mersurSearch), 2), null);
+  });
+
+  it('la consulta devuelve la fila marcada como pista; el resolvedor da low_confidence_match y NO llena el NIT', async () => {
+    const f = fakeSeprec(mersurSearch, { '88887': detail('157954024') });
+    const rows = await buildSeprecNameLiveQuery({ sleep: noSleep, fetchImpl: f.fetchImpl })('MERSUR');
+    assert.deepEqual(rows, [
+      { taxId: '157954024', legalName: 'AGENCIA DESPACHANTE DE ADUANA MERSUR S.R.L.', normalizedLegalName: 'AGENCIA DESPACHANTE DE ADUANA MERSUR', brandSignal: true },
+    ]);
+    const resolver = createSnapshotNameOfficialSourceResolver({
+      countryCode: 'BO',
+      sourceKey: 'bo_seprec_live',
+      taxIdentifierType: 'NIT',
+      validTaxId: /^\d{7,13}$/,
+      normalizeCore: normalizeBoliviaCompanyCore,
+      querySnapshots: async () => rows,
+      singleWordIsSignalOnly: true,
+    });
+    const candidate = { sourceProvider: 'apollo', canonicalName: 'Mersur', countryCode: 'BO', requestedCountryCode: 'BO', domain: null, websiteUrl: null, warnings: [], issues: [], providerMetadataSafe: {}, trace: {} } as unknown as NormalizedProspectCandidate;
+    const out = await resolver.resolve({ candidate, criteria: { countryCode: 'BO' }, policy: DEFAULT_OFFICIAL_SOURCE_ENRICHMENT_POLICY });
+    assert.equal(out.status, 'low_confidence_match');
+    assert.equal(out.taxIdentifier, '157954024');
+    assert.deepEqual(out.safeMetadata, { normalizedSearchName: 'MERSUR', brandInLegalName: true });
+    const enriched = await enrichNormalizedProspectWithOfficialSources(candidate, { country: 'Bolivia', countryCode: 'BO' }, [resolver], DEFAULT_OFFICIAL_SOURCE_ENRICHMENT_POLICY);
+    assert.equal(enriched.strongIdentityAvailable, false);
+    assert.equal(enriched.taxIdentifier, null);
+  });
+
+  it('si hay coincidencia exacta, la marca ni se mira', async () => {
+    const f = fakeSeprec(search([hit('12778', 'CERVECERIA BOLIVIANA NACIONAL S.A.'), hit('7', 'GRUPO CERVECERIA BOLIVIANA NACIONAL S.A.')]), {
+      '12778': detail('1020229024'),
+      '7': detail('7777777'),
+    });
+    const rows = await buildSeprecNameLiveQuery({ sleep: noSleep, fetchImpl: f.fetchImpl })('CERVECERIA BOLIVIANA NACIONAL');
+    assert.deepEqual(rows.map((r) => [r.taxId, r.brandSignal ?? false]), [['1020229024', false]]);
+  });
+
+  it('dos pistas de marca distintas no dan nada (el resolvedor exige una sola)', async () => {
+    const resolver = createSnapshotNameOfficialSourceResolver({
+      countryCode: 'BO',
+      sourceKey: 'bo_seprec_live',
+      taxIdentifierType: 'NIT',
+      validTaxId: /^\d{7,13}$/,
+      normalizeCore: normalizeBoliviaCompanyCore,
+      querySnapshots: async () => [
+        { taxId: '1000001', legalName: 'A MARCA S.A.', normalizedLegalName: 'A MARCA', brandSignal: true },
+        { taxId: '1000002', legalName: 'B MARCA S.A.', normalizedLegalName: 'B MARCA', brandSignal: true },
+      ],
+    });
+    const candidate = { canonicalName: 'Marca Global', countryCode: 'BO', domain: null, websiteUrl: null } as unknown as NormalizedProspectCandidate;
+    const out = await resolver.resolve({ candidate, criteria: { countryCode: 'BO' }, policy: DEFAULT_OFFICIAL_SOURCE_ENRICHMENT_POLICY });
+    assert.equal(out.status, 'not_found');
+  });
+});
+
+describe('qué se reintenta', () => {
+  it('un error de red común (sin corte por tiempo) NO se reintenta; el corte sí (ver «se corta a los …»)', async () => {
+    let calls = 0;
+    const query = buildSeprecNameLiveQuery({
+      sleep: noSleep,
+      fetchImpl: async (_url: string, init?: { signal?: AbortSignal }) => {
+        calls += 1;
+        if (calls === 1) {
+          void init;
+          const error = new Error('abortada');
+          Object.defineProperty(error, 'name', { value: 'AbortError' });
+          throw error;
+        }
+        return { ok: true, status: 200, json: async () => search([]) };
+      },
+    });
+    assert.deepEqual(await query('A B'), []);
+    // sin señal abortada, un error común NO se reintenta
+    assert.equal(calls, 1);
   });
 });
 
