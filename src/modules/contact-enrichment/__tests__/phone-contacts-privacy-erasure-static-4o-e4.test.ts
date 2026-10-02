@@ -497,6 +497,13 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       // contiene un solo `DELETE`, no nombra `mobile_phone` y no toca la erasure que esta
       // suite protege. AUTORADA y NO APLICADA.
       '141_tax_identifier_type_ein_nif.sql',
+      // 🔴 AGENT1-COMPANY-BANK reclamó después la 142: el banco de empresas (tabla aparte
+      // `agent1_company_bank` y sus funciones, sólo service_role). No es de teléfono, ni del
+      // catálogo, ni de BR, ni de CUT3B4. Sus únicos `DELETE` son el `ON DELETE SET NULL` de
+      // sus FK y el GRANT a service_role sobre su PROPIA tabla: no borra filas de contactos, no
+      // nombra `mobile_phone` y no toca la erasure que esta suite protege. AUTORADA y NO
+      // APLICADA.
+      '142_agent1_company_bank.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
@@ -570,7 +577,10 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     // NO APLICADAS.
     // SOURCES-US-EIN-BY-NAME-1 mueve el techo a la 141: sólo amplía el CHECK de
     // `tax_identifier_type` con 'EIN' y 'NIF'. No es de teléfono. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 141);
+    // AGENT1-COMPANY-BANK mueve el techo a la 142: el banco de empresas (tabla aparte, sólo
+    // service_role). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO
+    // APLICADA.
+    assert.equal(numbered[numbered.length - 1], 142);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {

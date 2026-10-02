@@ -370,8 +370,12 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // `tax_identifier_type` en `accounts` y `prospect_candidates` con 'EIN' y 'NIF'. No
       // escribe `mobile_phone` ni inventa vocabulario de procedencia del escalar móvil.
       // AUTORADA y NO APLICADA.
-      '141_tax_identifier_type_ein_nif.sql',
-      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa, la contabilidad de presupuesto, el tramo 129–132 de Agente 2, la 133 de BR-SOURCE CUT D, la 134 del compacto de BR y la 135 de la valla de Lusha (AGENT1-LUSHA-CUT-L3, renumerada desde la 134), la 136 del historial de intentos seguros de Lusha, la 137 de la auditoría administrativa del presupuesto del Wizard, la 138 de la disposición durable de descartes de Prospectos, la 139 de la cola durable de continuaciones de ronda de Apollo, la 140 del reclamo global de identidad de empresa y la 141 de la ampliación de tipos fiscales con EIN y NIF, no este hito',
+      // AGENT1-COMPANY-BANK mueve el techo a la 142: el banco de empresas (tabla aparte
+      // `agent1_company_bank`, sólo service_role). No es de teléfono, ni del catálogo, ni de BR,
+      // ni de CUT3B4; no escribe `mobile_phone` ni inventa vocabulario de procedencia del
+      // escalar móvil. AUTORADA y NO APLICADA.
+      '142_agent1_company_bank.sql',
+      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa, la contabilidad de presupuesto, el tramo 129–132 de Agente 2, la 133 de BR-SOURCE CUT D, la 134 del compacto de BR y la 135 de la valla de Lusha (AGENT1-LUSHA-CUT-L3, renumerada desde la 134), la 136 del historial de intentos seguros de Lusha, la 137 de la auditoría administrativa del presupuesto del Wizard, la 138 de la disposición durable de descartes de Prospectos, la 139 de la cola durable de continuaciones de ronda de Apollo, la 140 del reclamo global de identidad de empresa, la 141 de la ampliación de tipos fiscales con EIN y NIF y la 142 del banco de empresas, no este hito',
     );
     for (const agent2 of [
       '129_agent2_contact_hubspot_stale_completeness.sql',
@@ -423,15 +427,18 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // SOURCES-US-EIN-BY-NAME-1 declara la 141 (sólo amplía el CHECK de `tax_identifier_type`
       // con 'EIN' y 'NIF'). Queda AUTORIZADA y NOMBRADA como las anteriores, así que la ventana
       // prohibida sube a la 142 y superiores.
+      // AGENT1-COMPANY-BANK declara la 142 (el banco de empresas: tabla aparte, sólo
+      // service_role). Queda AUTORIZADA y NOMBRADA como las anteriores, así que la ventana
+      // prohibida sube a la 143 y superiores.
       // La guarda no se relaja: sigue impidiendo que alguien cuele una POR ENCIMA del último
       // hito conocido sin declararla.
-      numbered.some((f) => /^14[2-9]/.test(f) || /^1[5-9]\d/.test(f)),
+      numbered.some((f) => /^14[3-9]/.test(f) || /^1[5-9]\d/.test(f)),
       false,
       // La 120 (Fase 1), la 121 (contabilidad) y la 122 («Buscar más números»)
       // (AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1) son AUTORIZADAS y están declaradas arriba;
       // lo que esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último
       // hito conocido sin declararla.
-      'ninguna migración 142 o superior',
+      'ninguna migración 143 o superior',
     );
   });
 
